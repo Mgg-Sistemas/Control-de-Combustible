@@ -112,6 +112,18 @@ export default function MantenimientoMaquinariaScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [horoOpen, setHoroOpen] = useState(false); // banner de alertas por horómetro (colapsable)
 
+  // ── PARADAS viejas sin resolver ("MÁQUINA PARADA" pendiente hace rato) ──────
+  // El marcador "MÁQUINA PARADA" (creado por el inspector desde el teléfono) NO
+  // aparece en la pestaña Averías (se excluye a propósito, ver `load()`), y solo
+  // se resuelve si un inspector/coordinador abre esa máquina puntual y toca
+  // "Volver a OPERATIVA". Nadie lo ve venir si nadie la busca — así se quedó
+  // bloqueada la Luminaria de Mayker sin que nadie se diera cuenta. Este banner
+  // la hace VISIBLE proactivamente, igual que la alerta de horómetro de abajo.
+  const [paradasViejas, setParadasViejas] = useState<{ id: string; machinery_id: string; code: string; company: string; created_at: string; notes: string | null }[]>([]);
+  const [paradasOpen, setParadasOpen] = useState(false);
+  const [resolvingParada, setResolvingParada] = useState<string | null>(null);
+  const PARADA_STALE_HOURS = 4;
+
   // Grupos de empresa colapsados en la pestaña Averías (empresa → abierto/cerrado).
   const [avOpen, setAvOpen] = useState<Record<string, boolean>>({});
 
@@ -140,7 +152,7 @@ export default function MantenimientoMaquinariaScreen() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: mr }, { data: rp }, { data: mac }, { data: profs }] = await Promise.all([
+    const [{ data: mr }, { data: rp }, { data: mac }, { data: profs }, { data: par }] = await Promise.all([
       // 'MÁQUINA PARADA' es el marcador interno de "parada" (Inspecciones/Control):
       // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
       // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
@@ -148,7 +160,11 @@ export default function MantenimientoMaquinariaScreen() {
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
+      // Solo el marcador MÁQUINA PARADA pendiente, para el banner de "paradas viejas
+      // sin resolver" — consulta chica y separada, no toca la lista de Averías de arriba.
+      supabase.from('maintenance_requests').select('id, machinery_id, notes, created_at, machinery:machinery_id(code, company:company_id(name))').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: true }),
     ]);
+    setParadasViejas((par ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa', created_at: r.created_at, notes: r.notes ?? null })));
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
     const nameById = new Map<string, string>();
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
@@ -293,6 +309,33 @@ export default function MantenimientoMaquinariaScreen() {
     if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? { ...x, horometro_base: m.last_horometro, horometro_maint_pending: false } : x)));
     setNotice(`✅ Mantenimiento confirmado en ${m.code} · horómetro reiniciado.`);
+  };
+
+  // Paradas cuyo marcador "MÁQUINA PARADA" lleva más de PARADA_STALE_HOURS sin
+  // resolver (ya ordenadas por más viejas primero desde la consulta).
+  const paradasStale = useMemo(() => {
+    const cutMs = Date.now() - PARADA_STALE_HOURS * 3600 * 1000;
+    return paradasViejas.filter((p) => new Date(p.created_at).getTime() < cutMs);
+  }, [paradasViejas]);
+  const horasDesde = (iso: string): number => Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
+
+  // Resuelve una parada vieja: mismo criterio que "🟢 Volver a OPERATIVA" del
+  // inspector (SupervisorScreen) — cierra el marcador MÁQUINA PARADA Y cualquier
+  // avería real pendiente de esa máquina, para que quede igual de desbloqueada.
+  // A propósito NO registra una "visita" (no hubo inspección física real).
+  const resolverParadaVieja = async (p: { id: string; machinery_id: string; code: string }) => {
+    const ok = await confirm({ title: 'Marcar como resuelta', message: `¿"${p.code}" ya volvió a estar operativa? Se cierra la parada y cualquier avería pendiente de esta máquina.`, confirmText: 'Sí, resolver', cancelText: 'Cancelar' });
+    if (!ok) return;
+    setResolvingParada(p.id);
+    const nowIso = new Date().toISOString();
+    const [{ error: e1 }, { error: e2 }] = await Promise.all([
+      supabase.from('maintenance_requests').update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso }).eq('machinery_id', p.machinery_id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso }).eq('machinery_id', p.machinery_id).neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+    ]);
+    setResolvingParada(null);
+    if (e1 || e2) return toast.error((e1?.message || e2?.message) as string);
+    setNotice(`✅ ${p.code} · parada resuelta.`);
+    await load();
   };
 
   const marcarRealizado = async (r: Req) => {
@@ -502,6 +545,26 @@ export default function MantenimientoMaquinariaScreen() {
           <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: notice.startsWith('✅') ? colors.success : colors.danger, borderRadius: radius.md, padding: spacing.md }}>
             <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      {/* ── PARADAS viejas: "MÁQUINA PARADA" pendiente hace más de 4h sin que nadie la resuelva ── */}
+      {paradasStale.length > 0 ? (
+        <TouchableOpacity activeOpacity={0.8} onPress={() => setParadasOpen((v) => !v)} style={{ marginBottom: spacing.sm }}>
+          <View style={{ backgroundColor: colors.dangerSoftBg, borderLeftWidth: 4, borderLeftColor: colors.danger, borderRadius: radius.md, padding: spacing.md }}>
+            <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>🔴 {paradasStale.length} máquina(s) parada(s) hace más de {PARADA_STALE_HOURS}h sin resolver {paradasOpen ? '▾' : '▸'}</Text>
+            {paradasOpen ? paradasStale.map((p) => (
+              <View key={p.id} style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🚜 {p.code}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {p.company}</Text>
+                {p.notes ? <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={2}>📝 {p.notes}</Text> : null}
+                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12, marginTop: 2 }}>Parada hace {horasDesde(p.created_at)} h · desde {fmtDT(p.created_at)}</Text>
+                <TouchableOpacity onPress={() => resolverParadaVieja(p)} disabled={resolvingParada === p.id} style={{ marginTop: spacing.xs, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.xs, alignItems: 'center', opacity: resolvingParada === p.id ? 0.6 : 1 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{resolvingParada === p.id ? 'Guardando…' : '✓ Ya está operativa (resolver)'}</Text>
+                </TouchableOpacity>
+              </View>
+            )) : null}
           </View>
         </TouchableOpacity>
       ) : null}

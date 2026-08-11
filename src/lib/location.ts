@@ -110,7 +110,8 @@ export async function getCurrentCoords(): Promise<{ ok: boolean; error?: string;
  * tiempo). El historial se guarda en segundo plano para no demorar la respuesta.
  */
 export async function captureLocation(
-  machineryId: string
+  machineryId: string,
+  referencia?: string | null
 ): Promise<{ ok: boolean; error?: string; lat?: number; lng?: number }> {
   // Asegura que la suscripción esté activa para las próximas veces.
   warmLocation();
@@ -135,7 +136,8 @@ export async function captureLocation(
   // punto en el historial (ruta) en una sola llamada. Así funciona también para
   // OPERADORES (sin permiso de escritura sobre 'equipos'/'control_maquinaria'),
   // y cada actualización va generando la ruta.
-  const { error } = await supabase.rpc('update_machine_location', { p_id: machineryId, p_lat: lat, p_lng: lng });
+  const p_referencia = referencia && referencia.trim() ? referencia.trim() : null;
+  const { error } = await supabase.rpc('update_machine_location', { p_id: machineryId, p_lat: lat, p_lng: lng, p_referencia });
   if (error) return { ok: false, error: error.message };
   return { ok: true, lat, lng };
 }

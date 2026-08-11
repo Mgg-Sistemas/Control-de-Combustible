@@ -4,6 +4,8 @@ import { Screen, Card, SectionTitle, EmptyState, SkeletonList } from '../compone
 import { ConfigBanner } from '../components/ConfigBanner';
 import QrScanner from '../components/QrScanner';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
+import EdificioPicker from '../components/EdificioPicker';
+import { captureLocation } from '../lib/location';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -18,12 +20,13 @@ import { pairMarks } from '../lib/attendance';
 import { norm, cmpText } from '../lib/text';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { logAudit } from '../lib/audit';
-import { parseMachineId } from './ScanQrScreen';
+import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 
 type MachRow = {
   id: string; code: string; plate: string | null; serial: string | null; tipo: string | null;
   companyName: string; sector: string | null; encargado: string | null;
   active: boolean | null; operational: boolean | null; en_espera: boolean | null;
+  referencia: string | null; latitude: number | null; longitude: number | null;
 };
 type Operator = { id: string; name: string; cedula: string | null; cargo: string | null };
 
@@ -86,7 +89,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
 
   const load = useCallback(async () => {
     const [{ data: machs }, { data: rs }, { data: mr }, insp, { rows: op, missing }, { data: emps }, { data: att }] = await Promise.all([
-      supabase.from('machinery').select('id, code, plate, serial, tipo, sector, active, operational, en_espera, encargado, company:company_id(name)').eq('active', true),
+      supabase.from('machinery').select('id, code, plate, serial, tipo, sector, active, operational, en_espera, encargado, referencia, latitude, longitude, company:company_id(name)').eq('active', true),
       supabase.from('machine_rounds').select('machinery_id, round_date, day_hours, night_hours, day_operator, night_operator, jornada_shift, jornada_start_at').eq('round_date', today),
       supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').eq('status', 'pendiente'),
       listInspectorAssignments(),
@@ -98,6 +101,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       id: m.id, code: m.code ?? '—', plate: m.plate ?? null, serial: m.serial ?? null, tipo: m.tipo ?? null,
       companyName: m.company?.name ?? 'Sin empresa', sector: m.sector ?? null, encargado: m.encargado ?? null,
       active: m.active, operational: m.operational, en_espera: m.en_espera,
+      referencia: m.referencia ?? null, latitude: m.latitude ?? null, longitude: m.longitude ?? null,
     })));
     setRounds(((rs ?? []) as any[]).map((r) => ({
       machinery_id: r.machinery_id, round_date: r.round_date, day_hours: r.day_hours, night_hours: r.night_hours,
@@ -204,7 +208,11 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignNotice, setAssignNotice] = useState<string | null>(null);
   const openAssign = (r: { id: string; code: string; companyName: string }) => {
-    setAssignFor(r); setAssignShift(shift); setOpQuery(''); setAssignNotice(null);
+    // Reinicia TODO el estado del modal, incluyendo los "busy" — si se cerró
+    // mientras una acción seguía en curso para OTRA máquina, no debe arrastrarse
+    // un botón bloqueado en "Guardando…" para la máquina que se abre ahora.
+    setAssignFor(r); setAssignShift(shift); setOpQuery(''); setAssignNotice(null); setAssignBusy(false);
+    setLocRef(machList.find((m) => m.id === r.id)?.referencia ?? ''); setLocNotice(null); setLocOpen(false); setLocBusy(false);
   };
   const opsShown = useMemo(() => {
     const q = norm(opQuery.trim());
@@ -229,6 +237,42 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     logAudit('CHECK', 'machinery', assignFor.id, `Operador ${assignFor.code} · ${shiftIcon(s)} ${shiftLabel(s)}: ${beforeTxt} → ${afterTxt}`);
     await load();
     setAssignNotice(op ? `✅ ${shiftIcon(s)} ${shiftLabel(s)} → ${op.name}` : `➖ ${shiftIcon(s)} ${shiftLabel(s)} quitado`);
+  };
+
+  // ── Actualizar la UBICACIÓN de la máquina (GPS + edificio) desde el mismo modal ──
+  // Misma función que usa el inspector (`captureLocation`, RPC SECURITY DEFINER):
+  // funciona sin importar el rol base del usuario, porque el coordinador puede
+  // tener profiles.role='conductor' (sin permiso de escritura directa en machinery).
+  const [locOpen, setLocOpen] = useState(false);
+  const [locRef, setLocRef] = useState('');
+  const [locBusy, setLocBusy] = useState(false);
+  const [locNotice, setLocNotice] = useState<string | null>(null);
+  const guardarUbicacion = async () => {
+    if (!assignFor || locBusy) return;
+    setLocBusy(true); setLocNotice(null);
+    const r = await captureLocation(assignFor.id, locRef);
+    setLocBusy(false);
+    if (!r.ok) { setLocNotice('❌ ' + (r.error ?? 'No se pudo guardar la ubicación.')); return; }
+    setLocNotice('✅ Ubicación guardada.');
+    await load();
+  };
+
+  // ── Asignar escaneando el CARNET del operador (en vez de buscar en la lista) ──
+  // Mismo criterio de validación que `onOperatorCarnet` de SupervisorScreen
+  // (cargo debe poder operar), pero acá es más simple: solo PLANEA quién debería
+  // estar (no inicia jornada), así que no hace falta cotejar cédula/horómetro.
+  const [opScanOpen, setOpScanOpen] = useState(false);
+  const onOperatorScanDetected = async (text: string) => {
+    setOpScanOpen(false);
+    if (!assignFor) return;
+    const id = parseEmployeeId(text);
+    if (!id) { setAssignNotice('❌ Ese QR no es un carnet de empleado.'); return; }
+    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo, cedula').eq('id', id).maybeSingle();
+    const emp = data as any;
+    if (!emp) { setAssignNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
+    const nombre = `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() || 'Sin nombre';
+    if (!isOperatorCargo(emp.cargo)) { setAssignNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es operador, chofer, obrero ni servicios generales.`); return; }
+    await applyAssign(assignShift, { id: emp.id, name: nombre, cedula: emp.cedula ?? null, cargo: emp.cargo ?? null });
   };
 
   // ── Escanear QR de la máquina (como el inspector) — pero acá el destino es la
@@ -456,9 +500,34 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
                     {assignNotice ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>{assignNotice}</Text> : null}
                   </View>
 
+                  <View style={{ paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                    <TouchableOpacity onPress={() => setLocOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '700', flex: 1 }} numberOfLines={1}>📍 Ubicación{(() => { const m = machList.find((x) => x.id === assignFor!.id); return m?.referencia ? `: ${m.referencia}` : m?.latitude != null ? ': guardada' : ': sin guardar'; })()}</Text>
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{locOpen ? 'Ocultar ▲' : 'Actualizar ▾'}</Text>
+                    </TouchableOpacity>
+                    {locOpen ? (
+                      <View style={{ marginTop: spacing.sm }}>
+                        <EdificioPicker value={locRef} onChange={setLocRef} />
+                        <TouchableOpacity disabled={locBusy} onPress={guardarUbicacion} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: locBusy ? 0.6 : 1 }}>
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{locBusy ? 'Guardando…' : '📍 Guardar mi ubicación actual + edificio'}</Text>
+                        </TouchableOpacity>
+                        {locNotice ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>{locNotice}</Text> : null}
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <TouchableOpacity
+                    disabled={assignBusy}
+                    onPress={() => setOpScanOpen(true)}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, marginHorizontal: spacing.md, marginBottom: spacing.sm, opacity: assignBusy ? 0.5 : 1 }}
+                  >
+                    <Text style={{ fontSize: 16 }}>📷</Text>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>Escanear carnet del operador</Text>
+                  </TouchableOpacity>
+
                   <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginHorizontal: spacing.md, marginBottom: spacing.sm }}>
                     <Text style={{ fontSize: 14 }}>🔎</Text>
-                    <TextInput value={opQuery} onChangeText={setOpQuery} placeholder="Buscar operador…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
+                    <TextInput value={opQuery} onChangeText={setOpQuery} placeholder="…o busca por nombre/cédula" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
                     {opQuery ? <TouchableOpacity onPress={() => setOpQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
                   </View>
 
@@ -490,6 +559,13 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <QrScanner onClose={() => setScanOpen(false)} onDetected={onScanDetected} />
+        </View>
+      </Modal>
+
+      {/* ── Escanear el CARNET del operador → lo asigna a la máquina/turno del modal ── */}
+      <Modal visible={opScanOpen} animationType="slide" onRequestClose={() => setOpScanOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner onClose={() => setOpScanOpen(false)} onDetected={onOperatorScanDetected} />
         </View>
       </Modal>
     </Screen>

@@ -153,6 +153,39 @@ export async function captureAndUploadPhoto(
   return uploadToMachinery(path, body);
 }
 
+/** SOLO cámara (sin caer a galería si falla) — para cuando el llamador ya ofreció
+ *  la opción de elegir origen y el usuario tocó específicamente "Tomar foto". */
+export async function takePhotoAndUpload(
+  machineryId: string,
+  folder = 'horometro'
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const webBase64 = Platform.OS !== 'web';
+  const cam = await ImagePicker.requestCameraPermissionsAsync();
+  if (!cam.granted) return { ok: false, error: 'Permiso de cámara denegado.' };
+  const res = await pick(() => ImagePicker.launchCameraAsync({ quality: PICK_QUALITY, base64: webBase64 }));
+  if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
+  const body = await assetToBody(res.assets[0]);
+  if (!body) return { ok: false, error: 'No se pudo leer la imagen.' };
+  const path = `${machineryId}/${folder}/${Date.now()}.jpg`;
+  return uploadToMachinery(path, body);
+}
+
+/** SOLO galería — para cuando el usuario tocó específicamente "Elegir de galería". */
+export async function pickPhotoFromGalleryAndUpload(
+  machineryId: string,
+  folder = 'horometro'
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const webBase64 = Platform.OS !== 'web';
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) return { ok: false, error: 'Permiso de galería denegado.' };
+  const res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: webBase64 }));
+  if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
+  const body = await assetToBody(res.assets[0]);
+  if (!body) return { ok: false, error: 'No se pudo leer la imagen.' };
+  const path = `${machineryId}/${folder}/${Date.now()}.jpg`;
+  return uploadToMachinery(path, body);
+}
+
 /**
  * Selecciona un FORMATO (imagen o PDF) y lo sube al bucket 'machinery' en la carpeta
  * requerimientos/<reqId>/, devolviendo la URL pública, el tipo ('image'|'pdf') y el nombre.

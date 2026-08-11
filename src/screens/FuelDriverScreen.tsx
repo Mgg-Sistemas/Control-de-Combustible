@@ -20,7 +20,8 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText, onlyDecimal } from '../lib/text';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
-import { captureAndUploadPhoto } from '../lib/photo';
+import { takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
+import PhotoSourceSheet from '../components/PhotoSourceSheet';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { insertMachineService, MachineServiceKind } from '../lib/machineServices';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
@@ -115,6 +116,10 @@ export default function FuelDriverScreen() {
   const [averiaPhotos, setAveriaPhotos] = useState<string[]>([]);
   const [averiaAddingPhoto, setAveriaAddingPhoto] = useState(false);
   const [savingAveria, setSavingAveria] = useState(false);
+
+  // Selector de origen de foto (cámara / galería) — compartido por la foto del
+  // despacho y la de la avería, según cuál botón se haya tocado.
+  const [photoSheetFor, setPhotoSheetFor] = useState<'dispatch' | 'averia' | null>(null);
 
   // Nombre del chofer (profiles.full_name por uid).
   useEffect(() => {
@@ -254,11 +259,12 @@ export default function FuelDriverScreen() {
     }
   };
 
-  const addPhoto = async () => {
+  const addPhoto = async (source: 'camera' | 'gallery') => {
     if (!selected || addingPhoto) return;
     setAddingPhoto(true);
     try {
-      const r = await captureAndUploadPhoto(selected.id, 'dispatches');
+      const fn = source === 'camera' ? takePhotoAndUpload : pickPhotoFromGalleryAndUpload;
+      const r = await fn(selected.id, 'dispatches');
       if (r.ok && r.url) setPhotos((prev) => [...prev, r.url as string]);
       else if (r.error) setResult({ ok: false, msg: `❌ ${r.error}` });
     } finally {
@@ -353,16 +359,23 @@ export default function FuelDriverScreen() {
   };
 
   // ── AVERÍA: adjunta foto(s) y reporta al módulo de Mantenimiento ──────────────
-  const addAveriaPhoto = async () => {
+  const addAveriaPhoto = async (source: 'camera' | 'gallery') => {
     if (!selected || averiaAddingPhoto) return;
     setAveriaAddingPhoto(true);
     try {
-      const r = await captureAndUploadPhoto(selected.id, 'averias');
+      const fn = source === 'camera' ? takePhotoAndUpload : pickPhotoFromGalleryAndUpload;
+      const r = await fn(selected.id, 'averias');
       if (r.ok && r.url) setAveriaPhotos((prev) => [...prev, r.url as string]);
       else if (r.error) setResult({ ok: false, msg: `❌ ${r.error}` });
     } finally {
       setAveriaAddingPhoto(false);
     }
+  };
+  const onPhotoSourcePicked = (source: 'camera' | 'gallery') => {
+    const target = photoSheetFor;
+    setPhotoSheetFor(null);
+    if (target === 'dispatch') addPhoto(source);
+    else if (target === 'averia') addAveriaPhoto(source);
   };
   const removeAveriaPhotoAt = (idx: number) => setAveriaPhotos((prev) => prev.filter((_, i) => i !== idx));
   const marcarAveria = async () => {
@@ -629,7 +642,7 @@ export default function FuelDriverScreen() {
                             multiline={averiaMaterial === 'otro'}
                             style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, minHeight: averiaMaterial === 'otro' ? 60 : undefined }}
                           />
-                          <TouchableOpacity onPress={addAveriaPhoto} disabled={averiaAddingPhoto} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: averiaAddingPhoto ? 0.6 : 1 }}>
+                          <TouchableOpacity onPress={() => setPhotoSheetFor('averia')} disabled={averiaAddingPhoto} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: averiaAddingPhoto ? 0.6 : 1 }}>
                             <Text style={{ color: colors.text, fontWeight: '700' }}>{averiaAddingPhoto ? 'Subiendo…' : '📷 Agregar foto de la avería'}</Text>
                           </TouchableOpacity>
                           {averiaPhotos.length > 0 ? (
@@ -756,7 +769,7 @@ export default function FuelDriverScreen() {
                 {/* Fotos */}
                 <View>
                   <TouchableOpacity
-                    onPress={addPhoto}
+                    onPress={() => setPhotoSheetFor('dispatch')}
                     disabled={addingPhoto}
                     style={{
                       backgroundColor: colors.surface,
@@ -848,6 +861,13 @@ export default function FuelDriverScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      <PhotoSourceSheet
+        visible={photoSheetFor !== null}
+        onClose={() => setPhotoSheetFor(null)}
+        onPickCamera={() => onPhotoSourcePicked('camera')}
+        onPickGallery={() => onPhotoSourcePicked('gallery')}
+      />
     </Screen>
   );
 }
