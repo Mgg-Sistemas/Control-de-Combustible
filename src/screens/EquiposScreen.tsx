@@ -117,7 +117,11 @@ const MACHINERY_FIELDS: Field[] = [
   // alguien decida qué hacer con ella. Se puede destildar aquí mismo si ya se sabe
   // que va directo a Operativa, o cambiarse después con el botón del detalle.
   { key: 'en_espera', label: '⏳ Dejar "Esperando instrucciones" (aún no decidida)', type: 'switch', defaultValue: true },
-  { key: 'tipo', label: 'Marca - Modelo (CAT 320, Komatsu PC200...)', type: 'text' },
+  // MARCA y MODELO en campos separados (desplegable buscable + escribir nuevo). La
+  // columna histórica `tipo` se mantiene = marca+modelo vía beforeSave (ver RecordForm),
+  // para no romper los reportes/tarjetas que ya leen m.tipo.
+  { key: 'marca', label: 'Marca (CAT, Komatsu, Kodiak...)', type: 'suggest', table: 'machinery', column: 'marca', dropdown: true },
+  { key: 'modelo', label: 'Modelo (320, PC200, D6...)', type: 'suggest', table: 'machinery', column: 'modelo', dropdown: true },
   { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'machinery', column: 'clasificacion' },
   { key: 'referencia', label: 'Referencia / Ubicación (edificio)', type: 'text' },
   { key: 'parroquia', label: 'Parroquia', type: 'suggest', table: 'machinery', column: 'parroquia' },
@@ -134,6 +138,14 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'con_tapa', label: '¿Tiene tapa?', type: 'switch' },
   { key: 'tapa_doble', label: '¿Doble tapa? (si no, es sencilla)', type: 'switch', showIf: (v) => v.con_tapa === 'true' },
 ];
+// Etiqueta "Marca · Modelo" del catálogo: usa los campos separados si existen; si no,
+// cae a la columna histórica combinada `tipo`. Devuelve null si no hay nada.
+export function marcaModeloLabel(m: { marca?: string | null; modelo?: string | null; tipo?: string | null }): string | null {
+  const marca = String(m.marca ?? '').trim();
+  const modelo = String(m.modelo ?? '').trim();
+  if (marca && modelo) return `${marca} · ${modelo}`;
+  return marca || modelo || String(m.tipo ?? '').trim() || null;
+}
 // Texto legible del estado de tapa de una máquina.
 export function tapaLabelOf(m: { con_tapa?: boolean | null; tapa_doble?: boolean | null }): string {
   if (!m.con_tapa) return 'Sin tapa';
@@ -1194,7 +1206,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             <AveriaBadge id={m.id} />
             <UltimaInactividadLine id={m.id} />
             {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-            {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {m.tipo}</Text> : null}
+            {marcaModeloLabel(m) ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {marcaModeloLabel(m)}</Text> : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
@@ -1978,7 +1990,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           <AveriaBadge id={m.id} />
                           <UltimaInactividadLine id={m.id} />
                           {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-                          {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {m.tipo}</Text> : null}
+                          {marcaModeloLabel(m) ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {marcaModeloLabel(m)}</Text> : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                           {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
@@ -2223,6 +2235,14 @@ export default function EquiposScreen({ navigation, route }: any) {
         record={editing}
         headerImageUrl={isVehicle ? undefined : editing?.photo_url}
         allowDelete
+        beforeSave={isVehicle ? undefined : (payload) => {
+          // Mantener `tipo` (columna histórica combinada) = marca + modelo, para que
+          // TODOS los reportes/tarjetas/acarreo que leen m.tipo sigan mostrando la
+          // marca-modelo sin tocarlos. Se recalcula en cada guardado.
+          const marca = String(payload.marca ?? '').trim();
+          const modelo = String(payload.modelo ?? '').trim();
+          payload.tipo = [marca, modelo].filter(Boolean).join(' ') || null;
+        }}
         onClose={() => setFormOpen(false)}
         onSaved={handleSaved}
       />
