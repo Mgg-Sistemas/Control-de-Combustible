@@ -121,8 +121,8 @@ const MACHINERY_FIELDS: Field[] = [
   // columna histórica `tipo` se mantiene = marca+modelo vía beforeSave (ver RecordForm),
   // para no romper los reportes/tarjetas que ya leen m.tipo.
   // Marca O modelo: uno de los dos es obligatorio (validación de grupo en EquiposScreen).
-  { key: 'marca', label: 'Marca (o modelo) — CAT, Komatsu, Kodiak...', type: 'suggest', table: 'machinery', column: 'marca', dropdown: true },
-  { key: 'modelo', label: 'Modelo (o marca) — 320, PC200, D6...', type: 'suggest', table: 'machinery', column: 'modelo', dropdown: true },
+  { key: 'marca', label: 'Marca — CAT, Komatsu, Kodiak...', type: 'suggest', table: 'machinery', column: 'marca', dropdown: true },
+  { key: 'modelo', label: 'Modelo — 320, PC200, D6...', type: 'suggest', table: 'machinery', column: 'modelo', dropdown: true },
   { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'machinery', column: 'clasificacion' },
   { key: 'referencia', label: 'Referencia / Ubicación (edificio)', type: 'text' },
   // Parroquia/Sector/Empresa como LISTA DESPLEGABLE buscable (sin la rejilla de botones).
@@ -130,8 +130,8 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'sector', label: 'Sector', type: 'suggest', table: 'machinery', column: 'sector', dropdown: true },
   { key: 'identifier', label: 'Identificador', type: 'text' },
   // Placa O serial: uno de los dos es obligatorio (validación de grupo en EquiposScreen).
-  { key: 'plate', label: 'Placa (o serial)', type: 'text' },
-  { key: 'serial', label: 'Serial (o placa)', type: 'text' },
+  { key: 'plate', label: 'Placa', type: 'text' },
+  { key: 'serial', label: 'Serial', type: 'text' },
   { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
   { key: 'encargado', label: 'Encargado', type: 'text' },
