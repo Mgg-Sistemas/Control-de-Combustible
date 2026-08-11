@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -639,6 +639,12 @@ function EditUserForm({
   const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  // Módulos editados HACE POCO por este admin (clave → timestamp). Protege la edición
+  // reciente de que un refetch en vivo (que puede leer ANTES de que el upsert sea
+  // visible por lag de replicación) la pise y devuelva los módulos a "sin acceso".
+  const editedAt = useRef<Record<string, number>>({});
+  const EDIT_PROTECT_MS = 10000;
+
   // Carga (o recarga) SOLO los permisos por módulo del usuario en edición, sin
   // tocar el resto del formulario (nombre, usuario, contraseña…) que el admin
   // puede estar editando — así el refresco en vivo no le borra lo que escribió.
@@ -646,7 +652,16 @@ function EditUserForm({
     const { data } = await supabase.from('module_permissions').select('module, level').eq('user_id', userId);
     const m: Record<string, PermLevel> = {};
     (data ?? []).forEach((r: any) => (m[r.module] = r.level));
-    setPerms(m);
+    // No pisar lo recién tocado: conserva el valor local de las claves editadas dentro
+    // de la ventana de protección (el upsert quizá aún no se refleja en esta lectura).
+    setPerms((prev) => {
+      const now = Date.now();
+      const merged = { ...m };
+      Object.entries(editedAt.current).forEach(([key, ts]) => {
+        if (now - ts < EDIT_PROTECT_MS && prev[key] !== undefined) merged[key] = prev[key];
+      });
+      return merged;
+    });
   };
 
   useEffect(() => {
@@ -657,6 +672,7 @@ function EditUserForm({
     setShowPass(false);
     setError(null);
     setPerms({});
+    editedAt.current = {}; // otro usuario: no arrastrar la protección de edición del anterior
     setSel(user?.app_role_id ? { kind: 'app', id: user.app_role_id } : { kind: 'base', role: (user?.role ?? 'conductor') });
     if (user) loadPerms(user.id);
   }, [user]);
@@ -664,6 +680,7 @@ function EditUserForm({
 
   const setPerm = async (moduleKey: string, level: PermLevel) => {
     if (!user) return;
+    editedAt.current[moduleKey] = Date.now();
     setPerms((p) => ({ ...p, [moduleKey]: level }));
     await supabase
       .from('module_permissions')
@@ -691,7 +708,8 @@ function EditUserForm({
   const setAllPerms = async (level: PermLevel) => {
     if (!user) return;
     const next: Record<string, PermLevel> = {};
-    MODULES.forEach((m) => { next[m.key] = level; });
+    const now = Date.now();
+    MODULES.forEach((m) => { next[m.key] = level; editedAt.current[m.key] = now; });
     setPerms(next);
     await supabase
       .from('module_permissions')
