@@ -14,6 +14,7 @@ import { spacing, radius } from '../theme';
 import { levelMeets } from '../lib/permissions';
 import { captureHighAccuracy } from '../lib/geodesta';
 import { captureAndUploadPhoto } from '../lib/photo';
+import { PhotoAnnotator } from '../components/PhotoAnnotator';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 
 type CheckItem = { item: string; estado: 'bien' | 'observado' | 'na' };
@@ -85,6 +86,33 @@ export default function GeodestaInspections({ route }: any) {
     setBusy(false);
     if (!r.ok || !r.url) { if (r.error) toast.error(r.error); return; }
     setPhotos((p) => [...p, r.url as string]);
+  };
+
+  // Dibujo sobre foto (web): elegir imagen → anotar → subir la versión anotada.
+  const [annImage, setAnnImage] = useState<string | null>(null);
+  const [annOpen, setAnnOpen] = useState(false);
+  const pickParaAnotar = () => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => { setAnnImage(String(rd.result)); setAnnOpen(true); };
+      rd.readAsDataURL(f);
+    };
+    inp.click();
+  };
+  const onAnnSave = async (dataUrl: string) => {
+    setAnnOpen(false); setBusy(true);
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const path = `${projectId}/geodesta-insp/${Date.now()}.jpg`;
+      const up = await supabase.storage.from('machinery').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+      if (up.error) { toast.error(up.error.message); return; }
+      const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+      setPhotos((p) => [...p, data.publicUrl]);
+    } catch (e: any) { toast.error(e?.message || 'No se pudo subir la foto anotada.'); }
+    finally { setBusy(false); setAnnImage(null); }
   };
 
   const addItem = () => { const t = newItem.trim(); if (!t) return; setChecklist((c) => [...c, { item: t, estado: 'bien' }]); setNewItem(''); };
@@ -213,6 +241,12 @@ export default function GeodestaInspections({ route }: any) {
                 <TouchableOpacity onPress={addFoto} disabled={busy} style={{ width: 64, height: 64, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }}>
                   <Text style={{ color: colors.primary, fontSize: 22 }}>＋</Text>
                 </TouchableOpacity>
+                {Platform.OS === 'web' ? (
+                  <TouchableOpacity onPress={pickParaAnotar} disabled={busy} style={{ width: 64, height: 64, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }}>
+                    <Text style={{ fontSize: 20 }}>✏️</Text>
+                    <Text style={{ color: colors.muted, fontSize: 9 }}>Anotar</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               <TouchableOpacity onPress={guardar} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
@@ -257,6 +291,7 @@ export default function GeodestaInspections({ route }: any) {
         </>
       )}
       <View style={{ height: spacing.lg }} />
+      <PhotoAnnotator visible={annOpen} imageDataUrl={annImage} onCancel={() => { setAnnOpen(false); setAnnImage(null); }} onSave={onAnnSave} />
     </Screen>
   );
 }
