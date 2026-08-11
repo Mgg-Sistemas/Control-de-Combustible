@@ -8,15 +8,13 @@
 3. En la raíz del repo copia `.env.example` a `.env` y pega esos valores.
 
 ## 2. Crear el esquema
-En **SQL Editor** de Supabase, pega y ejecuta EN ESTE ORDEN:
-1. [`schema.sql`](./schema.sql) — tablas, enums, vista de niveles, triggers de stock y políticas RLS.
-2. **Parches de seguridad OBLIGATORIOS** (schema.sql aún contiene políticas antiguas inseguras; estos las corrigen):
-   - [`fix_rls_anon_nomina.sql`](./fix_rls_anon_nomina.sql) y [`fix_rls_anon_nomina_v2.sql`](./fix_rls_anon_nomina_v2.sql) — cierran sueldos/datos bancarios a sesiones anónimas.
-   - [`fix_stock_race_condition.sql`](./fix_stock_race_condition.sql) — lock anti-sobregiro de combustible.
-   - [`security_hardening_2026-08-11.sql`](./security_hardening_2026-08-11.sql) — endurecimiento tras la auditoría (guardia de profile, RLS de machine_rounds y tablas sensibles, can_write_module fail-closed, grants, locks TOCTOU). **Fuente de verdad de esos cambios.**
-3. (Opcional) [`seed.sql`](./seed.sql) — datos de demostración.
+En **SQL Editor** de Supabase, pega y ejecuta:
+1. [`schema.sql`](./schema.sql) — tablas, enums, vista de niveles, triggers de stock y políticas RLS. **Ya incluye al FINAL la sección "ENDURECIMIENTO CONSOLIDADO"** que fold-ea todos los parches de seguridad (RLS de nómina/tablas sensibles, `employee_public_lookup`, locks anti-sobregiro, `guard_role_change`, `can_write_module` fail-closed, auto-desbloqueo de login, máx. operadores por turno). Correr **solo este archivo** ya deja el entorno en el estado seguro de producción.
+2. (Opcional) [`seed.sql`](./seed.sql) — datos de demostración.
 
-> ⚠️ `schema.sql` **no** es hoy la única fuente de verdad de las políticas RLS: varios parches de seguridad ya aplicados en producción no se han fusionado de vuelta. Corre siempre los parches del paso 2 al reconstruir un entorno.
+> ✅ Desde 11-ago-2026 `schema.sql` es autocontenido en seguridad: la sección final consolidada sobreescribe cualquier política insegura declarada arriba. Los parches sueltos ([`fix_rls_anon_nomina*.sql`](./fix_rls_anon_nomina.sql), [`fix_stock_race_condition.sql`](./fix_stock_race_condition.sql), [`mejoras_seguridad_rendimiento.sql`](./mejoras_seguridad_rendimiento.sql), [`security_hardening_2026-08-11.sql`](./security_hardening_2026-08-11.sql)) se conservan como **historial y detalle comentado** de cada cambio, pero ya **no** hace falta correrlos por separado tras `schema.sql`.
+>
+> ⚠️ Esa sección debe permanecer SIEMPRE al final del archivo (sobreescribe por orden de ejecución). Cualquier endurecimiento futuro se agrega ahí. Los demás `.sql` del directorio (backfills, cierres, cargas one-time) **no** son esquema y no se corren en una reconstrucción.
 
 ## 3. Autenticación
 - **Auth → Providers → Email**: habilitado por defecto.
