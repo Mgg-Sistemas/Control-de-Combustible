@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Platform, FlatList } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from './ui';
 import { ConfigBanner } from './ConfigBanner';
 import { RecordForm, Field } from './RecordForm';
@@ -95,8 +95,18 @@ export function ListScreen<T extends { id: string }>({
     setFormOpen(true);
   };
 
-  return (
-    <Screen>
+  // RENDIMIENTO (auditoría frontend#1): antes esta pantalla hacía `shown.map()` dentro
+  // del ScrollView de <Screen>, es decir montaba TODAS las filas de golpe (lento y con
+  // mucha memoria en listas largas). Ahora usa un FlatList como scroller (virtualiza:
+  // solo monta lo visible + un margen), con Screen scroll={false}. El encabezado
+  // (banner, título, filtro de fecha, headerExtra) va en ListHeaderComponent para que
+  // siga desplazándose con la lista como antes.
+  // NOTA: al dejar de usar el ScrollView de Screen se pierde, SOLO en estas pantallas,
+  // el botón flotante "volver arriba" y la restauración de la posición de scroll al
+  // recargar en web (la persistencia de RUTA por linking NO se ve afectada).
+  // REQUIERE PRUEBA VISUAL en la app (layout/padding/scroll) antes de confiar.
+  const listHeader = (
+    <View style={{ gap: spacing.md }}>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>{title}</SectionTitle>
@@ -140,15 +150,18 @@ export function ListScreen<T extends { id: string }>({
       ) : null}
 
       {!loading && headerExtra ? headerExtra(shown) : null}
+    </View>
+  );
 
-      {loading ? (
-        <Loading />
-      ) : shown.length === 0 ? (
-        <EmptyState title={(from || to) ? 'Sin resultados en el rango' : emptyTitle} subtitle={(from || to) ? 'Prueba con otras fechas.' : emptySubtitle} />
-      ) : (
-        shown.map((item) =>
+  return (
+    <Screen scroll={false}>
+      <FlatList
+        data={loading ? [] : shown}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={listHeader}
+        renderItem={({ item }) =>
           editable && formFields ? (
-            <TouchableOpacity key={item.id} onPress={() => openEdit(item)} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => openEdit(item)} activeOpacity={0.7}>
               <Card>
                 {renderItem(item)}
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
@@ -157,10 +170,25 @@ export function ListScreen<T extends { id: string }>({
               </Card>
             </TouchableOpacity>
           ) : (
-            <Card key={item.id}>{renderItem(item)}</Card>
+            <Card>{renderItem(item)}</Card>
           )
-        )
-      )}
+        }
+        ListEmptyComponent={
+          loading ? (
+            <Loading />
+          ) : (
+            <EmptyState
+              title={(from || to) ? 'Sin resultados en el rango' : emptyTitle}
+              subtitle={(from || to) ? 'Prueba con otras fechas.' : emptySubtitle}
+            />
+          )
+        }
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md, flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        removeClippedSubviews={Platform.OS !== 'web'}
+        initialNumToRender={12}
+        windowSize={11}
+      />
 
       {formFields ? (
         <RecordForm
