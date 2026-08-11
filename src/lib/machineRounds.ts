@@ -19,6 +19,7 @@ export type RoundPatch = Partial<{
   horometro_photo: string | null;
   jornada_start_at: string | null;
   jornada_shift: string | null;
+  jornada_marked_at: string | null; // hora REAL en que el inspector marcó (≠ inicio declarado)
 }>;
 
 /**
