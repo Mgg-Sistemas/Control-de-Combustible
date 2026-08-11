@@ -156,6 +156,40 @@ export function contourSegmentsUTM(pts: XYZ[], interval: number): { level: numbe
   return out;
 }
 
+/** Color por pendiente (%) — verde (llano) → rojo (fuerte), criterio de factibilidad. */
+function slopeColor(pct: number): string {
+  if (pct < 5) return 'rgba(22,163,74,0.55)';    // 0-5%  llano
+  if (pct < 15) return 'rgba(132,204,22,0.55)';  // 5-15% suave
+  if (pct < 30) return 'rgba(217,119,6,0.6)';    // 15-30% moderada
+  if (pct < 50) return 'rgba(234,88,12,0.65)';   // 30-50% fuerte
+  return 'rgba(220,38,38,0.7)';                  // >50% muy fuerte
+}
+
+/** Mapa de calor de PENDIENTES: gradiente por celda del MDT → GeoJSON (lat/lon) con
+ *  color por % de inclinación. Sirve para riesgo/factibilidad de construcción. */
+export function slopeHeatmap(pts: XYZ[], zone = 19, north = true): { geojson: any; cells: number } {
+  const g = buildGrid(pts);
+  if (!g) return { geojson: { type: 'FeatureCollection', features: [] }, cells: 0 };
+  const { grid, nx, ny, minX, minY, cell } = g;
+  const MAX = 4000; const feats: { gx: number; gy: number; pct: number }[] = [];
+  for (let gy = 1; gy < ny - 1; gy++) {
+    for (let gx = 1; gx < nx - 1; gx++) {
+      const i = gy * nx + gx;
+      const zc = grid[i], zl = grid[i - 1], zr = grid[i + 1], zd = grid[i - nx], zu = grid[i + nx];
+      if (isNaN(zc) || isNaN(zl) || isNaN(zr) || isNaN(zd) || isNaN(zu)) continue;
+      const dzdx = (zr - zl) / (2 * cell), dzdy = (zu - zd) / (2 * cell);
+      feats.push({ gx, gy, pct: Math.hypot(dzdx, dzdy) * 100 });
+    }
+  }
+  const step = Math.max(1, Math.ceil(feats.length / MAX));
+  const features = feats.filter((_, i) => i % step === 0).map((f) => {
+    const x0 = minX + f.gx * cell, y0 = minY + f.gy * cell, x1 = x0 + cell, y1 = y0 + cell;
+    const ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]].map(([x, y]) => { const ll = utmToLatLng(x, y, zone, north); return [ll.lng, ll.lat]; });
+    return { type: 'Feature', properties: { pct: Number(f.pct.toFixed(1)), label: `${f.pct.toFixed(0)}%`, style: { color: '#00000000', weight: 0, fillColor: slopeColor(f.pct), fillOpacity: 1 } }, geometry: { type: 'Polygon', coordinates: [ring] } };
+  });
+  return { geojson: { type: 'FeatureCollection', features }, cells: features.length };
+}
+
 export type ContourResult = { geojson: any; grid: Grid | null; zmin: number; zmax: number; levels: number };
 
 /** Genera las curvas de nivel a `interval` metros como GeoJSON (lat/lon) para el mapa. */

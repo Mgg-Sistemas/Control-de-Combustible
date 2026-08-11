@@ -15,7 +15,7 @@ import { norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
 import { GeodestaProject, GeodestaPoint } from '../types/database';
 import { captureHighAccuracy, neFromLatLng, parsePointsCsv, pointsToCsv, layerColor } from '../lib/geodesta';
-import { contours, XYZ } from '../lib/tin';
+import { contours, slopeHeatmap, XYZ } from '../lib/tin';
 import { volumeBetween, volumeToLevel, VolumeResult, fmtM3 } from '../lib/volumes';
 import { buildGrid, profile } from '../lib/tin';
 import { ProfileChart, ProfilePt } from '../components/ProfileChart';
@@ -266,7 +266,7 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     const res = contours(pts, iv, 19, true);
     if (!res.levels) { setOverlay(null); setSurfInfo('No se generaron curvas (revisa las cotas y el intervalo).'); return; }
     setOverlay(res.geojson);
-    setActiveSurf(null);
+    setActiveSurf(null); setSlopeOn(false);
     setSurfInfo(`✅ ${res.levels} curva(s) cada ${iv} m · cotas ${res.zmin.toFixed(2)}–${res.zmax.toFixed(2)} m (${pts.length} pts). Vista previa; guárdala como versión.`);
     setTab('superficie');
   };
@@ -288,6 +288,17 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     if (error) { toast.error(error.message); return; }
     toast.success('Versión de superficie guardada.');
     loadSurfaces();
+  };
+
+  const [slopeOn, setSlopeOn] = useState(false);
+  const verPendientes = () => {
+    const pts = xyz();
+    if (pts.length < 3) { toast.error('Se necesitan al menos 3 puntos con cota (Z).'); return; }
+    const r = slopeHeatmap(pts, 19, true);
+    if (!r.cells) { toast.error('No se pudo calcular la pendiente.'); return; }
+    setOverlay(r.geojson); setSlopeOn(true); setActiveSurf(null);
+    setSurfInfo(`🌡️ Mapa de pendientes · ${r.cells} celdas.`);
+    setTab('superficie');
   };
 
   const verVersion = (s: Surface) => {
@@ -545,12 +556,25 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
                 </TouchableOpacity>
               ) : null}
               {overlay ? (
-                <TouchableOpacity onPress={() => { setOverlay(null); setActiveSurf(null); setSurfInfo(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => { setOverlay(null); setActiveSurf(null); setSurfInfo(null); setSlopeOn(false); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center' }}>
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Limpiar</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
+            <TouchableOpacity onPress={verPendientes} style={{ marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🌡️ Mapa de calor de pendientes</Text>
+            </TouchableOpacity>
             {surfInfo ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>{surfInfo}</Text> : null}
+            {slopeOn ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                {[['0–5%', 'rgba(22,163,74,0.9)'], ['5–15%', 'rgba(132,204,22,0.9)'], ['15–30%', 'rgba(217,119,6,0.95)'], ['30–50%', 'rgba(234,88,12,0.95)'], ['>50%', 'rgba(220,38,38,1)']].map(([l, c]) => (
+                  <View key={l} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: c }} />
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>{l}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </Card>
           <View style={{ height: spacing.sm }} />
           <GeodestaMap points={mapPoints} overlay={overlay} height={400} />
