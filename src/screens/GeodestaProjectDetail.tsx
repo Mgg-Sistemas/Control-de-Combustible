@@ -17,7 +17,7 @@ import { GeodestaProject, GeodestaPoint } from '../types/database';
 import { captureHighAccuracy, neFromLatLng, parsePointsCsv, pointsToCsv, layerColor } from '../lib/geodesta';
 import { contours, slopeHeatmap, XYZ } from '../lib/tin';
 import { volumeBetween, volumeToLevel, VolumeResult, fmtM3 } from '../lib/volumes';
-import { buildGrid, profile } from '../lib/tin';
+import { buildGrid, profile, crossSections } from '../lib/tin';
 import { ProfileChart, ProfilePt } from '../components/ProfileChart';
 import { buildDxf, buildKml, buildGeoJson, buildLandXml, downloadText, ExpPoint } from '../lib/geoexport';
 import { isOnline, enqueue, pendingCount, flush, onReconnect, insertChunked } from '../lib/geodestaQueue';
@@ -117,6 +117,9 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
   const [profStart, setProfStart] = useState<string | null>(null);
   const [profEnd, setProfEnd] = useState<string | null>(null);
   const [profSamples, setProfSamples] = useState<ProfilePt[] | null>(null);
+  const [secSpacing, setSecSpacing] = useState('10');
+  const [secWidth, setSecWidth] = useState('15');
+  const [sections, setSections] = useState<{ station: number; samples: ProfilePt[] }[] | null>(null);
   const withNE = () => points.filter((p) => p.norte_m != null && p.este_m != null);
 
   useEffect(() => {
@@ -374,6 +377,18 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     setProfSamples(profile(g, A.este_m, A.norte_m as number, B.este_m, B.norte_m as number, 100));
   };
 
+  const generarSecciones = () => {
+    const A = points.find((p) => p.id === profStart), B = points.find((p) => p.id === profEnd);
+    if (!A || !B || A.este_m == null || B.este_m == null) { toast.error('Elige inicio y fin (arriba, en el perfil).'); return; }
+    const g = buildGrid(xyz());
+    if (!g) { toast.error('Se necesitan al menos 3 puntos con cota.'); return; }
+    const sp = Math.max(1, Number(String(secSpacing).replace(',', '.')) || 10);
+    const hw = Math.max(1, Number(String(secWidth).replace(',', '.')) || 15);
+    const secs = crossSections(g, A.este_m, A.norte_m as number, B.este_m, B.norte_m as number, sp, hw, Math.max(0.5, hw / 20));
+    // Desplaza el offset a 0..ancho para el gráfico (que usa distancia≥0).
+    setSections(secs.map((s) => ({ station: s.station, samples: s.samples.map((p) => ({ dist: p.offset + hw, z: p.z })) })));
+  };
+
   // ── Fase 5: exportaciones ────────────────────────────────────────────────
   const expPoints = (): ExpPoint[] => points.filter((p) => !p.excluded).map((p) => ({ code: p.code, norte_m: p.norte_m, este_m: p.este_m, cota_z: p.cota_z, lat: p.lat, lon: p.lon, layer: p.layer, is_gcp: p.is_gcp }));
   const baseName = () => (project?.name || 'levantamiento').replace(/\s+/g, '_');
@@ -454,6 +469,30 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
             </TouchableOpacity>
           </Card>
           {profSamples ? <><View style={{ height: spacing.sm }} /><ProfileChart samples={profSamples} height={260} /></> : null}
+
+          <View style={{ height: spacing.md }} />
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 4 }}>✂️ Secciones transversales</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>A lo largo del mismo eje (inicio→fin de arriba), cada cierto espaciamiento se corta una sección perpendicular.</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <View style={{ flex: 1 }}><Text style={lbl(colors)}>Espaciamiento (m)</Text><TextInput value={secSpacing} onChangeText={setSecSpacing} keyboardType="decimal-pad" style={input} /></View>
+              <View style={{ flex: 1 }}><Text style={lbl(colors)}>Semiancho (± m)</Text><TextInput value={secWidth} onChangeText={setSecWidth} keyboardType="decimal-pad" style={input} /></View>
+            </View>
+            <TouchableOpacity onPress={generarSecciones} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>✂️ Generar secciones</Text>
+            </TouchableOpacity>
+          </Card>
+          {sections?.length ? (
+            <>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>{sections.length} sección(es) · eje (offset 0 = borde izquierdo, centro = eje)</Text>
+              {sections.map((s, i) => (
+                <View key={i} style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12, marginBottom: 2 }}>Estación {s.station.toFixed(1)} m</Text>
+                  <ProfileChart samples={s.samples} height={160} />
+                </View>
+              ))}
+            </>
+          ) : null}
 
           <View style={{ height: spacing.md }} />
           <Card>
