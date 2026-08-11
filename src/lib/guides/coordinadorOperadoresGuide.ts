@@ -12,7 +12,7 @@ export async function generateCoordinadorOperadoresGuide(): Promise<boolean> {
   const cover = coverPage({
     title: 'Guía del Coordinador de Operadores',
     subtitle: 'Asignar operadores a las máquinas, controlar su asistencia y avisar novedades',
-    introCalloutHtml: calloutInfo('📱 Entra con tu <b>usuario y contraseña</b>, toca el menú <b>Más</b> y elige 👷‍♂️ <b>Coordinador de Operadores</b>. La pantalla se organiza <b>por máquina</b>, no por persona — como Inspecciones, pero al revés.'),
+    introCalloutHtml: calloutInfo('📱 Entra con tu <b>usuario y contraseña</b>: caes DIRECTO en esta pantalla (no hace falta pasar por el menú "Más"). Se organiza <b>por máquina</b>, no por persona — como Inspecciones, pero al revés.'),
   });
 
   const step1Mock = phoneFrame(
@@ -34,6 +34,7 @@ export async function generateCoordinadorOperadoresGuide(): Promise<boolean> {
         'Los 3 números de arriba resumen el turno: **Activas**, **Sin asignar** y **No coincide**.',
         'Cada tarjeta muestra la máquina, su estado (Activa/Parada/Avería/Cerrada), el operador **planeado** y el que está **en sitio** de verdad.',
         'Si el operador en sitio NO es el planeado, aparece ⚠️ **"El operador en sitio no es el planeado"**.',
+        '📷 **ESCANEAR QR**: apunta al QR de la máquina y te lleva DIRECTO a la ficha del operador planeado en ese turno (foto, cédula, horas trabajadas). Si la máquina no tiene operador asignado, abre de una vez la hoja para asignar uno.',
       ]),
       step1Mock
     )
