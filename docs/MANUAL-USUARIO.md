@@ -1568,6 +1568,8 @@ Módulo de **topografía**: levanta terreno, genera **curvas de nivel**, calcula
 
 **📵 Campo sin señal** — Si capturas puntos sin conexión, quedan guardados en el teléfono y se **sincronizan solos** al volver la señal (aviso con botón **"Sincronizar"**). Las nubes densas se **agrupan** (clusters) en el mapa.
 
+**Herramientas avanzadas** — 🌡️ **mapa de pendientes** y 🧊 **visor 3D** del terreno (en Superficie); ✂️ **secciones transversales** (en Salidas); 📐 **líneas de rotura** (breaklines) para que el MDT respete bordes de talud/vías/muros; 🛰️ **ortofoto propia** (capa base por URL de tiles XYZ/TMS) en el mapa; ✏️ **dibujar sobre las fotos** de inspección; y 🌊 **geoide N** para convertir la altura del GPS en **cota ortométrica** (sobre el nivel del mar).
+
 > **Acceso por permiso:** módulo **"Geodesta"** en *Lectura* (solo ver), *Escritura* (crear/capturar) o *Full control* (eliminar). También existe el rol **"Geodesta"** para asignarlo directo a un usuario.
 
 ---

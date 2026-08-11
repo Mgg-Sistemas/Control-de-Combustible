@@ -496,6 +496,7 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: '🧭 Inspecciones: desde el detalle del levantamiento, inspección de terreno con GPS, checklist configurable, hallazgos, fotos, firma y estado (pendiente/observado/aprobado), con acta PDF y mapa por estado.' },
       { t: 'note', text: '📤 Salidas: perfil longitudinal entre dos puntos, y exportación a DXF (AutoCAD), KML (Google Earth), GeoJSON (QGIS/ArcGIS → Shapefile/GeoPackage) y LandXML (proyectista y guiado de maquinaria). Reporte técnico PDF consolidado.' },
       { t: 'note', text: '📵 Campo sin señal: si capturas puntos sin conexión, quedan guardados en el teléfono y se SINCRONIZAN solos al volver la señal (aparece un aviso con botón "Sincronizar"). Las nubes densas se agrupan (clusters) en el mapa.' },
+      { t: 'note', text: 'Herramientas avanzadas: 🌡️ mapa de calor de PENDIENTES y 🧊 visor 3D del terreno (en Superficie); ✂️ SECCIONES transversales (en Salidas); 📐 LÍNEAS DE ROTURA para que el terreno no cruce bordes de talud/vías; 🛰️ ORTOFOTO propia (capa base por URL de tiles) en el mapa; ✏️ dibujar sobre las fotos de inspección; y 🌊 GEOIDE N para que la cota del GPS sea ortométrica (sobre el nivel del mar).' },
       { t: 'note', text: 'Acceso por permiso: módulo "Geodesta" en Lectura (solo ver), Escritura (crear/capturar) o Full control (eliminar). También existe el rol "Geodesta" para asignarlo directo a un usuario.' },
     ],
   },
