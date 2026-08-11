@@ -2303,3 +2303,299 @@ drop trigger if exists trg_horometro_flag_pending on public.machinery;
 create trigger trg_horometro_flag_pending
   before insert or update of last_horometro, horometro_base on public.machinery
   for each row execute function public.horometro_flag_pending();
+
+-- ############################################################################
+-- ############################################################################
+-- ##  ENDURECIMIENTO CONSOLIDADO — FUENTE DE VERDAD DE SEGURIDAD (RLS + fns) ##
+-- ##  (auditoría, backend#2 — 11-ago-2026)                                   ##
+-- ############################################################################
+-- Todo lo de ARRIBA es el esquema histórico; algunas de sus políticas RLS eran
+-- inseguras (using(true) legible por la sesión ANÓNIMA del QR) y varias funciones
+-- eran versiones viejas. Antes, reconstruir un entorno solo con schema.sql dejaba
+-- ese estado inseguro y había que acordarse de correr los parches sueltos.
+--
+-- Esta sección DEBE quedar SIEMPRE al FINAL del archivo: re-declara (create or
+-- replace / drop+create policy) las versiones ENDURECIDAS, sobreescribiendo las
+-- definiciones inseguras de arriba. Es 100% idempotente y ADITIVA. Con esto,
+-- correr schema.sql SOLO ya deja el entorno en el estado seguro de producción.
+--
+-- Fold de: fix_rls_anon_nomina.sql, fix_rls_anon_nomina_v2.sql,
+--          fix_stock_race_condition.sql, mejoras_seguridad_rendimiento.sql,
+--          security_hardening_2026-08-11.sql (esos archivos se conservan como
+--          historial/detalle; su contenido de seguridad vive ahora también acá).
+-- NOTA: la pertenencia a la publicación de realtime (supabase_realtime) NO es
+--       seguridad y es específica del entorno — ver fix_realtime_publication*.sql.
+
+-- ── Índice del ledger de combustible (acelera DELETE por origen) ────────────
+create index if not exists idx_stock_movements_source
+  on public.stock_movements(source_table, source_id);
+
+-- ── NÓMINA / PAGOS: cerrar lectura a sesiones NO anónimas (fix_rls_anon_nomina + v2)
+drop policy if exists cp_select on public.company_payments;
+create policy cp_select on public.company_payments for select to authenticated using (not public.is_anon());
+drop policy if exists pr_read on public.payrolls;
+create policy pr_read on public.payrolls for select to authenticated using (not public.is_anon());
+drop policy if exists spi_all on public.staff_pay_items;
+create policy spi_all on public.staff_pay_items for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists sp_all on public.staff_payments;
+create policy sp_all on public.staff_payments for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists pp_read on public.payroll_periods;
+create policy pp_read on public.payroll_periods for select to authenticated using (not public.is_anon());
+drop policy if exists pi_read on public.payroll_items;
+create policy pi_read on public.payroll_items for select to authenticated using (not public.is_anon());
+drop policy if exists spp_all on public.staff_pay_periods;
+create policy spp_all on public.staff_pay_periods for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists spp2_all on public.staff_pay_payments;
+create policy spp2_all on public.staff_pay_payments for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists sct_all on public.staff_cargo_tariffs;
+create policy sct_all on public.staff_cargo_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists spc_all on public.staff_pay_config;
+create policy spc_all on public.staff_pay_config for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+
+-- employees: lectura directa solo NO anónima + RPC pública con columnas NO sensibles
+-- (sin sueldo/banco/precios/notas). OJO: las 3 pantallas anónimas (jornada.ts,
+-- MachineQuickScreen, EmployeeCardScreen) ya usan employee_public_lookup (desplegado).
+create or replace function public.employee_public_lookup(p_id uuid default null, p_cedula text default null)
+returns table (id uuid, company_id uuid, company_name text, ficha_number text, first_name text, last_name text,
+  cedula text, cargo text, department text, grupo text, photo_url text, birth_date date, gender text, blood_type text,
+  nationality text, marital_status text, phone text, email text, address text, city text, state text,
+  emergency_contact_name text, emergency_contact_phone text, emergency_contact_relation text, hire_date date,
+  status text, talla_camisa text, talla_pantalon text, talla_zapatos text)
+language sql stable security definer set search_path = public as $$
+  select e.id, e.company_id, c.name as company_name, e.ficha_number, e.first_name, e.last_name,
+    e.cedula, e.cargo, e.department, e.grupo, e.photo_url, e.birth_date, e.gender, e.blood_type,
+    e.nationality, e.marital_status, e.phone, e.email, e.address, e.city, e.state,
+    e.emergency_contact_name, e.emergency_contact_phone, e.emergency_contact_relation,
+    e.hire_date, e.status, e.talla_camisa, e.talla_pantalon, e.talla_zapatos
+  from public.employees e left join public.companies c on c.id = e.company_id
+  where (p_id is not null and e.id = p_id) or (p_cedula is not null and btrim(p_cedula) <> '' and e.cedula = btrim(p_cedula))
+  limit 1
+$$;
+grant execute on function public.employee_public_lookup(uuid, text) to anon, authenticated;
+drop policy if exists employees_read on public.employees;
+create policy employees_read on public.employees for select to authenticated using (not public.is_anon());
+
+-- ── TABLAS SENSIBLES: cerrar escritura a la sesión anónima / restringir por rol
+--    (mejoras_seguridad_rendimiento + security_hardening_2026-08-11)
+drop policy if exists attendance_write on public.attendance;
+create policy attendance_write on public.attendance for all to authenticated
+  using (public.can_write_module('asistencia')) with check (public.can_write_module('asistencia'));
+drop policy if exists uniform_deliveries_write on public.uniform_deliveries;
+create policy uniform_deliveries_write on public.uniform_deliveries for all to authenticated
+  using (public.can_write_module('asistencia')) with check (public.can_write_module('asistencia'));
+drop policy if exists sv_write on public.supervisor_visits;
+create policy sv_write on public.supervisor_visits for all to authenticated
+  using (public.current_role() in ('admin','supervisor')) with check (public.current_role() in ('admin','supervisor'));
+drop policy if exists cc_write on public.control_closures;
+create policy cc_write on public.control_closures for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mr_write on public.machine_rounds;
+create policy mr_write on public.machine_rounds for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mdo_write on public.machine_day_operators;
+create policy mdo_write on public.machine_day_operators for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mr_maint_update on public.maintenance_requests;
+create policy mr_maint_update on public.maintenance_requests for update using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists bcv_write on public.bcv_rates;
+create policy bcv_write on public.bcv_rates for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists fletes_write on public.fletes;
+create policy fletes_write on public.fletes for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists fcm_write on public.food_company_meals;
+create policy fcm_write on public.food_company_meals for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists fd_write on public.food_distributions;
+create policy fd_write on public.food_distributions for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists gim_write on public.guard_inspector_meta;
+create policy gim_write on public.guard_inspector_meta for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists gs_write on public.guard_shifts;
+create policy gs_write on public.guard_shifts for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mws_write on public.machine_work_segments;
+create policy mws_write on public.machine_work_segments for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mo_write on public.machine_operators;
+create policy mo_write on public.machine_operators for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists truck_att_write on public.truck_attendance;
+create policy truck_att_write on public.truck_attendance for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists invtr_all on public.inventory_transfers;
+create policy invtr_all on public.inventory_transfers for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists aliados_write on public.aliados;
+create policy aliados_write on public.aliados for all using (not public.is_anon()) with check (not public.is_anon());
+
+-- ── FUNCIONES ENDURECIDAS ───────────────────────────────────────────────────
+-- security#1: un no-admin no puede autoconcederse rol / auditoría / rol dinámico.
+create or replace function public.guard_role_change()
+returns trigger language plpgsql security definer set search_path to 'public' as $function$
+begin
+  if auth.uid() is not null and not public.is_admin() then
+    if new.role is distinct from old.role then raise exception 'No autorizado para cambiar el rol de usuario'; end if;
+    if new.can_audit is distinct from old.can_audit then raise exception 'No autorizado para cambiar el acceso a auditoría'; end if;
+    if new.app_role_id is distinct from old.app_role_id then raise exception 'No autorizado para cambiar el rol asignado'; end if;
+  end if;
+  return new;
+end $function$;
+
+-- backend#4: can_write_module() fail-closed alineado con defaultLevel() de la UI.
+create or replace function public.can_write_module(mod text)
+returns boolean language plpgsql stable security definer set search_path to 'public' as $function$
+declare lvl text;
+begin
+  if public.is_anon() then return false; end if;
+  if public.is_admin() then return true; end if;
+  select mp.level into lvl from public.module_permissions mp where mp.user_id = auth.uid() and mp.module = mod limit 1;
+  if lvl is null then
+    return mod not in (
+      'control_pagos','margen_ganancia','usuarios','empleados','aliados','nomina',
+      'uniformes','compras','inventario','supervision','comida','asistencia',
+      'asistencia_camiones','inspecciones_maq','coordinador_inspectores',
+      'coordinacion_operadores','mangueras','fabricacion_planta','acarreo','geodesta');
+  end if;
+  return lvl in ('escritura','full');
+end; $function$;
+
+-- backend#5: EXECUTE explícito para update_machine_location (antes PUBLIC implícito).
+revoke all on function public.update_machine_location(uuid,numeric,numeric,text) from public;
+grant execute on function public.update_machine_location(uuid,numeric,numeric,text) to anon, authenticated;
+
+-- sync#1: mv_dispatch/mv_transfer con `for update` sobre el tanque (anti-sobregiro).
+create or replace function public.mv_dispatch() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare available numeric;
+begin
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='dispatches' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    if NEW.tank_id is not null then
+      perform 1 from public.tanks where id = NEW.tank_id for update;
+      select current_l into available from tank_levels where id = NEW.tank_id;
+      if coalesce(available,0) < NEW.liters then
+        raise exception 'Stock insuficiente en el tanque (disponible %, solicitado %)', available, NEW.liters;
+      end if;
+      insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+      values (NEW.tank_id, 'consumo', -NEW.liters, 'dispatches', NEW.id);
+    end if;
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
+end $$;
+
+create or replace function public.mv_transfer() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare available numeric;
+begin
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='transfers' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    perform 1 from public.tanks where id = NEW.from_tank_id for update;
+    select current_l into available from tank_levels where id = NEW.from_tank_id;
+    if coalesce(available,0) < NEW.liters then
+      raise exception 'Stock insuficiente en el tanque origen (disponible %, solicitado %)', available, NEW.liters;
+    end if;
+    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+    values (NEW.from_tank_id, 'traslado_salida', -NEW.liters, 'transfers', NEW.id),
+           (NEW.to_tank_id,   'traslado_entrada', NEW.liters, 'transfers', NEW.id);
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
+end $$;
+
+-- sync#1: one_fuel_per_machine_per_day con advisory lock por (máquina, fecha).
+create or replace function public.one_fuel_per_machine_per_day() returns trigger
+language plpgsql set search_path to 'public' as $function$
+declare prev numeric;
+begin
+  if NEW.asset_kind = 'maquinaria' and NEW.machinery_id is not null then
+    perform pg_advisory_xact_lock(hashtext(NEW.machinery_id::text || ':' || NEW.dispatch_date::text));
+    select coalesce(sum(liters),0) into prev from public.dispatches
+      where machinery_id = NEW.machinery_id and dispatch_date = NEW.dispatch_date;
+    if prev > 0 then
+      raise exception 'Esta máquina ya cargó % L hoy y no puede cargar de nuevo (aunque sea de otra cisterna).', prev;
+    end if;
+  end if;
+  return NEW;
+end $function$;
+
+-- security#4: bloqueo de login con AUTO-DESBLOQUEO 15 min (anti-DoS de cuentas ajenas).
+create or replace function public.register_failed_login(p_cedula text)
+returns table(attempts integer, locked boolean)
+language plpgsql security definer set search_path to 'public' as $function$
+declare r public.profiles%rowtype; v_att int; v_lock boolean; v_at timestamptz;
+begin
+  select * into r from public.profiles where btrim(cedula) = btrim(p_cedula) limit 1 for update;
+  if not found then return query select 0, false; return; end if;
+  v_att := coalesce(r.failed_attempts, 0); v_lock := coalesce(r.locked, false); v_at := r.locked_at;
+  if v_lock and v_at is not null and v_at <= now() - interval '15 minutes' then v_att := 0; v_lock := false; v_at := null; end if;
+  if v_lock then return query select v_att, true; return; end if;
+  v_att := v_att + 1;
+  if v_att >= 3 then v_lock := true; v_at := now(); end if;
+  update public.profiles set failed_attempts = v_att, locked = v_lock, locked_at = v_at where id = r.id;
+  return query select v_att, v_lock;
+end $function$;
+
+create or replace function public.register_failed_login_username(p_username text)
+returns table(attempts integer, locked boolean)
+language plpgsql security definer set search_path to 'public' as $function$
+declare r public.profiles%rowtype; v_att int; v_lock boolean; v_at timestamptz;
+begin
+  select * into r from public.profiles where lower(btrim(username)) = lower(btrim(p_username)) limit 1 for update;
+  if not found then return query select 0, false; return; end if;
+  v_att := coalesce(r.failed_attempts, 0); v_lock := coalesce(r.locked, false); v_at := r.locked_at;
+  if v_lock and v_at is not null and v_at <= now() - interval '15 minutes' then v_att := 0; v_lock := false; v_at := null; end if;
+  if v_lock then return query select v_att, true; return; end if;
+  v_att := v_att + 1;
+  if v_att >= 3 then v_lock := true; v_at := now(); end if;
+  update public.profiles set failed_attempts = v_att, locked = v_lock, locked_at = v_at where id = r.id;
+  return query select v_att, v_lock;
+end $function$;
+
+create or replace function public.login_status_for_cedula(p_cedula text)
+returns table(email text, locked boolean)
+language plpgsql security definer set search_path to 'public', 'auth' as $function$
+begin
+  update public.profiles p set failed_attempts = 0, locked = false, locked_at = null
+   where btrim(p.cedula) = btrim(p_cedula) and p.locked = true
+     and p.locked_at is not null and p.locked_at <= now() - interval '15 minutes';
+  return query select au.email::text, coalesce(pr.locked, false)
+    from auth.users au join public.profiles pr on pr.id = au.id
+    where pr.cedula = btrim(p_cedula) and coalesce(au.is_anonymous, false) = false limit 1;
+end $function$;
+
+create or replace function public.login_status_for_username(p_username text)
+returns table(email text, locked boolean)
+language plpgsql security definer set search_path to 'public', 'auth' as $function$
+begin
+  update public.profiles p set failed_attempts = 0, locked = false, locked_at = null
+   where lower(btrim(p.username)) = lower(btrim(p_username)) and p.locked = true
+     and p.locked_at is not null and p.locked_at <= now() - interval '15 minutes';
+  return query select au.email::text, coalesce(pr.locked, false)
+    from auth.users au join public.profiles pr on pr.id = au.id
+    where lower(btrim(pr.username)) = lower(btrim(p_username)) and coalesce(au.is_anonymous, false) = false limit 1;
+end $function$;
+
+-- sync#4: máx 2 operadores por (máquina, fecha, turno) atómico (advisory lock).
+create or replace function public.enforce_max_operators_per_shift()
+returns trigger language plpgsql security definer set search_path to 'public' as $function$
+declare v_ci text; v_others int;
+begin
+  if new.shift is null then return new; end if;
+  if tg_op = 'UPDATE'
+     and new.machinery_id = old.machinery_id and new.work_date = old.work_date
+     and new.shift is not distinct from old.shift
+     and regexp_replace(coalesce(new.cedula,''),'\D','','g') = regexp_replace(coalesce(old.cedula,''),'\D','','g')
+  then return new; end if;
+  v_ci := regexp_replace(coalesce(new.cedula,''),'\D','','g');
+  perform pg_advisory_xact_lock(hashtext(new.machinery_id::text || ':' || new.work_date::text || ':' || new.shift));
+  select count(distinct regexp_replace(coalesce(cedula,''),'\D','','g')) into v_others
+  from public.operator_assignments
+  where machinery_id = new.machinery_id and work_date = new.work_date and shift = new.shift
+    and id <> new.id and regexp_replace(coalesce(cedula,''),'\D','','g') <> v_ci;
+  if v_others >= 2 then
+    raise exception 'El turno de % de esta máquina ya tiene 2 operadores (máximo por turno).',
+      case when new.shift = 'day' then 'DÍA' else 'NOCHE' end using errcode = 'check_violation';
+  end if;
+  return new;
+end $function$;
+drop trigger if exists trg_max_ops_per_shift on public.operator_assignments;
+create trigger trg_max_ops_per_shift
+before insert or update on public.operator_assignments
+for each row execute function public.enforce_max_operators_per_shift();
+-- ############################################################################
+-- ##  FIN — ENDURECIMIENTO CONSOLIDADO                                       ##
+-- ############################################################################
