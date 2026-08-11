@@ -301,13 +301,21 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
+    // Fin del día de negocio elegido (7am del día siguiente — el turno noche cruza la
+    // medianoche). Para FECHAS PASADAS una avería/parada que "se mantuvo" ese día pero
+    // se resolvió DESPUÉS (resolved_at > este borde) debe seguir contando como
+    // averiada/parada; si no, la máquina caía a "pendiente por iniciar" y bajaba el %.
+    // Para HOY este borde es futuro, así que `resolved_at.gt` no matchea nada y queda
+    // en solo-pendientes (no resucita averías ya resueltas hoy).
+    const nextBiz = new Date(selDay + 'T12:00:00-04:00'); nextBiz.setUTCDate(nextBiz.getUTCDate() + 1);
+    const nightEndBound = `${nextBiz.toISOString().slice(0, 10)}T07:00:00-04:00`;
     const [roundsRows, maintRows, asg, machRows, allHoursMap] = await Promise.all([
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, jornada_marked_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
       // selectAllRows (no .from directo): con el uso normal de la flota, las
       // averías/paradas "pendiente" se acumulan indefinidamente (se arrastran hasta
       // resolverse) y pueden superar las ~1000 filas que corta PostgREST por
       // consulta — igual que ya se cuidó arriba con machine_rounds/machinery.
-      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, machine:machinery_id(code)', (q) => q.eq('status', 'pendiente')),
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at, machine:machinery_id(code)', (q) => q.or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`)),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
