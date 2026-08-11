@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { subscribeRealtime } from '../lib/realtimeBus';
 
 // Secuencia global: un id único por instancia para que el nombre del canal no
 // colisione con otro (dos canales con el mismo nombre rompen realtime).
@@ -37,9 +38,7 @@ export type RealtimeRefreshOpts = {
  * En tablas de alta frecuencia, sube estos valores desde la pantalla.
  */
 export function useRealtimeRefresh(tables: string[], onChange: () => void, opts?: RealtimeRefreshOpts) {
-  const id = useRef(0);
-  if (id.current === 0) id.current = ++rtxSeq;
-  // Guardamos el callback en un ref para NO re-suscribir el canal en cada render
+  // Guardamos el callback en un ref para NO re-suscribir en cada render
   // (solo se re-suscribe si cambia la lista de tablas o los tiempos).
   const cb = useRef(onChange);
   cb.current = onChange;
@@ -65,9 +64,8 @@ export function useRealtimeRefresh(tables: string[], onChange: () => void, opts?
       // cambios sigan llegando sin pausa (si no, el debounce nunca dispararía).
       if (!maxTimer) maxTimer = setTimeout(() => { if (pending) fire(); }, maxWait);
     };
-    const ch = supabase.channel(`rtx-${key}-${id.current}`);
-    key.split(',').forEach((t) => ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump));
-    ch.subscribe();
-    return () => { clearTimeout(timer); clearTimeout(maxTimer); supabase.removeChannel(ch); };
+    // Canal COMPARTIDO por toda la app (ver src/lib/realtimeBus.ts) — no uno por instancia.
+    const unsub = subscribeRealtime(key.split(','), bump);
+    return () => { clearTimeout(timer); clearTimeout(maxTimer); unsub(); };
   }, [key, wait, maxWait]);
 }
