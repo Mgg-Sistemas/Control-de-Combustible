@@ -23,6 +23,7 @@ import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { caracasParts } from '../lib/jornada';
+import { paradaShiftOf } from '../lib/inspectorDaySets';
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
@@ -509,7 +510,13 @@ export default function EquiposScreen({ navigation, route }: any) {
     const todayStartMs = new Date(`${caracasParts(new Date(nowTick)).iso}T00:00:00-04:00`).getTime();
     const esHoy = !!a && a.createdMs >= todayStartMs;
     const reactivada = !!a && hasOpen && openStart >= a.createdMs;
-    const averiaVigente = !siempreActivo && !!a && !reactivada && (esHoy || (!hasOpen && total <= 0));
+    // POR TURNO: una avería/parada solo vige en SU turno (el de la hora en que se marcó).
+    // Marcarla de DÍA no debe afectar la NOCHE (ni viceversa): en el otro turno la máquina
+    // se ve pendiente/operativa. Mismo criterio que SupervisorScreen (segmentoDe) e
+    // Inspecciones (buildDaySets), que separan por paradaShiftOf(created_at).
+    const nowShift = paradaShiftOf(new Date(nowTick).toISOString());
+    const mismoTurno = !!a && paradaShiftOf(new Date(a.createdMs).toISOString()) === nowShift;
+    const averiaVigente = !siempreActivo && !!a && mismoTurno && !reactivada && (esHoy || (!hasOpen && total <= 0));
     let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
     if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
     else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';
