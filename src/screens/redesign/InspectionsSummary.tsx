@@ -488,7 +488,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // mucho más rápido y con un solo punto de éxito/error para toda la tanda.
       const nowIso = new Date().toISOString();
       if (action === 'start') {
-        const rows = items.map((it) => ({ machinery_id: it.id, round_date: roundDateFor(it.id, it.shift), round_no: 1, jornada_start_at: nowIso, jornada_shift: it.shift, status: 'operativa' }));
+        // La jornada cuenta desde el inicio NOMINAL del turno (7am día / 7pm noche),
+        // igual que el teléfono (regla del cliente: "la jornada empieza a las 7am").
+        // La hora REAL en que se activó se guarda aparte en `jornada_marked_at`, para
+        // mostrar "INICIO 07:00 · 👷 marcó 8:56" sin inflar/recortar las horas (que
+        // siempre se miden desde el nominal). Antes se ponía el inicio = hora del clic
+        // (nowIso), así que estas máquinas contaban desde tarde y no mostraban el marcado.
+        const rows = items.map((it) => {
+          const rd = roundDateFor(it.id, it.shift);
+          const declaredIso = `${rd}T${it.shift === 'night' ? '19:00:00' : '07:00:00'}-04:00`;
+          return { machinery_id: it.id, round_date: rd, round_no: 1, jornada_start_at: declaredIso, jornada_shift: it.shift, jornada_marked_at: nowIso, status: 'operativa' };
+        });
         const { error } = await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
         if (error) {
           Alert.alert('No se pudo iniciar', error.message);
