@@ -7,36 +7,32 @@ import { utmToLatLng } from './utm';
 
 export type XYZ = { x: number; y: number; z: number }; // x=Este, y=Norte, z=cota
 export type Grid = { grid: Float64Array; nx: number; ny: number; minX: number; minY: number; cell: number };
+export type GridSpec = { minX: number; minY: number; cell: number; nx: number; ny: number };
 
 const MAX_NODES = 400; // tope por eje (rendimiento)
 
-/** Interpola los puntos a una rejilla regular usando el TIN (baricéntrico). Las
- *  celdas fuera del casco de triángulos quedan NaN. */
-export function buildGrid(pts: XYZ[], cellHint?: number): Grid | null {
-  if (pts.length < 3) return null;
+/** Caja envolvente (bbox) de un conjunto de puntos en el plano UTM. */
+export function bboxOf(pts: XYZ[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  if (!pts.length) return null;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
-  const sizeX = maxX - minX, sizeY = maxY - minY;
-  if (!(sizeX > 0) && !(sizeY > 0)) return null;
-  let cell = cellHint && cellHint > 0 ? cellHint : Math.max(Math.max(sizeX, sizeY) / 150, 0.2);
-  // Respeta el tope de nodos por eje.
-  let nx = Math.floor(sizeX / cell) + 1, ny = Math.floor(sizeY / cell) + 1;
-  if (nx > MAX_NODES || ny > MAX_NODES) { cell = Math.max(sizeX, sizeY) / (MAX_NODES - 1); nx = Math.floor(sizeX / cell) + 1; ny = Math.floor(sizeY / cell) + 1; }
-  const grid = new Float64Array(nx * ny).fill(NaN);
+  return { minX, minY, maxX, maxY };
+}
 
+/** Interpola los puntos al TIN sobre una MALLA DADA (spec). NaN fuera del casco. */
+export function buildGridOn(pts: XYZ[], spec: GridSpec): Float64Array {
+  const { minX, minY, cell, nx, ny } = spec;
+  const grid = new Float64Array(nx * ny).fill(NaN);
+  if (pts.length < 3) return grid;
   const coords = new Float64Array(pts.length * 2);
   for (let i = 0; i < pts.length; i++) { coords[i * 2] = pts[i].x; coords[i * 2 + 1] = pts[i].y; }
-  // Interop ESM/CJS: según el bundler, el default puede venir envuelto en `.default`.
-  const DCtor: any = (Delaunator as any)?.default ?? Delaunator;
+  const DCtor: any = (Delaunator as any)?.default ?? Delaunator; // interop ESM/CJS
   const d = new DCtor(coords);
   const tri = d.triangles as Uint32Array;
-
   for (let t = 0; t < tri.length; t += 3) {
     const a = pts[tri[t]], b = pts[tri[t + 1]], c = pts[tri[t + 2]];
-    const bxMin = Math.min(a.x, b.x, c.x), bxMax = Math.max(a.x, b.x, c.x);
-    const byMin = Math.min(a.y, b.y, c.y), byMax = Math.max(a.y, b.y, c.y);
-    const gx0 = Math.max(0, Math.floor((bxMin - minX) / cell)), gx1 = Math.min(nx - 1, Math.ceil((bxMax - minX) / cell));
-    const gy0 = Math.max(0, Math.floor((byMin - minY) / cell)), gy1 = Math.min(ny - 1, Math.ceil((byMax - minY) / cell));
+    const gx0 = Math.max(0, Math.floor((Math.min(a.x, b.x, c.x) - minX) / cell)), gx1 = Math.min(nx - 1, Math.ceil((Math.max(a.x, b.x, c.x) - minX) / cell));
+    const gy0 = Math.max(0, Math.floor((Math.min(a.y, b.y, c.y) - minY) / cell)), gy1 = Math.min(ny - 1, Math.ceil((Math.max(a.y, b.y, c.y) - minY) / cell));
     const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
     if (Math.abs(det) < 1e-12) continue;
     for (let gy = gy0; gy <= gy1; gy++) {
@@ -50,7 +46,26 @@ export function buildGrid(pts: XYZ[], cellHint?: number): Grid | null {
       }
     }
   }
-  return { grid, nx, ny, minX, minY, cell };
+  return grid;
+}
+
+/** Deriva una malla (spec) para una bbox con un tamaño de celda (respeta el tope). */
+export function specFor(minX: number, minY: number, maxX: number, maxY: number, cellHint?: number): GridSpec | null {
+  const sizeX = maxX - minX, sizeY = maxY - minY;
+  if (!(sizeX > 0) && !(sizeY > 0)) return null;
+  let cell = cellHint && cellHint > 0 ? cellHint : Math.max(Math.max(sizeX, sizeY) / 150, 0.2);
+  let nx = Math.floor(sizeX / cell) + 1, ny = Math.floor(sizeY / cell) + 1;
+  if (nx > MAX_NODES || ny > MAX_NODES) { cell = Math.max(sizeX, sizeY) / (MAX_NODES - 1); nx = Math.floor(sizeX / cell) + 1; ny = Math.floor(sizeY / cell) + 1; }
+  return { minX, minY, cell, nx, ny };
+}
+
+/** Interpola los puntos a una rejilla regular usando el TIN. NaN fuera del casco. */
+export function buildGrid(pts: XYZ[], cellHint?: number): Grid | null {
+  const bb = bboxOf(pts);
+  if (!bb) return null;
+  const spec = specFor(bb.minX, bb.minY, bb.maxX, bb.maxY, cellHint);
+  if (!spec) return null;
+  return { grid: buildGridOn(pts, spec), nx: spec.nx, ny: spec.ny, minX: spec.minX, minY: spec.minY, cell: spec.cell };
 }
 
 /** Segmentos (en coord. mundo UTM) de la curva de nivel `level` sobre la rejilla. */
