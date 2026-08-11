@@ -182,3 +182,44 @@ begin
     where lower(btrim(pr.username)) = lower(btrim(p_username)) and coalesce(au.is_anonymous, false) = false
     limit 1;
 end $function$;
+
+-- ── sync#4 (TOCTOU): el máximo de 2 operadores por (máquina, fecha, turno) se validaba
+--    SOLO en el cliente (startJornada lee el conteo y luego inserta) → dos operadores
+--    escaneando a la vez podían quedar 3 en el turno. Se cierra con un trigger que toma
+--    advisory lock por (máquina, fecha, turno) —igual patrón que one_fuel (sync#1)— y
+--    cuenta atómicamente. SECURITY DEFINER para no subcontar por RLS del rol anónimo (QR).
+--    (La otra regla, "1 máquina por operador por día", YA es atómica: constraint única
+--     uq_operator_day sobre (cedula, work_date).)
+create or replace function public.enforce_max_operators_per_shift()
+returns trigger language plpgsql security definer set search_path to 'public' as $function$
+declare v_ci text; v_others int;
+begin
+  if new.shift is null then return new; end if;
+  if tg_op = 'UPDATE'
+     and new.machinery_id = old.machinery_id
+     and new.work_date = old.work_date
+     and new.shift is not distinct from old.shift
+     and regexp_replace(coalesce(new.cedula,''),'\D','','g') = regexp_replace(coalesce(old.cedula,''),'\D','','g')
+  then
+    return new;
+  end if;
+  v_ci := regexp_replace(coalesce(new.cedula,''),'\D','','g');
+  perform pg_advisory_xact_lock(hashtext(new.machinery_id::text || ':' || new.work_date::text || ':' || new.shift));
+  select count(distinct regexp_replace(coalesce(cedula,''),'\D','','g'))
+    into v_others
+  from public.operator_assignments
+  where machinery_id = new.machinery_id and work_date = new.work_date and shift = new.shift
+    and id <> new.id
+    and regexp_replace(coalesce(cedula,''),'\D','','g') <> v_ci;
+  if v_others >= 2 then
+    raise exception 'El turno de % de esta máquina ya tiene 2 operadores (máximo por turno).',
+      case when new.shift = 'day' then 'DÍA' else 'NOCHE' end
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $function$;
+
+drop trigger if exists trg_max_ops_per_shift on public.operator_assignments;
+create trigger trg_max_ops_per_shift
+before insert or update on public.operator_assignments
+for each row execute function public.enforce_max_operators_per_shift();
