@@ -26,6 +26,9 @@ type MaintenanceInsert = {
   status: string;
   requested_by: string | null;
   photo_url?: string | null;
+  /** Clave de idempotencia (auditoría sync#5): la ponen los replays de la cola,
+   *  no los inserts online. Ver replayOne + índice único uq_maintenance_client_action. */
+  client_action_id?: string;
 };
 
 export type QueuedAveria = {
@@ -151,10 +154,20 @@ export function isNetworkErrorMsg(msg?: string | null): boolean {
   return m.includes('failed to fetch') || m.includes('network request failed') || m.includes('fetch failed') || m.includes('load failed');
 }
 
+/** Violación de clave única (Postgres 23505). En un replay de la cola significa
+ *  que ese insert YA se aplicó en el servidor (la respuesta se perdió tras el
+ *  commit, ver sync#5): se trata como éxito, no como error, para no duplicar. */
+function isDuplicateKeyError(error: any): boolean {
+  return error?.code === '23505' || String(error?.message ?? '').toLowerCase().includes('duplicate key');
+}
+
 async function replayOne(item: QueuedAction): Promise<void> {
   if (item.kind === 'averia') {
-    const { error } = await supabase.from('maintenance_requests').insert(item.payload);
-    if (error) throw new Error(error.message);
+    // client_action_id estable (= id de la acción en cola) → si un replay anterior
+    // ya insertó pero se perdió la respuesta, este reintento choca con el índice
+    // único y se trata como éxito (sync#5), en vez de crear un ticket duplicado.
+    const { error } = await supabase.from('maintenance_requests').insert({ ...item.payload, client_action_id: item.id });
+    if (error && !isDuplicateKeyError(error)) throw new Error(error.message);
     return;
   }
   if (item.kind === 'parada') {
@@ -180,8 +193,10 @@ async function replayOne(item: QueuedAction): Promise<void> {
     }
     const desde = progress.maintenanceDone ?? 0;
     for (let mi = desde; mi < maintenance.length; mi++) {
-      const { error } = await supabase.from('maintenance_requests').insert(maintenance[mi]);
-      if (error) throw new Error(error.message);
+      // client_action_id único por (acción, fila) → idempotente ante respuesta
+      // perdida tras el commit (sync#5): un reintento no duplica el ticket.
+      const { error } = await supabase.from('maintenance_requests').insert({ ...maintenance[mi], client_action_id: `${item.id}:${mi}` });
+      if (error && !isDuplicateKeyError(error)) throw new Error(error.message);
       progress.maintenanceDone = mi + 1;
       await persistParadaProgress(item.id, progress);
     }

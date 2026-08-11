@@ -2647,6 +2647,14 @@ begin
   return row_out;
 end $function$;
 grant execute on function public.upsert_machine_round(uuid, date, jsonb, uuid) to authenticated;
+
+-- sync#5: clave de idempotencia opcional para los replays de la cola offline
+-- (offlineQueue.ts). Evita tickets de avería/parada DUPLICADOS cuando el servidor
+-- ya insertó pero se perdió la respuesta y el ítem se reintenta. Nullable + índice
+-- PARCIAL → los inserts online (sin clave) no se ven afectados.
+alter table public.maintenance_requests add column if not exists client_action_id text;
+create unique index if not exists uq_maintenance_client_action
+  on public.maintenance_requests(client_action_id) where client_action_id is not null;
 -- ############################################################################
 -- ##  FIN — ENDURECIMIENTO CONSOLIDADO                                       ##
 -- ############################################################################
