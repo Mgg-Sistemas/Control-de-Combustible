@@ -23,7 +23,7 @@ import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } fr
 import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
-import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo } from '../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
@@ -512,10 +512,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // nadie más se puede asignar.
     if (puedeCoordinar) {
       const { data: insp } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
-      // El inspector VIRTUAL "SOS LA GUAIRA" (cubre máquinas sin inspector humano) solo
-      // lo puede asignar un ADMIN — pedido del cliente: coordinadores/analistas asignan
-      // inspectores reales, pero decidir "que quede sin inspector real" es decisión del admin.
-      const rows = ((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim() && (isAdmin || p.id !== PLACEHOLDER_INSPECTOR_ID));
+      // El placeholder "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los
+      // puede ASIGNAR un ADMIN — pedido del cliente 11-ago-2026: coordinadores/analistas
+      // pueden REASIGNAR (quitarle a SOS una máquina y dársela a otro) libremente, pero
+      // no pueden cargarle máquinas nuevas sin que sea decisión de un admin.
+      const rows = ((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim() && (isAdmin || !soloAdminPuedeAsignar(p)));
       setInspectors(rows.map((p) => ({ id: p.id as string, name: p.full_name as string, role: (p.role ?? null) as string | null })));
     }
     setLoading(false);

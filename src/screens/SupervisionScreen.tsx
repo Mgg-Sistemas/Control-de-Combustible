@@ -5,7 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
-import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
@@ -232,11 +232,14 @@ export default function SupervisionScreen({ navigation }: any) {
     if (!puedeCoordinar) return;
     (async () => {
       const { data } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
+      // El placeholder "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los
+      // puede ASIGNAR un ADMIN — mismo criterio que el teléfono/CheckMaquinaModal; esta
+      // pantalla no lo aplicaba (hueco por el que se podía saltar la restricción).
       setInspectors(((data ?? []) as any[])
-        .filter((p) => (p.full_name || '').trim())
+        .filter((p) => (p.full_name || '').trim() && (isAdmin || !soloAdminPuedeAsignar(p)))
         .map((p) => ({ id: p.id as string, name: p.full_name as string })));
     })();
-  }, [puedeCoordinar]);
+  }, [puedeCoordinar, isAdmin]);
   // Inspector actual (día/noche) por máquina, a partir de las asignaciones cargadas.
   const assignByMachine = useMemo(() => {
     const map = new Map<string, { code: string; companyName: string; day?: { id: string | null; name: string }; night?: { id: string | null; name: string } }>();

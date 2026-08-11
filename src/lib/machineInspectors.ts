@@ -37,6 +37,21 @@ export function inspectorSiempreActivo(name?: string | null): boolean {
 }
 
 /**
+ * ¿Solo un ADMIN puede ASIGNARLE máquinas NUEVAS a este inspector? (pedido del
+ * cliente 11-ago-2026: los analistas/coordinadores pueden REASIGNAR — quitarle a
+ * este inspector una máquina que ya tiene y dársela a otro — libremente, pero no
+ * pueden cargarle máquinas nuevas sin que sea decisión de un admin). Cubre dos
+ * casos que antes se confundían en el código: el placeholder "MÁQUINAS FALTANTES"
+ * (ya restringido) y ahora también el inspector REAL "Inspector SOS LA GUAIRA"
+ * (`inspectorSiempreActivo`). Solo filtra el PICKER de asignar — `unassignInspector`
+ * no tiene ni necesita este check, quitar sigue abierto a cualquiera con permiso
+ * de coordinar inspectores.
+ */
+export function soloAdminPuedeAsignar(p: { id?: string | null; full_name?: string | null }): boolean {
+  return p.id === PLACEHOLDER_INSPECTOR_ID || inspectorSiempreActivo(p.full_name);
+}
+
+/**
  * ¿Es el cajón "MAQUINAS FALTANTES" (sin inspector humano real)? Antes la
  * pantalla (InspectionsSummary.tsx) y el PDF (inspectorSummaryReport.ts) tenían
  * cada uno su propia copia de este mismo regex — centralizado acá para que no
