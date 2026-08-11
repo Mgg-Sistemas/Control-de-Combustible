@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-
-// Secuencia global: da un id único a cada instancia del hook para que su canal
-// de realtime no colisione con otro que escuche la misma tabla (dos canales con
-// el mismo nombre rompen con "cannot add postgres_changes after subscribe()").
-let rtSeq = 0;
+import { subscribeRealtime } from '../lib/realtimeBus';
 
 // PostgREST/Supabase corta cada respuesta en ~1000 filas por defecto. Sin paginar,
 // las tablas grandes (machine_rounds, attendance, staff_payments, etc.) se leían
@@ -28,9 +24,6 @@ export function useTable<T = any>(
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Id único y estable de esta instancia (para el nombre del canal de realtime).
-  const instanceId = useRef<number>(0);
-  if (instanceId.current === 0) instanceId.current = ++rtSeq;
 
   // `silent`: recarga SIN mostrar "Cargando…" (para refrescos en tiempo real y tras
   //  guardar). Evita que la lista parpadee/re-renderice en cada cambio → app más fluida.
@@ -71,9 +64,10 @@ export function useTable<T = any>(
     fetch(); // primera carga: sí muestra "Cargando…"
   }, [fetch]);
 
-  // Sincronización en tiempo real (multiusuario): al recibir cualquier cambio en
-  // las tablas fuente, se vuelve a leer (con un pequeño debounce para agrupar ráfagas).
-  // Refuerzos: resincroniza al RECONECTAR el canal, al VOLVER a la pestaña y al
+  // Sincronización en tiempo real (multiusuario): al recibir cualquier cambio en las
+  // tablas fuente, se vuelve a leer (con un pequeño debounce para agrupar ráfagas). El
+  // canal es COMPARTIDO por toda la app (ver src/lib/realtimeBus.ts) — no uno por hook.
+  // Refuerzos: el bus resincroniza al RECONECTAR; acá además al VOLVER a la pestaña y al
   // recuperar INTERNET; y OPTIMIZA saltándose refrescos mientras la pestaña está oculta.
   const sourcesKey = Array.isArray(realtimeFrom) ? realtimeFrom.join(',') : realtimeFrom ?? table;
   useEffect(() => {
@@ -88,24 +82,18 @@ export function useTable<T = any>(
       clearTimeout(timer);
       timer = setTimeout(() => fetch(true), 400); // refresco SILENCIOSO (sin spinner)
     };
-    const ch = supabase.channel(`rt-${table}-${sourcesKey}-${instanceId.current}`);
-    sources.forEach((src) => ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: src }, bump));
-    // Al (re)suscribir el canal (reconexión por señal intermitente), resincroniza por si
-    // se perdieron cambios mientras estuvo caído. La PRIMERA suscripción no refetchea
-    // (la carga inicial ya corrió).
-    let joined = false;
-    ch.subscribe((status: string) => { if (status === 'SUBSCRIBED') { if (joined) bump(); joined = true; } });
+    const unsub = subscribeRealtime(sources, bump);
     // Web: al volver a la pestaña / recuperar internet, resincroniza en silencio.
     const onWake = () => bump();
     if (g.addEventListener) { g.addEventListener('online', onWake); g.addEventListener('focus', onWake); }
     if (doc && doc.addEventListener) doc.addEventListener('visibilitychange', onWake);
     return () => {
       clearTimeout(timer);
-      supabase.removeChannel(ch);
+      unsub();
       if (g.removeEventListener) { g.removeEventListener('online', onWake); g.removeEventListener('focus', onWake); }
       if (doc && doc.removeEventListener) doc.removeEventListener('visibilitychange', onWake);
     };
-  }, [table, sourcesKey, fetch]);
+  }, [sourcesKey, fetch]);
 
   // refetch tras guardar: silencioso, para que la lista no parpadee.
   const refetch = useCallback(() => fetch(true), [fetch]);
