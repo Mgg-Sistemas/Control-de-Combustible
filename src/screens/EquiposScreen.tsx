@@ -1209,7 +1209,12 @@ export default function EquiposScreen({ navigation, route }: any) {
             <AveriaBadge id={m.id} />
             <UltimaInactividadLine id={m.id} />
             {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-            {marcaModeloLabel(m) ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {marcaModeloLabel(m)}</Text> : null}
+            {(String(m.marca ?? m.tipo ?? '').trim() || String(m.modelo ?? '').trim()) ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca: {String(m.marca ?? m.tipo ?? '').trim() || '—'}</Text>
+                {String(m.modelo ?? '').trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.modelo}</Text> : null}
+              </>
+            ) : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
@@ -1993,7 +1998,12 @@ export default function EquiposScreen({ navigation, route }: any) {
                           <AveriaBadge id={m.id} />
                           <UltimaInactividadLine id={m.id} />
                           {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-                          {marcaModeloLabel(m) ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {marcaModeloLabel(m)}</Text> : null}
+                          {(String(m.marca ?? m.tipo ?? '').trim() || String(m.modelo ?? '').trim()) ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca: {String(m.marca ?? m.tipo ?? '').trim() || '—'}</Text>
+                {String(m.modelo ?? '').trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.modelo}</Text> : null}
+              </>
+            ) : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                           {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
