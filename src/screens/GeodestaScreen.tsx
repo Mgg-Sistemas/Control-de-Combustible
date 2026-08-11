@@ -18,7 +18,7 @@ import { levelMeets } from '../lib/permissions';
 import { fetchEdificioRows } from '../lib/edificios';
 import { GeodestaProject } from '../types/database';
 
-export default function GeodestaScreen() {
+export default function GeodestaScreen({ navigation }: any) {
   const { colors } = useTheme();
   const toast = useToast();
   const { moduleLevel } = useAuth();
@@ -137,13 +137,14 @@ export default function GeodestaScreen() {
             const confirmingDel = delId === p.id;
             return (
               <Card key={p.id}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <TouchableOpacity activeOpacity={0.7} onPress={() => navigation?.navigate?.('GeodestaDetalle', { projectId: p.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.text, fontSize: 15, fontWeight: '800' }}>{p.name}</Text>
                     {p.referencia ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>🏗️ {p.referencia}</Text> : null}
+                    <Text style={{ color: colors.primary, fontSize: 11, marginTop: 2, fontWeight: '700' }}>Abrir puntos y mapa ›</Text>
                   </View>
                   <Badge tone={p.status === 'activo' ? 'success' : 'muted'} label={(p.status || 'activo').toUpperCase()} />
-                </View>
+                </TouchableOpacity>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm }}>
                   <Chip colors={colors}>📍 {p.coord_system} · EPSG:{p.srid}</Chip>
                   <Chip colors={colors}>🎯 Tol. GPS {p.gps_tolerance_m} m</Chip>
