@@ -957,6 +957,11 @@ export default function SupervisionScreen({ navigation }: any) {
             </TouchableOpacity>
           ) : null}
         </View>
+        {/* 📍 Catálogo de UBICACIONES (edificios): agregar / editar / eliminar la lista
+            que usan los inspectores en el desplegable de EDIFICIO. */}
+        <TouchableOpacity onPress={() => navigation?.navigate?.('Ubicaciones')} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📍 Ubicaciones (catálogo de edificios)</Text>
+        </TouchableOpacity>
         {puedeCoordinar ? (
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
         ) : null}
