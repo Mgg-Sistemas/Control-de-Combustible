@@ -83,7 +83,7 @@ export default function HistoricoJornadasScreen() {
         'id, machinery_id, round_date, day_hours, night_hours, horometro_inicial, horometro_final, jornada_start_at, jornada_shift, machine:machinery_id(code, serial, plate, company:company_id(name))',
         (q) => q.gte('round_date', from).lte('round_date', to),
       ),
-      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at', (q) => q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${toPlus1}T07:00:00-04:00`)),
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, status, resolved_at', (q) => q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${toPlus1}T07:00:00-04:00`)),
       selectAllRows('machinery', 'id, code, serial, plate, company:company_id(name)', (q) => q),
     ]);
     const machInfo = new Map<string, { code: string; serial: string | null; plate: string | null; company: string }>();
@@ -93,10 +93,58 @@ export default function HistoricoJornadasScreen() {
     const roundByMD = new Map<string, { jStart: string | null; jShift: string | null }>();
     ((rs ?? []) as any[]).forEach((r) => roundByMD.set(`${r.machinery_id}|${r.round_date}`, { jStart: r.jornada_start_at ?? null, jShift: r.jornada_shift ?? null }));
 
-    // Cada ronda con horas se PARTE por turno: las horas de DÍA cuentan para el
-    // inspector de día asignado; las de NOCHE, para el de noche. Así el trabajo
-    // nocturno cuenta para su inspector real (antes se perdía) y aparecen todos.
     const list: Row[] = [];
+
+    // 1) AVERÍA/PARADA POR TURNO (se calcula PRIMERO — tiene PRECEDENCIA sobre las horas):
+    // una máquina "iniciada pero que se quedó averiada/parada" banca horas fantasma con el
+    // auto-cierre (día = 12h fijas) aunque NO trabajara. Si estuvo averiada/parada ese
+    // día+turno NO debe mostrar "trabajó 12h" — muestra AVERIADA/PARADA. Cada marca del día
+    // se atribuye al inspector del turno de la HORA en que se marcó (paradaShiftOf), en su
+    // día de negocio; se muestra UNA vez. Reglas idénticas al resto: avería > parada,
+    // SIEMPRE ACTIVO (SOS) nunca averiada, y reactivación (jornada del turno tras la marca).
+    const openShiftOf = (jShift: string | null, jStart: string | null): 'day' | 'night' | null =>
+      (jShift as any) || (jStart ? paradaShiftOf(jStart) : null);
+    const estadoKey = new Set<string>(); // `${mid}|${bday}|${shift}` con avería/parada — tapa la fila de horas
+    const seen = new Set<string>(); // avería gana a su parada compañera (dedup del mismo key)
+    // Avería (0) antes que parada (1); dentro del mismo tipo, la MÁS RECIENTE primero
+    // (así el dedup conserva el motivo de la última marca de ese día+turno).
+    const ordered = ((maintRows ?? []) as any[]).slice().sort((a, b) => {
+      const pa = a.material === 'MÁQUINA PARADA' ? 1 : 0, pb = b.material === 'MÁQUINA PARADA' ? 1 : 0;
+      if (pa !== pb) return pa - pb;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    ordered.forEach((m) => {
+      const shift = paradaShiftOf(m.created_at) as 'day' | 'night';
+      const bday = businessDayOf(m.created_at);
+      if (bday < from || bday > to) return;
+      // Solo cuenta como "se mantuvo averiada/parada" ese día si seguía PENDIENTE o se
+      // resolvió DESPUÉS del cierre del día (7am del día siguiente). Si se resolvió el
+      // MISMO día, la máquina se recuperó y trabajó → sus horas sí valen (no se tapa).
+      const finDia = new Date(`${bday}T12:00:00-04:00`); finDia.setUTCDate(finDia.getUTCDate() + 1);
+      const finDiaMs = new Date(`${finDia.toISOString().slice(0, 10)}T07:00:00-04:00`).getTime();
+      const seMantuvo = m.status === 'pendiente' || (m.resolved_at && new Date(m.resolved_at).getTime() > finDiaMs);
+      if (!seMantuvo) return;
+      const inspector = (shift === 'night' ? nightInsp : dayInsp).get(m.machinery_id) || '';
+      if (inspectorSiempreActivo(inspector)) return; // SOS LA GUAIRA: nunca averiada/parada
+      const rmd = roundByMD.get(`${m.machinery_id}|${bday}`);
+      if (rmd?.jStart && openShiftOf(rmd.jShift, rmd.jStart) === shift && new Date(rmd.jStart).getTime() >= new Date(m.created_at).getTime()) return; // reactivada → sí trabajó
+      const key = `${m.machinery_id}|${bday}|${shift}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      estadoKey.add(key);
+      const tipo: 'averia' | 'parada' = m.material === 'MÁQUINA PARADA' ? 'parada' : 'averia';
+      const mi = machInfo.get(m.machinery_id) || { code: '—', serial: null, plate: null, company: 'Sin empresa' };
+      list.push({
+        id: `mr:${m.machinery_id}:${bday}:${shift}`, round_date: bday, inspector,
+        code: mi.code, serial: mi.serial, plate: mi.plate, company: mi.company,
+        shift, dayH: 0, nightH: 0, total: 0, horoIni: null, horoFin: null,
+        estado: tipo, motivo: m.notes || (tipo === 'averia' ? (m.material || null) : null),
+      });
+    });
+
+    // 2) Jornadas con horas, PARTIDAS por turno (día→inspector de día, noche→de noche).
+    // Se SALTA el turno que ya quedó como avería/parada arriba (no mostrar 12h fantasma
+    // de una máquina que en realidad estuvo averiada/parada ese turno).
     ((rs ?? []) as any[]).forEach((r) => {
       const dayH = Number(r.day_hours) || 0;
       const nightH = Number(r.night_hours) || 0;
@@ -110,43 +158,10 @@ export default function HistoricoJornadasScreen() {
         horoIni: r.horometro_inicial != null ? Number(r.horometro_inicial) : null,
         horoFin: r.horometro_final != null ? Number(r.horometro_final) : null,
       };
-      if (dayH > 0) list.push({ ...base, id: `${r.id}:d`, inspector: dayInsp.get(r.machinery_id) || '', shift: 'day', dayH, nightH: 0, total: r2(dayH) });
-      if (nightH > 0) list.push({ ...base, id: `${r.id}:n`, inspector: nightInsp.get(r.machinery_id) || '', shift: 'night', dayH: 0, nightH, total: r2(nightH) });
-    });
-
-    // AVERÍA/PARADA POR TURNO (sincronizado con el panel/teléfono): cada marca del día
-    // se atribuye al inspector del turno de la HORA en que se marcó (paradaShiftOf), en su
-    // día de negocio; se muestra UNA vez. Reglas idénticas al resto: avería > parada,
-    // SIEMPRE ACTIVO (SOS) nunca averiada, y reactivación (jornada del turno tras la marca).
-    const openShiftOf = (jShift: string | null, jStart: string | null): 'day' | 'night' | null =>
-      (jShift as any) || (jStart ? paradaShiftOf(jStart) : null);
-    const seen = new Set<string>(); // `${mid}|${bday}|${shift}` — avería gana a su parada compañera
-    // Avería (0) antes que parada (1); dentro del mismo tipo, la MÁS RECIENTE primero
-    // (así el dedup conserva el motivo de la última marca de ese día+turno).
-    const ordered = ((maintRows ?? []) as any[]).slice().sort((a, b) => {
-      const pa = a.material === 'MÁQUINA PARADA' ? 1 : 0, pb = b.material === 'MÁQUINA PARADA' ? 1 : 0;
-      if (pa !== pb) return pa - pb;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-    ordered.forEach((m) => {
-      const shift = paradaShiftOf(m.created_at) as 'day' | 'night';
-      const bday = businessDayOf(m.created_at);
-      if (bday < from || bday > to) return;
-      const inspector = (shift === 'night' ? nightInsp : dayInsp).get(m.machinery_id) || '';
-      if (inspectorSiempreActivo(inspector)) return; // SOS LA GUAIRA: nunca averiada/parada
-      const rmd = roundByMD.get(`${m.machinery_id}|${bday}`);
-      if (rmd?.jStart && openShiftOf(rmd.jShift, rmd.jStart) === shift && new Date(rmd.jStart).getTime() >= new Date(m.created_at).getTime()) return; // reactivada
-      const key = `${m.machinery_id}|${bday}|${shift}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      const tipo: 'averia' | 'parada' = m.material === 'MÁQUINA PARADA' ? 'parada' : 'averia';
-      const mi = machInfo.get(m.machinery_id) || { code: '—', serial: null, plate: null, company: 'Sin empresa' };
-      list.push({
-        id: `mr:${m.machinery_id}:${bday}:${shift}`, round_date: bday, inspector,
-        code: mi.code, serial: mi.serial, plate: mi.plate, company: mi.company,
-        shift, dayH: 0, nightH: 0, total: 0, horoIni: null, horoFin: null,
-        estado: tipo, motivo: m.notes || (tipo === 'averia' ? (m.material || null) : null),
-      });
+      const avDia = estadoKey.has(`${r.machinery_id}|${r.round_date}|day`);
+      const avNoche = estadoKey.has(`${r.machinery_id}|${r.round_date}|night`);
+      if (dayH > 0 && !avDia) list.push({ ...base, id: `${r.id}:d`, inspector: dayInsp.get(r.machinery_id) || '', shift: 'day', dayH, nightH: 0, total: r2(dayH) });
+      if (nightH > 0 && !avNoche) list.push({ ...base, id: `${r.id}:n`, inspector: nightInsp.get(r.machinery_id) || '', shift: 'night', dayH: 0, nightH, total: r2(nightH) });
     });
 
     setRows(list);

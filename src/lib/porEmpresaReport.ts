@@ -159,7 +159,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     .select('machinery_id, material, notes, created_at, status, resolved_at')
     .in('machinery_id', ids)
     .lte('created_at', nightEndBound)
-    .or(`status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${nightEndBound})`)
+    // Pendiente O resuelta DESPUÉS del fin del día (se mantuvo averiada/parada ese día
+    // aunque se cerrara un día posterior). Para HOY el borde es futuro → solo pendientes.
+    .or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`)
     .order('created_at', { ascending: false });
   // Deja SOLO el motivo (texto fijo "NO TRABAJÓ" + motivo del inspector), sin Ubicación
   // ni Edificio — normalización ÚNICA compartida con Inspecciones/teléfono (src/lib/paradaMotivo).
