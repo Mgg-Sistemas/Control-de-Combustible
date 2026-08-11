@@ -1547,18 +1547,28 @@ Al subir el Excel, el sistema muestra una **vista previa por máquina** con su *
 
 ---
 
-## 4.24b. Geodesta (topografía) 📐 — Fase 0
+## 4.24b. Geodesta (topografía) 📐
 
-Módulo de **topografía** para levantar terreno, generar **curvas de nivel** y calcular **volúmenes de corte/relleno**, ligado a las **obras/edificios** del sistema. Coordenadas de trabajo: **UTM SIRGAS-REGVEN 19N (EPSG:2202)**. Se construye por fases; hoy está disponible la **base**: crear levantamientos.
+Módulo de **topografía**: levanta terreno, genera **curvas de nivel**, calcula **volúmenes de corte/relleno**, **inspecciona** en campo con GPS y foto, y **exporta** a CAD/GIS — todo ligado a las **obras/edificios** del sistema. Coordenadas de trabajo: **UTM SIRGAS-REGVEN 19N (EPSG:2202)**.
 
-1. Entra a **"Más → 📐 Geodesta"**.
-2. Toca **"＋ Nuevo levantamiento"**.
-3. Escribe el **nombre** del proyecto, elige la **obra/edificio** (el mismo catálogo de **Ubicaciones**) y define la **tolerancia GPS** en metros (se rechazarán tomas menos precisas que ese valor).
-4. Toca **"Crear levantamiento"**. Queda listado con su sistema de coordenadas, tolerancia y fecha.
+**Crear un levantamiento**
+1. Entra a **"Más → 📐 Geodesta"** y toca **"＋ Nuevo levantamiento"**.
+2. Escribe el **nombre**, elige la **obra/edificio** (catálogo de **Ubicaciones**) y la **tolerancia GPS** en metros; toca **"Crear levantamiento"**.
+3. Toca el levantamiento para abrir sus pestañas: **Puntos · Mapa · Superficie · Volumen · Salidas**, y el botón **🧭 Inspecciones**.
 
-> **Acceso por permiso:** con el módulo **"Geodesta"** en *Lectura* solo se ve, en *Escritura* se puede crear y en *Full control* se puede eliminar. También existe el rol **"Geodesta"** para asignarlo directo a un usuario.
+**📋 Puntos** — Captura por **GPS** (rechaza tomas menos precisas que la tolerancia), **entrada manual** (N/E/Z o lat/lon) o **importación de CSV/TXT** (`P,N,E,Z,desc`, autodetecta encabezados). Cada punto lleva **capa/código**, se puede marcar como **punto de control (GCP)** o **excluir** (outlier). Exporta el CSV.
 
-**Próximas fases:** captura de puntos por GPS/importación (estación total/RTK), curvas de nivel automáticas, cubicaciones de corte/relleno, inspección de terreno con foto y firma, exportación DXF/KML y modo campo offline.
+**⛰️ Superficie** — Genera el **MDT (TIN)** y sus **curvas de nivel** al intervalo elegido (0.5/1/2/5 m). Guarda **versiones** (para comparar en el tiempo); se dibujan sobre el mapa.
+
+**📦 Volumen** — **Cubicación** de corte/relleno comparando **dos superficies** (avance entre fechas) o una superficie contra una **cota de diseño**. Da **corte, relleno y neto en m³**, con **mapa de diferencias** (🟥 corte, 🟦 relleno) y **reporte PDF**.
+
+**🧭 Inspecciones** — Inspección de terreno con **GPS**, **checklist** configurable, hallazgos, **fotos**, firma y **estado** (pendiente/observado/aprobado), con **acta PDF** y mapa por estado.
+
+**📤 Salidas** — **Perfil longitudinal** entre dos puntos, y **exportación** a **DXF** (AutoCAD), **KML** (Google Earth), **GeoJSON** (QGIS/ArcGIS → Shapefile/GeoPackage) y **LandXML** (proyectista y **guiado de maquinaria**: Trimble/Topcon/Leica). **Reporte técnico PDF** consolidado.
+
+**📵 Campo sin señal** — Si capturas puntos sin conexión, quedan guardados en el teléfono y se **sincronizan solos** al volver la señal (aviso con botón **"Sincronizar"**). Las nubes densas se **agrupan** (clusters) en el mapa.
+
+> **Acceso por permiso:** módulo **"Geodesta"** en *Lectura* (solo ver), *Escritura* (crear/capturar) o *Full control* (eliminar). También existe el rol **"Geodesta"** para asignarlo directo a un usuario.
 
 ---
 
