@@ -8,7 +8,7 @@ import { motivoParada, stripUbicEdif } from '../../lib/paradaMotivo';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
-import { listInspectorAssignments, assignInspector, sinInspectorReal, PLACEHOLDER_INSPECTOR_ID } from '../../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, sinInspectorReal, soloAdminPuedeAsignar } from '../../lib/machineInspectors';
 import { computeMachineVisibilitySets, buildDaySets as buildDaySetsCore, classifyInspectorMachines, paradaShiftOf } from '../../lib/inspectorDaySets';
 import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
@@ -367,14 +367,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // conteos por inspector sin recargar a mano.
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors', 'machinery'], load, { debounceMs: 1200, maxWaitMs: 4000 });
 
-  // Lista de inspectores reales para el desplegable de asignación. El inspector
-  // VIRTUAL "SOS LA GUAIRA" (cubre máquinas sin inspector humano) solo lo puede
-  // asignar un ADMIN — mismo criterio que en el teléfono (SupervisorScreen).
+  // Lista de inspectores reales para el desplegable de asignación. El placeholder
+  // "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los puede ASIGNAR
+  // un ADMIN — mismo criterio que en el teléfono (SupervisorScreen); reasignar
+  // (quitarles una máquina y dársela a otro) sigue abierto a cualquier coordinador.
   useEffect(() => {
     supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name')
       .then(({ data }) => setRealInspectors(
         ((data ?? []) as any[])
-          .filter((p) => role === 'admin' || p.id !== PLACEHOLDER_INSPECTOR_ID)
+          .filter((p) => role === 'admin' || !soloAdminPuedeAsignar(p))
           .map((p) => ({ id: p.id, full_name: p.full_name || '—' }))
       ))
       .then(undefined, () => {});

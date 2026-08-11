@@ -95,6 +95,7 @@ export function RecordForm({
   record,
   allowDelete = false,
   headerImageUrl,
+  beforeSave,
   onClose,
   onSaved,
 }: {
@@ -114,6 +115,10 @@ export function RecordForm({
   allowDelete?: boolean;
   /** URL de una foto (p. ej. de la máquina) que se muestra arriba del formulario. */
   headerImageUrl?: string | null;
+  /** Hook para AJUSTAR el payload justo antes de guardar (INSERT/UPDATE). Recibe el
+   *  payload (mutable) y los valores del formulario. Úsalo para columnas DERIVADAS
+   *  (p. ej. mantener `tipo` = marca + modelo sincronizada). */
+  beforeSave?: (payload: Record<string, any>, values: Record<string, string>) => void;
   onClose: () => void;
   /** Se llama tras guardar. Recibe el id del registro guardado (para resaltarlo sin saltar al inicio). */
   onSaved: (savedId?: string) => void;
@@ -238,6 +243,9 @@ export function RecordForm({
     }
 
     if (fixedValues) Object.assign(payload, fixedValues);
+
+    // Hook de columnas DERIVADAS (p. ej. tipo = marca + modelo) justo antes de guardar.
+    if (beforeSave) beforeSave(payload, values);
 
     // Validar unicidad (p. ej. serial y placa): "YA EXISTE …".
     const uniqueChecks = Array.isArray(uniqueField) ? uniqueField : uniqueField ? [uniqueField] : [];

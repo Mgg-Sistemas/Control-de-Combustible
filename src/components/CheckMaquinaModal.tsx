@@ -4,7 +4,7 @@ import { Screen, EmptyState, SkeletonList } from './ui';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { Machinery } from '../types/database';
-import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID } from '../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
@@ -45,9 +45,10 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
   };
   const loadInspectors = async () => {
     const { data: insp } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
-    // El inspector VIRTUAL "SOS LA GUAIRA" (cubre máquinas sin inspector humano) solo lo
-    // puede asignar un ADMIN — mismo criterio que el teléfono (SupervisorScreen.tsx).
-    const rows = ((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim() && (isAdmin || p.id !== PLACEHOLDER_INSPECTOR_ID));
+    // El placeholder "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los
+    // puede ASIGNAR un ADMIN (mismo criterio que el teléfono, SupervisorScreen.tsx) —
+    // quitarles una máquina y dársela a otro sigue abierto a cualquier coordinador.
+    const rows = ((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim() && (isAdmin || !soloAdminPuedeAsignar(p)));
     setInspectors(rows.map((p) => ({ id: p.id as string, name: p.full_name as string, role: (p.role ?? null) as string | null })));
   };
   useEffect(() => {
