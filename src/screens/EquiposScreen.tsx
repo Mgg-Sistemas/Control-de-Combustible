@@ -24,11 +24,9 @@ import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits
 import { caracasParts } from '../lib/jornada';
 import { freezeOpenJornadaNow } from '../lib/machineRounds';
 import {
-  fetchAveriaCat, fetchJornadaCat, fetchInspByShift, bucketMachineStatus,
+  fetchAveriaCat, fetchJornadaCat, fetchInspByShift, bucketMachineStatus, makeLiveStatusOf,
   JornadaEntry, AveriaEntry, InspByShiftEntry,
 } from '../lib/machineLiveStatus';
-import { paradaShiftOf } from '../lib/inspectorDaySets';
-import { inspectorSiempreActivo } from '../lib/machineInspectors';
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
@@ -415,50 +413,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // "ninguno" aunque tengan una jornada abierta vieja (evita mostrar "🟢 Trabajando" en
   // una máquina retirada). La fila ya indica "🔴 RETIRADA / INACTIVADA EL…".
   const retiredIds = new Set(machinery.data.filter((m) => m.operational === false).map((m) => m.id));
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  const liveStatusOf = (id: string) => {
-    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
-    const j = jornadaCat[id];
-    const a = averiaCat[id];
-    const dayH = j?.dayH ?? 0;
-    const nightH = j?.nightH ?? 0;
-    const openStartDay = j?.openStartDay ?? null;
-    const openStartNight = j?.openStartNight ?? null;
-    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - openStartDay) / 3600000)) : 0;
-    const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
-    const workedDia = Math.min(12, dayH + elapsedDia);
-    const workedNoche = Math.min(12, nightH + elapsedNoche);
-    const total = workedDia + workedNoche;
-    const enCurso = elapsedDia + elapsedNoche;
-    const trabajadas = Math.max(0, total - enCurso);
-    const hasOpen = openStartDay != null || openStartNight != null;
-    const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
-    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiada/parada.
-    const insp = inspByShift[id];
-    const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
-    // HOY vs ARRASTRADA (mismo criterio que segmentoDe/segmentoConTurno en SupervisorScreen):
-    // una marca de HOY gana siempre (salvo reactivación por jornada abierta después de la
-    // marca); una marca ARRASTRADA (de días anteriores) solo cuenta si la máquina sigue
-    // totalmente pendiente hoy — si ya está trabajando (jornada abierta) o ya trabajó y
-    // cerró (total > 0), la jornada de hoy tiene prioridad y la arrastrada deja de mostrarse.
-    const todayStartMs = new Date(`${caracasParts(new Date(nowTick)).iso}T00:00:00-04:00`).getTime();
-    const esHoy = !!a && a.createdMs >= todayStartMs;
-    const reactivada = !!a && hasOpen && openStart >= a.createdMs;
-    // POR TURNO: una avería/parada solo vige en SU turno (el de la hora en que se marcó).
-    // Marcarla de DÍA no debe afectar la NOCHE (ni viceversa): en el otro turno la máquina
-    // se ve pendiente/operativa. Mismo criterio que SupervisorScreen (segmentoDe) e
-    // Inspecciones (buildDaySets), que separan por paradaShiftOf(created_at).
-    const nowShift = paradaShiftOf(new Date(nowTick).toISOString());
-    const mismoTurno = !!a && paradaShiftOf(new Date(a.createdMs).toISOString()) === nowShift;
-    const averiaVigente = !siempreActivo && !!a && mismoTurno && !reactivada && (esHoy || (!hasOpen && total <= 0));
-    let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
-    if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
-    else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';
-    else if (hasOpen) estado = 'trabajando';
-    else if (total > 0) estado = 'trabajo_hoy';
-    else estado = 'ninguno';
-    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null };
-  };
+  const liveStatusOf = makeLiveStatusOf({ jornadaCat, averiaCat, inspByShift, retiredIds, nowTick });
 
   // Conteo de maquinaria por estado (4 cubos exclusivos, igual que el dashboard):
   //  · OPERATIVAS: operativas, SIN avería (en vivo, con reactivación) y SIN estar esperando instrucciones.

@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { caracasParts } from './jornada';
-import { listInspectorAssignments } from './machineInspectors';
+import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
+import { paradaShiftOf } from './inspectorDaySets';
 
 /**
  * Datos crudos de estatus EN VIVO de una máquina (jornada/avería/inspector por
@@ -93,6 +94,62 @@ export async function fetchInspByShift(): Promise<Record<string, InspByShiftEntr
     m[r.machinery_id] = e;
   });
   return m;
+}
+
+/**
+ * Estatus EN VIVO de una máquina (avería/parada/trabajando + horas), copia EXACTA
+ * de `liveStatusOf` en `EquiposScreen.tsx` (Catálogo) — extraída acá para que
+ * cualquier pantalla que necesite el mismo widget "4 cubos" (Operativas/Averiadas/
+ * Retiradas/Esperando) del Catálogo la use TAL CUAL, en vez de reimplementarla.
+ * Antes `DashboardScreen.loadCounts` tenía su PROPIA reconstrucción de esta lógica
+ * sobre `buildDaySets` (pensada para el panel de Inspecciones, no para este widget) +
+ * un parche manual de reactivación cruzada — se desincronizaba del Catálogo en casos
+ * reales (ej.: avería arrastrada + la máquina ya trabajó en el OTRO turno hoy: el
+ * Catálogo la excluye por horas totales del día, `buildDaySets` es por-turno y no lo
+ * veía) — queja del cliente 11-ago-2026 (Catálogo 203/23 vs Inicio 200/26).
+ */
+export function makeLiveStatusOf(params: {
+  jornadaCat: Record<string, JornadaEntry>;
+  averiaCat: Record<string, AveriaEntry>;
+  inspByShift: Record<string, InspByShiftEntry>;
+  retiredIds: Set<string>;
+  nowTick: number;
+}): (id: string) => LiveStatus {
+  const { jornadaCat, averiaCat, inspByShift, retiredIds, nowTick } = params;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return (id: string) => {
+    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
+    const j = jornadaCat[id];
+    const a = averiaCat[id];
+    const dayH = j?.dayH ?? 0;
+    const nightH = j?.nightH ?? 0;
+    const openStartDay = j?.openStartDay ?? null;
+    const openStartNight = j?.openStartNight ?? null;
+    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - openStartDay) / 3600000)) : 0;
+    const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
+    const workedDia = Math.min(12, dayH + elapsedDia);
+    const workedNoche = Math.min(12, nightH + elapsedNoche);
+    const total = workedDia + workedNoche;
+    const enCurso = elapsedDia + elapsedNoche;
+    const trabajadas = Math.max(0, total - enCurso);
+    const hasOpen = openStartDay != null || openStartNight != null;
+    const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
+    const insp = inspByShift[id];
+    const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
+    const todayStartMs = new Date(`${caracasParts(new Date(nowTick)).iso}T00:00:00-04:00`).getTime();
+    const esHoy = !!a && a.createdMs >= todayStartMs;
+    const reactivada = !!a && hasOpen && openStart >= a.createdMs;
+    const nowShift = paradaShiftOf(new Date(nowTick).toISOString());
+    const mismoTurno = !!a && paradaShiftOf(new Date(a.createdMs).toISOString()) === nowShift;
+    const averiaVigente = !siempreActivo && !!a && mismoTurno && !reactivada && (esHoy || (!hasOpen && total <= 0));
+    let estado: MachineEstado;
+    if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
+    else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';
+    else if (hasOpen) estado = 'trabajando';
+    else if (total > 0) estado = 'trabajo_hoy';
+    else estado = 'ninguno';
+    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null };
+  };
 }
 
 /** Máquina mínima que necesita el conteo de 4 cubos. */
