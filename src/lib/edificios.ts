@@ -121,6 +121,52 @@ export async function fetchEdificios(): Promise<string[]> {
   }
 }
 
+/** Fila del catálogo de edificios/ubicaciones (para el CRUD de UBICACIONES). */
+export type EdificioRow = { id: string; name: string; active: boolean };
+
+/** Lee el catálogo COMPLETO (con id) para gestionarlo (activos, A→Z). */
+export async function fetchEdificioRows(): Promise<EdificioRow[]> {
+  try {
+    const { data, error } = await supabase.from('edificios').select('id, name, active').eq('active', true);
+    if (error || !data) return [];
+    return (data as any[])
+      .map((r) => ({ id: String(r.id), name: String(r.name ?? '').trim(), active: r.active !== false }))
+      .filter((r) => r.name)
+      .sort((a, b) => cmpText(a.name, b.name));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Renombra una ubicación del catálogo. CASCADA: actualiza también la `referencia`
+ * (edificio) de las máquinas que tenían el nombre viejo, para que el cambio se
+ * refleje en TODOS lados (inspector, catálogo, reportes), no solo en la lista.
+ */
+export async function updateEdificio(id: string, name: string, oldName?: string): Promise<{ ok: boolean; error?: string }> {
+  const clean = (name ?? '').trim();
+  if (!clean) return { ok: false, error: 'El nombre no puede estar vacío.' };
+  // Evita chocar con otra ubicación que ya se llame igual.
+  const { data: dup } = await supabase.from('edificios').select('id').ilike('name', clean).neq('id', id);
+  if (dup && dup.length) return { ok: false, error: 'Ya existe otra ubicación con ese nombre.' };
+  const { error } = await supabase.from('edificios').update({ name: clean }).eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  const prev = (oldName ?? '').trim();
+  if (prev && prev !== clean) {
+    // Best-effort: sincroniza las máquinas que usaban el nombre viejo.
+    await supabase.from('machinery').update({ referencia: clean }).eq('referencia', prev);
+  }
+  return { ok: true };
+}
+
+/** Elimina una ubicación del catálogo (deja de aparecer en los desplegables). Las
+ *  máquinas que ya tenían ese texto en su referencia lo conservan (no se borra su dato). */
+export async function deleteEdificio(id: string): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('edificios').delete().eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 /**
  * Agrega un edificio nuevo al catálogo compartido (si no existe). Devuelve el nombre
  * guardado (sin duplicar por mayúsculas/espacios) o null si falló. Es idempotente:

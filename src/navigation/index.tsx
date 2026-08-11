@@ -82,6 +82,7 @@ import HaulTrucksScreen from '../screens/acarreo/HaulTrucksScreen';
 import HaulTrailersScreen from '../screens/acarreo/HaulTrailersScreen';
 import HaulDriversScreen from '../screens/acarreo/HaulDriversScreen';
 import HaulEquiposScreen from '../screens/acarreo/HaulEquiposScreen';
+import UbicacionesScreen from '../screens/UbicacionesScreen';
 import HaulClientsScreen from '../screens/acarreo/HaulClientsScreen';
 import HaulLocationsScreen from '../screens/acarreo/HaulLocationsScreen';
 import HaulDocumentsScreen from '../screens/acarreo/HaulDocumentsScreen';
@@ -220,6 +221,7 @@ function MoreStack() {
       <Stack.Screen name="CoordOperadores" component={CoordinadorOperadoresScreen} options={{ title: 'Coordinador de Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
       <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
+      <Stack.Screen name="Ubicaciones" component={UbicacionesScreen} options={{ title: 'Ubicaciones' }} />
       {/* Vista de INSPECTOR (la del teléfono) abierta en la PC desde el módulo de
           Inspecciones (solo admin, con el botón "Ver vista de inspector"). Es el
           mismo SupervisorScreen: lista de máquinas, check-in, jornada, avería… */}
@@ -550,6 +552,7 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
       <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
       <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
+      <Tab.Screen name="Ubicaciones" component={UbicacionesScreen} options={{ title: 'Ubicaciones', tabBarIcon: tabIcon('📍') }} />
       {modulosExtra.length ? (
         <Tab.Screen
           name="More"
@@ -683,6 +686,7 @@ const moreScreens = {
   CoordOperadores: 'coordinacion-operadores',
   Supervision: 'inspecciones',
   HistoricoJornadas: 'historico',
+  Ubicaciones: 'ubicaciones',
   InspectorTlf: 'vista-inspector',
   Camiones: 'camiones',
   Comida: 'comida',
@@ -762,7 +766,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
     Equipos: 'catalogo',
     More: { screens: moreScreens },
   },
-  supervisorTabs: { Revisar: 'revisar', Map: 'mapa', Equipos: 'catalogo', More: { screens: moreScreens } },
+  supervisorTabs: { Revisar: 'revisar', Map: 'mapa', Equipos: 'catalogo', Ubicaciones: 'ubicaciones', More: { screens: moreScreens } },
   patio: { PatioHome: 'patio', Camiones: 'camiones', Asistencia: 'asistencia', Manual: 'manual', Ajustes: 'ajustes' },
   coordinador: {
     RoleHome: 'panel',

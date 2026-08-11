@@ -14,6 +14,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
   { label: 'Coordinador de Operadores', route: 'CoordOperadores', desc: 'Asignar operadores a máquinas por turno, verificar asistencia y avisar novedades', icon: '👷‍♂️', module: 'coordinacion_operadores' },
   { label: 'Inspecciones', route: 'Supervision', desc: 'Rondas de inspectores: quién marcó cada máquina (GPS + estado), jornadas e histórico por inspector', icon: '🪖', module: 'supervision' },
+  { label: 'Ubicaciones', route: 'Ubicaciones', desc: 'Catálogo de edificios/ubicaciones (Macuto, Caraballeda…): agregar, editar y eliminar; se sincroniza con el EDIFICIO del inspector y el catálogo', icon: '📍', module: 'supervision' },
   { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', desc: 'Control por equipo: inventario de herramientas/accesorios y REPORTE DE INSPECCIÓN en PDF', icon: '🔍', module: 'inspecciones_maq' },
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },
   { label: 'Cocina (escanear)', route: 'CocinaScan', desc: 'Registra las comidas del personal escaneando su carnet — la misma vista que usa Cocina', icon: '🍳', module: 'comida' },
