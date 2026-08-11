@@ -15,13 +15,53 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { Profile, UserRole, AppRole } from '../types/database';
-import { MODULES, LEVELS, PermLevel, defaultLevel, roleLabel } from '../lib/permissions';
+import { MODULES, PermLevel, defaultLevel, roleLabel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio', 'coordinador_inspectores'];
+
+// Escalera de niveles (acumulativa): none < lectura < escritura < full.
+const LADDER: PermLevel[] = ['none', 'lectura', 'escritura', 'full'];
+const RANK: Record<PermLevel, number> = { none: 0, lectura: 1, escritura: 2, full: 3 };
+
+// Selector de permisos por módulo en forma de CHECKBOXES ACUMULATIVOS:
+// ☐ Lectura · ☐ Escritura · ☐ Full control. Marcar un nivel tilda automáticamente
+// los inferiores (Full ⇒ Lectura + Escritura; Escritura ⇒ Lectura). Volver a tocar
+// el nivel más alto marcado lo baja un escalón; tocar Lectura cuando es lo único
+// marcado lo quita del todo (Sin acceso). Sin ninguna casilla marcada = sin acceso.
+function PermChecks({ value, onChange, colors }: { value: PermLevel; onChange: (l: PermLevel) => void; colors: AppColors }) {
+  const cur = RANK[value] ?? 0;
+  const boxes: { lvl: PermLevel; label: string }[] = [
+    { lvl: 'lectura', label: 'Lectura' },
+    { lvl: 'escritura', label: 'Escritura' },
+    { lvl: 'full', label: 'Full control' },
+  ];
+  const toggle = (lvl: PermLevel) => {
+    const r = RANK[lvl];
+    // Tocar el nivel que ya es el tope actual ⇒ baja un escalón; si no, salta a ese nivel.
+    onChange(cur === r ? LADDER[r - 1] : lvl);
+  };
+  return (
+    <View style={{ flexDirection: 'row', gap: 4, marginTop: 3 }}>
+      {boxes.map((b) => {
+        const checked = cur >= RANK[b.lvl];
+        return (
+          <TouchableOpacity
+            key={b.lvl}
+            onPress={() => toggle(b.lvl)}
+            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: checked ? colors.brand : colors.border, backgroundColor: checked ? colors.brand : colors.surface }}
+          >
+            <Text style={{ color: checked ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{checked ? '☑' : '☐'}</Text>
+            <Text style={{ color: checked ? colors.brandContrast : colors.text, fontSize: 11.5, fontWeight: '700' }}>{b.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
 
 // Devuelve un token de sesión VÁLIDO. Si `force` es true (o el token está por
 // vencer/ya venció) fuerza un refresh. Evita el 401 "No autenticado" cuando la
@@ -423,22 +463,13 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                       ? 'Este rol verá el panel de CONDUCTOR (teléfono): 3 pestañas — ⛽ Surtir, 🚪 Camiones y 📋 Asistencia. Los módulos de abajo son opcionales (solo si además necesita reportes/permisos de otras pantallas).'
                       : 'Rol fijo: navega por la app normal (pestañas + Más) mostrando SOLO los módulos que marques aquí.'}
                   </Text>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Qué módulos ve? (— sin acceso · L · E · F)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Qué módulos ve? Marca lo que puede hacer; Full control tilda solo Lectura y Escritura. Sin nada marcado = sin acceso.</Text>
                   {MODULES.map((mod) => {
                     const cur = mods[mod.key] ?? 'none';
                     return (
-                      <View key={mod.key} style={{ marginTop: 2 }}>
+                      <View key={mod.key} style={{ marginTop: 6 }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{mod.label}</Text>
-                        <View style={{ flexDirection: 'row', gap: 4, marginTop: 3 }}>
-                          {LEVELS.map((lv) => {
-                            const active = cur === lv.value;
-                            return (
-                              <TouchableOpacity key={lv.value} onPress={() => setMods((p) => ({ ...p, [mod.key]: lv.value }))} style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surface, alignItems: 'center' }}>
-                                <Text style={{ color: active ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
+                        <PermChecks value={cur} onChange={(l) => setMods((p) => ({ ...p, [mod.key]: l }))} colors={colors} />
                       </View>
                     );
                   })}
@@ -814,7 +845,7 @@ function EditUserForm({
             ) : (
               <>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>
-                  — Sin acceso · L Lectura · E Escritura · F Full control
+                  Marca lo que puede hacer en cada módulo. Full control tilda solo Lectura y Escritura; sin nada marcado = sin acceso.
                 </Text>
                 {/* Atajos: aplicar a TODOS los módulos de una vez. */}
                 <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
@@ -833,22 +864,9 @@ function EditUserForm({
             {MODULES.map((mod) => {
               const cur = perms[mod.key] ?? defaultLevel(mod.key);
               return (
-                <View key={mod.key} style={{ marginTop: 2 }}>
+                <View key={mod.key} style={{ marginTop: 6 }}>
                   <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{mod.label}</Text>
-                  <View style={{ flexDirection: 'row', gap: 4, marginTop: 3 }}>
-                    {LEVELS.map((lv) => {
-                      const active = cur === lv.value;
-                      return (
-                        <TouchableOpacity
-                          key={lv.value}
-                          onPress={() => setPerm(mod.key, lv.value)}
-                          style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surface, alignItems: 'center' }}
-                        >
-                          <Text style={{ color: active ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  <PermChecks value={cur} onChange={(l) => setPerm(mod.key, l)} colors={colors} />
                 </View>
               );
             })}
