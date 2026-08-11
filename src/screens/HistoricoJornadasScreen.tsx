@@ -201,33 +201,42 @@ export default function HistoricoJornadasScreen() {
   const estadoCount = useMemo(() => rows.filter((r) => r.estado).length, [rows]);
   const toggle = (n: string) => setExpanded((p) => { const s = new Set(p); s.has(n) ? s.delete(n) : s.add(n); return s; });
 
-  const exportarPDF = async () => {
-    if (!rows.length) return;
-    const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const secciones = byInspector.map(([name, list]) => {
-      const tot = r2(list.reduce((s, r) => s + r.total, 0));
-      const jn = list.filter((r) => !r.estado).length;
-      const en = list.filter((r) => r.estado).length;
-      const filas = list.map((r, i) => {
-        if (r.estado) {
-          const badge = r.estado === 'averia' ? '🔴 Averiada' : '🟡 Parada';
-          const mot = r.motivo ? ` · ${esc(r.motivo)}` : '';
-          return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.serial || r.plate || '—')}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td colspan="2">${badge}${mot}</td></tr>`;
-        }
-        return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.serial || r.plate || '—')}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td class="r">${esc(r.horoIni ?? '—')} → ${esc(r.horoFin ?? '—')}</td><td class="r b">${r2(r.total)}</td></tr>`;
-      }).join('');
-      return `<h3>👷 ${esc(name)} · ${jn} jornada(s)${en ? ` · ${en} avería/parada` : ''} · ${tot} h</h3><table><thead><tr><th style="width:24px">Nº</th><th>Fecha</th><th>Máquina</th><th>Serial/Placa</th><th>Empresa</th><th>Turno</th><th class="r">Horómetro</th><th class="r">Horas</th></tr></thead><tbody>${filas}</tbody></table>`;
+  const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const seccionHtml = ([name, list]: [string, Row[]]) => {
+    const tot = r2(list.reduce((s, r) => s + r.total, 0));
+    const jn = list.filter((r) => !r.estado).length;
+    const en = list.filter((r) => r.estado).length;
+    const filas = list.map((r, i) => {
+      if (r.estado) {
+        const badge = r.estado === 'averia' ? '🔴 Averiada' : '🟡 Parada';
+        const mot = r.motivo ? ` · ${esc(r.motivo)}` : '';
+        return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.serial || r.plate || '—')}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td colspan="2">${badge}${mot}</td></tr>`;
+      }
+      return `<tr><td>${i + 1}</td><td>${esc(dmy(r.round_date))}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.serial || r.plate || '—')}</td><td>${esc(r.company)}</td><td>${r.shift === 'night' ? '🌙 noche' : '☀️ día'}</td><td class="r">${esc(r.horoIni ?? '—')} → ${esc(r.horoFin ?? '—')}</td><td class="r b">${r2(r.total)}</td></tr>`;
     }).join('');
+    return `<h3>👷 ${esc(name)} · ${jn} jornada(s)${en ? ` · ${en} avería/parada` : ''} · ${tot} h</h3><table><thead><tr><th style="width:24px">Nº</th><th>Fecha</th><th>Máquina</th><th>Serial/Placa</th><th>Empresa</th><th>Turno</th><th class="r">Horómetro</th><th class="r">Horas</th></tr></thead><tbody>${filas}</tbody></table>`;
+  };
+  // Genera el PDF para un conjunto de inspectores (todos, o uno solo desde su tarjeta).
+  const exportPdfEntries = async (entries: [string, Row[]][], soloInspector?: string) => {
+    if (!entries.length) return;
+    const allRows = entries.flatMap(([, l]) => l);
+    if (!allRows.length) return;
+    const jn = allRows.filter((r) => !r.estado).length;
+    const en = allRows.filter((r) => r.estado).length;
+    const th = r2(allRows.reduce((s, r) => s + r.total, 0));
     const html = pdfDocument({
-      title: 'HISTÓRICO DE JORNADAS POR INSPECTOR',
-      subtitle: `${dmy(from)} — ${dmy(to)} · ${jornCount} jornada(s)${estadoCount ? ` · ${estadoCount} avería/parada` : ''} · ${totalHoras} h`,
+      title: soloInspector ? `HISTÓRICO DE JORNADAS · ${esc(soloInspector).toUpperCase()}` : 'HISTÓRICO DE JORNADAS POR INSPECTOR',
+      subtitle: `${dmy(from)} — ${dmy(to)} · ${jn} jornada(s)${en ? ` · ${en} avería/parada` : ''} · ${th} h`,
       extraCss: `table{width:100%;border-collapse:collapse;margin:4px 0 14px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         td.r,th.r{text-align:right} td.b{font-weight:800} h3{margin:14px 0 3px;font-size:13px;color:#1E3A5F}`,
-      body: secciones,
+      body: entries.map(seccionHtml).join(''),
     });
-    await exportPdf(html, `Historico jornadas ${dmy(from)}-${dmy(to)}`);
+    const quien = soloInspector ? soloInspector.replace(/[^\p{L}\p{N} ]/gu, '').trim() : 'jornadas';
+    await exportPdf(html, `Historico ${quien} ${dmy(from)}-${dmy(to)}`);
   };
+  const exportarPDF = () => exportPdfEntries(byInspector);
+  const exportInspectorPDF = (name: string, list: Row[]) => exportPdfEntries([[name, list]], name);
 
   return (
     <Screen>
@@ -273,14 +282,19 @@ export default function HistoricoJornadasScreen() {
         const en = list.filter((r) => r.estado).length;
         return (
           <Card key={name}>
-            <TouchableOpacity onPress={() => toggle(name)} activeOpacity={0.7} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{collapsed ? '▸' : '▾'} 👷 {name}</Text>
-              <Text style={{ fontSize: 12, fontWeight: '800' }}>
-                <Text style={{ color: colors.text }}>{jn} jorn</Text>
-                {en ? <Text style={{ color: colors.warning }}> · {en} av/par</Text> : null}
-                <Text style={{ color: colors.success }}> · {tot} h</Text>
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity onPress={() => toggle(name)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{collapsed ? '▸' : '▾'} 👷 {name}</Text>
+                <Text style={{ fontSize: 12, fontWeight: '800' }}>
+                  <Text style={{ color: colors.text }}>{jn} jorn</Text>
+                  {en ? <Text style={{ color: colors.warning }}> · {en} av/par</Text> : null}
+                  <Text style={{ color: colors.success }}> · {tot} h</Text>
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => exportInspectorPDF(name, list)} activeOpacity={0.7} style={{ marginLeft: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
+              </TouchableOpacity>
+            </View>
             {collapsed ? null : list.map((r) => (
               <View key={r.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
