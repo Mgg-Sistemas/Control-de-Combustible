@@ -1448,6 +1448,8 @@ export interface GeodestaProject {
   coord_system: string;        // 'UTM19N'
   srid: number;                // 2202 (REGVEN / UTM 19N)
   gps_tolerance_m: number;     // rechazo de tomas GPS peores a esto (m)
+  basemap_url: string | null;  // capa base personalizada (ortofoto): URL de tiles
+  basemap_kind: string | null; // 'xyz' | 'tms'
   description: string | null;
   status: string;              // activo | cerrado | archivado
   created_by: string | null;

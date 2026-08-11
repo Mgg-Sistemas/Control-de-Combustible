@@ -124,8 +124,22 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
 
   useEffect(() => {
     if (!projectId) return;
-    supabase.from('geodesta_projects').select('*').eq('id', projectId).single().then(({ data }) => setProject(data as GeodestaProject));
+    supabase.from('geodesta_projects').select('*').eq('id', projectId).single().then(({ data }) => { setProject(data as GeodestaProject); setBasemapUrl((data as any)?.basemap_url || ''); setBasemapTms((data as any)?.basemap_kind === 'tms'); });
   }, [projectId]);
+
+  // Mejora — capa base personalizada (ortofoto).
+  const [basemapUrl, setBasemapUrl] = useState('');
+  const [basemapTms, setBasemapTms] = useState(false);
+  const [showBasemap, setShowBasemap] = useState(false);
+  const guardarBasemap = async () => {
+    if (!project) return;
+    const url = basemapUrl.trim() || null;
+    const { error } = await supabase.from('geodesta_projects').update({ basemap_url: url, basemap_kind: basemapTms ? 'tms' : 'xyz' }).eq('id', project.id);
+    if (error) { toast.error(error.message); return; }
+    setProject({ ...project, basemap_url: url, basemap_kind: basemapTms ? 'tms' : 'xyz' });
+    toast.success(url ? 'Ortofoto guardada.' : 'Ortofoto quitada.');
+    setShowBasemap(false);
+  };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -567,7 +581,7 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
             </Card>
           ) : null}
           <View style={{ height: spacing.sm }} />
-          <GeodestaMap points={mapPoints} overlay={vol?.geojson ?? overlay} height={380} />
+          <GeodestaMap points={mapPoints} overlay={vol?.geojson ?? overlay} height={380} tileUrl={project?.basemap_url} tileTms={project?.basemap_kind === "tms"} />
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>🟥 corte · 🟦 relleno · intensidad = magnitud del movimiento.</Text>
           <View style={{ height: spacing.lg }} />
         </>
@@ -616,7 +630,7 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
             ) : null}
           </Card>
           <View style={{ height: spacing.sm }} />
-          <GeodestaMap points={mapPoints} overlay={overlay} height={400} />
+          <GeodestaMap points={mapPoints} overlay={overlay} height={400} tileUrl={project?.basemap_url} tileTms={project?.basemap_kind === "tms"} />
           {surfaces.length ? (
             <>
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Versiones guardadas ({surfaces.length})</Text>
@@ -644,7 +658,7 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
         </>
       ) : tab === 'mapa' ? (
         <>
-          <GeodestaMap points={mapPoints} overlay={overlay} height={420} />
+          <GeodestaMap points={mapPoints} overlay={overlay} height={420} tileUrl={project?.basemap_url} tileTms={project?.basemap_kind === "tms"} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm }}>
             {layerOrder.map((l) => (
               <View key={l} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -654,6 +668,34 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
             ))}
           </View>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>◆ = punto de control (GCP) · los puntos excluidos se ven translúcidos.</Text>
+          {canWrite ? (
+            <>
+              <TouchableOpacity onPress={() => setShowBasemap((v) => !v)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🛰️ Ortofoto / capa base {project?.basemap_url ? '(activa)' : 'personalizada'}</Text>
+              </TouchableOpacity>
+              {showBasemap ? (
+                <Card>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>URL de tiles (XYZ/TMS) de tu ortofoto de dron o catastro. Usa {'{z}/{x}/{y}'} en la URL.</Text>
+                  <TextInput value={basemapUrl} onChangeText={setBasemapUrl} autoCapitalize="none" placeholder="https://tu-servidor/tiles/{z}/{x}/{y}.png" placeholderTextColor={colors.muted} style={input} />
+                  <TouchableOpacity onPress={() => setBasemapTms((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm }}>
+                    <Text style={{ fontSize: 16 }}>{basemapTms ? '☑' : '☐'}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13 }}>Es esquema TMS (Y invertida)</Text>
+                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+                    <TouchableOpacity onPress={guardarBasemap} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>Guardar</Text>
+                    </TouchableOpacity>
+                    {project?.basemap_url ? (
+                      <TouchableOpacity onPress={() => { setBasemapUrl(''); setTimeout(guardarBasemap, 0); }} style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center' }}>
+                        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>Quitar</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Se añade como capa "🛰️ Ortofoto" en el control de capas del mapa (arriba a la derecha).</Text>
+                </Card>
+              ) : null}
+            </>
+          ) : null}
         </>
       ) : (
         <>

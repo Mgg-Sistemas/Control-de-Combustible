@@ -15,9 +15,11 @@ export type GeoMapPoint = {
   color?: string; isGcp?: boolean; excluded?: boolean;
 };
 
-function buildHtml(points: GeoMapPoint[], overlay?: any): string {
+function buildHtml(points: GeoMapPoint[], overlay?: any, tileUrl?: string | null, tileTms?: boolean): string {
   const data = JSON.stringify(points);
   const ov = JSON.stringify(overlay ?? null);
+  const tUrl = JSON.stringify(tileUrl || null);
+  const tTms = JSON.stringify(!!tileTms);
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -36,7 +38,11 @@ function buildHtml(points: GeoMapPoint[], overlay?: any): string {
   ]);
   var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, attribution: '© OpenStreetMap' });
   sat.addTo(map);
-  L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: true }).addTo(map);
+  var bases = { 'Satélite': sat, 'Calles': calles };
+  var over = {};
+  var tUrl = ${tUrl}, tTms = ${tTms};
+  if (tUrl) { try { var orto = L.tileLayer(tUrl, { maxZoom: 24, maxNativeZoom: 22, tms: tTms, opacity: 1, attribution: 'Ortofoto' }); orto.addTo(map); over['🛰️ Ortofoto'] = orto; } catch(e){} }
+  L.control.layers(bases, over, { collapsed: true }).addTo(map);
 
   var group = [];
   // Nubes densas → clusterizar (rendimiento). Pocos puntos → directo al mapa.
@@ -68,10 +74,10 @@ function buildHtml(points: GeoMapPoint[], overlay?: any): string {
 </script></body></html>`;
 }
 
-export function GeodestaMap({ points, overlay, height }: { points: GeoMapPoint[]; overlay?: any; height?: number }) {
+export function GeodestaMap({ points, overlay, height, tileUrl, tileTms }: { points: GeoMapPoint[]; overlay?: any; height?: number; tileUrl?: string | null; tileTms?: boolean }) {
   const { colors } = useTheme();
   const iframeRef = useRef<any>(null);
-  const html = useMemo(() => buildHtml(points, overlay), [points, overlay]);
+  const html = useMemo(() => buildHtml(points, overlay, tileUrl, tileTms), [points, overlay, tileUrl, tileTms]);
 
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {
