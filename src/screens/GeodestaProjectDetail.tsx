@@ -17,9 +17,12 @@ import { GeodestaProject, GeodestaPoint } from '../types/database';
 import { captureHighAccuracy, neFromLatLng, parsePointsCsv, pointsToCsv, layerColor } from '../lib/geodesta';
 import { contours, XYZ } from '../lib/tin';
 import { volumeBetween, volumeToLevel, VolumeResult, fmtM3 } from '../lib/volumes';
+import { buildGrid, profile } from '../lib/tin';
+import { ProfileChart, ProfilePt } from '../components/ProfileChart';
+import { buildDxf, buildKml, buildGeoJson, buildLandXml, downloadText, ExpPoint } from '../lib/geoexport';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 
-type Tab = 'lista' | 'mapa' | 'superficie' | 'volumen';
+type Tab = 'lista' | 'mapa' | 'superficie' | 'volumen' | 'salidas';
 type Surface = { id: string; name: string; kind: string; interval_m: number | null; data: any; created_at: string };
 
 export default function GeodestaProjectDetail({ route, navigation }: any) {
@@ -90,6 +93,12 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
   const [volTitle, setVolTitle] = useState('');
 
   const surfPoints = (id: string | null): XYZ[] => id === 'actual' ? xyz() : (surfaces.find((s) => s.id === id)?.data?.points ?? []);
+
+  // Fase 5 — perfil + exportaciones.
+  const [profStart, setProfStart] = useState<string | null>(null);
+  const [profEnd, setProfEnd] = useState<string | null>(null);
+  const [profSamples, setProfSamples] = useState<ProfilePt[] | null>(null);
+  const withNE = () => points.filter((p) => p.norte_m != null && p.este_m != null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -310,6 +319,45 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     await exportPdf(html, `Cubicacion - ${project.name}`);
   };
 
+  // ── Fase 5: perfil longitudinal ──────────────────────────────────────────
+  const generarPerfil = () => {
+    const A = points.find((p) => p.id === profStart), B = points.find((p) => p.id === profEnd);
+    if (!A || !B || A.este_m == null || B.este_m == null) { toast.error('Elige punto inicial y final (con coordenadas).'); return; }
+    const g = buildGrid(xyz());
+    if (!g) { toast.error('Se necesitan al menos 3 puntos con cota.'); return; }
+    setProfSamples(profile(g, A.este_m, A.norte_m as number, B.este_m, B.norte_m as number, 100));
+  };
+
+  // ── Fase 5: exportaciones ────────────────────────────────────────────────
+  const expPoints = (): ExpPoint[] => points.filter((p) => !p.excluded).map((p) => ({ code: p.code, norte_m: p.norte_m, este_m: p.este_m, cota_z: p.cota_z, lat: p.lat, lon: p.lon, layer: p.layer, is_gcp: p.is_gcp }));
+  const baseName = () => (project?.name || 'levantamiento').replace(/\s+/g, '_');
+  const notWeb = () => { if (Platform.OS !== 'web') { toast.info('La exportación de archivos está disponible en la versión web.'); return true; } return false; };
+
+  const expDxf = () => { if (notWeb()) return; downloadText(`${baseName()}.dxf`, buildDxf(expPoints(), xyz(), intervalNum()), 'application/dxf'); };
+  const expKml = () => { if (notWeb()) return; const c = contours(xyz(), intervalNum(), 19, true).geojson; downloadText(`${baseName()}.kml`, buildKml(project?.name || 'Levantamiento', expPoints(), c), 'application/vnd.google-earth.kml+xml'); };
+  const expGeoJson = () => { if (notWeb()) return; const c = contours(xyz(), intervalNum(), 19, true).geojson; downloadText(`${baseName()}.geojson`, buildGeoJson(expPoints(), c), 'application/geo+json'); };
+  const expLandXml = () => { if (notWeb()) return; const s = xyz(); if (s.length < 3) { toast.error('Se necesitan al menos 3 puntos con cota.'); return; } downloadText(`${baseName()}.xml`, buildLandXml(project?.name || 'MDT', s), 'application/xml'); };
+
+  const pdfTecnico = async () => {
+    if (!project) return;
+    const s = xyz();
+    let zmin = Infinity, zmax = -Infinity; s.forEach((p) => { if (p.z < zmin) zmin = p.z; if (p.z > zmax) zmax = p.z; });
+    const body = `
+      <h2>Reporte técnico del levantamiento</h2>
+      <table>
+        <tr><td><b>Proyecto</b></td><td>${esc(project.name)}</td></tr>
+        <tr><td><b>Obra / edificio</b></td><td>${esc(project.referencia || '—')}</td></tr>
+        <tr><td><b>Sistema de coordenadas</b></td><td>${project.coord_system} · EPSG:${project.srid}</td></tr>
+        <tr><td><b>Tolerancia GPS</b></td><td>${project.gps_tolerance_m} m</td></tr>
+        <tr><td><b>Puntos totales</b></td><td>${points.length} (${points.filter((p) => p.is_gcp).length} de control · ${points.filter((p) => p.excluded).length} excluidos)</td></tr>
+        <tr><td><b>Puntos con cota</b></td><td>${s.length}${s.length ? ` · cotas ${zmin.toFixed(2)}–${zmax.toFixed(2)} m` : ''}</td></tr>
+        <tr><td><b>Versiones de superficie</b></td><td>${surfaces.length}</td></tr>
+      </table>
+      <p style="color:#555;font-size:11px">Generado por el módulo Geodesta · SOS La Guaira. Coordenadas de trabajo UTM SIRGAS-REGVEN 19N.</p>`;
+    const html = pdfDocument({ title: 'Reporte técnico', subtitle: project.name, body });
+    await exportPdf(html, `Reporte tecnico - ${project.name}`);
+  };
+
   const validos = points.filter((p) => !p.excluded);
   const conZ = validos.filter((p) => p.cota_z != null);
   const gcps = points.filter((p) => p.is_gcp).length;
@@ -330,16 +378,51 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
         <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧭 Inspecciones de terreno de este levantamiento ›</Text>
       </TouchableOpacity>
 
-      {/* Pestañas Lista / Mapa / Superficie */}
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-        {(['lista', 'mapa', 'superficie', 'volumen'] as Tab[]).map((t) => (
-          <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: tab === t ? colors.brand : colors.surface, borderWidth: 1, borderColor: tab === t ? colors.brand : colors.border }}>
-            <Text style={{ color: tab === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>{t === 'lista' ? '📋 Puntos' : t === 'mapa' ? '🗺️ Mapa' : t === 'superficie' ? '⛰️ Superficie' : '📦 Volumen'}</Text>
+      {/* Pestañas */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {(['lista', 'mapa', 'superficie', 'volumen', 'salidas'] as Tab[]).map((t) => (
+          <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flexGrow: 1, minWidth: '18%', paddingVertical: spacing.sm, paddingHorizontal: 4, borderRadius: radius.md, alignItems: 'center', backgroundColor: tab === t ? colors.brand : colors.surface, borderWidth: 1, borderColor: tab === t ? colors.brand : colors.border }}>
+            <Text style={{ color: tab === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>{t === 'lista' ? '📋 Puntos' : t === 'mapa' ? '🗺️ Mapa' : t === 'superficie' ? '⛰️ Superficie' : t === 'volumen' ? '📦 Volumen' : '📤 Salidas'}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {tab === 'volumen' ? (
+      {tab === 'salidas' ? (
+        <>
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 4 }}>📈 Perfil longitudinal</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Elige el punto inicial y el final; se muestrea la superficie a lo largo de esa línea.</Text>
+            <Text style={lbl(colors)}>Inicio</Text>
+            <PointPicker points={withNE()} value={profStart} onChange={setProfStart} colors={colors} />
+            <Text style={lbl(colors)}>Fin</Text>
+            <PointPicker points={withNE()} value={profEnd} onChange={setProfEnd} colors={colors} />
+            <TouchableOpacity onPress={generarPerfil} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📈 Generar perfil</Text>
+            </TouchableOpacity>
+          </Card>
+          {profSamples ? <><View style={{ height: spacing.sm }} /><ProfileChart samples={profSamples} height={260} /></> : null}
+
+          <View style={{ height: spacing.md }} />
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 4 }}>📤 Exportar</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Puntos en UTM (E,N,Z) para CAD y las curvas al intervalo de la pestaña ⛰️ Superficie ({interval} m).</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {[['📐 DXF (AutoCAD)', expDxf], ['🌍 KML (Google Earth)', expKml], ['🗺️ GeoJSON (GIS/SHP)', expGeoJson], ['🏗️ LandXML (proyecto/máquina)', expLandXml]].map(([label, fn]) => (
+                <TouchableOpacity key={label as string} onPress={fn as any} style={{ flexGrow: 1, minWidth: '46%', borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{label as string}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>GeoJSON se importa en QGIS/ArcGIS y se guarda como Shapefile o GeoPackage. LandXML lleva la superficie TIN al proyectista y al guiado de maquinaria (Trimble/Topcon/Leica).</Text>
+          </Card>
+
+          <View style={{ height: spacing.md }} />
+          <TouchableOpacity onPress={pdfTecnico} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>📄 Reporte técnico PDF</Text>
+          </TouchableOpacity>
+          <View style={{ height: spacing.lg }} />
+        </>
+      ) : tab === 'volumen' ? (
         <>
           <Card>
             <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 4 }}>📦 Cubicación (corte / relleno)</Text>
@@ -560,6 +643,21 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
 const fmt = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 3 }));
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const lbl = (colors: any) => ({ color: colors.muted, fontSize: 11, marginTop: 6, marginBottom: 3 } as const);
+
+function PointPicker({ points, value, onChange, colors }: { points: GeodestaPoint[]; value: string | null; onChange: (id: string) => void; colors: any }) {
+  if (!points.length) return <Text style={{ color: colors.muted, fontSize: 12 }}>No hay puntos con coordenadas.</Text>;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 2 }}>
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        {points.map((p) => (
+          <TouchableOpacity key={p.id} onPress={() => onChange(p.id)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: value === p.id ? colors.brand : colors.border, backgroundColor: value === p.id ? colors.brand : colors.surface }}>
+            <Text style={{ color: value === p.id ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{p.code || 'pt'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
 
 function SurfPicker({ surfaces, value, onChange, includeActual, colors }: { surfaces: Surface[]; value: string | null; onChange: (id: string) => void; includeActual?: boolean; colors: any }) {
   const opts: { id: string; label: string }[] = [];
