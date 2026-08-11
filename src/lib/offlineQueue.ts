@@ -11,6 +11,8 @@
 // mal offline podría dejar horas o alertas incorrectas, así que esas dos exigen
 // conexión (se lo avisamos al inspector en el momento).
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import * as Network from 'expo-network';
 import { supabase } from './supabase';
 import { saveVisit, SaveVisitInput } from './supervisorVisits';
 import { getMachineRound, upsertMachineRound } from './machineRounds';
@@ -129,16 +131,38 @@ export const enqueueAveria = (payload: MaintenanceInsert, label: string) => enqu
 export const enqueueParada = (payload: QueuedParada['payload'], label: string) => enqueue({ kind: 'parada', payload, label });
 export const enqueueVolverOperativa = (payload: QueuedVolverOperativa['payload'], label: string) => enqueue({ kind: 'volver_operativa', payload, label });
 
-/** ¿Hay red? En web usa navigator.onLine (fiable para "sin señal" en campo). En
- *  nativo (sin NetInfo instalado) asumimos que sí hay y confiamos en el catch
- *  reactivo de cada acción para detectar la caída real de la petición. */
-export function isOnline(): boolean {
-  if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') return navigator.onLine;
-  return true;
+// Estado de conectividad EN VIVO en nativo (auditoría frontend#2): antes isOnline()
+// devolvía SIEMPRE true en nativo (no había NetInfo), así que la cola nunca sabía
+// que el teléfono estaba sin señal y solo se enteraba por el catch reactivo de cada
+// petición. Con expo-network reflejamos la conexión real. En web se sigue usando
+// navigator.onLine (fiable para "sin señal").
+let nativeOnline = true;
+const stateToOnline = (s: { isConnected?: boolean | null; isInternetReachable?: boolean | null }): boolean =>
+  s.isConnected !== false && s.isInternetReachable !== false;
+if (Platform.OS !== 'web') {
+  Network.getNetworkStateAsync().then((s) => { nativeOnline = stateToOnline(s); }).catch(() => {});
+  try {
+    Network.addNetworkStateListener((s) => { nativeOnline = stateToOnline(s); });
+  } catch { /* si la API cambia, queda el estado inicial + el catch reactivo por acción */ }
 }
 
-/** Se suscribe a los eventos online/offline del navegador (no-op en nativo). */
+/** ¿Hay red? En web usa navigator.onLine; en nativo, el estado real de expo-network. */
+export function isOnline(): boolean {
+  if (Platform.OS === 'web') {
+    return typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true;
+  }
+  return nativeOnline;
+}
+
+/** Se suscribe a los cambios de conectividad: eventos del navegador en web,
+ *  addNetworkStateListener de expo-network en nativo. */
 export function onConnectivityChange(cb: (online: boolean) => void): () => void {
+  if (Platform.OS !== 'web') {
+    try {
+      const sub = Network.addNetworkStateListener((s) => cb(stateToOnline(s)));
+      return () => { try { sub.remove(); } catch { /* best-effort */ } };
+    } catch { return () => {}; }
+  }
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return () => {};
   const onUp = () => cb(true);
   const onDown = () => cb(false);

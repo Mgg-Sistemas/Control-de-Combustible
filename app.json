@@ -28,7 +28,8 @@
           "cameraPermission": "Permite escanear el código QR de las máquinas."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-secure-store"
     ]
   }
 }
