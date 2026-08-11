@@ -69,17 +69,21 @@ export default function HistoricoJornadasScreen() {
     const dayInsp = new Map<string, string>();
     const nightInsp = new Map<string, string>();
     assigns.forEach((a) => { (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || ''); });
-    // Rondas del rango con horas (de día y/o de noche) + avería/parada PENDIENTE (para
-    // reflejar por turno lo que el inspector marcó, no solo lo que trabajó) + ficha de
-    // máquina (una máquina averiada que NO trabajó no tiene ronda, así que su código/
-    // empresa hay que traerlo aparte).
+    // Rondas del rango con horas (de día y/o de noche) + avería/parada marcada ESE DÍA
+    // (INCL. las ya resueltas: cada fecha muestra lo que pasó ese día, no cambia al
+    // resolverlas) + ficha de máquina (una máquina averiada que NO trabajó no tiene
+    // ronda, así que su código/empresa hay que traerlo aparte).
+    // La marca se acota por `created_at`: una marca aparece SOLO en su día de negocio,
+    // que va de las 7am de ese día a las 7am del siguiente (el turno noche cruza la
+    // medianoche), así que basta con created_at en [from 00:00, (to+1) 07:00).
+    const toPlus1 = (() => { const d = new Date(to + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
     const [rs, maintRows, machRows] = await Promise.all([
       selectAllRows(
         'machine_rounds',
         'id, machinery_id, round_date, day_hours, night_hours, horometro_inicial, horometro_final, jornada_start_at, jornada_shift, machine:machinery_id(code, serial, plate, company:company_id(name))',
         (q) => q.gte('round_date', from).lte('round_date', to),
       ),
-      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at', (q) => q.eq('status', 'pendiente')),
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at', (q) => q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${toPlus1}T07:00:00-04:00`)),
       selectAllRows('machinery', 'id, code, serial, plate, company:company_id(name)', (q) => q),
     ]);
     const machInfo = new Map<string, { code: string; serial: string | null; plate: string | null; company: string }>();
@@ -110,14 +114,20 @@ export default function HistoricoJornadasScreen() {
       if (nightH > 0) list.push({ ...base, id: `${r.id}:n`, inspector: nightInsp.get(r.machinery_id) || '', shift: 'night', dayH: 0, nightH, total: r2(nightH) });
     });
 
-    // AVERÍA/PARADA POR TURNO (sincronizado con el panel/teléfono): cada marca pendiente
+    // AVERÍA/PARADA POR TURNO (sincronizado con el panel/teléfono): cada marca del día
     // se atribuye al inspector del turno de la HORA en que se marcó (paradaShiftOf), en su
     // día de negocio; se muestra UNA vez. Reglas idénticas al resto: avería > parada,
     // SIEMPRE ACTIVO (SOS) nunca averiada, y reactivación (jornada del turno tras la marca).
     const openShiftOf = (jShift: string | null, jStart: string | null): 'day' | 'night' | null =>
       (jShift as any) || (jStart ? paradaShiftOf(jStart) : null);
     const seen = new Set<string>(); // `${mid}|${bday}|${shift}` — avería gana a su parada compañera
-    const ordered = ((maintRows ?? []) as any[]).slice().sort((a, b) => (a.material === 'MÁQUINA PARADA' ? 1 : 0) - (b.material === 'MÁQUINA PARADA' ? 1 : 0));
+    // Avería (0) antes que parada (1); dentro del mismo tipo, la MÁS RECIENTE primero
+    // (así el dedup conserva el motivo de la última marca de ese día+turno).
+    const ordered = ((maintRows ?? []) as any[]).slice().sort((a, b) => {
+      const pa = a.material === 'MÁQUINA PARADA' ? 1 : 0, pb = b.material === 'MÁQUINA PARADA' ? 1 : 0;
+      if (pa !== pb) return pa - pb;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
     ordered.forEach((m) => {
       const shift = paradaShiftOf(m.created_at) as 'day' | 'night';
       const bday = businessDayOf(m.created_at);
