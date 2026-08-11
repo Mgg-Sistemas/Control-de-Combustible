@@ -20,6 +20,7 @@ import { volumeBetween, volumeToLevel, VolumeResult, fmtM3 } from '../lib/volume
 import { buildGrid, profile } from '../lib/tin';
 import { ProfileChart, ProfilePt } from '../components/ProfileChart';
 import { buildDxf, buildKml, buildGeoJson, buildLandXml, downloadText, ExpPoint } from '../lib/geoexport';
+import { isOnline, enqueue, pendingCount, flush, onReconnect, insertChunked } from '../lib/geodestaQueue';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 
 type Tab = 'lista' | 'mapa' | 'superficie' | 'volumen' | 'salidas';
@@ -46,6 +47,24 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
   const refetch = load;
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projectId]);
   useRealtimeRefresh(['geodesta_points'], () => load());
+
+  // Fase 6 — sincronización offline.
+  const [pending, setPending] = useState(0);
+  const refreshPending = async () => setPending(await pendingCount());
+  const sincronizar = async () => {
+    const r = await flush();
+    await refreshPending();
+    if (r.error && r.left) { toast.error(`Faltan ${r.left} por sincronizar (sin señal).`); return; }
+    if (r.done) { toast.success(`${r.done} captura(s) sincronizada(s).`); load(); }
+  };
+  useEffect(() => {
+    refreshPending();
+    // Intenta vaciar la cola al entrar y cuando vuelve la conexión.
+    (async () => { if (isOnline() && (await pendingCount()) > 0) sincronizar(); })();
+    const off = onReconnect(() => sincronizar());
+    return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [tab, setTab] = useState<Tab>('lista');
   const [q, setQ] = useState('');
@@ -159,15 +178,31 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     if (nrt == null && la == null) { toast.error('Ingresa al menos N/E o lat/lon.'); return; }
     setBusy(true);
     // Si vino por N/E manual sin lat/lon, dejamos lat/lon nulos (el mapa usa lat/lon).
-    const { error } = await supabase.from('geodesta_points').insert({
+    const row = {
       project_id: project.id, code: code.trim() || nextCode,
       norte_m: nrt, este_m: est, cota_z: num(cota),
       lat: la, lon: lo,
       source: la != null && lat ? 'gps' : 'manual',
       layer: layer.trim() || null, description: desc.trim() || null, is_gcp: isGcp,
-    });
+    };
+    // Sin conexión: guarda en la cola local y sincroniza al reconectar.
+    if (!isOnline()) {
+      await enqueue('geodesta_points', row);
+      await refreshPending();
+      setBusy(false);
+      toast.success('Punto guardado sin conexión; se sincronizará al volver la señal.');
+      resetForm();
+      return;
+    }
+    const { error } = await supabase.from('geodesta_points').insert(row);
     setBusy(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      // Falla de red pese a estar "online": lo encolamos para no perder la captura.
+      await enqueue('geodesta_points', row); await refreshPending();
+      toast.info('Sin red: el punto quedó en cola para sincronizar.');
+      resetForm();
+      return;
+    }
     toast.success('Punto guardado.');
     resetForm(); refetch();
   };
@@ -200,11 +235,11 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
       lat: p.lat ?? null, lon: p.lon ?? null,
       source: 'import', layer: p.layer || null, description: p.description || null,
     }));
-    const { error } = await supabase.from('geodesta_points').insert(rows);
+    const res = await insertChunked('geodesta_points', rows);
     setBusy(false);
     if (e?.target) e.target.value = '';
-    if (error) { toast.error(error.message); return; }
-    toast.success(`${rows.length} punto(s) importado(s).`);
+    if (!res.ok) { toast.error(`${res.error} (importados ${res.inserted} antes del error)`); refetch(); return; }
+    toast.success(`${res.inserted} punto(s) importado(s).`);
     refetch();
   };
 
@@ -377,6 +412,13 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
       <TouchableOpacity onPress={() => navigation?.navigate?.('GeodestaInspecciones', { projectId, projectName: project?.name, referencia: project?.referencia })} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}>
         <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧭 Inspecciones de terreno de este levantamiento ›</Text>
       </TouchableOpacity>
+
+      {pending > 0 ? (
+        <TouchableOpacity onPress={sincronizar} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(217,119,6,0.12)', borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 13 }}>📵 {pending} captura(s) sin sincronizar</Text>
+          <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>🔄 Sincronizar</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Pestañas */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
