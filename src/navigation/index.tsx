@@ -484,6 +484,34 @@ function FabricacionPlantaStack() {
   );
 }
 
+/** Rol "Coordinador de Operadores" (panel_type 'modulos', módulos operadores +
+ *  supervision + coordinacion_operadores): entra DIRECTO a su vista por máquina
+ *  (mismo patrón que `esRolCombustible`/`esRolInventario` — un rol cuyos módulos
+ *  activos son exactamente este combo). Pedido del cliente (10-ago-2026): que
+ *  arranque ahí mismo, como el inspector arranca en "Revisar". */
+const COORD_OPERADORES_MODULES = ['operadores', 'supervision', 'coordinacion_operadores'];
+function esRolCoordinadorOperadores(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
+  return activos.includes('coordinacion_operadores') && activos.every((k) => COORD_OPERADORES_MODULES.includes(k));
+}
+
+/** Panel del Coordinador de Operadores: arranca directo en su vista por máquina
+ *  (como el inspector arranca en "Revisar"), con "Ficha del trabajador" para ver
+ *  al operador escaneado (no un check-in de la máquina, como hace el inspector —
+ *  acá el escaneo identifica AL OPERADOR asignado a esa máquina). */
+function CoordinadorOperadoresStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={screenHeader}>
+      <Stack.Screen name="CoordOperadoresHome" component={CoordinadorOperadoresScreen} options={{ title: 'Coordinador de Operadores' }} />
+      <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
  *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
@@ -706,7 +734,7 @@ const moreScreens = {
  *  (ver `pickTree` más abajo). `operador` es una pantalla suelta sin Stack/Tab,
  *  así que no tiene config de `linking` propia; `cocina` sí tiene su propio
  *  Stack (ver `CocinaStack`), con config de `linking` en `TREE_LINKING`. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -756,6 +784,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
     Manual: 'manual',
     Ajustes: 'ajustes',
   },
+  coordOperadores: { CoordOperadoresHome: 'coordinacion-operadores-directo', EmployeeCard: 'ficha-empleado', Manual: 'manual', Ajustes: 'ajustes' },
   fuelDriver: { FuelDriverHome: 'surtir', Manual: 'manual', Ajustes: 'ajustes' },
   combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual', Ajustes: 'ajustes' },
   inventario: { InventarioHome: 'inventario-directo', Manual: 'manual', Ajustes: 'ajustes' },
@@ -774,6 +803,7 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   supervisorTabs: '/revisar',
   patio: '/patio',
   coordinador: '/panel',
+  coordOperadores: '/coordinacion-operadores-directo',
   fuelDriver: '/surtir',
   combustible: '/combustible-directo',
   inventario: '/inventario-directo',
@@ -835,6 +865,9 @@ function pickTree(ctx: {
   if (appRole && role !== 'admin' && esRolInventario(appRole)) return { key: 'inventario', node: <InventarioStack /> };
   // Rol por módulos cuyo único acceso es el KIOSCO DE PLANTA: directo al Kiosco.
   if (appRole && role !== 'admin' && esRolFabricacionPlanta(appRole)) return { key: 'fabricacionPlanta', node: <FabricacionPlantaStack /> };
+  // COORDINADOR DE OPERADORES: directo a su vista por máquina (como el inspector
+  // arranca en "Revisar"), con escáner de QR propio.
+  if (appRole && role !== 'admin' && esRolCoordinadorOperadores(appRole)) return { key: 'coordOperadores', node: <CoordinadorOperadoresStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
   if (role === 'cocina') return { key: 'cocina', node: <CocinaStack /> };

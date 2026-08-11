@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, Pressable, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import QrScanner from '../components/QrScanner';
+import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -16,6 +18,7 @@ import { pairMarks } from '../lib/attendance';
 import { norm, cmpText } from '../lib/text';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { logAudit } from '../lib/audit';
+import { parseMachineId } from './ScanQrScreen';
 
 type MachRow = {
   id: string; code: string; plate: string | null; serial: string | null; tipo: string | null;
@@ -58,7 +61,7 @@ function fmtHora(ts: string): string {
  * y su asistencia del día — para asignar/reasignar, detectar máquinas sin
  * cubrir y avisar novedades hacia arriba (Coordinador de Operaciones/Jefe).
  */
-export default function CoordinadorOperadoresScreen() {
+export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const uid = session?.user?.id ?? '';
@@ -228,6 +231,25 @@ export default function CoordinadorOperadoresScreen() {
     setAssignNotice(op ? `✅ ${shiftIcon(s)} ${shiftLabel(s)} → ${op.name}` : `➖ ${shiftIcon(s)} ${shiftLabel(s)} quitado`);
   };
 
+  // ── Escanear QR de la máquina (como el inspector) — pero acá el destino es la
+  // FICHA del operador asignado a esa máquina en el turno elegido, no un check-in.
+  // Si no tiene operador con ficha vinculada, abre el asignar/reasignar de una vez.
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const onScanDetected = (text: string) => {
+    setScanOpen(false);
+    const id = parseMachineId(text);
+    const m = id ? machList.find((x) => x.id === id) : null;
+    if (!m) { setScanNotice('❌ El QR no corresponde a una máquina registrada.'); return; }
+    setScanNotice(null);
+    const plan = plannedByMachine.get(m.id)?.[shift] ?? null;
+    if (plan?.employee_id && navigation?.navigate) {
+      navigation.navigate('EmployeeCard', { employeeId: plan.employee_id });
+    } else {
+      openAssign({ id: m.id, code: m.code, companyName: m.companyName });
+    }
+  };
+
   // ── Compartir novedades (PDF) ─────────────────────────────────────────────
   const [shareBusy, setShareBusy] = useState(false);
   const compartirNovedades = async () => {
@@ -313,6 +335,14 @@ export default function CoordinadorOperadoresScreen() {
       {plannedMissing ? (
         <Card><Text style={{ color: colors.danger, fontWeight: '700' }}>❌ Falta activar la tabla machine_operators en Supabase.</Text></Card>
       ) : null}
+
+      <View style={{ marginBottom: spacing.sm }}>
+        <InspectorHeroCard onScanPress={() => { setScanNotice(null); setScanOpen(true); }} />
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>
+          Escanea el QR de la máquina para ver la ficha del operador asignado (o asignar uno si no tiene).
+        </Text>
+        {scanNotice ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, textAlign: 'center' }}>{scanNotice}</Text> : null}
+      </View>
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
         {(['day', 'night'] as Shift[]).map((s) => {
@@ -452,6 +482,13 @@ export default function CoordinadorOperadoresScreen() {
             })() : null}
           </Pressable>
         </Pressable>
+      </Modal>
+
+      {/* ── Escanear QR de la máquina → ficha del operador asignado ── */}
+      <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner onClose={() => setScanOpen(false)} onDetected={onScanDetected} />
+        </View>
       </Modal>
     </Screen>
   );
