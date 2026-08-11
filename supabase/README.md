@@ -8,9 +8,15 @@
 3. En la raíz del repo copia `.env.example` a `.env` y pega esos valores.
 
 ## 2. Crear el esquema
-En **SQL Editor** de Supabase, pega y ejecuta el contenido de:
+En **SQL Editor** de Supabase, pega y ejecuta EN ESTE ORDEN:
 1. [`schema.sql`](./schema.sql) — tablas, enums, vista de niveles, triggers de stock y políticas RLS.
-2. (Opcional) [`seed.sql`](./seed.sql) — datos de demostración.
+2. **Parches de seguridad OBLIGATORIOS** (schema.sql aún contiene políticas antiguas inseguras; estos las corrigen):
+   - [`fix_rls_anon_nomina.sql`](./fix_rls_anon_nomina.sql) y [`fix_rls_anon_nomina_v2.sql`](./fix_rls_anon_nomina_v2.sql) — cierran sueldos/datos bancarios a sesiones anónimas.
+   - [`fix_stock_race_condition.sql`](./fix_stock_race_condition.sql) — lock anti-sobregiro de combustible.
+   - [`security_hardening_2026-08-11.sql`](./security_hardening_2026-08-11.sql) — endurecimiento tras la auditoría (guardia de profile, RLS de machine_rounds y tablas sensibles, can_write_module fail-closed, grants, locks TOCTOU). **Fuente de verdad de esos cambios.**
+3. (Opcional) [`seed.sql`](./seed.sql) — datos de demostración.
+
+> ⚠️ `schema.sql` **no** es hoy la única fuente de verdad de las políticas RLS: varios parches de seguridad ya aplicados en producción no se han fusionado de vuelta. Corre siempre los parches del paso 2 al reconstruir un entorno.
 
 ## 3. Autenticación
 - **Auth → Providers → Email**: habilitado por defecto.
