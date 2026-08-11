@@ -15,7 +15,7 @@ import { norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
 import { GeodestaProject, GeodestaPoint } from '../types/database';
 import { captureHighAccuracy, neFromLatLng, parsePointsCsv, pointsToCsv, layerColor } from '../lib/geodesta';
-import { contours, slopeHeatmap, terrainMesh, XYZ } from '../lib/tin';
+import { contours, slopeHeatmap, terrainMesh, densifyBreaklines, XYZ } from '../lib/tin';
 import { Terrain3D, Mesh3D } from '../components/Terrain3D';
 import { volumeBetween, volumeToLevel, VolumeResult, fmtM3 } from '../lib/volumes';
 import { buildGrid, profile, crossSections } from '../lib/tin';
@@ -100,9 +100,21 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
   useEffect(() => { loadSurfaces(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projectId]);
   useRealtimeRefresh(['geodesta_surfaces'], () => loadSurfaces());
 
-  // Puntos válidos con N/E/Z para el MDT.
-  const xyz = (): XYZ[] => points.filter((p) => !p.excluded && p.norte_m != null && p.este_m != null && p.cota_z != null)
+  // Líneas de rotura (breaklines) — mejora.
+  const [breaklines, setBreaklines] = useState<{ id: string; name: string; points: XYZ[] }[]>([]);
+  const [useBreak, setUseBreak] = useState(false);
+  const loadBreaklines = async () => {
+    if (!projectId) return;
+    const { data } = await supabase.from('geodesta_breaklines').select('id, name, points').eq('project_id', projectId).order('created_at', { ascending: false });
+    setBreaklines(((data as any[]) ?? []).map((b) => ({ id: b.id, name: b.name, points: (b.points ?? []) as XYZ[] })));
+  };
+  useEffect(() => { loadBreaklines(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projectId]);
+  useRealtimeRefresh(['geodesta_breaklines'], () => loadBreaklines());
+
+  // Puntos válidos con N/E/Z para el MDT (densificados por breaklines si está activo).
+  const baseXyz = (): XYZ[] => points.filter((p) => !p.excluded && p.norte_m != null && p.este_m != null && p.cota_z != null)
     .map((p) => ({ x: p.este_m as number, y: p.norte_m as number, z: p.cota_z as number }));
+  const xyz = (): XYZ[] => (useBreak && breaklines.length ? densifyBreaklines(baseXyz(), breaklines.map((b) => b.points), 1) : baseXyz());
 
   // Fase 3 — volúmenes.
   const [volMode, setVolMode] = useState<'versiones' | 'nivel'>('versiones');
@@ -326,6 +338,30 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     setOverlay(r.geojson); setSlopeOn(true); setActiveSurf(null);
     setSurfInfo(`🌡️ Mapa de pendientes · ${r.cells} celdas.`);
     setTab('superficie');
+  };
+
+  // Constructor de líneas de rotura.
+  const [showBreak, setShowBreak] = useState(false);
+  const [blName, setBlName] = useState('');
+  const [blSeq, setBlSeq] = useState<string[]>([]);
+  const toggleSeq = (id: string) => setBlSeq((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
+  const guardarBreakline = async () => {
+    if (!project) return;
+    if (blSeq.length < 2) { toast.error('Elige al menos 2 puntos (en orden) para la línea.'); return; }
+    const pts: XYZ[] = blSeq.map((id) => points.find((p) => p.id === id)).filter((p): p is GeodestaPoint => !!p && p.este_m != null && p.norte_m != null && p.cota_z != null)
+      .map((p) => ({ x: p.este_m as number, y: p.norte_m as number, z: p.cota_z as number }));
+    if (pts.length < 2) { toast.error('Los puntos elegidos deben tener N/E/Z.'); return; }
+    setBusy(true);
+    const { error } = await supabase.from('geodesta_breaklines').insert({ project_id: project.id, name: blName.trim() || `Línea ${breaklines.length + 1}`, points: pts });
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Línea de rotura guardada.');
+    setBlName(''); setBlSeq([]); setShowBreak(false); setUseBreak(true); loadBreaklines();
+  };
+  const borrarBreakline = async (id: string) => {
+    const { error } = await supabase.from('geodesta_breaklines').delete().eq('id', id);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Línea eliminada.'); loadBreaklines();
   };
 
   const verVersion = (s: Surface) => {
@@ -642,6 +678,53 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
                   </View>
                 ))}
               </View>
+            ) : null}
+          </Card>
+          <View style={{ height: spacing.sm }} />
+          <Card>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '800' }}>📐 Líneas de rotura</Text>
+              {breaklines.length ? (
+                <TouchableOpacity onPress={() => setUseBreak((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ fontSize: 15 }}>{useBreak ? '☑' : '☐'}</Text>
+                  <Text style={{ color: colors.text, fontSize: 12 }}>Aplicar al MDT</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Bordes de talud, crestas, vías o muros que la triangulación debe respetar (no cruzar).</Text>
+            {breaklines.map((b) => (
+              <View key={b.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 6 }}>
+                <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>📐 {b.name} · {b.points.length} vértices</Text>
+                {canDelete ? <TouchableOpacity onPress={() => borrarBreakline(b.id)}><Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>🗑</Text></TouchableOpacity> : null}
+              </View>
+            ))}
+            {canWrite ? (
+              <>
+                <TouchableOpacity onPress={() => setShowBreak((v) => !v)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{showBreak ? 'Cancelar' : '＋ Nueva línea de rotura'}</Text>
+                </TouchableOpacity>
+                {showBreak ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    <TextInput value={blName} onChangeText={setBlName} placeholder="Nombre (ej. Cresta de talud)" placeholderTextColor={colors.muted} style={input} />
+                    <Text style={lbl(colors)}>Toca los puntos EN ORDEN ({blSeq.length} elegidos)</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        {points.filter((p) => p.norte_m != null && p.cota_z != null).map((p) => {
+                          const pos = blSeq.indexOf(p.id);
+                          return (
+                            <TouchableOpacity key={p.id} onPress={() => toggleSeq(p.id)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: pos >= 0 ? colors.brand : colors.border, backgroundColor: pos >= 0 ? colors.brand : colors.surface }}>
+                              <Text style={{ color: pos >= 0 ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{pos >= 0 ? `${pos + 1}· ` : ''}{p.code || 'pt'}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                    <TouchableOpacity onPress={guardarBreakline} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>Guardar línea</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </>
             ) : null}
           </Card>
           {mesh3d ? (

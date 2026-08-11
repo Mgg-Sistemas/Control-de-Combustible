@@ -128,6 +128,22 @@ export function profile(g: Grid, ax: number, ay: number, bx: number, by: number,
   return out;
 }
 
+/** Densifica el conjunto de puntos insertando vértices a lo largo de cada LÍNEA DE
+ *  ROTURA (breakline), con z interpolada. Así el TIN sigue la línea sin cruzarla
+ *  (aproximación estándar sin triangulación con restricciones). */
+export function densifyBreaklines(pts: XYZ[], breaklines: XYZ[][], step = 1): XYZ[] {
+  const extra: XYZ[] = [];
+  for (const bl of breaklines) {
+    for (let i = 0; i < bl.length - 1; i++) {
+      const a = bl[i], b = bl[i + 1];
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      const n = Math.max(1, Math.min(500, Math.floor(d / step)));
+      for (let k = 0; k <= n; k++) { const t = k / n; extra.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }); }
+    }
+  }
+  return extra.length ? pts.concat(extra) : pts;
+}
+
 /** Color (0-1 por hex) por elevación normalizada t∈[0,1]: azul→verde→marrón→blanco. */
 function elevRgb(t: number): [number, number, number] {
   const stops: [number, [number, number, number]][] = [
