@@ -52,6 +52,7 @@ export default function HaulOrderForm({
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [machSearch, setMachSearch] = useState('');
   const [chutoSearch, setChutoSearch] = useState('');
+  const [bateaSearch, setBateaSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [forced, setForced] = useState(false);
 
@@ -66,7 +67,6 @@ export default function HaulOrderForm({
 
   const clientOpts: Opt[] = useMemo(() => refs.clients.map((c) => ({ value: c.id, label: `${c.kind === 'externo' ? '🏢' : '🏠'} ${c.name}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.clients]);
   const locOpts: Opt[] = useMemo(() => refs.locations.map((l) => ({ value: l.id, label: l.name })).sort((a, b) => cmpText(a.label, b.label)), [refs.locations]);
-  const trailerOpts: Opt[] = useMemo(() => refs.trailers.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🛻 ${[t.plate, t.kind, t.max_load_ton != null ? `${t.max_load_ton} t` : ''].filter(Boolean).join(' · ')}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trailers]);
   const driverOpts: Opt[] = useMemo(() => refs.drivers.filter((d) => d.active !== false).map((d) => ({ value: d.id, label: `👷 ${d.full_name}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.drivers]);
 
   // Nombre de la empresa por id (para mostrar y para poder BUSCAR por empresa).
@@ -106,10 +106,26 @@ export default function HaulOrderForm({
   }, [refs.machinery, chutoSearch, companyName]);
   const chutoMach = useMemo(() => refs.machinery.find((m) => m.id === truckId) ?? null, [refs.machinery, truckId]);
 
+  // BATEA / REMOLQUE desde el CATÁLOGO (misma fuente de verdad): máquinas cuyo código o
+  // modelo (tipo) indican batea/lowboy (viven mezcladas en MANEJO DE CARGA con grúas y
+  // montacargas, por eso se filtra por texto, no por clasificación). Lista buscable.
+  const esBatea = (m: Machinery) => { const t = norm(`${m.code || ''} ${m.tipo || ''}`); return t.includes('batea') || t.includes('lowboy') || t.includes('low boy'); };
+  const bateaList = useMemo(() => {
+    const nq = norm(bateaSearch.trim());
+    const base = refs.machinery.filter((m) => m.active !== false && esBatea(m));
+    const list = nq
+      ? base.filter((m) => norm([m.code, companyName(m.company_id), m.plate, m.serial, m.identifier, m.tipo, m.clasificacion, m.description].filter(Boolean).join(' ')).includes(nq))
+      : base;
+    return [...list].sort((a, b) => cmpText(a.code, b.code));
+  }, [refs.machinery, bateaSearch, companyName]);
+  const bateaMach = useMemo(() => refs.machinery.find((m) => m.id === trailerId) ?? null, [refs.machinery, trailerId]);
+
   // Adaptador HaulTruck para las validaciones/PDF: el catálogo no tiene arrastre
   // (max_tow_ton) → esa validación de peso del chuto simplemente no aplica (queda null).
   const truck = useMemo(() => (chutoMach ? ({ id: chutoMach.id, plate: chutoMach.plate, brand: chutoMach.tipo, model: null, max_tow_ton: null, odometer_km: null, maint_interval_km: null, status: 'operativo', active: true } as any as HaulTruck) : null), [chutoMach]);
-  const trailer = refs.trailers.find((t) => t.id === trailerId) ?? null;
+  // Adaptador HaulTrailer: el catálogo no tiene capacidad (max_load_ton) → esa validación
+  // de carga contra el remolque queda null/skip; kind = modelo (tipo) para el PDF.
+  const trailer = useMemo(() => (bateaMach ? ({ id: bateaMach.id, plate: bateaMach.plate, kind: bateaMach.tipo, max_load_ton: null, odometer_km: null, maint_interval_km: null, status: 'operativo', active: true } as any as HaulTrailer) : null), [bateaMach]);
   const driver = refs.drivers.find((d) => d.id === driverId) ?? null;
 
   const warnings = useMemo(() => allWarnings({
@@ -214,8 +230,41 @@ export default function HaulOrderForm({
           {chutoList.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin chutos que coincidan. Revisa la clasificación TRANSPORTE DE ESCOMBROS en el catálogo.</Text> : null}
         </ScrollView>
       </View>
-      <FieldLabel>Remolque (batea / lowboy)</FieldLabel>
-      <Dropdown value={trailerId} options={trailerOpts} onChange={setTrailerId} placeholder="Remolque" />
+      <FieldLabel>Batea / remolque (del catálogo · batea o lowboy)</FieldLabel>
+      {bateaMach ? (
+        <TouchableOpacity onPress={() => setTrailerId('')} activeOpacity={0.7}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>🛻 {bateaMach.code}{bateaMach.tipo ? ` · ${bateaMach.tipo}` : ''}</Text>
+            <Text style={{ color: colors.primaryContrast, fontSize: 11, opacity: 0.9 }}>
+              {[companyName(bateaMach.company_id) || null, bateaMach.plate ? `Placa ${bateaMach.plate}` : null, bateaMach.serial ? `Serial ${bateaMach.serial}` : null].filter(Boolean).join(' · ') || 'Sin datos'}
+            </Text>
+          </View>
+          <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>✕ quitar</Text>
+        </TouchableOpacity>
+      ) : null}
+      <TextInput value={bateaSearch} onChangeText={setBateaSearch} placeholder="🔎 Buscar batea/lowboy: máquina, marca, placa, serial, empresa…" placeholderTextColor={colors.muted}
+        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.xs }} />
+      <View style={{ maxHeight: 200, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+        <ScrollView nestedScrollEnabled>
+          {bateaList.slice(0, 80).map((m) => {
+            const on = m.id === trailerId;
+            return (
+              <TouchableOpacity key={m.id} onPress={() => setTrailerId(on ? '' : m.id)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.primary : 'transparent' }}>
+                <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{m.code}{m.tipo ? <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontWeight: '400', fontSize: 12 }}> · {m.tipo}</Text> : null}</Text>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11 }}>
+                    {[companyName(m.company_id) || null, m.plate ? `Placa ${m.plate}` : null, m.serial ? `Serial ${m.serial}` : null].filter(Boolean).join(' · ') || 'Sin datos'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+          {bateaList.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin bateas/lowboys que coincidan. Revisa que el código o modelo diga "batea" o "lowboy" en el catálogo.</Text> : null}
+        </ScrollView>
+      </View>
       <FieldLabel>Chofer</FieldLabel>
       <Dropdown value={driverId} options={driverOpts} onChange={setDriverId} placeholder="Chofer" />
 
