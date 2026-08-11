@@ -83,6 +83,8 @@ import HaulTrailersScreen from '../screens/acarreo/HaulTrailersScreen';
 import HaulDriversScreen from '../screens/acarreo/HaulDriversScreen';
 import HaulEquiposScreen from '../screens/acarreo/HaulEquiposScreen';
 import UbicacionesScreen from '../screens/UbicacionesScreen';
+import GeodestaScreen from '../screens/GeodestaScreen';
+import GeodestaProjectDetail from '../screens/GeodestaProjectDetail';
 import HaulClientsScreen from '../screens/acarreo/HaulClientsScreen';
 import HaulLocationsScreen from '../screens/acarreo/HaulLocationsScreen';
 import HaulDocumentsScreen from '../screens/acarreo/HaulDocumentsScreen';
@@ -222,6 +224,8 @@ function MoreStack() {
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
       <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
       <Stack.Screen name="Ubicaciones" component={UbicacionesScreen} options={{ title: 'Ubicaciones' }} />
+      <Stack.Screen name="Geodesta" component={GeodestaScreen} options={{ title: 'Geodesta' }} />
+      <Stack.Screen name="GeodestaDetalle" component={GeodestaProjectDetail} options={{ title: 'Levantamiento' }} />
       {/* Vista de INSPECTOR (la del teléfono) abierta en la PC desde el módulo de
           Inspecciones (solo admin, con el botón "Ver vista de inspector"). Es el
           mismo SupervisorScreen: lista de máquinas, check-in, jornada, avería… */}
@@ -687,6 +691,8 @@ const moreScreens = {
   Supervision: 'inspecciones',
   HistoricoJornadas: 'historico',
   Ubicaciones: 'ubicaciones',
+  Geodesta: 'geodesta',
+  GeodestaDetalle: 'geodesta/levantamiento',
   InspectorTlf: 'vista-inspector',
   Camiones: 'camiones',
   Comida: 'comida',

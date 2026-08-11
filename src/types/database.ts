@@ -1436,3 +1436,41 @@ export interface HaulTariff {
   active: boolean;
   created_at: string;
 }
+
+// ── Módulo de Geodesta (topografía) ─────────────────────────────────────────
+/** Proyecto de levantamiento topográfico, ligado a una obra/edificio.
+ *  Coordenadas de trabajo: UTM SIRGAS-REGVEN 19N (EPSG:2202). */
+export interface GeodestaProject {
+  id: string;
+  name: string;
+  edificio_id: string | null;
+  referencia: string | null;
+  coord_system: string;        // 'UTM19N'
+  srid: number;                // 2202 (REGVEN / UTM 19N)
+  gps_tolerance_m: number;     // rechazo de tomas GPS peores a esto (m)
+  description: string | null;
+  status: string;              // activo | cerrado | archivado
+  created_by: string | null;
+  created_at: string;
+}
+
+/** Punto de un levantamiento (N/E/Z + lat/lon, precisión, capa, foto). */
+export interface GeodestaPoint {
+  id: string;
+  project_id: string;
+  code: string | null;
+  norte_m: number | null;
+  este_m: number | null;
+  cota_z: number | null;
+  lat: number | null;
+  lon: number | null;
+  precision_m: number | null;
+  source: 'gps' | 'manual' | 'import';
+  layer: string | null;
+  is_gcp: boolean;
+  excluded: boolean;
+  photo_url: string | null;
+  description: string | null;
+  created_by: string | null;
+  created_at: string;
+}

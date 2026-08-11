@@ -1547,6 +1547,21 @@ Al subir el Excel, el sistema muestra una **vista previa por máquina** con su *
 
 ---
 
+## 4.24b. Geodesta (topografía) 📐 — Fase 0
+
+Módulo de **topografía** para levantar terreno, generar **curvas de nivel** y calcular **volúmenes de corte/relleno**, ligado a las **obras/edificios** del sistema. Coordenadas de trabajo: **UTM SIRGAS-REGVEN 19N (EPSG:2202)**. Se construye por fases; hoy está disponible la **base**: crear levantamientos.
+
+1. Entra a **"Más → 📐 Geodesta"**.
+2. Toca **"＋ Nuevo levantamiento"**.
+3. Escribe el **nombre** del proyecto, elige la **obra/edificio** (el mismo catálogo de **Ubicaciones**) y define la **tolerancia GPS** en metros (se rechazarán tomas menos precisas que ese valor).
+4. Toca **"Crear levantamiento"**. Queda listado con su sistema de coordenadas, tolerancia y fecha.
+
+> **Acceso por permiso:** con el módulo **"Geodesta"** en *Lectura* solo se ve, en *Escritura* se puede crear y en *Full control* se puede eliminar. También existe el rol **"Geodesta"** para asignarlo directo a un usuario.
+
+**Próximas fases:** captura de puntos por GPS/importación (estación total/RTK), curvas de nivel automáticas, cubicaciones de corte/relleno, inspección de terreno con foto y firma, exportación DXF/KML y modo campo offline.
+
+---
+
 ## 4.25. Notas técnicas (para quien administra el proyecto)
 
 Pendientes que requieren una acción **manual** (fuera del código) para que algunas funciones nuevas
