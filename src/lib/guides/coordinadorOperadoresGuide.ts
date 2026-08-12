@@ -35,6 +35,7 @@ export async function generateCoordinadorOperadoresGuide(): Promise<boolean> {
         'Cada tarjeta muestra la máquina, su estado (Activa/Parada/Avería/Cerrada), el operador **planeado** y el que está **en sitio** de verdad.',
         'Si el operador en sitio NO es el planeado, aparece ⚠️ **"El operador en sitio no es el planeado"**.',
         '📷 **ESCANEAR QR**: apunta al QR de la máquina y te lleva DIRECTO a la ficha del operador planeado en ese turno (foto, cédula, horas trabajadas). Si la máquina no tiene operador asignado, abre de una vez la hoja para asignar uno.',
+        '🪪 **Marcar asistencia (escanear operador)**: el botón chico debajo del de escanear. Apunta al CARNET del operador (no al QR de la máquina) y le registra la ENTRADA o SALIDA al instante — decide sola cuál toca según su última marca de hoy.',
       ]),
       step1Mock
     )
@@ -68,7 +69,7 @@ export async function generateCoordinadorOperadoresGuide(): Promise<boolean> {
     stepList([
       '🧩 **Sin asignar** — la máquina está en juego este turno (asignada, trabajando, parada o averiada) pero nadie tiene el operador planeado todavía.',
       '⚠️ **No coincide** — el operador que planeaste no es el que de verdad escaneó el QR y está en la máquina. Revisa si hubo un cambio de último momento.',
-      '🔴 **Sin marcar entrada** — el operador planeado no ha marcado su carnet de entrada hoy en Control de Asistencia.',
+      '🔴 **Sin marcar entrada** — el operador planeado no ha marcado su carnet de entrada hoy. Márcasela tú mismo con 🪪 **Marcar asistencia** arriba, sin salir de esta pantalla.',
     ]) + calloutInfo('Estos 3 avisos se calculan solos, en vivo — no hay que registrar nada aparte para que aparezcan.')
   );
 
@@ -98,6 +99,7 @@ export async function generateCoordinadorOperadoresGuide(): Promise<boolean> {
       ['Empezar el turno', 'Elige ☀️ **Día** o 🌙 **Noche** arriba — la lista completa cambia.'],
       ['Asignar un operador', 'Toca la tarjeta de la máquina → elige de la lista (solo cargos de operador).'],
       ['Reasignar', 'Toca la tarjeta → elige otro operador; reemplaza al anterior sin duplicar.'],
+      ['Marcar asistencia', '🪪 **Marcar asistencia** arriba → escanea su carnet. Entrada/salida automática.'],
       ['Ver quién falta cubrir', 'Pestaña 🧩 **Sin asignar**.'],
       ['Ver quién no coincide o no marcó entrada', 'Pestaña 📋 **Novedades**.'],
       ['Avisar arriba', '📤 **Compartir novedades** desde la pestaña Novedades.'],

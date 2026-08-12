@@ -16,7 +16,7 @@ import { buildDaySets, computeMachineVisibilitySets, DaySetRound, DaySetMaint, D
 import { listInspectorAssignments } from '../lib/machineInspectors';
 import { listOperatorAssignments, assignOperator, unassignOperator, Shift, shiftIcon, shiftLabel, OperatorAssignmentRow } from '../lib/machineOperators';
 import { isOperatorCargo } from '../lib/jornada';
-import { pairMarks } from '../lib/attendance';
+import { markAttendance, pairMarks } from '../lib/attendance';
 import { norm, cmpText } from '../lib/text';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { logAudit } from '../lib/audit';
@@ -345,6 +345,30 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     await applyAssign(assignShift, { id: emp.id, name: nombre, cedula: emp.cedula ?? null, cargo: emp.cargo ?? null });
   };
 
+  // ── Marcar asistencia escaneando el CARNET del operador (entrada/salida) ──
+  // Botón propio, independiente de cualquier máquina: el coordinador escanea a
+  // cada operador según va llegando y `markAttendance` decide sola si es
+  // ENTRADA o SALIDA (misma función que usa "Control de Asistencia").
+  const [attScanOpen, setAttScanOpen] = useState(false);
+  const [attNotice, setAttNotice] = useState<string | null>(null);
+  const [attBusy, setAttBusy] = useState(false);
+  const onAttendanceScanDetected = async (text: string) => {
+    setAttScanOpen(false);
+    const id = parseEmployeeId(text);
+    if (!id) { setAttNotice('❌ Ese QR no es un carnet de empleado.'); return; }
+    setAttBusy(true);
+    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo').eq('id', id).maybeSingle();
+    const emp = data as any;
+    if (!emp) { setAttBusy(false); setAttNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
+    const nombre = `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() || 'Sin nombre';
+    if (!isOperatorCargo(emp.cargo)) { setAttBusy(false); setAttNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es operador, chofer, obrero ni servicios generales.`); return; }
+    const r = await markAttendance(emp.id, uid || null);
+    setAttBusy(false);
+    if (!r.ok) { setAttNotice('❌ ' + r.error); return; }
+    setAttNotice(`✅ ${r.kind === 'entrada' ? 'Entrada' : 'Salida'} registrada · ${nombre} · ${fmtHora(r.ts)}`);
+    await load();
+  };
+
   // ── Escanear QR de la máquina (como el inspector) — pero acá el destino es la
   // FICHA del operador asignado a esa máquina en el turno elegido, no un check-in.
   // Si no tiene operador con ficha vinculada, abre el asignar/reasignar de una vez.
@@ -506,11 +530,18 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       ) : null}
 
       <View style={{ marginBottom: spacing.sm }}>
-        <InspectorHeroCard onScanPress={() => { setScanNotice(null); setScanOpen(true); }} />
+        <InspectorHeroCard
+          onScanPress={() => { setScanNotice(null); setScanOpen(true); }}
+          secondaryActions={[
+            { key: 'asistencia', label: 'Marcar asistencia (escanear operador)', icon: '🪪', color: '#0F766E', onPress: () => { setAttNotice(null); setAttScanOpen(true); } },
+          ]}
+        />
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>
           Escanea el QR de la máquina para ver la ficha del operador asignado (o asignar uno si no tiene).
         </Text>
         {scanNotice ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, textAlign: 'center' }}>{scanNotice}</Text> : null}
+        {attBusy ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs, textAlign: 'center' }}>Registrando…</Text> : null}
+        {attNotice ? <Text style={{ color: attNotice.startsWith('✅') ? colors.success : colors.danger, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, textAlign: 'center' }}>{attNotice}</Text> : null}
       </View>
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
@@ -761,6 +792,13 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       <Modal visible={opScanOpen} animationType="slide" onRequestClose={() => setOpScanOpen(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <QrScanner onClose={() => setOpScanOpen(false)} onDetected={onOperatorScanDetected} />
+        </View>
+      </Modal>
+
+      {/* ── Escanear el CARNET del operador → marca su asistencia (entrada/salida) ── */}
+      <Modal visible={attScanOpen} animationType="slide" onRequestClose={() => setAttScanOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner onClose={() => setAttScanOpen(false)} onDetected={onAttendanceScanDetected} />
         </View>
       </Modal>
     </Screen>
