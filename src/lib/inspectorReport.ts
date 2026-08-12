@@ -347,6 +347,14 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // de trabajo (en curso / finalizada / por iniciar). horasParada queda en 0
     // porque `evParada` depende de `estado` (no será avería/parada).
     const siempreActivo = inspectorSiempreActivo(insp);
+    // ¿ARRANCÓ la jornada de ESTE turno? `jornada_shift` persiste tras el auto-cierre
+    // aunque se nule `jornada_start_at` y las horas queden en 0 — EXACTAMENTE el
+    // `declaredSet` de las tarjetas (inspectorDaySets.ts). Una máquina que declaró
+    // jornada y cerró con 0h (sin avería/parada) NO es "por iniciar": es PARADA
+    // (regla del cliente "0 horas = parada"). SIN esta rama el PDF marcaba "⏳ Por
+    // iniciar" donde las tarjetas ya decían "🟡 Parada" — la desincronización que
+    // reportó el cliente (11-ago-2026).
+    const declaredShift = rd?.jornada_shift === turno;
     const estado: EstadoKey =
       (!siempreActivo && averHoyMot != null) ? 'averia'
       : (!siempreActivo && parHoy != null) ? 'parada'
@@ -354,6 +362,9 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       : (!siempreActivo && averArrMot != null) ? 'averia'
       : (!siempreActivo && parArrMot != null) ? 'parada'
       : hoursForShift > 0 ? 'finalizada'
+      // SOS "siempre activo" queda EXCLUIDO de "0 horas = parada" (nunca sale parada):
+      // solo las máquinas normales que declararon jornada y cerraron en 0h son PARADA.
+      : (!siempreActivo && declaredShift) ? 'parada'
       : 'pendiente';
     const evParada: EventoParada | undefined =
       estado === 'averia' ? (averHoyMot ?? averArrMot)

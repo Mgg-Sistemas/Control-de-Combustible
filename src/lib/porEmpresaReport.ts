@@ -375,13 +375,22 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // Horas trabajadas = workedFromShifts (misma fórmula que Informe/Pagos/Control) → cuadra.
     const trab = workedFromShifts(dd, nn, sRaw, oRaw);
     const averiaBase = averiaTxt(id); // '' si es SOS "siempre activo"
+    // ¿DECLARÓ jornada de este día pero cerró con 0h y SIN ticket de avería/parada?
+    // `jornada_shift` persiste tras el auto-cierre aunque `jornada_start_at` se nule y
+    // las horas queden en 0 — es el `declaredSet` de las tarjetas (inspectorDaySets.ts).
+    // Regla del cliente "0 horas = parada": estas máquinas son PARADA, no "no listadas".
+    // SIN esta rama el reporte por empresa OMITÍA la máquina que las tarjetas contaban
+    // como 🟡 Parada — la desincronización que reportó el cliente (11-ago-2026). Se exige
+    // jornada CERRADA (`!jornada_start_at`): una jornada aún abierta es actividad, no parada.
+    const esParadaDeclarada = trab <= 0 && !averiaBase && !siempreActivoIds.has(id)
+      && !!r && !r.jornada_start_at && (r.jornada_shift === 'day' || r.jornada_shift === 'night');
     // CLASIFICACIÓN en 2 grupos:
-    //  · averia  → averiada/parada que NO trabajó (trab<=0 con avería/parada); se marca en 0.
+    //  · averia  → averiada/parada que NO trabajó (trab<=0 con avería/parada, o jornada en 0); se marca en 0.
     //  · activa  → trabajó (trab>0).
-    // Una máquina sin actividad y SIN avería (pendiente pura) no se lista.
+    // Una máquina sin actividad, SIN avería y que NUNCA declaró jornada (pendiente pura) no se lista.
     const esAveria = trab <= 0 && !!averiaBase;
-    if (trab <= 0 && !esAveria) return;
-    const grupo: Grupo = esAveria ? 'averia' : 'activa';
+    if (trab <= 0 && !esAveria && !esParadaDeclarada) return;
+    const grupo: Grupo = (esAveria || esParadaDeclarada) ? 'averia' : 'activa';
     // Solo las ACTIVAS muestran horario y suman a los totales; las averiadas van en 0.
     const ddAct = grupo === 'activa' ? dd : 0;
     const nnAct = grupo === 'activa' ? nn : 0;
@@ -403,7 +412,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       diaEnCurso: ddAct > 0 && dayOpen,
       nocheEnCurso: nnAct > 0 && nightOpen,
       diaHoras: n2(ddAct), nocheHoras: n2(nnAct),
-      motivo: esAveria ? averiaBase : '',
+      motivo: esAveria ? averiaBase : esParadaDeclarada ? 'Parada · jornada en 0 h' : '',
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
     porEmpresa.get(empresa)!.push(fila);
