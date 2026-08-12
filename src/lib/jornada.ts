@@ -32,6 +32,37 @@ export function shiftFromKey(key: 'day' | 'night'): { key: 'day' | 'night'; labe
     : { key: 'night', label: '🌙 Jornada de noche' };
 }
 
+/**
+ * HORARIO NOMINAL del turno (jornadas fijas): DÍA 07:00 a. m. → 07:00 p. m.,
+ * NOCHE 07:00 p. m. → 07:00 a. m. Es la ÚNICA fuente de las horas de inicio/fin que
+ * se MUESTRAN (no las horas trabajadas, que se miden aparte). Aunque el inspector
+ * marque el inicio a las 9am o el fin a las 6:30pm, la jornada se muestra 7am→7pm
+ * (permanencia del turno completo). Compartido por el panel de Inspecciones (tarjeta
+ * de jornada), el Reporte por Empresa y el Reporte con Firma para que TODOS coincidan.
+ */
+export function horarioNominal(shift: 'day' | 'night'): { ini: string; fin: string } {
+  return shift === 'day'
+    ? { ini: '07:00 a. m.', fin: '07:00 p. m.' }
+    : { ini: '07:00 p. m.', fin: '07:00 a. m.' };
+}
+
+/**
+ * HORA FIN REAL de una jornada CERRADA = inicio nominal del turno + horas TRABAJADAS.
+ * El inicio se ancla al nominal (día 7am / noche 7pm), pero el fin refleja cuánto
+ * trabajó de verdad: un día completo (12h) da 7:00 p. m., pero una noche de 5.47h da
+ * ~12:28 a. m. (NO 7am). Antes el fin era fijo 7pm/7am y mentía en los turnos
+ * parciales. Solo formatea la HORA del reloj (maneja el cruce de medianoche por mod
+ * 24h); no depende de la fecha. Para jornada EN CURSO usar "En curso", no esto.
+ */
+export function horaFinJornada(shift: 'day' | 'night', horasTrabajadas: number): string {
+  const startMin = (shift === 'day' ? 7 : 19) * 60;
+  const total = ((startMin + Math.round(Math.max(0, horasTrabajadas) * 60)) % 1440 + 1440) % 1440;
+  let h = Math.floor(total / 60); const m = total % 60;
+  const ap = h < 12 ? 'a. m.' : 'p. m.';
+  h = h % 12; if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ap}`;
+}
+
 // Solo estos cargos (en nómina) pueden iniciar jornada en una máquina.
 export const OPERATOR_CARGOS = ['operador', 'chofer', 'servicios generales', 'obrero'];
 export const isOperatorCargo = (cargo?: string | null): boolean => {

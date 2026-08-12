@@ -30,6 +30,8 @@ import {
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
+import { ObrasPublicasAssignModal } from '../components/ObrasPublicasAssignModal';
+import { listOpAssignments, OpAssignment } from '../lib/obrasPublicas';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -350,6 +352,14 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Obras Públicas: vista de asignación + supervisor asignado por máquina (se
+  // muestra en la tarjeta del catálogo). Módulo AISLADO — no toca inspectores.
+  const [opAssignOpen, setOpAssignOpen] = useState(false);
+  const [opAssigns, setOpAssigns] = useState<Map<string, OpAssignment>>(new Map());
+  const reloadOpAssigns = React.useCallback(() => {
+    listOpAssignments().then(setOpAssigns).catch(() => {});
+  }, []);
+  React.useEffect(() => { reloadOpAssigns(); }, [reloadOpAssigns]);
 
   const isVehicle = kind === 'vehiculo';
   const matchCompany = (m: Machinery) =>
@@ -1217,12 +1227,6 @@ export default function EquiposScreen({ navigation, route }: any) {
             ) : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
-            {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
-            {(m as any).referencia ? (
-              <Text style={{ color: colors.muted, fontSize: 12 }}>
-                🏗️ {edificioLabel((m as any).referencia)}
-              </Text>
-            ) : null}
             {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}{inspectors[m.id].date ? ` · ${fmtDMY(inspectors[m.id].date)}` : ''}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
@@ -1245,6 +1249,11 @@ export default function EquiposScreen({ navigation, route }: any) {
 
       {/* Guardia / militar encargado (asignable aquí y en las rondas; historial acumulable). */}
       <GuardButton machine={{ id: m.id, code: m.code }} current={guards[m.id] ?? null} onChanged={() => refreshGuard(m.id)} userId={session?.user?.id} />
+      {/* Supervisor de Obras Públicas asignado (si lo hay) — se gestiona con el botón
+          "🏛️ Obras Públicas" de arriba. Módulo aislado del de inspectores. */}
+      {opAssigns.get(m.id) ? (
+        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏛️ Obras Públicas: <Text style={{ color: colors.text, fontWeight: '700' }}>{opAssigns.get(m.id)!.supervisor_name}</Text></Text>
+      ) : null}
 
       {/* Operadores asignados: una máquina puede tener varios; se despliega la lista. */}
       <TouchableOpacity
@@ -1422,7 +1431,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Alta unificada: + Agregar (elige vehículo o maquinaria) y Lote */}
+      {/* Alta unificada: + Agregar (elige vehículo o maquinaria) y Obras Públicas */}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <TouchableOpacity
           style={{ flex: 2, backgroundColor: colors.brand, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
@@ -1432,13 +1441,26 @@ export default function EquiposScreen({ navigation, route }: any) {
             🚗 / 🚜  + Agregar
           </Text>
         </TouchableOpacity>
+        {/* Obras Públicas: abre la vista de asignación (reemplaza el viejo "Lote").
+            Asigna el Supervisor de Obras Públicas a las máquinas — módulo aislado. */}
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
-          onPress={() => setKindChooser('batch')}
+          onPress={() => setOpAssignOpen(true)}
         >
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>📋 Lote</Text>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>🏛️ Obras Públicas</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Vista de asignación de Obras Públicas (módulo aislado). Recibe las máquinas
+          OPERATIVAS + AVERIADAS ya calculadas y la función de estatus del catálogo. */}
+      <ObrasPublicasAssignModal
+        visible={opAssignOpen}
+        onClose={() => { setOpAssignOpen(false); reloadOpAssigns(); }}
+        machines={[...averiadaMachines, ...activeMachines]}
+        statusOf={liveStatusOf}
+        companyName={companyName}
+        userId={session?.user?.id}
+      />
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
         <TouchableOpacity
@@ -1950,7 +1972,10 @@ export default function EquiposScreen({ navigation, route }: any) {
                 // arrancan abiertos para ver los resultados, PERO si el usuario toca para
                 // colapsar/expandir su elección manda (por eso el ?? va primero, no un
                 // `detailNq ? true` que ignoraba el toque y no dejaba colapsar al buscar).
-                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'retirada'));
+                // Por defecto COLAPSADO en "Retiradas" y "Esperando instrucciones"
+                // (solo se ven los encabezados por empresa con su conteo); al buscar se
+                // abre todo. Operativas/Averiadas siguen desplegadas por defecto.
+                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'retirada' && detailStatus !== 'espera'));
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
@@ -2006,12 +2031,6 @@ export default function EquiposScreen({ navigation, route }: any) {
             ) : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
-                          {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
-                          {(m as any).referencia ? (
-                            <Text style={{ color: colors.muted, fontSize: 12 }}>
-                              🏗️ {edificioLabel((m as any).referencia)}
-                            </Text>
-                          ) : null}
                           {/* Retirada: sin inspector — aunque ya no haya fila en machine_inspectors,
                               `latestInspectorByMachine()` cae al último check-in histórico en
                               supervisor_visits (dato real, no se borra) y lo seguía mostrando acá
