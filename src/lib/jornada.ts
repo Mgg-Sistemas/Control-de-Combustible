@@ -32,6 +32,20 @@ export function shiftFromKey(key: 'day' | 'night'): { key: 'day' | 'night'; labe
     : { key: 'night', label: '🌙 Jornada de noche' };
 }
 
+/**
+ * HORARIO NOMINAL del turno (jornadas fijas): DÍA 07:00 a. m. → 07:00 p. m.,
+ * NOCHE 07:00 p. m. → 07:00 a. m. Es la ÚNICA fuente de las horas de inicio/fin que
+ * se MUESTRAN (no las horas trabajadas, que se miden aparte). Aunque el inspector
+ * marque el inicio a las 9am o el fin a las 6:30pm, la jornada se muestra 7am→7pm
+ * (permanencia del turno completo). Compartido por el panel de Inspecciones (tarjeta
+ * de jornada), el Reporte por Empresa y el Reporte con Firma para que TODOS coincidan.
+ */
+export function horarioNominal(shift: 'day' | 'night'): { ini: string; fin: string } {
+  return shift === 'day'
+    ? { ini: '07:00 a. m.', fin: '07:00 p. m.' }
+    : { ini: '07:00 p. m.', fin: '07:00 a. m.' };
+}
+
 // Solo estos cargos (en nómina) pueden iniciar jornada en una máquina.
 export const OPERATOR_CARGOS = ['operador', 'chofer', 'servicios generales', 'obrero'];
 export const isOperatorCargo = (cargo?: string | null): boolean => {
