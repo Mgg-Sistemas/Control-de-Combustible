@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { Screen, Card, SectionTitle, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
-import { RBarChart } from '../components/redesign/RList';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { caracasParts } from '../lib/jornada';
@@ -43,7 +42,7 @@ function dm(iso: string): string {
   return `${d}/${m}`;
 }
 
-export default function ObrasPublicasDashboardScreen() {
+export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const { colors } = useTheme();
   const today = caracasParts(new Date()).iso;
   const [loading, setLoading] = useState(true);
@@ -113,17 +112,23 @@ export default function ObrasPublicasDashboardScreen() {
     return c;
   }, [machines, estadoOf]);
 
-  const horasTotalHoy = useMemo(() => machines.reduce((s, x) => s + horasHoy(x.id), 0), [machines, horasHoy]);
-  const visitasHoy = useMemo(() => d.visits.filter((v) => v.visit_date === today && visibleIds.has(v.machinery_id)).length, [d.visits, today, visibleIds]);
+  // Edificios distintos donde están las máquinas asignadas (machinery.referencia = EDIFICIO).
+  const edificios = useMemo(() => {
+    const s = new Set<string>();
+    machines.forEach((x) => { const e = (x.edificio ?? '').trim(); if (e) s.add(e.toLowerCase()); });
+    return s.size;
+  }, [machines]);
+  // m³ del día: aún NO se captura en la vista del supervisor (queda en 0 hasta engancharlo).
+  const m3Dia = 0;
 
   // KPIs (tarjetas de arriba). El valor es numérico (InspectorKpiGrid).
   const kpis: KpiItem[] = useMemo(() => [
     { key: 'asignadas', label: 'Máquinas asignadas', value: machines.length, tone: 'brand', icon: '🚜' },
     { key: 'trabajando', label: 'Trabajando ahora', value: counts.trabajando, tone: 'success', icon: '🟢' },
     { key: 'incidencias', label: 'Averiadas / Paradas', value: counts.averia + counts.parada, tone: 'danger', icon: '🔧' },
-    { key: 'horas', label: 'Horas de hoy', value: Math.round(horasTotalHoy * 10) / 10, tone: 'accent', icon: '🕒' },
-    { key: 'visitas', label: 'Visitas de hoy', value: visitasHoy, tone: 'warning', icon: '🪖' },
-  ], [machines.length, counts, horasTotalHoy, visitasHoy]);
+    { key: 'm3', label: 'm³ del día', value: m3Dia, tone: 'accent', icon: '⛰️' },
+    { key: 'edificios', label: 'Edificios', value: edificios, tone: 'warning', icon: '🏢' },
+  ], [machines.length, counts, m3Dia, edificios]);
 
   // Filtro de la flota según el KPI tocado.
   const fleetPred = useCallback((id: string): boolean => {
@@ -131,15 +136,6 @@ export default function ObrasPublicasDashboardScreen() {
     if (filter === 'incidencias') { const e = estadoOf(id); return e === 'averia' || e === 'parada'; }
     return true; // asignadas / horas / visitas / sin filtro
   }, [filter, estadoOf]);
-
-  // Horas por máquina (barras) — top 8 con horas > 0.
-  const horasPorMaquina = useMemo(() => (
-    machines
-      .map((x) => ({ label: x.code, value: horasHoy(x.id) }))
-      .filter((x) => x.value > 0)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8)
-  ), [machines, horasHoy]);
 
   // Serie "actividad por día" (rondas con horas o jornada abierta), últimos chartDays.
   const perDay = useMemo(() => {
@@ -195,20 +191,15 @@ export default function ObrasPublicasDashboardScreen() {
       ) : null}
 
       {/* KPIs */}
-      <InspectorKpiGrid items={kpis} activeKey={filter} onSelect={(k) => setFilter((p) => (p === k ? null : k))} />
+      <InspectorKpiGrid items={kpis} activeKey={filter} onSelect={(k) => {
+        // "Máquinas asignadas" abre el botón 🏛️ Obras Públicas del Catálogo (asignar
+        // supervisores). El resto solo filtra la flota de abajo.
+        if (k === 'asignadas') { navigation?.navigate?.('Equipos', { obrasPublicas: true }); return; }
+        setFilter((p) => (p === k ? null : k));
+      }} />
 
-      {/* GRÁFICO 1 — Horas por máquina (hoy) */}
+      {/* GRÁFICO 1 — Distribución por estado (barra segmentada + leyenda) */}
       <Card style={{ marginTop: spacing.md }}>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>🏁 Horas por máquina (hoy)</Text>
-        {horasPorMaquina.length ? (
-          <RBarChart data={horasPorMaquina} fmt={(n) => `${Math.round(n * 100) / 100} h`} />
-        ) : (
-          <Text style={{ color: colors.muted, fontSize: 12.5 }}>Sin horas registradas hoy.</Text>
-        )}
-      </Card>
-
-      {/* GRÁFICO 2 — Distribución por estado (barra segmentada + leyenda) */}
-      <Card>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>📊 Distribución por estado</Text>
         <View style={{ flexDirection: 'row', height: 16, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.surfaceAlt }}>
           {dist.map((s) => (s.count > 0 ? <View key={s.e} style={{ flex: s.count, backgroundColor: s.color }} /> : null))}
