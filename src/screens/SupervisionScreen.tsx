@@ -176,16 +176,17 @@ export default function SupervisionScreen({ navigation }: any) {
   // ── Alertas por HORÓMETRO (mantenimiento preventivo): independiente del día
   //    elegido arriba — es el estado ACTUAL del horómetro de cada máquina.
   const [horoOpen, setHoroOpen] = useState(false);
-  type HoroMach = { id: string; code: string; serial: string | null; plate: string | null; companyName: string; last_horometro: number | null; horometro_base: number | null; enEspera: boolean };
+  type HoroMach = { id: string; code: string; serial: string | null; plate: string | null; companyName: string; last_horometro: number | null; horometro_base: number | null; enEspera: boolean; operational: boolean | null };
   const [machList, setMachList] = useState<HoroMach[]>([]);
   const loadMachList = useCallback(async () => {
-    const { data } = await supabase.from('machinery').select('id, code, serial, plate, last_horometro, horometro_base, active, en_espera, company:company_id(name)').eq('active', true);
+    const { data } = await supabase.from('machinery').select('id, code, serial, plate, last_horometro, horometro_base, active, operational, en_espera, company:company_id(name)').eq('active', true);
     setMachList(((data ?? []) as any[]).map((m) => ({
       id: m.id, code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null,
       companyName: m.company?.name ?? 'Sin empresa',
       last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null,
       horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null,
       enEspera: m.en_espera === true,
+      operational: m.operational,
     })));
   }, []);
   useEffect(() => { loadMachList(); }, [loadMachList]);
@@ -329,7 +330,9 @@ export default function SupervisionScreen({ navigation }: any) {
   const checkMachines = useMemo(() => {
     const q = norm(asgQuery.trim());
     return machList
-      .filter((m) => !m.enEspera)
+      // Excluye ESPERANDO INSTRUCCIONES y RETIRADAS (operational=false): esas máquinas
+      // no están en servicio, así que no cuentan como "sin inspector" (pedido cliente).
+      .filter((m) => !m.enEspera && m.operational !== false)
       .map((m) => {
         const a = assignByMachine.get(m.id);
         return { id: m.id, code: m.code, serial: m.serial, plate: m.plate, companyName: m.companyName, day: a?.day ?? null, night: a?.night ?? null };

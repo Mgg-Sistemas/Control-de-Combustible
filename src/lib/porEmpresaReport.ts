@@ -3,7 +3,7 @@ import { pdfDocument, exportPdf } from './pdf';
 import { cmpText, norm } from './text';
 import { workedFromShifts } from './hours';
 import { motivoParada } from './paradaMotivo';
-import { horarioNominal } from './jornada';
+import { horarioNominal, horaFinJornada } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 
@@ -318,8 +318,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // noche = nn (horas reales, con anclaje de inicio de turno). Las averiadas/paradas van
   // en su propio grupo marcadas en 0 y NO suman a estos totales.
   let totDayH = 0, totNightH = 0;
-  const HORA_DIA_INI = horarioNominal('day').ini, HORA_DIA_FIN = horarioNominal('day').fin;
-  const HORA_NOCHE_INI = horarioNominal('night').ini, HORA_NOCHE_FIN = horarioNominal('night').fin;
+  const HORA_DIA_INI = horarioNominal('day').ini;    // el FIN se calcula por fila (inicio + horas)
+  const HORA_NOCHE_INI = horarioNominal('night').ini;
   const nowHora = horaCaracas(new Date(nowMs).toISOString());
   // Por empresa → filas.
   const porEmpresa = new Map<string, Fila[]>();
@@ -406,10 +406,12 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       inspector: inspTxt(id),
       // Horario DÍA (7am→7pm) y NOCHE (7pm→7am). Si la jornada de ese turno sigue ABIERTA
       // hoy, el FIN muestra la hora actual (en curso); si ya cerró, el fin del turno.
+      // FIN REAL = inicio nominal + horas trabajadas del turno: día completo (12h) da
+      // 7pm, pero una noche parcial da su fin real (no 7am fijo). Ver horaFinJornada.
       diaIni: ddAct > 0 ? HORA_DIA_INI : '—',
-      diaFin: ddAct > 0 ? (dayOpen ? 'EN CURSO' : HORA_DIA_FIN) : '—',
+      diaFin: ddAct > 0 ? (dayOpen ? 'EN CURSO' : horaFinJornada('day', ddAct)) : '—',
       nocheIni: nnAct > 0 ? HORA_NOCHE_INI : '—',
-      nocheFin: nnAct > 0 ? (nightOpen ? 'EN CURSO' : HORA_NOCHE_FIN) : '—',
+      nocheFin: nnAct > 0 ? (nightOpen ? 'EN CURSO' : horaFinJornada('night', nnAct)) : '—',
       diaEnCurso: ddAct > 0 && dayOpen,
       nocheEnCurso: nnAct > 0 && nightOpen,
       diaHoras: n2(ddAct), nocheHoras: n2(nnAct),

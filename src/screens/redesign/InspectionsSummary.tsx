@@ -19,7 +19,7 @@ import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
 import { caracasToday, caracasNowShift, caracasBusinessToday, shiftElapsedHours } from '../../lib/caracasDay';
-import { horarioNominal } from '../../lib/jornada';
+import { horarioNominal, horaFinJornada } from '../../lib/jornada';
 import { useNavigation } from '@react-navigation/native';
 
 /**
@@ -944,7 +944,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         // Horario NOMINAL del turno (7am día / 7pm noche): la jornada se muestra desde
         // el inicio del turno aunque la marquen tarde. Fin fijo 7pm/7am si ya cerró.
         cur[openSh].horaIni = horarioNominal(openSh).ini;
-        cur[openSh].horaFin = liveDay ? 'En curso' : horarioNominal(openSh).fin;
+        cur[openSh].horaFin = liveDay ? 'En curso' : horaFinJornada(openSh, cur[openSh].hours);
         // Hora REAL en que el inspector marcó la jornada (si difiere ≥2 min del inicio
         // declarado): "INICIO 07:00 · marcó 8:15". Vacío si coincide o no se registró.
         const mk = (r as any).jornada_marked_at as string | null;
@@ -969,7 +969,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           // igual que el Reporte por Empresa y el de Firma. Las horas trabajadas
           // (info.hours) siguen siendo las REALES — solo se fija el inicio/fin mostrado.
           info.horaIni = horarioNominal(sh).ini;
-          info.horaFin = horarioNominal(sh).fin;
+          info.horaFin = horaFinJornada(sh, info.hours);
         }
       });
     });
@@ -1090,10 +1090,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const seg = segDay[id] ?? null;
       const openNow = selDay === caracasBusinessToday() && !!rd?.openStartAt;
       // Horario NOMINAL del turno (7am→7pm día · 7pm→7am noche), igual que los reportes.
-      const nom = horarioNominal(rd?.shift === 'night' ? 'night' : 'day');
+      const nomShift: 'day' | 'night' = rd?.shift === 'night' ? 'night' : 'day';
+      const nom = horarioNominal(nomShift);
+      const shiftHrs = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
       const hasSeg = !!(seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity);
       const horaIni = (hasSeg || rd?.openStartAt) ? nom.ini : '—';
-      const horaFin = openNow ? 'En curso' : (hasSeg ? nom.fin : '—');
+      const horaFin = openNow ? 'En curso' : (hasSeg ? horaFinJornada(nomShift, shiftHrs) : '—');
       // Transcurrido EN VIVO: mientras la jornada sigue ABIERTA, cuánto lleva corriendo
       // (ahora − inicio real). Tope 12h = duración del turno. Usa nowTick para tictaquear.
       const elapsedH = openNow && rd?.openStartAt ? Math.max(0, Math.min(12, (nowTick - new Date(rd.openStartAt).getTime()) / 3600000)) : null;
@@ -1150,10 +1152,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const seg = segDay[id] ?? null;
       const openNow = selDay === caracasBusinessToday() && !!rd?.openStartAt;
       // Horario NOMINAL del turno (7am→7pm día · 7pm→7am noche), igual que los reportes.
-      const nom = horarioNominal(rd?.shift === 'night' ? 'night' : 'day');
+      const nomShift: 'day' | 'night' = rd?.shift === 'night' ? 'night' : 'day';
+      const nom = horarioNominal(nomShift);
+      const shiftHrs = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
       const hasSeg = !!(seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity);
       const horaIni = (hasSeg || rd?.openStartAt) ? nom.ini : '—';
-      const horaFin = openNow ? 'En curso' : (hasSeg ? nom.fin : '—');
+      const horaFin = openNow ? 'En curso' : (hasSeg ? horaFinJornada(nomShift, shiftHrs) : '—');
       const elapsedH = openNow && rd?.openStartAt ? Math.max(0, Math.min(12, (nowTick - new Date(rd.openStartAt).getTime()) / 3600000)) : null;
       // Horas del TURNO de la jornada (noche muestra noche) + EN VIVO si sigue abierta.
       // Tope 12h por turno (nunca supera la duración del turno).

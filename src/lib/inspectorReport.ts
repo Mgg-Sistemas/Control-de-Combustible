@@ -4,7 +4,7 @@ import { cmpText, norm } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
-import { horarioNominal } from './jornada';
+import { horarioNominal, horaFinJornada } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { computeMachineVisibilitySets, clasificarEstadoTurno } from './inspectorDaySets';
 import { motivoParada } from './paradaMotivo';
@@ -541,7 +541,6 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     // (pedido del cliente 10-ago-2026: que se vea igual que el reporte por empresa).
     const hLabel = turno === 'day' ? 'Horario DÍA' : 'Horario NOCHE';
     const HORA_INI = horarioNominal(turno).ini;          // 7am día / 7pm noche (fuente única)
-    const HORA_FIN_FIJA = horarioNominal(turno).fin;     // 7pm día / 7am noche
     let tWork = 0, tJor = 0;
     const rows = list.map((m, i) => {
       const shiftH = r2(turno === 'day' ? m.dayH : m.nightH);       // horas de SU turno
@@ -563,7 +562,9 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       // HORA_FIN_FIJA ahí sugeriría falsamente que completó la jornada normal. Solo se
       // usa la hora fija cuando el cierre fue realmente normal (estado 'finalizada').
       const cerroNormal = m.estado === 'finalizada';
-      const finTxt = enCurso ? 'EN CURSO' : cerroNormal ? HORA_FIN_FIJA : 'Detenida';
+      // FIN REAL = inicio nominal + horas trabajadas del turno. Día completo (12h) da
+      // 7pm; una noche parcial (p.ej. 5.47h) da su fin real (~12:28am), no 7am fijo.
+      const finTxt = enCurso ? 'EN CURSO' : cerroNormal ? horaFinJornada(turno, shiftH) : 'Detenida';
       const horarioCell = (enCurso || shiftH > 0)
         ? `<td class="hr"><div class="ini">${esc(HORA_INI)}</div>` +
           `<div class="${enCurso ? 'curso' : 'fin'}">${esc(finTxt)}</div>` +
