@@ -502,11 +502,17 @@ export default function MantenimientoMaquinariaScreen() {
 
   // ── Agrupaciones por pestaña ────────────────────────────────────────────────
   const nq = norm(query.trim());
-  const matchesQ = (code: string, company: string) => !nq || norm(company).includes(nq) || norm(code).includes(nq);
+  // Busca por CUALQUIER campo relevante de la fila (máquina, empresa, placa, serial,
+  // material, nota, quién reportó, tipo de reparación, qué se hizo…), no solo código/empresa.
+  const matchesQ = (...fields: (string | number | null | undefined)[]) =>
+    !nq || fields.some((f) => f != null && String(f).trim() !== '' && norm(String(f)).includes(nq));
 
   // AVERÍAS pendientes por empresa → máquina.
   const averiaGroups = useMemo(() => {
-    const shown = reqs.filter((r) => r.status === 'pendiente' && matchesQ(r.code, r.company));
+    const shown = reqs.filter((r) => r.status === 'pendiente' && matchesQ(
+      r.code, r.company, r.tipo, matLabel(r.material), r.notes, r.plate, r.serial,
+      r.requestedByName, r.sector, r.parroquia, r.referencia,
+    ));
     const byCompany = new Map<string, Map<string, Req[]>>();
     shown.forEach((r) => {
       const comp = byCompany.get(r.company) ?? new Map<string, Req[]>();
@@ -538,8 +544,9 @@ export default function MantenimientoMaquinariaScreen() {
     return filtered.sort((a, b) => (b.acum ?? -1) - (a.acum ?? -1) || cmpText(a.m.code, b.m.code));
   }, [machines, horoByMachine, asigByMachine, nq]);
 
-  const enReparacion = useMemo(() => repairs.filter((r) => r.status === 'en_reparacion' && matchesQ(r.code, r.company)), [repairs, nq]);
-  const historial = useMemo(() => repairs.filter((r) => r.status === 'operativa' && matchesQ(r.code, r.company)), [repairs, nq]);
+  const matchesRep = (r: Rep) => matchesQ(r.code, r.company, r.machineTipo, r.tipo, r.estimated_note, r.work_done, r.createdByName, r.closedByName);
+  const enReparacion = useMemo(() => repairs.filter((r) => r.status === 'en_reparacion' && matchesRep(r)), [repairs, nq]);
+  const historial = useMemo(() => repairs.filter((r) => r.status === 'operativa' && matchesRep(r)), [repairs, nq]);
 
   const pendientes = reqs.filter((r) => r.status === 'pendiente').length;
   const enRepCount = repairs.filter((r) => r.status === 'en_reparacion').length;
@@ -631,7 +638,7 @@ export default function MantenimientoMaquinariaScreen() {
         </TouchableOpacity>
       </View>
 
-      <TextInput value={query} onChangeText={setQuery} placeholder={tab === 'horometros' ? '🔎 Máquina, serial, placa, empresa, encargado, inspector, ubicación…' : '🔎 Buscar empresa o máquina…'} placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
+      <TextInput value={query} onChangeText={setQuery} placeholder={tab === 'horometros' ? '🔎 Máquina, serial, placa, empresa, encargado, inspector, ubicación…' : '🔎 Máquina, empresa, placa, serial, material, nota, quién reportó…'} placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
 
       {loading ? (
         <Loading />
