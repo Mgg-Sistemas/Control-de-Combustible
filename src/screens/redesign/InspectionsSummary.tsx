@@ -1110,11 +1110,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // siga abierto). Si no, solo el TURNO de la jornada (noche muestra noche) + en vivo.
       const bankedShiftH = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
       // Tope por turno: DÍA máx 12h, NOCHE máx 12h (corrido = hasta 24, nunca >12 por turno).
-      const worked = bothShifts
-        ? Math.round((Math.min(12, sd!.day.hours + (sd!.day.openNow ? (dayElapsedH ?? 0) : 0)) + Math.min(12, sd!.night.hours + (sd!.night.openNow ? (nightElapsedH ?? 0) : 0))) * 100) / 100
+      // Horas por TURNO (día / noche) por separado + lo transcurrido EN VIVO del que siga
+      // abierto; el TOTAL es la suma día+noche.
+      const dayTotal = Math.round(Math.min(12, (sd?.day.hours ?? 0) + (sd?.day.openNow ? (dayElapsedH ?? 0) : 0)) * 100) / 100;
+      const nightTotal = Math.round(Math.min(12, (sd?.night.hours ?? 0) + (sd?.night.openNow ? (nightElapsedH ?? 0) : 0)) * 100) / 100;
+      const worked = sd
+        ? Math.round((dayTotal + nightTotal) * 100) / 100
         : Math.round(Math.min(12, bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
       const markedAt = sd ? (sd.day.markedAt || sd.night.markedAt) : '';
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, markedAt, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, dayTotal, nightTotal, estado: estadoOf(id), inspector, horaIni, horaFin, markedAt, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
     });
   }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds, nowTick]);
   const listShown = useMemo(() => {
@@ -1162,12 +1166,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // Horas del TURNO de la jornada (noche muestra noche) + EN VIVO si sigue abierta.
       // Tope 12h por turno (nunca supera la duración del turno).
       const bankedShiftH = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
-      const worked = Math.round(Math.min(12, bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
       const dn = inspByShift.get(id) ?? {};
       const sd = shiftDetail.get(id) ?? null;
+      // Horas por TURNO (día / noche) por separado, incluyendo lo transcurrido EN VIVO
+      // del turno que siga abierto (openStartAt es del turno vivo, que es `rd.shift`).
+      // Cada turno tope 12h; el TOTAL es la suma día+noche (hasta 24 en un "corrido").
+      const dayTotal = Math.round(Math.min(12, (sd?.day.hours ?? 0) + (sd?.day.openNow ? (elapsedH ?? 0) : 0)) * 100) / 100;
+      const nightTotal = Math.round(Math.min(12, (sd?.night.hours ?? 0) + (sd?.night.openNow ? (elapsedH ?? 0) : 0)) * 100) / 100;
+      const worked = sd ? Math.round((dayTotal + nightTotal) * 100) / 100 : Math.round(Math.min(12, bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
       const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
       const markedAt = sd ? (sd.day.markedAt || sd.night.markedAt) : '';
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, markedAt, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, dayTotal, nightTotal, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, markedAt, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };
     });
     return rows.filter((r) => {
       // SOLO máquinas OPERATIVAS: fuera las INACTIVAS del catálogo (NO OPERATIVA
@@ -1743,15 +1752,22 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                             </Text>
                           </>
                         ) : (
+                          <>
                           <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
                             <Text style={{ color: colors.muted }}>🕐 Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
                             {r.markedAt ? (<><Text style={{ color: colors.muted }}>  · 👷 marcó </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{r.markedAt}</Text></>) : null}
                             <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
-                            <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
                             {r.elapsedH != null ? (<>
                               <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
                             </>) : null}
                           </Text>
+                          {/* Desglose por turno: día · noche · total (el total es la suma día+noche). */}
+                          <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
+                            <Text style={{ color: colors.muted }}>☀️ Día </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayTotal} h</Text>
+                            <Text style={{ color: colors.muted }}>  ·  🌙 Noche </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightTotal} h</Text>
+                            <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.worked} h</Text>
+                          </Text>
+                          </>
                         )}
                       </View>
                     );
@@ -2012,6 +2028,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               </Text>
                             </>
                           ) : (Number(r.worked) > 0 || r.horaIni !== '—') ? (
+                            <>
                             <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>🕐 Inicio </Text>
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
@@ -2021,13 +2038,21 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               </>) : null}
                               <Text style={{ color: colors.muted }}>  →  Fin </Text>
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
-                              <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text>
-                              <Text style={{ color: colors.success, fontWeight: '800' }}>{r.worked} h</Text>
                               {r.elapsedH != null ? (<>
                                 <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido </Text>
                                 <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
                               </>) : null}
                             </Text>
+                            {/* Desglose por turno: día · noche · total (el total es la suma día+noche). */}
+                            <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
+                              <Text style={{ color: colors.muted }}>☀️ Día </Text>
+                              <Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayTotal} h</Text>
+                              <Text style={{ color: colors.muted }}>  ·  🌙 Noche </Text>
+                              <Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightTotal} h</Text>
+                              <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text>
+                              <Text style={{ color: colors.success, fontWeight: '800' }}>{r.worked} h</Text>
+                            </Text>
+                            </>
                           ) : null}
                           {r.estado === 'parada' ? (
                             <Text style={{ color: colors.warning, fontSize: 11.5, marginTop: 1, fontWeight: '800' }}>🟡 Estuvo parada / no trabajó</Text>
