@@ -694,7 +694,7 @@ function EditUserForm({
   const [machinePickOpen, setMachinePickOpen] = useState(false);
   const [machinePickLoading, setMachinePickLoading] = useState(false);
   const [machinePickQuery, setMachinePickQuery] = useState('');
-  const [machinePickList, setMachinePickList] = useState<{ id: string; code: string }[]>([]);
+  const [machinePickList, setMachinePickList] = useState<{ id: string; code: string; plate: string | null; serial: string | null; clasificacion: string | null }[]>([]);
 
   // Módulos editados HACE POCO por este admin (clave → timestamp). Protege la edición
   // reciente de que un refetch en vivo (que puede leer ANTES de que el upsert sea
@@ -788,19 +788,22 @@ function EditUserForm({
     setMachinePickOpen(true);
     setMachinePickQuery('');
     setMachinePickLoading(true);
-    const { data, error: e } = await supabase.from('machinery').select('id, code').eq('active', true).order('code');
+    const { data, error: e } = await supabase.from('machinery').select('id, code, plate, serial, clasificacion').eq('active', true).order('code');
     setMachinePickLoading(false);
     if (e) { toast.error(e.message); return; }
-    setMachinePickList((data ?? []) as { id: string; code: string }[]);
+    setMachinePickList((data ?? []) as { id: string; code: string; plate: string | null; serial: string | null; clasificacion: string | null }[]);
   };
 
   const nqCompanyPick = norm(companyPickQuery.trim());
   const companyPickFiltered = companyPickList.filter(
     (c) => !companyScope.some((s) => s.companyId === c.id) && (!nqCompanyPick || norm(c.name).includes(nqCompanyPick))
   );
+  // Busca por código, categoría (clasificación) o placa/serial — igual criterio
+  // "buscar por cualquier cosa" que ya usa Mantenimiento de Maquinaria.
   const nqMachinePick = norm(machinePickQuery.trim());
   const machinePickFiltered = machinePickList.filter(
-    (m) => !machineScope.some((s) => s.machineryId === m.id) && (!nqMachinePick || norm(m.code).includes(nqMachinePick))
+    (m) => !machineScope.some((s) => s.machineryId === m.id) && (!nqMachinePick ||
+      [m.code, m.clasificacion, m.plate, m.serial].some((f) => f != null && norm(String(f)).includes(nqMachinePick)))
   );
 
   const setPerm = async (moduleKey: string, level: PermLevel) => {
@@ -1017,7 +1020,9 @@ function EditUserForm({
                             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>MÁQUINAS SUELTAS</Text>
                             {machineScope.map((m) => (
                               <View key={m.machineryId} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}>
-                                <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>🚜 {m.code}</Text>
+                                <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>
+                                  🚜 {m.code}{(m.plate || m.serial) ? ` · ${m.plate || m.serial}` : ''}
+                                </Text>
                                 <TouchableOpacity onPress={() => removeMachineFromScope(m.machineryId)}>
                                   <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕ Quitar</Text>
                                 </TouchableOpacity>
@@ -1107,7 +1112,7 @@ function EditUserForm({
             <View style={styles.backdrop}>
               <View style={[styles.sheet, { maxHeight: '82%' }]}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>➕ Agregar máquina suelta</Text>
-                <TextInput value={machinePickQuery} onChangeText={setMachinePickQuery} placeholder="🔎 Buscar por código…" placeholderTextColor={colors.muted} style={styles.input} />
+                <TextInput value={machinePickQuery} onChangeText={setMachinePickQuery} placeholder="🔎 Buscar por código, categoría, placa o serial…" placeholderTextColor={colors.muted} style={styles.input} />
                 {machinePickLoading ? (
                   <Loading />
                 ) : (
@@ -1118,7 +1123,8 @@ function EditUserForm({
                         onPress={() => addMachineToScope(m.id)}
                         style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}
                       >
-                        <Text style={{ color: colors.text, fontWeight: '700' }}>🚜 {m.code}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>🚜 {m.code}{m.clasificacion ? ` · ${m.clasificacion}` : ''}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>{m.plate || m.serial ? `${m.plate ? `Placa ${m.plate}` : ''}${m.plate && m.serial ? ' · ' : ''}${m.serial ? `Serial ${m.serial}` : ''}` : 'Sin placa/serial'}</Text>
                       </TouchableOpacity>
                     ))}
                     {machinePickFiltered.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin coincidencias.</Text> : null}
