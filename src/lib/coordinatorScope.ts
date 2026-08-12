@@ -19,7 +19,7 @@ function isMissingTable(msg: string): boolean {
 }
 
 export type CompanyScopeRow = { companyId: string; companyName: string };
-export type MachineScopeRow = { machineryId: string; code: string };
+export type MachineScopeRow = { machineryId: string; code: string; plate: string | null; serial: string | null };
 
 /** Empresas asignadas en bloque a este coordinador (alcance por empresa). */
 export async function listCompanyScope(userId: string): Promise<{ rows: CompanyScopeRow[]; missing: boolean }> {
@@ -39,10 +39,13 @@ export async function listMachineScope(userId: string): Promise<{ rows: MachineS
   if (!userId) return { rows: [], missing: false };
   const { data, error } = await supabase
     .from('coordinator_machine_scope')
-    .select('machinery_id, machinery:machinery_id(code)')
+    .select('machinery_id, machinery:machinery_id(code, plate, serial)')
     .eq('user_id', userId);
   if (error) return { rows: [], missing: isMissingTable(error.message) };
-  const rows = ((data ?? []) as any[]).map((r) => ({ machineryId: r.machinery_id as string, code: r.machinery?.code ?? '—' }));
+  const rows = ((data ?? []) as any[]).map((r) => ({
+    machineryId: r.machinery_id as string, code: r.machinery?.code ?? '—',
+    plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null,
+  }));
   rows.sort((a, b) => a.code.localeCompare(b.code));
   return { rows, missing: false };
 }
