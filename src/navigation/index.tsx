@@ -28,6 +28,7 @@ import CoordinadorOperadoresScreen from '../screens/CoordinadorOperadoresScreen'
 import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
+import ObrasPublicasScreen from '../screens/ObrasPublicasScreen';
 import FuelDriverScreen from '../screens/FuelDriverScreen';
 import SupervisionScreen from '../screens/SupervisionScreen';
 import HistoricoJornadasScreen from '../screens/HistoricoJornadasScreen';
@@ -532,6 +533,35 @@ function CoordinadorOperadoresStack() {
   );
 }
 
+/** Rol "Supervisor Externo Obras Públicas" (rol dinámico con el módulo distintivo
+ *  `obras_publicas`): entra DIRECTO a SU vista de máquinas asignadas. Su jornada/
+ *  avería/parada viven en tablas op_* AISLADAS (no tocan inspectores); solo la
+ *  ubicación se comparte con el mapa. Mismo patrón de detección por módulo único
+ *  que `esRolCoordinadorOperadores`. */
+function esRolObrasPublicas(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  return !!mods['obras_publicas'] && mods['obras_publicas'] !== 'none';
+}
+
+/** Panel del Supervisor Externo Obras Públicas: sus máquinas asignadas + el mapa. */
+function ObrasPublicasTabs() {
+  const { colors } = useTheme();
+  const screenHeader = useScreenHeader();
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        ...screenHeader,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.muted,
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+      }}
+    >
+      <Tab.Screen name="ObrasPublicasHome" component={ObrasPublicasScreen} options={{ title: 'Mis máquinas', tabBarIcon: tabIcon('🏛️') }} />
+      <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
+    </Tab.Navigator>
+  );
+}
+
 /** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
  *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
@@ -759,7 +789,7 @@ const moreScreens = {
  *  (ver `pickTree` más abajo). `operador` es una pantalla suelta sin Stack/Tab,
  *  así que no tiene config de `linking` propia; `cocina` sí tiene su propio
  *  Stack (ver `CocinaStack`), con config de `linking` en `TREE_LINKING`. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina' | 'obrasPublicas';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -817,6 +847,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   conductor: { ConductorSurtir: 'surtir', Map: 'mapa', Equipos: 'catalogo' },
   asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', DistribucionGuardias: 'distribucion-guardias', Manual: 'manual', Ajustes: 'ajustes' },
   cocina: { CocinaHome: 'cocina', Comida: 'comida', Manual: 'manual', Ajustes: 'ajustes' },
+  obrasPublicas: { ObrasPublicasHome: 'obras-publicas', Map: 'mapa' },
 };
 
 /** URL "de inicio" de cada árbol (su pantalla raíz). Al entrar SIN deep link
@@ -836,6 +867,7 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   conductor: '/surtir',
   asistencia: '/asistencia',
   cocina: '/cocina',
+  obrasPublicas: '/obras-publicas',
 };
 
 /** Elige el árbol de navegación (y su pantalla) del usuario logueado, EN EL
@@ -867,6 +899,10 @@ function pickTree(ctx: {
   // mandaba a SupervisorTabs — el rol quedaba asignado en Usuarios pero la
   // pantalla nueva nunca se veía (bug real, 11-ago-2026).
   if (appRole && role !== 'admin' && esRolCoordinadorOperadores(appRole)) return { key: 'coordOperadores', node: <CoordinadorOperadoresStack /> };
+  // SUPERVISOR EXTERNO OBRAS PÚBLICAS: su propia vista de máquinas asignadas (op_*
+  // aislado). Va temprano — sus usuarios tienen profiles.role base 'conductor' + este
+  // appRole, así que sin esto caerían en el catch-all `tabs` (app completa).
+  if (appRole && role !== 'admin' && esRolObrasPublicas(appRole)) return { key: 'obrasPublicas', node: <ObrasPublicasTabs /> };
   if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
   // El admin (rol genérico) SIEMPRE arranca en la app completa en teléfono — el
   // cliente pidió explícitamente que el/los administrador(es) no inicien en la
