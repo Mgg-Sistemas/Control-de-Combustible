@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, Pressable, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, Pressable, ScrollView, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import QrScanner from '../components/QrScanner';
@@ -41,7 +41,9 @@ const STATE_META: Record<MachineState, { label: string; bg: string; text: (c: an
 
 type Row = {
   id: string; code: string; plate: string | null; serial: string | null; tipo: string | null;
-  companyName: string; sector: string | null;
+  companyName: string; sector: string | null; encargado: string | null;
+  referencia: string | null; latitude: number | null; longitude: number | null;
+  inspectorName: string | null;
   state: MachineState;
   planned: OperatorAssignmentRow | null;
   liveName: string | null;
@@ -150,6 +152,14 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     return map;
   }, [rounds, shift]);
 
+  // Inspector asignado a cada máquina en el turno elegido (solo para mostrarlo — el
+  // coordinador de operadores no lo asigna, eso es de Coordinador de Inspectores).
+  const inspectorByMachine = useMemo(() => {
+    const map = new Map<string, string>();
+    inspectorAssigns.forEach((a) => { if (a.shift === shift && a.inspector_name) map.set(a.machinery_id, a.inspector_name); });
+    return map;
+  }, [inspectorAssigns, shift]);
+
   const attendanceOf = (employeeId: string | null): { status: 'ok' | 'no' | 'out' | null; ts: string | null } => {
     if (!employeeId) return { status: null, ts: null };
     const marks = attendanceByEmp[employeeId];
@@ -184,6 +194,8 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       const att = attendanceOf(plan?.employee_id ?? null);
       rows.push({
         id, code: m.code, plate: m.plate, serial: m.serial, tipo: m.tipo, companyName: m.companyName, sector: m.sector,
+        encargado: m.encargado, referencia: m.referencia, latitude: m.latitude, longitude: m.longitude,
+        inspectorName: inspectorByMachine.get(id) ?? null,
         state, planned: plan, liveName: live?.name ?? null, liveOpen: !!live?.open, mismatch,
         attendance: att.status, attendanceTs: att.ts,
       });
@@ -196,7 +208,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     });
     return rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daySets, planned, plannedByMachine, liveByMachine, machList, machInactiveSet, machHardInactiveSet, shift, attendanceByEmp]);
+  }, [daySets, planned, plannedByMachine, liveByMachine, machList, machInactiveSet, machHardInactiveSet, shift, attendanceByEmp, inspectorByMachine]);
 
   const sinAsignarRows = useMemo(() => universeRows.filter((r) => !r.planned), [universeRows]);
   const mismatchRows = useMemo(() => universeRows.filter((r) => r.mismatch), [universeRows]);
@@ -357,11 +369,15 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     const id = parseEmployeeId(text);
     if (!id) { setAttNotice('❌ Ese QR no es un carnet de empleado.'); return; }
     setAttBusy(true);
-    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo').eq('id', id).maybeSingle();
+    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo, status').eq('id', id).maybeSingle();
     const emp = data as any;
     if (!emp) { setAttBusy(false); setAttNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
     const nombre = `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() || 'Sin nombre';
     if (!isOperatorCargo(emp.cargo)) { setAttBusy(false); setAttNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es operador, chofer, obrero ni servicios generales.`); return; }
+    // El roster de la pestaña "Operadores" solo trae empleados status='activo' (misma
+    // consulta que load()) — si se dejara marcar asistencia a alguien inactivo, quedaría
+    // registrada pero invisible ahí para siempre. Se bloquea acá para que sea consistente.
+    if (emp.status && emp.status !== 'activo') { setAttBusy(false); setAttNotice(`❌ ${nombre} figura como "${emp.status}", no activo — no se le puede marcar asistencia.`); return; }
     const r = await markAttendance(emp.id, uid || null);
     setAttBusy(false);
     if (!r.ok) { setAttNotice('❌ ' + r.error); return; }
@@ -502,6 +518,22 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
             </View>
           ) : null}
           {attendanceChip(r)}
+          {r.inspectorName ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>🕵️ Inspector: {r.inspectorName}</Text> : null}
+          {(r.sector || r.encargado) ? (
+            <Text style={{ color: colors.muted, fontSize: 10.5 }} numberOfLines={1}>
+              {r.sector ? `🏭 ${r.sector}` : ''}{r.sector && r.encargado ? '  ·  ' : ''}{r.encargado ? `👤 Encargado: ${r.encargado}` : ''}
+            </Text>
+          ) : null}
+          {(r.referencia || r.latitude != null) ? (
+            <TouchableOpacity
+              disabled={r.latitude == null}
+              onPress={() => { if (r.latitude != null && r.longitude != null) Linking.openURL(`https://www.google.com/maps?q=${r.latitude},${r.longitude}`); }}
+            >
+              <Text style={{ color: r.latitude != null ? colors.primary : colors.muted, fontSize: 10.5 }} numberOfLines={1}>
+                📍 {r.referencia || 'Ubicación guardada'}{r.latitude != null ? ' · ver en mapa' : ''}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </Card>
     </TouchableOpacity>
