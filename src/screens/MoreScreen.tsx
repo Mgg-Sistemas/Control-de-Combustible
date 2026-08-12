@@ -12,7 +12,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Margen de ganancia', route: 'MargenGanancia', desc: 'Costo inicial, valor útil y % de ganancia por máquina y empresa', icon: '🚜', module: 'margen_ganancia' },
   { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', desc: 'Averías por máquina, enviar a reparación (salida, tiempo, cambios) y retorno operativo', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
-  { label: 'Coordinador de Operadores', route: 'CoordOperadores', desc: 'Asignar operadores a máquinas por turno, verificar asistencia y avisar novedades', icon: '👷‍♂️', module: 'coordinacion_operadores' },
+  { label: 'Coordinador de Operadores', route: 'CoordOperadores', desc: 'Asignar operadores a máquinas por turno, marcar su asistencia y avisar novedades', icon: '👷‍♂️', module: 'coordinacion_operadores' },
   { label: 'Inspecciones', route: 'Supervision', desc: 'Rondas de inspectores: quién marcó cada máquina (GPS + estado), jornadas e histórico por inspector', icon: '🪖', module: 'supervision' },
   { label: 'Ubicaciones', route: 'Ubicaciones', desc: 'Catálogo de edificios/ubicaciones (Macuto, Caraballeda…): agregar, editar y eliminar; se sincroniza con el EDIFICIO del inspector y el catálogo', icon: '📍', module: 'supervision' },
   { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', desc: 'Control por equipo: inventario de herramientas/accesorios y REPORTE DE INSPECCIÓN en PDF', icon: '🔍', module: 'inspecciones_maq' },
