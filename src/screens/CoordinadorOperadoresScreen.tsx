@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, Pressable, ScrollView, Linking } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { Screen, Card, SectionTitle, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import QrScanner from '../components/QrScanner';
@@ -71,6 +72,11 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const { session, canSee } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasBusinessToday();
+  // La hoja de asignar es un <Modal> nativo: si no se oculta al salir a otra pantalla
+  // (p. ej. "Ver ficha"), queda flotando ENCIMA de esa pantalla porque los Modal no
+  // forman parte del stack de navegación. `isFocused` la oculta al salir y la vuelve a
+  // mostrar sola al volver — sin perder qué máquina/turno se estaba asignando.
+  const isFocused = useIsFocused();
 
   const [shift, setShift] = useState<Shift>(caracasNowShift);
   const [loading, setLoading] = useState(true);
@@ -715,7 +721,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       ) : null}
 
       {/* ── Asignar / reasignar operador ── */}
-      <Modal visible={assignFor !== null} transparent animationType="fade" onRequestClose={() => setAssignFor(null)}>
+      <Modal visible={assignFor !== null && isFocused} transparent animationType="fade" onRequestClose={() => setAssignFor(null)}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setAssignFor(null)}>
           <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.background, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', paddingTop: spacing.md }}>
             {assignFor ? (() => {
@@ -745,7 +751,10 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>Planeado ahora: 👷 {current.operator_name}{current.assignedByName ? ` · por ${current.assignedByName}` : ''}</Text>
                         {current.employee_id && navigation?.navigate ? (
-                          <TouchableOpacity onPress={() => { setAssignFor(null); navigation.navigate('EmployeeCard', { employeeId: current.employee_id }); }} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                          // OJO: no cerrar el modal (setAssignFor(null)) acá — se
+                          // oculta solo por `isFocused` y vuelve a aparecer con todo
+                          // igual (misma máquina/turno) al volver de la ficha.
+                          <TouchableOpacity onPress={() => navigation.navigate('EmployeeCard', { employeeId: current.employee_id })} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
                             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>👁️ Ficha</Text>
                           </TouchableOpacity>
                         ) : null}
