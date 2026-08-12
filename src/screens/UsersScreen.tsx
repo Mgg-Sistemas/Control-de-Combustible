@@ -1281,6 +1281,17 @@ function EditUserForm({
                       ESTADO{machineEstadoSel.size > 0 ? ` (${machineEstadoSel.size})` : ' (todos)'}
                     </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                      {(() => {
+                        const allOn = machineEstadoSel.size === 0;
+                        return (
+                          <TouchableOpacity
+                            onPress={() => setMachineEstadoSel(new Set())}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: allOn ? colors.brand : colors.border, backgroundColor: allOn ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
+                          >
+                            <Text style={{ color: allOn ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>Todas</Text>
+                          </TouchableOpacity>
+                        );
+                      })()}
                       {machineEstadoOptions.map((o) => {
                         const meta = ESTADO_CONTEO_META[o.key];
                         const on = machineEstadoSel.has(o.key);
