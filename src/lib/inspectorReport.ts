@@ -5,7 +5,7 @@ import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
-import { computeMachineVisibilitySets } from './inspectorDaySets';
+import { computeMachineVisibilitySets, clasificarEstadoTurno } from './inspectorDaySets';
 import { motivoParada } from './paradaMotivo';
 
 /**
@@ -355,17 +355,24 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // iniciar" donde las tarjetas ya decían "🟡 Parada" — la desincronización que
     // reportó el cliente (11-ago-2026).
     const declaredShift = rd?.jornada_shift === turno;
+    // ESCALERA DE DECISIÓN ÚNICA compartida con las tarjetas y el teléfono
+    // (`clasificarEstadoTurno` en inspectorDaySets.ts): este PDF ya NO tiene su propia
+    // copia del orden de prioridad — mapea sus datos y delega. `encurso`=iniciada,
+    // `finalizada`=cerrada. `averArrMot`/`parArrMot` ya vienen suprimidos si la máquina
+    // se reactivó hoy (openForShift/hoursForShift>0), por eso equivalen al "arrastre si
+    // no trabajó" de buildDaySets. SOS conserva su comportamiento (nunca parada/declaro).
+    const estadoUnif = clasificarEstadoTurno({
+      averia: !siempreActivo && (averHoyMot != null || averArrMot != null),
+      parada: !siempreActivo && (parHoy != null || parArrMot != null),
+      trabajo: openForShift || hoursForShift > 0,
+      abierta: openForShift,
+      siempreActivo: false, // SOS se maneja vía los guardas de abajo (no cambia su estado)
+      declaro: !siempreActivo && declaredShift,
+    });
     const estado: EstadoKey =
-      (!siempreActivo && averHoyMot != null) ? 'averia'
-      : (!siempreActivo && parHoy != null) ? 'parada'
-      : openForShift ? 'encurso'
-      : (!siempreActivo && averArrMot != null) ? 'averia'
-      : (!siempreActivo && parArrMot != null) ? 'parada'
-      : hoursForShift > 0 ? 'finalizada'
-      // SOS "siempre activo" queda EXCLUIDO de "0 horas = parada" (nunca sale parada):
-      // solo las máquinas normales que declararon jornada y cerraron en 0h son PARADA.
-      : (!siempreActivo && declaredShift) ? 'parada'
-      : 'pendiente';
+      estadoUnif === 'iniciada' ? 'encurso'
+      : estadoUnif === 'cerrada' ? 'finalizada'
+      : estadoUnif; // 'averia' | 'parada' | 'pendiente'
     const evParada: EventoParada | undefined =
       estado === 'averia' ? (averHoyMot ?? averArrMot)
       : estado === 'parada' ? (parHoy ?? parArrMot)
