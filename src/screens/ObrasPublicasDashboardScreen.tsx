@@ -262,7 +262,7 @@ export default function ObrasPublicasDashboardScreen() {
       {/* ESTADO DE FLOTA EN CAMPO */}
       <Card>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>
-          🚜 Estado de flota en campo{filter === 'trabajando' ? ' · Trabajando' : filter === 'incidencias' ? ' · Averiadas/Paradas' : ''} ({fleet.length})
+          ⛰️ Metros Cúbicos Removidos{filter === 'trabajando' ? ' · Trabajando' : filter === 'incidencias' ? ' · Averiadas/Paradas' : ''} ({fleet.length})
         </Text>
         {fleet.length === 0 ? (
           <Text style={{ color: colors.muted, fontSize: 12.5 }}>Sin máquinas para este filtro.</Text>
