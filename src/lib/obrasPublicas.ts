@@ -152,6 +152,74 @@ export async function fetchOpMaintPending(machineryIds: string[]): Promise<Recor
   return m;
 }
 
+// ── Panel de ADMIN/COORDINADOR: agrega TODO obras públicas (todos los supervisores) ──
+
+/** Máquina de obras públicas con su ficha, ubicación y supervisor asignado. */
+export type OpDashMachine = {
+  id: string; code: string; plate: string | null; serial: string | null;
+  marca: string | null; modelo: string | null; tipo: string | null;
+  company_name: string | null; parroquia: string | null; sector: string | null;
+  latitude: number | null; longitude: number | null; location_at: string | null;
+  supervisor_id: string | null; supervisor_name: string | null;
+};
+/** Una fila de ronda (para la serie "por día"). */
+export type OpDashRoundRow = { machinery_id: string; round_date: string; day_hours: number; night_hours: number; jornada_start_at: string | null };
+/** Una visita registrada (para la tabla + serie por día). */
+export type OpDashVisit = { machinery_id: string; supervisor_name: string | null; status: string | null; visit_date: string; note: string | null };
+/** Todo lo que el dashboard necesita, en una sola carga. */
+export type OpDashboard = {
+  machines: OpDashMachine[];
+  rounds: Record<string, OpRound>;   // jornadas de HOY (roundDate)
+  maint: Record<string, OpMaint>;    // averías/paradas PENDIENTES
+  roundsRange: OpDashRoundRow[];      // rondas desde fromDate (para la gráfica por día)
+  visits: OpDashVisit[];             // visitas desde fromDate, más recientes primero
+};
+
+/**
+ * Carga AGREGADA para el panel de admin/coordinador de Obras Públicas: reúne TODAS
+ * las máquinas asignadas (a cualquier supervisor), sus jornadas de hoy, averías/
+ * paradas pendientes, la serie de rondas del rango y las visitas del rango. Todo
+ * sale de las tablas op_* + el catálogo `machinery` (compartido solo para ficha/ubicación).
+ */
+export async function fetchOpDashboard(roundDate: string, fromDate: string): Promise<OpDashboard> {
+  const assigns = await listOpAssignments();
+  const ids = Array.from(assigns.keys());
+  if (!ids.length) return { machines: [], rounds: {}, maint: {}, roundsRange: [], visits: [] };
+  const { data: macRows, error: mErr } = await supabase
+    .from('machinery')
+    .select('id, code, plate, serial, marca, modelo, tipo, parroquia, sector, latitude, longitude, location_at, company:company_id(name)')
+    .in('id', ids);
+  if (mErr) throw mErr;
+  const machines: OpDashMachine[] = (macRows ?? []).map((r: any) => {
+    const a = assigns.get(r.id);
+    return {
+      id: r.id, code: r.code ?? '—', plate: r.plate ?? null, serial: r.serial ?? null,
+      marca: r.marca ?? null, modelo: r.modelo ?? null, tipo: r.tipo ?? null,
+      company_name: r.company?.name ?? null, parroquia: r.parroquia ?? null, sector: r.sector ?? null,
+      latitude: r.latitude != null ? Number(r.latitude) : null, longitude: r.longitude != null ? Number(r.longitude) : null,
+      location_at: r.location_at ?? null,
+      supervisor_id: a?.supervisor_id ?? null, supervisor_name: a?.supervisor_name ?? null,
+    };
+  });
+  const [rounds, maint, rangeRes, visitRes] = await Promise.all([
+    fetchOpRounds(ids, roundDate),
+    fetchOpMaintPending(ids),
+    supabase.from('op_machine_rounds').select('machinery_id, round_date, day_hours, night_hours, jornada_start_at').in('machinery_id', ids).gte('round_date', fromDate),
+    supabase.from('op_supervisor_visits').select('machinery_id, supervisor_name, status, visit_date, note').in('machinery_id', ids).gte('visit_date', fromDate).order('visit_date', { ascending: false }).limit(300),
+  ]);
+  if (rangeRes.error) throw rangeRes.error;
+  if (visitRes.error) throw visitRes.error;
+  const roundsRange: OpDashRoundRow[] = (rangeRes.data ?? []).map((r: any) => ({
+    machinery_id: r.machinery_id, round_date: r.round_date,
+    day_hours: Number(r.day_hours) || 0, night_hours: Number(r.night_hours) || 0, jornada_start_at: r.jornada_start_at,
+  }));
+  const visits: OpDashVisit[] = (visitRes.data ?? []).map((r: any) => ({
+    machinery_id: r.machinery_id, supervisor_name: r.supervisor_name ?? null, status: r.status ?? null,
+    visit_date: r.visit_date, note: r.note ?? null,
+  }));
+  return { machines, rounds, maint, roundsRange, visits };
+}
+
 /** Inicia la jornada op_* de una máquina (turno según la hora). */
 export async function opStartJornada(machineryId: string, roundDate: string, shift: 'day' | 'night', userId?: string | null): Promise<void> {
   const { error } = await supabase.from('op_machine_rounds').upsert(

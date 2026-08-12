@@ -29,6 +29,7 @@ import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
 import ObrasPublicasScreen from '../screens/ObrasPublicasScreen';
+import ObrasPublicasDashboardScreen from '../screens/ObrasPublicasDashboardScreen';
 import FuelDriverScreen from '../screens/FuelDriverScreen';
 import SupervisionScreen from '../screens/SupervisionScreen';
 import HistoricoJornadasScreen from '../screens/HistoricoJornadasScreen';
@@ -225,6 +226,7 @@ function MoreStack() {
       <Stack.Screen name="CoordOperadores" component={CoordinadorOperadoresScreen} options={{ title: 'Coordinador de Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
       <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
+      <Stack.Screen name="ObrasPublicasDashboard" component={ObrasPublicasDashboardScreen} options={{ title: 'Obras Públicas' }} />
       <Stack.Screen name="Ubicaciones" component={UbicacionesScreen} options={{ title: 'Ubicaciones' }} />
       <Stack.Screen name="Geodesta" component={GeodestaScreen} options={{ title: 'Geodesta' }} />
       <Stack.Screen name="GeodestaDetalle" component={GeodestaProjectDetail} options={{ title: 'Levantamiento' }} />
