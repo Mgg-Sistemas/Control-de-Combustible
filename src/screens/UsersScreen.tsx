@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 import { Profile, UserRole, AppRole } from '../types/database';
 import { MODULES, PermLevel, defaultLevel, maxLevel, roleLabel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
@@ -656,7 +656,7 @@ function NewUserForm({
 type MachinePickRow = {
   id: string; code: string; plate: string | null; serial: string | null;
   clasificacion: string | null; marca: string | null; modelo: string | null;
-  encargado: string | null; sector: string | null; companyName: string;
+  encargado: string | null; sector: string | null; companyId: string | null; companyName: string;
 };
 
 function EditUserForm({
@@ -704,6 +704,15 @@ function EditUserForm({
   const [machinePickLoading, setMachinePickLoading] = useState(false);
   const [machinePickQuery, setMachinePickQuery] = useState('');
   const [machinePickList, setMachinePickList] = useState<MachinePickRow[]>([]);
+  // Filtros del selector "Agregar máquina suelta" — por empresa y por categoría,
+  // multi-selección (igual patrón que el reporte de Catálogo: chips togglables con
+  // Set, vacío = todas). Pedido del cliente 12-ago-2026.
+  const [machineCompanySel, setMachineCompanySel] = useState<Set<string>>(new Set());
+  const [machineClaseSel, setMachineClaseSel] = useState<Set<string>>(new Set());
+  const SIN_EMPRESA_PICK = '__none__';
+  const SIN_CLASE_PICK = 'Sin categoría';
+  const toggleMachineCompany = (id: string) => setMachineCompanySel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleMachineClase = (c: string) => setMachineClaseSel((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; });
 
   // Módulos editados HACE POCO por este admin (clave → timestamp). Protege la edición
   // reciente de que un refetch en vivo (que puede leer ANTES de que el upsert sea
@@ -796,19 +805,39 @@ function EditUserForm({
   const openMachinePicker = async () => {
     setMachinePickOpen(true);
     setMachinePickQuery('');
+    setMachineCompanySel(new Set());
+    setMachineClaseSel(new Set());
     setMachinePickLoading(true);
     const { data, error: e } = await supabase
       .from('machinery')
-      .select('id, code, plate, serial, clasificacion, marca, modelo, encargado, sector, company:company_id(name)')
+      .select('id, code, plate, serial, clasificacion, marca, modelo, encargado, sector, company_id, company:company_id(name)')
       .eq('active', true).order('code');
     setMachinePickLoading(false);
     if (e) { toast.error(e.message); return; }
     setMachinePickList(((data ?? []) as any[]).map((m) => ({
       id: m.id, code: m.code, plate: m.plate ?? null, serial: m.serial ?? null,
       clasificacion: m.clasificacion ?? null, marca: m.marca ?? null, modelo: m.modelo ?? null,
-      encargado: m.encargado ?? null, sector: m.sector ?? null, companyName: m.company?.name ?? 'Sin empresa',
+      encargado: m.encargado ?? null, sector: m.sector ?? null,
+      companyId: m.company_id ?? null, companyName: m.company?.name ?? 'Sin empresa',
     })));
   };
+  // Opciones de EMPRESA y CATEGORÍA (con conteo) para los chips del selector —
+  // solo entre las máquinas realmente cargadas en el picker.
+  const machineCompanyOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    machinePickList.forEach((m) => {
+      const id = m.companyId ?? SIN_EMPRESA_PICK;
+      const e = map.get(id) ?? { id, name: m.companyName, count: 0 };
+      e.count += 1; map.set(id, e);
+    });
+    return Array.from(map.values()).sort((a, b) => a.id === SIN_EMPRESA_PICK ? 1 : b.id === SIN_EMPRESA_PICK ? -1 : cmpText(a.name, b.name));
+  }, [machinePickList]);
+  const machineClaseOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    machinePickList.forEach((m) => { const k = (m.clasificacion || '').trim() || SIN_CLASE_PICK; map.set(k, (map.get(k) ?? 0) + 1); });
+    return Array.from(map.entries()).map(([key, count]) => ({ key, count }))
+      .sort((a, b) => a.key === SIN_CLASE_PICK ? 1 : b.key === SIN_CLASE_PICK ? -1 : cmpText(a.key, b.key));
+  }, [machinePickList]);
 
   const nqCompanyPick = norm(companyPickQuery.trim());
   const companyPickFiltered = companyPickList.filter(
@@ -820,9 +849,12 @@ function EditUserForm({
   // estos datos, no solo por código).
   const nqMachinePick = norm(machinePickQuery.trim());
   const machinePickFiltered = machinePickList.filter(
-    (m) => !machineScope.some((s) => s.machineryId === m.id) && (!nqMachinePick ||
-      [m.code, m.clasificacion, m.marca, m.modelo, m.plate, m.serial, m.encargado, m.sector, m.companyName]
-        .some((f) => f != null && norm(String(f)).includes(nqMachinePick)))
+    (m) => !machineScope.some((s) => s.machineryId === m.id)
+      && (machineCompanySel.size === 0 || machineCompanySel.has(m.companyId ?? SIN_EMPRESA_PICK))
+      && (machineClaseSel.size === 0 || machineClaseSel.has((m.clasificacion || '').trim() || SIN_CLASE_PICK))
+      && (!nqMachinePick ||
+        [m.code, m.clasificacion, m.marca, m.modelo, m.plate, m.serial, m.encargado, m.sector, m.companyName]
+          .some((f) => f != null && norm(String(f)).includes(nqMachinePick)))
   );
 
   const setPerm = async (moduleKey: string, level: PermLevel) => {
@@ -1132,6 +1164,57 @@ function EditUserForm({
               <View style={[styles.sheet, { maxHeight: '82%' }]}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>➕ Agregar máquina suelta</Text>
                 <TextInput value={machinePickQuery} onChangeText={setMachinePickQuery} placeholder="🔎 Buscar por código, marca, modelo, categoría, placa, serial, encargado o sector…" placeholderTextColor={colors.muted} style={styles.input} />
+                {/* Filtros por empresa y categoría — multi-selección con chips, igual
+                    patrón que el reporte de Catálogo (Set + toggle, vacío = todas). */}
+                {!machinePickLoading && machineCompanyOptions.length > 1 ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                      EMPRESA{machineCompanySel.size > 0 ? ` (${machineCompanySel.size})` : ' (todas)'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                      {machineCompanyOptions.map((o) => {
+                        const on = machineCompanySel.has(o.id);
+                        return (
+                          <TouchableOpacity
+                            key={o.id}
+                            onPress={() => toggleMachineCompany(o.id)}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                          >
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏢 {o.name}</Text>
+                            <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                {!machinePickLoading && machineClaseOptions.length > 1 ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                      CATEGORÍA{machineClaseSel.size > 0 ? ` (${machineClaseSel.size})` : ' (todas)'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                      {machineClaseOptions.map((o) => {
+                        const on = machineClaseSel.has(o.key);
+                        return (
+                          <TouchableOpacity
+                            key={o.key}
+                            onPress={() => toggleMachineClase(o.key)}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                          >
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.key}</Text>
+                            <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                {(machineCompanySel.size > 0 || machineClaseSel.size > 0) ? (
+                  <TouchableOpacity onPress={() => { setMachineCompanySel(new Set()); setMachineClaseSel(new Set()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {machinePickLoading ? (
                   <Loading />
                 ) : (
