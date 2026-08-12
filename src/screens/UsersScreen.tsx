@@ -30,6 +30,15 @@ import {
   addMachineScope,
   removeMachineScope,
 } from '../lib/coordinatorScope';
+import {
+  AveriaEntry,
+  JornadaEntry,
+  InspByShiftEntry,
+  fetchAveriaCat,
+  fetchJornadaCat,
+  fetchInspByShift,
+  makeLiveStatusOf,
+} from '../lib/machineLiveStatus';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio', 'coordinador_inspectores'];
 
@@ -657,7 +666,15 @@ type MachinePickRow = {
   id: string; code: string; plate: string | null; serial: string | null;
   clasificacion: string | null; marca: string | null; modelo: string | null;
   encargado: string | null; sector: string | null; companyId: string | null; companyName: string;
+  operational: boolean; enEspera: boolean;
 };
+
+// Mismos 4 estados EXCLUYENTES que las tarjetas y el reporte de Catálogo
+// (EquiposScreen: retirada > esperando > averiada/parada en vivo > operativa),
+// para poder filtrar el selector de "máquina suelta" por estado (pedido cliente
+// 12-ago-2026: "que pueda filtrar las que estan averiadas, o en espera...").
+type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera';
+const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'retirada', 'espera'];
 
 function EditUserForm({
   user,
@@ -704,15 +721,46 @@ function EditUserForm({
   const [machinePickLoading, setMachinePickLoading] = useState(false);
   const [machinePickQuery, setMachinePickQuery] = useState('');
   const [machinePickList, setMachinePickList] = useState<MachinePickRow[]>([]);
-  // Filtros del selector "Agregar máquina suelta" — por empresa y por categoría,
+  // Datos crudos de estatus EN VIVO (avería/jornada/inspector), mismas queries que
+  // Catálogo (`src/lib/machineLiveStatus.ts`), para poder clasificar cada máquina del
+  // selector como operativa/averiada/parada/retirada/esperando — igual que el reporte.
+  const [machineAveriaCat, setMachineAveriaCat] = useState<Record<string, AveriaEntry>>({});
+  const [machineJornadaCat, setMachineJornadaCat] = useState<Record<string, JornadaEntry>>({});
+  const [machineInspByShift, setMachineInspByShift] = useState<Record<string, InspByShiftEntry>>({});
+  const [machineNowTick, setMachineNowTick] = useState(0);
+  // Filtros del selector "Agregar máquina suelta" — por empresa, categoría y estado,
   // multi-selección (igual patrón que el reporte de Catálogo: chips togglables con
-  // Set, vacío = todas). Pedido del cliente 12-ago-2026.
+  // Set, vacío = todas/todos). Pedido del cliente 12-ago-2026.
   const [machineCompanySel, setMachineCompanySel] = useState<Set<string>>(new Set());
   const [machineClaseSel, setMachineClaseSel] = useState<Set<string>>(new Set());
+  const [machineEstadoSel, setMachineEstadoSel] = useState<Set<EstadoConteo>>(new Set());
   const SIN_EMPRESA_PICK = '__none__';
   const SIN_CLASE_PICK = 'Sin categoría';
   const toggleMachineCompany = (id: string) => setMachineCompanySel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleMachineClase = (c: string) => setMachineClaseSel((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; });
+  const toggleMachineEstado = (e: EstadoConteo) => setMachineEstadoSel((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
+  const ESTADO_CONTEO_META: Record<EstadoConteo, { label: string; icon: string; color: string }> = {
+    operativa: { label: 'Operativa', icon: '✅', color: colors.success },
+    averiada: { label: 'Averiada', icon: '🔴', color: colors.danger },
+    parada: { label: 'Parada', icon: '🟡', color: colors.warning },
+    retirada: { label: 'Retirada', icon: '⬛', color: colors.muted },
+    espera: { label: 'Esperando instrucciones', icon: '⏳', color: colors.warning },
+  };
+  // Mismo estado EN VIVO (con reactivación por jornada nueva) que usan las tarjetas y
+  // el reporte de Catálogo — evita que esta lista diga "Operativa" cuando la ficha real
+  // ya muestra "Averiada" (o viceversa).
+  const machineLiveStatusOf = useMemo(
+    () => makeLiveStatusOf({ jornadaCat: machineJornadaCat, averiaCat: machineAveriaCat, inspByShift: machineInspByShift, retiredIds: new Set(), nowTick: machineNowTick }),
+    [machineJornadaCat, machineAveriaCat, machineInspByShift, machineNowTick]
+  );
+  const machineEstadoOf = (m: MachinePickRow): EstadoConteo => {
+    if (!m.operational) return 'retirada';
+    if (m.enEspera) return 'espera';
+    const live = machineLiveStatusOf(m.id).estado;
+    if (live === 'averiada') return 'averiada';
+    if (live === 'parada') return 'parada';
+    return 'operativa';
+  };
 
   // Módulos editados HACE POCO por este admin (clave → timestamp). Protege la edición
   // reciente de que un refetch en vivo (que puede leer ANTES de que el upsert sea
@@ -807,18 +855,29 @@ function EditUserForm({
     setMachinePickQuery('');
     setMachineCompanySel(new Set());
     setMachineClaseSel(new Set());
+    setMachineEstadoSel(new Set());
     setMachinePickLoading(true);
-    const { data, error: e } = await supabase
-      .from('machinery')
-      .select('id, code, plate, serial, clasificacion, marca, modelo, encargado, sector, company_id, company:company_id(name)')
-      .eq('active', true).order('code');
+    setMachineNowTick(Date.now());
+    const [{ data, error: e }, averiaCat, jornadaCat, inspByShift] = await Promise.all([
+      supabase
+        .from('machinery')
+        .select('id, code, plate, serial, clasificacion, marca, modelo, encargado, sector, company_id, operational, en_espera, company:company_id(name)')
+        .eq('active', true).order('code'),
+      fetchAveriaCat(),
+      fetchJornadaCat(),
+      fetchInspByShift(),
+    ]);
     setMachinePickLoading(false);
     if (e) { toast.error(e.message); return; }
+    setMachineAveriaCat(averiaCat);
+    setMachineJornadaCat(jornadaCat);
+    setMachineInspByShift(inspByShift);
     setMachinePickList(((data ?? []) as any[]).map((m) => ({
       id: m.id, code: m.code, plate: m.plate ?? null, serial: m.serial ?? null,
       clasificacion: m.clasificacion ?? null, marca: m.marca ?? null, modelo: m.modelo ?? null,
       encargado: m.encargado ?? null, sector: m.sector ?? null,
       companyId: m.company_id ?? null, companyName: m.company?.name ?? 'Sin empresa',
+      operational: m.operational !== false, enEspera: !!m.en_espera,
     })));
   };
   // Opciones de EMPRESA y CATEGORÍA (con conteo) para los chips del selector —
@@ -838,6 +897,11 @@ function EditUserForm({
     return Array.from(map.entries()).map(([key, count]) => ({ key, count }))
       .sort((a, b) => a.key === SIN_CLASE_PICK ? 1 : b.key === SIN_CLASE_PICK ? -1 : cmpText(a.key, b.key));
   }, [machinePickList]);
+  const machineEstadoOptions = useMemo(() => {
+    const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
+    machinePickList.forEach((m) => { counts[machineEstadoOf(m)] += 1; });
+    return ESTADO_CONTEO_ORDER.map((key) => ({ key, count: counts[key] })).filter((o) => o.count > 0);
+  }, [machinePickList, machineLiveStatusOf]);
 
   const nqCompanyPick = norm(companyPickQuery.trim());
   const companyPickFiltered = companyPickList.filter(
@@ -852,6 +916,7 @@ function EditUserForm({
     (m) => !machineScope.some((s) => s.machineryId === m.id)
       && (machineCompanySel.size === 0 || machineCompanySel.has(m.companyId ?? SIN_EMPRESA_PICK))
       && (machineClaseSel.size === 0 || machineClaseSel.has((m.clasificacion || '').trim() || SIN_CLASE_PICK))
+      && (machineEstadoSel.size === 0 || machineEstadoSel.has(machineEstadoOf(m)))
       && (!nqMachinePick ||
         [m.code, m.clasificacion, m.marca, m.modelo, m.plate, m.serial, m.encargado, m.sector, m.companyName]
           .some((f) => f != null && norm(String(f)).includes(nqMachinePick)))
@@ -1210,8 +1275,31 @@ function EditUserForm({
                     </View>
                   </View>
                 ) : null}
-                {(machineCompanySel.size > 0 || machineClaseSel.size > 0) ? (
-                  <TouchableOpacity onPress={() => { setMachineCompanySel(new Set()); setMachineClaseSel(new Set()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+                {!machinePickLoading && machineEstadoOptions.length > 1 ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                      ESTADO{machineEstadoSel.size > 0 ? ` (${machineEstadoSel.size})` : ' (todos)'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                      {machineEstadoOptions.map((o) => {
+                        const meta = ESTADO_CONTEO_META[o.key];
+                        const on = machineEstadoSel.has(o.key);
+                        return (
+                          <TouchableOpacity
+                            key={o.key}
+                            onPress={() => toggleMachineEstado(o.key)}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? meta.color : colors.border, backgroundColor: on ? meta.color : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                          >
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{meta.icon} {meta.label}</Text>
+                            <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                {(machineCompanySel.size > 0 || machineClaseSel.size > 0 || machineEstadoSel.size > 0) ? (
+                  <TouchableOpacity onPress={() => { setMachineCompanySel(new Set()); setMachineClaseSel(new Set()); setMachineEstadoSel(new Set()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                     <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -1225,9 +1313,14 @@ function EditUserForm({
                         onPress={() => addMachineToScope(m.id)}
                         style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}
                       >
-                        <Text style={{ color: colors.text, fontWeight: '700' }}>
-                          🚜 {m.code}{(m.marca || m.modelo) ? ` · ${[m.marca, m.modelo].filter(Boolean).join(' ')}` : ''}
-                        </Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }}>
+                            🚜 {m.code}{(m.marca || m.modelo) ? ` · ${[m.marca, m.modelo].filter(Boolean).join(' ')}` : ''}
+                          </Text>
+                          <Text style={{ color: ESTADO_CONTEO_META[machineEstadoOf(m)].color, fontWeight: '700', fontSize: 12 }}>
+                            {ESTADO_CONTEO_META[machineEstadoOf(m)].icon} {ESTADO_CONTEO_META[machineEstadoOf(m)].label}
+                          </Text>
+                        </View>
                         <Text style={{ color: colors.muted, fontSize: 12 }}>
                           {[m.clasificacion, m.plate ? `Placa ${m.plate}` : null, m.serial ? `Serial ${m.serial}` : null].filter(Boolean).join(' · ') || 'Sin categoría/placa/serial'}
                         </Text>
