@@ -254,7 +254,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Jornada por máquina, SEPARADA por turno: `open`/`worked` = global (compatibilidad
   // con visibleParaInspector). `openDay/openNight` y `dayWorked/nightWorked` = por turno
   // → así "iniciada/trabajando" NO se refleja del inspector de día al de noche (ni viceversa).
-  const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number; openStartDay: number; openStartNight: number }>>({});
+  const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number; openStartDay: number; openStartNight: number; declaredDay: boolean; declaredNight: boolean }>>({});
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
   const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean; createdMs: number }[]>([]);
@@ -582,7 +582,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       console.warn('reloadEstados: error consultando estado de máquinas, se conserva el anterior', estadosErr);
       return;
     }
-    const empty = { open: false, worked: 0, openDay: false, openNight: false, dayWorked: 0, nightWorked: 0, openStartDay: 0, openStartNight: 0 };
+    const empty = { open: false, worked: 0, openDay: false, openNight: false, dayWorked: 0, nightWorked: 0, openStartDay: 0, openStartNight: 0, declaredDay: false, declaredNight: false };
     const rmap: Record<string, typeof empty> = {};
     ((rs ?? []) as any[]).forEach((r) => {
       // Una máquina puede tener VARIAS rondas hoy (día/noche, o correcciones). Acumula:
@@ -612,6 +612,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         // si la jornada arrancó DESPUÉS de la avería, la máquina volvió a trabajar).
         openStartDay: Math.max(prev.openStartDay, isOpen && openSh === 'day' && !isNaN(startMs) ? startMs : 0),
         openStartNight: Math.max(prev.openStartNight, isOpen && openSh === 'night' && !isNaN(startMs) ? startMs : 0),
+        // ¿DECLARÓ jornada de este turno? `jornada_shift` (EXPLÍCITO) persiste tras el
+        // auto-cierre aunque se nulen las horas y `jornada_start_at` — es el `declaredSet`
+        // de las tarjetas (inspectorDaySets.ts). Sirve para la regla "0 horas = parada":
+        // una máquina que arrancó jornada y cerró en 0h (sin ticket) es PARADA, no
+        // "pendiente por iniciar". Sin esto el teléfono decía "pendiente" donde las
+        // tarjetas y (ahora) los reportes dicen 🟡 Parada.
+        declaredDay: prev.declaredDay || r.jornada_shift === 'day',
+        declaredNight: prev.declaredNight || r.jornada_shift === 'night',
       };
     });
     // Cualquier jornada de un día anterior aún abierta cuenta como 🟢 trabajando,
@@ -938,9 +946,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (sh === 'night') return r.nightWorked > MIN_WORKED_HOURS;
     return r.worked > MIN_WORKED_HOURS;
   };
+  // ¿DECLARÓ jornada de MI turno? (arrancó jornada este turno, aunque cerrara con 0h)
+  // — para la regla "0 horas = parada". sh=null (admin/coord sin turno) = cualquiera.
+  const declaredMine = (id: string): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.declaredDay;
+    if (sh === 'night') return r.declaredNight;
+    return r.declaredDay || r.declaredNight;
+  };
   const openEn = (id: string, sh: 'day' | 'night'): boolean => {
     const r = roundsById[id]; if (!r) return false;
     return sh === 'day' ? r.openDay : r.openNight;
+  };
+  const declaredEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? r.declaredDay : r.declaredNight;
   };
   const hoursEn = (id: string, sh: 'day' | 'night'): boolean => {
     const r = roundsById[id]; if (!r) return false;
@@ -1045,6 +1066,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // abierta) sigue como CERRADA hasta las 8am — no reaparece "pendiente" al entrar el
     // día. A las 8am (nightGraceActive=false) cae a pendiente por iniciar, como se pidió.
     if (nightGraceActive && hoursEn(id, 'night') && !openEn(id, 'night')) return 'cerrada';
+    // 6) ARRANCÓ jornada de MI turno pero cerró con 0h (sin avería/parada): PARADA, no
+    // "pendiente por iniciar" (regla del cliente "0 horas = parada"). Igual que las
+    // tarjetas (declaredSet en inspectorDaySets) y ahora los reportes PDF.
+    if (declaredMine(id)) return 'parada';
     return 'pendiente';
   };
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
@@ -1059,6 +1084,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hoursEn(id, sh)) return 'cerrada';
     if (!avOff && hasIn(estadoIndex.avAny, id, sh)) return 'averia';
     if (!paOff && hasIn(estadoIndex.paAny, id, sh)) return 'parada';
+    // Declaró jornada de ESE turno + 0h (sin ticket) = PARADA (regla "0 horas = parada").
+    if (declaredEn(id, sh)) return 'parada';
     return 'pendiente';
   };
   // Motivo de la PARADA de MI turno (día indep. de noche): el inspector de día NO ve
