@@ -1710,7 +1710,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const prev = await getMachineRound(ci.id, roundDate);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
-    const res = await upsertMachineRound(ci.id, roundDate, { [key]: Math.round((base + horas) * 100) / 100, ...(hfValid ? { horometro_final: hfNum } : {}), ...(horoFinPhoto ? { horometro_photo: horoFinPhoto } : {}), jornada_start_at: null }, uid || null);
+    // TOPE 12h por turno: el turno dura 12h, así que las horas bancadas nunca superan 12
+    // (mismo tope que el módulo de Inspecciones y TODOS los reportes: min(12, ...)). Sin
+    // esto el teléfono podía bancar >12h (jornada dejada abierta y cerrada tarde) y luego
+    // el reporte/módulo re-topaban a 12 al mostrar → el número del teléfono no cuadraba.
+    const totalTurno = Math.round(Math.min(12, base + horas) * 100) / 100;
+    const res = await upsertMachineRound(ci.id, roundDate, { [key]: totalTurno, ...(hfValid ? { horometro_final: hfNum } : {}), ...(horoFinPhoto ? { horometro_photo: horoFinPhoto } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     // HORÓMETRO (solo mantenimiento · NO toca pagos): si se registró horómetro final,
@@ -1735,7 +1740,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     reloadEstados();
     // TAREA 2: además del total de ESTA sesión, muestra el acumulado del turno en
     // el día (horas ya registradas antes de abrir esta sesión + lo recién cerrado).
-    const totalAcumuladoTurno = Math.round((curRoundHours[jornadaShift] + horas) * 100) / 100;
+    const totalAcumuladoTurno = Math.round(Math.min(12, curRoundHours[jornadaShift] + horas) * 100) / 100;
     setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}). Acumulado del turno: ${totalAcumuladoTurno.toFixed(2)} h.`);
   };
 
@@ -1789,7 +1794,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const prevRound = await getMachineRound(ci.id, roundDate);
       const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
       const base = Number((prevRound as any)?.[key] ?? 0);
-      const total = Math.round((base + horas) * 100) / 100;
+      // TOPE 12h por turno (igual que finalizarJornada, el módulo y los reportes).
+      const total = Math.round(Math.min(12, base + horas) * 100) / 100;
       const res = await upsertMachineRound(ci.id, roundDate, { [key]: total, jornada_start_at: null }, uid || null);
       // Si el bancado de horas falla, NO seguimos como si hubiera ido bien: se
       // devuelve false para que marcarParadaAveria/marcarParadaNoTrabajo encolen
@@ -3174,19 +3180,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>
                       🟢 Jornada en curso ({jornadaShift === 'night' ? '🌙 noche' : '☀️ día'}) · desde {caracasClock(jornadaStart)}
                     </Text>
-                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Tiempo trabajado: {elapsedLabel(jornadaStart, nowTick)}</Text>
+                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Tiempo trabajado: {elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
                   </View>
                   {finConfirm ? (
                     <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>¿Finalizar la jornada?</Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
-                        Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, nowTick)}</Text>
-                        {'  '}({((Math.max(0, nowTick - new Date(jornadaStart).getTime())) / 3600000).toFixed(2)} h)
+                        Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
+                        {'  '}({Math.min(12, Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000).toFixed(2)} h)
                       </Text>
                       {/* TAREA 2: refuerza el total con el ACUMULADO del turno en el día
                           (curRoundHours = horas ya registradas ANTES de esta sesión). */}
                       <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
-                        Acumulado del turno: <Text style={{ fontWeight: '900' }}>{(curRoundHours[jornadaShift] + (Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000)).toFixed(2)} h</Text>
+                        Acumulado del turno: <Text style={{ fontWeight: '900' }}>{Math.min(12, curRoundHours[jornadaShift] + (Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000)).toFixed(2)} h</Text>
                       </Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
