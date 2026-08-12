@@ -229,7 +229,7 @@ export default function ObrasPublicasDashboardScreen() {
       {/* GRÁFICO 3 — Actividad por día (barras verticales) con selector 7/30 días */}
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📅 Máquinas activas por día</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🚚 Acarreo Total</Text>
           <View style={{ flexDirection: 'row', gap: 4 }}>
             {([7, 30] as const).map((n) => {
               const on = chartDays === n;
