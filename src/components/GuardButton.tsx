@@ -8,7 +8,7 @@ import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
 
 // Tipo de supervisor: se guarda en la columna `rank` del registro de guardia.
-const TIPOS = ['Supervisor Empresa', 'Supervisor Militar'] as const;
+const TIPOS = ['Supervisor Obras Públicas', 'Supervisor Militar'] as const;
 
 function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
