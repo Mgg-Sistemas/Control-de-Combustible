@@ -89,6 +89,50 @@ export function computeMachineVisibilitySets(machList: MachineFlags[]): { machIn
   return { machInactiveSet, machHardInactiveSet };
 }
 
+export type EstadoTurno = 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente';
+
+/**
+ * ESCALERA DE DECISIÓN ÚNICA del estado de UNA máquina en UN turno. Es la fuente de
+ * verdad COMPARTIDA por TODAS las superficies (tarjetas, teléfono, reporte con firma,
+ * etc.): cada una solo mapea SUS datos crudos a estos 6 booleanos y llama aquí — nunca
+ * reimplementa el orden de prioridad. Antes cada superficie tenía su propia copia de
+ * esta escalera y se desincronizaban en silencio (queja del cliente 11-ago-2026: la
+ * tarjeta decía "🟡 Parada" y el reporte/teléfono "⏳ Por iniciar" para la misma máquina).
+ *
+ * Prioridad (de mayor a menor): avería > parada > (trabajó → iniciada/cerrada) >
+ * (SIEMPRE ACTIVO → iniciada/cerrada) > (declaró jornada + 0h → PARADA) > pendiente.
+ *
+ * Reglas de negocio embebidas:
+ *  - `averia`/`parada`: la marca vigente de ESTE turno (quien llama ya aplicó la
+ *    reactivación de jornada y el arrastre hoy-vs-anterior antes de pasar el booleano).
+ *  - `trabajo` = trabajó (horas > umbral) o tiene la jornada de este turno ABIERTA.
+ *    `abierta` separa INICIADA (en curso ahora) de CERRADA (finalizó).
+ *  - `siempreActivo` (SOS LA GUAIRA): nunca queda avería/parada/pendiente — cae a
+ *    iniciada/cerrada según su jornada (se ignora el ticket).
+ *  - `declaro` (`jornada_shift === turno`, persiste tras el auto-cierre aunque se
+ *    nulen horas y `jornada_start_at`): "0 horas = parada" — arrancó jornada y cerró
+ *    en 0h sin ticket → PARADA, no "pendiente por iniciar". Solo las que NUNCA
+ *    arrancaron (sin ronda del turno) quedan pendientes.
+ *
+ * Blindada por `scripts/test-clasificacion.mjs` (`npm run test:clasificacion`): tests
+ * directos de esta función + verificación de que `buildDaySets` produce lo mismo.
+ */
+export function clasificarEstadoTurno(x: {
+  averia: boolean;
+  parada: boolean;
+  trabajo: boolean;
+  abierta: boolean;
+  siempreActivo: boolean;
+  declaro: boolean;
+}): EstadoTurno {
+  if (x.averia) return 'averia';
+  if (x.parada) return 'parada';
+  if (x.trabajo) return x.abierta ? 'iniciada' : 'cerrada';
+  if (x.siempreActivo) return x.abierta ? 'iniciada' : 'cerrada';
+  if (x.declaro) return 'parada';
+  return 'pendiente';
+}
+
 export type DaySets = {
   startedSet: Set<string>;
   paradaSet: Set<string>;
@@ -262,27 +306,23 @@ export function buildDaySets(params: {
   const closedSet = new Set<string>();
   const pendSet = new Set<string>();
   const activeNowSet = new Set<string>();
+  // Escalera de decisión ÚNICA compartida (`clasificarEstadoTurno`): mapea los sets
+  // ya calculados a los booleanos y clasifica. El mismo helper lo usan el teléfono y
+  // el reporte con firma — así los tres NO pueden desincronizarse (blindaje sync#3).
+  // `averAll`/`paradaAll` ya vienen filtrados por reactivación y arrastre-hoy.
   universe.forEach((id) => {
-    if (averAll.has(id)) { averSet.add(id); return; }
-    if (paradaAll.has(id)) { paradaSet.add(id); return; }
-    if (workedSet.has(id)) {
-      startedSet.add(id);
-      if (openSet.has(id)) activeNowSet.add(id);
-      else closedSet.add(id);
-      return;
-    }
-    // SOS LA GUAIRA "siempre activo": nunca quedan en PENDIENTE. Aunque todavía no
-    // hayan sumado horas (jornada recién abierta), cuentan como iniciada/activa
-    // ("siempre trabajando"). Coincide con el teléfono (visibleParaInspector).
-    if (siempreActivoSet.has(id)) {
-      startedSet.add(id);
-      if (openSet.has(id)) activeNowSet.add(id);
-      else closedSet.add(id);
-      return;
-    }
-    // ARRANCÓ la jornada de este turno pero cerró con 0h (sin avería/parada marcada):
-    // es PARADA, no "pendiente por iniciar" (regla del cliente: 0 horas = parada).
-    if (declaredSet.has(id)) { paradaSet.add(id); return; }
+    const estado = clasificarEstadoTurno({
+      averia: averAll.has(id),
+      parada: paradaAll.has(id),
+      trabajo: workedSet.has(id),
+      abierta: openSet.has(id),
+      siempreActivo: siempreActivoSet.has(id),
+      declaro: declaredSet.has(id),
+    });
+    if (estado === 'averia') { averSet.add(id); return; }
+    if (estado === 'parada') { paradaSet.add(id); return; }
+    if (estado === 'iniciada') { startedSet.add(id); activeNowSet.add(id); return; }
+    if (estado === 'cerrada') { startedSet.add(id); closedSet.add(id); return; }
     pendSet.add(id);
   });
 

@@ -47,7 +47,7 @@ m.require = (id) =>
     ? { inspectorSiempreActivo: (n) => (n || '').trim().toLowerCase() === 'inspector sos la guaira' }
     : origRequire(id);
 m._compile(out, m.filename);
-const { buildDaySets, classifyInspectorMachines, paradaShiftOf } = m.exports;
+const { buildDaySets, classifyInspectorMachines, paradaShiftOf, clasificarEstadoTurno } = m.exports;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -174,6 +174,40 @@ eq('paradaShiftOf 02:00 = night', paradaShiftOf(iso(2)), 'night');
 {
   const ds = run({ shift: 'night', assignments: [assign('N', 'juan', 'night')], maint: [maint('N', [2, 0], null, 1)] });
   eq('noche cruza medianoche averiada', arr(ds.averSet), ['N']);
+}
+
+// ── BLINDAJE sync#3 (11-ago-2026): la ESCALERA ÚNICA `clasificarEstadoTurno` ────────
+// Todas las superficies (tarjetas, teléfono, reporte con firma) delegan aquí. Estos
+// tests fijan el orden de prioridad + la regla "0 horas = parada" para que ninguna
+// superficie pueda volver a desincronizarse (era: tarjeta "🟡 Parada" vs reporte/tlf
+// "⏳ Por iniciar" para la misma máquina).
+const E = (o) => clasificarEstadoTurno({
+  averia: !!o.averia, parada: !!o.parada, trabajo: !!o.trabajo,
+  abierta: !!o.abierta, siempreActivo: !!o.siempreActivo, declaro: !!o.declaro,
+});
+// 16) Prioridad de la escalera
+eq('ladder averia gana todo', E({ averia: true, parada: true, trabajo: true, abierta: true, declaro: true }), 'averia');
+eq('ladder parada sobre trabajo', E({ parada: true, trabajo: true, abierta: true, declaro: true }), 'parada');
+eq('ladder trabajo+abierta = iniciada', E({ trabajo: true, abierta: true }), 'iniciada');
+eq('ladder trabajo sin abierta = cerrada', E({ trabajo: true, abierta: false }), 'cerrada');
+eq('ladder SOS sin jornada = cerrada', E({ siempreActivo: true, abierta: false }), 'cerrada');
+eq('ladder SOS con jornada = iniciada', E({ siempreActivo: true, abierta: true }), 'iniciada');
+// 17) EL BUG que se corrigió: declaró jornada + 0h (sin nada más) = PARADA, no pendiente
+eq('ladder declaro+0h = parada', E({ declaro: true }), 'parada');
+eq('ladder sin declarar = pendiente', E({}), 'pendiente');
+eq('ladder trabajo gana a declaro', E({ trabajo: true, abierta: false, declaro: true }), 'cerrada');
+// 18) buildDaySets: máquina que DECLARÓ jornada de día y cerró con 0h (sin ticket) = PARADA
+{
+  const ds = run({ shift: 'day', assignments: [assign('P', 'juan', 'day')],
+    rounds: [round('P', { jornada_shift: 'day', day_hours: 0 })] });
+  eq('declaro 0h dia = parada (buildDaySets)', arr(ds.paradaSet), ['P']);
+  eq('declaro 0h dia no pendiente', arr(ds.pendSet), []);
+}
+// 19) buildDaySets: máquina asignada SIN ronda del turno = pendiente (nunca arrancó)
+{
+  const ds = run({ shift: 'day', assignments: [assign('Q', 'juan', 'day')] });
+  eq('sin ronda = pendiente', arr(ds.pendSet), ['Q']);
+  eq('sin ronda no parada', arr(ds.paradaSet), []);
 }
 
 console.log(`\n${'='.repeat(60)}`);

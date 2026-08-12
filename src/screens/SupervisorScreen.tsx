@@ -24,6 +24,7 @@ import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, business
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
+import { clasificarEstadoTurno } from '../lib/inspectorDaySets';
 import { logAudit } from '../lib/audit';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
@@ -1050,27 +1051,31 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
     const sh = shiftOfMine(id);                         // turno del inspector en esta máquina
     // SOS LA GUAIRA "siempre activo": nunca quedan en PENDIENTE ("siempre trabajando").
-    // Aunque no haya jornada aún, cuentan como iniciada (coincide con inspectorDaySets).
+    // Aunque no haya jornada aún, cuentan como iniciada. Se resuelve ANTES del helper
+    // (comportamiento propio del teléfono para SOS).
     if (siempreActivoSet.has(id)) return openMine(id) ? 'iniciada' : hoursMine(id) ? 'cerrada' : 'iniciada';
     // Si la jornada se reinició DESPUÉS de la avería/parada, esa marca ya no cuenta
     // (la máquina volvió a trabajar) — así no queda "averiada" tras reiniciar jornada.
     const avOff = reactivada(estadoIndex.avMax, id, sh);
     const paOff = reactivada(estadoIndex.paMax, id, sh);
-    if (!avOff && hasIn(estadoIndex.avHoy, id, sh)) return 'averia';   // 1) marcado HOY en mi turno gana
-    if (!paOff && hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
-    if (openMine(id)) return 'iniciada';                      // 2) jornada ABIERTA ahora mismo
-    if (hoursMine(id)) return 'cerrada';                      // 3) finalizó con horas (ya no abierta)
-    if (!avOff && hasIn(estadoIndex.avAny, id, sh)) return 'averia';   // 4) arrastrada de mi turno
-    if (!paOff && hasIn(estadoIndex.paAny, id, sh)) return 'parada';
-    // 5) GRACIA 7am–8am: una jornada de NOCHE ya finalizada (con horas de noche, no
-    // abierta) sigue como CERRADA hasta las 8am — no reaparece "pendiente" al entrar el
-    // día. A las 8am (nightGraceActive=false) cae a pendiente por iniciar, como se pidió.
-    if (nightGraceActive && hoursEn(id, 'night') && !openEn(id, 'night')) return 'cerrada';
-    // 6) ARRANCÓ jornada de MI turno pero cerró con 0h (sin avería/parada): PARADA, no
-    // "pendiente por iniciar" (regla del cliente "0 horas = parada"). Igual que las
-    // tarjetas (declaredSet en inspectorDaySets) y ahora los reportes PDF.
-    if (declaredMine(id)) return 'parada';
-    return 'pendiente';
+    // `trabajoReal` = trabajó/abrió jornada de MI turno (= `workedSet` de buildDaySets):
+    // suprime la avería/parada ARRASTRADA. La GRACIA 7am–8am (jornada de noche cerrada
+    // con horas) NO suprime arrastrada — solo aporta el "cerrada" final —, así que va
+    // aparte en `trabajo`.
+    const abierta = openMine(id);
+    const trabajoReal = abierta || hoursMine(id);
+    const trabajo = trabajoReal || (nightGraceActive && hoursEn(id, 'night') && !openEn(id, 'night'));
+    // ESCALERA ÚNICA compartida con tarjetas y reporte con firma (clasificarEstadoTurno):
+    // avería/parada de MI turno (HOY siempre, ARRASTRADA solo si no trabajó) > trabajo >
+    // "0 horas = parada" (declaredMine) > pendiente. Ver inspectorDaySets.ts.
+    return clasificarEstadoTurno({
+      averia: !avOff && (hasIn(estadoIndex.avHoy, id, sh) || (hasIn(estadoIndex.avAny, id, sh) && !trabajoReal)),
+      parada: !paOff && (hasIn(estadoIndex.paHoy, id, sh) || (hasIn(estadoIndex.paAny, id, sh) && !trabajoReal)),
+      trabajo,
+      abierta,
+      siempreActivo: false, // SOS ya resuelto arriba
+      declaro: declaredMine(id),
+    });
   };
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
   // turno actual): día independiente de noche, misma prioridad.
@@ -1078,15 +1083,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (siempreActivoSet.has(id)) return openEn(id, sh) ? 'iniciada' : hoursEn(id, sh) ? 'cerrada' : 'iniciada';
     const avOff = reactivadaCrossTurno(estadoIndex.avMax, id, sh);
     const paOff = reactivadaCrossTurno(estadoIndex.paMax, id, sh);
-    if (!avOff && hasIn(estadoIndex.avHoy, id, sh)) return 'averia';
-    if (!paOff && hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
-    if (openEn(id, sh)) return 'iniciada';
-    if (hoursEn(id, sh)) return 'cerrada';
-    if (!avOff && hasIn(estadoIndex.avAny, id, sh)) return 'averia';
-    if (!paOff && hasIn(estadoIndex.paAny, id, sh)) return 'parada';
-    // Declaró jornada de ESE turno + 0h (sin ticket) = PARADA (regla "0 horas = parada").
-    if (declaredEn(id, sh)) return 'parada';
-    return 'pendiente';
+    const abierta = openEn(id, sh);
+    const trabajoReal = abierta || hoursEn(id, sh);
+    // MISMA escalera única que segmentoDe (clasificarEstadoTurno), pero con la
+    // reactivación CRUZADA de turno (vista del coordinador). Declaró + 0h = PARADA.
+    return clasificarEstadoTurno({
+      averia: !avOff && (hasIn(estadoIndex.avHoy, id, sh) || (hasIn(estadoIndex.avAny, id, sh) && !trabajoReal)),
+      parada: !paOff && (hasIn(estadoIndex.paHoy, id, sh) || (hasIn(estadoIndex.paAny, id, sh) && !trabajoReal)),
+      trabajo: trabajoReal,
+      abierta,
+      siempreActivo: false, // SOS ya resuelto arriba
+      declaro: declaredEn(id, sh),
+    });
   };
   // Motivo de la PARADA de MI turno (día indep. de noche): el inspector de día NO ve
   // el motivo que dejó el de noche. null/coordinador (sin turno) → primer motivo.
