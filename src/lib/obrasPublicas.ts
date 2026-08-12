@@ -191,8 +191,15 @@ export async function opRegistrarVisita(inp: { machineryId: string; supervisorId
   if (error) throw error;
 }
 
-/** Actualiza la ubicación de la máquina (COMPARTIDA — se refleja en el mapa). */
+/**
+ * Actualiza la ubicación de la máquina — ÚNICA cosa que este módulo comparte con el
+ * resto del sistema. Usa el MISMO RPC que el inspector (`update_machine_location`),
+ * que además fija `location_at = now()` y registra el punto en `machinery_locations`.
+ * Así la nueva ubicación se ve EN VIVO en el Catálogo (📍 UTM + "hace un momento") y
+ * en el Mapa (ambos leen `machinery.latitude/longitude`). Jornada/avería/parada de
+ * este módulo NO se comparten (viven en op_*).
+ */
 export async function updateMachineLocation(machineryId: string, lat: number, lng: number): Promise<void> {
-  const { error } = await supabase.from('machinery').update({ latitude: lat, longitude: lng }).eq('id', machineryId);
+  const { error } = await supabase.rpc('update_machine_location', { p_id: machineryId, p_lat: lat, p_lng: lng });
   if (error) throw error;
 }

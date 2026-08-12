@@ -1978,7 +1978,10 @@ export default function EquiposScreen({ navigation, route }: any) {
                 // arrancan abiertos para ver los resultados, PERO si el usuario toca para
                 // colapsar/expandir su elección manda (por eso el ?? va primero, no un
                 // `detailNq ? true` que ignoraba el toque y no dejaba colapsar al buscar).
-                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'retirada'));
+                // Por defecto COLAPSADO en "Retiradas" y "Esperando instrucciones"
+                // (solo se ven los encabezados por empresa con su conteo); al buscar se
+                // abre todo. Operativas/Averiadas siguen desplegadas por defecto.
+                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'retirada' && detailStatus !== 'espera'));
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
