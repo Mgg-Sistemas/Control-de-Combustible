@@ -1227,12 +1227,6 @@ export default function EquiposScreen({ navigation, route }: any) {
             ) : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
-            {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
-            {(m as any).referencia ? (
-              <Text style={{ color: colors.muted, fontSize: 12 }}>
-                🏗️ {edificioLabel((m as any).referencia)}
-              </Text>
-            ) : null}
             {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}{inspectors[m.id].date ? ` · ${fmtDMY(inspectors[m.id].date)}` : ''}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
@@ -2037,12 +2031,6 @@ export default function EquiposScreen({ navigation, route }: any) {
             ) : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
-                          {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
-                          {(m as any).referencia ? (
-                            <Text style={{ color: colors.muted, fontSize: 12 }}>
-                              🏗️ {edificioLabel((m as any).referencia)}
-                            </Text>
-                          ) : null}
                           {/* Retirada: sin inspector — aunque ya no haya fila en machine_inspectors,
                               `latestInspectorByMachine()` cae al último check-in histórico en
                               supervisor_visits (dato real, no se borra) y lo seguía mostrando acá
