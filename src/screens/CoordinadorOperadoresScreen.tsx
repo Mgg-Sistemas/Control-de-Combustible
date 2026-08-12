@@ -369,9 +369,12 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     await load();
   };
 
-  // ── Escanear QR de la máquina (como el inspector) — pero acá el destino es la
-  // FICHA del operador asignado a esa máquina en el turno elegido, no un check-in.
-  // Si no tiene operador con ficha vinculada, abre el asignar/reasignar de una vez.
+  // ── Escanear QR de la máquina (como el inspector) — abre SIEMPRE la hoja de
+  // asignar/reasignar (antes saltaba directo a la ficha del operador planeado,
+  // sin forma de corregirlo ni ver quién lo asignó — justo lo que el coordinador
+  // necesita cuando hay cambio de turno o el operador mostrado no es el que él
+  // asignó). Desde la hoja se puede ver "Planeado ahora · por quién" y también
+  // abrir la ficha completa con el botón 👁️ si hace falta.
   const [scanOpen, setScanOpen] = useState(false);
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   const onScanDetected = (text: string) => {
@@ -385,12 +388,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     // planea/asigna operador hasta que se decida Operativa o Parada.
     if (m.en_espera) { setScanNotice(`⏳ ${m.code} está EN ESPERA DE INSTRUCCIONES. No se le puede asignar operador todavía.`); return; }
     setScanNotice(null);
-    const plan = plannedByMachine.get(m.id)?.[shift] ?? null;
-    if (plan?.employee_id && navigation?.navigate) {
-      navigation.navigate('EmployeeCard', { employeeId: plan.employee_id });
-    } else {
-      openAssign({ id: m.id, code: m.code, companyName: m.companyName });
-    }
+    openAssign({ id: m.id, code: m.code, companyName: m.companyName });
   };
 
   // ── Compartir novedades (PDF) ─────────────────────────────────────────────
@@ -714,6 +712,11 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
                     {current ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>Planeado ahora: 👷 {current.operator_name}{current.assignedByName ? ` · por ${current.assignedByName}` : ''}</Text>
+                        {current.employee_id && navigation?.navigate ? (
+                          <TouchableOpacity onPress={() => { setAssignFor(null); navigation.navigate('EmployeeCard', { employeeId: current.employee_id }); }} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>👁️ Ficha</Text>
+                          </TouchableOpacity>
+                        ) : null}
                         <TouchableOpacity disabled={assignBusy} onPress={() => applyAssign(assignShift, null)} style={{ borderWidth: 1, borderColor: colors.warning, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, opacity: assignBusy ? 0.5 : 1 }}>
                           <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>➖ Quitar</Text>
                         </TouchableOpacity>

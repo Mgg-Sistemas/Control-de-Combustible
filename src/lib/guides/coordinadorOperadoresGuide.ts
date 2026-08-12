@@ -34,7 +34,7 @@ export async function generateCoordinadorOperadoresGuide(): Promise<boolean> {
         'Los 3 números de arriba resumen el turno: **Activas**, **Sin asignar** y **No coincide**.',
         'Cada tarjeta muestra la máquina, su estado (Activa/Parada/Avería/Cerrada), el operador **planeado** y el que está **en sitio** de verdad.',
         'Si el operador en sitio NO es el planeado, aparece ⚠️ **"El operador en sitio no es el planeado"**.',
-        '📷 **ESCANEAR QR**: apunta al QR de la máquina y te lleva DIRECTO a la ficha del operador planeado en ese turno (foto, cédula, horas trabajadas). Si la máquina no tiene operador asignado, abre de una vez la hoja para asignar uno.',
+        '📷 **ESCANEAR QR**: apunta al QR de la máquina y abre la hoja de asignar/reasignar de ese turno — muestra quién está planeado ahora y quién lo asignó, con botón 👁️ para ver su ficha completa si hace falta.',
         '🪪 **Marcar asistencia (escanear operador)**: el botón chico debajo del de escanear. Apunta al CARNET del operador (no al QR de la máquina) y le registra la ENTRADA o SALIDA al instante — decide sola cuál toca según su última marca de hoy.',
       ]),
       step1Mock
