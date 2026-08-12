@@ -650,6 +650,15 @@ function NewUserForm({
   );
 }
 
+// Ficha completa de una máquina en el selector "Agregar máquina suelta" del
+// alcance del coordinador — el admin necesita ver encargado/marca/modelo/etc.
+// para reconocer la máquina, no solo el código (pedido del cliente 12-ago-2026).
+type MachinePickRow = {
+  id: string; code: string; plate: string | null; serial: string | null;
+  clasificacion: string | null; marca: string | null; modelo: string | null;
+  encargado: string | null; sector: string | null; companyName: string;
+};
+
 function EditUserForm({
   user,
   roles,
@@ -694,7 +703,7 @@ function EditUserForm({
   const [machinePickOpen, setMachinePickOpen] = useState(false);
   const [machinePickLoading, setMachinePickLoading] = useState(false);
   const [machinePickQuery, setMachinePickQuery] = useState('');
-  const [machinePickList, setMachinePickList] = useState<{ id: string; code: string; plate: string | null; serial: string | null; clasificacion: string | null }[]>([]);
+  const [machinePickList, setMachinePickList] = useState<MachinePickRow[]>([]);
 
   // Módulos editados HACE POCO por este admin (clave → timestamp). Protege la edición
   // reciente de que un refetch en vivo (que puede leer ANTES de que el upsert sea
@@ -788,22 +797,32 @@ function EditUserForm({
     setMachinePickOpen(true);
     setMachinePickQuery('');
     setMachinePickLoading(true);
-    const { data, error: e } = await supabase.from('machinery').select('id, code, plate, serial, clasificacion').eq('active', true).order('code');
+    const { data, error: e } = await supabase
+      .from('machinery')
+      .select('id, code, plate, serial, clasificacion, marca, modelo, encargado, sector, company:company_id(name)')
+      .eq('active', true).order('code');
     setMachinePickLoading(false);
     if (e) { toast.error(e.message); return; }
-    setMachinePickList((data ?? []) as { id: string; code: string; plate: string | null; serial: string | null; clasificacion: string | null }[]);
+    setMachinePickList(((data ?? []) as any[]).map((m) => ({
+      id: m.id, code: m.code, plate: m.plate ?? null, serial: m.serial ?? null,
+      clasificacion: m.clasificacion ?? null, marca: m.marca ?? null, modelo: m.modelo ?? null,
+      encargado: m.encargado ?? null, sector: m.sector ?? null, companyName: m.company?.name ?? 'Sin empresa',
+    })));
   };
 
   const nqCompanyPick = norm(companyPickQuery.trim());
   const companyPickFiltered = companyPickList.filter(
     (c) => !companyScope.some((s) => s.companyId === c.id) && (!nqCompanyPick || norm(c.name).includes(nqCompanyPick))
   );
-  // Busca por código, categoría (clasificación) o placa/serial — igual criterio
-  // "buscar por cualquier cosa" que ya usa Mantenimiento de Maquinaria.
+  // Busca por código, categoría, marca/modelo, placa/serial, encargado, sector o
+  // empresa — igual criterio "buscar por cualquier cosa" que ya usa Mantenimiento
+  // de Maquinaria (el admin necesita poder ubicar la máquina por CUALQUIERA de
+  // estos datos, no solo por código).
   const nqMachinePick = norm(machinePickQuery.trim());
   const machinePickFiltered = machinePickList.filter(
     (m) => !machineScope.some((s) => s.machineryId === m.id) && (!nqMachinePick ||
-      [m.code, m.clasificacion, m.plate, m.serial].some((f) => f != null && norm(String(f)).includes(nqMachinePick)))
+      [m.code, m.clasificacion, m.marca, m.modelo, m.plate, m.serial, m.encargado, m.sector, m.companyName]
+        .some((f) => f != null && norm(String(f)).includes(nqMachinePick)))
   );
 
   const setPerm = async (moduleKey: string, level: PermLevel) => {
@@ -1112,7 +1131,7 @@ function EditUserForm({
             <View style={styles.backdrop}>
               <View style={[styles.sheet, { maxHeight: '82%' }]}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>➕ Agregar máquina suelta</Text>
-                <TextInput value={machinePickQuery} onChangeText={setMachinePickQuery} placeholder="🔎 Buscar por código, categoría, placa o serial…" placeholderTextColor={colors.muted} style={styles.input} />
+                <TextInput value={machinePickQuery} onChangeText={setMachinePickQuery} placeholder="🔎 Buscar por código, marca, modelo, categoría, placa, serial, encargado o sector…" placeholderTextColor={colors.muted} style={styles.input} />
                 {machinePickLoading ? (
                   <Loading />
                 ) : (
@@ -1123,8 +1142,15 @@ function EditUserForm({
                         onPress={() => addMachineToScope(m.id)}
                         style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}
                       >
-                        <Text style={{ color: colors.text, fontWeight: '700' }}>🚜 {m.code}{m.clasificacion ? ` · ${m.clasificacion}` : ''}</Text>
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>{m.plate || m.serial ? `${m.plate ? `Placa ${m.plate}` : ''}${m.plate && m.serial ? ' · ' : ''}${m.serial ? `Serial ${m.serial}` : ''}` : 'Sin placa/serial'}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>
+                          🚜 {m.code}{(m.marca || m.modelo) ? ` · ${[m.marca, m.modelo].filter(Boolean).join(' ')}` : ''}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          {[m.clasificacion, m.plate ? `Placa ${m.plate}` : null, m.serial ? `Serial ${m.serial}` : null].filter(Boolean).join(' · ') || 'Sin categoría/placa/serial'}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          {[m.encargado ? `👤 ${m.encargado}` : null, m.sector ? `📍 ${m.sector}` : null, `🏢 ${m.companyName}`].filter(Boolean).join(' · ')}
+                        </Text>
                       </TouchableOpacity>
                     ))}
                     {machinePickFiltered.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin coincidencias.</Text> : null}
