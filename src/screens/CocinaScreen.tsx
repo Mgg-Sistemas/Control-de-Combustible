@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Platform, BackHandler } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, SkeletonList } from '../components/ui';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -96,6 +96,24 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     setLoading(false);
   }, [uid]);
   React.useEffect(() => { loadMyName(); }, [loadMyName]);
+
+  // Botón/gesto "atrás" físico (Android): Cocina es la pantalla RAÍZ de su propio
+  // Stack (no vive dentro de pestañas), así que sin este manejo, "atrás" no tenía
+  // nada que deshacer y el sistema cerraba la app entera — sin forma de volver a
+  // escanear (queja del cliente 12-ago-2026). Ahora, si hay algo abierto en pantalla
+  // (el escáner o una persona ya escaneada), "atrás" lo cierra y deja lista la
+  // pantalla para escanear de nuevo, en vez de salir de la aplicación. Sin efecto
+  // en iOS (no tiene botón atrás) ni en web (BackHandler no existe ahí — por eso
+  // se salta por completo, en vez de registrar un listener que no hace nada).
+  React.useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (scanOpen) { setScanOpen(false); return true; }
+      if (person) { setPerson(null); setNotice(null); return true; }
+      return false;
+    });
+    return () => sub.remove();
+  }, [scanOpen, person]);
 
   // Pull-to-refresh: solo recarga el nombre del perfil; no toca la persona/cocinero
   // ya abiertos en pantalla (evita perder el registro en curso).

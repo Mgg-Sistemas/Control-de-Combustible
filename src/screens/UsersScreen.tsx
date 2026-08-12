@@ -15,11 +15,21 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { Profile, UserRole, AppRole } from '../types/database';
-import { MODULES, PermLevel, defaultLevel, roleLabel } from '../lib/permissions';
+import { MODULES, PermLevel, defaultLevel, maxLevel, roleLabel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
+import {
+  CompanyScopeRow,
+  MachineScopeRow,
+  listCompanyScope,
+  listMachineScope,
+  addCompanyScope,
+  removeCompanyScope,
+  addMachineScope,
+  removeMachineScope,
+} from '../lib/coordinatorScope';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio', 'coordinador_inspectores'];
 
@@ -668,7 +678,23 @@ function EditUserForm({
   const [savingRole, setSavingRole] = useState(false);
   const { colors, typography } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // Alcance de máquinas del Coordinador de Operadores (ver src/lib/coordinatorScope.ts):
+  // qué empresas completas / máquinas sueltas puede ver y asignar ESTE usuario.
+  const [companyScope, setCompanyScope] = useState<CompanyScopeRow[]>([]);
+  const [machineScope, setMachineScope] = useState<MachineScopeRow[]>([]);
+  const [scopeMissing, setScopeMissing] = useState(false);
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const [companyPickOpen, setCompanyPickOpen] = useState(false);
+  const [companyPickLoading, setCompanyPickLoading] = useState(false);
+  const [companyPickQuery, setCompanyPickQuery] = useState('');
+  const [companyPickList, setCompanyPickList] = useState<{ id: string; name: string }[]>([]);
+  const [machinePickOpen, setMachinePickOpen] = useState(false);
+  const [machinePickLoading, setMachinePickLoading] = useState(false);
+  const [machinePickQuery, setMachinePickQuery] = useState('');
+  const [machinePickList, setMachinePickList] = useState<{ id: string; code: string }[]>([]);
 
   // Módulos editados HACE POCO por este admin (clave → timestamp). Protege la edición
   // reciente de que un refetch en vivo (que puede leer ANTES de que el upsert sea
@@ -695,6 +721,16 @@ function EditUserForm({
     });
   };
 
+  // Carga (o recarga) el alcance de máquinas del Coordinador de Operadores.
+  const loadScope = async (userId: string) => {
+    setScopeLoading(true);
+    const [companies, machines] = await Promise.all([listCompanyScope(userId), listMachineScope(userId)]);
+    setCompanyScope(companies.rows);
+    setMachineScope(machines.rows);
+    setScopeMissing(companies.missing || machines.missing);
+    setScopeLoading(false);
+  };
+
   useEffect(() => {
     setFullName(user?.full_name ?? '');
     setCedula(user?.cedula ?? '');
@@ -705,9 +741,67 @@ function EditUserForm({
     setPerms({});
     editedAt.current = {}; // otro usuario: no arrastrar la protección de edición del anterior
     setSel(user?.app_role_id ? { kind: 'app', id: user.app_role_id } : { kind: 'base', role: (user?.role ?? 'conductor') });
-    if (user) loadPerms(user.id);
+    setCompanyScope([]);
+    setMachineScope([]);
+    setScopeMissing(false);
+    if (user) { loadPerms(user.id); loadScope(user.id); }
   }, [user]);
   useRealtimeRefresh(['module_permissions'], () => { if (user) loadPerms(user.id); });
+
+  const addCompanyToScope = async (companyId: string) => {
+    if (!user) return;
+    const { error: e, missing } = await addCompanyScope(user.id, companyId);
+    if (missing) { setScopeMissing(true); return; }
+    if (e) { toast.error(e); return; }
+    loadScope(user.id);
+  };
+  const removeCompanyFromScope = async (companyId: string) => {
+    if (!user) return;
+    const { error: e } = await removeCompanyScope(user.id, companyId);
+    if (e) { toast.error(e); return; }
+    loadScope(user.id);
+  };
+  const addMachineToScope = async (machineryId: string) => {
+    if (!user) return;
+    const { error: e, missing } = await addMachineScope(user.id, machineryId);
+    if (missing) { setScopeMissing(true); return; }
+    if (e) { toast.error(e); return; }
+    loadScope(user.id);
+  };
+  const removeMachineFromScope = async (machineryId: string) => {
+    if (!user) return;
+    const { error: e } = await removeMachineScope(user.id, machineryId);
+    if (e) { toast.error(e); return; }
+    loadScope(user.id);
+  };
+
+  const openCompanyPicker = async () => {
+    setCompanyPickOpen(true);
+    setCompanyPickQuery('');
+    setCompanyPickLoading(true);
+    const { data, error: e } = await supabase.from('companies').select('id, name').order('name');
+    setCompanyPickLoading(false);
+    if (e) { toast.error(e.message); return; }
+    setCompanyPickList((data ?? []) as { id: string; name: string }[]);
+  };
+  const openMachinePicker = async () => {
+    setMachinePickOpen(true);
+    setMachinePickQuery('');
+    setMachinePickLoading(true);
+    const { data, error: e } = await supabase.from('machinery').select('id, code').eq('active', true).order('code');
+    setMachinePickLoading(false);
+    if (e) { toast.error(e.message); return; }
+    setMachinePickList((data ?? []) as { id: string; code: string }[]);
+  };
+
+  const nqCompanyPick = norm(companyPickQuery.trim());
+  const companyPickFiltered = companyPickList.filter(
+    (c) => !companyScope.some((s) => s.companyId === c.id) && (!nqCompanyPick || norm(c.name).includes(nqCompanyPick))
+  );
+  const nqMachinePick = norm(machinePickQuery.trim());
+  const machinePickFiltered = machinePickList.filter(
+    (m) => !machineScope.some((s) => s.machineryId === m.id) && (!nqMachinePick || norm(m.code).includes(nqMachinePick))
+  );
 
   const setPerm = async (moduleKey: string, level: PermLevel) => {
     if (!user) return;
@@ -749,6 +843,20 @@ function EditUserForm({
 
   if (!user) return null;
   const isAdminUser = user.role === 'admin';
+
+  // ¿Tiene activo el módulo "coordinacion_operadores" este usuario? Mismo criterio
+  // que resuelve el nivel efectivo de un módulo en AuthContext.moduleLevel: rol
+  // personalizado (modules del app_role) combinado con el permiso EXPLÍCITO por
+  // módulo (el mayor de los dos); rol base → el explícito o el default (none).
+  const coordModuleActive = !isAdminUser && (() => {
+    const explicit = perms['coordinacion_operadores'];
+    if (sel.kind === 'app') {
+      const appRole = roles.find((r) => r.id === sel.id);
+      const roleLvl = (appRole?.modules?.['coordinacion_operadores'] as PermLevel) ?? 'none';
+      return (explicit ? maxLevel(roleLvl, explicit) : roleLvl) !== 'none';
+    }
+    return (explicit ?? defaultLevel('coordinacion_operadores')) !== 'none';
+  })();
 
   const save = async () => {
     setError(null);
@@ -871,6 +979,67 @@ function EditUserForm({
               );
             })}
 
+            {coordModuleActive ? (
+              <Card style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🚜 Máquinas que puede coordinar</Text>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  Restringe qué máquinas ve y puede asignar este coordinador. Sin nada configurado abajo, ve TODAS las máquinas de todas las empresas.
+                </Text>
+                {scopeMissing ? (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    ⏳ Esta función todavía no está activa (falta aplicar una actualización pendiente en la base de datos).
+                  </Text>
+                ) : scopeLoading ? (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Cargando alcance…</Text>
+                ) : (
+                  <>
+                    {companyScope.length === 0 && machineScope.length === 0 ? (
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                        🌐 Sin restricción: ve TODAS las máquinas
+                      </Text>
+                    ) : (
+                      <>
+                        {companyScope.length > 0 ? (
+                          <View>
+                            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>EMPRESAS COMPLETAS</Text>
+                            {companyScope.map((c) => (
+                              <View key={c.companyId} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}>
+                                <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>🏢 {c.companyName}</Text>
+                                <TouchableOpacity onPress={() => removeCompanyFromScope(c.companyId)}>
+                                  <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕ Quitar</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                        {machineScope.length > 0 ? (
+                          <View>
+                            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>MÁQUINAS SUELTAS</Text>
+                            {machineScope.map((m) => (
+                              <View key={m.machineryId} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}>
+                                <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>🚜 {m.code}</Text>
+                                <TouchableOpacity onPress={() => removeMachineFromScope(m.machineryId)}>
+                                  <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕ Quitar</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                      </>
+                    )}
+                    <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                      <TouchableOpacity onPress={openCompanyPicker} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>➕ Agregar empresa completa</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={openMachinePicker} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>➕ Agregar máquina suelta</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </Card>
+            ) : null}
+
             {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
           </ScrollView>
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
@@ -903,6 +1072,64 @@ function EditUserForm({
             onPick={applyRole}
             onClose={() => setPickerOpen(false)}
           />
+
+          {/* Selector: agregar una EMPRESA COMPLETA al alcance del coordinador. */}
+          <Modal visible={companyPickOpen} animationType="slide" transparent onRequestClose={() => setCompanyPickOpen(false)}>
+            <View style={styles.backdrop}>
+              <View style={[styles.sheet, { maxHeight: '82%' }]}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>➕ Agregar empresa completa</Text>
+                <TextInput value={companyPickQuery} onChangeText={setCompanyPickQuery} placeholder="🔎 Buscar empresa…" placeholderTextColor={colors.muted} style={styles.input} />
+                {companyPickLoading ? (
+                  <Loading />
+                ) : (
+                  <ScrollView style={{ marginTop: spacing.sm }}>
+                    {companyPickFiltered.map((c) => (
+                      <TouchableOpacity
+                        key={c.id}
+                        onPress={() => addCompanyToScope(c.id)}
+                        style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {c.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {companyPickFiltered.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin coincidencias.</Text> : null}
+                  </ScrollView>
+                )}
+                <TouchableOpacity onPress={() => setCompanyPickOpen(false)} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
+                  <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Selector: agregar una MÁQUINA SUELTA al alcance del coordinador. */}
+          <Modal visible={machinePickOpen} animationType="slide" transparent onRequestClose={() => setMachinePickOpen(false)}>
+            <View style={styles.backdrop}>
+              <View style={[styles.sheet, { maxHeight: '82%' }]}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>➕ Agregar máquina suelta</Text>
+                <TextInput value={machinePickQuery} onChangeText={setMachinePickQuery} placeholder="🔎 Buscar por código…" placeholderTextColor={colors.muted} style={styles.input} />
+                {machinePickLoading ? (
+                  <Loading />
+                ) : (
+                  <ScrollView style={{ marginTop: spacing.sm }}>
+                    {machinePickFiltered.map((m) => (
+                      <TouchableOpacity
+                        key={m.id}
+                        onPress={() => addMachineToScope(m.id)}
+                        style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>🚜 {m.code}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {machinePickFiltered.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin coincidencias.</Text> : null}
+                  </ScrollView>
+                )}
+                <TouchableOpacity onPress={() => setMachinePickOpen(false)} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
+                  <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
         </View>
       </View>
     </Modal>
