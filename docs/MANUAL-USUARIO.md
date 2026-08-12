@@ -2169,6 +2169,32 @@ Ajustes solo quedan:
 
 ---
 
+## 4.30. Obras Públicas 🏛️
+
+Módulo **aislado** para los **supervisores externos de Obras Públicas**. Ellos manejan las
+**jornadas, averías/paradas, visitas y ubicación** de SUS máquinas asignadas, **sin afectar** el
+módulo de inspectores. Lo único que se comparte con el resto del sistema es la **ubicación** (se
+ve en el mapa y el catálogo).
+
+- **Asignar máquinas:** desde el **Catálogo → botón 🏛️ Obras Públicas** eliges el supervisor (de
+  los usuarios con ese rol) y le asignas máquinas **por lote o individual**. La máquina le aparece
+  al supervisor en su teléfono ("🏛️ Mis máquinas").
+- **Vista del supervisor (teléfono):** ve solo sus máquinas; por cada una registra **visita (GPS)**,
+  **inicia/finaliza jornada**, marca **avería o parada**, **actualiza ubicación** y genera su
+  **reporte diario**.
+- **Panel de Obras Públicas (Más → 🏛️ Obras Públicas):** panel de **admin/coordinador** que
+  **agrega todo el módulo** (todos los supervisores):
+  - **KPIs:** máquinas asignadas · trabajando ahora · averiadas/paradas · horas de hoy · visitas de hoy.
+  - **Gráficos:** horas por máquina · distribución por estado · máquinas activas por día (7/30).
+  - **Estado de flota en campo** (con su supervisor) y **tabla de últimas visitas**.
+  - Filtra por **supervisor** con los chips; toca un **KPI** para filtrar la flota.
+
+> Las horas y estados de Obras Públicas **NO** tocan los reportes ni los pagos del módulo de
+> inspectores — son datos aparte (tablas `op_*`). Solo la **ubicación** se sincroniza con el
+> mapa/catálogo.
+
+---
+
 ## 5. Cosas que sirven en TODAS las secciones
 
 - **🔎 Buscar:** escribe parte del nombre, serial o empresa.

@@ -145,6 +145,17 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🏛️',
+    title: 'Obras Públicas',
+    blocks: [
+      { t: 'p', text: 'Módulo AISLADO para los supervisores externos de Obras Públicas: manejan las jornadas, averías/paradas, visitas y ubicación de SUS máquinas asignadas, sin afectar el módulo de inspectores. Lo único que se comparte con el resto del sistema es la UBICACIÓN (se ve en el mapa y el catálogo).' },
+      { t: 'p', text: 'Asignar máquinas a un supervisor: desde el Catálogo, botón "🏛️ Obras Públicas" — eliges el supervisor (de la lista de usuarios con ese rol) y le asignas máquinas por lote o una por una. La máquina asignada le aparece a ese supervisor en su teléfono ("🏛️ Mis máquinas").' },
+      { t: 'p', text: 'Vista del supervisor (teléfono): ve solo sus máquinas y por cada una puede registrar visita (GPS), iniciar/finalizar jornada, marcar avería o parada, actualizar la ubicación y generar su reporte diario.' },
+      { t: 'p', text: 'Panel de Obras Públicas (Más → 🏛️ Obras Públicas): panel de admin/coordinador que AGREGA todo el módulo (todos los supervisores). Muestra KPIs (máquinas asignadas, trabajando ahora, averiadas/paradas, horas de hoy, visitas de hoy), gráficos (horas por máquina, distribución por estado, máquinas activas por día 7/30), el estado de la flota en campo (con su supervisor) y la tabla de últimas visitas. Puedes filtrar por supervisor con los chips de arriba, y tocar un KPI para filtrar la flota.' },
+      { t: 'note', text: 'Las horas y estados de Obras Públicas NO tocan los reportes ni los pagos del módulo de inspectores — son datos aparte (tablas op_*). Solo la ubicación se sincroniza con el mapa/catálogo.' },
+    ],
+  },
+  {
     icon: '🛠️',
     title: 'Control de maquinaria (las horas que trabaja)',
     blocks: [
