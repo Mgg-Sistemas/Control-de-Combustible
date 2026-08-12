@@ -39,7 +39,7 @@ export async function generateCoordinadorOperadoresGuide(): Promise<boolean> {
         '🪪 **Marcar asistencia (escanear operador)**: el botón chico debajo del de escanear. Apunta al CARNET del operador (no al QR de la máquina) y le registra la ENTRADA o SALIDA al instante — decide sola cuál toca según su última marca de hoy.',
       ]),
       step1Mock
-    )
+    ) + calloutInfo('Si tu administrador te configuró un <b>alcance</b>, aquí solo verás las máquinas de las empresas o las máquinas puntuales que te asignó — si te falta una que esperabas ver, pídele que revise tu alcance en Usuarios.')
   );
 
   const step2Mock = phoneFrame(
