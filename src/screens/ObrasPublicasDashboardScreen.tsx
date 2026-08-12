@@ -262,7 +262,7 @@ export default function ObrasPublicasDashboardScreen() {
       {/* ESTADO DE FLOTA EN CAMPO */}
       <Card>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>
-          🚜 Estado de flota en campo{filter === 'trabajando' ? ' · Trabajando' : filter === 'incidencias' ? ' · Averiadas/Paradas' : ''} ({fleet.length})
+          ⛰️ Metros Cúbicos Removidos{filter === 'trabajando' ? ' · Trabajando' : filter === 'incidencias' ? ' · Averiadas/Paradas' : ''} ({fleet.length})
         </Text>
         {fleet.length === 0 ? (
           <Text style={{ color: colors.muted, fontSize: 12.5 }}>Sin máquinas para este filtro.</Text>
@@ -294,9 +294,9 @@ export default function ObrasPublicasDashboardScreen() {
 
       {/* TABLA — Últimas visitas / jornadas */}
       <Card style={{ marginBottom: spacing.xl }}>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>🗒️ Últimas visitas registradas</Text>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>🚚 Acarreo total</Text>
         {d.visits.filter((v) => visibleIds.has(v.machinery_id)).length === 0 ? (
-          <Text style={{ color: colors.muted, fontSize: 12.5 }}>Sin visitas registradas en el rango.</Text>
+          <Text style={{ color: colors.muted, fontSize: 12.5 }}>Sin acarreo registrado en el rango.</Text>
         ) : (
           <View>
             <View style={{ flexDirection: 'row', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
