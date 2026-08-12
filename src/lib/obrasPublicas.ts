@@ -159,6 +159,7 @@ export type OpDashMachine = {
   id: string; code: string; plate: string | null; serial: string | null;
   marca: string | null; modelo: string | null; tipo: string | null;
   company_name: string | null; parroquia: string | null; sector: string | null;
+  edificio: string | null; // machinery.referencia = EDIFICIO (campo unificado)
   latitude: number | null; longitude: number | null; location_at: string | null;
   supervisor_id: string | null; supervisor_name: string | null;
 };
@@ -187,7 +188,7 @@ export async function fetchOpDashboard(roundDate: string, fromDate: string): Pro
   if (!ids.length) return { machines: [], rounds: {}, maint: {}, roundsRange: [], visits: [] };
   const { data: macRows, error: mErr } = await supabase
     .from('machinery')
-    .select('id, code, plate, serial, marca, modelo, tipo, parroquia, sector, latitude, longitude, location_at, company:company_id(name)')
+    .select('id, code, plate, serial, marca, modelo, tipo, parroquia, sector, referencia, latitude, longitude, location_at, company:company_id(name)')
     .in('id', ids);
   if (mErr) throw mErr;
   const machines: OpDashMachine[] = (macRows ?? []).map((r: any) => {
@@ -196,6 +197,7 @@ export async function fetchOpDashboard(roundDate: string, fromDate: string): Pro
       id: r.id, code: r.code ?? '—', plate: r.plate ?? null, serial: r.serial ?? null,
       marca: r.marca ?? null, modelo: r.modelo ?? null, tipo: r.tipo ?? null,
       company_name: r.company?.name ?? null, parroquia: r.parroquia ?? null, sector: r.sector ?? null,
+      edificio: r.referencia ?? null,
       latitude: r.latitude != null ? Number(r.latitude) : null, longitude: r.longitude != null ? Number(r.longitude) : null,
       location_at: r.location_at ?? null,
       supervisor_id: a?.supervisor_id ?? null, supervisor_name: a?.supervisor_name ?? null,

@@ -474,6 +474,14 @@ export default function EquiposScreen({ navigation, route }: any) {
     setQuery(String(term));
     navigation.setParams?.({ q: undefined });
   }, [route?.params?.q]);
+
+  // Al llegar desde el panel de Obras Públicas (KPI "Máquinas asignadas"), abre
+  // directo el modal 🏛️ Obras Públicas para asignar/ver supervisores.
+  useEffect(() => {
+    if (!route?.params?.obrasPublicas) return;
+    setOpAssignOpen(true);
+    navigation.setParams?.({ obrasPublicas: undefined });
+  }, [route?.params?.obrasPublicas]);
   const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : [];
   const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : detailStatus === 'espera' ? '⏳ Esperando instrucciones' : '✅ Maquinaria operativa';
   // Buscador del detalle: filtra por TODAS las características (código, placa, serial,
