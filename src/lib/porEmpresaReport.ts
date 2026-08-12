@@ -3,6 +3,7 @@ import { pdfDocument, exportPdf } from './pdf';
 import { cmpText, norm } from './text';
 import { workedFromShifts } from './hours';
 import { motivoParada } from './paradaMotivo';
+import { horarioNominal } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 
@@ -317,8 +318,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // noche = nn (horas reales, con anclaje de inicio de turno). Las averiadas/paradas van
   // en su propio grupo marcadas en 0 y NO suman a estos totales.
   let totDayH = 0, totNightH = 0;
-  const HORA_DIA_INI = '07:00 a. m.', HORA_DIA_FIN = '07:00 p. m.';
-  const HORA_NOCHE_INI = '07:00 p. m.', HORA_NOCHE_FIN = '07:00 a. m.';
+  const HORA_DIA_INI = horarioNominal('day').ini, HORA_DIA_FIN = horarioNominal('day').fin;
+  const HORA_NOCHE_INI = horarioNominal('night').ini, HORA_NOCHE_FIN = horarioNominal('night').fin;
   const nowHora = horaCaracas(new Date(nowMs).toISOString());
   // Por empresa → filas.
   const porEmpresa = new Map<string, Fila[]>();

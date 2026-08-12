@@ -4,6 +4,7 @@ import { cmpText, norm } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
+import { horarioNominal } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { computeMachineVisibilitySets, clasificarEstadoTurno } from './inspectorDaySets';
 import { motivoParada } from './paradaMotivo';
@@ -539,8 +540,8 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     // trabajadas EN VERDE. Reemplaza las columnas sueltas "H. Día/H. Noche" y "Jornada"
     // (pedido del cliente 10-ago-2026: que se vea igual que el reporte por empresa).
     const hLabel = turno === 'day' ? 'Horario DÍA' : 'Horario NOCHE';
-    const HORA_INI = turno === 'day' ? '07:00 a. m.' : '07:00 p. m.';
-    const HORA_FIN_FIJA = turno === 'day' ? '07:00 p. m.' : '07:00 a. m.';
+    const HORA_INI = horarioNominal(turno).ini;          // 7am día / 7pm noche (fuente única)
+    const HORA_FIN_FIJA = horarioNominal(turno).fin;     // 7pm día / 7am noche
     let tWork = 0, tJor = 0;
     const rows = list.map((m, i) => {
       const shiftH = r2(turno === 'day' ? m.dayH : m.nightH);       // horas de SU turno
