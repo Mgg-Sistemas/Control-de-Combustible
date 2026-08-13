@@ -60,6 +60,10 @@ type Fila = {
   diaHoras: number; nocheHoras: number;
   // Motivo de avería/parada (solo grupo 'averia') — se muestra EN LÍNEA en la fila.
   motivo: string;
+  // Motivo de avería/parada SEPARADO por turno (POR TURNO: la parada de NOCHE no tapa
+  // el DÍA ni viceversa). Cada uno se pinta en SU columna (Horario Día / Horario Noche).
+  motivoDia: string;
+  motivoNoche: string;
   // Motivo de CIERRE (cierre manual anticipado): close_reason del tramo. Se muestra
   // en línea junto al horario cuando la jornada finalizó antes de la hora de fin.
   cierreMotivo: string;
@@ -423,6 +427,13 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       nocheEnCurso: nnAct > 0 && nightOpen,
       diaHoras: n2(ddAct), nocheHoras: n2(nnAct),
       motivo: esAveria ? averiaBase : esParadaDeclarada ? 'Parada · jornada en 0 h' : '',
+      // POR TURNO: motivo del DÍA y de la NOCHE por separado, para que la parada/avería
+      // de un turno se muestre SOLO en su columna (antes el motivo abarcaba día+noche con
+      // colspan=2 → una parada de noche hacía ver la máquina como "no trabajó todo el día").
+      motivoDia: siempreActivoIds.has(id) ? '' : (motivoDe(mrByMachine.get(id) || [], 'day')
+        || (esParadaDeclarada && r?.jornada_shift === 'day' ? 'No trabajó (jornada en 0 h)' : '')),
+      motivoNoche: siempreActivoIds.has(id) ? '' : (motivoDe(mrByMachine.get(id) || [], 'night')
+        || (esParadaDeclarada && r?.jornada_shift === 'night' ? 'No trabajó (jornada en 0 h)' : '')),
       cierreMotivo: grupo === 'activa' ? (cierreMotivoByMachine.get(id)?.motivo || '') : '',
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
@@ -441,11 +452,18 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       `<td class="hr"><div class="ini">${esc(ini)}</div>` +
       `<div class="${enCurso ? 'curso' : 'fin'}">${esc(fin)}</div>` +
       `${horas > 0 ? `<div class="tot">${n2(horas)} h</div>` : ''}</td>`;
+    // Una columna POR TURNO (día independiente de noche): si el turno trabajó se muestra su
+    // horario; si estuvo parada/averiada, SU motivo (solo en esa columna); si no hubo nada, "—".
+    // Antes las averiadas usaban colspan=2 (motivo abarcando día+noche) → una parada de NOCHE
+    // hacía ver la máquina como "no trabajó todo el DÍA". Ahora cada turno es autónomo.
+    const colTurno = (worked: boolean, ini: string, fin: string, enCurso: boolean, horas: number, motivoTurno: string) =>
+      worked ? celda(ini, fin, enCurso, horas)
+        : motivoTurno ? `<td class="mot">🔴 ${esc(motivoTurno)}</td>`
+        : `<td class="hr">—</td>`;
     const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) => {
-      // Averiadas/Paradas: en 0, y el MOTIVO va EN LÍNEA ocupando las dos columnas de horario.
-      const horario = f.grupo === 'averia'
-        ? `<td colspan="2" class="mot">🔴 ${esc(dash(f.motivo))}</td>`
-        : celda(f.diaIni, f.diaFin, f.diaEnCurso, f.diaHoras) + celda(f.nocheIni, f.nocheFin, f.nocheEnCurso, f.nocheHoras);
+      const horario =
+        colTurno(f.diaHoras > 0, f.diaIni, f.diaFin, f.diaEnCurso, f.diaHoras, f.motivoDia) +
+        colTurno(f.nocheHoras > 0, f.nocheIni, f.nocheFin, f.nocheEnCurso, f.nocheHoras, f.motivoNoche);
       // Cierre manual anticipado: el MOTIVO va bajo el nombre de la máquina (no rompe columnas).
       const cierreNota = f.cierreMotivo ? `<div style="color:#B45309;font-size:9px;margin-top:1px">📝 ${esc(f.cierreMotivo)}</div>` : '';
       return `<tr${cls(f.grupo)}>
