@@ -105,8 +105,9 @@ begin
         -- = 12h). Requiere inicio ANTES del fin (si no, sumaría 0/negativo) — se deja manual.
         if r.jornada_start_at < end_ts then
           hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
+          -- TOPE 12h por turno (igual que el cliente y los reportes): night+day nunca >24.
           update public.machine_rounds
-            set night_hours = coalesce(night_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
+            set night_hours = least(12, coalesce(night_hours, 0) + hrs), jornada_start_at = null, status = 'operativa'
             where id = r.id;
           insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
             values (r.machinery_id, r.round_date, 'night', r.jornada_start_at, end_ts, hrs, 'auto_close');
@@ -132,8 +133,9 @@ begin
                     (r.round_date + time '07:00') at time zone 'America/Caracas', end_ts, 12, 'auto_close');
         elsif r.jornada_start_at < end_ts then
           hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
+          -- TOPE 12h por turno (igual que el cliente y los reportes): night+day nunca >24.
           update public.machine_rounds
-            set day_hours = coalesce(day_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
+            set day_hours = least(12, coalesce(day_hours, 0) + hrs), jornada_start_at = null, status = 'operativa'
             where id = r.id;
           insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
             values (r.machinery_id, r.round_date, 'day', r.jornada_start_at, end_ts, hrs, 'auto_close');
