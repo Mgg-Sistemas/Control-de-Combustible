@@ -131,14 +131,14 @@ export async function listMyOpMachineIds(supervisorId: string): Promise<string[]
 }
 
 /** Máquina asignada a un supervisor, con su ficha mínima (para pickers). */
-export type OpMyMachine = { id: string; code: string; plate: string | null; serial: string | null };
-/** Máquinas asignadas (vigentes) a un supervisor, con código/placa/serial. */
+export type OpMyMachine = { id: string; code: string; plate: string | null; serial: string | null; company_name: string | null };
+/** Máquinas asignadas (vigentes) a un supervisor, con código/placa/serial/empresa. */
 export async function listMyOpMachines(supervisorId: string): Promise<OpMyMachine[]> {
   const ids = await listMyOpMachineIds(supervisorId);
   if (!ids.length) return [];
-  const { data, error } = await supabase.from('machinery').select('id, code, plate, serial').in('id', ids);
+  const { data, error } = await supabase.from('machinery').select('id, code, plate, serial, company:company_id(name)').in('id', ids);
   if (error) throw error;
-  return (data ?? []).map((r: any): OpMyMachine => ({ id: r.id, code: r.code ?? '—', plate: r.plate ?? null, serial: r.serial ?? null }));
+  return (data ?? []).map((r: any): OpMyMachine => ({ id: r.id, code: r.code ?? '—', plate: r.plate ?? null, serial: r.serial ?? null, company_name: r.company?.name ?? null }));
 }
 
 /**
@@ -151,7 +151,7 @@ export async function listOpExternalMachines(supervisorId?: string | null): Prom
   if (supervisorId) q = q.or(`supervisor_id.eq.${supervisorId},supervisor_id.is.null`);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []).map((r: any): OpMyMachine => ({ id: `ext:${r.id}`, code: r.code ?? '—', plate: null, serial: null }));
+  return (data ?? []).map((r: any): OpMyMachine => ({ id: `ext:${r.id}`, code: r.code ?? '—', plate: null, serial: null, company_name: null }));
 }
 
 /** Agrega una máquina externa (no toca el catálogo). Devuelve el código guardado. */

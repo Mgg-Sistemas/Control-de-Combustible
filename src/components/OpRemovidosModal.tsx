@@ -64,6 +64,7 @@ export default function OpRemovidosModal({
   const [misMaquinas, setMisMaquinas] = useState<OpMyMachine[]>([]);
   const [addMaq, setAddMaq] = useState<Record<string, string>>({}); // texto "nueva máquina externa" por edificio
   const [addingMaq, setAddingMaq] = useState(false);
+  const [usoQ, setUsoQ] = useState<Record<string, string>>({}); // buscador del check "maquinaria en uso" por edificio
 
   // Agregar un edificio nuevo al catálogo.
   const [addName, setAddName] = useState('');
@@ -175,6 +176,19 @@ export default function OpRemovidosModal({
     const next = cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code];
     setDet(edif, { maq_requerimiento: next.join(', ') });
   };
+  // "Maquinaria en uso" = MISMO patrón (check de las máquinas asignadas ∪ externas),
+  // guardado como códigos separados por coma en maq_en_uso. Lista BUSCABLE (por
+  // código/serial/placa/empresa) mostrando serial · placa · empresa de cada una.
+  const usoCodes = (edif: string): string[] =>
+    (detalles[edif]?.maq_en_uso || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const toggleUso = (edif: string, code: string) => {
+    const cur = usoCodes(edif);
+    const next = cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code];
+    setDet(edif, { maq_en_uso: next.join(', ') });
+  };
+  // Etiqueta "serial · placa · empresa" de una máquina (para el check de en uso).
+  const maqSubtitulo = (m: OpMyMachine): string =>
+    [m.serial && `S/N ${m.serial}`, m.plate && `Placa ${m.plate}`, m.company_name].filter(Boolean).join(' · ');
   // Añade una máquina EXTERNA (fuera del catálogo), la agrega al picker y la marca.
   // NO recarga (para no perder el detalle sin guardar); solo suma a misMaquinas.
   const agregarMaqExterna = async (edif: string) => {
@@ -186,7 +200,7 @@ export default function OpRemovidosModal({
       if (code) {
         setMisMaquinas((p) => (p.some((m) => norm(m.code) === norm(code))
           ? p
-          : [...p, { id: `ext:${code}`, code, plate: null, serial: null }].sort((a, b) => cmpText(a.code, b.code))));
+          : [...p, { id: `ext:${code}`, code, plate: null, serial: null, company_name: null }].sort((a, b) => cmpText(a.code, b.code))));
         if (!reqCodes(edif).includes(code)) toggleReq(edif, code); // auto-marca
         setAddMaq((p) => ({ ...p, [edif]: '' }));
       }
@@ -385,8 +399,43 @@ export default function OpRemovidosModal({
                                         placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
                                     </View>
                                   </View>
-                                  <TextInput value={d.maq_en_uso ?? ''} onChangeText={(t) => setDet(edif, { maq_en_uso: t })}
-                                    placeholder="🚜 Maquinaria en uso" placeholderTextColor={colors.muted} style={input} />
+                                  {/* 🚜 MAQUINARIA EN USO: check BUSCABLE de las máquinas asignadas ∪ externas,
+                                      mostrando serial · placa · empresa. Se guarda como códigos separados
+                                      por coma en maq_en_uso (igual que "por requerimiento"). */}
+                                  <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>🚜 MAQUINARIA EN USO (marca con ✓)</Text>
+                                  <TextInput value={usoQ[edif] ?? ''} onChangeText={(t) => setUsoQ((p) => ({ ...p, [edif]: t }))}
+                                    placeholder="🔎 Buscar (código, serial, placa, empresa)" placeholderTextColor={colors.muted} style={input} />
+                                  <View style={{ gap: 4 }}>
+                                    {(() => {
+                                      const nq = norm(usoQ[edif] ?? '');
+                                      // asignadas ∪ externas + códigos sueltos ya marcados (por si venían de antes).
+                                      const sueltos: OpMyMachine[] = usoCodes(edif)
+                                        .filter((c) => !misMaquinas.some((m) => norm(m.code) === norm(c)))
+                                        .map((c) => ({ id: `loose:${c}`, code: c, plate: null, serial: null, company_name: null }));
+                                      const lista = [...misMaquinas, ...sueltos].filter((m) =>
+                                        !nq || norm(m.code).includes(nq) || norm(m.serial ?? '').includes(nq)
+                                          || norm(m.plate ?? '').includes(nq) || norm(m.company_name ?? '').includes(nq));
+                                      if (!lista.length) return (
+                                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                          {(usoQ[edif] ?? '').trim() ? 'Ninguna máquina coincide con la búsqueda.' : 'No tienes máquinas asignadas.'}
+                                        </Text>
+                                      );
+                                      return lista.map((m) => {
+                                        const on = usoCodes(edif).includes(m.code);
+                                        const sub = maqSubtitulo(m);
+                                        return (
+                                          <TouchableOpacity key={m.id} onPress={() => toggleUso(edif, m.code)}
+                                            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: on ? 2 : 1, borderColor: on ? colors.primary : colors.border, backgroundColor: colors.surfaceAlt }}>
+                                            <Text style={{ fontSize: 15 }}>{on ? '☑️' : '⬜'}</Text>
+                                            <View style={{ flex: 1 }}>
+                                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>{m.code}</Text>
+                                              {sub ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>{sub}</Text> : null}
+                                            </View>
+                                          </TouchableOpacity>
+                                        );
+                                      });
+                                    })()}
+                                  </View>
                                   <TextInput value={d.maq_inoperativo ?? ''} onChangeText={(t) => setDet(edif, { maq_inoperativo: t })}
                                     placeholder="🛑 Maquinaria inoperativa" placeholderTextColor={colors.muted} style={input} />
                                   <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>📋 MAQUINARIA POR REQUERIMIENTO (marca con ✓)</Text>
