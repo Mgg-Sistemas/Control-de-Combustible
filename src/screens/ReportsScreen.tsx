@@ -1205,7 +1205,8 @@ export default function ReportsScreen({ route }: any) {
     });
     const listAll = (mach ?? []).map((m: any) => ({
       code: m.code as string,
-      serial: (m.serial || m.plate || '') as string,
+      serial: (m.serial || '') as string,
+      plate: (m.plate || '') as string,
       tipo: canonTipo(m.tipo) || 'SIN TIPO',
       clas: canonTipo(m.clasificacion) || 'SIN CLASIFICACIÓN',
       active: m.active !== false,
@@ -1226,7 +1227,7 @@ export default function ReportsScreen({ route }: any) {
     const inact = list
       .filter((m) => !m.active)
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code))
-      .map((m) => ({ code: m.code, serial: m.serial, tipo: m.tipo, company: m.company }));
+      .map((m) => ({ code: m.code, serial: [m.plate, m.serial].filter(Boolean).join(' · '), tipo: m.tipo, company: m.company }));
     const totals = {
       equipos: list.length,
       horas: list.reduce((s, m) => s + m.hours, 0),
