@@ -13,6 +13,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import {
   fetchOpDashboard, OpDashboard, OpDashMachine,
   fetchOpDailyReports, fetchOpReportSettings, saveOpReportSettings, computeOpAccumulated,
+  fetchEdificioResumen, OpEdificioResumen,
   OpDailyReport, OpReportSettings,
 } from '../lib/obrasPublicas';
 
@@ -66,6 +67,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OpDashboard | null>(null);
   const [reports, setReports] = useState<OpDailyReport[]>([]);
+  const [resumenEdif, setResumenEdif] = useState<Record<string, OpEdificioResumen>>({}); // m³ removidos por edificio
   const [settings, setSettings] = useState<OpReportSettings>({ base_m3: 0, base_cuerpos: 0, base_date: null });
   const [nowTick, setNowTick] = useState(Date.now());
   const [filter, setFilter] = useState<string | null>(null); // KPI seleccionado (filtra la flota)
@@ -79,12 +81,13 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
 
   const load = useCallback(async () => {
     try {
-      const [d, reps, st] = await Promise.all([
+      const [d, reps, st, resu] = await Promise.all([
         fetchOpDashboard(today, addDaysISO(today, -30)),
         fetchOpDailyReports('2000-01-01'), // todos: el acumulado suma desde el corte
         fetchOpReportSettings(),
+        fetchEdificioResumen(today).catch(() => ({} as Record<string, OpEdificioResumen>)),
       ]);
-      setData(d); setReports(reps); setSettings(st);
+      setData(d); setReports(reps); setSettings(st); setResumenEdif(resu);
     } catch {
       setData({ machines: [], rounds: {}, maint: {}, roundsRange: [], visits: [] });
     } finally {
@@ -95,7 +98,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   useEffect(() => { load(); }, [load]);
   // Sincronía EN VIVO con las vistas de teléfono de las supervisoras: si registran jornada,
   // avería/parada, m³ o el reporte del día, el panel se actualiza solo.
-  useRealtimeRefresh(['op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports', 'op_report_settings'], () => { load(); });
+  useRealtimeRefresh(['op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports', 'op_report_settings', 'op_edificio_removidos', 'op_edificio_base'], () => { load(); });
   // Tictaqueo cada 60s: las horas EN VIVO de las jornadas abiertas crecen solas.
   useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 60000); return () => clearInterval(t); }, []);
 
@@ -144,18 +147,13 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     return c;
   }, [machines, estadoOf]);
 
-  // Edificios distintos donde están las máquinas asignadas (machinery.referencia = EDIFICIO).
-  const edificios = useMemo(() => {
-    const s = new Set<string>();
-    machines.forEach((x) => { const e = (x.edificio ?? '').trim(); if (e) s.add(e.toLowerCase()); });
-    return s.size;
-  }, [machines]);
-  // m³ del día: suma de los m³ removidos hoy por las máquinas visibles (capturados en la vista del supervisor).
+  // m³ del día: total removido hoy por EDIFICIO (módulo independiente, global; ya no por máquina).
   const m3Dia = useMemo(() => {
-    let s = 0;
-    machines.forEach((x) => { s += d.rounds[x.id]?.m3 ?? 0; });
+    const s = Object.values(resumenEdif).reduce((a, r) => a + r.removido_hoy, 0);
     return Math.round(s * 10) / 10;
-  }, [machines, d.rounds]);
+  }, [resumenEdif]);
+  // Edificios tratados HOY (con removido del día) en el módulo por edificio.
+  const edificiosHoyCount = useMemo(() => Object.values(resumenEdif).filter((r) => r.removido_hoy > 0).length, [resumenEdif]);
 
   // Reporte de Actividades: consolidado del día (suma de reportes de las supervisoras)
   // respetando el filtro por supervisor; y ACUMULADOS globales (base + todos los reportes).
@@ -196,8 +194,8 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     { key: 'trabajando', label: 'Trabajando ahora', value: counts.trabajando, tone: 'success', icon: '🟢' },
     { key: 'incidencias', label: 'Averiadas / Paradas', value: counts.averia + counts.parada, tone: 'danger', icon: '🔧' },
     { key: 'm3', label: 'm³ del día', value: m3Dia, tone: 'accent', icon: '⛰️' },
-    { key: 'edificios', label: 'Edificios', value: edificios, tone: 'warning', icon: '🏢' },
-  ], [machines.length, counts, m3Dia, edificios]);
+    { key: 'edificios', label: 'Edificios hoy', value: edificiosHoyCount, tone: 'warning', icon: '🏢' },
+  ], [machines.length, counts, m3Dia, edificiosHoyCount]);
 
   // Filtro de la flota según el KPI tocado.
   const fleetPred = useCallback((id: string): boolean => {
@@ -308,6 +306,31 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
         {settings.base_date ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: spacing.xs }}>Base al {dm(settings.base_date)}/{settings.base_date.split('-')[0]} + reportes posteriores.</Text> : null}
       </Card>
 
+      {/* M³ REMOVIDOS HOY POR EDIFICIO (módulo independiente, sincronizado con el teléfono) */}
+      <Card style={{ marginTop: spacing.md }}>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>⛰️ m³ removidos hoy · por edificio</Text>
+        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+          {edificiosHoyCount} edificio(s) · {fmtNum(m3Dia)} m³ hoy
+        </Text>
+        {(() => {
+          const filas = Object.values(resumenEdif).filter((r) => r.removido_hoy > 0).sort((a, b) => b.removido_hoy - a.removido_hoy);
+          if (filas.length === 0) return <Text style={{ color: colors.muted, fontSize: 12.5 }}>Aún no se han registrado m³ por edificio hoy.</Text>;
+          return (
+            <View style={{ gap: spacing.xs }}>
+              {filas.map((r) => (
+                <View key={r.edificio} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{r.edificio}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>Acumulado: {fmtNum(r.acumulado)} m³{r.supervisor_name ? ` · ${r.supervisor_name}` : ''}</Text>
+                  </View>
+                  <Text style={{ color: colors.accentSoftText, fontSize: 13, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>⛰️ {fmtNum(r.removido_hoy)} m³</Text>
+                </View>
+              ))}
+            </View>
+          );
+        })()}
+      </Card>
+
       {/* GRÁFICO 1 — Distribución por estado (barra segmentada + leyenda) */}
       <Card style={{ marginTop: spacing.md }}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>📊 Distribución por estado</Text>
@@ -363,7 +386,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
       {/* ESTADO DE FLOTA EN CAMPO */}
       <Card>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>
-          ⛰️ m³ removidos{filter === 'trabajando' ? ' · Trabajando' : filter === 'incidencias' ? ' · Averiadas/Paradas' : ''} ({fleet.length})
+          🚜 Estado de flota{filter === 'trabajando' ? ' · Trabajando' : filter === 'incidencias' ? ' · Averiadas/Paradas' : ''} ({fleet.length})
         </Text>
         {fleet.length === 0 ? (
           <Text style={{ color: colors.muted, fontSize: 12.5 }}>Sin máquinas para este filtro.</Text>
@@ -374,7 +397,6 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
               const meta = ESTADO_META[e];
               const col = toneColor(colors, meta.tone);
               const h = horasHoy(m.id);
-              const m3 = d.rounds[m.id]?.m3 ?? 0;
               return (
                 <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: col, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -383,7 +405,6 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
                       {[m.company_name, m.sector || m.parroquia, m.supervisor_name ? `🪖 ${m.supervisor_name}` : null].filter(Boolean).join(' · ') || '—'}
                     </Text>
                   </View>
-                  {m3 > 0 ? <Text style={{ color: colors.accentSoftText, fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>⛰️ {Math.round(m3 * 10) / 10} m³</Text> : null}
                   {h > 0 ? <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{Math.round(h * 100) / 100} h</Text> : null}
                   <View style={{ backgroundColor: col, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 }}>
                     <Text style={{ color: '#fff', fontWeight: '900', fontSize: 10 }}>{meta.icon} {meta.label}</Text>

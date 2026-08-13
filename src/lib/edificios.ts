@@ -122,20 +122,62 @@ export async function fetchEdificios(): Promise<string[]> {
 }
 
 /** Fila del catálogo de edificios/ubicaciones (para el CRUD de UBICACIONES). */
-export type EdificioRow = { id: string; name: string; active: boolean };
+export type EdificioRow = { id: string; name: string; active: boolean; sub_sector: string | null };
 
 /** Lee el catálogo COMPLETO (con id) para gestionarlo (activos, A→Z). */
 export async function fetchEdificioRows(): Promise<EdificioRow[]> {
   try {
-    const { data, error } = await supabase.from('edificios').select('id, name, active').eq('active', true);
+    const { data, error } = await supabase.from('edificios').select('id, name, active, sub_sector').eq('active', true);
     if (error || !data) return [];
     return (data as any[])
-      .map((r) => ({ id: String(r.id), name: String(r.name ?? '').trim(), active: r.active !== false }))
+      .map((r) => ({ id: String(r.id), name: String(r.name ?? '').trim(), active: r.active !== false, sub_sector: (r.sub_sector ?? null) as string | null }))
       .filter((r) => r.name)
       .sort((a, b) => cmpText(a.name, b.name));
   } catch {
     return [];
   }
+}
+
+/** Edificio con su sub-sector, para agrupar la lista (El Palmar / Los Corales…). */
+export type EdificioConSector = { name: string; sub_sector: string | null };
+
+/**
+ * Lee edificios activos con su sub-sector, agrupados y ordenados A→Z. Si la tabla
+ * no tiene aún la columna `sub_sector`, cae a la lista simple (todos sin sector).
+ */
+export async function fetchEdificiosConSector(): Promise<EdificioConSector[]> {
+  try {
+    const { data, error } = await supabase.from('edificios').select('name, sub_sector').eq('active', true);
+    if (error || !data) return (await fetchEdificios()).map((name) => ({ name, sub_sector: null }));
+    return (data as any[])
+      .map((r) => ({ name: String(r.name ?? '').trim(), sub_sector: (r.sub_sector ?? null) as string | null }))
+      .filter((r) => r.name)
+      .sort((a, b) => cmpText(a.name, b.name));
+  } catch {
+    return (await fetchEdificios()).map((name) => ({ name, sub_sector: null }));
+  }
+}
+
+/** Cambia el sub-sector de una ubicación (El Palmar / Los Corales…). '' o null lo limpia. */
+export async function updateEdificioSector(id: string, subSector: string | null): Promise<{ ok: boolean; error?: string }> {
+  const clean = (subSector ?? '').trim() || null;
+  const { error } = await supabase.from('edificios').update({ sub_sector: clean }).eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** Lista de sub-sectores YA usados (para autocompletar al asignar). A→Z, sin repetir. */
+export async function fetchSubSectores(): Promise<string[]> {
+  try {
+    const { data } = await supabase.from('edificios').select('sub_sector').eq('active', true);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    (data ?? []).forEach((r: any) => {
+      const s = String(r.sub_sector ?? '').trim();
+      if (s && !seen.has(s.toLowerCase())) { seen.add(s.toLowerCase()); out.push(s); }
+    });
+    return out.sort(cmpText);
+  } catch { return []; }
 }
 
 /**
@@ -172,17 +214,22 @@ export async function deleteEdificio(id: string): Promise<{ ok: boolean; error?:
  * guardado (sin duplicar por mayúsculas/espacios) o null si falló. Es idempotente:
  * si ya existe uno igual (ignorando may/min), devuelve el existente.
  */
-export async function addEdificio(name: string): Promise<string | null> {
+export async function addEdificio(name: string, subSector?: string | null): Promise<string | null> {
   const clean = (name ?? '').trim();
   if (!clean) return null;
+  const sector = (subSector ?? '').trim() || null;
   try {
     // ¿Ya existe (ignorando may/min)? — evita duplicados tipo "La Joya" / "la joya".
     const { data: existing } = await supabase
       .from('edificios')
-      .select('name')
+      .select('id, name')
       .ilike('name', clean);
-    if (existing && existing.length) return String(existing[0].name);
-    const { error } = await supabase.from('edificios').insert({ name: clean });
+    if (existing && existing.length) {
+      // Si viene con sub-sector y el existente no lo tiene, se lo completamos.
+      if (sector) await supabase.from('edificios').update({ sub_sector: sector }).eq('id', (existing[0] as any).id).is('sub_sector', null);
+      return String(existing[0].name);
+    }
+    const { error } = await supabase.from('edificios').insert(sector ? { name: clean, sub_sector: sector } : { name: clean });
     if (error) return null;
     return clean;
   } catch {

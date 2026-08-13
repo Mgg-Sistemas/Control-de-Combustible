@@ -9,7 +9,7 @@ import { useToast } from '../components/ToastProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { norm } from '../lib/text';
-import { fetchEdificioRows, addEdificio, updateEdificio, deleteEdificio, EdificioRow } from '../lib/edificios';
+import { fetchEdificioRows, addEdificio, updateEdificio, updateEdificioSector, deleteEdificio, EdificioRow } from '../lib/edificios';
 
 export default function UbicacionesScreen() {
   const { colors } = useTheme();
@@ -22,6 +22,7 @@ export default function UbicacionesScreen() {
   // Edición en línea (id que se está editando + su texto) y confirmación de borrado.
   const [editId, setEditId] = useState<string | null>(null);
   const [editTxt, setEditTxt] = useState('');
+  const [editSector, setEditSector] = useState('');
   const [delId, setDelId] = useState<string | null>(null);
 
   const load = async () => { setRows(await fetchEdificioRows()); setLoading(false); };
@@ -51,9 +52,12 @@ export default function UbicacionesScreen() {
     if (busy) return;
     setBusy(true);
     const res = await updateEdificio(r.id, editTxt, r.name);
+    // Sub-sector (El Palmar / Los Corales…): se guarda aunque no cambie el nombre.
+    const resSec = res.ok ? await updateEdificioSector(r.id, editSector) : { ok: true };
     setBusy(false);
     if (!res.ok) { toast.error(res.error ?? 'No se pudo guardar.'); return; }
-    setEditId(null); setEditTxt('');
+    if (!resSec.ok) { toast.error(resSec.error ?? 'No se pudo guardar el sub-sector.'); return; }
+    setEditId(null); setEditTxt(''); setEditSector('');
     toast.success('Ubicación actualizada.');
     await load();
   };
@@ -111,8 +115,9 @@ export default function UbicacionesScreen() {
                 {editing ? (
                   <View style={{ gap: spacing.xs }}>
                     <TextInput value={editTxt} onChangeText={setEditTxt} autoFocus placeholder="Nombre de la ubicación" placeholderTextColor={colors.muted} style={input} />
+                    <TextInput value={editSector} onChangeText={setEditSector} placeholder="Sub-sector (El Palmar / Los Corales…)" placeholderTextColor={colors.muted} style={input} />
                     <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                      <TouchableOpacity onPress={() => { setEditId(null); setEditTxt(''); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 9, alignItems: 'center' }}>
+                      <TouchableOpacity onPress={() => { setEditId(null); setEditTxt(''); setEditSector(''); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 9, alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => guardarEdicion(r)} disabled={busy} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 9, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
@@ -135,8 +140,11 @@ export default function UbicacionesScreen() {
                   </View>
                 ) : (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600', flex: 1 }}>📍 {r.name}</Text>
-                    <TouchableOpacity onPress={() => { setEditId(r.id); setEditTxt(r.name); setDelId(null); }} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '600' }}>📍 {r.name}</Text>
+                      {r.sub_sector ? <Text style={{ color: colors.muted, fontSize: 11 }}>🗺️ {r.sub_sector}</Text> : null}
+                    </View>
+                    <TouchableOpacity onPress={() => { setEditId(r.id); setEditTxt(r.name); setEditSector(r.sub_sector ?? ''); setDelId(null); }} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✎ Editar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => { setDelId(r.id); setEditId(null); }} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
