@@ -14,6 +14,7 @@ import { generateCoordinadorQrGuide } from '../lib/guides/coordinadorQrGuide';
 import { generateAnalistaGuide } from '../lib/guides/analistaGuide';
 import { generateFabricacionGuide } from '../lib/guides/fabricacionGuide';
 import { generateListeroViajesGuide } from '../lib/guides/listeroViajesGuide';
+import { generateObrasPublicasGuide } from '../lib/guides/obrasPublicasGuide';
 
 // ── Guías rápidas descargables (PDF), una por rol — ver src/lib/guides/. ──────
 // Sin la de Administrador a propósito (pedido del cliente): no aporta como hoja
@@ -29,6 +30,7 @@ const ROLE_GUIDES: { key: string; label: string; desc: string; icon: string; run
   { key: 'analista', label: 'Analista', desc: 'Marcar asistencia del personal', icon: '📊', run: generateAnalistaGuide },
   { key: 'fabricacion', label: 'Fabricación (MRP)', desc: 'Mangueras, maestros, órdenes y kiosco de planta — módulo completo', icon: '🏭', run: generateFabricacionGuide },
   { key: 'listeroviajes', label: 'Listero (Viajes de camiones)', desc: 'Registrar cada viaje del camión con un solo toque', icon: '🚛', run: generateListeroViajesGuide },
+  { key: 'obraspublicas', label: 'Obras Públicas', desc: 'Máquinas, jornada, parada/avería y m³ por edificio con reporte a WhatsApp', icon: '🏛️', run: generateObrasPublicasGuide },
 ];
 
 // ── Contenido del manual (lenguaje simple, paso a paso) ───────────────────────
