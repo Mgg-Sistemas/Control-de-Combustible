@@ -927,6 +927,12 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
   una imagen**). El horómetro y la foto **no son obligatorios**: si los dejas en blanco la jornada
   inicia igual. Guarda la **hora de inicio** y marca la máquina en **Inspecciones**. El botón cambia
   a **🏁 FINALIZAR JORNADA** con un **contador** del tiempo trabajado.
+  > **🔴 Máquina averiada / 🟡 parada (13-ago-2026):** si la máquina está **averiada** o **parada**,
+  > el botón **INICIAR JORNADA no aparece** — en su lugar sale **🟢 Volver a OPERATIVA**. **Primero**
+  > se toca "Volver a OPERATIVA" (eso **cierra la avería** en Mantenimiento) y **después** aparece
+  > "INICIAR JORNADA". Antes se podía iniciar jornada directo sobre una averiada, pero la avería
+  > quedaba **pendiente** y se **arrastraba**: la máquina volvía a salir **🔴 averiada al día
+  > siguiente**. Con este flujo (**averiada → Volver operativa → Iniciar jornada**) ya no reaparece.
 - **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas**, con el campo
   **"Ingresar horómetro"** y su botón **📷 Foto del horómetro** (también sin obligación). Al aceptar,
   las horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️ día / 🌙 noche.
