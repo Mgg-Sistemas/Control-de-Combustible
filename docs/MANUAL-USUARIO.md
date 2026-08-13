@@ -2227,8 +2227,10 @@ ve en el mapa y el catálogo).
   - **Gráficos:** distribución por estado · **Acarreo Total** (máquinas activas por día, 7/30). El
     gráfico de Acarreo Total es **interactivo**: al **tocar un día** muestra el **detalle** de ese día
     (máquinas con actividad, con **serial · placa · empresa** y horas).
-  - **Registros de acarreo:** tabla de últimas visitas/jornadas con **máquina (serial · placa · empresa)**,
-    supervisor, estado y fecha.
+  - **Registros de acarreo:** muestra los **10 más recientes** (máquina con serial · placa · empresa,
+    supervisor, estado y fecha). El botón **📚 Ver histórico completo** abre el histórico **buscable**
+    por **rango de fechas** (Desde/Hasta) y por **todas las características** (máquina, serial, placa,
+    empresa, supervisor, estado…), con **📤 Reporte del histórico por WhatsApp** de lo filtrado.
   - **Estado de flota en campo** (con su supervisor) y **tabla de últimas visitas**.
   - Filtra por **supervisor** con los chips; toca un **KPI** para filtrar la flota.
 
