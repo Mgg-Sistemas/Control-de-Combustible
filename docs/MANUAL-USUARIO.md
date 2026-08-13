@@ -2200,6 +2200,15 @@ ve en el mapa y el catálogo).
   se teclea además el **m³ acumulados (base)**; luego el acumulado **crece solo** con los removidos de
   los días siguientes (acumulado = base + Σ removidos posteriores). Puedes **editar (✎)** o **borrar (🗑)**
   lo del día. Los **acumulados de todos los edificios/supervisores se consolidan en el panel de PC**.
+- **Detalle por edificio (reporte diario):** en cada edificio del módulo de removidos hay un
+  **▾ Detalle** que despliega los campos del reporte diario: **m³ acarreados, viajes, % de avance,
+  maquinaria en uso / inoperativa / por requerimiento, cuerpos (supervivientes / fallecidos),
+  actividades del día** y un interruptor **✅ Frente entregado**. Es **opcional** y se guarda con el
+  mismo botón **Guardar** (un edificio se guarda aunque no tenga m³ si le pusiste detalle).
+- **Enviar por WhatsApp (📤):** el botón **"Enviar reporte por WhatsApp"** arma el **texto del reporte
+  del día por edificio** (agrupado por sub-sector, con solo las líneas que tienen dato, y los
+  **totales del día** al final) y abre WhatsApp con el mensaje listo para enviar. Usa lo **ya
+  guardado**, así que **guarda primero**.
 - **Reporte de Actividades (📋 Reporte del día):** cada supervisora llena su reporte diario con
   **N° de reporte, M³ removidos controlada, M³ acarreo de vestigios, Cuerpos siniestrados, Traslado
   camión** y una **observación del día**. Toca **💾 Guardar** o **⬇️ Descargar PDF**. Los totales
