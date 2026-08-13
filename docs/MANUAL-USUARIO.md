@@ -2211,11 +2211,11 @@ ve en el mapa y el catálogo).
   del día por edificio** (agrupado por sub-sector, con solo las líneas que tienen dato, y los
   **totales del día** al final) y abre WhatsApp con el mensaje listo para enviar. Usa lo **ya
   guardado**, así que **guarda primero**.
-- **Reporte de Actividades (📋 Reporte del día):** cada supervisora llena su reporte diario con
-  **N° de reporte, M³ removidos controlada, M³ acarreo de vestigios, Cuerpos siniestrados, Traslado
-  camión** y una **observación del día**. Toca **💾 Guardar** o **⬇️ Descargar PDF**. Los totales
-  **"desde el inicio"** (m³ y cuerpos acumulados) los **calcula el sistema** = base registrada + todos
-  los reportes; aparecen en el PDF y en el panel.
+- **Reporte del día (📋 Reporte del día):** es **SOLO LECTURA** — ahí **no se ingresa nada**, **TRAE**
+  lo que la supervisora ya cargó hoy por edificio en **⛰️ Removidos hoy**. Muestra los **totales del día**
+  (removidos, acumulado, acarreados, viajes, edificios, cuerpos) y el **detalle por edificio** (m³,
+  maquinaria en uso/inoperativa/requerimiento, cuerpos, actividades, entregado), con **📤 Enviar reporte
+  por WhatsApp** al final.
 - **Panel de Obras Públicas (Más → 🏛️ Obras Públicas):** panel de **admin/coordinador** que
   **agrega todo el módulo** (todos los supervisores):
   - **KPIs:** máquinas asignadas · trabajando ahora · averiadas/paradas · **m³ del día** · edificios de hoy.
