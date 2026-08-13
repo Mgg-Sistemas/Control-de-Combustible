@@ -19,21 +19,46 @@ export type OpAssignment = { machinery_id: string; supervisor_id: string; superv
  * si se crea/renombra otro rol de obras públicas.
  */
 export async function listOpSupervisors(): Promise<OpSupervisor[]> {
-  const { data: roles, error: rErr } = await supabase.from('app_roles').select('id, modules');
-  if (rErr) throw rErr;
-  const roleIds = (roles ?? [])
+  // Un usuario es "de obras públicas" si tiene el módulo `obras_publicas` por
+  // CUALQUIERA de las dos vías de acceso de la app (ver AuthContext):
+  //   1) su ROL (dinámico) lo incluye  → app_roles.modules['obras_publicas'] != 'none'
+  //   2) un PERMISO por-usuario         → module_permissions(module='obras_publicas', level!='none')
+  // Antes solo se miraba (1), así que los usuarios habilitados solo por permiso
+  // por-usuario NO aparecían en la lista. Ahora se unen ambas fuentes.
+  const [rolesRes, permsRes] = await Promise.all([
+    supabase.from('app_roles').select('id, modules'),
+    supabase.from('module_permissions').select('user_id, level').eq('module', 'obras_publicas').neq('level', 'none'),
+  ]);
+  if (rolesRes.error) throw rolesRes.error;
+  if (permsRes.error) throw permsRes.error;
+
+  const roleIds = (rolesRes.data ?? [])
     .filter((r: any) => r?.modules && r.modules['obras_publicas'] && r.modules['obras_publicas'] !== 'none')
     .map((r: any) => r.id as string);
-  if (!roleIds.length) return [];
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, active')
-    .in('app_role_id', roleIds)
-    .order('full_name', { ascending: true });
-  if (error) throw error;
-  return (data ?? [])
-    .filter((p: any) => p.active !== false)
-    .map((p: any) => ({ id: p.id as string, full_name: (p.full_name as string) ?? '(sin nombre)' }));
+  const permUserIds = (permsRes.data ?? []).map((p: any) => p.user_id as string);
+  if (!roleIds.length && !permUserIds.length) return [];
+
+  // Perfiles por rol y por permiso (dos consultas, luego se unen sin duplicar).
+  const [byRole, byPerm] = await Promise.all([
+    roleIds.length
+      ? supabase.from('profiles').select('id, full_name, active').in('app_role_id', roleIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    permUserIds.length
+      ? supabase.from('profiles').select('id, full_name, active').in('id', permUserIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ]);
+  if (byRole.error) throw byRole.error;
+  if (byPerm.error) throw byPerm.error;
+
+  const seen = new Set<string>();
+  const out: OpSupervisor[] = [];
+  [...(byRole.data ?? []), ...(byPerm.data ?? [])].forEach((p: any) => {
+    if (p.active === false || seen.has(p.id)) return;
+    seen.add(p.id);
+    out.push({ id: p.id as string, full_name: (p.full_name as string) ?? '(sin nombre)' });
+  });
+  out.sort((a, b) => a.full_name.localeCompare(b.full_name, 'es', { sensitivity: 'base' }));
+  return out;
 }
 
 /** Asignaciones vigentes (una por máquina), con el nombre del supervisor. */
