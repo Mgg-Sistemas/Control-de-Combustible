@@ -2218,7 +2218,13 @@ ve en el mapa y el catálogo).
   por WhatsApp** al final.
 - **Panel de Obras Públicas (Más → 🏛️ Obras Públicas):** panel de **admin/coordinador** que
   **agrega todo el módulo** (todos los supervisores):
-  - **KPIs:** máquinas asignadas · trabajando ahora · averiadas/paradas · **m³ del día** · edificios de hoy.
+  - **KPIs (solo del DÍA):** máquinas asignadas · trabajando ahora · averiadas/paradas · **m³ del día** ·
+    edificios de hoy. **Tocar una tarjeta abre su detalle**: máquinas asignadas → lista con su supervisor;
+    trabajando/averiadas → esas máquinas; m³/edificios → los edificios atendidos hoy con sus m³. La vista
+    muestra **solo lo del día**; lo único que se mantiene y crece es el **Acumulado desde el inicio**.
+  - **📚 Histórico (por día, buscable):** botón bajo los KPIs — cada día queda guardado; se filtra por
+    **rango de fechas** y por **todas las características** (edificio, sub-sector, supervisor, maquinaria,
+    actividad…). Muestra el registro por edificio de cada día (m³, acarreo, maquinaria, cuerpos, actividades).
   - **Reporte de Actividades:** consolida el reporte del día de todas las supervisoras (m³
     removidos, m³ acarreo, cuerpos, traslado camión) y muestra los **acumulados desde el inicio**.
     El admin ajusta la **base acumulada** con **⚙️ Editar base** (m³ base, cuerpos base y fecha de corte).
