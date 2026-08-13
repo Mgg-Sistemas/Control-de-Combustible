@@ -2156,6 +2156,7 @@ mockups de pantalla:
 - ⛽ **Chofer de Combustible** — elegir/escanear la máquina y registrar el surtido.
 - 📷 **Coordinador QR** — surtir gasoil, reportar avería y marcar una máquina lista, todo por QR.
 - 📊 **Analista** — marcar la asistencia del personal (tu acceso garantizado) y el resto de módulos según tus permisos.
+- 🚛 **Listero (Viajes de camiones)** — buscar el camión, registrar un viaje con un toque y corregir la hora de los tuyos.
 
 Toca **"📄 Descargar"** junto al rol que quieras: se genera el PDF al instante (no se guarda nada
 en el servidor) y se abre para imprimir/guardar (en PC) o compartir (en el teléfono), igual que
@@ -2212,6 +2213,55 @@ ve en el mapa y el catálogo).
 > Las horas y estados de Obras Públicas **NO** tocan los reportes ni los pagos del módulo de
 > inspectores — son datos aparte (tablas `op_*`). Solo la **ubicación** se sincroniza con el
 > mapa/catálogo.
+
+---
+
+## 4.31. Viajes de Camiones (Listeros) 🚛
+
+Bitácora de **viajes de los camiones de volteo** (regreso/entrada de la máquina = un viaje),
+registrada en campo por los **listeros** — uno por ubicación, cada uno con su propio usuario. Se
+entra por **"Más → 🚛 Viajes de camiones"**. El acceso es **por usuario** (módulo
+`viajes_camiones`; un administrador lo habilita en Usuarios, sin necesidad de crear ningún rol
+nuevo — ver 4.13). El **nivel** decide qué se ve:
+
+- **Escritura** → vista del **listero**: buscar el camión, registrar viajes y ver/corregir los suyos.
+- **Full** → además, el **panel de la jefa/administración**: todos los listeros combinados, por
+  listero individual, resumen, metas, alerta y reporte.
+
+### Vista del listero
+
+- **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
+  (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
+  que el Catálogo. Si el camión está averiado, parado o retirado, sale un **aviso** antes de
+  registrar (no bloquea, solo confirma).
+- **Registrar viaje:** un solo botón — **🚛 Registrar viaje**. La hora se toma sola (la del
+  teléfono en el momento del toque) y el **chofer** también: es el que el Coordinador de Operadores
+  tiene asignado a ese camión en el turno actual (no se escribe a mano).
+- **Sin señal:** el viaje se guarda igual en el teléfono y se sube solo en cuanto vuelva la
+  conexión — se ve una insignia de "pendiente de sincronizar" mientras tanto.
+- **Mis viajes de hoy:** el listero puede **corregir la hora** de un viaje propio mientras su
+  jornada siga abierta (no puede borrarlo, ni tocar los de otro listero). Si tocó el camión
+  equivocado, debe avisarle a su jefa para que lo corrija.
+
+### Panel de la jefa / administración
+
+- **Resumen de hoy:** ranking de viajes por camión (comparado contra su **meta diaria**, si tiene
+  una puesta) y total por listero.
+- **⚠️ Camiones sin viaje reciente:** aviso dentro de la pantalla (no es notificación push) cuando
+  un camión lleva más del **umbral configurado** (arranca en 6 horas, se ajusta en
+  "Configuración") sin registrar viaje — no incluye camiones averiados, parados o retirados, que
+  legítimamente no viajan.
+- **Lista completa:** todos los viajes de todos los listeros, filtrable por **listero**, por
+  **camión** y por rango de fecha (Hoy / Esta semana / Este mes / Rango libre / Días específicos).
+  Desde ahí puede **corregir la hora o borrar cualquier viaje** — el borrado queda igual en la
+  auditoría (ver 4.13b), no se pierde el rastro.
+- **Configuración:** el **umbral de alerta** (horas) y la **meta de viajes diarios** de cada
+  camión, ambos editables en cualquier momento.
+- **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
+
+> De paso, el Catálogo y Control de Maquinaria ahora muestran el **operador planeado** por el
+> Coordinador de Operadores (antes solo se veía dentro de ese módulo) — mismo tratamiento que ya
+> tenía el Inspector, para que una reasignación se note en toda la app, no solo ahí.
 
 ---
 
