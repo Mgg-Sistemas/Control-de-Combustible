@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ActivityIndicator, Linking, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
@@ -73,6 +73,10 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const [filter, setFilter] = useState<string | null>(null); // KPI seleccionado (filtra la flota)
   const [chartDays, setChartDays] = useState<7 | 30>(7);
   const [selDay, setSelDay] = useState<string | null>(null); // día tocado en el gráfico → detalle
+  const [histOpen, setHistOpen] = useState(false); // histórico buscable de registros de acarreo
+  const [histQ, setHistQ] = useState('');
+  const [histFrom, setHistFrom] = useState('');
+  const [histTo, setHistTo] = useState('');
   const [supFilter, setSupFilter] = useState<string | null>(null); // supervisor_id | null = todos
 
   // Editor de la base acumulada (solo admin).
@@ -245,6 +249,36 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
       .map((r) => ({ id: r.machinery_id, horas: r.day_hours + r.night_hours, abierta: !!r.jornada_start_at }))
       .sort((a, b) => cmpText(codeById.get(a.id) ?? '', codeById.get(b.id) ?? ''));
   }, [selDay, d.roundsRange, visibleIds, codeById]);
+
+  // Registros de acarreo VISIBLES (de mis máquinas del filtro) — más recientes primero.
+  const visibleVisits = useMemo(() => d.visits.filter((v) => visibleIds.has(v.machinery_id)), [d.visits, visibleIds]);
+  // Histórico filtrado por fechas + búsqueda por TODAS las características.
+  const histRows = useMemo(() => {
+    const n = histQ.trim().toLowerCase();
+    return visibleVisits.filter((v) => {
+      if (histFrom && v.visit_date < histFrom) return false;
+      if (histTo && v.visit_date > histTo) return false;
+      if (!n) return true;
+      const m = machById.get(v.machinery_id);
+      const hay = [codeById.get(v.machinery_id), m?.serial, m?.plate, m?.company_name, m?.sector, m?.parroquia,
+        v.supervisor_name, visitStatusLabel(v.status), v.visit_date, dm(v.visit_date), v.note]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(n);
+    });
+  }, [visibleVisits, histQ, histFrom, histTo, machById, codeById]);
+  const enviarHistWhatsApp = () => {
+    if (!histRows.length) return;
+    const L: string[] = ['🗒️ *REGISTROS DE ACARREO*'];
+    if (histFrom || histTo) L.push(`📅 ${histFrom ? dm(histFrom) : '…'} → ${histTo ? dm(histTo) : '…'}`);
+    if (histQ.trim()) L.push(`🔎 ${histQ.trim()}`);
+    L.push(`Total: ${histRows.length}`, '');
+    histRows.forEach((v) => {
+      const code = codeById.get(v.machinery_id) ?? '—';
+      const sub = machSub(v.machinery_id);
+      L.push(`• ${code}${sub ? ` (${sub})` : ''} — ${visitStatusLabel(v.status)} — ${v.supervisor_name || '—'} — ${dm(v.visit_date)}`);
+    });
+    try { Linking.openURL('https://wa.me/?text=' + encodeURIComponent(L.join('\n'))); } catch {}
+  };
 
   if (loading) return <Screen><Loading /></Screen>;
 
@@ -476,7 +510,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
               <Text style={{ flex: 0.9, color: colors.muted, fontSize: 10.5, fontWeight: '800', textTransform: 'uppercase' }}>Estado</Text>
               <Text style={{ flex: 0.7, color: colors.muted, fontSize: 10.5, fontWeight: '800', textTransform: 'uppercase', textAlign: 'right' }}>Fecha</Text>
             </View>
-            {d.visits.filter((v) => visibleIds.has(v.machinery_id)).slice(0, 15).map((v, i) => {
+            {visibleVisits.slice(0, 10).map((v, i) => {
               const sub = machSub(v.machinery_id);
               return (
                 <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -490,9 +524,62 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
                 </View>
               );
             })}
+            <TouchableOpacity onPress={() => setHistOpen(true)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📚 Ver histórico completo ({visibleVisits.length})</Text>
+            </TouchableOpacity>
           </View>
         )}
       </Card>
+
+      {/* HISTÓRICO de registros de acarreo — buscable por fechas + características */}
+      <Modal visible={histOpen} animationType="slide" transparent onRequestClose={() => setHistOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
+            <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, gap: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>📚 Histórico de acarreo · {histRows.length}</Text>
+                <TouchableOpacity onPress={() => setHistOpen(false)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
+              </View>
+              <TextInput value={histQ} onChangeText={setHistQ} placeholder="🔎 Buscar (máquina, serial, placa, empresa, supervisor, estado…)" placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }} />
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TextInput value={histFrom} onChangeText={setHistFrom} placeholder="Desde AAAA-MM-DD" placeholderTextColor={colors.muted}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }} />
+                <TextInput value={histTo} onChangeText={setHistTo} placeholder="Hasta AAAA-MM-DD" placeholderTextColor={colors.muted}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }} />
+              </View>
+              {(histQ || histFrom || histTo) ? (
+                <TouchableOpacity onPress={() => { setHistQ(''); setHistFrom(''); setHistTo(''); }} style={{ alignSelf: 'flex-start' }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 11.5 }}>Limpiar filtros ✕</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: 4 }}>
+              {histRows.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12.5, marginVertical: spacing.md }}>Sin registros para ese filtro.</Text>
+              ) : histRows.map((v, i) => {
+                const sub = machSub(v.machinery_id);
+                return (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{codeById.get(v.machinery_id) ?? '—'}</Text>
+                      {sub ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 10 }}>{sub}</Text> : null}
+                      <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 10.5 }}>{v.supervisor_name || '—'} · 📅 {dm(v.visit_date)}</Text>
+                    </View>
+                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{visitStatusLabel(v.status)}</Text>
+                  </View>
+                );
+              })}
+              <View style={{ height: spacing.md }} />
+            </ScrollView>
+            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <TouchableOpacity onPress={enviarHistWhatsApp} disabled={histRows.length === 0} style={{ borderWidth: 1, borderColor: '#25D366', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: histRows.length === 0 ? 0.6 : 1 }}>
+                <Text style={{ color: '#25D366', fontWeight: '800' }}>📤 Reporte del histórico por WhatsApp ({histRows.length})</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Editor de la base acumulada (solo admin) */}
       <Modal visible={baseOpen} animationType="slide" transparent onRequestClose={() => setBaseOpen(false)}>
