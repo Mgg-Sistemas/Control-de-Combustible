@@ -372,6 +372,32 @@ export async function fetchEdificioReportesDia(date: string): Promise<OpEdificio
   }));
 }
 
+/** Fila del HISTÓRICO por edificio (un registro por edificio+fecha, con detalle). */
+export type OpEdificioHist = {
+  report_date: string; edificio: string; sub_sector: string | null;
+  m3: number; m3_acarreados: number; viajes: number;
+  maq_en_uso: string | null; maq_inoperativo: string | null; maq_requerimiento: string | null;
+  supervivientes: number; fallecidos: number; actividades: string | null; entregado: boolean;
+  supervisor_name: string | null;
+};
+/** Registros por edificio en un RANGO de fechas (histórico), más recientes primero. */
+export async function fetchEdificioRemovidosRange(from: string, to: string): Promise<OpEdificioHist[]> {
+  const [rowsRes, edifRes] = await Promise.all([
+    supabase.from('op_edificio_removidos').select('*').gte('report_date', from).lte('report_date', to).order('report_date', { ascending: false }),
+    supabase.from('edificios').select('name, sub_sector'),
+  ]);
+  if (rowsRes.error) throw rowsRes.error;
+  const sec = new Map<string, string | null>();
+  (edifRes.data ?? []).forEach((e: any) => sec.set(e.name, (e.sub_sector ?? null) as string | null));
+  return (rowsRes.data ?? []).map((r: any): OpEdificioHist => ({
+    report_date: r.report_date, edificio: r.edificio, sub_sector: sec.get(r.edificio) ?? null,
+    m3: Number(r.m3) || 0, m3_acarreados: Number(r.m3_acarreados) || 0, viajes: Number(r.viajes) || 0,
+    maq_en_uso: r.maq_en_uso ?? null, maq_inoperativo: r.maq_inoperativo ?? null, maq_requerimiento: r.maq_requerimiento ?? null,
+    supervivientes: Number(r.supervivientes) || 0, fallecidos: Number(r.fallecidos) || 0,
+    actividades: r.actividades ?? null, entregado: !!r.entregado, supervisor_name: r.supervisor_name ?? null,
+  }));
+}
+
 /** Borra el removido de un edificio en una fecha (no toca la base/acumulado). */
 export async function deleteEdificioRemovido(edificio: string, date: string): Promise<void> {
   const { error } = await supabase.from('op_edificio_removidos').delete().eq('edificio', edificio).eq('report_date', date);

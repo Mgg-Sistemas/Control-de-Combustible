@@ -14,6 +14,7 @@ import {
   fetchOpDashboard, OpDashboard, OpDashMachine,
   fetchOpDailyReports, fetchOpReportSettings, saveOpReportSettings, computeOpAccumulated,
   fetchEdificioResumen, OpEdificioResumen,
+  fetchEdificioRemovidosRange, OpEdificioHist,
   OpDailyReport, OpReportSettings,
 } from '../lib/obrasPublicas';
 
@@ -77,6 +78,12 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const [histQ, setHistQ] = useState('');
   const [histFrom, setHistFrom] = useState('');
   const [histTo, setHistTo] = useState('');
+  const [kpiDetail, setKpiDetail] = useState<string | null>(null); // KPI tocado → detalle
+  const [histEdifOpen, setHistEdifOpen] = useState(false); // HISTÓRICO de datos diarios por edificio
+  const [histEdifRows, setHistEdifRows] = useState<OpEdificioHist[] | null>(null);
+  const [histEdifQ, setHistEdifQ] = useState('');
+  const [histEdifFrom, setHistEdifFrom] = useState('');
+  const [histEdifTo, setHistEdifTo] = useState('');
   const [supFilter, setSupFilter] = useState<string | null>(null); // supervisor_id | null = todos
 
   // Editor de la base acumulada (solo admin).
@@ -280,6 +287,39 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     try { Linking.openURL('https://wa.me/?text=' + encodeURIComponent(L.join('\n'))); } catch {}
   };
 
+  // Detalle de la tarjeta KPI tocada (solo lo del DÍA).
+  const r1n = (n: number) => Math.round(n * 10) / 10;
+  const machSubSup = (m: OpDashMachine) => [machSub(m.id), m.supervisor_name ? `🪖 ${m.supervisor_name}` : null].filter(Boolean).join(' · ');
+  const kpiDetalle = useMemo(() => {
+    if (kpiDetail === 'asignadas') return { title: '🚜 Máquinas asignadas', isEdif: false, rows: machines.map((m) => ({ title: m.code, sub: machSubSup(m), right: ESTADO_META[estadoOf(m.id)].label })) };
+    if (kpiDetail === 'trabajando') return { title: '🟢 Trabajando ahora', isEdif: false, rows: machines.filter((m) => estadoOf(m.id) === 'trabajando').map((m) => ({ title: m.code, sub: machSubSup(m), right: `${r1n(horasHoy(m.id))} h` })) };
+    if (kpiDetail === 'incidencias') return { title: '🔧 Averiadas / Paradas', isEdif: false, rows: machines.filter((m) => { const e = estadoOf(m.id); return e === 'averia' || e === 'parada'; }).map((m) => ({ title: m.code, sub: machSubSup(m), right: ESTADO_META[estadoOf(m.id)].label })) };
+    const edifs = Object.values(resumenEdif);
+    if (kpiDetail === 'edificios' || kpiDetail === 'm3') return { title: kpiDetail === 'edificios' ? '🏢 Edificios de hoy' : '⛰️ m³ del día', isEdif: true, rows: edifs.filter((r) => r.removido_hoy > 0).sort((a, b) => b.removido_hoy - a.removido_hoy).map((r) => ({ title: r.edificio, sub: r.supervisor_name || '', right: `${r1n(r.removido_hoy)} m³` })) };
+    return { title: '', isEdif: false, rows: [] as { title: string; sub: string; right: string }[] };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kpiDetail, machines, resumenEdif]);
+
+  // HISTÓRICO de datos diarios por edificio (se carga al abrirlo; default últimos 90 días).
+  const abrirHistEdif = async () => {
+    setHistEdifOpen(true);
+    if (histEdifRows == null) {
+      try { setHistEdifRows(await fetchEdificioRemovidosRange(addDaysISO(today, -90), today)); }
+      catch { setHistEdifRows([]); }
+    }
+  };
+  const histEdifFiltrado = useMemo(() => {
+    const n = histEdifQ.trim().toLowerCase();
+    return (histEdifRows ?? []).filter((r) => {
+      if (histEdifFrom && r.report_date < histEdifFrom) return false;
+      if (histEdifTo && r.report_date > histEdifTo) return false;
+      if (!n) return true;
+      const hay = [r.edificio, r.sub_sector, r.supervisor_name, r.maq_en_uso, r.maq_inoperativo, r.maq_requerimiento, r.actividades, r.report_date, dm(r.report_date)]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(n);
+    });
+  }, [histEdifRows, histEdifQ, histEdifFrom, histEdifTo]);
+
   if (loading) return <Screen><Loading /></Screen>;
 
   const fleet = machines.filter((x) => fleetPred(x.id))
@@ -308,13 +348,13 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
         </View>
       ) : null}
 
-      {/* KPIs */}
-      <InspectorKpiGrid items={kpis} activeKey={filter} onSelect={(k) => {
-        // "Máquinas asignadas" abre el botón 🏛️ Obras Públicas del Catálogo (asignar
-        // supervisores). El resto solo filtra la flota de abajo.
-        if (k === 'asignadas') { navigation?.navigate?.('Equipos', { obrasPublicas: true }); return; }
-        setFilter((p) => (p === k ? null : k));
-      }} />
+      {/* KPIs — tocar una tarjeta abre su DETALLE (solo lo del día). */}
+      <InspectorKpiGrid items={kpis} activeKey={filter} onSelect={(k) => setKpiDetail(k)} />
+
+      {/* HISTÓRICO de los datos diarios (por edificio), filtrable por fecha y características. */}
+      <TouchableOpacity onPress={abrirHistEdif} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📚 Histórico (por día, buscable)</Text>
+      </TouchableOpacity>
 
       {/* REPORTE DE ACTIVIDADES — consolidado del día + acumulados */}
       <Card style={{ marginTop: spacing.md }}>
@@ -577,6 +617,85 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
                 <Text style={{ color: '#25D366', fontWeight: '800' }}>📤 Reporte del histórico por WhatsApp ({histRows.length})</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Detalle de una tarjeta KPI (solo lo del día) */}
+      <Modal visible={!!kpiDetail} animationType="slide" transparent onRequestClose={() => setKpiDetail(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.lg, paddingBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{kpiDetalle.title} · {kpiDetalle.rows.length}</Text>
+              <TouchableOpacity onPress={() => setKpiDetail(null)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, gap: spacing.xs }}>
+              {kpiDetalle.rows.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Sin registros hoy.</Text>
+              ) : kpiDetalle.rows.map((row, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{row.title}</Text>
+                    {row.sub ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>{row.sub}</Text> : null}
+                  </View>
+                  {row.right ? <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{row.right}</Text> : null}
+                </View>
+              ))}
+              {kpiDetail === 'asignadas' ? (
+                <TouchableOpacity onPress={() => { setKpiDetail(null); navigation?.navigate?.('Equipos', { obrasPublicas: true }); }} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 13 }}>🏛️ Asignar máquinas (Catálogo)</Text>
+                </TouchableOpacity>
+              ) : null}
+              <View style={{ height: spacing.xl }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* HISTÓRICO de datos diarios por edificio — filtrable por fechas + características */}
+      <Modal visible={histEdifOpen} animationType="slide" transparent onRequestClose={() => setHistEdifOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
+            <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, gap: spacing.xs }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>📚 Histórico por edificio · {histEdifFiltrado.length}</Text>
+                <TouchableOpacity onPress={() => setHistEdifOpen(false)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>Cada día queda guardado. Filtra por fecha o por cualquier característica.</Text>
+              <TextInput value={histEdifQ} onChangeText={setHistEdifQ} placeholder="🔎 Buscar (edificio, sub-sector, supervisor, maquinaria, actividad…)" placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }} />
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TextInput value={histEdifFrom} onChangeText={setHistEdifFrom} placeholder="Desde AAAA-MM-DD" placeholderTextColor={colors.muted}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }} />
+                <TextInput value={histEdifTo} onChangeText={setHistEdifTo} placeholder="Hasta AAAA-MM-DD" placeholderTextColor={colors.muted}
+                  style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }} />
+              </View>
+              {(histEdifQ || histEdifFrom || histEdifTo) ? (
+                <TouchableOpacity onPress={() => { setHistEdifQ(''); setHistEdifFrom(''); setHistEdifTo(''); }} style={{ alignSelf: 'flex-start' }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 11.5 }}>Limpiar filtros ✕</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: 4 }}>
+              {histEdifRows == null ? (
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
+              ) : histEdifFiltrado.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12.5, marginVertical: spacing.md }}>Sin registros para ese filtro.</Text>
+              ) : histEdifFiltrado.map((r, i) => (
+                <View key={i} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, gap: 2 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, flex: 1 }}>🏢 {r.edificio}{r.entregado ? '  ✅' : ''}</Text>
+                    <Text style={{ color: colors.accent, fontWeight: '900', fontSize: 12.5 }}>{r1n(r.m3)} m³</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 10.5 }}>📅 {dm(r.report_date)}{r.sub_sector ? ` · 📍 ${r.sub_sector}` : ''}{r.supervisor_name ? ` · ${r.supervisor_name}` : ''}</Text>
+                  {(r.m3_acarreados || r.viajes) ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>Acarreados: {r1n(r.m3_acarreados)} m³ · Viajes: {r.viajes}</Text> : null}
+                  {r.maq_requerimiento ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>📋 {r.maq_requerimiento}</Text> : null}
+                  {(r.supervivientes || r.fallecidos) ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>⚰️ {r.supervivientes} sup · {r.fallecidos} fall</Text> : null}
+                  {r.actividades ? <Text numberOfLines={2} style={{ color: colors.muted, fontSize: 10.5 }}>📝 {r.actividades}</Text> : null}
+                </View>
+              ))}
+              <View style={{ height: spacing.md }} />
+            </ScrollView>
           </View>
         </View>
       </Modal>
