@@ -108,6 +108,7 @@ export async function listMyOpMachineIds(supervisorId: string): Promise<string[]
 export type OpRound = {
   machinery_id: string; round_date: string; day_hours: number; night_hours: number;
   jornada_start_at: string | null; jornada_shift: 'day' | 'night' | null;
+  m3: number; // m³ removidos por esa máquina ese día (total del día)
 };
 
 /** Jornadas op_* de una fecha para un conjunto de máquinas. */
@@ -115,7 +116,7 @@ export async function fetchOpRounds(machineryIds: string[], roundDate: string): 
   if (!machineryIds.length) return {};
   const { data, error } = await supabase
     .from('op_machine_rounds')
-    .select('machinery_id, round_date, day_hours, night_hours, jornada_start_at, jornada_shift')
+    .select('machinery_id, round_date, day_hours, night_hours, jornada_start_at, jornada_shift, m3')
     .in('machinery_id', machineryIds).eq('round_date', roundDate);
   if (error) throw error;
   const m: Record<string, OpRound> = {};
@@ -124,9 +125,35 @@ export async function fetchOpRounds(machineryIds: string[], roundDate: string): 
       machinery_id: r.machinery_id, round_date: r.round_date,
       day_hours: Number(r.day_hours) || 0, night_hours: Number(r.night_hours) || 0,
       jornada_start_at: r.jornada_start_at, jornada_shift: r.jornada_shift,
+      m3: Number(r.m3) || 0,
     };
   });
   return m;
+}
+
+/** Suma `delta` m³ al total del día de una máquina (atómico). Devuelve el nuevo total. */
+export async function opAddM3(machineryId: string, roundDate: string, delta: number): Promise<number> {
+  const { data, error } = await supabase.rpc('op_add_m3', { p_machinery_id: machineryId, p_round_date: roundDate, p_delta: delta });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+/** Fija (corrige) el total de m³ del día de una máquina. Devuelve el total guardado. */
+export async function opSetM3(machineryId: string, roundDate: string, total: number): Promise<number> {
+  const { data, error } = await supabase.rpc('op_set_m3', { p_machinery_id: machineryId, p_round_date: roundDate, p_total: total });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+/** m³ TOTALES acumulados (todas las fechas) de un conjunto de máquinas. */
+export async function fetchOpM3Total(machineryIds: string[]): Promise<number> {
+  if (!machineryIds.length) return 0;
+  const { data, error } = await supabase
+    .from('op_machine_rounds')
+    .select('m3')
+    .in('machinery_id', machineryIds);
+  if (error) throw error;
+  return (data ?? []).reduce((acc: number, r: any) => acc + (Number(r.m3) || 0), 0);
 }
 
 export type OpMaint = { machinery_id: string; tipo: 'averia' | 'parada'; motivo: string | null };

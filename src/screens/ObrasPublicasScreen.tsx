@@ -11,9 +11,11 @@ import { useToast } from '../components/ToastProvider';
 import {
   listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
   opStartJornada, opFinishJornada, opMarkMaint, opRegistrarVisita, updateMachineLocation,
+  opAddM3, opSetM3, fetchOpM3Total,
   OpRound, OpMaint,
 } from '../lib/obrasPublicas';
 import { generateObrasPublicasDailyReport } from '../lib/obrasPublicasReport';
+import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
 
 type Maquina = { id: string; code?: string | null } & Record<string, any>;
 
@@ -51,7 +53,9 @@ export default function ObrasPublicasScreen() {
   const [machines, setMachines] = useState<Maquina[]>([]);
   const [rounds, setRounds] = useState<Record<string, OpRound>>({});
   const [maint, setMaint] = useState<Record<string, OpMaint>>({});
+  const [m3Total, setM3Total] = useState(0); // m³ acumulados (todas las fechas) de mis máquinas
   const [q, setQ] = useState('');
+  const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
   const [reporting, setReporting] = useState(false);
 
   // Detalle / acciones de una máquina.
@@ -62,6 +66,7 @@ export default function ObrasPublicasScreen() {
   const [avMat, setAvMat] = useState<string | null>(null);
   const [avMotivo, setAvMotivo] = useState('');
   const [ntMotivo, setNtMotivo] = useState('');
+  const [m3Input, setM3Input] = useState(''); // captura de m³ en el detalle
 
   const nowParts = caracasParts(new Date());
   const roundDate = nowParts.iso;
@@ -71,14 +76,15 @@ export default function ObrasPublicasScreen() {
     if (!uid) { setLoading(false); return; }
     try {
       const ids = await listMyOpMachineIds(uid);
-      if (!ids.length) { setMachines([]); setRounds({}); setMaint({}); return; }
-      const [{ data: machs }, r, mt] = await Promise.all([
+      if (!ids.length) { setMachines([]); setRounds({}); setMaint({}); setM3Total(0); return; }
+      const [{ data: machs }, r, mt, m3t] = await Promise.all([
         supabase.from('machinery').select('*').in('id', ids),
         fetchOpRounds(ids, roundDate),
         fetchOpMaintPending(ids),
+        fetchOpM3Total(ids),
       ]);
       setMachines(((machs ?? []) as Maquina[]).sort((a, b) => cmpText(a.code ?? '', b.code ?? '')));
-      setRounds(r); setMaint(mt);
+      setRounds(r); setMaint(mt); setM3Total(m3t);
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudieron cargar tus máquinas.');
     } finally {
@@ -102,15 +108,50 @@ export default function ObrasPublicasScreen() {
   };
 
   const lista = useMemo(() => {
+    let base = machines;
+    if (kpiFilter) base = base.filter((m) => (kpiFilter === 'averia' ? estadoOf(m.id) === 'averia' : estadoOf(m.id) === 'trabajando'));
     const needle = q.trim().toLowerCase();
-    if (!needle) return machines;
-    return machines.filter((m) =>
+    if (!needle) return base;
+    return base.filter((m) =>
       [m.code, m.plate, m.serial, m.marca, m.modelo, m.tipo, m.parroquia, m.sector, m.referencia]
         .filter(Boolean).join(' ').toLowerCase().includes(needle));
-  }, [machines, q]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machines, q, kpiFilter, rounds, maint]);
+
+  // KPIs (solo MIS máquinas asignadas).
+  const kpis = useMemo<KpiItem[]>(() => {
+    let trabajando = 0, averiadas = 0;
+    const edificiosSet = new Set<string>();
+    let m3Hoy = 0;
+    machines.forEach((m) => {
+      const est = estadoOf(m.id);
+      if (est === 'trabajando') trabajando += 1;
+      if (est === 'averia') averiadas += 1;
+      const ed = (m.referencia ?? '').trim();
+      if (ed) edificiosSet.add(ed.toLowerCase());
+      m3Hoy += rounds[m.id]?.m3 ?? 0;
+    });
+    const r1 = (n: number) => Math.round(n * 10) / 10;
+    return [
+      { key: 'm3hoy', label: 'm³ removidos hoy', value: r1(m3Hoy), tone: 'accent', icon: '⛰️' },
+      { key: 'edificios', label: 'Edificios', value: edificiosSet.size, tone: 'warning', icon: '🏢' },
+      { key: 'asignadas', label: 'Máquinas asignadas', value: machines.length, tone: 'brand', icon: '🚜' },
+      { key: 'trabajando', label: 'Trabajando', value: trabajando, tone: 'success', icon: '🟢' },
+      { key: 'averiadas', label: 'Averiadas', value: averiadas, tone: 'danger', icon: '🔧' },
+      { key: 'm3tot', label: 'm³ totales', value: r1(m3Total), tone: 'accent', icon: '📦' },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machines, rounds, maint, m3Total]);
+
+  const onKpi = (k: string) => {
+    if (k === 'trabajando') setKpiFilter((p) => (p === 'trabajando' ? null : 'trabajando'));
+    else if (k === 'averiadas') setKpiFilter((p) => (p === 'averia' ? null : 'averia'));
+    else setKpiFilter(null); // asignadas / edificios / m³ → mostrar todas
+  };
+  const kpiActiveKey = kpiFilter === 'trabajando' ? 'trabajando' : kpiFilter === 'averia' ? 'averiadas' : null;
 
   const openDetail = (m: Maquina) => {
-    setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo('');
+    setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo(''); setM3Input('');
   };
 
   const capturarGps = async (): Promise<{ lat: number; lng: number } | null> => {
@@ -183,6 +224,23 @@ export default function ObrasPublicasScreen() {
     finally { setBusy(false); }
   };
 
+  const registrarM3 = async (modo: 'sumar' | 'fijar') => {
+    if (!ci) return;
+    const val = Number((m3Input || '').replace(',', '.'));
+    if (!isFinite(val) || val < 0) { toast.error('Escribe una cantidad de m³ válida.'); return; }
+    setBusy(true);
+    try {
+      const nuevo = modo === 'sumar'
+        ? await opAddM3(ci.id, roundDate, val)
+        : await opSetM3(ci.id, roundDate, val);
+      setRounds((prev) => ({ ...prev, [ci.id]: { ...(prev[ci.id] ?? { machinery_id: ci.id, round_date: roundDate, day_hours: 0, night_hours: 0, jornada_start_at: null, jornada_shift: null, m3: 0 }), m3: nuevo } }));
+      setM3Input('');
+      await load();
+      toast.success(modo === 'sumar' ? `+${val} m³ registrados.` : `Total fijado en ${nuevo} m³.`);
+    } catch (e: any) { toast.error(e?.message ?? 'No se pudieron registrar los m³.'); }
+    finally { setBusy(false); }
+  };
+
   const generarReporte = async () => {
     setReporting(true);
     try { await generateObrasPublicasDailyReport({ supervisorId: uid, supervisorName: fullName || 'Supervisor', roundDate }); }
@@ -211,6 +269,17 @@ export default function ObrasPublicasScreen() {
         contentContainerStyle={{ padding: spacing.md, paddingTop: 0, gap: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
+        {machines.length > 0 ? (
+          <View style={{ marginBottom: spacing.sm }}>
+            <InspectorKpiGrid items={kpis} activeKey={kpiActiveKey} onSelect={onKpi} />
+            {kpiFilter ? (
+              <TouchableOpacity onPress={() => setKpiFilter(null)} style={{ alignSelf: 'center', marginTop: spacing.xs }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Ver todas ✕</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
         {machines.length === 0 ? (
           <Text style={{ color: colors.muted, textAlign: 'center', marginTop: spacing.xl }}>
             Todavía no tienes máquinas asignadas. Pídele al administrador que te las asigne desde el catálogo (botón 🏛️ Obras Públicas).
@@ -220,6 +289,7 @@ export default function ObrasPublicasScreen() {
           const meta = ESTADO_META[est];
           const r = rounds[m.id];
           const horas = r ? (r.day_hours + r.night_hours) : 0;
+          const m3 = r?.m3 ?? 0;
           const label = [m.plate || m.serial, m.marca, m.modelo].filter(Boolean).join(' · ');
           return (
             <TouchableOpacity key={m.id} onPress={() => openDetail(m)} style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm }}>
@@ -231,6 +301,7 @@ export default function ObrasPublicasScreen() {
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={{ color: meta.color, fontSize: 12, fontWeight: '800' }}>{meta.label}</Text>
                   {horas > 0 ? <Text style={{ color: colors.muted, fontSize: 11 }}>{horas.toFixed(2)} h</Text> : null}
+                  {m3 > 0 ? <Text style={{ color: colors.accentSoftText, fontSize: 11, fontWeight: '700' }}>⛰️ {m3} m³</Text> : null}
                 </View>
               </View>
             </TouchableOpacity>
@@ -270,6 +341,30 @@ export default function ObrasPublicasScreen() {
                     <Text style={{ color: '#fff', fontWeight: '800' }}>▶️ Iniciar jornada</Text>
                   </TouchableOpacity>
                 )}
+
+                {/* m³ removidos hoy */}
+                <View style={{ borderWidth: 1, borderColor: colors.accent, backgroundColor: colors.accentSoftBg, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, gap: spacing.xs }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: colors.accentSoftText, fontWeight: '800', fontSize: 13 }}>⛰️ m³ removidos hoy</Text>
+                    <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 16 }}>{(rounds[ci.id]?.m3 ?? 0)} m³</Text>
+                  </View>
+                  <TextInput
+                    value={m3Input}
+                    onChangeText={setM3Input}
+                    placeholder="Cantidad de m³"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={input}
+                  />
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    <TouchableOpacity onPress={() => registrarM3('sumar')} disabled={busy} style={{ flex: 2, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>➕ Sumar m³</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => registrarM3('fijar')} disabled={busy} style={{ flex: 1, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.accentSoftText, fontWeight: '800', fontSize: 12 }}>✏️ Fijar total</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
                 {/* Parada / avería */}
                 <View style={{ borderWidth: 1, borderColor: colors.warningSoftBorder, backgroundColor: colors.warningSoftBg, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, gap: spacing.xs }}>
