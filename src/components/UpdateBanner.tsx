@@ -39,29 +39,41 @@ export function UpdateBanner() {
 
   if (!show) return null;
 
-  // Barra ARRIBA (no la tapa la barra de pestañas del teléfono), a todo el ancho
-  // y TOCABLE COMPLETA: tocar cualquier parte recarga con la versión nueva.
+  // Botón CENTRADO en medio de la pantalla, del mismo tamaño que el botón
+  // "ESCANEAR QR" del inspector (cuadro grande, aspectRatio 1.35, maxHeight 220).
+  // Fondo semitransparente para que resalte; tocar FUERA lo oculta (no atrapa al
+  // usuario) y vuelve a aparecer en el próximo chequeo si sigue habiendo versión nueva.
   return (
-    <TouchableOpacity
-      activeOpacity={0.9}
-      onPress={actualizar}
+    <View
       // @ts-ignore — 'fixed' es válido en web (react-native-web).
       style={{
         position: (Platform.OS === 'web' ? 'fixed' : 'absolute') as any,
-        left: 0, right: 0, top: 0, zIndex: 999999,
-        backgroundColor: '#1E3A5F',
-        paddingTop: 16, paddingBottom: 12, paddingHorizontal: 16,
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
-        flexWrap: 'wrap',
-        borderBottomWidth: 2, borderBottomColor: '#F2B705',
+        left: 0, right: 0, top: 0, bottom: 0, zIndex: 999999,
+        alignItems: 'center', justifyContent: 'center', padding: 24,
+        backgroundColor: 'rgba(0,0,0,0.45)',
       }}
     >
-      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14, textAlign: 'center' }}>
-        🔄 Hay una versión NUEVA — toca para actualizar
-      </Text>
-      <View style={{ backgroundColor: '#F2B705', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 20 }}>
-        <Text style={{ color: '#1E3A5F', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 }}>ACTUALIZAR</Text>
-      </View>
-    </TouchableOpacity>
+      {/* Capa para descartar tocando fuera del botón. */}
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={() => setShow(false)}
+        // @ts-ignore
+        style={{ position: (Platform.OS === 'web' ? 'fixed' : 'absolute') as any, left: 0, right: 0, top: 0, bottom: 0 }}
+      />
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={actualizar}
+        style={{
+          backgroundColor: '#1E3A5F',
+          borderRadius: 16, borderWidth: 2, borderColor: '#F2B705',
+          aspectRatio: 1.35, maxHeight: 220, width: '80%', maxWidth: 320,
+          alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}
+      >
+        <Text style={{ fontSize: 64 }}>🔄</Text>
+        <Text style={{ color: '#F2B705', fontWeight: '900', fontSize: 22, marginTop: 8, letterSpacing: 0.5 }}>ACTUALIZAR</Text>
+        <Text style={{ color: '#fff', fontSize: 12, opacity: 0.9, marginTop: 4, textAlign: 'center' }}>Hay una versión nueva — toca para actualizar</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
