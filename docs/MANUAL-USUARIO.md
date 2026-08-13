@@ -2179,12 +2179,17 @@ ve en el mapa y el catálogo).
 - **Asignar máquinas:** desde el **Catálogo → botón 🏛️ Obras Públicas** eliges el supervisor (de
   los usuarios con ese rol) y le asignas máquinas **por lote o individual**. La máquina le aparece
   al supervisor en su teléfono ("🏛️ Mis máquinas").
-- **Vista del supervisor (teléfono):** ve solo sus máquinas; por cada una registra **visita (GPS)**,
-  **inicia/finaliza jornada**, marca **avería o parada**, **actualiza ubicación** y genera su
-  **reporte diario**.
+- **Vista del supervisor (teléfono):** arriba ve una fila de **tarjetas resumen** de SUS máquinas
+  (**m³ removidos hoy · edificios · máquinas asignadas · trabajando · averiadas · m³ totales**);
+  tocar "Trabajando" o "Averiadas" **filtra** la lista. Por cada máquina registra **visita (GPS)**,
+  **inicia/finaliza jornada**, marca **avería o parada**, **actualiza ubicación**, **registra los m³
+  removidos** y genera su **reporte diario**.
+- **m³ removidos:** en el detalle de la máquina escribe la cantidad y toca **➕ Sumar m³** (se van
+  sumando durante el día, viaje por viaje) o **✏️ Fijar total** para corregir el total del día.
+  **m³ removidos hoy** es lo del día; **m³ totales** se va acumulando día a día.
 - **Panel de Obras Públicas (Más → 🏛️ Obras Públicas):** panel de **admin/coordinador** que
   **agrega todo el módulo** (todos los supervisores):
-  - **KPIs:** máquinas asignadas · trabajando ahora · averiadas/paradas · horas de hoy · visitas de hoy.
+  - **KPIs:** máquinas asignadas · trabajando ahora · averiadas/paradas · **m³ del día** · edificios.
   - **Gráficos:** horas por máquina · distribución por estado · máquinas activas por día (7/30).
   - **Estado de flota en campo** (con su supervisor) y **tabla de últimas visitas**.
   - Filtra por **supervisor** con los chips; toca un **KPI** para filtrar la flota.

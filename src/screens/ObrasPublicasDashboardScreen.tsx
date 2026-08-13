@@ -118,8 +118,12 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     machines.forEach((x) => { const e = (x.edificio ?? '').trim(); if (e) s.add(e.toLowerCase()); });
     return s.size;
   }, [machines]);
-  // m³ del día: aún NO se captura en la vista del supervisor (queda en 0 hasta engancharlo).
-  const m3Dia = 0;
+  // m³ del día: suma de los m³ removidos hoy por las máquinas visibles (capturados en la vista del supervisor).
+  const m3Dia = useMemo(() => {
+    let s = 0;
+    machines.forEach((x) => { s += d.rounds[x.id]?.m3 ?? 0; });
+    return Math.round(s * 10) / 10;
+  }, [machines, d.rounds]);
 
   // KPIs (tarjetas de arriba). El valor es numérico (InspectorKpiGrid).
   const kpis: KpiItem[] = useMemo(() => [
@@ -264,6 +268,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
               const meta = ESTADO_META[e];
               const col = toneColor(colors, meta.tone);
               const h = horasHoy(m.id);
+              const m3 = d.rounds[m.id]?.m3 ?? 0;
               return (
                 <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: col, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -272,6 +277,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
                       {[m.company_name, m.sector || m.parroquia, m.supervisor_name ? `🪖 ${m.supervisor_name}` : null].filter(Boolean).join(' · ') || '—'}
                     </Text>
                   </View>
+                  {m3 > 0 ? <Text style={{ color: colors.accentSoftText, fontSize: 11.5, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>⛰️ {Math.round(m3 * 10) / 10} m³</Text> : null}
                   {h > 0 ? <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{Math.round(h * 100) / 100} h</Text> : null}
                   <View style={{ backgroundColor: col, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 }}>
                     <Text style={{ color: '#fff', fontWeight: '900', fontSize: 10 }}>{meta.icon} {meta.label}</Text>
