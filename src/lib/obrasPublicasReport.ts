@@ -195,7 +195,6 @@ export async function buildOpEdificioWhatsApp(date: string): Promise<string> {
         L.push(`   • Removido hoy: ${nWa(r.m3 || 0)} m³  ·  Acumulado: ${nWa(r.acumulado || 0)} m³`);
       if ((r.m3_acarreados || 0) > 0 || (r.viajes || 0) > 0)
         L.push(`   • Acarreados: ${nWa(r.m3_acarreados || 0)} m³  ·  Viajes: ${r.viajes || 0}`);
-      if (r.avance != null) L.push(`   • Avance: ${r.avance}%`);
       if (r.maq_en_uso) L.push(`   • Maq. en uso: ${r.maq_en_uso}`);
       if (r.maq_inoperativo) L.push(`   • Maq. inoperativa: ${r.maq_inoperativo}`);
       if (r.maq_requerimiento) L.push(`   • Maq. por requerimiento: ${r.maq_requerimiento}`);

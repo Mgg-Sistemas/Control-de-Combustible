@@ -11,7 +11,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { norm, cmpText } from '../lib/text';
 import { fetchEdificiosConSector, addEdificio, EdificioConSector } from '../lib/edificios';
-import { fetchEdificioResumen, saveEdificioRemovido, fetchEdificioReportesDia, OpEdificioResumen, OpEdificioDetalle } from '../lib/obrasPublicas';
+import { fetchEdificioResumen, saveEdificioRemovido, fetchEdificioReportesDia, listMyOpMachines, OpEdificioResumen, OpEdificioDetalle, OpMyMachine } from '../lib/obrasPublicas';
 import { buildOpEdificioWhatsApp } from '../lib/obrasPublicasReport';
 import { useToast } from './ToastProvider';
 
@@ -60,6 +60,8 @@ export default function OpRemovidosModal({
   const [detalles, setDetalles] = useState<Record<string, DetForm>>({});
   const [openDet, setOpenDet] = useState<Record<string, boolean>>({});
   const [sharing, setSharing] = useState(false);
+  // Máquinas asignadas al supervisor (para "maquinaria por requerimiento").
+  const [misMaquinas, setMisMaquinas] = useState<OpMyMachine[]>([]);
 
   // Agregar un edificio nuevo al catálogo.
   const [addName, setAddName] = useState('');
@@ -69,11 +71,13 @@ export default function OpRemovidosModal({
   const reload = async () => {
     setLoading(true);
     try {
-      const [r, e, reps] = await Promise.all([
+      const [r, e, reps, maqs] = await Promise.all([
         fetchEdificioResumen(date), fetchEdificiosConSector(), fetchEdificioReportesDia(date),
+        supervisorId ? listMyOpMachines(supervisorId) : Promise.resolve([] as OpMyMachine[]),
       ]);
       setResumen(r);
       setEdificios(e);
+      setMisMaquinas([...maqs].sort((a, b) => cmpText(a.code, b.code)));
       // Precarga: los removidos ya registrados HOY se muestran para poder corregirlos.
       const v: Record<string, string> = {};
       Object.values(r).forEach((x) => { if (x.removido_hoy > 0) v[x.edificio] = String(x.removido_hoy); });
@@ -153,6 +157,16 @@ export default function OpRemovidosModal({
   const setBase = (edif: string, s: string) => setBases((p) => ({ ...p, [edif]: s }));
   const setDet = (edif: string, patch: Partial<DetForm>) =>
     setDetalles((p) => ({ ...p, [edif]: { ...(p[edif] || {}), ...patch } }));
+
+  // "Maquinaria por requerimiento" = selección de las máquinas asignadas.
+  // Se guarda como códigos separados por coma en el campo de texto maq_requerimiento.
+  const reqCodes = (edif: string): string[] =>
+    (detalles[edif]?.maq_requerimiento || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const toggleReq = (edif: string, code: string) => {
+    const cur = reqCodes(edif);
+    const next = cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code];
+    setDet(edif, { maq_requerimiento: next.join(', ') });
+  };
 
   // DetForm (texto) → OpEdificioDetalle (números) para guardar.
   const toDetalle = (f?: DetForm): OpEdificioDetalle | undefined => {
@@ -343,18 +357,30 @@ export default function OpRemovidosModal({
                                       <TextInput value={d.viajes ?? ''} onChangeText={(t) => setDet(edif, { viajes: t })}
                                         placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
                                     </View>
-                                    <View style={{ flex: 1 }}>
-                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>% AVANCE</Text>
-                                      <TextInput value={d.avance ?? ''} onChangeText={(t) => setDet(edif, { avance: t })}
-                                        placeholder="—" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
-                                    </View>
                                   </View>
                                   <TextInput value={d.maq_en_uso ?? ''} onChangeText={(t) => setDet(edif, { maq_en_uso: t })}
                                     placeholder="🚜 Maquinaria en uso" placeholderTextColor={colors.muted} style={input} />
                                   <TextInput value={d.maq_inoperativo ?? ''} onChangeText={(t) => setDet(edif, { maq_inoperativo: t })}
                                     placeholder="🛑 Maquinaria inoperativa" placeholderTextColor={colors.muted} style={input} />
-                                  <TextInput value={d.maq_requerimiento ?? ''} onChangeText={(t) => setDet(edif, { maq_requerimiento: t })}
-                                    placeholder="📋 Maquinaria por requerimiento" placeholderTextColor={colors.muted} style={input} />
+                                  <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>📋 MAQUINARIA POR REQUERIMIENTO</Text>
+                                  {misMaquinas.length === 0 ? (
+                                    <TextInput value={d.maq_requerimiento ?? ''} onChangeText={(t) => setDet(edif, { maq_requerimiento: t })}
+                                      placeholder="Máquinas por requerimiento" placeholderTextColor={colors.muted} style={input} />
+                                  ) : (
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                                      {misMaquinas.map((m) => {
+                                        const on = reqCodes(edif).includes(m.code);
+                                        return (
+                                          <TouchableOpacity key={m.id} onPress={() => toggleReq(edif, m.code)}
+                                            style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                                              {on ? '✓ ' : ''}{m.code}
+                                            </Text>
+                                          </TouchableOpacity>
+                                        );
+                                      })}
+                                    </View>
+                                  )}
                                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                                     <View style={{ flex: 1 }}>
                                       <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>SUPERVIVIENTES</Text>
