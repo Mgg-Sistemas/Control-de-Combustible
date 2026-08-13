@@ -2222,7 +2222,11 @@ ve en el mapa y el catálogo).
     El admin ajusta la **base acumulada** con **⚙️ Editar base** (m³ base, cuerpos base y fecha de corte).
   - **m³ removidos hoy por edificio:** lista los edificios tratados hoy con sus **m³ del día** y su
     **acumulado** (base + días posteriores). Es la **suma consolidada de todos los supervisores**.
-  - **Gráficos:** distribución por estado · máquinas activas por día (7/30).
+  - **Gráficos:** distribución por estado · **Acarreo Total** (máquinas activas por día, 7/30). El
+    gráfico de Acarreo Total es **interactivo**: al **tocar un día** muestra el **detalle** de ese día
+    (máquinas con actividad, con **serial · placa · empresa** y horas).
+  - **Registros de acarreo:** tabla de últimas visitas/jornadas con **máquina (serial · placa · empresa)**,
+    supervisor, estado y fecha.
   - **Estado de flota en campo** (con su supervisor) y **tabla de últimas visitas**.
   - Filtra por **supervisor** con los chips; toca un **KPI** para filtrar la flota.
 

@@ -72,6 +72,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const [nowTick, setNowTick] = useState(Date.now());
   const [filter, setFilter] = useState<string | null>(null); // KPI seleccionado (filtra la flota)
   const [chartDays, setChartDays] = useState<7 | 30>(7);
+  const [selDay, setSelDay] = useState<string | null>(null); // día tocado en el gráfico → detalle
   const [supFilter, setSupFilter] = useState<string | null>(null); // supervisor_id | null = todos
 
   // Editor de la base acumulada (solo admin).
@@ -228,6 +229,22 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const distTotal = Math.max(1, dist.reduce((s, x) => s + x.count, 0));
 
   const codeById = useMemo(() => { const m = new Map<string, string>(); d.machines.forEach((x) => m.set(x.id, x.code)); return m; }, [d.machines]);
+  const machById = useMemo(() => { const m = new Map<string, OpDashMachine>(); d.machines.forEach((x) => m.set(x.id, x)); return m; }, [d.machines]);
+  // Subtítulo Serial · Placa · Empresa de una máquina (para tablas/detalle).
+  const machSub = useCallback((id: string): string => {
+    const m = machById.get(id);
+    if (!m) return '';
+    return [m.serial ? `S/N ${m.serial}` : null, m.plate ? `Placa ${m.plate}` : null, m.company_name].filter(Boolean).join(' · ');
+  }, [machById]);
+
+  // Detalle del día tocado en el gráfico: máquinas con actividad ese día.
+  const dayDetail = useMemo(() => {
+    if (!selDay) return [] as { id: string; horas: number; abierta: boolean }[];
+    return d.roundsRange
+      .filter((r) => r.round_date === selDay && visibleIds.has(r.machinery_id) && (r.day_hours + r.night_hours > 0 || r.jornada_start_at))
+      .map((r) => ({ id: r.machinery_id, horas: r.day_hours + r.night_hours, abierta: !!r.jornada_start_at }))
+      .sort((a, b) => cmpText(codeById.get(a.id) ?? '', codeById.get(b.id) ?? ''));
+  }, [selDay, d.roundsRange, visibleIds, codeById]);
 
   if (loading) return <Screen><Loading /></Screen>;
 
@@ -366,21 +383,51 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
             })}
           </View>
         </View>
+        <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 4 }}>Toca un día para ver el detalle 👇</Text>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 110, gap: chartDays === 7 ? 6 : 2 }}>
-          {perDay.map((x) => (
-            <View key={x.iso} style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ color: colors.muted, fontSize: 9, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{x.count > 0 ? x.count : ''}</Text>
-              <View style={{ width: '72%', height: Math.max(2, (x.count / perDayMax) * 82), backgroundColor: x.count > 0 ? colors.tankFill : colors.tankTrack, borderTopLeftRadius: 3, borderTopRightRadius: 3 }} />
-            </View>
-          ))}
+          {perDay.map((x) => {
+            const on = selDay === x.iso;
+            return (
+              <TouchableOpacity key={x.iso} activeOpacity={0.7} onPress={() => setSelDay(on ? null : x.iso)} style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ color: on ? colors.accent : colors.muted, fontSize: 9, marginBottom: 2, fontWeight: on ? '900' : '400', fontVariant: ['tabular-nums'] as any }}>{x.count > 0 ? x.count : ''}</Text>
+                <View style={{ width: '72%', height: Math.max(2, (x.count / perDayMax) * 82), backgroundColor: on ? colors.accent : (x.count > 0 ? colors.tankFill : colors.tankTrack), borderTopLeftRadius: 3, borderTopRightRadius: 3 }} />
+              </TouchableOpacity>
+            );
+          })}
         </View>
         <View style={{ flexDirection: 'row', gap: chartDays === 7 ? 6 : 2, marginTop: 4 }}>
           {perDay.map((x, i) => (
-            <View key={x.iso} style={{ flex: 1, alignItems: 'center' }}>
-              {(chartDays === 7 || i % 5 === 0) ? <Text style={{ color: colors.muted, fontSize: 8.5 }}>{dm(x.iso)}</Text> : null}
-            </View>
+            <TouchableOpacity key={x.iso} onPress={() => setSelDay(selDay === x.iso ? null : x.iso)} style={{ flex: 1, alignItems: 'center' }}>
+              {(chartDays === 7 || i % 5 === 0) ? <Text style={{ color: selDay === x.iso ? colors.accent : colors.muted, fontSize: 8.5, fontWeight: selDay === x.iso ? '900' : '400' }}>{dm(x.iso)}</Text> : null}
+            </TouchableOpacity>
           ))}
         </View>
+
+        {/* Detalle del día tocado: máquinas con actividad, con serial/placa/empresa */}
+        {selDay ? (
+          <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.xs }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>📅 {dm(selDay)} · {dayDetail.length} máquina(s)</Text>
+              <TouchableOpacity onPress={() => setSelDay(null)}><Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Cerrar ✕</Text></TouchableOpacity>
+            </View>
+            {dayDetail.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Sin actividad ese día.</Text>
+            ) : dayDetail.map((it) => {
+              const m = machById.get(it.id);
+              const sub = machSub(it.id);
+              return (
+                <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{m?.code ?? '—'}</Text>
+                    {sub ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 10.5 }}>{sub}</Text> : null}
+                  </View>
+                  {it.horas > 0 ? <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{Math.round(it.horas * 100) / 100} h</Text> : null}
+                  {it.abierta ? <Text style={{ color: colors.success, fontSize: 10, fontWeight: '900' }}>● EN CURSO</Text> : null}
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
       </Card>
 
       {/* ESTADO DE FLOTA EN CAMPO */}
@@ -429,14 +476,20 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
               <Text style={{ flex: 0.9, color: colors.muted, fontSize: 10.5, fontWeight: '800', textTransform: 'uppercase' }}>Estado</Text>
               <Text style={{ flex: 0.7, color: colors.muted, fontSize: 10.5, fontWeight: '800', textTransform: 'uppercase', textAlign: 'right' }}>Fecha</Text>
             </View>
-            {d.visits.filter((v) => visibleIds.has(v.machinery_id)).slice(0, 15).map((v, i) => (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                <Text numberOfLines={1} style={{ flex: 1.4, color: colors.text, fontSize: 12, fontWeight: '700' }}>{codeById.get(v.machinery_id) ?? '—'}</Text>
-                <Text numberOfLines={1} style={{ flex: 1.2, color: colors.muted, fontSize: 11.5 }}>{v.supervisor_name || '—'}</Text>
-                <Text numberOfLines={1} style={{ flex: 0.9, color: colors.text, fontSize: 11 }}>{visitStatusLabel(v.status)}</Text>
-                <Text style={{ flex: 0.7, color: colors.muted, fontSize: 11, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{dm(v.visit_date)}</Text>
-              </View>
-            ))}
+            {d.visits.filter((v) => visibleIds.has(v.machinery_id)).slice(0, 15).map((v, i) => {
+              const sub = machSub(v.machinery_id);
+              return (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <View style={{ flex: 1.4, minWidth: 0, paddingRight: 4 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{codeById.get(v.machinery_id) ?? '—'}</Text>
+                    {sub ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 10 }}>{sub}</Text> : null}
+                  </View>
+                  <Text numberOfLines={1} style={{ flex: 1.2, color: colors.muted, fontSize: 11.5 }}>{v.supervisor_name || '—'}</Text>
+                  <Text numberOfLines={1} style={{ flex: 0.9, color: colors.text, fontSize: 11 }}>{visitStatusLabel(v.status)}</Text>
+                  <Text style={{ flex: 0.7, color: colors.muted, fontSize: 11, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{dm(v.visit_date)}</Text>
+                </View>
+              );
+            })}
           </View>
         )}
       </Card>
