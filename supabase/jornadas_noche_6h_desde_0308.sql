@@ -30,3 +30,15 @@ where mch.id = mr.machinery_id
   and coalesce(mr.day_hours, 0) + coalesce(mr.night_hours, 0) >= 24
   and trim(coalesce(mch.serial, '')) <> '79669'
   and trim(coalesce(mch.plate,  '')) <> '79669';
+
+-- 3) TOPE DE DÍA — el turno de día nunca puede pasar de 12h (7am–7pm). Rondas con
+--    day_hours > 12 (dato imposible, jornadas "corridas" que no cerraron) se topan a 12.
+--    Excluye el 79669 (24h). Confirmado por el cliente (12-ago-2026).
+update public.machine_rounds mr
+set day_hours = 12
+from public.machinery mch
+where mch.id = mr.machinery_id
+  and mr.round_date >= '2026-08-03'
+  and mr.day_hours > 12
+  and trim(coalesce(mch.serial, '')) <> '79669'
+  and trim(coalesce(mch.plate,  '')) <> '79669';
