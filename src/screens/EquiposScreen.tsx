@@ -127,10 +127,10 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'marca', label: 'Marca — CAT, Komatsu, Kodiak...', type: 'suggest', table: 'machinery', column: 'marca', dropdown: true },
   { key: 'modelo', label: 'Modelo — 320, PC200, D6...', type: 'suggest', table: 'machinery', column: 'modelo', dropdown: true },
   { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'machinery', column: 'clasificacion' },
-  { key: 'referencia', label: 'Referencia / Ubicación (edificio)', type: 'text' },
-  // Parroquia/Sector/Empresa como LISTA DESPLEGABLE buscable (sin la rejilla de botones).
-  { key: 'parroquia', label: 'Parroquia', type: 'suggest', table: 'machinery', column: 'parroquia', dropdown: true },
-  { key: 'sector', label: 'Sector', type: 'suggest', table: 'machinery', column: 'sector', dropdown: true },
+  // Referencia/Edificio, Parroquia y Sector se QUITARON del formulario del Catálogo
+  // (pedido cliente 13-ago-2026): el edificio se maneja en su propio módulo y el
+  // sector se deriva del GPS/mapa. Las columnas siguen existiendo en la BD (las llenan
+  // el GPS, el check-in del inspector y el módulo de edificios) — solo se sacó la edición manual acá.
   { key: 'identifier', label: 'Identificador', type: 'text' },
   // Placa O serial: uno de los dos es obligatorio (validación de grupo en EquiposScreen).
   { key: 'plate', label: 'Placa', type: 'text' },
