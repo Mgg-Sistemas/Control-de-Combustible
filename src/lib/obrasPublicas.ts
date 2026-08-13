@@ -108,6 +108,7 @@ export async function listMyOpMachineIds(supervisorId: string): Promise<string[]
 export type OpRound = {
   machinery_id: string; round_date: string; day_hours: number; night_hours: number;
   jornada_start_at: string | null; jornada_shift: 'day' | 'night' | null;
+  m3: number; // m³ removidos por esa máquina ese día (total del día)
 };
 
 /** Jornadas op_* de una fecha para un conjunto de máquinas. */
@@ -115,7 +116,7 @@ export async function fetchOpRounds(machineryIds: string[], roundDate: string): 
   if (!machineryIds.length) return {};
   const { data, error } = await supabase
     .from('op_machine_rounds')
-    .select('machinery_id, round_date, day_hours, night_hours, jornada_start_at, jornada_shift')
+    .select('machinery_id, round_date, day_hours, night_hours, jornada_start_at, jornada_shift, m3')
     .in('machinery_id', machineryIds).eq('round_date', roundDate);
   if (error) throw error;
   const m: Record<string, OpRound> = {};
@@ -124,9 +125,35 @@ export async function fetchOpRounds(machineryIds: string[], roundDate: string): 
       machinery_id: r.machinery_id, round_date: r.round_date,
       day_hours: Number(r.day_hours) || 0, night_hours: Number(r.night_hours) || 0,
       jornada_start_at: r.jornada_start_at, jornada_shift: r.jornada_shift,
+      m3: Number(r.m3) || 0,
     };
   });
   return m;
+}
+
+/** Suma `delta` m³ al total del día de una máquina (atómico). Devuelve el nuevo total. */
+export async function opAddM3(machineryId: string, roundDate: string, delta: number): Promise<number> {
+  const { data, error } = await supabase.rpc('op_add_m3', { p_machinery_id: machineryId, p_round_date: roundDate, p_delta: delta });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+/** Fija (corrige) el total de m³ del día de una máquina. Devuelve el total guardado. */
+export async function opSetM3(machineryId: string, roundDate: string, total: number): Promise<number> {
+  const { data, error } = await supabase.rpc('op_set_m3', { p_machinery_id: machineryId, p_round_date: roundDate, p_total: total });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+/** m³ TOTALES acumulados (todas las fechas) de un conjunto de máquinas. */
+export async function fetchOpM3Total(machineryIds: string[]): Promise<number> {
+  if (!machineryIds.length) return 0;
+  const { data, error } = await supabase
+    .from('op_machine_rounds')
+    .select('m3')
+    .in('machinery_id', machineryIds);
+  if (error) throw error;
+  return (data ?? []).reduce((acc: number, r: any) => acc + (Number(r.m3) || 0), 0);
 }
 
 export type OpMaint = { machinery_id: string; tipo: 'averia' | 'parada'; motivo: string | null };
@@ -220,6 +247,111 @@ export async function fetchOpDashboard(roundDate: string, fromDate: string): Pro
     visit_date: r.visit_date, note: r.note ?? null,
   }));
   return { machines, rounds, maint, roundsRange, visits };
+}
+
+// ── Reporte diario de actividades (por supervisora) + base acumulada ─────────
+
+export type OpDailyReport = {
+  id?: string;
+  report_date: string;
+  supervisor_id: string | null;
+  supervisor_name: string | null;
+  reporte_no: number | null;
+  edificio: string | null;
+  m3_removidos_dia: number;
+  m3_acarreo_dia: number;
+  cuerpos_dia: number;
+  traslado_camion_dia: number;
+  observacion: string | null;
+};
+
+export type OpReportSettings = { base_m3: number; base_cuerpos: number; base_date: string | null };
+
+const emptyDaily = (report_date: string, supervisorId: string | null, supervisorName: string | null): OpDailyReport => ({
+  report_date, supervisor_id: supervisorId, supervisor_name: supervisorName, reporte_no: null, edificio: null,
+  m3_removidos_dia: 0, m3_acarreo_dia: 0, cuerpos_dia: 0, traslado_camion_dia: 0, observacion: null,
+});
+
+const rowToDaily = (r: any): OpDailyReport => ({
+  id: r.id, report_date: r.report_date, supervisor_id: r.supervisor_id ?? null, supervisor_name: r.supervisor_name ?? null,
+  reporte_no: r.reporte_no != null ? Number(r.reporte_no) : null, edificio: r.edificio ?? null,
+  m3_removidos_dia: Number(r.m3_removidos_dia) || 0, m3_acarreo_dia: Number(r.m3_acarreo_dia) || 0,
+  cuerpos_dia: Number(r.cuerpos_dia) || 0, traslado_camion_dia: Number(r.traslado_camion_dia) || 0,
+  observacion: r.observacion ?? null,
+});
+
+/** Reporte del día de una supervisora (o vacío si aún no existe). */
+export async function fetchMyDailyReport(supervisorId: string | null, reportDate: string, supervisorName?: string | null): Promise<OpDailyReport> {
+  if (!supervisorId) return emptyDaily(reportDate, null, supervisorName ?? null);
+  const { data, error } = await supabase
+    .from('op_daily_reports')
+    .select('*')
+    .eq('supervisor_id', supervisorId).eq('report_date', reportDate)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToDaily(data) : emptyDaily(reportDate, supervisorId, supervisorName ?? null);
+}
+
+/** Crea/actualiza el reporte del día de una supervisora (upsert por supervisor+fecha). */
+export async function saveDailyReport(rep: OpDailyReport, userId?: string | null): Promise<OpDailyReport> {
+  const payload = {
+    report_date: rep.report_date, supervisor_id: rep.supervisor_id, supervisor_name: rep.supervisor_name,
+    reporte_no: rep.reporte_no, edificio: rep.edificio, m3_removidos_dia: rep.m3_removidos_dia, m3_acarreo_dia: rep.m3_acarreo_dia,
+    cuerpos_dia: rep.cuerpos_dia, traslado_camion_dia: rep.traslado_camion_dia, observacion: rep.observacion,
+    recorded_by: userId ?? null, updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase
+    .from('op_daily_reports')
+    .upsert(payload, { onConflict: 'supervisor_id,report_date' })
+    .select('*').single();
+  if (error) throw error;
+  return rowToDaily(data);
+}
+
+/** Reportes diarios (de todas las supervisoras) desde una fecha, para el dashboard. */
+export async function fetchOpDailyReports(fromDate: string): Promise<OpDailyReport[]> {
+  const { data, error } = await supabase
+    .from('op_daily_reports')
+    .select('*')
+    .gte('report_date', fromDate)
+    .order('report_date', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToDaily);
+}
+
+/** Acumulados "desde inicio" = base + suma de reportes con fecha > base_date. */
+export function computeOpAccumulated(reports: OpDailyReport[], settings: OpReportSettings): { m3: number; cuerpos: number } {
+  const cut = settings.base_date;
+  let m3 = settings.base_m3, cuerpos = settings.base_cuerpos;
+  reports.forEach((r) => {
+    if (cut && r.report_date <= cut) return;
+    m3 += (r.m3_removidos_dia + r.m3_acarreo_dia);
+    cuerpos += r.cuerpos_dia;
+  });
+  return { m3: Math.round(m3 * 10) / 10, cuerpos };
+}
+
+/** Base acumulada de arranque (una fila). */
+export async function fetchOpReportSettings(): Promise<OpReportSettings> {
+  const { data, error } = await supabase
+    .from('op_report_settings')
+    .select('base_m3, base_cuerpos, base_date')
+    .eq('id', 1).maybeSingle();
+  if (error) throw error;
+  return {
+    base_m3: Number(data?.base_m3) || 0,
+    base_cuerpos: Number(data?.base_cuerpos) || 0,
+    base_date: data?.base_date ?? null,
+  };
+}
+
+/** Guarda la base acumulada (solo admin/coordinador). */
+export async function saveOpReportSettings(s: OpReportSettings, userId?: string | null): Promise<void> {
+  const { error } = await supabase.from('op_report_settings').upsert(
+    { id: 1, base_m3: s.base_m3, base_cuerpos: s.base_cuerpos, base_date: s.base_date, updated_by: userId ?? null, updated_at: new Date().toISOString() },
+    { onConflict: 'id' },
+  );
+  if (error) throw error;
 }
 
 /** Inicia la jornada op_* de una máquina (turno según la hora). */

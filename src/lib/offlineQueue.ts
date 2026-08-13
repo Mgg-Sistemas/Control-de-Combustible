@@ -209,7 +209,8 @@ async function replayOne(item: QueuedAction): Promise<void> {
     if (hourBanking && !progress.horasBancadas) {
       const prev = await getMachineRound(hourBanking.machineryId, hourBanking.roundDate);
       const base = Number((prev as any)?.[hourBanking.shiftKey] ?? 0);
-      const total = Math.round((base + hourBanking.horas) * 100) / 100;
+      // TOPE 12h por turno (igual que finalizarJornada, el módulo y los reportes).
+      const total = Math.round(Math.min(12, base + hourBanking.horas) * 100) / 100;
       const res = await upsertMachineRound(hourBanking.machineryId, hourBanking.roundDate, { [hourBanking.shiftKey]: total, jornada_start_at: null } as any, visita.supervisorId);
       if (res.error) throw new Error(res.error);
       progress.horasBancadas = true;

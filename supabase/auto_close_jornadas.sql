@@ -1,5 +1,13 @@
 -- ============================================================================
--- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — ACTUALIZADO 2026-08-11:
+-- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — ACTUALIZADO 2026-08-12:
+--   NOCHE cierra a la 1:00am (antes 7:00am): una máquina con jornada de noche
+--   abierta que se pase de la 1:00am se cierra automáticamente (permanencia de
+--   noche = 6h exactas desde las 7pm). DÍA sigue cerrando a las 7:00pm.
+--   EXCEPCIÓN 24H: el COMPRESOR CON MARTILLO (serial/placa '79669') trabaja
+--   24 horas continuas → NUNCA se auto-cierra (ni noche 1:30am ni día 7pm). Es
+--   el ÚNICO equipo con este trato; su jornada se cierra a mano. (Cliente 12-ago-2026.)
+--
+-- ACTUALIZADO 2026-08-11:
 --   Se acotó el alcance de "12h fijas" para el turno DÍA (regla del
 --   05-ago-2026, ver historial abajo): antes aplicaba a CUALQUIER máquina con
 --   jornada abierta sin cerrar, sin importar el inspector — eso le acreditaba
@@ -54,17 +62,21 @@ begin
     -- camino (edición directa en SQL, etc.) este cron NO debe seguir sumándole horas.
     where mr.jornada_start_at is not null
       and coalesce(mch.en_espera, false) = false
+      -- EXCEPCIÓN 24H: el compresor con martillo (serial/placa '79669') trabaja
+      -- 24h continuas → NUNCA se auto-cierra (se cierra a mano). Único equipo así.
+      and trim(coalesce(mch.serial, '')) <> '79669'
+      and trim(coalesce(mch.plate, '')) <> '79669'
   loop
-    -- Fin del turno (hora Caracas): NOCHE -> 7:00am del día siguiente; DÍA -> 7:00pm.
+    -- Fin del turno (hora Caracas): NOCHE -> 1:00am del día siguiente; DÍA -> 7:00pm.
     if r.jornada_shift = 'night' then
-      end_ts := ((r.round_date + 1) + time '07:00') at time zone 'America/Caracas';
+      end_ts := ((r.round_date + 1) + time '01:00') at time zone 'America/Caracas';
     else
       end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';
     end if;
     -- BLINDAJE: solo se cierra en las horas de fin de turno VÁLIDAS (Caracas):
-    -- 07:00 (noche) o 19:00 (día). Aunque alguien edite mal `end_ts`, si su hora
-    -- no es 7 ni 19 se salta → JAMÁS a medianoche/12 ni al mediodía.
-    if extract(hour from (end_ts at time zone 'America/Caracas')) not in (7, 19) then
+    -- 01:00 (noche) o 19:00 (día). Aunque alguien edite mal `end_ts`, si su hora
+    -- no es 1 ni 19 se salta → JAMÁS a otra hora inesperada.
+    if extract(hour from (end_ts at time zone 'America/Caracas')) not in (1, 19) then
       continue;
     end if;
     -- No RESUCITAR jornadas viejas: si su fin fue hace más de 2 días, quedó abierta por
@@ -76,8 +88,8 @@ begin
     -- Cierra si el fin del turno YA pasó.
     if now() >= end_ts then
       if r.jornada_shift = 'night' then
-        -- NOCHE: horas REALES (inicio → 7am del día siguiente). Requiere inicio ANTES
-        -- del fin (si no, sumaría 0/negativo) — se salta y se deja para cierre manual.
+        -- NOCHE: horas REALES (inicio → 1:00am del día siguiente = 6h desde las 7pm).
+        -- Requiere inicio ANTES del fin (si no, sumaría 0/negativo) — se deja manual.
         if r.jornada_start_at < end_ts then
           hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
           update public.machine_rounds

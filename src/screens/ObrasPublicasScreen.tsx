@@ -11,9 +11,14 @@ import { useToast } from '../components/ToastProvider';
 import {
   listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
   opStartJornada, opFinishJornada, opMarkMaint, opRegistrarVisita, updateMachineLocation,
+  opAddM3, opSetM3, fetchOpM3Total,
+  fetchMyDailyReport, saveDailyReport, OpDailyReport,
   OpRound, OpMaint,
 } from '../lib/obrasPublicas';
-import { generateObrasPublicasDailyReport } from '../lib/obrasPublicasReport';
+import { generateObrasPublicasDailyReport, generateOpActivityReport } from '../lib/obrasPublicasReport';
+import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
+import EdificioPicker from '../components/EdificioPicker';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 type Maquina = { id: string; code?: string | null } & Record<string, any>;
 
@@ -51,8 +56,17 @@ export default function ObrasPublicasScreen() {
   const [machines, setMachines] = useState<Maquina[]>([]);
   const [rounds, setRounds] = useState<Record<string, OpRound>>({});
   const [maint, setMaint] = useState<Record<string, OpMaint>>({});
+  const [m3Total, setM3Total] = useState(0); // m³ acumulados (todas las fechas) de mis máquinas
   const [q, setQ] = useState('');
+  const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
   const [reporting, setReporting] = useState(false);
+
+  // Reporte de Actividades (consolidado del día de la supervisora).
+  const [dailyOpen, setDailyOpen] = useState(false);
+  const [daily, setDaily] = useState<OpDailyReport | null>(null);
+  const [dailyBusy, setDailyBusy] = useState(false);
+  const [dailyPdf, setDailyPdf] = useState(false);
+  const [dailyMsg, setDailyMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null); // aviso EN LÍNEA (el toast queda tapado por el Modal en web)
 
   // Detalle / acciones de una máquina.
   const [ci, setCi] = useState<Maquina | null>(null);
@@ -62,6 +76,7 @@ export default function ObrasPublicasScreen() {
   const [avMat, setAvMat] = useState<string | null>(null);
   const [avMotivo, setAvMotivo] = useState('');
   const [ntMotivo, setNtMotivo] = useState('');
+  const [m3Input, setM3Input] = useState(''); // captura de m³ en el detalle
 
   const nowParts = caracasParts(new Date());
   const roundDate = nowParts.iso;
@@ -71,14 +86,15 @@ export default function ObrasPublicasScreen() {
     if (!uid) { setLoading(false); return; }
     try {
       const ids = await listMyOpMachineIds(uid);
-      if (!ids.length) { setMachines([]); setRounds({}); setMaint({}); return; }
-      const [{ data: machs }, r, mt] = await Promise.all([
+      if (!ids.length) { setMachines([]); setRounds({}); setMaint({}); setM3Total(0); return; }
+      const [{ data: machs }, r, mt, m3t] = await Promise.all([
         supabase.from('machinery').select('*').in('id', ids),
         fetchOpRounds(ids, roundDate),
         fetchOpMaintPending(ids),
+        fetchOpM3Total(ids),
       ]);
       setMachines(((machs ?? []) as Maquina[]).sort((a, b) => cmpText(a.code ?? '', b.code ?? '')));
-      setRounds(r); setMaint(mt);
+      setRounds(r); setMaint(mt); setM3Total(m3t);
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudieron cargar tus máquinas.');
     } finally {
@@ -88,6 +104,10 @@ export default function ObrasPublicasScreen() {
   }, [uid, roundDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Sincronía EN VIVO con el módulo/dashboard de Obras Públicas: si cambia una jornada,
+  // avería/parada, m³ o el reporte del día (desde otro dispositivo o desde el panel), refresca.
+  useRealtimeRefresh(['op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports'], () => { load(); });
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
@@ -102,15 +122,50 @@ export default function ObrasPublicasScreen() {
   };
 
   const lista = useMemo(() => {
+    let base = machines;
+    if (kpiFilter) base = base.filter((m) => (kpiFilter === 'averia' ? estadoOf(m.id) === 'averia' : estadoOf(m.id) === 'trabajando'));
     const needle = q.trim().toLowerCase();
-    if (!needle) return machines;
-    return machines.filter((m) =>
+    if (!needle) return base;
+    return base.filter((m) =>
       [m.code, m.plate, m.serial, m.marca, m.modelo, m.tipo, m.parroquia, m.sector, m.referencia]
         .filter(Boolean).join(' ').toLowerCase().includes(needle));
-  }, [machines, q]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machines, q, kpiFilter, rounds, maint]);
+
+  // KPIs (solo MIS máquinas asignadas).
+  const kpis = useMemo<KpiItem[]>(() => {
+    let trabajando = 0, averiadas = 0;
+    const edificiosSet = new Set<string>();
+    let m3Hoy = 0;
+    machines.forEach((m) => {
+      const est = estadoOf(m.id);
+      if (est === 'trabajando') trabajando += 1;
+      if (est === 'averia') averiadas += 1;
+      const ed = (m.referencia ?? '').trim();
+      if (ed) edificiosSet.add(ed.toLowerCase());
+      m3Hoy += rounds[m.id]?.m3 ?? 0;
+    });
+    const r1 = (n: number) => Math.round(n * 10) / 10;
+    return [
+      { key: 'm3hoy', label: 'm³ removidos hoy', value: r1(m3Hoy), tone: 'accent', icon: '⛰️' },
+      { key: 'edificios', label: 'Edificios', value: edificiosSet.size, tone: 'warning', icon: '🏢' },
+      { key: 'asignadas', label: 'Máquinas asignadas', value: machines.length, tone: 'brand', icon: '🚜' },
+      { key: 'trabajando', label: 'Trabajando', value: trabajando, tone: 'success', icon: '🟢' },
+      { key: 'averiadas', label: 'Averiadas', value: averiadas, tone: 'danger', icon: '🔧' },
+      { key: 'm3tot', label: 'm³ totales', value: r1(m3Total), tone: 'accent', icon: '📦' },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machines, rounds, maint, m3Total]);
+
+  const onKpi = (k: string) => {
+    if (k === 'trabajando') setKpiFilter((p) => (p === 'trabajando' ? null : 'trabajando'));
+    else if (k === 'averiadas') setKpiFilter((p) => (p === 'averia' ? null : 'averia'));
+    else setKpiFilter(null); // asignadas / edificios / m³ → mostrar todas
+  };
+  const kpiActiveKey = kpiFilter === 'trabajando' ? 'trabajando' : kpiFilter === 'averia' ? 'averiadas' : null;
 
   const openDetail = (m: Maquina) => {
-    setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo('');
+    setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo(''); setM3Input('');
   };
 
   const capturarGps = async (): Promise<{ lat: number; lng: number } | null> => {
@@ -183,11 +238,71 @@ export default function ObrasPublicasScreen() {
     finally { setBusy(false); }
   };
 
+  const registrarM3 = async (modo: 'sumar' | 'fijar') => {
+    if (!ci) return;
+    const val = Number((m3Input || '').replace(',', '.'));
+    if (!isFinite(val) || val < 0) { toast.error('Escribe una cantidad de m³ válida.'); return; }
+    setBusy(true);
+    try {
+      const nuevo = modo === 'sumar'
+        ? await opAddM3(ci.id, roundDate, val)
+        : await opSetM3(ci.id, roundDate, val);
+      setRounds((prev) => ({ ...prev, [ci.id]: { ...(prev[ci.id] ?? { machinery_id: ci.id, round_date: roundDate, day_hours: 0, night_hours: 0, jornada_start_at: null, jornada_shift: null, m3: 0 }), m3: nuevo } }));
+      setM3Input('');
+      await load();
+      toast.success(modo === 'sumar' ? `+${val} m³ registrados.` : `Total fijado en ${nuevo} m³.`);
+    } catch (e: any) { toast.error(e?.message ?? 'No se pudieron registrar los m³.'); }
+    finally { setBusy(false); }
+  };
+
   const generarReporte = async () => {
     setReporting(true);
     try { await generateObrasPublicasDailyReport({ supervisorId: uid, supervisorName: fullName || 'Supervisor', roundDate }); }
     catch (e: any) { toast.error(e?.message ?? 'No se pudo generar el reporte.'); }
     finally { setReporting(false); }
+  };
+
+  const abrirReporteDia = async () => {
+    setDailyBusy(true); setDailyOpen(true); setDailyMsg(null); setDaily(null);
+    try { setDaily(await fetchMyDailyReport(uid, roundDate, fullName || 'Supervisor')); }
+    catch (e: any) {
+      // No cerramos el modal: mostramos el error EN LÍNEA y dejamos un formulario en blanco para poder generar el PDF igual.
+      setDaily({
+        report_date: roundDate, supervisor_id: uid, supervisor_name: fullName || 'Supervisor', reporte_no: null, edificio: null,
+        m3_removidos_dia: 0, m3_acarreo_dia: 0, cuerpos_dia: 0, traslado_camion_dia: 0, observacion: null,
+      });
+      setDailyMsg({ tone: 'err', text: 'No se pudo leer el reporte guardado: ' + (e?.message ?? 'error') });
+    }
+    finally { setDailyBusy(false); }
+  };
+
+  const setDf = (patch: Partial<OpDailyReport>) => { setDaily((p) => (p ? { ...p, ...patch } : p)); setDailyMsg(null); };
+  const numOf = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && n >= 0 ? n : 0; };
+
+  const guardarReporteDia = async () => {
+    if (!daily) return;
+    setDailyBusy(true); setDailyMsg(null);
+    try {
+      const saved = await saveDailyReport({ ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' }, uid);
+      setDaily(saved);
+      setDailyMsg({ tone: 'ok', text: 'Reporte del día guardado.' });
+    } catch (e: any) {
+      setDailyMsg({ tone: 'err', text: 'No se pudo guardar: ' + (e?.message ?? 'error') + '. Revisa que la BD tenga la columna "edificio".' });
+    } finally { setDailyBusy(false); }
+  };
+
+  const pdfReporteDia = async () => {
+    if (!daily) return;
+    setDailyPdf(true); setDailyMsg(null);
+    // Guardado BEST-EFFORT: si falla (p. ej. falta una columna), IGUAL generamos el PDF con lo que hay en pantalla.
+    let rep: OpDailyReport = { ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' };
+    try { rep = await saveDailyReport(rep, uid); setDaily(rep); }
+    catch (e: any) { setDailyMsg({ tone: 'err', text: 'No se guardó en la BD (se genera el PDF igual): ' + (e?.message ?? 'error') }); }
+    try {
+      await generateOpActivityReport({ supervisorId: uid, supervisorName: fullName || 'Supervisor', roundDate, report: rep });
+    } catch (e: any) {
+      setDailyMsg({ tone: 'err', text: 'No se pudo generar el PDF: ' + (e?.message ?? 'error') });
+    } finally { setDailyPdf(false); }
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text } as const;
@@ -202,15 +317,31 @@ export default function ObrasPublicasScreen() {
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🏛️ Mis máquinas · Obras Públicas</Text>
         <Text style={{ color: colors.muted, fontSize: 12 }}>{machines.length} asignada(s) · {shiftOf(nowParts.hour).label}</Text>
         <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina…" placeholderTextColor={colors.muted} style={input} />
-        <TouchableOpacity onPress={generarReporte} disabled={reporting} style={{ backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: reporting ? 0.6 : 1 }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{reporting ? 'Generando…' : '📄 Reporte diario de mis máquinas'}</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          <TouchableOpacity onPress={abrirReporteDia} style={{ flex: 1, backgroundColor: '#7C3AED', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>📋 Reporte del día</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={generarReporte} disabled={reporting} style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: reporting ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{reporting ? 'Generando…' : '📄 Mis máquinas'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
         contentContainerStyle={{ padding: spacing.md, paddingTop: 0, gap: 8 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
+        {machines.length > 0 ? (
+          <View style={{ marginBottom: spacing.sm }}>
+            <InspectorKpiGrid items={kpis} activeKey={kpiActiveKey} onSelect={onKpi} />
+            {kpiFilter ? (
+              <TouchableOpacity onPress={() => setKpiFilter(null)} style={{ alignSelf: 'center', marginTop: spacing.xs }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Ver todas ✕</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
         {machines.length === 0 ? (
           <Text style={{ color: colors.muted, textAlign: 'center', marginTop: spacing.xl }}>
             Todavía no tienes máquinas asignadas. Pídele al administrador que te las asigne desde el catálogo (botón 🏛️ Obras Públicas).
@@ -220,6 +351,7 @@ export default function ObrasPublicasScreen() {
           const meta = ESTADO_META[est];
           const r = rounds[m.id];
           const horas = r ? (r.day_hours + r.night_hours) : 0;
+          const m3 = r?.m3 ?? 0;
           const label = [m.plate || m.serial, m.marca, m.modelo].filter(Boolean).join(' · ');
           return (
             <TouchableOpacity key={m.id} onPress={() => openDetail(m)} style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm }}>
@@ -231,6 +363,7 @@ export default function ObrasPublicasScreen() {
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={{ color: meta.color, fontSize: 12, fontWeight: '800' }}>{meta.label}</Text>
                   {horas > 0 ? <Text style={{ color: colors.muted, fontSize: 11 }}>{horas.toFixed(2)} h</Text> : null}
+                  {m3 > 0 ? <Text style={{ color: colors.accentSoftText, fontSize: 11, fontWeight: '700' }}>⛰️ {m3} m³</Text> : null}
                 </View>
               </View>
             </TouchableOpacity>
@@ -271,6 +404,30 @@ export default function ObrasPublicasScreen() {
                   </TouchableOpacity>
                 )}
 
+                {/* m³ removidos hoy */}
+                <View style={{ borderWidth: 1, borderColor: colors.accent, backgroundColor: colors.accentSoftBg, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, gap: spacing.xs }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: colors.accentSoftText, fontWeight: '800', fontSize: 13 }}>⛰️ m³ removidos hoy</Text>
+                    <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 16 }}>{(rounds[ci.id]?.m3 ?? 0)} m³</Text>
+                  </View>
+                  <TextInput
+                    value={m3Input}
+                    onChangeText={setM3Input}
+                    placeholder="Cantidad de m³"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={input}
+                  />
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    <TouchableOpacity onPress={() => registrarM3('sumar')} disabled={busy} style={{ flex: 2, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>➕ Sumar m³</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => registrarM3('fijar')} disabled={busy} style={{ flex: 1, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.accentSoftText, fontWeight: '800', fontSize: 12 }}>✏️ Fijar total</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
                 {/* Parada / avería */}
                 <View style={{ borderWidth: 1, borderColor: colors.warningSoftBorder, backgroundColor: colors.warningSoftBg, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, gap: spacing.xs }}>
                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
@@ -309,6 +466,76 @@ export default function ObrasPublicasScreen() {
                 </TouchableOpacity>
                 {busy ? <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.sm }} /> : null}
               </>) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reporte de Actividades (consolidado del día) */}
+      <Modal visible={dailyOpen} animationType="slide" transparent onRequestClose={() => setDailyOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>📋 Reporte de Actividades</Text>
+                <TouchableOpacity onPress={() => setDailyOpen(false)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>{fullName || 'Supervisor'} · {nowParts.iso.split('-').reverse().join('/')}</Text>
+
+              {daily == null ? (
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
+              ) : (<>
+                {([
+                  ['N° de reporte', 'reporte_no'],
+                  ['M³ removidos controlada (día)', 'm3_removidos_dia'],
+                  ['M³ acarreo de vestigios (día)', 'm3_acarreo_dia'],
+                  ['Cuerpos siniestrados (día)', 'cuerpos_dia'],
+                  ['Traslado camión (día)', 'traslado_camion_dia'],
+                ] as const).map(([label, key]) => (
+                  <View key={key} style={{ gap: 4 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>{label}</Text>
+                    <TextInput
+                      value={(daily as any)[key] ? String((daily as any)[key]) : ''}
+                      onChangeText={(t) => setDf({ [key]: key === 'reporte_no' ? (t.trim() === '' ? null : Math.round(numOf(t))) : (key === 'cuerpos_dia' || key === 'traslado_camion_dia') ? Math.round(numOf(t)) : numOf(t) } as any)}
+                      placeholder="0"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="numeric"
+                      style={input}
+                    />
+                  </View>
+                ))}
+
+                <EdificioPicker value={daily.edificio ?? ''} onChange={(name) => setDf({ edificio: name })} label="Edificio" placeholder="Selecciona o escribe el edificio…" />
+
+                <View style={{ gap: 4, marginTop: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>Observación del día</Text>
+                  <TextInput
+                    value={daily.observacion ?? ''}
+                    onChangeText={(t) => setDf({ observacion: t })}
+                    placeholder="Novedades, incidencias, comentarios…"
+                    placeholderTextColor={colors.muted}
+                    multiline
+                    style={[input, { minHeight: 80, textAlignVertical: 'top' }]}
+                  />
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Los acumulados "desde inicio" se calculan automáticamente (base + todos los reportes). Se ven en el PDF y en el panel de Obras Públicas.</Text>
+
+                {dailyMsg ? (
+                  <View style={{ backgroundColor: dailyMsg.tone === 'ok' ? colors.successSoftBg : colors.dangerSoftBg, borderWidth: 1, borderColor: dailyMsg.tone === 'ok' ? colors.successSoftBorder : colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                    <Text style={{ color: dailyMsg.tone === 'ok' ? colors.successSoftText : colors.dangerSoftText, fontSize: 12, fontWeight: '700' }}>{dailyMsg.tone === 'ok' ? '✅ ' : '⚠️ '}{dailyMsg.text}</Text>
+                  </View>
+                ) : null}
+
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                  <TouchableOpacity onPress={guardarReporteDia} disabled={dailyBusy || dailyPdf} style={{ flex: 1, backgroundColor: '#16A34A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (dailyBusy || dailyPdf) ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{dailyBusy ? 'Guardando…' : '💾 Guardar'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={pdfReporteDia} disabled={dailyBusy || dailyPdf} style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (dailyBusy || dailyPdf) ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{dailyPdf ? 'Generando…' : '⬇️ Descargar PDF'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>)}
             </ScrollView>
           </View>
         </View>

@@ -40,6 +40,7 @@ type RoundMachine = {
   tipo: string;         // marca / modelo
   clasificacion: string; // clasificación del equipo
   serial: string | null;
+  plate: string | null;
   entryDate: string | null; // fecha de llegada de la máquina (entry_date)
   days: number;         // días (jornadas) que trabajó
   dayH: number;         // total horas de día
@@ -51,7 +52,7 @@ type RoundMachine = {
 // Viaje registrado en una máquina (solo Golden Touch): nº de viajes y precio unitario.
 type ViajeItem = { code: string; clasificacion: string; viajes: number; precio: number };
 // Máquina AVERIADA/PARADA (pendiente) que no trabajó — se lista en 0 y en ROJO.
-type RoundAveria = { machine: string; tipo: string; clasificacion: string; serial: string | null; motivo: string };
+type RoundAveria = { machine: string; tipo: string; clasificacion: string; serial: string | null; plate: string | null; motivo: string };
 type RoundCompany = {
   company: string;
   machines: RoundMachine[];
@@ -694,7 +695,7 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, plate, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     const nowMs = Date.now();
@@ -702,7 +703,7 @@ export default function ReportsScreen({ route }: any) {
     // Cada fecha guarda el precio EFECTIVO de esa ronda: si la ronda está cerrada trae
     // frozen_price (precio congelado del corte); si no, el precio actual de la máquina.
     // Así un corte cerrado se reporta con SUS precios aunque después cambien.
-    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null; js: number | null; jsh: string | null }> };
+    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; plate: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null; js: number | null; jsh: string | null }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -712,6 +713,7 @@ export default function ReportsScreen({ route }: any) {
         tipo: (mm.tipo && String(mm.tipo).trim()) || '—',
         clasificacion: (mm.clasificacion && String(mm.clasificacion).trim()) || 'Sin clasificación',
         serial: mm.serial ?? null,
+        plate: mm.plate ?? null,
         entry: mm.entry_date ?? null,
         company: mm.company?.name ?? 'Sin empresa',
         price: mm.price_per_hour != null ? Number(mm.price_per_hour) : null,
@@ -761,7 +763,7 @@ export default function ReportsScreen({ route }: any) {
       });
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
       workedIds.add(key);
-      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD };
+      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD };
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [] };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
@@ -807,7 +809,7 @@ export default function ReportsScreen({ route }: any) {
     // fecha), perdiendo justo las averías/paradas más antiguas y arrastradas.
     const mrPend = await selectAllRows(
       'maintenance_requests',
-      'machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, active, company:company_id(name))',
+      'machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, plate, active, company:company_id(name))',
       (q) => q.eq('status', 'pendiente').lte('created_at', toEndBound)
     );
     // selectAllRows pagina ordenando por id (para no saltar/duplicar filas), no por fecha
@@ -839,13 +841,14 @@ export default function ReportsScreen({ route }: any) {
         tipo: (mm.tipo && String(mm.tipo).trim()) || '—',
         clasificacion: (mm.clasificacion && String(mm.clasificacion).trim()) || 'Sin clasificación',
         serial: mm.serial ?? null,
+        plate: mm.plate ?? null,
         motivo,
       });
       if (esParada) averiaRealSet.delete(mid); else averiaRealSet.add(mid);
     });
     averiaByMachine.forEach((a) => {
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [] };
-      g.averias.push({ machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, motivo: a.motivo });
+      g.averias.push({ machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, motivo: a.motivo });
       groups.set(a.company, g);
     });
 
@@ -924,7 +927,7 @@ export default function ReportsScreen({ route }: any) {
         const rows = g.machines
           .map(
             (m) =>
-              `<tr><td>${esc(m.machine)}${m.serial ? `<br/><span style="color:#888">${esc(m.serial)}</span>` : ''}</td>` +
+              `<tr><td>${esc(m.machine)}${[m.plate, m.serial].filter(Boolean).length ? `<br/><span style="color:#888">${esc([m.plate, m.serial].filter(Boolean).join(' · '))}</span>` : ''}</td>` +
               `<td>${esc(m.tipo)}</td>` +
               `<td>${esc(m.clasificacion)}</td>` +
               `<td style="text-align:center">${m.days}</td>` +
@@ -940,7 +943,7 @@ export default function ReportsScreen({ route }: any) {
           .map(
             (a) =>
               `<tr style="color:#B42318">` +
-              `<td>${esc(a.machine)}${a.serial ? `<br/><span style="color:#c99">${esc(a.serial)}</span>` : ''}</td>` +
+              `<td>${esc(a.machine)}${[a.plate, a.serial].filter(Boolean).length ? `<br/><span style="color:#c99">${esc([a.plate, a.serial].filter(Boolean).join(' · '))}</span>` : ''}</td>` +
               `<td>${esc(a.tipo)}</td>` +
               `<td>🔴 ${esc(a.clasificacion)}${a.motivo ? ` · ${esc(a.motivo)}` : ''}</td>` +
               `<td style="text-align:center">0</td>` +

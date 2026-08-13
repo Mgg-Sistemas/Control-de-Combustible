@@ -6,7 +6,11 @@ import { supabase } from './supabase';
 import { pdfDocument, exportPdf, nowStamp } from './pdf';
 import { cmpText } from './text';
 import { horarioNominal } from './jornada';
-import { listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending } from './obrasPublicas';
+import {
+  listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
+  fetchMyDailyReport, fetchOpDailyReports, fetchOpReportSettings, computeOpAccumulated,
+  OpDailyReport,
+} from './obrasPublicas';
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -71,3 +75,73 @@ export async function generateObrasPublicasDailyReport(opts: { supervisorId: str
   const html = pdfDocument({ title: 'Reporte diario · Obras Públicas', subtitle: supervisorName, body, extraCss });
   return exportPdf(html, `obras-publicas-${supervisorName}-${roundDate}`);
 }
+
+// ── Reporte de Actividades (consolidado del día + acumulados) ────────────────
+
+/** Miles con "." y decimales con "," (formato local, sin depender de Intl). */
+function fmt(n: number): string {
+  const r = Math.round((Number(n) || 0) * 10) / 10;
+  const neg = r < 0 ? '-' : '';
+  const [int, dec] = String(Math.abs(r)).split('.');
+  const miles = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${neg}${miles}${dec ? ',' + dec : ''}`;
+}
+
+/**
+ * PDF del "Reporte de Actividades" de una supervisora en un día: sus métricas
+ * del día (m³ removidos, m³ acarreo, cuerpos, traslado camión), su observación y los
+ * ACUMULADOS de toda la operación (base + suma de todos los reportes desde el corte).
+ */
+export async function generateOpActivityReport(opts: {
+  supervisorId: string | null; supervisorName: string; roundDate: string; report?: OpDailyReport | null;
+}): Promise<boolean> {
+  const { supervisorId, supervisorName, roundDate } = opts;
+  const rep = opts.report ?? await fetchMyDailyReport(supervisorId, roundDate, supervisorName);
+  const [settings, all] = await Promise.all([fetchOpReportSettings(), fetchOpDailyReports(settingsFromDate())]);
+  const acc = computeOpAccumulated(all, settings);
+
+  const kpi = (label: string, value: string, unit: string) => `
+    <div class="opk">
+      <div class="opk-v">${esc(value)}<span class="opk-u"> ${esc(unit)}</span></div>
+      <div class="opk-l">${esc(label)}</div>
+    </div>`;
+
+  const body = `
+    <div class="fecha-dia">📅 ${esc(dmy(roundDate))}</div>
+    <h2 style="margin:6px 0">🏛️ Reporte de Actividades${rep.reporte_no != null ? ` · N° ${esc(rep.reporte_no)}` : ''}</h2>
+    <p style="margin:2px 0"><b>Supervisor:</b> ${esc(supervisorName)}${rep.edificio ? ` · <b>Edificio:</b> ${esc(rep.edificio)}` : ''}</p>
+
+    <h3 style="margin:12px 0 4px">Del día</h3>
+    <div class="opgrid">
+      ${kpi('M³ removidos controlada', fmt(rep.m3_removidos_dia), 'm³')}
+      ${kpi('M³ acarreo de vestigios', fmt(rep.m3_acarreo_dia), 'm³')}
+      ${kpi('Cuerpos siniestrados', fmt(rep.cuerpos_dia), '')}
+      ${kpi('Traslado camión', fmt(rep.traslado_camion_dia), '')}
+    </div>
+
+    <h3 style="margin:14px 0 4px">Acumulado desde el inicio</h3>
+    <div class="opgrid">
+      ${kpi('Total m³ acumulados', fmt(acc.m3), 'm³')}
+      ${kpi('Total cuerpos siniestrados', fmt(acc.cuerpos), '')}
+    </div>
+
+    <h3 style="margin:14px 0 4px">Observación del día</h3>
+    <div class="opobs">${rep.observacion ? esc(rep.observacion).replace(/\n/g, '<br>') : '<i style="color:#888">Sin observaciones.</i>'}</div>
+
+    <p style="color:#666;font-size:10px;margin-top:12px">Generado ${esc(nowStamp())} · Acumulados = base registrada + reportes de todas las supervisoras desde el corte. Datos exclusivos de Obras Públicas (no afectan Inspecciones).</p>`;
+
+  const extraCss = `.fecha-dia{font-size:20px;font-weight:800;border:1px solid #ccc;border-radius:8px;padding:6px 10px;display:inline-block;margin-bottom:6px}
+    h3{font-size:13px;color:#374151;border-bottom:1px solid #e5e7eb;padding-bottom:2px}
+    .opgrid{display:flex;flex-wrap:wrap;gap:8px}
+    .opk{flex:1 1 40%;border:1px solid #ddd;border-radius:8px;padding:8px 10px;background:#f9fafb}
+    .opk-v{font-size:22px;font-weight:800;color:#111827}
+    .opk-u{font-size:12px;font-weight:600;color:#6b7280}
+    .opk-l{font-size:11px;color:#6b7280;margin-top:2px;text-transform:uppercase;letter-spacing:.3px}
+    .opobs{border:1px solid #ddd;border-radius:8px;padding:8px 10px;font-size:12px;min-height:36px}`;
+
+  const html = pdfDocument({ title: 'Reporte de Actividades', subtitle: `${supervisorName} · ${dmy(roundDate)}`, body, extraCss });
+  return exportPdf(html, `reporte-actividades-${supervisorName}-${roundDate}`);
+}
+
+/** El corte se ignora para traer reportes; usamos una fecha muy vieja para sumar todos los válidos. */
+function settingsFromDate(): string { return '2000-01-01'; }
