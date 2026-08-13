@@ -962,7 +962,7 @@ export default function ReportsScreen({ route }: any) {
         const averiaHeader = g.averias.length
           ? `<tr><td colspan="9" style="background:#FBEAEA;color:#B42318;font-weight:800;letter-spacing:.3px;padding:4px 8px">🔴 PARADAS/AVERIADAS (${g.averias.length})</td></tr>`
           : '';
-        const averiaTag = g.averias.length ? ` <span style="color:#B42318;font-weight:400">· 🔴 ${g.averias.length} averiada${g.averias.length === 1 ? '' : 's'}</span>` : '';
+        const averiaTag = g.averias.length ? ` <span style="color:#B42318;font-weight:400">· 🔴 ${g.averias.length} PARADAS/AVERIADAS</span>` : '';
         return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${averiaTag}</h2>
           <table><thead>${head}</thead><tbody>${rows}${averiaHeader}${averiaRows}</tbody>
           <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
