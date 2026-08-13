@@ -21,7 +21,8 @@ import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
-import { caracasParts } from '../lib/jornada';
+import { listOperatorAssignments } from '../lib/machineOperators';
+import { caracasParts, shiftOf } from '../lib/jornada';
 import { freezeOpenJornadaNow } from '../lib/machineRounds';
 import {
   fetchAveriaCat, fetchJornadaCat, fetchInspByShift, bucketMachineStatus, makeLiveStatusOf,
@@ -216,6 +217,11 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [jornadaFor, setJornadaFor] = useState<Machinery | null>(null);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({});
   const [inspectors, setInspectors] = useState<Record<string, InspectorInfo>>({}); // inspector del último check-in por máquina
+  // Operador PLANEADO por el Coordinador de Operadores (machine_operators), por turno —
+  // NO toca nada de inspectores, es una fuente y un estado totalmente aparte. Mismo patrón
+  // que `inspectors`/`latestInspectorByMachine()` de arriba, pero para la asignación de
+  // operador (ver src/lib/machineOperators.ts).
+  const [plannedOperators, setPlannedOperators] = useState<Record<string, { day?: string; night?: string }>>({});
   // Operadores que ha tenido cada máquina (desplegable en la ficha). Una máquina puede tener varios.
   type OpItem = { key: string; name: string; cedula: string; last: string; days: number };
   const [opsOpen, setOpsOpen] = useState<Record<string, boolean>>({}); // machineId → desplegado
@@ -262,6 +268,26 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Inspector "asignado" = quien hizo el último check-in en cada máquina.
   const loadInspectors = () => { latestInspectorByMachine().then(setInspectors).catch(() => {}); };
   useEffect(() => { loadInspectors(); }, [machinery.data]);
+
+  // Operador PLANEADO (día/noche) por máquina — asignación del Coordinador de Operadores
+  // (machine_operators), independiente del inspector de arriba.
+  const loadPlannedOperators = () => {
+    listOperatorAssignments().then(({ rows }) => {
+      const map: Record<string, { day?: string; night?: string }> = {};
+      rows.forEach((r) => { const cur = map[r.machinery_id] ?? {}; cur[r.shift] = r.operator_name; map[r.machinery_id] = cur; });
+      setPlannedOperators(map);
+    }).catch(() => {});
+  };
+  useEffect(() => { loadPlannedOperators(); }, [machinery.data]);
+  // Operador planeado a mostrar en la tarjeta: el del turno vigente AHORA (mismo criterio
+  // día/noche que `shiftOf()`, usado en toda la app para jornadas); si ese turno no tiene
+  // a nadie planeado, cae al otro turno para no dejar la línea vacía si solo hay uno cargado.
+  const plannedOperatorNow = (machineId: string): string | null => {
+    const p = plannedOperators[machineId];
+    if (!p) return null;
+    const nowShift = shiftOf(caracasParts(new Date()).hour).key;
+    return p[nowShift] ?? p[nowShift === 'day' ? 'night' : 'day'] ?? null;
+  };
 
   // Inspector ASIGNADO (CHECK MÁQUINA) por TURNO, día y noche por separado — para el
   // reporte de conteo de equipos (a diferencia de `inspectors`, que es solo el último
@@ -332,7 +358,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // tabla). Estas fuentes auxiliares (custodia, inspector del check-in, asignación por
   // turno y avería/parada) viven en OTRAS tablas y no se refrescaban si otro dispositivo las cambiaba.
   useRealtimeRefresh(['machine_guards'], loadGuards);
-  useRealtimeRefresh(['supervisor_visits', 'machine_inspectors'], () => { loadInspectors(); loadInspByShift(); });
+  useRealtimeRefresh(['supervisor_visits', 'machine_inspectors', 'machine_operators'], () => { loadInspectors(); loadInspByShift(); loadPlannedOperators(); });
   useRealtimeRefresh(['maintenance_requests'], () => { loadAveriaCat(); loadLastInactivity(); });
   useRealtimeRefresh(['machine_rounds'], loadJornadaCat);
   const refreshGuard = async (machineId: string) => {
@@ -1236,6 +1262,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}{inspectors[m.id].date ? ` · ${fmtDMY(inspectors[m.id].date)}` : ''}</Text> : null}
+            {plannedOperatorNow(m.id) ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>👷 Operador planeado: {plannedOperatorNow(m.id)}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
@@ -2044,6 +2071,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                               supervisor_visits (dato real, no se borra) y lo seguía mostrando acá
                               como si la máquina tuviera inspector vigente. */}
                           {inspectors[m.id] && m.operational ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
+                          {plannedOperatorNow(m.id) && m.operational ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>👷 Operador planeado: {plannedOperatorNow(m.id)}</Text> : null}
                           {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                           {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
                         </View>

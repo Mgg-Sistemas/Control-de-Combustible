@@ -13,6 +13,7 @@ import { generateChoferCombustibleGuide } from '../lib/guides/choferCombustibleG
 import { generateCoordinadorQrGuide } from '../lib/guides/coordinadorQrGuide';
 import { generateAnalistaGuide } from '../lib/guides/analistaGuide';
 import { generateFabricacionGuide } from '../lib/guides/fabricacionGuide';
+import { generateListeroViajesGuide } from '../lib/guides/listeroViajesGuide';
 
 // ── Guías rápidas descargables (PDF), una por rol — ver src/lib/guides/. ──────
 // Sin la de Administrador a propósito (pedido del cliente): no aporta como hoja
@@ -27,6 +28,7 @@ const ROLE_GUIDES: { key: string; label: string; desc: string; icon: string; run
   { key: 'coordqr', label: 'Coordinador QR', desc: 'Surtir gasoil, reportar avería y marcar máquina lista', icon: '📷', run: generateCoordinadorQrGuide },
   { key: 'analista', label: 'Analista', desc: 'Marcar asistencia del personal', icon: '📊', run: generateAnalistaGuide },
   { key: 'fabricacion', label: 'Fabricación (MRP)', desc: 'Mangueras, maestros, órdenes y kiosco de planta — módulo completo', icon: '🏭', run: generateFabricacionGuide },
+  { key: 'listeroviajes', label: 'Listero (Viajes de camiones)', desc: 'Registrar cada viaje del camión con un solo toque', icon: '🚛', run: generateListeroViajesGuide },
 ];
 
 // ── Contenido del manual (lenguaje simple, paso a paso) ───────────────────────
