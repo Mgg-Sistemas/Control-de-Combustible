@@ -12,9 +12,10 @@ import {
   listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
   opStartJornada, opFinishJornada, opMarkMaint, opRegistrarVisita, updateMachineLocation,
   opAddM3, opSetM3, fetchOpM3Total,
+  fetchMyDailyReport, saveDailyReport, OpDailyReport,
   OpRound, OpMaint,
 } from '../lib/obrasPublicas';
-import { generateObrasPublicasDailyReport } from '../lib/obrasPublicasReport';
+import { generateObrasPublicasDailyReport, generateOpActivityReport } from '../lib/obrasPublicasReport';
 import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
 
 type Maquina = { id: string; code?: string | null } & Record<string, any>;
@@ -57,6 +58,12 @@ export default function ObrasPublicasScreen() {
   const [q, setQ] = useState('');
   const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
   const [reporting, setReporting] = useState(false);
+
+  // Reporte de Actividades OPP (consolidado del día de la supervisora).
+  const [dailyOpen, setDailyOpen] = useState(false);
+  const [daily, setDaily] = useState<OpDailyReport | null>(null);
+  const [dailyBusy, setDailyBusy] = useState(false);
+  const [dailyPdf, setDailyPdf] = useState(false);
 
   // Detalle / acciones de una máquina.
   const [ci, setCi] = useState<Maquina | null>(null);
@@ -248,6 +255,35 @@ export default function ObrasPublicasScreen() {
     finally { setReporting(false); }
   };
 
+  const abrirReporteDia = async () => {
+    setDailyBusy(true); setDailyOpen(true);
+    try { setDaily(await fetchMyDailyReport(uid, roundDate, fullName || 'Supervisor')); }
+    catch (e: any) { toast.error(e?.message ?? 'No se pudo cargar el reporte.'); setDailyOpen(false); }
+    finally { setDailyBusy(false); }
+  };
+
+  const setDf = (patch: Partial<OpDailyReport>) => setDaily((p) => (p ? { ...p, ...patch } : p));
+  const numOf = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && n >= 0 ? n : 0; };
+
+  const guardarReporteDia = async () => {
+    if (!daily) return;
+    setDailyBusy(true);
+    try { const saved = await saveDailyReport({ ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' }, uid); setDaily(saved); toast.success('Reporte del día guardado.'); }
+    catch (e: any) { toast.error(e?.message ?? 'No se pudo guardar el reporte.'); }
+    finally { setDailyBusy(false); }
+  };
+
+  const pdfReporteDia = async () => {
+    if (!daily) return;
+    setDailyPdf(true);
+    try {
+      const saved = await saveDailyReport({ ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' }, uid);
+      setDaily(saved);
+      await generateOpActivityReport({ supervisorId: uid, supervisorName: fullName || 'Supervisor', roundDate, report: saved });
+    } catch (e: any) { toast.error(e?.message ?? 'No se pudo generar el PDF.'); }
+    finally { setDailyPdf(false); }
+  };
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text } as const;
 
   if (loading) {
@@ -260,9 +296,14 @@ export default function ObrasPublicasScreen() {
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🏛️ Mis máquinas · Obras Públicas</Text>
         <Text style={{ color: colors.muted, fontSize: 12 }}>{machines.length} asignada(s) · {shiftOf(nowParts.hour).label}</Text>
         <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina…" placeholderTextColor={colors.muted} style={input} />
-        <TouchableOpacity onPress={generarReporte} disabled={reporting} style={{ backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: reporting ? 0.6 : 1 }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{reporting ? 'Generando…' : '📄 Reporte diario de mis máquinas'}</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          <TouchableOpacity onPress={abrirReporteDia} style={{ flex: 1, backgroundColor: '#7C3AED', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>📋 Reporte del día</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={generarReporte} disabled={reporting} style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: reporting ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{reporting ? 'Generando…' : '📄 Mis máquinas'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -404,6 +445,68 @@ export default function ObrasPublicasScreen() {
                 </TouchableOpacity>
                 {busy ? <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.sm }} /> : null}
               </>) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reporte de Actividades OPP (consolidado del día) */}
+      <Modal visible={dailyOpen} animationType="slide" transparent onRequestClose={() => setDailyOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>📋 Reporte de Actividades OPP</Text>
+                <TouchableOpacity onPress={() => setDailyOpen(false)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>{fullName || 'Supervisor'} · {nowParts.iso.split('-').reverse().join('/')}</Text>
+
+              {daily == null ? (
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
+              ) : (<>
+                {([
+                  ['N° de reporte OPP', 'reporte_no'],
+                  ['M³ removidos controlada (día)', 'm3_removidos_dia'],
+                  ['M³ acarreo de vestigios (día)', 'm3_acarreo_dia'],
+                  ['Cuerpos siniestrados (día)', 'cuerpos_dia'],
+                  ['Traslado camión (día)', 'traslado_camion_dia'],
+                ] as const).map(([label, key]) => (
+                  <View key={key} style={{ gap: 4 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>{label}</Text>
+                    <TextInput
+                      value={(daily as any)[key] ? String((daily as any)[key]) : ''}
+                      onChangeText={(t) => setDf({ [key]: key === 'reporte_no' ? (t.trim() === '' ? null : Math.round(numOf(t))) : (key === 'cuerpos_dia' || key === 'traslado_camion_dia') ? Math.round(numOf(t)) : numOf(t) } as any)}
+                      placeholder="0"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="numeric"
+                      style={input}
+                    />
+                  </View>
+                ))}
+
+                <View style={{ gap: 4 }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>Observación del día</Text>
+                  <TextInput
+                    value={daily.observacion ?? ''}
+                    onChangeText={(t) => setDf({ observacion: t })}
+                    placeholder="Novedades, incidencias, comentarios…"
+                    placeholderTextColor={colors.muted}
+                    multiline
+                    style={[input, { minHeight: 80, textAlignVertical: 'top' }]}
+                  />
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Los acumulados "desde inicio" se calculan automáticamente (base + todos los reportes). Se ven en el PDF y en el panel de Obras Públicas.</Text>
+
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                  <TouchableOpacity onPress={guardarReporteDia} disabled={dailyBusy || dailyPdf} style={{ flex: 1, backgroundColor: '#16A34A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (dailyBusy || dailyPdf) ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{dailyBusy ? 'Guardando…' : '💾 Guardar'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={pdfReporteDia} disabled={dailyBusy || dailyPdf} style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (dailyBusy || dailyPdf) ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{dailyPdf ? 'Generando…' : '⬇️ Descargar PDF'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>)}
             </ScrollView>
           </View>
         </View>
