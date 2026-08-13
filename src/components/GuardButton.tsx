@@ -214,15 +214,19 @@ export function GuardButton({
                 value={name}
                 onChangeText={(v) => { setName(v); setShowSug(true); }}
                 onFocus={() => setShowSug(true)}
-                onBlur={() => setTimeout(() => setShowSug(false), 150)}
+                onBlur={() => setTimeout(() => setShowSug(false), 250)}
                 placeholder="Nombre y apellido" placeholderTextColor={colors.muted}
                 style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, marginBottom: showSug && sugNames.length ? 0 : spacing.sm }}
               />
               {showSug && sugNames.length > 0 ? (
                 <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.sm, borderBottomRightRadius: radius.sm, marginBottom: spacing.sm, maxHeight: 140 }}>
-                  <ScrollView keyboardShouldPersistTaps="handled">
+                  <ScrollView keyboardShouldPersistTaps="always">
                     {sugNames.map((n) => (
-                      <TouchableOpacity key={n} onPress={() => { setName(n); setShowSug(false); }} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                      // onPressIn (no onPress): en web el onBlur del input desmonta la
+                      // lista antes de que el click (mouseup) dispare onPress, así que la
+                      // selección "no se mantenía". onPressIn corre al presionar (mousedown),
+                      // antes del blur, y garantiza que el nombre quede fijado.
+                      <TouchableOpacity key={n} onPressIn={() => { setName(n); setShowSug(false); }} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <Text style={{ color: colors.text, fontSize: 13 }}>👤 {n}</Text>
                       </TouchableOpacity>
                     ))}
