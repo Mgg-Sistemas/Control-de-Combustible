@@ -22,6 +22,21 @@ import { caracasToday, caracasNowShift, caracasBusinessToday, shiftElapsedHours 
 import { horarioNominal, horaFinJornada } from '../../lib/jornada';
 import { useNavigation } from '@react-navigation/native';
 
+// Cómo terminó la jornada de un turno: hora real (ended_at) + tipo (manual/automático).
+type CierreInfo = { tipo: 'manual' | 'auto' | 'ajuste'; hora: string };
+// `machine_work_segments.source` → tipo de cierre + etiqueta mostrada. Solo los tramos
+// que CIERRAN la jornada (no las paradas intermedias) cuentan como "finalización".
+const CIERRE_TIPO: Record<string, CierreInfo['tipo']> = {
+  manual_finish: 'manual', auto_close: 'auto', auto_full_shift: 'auto', ajuste_manual: 'ajuste',
+};
+const CIERRE_META: Record<CierreInfo['tipo'], { label: string; icon: string }> = {
+  manual: { label: 'manual', icon: '🏁' }, auto: { label: 'automático', icon: '🤖' }, ajuste: { label: 'ajuste', icon: '✏️' },
+};
+/** HH:MM (12h, Caracas) de un timestamp epoch ms. */
+function clockCaracas(ms: number): string {
+  return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms));
+}
+
 /**
  * RESUMEN DE INSPECCIONES (rediseño) — dashboard analítico, autocontenido.
  * - Switch ☀️ DÍA / 🌙 NOCHE.
@@ -136,6 +151,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // separado a qué hora terminó el día y a qué hora empezó/terminó la noche. Estos
   // tramos SÍ vienen con `shift` propio y son la fuente correcta para eso.
   const [segByShift, setSegByShift] = useState<Record<string, { day?: { minStart: number; maxEnd: number; sum: number }; night?: { minStart: number; maxEnd: number; sum: number } }>>({});
+  // CÓMO se cerró la jornada de cada turno: hora REAL de finalización (ended_at del
+  // último tramo de cierre) + si fue MANUAL o AUTOMÁTICO (source del tramo). Para
+  // reflejar en el detalle "a qué hora finalizó y si fue cierre manual/automático".
+  const [cierreByShift, setCierreByShift] = useState<Record<string, { day?: CierreInfo; night?: CierreInfo }>>({});
   const [loading, setLoading] = useState(true);
   // Inspectores REALES (para el desplegable de "Máquinas por asignar" del cajón
   // MAQUINAS FALTANTES) — mismos roles que puede elegir el CHECK MÁQUINA del teléfono.
@@ -334,10 +353,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
     // Tramos trabajados del día (hora inicio/fin y horas por máquina), y la MISMA
     // información separada por turno (día/noche) — ver `segByShift` arriba.
-    selectAllRows('machine_work_segments', 'machinery_id, shift, started_at, ended_at, hours', (q) => q.eq('round_date', selDay))
+    selectAllRows('machine_work_segments', 'machinery_id, shift, started_at, ended_at, hours, source', (q) => q.eq('round_date', selDay))
       .then((rows) => {
         const map: Record<string, { minStart: number; maxEnd: number; sum: number }> = {};
         const byShift: Record<string, { day?: { minStart: number; maxEnd: number; sum: number }; night?: { minStart: number; maxEnd: number; sum: number } }> = {};
+        // Último tramo de CIERRE por turno (max ended_at entre los source que finalizan
+        // la jornada) → hora real + manual/automático. Las paradas intermedias no cuentan.
+        const cierre: Record<string, { day?: { tipo: CierreInfo['tipo']; ms: number }; night?: { tipo: CierreInfo['tipo']; ms: number } }> = {};
         ((rows ?? []) as any[]).forEach((s) => {
           const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
           const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
@@ -354,11 +376,26 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           if (!isNaN(en)) prev.maxEnd = Math.max(prev.maxEnd, en);
           entry[sh] = prev;
           byShift[s.machinery_id] = entry;
+          // ¿Este tramo CIERRA la jornada? (no es una parada intermedia)
+          const tipo = CIERRE_TIPO[s.source as string];
+          if (tipo && !isNaN(en)) {
+            const ce = cierre[s.machinery_id] ?? {};
+            if (!ce[sh] || en > ce[sh]!.ms) ce[sh] = { tipo, ms: en };
+            cierre[s.machinery_id] = ce;
+          }
         });
         setSegDay(map);
         setSegByShift(byShift);
+        const cierreMap: Record<string, { day?: CierreInfo; night?: CierreInfo }> = {};
+        Object.entries(cierre).forEach(([id, c]) => {
+          cierreMap[id] = {
+            day: c.day ? { tipo: c.day.tipo, hora: clockCaracas(c.day.ms) } : undefined,
+            night: c.night ? { tipo: c.night.tipo, hora: clockCaracas(c.night.ms) } : undefined,
+          };
+        });
+        setCierreByShift(cierreMap);
       })
-      .catch(() => { setSegDay({}); setSegByShift({}); });
+      .catch(() => { setSegDay({}); setSegByShift({}); setCierreByShift({}); });
     setLoading(false);
   }, [fromDate, selDay]);
 
@@ -1737,12 +1774,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               {r.dayInfo?.markedAt ? (<><Text style={{ color: colors.muted }}>  · 👷 marcó </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{r.dayInfo.markedAt}</Text></>) : null}
                               <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaFin}</Text>
                               <Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.dayInfo?.hours ?? 0) * 100) / 100} h</Text>
+                              {cierreByShift[r.id]?.day ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.day!.tipo].icon} cerró {cierreByShift[r.id]!.day!.hora} ({CIERRE_META[cierreByShift[r.id]!.day!.tipo].label})</Text></>) : null}
                             </Text>
                             <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>🌙 Noche · Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaIni}</Text>
                               {r.nightInfo?.markedAt ? (<><Text style={{ color: colors.muted }}>  · 👷 marcó </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{r.nightInfo.markedAt}</Text></>) : null}
                               <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaFin}</Text>
                               <Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.nightInfo?.hours ?? 0) * 100) / 100} h</Text>
+                              {cierreByShift[r.id]?.night ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.night!.tipo].icon} cerró {cierreByShift[r.id]!.night!.hora} ({CIERRE_META[cierreByShift[r.id]!.night!.tipo].label})</Text></>) : null}
                             </Text>
                             <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
@@ -1761,6 +1800,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
                             </>) : null}
                           </Text>
+                          {/* Cómo cerró: hora real + manual/automático (turno que aplique). */}
+                          {(() => { const c = cierreByShift[r.id]?.night ?? cierreByShift[r.id]?.day; return c ? (
+                            <Text style={{ fontSize: 11 }}>
+                              <Text style={{ color: colors.muted }}>{CIERRE_META[c.tipo].icon} Cerró </Text>
+                              <Text style={{ color: colors.text, fontWeight: '800' }}>{c.hora}</Text>
+                              <Text style={{ color: colors.muted }}> · {CIERRE_META[c.tipo].label === 'manual' ? 'cierre manual' : c.tipo === 'auto' ? 'cierre automático' : 'ajuste'}</Text>
+                            </Text>
+                          ) : null; })()}
                           {/* Desglose por turno: día · noche · total (el total es la suma día+noche). */}
                           <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
                             <Text style={{ color: colors.muted }}>☀️ Día </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayTotal} h</Text>
@@ -2005,6 +2052,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                   <Text style={{ color: colors.muted }}>  ·  ⏳ </Text>
                                   <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.dayElapsedH * 100) / 100} h</Text>
                                 </>) : null}
+                                {cierreByShift[r.id]?.day ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.day!.tipo].icon} cerró {cierreByShift[r.id]!.day!.hora} ({CIERRE_META[cierreByShift[r.id]!.day!.tipo].label})</Text></>) : null}
                               </Text>
                               <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                                 <Text style={{ color: colors.muted }}>🌙 Noche · Inicio </Text>
@@ -2021,6 +2069,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                   <Text style={{ color: colors.muted }}>  ·  ⏳ </Text>
                                   <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.nightElapsedH * 100) / 100} h</Text>
                                 </>) : null}
+                                {cierreByShift[r.id]?.night ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.night!.tipo].icon} cerró {cierreByShift[r.id]!.night!.hora} ({CIERRE_META[cierreByShift[r.id]!.night!.tipo].label})</Text></>) : null}
                               </Text>
                               <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                                 <Text style={{ color: colors.muted }}>⏱️ Total de jornada </Text>
@@ -2043,6 +2092,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                 <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
                               </>) : null}
                             </Text>
+                            {/* Cómo cerró: hora real + manual/automático (turno que aplique). */}
+                            {(() => { const c = cierreByShift[r.id]?.night ?? cierreByShift[r.id]?.day; return c ? (
+                              <Text style={{ fontSize: 11.5, marginTop: 1 }}>
+                                <Text style={{ color: colors.muted }}>{CIERRE_META[c.tipo].icon} Cerró </Text>
+                                <Text style={{ color: colors.text, fontWeight: '800' }}>{c.hora}</Text>
+                                <Text style={{ color: colors.muted }}> · {c.tipo === 'manual' ? 'cierre manual' : c.tipo === 'auto' ? 'cierre automático' : 'ajuste'}</Text>
+                              </Text>
+                            ) : null; })()}
                             {/* Desglose por turno: día · noche · total (el total es la suma día+noche). */}
                             <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>☀️ Día </Text>
