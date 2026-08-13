@@ -22,12 +22,14 @@ import { caracasToday, caracasNowShift, caracasBusinessToday, shiftElapsedHours 
 import { horarioNominal, horaFinJornada } from '../../lib/jornada';
 import { useNavigation } from '@react-navigation/native';
 
-// Cómo terminó la jornada de un turno: hora real (ended_at) + tipo (manual/automático).
-type CierreInfo = { tipo: 'manual' | 'auto' | 'ajuste'; hora: string };
+// Cómo terminó la jornada de un turno: hora real (ended_at) + tipo (manual/automático)
+// + motivo de cierre (solo en el cierre MANUAL ANTICIPADO: source='manual_finish_early').
+type CierreInfo = { tipo: 'manual' | 'auto' | 'ajuste'; hora: string; motivo?: string };
 // `machine_work_segments.source` → tipo de cierre + etiqueta mostrada. Solo los tramos
 // que CIERRAN la jornada (no las paradas intermedias) cuentan como "finalización".
+// manual_finish_early = cierre manual ANTES de la hora de fin (trae close_reason).
 const CIERRE_TIPO: Record<string, CierreInfo['tipo']> = {
-  manual_finish: 'manual', auto_close: 'auto', auto_full_shift: 'auto', ajuste_manual: 'ajuste',
+  manual_finish: 'manual', manual_finish_early: 'manual', auto_close: 'auto', auto_full_shift: 'auto', ajuste_manual: 'ajuste',
 };
 const CIERRE_META: Record<CierreInfo['tipo'], { label: string; icon: string }> = {
   manual: { label: 'manual', icon: '🏁' }, auto: { label: 'automático', icon: '🤖' }, ajuste: { label: 'ajuste', icon: '✏️' },
@@ -353,13 +355,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
     // Tramos trabajados del día (hora inicio/fin y horas por máquina), y la MISMA
     // información separada por turno (día/noche) — ver `segByShift` arriba.
-    selectAllRows('machine_work_segments', 'machinery_id, shift, started_at, ended_at, hours, source', (q) => q.eq('round_date', selDay))
+    selectAllRows('machine_work_segments', 'machinery_id, shift, started_at, ended_at, hours, source, close_reason', (q) => q.eq('round_date', selDay))
       .then((rows) => {
         const map: Record<string, { minStart: number; maxEnd: number; sum: number }> = {};
         const byShift: Record<string, { day?: { minStart: number; maxEnd: number; sum: number }; night?: { minStart: number; maxEnd: number; sum: number } }> = {};
         // Último tramo de CIERRE por turno (max ended_at entre los source que finalizan
         // la jornada) → hora real + manual/automático. Las paradas intermedias no cuentan.
-        const cierre: Record<string, { day?: { tipo: CierreInfo['tipo']; ms: number }; night?: { tipo: CierreInfo['tipo']; ms: number } }> = {};
+        const cierre: Record<string, { day?: { tipo: CierreInfo['tipo']; ms: number; motivo?: string }; night?: { tipo: CierreInfo['tipo']; ms: number; motivo?: string } }> = {};
         ((rows ?? []) as any[]).forEach((s) => {
           const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
           const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
@@ -380,7 +382,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           const tipo = CIERRE_TIPO[s.source as string];
           if (tipo && !isNaN(en)) {
             const ce = cierre[s.machinery_id] ?? {};
-            if (!ce[sh] || en > ce[sh]!.ms) ce[sh] = { tipo, ms: en };
+            if (!ce[sh] || en > ce[sh]!.ms) ce[sh] = { tipo, ms: en, motivo: (s.close_reason || '').trim() || undefined };
             cierre[s.machinery_id] = ce;
           }
         });
@@ -389,8 +391,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         const cierreMap: Record<string, { day?: CierreInfo; night?: CierreInfo }> = {};
         Object.entries(cierre).forEach(([id, c]) => {
           cierreMap[id] = {
-            day: c.day ? { tipo: c.day.tipo, hora: clockCaracas(c.day.ms) } : undefined,
-            night: c.night ? { tipo: c.night.tipo, hora: clockCaracas(c.night.ms) } : undefined,
+            day: c.day ? { tipo: c.day.tipo, hora: clockCaracas(c.day.ms), motivo: c.day.motivo } : undefined,
+            night: c.night ? { tipo: c.night.tipo, hora: clockCaracas(c.night.ms), motivo: c.night.motivo } : undefined,
           };
         });
         setCierreByShift(cierreMap);
@@ -2052,7 +2054,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                   <Text style={{ color: colors.muted }}>  ·  ⏳ </Text>
                                   <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.dayElapsedH * 100) / 100} h</Text>
                                 </>) : null}
-                                {cierreByShift[r.id]?.day ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.day!.tipo].icon} cerró {cierreByShift[r.id]!.day!.hora} ({CIERRE_META[cierreByShift[r.id]!.day!.tipo].label})</Text></>) : null}
+                                {cierreByShift[r.id]?.day ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.day!.tipo].icon} cerró {cierreByShift[r.id]!.day!.hora} ({CIERRE_META[cierreByShift[r.id]!.day!.tipo].label}){cierreByShift[r.id]!.day!.motivo ? ` · 📝 ${cierreByShift[r.id]!.day!.motivo}` : ''}</Text></>) : null}
                               </Text>
                               <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                                 <Text style={{ color: colors.muted }}>🌙 Noche · Inicio </Text>
@@ -2069,7 +2071,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                   <Text style={{ color: colors.muted }}>  ·  ⏳ </Text>
                                   <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.nightElapsedH * 100) / 100} h</Text>
                                 </>) : null}
-                                {cierreByShift[r.id]?.night ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.night!.tipo].icon} cerró {cierreByShift[r.id]!.night!.hora} ({CIERRE_META[cierreByShift[r.id]!.night!.tipo].label})</Text></>) : null}
+                                {cierreByShift[r.id]?.night ? (<><Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.muted, fontWeight: '700' }}>{CIERRE_META[cierreByShift[r.id]!.night!.tipo].icon} cerró {cierreByShift[r.id]!.night!.hora} ({CIERRE_META[cierreByShift[r.id]!.night!.tipo].label}){cierreByShift[r.id]!.night!.motivo ? ` · 📝 ${cierreByShift[r.id]!.night!.motivo}` : ''}</Text></>) : null}
                               </Text>
                               <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                                 <Text style={{ color: colors.muted }}>⏱️ Total de jornada </Text>
@@ -2098,6 +2100,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                 <Text style={{ color: colors.muted }}>{CIERRE_META[c.tipo].icon} Cerró </Text>
                                 <Text style={{ color: colors.text, fontWeight: '800' }}>{c.hora}</Text>
                                 <Text style={{ color: colors.muted }}> · {c.tipo === 'manual' ? 'cierre manual' : c.tipo === 'auto' ? 'cierre automático' : 'ajuste'}</Text>
+                                {c.motivo ? <Text style={{ color: colors.warning, fontWeight: '800' }}> · 📝 {c.motivo}</Text> : null}
                               </Text>
                             ) : null; })()}
                             {/* Desglose por turno: día · noche · total (el total es la suma día+noche). */}
@@ -2151,6 +2154,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {detailRow('Hora de inicio (declarada)', r.horaIni)}
                           {r.markedAt ? detailRow('👷 Marcada por el inspector', r.markedAt) : null}
                           {detailRow('Hora final', r.horaFin)}
+                          {(() => { const c = cierreByShift[r.id]?.night ?? cierreByShift[r.id]?.day; return c?.motivo ? detailRow('📝 Motivo de cierre', c.motivo) : null; })()}
                           {detailRow('Horas del día (día / noche)', r.rd ? `${r.rd.dayH} h / ${r.rd.nightH} h` : '—')}
                           {detailRow('Horas totales trabajadas', `${r.worked} h`)}
                           {detailRow('Combustible del día', litros + (lph != null ? ` · ${lph} L/h` : ''))}

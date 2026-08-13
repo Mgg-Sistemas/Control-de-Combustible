@@ -258,6 +258,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   };
   const SEGMENT_SOURCE_LABEL: Record<MachineWorkSegment['source'], string> = {
     manual_finish: '🏁 Cierre manual',
+    manual_finish_early: '🏁 Cierre manual anticipado',
     parada_averia: '🔧 Parada por avería',
     parada_no_trabajo: '📍 Parada / no trabajó',
     auto_close: '🤖 Cierre automático',

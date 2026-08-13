@@ -942,6 +942,12 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
   > del total de la sesión que se está cerrando, se muestra el **acumulado del turno en el día**
   > (lo ya trabajado antes + lo que se acaba de cerrar) — para ver de una vez el total real del
   > turno, no solo el último tramo. Aplica igual en teléfono y en PC.
+  > **📝 Motivo de cierre (13-ago-2026):** si el inspector finaliza la jornada **antes de la hora de
+  > fin** (día <7pm / noche <1am) debe escribir un **motivo obligatorio**. Ese motivo ahora **se
+  > guarda y se muestra**: en la lista **🏁 Cerradas / finalizadas** (por inspector) y en los tres
+  > informes — **por firma, por empresa y por jornada** — junto a la máquina. (Antes solo quedaba en
+  > la bitácora; el `source='manual_finish_early'` no lo permitía el CHECK de la tabla y el motivo se
+  > perdía — corregido con `supabase/machine_segments_source_finish_early.sql`.)
 - **⛔ Detener la máquina → 🟡 PARADA** — al tocarlo se despliegan **2 caminos** para elegir:
   - **🔧 Por avería** — elige el **material** (🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto ·
     ✏️ Otro), escribe el **texto de la falla** (obligatorio solo si eliges "Otro") y, opcional,

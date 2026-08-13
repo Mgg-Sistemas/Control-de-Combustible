@@ -66,7 +66,7 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null };
+type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null; cierreMotivo: string };
 /** Hora (Caracas) "HH:MM am/pm" de un instante (ms). */
 const horaCaracasMs = (ms: number): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); } catch { return '—'; }
@@ -168,7 +168,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     selectAllRows('maintenance_requests', 'machinery_id, notes, material, created_at, status, resolved_at', (q) => q.neq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)),
     // 3b) Tramos trabajados del día (machine_work_segments, CON turno) — para la línea de
     //     tiempo: a qué hora empezó/terminó cada tramo, sin mezclar día con noche.
-    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, shift', (q) => q.eq('round_date', date)),
+    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, shift, source, close_reason', (q) => q.eq('round_date', date)),
   ]);
   const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets(((machFlagsAll ?? []) as any[]).map((m) => ({ id: m.id, active: m.active, operational: m.operational, en_espera: m.en_espera })));
   const nameById: Record<string, string> = {};
@@ -179,6 +179,8 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   (maint as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   (maintAver as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const segsByMachine = new Map<string, { start: number; end: number; shift: Turno }[]>();
+  // MOTIVO DE CIERRE (cierre manual anticipado): del tramo con close_reason más reciente.
+  const cierreMotivoByMachine = new Map<string, { motivo: string; ms: number }>();
   ((segs ?? []) as any[]).forEach((s) => {
     const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
     const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
@@ -186,6 +188,8 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     const list = segsByMachine.get(s.machinery_id) ?? [];
     list.push({ start: st, end: en, shift: s.shift === 'night' ? 'night' : 'day' });
     segsByMachine.set(s.machinery_id, list);
+    const cr = (s.close_reason || '').trim();
+    if (cr) { const prev = cierreMotivoByMachine.get(s.machinery_id); if (!prev || en > prev.ms) cierreMotivoByMachine.set(s.machinery_id, { motivo: cr, ms: en }); }
   });
   // Parada POR TURNO: machine → turno → {motivo, hora de parada, hora de reactivación}.
   // Así la parada del inspector de DÍA no afecta al de NOCHE (misma máquina, 2
@@ -451,6 +455,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       motivo,
       horasParada,
       encargado: base.encargado,
+      cierreMotivo: cierreMotivoByMachine.get(id)?.motivo || '',
     });
   };
 
@@ -549,10 +554,14 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
       const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>`;
-      // MOTIVO en su PROPIA columna (ya no debajo del estado). Solo para avería/parada.
+      // MOTIVO en su PROPIA columna (ya no debajo del estado). Avería/parada muestran su
+      // motivo; una jornada FINALIZADA con cierre manual anticipado muestra el MOTIVO DE
+      // CIERRE (close_reason) que el inspector escribió al finalizar antes de tiempo.
       const motivoCell = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
         ? `<span style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</span>`
-        : '—';
+        : (m.estado === 'finalizada' && m.cierreMotivo)
+          ? `<span style="color:#B45309;font-size:10px">📝 ${esc(m.cierreMotivo)}</span>`
+          : '—';
       // Horario: solo se muestra si la jornada de este turno inició (en curso) o dejó
       // horas trabajadas (finalizada, o avería/parada con trabajo parcial antes de parar).
       // Una máquina que nunca inició este turno (pendiente, sin horas) muestra "—".
