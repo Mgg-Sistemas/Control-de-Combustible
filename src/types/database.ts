@@ -731,6 +731,7 @@ export interface MachineRound {
   horometro_photo: string | null;   // foto del horómetro al iniciar
   jornada_start_at: string | null;   // inicio de la jornada por TIEMPO abierta (null = cerrada)
   jornada_shift: 'day' | 'night' | null; // turno del inicio de la jornada por tiempo
+  jornada_marked_by: string | null;  // supervisor/inspector que INICIÓ la jornada (no se pisa al finalizar)
   created_at: string;
 }
 

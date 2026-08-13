@@ -66,7 +66,7 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null; cierreMotivo: string };
+type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null; cierreMotivo: string; cierreFinBy: string; iniBy: string };
 /** Hora (Caracas) "HH:MM am/pm" de un instante (ms). */
 const horaCaracasMs = (ms: number): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); } catch { return '—'; }
@@ -137,7 +137,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // ese día aunque se resolviera un día posterior). Para HOY el borde es futuro → solo pendientes.
   const resolvedHoyFilter = `status.eq.pendiente,resolved_at.gt.${nightEndBound}`;
   // Mismo `select` para la ronda de HOY y la de ANOCHE (jornada de noche que cruza medianoche).
-  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
+  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_marked_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
   const [
     { data: machFlagsAll },
     { data: profs },
@@ -168,7 +168,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     selectAllRows('maintenance_requests', 'machinery_id, notes, material, created_at, status, resolved_at', (q) => q.neq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)),
     // 3b) Tramos trabajados del día (machine_work_segments, CON turno) — para la línea de
     //     tiempo: a qué hora empezó/terminó cada tramo, sin mezclar día con noche.
-    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, shift, source, close_reason', (q) => q.eq('round_date', date)),
+    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, shift, source, close_reason, recorded_by', (q) => q.eq('round_date', date)),
   ]);
   const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets(((machFlagsAll ?? []) as any[]).map((m) => ({ id: m.id, active: m.active, operational: m.operational, en_espera: m.en_espera })));
   const nameById: Record<string, string> = {};
@@ -181,6 +181,10 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const segsByMachine = new Map<string, { start: number; end: number; shift: Turno }[]>();
   // MOTIVO DE CIERRE (cierre manual anticipado): del tramo con close_reason más reciente.
   const cierreMotivoByMachine = new Map<string, { motivo: string; ms: number }>();
+  // FINALIZADA POR: usuario que CERRÓ (recorded_by del último tramo de CIERRE manual).
+  // Solo los tramos que finalizan la jornada (no las paradas) y con persona (el cierre
+  // automático del servidor va sin recorded_by → no muestra nombre).
+  const cierreFinByMachine = new Map<string, { id: string; ms: number }>();
   ((segs ?? []) as any[]).forEach((s) => {
     const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
     const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
@@ -190,6 +194,9 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     segsByMachine.set(s.machinery_id, list);
     const cr = (s.close_reason || '').trim();
     if (cr) { const prev = cierreMotivoByMachine.get(s.machinery_id); if (!prev || en > prev.ms) cierreMotivoByMachine.set(s.machinery_id, { motivo: cr, ms: en }); }
+    if ((s.source === 'manual_finish' || s.source === 'manual_finish_early') && s.recorded_by) {
+      const p = cierreFinByMachine.get(s.machinery_id); if (!p || en > p.ms) cierreFinByMachine.set(s.machinery_id, { id: s.recorded_by, ms: en });
+    }
   });
   // Parada POR TURNO: machine → turno → {motivo, hora de parada, hora de reactivación}.
   // Así la parada del inspector de DÍA no afecta al de NOCHE (misma máquina, 2
@@ -456,6 +463,8 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       horasParada,
       encargado: base.encargado,
       cierreMotivo: cierreMotivoByMachine.get(id)?.motivo || '',
+      cierreFinBy: nameById[cierreFinByMachine.get(id)?.id || ''] || '',
+      iniBy: nameById[(rd as any)?.jornada_marked_by || ''] || '',
     });
   };
 
@@ -557,11 +566,19 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       // MOTIVO en su PROPIA columna (ya no debajo del estado). Avería/parada muestran su
       // motivo; una jornada FINALIZADA con cierre manual anticipado muestra el MOTIVO DE
       // CIERRE (close_reason) que el inspector escribió al finalizar antes de tiempo.
-      const motivoCell = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
+      // Quién INICIÓ (jornada_marked_by) y quién FINALIZÓ (recorded_by del cierre manual).
+      // Se muestran en cualquier estado donde apliquen (en curso muestra iniciada por;
+      // finalizada muestra ambos si están).
+      const firmaLineas: string[] = [];
+      if (m.iniBy) firmaLineas.push(`<span style="color:#059669;font-size:9px">▶️ Inició: ${esc(m.iniBy)}</span>`);
+      if (m.cierreFinBy) firmaLineas.push(`<span style="color:#1D4ED8;font-size:9px">🏁 Finalizó: ${esc(m.cierreFinBy)}</span>`);
+      const firmaCell = firmaLineas.join('<br/>');
+      const motivoBase = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
         ? `<span style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</span>`
         : (m.estado === 'finalizada' && m.cierreMotivo)
           ? `<span style="color:#B45309;font-size:10px">📝 ${esc(m.cierreMotivo)}</span>`
-          : '—';
+          : '';
+      const motivoCell = [motivoBase, firmaCell].filter(Boolean).join('<br/>') || '—';
       // Horario: solo se muestra si la jornada de este turno inició (en curso) o dejó
       // horas trabajadas (finalizada, o avería/parada con trabajo parcial antes de parar).
       // Una máquina que nunca inició este turno (pendiente, sin horas) muestra "—".

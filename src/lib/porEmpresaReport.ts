@@ -67,6 +67,9 @@ type Fila = {
   // Motivo de CIERRE (cierre manual anticipado): close_reason del tramo. Se muestra
   // en línea junto al horario cuando la jornada finalizó antes de la hora de fin.
   cierreMotivo: string;
+  // Quién INICIÓ (jornada_marked_by) y quién FINALIZÓ (recorded_by del cierre) la jornada.
+  iniBy: string;
+  cierreFinBy: string;
 };
 
 /**
@@ -96,7 +99,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
 
   // Lecturas del día en PARALELO (todas dependen solo de `ids`/`date`) — una sola
   // espera de red en vez de 5 encadenadas al generar el reporte.
-  const roundsSelect = 'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift';
+  const roundsSelect = 'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift, jornada_marked_by';
   // La ventana de avería/parada llega hasta las 07:00 del día SIGUIENTE (no medianoche):
   // el turno noche va de 19:00 a 07:00+1, así que una avería/parada marcada (o reactivada)
   // a la 1am cae dentro del turno noche de HOY — igual criterio que inspectorReport.ts.
@@ -111,7 +114,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     selectAllRows('machine_rounds', roundsSelect, (q) => q.eq('round_date', isoYesterday(date)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null).in('machinery_id', ids)),
     // 2b) Tramos trabajados del día (machine_work_segments) — CADA fila (no solo el
     //     agregado) para reconstruir la línea de tiempo y las horas paradas (span − trabajado).
-    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, hours, source, close_reason', (q) => q.eq('round_date', date).in('machinery_id', ids)),
+    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, hours, source, close_reason, recorded_by', (q) => q.eq('round_date', date).in('machinery_id', ids)),
     // 3) Inspector asignado (CHECK) por turno.
     listInspectorAssignments(),
     // 4) Avería/parada PENDIENTE vigente (arrastrada) + las RESUELTAS este día (para la
@@ -136,6 +139,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const segsByMachine = new Map<string, { start: number; end: number }[]>();
   // MOTIVO DE CIERRE (cierre manual anticipado): del tramo con close_reason más reciente.
   const cierreMotivoByMachine = new Map<string, { motivo: string; ms: number }>();
+  // FINALIZADA POR: usuario que cerró la jornada (recorded_by del último tramo de cierre manual).
+  const cierreFinByMachine = new Map<string, { id: string; ms: number }>();
   ((segs ?? []) as any[]).forEach((s) => {
     const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
     const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
@@ -152,7 +157,20 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     }
     const cr = (s.close_reason || '').trim();
     if (cr && !isNaN(en)) { const p = cierreMotivoByMachine.get(s.machinery_id); if (!p || en > p.ms) cierreMotivoByMachine.set(s.machinery_id, { motivo: cr, ms: en }); }
+    if ((s.source === 'manual_finish' || s.source === 'manual_finish_early') && s.recorded_by && !isNaN(en)) {
+      const p = cierreFinByMachine.get(s.machinery_id); if (!p || en > p.ms) cierreFinByMachine.set(s.machinery_id, { id: s.recorded_by, ms: en });
+    }
   });
+  // Nombres (full_name) por id para "Iniciada por / Finalizada por". Solo los ids que
+  // aparecen como iniciador de ronda o finalizador de tramo (consulta acotada).
+  const nameById: Record<string, string> = {};
+  const idsPersona = new Set<string>();
+  roundBy.forEach((r) => { if (r?.jornada_marked_by) idsPersona.add(r.jornada_marked_by); });
+  cierreFinByMachine.forEach((v) => idsPersona.add(v.id));
+  if (idsPersona.size) {
+    const { data: profs } = await supabase.from('profiles').select('id, full_name').in('id', Array.from(idsPersona));
+    ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; });
+  }
 
   // 3) Inspector asignado (CHECK) por turno (`assigns`, traído arriba).
   const dayInsp = new Map<string, string>();
@@ -457,6 +475,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       motivoNoche: (siempreActivoIds.has(id) || !nightStarted) ? '' : (motivoDe(motRows(id, grupo), 'night')
         || (esParadaDeclarada && r?.jornada_shift === 'night' ? 'No trabajó (jornada en 0 h)' : '')),
       cierreMotivo: grupo === 'activa' ? (cierreMotivoByMachine.get(id)?.motivo || '') : '',
+      iniBy: nameById[r?.jornada_marked_by || ''] || '',
+      cierreFinBy: nameById[cierreFinByMachine.get(id)?.id || ''] || '',
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
     porEmpresa.get(empresa)!.push(fila);
@@ -487,7 +507,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
         colTurno(f.diaHoras > 0, f.diaIni, f.diaFin, f.diaEnCurso, f.diaHoras, f.motivoDia) +
         colTurno(f.nocheHoras > 0, f.nocheIni, f.nocheFin, f.nocheEnCurso, f.nocheHoras, f.motivoNoche);
       // Cierre manual anticipado: el MOTIVO va bajo el nombre de la máquina (no rompe columnas).
-      const cierreNota = f.cierreMotivo ? `<div style="color:#B45309;font-size:9px;margin-top:1px">📝 ${esc(f.cierreMotivo)}</div>` : '';
+      // Debajo, quién INICIÓ y quién FINALIZÓ la jornada (nombre y apellido) cuando aplique.
+      const cierreNota = (f.cierreMotivo ? `<div style="color:#B45309;font-size:9px;margin-top:1px">📝 ${esc(f.cierreMotivo)}</div>` : '')
+        + (f.iniBy ? `<div style="color:#059669;font-size:9px">▶️ Inició: ${esc(f.iniBy)}</div>` : '')
+        + (f.cierreFinBy ? `<div style="color:#1D4ED8;font-size:9px">🏁 Finalizó: ${esc(f.cierreFinBy)}</div>` : '');
       return `<tr${cls(f.grupo)}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b>${cierreNota}</td><td>${esc(dash(f.modelo))}</td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>

@@ -957,6 +957,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
   > informes — **por firma, por empresa y por jornada** — junto a la máquina. (Antes solo quedaba en
   > la bitácora; el `source='manual_finish_early'` no lo permitía el CHECK de la tabla y el motivo se
   > perdía — corregido con `supabase/machine_segments_source_finish_early.sql`.)
+  > **▶️ Iniciada por / 🏁 Finalizada por (13-ago-2026):** cada jornada ahora muestra **quién la inició**
+  > y **quién la finalizó** (nombre y apellido del supervisor/inspector). Aparece **sincronizado en todas
+  > las tarjetas** del panel de Inspecciones (lista de máquinas al abrir cualquier categoría y su detalle)
+  > y en los tres informes — **por firma, por empresa y por jornada**. El "iniciada por" queda guardado en
+  > `machine_rounds.jornada_marked_by` (no se pisa al finalizar) y el "finalizada por" sale del `recorded_by`
+  > del tramo de cierre manual. El **cierre automático** de las 7pm/7am no lleva persona (lo hace el sistema).
+  > Requiere correr `supabase/machine_rounds_jornada_marked_by.sql`.
 - **⛔ Detener la máquina → 🟡 PARADA** — al tocarlo se despliegan **2 caminos** para elegir:
   - **🔧 Por avería** — elige el **material** (🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto ·
     ✏️ Otro), escribe el **texto de la falla** (obligatorio solo si eliges "Otro") y, opcional,
