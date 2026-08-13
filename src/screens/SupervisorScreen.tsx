@@ -3250,17 +3250,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>🔒 Máquina de otro inspector</Text>
                   <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar su jornada.{duenoTxt ? ` Asignada a: ${duenoTxt}.` : ''}</Text>
                 </View>
-              ) : ci && !jornadaStart && segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'parada' ? (
-                // Máquina PARADA sin jornada abierta: no se puede iniciar jornada estando
-                // parada — primero hay que volver a ponerla OPERATIVA (botón de abajo).
-                // POR TURNO (día indep. de noche): una parada marcada de DÍA NO bloquea al
-                // inspector de NOCHE (antes usaba paradaIds, sin turno → el status de día
-                // le tapaba al de noche y no podía iniciar). Ahora usa el MISMO clasificador
-                // por-turno que la pantalla (segmentoConTurno) para el turno que va a iniciar.
-                <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>🟡 Máquina parada</Text>
-                  <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar jornada mientras esté parada. Vuélvela a OPERATIVA primero (abajo).</Text>
-                </View>
+              ) : ci && !jornadaStart && (segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'parada' || segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'averia') ? (
+                // Máquina PARADA o AVERIADA sin jornada abierta: no se puede iniciar jornada —
+                // primero hay que volver a ponerla OPERATIVA (botón de abajo). En el caso
+                // AVERIADA esto es CLAVE: "Volver a OPERATIVA" RESUELVE la avería en
+                // Mantenimiento; si en cambio se iniciara jornada directo, la avería quedaría
+                // pendiente y se ARRASTRARÍA → la máquina reaparecía 🔴 AVERIADA al día
+                // siguiente (bug reportado 13-ago-2026). Flujo correcto: averiada → VOLVER
+                // OPERATIVA → INICIAR JORNADA.
+                // POR TURNO (día indep. de noche): una parada/avería marcada de DÍA NO bloquea
+                // al inspector de NOCHE. Usa el MISMO clasificador por-turno (segmentoConTurno).
+                (() => {
+                  const segNow = segmentoConTurno(ci.id, fixedShift ?? iniShift);
+                  const averiada = segNow === 'averia';
+                  return (
+                    <View style={{ backgroundColor: averiada ? colors.dangerSoftBg : colors.warningSoftBg, borderWidth: 1, borderColor: averiada ? colors.dangerSoftBorder : colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>{averiada ? '🔴 Máquina averiada' : '🟡 Máquina parada'}</Text>
+                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar jornada mientras esté {averiada ? 'averiada' : 'parada'}. Vuélvela a OPERATIVA primero (abajo){averiada ? ' — así se cierra la avería en Mantenimiento y no vuelve a aparecer averiada mañana' : ''}.</Text>
+                    </View>
+                  );
+                })()
               ) : jornadaStart ? (
                 <View style={{ marginBottom: spacing.sm }}>
                   <View style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
@@ -3376,15 +3385,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   de NOCHE (antes usaba paradaIds sin turno → el de noche veía la parada del
                   día y no podía ni iniciar ni "volver operativa" lo suyo). Mismo clasificador
                   por-turno que la pantalla, para el turno que va a iniciar. */}
-              {ci && segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'parada' ? (
-                <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>🟡 Esta máquina está marcada PARADA.</Text>
-                  {paradaMotivoDe(ci.id) ? <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivoDe(ci.id)}</Text> : null}
-                  <TouchableOpacity onPress={volverOperativa} disabled={ciSaving} style={{ marginTop: spacing.xs, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟢 Volver a OPERATIVA'}</Text>
-                  </TouchableOpacity>
-                  <Text style={{ color: colors.warningSoftText, fontSize: 11, marginTop: 4 }}>Cierra la avería en Mantenimiento y la máquina deja de aparecer como parada en Control.</Text>
-                </View>
+              {ci && (segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'parada' || segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'averia') ? (
+                (() => {
+                  const averiada = segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'averia';
+                  return (
+                    <View style={{ backgroundColor: averiada ? colors.dangerSoftBg : colors.warningSoftBg, borderWidth: 1, borderColor: averiada ? colors.dangerSoftBorder : colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>{averiada ? '🔴 Esta máquina está marcada AVERIADA.' : '🟡 Esta máquina está marcada PARADA.'}</Text>
+                      {paradaMotivoDe(ci.id) ? <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivoDe(ci.id)}</Text> : null}
+                      <TouchableOpacity onPress={volverOperativa} disabled={ciSaving} style={{ marginTop: spacing.xs, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : (averiada ? '🟢 Volver a OPERATIVA (y luego iniciar jornada)' : '🟢 Volver a OPERATIVA')}</Text>
+                      </TouchableOpacity>
+                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontSize: 11, marginTop: 4 }}>Cierra la avería en Mantenimiento y la máquina deja de aparecer como {averiada ? 'averiada' : 'parada'} en Control{averiada ? '. Después podrás iniciar la jornada' : ''}.</Text>
+                    </View>
+                  );
+                })()
               ) : null}
 
               {/* PARADA → 2 caminos: "por avería" (Mantenimiento + Inspecciones) o
