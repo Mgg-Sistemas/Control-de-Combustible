@@ -2194,6 +2194,10 @@ ve en el mapa y el catálogo).
   tocar "Trabajando" o "Averiadas" **filtra** la lista, y tocar "m³ removidos hoy" / "Edificios hoy" /
   "m³ totales" abre el **módulo de m³ por edificio**. Por cada máquina registra **visita (GPS)**,
   **inicia/finaliza jornada**, marca **avería o parada** y **actualiza ubicación**.
+- **POR USUARIO (sesión) en el teléfono:** cada supervisor ve y maneja **solo SUS** edificios y m³
+  (los del otro le son indiferentes). Los **m³ removidos hoy**, los **edificios de hoy** y el **Reporte
+  del día** son de su sesión. Lo **único compartido** entre todos es **m³ totales** (el acumulado global
+  de toda la operación). En el **panel de PC** todo se ve **consolidado** (todos los supervisores).
 - **m³ removidos (por EDIFICIO, ya NO por máquina):** con el botón **⛰️ Removidos hoy · por edificio**
   se abre un módulo aparte. Elige el edificio (la lista está **agrupada por sub-sector**: El Palmar,
   Los Corales…) y escribe los **m³ removidos hoy** de ese edificio. La **primera vez** de cada edificio

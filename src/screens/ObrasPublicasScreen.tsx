@@ -11,7 +11,7 @@ import { useToast } from '../components/ToastProvider';
 import {
   listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
   opStartJornada, opFinishJornada, opMarkMaint, opClearMaint, opRegistrarVisita, updateMachineLocation,
-  fetchEdificioResumen, OpEdificioResumen,
+  fetchEdificioResumen, fetchEdificioM3TotalGlobal, OpEdificioResumen,
   fetchMyDailyReport, saveDailyReport, OpDailyReport,
   fetchEdificioReportesDia, OpEdificioReporte,
   OpRound, OpMaint,
@@ -58,7 +58,8 @@ export default function ObrasPublicasScreen() {
   const [machines, setMachines] = useState<Maquina[]>([]);
   const [rounds, setRounds] = useState<Record<string, OpRound>>({});
   const [maint, setMaint] = useState<Record<string, OpMaint>>({});
-  const [resumenEdif, setResumenEdif] = useState<Record<string, OpEdificioResumen>>({}); // m³ removidos por edificio
+  const [resumenEdif, setResumenEdif] = useState<Record<string, OpEdificioResumen>>({}); // m³ removidos POR USUARIO
+  const [m3TotalGlobal, setM3TotalGlobal] = useState(0); // m³ totales GLOBAL (compartido)
   const [removidosOpen, setRemovidosOpen] = useState(false);
   const [q, setQ] = useState('');
   const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
@@ -93,9 +94,14 @@ export default function ObrasPublicasScreen() {
     if (!uid) { setLoading(false); return; }
     try {
       const ids = await listMyOpMachineIds(uid);
-      // El resumen de m³ por edificio es GLOBAL (no depende de las máquinas asignadas).
-      const resu = await fetchEdificioResumen(roundDate).catch(() => ({} as Record<string, OpEdificioResumen>));
+      // POR USUARIO (sesión): el resumen de m³/edificios es SOLO de este supervisor
+      // (los edificios de otro le son indiferentes). Lo único compartido es "m³ totales".
+      const [resu, m3TotG] = await Promise.all([
+        fetchEdificioResumen(roundDate, uid).catch(() => ({} as Record<string, OpEdificioResumen>)),
+        fetchEdificioM3TotalGlobal(roundDate).catch(() => 0),
+      ]);
       setResumenEdif(resu);
+      setM3TotalGlobal(m3TotG);
       if (!ids.length) { setMachines([]); setRounds({}); setMaint({}); return; }
       const [{ data: machs }, r, mt] = await Promise.all([
         supabase.from('machinery').select('*').in('id', ids),
@@ -151,9 +157,8 @@ export default function ObrasPublicasScreen() {
       if (est === 'trabajando') trabajando += 1;
       if (est === 'averia') averiadas += 1;
     });
-    const edifs = Object.values(resumenEdif);
+    const edifs = Object.values(resumenEdif); // POR USUARIO
     const m3Hoy = edifs.reduce((a, r) => a + r.removido_hoy, 0);
-    const m3Tot = edifs.reduce((a, r) => a + r.acumulado, 0);
     const edificiosHoy = edifs.filter((r) => r.removido_hoy > 0).length;
     const r1 = (n: number) => Math.round(n * 10) / 10;
     return [
@@ -162,10 +167,11 @@ export default function ObrasPublicasScreen() {
       { key: 'asignadas', label: 'Máquinas asignadas', value: machines.length, tone: 'brand', icon: '🚜' },
       { key: 'trabajando', label: 'Trabajando', value: trabajando, tone: 'success', icon: '🟢' },
       { key: 'averiadas', label: 'Averiadas', value: averiadas, tone: 'danger', icon: '🔧' },
-      { key: 'm3tot', label: 'm³ totales', value: r1(m3Tot), tone: 'accent', icon: '📦' },
+      // m³ totales = GLOBAL (compartido por todos los supervisores).
+      { key: 'm3tot', label: 'm³ totales', value: r1(m3TotalGlobal), tone: 'accent', icon: '📦' },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machines, rounds, maint, resumenEdif]);
+  }, [machines, rounds, maint, resumenEdif, m3TotalGlobal]);
 
   // Tocar una tarjeta KPI abre el DETALLE (con fechas) de lo que hay detrás del número.
   const onKpi = (k: string) => { setKpiDetail(k); setKpiDetailQ(''); };
@@ -311,13 +317,13 @@ export default function ObrasPublicasScreen() {
   // edificio (m³, acarreo, maquinaria, cuerpos, actividades…). Aquí NO se ingresa nada.
   const abrirReporteDia = async () => {
     setDailyOpen(true); setRepDia(null);
-    try { setRepDia(await fetchEdificioReportesDia(roundDate)); }
+    try { setRepDia(await fetchEdificioReportesDia(roundDate, uid)); } // POR USUARIO
     catch { setRepDia([]); }
   };
   const enviarReporteWhatsApp = async () => {
     setRepDiaShare(true);
     try {
-      const texto = await buildOpEdificioWhatsApp(roundDate);
+      const texto = await buildOpEdificioWhatsApp(roundDate, uid);
       if (!texto) { toast.error('Aún no hay datos cargados hoy.'); return; }
       await Linking.openURL('https://wa.me/?text=' + encodeURIComponent(texto));
     } catch { toast.error('No se pudo abrir WhatsApp.'); }

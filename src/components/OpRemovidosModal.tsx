@@ -74,7 +74,8 @@ export default function OpRemovidosModal({
     setLoading(true);
     try {
       const [r, e, reps, maqs, ext] = await Promise.all([
-        fetchEdificioResumen(date), fetchEdificiosConSector(), fetchEdificioReportesDia(date),
+        // Por usuario: cada supervisor ve SOLO sus edificios/removidos.
+        fetchEdificioResumen(date, supervisorId), fetchEdificiosConSector(), fetchEdificioReportesDia(date, supervisorId),
         supervisorId ? listMyOpMachines(supervisorId).catch(() => [] as OpMyMachine[]) : Promise.resolve([] as OpMyMachine[]),
         // Máquinas externas: si aún no se corrió op_external_machines.sql, degrada a [].
         listOpExternalMachines(supervisorId).catch(() => [] as OpMyMachine[]),
@@ -216,7 +217,7 @@ export default function OpRemovidosModal({
   const enviarWhatsApp = async () => {
     setSharing(true); setMsg(null);
     try {
-      const texto = await buildOpEdificioWhatsApp(date);
+      const texto = await buildOpEdificioWhatsApp(date, supervisorId);
       if (!texto) { setMsg({ tone: 'err', text: 'No hay nada reportado hoy. Guarda primero los m³/detalle.' }); return; }
       await Linking.openURL('https://wa.me/?text=' + encodeURIComponent(texto));
     } catch {
