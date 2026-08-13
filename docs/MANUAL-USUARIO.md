@@ -911,6 +911,15 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > conteo. Solo se quita marcando la máquina **🟢 Volver a OPERATIVA**. Como la **eficiencia**
 > (ver arriba) se calcula por horas trabajadas, una máquina **averiada o parada** todo el turno
 > también le baja el % al inspector — no solo las que dejó **sin tocar** (pendientes).
+>
+> **🟡 Parada "NO TRABAJÓ" = solo por su turno (13-ago-2026):** a diferencia de la avería, una
+> parada marcada por el camino **"📍 Parada / No trabajó"** vale **solo para el turno en que se
+> marcó**. Al **cerrar el turno** (día 7pm / noche 7am) esa parada **se resuelve sola** y la
+> máquina vuelve a salir **⏳ pendiente por iniciar** al día siguiente — **ya no se arrastra**.
+> Así **solo quedan 🔴 averiadas** las que de verdad necesitan **Volver operativa e iniciar
+> jornada**. La **parada POR AVERÍA** sí sigue arrastrándose (por su ticket de avería real) hasta
+> que se resuelva. Aplica a **ambos turnos**. (Automático vía cron
+> `expira_paradas_no_trabajo_al_cerrar_turno.sql`.)
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
