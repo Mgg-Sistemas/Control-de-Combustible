@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, RefreshControl, ActivityIndicator, Linking } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useAuth } from '../context/AuthContext';
@@ -13,9 +13,10 @@ import {
   opStartJornada, opFinishJornada, opMarkMaint, opClearMaint, opRegistrarVisita, updateMachineLocation,
   fetchEdificioResumen, OpEdificioResumen,
   fetchMyDailyReport, saveDailyReport, OpDailyReport,
+  fetchEdificioReportesDia, OpEdificioReporte,
   OpRound, OpMaint,
 } from '../lib/obrasPublicas';
-import { generateObrasPublicasDailyReport, generateOpActivityReport } from '../lib/obrasPublicasReport';
+import { generateObrasPublicasDailyReport, generateOpActivityReport, buildOpEdificioWhatsApp } from '../lib/obrasPublicasReport';
 import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
 import EdificioPicker from '../components/EdificioPicker';
 import OpRemovidosModal from '../components/OpRemovidosModal';
@@ -66,6 +67,8 @@ export default function ObrasPublicasScreen() {
 
   // Reporte de Actividades (consolidado del día de la supervisora).
   const [dailyOpen, setDailyOpen] = useState(false);
+  const [repDia, setRepDia] = useState<OpEdificioReporte[] | null>(null); // reporte del día (SOLO LECTURA, traído)
+  const [repDiaShare, setRepDiaShare] = useState(false);
   const [daily, setDaily] = useState<OpDailyReport | null>(null);
   const [dailyBusy, setDailyBusy] = useState(false);
   const [dailyPdf, setDailyPdf] = useState(false);
@@ -303,7 +306,39 @@ export default function ObrasPublicasScreen() {
     finally { setReporting(false); }
   };
 
+  // "Reporte del día" = SOLO LECTURA: TRAE lo que el supervisor ya cargó hoy por
+  // edificio (m³, acarreo, maquinaria, cuerpos, actividades…). Aquí NO se ingresa nada.
   const abrirReporteDia = async () => {
+    setDailyOpen(true); setRepDia(null);
+    try { setRepDia(await fetchEdificioReportesDia(roundDate)); }
+    catch { setRepDia([]); }
+  };
+  const enviarReporteWhatsApp = async () => {
+    setRepDiaShare(true);
+    try {
+      const texto = await buildOpEdificioWhatsApp(roundDate);
+      if (!texto) { toast.error('Aún no hay datos cargados hoy.'); return; }
+      await Linking.openURL('https://wa.me/?text=' + encodeURIComponent(texto));
+    } catch { toast.error('No se pudo abrir WhatsApp.'); }
+    finally { setRepDiaShare(false); }
+  };
+  // Consolidado del día por edificio (agrupado por sub-sector) + totales.
+  const repDiaView = useMemo(() => {
+    const rows = (repDia ?? []).filter((r) => (r.m3 || 0) > 0 || (r.m3_acarreados || 0) > 0 || (r.viajes || 0) > 0
+      || (r.supervivientes || 0) > 0 || (r.fallecidos || 0) > 0
+      || r.maq_en_uso || r.maq_inoperativo || r.maq_requerimiento || r.actividades || r.entregado);
+    const map = new Map<string, OpEdificioReporte[]>();
+    rows.forEach((r) => { const s = (r.sub_sector || '').trim() || 'SIN SUB-SECTOR'; if (!map.has(s)) map.set(s, []); map.get(s)!.push(r); });
+    const groups = Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]))
+      .map(([s, items]) => [s, items.sort((a, b) => cmpText(a.edificio, b.edificio))] as [string, OpEdificioReporte[]]);
+    const tot = rows.reduce((a, r) => ({
+      rem: a.rem + (r.m3 || 0), aca: a.aca + (r.m3_acarreados || 0), via: a.via + (r.viajes || 0),
+      acum: a.acum + (r.acumulado || 0), sup: a.sup + (r.supervivientes || 0), fal: a.fal + (r.fallecidos || 0),
+    }), { rem: 0, aca: 0, via: 0, acum: 0, sup: 0, fal: 0 });
+    return { groups, tot, count: rows.length };
+  }, [repDia]);
+
+  const abrirReporteDiaViejo_NO_USAR = async () => {
     setDailyBusy(true); setDailyOpen(true); setDailyMsg(null); setDaily(null);
     try { setDaily(await fetchMyDailyReport(uid, roundDate, fullName || 'Supervisor')); }
     catch (e: any) {
@@ -552,70 +587,66 @@ export default function ObrasPublicasScreen() {
         </View>
       </Modal>
 
-      {/* Reporte de Actividades (consolidado del día) */}
+      {/* 📋 REPORTE DEL DÍA — SOLO LECTURA: trae lo cargado por edificio (no se ingresa nada aquí) */}
       <Modal visible={dailyOpen} animationType="slide" transparent onRequestClose={() => setDailyOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
             <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.sm }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>📋 Reporte de Actividades</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>📋 Reporte del día</Text>
                 <TouchableOpacity onPress={() => setDailyOpen(false)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
               </View>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>{fullName || 'Supervisor'} · {nowParts.iso.split('-').reverse().join('/')}</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>{fullName || 'Supervisor'} · {roundDate.split('-').reverse().join('/')} · datos cargados hoy</Text>
 
-              {daily == null ? (
+              {repDia == null ? (
                 <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
+              ) : repDiaView.count === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 13, marginVertical: spacing.md }}>
+                  Aún no hay datos cargados hoy. Registra los m³ y el detalle en <Text style={{ fontWeight: '800' }}>⛰️ Removidos hoy · por edificio</Text>.
+                </Text>
               ) : (<>
-                {([
-                  ['N° de reporte', 'reporte_no'],
-                  ['M³ removidos controlada (día)', 'm3_removidos_dia'],
-                  ['M³ acarreo de vestigios (día)', 'm3_acarreo_dia'],
-                  ['Cuerpos siniestrados (día)', 'cuerpos_dia'],
-                  ['Traslado camión (día)', 'traslado_camion_dia'],
-                ] as const).map(([label, key]) => (
-                  <View key={key} style={{ gap: 4 }}>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>{label}</Text>
-                    <TextInput
-                      value={(daily as any)[key] ? String((daily as any)[key]) : ''}
-                      onChangeText={(t) => setDf({ [key]: key === 'reporte_no' ? (t.trim() === '' ? null : Math.round(numOf(t))) : (key === 'cuerpos_dia' || key === 'traslado_camion_dia') ? Math.round(numOf(t)) : numOf(t) } as any)}
-                      placeholder="0"
-                      placeholderTextColor={colors.muted}
-                      keyboardType="numeric"
-                      style={input}
-                    />
+                {/* Totales del día */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {[
+                    ['⛰️ Removidos hoy', `${Math.round(repDiaView.tot.rem * 10) / 10} m³`],
+                    ['📦 Acumulado', `${Math.round(repDiaView.tot.acum * 10) / 10} m³`],
+                    ['🚚 Acarreados', `${Math.round(repDiaView.tot.aca * 10) / 10} m³`],
+                    ['🔁 Viajes', `${repDiaView.tot.via}`],
+                    ['🏢 Edificios', `${repDiaView.count}`],
+                    ...(repDiaView.tot.sup || repDiaView.tot.fal ? [['⚰️ Cuerpos', `${repDiaView.tot.sup} / ${repDiaView.tot.fal}`] as [string, string]] : []),
+                  ].map(([l, v]) => (
+                    <View key={l} style={{ flexGrow: 1, minWidth: '30%', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>{l}</Text>
+                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>{v}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Por edificio (agrupado por sub-sector) */}
+                {repDiaView.groups.map(([sec, items]) => (
+                  <View key={sec} style={{ gap: 4, marginTop: spacing.xs }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>📍 {sec}</Text>
+                    {items.map((r) => (
+                      <View key={r.edificio} style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm, gap: 2 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>🏢 {r.edificio}{r.entregado ? '  ✅' : ''}</Text>
+                          <Text style={{ color: colors.accent, fontWeight: '900', fontSize: 13 }}>{Math.round((r.m3 || 0) * 10) / 10} m³</Text>
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>Acumulado: {Math.round((r.acumulado || 0) * 10) / 10} m³</Text>
+                        {(r.m3_acarreados || r.viajes) ? <Text style={{ color: colors.muted, fontSize: 11 }}>Acarreados: {Math.round((r.m3_acarreados || 0) * 10) / 10} m³ · Viajes: {r.viajes || 0}</Text> : null}
+                        {r.maq_en_uso ? <Text style={{ color: colors.muted, fontSize: 11 }}>🚜 En uso: {r.maq_en_uso}</Text> : null}
+                        {r.maq_inoperativo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🛑 Inoperativa: {r.maq_inoperativo}</Text> : null}
+                        {r.maq_requerimiento ? <Text style={{ color: colors.muted, fontSize: 11 }}>📋 Requerimiento: {r.maq_requerimiento}</Text> : null}
+                        {(r.supervivientes || r.fallecidos) ? <Text style={{ color: colors.muted, fontSize: 11 }}>⚰️ Cuerpos: {r.supervivientes || 0} sup · {r.fallecidos || 0} fall</Text> : null}
+                        {r.actividades ? <Text style={{ color: colors.muted, fontSize: 11 }}>📝 {r.actividades}</Text> : null}
+                      </View>
+                    ))}
                   </View>
                 ))}
 
-                <EdificioPicker value={daily.edificio ?? ''} onChange={(name) => setDf({ edificio: name })} label="Edificio" placeholder="Selecciona o escribe el edificio…" />
-
-                <View style={{ gap: 4, marginTop: spacing.sm }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>Observación del día</Text>
-                  <TextInput
-                    value={daily.observacion ?? ''}
-                    onChangeText={(t) => setDf({ observacion: t })}
-                    placeholder="Novedades, incidencias, comentarios…"
-                    placeholderTextColor={colors.muted}
-                    multiline
-                    style={[input, { minHeight: 80, textAlignVertical: 'top' }]}
-                  />
-                </View>
-
-                <Text style={{ color: colors.muted, fontSize: 11 }}>Los acumulados "desde inicio" se calculan automáticamente (base + todos los reportes). Se ven en el PDF y en el panel de Obras Públicas.</Text>
-
-                {dailyMsg ? (
-                  <View style={{ backgroundColor: dailyMsg.tone === 'ok' ? colors.successSoftBg : colors.dangerSoftBg, borderWidth: 1, borderColor: dailyMsg.tone === 'ok' ? colors.successSoftBorder : colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
-                    <Text style={{ color: dailyMsg.tone === 'ok' ? colors.successSoftText : colors.dangerSoftText, fontSize: 12, fontWeight: '700' }}>{dailyMsg.tone === 'ok' ? '✅ ' : '⚠️ '}{dailyMsg.text}</Text>
-                  </View>
-                ) : null}
-
-                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
-                  <TouchableOpacity onPress={guardarReporteDia} disabled={dailyBusy || dailyPdf} style={{ flex: 1, backgroundColor: '#16A34A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (dailyBusy || dailyPdf) ? 0.6 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{dailyBusy ? 'Guardando…' : '💾 Guardar'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={pdfReporteDia} disabled={dailyBusy || dailyPdf} style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (dailyBusy || dailyPdf) ? 0.6 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{dailyPdf ? 'Generando…' : '⬇️ Descargar PDF'}</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity onPress={enviarReporteWhatsApp} disabled={repDiaShare} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: '#25D366', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: repDiaShare ? 0.6 : 1 }}>
+                  <Text style={{ color: '#25D366', fontWeight: '800' }}>{repDiaShare ? 'Abriendo…' : '📤 Enviar reporte por WhatsApp'}</Text>
+                </TouchableOpacity>
               </>)}
             </ScrollView>
           </View>
