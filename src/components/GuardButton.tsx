@@ -4,11 +4,13 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { MachineGuard } from '../types/database';
 import { assignGuard, clearGuard, listGuards, listGuardNames, renameGuardName, deleteGuardName } from '../lib/guards';
+import { listOpSupervisors } from '../lib/obrasPublicas';
 import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
 
 // Tipo de supervisor: se guarda en la columna `rank` del registro de guardia.
 const TIPOS = ['Supervisor Obras Públicas', 'Supervisor Militar'] as const;
+const TIPO_OP = TIPOS[0]; // 'Supervisor Obras Públicas'
 
 function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
@@ -45,6 +47,7 @@ export function GuardButton({
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MachineGuard[]>([]);
   const [names, setNames] = useState<string[]>([]);
+  const [opNames, setOpNames] = useState<string[]>([]); // usuarios reales de Obras Públicas
   const [showSug, setShowSug] = useState(false);
   const [saving, setSaving] = useState(false);
   // Gestión de la lista de supervisores (renombrar / borrar en toda la BD).
@@ -63,6 +66,8 @@ export function GuardButton({
     setOpen(true);
     setHistory(await listGuards(machine.id));
     setNames(await listGuardNames());
+    // Usuarios reales de Obras Públicas (para sugerir SOLO ellos cuando el tipo es OP).
+    try { setOpNames((await listOpSupervisors()).map((s) => s.full_name)); } catch { setOpNames([]); }
   };
 
   const reloadNames = async () => {
@@ -142,8 +147,12 @@ export function GuardButton({
 
   // Sugerencias a mostrar: filtra por lo escrito y NO muestra si el texto ya coincide
   // exacto con un nombre (o sea, ya está elegido) para que el desplegable se cierre.
+  // Cuando el tipo es "Supervisor Obras Públicas", la lista son SOLO los usuarios
+  // reales de ese módulo (no el historial libre de nombres); para "Militar" se usa
+  // el historial de nombres ya escritos, como antes.
   const q = name.trim().toLowerCase();
-  const sugNames = names
+  const fuente = rank === TIPO_OP ? opNames : names;
+  const sugNames = fuente
     .filter((n) => (!q || n.toLowerCase().includes(q)) && n.toLowerCase() !== q)
     .slice(0, 8);
 
