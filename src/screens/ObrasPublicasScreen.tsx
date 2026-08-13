@@ -10,7 +10,7 @@ import { cmpText } from '../lib/text';
 import { useToast } from '../components/ToastProvider';
 import {
   listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
-  opStartJornada, opFinishJornada, opMarkMaint, opRegistrarVisita, updateMachineLocation,
+  opStartJornada, opFinishJornada, opMarkMaint, opClearMaint, opRegistrarVisita, updateMachineLocation,
   fetchEdificioResumen, OpEdificioResumen,
   fetchMyDailyReport, saveDailyReport, OpDailyReport,
   OpRound, OpMaint,
@@ -78,6 +78,7 @@ export default function ObrasPublicasScreen() {
   const [avMat, setAvMat] = useState<string | null>(null);
   const [avMotivo, setAvMotivo] = useState('');
   const [ntMotivo, setNtMotivo] = useState('');
+  const [ciMsg, setCiMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null); // aviso EN LÍNEA (el toast queda tapado por el Modal en web)
 
   const nowParts = caracasParts(new Date());
   const roundDate = nowParts.iso;
@@ -169,7 +170,7 @@ export default function ObrasPublicasScreen() {
   const kpiActiveKey = kpiFilter === 'trabajando' ? 'trabajando' : kpiFilter === 'averia' ? 'averiadas' : null;
 
   const openDetail = (m: Maquina) => {
-    setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo('');
+    setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo(''); setCiMsg(null);
   };
 
   const capturarGps = async (): Promise<{ lat: number; lng: number } | null> => {
@@ -181,7 +182,7 @@ export default function ObrasPublicasScreen() {
 
   const registrarVisita = async (status: string) => {
     if (!ci) return;
-    setBusy(true);
+    setBusy(true); setCiMsg(null);
     try {
       const c = gps ?? (await capturarGps());
       await opRegistrarVisita({
@@ -189,34 +190,44 @@ export default function ObrasPublicasScreen() {
         visitDate: roundDate, status, lat: c?.lat ?? null, lng: c?.lng ?? null,
         machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null,
       });
+      const lbl = status === 'trabajando' ? 'Trabajando' : status === 'parada' ? 'Parada' : 'No está';
+      setCiMsg({ tone: 'ok', text: `✅ Visita registrada: ${lbl}${c ? '' : ' (sin GPS)'}.` });
       toast.success('Visita registrada.');
-    } catch (e: any) { toast.error(e?.message ?? 'No se pudo registrar la visita.'); }
+    } catch (e: any) { setCiMsg({ tone: 'err', text: 'No se pudo registrar la visita: ' + (e?.message ?? 'error') }); toast.error(e?.message ?? 'No se pudo registrar la visita.'); }
     finally { setBusy(false); }
   };
 
   const iniciarJornada = async () => {
     if (!ci) return;
-    setBusy(true);
-    try { await opStartJornada(ci.id, roundDate, shift, uid); await load(); toast.success('Jornada iniciada.'); setCi(null); }
-    catch (e: any) { toast.error(e?.message ?? 'No se pudo iniciar la jornada.'); }
+    setBusy(true); setCiMsg(null);
+    try {
+      // Poner a TRABAJAR = operativa: una máquina NO puede estar averiada/parada y
+      // trabajando a la vez. Si tenía avería/parada pendiente, la resolvemos al iniciar.
+      if (maint[ci.id]) await opClearMaint(ci.id);
+      await opStartJornada(ci.id, roundDate, shift, uid);
+      await load();
+      setCiMsg({ tone: 'ok', text: '✅ Jornada iniciada (máquina operativa).' });
+      toast.success('Jornada iniciada.');
+    }
+    catch (e: any) { setCiMsg({ tone: 'err', text: 'No se pudo iniciar la jornada: ' + (e?.message ?? 'error') }); toast.error(e?.message ?? 'No se pudo iniciar la jornada.'); }
     finally { setBusy(false); }
   };
 
   const finalizarJornada = async () => {
     if (!ci) return;
     const r = rounds[ci.id];
-    if (!r?.jornada_start_at) { toast.error('No hay jornada abierta.'); return; }
-    setBusy(true);
-    try { await opFinishJornada(r, uid); await load(); toast.success('Jornada finalizada.'); setCi(null); }
-    catch (e: any) { toast.error(e?.message ?? 'No se pudo finalizar.'); }
+    if (!r?.jornada_start_at) { setCiMsg({ tone: 'err', text: 'No hay jornada abierta.' }); toast.error('No hay jornada abierta.'); return; }
+    setBusy(true); setCiMsg(null);
+    try { await opFinishJornada(r, uid); await load(); setCiMsg({ tone: 'ok', text: '✅ Jornada finalizada.' }); toast.success('Jornada finalizada.'); }
+    catch (e: any) { setCiMsg({ tone: 'err', text: 'No se pudo finalizar: ' + (e?.message ?? 'error') }); toast.error(e?.message ?? 'No se pudo finalizar.'); }
     finally { setBusy(false); }
   };
 
   const marcarParada = async () => {
     if (!ci) return;
-    if (paradaTab === 'averia' && (!avMat || !avMotivo.trim())) { toast.error('Elige el material y describe la falla.'); return; }
-    if (paradaTab === 'no_trabajo' && !ntMotivo.trim()) { toast.error('Escribe el motivo.'); return; }
-    setBusy(true);
+    if (paradaTab === 'averia' && (!avMat || !avMotivo.trim())) { setCiMsg({ tone: 'err', text: 'Elige el material y describe la falla.' }); toast.error('Elige el material y describe la falla.'); return; }
+    if (paradaTab === 'no_trabajo' && !ntMotivo.trim()) { setCiMsg({ tone: 'err', text: 'Escribe el motivo.' }); toast.error('Escribe el motivo.'); return; }
+    setBusy(true); setCiMsg(null);
     try {
       if (paradaTab === 'averia') {
         await opMarkMaint(ci.id, avMat!, avMotivo.trim(), shift, roundDate, uid);          // avería real
@@ -224,21 +235,34 @@ export default function ObrasPublicasScreen() {
       } else {
         await opMarkMaint(ci.id, 'MÁQUINA PARADA', `NO TRABAJÓ · ${ntMotivo.trim()}`, shift, roundDate, uid);
       }
-      await load(); toast.success('Máquina marcada como parada.'); setCi(null);
-    } catch (e: any) { toast.error(e?.message ?? 'No se pudo marcar.'); }
+      await load(); setCiMsg({ tone: 'ok', text: '✅ Máquina marcada como parada/avería.' }); toast.success('Máquina marcada como parada.');
+      setAvMat(null); setAvMotivo(''); setNtMotivo('');
+    } catch (e: any) { setCiMsg({ tone: 'err', text: 'No se pudo marcar: ' + (e?.message ?? 'error') }); toast.error(e?.message ?? 'No se pudo marcar.'); }
+    finally { setBusy(false); }
+  };
+
+  const ponerOperativa = async () => {
+    if (!ci) return;
+    setBusy(true); setCiMsg(null);
+    try {
+      await opClearMaint(ci.id);
+      await load();
+      setCiMsg({ tone: 'ok', text: '✅ Máquina puesta operativa (se quitó la avería/parada).' });
+      toast.success('Máquina operativa.');
+    } catch (e: any) { setCiMsg({ tone: 'err', text: 'No se pudo poner operativa: ' + (e?.message ?? 'error') }); toast.error(e?.message ?? 'No se pudo.'); }
     finally { setBusy(false); }
   };
 
   const actualizarUbicacion = async () => {
     if (!ci) return;
-    setBusy(true);
+    setBusy(true); setCiMsg(null);
     try {
       const c = gps ?? (await capturarGps());
-      if (!c) { setBusy(false); return; }
+      if (!c) { setCiMsg({ tone: 'err', text: 'No se pudo obtener el GPS. Activa la ubicación y reintenta.' }); setBusy(false); return; }
       await updateMachineLocation(ci.id, c.lat, c.lng);
       setMachines((prev) => prev.map((m) => (m.id === ci.id ? { ...m, latitude: c.lat, longitude: c.lng } : m)));
-      toast.success('Ubicación actualizada (se refleja en el mapa).');
-    } catch (e: any) { toast.error(e?.message ?? 'No se pudo actualizar la ubicación.'); }
+      setCiMsg({ tone: 'ok', text: '✅ Ubicación actualizada (se refleja en el mapa).' }); toast.success('Ubicación actualizada (se refleja en el mapa).');
+    } catch (e: any) { setCiMsg({ tone: 'err', text: 'No se pudo actualizar la ubicación: ' + (e?.message ?? 'error') }); toast.error(e?.message ?? 'No se pudo actualizar la ubicación.'); }
     finally { setBusy(false); }
   };
 
@@ -370,6 +394,20 @@ export default function ObrasPublicasScreen() {
                   <TouchableOpacity onPress={() => setCi(null)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
                 </View>
                 <Text style={{ color: ESTADO_META[estadoOf(ci.id)].color, fontWeight: '800' }}>{ESTADO_META[estadoOf(ci.id)].label}</Text>
+
+                {/* Aviso EN LÍNEA (en web el toast queda tapado por este modal). */}
+                {ciMsg ? (
+                  <View style={{ backgroundColor: ciMsg.tone === 'ok' ? '#DCFCE7' : '#FEE2E2', borderRadius: radius.sm, padding: spacing.sm, marginTop: spacing.xs }}>
+                    <Text style={{ color: ciMsg.tone === 'ok' ? '#166534' : '#B42318', fontWeight: '700', fontSize: 12.5 }}>{ciMsg.text}</Text>
+                  </View>
+                ) : null}
+
+                {/* Poner operativa (solo si está averiada/parada) */}
+                {maint[ci.id] ? (
+                  <TouchableOpacity onPress={ponerOperativa} disabled={busy} style={{ backgroundColor: '#16A34A', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginTop: spacing.xs, opacity: busy ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>🟢 Poner operativa (quitar avería/parada)</Text>
+                  </TouchableOpacity>
+                ) : null}
 
                 {/* Visita / check-in */}
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Dejar constancia de la visita (con tu ubicación)</Text>
