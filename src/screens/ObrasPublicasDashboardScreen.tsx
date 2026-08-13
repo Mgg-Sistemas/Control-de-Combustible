@@ -99,7 +99,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   useEffect(() => { load(); }, [load]);
   // Sincronía EN VIVO con las vistas de teléfono de las supervisoras: si registran jornada,
   // avería/parada, m³ o el reporte del día, el panel se actualiza solo.
-  useRealtimeRefresh(['op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports', 'op_report_settings', 'op_edificio_removidos', 'op_edificio_base'], () => { load(); });
+  useRealtimeRefresh(['op_machine_supervisors', 'op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports', 'op_report_settings', 'op_edificio_removidos', 'op_edificio_base', 'op_external_machines'], () => { load(); });
   // Tictaqueo cada 60s: las horas EN VIVO de las jornadas abiertas crecen solas.
   useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 60000); return () => clearInterval(t); }, []);
 

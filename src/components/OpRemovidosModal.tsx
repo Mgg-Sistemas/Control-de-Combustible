@@ -11,7 +11,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { norm, cmpText } from '../lib/text';
 import { fetchEdificiosConSector, addEdificio, EdificioConSector } from '../lib/edificios';
-import { fetchEdificioResumen, saveEdificioRemovido, fetchEdificioReportesDia, listMyOpMachines, OpEdificioResumen, OpEdificioDetalle, OpMyMachine } from '../lib/obrasPublicas';
+import { fetchEdificioResumen, saveEdificioRemovido, fetchEdificioReportesDia, listMyOpMachines, listOpExternalMachines, addOpExternalMachine, OpEdificioResumen, OpEdificioDetalle, OpMyMachine } from '../lib/obrasPublicas';
 import { buildOpEdificioWhatsApp } from '../lib/obrasPublicasReport';
 import { useToast } from './ToastProvider';
 
@@ -60,8 +60,10 @@ export default function OpRemovidosModal({
   const [detalles, setDetalles] = useState<Record<string, DetForm>>({});
   const [openDet, setOpenDet] = useState<Record<string, boolean>>({});
   const [sharing, setSharing] = useState(false);
-  // Máquinas asignadas al supervisor (para "maquinaria por requerimiento").
+  // Máquinas para "maquinaria por requerimiento" = asignadas ∪ externas (fuera del catálogo).
   const [misMaquinas, setMisMaquinas] = useState<OpMyMachine[]>([]);
+  const [addMaq, setAddMaq] = useState<Record<string, string>>({}); // texto "nueva máquina externa" por edificio
+  const [addingMaq, setAddingMaq] = useState(false);
 
   // Agregar un edificio nuevo al catálogo.
   const [addName, setAddName] = useState('');
@@ -71,13 +73,17 @@ export default function OpRemovidosModal({
   const reload = async () => {
     setLoading(true);
     try {
-      const [r, e, reps, maqs] = await Promise.all([
+      const [r, e, reps, maqs, ext] = await Promise.all([
         fetchEdificioResumen(date), fetchEdificiosConSector(), fetchEdificioReportesDia(date),
         supervisorId ? listMyOpMachines(supervisorId) : Promise.resolve([] as OpMyMachine[]),
+        listOpExternalMachines(supervisorId),
       ]);
       setResumen(r);
       setEdificios(e);
-      setMisMaquinas([...maqs].sort((a, b) => cmpText(a.code, b.code)));
+      // asignadas ∪ externas, sin duplicar por código.
+      const merged: OpMyMachine[] = [...maqs];
+      ext.forEach((m) => { if (!merged.some((x) => norm(x.code) === norm(m.code))) merged.push(m); });
+      setMisMaquinas(merged.sort((a, b) => cmpText(a.code, b.code)));
       // Precarga: los removidos ya registrados HOY se muestran para poder corregirlos.
       const v: Record<string, string> = {};
       Object.values(r).forEach((x) => { if (x.removido_hoy > 0) v[x.edificio] = String(x.removido_hoy); });
@@ -166,6 +172,25 @@ export default function OpRemovidosModal({
     const cur = reqCodes(edif);
     const next = cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code];
     setDet(edif, { maq_requerimiento: next.join(', ') });
+  };
+  // Añade una máquina EXTERNA (fuera del catálogo), la agrega al picker y la marca.
+  // NO recarga (para no perder el detalle sin guardar); solo suma a misMaquinas.
+  const agregarMaqExterna = async (edif: string) => {
+    const nombre = (addMaq[edif] ?? '').trim();
+    if (!nombre) return;
+    setAddingMaq(true);
+    try {
+      const code = await addOpExternalMachine(nombre, supervisorId);
+      if (code) {
+        setMisMaquinas((p) => (p.some((m) => norm(m.code) === norm(code))
+          ? p
+          : [...p, { id: `ext:${code}`, code, plate: null, serial: null }].sort((a, b) => cmpText(a.code, b.code))));
+        if (!reqCodes(edif).includes(code)) toggleReq(edif, code); // auto-marca
+        setAddMaq((p) => ({ ...p, [edif]: '' }));
+      }
+    } catch (e: any) {
+      setMsg({ tone: 'err', text: 'No se pudo agregar la máquina externa: ' + (e?.message ?? 'error') });
+    } finally { setAddingMaq(false); }
   };
 
   // DetForm (texto) → OpEdificioDetalle (números) para guardar.
@@ -362,25 +387,31 @@ export default function OpRemovidosModal({
                                     placeholder="🚜 Maquinaria en uso" placeholderTextColor={colors.muted} style={input} />
                                   <TextInput value={d.maq_inoperativo ?? ''} onChangeText={(t) => setDet(edif, { maq_inoperativo: t })}
                                     placeholder="🛑 Maquinaria inoperativa" placeholderTextColor={colors.muted} style={input} />
-                                  <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>📋 MAQUINARIA POR REQUERIMIENTO</Text>
-                                  {misMaquinas.length === 0 ? (
-                                    <TextInput value={d.maq_requerimiento ?? ''} onChangeText={(t) => setDet(edif, { maq_requerimiento: t })}
-                                      placeholder="Máquinas por requerimiento" placeholderTextColor={colors.muted} style={input} />
-                                  ) : (
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                                      {misMaquinas.map((m) => {
-                                        const on = reqCodes(edif).includes(m.code);
-                                        return (
-                                          <TouchableOpacity key={m.id} onPress={() => toggleReq(edif, m.code)}
-                                            style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
-                                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
-                                              {on ? '✓ ' : ''}{m.code}
-                                            </Text>
-                                          </TouchableOpacity>
-                                        );
-                                      })}
-                                    </View>
-                                  )}
+                                  <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>📋 MAQUINARIA POR REQUERIMIENTO (marca con ✓)</Text>
+                                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                                    {/* Asignadas ∪ externas + cualquier código suelto ya marcado. */}
+                                    {Array.from(new Set([...misMaquinas.map((m) => m.code), ...reqCodes(edif)])).map((code) => {
+                                      const on = reqCodes(edif).includes(code);
+                                      return (
+                                        <TouchableOpacity key={code} onPress={() => toggleReq(edif, code)}
+                                          style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>
+                                            {on ? '✓ ' : ''}{code}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      );
+                                    })}
+                                  </View>
+                                  {/* Añadir máquina EXTERNA (no va al catálogo). */}
+                                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                                    <TextInput value={addMaq[edif] ?? ''} onChangeText={(t) => setAddMaq((p) => ({ ...p, [edif]: t }))}
+                                      placeholder="➕ Máquina externa (fuera del catálogo)" placeholderTextColor={colors.muted}
+                                      onSubmitEditing={() => agregarMaqExterna(edif)} style={{ ...input, flex: 1 }} />
+                                    <TouchableOpacity onPress={() => agregarMaqExterna(edif)} disabled={addingMaq || !(addMaq[edif] ?? '').trim()}
+                                      style={{ backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: spacing.md, justifyContent: 'center', opacity: addingMaq || !(addMaq[edif] ?? '').trim() ? 0.6 : 1 }}>
+                                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{addingMaq ? '…' : 'Añadir'}</Text>
+                                    </TouchableOpacity>
+                                  </View>
                                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                                     <View style={{ flex: 1 }}>
                                       <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>SUPERVIVIENTES</Text>

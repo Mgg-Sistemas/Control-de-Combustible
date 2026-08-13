@@ -141,6 +141,29 @@ export async function listMyOpMachines(supervisorId: string): Promise<OpMyMachin
   return (data ?? []).map((r: any): OpMyMachine => ({ id: r.id, code: r.code ?? '—', plate: r.plate ?? null, serial: r.serial ?? null }));
 }
 
+/**
+ * Máquinas EXTERNAS de Obras Públicas (no están en el catálogo `machinery`): las
+ * del supervisor + las globales (supervisor_id null). Para el picker de "maquinaria
+ * por requerimiento". Ver supabase/op_external_machines.sql.
+ */
+export async function listOpExternalMachines(supervisorId?: string | null): Promise<OpMyMachine[]> {
+  let q = supabase.from('op_external_machines').select('id, code').eq('active', true);
+  if (supervisorId) q = q.or(`supervisor_id.eq.${supervisorId},supervisor_id.is.null`);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []).map((r: any): OpMyMachine => ({ id: `ext:${r.id}`, code: r.code ?? '—', plate: null, serial: null }));
+}
+
+/** Agrega una máquina externa (no toca el catálogo). Devuelve el código guardado. */
+export async function addOpExternalMachine(code: string, supervisorId?: string | null): Promise<string | null> {
+  const c = (code ?? '').trim();
+  if (!c) return null;
+  const { error } = await supabase.from('op_external_machines').insert({ code: c, supervisor_id: supervisorId ?? null });
+  // 23505 = duplicado (ya existe esa máquina externa) → no es error para el usuario.
+  if (error && (error as any).code !== '23505') throw error;
+  return c;
+}
+
 export type OpRound = {
   machinery_id: string; round_date: string; day_hours: number; night_hours: number;
   jornada_start_at: string | null; jornada_shift: 'day' | 'night' | null;

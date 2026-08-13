@@ -111,7 +111,7 @@ export default function ObrasPublicasScreen() {
 
   // Sincronía EN VIVO con el módulo/dashboard de Obras Públicas: si cambia una jornada,
   // avería/parada, m³ o el reporte del día (desde otro dispositivo o desde el panel), refresca.
-  useRealtimeRefresh(['op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports', 'op_edificio_removidos', 'op_edificio_base'], () => { load(); });
+  useRealtimeRefresh(['op_machine_supervisors', 'op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports', 'op_edificio_removidos', 'op_edificio_base', 'op_external_machines'], () => { load(); });
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
