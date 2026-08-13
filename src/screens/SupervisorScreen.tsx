@@ -332,6 +332,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [showHist, setShowHist] = useState(false); // modal Histórico por inspector (tlf)
   const [jornadaBusy, setJornadaBusy] = useState(false);
   const [finConfirm, setFinConfirm] = useState(false); // aviso de confirmación antes de finalizar
+  const [motivoCierre, setMotivoCierre] = useState(''); // motivo OBLIGATORIO si se cierra antes de la hora de fin
   // Horas ya registradas hoy en el round de la máquina abierta (para saber si el
   // turno del inspector ya se cumplió hoy → no puede reiniciarlo el mismo día).
   const [curRoundHours, setCurRoundHours] = useState<{ day: number; night: number }>({ day: 0, night: 0 });
@@ -421,8 +422,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
-    if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); return; }
-    setParadaOpen(false); setFinConfirm(false); setHoroFin('');
+    if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); setMotivoCierre(''); return; }
+    setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre('');
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
     setParadaTab('averia'); setCiMotivo('');
     setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
@@ -845,7 +846,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!myShift) return false;
     const h = caracasParts(new Date()).hour;
     if (myShift === 'day') return h >= 19;               // día cierra a las 7:00pm
-    return h >= 7 && h < 19;                              // noche cierra a las 7:00am (cerrada hasta las 7:00pm)
+    // NOCHE cierra a la 1:00am (regla firme 12-ago-2026, igual que el auto-cierre del
+    // servidor). Cerrada desde la 1am hasta las 7pm; solo se puede iniciar/reiniciar
+    // de 7pm a 1am. BLINDAJE: si se pudiera reiniciar tras la 1am, el servidor ya no
+    // la cerraría (su fin de turno = 1am ya pasó) y quedaría abierta para siempre.
+    return h >= 1 && h < 19;                              // noche cierra a la 1:00am
   }, [myShift, nowTick]);
   // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
   // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
@@ -1671,6 +1676,28 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   // 🏁 FINALIZAR JORNADA: horas = (fin − inicio); se SUMAN al turno (día/noche)
   // en Control de maquinaria. Cierra la jornada (borra la hora de inicio).
+  // Hora de FIN del turno (ms epoch): DÍA -> 7:00pm del round; NOCHE -> 1:00am del
+  // día siguiente. Caracas es UTC-4 (sin horario de verano): 7pm=23:00 UTC, 1am=05:00 UTC.
+  // Mismo criterio que el auto-cierre del servidor (supabase/auto_close_jornadas.sql).
+  const jornadaEndMs = (): number | null => {
+    if (!jornadaStart) return null;
+    const rd = businessRoundDateOf(new Date(jornadaStart), jornadaShift);
+    const [y, m, d] = rd.split('-').map(Number);
+    return jornadaShift === 'night'
+      ? Date.UTC(y, m - 1, d + 1, 5, 0, 0)
+      : Date.UTC(y, m - 1, d, 23, 0, 0);
+  };
+  // ¿Se está cerrando ANTES de la hora de fin del turno? (cierre anticipado)
+  const cierreAnticipado = (): boolean => { const e = jornadaEndMs(); return e != null && Date.now() < e; };
+  // ¿Exige MOTIVO este cierre? Solo cierres MANUALES anticipados de inspectores NORMALES.
+  // El inspector "SOS LA GUAIRA" (siempre activo, cierre/fin automático 12h) queda FUERA
+  // de la regla: sus máquinas nunca piden motivo (regla 12-ago-2026).
+  const requiereMotivoCierre = (): boolean => {
+    if (!ci || !cierreAnticipado()) return false;
+    const insp = (assignMap[ci.id] as any)?.[jornadaShift]?.name ?? '';
+    return !inspectorSiempreActivo(insp);
+  };
+
   const finalizarJornada = async () => {
     if (!ci || !jornadaStart || jornadaBusy) return;
     if (!isOnline()) { setNotice('📶 Sin conexión: para finalizar jornada hace falta señal (suma horas contra el estado del servidor).'); return; }
@@ -1694,6 +1721,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const hi = Number((horoIni || '').replace(',', '.'));
       if (isFinite(hi) && hfNum < hi) { setNotice(`❌ El horómetro final (${hfNum}) no puede ser menor al inicial (${hi}).`); return; }
     }
+    // MOTIVO DE CIERRE OBLIGATORIO si se finaliza ANTES de la hora de fin del turno
+    // (día <7pm / noche <1am), EXCEPTO el inspector "SOS LA GUAIRA" (siempre activo).
+    const anticipado = requiereMotivoCierre();
+    const motivo = motivoCierre.trim();
+    if (anticipado && !motivo) { setNotice('❌ Cierre anticipado: escribe el MOTIVO del cierre para finalizar.'); return; }
     setJornadaBusy(true); setNotice(null);
     const ms = Date.now() - new Date(jornadaStart).getTime();
     const horas = Math.max(0, Math.round((ms / 3600000) * 100) / 100);
@@ -1726,8 +1758,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hfValid) supabase.from('machinery').update({ last_horometro: hfNum }).eq('id', ci.id).then(() => {}, () => {});
     setJornadaStart(null);
     setFinConfirm(false);
-    setHoroFin(''); setHoroFinPhoto(null);
-    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h`); // bitácora
+    setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre('');
+    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${motivo ? ` · Motivo cierre: ${motivo}` : ''}`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
     // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
@@ -1735,7 +1767,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     supabase.from('machine_work_segments').insert({
       machinery_id: ci.id, round_date: roundDate, shift: jornadaShift,
       started_at: jornadaStart, ended_at: new Date().toISOString(), hours: horas,
-      source: 'manual_finish', recorded_by: uid || null,
+      source: anticipado ? 'manual_finish_early' : 'manual_finish', recorded_by: uid || null,
+      ...(motivo ? { close_reason: motivo } : {}),
     }).then(() => {}, () => {});
     reloadEstados();
     // TAREA 2: además del total de ESTA sesión, muestra el acumulado del turno en
@@ -3197,6 +3230,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
+                      {requiereMotivoCierre() ? (
+                        <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                          <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12, marginBottom: 4 }}>
+                            ⚠️ Cierre anticipado ({jornadaShift === 'night' ? 'antes de la 1:00am' : 'antes de las 7:00pm'}) · Motivo OBLIGATORIO
+                          </Text>
+                          <TextInput
+                            value={motivoCierre}
+                            onChangeText={setMotivoCierre}
+                            placeholder="Motivo del cierre (obligatorio)"
+                            placeholderTextColor={colors.muted}
+                            multiline
+                            style={[input, { minHeight: 54, textAlignVertical: 'top' }]}
+                          />
+                        </View>
+                      ) : null}
                       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
                       <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
                       <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
@@ -3212,7 +3260,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         return <View style={{ marginBottom: spacing.sm }} />;
                       })()}
                       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                        <TouchableOpacity onPress={() => setFinConfirm(false)} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
+                        <TouchableOpacity onPress={() => { setFinConfirm(false); setMotivoCierre(''); }} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
                           <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={finalizarJornada} disabled={jornadaBusy} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
