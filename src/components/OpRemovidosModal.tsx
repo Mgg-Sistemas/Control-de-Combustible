@@ -6,13 +6,25 @@
 // Cada cantidad suma a los totales del día Y a los acumulados.
 // Ver src/lib/obrasPublicas.ts y supabase/op_edificio_removidos.sql.
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Switch, Linking } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { norm, cmpText } from '../lib/text';
 import { fetchEdificiosConSector, addEdificio, EdificioConSector } from '../lib/edificios';
-import { fetchEdificioResumen, saveEdificioRemovido, OpEdificioResumen } from '../lib/obrasPublicas';
+import { fetchEdificioResumen, saveEdificioRemovido, fetchEdificioReportesDia, OpEdificioResumen, OpEdificioDetalle } from '../lib/obrasPublicas';
+import { buildOpEdificioWhatsApp } from '../lib/obrasPublicasReport';
 import { useToast } from './ToastProvider';
+
+// El detalle (Fase 2) se teclea como texto y se convierte a números al guardar.
+type DetForm = {
+  m3_acarreados?: string; viajes?: string; avance?: string;
+  maq_en_uso?: string; maq_inoperativo?: string; maq_requerimiento?: string;
+  supervivientes?: string; fallecidos?: string; actividades?: string; entregado?: boolean;
+};
+const hasDetForm = (f?: DetForm): boolean =>
+  !!f && (!!(f.m3_acarreados || '').trim() || !!(f.viajes || '').trim() || !!(f.avance || '').trim() ||
+    !!(f.maq_en_uso || '').trim() || !!(f.maq_inoperativo || '').trim() || !!(f.maq_requerimiento || '').trim() ||
+    !!(f.supervivientes || '').trim() || !!(f.fallecidos || '').trim() || !!(f.actividades || '').trim() || !!f.entregado);
 
 const SIN_SECTOR = 'SIN SUB-SECTOR';
 const fmt = (n: number) => {
@@ -44,6 +56,10 @@ export default function OpRemovidosModal({
   // Cantidades tecleadas por edificio (m³ hoy) y base (acumulado 1ª vez).
   const [values, setValues] = useState<Record<string, string>>({});
   const [bases, setBases] = useState<Record<string, string>>({});
+  // Detalle (Fase 2) por edificio + qué edificios tienen el detalle abierto.
+  const [detalles, setDetalles] = useState<Record<string, DetForm>>({});
+  const [openDet, setOpenDet] = useState<Record<string, boolean>>({});
+  const [sharing, setSharing] = useState(false);
 
   // Agregar un edificio nuevo al catálogo.
   const [addName, setAddName] = useState('');
@@ -53,7 +69,9 @@ export default function OpRemovidosModal({
   const reload = async () => {
     setLoading(true);
     try {
-      const [r, e] = await Promise.all([fetchEdificioResumen(date), fetchEdificiosConSector()]);
+      const [r, e, reps] = await Promise.all([
+        fetchEdificioResumen(date), fetchEdificiosConSector(), fetchEdificioReportesDia(date),
+      ]);
       setResumen(r);
       setEdificios(e);
       // Precarga: los removidos ya registrados HOY se muestran para poder corregirlos.
@@ -61,6 +79,24 @@ export default function OpRemovidosModal({
       Object.values(r).forEach((x) => { if (x.removido_hoy > 0) v[x.edificio] = String(x.removido_hoy); });
       setValues(v);
       setBases({});
+      // Precarga del detalle ya guardado (Fase 2), para poder corregirlo.
+      const dmap: Record<string, DetForm> = {};
+      reps.forEach((rep) => {
+        const f: DetForm = {};
+        if (rep.m3_acarreados) f.m3_acarreados = String(rep.m3_acarreados);
+        if (rep.viajes) f.viajes = String(rep.viajes);
+        if (rep.avance != null) f.avance = String(rep.avance);
+        if (rep.maq_en_uso) f.maq_en_uso = rep.maq_en_uso;
+        if (rep.maq_inoperativo) f.maq_inoperativo = rep.maq_inoperativo;
+        if (rep.maq_requerimiento) f.maq_requerimiento = rep.maq_requerimiento;
+        if (rep.supervivientes) f.supervivientes = String(rep.supervivientes);
+        if (rep.fallecidos) f.fallecidos = String(rep.fallecidos);
+        if (rep.actividades) f.actividades = rep.actividades;
+        if (rep.entregado) f.entregado = true;
+        if (Object.keys(f).length) dmap[rep.edificio] = f;
+      });
+      setDetalles(dmap);
+      setOpenDet({});
     } catch (err: any) {
       setMsg({ tone: 'err', text: 'No se pudo cargar: ' + (err?.message ?? 'error') });
     } finally {
@@ -105,9 +141,48 @@ export default function OpRemovidosModal({
   );
   const totalAcum = useMemo(() => Object.values(resumen).reduce((a, r) => a + r.acumulado, 0), [resumen]);
   const marcados = useMemo(() => Object.entries(values).filter(([, s]) => { const n = numOf(s); return isFinite(n) && n > 0; }).length, [values]);
+  // Edificios a guardar = con m³ (>0) ∪ con detalle (Fase 2).
+  const savables = useMemo(() => {
+    const set = new Set<string>();
+    Object.entries(values).forEach(([e, s]) => { const n = numOf(s); if (isFinite(n) && n > 0) set.add(e); });
+    Object.keys(detalles).forEach((e) => { if (hasDetForm(detalles[e])) set.add(e); });
+    return set.size;
+  }, [values, detalles]);
 
   const setVal = (edif: string, s: string) => setValues((p) => ({ ...p, [edif]: s }));
   const setBase = (edif: string, s: string) => setBases((p) => ({ ...p, [edif]: s }));
+  const setDet = (edif: string, patch: Partial<DetForm>) =>
+    setDetalles((p) => ({ ...p, [edif]: { ...(p[edif] || {}), ...patch } }));
+
+  // DetForm (texto) → OpEdificioDetalle (números) para guardar.
+  const toDetalle = (f?: DetForm): OpEdificioDetalle | undefined => {
+    if (!hasDetForm(f)) return undefined;
+    const g = f!;
+    return {
+      m3_acarreados: numOf(g.m3_acarreados || '') || 0,
+      viajes: Math.round(numOf(g.viajes || '') || 0),
+      avance: (g.avance || '').trim() === '' ? null : Math.round(numOf(g.avance || '') || 0),
+      maq_en_uso: (g.maq_en_uso || '').trim() || null,
+      maq_inoperativo: (g.maq_inoperativo || '').trim() || null,
+      maq_requerimiento: (g.maq_requerimiento || '').trim() || null,
+      supervivientes: Math.round(numOf(g.supervivientes || '') || 0),
+      fallecidos: Math.round(numOf(g.fallecidos || '') || 0),
+      actividades: (g.actividades || '').trim() || null,
+      entregado: !!g.entregado,
+    };
+  };
+
+  // Enviar por WhatsApp el reporte del día (usa lo YA guardado).
+  const enviarWhatsApp = async () => {
+    setSharing(true); setMsg(null);
+    try {
+      const texto = await buildOpEdificioWhatsApp(date);
+      if (!texto) { setMsg({ tone: 'err', text: 'No hay nada reportado hoy. Guarda primero los m³/detalle.' }); return; }
+      await Linking.openURL('https://wa.me/?text=' + encodeURIComponent(texto));
+    } catch {
+      setMsg({ tone: 'err', text: 'No se pudo abrir WhatsApp.' });
+    } finally { setSharing(false); }
+  };
 
   const agregarEdificio = async () => {
     const nombre = addName.trim();
@@ -124,26 +199,33 @@ export default function OpRemovidosModal({
 
   const guardar = async () => {
     // Edificios con una cantidad válida (>0) tecleada.
-    const aGuardar = Object.entries(values)
+    const conM3 = Object.entries(values)
       .map(([edif, s]) => ({ edif, m3: numOf(s) }))
       .filter(({ m3 }) => isFinite(m3) && m3 > 0);
-    if (aGuardar.length === 0) { setMsg({ tone: 'err', text: 'Escribe la cantidad de m³ en al menos un edificio.' }); return; }
-    // Primeras veces (sin base): exigen el acumulado base.
-    const faltaBase = aGuardar.filter(({ edif }) => !resumen[edif]?.tiene_base && !(numOf(bases[edif] ?? '') >= 0 && (bases[edif] ?? '').trim() !== ''));
+    // Edificios SIN m³ pero con detalle (Fase 2) → también se guardan (m³ = lo ya guardado).
+    const soloDetalle = Object.keys(detalles)
+      .filter((edif) => hasDetForm(detalles[edif]) && !conM3.some((x) => x.edif === edif));
+    const edifs = [...conM3.map((x) => x.edif), ...soloDetalle];
+    if (edifs.length === 0) { setMsg({ tone: 'err', text: 'Escribe m³ o completa el detalle de al menos un edificio.' }); return; }
+    // Primeras veces (sin base) CON m³: exigen el acumulado base.
+    const faltaBase = conM3.filter(({ edif }) => !resumen[edif]?.tiene_base && !(numOf(bases[edif] ?? '') >= 0 && (bases[edif] ?? '').trim() !== ''));
     if (faltaBase.length) {
       setMsg({ tone: 'err', text: `1ª vez de: ${faltaBase.map((x) => x.edif).join(', ')} — escribe su acumulado base.` });
       return;
     }
     setSaving(true); setMsg(null);
     try {
-      for (const { edif, m3 } of aGuardar) {
+      for (const edif of edifs) {
+        const m3typed = numOf(values[edif] ?? '');
+        // Si no tecleó m³ (fila solo-detalle), conserva el removido ya guardado hoy (no lo pisa a 0).
+        const m3 = isFinite(m3typed) && m3typed > 0 ? m3typed : (resumen[edif]?.removido_hoy ?? 0);
         const tieneBase = !!resumen[edif]?.tiene_base;
-        const base = tieneBase ? null : numOf(bases[edif] ?? '');
-        await saveEdificioRemovido({ edificio: edif, date, m3, base, supervisorId, supervisorName });
+        const base = m3 > 0 && !tieneBase ? numOf(bases[edif] ?? '') : null;
+        await saveEdificioRemovido({ edificio: edif, date, m3, base, supervisorId, supervisorName, detalle: toDetalle(detalles[edif]) });
       }
       await reload();
-      setMsg({ tone: 'ok', text: `✅ Guardados ${aGuardar.length} edificio(s) · ${fmt(aGuardar.reduce((a, x) => a + x.m3, 0))} m³ hoy.` });
-      toast.success('m³ por edificio guardados.');
+      setMsg({ tone: 'ok', text: `✅ Guardados ${edifs.length} edificio(s) · ${fmt(conM3.reduce((a, x) => a + x.m3, 0))} m³ hoy.` });
+      toast.success('Reporte por edificio guardado.');
       onChanged?.();
     } catch (e: any) {
       setMsg({ tone: 'err', text: 'No se pudo guardar: ' + (e?.message ?? 'error') });
@@ -235,6 +317,68 @@ export default function OpRemovidosModal({
                             style={input}
                           />
                         ) : null}
+                        {/* Detalle Fase 2 (opcional): maquinaria, acarreo, cuerpos, actividades… */}
+                        {(() => {
+                          const abierto = !!openDet[edif];
+                          const d = detalles[edif] ?? {};
+                          const tieneDet = hasDetForm(d);
+                          return (
+                            <>
+                              <TouchableOpacity onPress={() => setOpenDet((p) => ({ ...p, [edif]: !abierto }))}
+                                style={{ alignSelf: 'flex-start' }}>
+                                <Text style={{ color: colors.primary, fontSize: 11.5, fontWeight: '700' }}>
+                                  {abierto ? '▴ Ocultar detalle' : `▾ Detalle${tieneDet ? ' ✓' : ''}`}
+                                </Text>
+                              </TouchableOpacity>
+                              {abierto ? (
+                                <View style={{ gap: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>M³ ACARREADOS</Text>
+                                      <TextInput value={d.m3_acarreados ?? ''} onChangeText={(t) => setDet(edif, { m3_acarreados: t })}
+                                        placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>VIAJES</Text>
+                                      <TextInput value={d.viajes ?? ''} onChangeText={(t) => setDet(edif, { viajes: t })}
+                                        placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>% AVANCE</Text>
+                                      <TextInput value={d.avance ?? ''} onChangeText={(t) => setDet(edif, { avance: t })}
+                                        placeholder="—" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
+                                    </View>
+                                  </View>
+                                  <TextInput value={d.maq_en_uso ?? ''} onChangeText={(t) => setDet(edif, { maq_en_uso: t })}
+                                    placeholder="🚜 Maquinaria en uso" placeholderTextColor={colors.muted} style={input} />
+                                  <TextInput value={d.maq_inoperativo ?? ''} onChangeText={(t) => setDet(edif, { maq_inoperativo: t })}
+                                    placeholder="🛑 Maquinaria inoperativa" placeholderTextColor={colors.muted} style={input} />
+                                  <TextInput value={d.maq_requerimiento ?? ''} onChangeText={(t) => setDet(edif, { maq_requerimiento: t })}
+                                    placeholder="📋 Maquinaria por requerimiento" placeholderTextColor={colors.muted} style={input} />
+                                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>SUPERVIVIENTES</Text>
+                                      <TextInput value={d.supervivientes ?? ''} onChangeText={(t) => setDet(edif, { supervivientes: t })}
+                                        placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>FALLECIDOS</Text>
+                                      <TextInput value={d.fallecidos ?? ''} onChangeText={(t) => setDet(edif, { fallecidos: t })}
+                                        placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
+                                    </View>
+                                  </View>
+                                  <TextInput value={d.actividades ?? ''} onChangeText={(t) => setDet(edif, { actividades: t })}
+                                    placeholder="📝 Actividades del día" placeholderTextColor={colors.muted} multiline
+                                    style={{ ...input, minHeight: 56, textAlignVertical: 'top' }} />
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                                    <Switch value={!!d.entregado} onValueChange={(v) => setDet(edif, { entregado: v })} />
+                                    <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>✅ Frente entregado</Text>
+                                  </View>
+                                </View>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </View>
                     );
                   })}
@@ -257,10 +401,13 @@ export default function OpRemovidosModal({
             <View style={{ height: spacing.xl }} />
           </ScrollView>
 
-          {/* Barra inferior: guardar TODO */}
-          <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface }}>
-            <TouchableOpacity onPress={guardar} disabled={saving || marcados === 0} style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: saving || marcados === 0 ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontWeight: '800' }}>{saving ? 'Guardando…' : `✅ Guardar ${marcados} edificio(s) · ${fmt(totalHoy)} m³`}</Text>
+          {/* Barra inferior: guardar TODO + enviar por WhatsApp */}
+          <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface, gap: spacing.sm }}>
+            <TouchableOpacity onPress={guardar} disabled={saving || savables === 0} style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: saving || savables === 0 ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>{saving ? 'Guardando…' : `✅ Guardar ${savables} edificio(s) · ${fmt(totalHoy)} m³`}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={enviarWhatsApp} disabled={sharing} style={{ borderWidth: 1, borderColor: '#25D366', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: sharing ? 0.6 : 1 }}>
+              <Text style={{ color: '#25D366', fontWeight: '800' }}>{sharing ? 'Abriendo…' : '📤 Enviar reporte por WhatsApp'}</Text>
             </TouchableOpacity>
           </View>
         </View>

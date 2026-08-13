@@ -9,7 +9,7 @@ import { horarioNominal } from './jornada';
 import {
   listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
   fetchMyDailyReport, fetchOpDailyReports, fetchOpReportSettings, computeOpAccumulated,
-  OpDailyReport,
+  OpDailyReport, fetchEdificioReportesDia, OpEdificioReporte,
 } from './obrasPublicas';
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
@@ -145,3 +145,79 @@ export async function generateOpActivityReport(opts: {
 
 /** El corte se ignora para traer reportes; usamos una fecha muy vieja para sumar todos los válidos. */
 function settingsFromDate(): string { return '2000-01-01'; }
+
+// ── REPORTE POR EDIFICIO PARA WHATSAPP (Fase 2) ──────────────────────────────
+const SIN_SECTOR_WA = 'SIN SUB-SECTOR';
+/** Número "bonito" (coma decimal, sin ceros de más). */
+const nWa = (n: number) => {
+  const r = Math.round((Number(n) || 0) * 100) / 100;
+  return (Number.isInteger(r) ? r.toString() : r.toFixed(2)).replace('.', ',');
+};
+
+/**
+ * Arma el TEXTO del reporte diario POR EDIFICIO listo para pegar/enviar por
+ * WhatsApp: encabezado con fecha, luego cada edificio (agrupado por sub-sector)
+ * con solo las líneas que tienen dato (removido/acumulado, acarreo, avance,
+ * maquinaria, cuerpos, actividades, entregado), y al final los TOTALES del día.
+ * Devuelve '' si no hay nada reportado ese día.
+ */
+export async function buildOpEdificioWhatsApp(date: string): Promise<string> {
+  let reportes: OpEdificioReporte[] = [];
+  try { reportes = await fetchEdificioReportesDia(date); } catch { reportes = []; }
+  // Solo edificios con ALGO reportado (m³ removidos o algún campo de detalle).
+  const conDato = reportes.filter((r) =>
+    (r.m3 || 0) > 0 || (r.m3_acarreados || 0) > 0 || (r.viajes || 0) > 0 ||
+    (r.supervivientes || 0) > 0 || (r.fallecidos || 0) > 0 ||
+    (r.maq_en_uso || r.maq_inoperativo || r.maq_requerimiento || r.actividades) || r.entregado);
+  if (conDato.length === 0) return '';
+
+  // Agrupa por sub-sector (A→Z natural), edificios A→Z dentro de cada uno.
+  const grupos = new Map<string, OpEdificioReporte[]>();
+  conDato.forEach((r) => {
+    const sec = (r.sub_sector ?? '').trim() || SIN_SECTOR_WA;
+    if (!grupos.has(sec)) grupos.set(sec, []);
+    grupos.get(sec)!.push(r);
+  });
+  const secOrden = Array.from(grupos.keys()).sort(cmpText);
+
+  const L: string[] = [];
+  L.push('🏛️ *OBRAS PÚBLICAS — REPORTE DIARIO*');
+  L.push(`📅 ${dmy(date)}`);
+  const supervisor = conDato.find((r) => r.supervisor_name)?.supervisor_name;
+  if (supervisor) L.push(`👷 Supervisor: ${supervisor}`);
+
+  for (const sec of secOrden) {
+    L.push('');
+    L.push(`📍 *${sec}*`);
+    for (const r of grupos.get(sec)!.sort((a, b) => cmpText(a.edificio, b.edificio))) {
+      L.push(`🏢 *${r.edificio}*${r.entregado ? '  ✅ ENTREGADO' : ''}`);
+      if ((r.m3 || 0) > 0 || (r.acumulado || 0) > 0)
+        L.push(`   • Removido hoy: ${nWa(r.m3 || 0)} m³  ·  Acumulado: ${nWa(r.acumulado || 0)} m³`);
+      if ((r.m3_acarreados || 0) > 0 || (r.viajes || 0) > 0)
+        L.push(`   • Acarreados: ${nWa(r.m3_acarreados || 0)} m³  ·  Viajes: ${r.viajes || 0}`);
+      if (r.avance != null) L.push(`   • Avance: ${r.avance}%`);
+      if (r.maq_en_uso) L.push(`   • Maq. en uso: ${r.maq_en_uso}`);
+      if (r.maq_inoperativo) L.push(`   • Maq. inoperativa: ${r.maq_inoperativo}`);
+      if (r.maq_requerimiento) L.push(`   • Maq. por requerimiento: ${r.maq_requerimiento}`);
+      if ((r.supervivientes || 0) > 0 || (r.fallecidos || 0) > 0)
+        L.push(`   • Cuerpos: ${r.supervivientes || 0} supervivientes · ${r.fallecidos || 0} fallecidos`);
+      if (r.actividades) L.push(`   • Actividades: ${r.actividades}`);
+    }
+  }
+
+  // Totales del día.
+  const t = conDato.reduce((a, r) => ({
+    rem: a.rem + (r.m3 || 0), aca: a.aca + (r.m3_acarreados || 0), via: a.via + (r.viajes || 0),
+    acum: a.acum + (r.acumulado || 0), sup: a.sup + (r.supervivientes || 0), fal: a.fal + (r.fallecidos || 0),
+  }), { rem: 0, aca: 0, via: 0, acum: 0, sup: 0, fal: 0 });
+  L.push('');
+  L.push('━━━━━━━━━━━━━━');
+  L.push('📊 *TOTALES DEL DÍA*');
+  L.push(`• Removido hoy: ${nWa(t.rem)} m³`);
+  if (t.aca > 0 || t.via > 0) L.push(`• Acarreados: ${nWa(t.aca)} m³  ·  Viajes: ${t.via}`);
+  L.push(`• Acumulado general: ${nWa(t.acum)} m³`);
+  if (t.sup > 0 || t.fal > 0) L.push(`• Cuerpos: ${t.sup} supervivientes · ${t.fal} fallecidos`);
+  L.push(`• Edificios reportados: ${conDato.length}`);
+
+  return L.join('\n');
+}
