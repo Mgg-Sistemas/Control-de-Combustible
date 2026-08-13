@@ -69,6 +69,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const [data, setData] = useState<OpDashboard | null>(null);
   const [reports, setReports] = useState<OpDailyReport[]>([]);
   const [resumenEdif, setResumenEdif] = useState<Record<string, OpEdificioResumen>>({}); // m³ removidos por edificio
+  const [edifHist, setEdifHist] = useState<OpEdificioHist[]>([]); // datos diarios por edificio (toda la operación) = fuente real
   const [settings, setSettings] = useState<OpReportSettings>({ base_m3: 0, base_cuerpos: 0, base_date: null });
   const [nowTick, setNowTick] = useState(Date.now());
   const [filter, setFilter] = useState<string | null>(null); // KPI seleccionado (filtra la flota)
@@ -80,7 +81,6 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const [histTo, setHistTo] = useState('');
   const [kpiDetail, setKpiDetail] = useState<string | null>(null); // KPI tocado → detalle
   const [histEdifOpen, setHistEdifOpen] = useState(false); // HISTÓRICO de datos diarios por edificio
-  const [histEdifRows, setHistEdifRows] = useState<OpEdificioHist[] | null>(null);
   const [histEdifQ, setHistEdifQ] = useState('');
   const [histEdifFrom, setHistEdifFrom] = useState('');
   const [histEdifTo, setHistEdifTo] = useState('');
@@ -93,13 +93,16 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
 
   const load = useCallback(async () => {
     try {
-      const [d, reps, st, resu] = await Promise.all([
+      const [d, reps, st, resu, edifHistRows] = await Promise.all([
         fetchOpDashboard(today, addDaysISO(today, -30)),
         fetchOpDailyReports('2000-01-01'), // todos: el acumulado suma desde el corte
         fetchOpReportSettings(),
         fetchEdificioResumen(today).catch(() => ({} as Record<string, OpEdificioResumen>)),
+        // Datos DIARIOS por edificio de TODA la operación → consolidado del día,
+        // acumulado (base + posteriores) e histórico. Es la fuente real de los datos.
+        fetchEdificioRemovidosRange('2000-01-01', today).catch(() => [] as OpEdificioHist[]),
       ]);
-      setData(d); setReports(reps); setSettings(st); setResumenEdif(resu);
+      setData(d); setReports(reps); setSettings(st); setResumenEdif(resu); setEdifHist(edifHistRows);
     } catch {
       setData({ machines: [], rounds: {}, maint: {}, roundsRange: [], visits: [] });
     } finally {
@@ -167,27 +170,30 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   // Edificios tratados HOY (con removido del día) en el módulo por edificio.
   const edificiosHoyCount = useMemo(() => Object.values(resumenEdif).filter((r) => r.removido_hoy > 0).length, [resumenEdif]);
 
-  // Reporte de Actividades: consolidado del día (suma de reportes de las supervisoras)
-  // respetando el filtro por supervisor; y ACUMULADOS globales (base + todos los reportes).
-  const reportsView = useMemo(() => (supFilter ? reports.filter((r) => r.supervisor_id === supFilter) : reports), [reports, supFilter]);
-  const consolidado = useMemo(() => {
-    const hoy = reportsView.filter((r) => r.report_date === today);
-    return hoy.reduce((a, r) => ({
-      m3_removidos: a.m3_removidos + r.m3_removidos_dia,
-      m3_acarreo: a.m3_acarreo + r.m3_acarreo_dia,
-      cuerpos: a.cuerpos + r.cuerpos_dia,
-      traslado: a.traslado + r.traslado_camion_dia,
-      reportes: a.reportes + 1,
-    }), { m3_removidos: 0, m3_acarreo: 0, cuerpos: 0, traslado: 0, reportes: 0 });
-  }, [reportsView, today]);
+  // Reporte de Actividades: consolidado del día + acumulados, TRAÍDOS de los datos
+  // por edificio (op_edificio_removidos) — la fuente real donde cargan las supervisoras.
+  // Respeta el filtro por supervisor (por nombre, que es lo que guarda el registro).
+  const supNameSel = useMemo(() => supervisores.find((s) => s.id === supFilter)?.name ?? null, [supervisores, supFilter]);
+  const edifHoy = useMemo(() => edifHist.filter((r) => r.report_date === today && (!supNameSel || r.supervisor_name === supNameSel)), [edifHist, today, supNameSel]);
+  const consolidado = useMemo(() => edifHoy.reduce((a, r) => ({
+    m3_removidos: a.m3_removidos + r.m3,
+    m3_acarreo: a.m3_acarreo + r.m3_acarreados,
+    cuerpos: a.cuerpos + r.supervivientes + r.fallecidos,
+    traslado: a.traslado + r.viajes,
+    reportes: a.reportes + 1,
+  }), { m3_removidos: 0, m3_acarreo: 0, cuerpos: 0, traslado: 0, reportes: 0 }), [edifHoy]);
   // Edificios reportados hoy (según el filtro por supervisor).
-  const edificiosDia = useMemo(() => {
-    const s = new Set<string>();
-    reportsView.filter((r) => r.report_date === today).forEach((r) => { const e = (r.edificio ?? '').trim(); if (e) s.add(e); });
-    return Array.from(s).sort((a, b) => cmpText(a, b));
-  }, [reportsView, today]);
-  // Los acumulados "desde inicio" son de TODA la operación (base global + todos los reportes).
-  const acumulado = useMemo(() => computeOpAccumulated(reports, settings), [reports, settings]);
+  const edificiosDia = useMemo(() => Array.from(new Set(edifHoy.map((r) => (r.edificio ?? '').trim()).filter(Boolean))).sort((a, b) => cmpText(a, b)), [edifHoy]);
+  // Acumulados "desde inicio" = base global (op_report_settings) + Σ de TODOS los
+  // datos por edificio con fecha POSTERIOR al corte. Así el acumulado crece solo.
+  const acumulado = useMemo(() => {
+    const base = settings.base_date || '2000-01-01';
+    const post = edifHist.filter((r) => r.report_date > base);
+    return {
+      m3: (settings.base_m3 || 0) + post.reduce((a, r) => a + r.m3, 0),
+      cuerpos: (settings.base_cuerpos || 0) + post.reduce((a, r) => a + r.supervivientes + r.fallecidos, 0),
+    };
+  }, [edifHist, settings]);
 
   const abrirBase = () => { setBaseDraft(settings); setBaseOpen(true); };
   const guardarBase = async () => {
@@ -300,17 +306,11 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kpiDetail, machines, resumenEdif]);
 
-  // HISTÓRICO de datos diarios por edificio (se carga al abrirlo; default últimos 90 días).
-  const abrirHistEdif = async () => {
-    setHistEdifOpen(true);
-    if (histEdifRows == null) {
-      try { setHistEdifRows(await fetchEdificioRemovidosRange(addDaysISO(today, -90), today)); }
-      catch { setHistEdifRows([]); }
-    }
-  };
+  // HISTÓRICO de datos diarios por edificio (usa edifHist, ya cargado con el panel).
+  const abrirHistEdif = () => setHistEdifOpen(true);
   const histEdifFiltrado = useMemo(() => {
     const n = histEdifQ.trim().toLowerCase();
-    return (histEdifRows ?? []).filter((r) => {
+    return edifHist.filter((r) => {
       if (histEdifFrom && r.report_date < histEdifFrom) return false;
       if (histEdifTo && r.report_date > histEdifTo) return false;
       if (!n) return true;
@@ -318,7 +318,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
         .filter(Boolean).join(' ').toLowerCase();
       return hay.includes(n);
     });
-  }, [histEdifRows, histEdifQ, histEdifFrom, histEdifTo]);
+  }, [edifHist, histEdifQ, histEdifFrom, histEdifTo]);
 
   if (loading) return <Screen><Loading /></Screen>;
 
@@ -365,7 +365,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
           ) : null}
         </View>
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-          Del día{supFilter ? ' (supervisor seleccionado)' : ''} · {consolidado.reportes} reporte(s)
+          Del día{supFilter ? ' (supervisor seleccionado)' : ''} · {consolidado.reportes} edificio(s) con datos
         </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
           {[
@@ -677,9 +677,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
               ) : null}
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: 4 }}>
-              {histEdifRows == null ? (
-                <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
-              ) : histEdifFiltrado.length === 0 ? (
+              {histEdifFiltrado.length === 0 ? (
                 <Text style={{ color: colors.muted, fontSize: 12.5, marginVertical: spacing.md }}>Sin registros para ese filtro.</Text>
               ) : histEdifFiltrado.map((r, i) => (
                 <View key={i} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, gap: 2 }}>
