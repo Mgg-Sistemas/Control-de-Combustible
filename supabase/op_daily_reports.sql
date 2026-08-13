@@ -11,7 +11,7 @@ create table if not exists public.op_daily_reports (
   report_date         date not null,
   supervisor_id       uuid references public.profiles(id),
   supervisor_name     text,
-  reporte_no          integer,                       -- "Reporte de Actividades OPP: 27"
+  reporte_no          integer,                       -- N° de reporte (OPP es un sector, no el nombre del reporte)
   edificio            text,                          -- Edificio del reporte (catálogo compartido)
   m3_removidos_dia    numeric not null default 0,    -- M³ removidos (controlada) del día
   m3_acarreo_dia      numeric not null default 0,    -- M³ acarreo de vestigios del día

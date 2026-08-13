@@ -18,6 +18,7 @@ import {
 import { generateObrasPublicasDailyReport, generateOpActivityReport } from '../lib/obrasPublicasReport';
 import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
 import EdificioPicker from '../components/EdificioPicker';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 type Maquina = { id: string; code?: string | null } & Record<string, any>;
 
@@ -60,11 +61,12 @@ export default function ObrasPublicasScreen() {
   const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
   const [reporting, setReporting] = useState(false);
 
-  // Reporte de Actividades OPP (consolidado del día de la supervisora).
+  // Reporte de Actividades (consolidado del día de la supervisora).
   const [dailyOpen, setDailyOpen] = useState(false);
   const [daily, setDaily] = useState<OpDailyReport | null>(null);
   const [dailyBusy, setDailyBusy] = useState(false);
   const [dailyPdf, setDailyPdf] = useState(false);
+  const [dailyMsg, setDailyMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null); // aviso EN LÍNEA (el toast queda tapado por el Modal en web)
 
   // Detalle / acciones de una máquina.
   const [ci, setCi] = useState<Maquina | null>(null);
@@ -102,6 +104,10 @@ export default function ObrasPublicasScreen() {
   }, [uid, roundDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Sincronía EN VIVO con el módulo/dashboard de Obras Públicas: si cambia una jornada,
+  // avería/parada, m³ o el reporte del día (desde otro dispositivo o desde el panel), refresca.
+  useRealtimeRefresh(['op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports'], () => { load(); });
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
@@ -257,32 +263,46 @@ export default function ObrasPublicasScreen() {
   };
 
   const abrirReporteDia = async () => {
-    setDailyBusy(true); setDailyOpen(true);
+    setDailyBusy(true); setDailyOpen(true); setDailyMsg(null); setDaily(null);
     try { setDaily(await fetchMyDailyReport(uid, roundDate, fullName || 'Supervisor')); }
-    catch (e: any) { toast.error(e?.message ?? 'No se pudo cargar el reporte.'); setDailyOpen(false); }
+    catch (e: any) {
+      // No cerramos el modal: mostramos el error EN LÍNEA y dejamos un formulario en blanco para poder generar el PDF igual.
+      setDaily({
+        report_date: roundDate, supervisor_id: uid, supervisor_name: fullName || 'Supervisor', reporte_no: null, edificio: null,
+        m3_removidos_dia: 0, m3_acarreo_dia: 0, cuerpos_dia: 0, traslado_camion_dia: 0, observacion: null,
+      });
+      setDailyMsg({ tone: 'err', text: 'No se pudo leer el reporte guardado: ' + (e?.message ?? 'error') });
+    }
     finally { setDailyBusy(false); }
   };
 
-  const setDf = (patch: Partial<OpDailyReport>) => setDaily((p) => (p ? { ...p, ...patch } : p));
+  const setDf = (patch: Partial<OpDailyReport>) => { setDaily((p) => (p ? { ...p, ...patch } : p)); setDailyMsg(null); };
   const numOf = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && n >= 0 ? n : 0; };
 
   const guardarReporteDia = async () => {
     if (!daily) return;
-    setDailyBusy(true);
-    try { const saved = await saveDailyReport({ ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' }, uid); setDaily(saved); toast.success('Reporte del día guardado.'); }
-    catch (e: any) { toast.error(e?.message ?? 'No se pudo guardar el reporte.'); }
-    finally { setDailyBusy(false); }
+    setDailyBusy(true); setDailyMsg(null);
+    try {
+      const saved = await saveDailyReport({ ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' }, uid);
+      setDaily(saved);
+      setDailyMsg({ tone: 'ok', text: 'Reporte del día guardado.' });
+    } catch (e: any) {
+      setDailyMsg({ tone: 'err', text: 'No se pudo guardar: ' + (e?.message ?? 'error') + '. Revisa que la BD tenga la columna "edificio".' });
+    } finally { setDailyBusy(false); }
   };
 
   const pdfReporteDia = async () => {
     if (!daily) return;
-    setDailyPdf(true);
+    setDailyPdf(true); setDailyMsg(null);
+    // Guardado BEST-EFFORT: si falla (p. ej. falta una columna), IGUAL generamos el PDF con lo que hay en pantalla.
+    let rep: OpDailyReport = { ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' };
+    try { rep = await saveDailyReport(rep, uid); setDaily(rep); }
+    catch (e: any) { setDailyMsg({ tone: 'err', text: 'No se guardó en la BD (se genera el PDF igual): ' + (e?.message ?? 'error') }); }
     try {
-      const saved = await saveDailyReport({ ...daily, supervisor_id: uid, supervisor_name: fullName || 'Supervisor' }, uid);
-      setDaily(saved);
-      await generateOpActivityReport({ supervisorId: uid, supervisorName: fullName || 'Supervisor', roundDate, report: saved });
-    } catch (e: any) { toast.error(e?.message ?? 'No se pudo generar el PDF.'); }
-    finally { setDailyPdf(false); }
+      await generateOpActivityReport({ supervisorId: uid, supervisorName: fullName || 'Supervisor', roundDate, report: rep });
+    } catch (e: any) {
+      setDailyMsg({ tone: 'err', text: 'No se pudo generar el PDF: ' + (e?.message ?? 'error') });
+    } finally { setDailyPdf(false); }
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text } as const;
@@ -451,13 +471,13 @@ export default function ObrasPublicasScreen() {
         </View>
       </Modal>
 
-      {/* Reporte de Actividades OPP (consolidado del día) */}
+      {/* Reporte de Actividades (consolidado del día) */}
       <Modal visible={dailyOpen} animationType="slide" transparent onRequestClose={() => setDailyOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
             <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.sm }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>📋 Reporte de Actividades OPP</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>📋 Reporte de Actividades</Text>
                 <TouchableOpacity onPress={() => setDailyOpen(false)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
               </View>
               <Text style={{ color: colors.muted, fontSize: 12 }}>{fullName || 'Supervisor'} · {nowParts.iso.split('-').reverse().join('/')}</Text>
@@ -466,7 +486,7 @@ export default function ObrasPublicasScreen() {
                 <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
               ) : (<>
                 {([
-                  ['N° de reporte OPP', 'reporte_no'],
+                  ['N° de reporte', 'reporte_no'],
                   ['M³ removidos controlada (día)', 'm3_removidos_dia'],
                   ['M³ acarreo de vestigios (día)', 'm3_acarreo_dia'],
                   ['Cuerpos siniestrados (día)', 'cuerpos_dia'],
@@ -500,6 +520,12 @@ export default function ObrasPublicasScreen() {
                 </View>
 
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Los acumulados "desde inicio" se calculan automáticamente (base + todos los reportes). Se ven en el PDF y en el panel de Obras Públicas.</Text>
+
+                {dailyMsg ? (
+                  <View style={{ backgroundColor: dailyMsg.tone === 'ok' ? colors.successSoftBg : colors.dangerSoftBg, borderWidth: 1, borderColor: dailyMsg.tone === 'ok' ? colors.successSoftBorder : colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                    <Text style={{ color: dailyMsg.tone === 'ok' ? colors.successSoftText : colors.dangerSoftText, fontSize: 12, fontWeight: '700' }}>{dailyMsg.tone === 'ok' ? '✅ ' : '⚠️ '}{dailyMsg.text}</Text>
+                  </View>
+                ) : null}
 
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
                   <TouchableOpacity onPress={guardarReporteDia} disabled={dailyBusy || dailyPdf} style={{ flex: 1, backgroundColor: '#16A34A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (dailyBusy || dailyPdf) ? 0.6 : 1 }}>

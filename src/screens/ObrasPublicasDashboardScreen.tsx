@@ -9,6 +9,7 @@ import { caracasParts } from '../lib/jornada';
 import { cmpText } from '../lib/text';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import {
   fetchOpDashboard, OpDashboard, OpDashMachine,
   fetchOpDailyReports, fetchOpReportSettings, saveOpReportSettings, computeOpAccumulated,
@@ -92,6 +93,9 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   }, [today]);
 
   useEffect(() => { load(); }, [load]);
+  // Sincronía EN VIVO con las vistas de teléfono de las supervisoras: si registran jornada,
+  // avería/parada, m³ o el reporte del día, el panel se actualiza solo.
+  useRealtimeRefresh(['op_machine_rounds', 'op_maintenance', 'op_supervisor_visits', 'op_daily_reports', 'op_report_settings'], () => { load(); });
   // Tictaqueo cada 60s: las horas EN VIVO de las jornadas abiertas crecen solas.
   useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 60000); return () => clearInterval(t); }, []);
 
@@ -153,7 +157,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     return Math.round(s * 10) / 10;
   }, [machines, d.rounds]);
 
-  // Reporte de Actividades OPP: consolidado del día (suma de reportes de las supervisoras)
+  // Reporte de Actividades: consolidado del día (suma de reportes de las supervisoras)
   // respetando el filtro por supervisor; y ACUMULADOS globales (base + todos los reportes).
   const reportsView = useMemo(() => (supFilter ? reports.filter((r) => r.supervisor_id === supFilter) : reports), [reports, supFilter]);
   const consolidado = useMemo(() => {
@@ -263,10 +267,10 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
         setFilter((p) => (p === k ? null : k));
       }} />
 
-      {/* REPORTE DE ACTIVIDADES OPP — consolidado del día + acumulados */}
+      {/* REPORTE DE ACTIVIDADES — consolidado del día + acumulados */}
       <Card style={{ marginTop: spacing.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📋 Reporte de Actividades OPP</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📋 Reporte de Actividades</Text>
           {isAdmin ? (
             <TouchableOpacity onPress={abrirBase}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>⚙️ Editar base</Text></TouchableOpacity>
           ) : null}
