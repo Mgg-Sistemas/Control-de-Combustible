@@ -2638,14 +2638,14 @@ begin
     machinery_id, round_date, round_no, day_hours, night_hours, hours_stopped, overtime_hours,
     day_operator, day_operator_ci, night_operator, night_operator_ci,
     horometro_inicial, horometro_final, horometro_photo, jornada_start_at, jornada_shift,
-    jornada_marked_at, recorded_by, status
+    jornada_marked_at, jornada_marked_by, recorded_by, status
   ) values (
     p_machinery_id, p_round_date, 1, ins_day, ins_night,
     coalesce((j->>'hours_stopped')::numeric, 0), coalesce((j->>'overtime_hours')::numeric, 0),
     j->>'day_operator', j->>'day_operator_ci', j->>'night_operator', j->>'night_operator_ci',
     (j->>'horometro_inicial')::numeric, (j->>'horometro_final')::numeric, j->>'horometro_photo',
     (j->>'jornada_start_at')::timestamptz, j->>'jornada_shift', (j->>'jornada_marked_at')::timestamptz,
-    p_recorded_by, case when ins_day + ins_night > 0 then 'operativa' else 'parada' end
+    (j->>'jornada_marked_by')::uuid, p_recorded_by, case when ins_day + ins_night > 0 then 'operativa' else 'parada' end
   )
   on conflict (machinery_id, round_date, round_no) do update set
     day_hours      = case when j ? 'day_hours'      then coalesce((j->>'day_hours')::numeric,0)      else mr.day_hours end,
@@ -2662,6 +2662,7 @@ begin
     jornada_start_at  = case when j ? 'jornada_start_at'  then (j->>'jornada_start_at')::timestamptz else mr.jornada_start_at end,
     jornada_shift     = case when j ? 'jornada_shift'     then j->>'jornada_shift'     else mr.jornada_shift end,
     jornada_marked_at = case when j ? 'jornada_marked_at' then (j->>'jornada_marked_at')::timestamptz else mr.jornada_marked_at end,
+    jornada_marked_by = case when j ? 'jornada_marked_by' then (j->>'jornada_marked_by')::uuid else mr.jornada_marked_by end,
     status = case when (
         (case when j ? 'day_hours'   then coalesce((j->>'day_hours')::numeric,0)   else mr.day_hours end)
       + (case when j ? 'night_hours' then coalesce((j->>'night_hours')::numeric,0) else mr.night_hours end)

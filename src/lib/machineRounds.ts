@@ -20,6 +20,7 @@ export type RoundPatch = Partial<{
   jornada_start_at: string | null;
   jornada_shift: string | null;
   jornada_marked_at: string | null; // hora REAL en que el inspector marcó (≠ inicio declarado)
+  jornada_marked_by: string | null; // usuario que INICIÓ la jornada (no se pisa al finalizar)
 }>;
 
 /**

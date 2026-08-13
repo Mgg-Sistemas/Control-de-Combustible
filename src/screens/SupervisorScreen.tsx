@@ -1662,7 +1662,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // jornada_start_at = inicio del TURNO (7am/7pm si marcó a tiempo; el declarado si marcó
     // tarde). jornada_marked_at = hora REAL en que el inspector tocó "iniciar" (ej. 8:15) →
     // se muestra en Inspecciones junto al inicio ("INICIO 07:00 · marcó 8:15").
-    const res = await upsertMachineRound(ci.id, roundDate, { jornada_start_at: startIso, jornada_shift: sh, jornada_marked_at: now.toISOString(), ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
+    const res = await upsertMachineRound(ci.id, roundDate, { jornada_start_at: startIso, jornada_shift: sh, jornada_marked_at: now.toISOString(), jornada_marked_by: uid || null, ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
