@@ -745,9 +745,11 @@ export interface MachineWorkSegment {
   started_at: string;
   ended_at: string;
   hours: number;
-  source: 'manual_finish' | 'parada_averia' | 'parada_no_trabajo' | 'auto_close' | 'ajuste_manual' | 'auto_full_shift';
+  source: 'manual_finish' | 'manual_finish_early' | 'parada_averia' | 'parada_no_trabajo' | 'auto_close' | 'ajuste_manual' | 'auto_full_shift';
   recorded_by: string | null;
   notes: string | null;
+  // Motivo del cierre MANUAL ANTICIPADO (solo cuando source='manual_finish_early').
+  close_reason: string | null;
   created_at: string;
 }
 
