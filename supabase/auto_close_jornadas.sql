@@ -1,5 +1,11 @@
 -- ============================================================================
--- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — ACTUALIZADO 2026-08-11:
+-- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — ACTUALIZADO 2026-08-12:
+--   EXCEPCIÓN 24H: el COMPRESOR CON MARTILLO (serial/placa '79669') trabaja
+--   24 horas continuas → NUNCA se auto-cierra (ni noche 7am ni día 7pm). Es el
+--   ÚNICO equipo con este trato; el resto cierra normal. Su jornada se cierra a
+--   mano cuando corresponda. (Pedido del cliente 12-ago-2026.)
+--
+-- ACTUALIZADO 2026-08-11:
 --   Se acotó el alcance de "12h fijas" para el turno DÍA (regla del
 --   05-ago-2026, ver historial abajo): antes aplicaba a CUALQUIER máquina con
 --   jornada abierta sin cerrar, sin importar el inspector — eso le acreditaba
@@ -54,6 +60,10 @@ begin
     -- camino (edición directa en SQL, etc.) este cron NO debe seguir sumándole horas.
     where mr.jornada_start_at is not null
       and coalesce(mch.en_espera, false) = false
+      -- EXCEPCIÓN 24H: el compresor con martillo (serial/placa '79669') trabaja
+      -- 24h continuas → NUNCA se auto-cierra (se cierra a mano). Único equipo así.
+      and trim(coalesce(mch.serial, '')) <> '79669'
+      and trim(coalesce(mch.plate, '')) <> '79669'
   loop
     -- Fin del turno (hora Caracas): NOCHE -> 7:00am del día siguiente; DÍA -> 7:00pm.
     if r.jornada_shift = 'night' then
