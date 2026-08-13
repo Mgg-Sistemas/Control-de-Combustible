@@ -1646,18 +1646,27 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // contaminaban la clasificación del turno noche de HOY (BUG real 10-ago-2026:
     // máquinas mostradas "Cerradas" horas ANTES de que el turno noche empezara).
     const roundDate = businessRoundDateOf(new Date(declaredIso), sh);
+    // REGLA (13-ago-2026): el turno DÍA inicia SIEMPRE a las 7:00am y el de NOCHE a las
+    // 7:00pm. Si el inspector marca DENTRO del margen (≤8:30am día / ≤8:30pm noche), la
+    // jornada se ANCLA al arranque NOMINAL del turno (7am/7pm) aunque la marque/declare un
+    // poco más tarde → cuenta el turno completo (12h al cerrar a las 7pm). Si marca FUERA
+    // del margen (retrasoMin>0, ej. 9am, 11am o JUMBO 320 a las 5:34pm), conserva el inicio
+    // DECLARADO → horas REALES + alerta (no se le regalan 12h a una marca muy tardía).
+    // Las paradas/averías siguen restando aparte, así que anclar a 7am no infla lo parado.
+    const nominalIso = sh === 'night' ? `${roundDate}T19:00:00-04:00` : `${roundDate}T07:00:00-04:00`;
+    const startIso = retrasoMin <= 0 ? nominalIso : declaredIso;
 
     setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');
     if (!vis) { setJornadaBusy(false); return; }
-    // jornada_start_at = inicio DECLARADO (nominal, ej. 7am). jornada_marked_at = hora
-    // REAL en que el inspector tocó "iniciar" (ej. 8:15) → se muestra en Inspecciones
-    // junto al inicio declarado ("INICIO 07:00 · marcó 8:15").
-    const res = await upsertMachineRound(ci.id, roundDate, { jornada_start_at: declaredIso, jornada_shift: sh, jornada_marked_at: now.toISOString(), ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
+    // jornada_start_at = inicio del TURNO (7am/7pm si marcó a tiempo; el declarado si marcó
+    // tarde). jornada_marked_at = hora REAL en que el inspector tocó "iniciar" (ej. 8:15) →
+    // se muestra en Inspecciones junto al inicio ("INICIO 07:00 · marcó 8:15").
+    const res = await upsertMachineRound(ci.id, roundDate, { jornada_start_at: startIso, jornada_shift: sh, jornada_marked_at: now.toISOString(), ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
-    setJornadaStart(declaredIso);
+    setJornadaStart(startIso);
     // REACTIVACIÓN: iniciar la jornada implica que la máquina VUELVE a trabajar, pero
     // eso es SOLO una reclasificación en memoria (ver `reactivada()`/`segmentoDe`, que
     // comparan jornada_start_at contra la avería/parada por TURNO) — NO se toca el
