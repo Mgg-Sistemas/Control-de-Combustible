@@ -68,22 +68,23 @@ export function businessRoundDateOf(d: Date, shift: 'day' | 'night'): string {
 }
 
 /**
- * VENTANA DE GRACIA DE LA NOCHE (regla cliente 09-ago-2026): una jornada de NOCHE
- * (7pm–7am) ya FINALIZADA debe seguir viéndose CERRADA/finalizada hasta las 8am del día
- * siguiente; a las 8am pasa a "pendiente por iniciar". Entre 7am y 8am el día de negocio
- * ya avanzó a HOY, así que la noche recién cerrada (round_date = ayer) hay que
- * conservarla explícitamente. Esta es la ÚNICA fuente de verdad de la regla: la usan
- * TANTO el fetch de estados (qué ronda traer) COMO el clasificador (segmentoDe) del
+ * VENTANA DE GRACIA DE LA NOCHE (regla cliente 09-ago-2026; tope movido a 9am el
+ * 13-ago-2026): una jornada de NOCHE ya FINALIZADA debe seguir viéndose
+ * CERRADA/finalizada hasta las 9am del día siguiente; a las 9am se REINICIA el turno de
+ * la noche y las finalizadas/cerradas pasan a "pendiente por iniciar". Entre 7am (cuando
+ * el día de negocio ya avanzó a HOY) y 9am, la noche recién cerrada (round_date = ayer)
+ * hay que conservarla explícitamente. Esta es la ÚNICA fuente de verdad de la regla: la
+ * usan TANTO el fetch de estados (qué ronda traer) COMO el clasificador (segmentoDe) del
  * teléfono — así no se pueden desincronizar. Si se cambia la hora tope, se cambia AQUÍ.
  */
 export function inNightGraceWindow(): boolean {
   const h = caracasNowHour();
-  return h >= 7 && h < 8;
+  return h >= 7 && h < 9;
 }
 
 /**
  * Fecha ISO de la NOCHE que debe conservarse como finalizada durante la gracia (ayer de
- * calendario), o null si no estamos en la ventana 7–8am. Su presencia es la señal para
+ * calendario), o null si no estamos en la ventana 7–9am. Su presencia es la señal para
  * traer SOLO las horas de noche de ese día (nunca las de día, para no tocar el turno diurno).
  */
 export function nightGraceRoundDate(): string | null {
