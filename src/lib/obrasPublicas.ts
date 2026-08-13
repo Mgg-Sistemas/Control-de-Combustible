@@ -238,22 +238,65 @@ export async function fetchEdificioResumen(date: string): Promise<Record<string,
   return out;
 }
 
+// Campos del REPORTE DETALLADO por edificio (Fase 2): maquinaria, acarreo, viajes,
+// avance, cuerpos, actividades y si el frente fue entregado. Todos opcionales.
+export type OpEdificioDetalle = {
+  m3_acarreados?: number;
+  viajes?: number;
+  avance?: number | null;
+  maq_en_uso?: string | null;
+  maq_inoperativo?: string | null;
+  maq_requerimiento?: string | null;
+  supervivientes?: number;
+  fallecidos?: number;
+  actividades?: string | null;
+  entregado?: boolean;
+};
+
+/** Registro completo por edificio+fecha (removidos + detalle + acumulado calculado). */
+export type OpEdificioReporte = OpEdificioDetalle & {
+  edificio: string;
+  report_date: string;
+  m3: number;                    // removidos hoy
+  supervisor_name: string | null;
+  sub_sector: string | null;     // del catálogo de edificios
+  acumulado: number;             // base + Σ removidos posteriores
+};
+
 /**
  * Registra/corrige los m³ removidos de un edificio en una fecha (uno por
  * edificio+fecha). Si `base` viene definido, además fija/actualiza el acumulado
  * base del edificio con esa fecha como fecha base (típicamente la 1ª vez).
+ * `detalle` (opcional) agrega los campos del reporte detallado (Fase 2).
  */
 export async function saveEdificioRemovido(p: {
   edificio: string; date: string; m3: number; base?: number | null;
   supervisorId?: string | null; supervisorName?: string | null;
+  detalle?: OpEdificioDetalle;
 }): Promise<void> {
   const edificio = (p.edificio ?? '').trim();
   if (!edificio) throw new Error('Falta el edificio.');
   const nowIso = new Date().toISOString();
-  const { error } = await supabase.from('op_edificio_removidos').upsert({
+  const payload: Record<string, any> = {
     edificio, report_date: p.date, m3: p.m3,
     supervisor_id: p.supervisorId ?? null, supervisor_name: p.supervisorName ?? null, updated_at: nowIso,
-  }, { onConflict: 'edificio,report_date' });
+  };
+  if (p.detalle) {
+    const d = p.detalle;
+    Object.assign(payload, {
+      m3_acarreados: d.m3_acarreados ?? 0,
+      viajes: d.viajes ?? 0,
+      avance: d.avance ?? null,
+      maq_en_uso: (d.maq_en_uso ?? '').trim() || null,
+      maq_inoperativo: (d.maq_inoperativo ?? '').trim() || null,
+      maq_requerimiento: (d.maq_requerimiento ?? '').trim() || null,
+      supervivientes: d.supervivientes ?? 0,
+      fallecidos: d.fallecidos ?? 0,
+      actividades: (d.actividades ?? '').trim() || null,
+      entregado: !!d.entregado,
+    });
+  }
+  const { error } = await supabase.from('op_edificio_removidos').upsert(payload, { onConflict: 'edificio,report_date' });
   if (error) throw error;
   if (p.base != null && isFinite(p.base)) {
     const { error: be } = await supabase.from('op_edificio_base').upsert({
@@ -261,6 +304,38 @@ export async function saveEdificioRemovido(p: {
     }, { onConflict: 'edificio' });
     if (be) throw be;
   }
+}
+
+/**
+ * Reporte COMPLETO por edificio de una fecha (todos los campos + sub-sector +
+ * acumulado calculado). Para editar el detalle y para el export de WhatsApp.
+ */
+export async function fetchEdificioReportesDia(date: string): Promise<OpEdificioReporte[]> {
+  const [rowsRes, resumen, edifRes] = await Promise.all([
+    supabase.from('op_edificio_removidos').select('*').eq('report_date', date),
+    fetchEdificioResumen(date),
+    supabase.from('edificios').select('name, sub_sector'),
+  ]);
+  if (rowsRes.error) throw rowsRes.error;
+  const sectores = new Map<string, string | null>();
+  (edifRes.data ?? []).forEach((e: any) => sectores.set(e.name, (e.sub_sector ?? null) as string | null));
+  return (rowsRes.data ?? []).map((r: any): OpEdificioReporte => ({
+    edificio: r.edificio, report_date: r.report_date,
+    m3: Number(r.m3) || 0,
+    m3_acarreados: Number(r.m3_acarreados) || 0,
+    viajes: Number(r.viajes) || 0,
+    avance: r.avance == null ? null : Number(r.avance),
+    maq_en_uso: r.maq_en_uso ?? null,
+    maq_inoperativo: r.maq_inoperativo ?? null,
+    maq_requerimiento: r.maq_requerimiento ?? null,
+    supervivientes: Number(r.supervivientes) || 0,
+    fallecidos: Number(r.fallecidos) || 0,
+    actividades: r.actividades ?? null,
+    entregado: !!r.entregado,
+    supervisor_name: r.supervisor_name ?? null,
+    sub_sector: sectores.get(r.edificio) ?? null,
+    acumulado: resumen[r.edificio]?.acumulado ?? (Number(r.m3) || 0),
+  }));
 }
 
 /** Borra el removido de un edificio en una fecha (no toca la base/acumulado). */
@@ -493,6 +568,16 @@ export async function opMarkMaint(machineryId: string, material: string, notes: 
   const { error } = await supabase.from('op_maintenance').insert({
     machinery_id: machineryId, material, notes: notes || null, status: 'pendiente', shift, round_date: roundDate, requested_by: userId ?? null,
   });
+  if (error) throw error;
+}
+
+/** Pone la máquina OPERATIVA: resuelve TODAS sus averías/paradas pendientes (op_*).
+ *  `fetchOpMaintPending` filtra status='pendiente', así que basta con sacarla de ese
+ *  estado (usamos 'resuelto') para que la máquina deje de aparecer averiada/parada. */
+export async function opClearMaint(machineryId: string): Promise<void> {
+  const { error } = await supabase.from('op_maintenance')
+    .update({ status: 'resuelto' })
+    .eq('machinery_id', machineryId).eq('status', 'pendiente');
   if (error) throw error;
 }
 
