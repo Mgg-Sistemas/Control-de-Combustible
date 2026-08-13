@@ -56,6 +56,7 @@ import PagoPersonalScreen from '../screens/PagoPersonalScreen';
 import UniformesScreen from '../screens/UniformesScreen';
 import AsistenciaScreen from '../screens/AsistenciaScreen';
 import AsistenciaCamionesScreen from '../screens/AsistenciaCamionesScreen';
+import ViajesCamionesScreen from '../screens/ViajesCamionesScreen';
 import DistribucionGuardiasScreen from '../screens/DistribucionGuardiasScreen';
 import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
@@ -252,6 +253,7 @@ function MoreStack() {
       <Stack.Screen name="Uniformes" component={UniformesScreen} options={{ title: 'Distribución de uniformes' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
+      <Stack.Screen name="ViajesCamiones" component={ViajesCamionesScreen} options={{ title: 'Registro de viajes (camiones)' }} />
       <Stack.Screen name="DistribucionGuardias" component={DistribucionGuardiasScreen} options={{ title: 'Distribución de guardias' }} />
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
@@ -753,6 +755,7 @@ const moreScreens = {
   Uniformes: 'uniformes',
   Asistencia: 'asistencia',
   AsistenciaCamiones: 'asistencia-camiones',
+  ViajesCamiones: 'viajes-camiones',
   DistribucionGuardias: 'distribucion-guardias',
   Compras: 'compras',
   Inventario: 'inventario',

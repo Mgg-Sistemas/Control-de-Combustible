@@ -24,6 +24,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Nómina', route: 'Nomina', desc: 'Pago del personal, uniformes, asistencia y organigrama por empresa y período', icon: '🧾', module: 'nomina' },
   { label: 'Control de asistencia', route: 'Asistencia', desc: 'Marcar entrada/salida del personal escaneando el carnet (hora y fecha), con reporte', icon: '🕒', module: 'asistencia' },
   { label: 'Asistencia de camiones', route: 'AsistenciaCamiones', desc: 'Volteos/volquetas: presente/ausente (auto al iniciar jornada + manual), avería y gasoil por escáner o manual', icon: '🚚', module: 'asistencia_camiones' },
+  { label: 'Viajes de camiones', route: 'ViajesCamiones', desc: 'Registro de viajes por listero: un toque por cada regreso/entrada, con hora automática y chofer del turno', icon: '🚛', module: 'viajes_camiones' },
   { label: 'Aliados', route: 'Aliados', desc: 'Colaboradores externos con ficha y carnet propios (QR con sus datos)', icon: '🤝', module: 'aliados' },
   { label: 'Compras', route: 'Compras', desc: 'Solicitudes de pedido, órdenes de compra con aprobación y proveedores', icon: '🛒', module: 'compras' },
   { label: 'Inventario', route: 'Inventario', desc: 'Existencias por material con PMP, entradas desde compras, salidas y consumo', icon: '📦', module: 'inventario' },

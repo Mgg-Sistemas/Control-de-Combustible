@@ -49,6 +49,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'mapa', label: 'Mapa' },
   { key: 'reportes', label: 'Reportes' },
   { key: 'asistencia_camiones', label: 'Asistencia de camiones' },
+  { key: 'viajes_camiones', label: 'Registro de viajes (camiones)' },
   { key: 'usuarios', label: 'Usuarios' },
   { key: 'mangueras', label: 'Fabricación' },
   { key: 'fabricacion_planta', label: 'Fabricación · Kiosco de planta' },
@@ -58,7 +59,7 @@ export const MODULES: { key: string; label: string }[] = [
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
  *  Control de Pagos y Usuarios quedan restringidos; el resto abierto (compat.). */
 export function defaultLevel(moduleKey: string): PermLevel {
-  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta') return 'none';
+  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'viajes_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta') return 'none';
   return 'escritura';
 }
 

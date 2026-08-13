@@ -18,6 +18,7 @@ import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
+import { listOperatorAssignments } from '../lib/machineOperators';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -152,6 +153,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
   const [inspectors, setInspectors] = useState<Record<string, InspectorInfo>>({}); // inspector del último check-in por máquina
+  // Operador PLANEADO por el Coordinador de Operadores (machine_operators), por turno —
+  // NO toca nada de inspectores, es una fuente y un estado totalmente aparte. Independiente
+  // del operador REAL (day_operator/night_operator en machine_rounds, que se escribe solo
+  // cuando el operador escanea el QR y arranca su jornada).
+  const [plannedOperators, setPlannedOperators] = useState<Record<string, { day?: string; night?: string }>>({});
   const [averiadas, setAveriadas] = useState<Set<string>>(new Set()); // máquinas con avería/parada pendiente vigente
   // Tipo real ('averia' | 'parada') de cada una — antes se rotulaban TODAS como "MÁQUINA
   // PARADA (avería)" sin distinguir, así que una máquina solo PARADA (sin avería real)
@@ -329,6 +335,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
       // Inspector "asignado" = quien hizo el último check-in en cada máquina.
       latestInspectorByMachine().then(setInspectors).catch(() => {});
+      // Operador PLANEADO (día/noche) por máquina — asignación del Coordinador de
+      // Operadores (machine_operators), independiente del inspector de arriba.
+      listOperatorAssignments().then(({ rows }) => {
+        const map: Record<string, { day?: string; night?: string }> = {};
+        rows.forEach((r) => { const cur = map[r.machinery_id] ?? {}; cur[r.shift] = r.operator_name; map[r.machinery_id] = cur; });
+        setPlannedOperators(map);
+      }).catch(() => {});
       // Averías PENDIENTES → en la tarjeta sale "🔴 MÁQUINA PARADA".
       // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiadas — se
       // excluyen del set aunque tengan tickets pendientes (se ignora su mantenimiento).
@@ -432,7 +445,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // `listInspectorAssignments()` (línea ~345), pero una reasignación de
     // inspector hecha desde el teléfono (CHECK MÁQUINA) no la refrescaba en
     // vivo, solo al recargar o volver a enfocarla.
-    ['machine_rounds', 'machinery', 'machine_guards', 'fletes', 'maintenance_requests', 'supervisor_visits', 'dispatches', 'control_closures', 'machine_inspectors'].forEach((t) =>
+    // `machine_operators` (12-ago-2026): idem para el operador PLANEADO por el
+    // Coordinador de Operadores — sin esto, una reasignación no se veía acá en vivo.
+    ['machine_rounds', 'machinery', 'machine_guards', 'fletes', 'maintenance_requests', 'supervisor_visits', 'dispatches', 'control_closures', 'machine_inspectors', 'machine_operators'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     // Resync al (re)conectar el canal (señal intermitente): recupera cambios perdidos.
@@ -1908,6 +1923,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h${puedeEditarPrecio ? ' · toca para editar' : ''}` : (puedeEditarPrecio ? 'Sin precio · toca el nombre para fijarlo' : 'Sin precio')}
                   </Text>
                   {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
+                  {plannedOperators[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>👷 Operador planeado: ☀️ {plannedOperators[m.id].day || '—'} · 🌙 {plannedOperators[m.id].night || '—'}</Text> : null}
                   {fuelWeek[m.id]?.liters ? (
                     <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700' }}>
                       ⛽ {litersLabel(fuelWeek[m.id].liters)} L{weekWorked > 0 ? ` · ${lphOf(fuelWeek[m.id].liters, weekWorked)} L/h` : ''} <Text style={{ color: colors.muted, fontWeight: '400' }}>(período)</Text>
@@ -2057,6 +2073,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                               })}
                               {lockTurno ? <Text style={{ fontSize: 11 }}>🔒</Text> : null}
                             </View>
+                            {/* Operador PLANEADO (machine_operators) para este turno — solo tiene sentido
+                                en el día de HOY (la asignación no lleva fecha, es "quién está planeado
+                                ahora mismo"); en otros días de la semana no se muestra para no confundir
+                                con un plan de una fecha distinta. */}
+                            {dISO === todayISO() && plannedOperators[m.id]?.[which] ? (
+                              <Text style={{ color: colors.brandText, fontSize: 10.5, marginTop: 2 }}>👷 Planeado: {plannedOperators[m.id]![which]}</Text>
+                            ) : null}
                           </View>
                         );
                       })}
