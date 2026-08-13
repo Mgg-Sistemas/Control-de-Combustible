@@ -80,6 +80,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const [histFrom, setHistFrom] = useState('');
   const [histTo, setHistTo] = useState('');
   const [kpiDetail, setKpiDetail] = useState<string | null>(null); // KPI tocado → detalle
+  const [kpiDetailQ, setKpiDetailQ] = useState(''); // buscador dentro del detalle
   const [histEdifOpen, setHistEdifOpen] = useState(false); // HISTÓRICO de datos diarios por edificio
   const [histEdifQ, setHistEdifQ] = useState('');
   const [histEdifFrom, setHistEdifFrom] = useState('');
@@ -349,7 +350,7 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
       ) : null}
 
       {/* KPIs — tocar una tarjeta abre su DETALLE (solo lo del día). */}
-      <InspectorKpiGrid items={kpis} activeKey={filter} onSelect={(k) => setKpiDetail(k)} />
+      <InspectorKpiGrid items={kpis} activeKey={filter} onSelect={(k) => { setKpiDetail(k); setKpiDetailQ(''); }} />
 
       {/* HISTÓRICO de los datos diarios (por edificio), filtrable por fecha y características. */}
       <TouchableOpacity onPress={abrirHistEdif} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
@@ -625,14 +626,22 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
       <Modal visible={!!kpiDetail} animationType="slide" transparent onRequestClose={() => setKpiDetail(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%' }}>
+            {(() => {
+              const nq = kpiDetailQ.trim().toLowerCase();
+              const filtered = nq ? kpiDetalle.rows.filter((r) => [r.title, r.sub, r.right].filter(Boolean).join(' ').toLowerCase().includes(nq)) : kpiDetalle.rows;
+              return (<>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.lg, paddingBottom: spacing.sm }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{kpiDetalle.title} · {kpiDetalle.rows.length}</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{kpiDetalle.title} · {filtered.length}</Text>
               <TouchableOpacity onPress={() => setKpiDetail(null)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
             </View>
+            <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+              <TextInput value={kpiDetailQ} onChangeText={setKpiDetailQ} placeholder="🔎 Buscar por cualquier característica…" placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }} />
+            </View>
             <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, gap: spacing.xs }}>
-              {kpiDetalle.rows.length === 0 ? (
+              {filtered.length === 0 ? (
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Sin registros hoy.</Text>
-              ) : kpiDetalle.rows.map((row, i) => (
+              ) : filtered.map((row, i) => (
                 <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{row.title}</Text>
@@ -648,6 +657,8 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
               ) : null}
               <View style={{ height: spacing.xl }} />
             </ScrollView>
+              </>);
+            })()}
           </View>
         </View>
       </Modal>
