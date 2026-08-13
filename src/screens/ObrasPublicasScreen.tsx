@@ -17,6 +17,7 @@ import {
 } from '../lib/obrasPublicas';
 import { generateObrasPublicasDailyReport, generateOpActivityReport } from '../lib/obrasPublicasReport';
 import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
+import EdificioPicker from '../components/EdificioPicker';
 
 type Maquina = { id: string; code?: string | null } & Record<string, any>;
 
@@ -484,7 +485,9 @@ export default function ObrasPublicasScreen() {
                   </View>
                 ))}
 
-                <View style={{ gap: 4 }}>
+                <EdificioPicker value={daily.edificio ?? ''} onChange={(name) => setDf({ edificio: name })} label="Edificio" placeholder="Selecciona o escribe el edificio…" />
+
+                <View style={{ gap: 4, marginTop: spacing.sm }}>
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>Observación del día</Text>
                   <TextInput
                     value={daily.observacion ?? ''}

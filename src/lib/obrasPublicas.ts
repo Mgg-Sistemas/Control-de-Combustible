@@ -257,6 +257,7 @@ export type OpDailyReport = {
   supervisor_id: string | null;
   supervisor_name: string | null;
   reporte_no: number | null;
+  edificio: string | null;
   m3_removidos_dia: number;
   m3_acarreo_dia: number;
   cuerpos_dia: number;
@@ -267,13 +268,13 @@ export type OpDailyReport = {
 export type OpReportSettings = { base_m3: number; base_cuerpos: number; base_date: string | null };
 
 const emptyDaily = (report_date: string, supervisorId: string | null, supervisorName: string | null): OpDailyReport => ({
-  report_date, supervisor_id: supervisorId, supervisor_name: supervisorName, reporte_no: null,
+  report_date, supervisor_id: supervisorId, supervisor_name: supervisorName, reporte_no: null, edificio: null,
   m3_removidos_dia: 0, m3_acarreo_dia: 0, cuerpos_dia: 0, traslado_camion_dia: 0, observacion: null,
 });
 
 const rowToDaily = (r: any): OpDailyReport => ({
   id: r.id, report_date: r.report_date, supervisor_id: r.supervisor_id ?? null, supervisor_name: r.supervisor_name ?? null,
-  reporte_no: r.reporte_no != null ? Number(r.reporte_no) : null,
+  reporte_no: r.reporte_no != null ? Number(r.reporte_no) : null, edificio: r.edificio ?? null,
   m3_removidos_dia: Number(r.m3_removidos_dia) || 0, m3_acarreo_dia: Number(r.m3_acarreo_dia) || 0,
   cuerpos_dia: Number(r.cuerpos_dia) || 0, traslado_camion_dia: Number(r.traslado_camion_dia) || 0,
   observacion: r.observacion ?? null,
@@ -295,7 +296,7 @@ export async function fetchMyDailyReport(supervisorId: string | null, reportDate
 export async function saveDailyReport(rep: OpDailyReport, userId?: string | null): Promise<OpDailyReport> {
   const payload = {
     report_date: rep.report_date, supervisor_id: rep.supervisor_id, supervisor_name: rep.supervisor_name,
-    reporte_no: rep.reporte_no, m3_removidos_dia: rep.m3_removidos_dia, m3_acarreo_dia: rep.m3_acarreo_dia,
+    reporte_no: rep.reporte_no, edificio: rep.edificio, m3_removidos_dia: rep.m3_removidos_dia, m3_acarreo_dia: rep.m3_acarreo_dia,
     cuerpos_dia: rep.cuerpos_dia, traslado_camion_dia: rep.traslado_camion_dia, observacion: rep.observacion,
     recorded_by: userId ?? null, updated_at: new Date().toISOString(),
   };

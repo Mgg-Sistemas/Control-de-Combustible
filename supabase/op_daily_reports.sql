@@ -12,6 +12,7 @@ create table if not exists public.op_daily_reports (
   supervisor_id       uuid references public.profiles(id),
   supervisor_name     text,
   reporte_no          integer,                       -- "Reporte de Actividades OPP: 27"
+  edificio            text,                          -- Edificio del reporte (catálogo compartido)
   m3_removidos_dia    numeric not null default 0,    -- M³ removidos (controlada) del día
   m3_acarreo_dia      numeric not null default 0,    -- M³ acarreo de vestigios del día
   cuerpos_dia         integer not null default 0,    -- Cuerpos siniestrados del día
@@ -23,6 +24,8 @@ create table if not exists public.op_daily_reports (
   unique (supervisor_id, report_date)
 );
 create index if not exists op_daily_reports_date_idx on public.op_daily_reports (report_date);
+-- Si la tabla ya existía sin la columna edificio, agregarla:
+alter table public.op_daily_reports add column if not exists edificio text;
 
 -- 2) Base acumulada de arranque (una sola fila). Los reportes con
 --    report_date > base_date se suman a la base para el "desde inicio".

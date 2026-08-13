@@ -109,7 +109,7 @@ export async function generateOpActivityReport(opts: {
   const body = `
     <div class="fecha-dia">📅 ${esc(dmy(roundDate))}</div>
     <h2 style="margin:6px 0">🏛️ Reporte de Actividades OPP${rep.reporte_no != null ? ` · N° ${esc(rep.reporte_no)}` : ''}</h2>
-    <p style="margin:2px 0"><b>Supervisor:</b> ${esc(supervisorName)}</p>
+    <p style="margin:2px 0"><b>Supervisor:</b> ${esc(supervisorName)}${rep.edificio ? ` · <b>Edificio:</b> ${esc(rep.edificio)}` : ''}</p>
 
     <h3 style="margin:12px 0 4px">Del día</h3>
     <div class="opgrid">
