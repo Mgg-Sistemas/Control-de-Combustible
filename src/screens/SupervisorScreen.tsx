@@ -61,6 +61,15 @@ function caracasToday(): string {
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
+// Cómo terminó la jornada de un turno: hora real (ended_at) + tipo (manual/automático).
+// Se deriva del `source` del último tramo de cierre en machine_work_segments.
+type CierreInfo = { tipo: 'manual' | 'auto' | 'ajuste'; hora: string };
+const CIERRE_TIPO: Record<string, CierreInfo['tipo']> = {
+  manual_finish: 'manual', auto_close: 'auto', auto_full_shift: 'auto', ajuste_manual: 'ajuste',
+};
+const CIERRE_META: Record<CierreInfo['tipo'], { label: string; icon: string }> = {
+  manual: { label: 'cierre manual', icon: '🏁' }, auto: { label: 'cierre automático', icon: '🤖' }, ajuste: { label: 'ajuste', icon: '✏️' },
+};
 /** Hora ACTUAL del sistema (Caracas) como "HH:MM" (24h) — es el default REAL al
  *  iniciar una jornada (la hora en que de verdad se está iniciando), en vez de un
  *  7:00am/7:00pm fijo. El inspector puede corregirla si hace falta. */
@@ -255,6 +264,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // con visibleParaInspector). `openDay/openNight` y `dayWorked/nightWorked` = por turno
   // → así "iniciada/trabajando" NO se refleja del inspector de día al de noche (ni viceversa).
   const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number; openStartDay: number; openStartNight: number }>>({});
+  // Cómo cerró cada máquina su jornada (por turno): hora real + manual/automático.
+  const [cierreById, setCierreById] = useState<Record<string, { day?: CierreInfo; night?: CierreInfo }>>({});
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
   const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean; createdMs: number }[]>([]);
@@ -542,7 +553,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // pendiente por iniciar, como se pidió.
     // Ventana de gracia 7–9am: fuente de verdad única en caracasDay.ts (nightGraceRoundDate).
     const nightGraceDay = nightGraceRoundDate();
-    const [{ data: rs, error: rsErr }, { data: rsRescue, error: rsRescueErr }, { data: rsNight, error: rsNightErr }, { data: par, error: parErr }, { data: avPend, error: avPendErr }] = await Promise.all([
+    const [{ data: rs, error: rsErr }, { data: rsRescue, error: rsRescueErr }, { data: rsNight, error: rsNightErr }, { data: par, error: parErr }, { data: avPend, error: avPendErr }, { data: segs }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
       // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
@@ -566,6 +577,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // (se arrastra hasta que se marque operativa), NO baja a parada/pendiente al
       // día siguiente. Mismo criterio que el resumen admin (InspectionsSummary).
       supabase.from('maintenance_requests').select('machinery_id, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      // Tramos de cierre (machine_work_segments) de las mismas fechas: para mostrar en la
+      // tarjeta a qué HORA cerró la jornada y si fue MANUAL o AUTOMÁTICO (source).
+      supabase.from('machine_work_segments').select('machinery_id, shift, ended_at, source').in('round_date', roundDates),
     ]);
     // Si CUALQUIERA de las 5 consultas falla (red inestable, timeout — común en el
     // teléfono en campo), NO se pisa el estado ya cargado con datos vacíos: antes, un
@@ -634,6 +648,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       rmap[r.machinery_id] = { ...prev, nightWorked: Math.max(prev.nightWorked, Number(r.night_hours) || 0) };
     });
     setRoundsById(rmap);
+    // Cierre por turno: último tramo de CIERRE (max ended_at) por máquina+turno →
+    // hora real + manual/automático. Las paradas intermedias no cuentan.
+    const cRaw: Record<string, { day?: { tipo: CierreInfo['tipo']; ms: number }; night?: { tipo: CierreInfo['tipo']; ms: number } }> = {};
+    ((segs ?? []) as any[]).forEach((s) => {
+      const tipo = CIERRE_TIPO[s.source as string];
+      const ms = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
+      if (!tipo || isNaN(ms)) return;
+      const sh: 'day' | 'night' = s.shift === 'night' ? 'night' : 'day';
+      const ce = cRaw[s.machinery_id] ?? {};
+      if (!ce[sh] || ms > ce[sh]!.ms) ce[sh] = { tipo, ms };
+      cRaw[s.machinery_id] = ce;
+    });
+    const cMap: Record<string, { day?: CierreInfo; night?: CierreInfo }> = {};
+    Object.entries(cRaw).forEach(([id, c]) => {
+      cMap[id] = {
+        day: c.day ? { tipo: c.day.tipo, hora: caracasClock(new Date(c.day.ms).toISOString()) } : undefined,
+        night: c.night ? { tipo: c.night.tipo, hora: caracasClock(new Date(c.night.ms).toISOString()) } : undefined,
+      };
+    });
+    setCierreById(cMap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
     // turno del inspector se hace en los memos paradaIds/paradaMotivos (más abajo).
     const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasParts(new Date(iso)).hour; return h >= 7 && h < 19 ? 'day' : 'night'; };
@@ -2222,6 +2256,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         {m.encargado ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>👤 Encargado: {m.encargado}</Text> : null}
         {/* Estado de la jornada (con su color) */}
         {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}{est.label === 'Parada' && paradaMotivoDe(m.id) ? ` · ${paradaMotivoDe(m.id)}` : ''}</Text> : null}
+        {/* Cómo cerró la jornada: hora real + manual/automático (por turno), solo en cerradas. */}
+        {segmentoDe(m.id) === 'cerrada' && cierreById[m.id] ? (
+          <>
+            {cierreById[m.id]!.day ? (
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 }}>☀️ {CIERRE_META[cierreById[m.id]!.day!.tipo].icon} Cerró {cierreById[m.id]!.day!.hora} · {CIERRE_META[cierreById[m.id]!.day!.tipo].label}</Text>
+            ) : null}
+            {cierreById[m.id]!.night ? (
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', marginTop: 2 }}>🌙 {CIERRE_META[cierreById[m.id]!.night!.tipo].icon} Cerró {cierreById[m.id]!.night!.hora} · {CIERRE_META[cierreById[m.id]!.night!.tipo].label}</Text>
+            ) : null}
+          </>
+        ) : null}
         {/* Inspectores asignados (día / noche) */}
         {(() => {
           const s = assignMap[m.id] || {};
