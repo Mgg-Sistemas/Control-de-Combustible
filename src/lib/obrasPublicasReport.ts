@@ -76,7 +76,7 @@ export async function generateObrasPublicasDailyReport(opts: { supervisorId: str
   return exportPdf(html, `obras-publicas-${supervisorName}-${roundDate}`);
 }
 
-// ── Reporte de Actividades OPP (consolidado del día + acumulados) ────────────
+// ── Reporte de Actividades (consolidado del día + acumulados) ────────────────
 
 /** Miles con "." y decimales con "," (formato local, sin depender de Intl). */
 function fmt(n: number): string {
@@ -88,7 +88,7 @@ function fmt(n: number): string {
 }
 
 /**
- * PDF del "Reporte de Actividades OPP" de una supervisora en un día: sus métricas
+ * PDF del "Reporte de Actividades" de una supervisora en un día: sus métricas
  * del día (m³ removidos, m³ acarreo, cuerpos, traslado camión), su observación y los
  * ACUMULADOS de toda la operación (base + suma de todos los reportes desde el corte).
  */
@@ -108,7 +108,7 @@ export async function generateOpActivityReport(opts: {
 
   const body = `
     <div class="fecha-dia">📅 ${esc(dmy(roundDate))}</div>
-    <h2 style="margin:6px 0">🏛️ Reporte de Actividades OPP${rep.reporte_no != null ? ` · N° ${esc(rep.reporte_no)}` : ''}</h2>
+    <h2 style="margin:6px 0">🏛️ Reporte de Actividades${rep.reporte_no != null ? ` · N° ${esc(rep.reporte_no)}` : ''}</h2>
     <p style="margin:2px 0"><b>Supervisor:</b> ${esc(supervisorName)}${rep.edificio ? ` · <b>Edificio:</b> ${esc(rep.edificio)}` : ''}</p>
 
     <h3 style="margin:12px 0 4px">Del día</h3>
@@ -139,8 +139,8 @@ export async function generateOpActivityReport(opts: {
     .opk-l{font-size:11px;color:#6b7280;margin-top:2px;text-transform:uppercase;letter-spacing:.3px}
     .opobs{border:1px solid #ddd;border-radius:8px;padding:8px 10px;font-size:12px;min-height:36px}`;
 
-  const html = pdfDocument({ title: 'Reporte de Actividades OPP', subtitle: `${supervisorName} · ${dmy(roundDate)}`, body, extraCss });
-  return exportPdf(html, `reporte-opp-${supervisorName}-${roundDate}`);
+  const html = pdfDocument({ title: 'Reporte de Actividades', subtitle: `${supervisorName} · ${dmy(roundDate)}`, body, extraCss });
+  return exportPdf(html, `reporte-actividades-${supervisorName}-${roundDate}`);
 }
 
 /** El corte se ignora para traer reportes; usamos una fecha muy vieja para sumar todos los válidos. */

@@ -736,6 +736,7 @@ const moreScreens = {
   CoordOperadores: 'coordinacion-operadores',
   Supervision: 'inspecciones',
   HistoricoJornadas: 'historico',
+  ObrasPublicasDashboard: 'obras-publicas-panel',
   Ubicaciones: 'ubicaciones',
   Geodesta: 'geodesta',
   GeodestaDetalle: 'geodesta/levantamiento',
