@@ -161,9 +161,9 @@ const nWa = (n: number) => {
  * maquinaria, cuerpos, actividades, entregado), y al final los TOTALES del día.
  * Devuelve '' si no hay nada reportado ese día.
  */
-export async function buildOpEdificioWhatsApp(date: string): Promise<string> {
+export async function buildOpEdificioWhatsApp(date: string, supervisorId?: string | null): Promise<string> {
   let reportes: OpEdificioReporte[] = [];
-  try { reportes = await fetchEdificioReportesDia(date); } catch { reportes = []; }
+  try { reportes = await fetchEdificioReportesDia(date, supervisorId); } catch { reportes = []; }
   // Solo edificios con ALGO reportado (m³ removidos o algún campo de detalle).
   const conDato = reportes.filter((r) =>
     (r.m3 || 0) > 0 || (r.m3_acarreados || 0) > 0 || (r.viajes || 0) > 0 ||

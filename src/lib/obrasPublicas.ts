@@ -237,9 +237,17 @@ export type OpEdificioResumen = {
  * Devuelve un mapa edificio → resumen con TODOS los edificios que tienen base o
  * algún removido (histórico o de hoy).
  */
-export async function fetchEdificioResumen(date: string): Promise<Record<string, OpEdificioResumen>> {
+/**
+ * Resumen por edificio de una fecha. Si `supervisorId` viene definido, el resumen
+ * es POR USUARIO (solo los edificios/removidos de ese supervisor) — así en el
+ * TELÉFONO cada supervisor ve solo lo suyo (los edificios de otro le son
+ * indiferentes). Sin `supervisorId` (PC/panel) es GLOBAL (consolidado de todos).
+ */
+export async function fetchEdificioResumen(date: string, supervisorId?: string | null): Promise<Record<string, OpEdificioResumen>> {
+  let remQ = supabase.from('op_edificio_removidos').select('edificio, report_date, m3, supervisor_id, supervisor_name');
+  if (supervisorId) remQ = remQ.eq('supervisor_id', supervisorId);
   const [rem, bas] = await Promise.all([
-    supabase.from('op_edificio_removidos').select('edificio, report_date, m3, supervisor_name'),
+    remQ,
     supabase.from('op_edificio_base').select('edificio, base_m3, base_date'),
   ]);
   if (rem.error) throw rem.error;
@@ -254,8 +262,11 @@ export async function fetchEdificioResumen(date: string): Promise<Record<string,
     porEdif.get(r.edificio)!.push(r);
   });
 
+  // Por usuario: solo los edificios que ESE supervisor ha trabajado (con removidos).
+  // Global: todos los que tengan removidos o base.
+  const edifKeys = supervisorId ? new Set<string>(porEdif.keys()) : new Set<string>([...porEdif.keys(), ...bases.keys()]);
   const out: Record<string, OpEdificioResumen> = {};
-  new Set<string>([...porEdif.keys(), ...bases.keys()]).forEach((edif) => {
+  edifKeys.forEach((edif) => {
     const rows = porEdif.get(edif) ?? [];
     const base = bases.get(edif);
     const hoy = rows.filter((r) => r.report_date === date);
@@ -270,6 +281,16 @@ export async function fetchEdificioResumen(date: string): Promise<Record<string,
     };
   });
   return out;
+}
+
+/**
+ * TOTAL m³ acumulados GLOBAL (de TODA la operación, todos los supervisores). Es lo
+ * ÚNICO compartido en el teléfono ("m³ totales"): removido/edificios del día son por
+ * usuario, pero este total es el mismo para todos.
+ */
+export async function fetchEdificioM3TotalGlobal(date: string): Promise<number> {
+  const g = await fetchEdificioResumen(date); // sin supervisor = global
+  return Math.round(Object.values(g).reduce((a, r) => a + r.acumulado, 0) * 10) / 10;
 }
 
 // Campos del REPORTE DETALLADO por edificio (Fase 2): maquinaria, acarreo, viajes,
@@ -344,10 +365,12 @@ export async function saveEdificioRemovido(p: {
  * Reporte COMPLETO por edificio de una fecha (todos los campos + sub-sector +
  * acumulado calculado). Para editar el detalle y para el export de WhatsApp.
  */
-export async function fetchEdificioReportesDia(date: string): Promise<OpEdificioReporte[]> {
+export async function fetchEdificioReportesDia(date: string, supervisorId?: string | null): Promise<OpEdificioReporte[]> {
+  let rowsQ = supabase.from('op_edificio_removidos').select('*').eq('report_date', date);
+  if (supervisorId) rowsQ = rowsQ.eq('supervisor_id', supervisorId);
   const [rowsRes, resumen, edifRes] = await Promise.all([
-    supabase.from('op_edificio_removidos').select('*').eq('report_date', date),
-    fetchEdificioResumen(date),
+    rowsQ,
+    fetchEdificioResumen(date, supervisorId),
     supabase.from('edificios').select('name, sub_sector'),
   ]);
   if (rowsRes.error) throw rowsRes.error;
