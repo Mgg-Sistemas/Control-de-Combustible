@@ -130,6 +130,17 @@ export async function listMyOpMachineIds(supervisorId: string): Promise<string[]
   return (data ?? []).map((r: any) => r.machinery_id as string);
 }
 
+/** Máquina asignada a un supervisor, con su ficha mínima (para pickers). */
+export type OpMyMachine = { id: string; code: string; plate: string | null; serial: string | null };
+/** Máquinas asignadas (vigentes) a un supervisor, con código/placa/serial. */
+export async function listMyOpMachines(supervisorId: string): Promise<OpMyMachine[]> {
+  const ids = await listMyOpMachineIds(supervisorId);
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from('machinery').select('id, code, plate, serial').in('id', ids);
+  if (error) throw error;
+  return (data ?? []).map((r: any): OpMyMachine => ({ id: r.id, code: r.code ?? '—', plate: r.plate ?? null, serial: r.serial ?? null }));
+}
+
 export type OpRound = {
   machinery_id: string; round_date: string; day_hours: number; night_hours: number;
   jornada_start_at: string | null; jornada_shift: 'day' | 'night' | null;
