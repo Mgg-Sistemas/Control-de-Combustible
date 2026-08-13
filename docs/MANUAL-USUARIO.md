@@ -188,9 +188,16 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - Junto al total de horas de cada día, hay un botón **"🕒 Ver tramos"**.
 - Muestra, uno por uno, cada tramo de trabajo que se registró ese día: hora de inicio → hora de
   parada, cuántas horas duró, y por qué se cerró (🏁 cierre manual del inspector, 🔧 parada por
-  avería, 📍 parada/no trabajó, 🤖 cierre automático del sistema a las 7am/7pm, o ✏️ un ajuste
-  manual hecho aquí mismo). Es **solo de consulta** — sirve para revisar y confiar en el total,
-  no para editarlo (los ajustes se siguen haciendo con los campos de siempre).
+  avería, 📍 parada/no trabajó, 🤖 cierre automático del sistema —**día a las 7:00pm, noche a la
+  1:00am**—, o ✏️ un ajuste manual hecho aquí mismo). Es **solo de consulta** — sirve para revisar y
+  confiar en el total, no para editarlo (los ajustes se siguen haciendo con los campos de siempre).
+
+> **Cierre de jornada (regla firme):** el **DÍA cierra a las 7:00pm** y la **NOCHE a la 1:00am**
+> (permanencia de noche = 6h). El único equipo que trabaja **24h** y **nunca** se auto-cierra es el
+> **COMPRESOR CON MARTILLO (serial 79669)**. El inspector puede **finalizar manualmente antes**, pero
+> si cierra **antes de la hora** (día <7pm / noche <1am) el sistema le exige **OBLIGATORIO el MOTIVO
+> del cierre**. **Excepción:** el inspector **"SOS LA GUAIRA"** (máquinas siempre activas) cierra y
+> finaliza automático (12h fijas) y **no** pide motivo.
 - Si un día no tiene tramos (por ejemplo, uno de antes de que existiera esta función), el total
   de arriba sigue siendo válido — simplemente no hay desglose para ese día.
 
