@@ -26,7 +26,7 @@ export async function generateObrasPublicasDailyReport(opts: { supervisorId: str
   if (!supervisorId) return false;
   const ids = await listMyOpMachineIds(supervisorId);
   const [{ data: machs }, rounds, maint] = await Promise.all([
-    ids.length ? supabase.from('machinery').select('id, code, plate, serial, marca, modelo, tipo, company:company_id(name), parroquia, sector') : Promise.resolve({ data: [] as any[] }),
+    ids.length ? supabase.from('machinery').select('id, code, plate, serial, marca, modelo, tipo, company:company_id(name), parroquia, sector').in('id', ids) : Promise.resolve({ data: [] as any[] }),
     fetchOpRounds(ids, roundDate),
     fetchOpMaintPending(ids),
   ]);
