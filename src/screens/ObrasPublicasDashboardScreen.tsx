@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ActivityIndicator } from 'react-native';
 import { Screen, Card, SectionTitle, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import InspectorKpiGrid, { KpiItem } from '../components/redesign/InspectorKpiGrid';
@@ -7,7 +7,21 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { caracasParts } from '../lib/jornada';
 import { cmpText } from '../lib/text';
-import { fetchOpDashboard, OpDashboard, OpDashMachine } from '../lib/obrasPublicas';
+import { useToast } from '../components/ToastProvider';
+import { useAuth } from '../context/AuthContext';
+import {
+  fetchOpDashboard, OpDashboard, OpDashMachine,
+  fetchOpDailyReports, fetchOpReportSettings, saveOpReportSettings, computeOpAccumulated,
+  OpDailyReport, OpReportSettings,
+} from '../lib/obrasPublicas';
+
+/** Miles con "." y decimales con "," (sin depender de Intl). */
+function fmtNum(n: number): string {
+  const r = Math.round((Number(n) || 0) * 10) / 10;
+  const neg = r < 0 ? '-' : '';
+  const [int, dec] = String(Math.abs(r)).split('.');
+  return `${neg}${int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${dec ? ',' + dec : ''}`;
+}
 
 // ============================================================================
 // OBRAS PÚBLICAS — Panel de admin/coordinador. AGREGA todo el módulo (todas las
@@ -44,18 +58,32 @@ function dm(iso: string): string {
 
 export default function ObrasPublicasDashboardScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const toast = useToast();
+  const { session, moduleLevel } = useAuth();
+  const isAdmin = moduleLevel('obras_publicas') === 'full';
   const today = caracasParts(new Date()).iso;
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OpDashboard | null>(null);
+  const [reports, setReports] = useState<OpDailyReport[]>([]);
+  const [settings, setSettings] = useState<OpReportSettings>({ base_m3: 0, base_cuerpos: 0, base_date: null });
   const [nowTick, setNowTick] = useState(Date.now());
   const [filter, setFilter] = useState<string | null>(null); // KPI seleccionado (filtra la flota)
   const [chartDays, setChartDays] = useState<7 | 30>(7);
   const [supFilter, setSupFilter] = useState<string | null>(null); // supervisor_id | null = todos
 
+  // Editor de la base acumulada (solo admin).
+  const [baseOpen, setBaseOpen] = useState(false);
+  const [baseDraft, setBaseDraft] = useState<OpReportSettings>({ base_m3: 0, base_cuerpos: 0, base_date: null });
+  const [baseBusy, setBaseBusy] = useState(false);
+
   const load = useCallback(async () => {
     try {
-      const d = await fetchOpDashboard(today, addDaysISO(today, -30));
-      setData(d);
+      const [d, reps, st] = await Promise.all([
+        fetchOpDashboard(today, addDaysISO(today, -30)),
+        fetchOpDailyReports('2000-01-01'), // todos: el acumulado suma desde el corte
+        fetchOpReportSettings(),
+      ]);
+      setData(d); setReports(reps); setSettings(st);
     } catch {
       setData({ machines: [], rounds: {}, maint: {}, roundsRange: [], visits: [] });
     } finally {
@@ -124,6 +152,33 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     machines.forEach((x) => { s += d.rounds[x.id]?.m3 ?? 0; });
     return Math.round(s * 10) / 10;
   }, [machines, d.rounds]);
+
+  // Reporte de Actividades OPP: consolidado del día (suma de reportes de las supervisoras)
+  // respetando el filtro por supervisor; y ACUMULADOS globales (base + todos los reportes).
+  const reportsView = useMemo(() => (supFilter ? reports.filter((r) => r.supervisor_id === supFilter) : reports), [reports, supFilter]);
+  const consolidado = useMemo(() => {
+    const hoy = reportsView.filter((r) => r.report_date === today);
+    return hoy.reduce((a, r) => ({
+      m3_removidos: a.m3_removidos + r.m3_removidos_dia,
+      m3_acarreo: a.m3_acarreo + r.m3_acarreo_dia,
+      cuerpos: a.cuerpos + r.cuerpos_dia,
+      traslado: a.traslado + r.traslado_camion_dia,
+      reportes: a.reportes + 1,
+    }), { m3_removidos: 0, m3_acarreo: 0, cuerpos: 0, traslado: 0, reportes: 0 });
+  }, [reportsView, today]);
+  // Los acumulados "desde inicio" son de TODA la operación (base global + todos los reportes).
+  const acumulado = useMemo(() => computeOpAccumulated(reports, settings), [reports, settings]);
+
+  const abrirBase = () => { setBaseDraft(settings); setBaseOpen(true); };
+  const guardarBase = async () => {
+    setBaseBusy(true);
+    try {
+      await saveOpReportSettings(baseDraft, session?.user?.id ?? null);
+      setSettings(baseDraft); setBaseOpen(false);
+      toast.success('Base acumulada guardada.');
+    } catch (e: any) { toast.error(e?.message ?? 'No se pudo guardar la base.'); }
+    finally { setBaseBusy(false); }
+  };
 
   // KPIs (tarjetas de arriba). El valor es numérico (InspectorKpiGrid).
   const kpis: KpiItem[] = useMemo(() => [
@@ -201,6 +256,44 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
         if (k === 'asignadas') { navigation?.navigate?.('Equipos', { obrasPublicas: true }); return; }
         setFilter((p) => (p === k ? null : k));
       }} />
+
+      {/* REPORTE DE ACTIVIDADES OPP — consolidado del día + acumulados */}
+      <Card style={{ marginTop: spacing.md }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📋 Reporte de Actividades OPP</Text>
+          {isAdmin ? (
+            <TouchableOpacity onPress={abrirBase}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>⚙️ Editar base</Text></TouchableOpacity>
+          ) : null}
+        </View>
+        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+          Del día{supFilter ? ' (supervisor seleccionado)' : ''} · {consolidado.reportes} reporte(s)
+        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {[
+            { l: 'M³ removidos', v: fmtNum(consolidado.m3_removidos), u: 'm³' },
+            { l: 'M³ acarreo vestigios', v: fmtNum(consolidado.m3_acarreo), u: 'm³' },
+            { l: 'Cuerpos siniestrados', v: fmtNum(consolidado.cuerpos), u: '' },
+            { l: 'Traslado camión', v: fmtNum(consolidado.traslado), u: '' },
+          ].map((k) => (
+            <View key={k.l} style={{ flexBasis: '47%', flexGrow: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{k.v}<Text style={{ fontSize: 11, color: colors.muted, fontWeight: '700' }}>{k.u ? ` ${k.u}` : ''}</Text></Text>
+              <Text style={{ color: colors.muted, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 }}>{k.l}</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.md, marginBottom: spacing.xs }}>Acumulado desde el inicio (toda la operación)</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          <View style={{ flex: 1, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{fmtNum(acumulado.m3)}<Text style={{ fontSize: 11, fontWeight: '700' }}> m³</Text></Text>
+            <Text style={{ color: colors.accentSoftText, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' }}>Total m³ acumulados</Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{fmtNum(acumulado.cuerpos)}</Text>
+            <Text style={{ color: colors.accentSoftText, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' }}>Cuerpos acumulados</Text>
+          </View>
+        </View>
+        {settings.base_date ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: spacing.xs }}>Base al {dm(settings.base_date)}/{settings.base_date.split('-')[0]} + reportes posteriores.</Text> : null}
+      </Card>
 
       {/* GRÁFICO 1 — Distribución por estado (barra segmentada + leyenda) */}
       <Card style={{ marginTop: spacing.md }}>
@@ -313,6 +406,50 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
           </View>
         )}
       </Card>
+
+      {/* Editor de la base acumulada (solo admin) */}
+      <Modal visible={baseOpen} animationType="slide" transparent onRequestClose={() => setBaseOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>⚙️ Base acumulada</Text>
+              <TouchableOpacity onPress={() => setBaseOpen(false)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+              Lo acumulado ANTES de usar el sistema. A partir de la fecha de corte, los reportes se van sumando solos.
+            </Text>
+            {([
+              ['Total m³ acumulados (base)', 'base_m3'],
+              ['Total cuerpos siniestrados (base)', 'base_cuerpos'],
+            ] as const).map(([label, key]) => (
+              <View key={key} style={{ gap: 4 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>{label}</Text>
+                <TextInput
+                  value={(baseDraft as any)[key] ? String((baseDraft as any)[key]) : ''}
+                  onChangeText={(t) => { const n = Number((t || '').replace(',', '.')); setBaseDraft((p) => ({ ...p, [key]: isFinite(n) && n >= 0 ? n : 0 })); }}
+                  placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric"
+                  style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }}
+                />
+              </View>
+            ))}
+            <View style={{ gap: 4 }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>Fecha de corte (AAAA-MM-DD)</Text>
+              <TextInput
+                value={baseDraft.base_date ?? ''}
+                onChangeText={(t) => setBaseDraft((p) => ({ ...p, base_date: t.trim() === '' ? null : t.trim() }))}
+                placeholder="2026-08-12" placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }}
+              />
+              <Text style={{ color: colors.muted, fontSize: 10.5 }}>Se suman los reportes con fecha POSTERIOR a esta.</Text>
+            </View>
+            <TouchableOpacity onPress={guardarBase} disabled={baseBusy} style={{ backgroundColor: '#16A34A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.xs, opacity: baseBusy ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>{baseBusy ? 'Guardando…' : '💾 Guardar base'}</Text>
+            </TouchableOpacity>
+            {baseBusy ? <ActivityIndicator color={colors.primary} /> : null}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

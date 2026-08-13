@@ -249,6 +249,110 @@ export async function fetchOpDashboard(roundDate: string, fromDate: string): Pro
   return { machines, rounds, maint, roundsRange, visits };
 }
 
+// ── Reporte diario de actividades (por supervisora) + base acumulada ─────────
+
+export type OpDailyReport = {
+  id?: string;
+  report_date: string;
+  supervisor_id: string | null;
+  supervisor_name: string | null;
+  reporte_no: number | null;
+  m3_removidos_dia: number;
+  m3_acarreo_dia: number;
+  cuerpos_dia: number;
+  traslado_camion_dia: number;
+  observacion: string | null;
+};
+
+export type OpReportSettings = { base_m3: number; base_cuerpos: number; base_date: string | null };
+
+const emptyDaily = (report_date: string, supervisorId: string | null, supervisorName: string | null): OpDailyReport => ({
+  report_date, supervisor_id: supervisorId, supervisor_name: supervisorName, reporte_no: null,
+  m3_removidos_dia: 0, m3_acarreo_dia: 0, cuerpos_dia: 0, traslado_camion_dia: 0, observacion: null,
+});
+
+const rowToDaily = (r: any): OpDailyReport => ({
+  id: r.id, report_date: r.report_date, supervisor_id: r.supervisor_id ?? null, supervisor_name: r.supervisor_name ?? null,
+  reporte_no: r.reporte_no != null ? Number(r.reporte_no) : null,
+  m3_removidos_dia: Number(r.m3_removidos_dia) || 0, m3_acarreo_dia: Number(r.m3_acarreo_dia) || 0,
+  cuerpos_dia: Number(r.cuerpos_dia) || 0, traslado_camion_dia: Number(r.traslado_camion_dia) || 0,
+  observacion: r.observacion ?? null,
+});
+
+/** Reporte del día de una supervisora (o vacío si aún no existe). */
+export async function fetchMyDailyReport(supervisorId: string | null, reportDate: string, supervisorName?: string | null): Promise<OpDailyReport> {
+  if (!supervisorId) return emptyDaily(reportDate, null, supervisorName ?? null);
+  const { data, error } = await supabase
+    .from('op_daily_reports')
+    .select('*')
+    .eq('supervisor_id', supervisorId).eq('report_date', reportDate)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToDaily(data) : emptyDaily(reportDate, supervisorId, supervisorName ?? null);
+}
+
+/** Crea/actualiza el reporte del día de una supervisora (upsert por supervisor+fecha). */
+export async function saveDailyReport(rep: OpDailyReport, userId?: string | null): Promise<OpDailyReport> {
+  const payload = {
+    report_date: rep.report_date, supervisor_id: rep.supervisor_id, supervisor_name: rep.supervisor_name,
+    reporte_no: rep.reporte_no, m3_removidos_dia: rep.m3_removidos_dia, m3_acarreo_dia: rep.m3_acarreo_dia,
+    cuerpos_dia: rep.cuerpos_dia, traslado_camion_dia: rep.traslado_camion_dia, observacion: rep.observacion,
+    recorded_by: userId ?? null, updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase
+    .from('op_daily_reports')
+    .upsert(payload, { onConflict: 'supervisor_id,report_date' })
+    .select('*').single();
+  if (error) throw error;
+  return rowToDaily(data);
+}
+
+/** Reportes diarios (de todas las supervisoras) desde una fecha, para el dashboard. */
+export async function fetchOpDailyReports(fromDate: string): Promise<OpDailyReport[]> {
+  const { data, error } = await supabase
+    .from('op_daily_reports')
+    .select('*')
+    .gte('report_date', fromDate)
+    .order('report_date', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToDaily);
+}
+
+/** Acumulados "desde inicio" = base + suma de reportes con fecha > base_date. */
+export function computeOpAccumulated(reports: OpDailyReport[], settings: OpReportSettings): { m3: number; cuerpos: number } {
+  const cut = settings.base_date;
+  let m3 = settings.base_m3, cuerpos = settings.base_cuerpos;
+  reports.forEach((r) => {
+    if (cut && r.report_date <= cut) return;
+    m3 += (r.m3_removidos_dia + r.m3_acarreo_dia);
+    cuerpos += r.cuerpos_dia;
+  });
+  return { m3: Math.round(m3 * 10) / 10, cuerpos };
+}
+
+/** Base acumulada de arranque (una fila). */
+export async function fetchOpReportSettings(): Promise<OpReportSettings> {
+  const { data, error } = await supabase
+    .from('op_report_settings')
+    .select('base_m3, base_cuerpos, base_date')
+    .eq('id', 1).maybeSingle();
+  if (error) throw error;
+  return {
+    base_m3: Number(data?.base_m3) || 0,
+    base_cuerpos: Number(data?.base_cuerpos) || 0,
+    base_date: data?.base_date ?? null,
+  };
+}
+
+/** Guarda la base acumulada (solo admin/coordinador). */
+export async function saveOpReportSettings(s: OpReportSettings, userId?: string | null): Promise<void> {
+  const { error } = await supabase.from('op_report_settings').upsert(
+    { id: 1, base_m3: s.base_m3, base_cuerpos: s.base_cuerpos, base_date: s.base_date, updated_by: userId ?? null, updated_at: new Date().toISOString() },
+    { onConflict: 'id' },
+  );
+  if (error) throw error;
+}
+
 /** Inicia la jornada op_* de una máquina (turno según la hora). */
 export async function opStartJornada(machineryId: string, roundDate: string, shift: 'day' | 'night', userId?: string | null): Promise<void> {
   const { error } = await supabase.from('op_machine_rounds').upsert(
