@@ -166,6 +166,12 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
       reportes: a.reportes + 1,
     }), { m3_removidos: 0, m3_acarreo: 0, cuerpos: 0, traslado: 0, reportes: 0 });
   }, [reportsView, today]);
+  // Edificios reportados hoy (según el filtro por supervisor).
+  const edificiosDia = useMemo(() => {
+    const s = new Set<string>();
+    reportsView.filter((r) => r.report_date === today).forEach((r) => { const e = (r.edificio ?? '').trim(); if (e) s.add(e); });
+    return Array.from(s).sort((a, b) => cmpText(a, b));
+  }, [reportsView, today]);
   // Los acumulados "desde inicio" son de TODA la operación (base global + todos los reportes).
   const acumulado = useMemo(() => computeOpAccumulated(reports, settings), [reports, settings]);
 
@@ -281,6 +287,9 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
             </View>
           ))}
         </View>
+        {edificiosDia.length > 0 ? (
+          <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm }}>🏢 Edificios de hoy: <Text style={{ color: colors.text, fontWeight: '700' }}>{edificiosDia.join(' · ')}</Text></Text>
+        ) : null}
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.md, marginBottom: spacing.xs }}>Acumulado desde el inicio (toda la operación)</Text>
         <View style={{ flexDirection: 'row', gap: spacing.xs }}>
           <View style={{ flex: 1, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
