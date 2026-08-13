@@ -208,6 +208,10 @@ export default function ViajesCamionesScreen() {
         .sort((a, b) => cmpText(a.code, b.code))
     );
   };
+  // Muchos camiones comparten el mismo "code" (ej. "Camion Volteo Toronto"
+  // repetido en casi toda la flota) — la placa/serial es lo que en la práctica
+  // distingue uno de otro, así que se resuelve acá para mostrarla donde falte.
+  const truckById = useMemo(() => new Map(allTrucks.map((t) => [t.id, t])), [allTrucks]);
 
   // ── Vista LISTERO: buscador de camión ───────────────────────────────────
   const [pickOpen, setPickOpen] = useState(false);
@@ -407,14 +411,20 @@ export default function ViajesCamionesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canFull, allTrucks]);
 
+  // El "code" de estos camiones suele repetirse (ej. "Camion Volteo Toronto" en
+  // casi toda la flota) — sin placa/serial no se puede distinguir uno de otro
+  // en estas listas, así que se arrastran también aquí.
   const resumenPorCamion = useMemo(() => {
-    const codeOf = new Map<string, string>();
-    allTrucks.forEach((t) => codeOf.set(t.id, t.code));
-    resumenRows.forEach((r) => { if (!codeOf.has(r.machineryId)) codeOf.set(r.machineryId, r.machineCode); });
+    const infoOf = new Map<string, { code: string; plate: string | null; serial: string | null }>();
+    allTrucks.forEach((t) => infoOf.set(t.id, { code: t.code, plate: t.plate, serial: t.serial }));
+    resumenRows.forEach((r) => { if (!infoOf.has(r.machineryId)) infoOf.set(r.machineryId, { code: r.machineCode, plate: null, serial: null }); });
     const counts = new Map<string, number>();
     resumenRows.forEach((r) => counts.set(r.machineryId, (counts.get(r.machineryId) ?? 0) + 1));
     const ids = new Set<string>([...allTrucks.map((t) => t.id), ...resumenRows.map((r) => r.machineryId)]);
-    const arr = Array.from(ids).map((id) => ({ id, code: codeOf.get(id) ?? '—', count: counts.get(id) ?? 0, meta: metasByTruck[id] ?? null }));
+    const arr = Array.from(ids).map((id) => {
+      const info = infoOf.get(id) ?? { code: '—', plate: null, serial: null };
+      return { id, ...info, count: counts.get(id) ?? 0, meta: metasByTruck[id] ?? null };
+    });
     arr.sort((a, b) => b.count - a.count || cmpText(a.code, b.code));
     return arr;
   }, [resumenRows, allTrucks, metasByTruck]);
@@ -645,6 +655,8 @@ export default function ViajesCamionesScreen() {
   // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
   const renderRow = (row: DisplayViaje, opts: { canEdit: boolean; canDelete: boolean; showListero?: boolean }) => {
     const isEditing = editing?.id === row.id;
+    const truck = truckById.get(row.machineryId);
+    const placaSerial = [truck?.plate ? `Placa ${truck.plate}` : null, truck?.serial ? `Serial ${truck.serial}` : null].filter(Boolean).join(' · ');
     return (
       <View key={row.id} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -653,6 +665,7 @@ export default function ViajesCamionesScreen() {
           </Text>
           {row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
         </View>
+        {placaSerial ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>{placaSerial}</Text> : null}
         <Text style={{ color: colors.muted, fontSize: 12 }}>
           {fmtFecha(row.registeredAt)} · {fmtHora(row.registeredAt)} · {row.shift === 'night' ? '🌙 Noche' : row.shift === 'day' ? '☀️ Día' : '—'}
           {row.choferName ? ` · 👤 ${row.choferName}` : ''}
@@ -763,7 +776,9 @@ export default function ViajesCamionesScreen() {
         ) : misViajesDisplay.length === 0 ? (
           <Text style={{ color: colors.muted }}>Todavía no registras viajes hoy.</Text>
         ) : (
-          misViajesDisplay.map((row) => renderRow(row, { canEdit: !row.queued && isEditableByListero(row), canDelete: false }))
+          <ScrollView style={{ maxHeight: 360 }} nestedScrollEnabled>
+            {misViajesDisplay.map((row) => renderRow(row, { canEdit: !row.queued && isEditableByListero(row), canDelete: false }))}
+          </ScrollView>
         )}
       </Card>
 
@@ -853,23 +868,32 @@ export default function ViajesCamionesScreen() {
             {resumenPorCamion.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones registrados.</Text>
             ) : (
-              resumenPorCamion.map((r) => (
-                <View key={r.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                  <Text style={{ color: colors.text }}>🚜 {r.code}</Text>
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>{r.meta != null ? `${r.count}/${r.meta}` : `${r.count}`}</Text>
-                </View>
-              ))
+              <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled>
+                {resumenPorCamion.map((r) => (
+                  <View key={r.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                    <View style={{ flexShrink: 1 }}>
+                      <Text style={{ color: colors.text }}>🚜 {r.code}</Text>
+                      {(r.plate || r.serial) ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{[r.plate ? `Placa ${r.plate}` : null, r.serial ? `Serial ${r.serial}` : null].filter(Boolean).join(' · ')}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{r.meta != null ? `${r.count}/${r.meta}` : `${r.count}`}</Text>
+                  </View>
+                ))}
+              </ScrollView>
             )}
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: spacing.xs, fontWeight: '800' }}>POR LISTERO</Text>
             {resumenPorListero.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin viajes registrados hoy.</Text>
             ) : (
-              resumenPorListero.map((l) => (
-                <View key={l.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                  <Text style={{ color: colors.text }}>👤 {l.name}</Text>
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>{l.count}</Text>
-                </View>
-              ))
+              <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+                {resumenPorListero.map((l) => (
+                  <View key={l.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                    <Text style={{ color: colors.text }}>👤 {l.name}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{l.count}</Text>
+                  </View>
+                ))}
+              </ScrollView>
             )}
           </Card>
 
@@ -881,14 +905,21 @@ export default function ViajesCamionesScreen() {
             {alertList.length === 0 ? (
               <Text style={{ color: colors.success, fontWeight: '700' }}>✅ Todos los camiones tienen viajes recientes.</Text>
             ) : (
-              alertList.map((x) => (
-                <View key={x.truck.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                  <Text style={{ color: colors.text }}>🚜 {x.truck.code}</Text>
-                  <Text style={{ color: colors.danger, fontWeight: '700' }}>
-                    {x.last ? `${Math.floor(x.hrs)}h sin viaje` : 'sin viajes registrados'}
-                  </Text>
-                </View>
-              ))
+              <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled>
+                {alertList.map((x) => (
+                  <View key={x.truck.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                    <View style={{ flexShrink: 1 }}>
+                      <Text style={{ color: colors.text }}>🚜 {x.truck.code}</Text>
+                      {(x.truck.plate || x.truck.serial) ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{[x.truck.plate ? `Placa ${x.truck.plate}` : null, x.truck.serial ? `Serial ${x.truck.serial}` : null].filter(Boolean).join(' · ')}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={{ color: colors.danger, fontWeight: '700' }}>
+                      {x.last ? `${Math.floor(x.hrs)}h sin viaje` : 'sin viajes registrados'}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
             )}
           </Card>
 
@@ -1009,7 +1040,9 @@ export default function ViajesCamionesScreen() {
               ) : filteredRangeRows.length === 0 ? (
                 <Text style={{ color: colors.muted }}>Sin viajes en el rango seleccionado.</Text>
               ) : (
-                filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))
+                <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
+                  {filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
+                </ScrollView>
               )}
             </View>
 
@@ -1039,23 +1072,30 @@ export default function ViajesCamionesScreen() {
             {allTrucks.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
             ) : (
-              allTrucks.map((t) => (
-                <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
-                  <Text style={{ color: colors.text, flex: 1 }}>🚜 {t.code}</Text>
-                  <TextInput
-                    value={metaEdits[t.id] ?? (metasByTruck[t.id] != null ? String(metasByTruck[t.id]) : '')}
-                    onChangeText={(v) => setMetaEdits((prev) => ({ ...prev, [t.id]: v }))}
-                    onBlur={() => { if (metaEdits[t.id] !== undefined) saveMeta(t.id); }}
-                    keyboardType="numeric"
-                    placeholder="—"
-                    placeholderTextColor={colors.muted}
-                    style={[styles.input, { width: 70, paddingVertical: 6, textAlign: 'center' }]}
-                  />
-                  <TouchableOpacity onPress={() => saveMeta(t.id)}>
-                    <Text style={{ fontSize: 16 }}>💾</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
+              <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                {allTrucks.map((t) => (
+                  <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
+                      {(t.plate || t.serial) ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{[t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null].filter(Boolean).join(' · ')}</Text>
+                      ) : null}
+                    </View>
+                    <TextInput
+                      value={metaEdits[t.id] ?? (metasByTruck[t.id] != null ? String(metasByTruck[t.id]) : '')}
+                      onChangeText={(v) => setMetaEdits((prev) => ({ ...prev, [t.id]: v }))}
+                      onBlur={() => { if (metaEdits[t.id] !== undefined) saveMeta(t.id); }}
+                      keyboardType="numeric"
+                      placeholder="—"
+                      placeholderTextColor={colors.muted}
+                      style={[styles.input, { width: 70, paddingVertical: 6, textAlign: 'center' }]}
+                    />
+                    <TouchableOpacity onPress={() => saveMeta(t.id)}>
+                      <Text style={{ fontSize: 16 }}>💾</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
             )}
           </Card>
         </>
