@@ -259,6 +259,13 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // sumando) solo aplica hoy; un día pasado muestra únicamente lo que quedó banqueado.
   const caracasHoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const isToday = date === caracasHoy;
+  // ¿Ya EMPEZÓ cada turno del día reportado? Un día PASADO ya ocurrió por completo; el día
+  // de HOY: el turno DÍA empieza 7am y el de NOCHE 7pm. Si el turno AÚN NO empezó, su columna
+  // NO debe traer nada (ni siquiera paradas viejas arrastradas): la máquina "no ha llegado" a
+  // ese turno todavía. Pedido del cliente 13-ago-2026: "el turno de noche no ha empezado y me
+  // sale descripción de noche" — no traer lo viejo a un turno que aún no ocurre.
+  const dayStarted = !isToday || nowMs >= day7;
+  const nightStarted = !isToday || nowMs >= day19;
   /** Horas de solapamiento entre [a1,a2] y [b1,b2]. */
   const overlapH = (a1: number, a2: number, b1: number, b2: number) => Math.max(0, Math.min(a2, b2) - Math.max(a1, b1)) / 3600000;
   // Reparte las horas paradas por la FRANJA real donde caen (no por la hora de inicio):
@@ -303,6 +310,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const parada = shiftRows.find((r) => r.material === 'MÁQUINA PARADA');
     if (parada) { const notes = (parada.notes && String(parada.notes).trim()) || ''; return notes ? limpiarNoTrabajo(notes) : 'Parada (sin motivo)'; }
     return undefined;
+  };
+  // Filas de mantenimiento para las COLUMNAS por turno. Si la máquina TRABAJÓ (grupo
+  // 'activa'), solo se consideran las marcadas ESTE día reportado (no arrastra paradas
+  // viejas junto a un turno trabajado — "no traer lo viejo"). Si no trabajó nada (grupo
+  // 'averia'), se usan todas (incluida la avería arrastrada) para explicar su estado real.
+  const motRows = (id: string, grupo: Grupo): any[] => {
+    const all = mrByMachine.get(id) || [];
+    if (grupo !== 'activa') return all;
+    return all.filter((rr: any) => { const t = new Date(rr.created_at).getTime(); return t >= dayBoundStart && t <= dayBoundEnd; });
   };
   // Avería/motivo etiquetado por turno: "☀️ <día> · 🌙 <noche>" (solo los que existan).
   const averiaTxt = (id: string): string => {
@@ -430,9 +446,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       // POR TURNO: motivo del DÍA y de la NOCHE por separado, para que la parada/avería
       // de un turno se muestre SOLO en su columna (antes el motivo abarcaba día+noche con
       // colspan=2 → una parada de noche hacía ver la máquina como "no trabajó todo el día").
-      motivoDia: siempreActivoIds.has(id) ? '' : (motivoDe(mrByMachine.get(id) || [], 'day')
+      // Dos reglas extra (13-ago-2026):
+      //  · Si el turno AÚN NO EMPEZÓ (hoy, antes de 7am día / 7pm noche) → columna vacía: no
+      //    se trae NADA (ni paradas viejas) a un turno que todavía no ocurre.
+      //  · Si la máquina SÍ TRABAJÓ (grupo 'activa'), la OTRA columna solo muestra lo marcado
+      //    ESTE día (no arrastra paradas viejas junto a un turno trabajado). Las que no
+      //    trabajaron nada (grupo 'averia') sí explican su estado real aunque venga arrastrado.
+      motivoDia: (siempreActivoIds.has(id) || !dayStarted) ? '' : (motivoDe(motRows(id, grupo), 'day')
         || (esParadaDeclarada && r?.jornada_shift === 'day' ? 'No trabajó (jornada en 0 h)' : '')),
-      motivoNoche: siempreActivoIds.has(id) ? '' : (motivoDe(mrByMachine.get(id) || [], 'night')
+      motivoNoche: (siempreActivoIds.has(id) || !nightStarted) ? '' : (motivoDe(motRows(id, grupo), 'night')
         || (esParadaDeclarada && r?.jornada_shift === 'night' ? 'No trabajó (jornada en 0 h)' : '')),
       cierreMotivo: grupo === 'activa' ? (cierreMotivoByMachine.get(id)?.motivo || '') : '',
     };
