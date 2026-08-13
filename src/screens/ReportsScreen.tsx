@@ -824,7 +824,9 @@ export default function ReportsScreen({ route }: any) {
     const averiaRealSet = new Set<string>();
     ((mrPend ?? []) as any[]).forEach((r) => {
       const mm = r.machinery;
-      if (!mm || mm.active === false) return;         // inactivas fuera
+      if (!mm) return;                                 // sin ficha, fuera
+      // Se INCLUYEN las inactivas (pedido cliente 12-ago-2026: "todas las máquinas,
+      // estén o no activas"). Salen como averiadas/paradas en 0h con su placa/serial.
       const mid = r.machinery_id as string;
       if (siempreActivoSetRounds.has(mid)) return;      // placeholder SOS LA GUAIRA: nunca averiada/parada
       if (workedIds.has(mid)) return;                  // ya trabajó → está en el informe
@@ -956,9 +958,13 @@ export default function ReportsScreen({ route }: any) {
           .join('');
         // Bloque de VIAJES (extra al subtotal). Agrupa las máquinas por precio unitario.
         const viajesBlock = renderViajes(g);
-        const averiaTag = g.averias.length ? ` <span style="color:#B42318;font-weight:400">· 🔴 ${g.averias.length} averiada${g.averias.length === 1 ? '' : 's'}</span>` : '';
+        // Fila-título que separa las PARADAS/AVERIADAS de las que trabajaron (solo si hay).
+        const averiaHeader = g.averias.length
+          ? `<tr><td colspan="9" style="background:#FBEAEA;color:#B42318;font-weight:800;letter-spacing:.3px;padding:4px 8px">🔴 PARADAS/AVERIADAS (${g.averias.length})</td></tr>`
+          : '';
+        const averiaTag = g.averias.length ? ` <span style="color:#B42318;font-weight:400">· 🔴 ${g.averias.length} PARADAS/AVERIADAS</span>` : '';
         return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${averiaTag}</h2>
-          <table><thead>${head}</thead><tbody>${rows}${averiaRows}</tbody>
+          <table><thead>${head}</thead><tbody>${rows}${averiaHeader}${averiaRows}</tbody>
           <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
@@ -1205,7 +1211,8 @@ export default function ReportsScreen({ route }: any) {
     });
     const listAll = (mach ?? []).map((m: any) => ({
       code: m.code as string,
-      serial: (m.serial || m.plate || '') as string,
+      serial: (m.serial || '') as string,
+      plate: (m.plate || '') as string,
       tipo: canonTipo(m.tipo) || 'SIN TIPO',
       clas: canonTipo(m.clasificacion) || 'SIN CLASIFICACIÓN',
       active: m.active !== false,
@@ -1226,7 +1233,7 @@ export default function ReportsScreen({ route }: any) {
     const inact = list
       .filter((m) => !m.active)
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code))
-      .map((m) => ({ code: m.code, serial: m.serial, tipo: m.tipo, company: m.company }));
+      .map((m) => ({ code: m.code, serial: [m.plate, m.serial].filter(Boolean).join(' · '), tipo: m.tipo, company: m.company }));
     const totals = {
       equipos: list.length,
       horas: list.reduce((s, m) => s + m.hours, 0),
