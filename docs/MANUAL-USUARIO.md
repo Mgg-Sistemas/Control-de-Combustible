@@ -193,8 +193,10 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   confiar en el total, no para editarlo (los ajustes se siguen haciendo con los campos de siempre).
 
 > **Cierre de jornada (regla firme):** el **DÍA cierra a las 7:00pm** y la **NOCHE a la 1:00am**
-> (permanencia de noche = 6h). El único equipo que trabaja **24h** y **nunca** se auto-cierra es el
-> **COMPRESOR CON MARTILLO (serial 79669)**. El inspector puede **finalizar manualmente antes**, pero
+> (permanencia de noche = 6h). **Excepción LUMINARIA:** las **luminarias** (torres/equipos de
+> iluminación) trabajan **toda la noche (7pm→7am)**, así que su jornada de **noche cierra a las 7:00am
+> (12h)** — igual pueden cerrarse a mano antes. El único equipo que trabaja **24h** y **nunca** se
+> auto-cierra es el **COMPRESOR CON MARTILLO (serial 79669)**. El inspector puede **finalizar manualmente antes**, pero
 > si cierra **antes de la hora** (día <7pm / noche <1am) el sistema le exige **OBLIGATORIO el MOTIVO
 > del cierre**. **Excepción:** el inspector **"SOS LA GUAIRA"** (máquinas siempre activas) cierra y
 > finaliza automático (12h fijas) y **no** pide motivo.
