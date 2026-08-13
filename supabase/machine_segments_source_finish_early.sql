@@ -23,11 +23,15 @@ begin
   loop
     execute format('alter table public.machine_work_segments drop constraint %I', c);
   end loop;
+  -- NOT VALID: valida solo INSERT/UPDATE nuevos, NO escanea las filas existentes. Así
+  -- no choca con valores legados de `source` que ya estén en la tabla (el error 23514
+  -- que salía al re-crear el CHECK), y a la vez permite 'manual_finish_early' de ahora
+  -- en adelante. La restricción queda activa para todo lo nuevo.
   alter table public.machine_work_segments
     add constraint machine_work_segments_source_check
     check (source in (
       'manual_finish', 'manual_finish_early',
       'parada_averia', 'parada_no_trabajo',
-      'auto_close', 'ajuste_manual'
-    ));
+      'auto_close', 'ajuste_manual', 'auto_full_shift'
+    )) not valid;
 end $$;
