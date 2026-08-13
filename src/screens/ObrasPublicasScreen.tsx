@@ -63,6 +63,7 @@ export default function ObrasPublicasScreen() {
   const [q, setQ] = useState('');
   const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
   const [kpiDetail, setKpiDetail] = useState<string | null>(null); // KPI tocado → modal de detalle con fechas
+  const [kpiDetailQ, setKpiDetailQ] = useState(''); // buscador dentro del detalle
   const [reporting, setReporting] = useState(false);
 
   // Reporte de Actividades (consolidado del día de la supervisora).
@@ -167,7 +168,7 @@ export default function ObrasPublicasScreen() {
   }, [machines, rounds, maint, resumenEdif]);
 
   // Tocar una tarjeta KPI abre el DETALLE (con fechas) de lo que hay detrás del número.
-  const onKpi = (k: string) => setKpiDetail(k);
+  const onKpi = (k: string) => { setKpiDetail(k); setKpiDetailQ(''); };
   const kpiActiveKey = kpiFilter === 'trabajando' ? 'trabajando' : kpiFilter === 'averia' ? 'averiadas' : null;
 
   // Filas del detalle del KPI tocado (con su fecha). Usa lo ya cargado del día de negocio.
@@ -559,14 +560,21 @@ export default function ObrasPublicasScreen() {
       <Modal visible={!!kpiDetail} animationType="slide" transparent onRequestClose={() => setKpiDetail(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%' }}>
+            {(() => {
+              const nq = kpiDetailQ.trim().toLowerCase();
+              const filtered = nq ? kpiDetalle.rows.filter((r) => [r.title, r.sub, (r as any).date, r.right].filter(Boolean).join(' ').toLowerCase().includes(nq)) : kpiDetalle.rows;
+              return (<>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.lg, paddingBottom: spacing.sm }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{kpiDetalle.title} · {kpiDetalle.rows.length}</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{kpiDetalle.title} · {filtered.length}</Text>
               <TouchableOpacity onPress={() => setKpiDetail(null)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
             </View>
+            <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+              <TextInput value={kpiDetailQ} onChangeText={setKpiDetailQ} placeholder="🔎 Buscar por cualquier característica…" placeholderTextColor={colors.muted} style={input} />
+            </View>
             <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, gap: spacing.xs }}>
-              {kpiDetalle.rows.length === 0 ? (
+              {filtered.length === 0 ? (
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Sin registros.</Text>
-              ) : kpiDetalle.rows.map((row, i) => (
+              ) : filtered.map((row, i) => (
                 <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>{row.title}</Text>
@@ -583,6 +591,8 @@ export default function ObrasPublicasScreen() {
               ) : null}
               <View style={{ height: spacing.xl }} />
             </ScrollView>
+              </>);
+            })()}
           </View>
         </View>
       </Modal>
