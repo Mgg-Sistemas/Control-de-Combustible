@@ -7,6 +7,11 @@
 --   24 horas continuas → NUNCA se auto-cierra (ni noche 1:30am ni día 7pm). Es
 --   el ÚNICO equipo con este trato; su jornada se cierra a mano. (Cliente 12-ago-2026.)
 --
+-- ACTUALIZADO 2026-08-13:
+--   LUMINARIA (torres/equipos de iluminación, detectadas por code ilike '%luminaria%'):
+--   su turno de NOCHE trabaja 12h (7pm→7am) y cierra a las 7:00am, no a la 1:00am.
+--   Pueden cerrarse a mano antes. El resto de máquinas sigue cerrando la noche a la 1am.
+--
 -- ACTUALIZADO 2026-08-11:
 --   Se acotó el alcance de "12h fijas" para el turno DÍA (regla del
 --   05-ago-2026, ver historial abajo): antes aplicaba a CUALQUIER máquina con
@@ -52,7 +57,10 @@ declare
   es_sos_siempre_activo boolean;
 begin
   for r in
-    select mr.id, mr.round_date, mr.jornada_start_at, mr.jornada_shift, mr.machinery_id
+    select mr.id, mr.round_date, mr.jornada_start_at, mr.jornada_shift, mr.machinery_id,
+           -- LUMINARIA: su turno de NOCHE trabaja 12h (7pm→7am) y cierra a las 7:00am,
+           -- no a la 1:00am (regla cliente 13-ago-2026). Se detecta por el código.
+           (coalesce(mch.code, '') ilike '%luminaria%') as es_luminaria
     from public.machine_rounds mr
     join public.machinery mch on mch.id = mr.machinery_id
     -- "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): defensa
@@ -67,16 +75,21 @@ begin
       and trim(coalesce(mch.serial, '')) <> '79669'
       and trim(coalesce(mch.plate, '')) <> '79669'
   loop
-    -- Fin del turno (hora Caracas): NOCHE -> 1:00am del día siguiente; DÍA -> 7:00pm.
+    -- Fin del turno (hora Caracas): NOCHE -> 1:00am del día siguiente (LUMINARIA ->
+    -- 7:00am, 12h); DÍA -> 7:00pm.
     if r.jornada_shift = 'night' then
-      end_ts := ((r.round_date + 1) + time '01:00') at time zone 'America/Caracas';
+      if r.es_luminaria then
+        end_ts := ((r.round_date + 1) + time '07:00') at time zone 'America/Caracas';
+      else
+        end_ts := ((r.round_date + 1) + time '01:00') at time zone 'America/Caracas';
+      end if;
     else
       end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';
     end if;
     -- BLINDAJE: solo se cierra en las horas de fin de turno VÁLIDAS (Caracas):
-    -- 01:00 (noche) o 19:00 (día). Aunque alguien edite mal `end_ts`, si su hora
-    -- no es 1 ni 19 se salta → JAMÁS a otra hora inesperada.
-    if extract(hour from (end_ts at time zone 'America/Caracas')) not in (1, 19) then
+    -- 01:00 (noche), 07:00 (noche LUMINARIA) o 19:00 (día). Aunque alguien edite mal
+    -- `end_ts`, si su hora no es 1, 7 ni 19 se salta → JAMÁS a otra hora inesperada.
+    if extract(hour from (end_ts at time zone 'America/Caracas')) not in (1, 7, 19) then
       continue;
     end if;
     -- No RESUCITAR jornadas viejas: si su fin fue hace más de 2 días, quedó abierta por
@@ -88,8 +101,8 @@ begin
     -- Cierra si el fin del turno YA pasó.
     if now() >= end_ts then
       if r.jornada_shift = 'night' then
-        -- NOCHE: horas REALES (inicio → 1:00am del día siguiente = 6h desde las 7pm).
-        -- Requiere inicio ANTES del fin (si no, sumaría 0/negativo) — se deja manual.
+        -- NOCHE: horas REALES (inicio → 1:00am = 6h desde las 7pm; LUMINARIA → 7:00am
+        -- = 12h). Requiere inicio ANTES del fin (si no, sumaría 0/negativo) — se deja manual.
         if r.jornada_start_at < end_ts then
           hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
           update public.machine_rounds

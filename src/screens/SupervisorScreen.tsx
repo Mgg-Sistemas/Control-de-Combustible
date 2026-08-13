@@ -842,6 +842,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // varias veces el mismo día (p.ej. tras una parada) mientras su turno siga abierto,
   // y solo se bloquea cuando el turno ya cerró (día: 19:00 · noche: 07:00, y sigue
   // cerrada hasta las 19:00). Recién mañana podrá iniciar de nuevo.
+  // ¿Esta máquina es LUMINARIA (torre/equipo de iluminación)? Su turno de NOCHE
+  // trabaja las 12h completas (7pm→7am) y cierra a las 7:00am, no a la 1:00am (regla
+  // cliente 13-ago-2026). Se detecta por el código (igual criterio que el servidor:
+  // code ilike '%luminaria%'). Puede cerrarse a mano antes de las 7am.
+  const esLuminaria = useMemo(() => !!ci && /luminaria/i.test(ci.code || ''), [ci]);
   const shiftClosed = useMemo(() => {
     if (!myShift) return false;
     const h = caracasParts(new Date()).hour;
@@ -850,8 +855,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // servidor). Cerrada desde la 1am hasta las 7pm; solo se puede iniciar/reiniciar
     // de 7pm a 1am. BLINDAJE: si se pudiera reiniciar tras la 1am, el servidor ya no
     // la cerraría (su fin de turno = 1am ya pasó) y quedaría abierta para siempre.
-    return h >= 1 && h < 19;                              // noche cierra a la 1:00am
-  }, [myShift, nowTick]);
+    // EXCEPCIÓN LUMINARIA: la noche cierra a las 7:00am (12h), así que sigue abierta
+    // hasta las 7am (se puede iniciar/reiniciar de 7pm a 7am).
+    const nightEnd = esLuminaria ? 7 : 1;
+    return h >= nightEnd && h < 19;
+  }, [myShift, nowTick, esLuminaria]);
   // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
   // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
   // y por el que se filtran los inspectores que se muestran en la sub-vista "👥 Inspectores".
@@ -1677,14 +1685,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // 🏁 FINALIZAR JORNADA: horas = (fin − inicio); se SUMAN al turno (día/noche)
   // en Control de maquinaria. Cierra la jornada (borra la hora de inicio).
   // Hora de FIN del turno (ms epoch): DÍA -> 7:00pm del round; NOCHE -> 1:00am del
-  // día siguiente. Caracas es UTC-4 (sin horario de verano): 7pm=23:00 UTC, 1am=05:00 UTC.
+  // día siguiente (EXCEPTO LUMINARIA -> 7:00am, 12h). Caracas es UTC-4 (sin horario de
+  // verano): 7pm=23:00 UTC, 1am=05:00 UTC, 7am=11:00 UTC.
   // Mismo criterio que el auto-cierre del servidor (supabase/auto_close_jornadas.sql).
   const jornadaEndMs = (): number | null => {
     if (!jornadaStart) return null;
     const rd = businessRoundDateOf(new Date(jornadaStart), jornadaShift);
     const [y, m, d] = rd.split('-').map(Number);
     return jornadaShift === 'night'
-      ? Date.UTC(y, m - 1, d + 1, 5, 0, 0)
+      ? Date.UTC(y, m - 1, d + 1, esLuminaria ? 11 : 5, 0, 0)
       : Date.UTC(y, m - 1, d, 23, 0, 0);
   };
   // ¿Se está cerrando ANTES de la hora de fin del turno? (cierre anticipado)
