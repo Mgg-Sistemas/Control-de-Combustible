@@ -181,6 +181,94 @@ export async function fetchOpM3Total(machineryIds: string[]): Promise<number> {
   return (data ?? []).reduce((acc: number, r: any) => acc + (Number(r.m3) || 0), 0);
 }
 
+// ============================================================================
+// M³ REMOVIDOS POR EDIFICIO (13-ago-2026) — reemplaza la captura por máquina.
+// "removidos hoy" es manual por edificio; el "acumulado" se fija manual la 1ª vez
+// (base) y luego crece con los removidos de días POSTERIORES a la fecha base:
+//   acumulado(edif) = base_m3 + Σ removidos(fecha > base_date)
+// Ver supabase/op_edificio_removidos.sql.
+// ============================================================================
+export type OpEdificioResumen = {
+  edificio: string;
+  removido_hoy: number;            // m³ removidos de la fecha consultada
+  acumulado: number;               // base + Σ removidos (fecha > base_date)
+  tiene_base: boolean;             // ya tiene un acumulado base fijado
+  base_m3: number;
+  base_date: string | null;
+  supervisor_name: string | null;  // quién registró el removido de hoy
+};
+
+/**
+ * Resumen por edificio para una fecha: removido del día + acumulado (base+suma).
+ * Devuelve un mapa edificio → resumen con TODOS los edificios que tienen base o
+ * algún removido (histórico o de hoy).
+ */
+export async function fetchEdificioResumen(date: string): Promise<Record<string, OpEdificioResumen>> {
+  const [rem, bas] = await Promise.all([
+    supabase.from('op_edificio_removidos').select('edificio, report_date, m3, supervisor_name'),
+    supabase.from('op_edificio_base').select('edificio, base_m3, base_date'),
+  ]);
+  if (rem.error) throw rem.error;
+  if (bas.error) throw bas.error;
+
+  const bases = new Map<string, { base_m3: number; base_date: string }>();
+  (bas.data ?? []).forEach((b: any) => bases.set(b.edificio, { base_m3: Number(b.base_m3) || 0, base_date: String(b.base_date) }));
+
+  const porEdif = new Map<string, any[]>();
+  (rem.data ?? []).forEach((r: any) => {
+    if (!porEdif.has(r.edificio)) porEdif.set(r.edificio, []);
+    porEdif.get(r.edificio)!.push(r);
+  });
+
+  const out: Record<string, OpEdificioResumen> = {};
+  new Set<string>([...porEdif.keys(), ...bases.keys()]).forEach((edif) => {
+    const rows = porEdif.get(edif) ?? [];
+    const base = bases.get(edif);
+    const hoy = rows.filter((r) => r.report_date === date);
+    const removido_hoy = hoy.reduce((a, r) => a + (Number(r.m3) || 0), 0);
+    const acumulado = base
+      ? base.base_m3 + rows.filter((r) => r.report_date > base.base_date).reduce((a, r) => a + (Number(r.m3) || 0), 0)
+      : rows.reduce((a, r) => a + (Number(r.m3) || 0), 0);
+    out[edif] = {
+      edificio: edif, removido_hoy, acumulado,
+      tiene_base: !!base, base_m3: base?.base_m3 ?? 0, base_date: base?.base_date ?? null,
+      supervisor_name: hoy[0]?.supervisor_name ?? null,
+    };
+  });
+  return out;
+}
+
+/**
+ * Registra/corrige los m³ removidos de un edificio en una fecha (uno por
+ * edificio+fecha). Si `base` viene definido, además fija/actualiza el acumulado
+ * base del edificio con esa fecha como fecha base (típicamente la 1ª vez).
+ */
+export async function saveEdificioRemovido(p: {
+  edificio: string; date: string; m3: number; base?: number | null;
+  supervisorId?: string | null; supervisorName?: string | null;
+}): Promise<void> {
+  const edificio = (p.edificio ?? '').trim();
+  if (!edificio) throw new Error('Falta el edificio.');
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase.from('op_edificio_removidos').upsert({
+    edificio, report_date: p.date, m3: p.m3,
+    supervisor_id: p.supervisorId ?? null, supervisor_name: p.supervisorName ?? null, updated_at: nowIso,
+  }, { onConflict: 'edificio,report_date' });
+  if (error) throw error;
+  if (p.base != null && isFinite(p.base)) {
+    const { error: be } = await supabase.from('op_edificio_base').upsert({
+      edificio, base_m3: p.base, base_date: p.date, updated_at: nowIso,
+    }, { onConflict: 'edificio' });
+    if (be) throw be;
+  }
+}
+
+/** Borra el removido de un edificio en una fecha (no toca la base/acumulado). */
+export async function deleteEdificioRemovido(edificio: string, date: string): Promise<void> {
+  const { error } = await supabase.from('op_edificio_removidos').delete().eq('edificio', edificio).eq('report_date', date);
+  if (error) throw error;
+}
+
 export type OpMaint = { machinery_id: string; tipo: 'averia' | 'parada'; motivo: string | null };
 
 /** Averías/paradas op_* PENDIENTES (avería real gana a la parada). */
