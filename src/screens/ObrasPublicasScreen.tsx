@@ -61,6 +61,7 @@ export default function ObrasPublicasScreen() {
   const [removidosOpen, setRemovidosOpen] = useState(false);
   const [q, setQ] = useState('');
   const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
+  const [kpiDetail, setKpiDetail] = useState<string | null>(null); // KPI tocado → modal de detalle con fechas
   const [reporting, setReporting] = useState(false);
 
   // Reporte de Actividades (consolidado del día de la supervisora).
@@ -131,7 +132,8 @@ export default function ObrasPublicasScreen() {
     const needle = q.trim().toLowerCase();
     if (!needle) return base;
     return base.filter((m) =>
-      [m.code, m.plate, m.serial, m.marca, m.modelo, m.tipo, m.parroquia, m.sector, m.referencia]
+      [m.code, m.plate, m.serial, m.marca, m.modelo, m.tipo, m.parroquia, m.sector, m.referencia,
+       m.company_name, m.company?.name, m.description, m.machinery_type, ESTADO_META[estadoOf(m.id)]?.label]
         .filter(Boolean).join(' ').toLowerCase().includes(needle));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machines, q, kpiFilter, rounds, maint]);
@@ -161,13 +163,41 @@ export default function ObrasPublicasScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machines, rounds, maint, resumenEdif]);
 
-  const onKpi = (k: string) => {
-    if (k === 'trabajando') setKpiFilter((p) => (p === 'trabajando' ? null : 'trabajando'));
-    else if (k === 'averiadas') setKpiFilter((p) => (p === 'averia' ? null : 'averia'));
-    else if (k === 'm3hoy' || k === 'm3tot' || k === 'edificios') { setKpiFilter(null); setRemovidosOpen(true); } // m³/edificios → abre el módulo por edificio
-    else setKpiFilter(null); // asignadas → mostrar todas
-  };
+  // Tocar una tarjeta KPI abre el DETALLE (con fechas) de lo que hay detrás del número.
+  const onKpi = (k: string) => setKpiDetail(k);
   const kpiActiveKey = kpiFilter === 'trabajando' ? 'trabajando' : kpiFilter === 'averia' ? 'averiadas' : null;
+
+  // Filas del detalle del KPI tocado (con su fecha). Usa lo ya cargado del día de negocio.
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  const fmtDT = (iso: string | null | undefined): string => {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      const p: any = new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true }).formatToParts(d).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+      return `${p.day}/${p.month} ${p.hour}:${p.minute} ${p.dayPeriod ?? ''}`.trim();
+    } catch { return ''; }
+  };
+  const dmy = (iso: string | null | undefined) => (iso ? iso.split('-').reverse().join('/') : '');
+  const machSub = (m: Maquina) => [m.plate || m.serial, m.company_name || m.company?.name].filter(Boolean).join(' · ');
+  const kpiDetalle = useMemo(() => {
+    if (!kpiDetail) return { title: '', rows: [] as { title: string; sub?: string; right?: string; date?: string }[], isEdif: false };
+    if (kpiDetail === 'asignadas') {
+      return { title: '🚜 Máquinas asignadas', isEdif: false, rows: machines.map((m) => ({ title: m.code || '—', sub: machSub(m), right: ESTADO_META[estadoOf(m.id)].label, date: dmy(roundDate) })) };
+    }
+    if (kpiDetail === 'trabajando') {
+      return { title: '🟢 Trabajando ahora', isEdif: false, rows: machines.filter((m) => estadoOf(m.id) === 'trabajando').map((m) => ({ title: m.code || '—', sub: machSub(m), right: `${r1((rounds[m.id]?.day_hours || 0) + (rounds[m.id]?.night_hours || 0))} h`, date: rounds[m.id]?.jornada_start_at ? `desde ${fmtDT(rounds[m.id]?.jornada_start_at)}` : dmy(roundDate) })) };
+    }
+    if (kpiDetail === 'averiadas') {
+      return { title: '🔧 Averiadas / Paradas', isEdif: false, rows: machines.filter((m) => { const e = estadoOf(m.id); return e === 'averia' || e === 'parada'; }).map((m) => ({ title: m.code || '—', sub: [machSub(m), maint[m.id]?.motivo].filter(Boolean).join(' · '), right: maint[m.id]?.tipo === 'averia' ? '🔧 Avería' : '🟡 Parada', date: dmy(roundDate) })) };
+    }
+    const edifs = Object.values(resumenEdif);
+    if (kpiDetail === 'm3tot') {
+      return { title: '📦 m³ acumulados por edificio', isEdif: true, rows: edifs.filter((r) => r.acumulado > 0).sort((a, b) => b.acumulado - a.acumulado).map((r) => ({ title: r.edificio, sub: r.base_date ? `base ${dmy(r.base_date)}` : '', right: `${r1(r.acumulado)} m³`, date: '' })) };
+    }
+    // m3hoy / edificios → edificios con removido hoy
+    return { title: kpiDetail === 'edificios' ? '🏢 Edificios de hoy' : '⛰️ m³ removidos hoy', isEdif: true, rows: edifs.filter((r) => r.removido_hoy > 0).sort((a, b) => b.removido_hoy - a.removido_hoy).map((r) => ({ title: r.edificio, sub: r.supervisor_name || '', right: `${r1(r.removido_hoy)} m³`, date: dmy(roundDate) })) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kpiDetail, machines, rounds, maint, resumenEdif, roundDate]);
 
   const openDetail = (m: Maquina) => {
     setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo(''); setCiMsg(null);
@@ -327,16 +357,15 @@ export default function ObrasPublicasScreen() {
       <View style={{ padding: spacing.md, gap: spacing.xs }}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>🏛️ Mis máquinas · Obras Públicas</Text>
         <Text style={{ color: colors.muted, fontSize: 12 }}>{machines.length} asignada(s) · {shiftOf(nowParts.hour).label}</Text>
-        <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina…" placeholderTextColor={colors.muted} style={input} />
-        <TouchableOpacity onPress={() => setRemovidosOpen(true)} style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>⛰️ Removidos hoy · por edificio</Text>
+        <TouchableOpacity onPress={() => setRemovidosOpen(true)} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>⛰️ Removidos hoy · por edificio</Text>
         </TouchableOpacity>
-        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-          <TouchableOpacity onPress={abrirReporteDia} style={{ flex: 1, backgroundColor: '#7C3AED', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>📋 Reporte del día</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <TouchableOpacity onPress={abrirReporteDia} style={{ flex: 1, backgroundColor: '#7C3AED', borderRadius: radius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>📋 Reporte del día</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={generarReporte} disabled={reporting} style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', opacity: reporting ? 0.6 : 1 }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{reporting ? 'Generando…' : '📄 Mis máquinas'}</Text>
+          <TouchableOpacity onPress={generarReporte} disabled={reporting} style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: reporting ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>{reporting ? 'Generando…' : '📄 Mis máquinas'}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -354,6 +383,11 @@ export default function ObrasPublicasScreen() {
               </TouchableOpacity>
             ) : null}
           </View>
+        ) : null}
+
+        {/* Buscador de máquina (por TODAS las características) — bajo los KPI, sobre la lista. */}
+        {machines.length > 0 ? (
+          <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina (código, placa, serial, empresa, tipo, sector…)" placeholderTextColor={colors.muted} style={input} />
         ) : null}
 
         {machines.length === 0 ? (
@@ -485,6 +519,38 @@ export default function ObrasPublicasScreen() {
         supervisorName={fullName || 'Supervisor'}
         onChanged={load}
       />
+
+      {/* Detalle de una tarjeta KPI (con fechas) */}
+      <Modal visible={!!kpiDetail} animationType="slide" transparent onRequestClose={() => setKpiDetail(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.lg, paddingBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{kpiDetalle.title} · {kpiDetalle.rows.length}</Text>
+              <TouchableOpacity onPress={() => setKpiDetail(null)}><Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar ✕</Text></TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, gap: spacing.xs }}>
+              {kpiDetalle.rows.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Sin registros.</Text>
+              ) : kpiDetalle.rows.map((row, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>{row.title}</Text>
+                    {row.sub ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>{row.sub}</Text> : null}
+                    {row.date ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>📅 {row.date}</Text> : null}
+                  </View>
+                  {row.right ? <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{row.right}</Text> : null}
+                </View>
+              ))}
+              {kpiDetalle.isEdif ? (
+                <TouchableOpacity onPress={() => { setKpiDetail(null); setRemovidosOpen(true); }} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 13 }}>⛰️ Abrir módulo por edificio</Text>
+                </TouchableOpacity>
+              ) : null}
+              <View style={{ height: spacing.xl }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Reporte de Actividades (consolidado del día) */}
       <Modal visible={dailyOpen} animationType="slide" transparent onRequestClose={() => setDailyOpen(false)}>

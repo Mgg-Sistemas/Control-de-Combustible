@@ -75,8 +75,9 @@ export default function OpRemovidosModal({
     try {
       const [r, e, reps, maqs, ext] = await Promise.all([
         fetchEdificioResumen(date), fetchEdificiosConSector(), fetchEdificioReportesDia(date),
-        supervisorId ? listMyOpMachines(supervisorId) : Promise.resolve([] as OpMyMachine[]),
-        listOpExternalMachines(supervisorId),
+        supervisorId ? listMyOpMachines(supervisorId).catch(() => [] as OpMyMachine[]) : Promise.resolve([] as OpMyMachine[]),
+        // Máquinas externas: si aún no se corrió op_external_machines.sql, degrada a [].
+        listOpExternalMachines(supervisorId).catch(() => [] as OpMyMachine[]),
       ]);
       setResumen(r);
       setEdificios(e);
