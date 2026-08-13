@@ -824,7 +824,9 @@ export default function ReportsScreen({ route }: any) {
     const averiaRealSet = new Set<string>();
     ((mrPend ?? []) as any[]).forEach((r) => {
       const mm = r.machinery;
-      if (!mm || mm.active === false) return;         // inactivas fuera
+      if (!mm) return;                                 // sin ficha, fuera
+      // Se INCLUYEN las inactivas (pedido cliente 12-ago-2026: "todas las máquinas,
+      // estén o no activas"). Salen como averiadas/paradas en 0h con su placa/serial.
       const mid = r.machinery_id as string;
       if (siempreActivoSetRounds.has(mid)) return;      // placeholder SOS LA GUAIRA: nunca averiada/parada
       if (workedIds.has(mid)) return;                  // ya trabajó → está en el informe
