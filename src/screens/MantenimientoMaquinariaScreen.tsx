@@ -478,7 +478,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   };
   const enviarReparacion = async () => {
     if (!repFor) return;
-    if (!rNote.trim()) return toast.error('Indica el motivo de la avería — es obligatorio.');
+    if (!rNote.trim()) return toast.error(esServicio ? 'Indica el motivo de la avería — es obligatorio.' : 'Indica el motivo del mantenimiento — es obligatorio.');
     setBusy('rep');
     const target = repFor;
     const nota = rNote.trim();
@@ -799,7 +799,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
               </View>
               {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
-              <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>🔧 Salió a reparación: {fmtDMY(r.out_at)}{r.estimated_days != null ? ` · estimado ${r.estimated_days} día(s)` : ''}</Text>
+              <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>{esServicio ? '🔧 Salió a reparación' : '🩺 Entró a mantenimiento'}: {fmtDMY(r.out_at)}{r.estimated_days != null ? ` · estimado ${r.estimated_days} día(s)` : ''}</Text>
               {r.createdByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Enviada por {r.createdByName}</Text> : null}
               {r.estimated_note ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔧 Motivo: {r.estimated_note}</Text> : null}
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔩 {r.work_done}</Text> : null}
@@ -1115,7 +1115,11 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                 const inRep = activeRepairByMachine.has(m.id);
                 return (
                   <TouchableOpacity key={m.id} onPress={() => !inRep && openRepair(m)} disabled={inRep} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface, opacity: inRep ? 0.5 : 1 }}>
-                    <Text style={{ color: colors.text, fontWeight: '800' }}>{m.code}{inRep ? '  · ya en reparación' : ''}</Text>
+                    {/* "en el taller" a secas: el bloqueo mira las reparaciones de LAS DOS
+                        secciones, así que la máquina puede estar en un preventivo aunque
+                        estemos en Servicio (o al revés). Decir "en reparación" aquí sería
+                        mentira la mitad de las veces. */}
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>{m.code}{inRep ? '  · ya está en el taller' : ''}</Text>
                     {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {m.tipo}</Text> : null}
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{m.company}{m.operational ? '' : ' · No operativa'}</Text>
                   </TouchableOpacity>
