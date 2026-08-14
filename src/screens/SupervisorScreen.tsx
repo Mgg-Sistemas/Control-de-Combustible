@@ -1630,14 +1630,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const nowParts = caracasParts(now);
     // Instante declarado del inicio (hoy, a la hora escrita).
     const declaredIso = `${today}T${hh}:${mm}:00-04:00`;
-    // Límite para declarar SIN alerta: 8:30am (día) / 8:30pm (noche). Si el turno de
+    // Límite para declarar SIN alerta: 9:00am (día) / 9:00pm (noche). Si el turno de
     // noche ya pasó la medianoche (hora < 6), el límite fue el día anterior.
     let limitDay = today;
     if (sh === 'night' && nowParts.hour < 6) {
       const d = new Date(`${today}T12:00:00-04:00`); d.setUTCDate(d.getUTCDate() - 1);
       limitDay = caracasParts(d).iso;
     }
-    const limitIso = sh === 'night' ? `${limitDay}T20:30:00-04:00` : `${limitDay}T08:30:00-04:00`;
+    const limitIso = sh === 'night' ? `${limitDay}T21:00:00-04:00` : `${limitDay}T09:00:00-04:00`;
     const retrasoMin = Math.round((now.getTime() - new Date(limitIso).getTime()) / 60000);
     // round_date de NEGOCIO del inicio: una jornada de NOCHE iniciada (o reanudada
     // tras una parada) YA pasada la medianoche (ej. 00:13am) sigue perteneciendo a
@@ -1647,7 +1647,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // máquinas mostradas "Cerradas" horas ANTES de que el turno noche empezara).
     const roundDate = businessRoundDateOf(new Date(declaredIso), sh);
     // REGLA (13-ago-2026): el turno DÍA inicia SIEMPRE a las 7:00am y el de NOCHE a las
-    // 7:00pm. Si el inspector marca DENTRO del margen (≤8:30am día / ≤8:30pm noche), la
+    // 7:00pm. Si el inspector marca DENTRO del margen (≤9:00am día / ≤9:00pm noche), la
     // jornada se ANCLA al arranque NOMINAL del turno (7am/7pm) aunque la marque/declare un
     // poco más tarde → cuenta el turno completo (12h al cerrar a las 7pm). Si marca FUERA
     // del margen (retrasoMin>0, ej. 9am, 11am o JUMBO 320 a las 5:34pm), conserva el inicio
@@ -1713,7 +1713,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // ⏰ Alerta a los ADMIN si la jornada se declaró TARDE (después del límite) y NO
     // venía de una avería/parada (en ese caso el inicio tardío es esperado).
     if (alertaRetraso > 0) {
-      const turnoTxt = sh === 'night' ? 'noche (límite 8:30pm)' : 'día (límite 8:30am)';
+      const turnoTxt = sh === 'night' ? 'noche (límite 9:00pm)' : 'día (límite 9:00am)';
       notifyAdmins(
         'jornada_tarde',
         `Jornada declarada ${retrasoLabel(alertaRetraso)} tarde`,
@@ -3377,7 +3377,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   )}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hora de inicio (HH:MM) · se acota contra la hora del sistema</Text>
                   <TextInput value={iniTime} onChangeText={(t) => setIniTime(t.replace(/[^0-9:]/g, '').slice(0, 5))} placeholder={iniShift === 'night' ? '19:00' : '07:00'} placeholderTextColor={colors.muted} keyboardType="numbers-and-punctuation" style={[input, { marginBottom: 4 }]} />
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Máximo para declarar sin alerta: {iniShift === 'night' ? '8:30pm' : '8:30am'}. Si se declara tarde se avisa a los administradores (la jornada igual inicia).</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Máximo para declarar sin alerta: {iniShift === 'night' ? '9:00pm' : '9:00am'}. Si se declara tarde se avisa a los administradores (la jornada igual inicia).</Text>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? '' : ' (se precarga con el final de la jornada anterior)'}</Text>
                   <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
                   <TouchableOpacity onPress={() => tomarFotoHoro('ini')} disabled={horoPhotoBusy === 'ini'} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoIniPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
