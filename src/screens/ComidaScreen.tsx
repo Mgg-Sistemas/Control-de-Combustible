@@ -61,7 +61,7 @@ export default function ComidaScreen() {
   const [qrBusy, setQrBusy] = useState<string | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
   // ── Control por empresa (rango de fechas) ──
-  const [from, setFrom] = useState(addDaysISO(caracasToday(), -6)); // últimos 7 días
+  const [from, setFrom] = useState(caracasToday()); // por defecto: solo el día de hoy
   const [to, setTo] = useState(caracasToday());
   const [rangeRows, setRangeRows] = useState<FoodCompanyMeal[]>([]);
   const [rangePersons, setRangePersons] = useState<FoodDistribution[]>([]); // entregas individuales del rango

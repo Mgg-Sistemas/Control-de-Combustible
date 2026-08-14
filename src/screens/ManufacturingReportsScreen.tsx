@@ -202,7 +202,7 @@ export default function ManufacturingReportsScreen() {
   const wcLabel = (id: string) => (workCenterMap[id] ? `${workCenterMap[id].code} · ${workCenterMap[id].name}` : id);
 
   // ── Filtros ─────────────────────────────────────────────────────────────
-  const [from, setFrom] = useState(isoDaysAgo(30));
+  const [from, setFrom] = useState(isoDaysAgo(0)); // por defecto: solo el día de hoy
   const [to, setTo] = useState(isoDaysAgo(0));
   const [workCenterId, setWorkCenterId] = useState(''); // '' = todos
   const setRange = (days: number) => { setFrom(isoDaysAgo(days)); setTo(isoDaysAgo(0)); };

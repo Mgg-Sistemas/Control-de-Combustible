@@ -54,7 +54,7 @@ type Row = {
 
 export default function HistoricoJornadasScreen() {
   const { colors } = useTheme();
-  const [from, setFrom] = useState(isoDaysAgo(7));
+  const [from, setFrom] = useState(caracasToday()); // por defecto: solo el día de hoy
   const [to, setTo] = useState(caracasToday());
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);

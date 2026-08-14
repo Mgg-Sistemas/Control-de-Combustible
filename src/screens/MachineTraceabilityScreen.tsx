@@ -73,7 +73,7 @@ export default function MachineTraceabilityScreen({ route }: any) {
     return list.slice().sort((a, b) => cmpText(a.code, b.code)).slice(0, 30);
   }, [machinery, machineQuery, companiesMap]);
 
-  const [fromISO, setFromISO] = useState(addDaysISO(today, -30));
+  const [fromISO, setFromISO] = useState(today); // por defecto: solo el día de hoy
   const [toISO, setToISO] = useState(today);
 
   const [loading, setLoading] = useState(false);
