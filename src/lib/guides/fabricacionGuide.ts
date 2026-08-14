@@ -253,7 +253,7 @@ export async function generateFabricacionGuide(): Promise<boolean> {
       'coincida con la de la orden.'
     ) +
     calloutInfo(
-      'Reportar una falla genera <b>automáticamente</b> una solicitud en Mantenimiento (además de pausar la orden). El candado ' +
+      'Reportar una falla genera <b>automáticamente</b> una solicitud en Servicio (además de pausar la orden). El candado ' +
       'de calidad también aplica aquí: si el paso tiene control de calidad pendiente, el botón "✅ FINALIZAR" no aparece — el ' +
       'kiosco avisa que hace falta que un supervisor apruebe o rechace la calidad desde oficina.'
     )

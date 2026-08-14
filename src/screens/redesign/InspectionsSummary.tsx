@@ -532,7 +532,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const applyBulk = async (action: 'start' | 'pending' | 'close' | 'parada' | 'averia') => {
     if (bulkSel.size === 0 || bulkBusy || !bulkIsToday) return;
     if ((action === 'averia' || action === 'parada') && !bulkMotivo.trim()) {
-      Alert.alert('Falta el motivo', `Escribe el motivo de la ${action === 'averia' ? 'avería' : 'parada'} antes de marcarla (queda como registro en Mantenimiento).`);
+      Alert.alert('Falta el motivo', `Escribe el motivo de la ${action === 'averia' ? 'avería' : 'parada'} antes de marcarla (queda como registro en Servicio).`);
       return;
     }
     setBulkBusy(true);
@@ -608,7 +608,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         const saltadas = idsDetenidas.size;
         Alert.alert(
           'Listo',
-          `${items.length} máquina(s) marcadas como iniciadas.${saltadas > 0 ? ` ⚠️ ${saltadas} seguían con un ticket pendiente en Mantenimiento (avería/parada) — revísalas y ciérralo con "Volver a Operativa" cuando estén realmente reparadas.` : ''}`
+          `${items.length} máquina(s) marcadas como iniciadas.${saltadas > 0 ? ` ⚠️ ${saltadas} seguían con un ticket pendiente en Servicio (avería/parada) — revísalas y ciérralo con "Volver a Operativa" cuando estén realmente reparadas.` : ''}`
         );
       } else if (action === 'pending') {
         // Corrección del cliente: esto NO es "Parada" (eso es exclusivo de
@@ -736,7 +736,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             ]
           : [{ machinery_id: p.id, material: 'MÁQUINA PARADA', notes: motivo, status: 'pendiente', requested_by: uid }]);
         const { error: mErr } = await supabase.from('maintenance_requests').insert(maintRows);
-        if (mErr) { Alert.alert('Aviso', `Se conservaron las horas, pero no se pudo dejar la solicitud en Mantenimiento: ${mErr.message}`); return; }
+        if (mErr) { Alert.alert('Aviso', `Se conservaron las horas, pero no se pudo dejar la solicitud en Servicio: ${mErr.message}`); return; }
         await Promise.all(plan.map((p) =>
           logAudit('PARADA', 'machinery', p.id, `${codeOf(p.id)} · ${action === 'averia' ? 'avería' : 'parada'} marcada (panel supervisor) · ${p.shift === 'day' ? 'día' : 'noche'} · ${motivo}`)
         ));
@@ -1722,7 +1722,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     </TouchableOpacity>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: spacing.xs }}>
-                    Activas ahora / Cerradas / Pendiente ya cubren esos 3 estados; Parada y Avería quedan también registradas en Mantenimiento de Maquinaria con el motivo de arriba.
+                    Activas ahora / Cerradas / Pendiente ya cubren esos 3 estados; Parada y Avería quedan también registradas en Servicio de Maquinaria con el motivo de arriba.
                   </Text>
                 </View>
               ) : null}
