@@ -2205,6 +2205,13 @@ Ajustes solo quedan:
   hace falta un respaldo manual. Acceso restringido a las cuentas designadas — el resto de
   administradores no ve este botón.
 
+> **👤 Con qué cuenta estás dentro (14/08/2026):** al abrir la **tuerca ⚙️** del encabezado, arriba
+> a la derecha —al lado del título "⚙️ Ajustes"— se muestra **tu nombre** y, debajo, tu **👤 usuario
+> de inicio de sesión** (el mismo con el que entras, máximo 10 caracteres). Sirve para saber de un
+> vistazo con quién quedó abierta la sesión, sobre todo en las computadoras y teléfonos que usan
+> varias personas. Si dice *"sin usuario asignado"*, es que a esa cuenta todavía no le cargaron el
+> usuario: pídeselo al administrador (**Más → Usuarios**).
+
 ---
 
 ## 4.30. Obras Públicas 🏛️
