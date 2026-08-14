@@ -193,8 +193,13 @@ export async function buildOpEdificioWhatsApp(date: string, supervisorId?: strin
       L.push(`🏢 *${r.edificio}*${r.entregado ? '  ✅ ENTREGADO' : ''}`);
       if ((r.m3 || 0) > 0 || (r.acumulado || 0) > 0)
         L.push(`   • Removido hoy: ${nWa(r.m3 || 0)} m³  ·  Acumulado: ${nWa(r.acumulado || 0)} m³`);
-      if ((r.m3_acarreados || 0) > 0 || (r.viajes || 0) > 0)
-        L.push(`   • Acarreados: ${nWa(r.m3_acarreados || 0)} m³  ·  Viajes: ${r.viajes || 0}`);
+      if ((r.m3_acarreados || 0) > 0 || (r.viajes || 0) > 0) {
+        const desg = [
+          (r.viajes_toronto || 0) > 0 ? `${r.viajes_toronto} Toronto` : '',
+          (r.viajes_volqueta || 0) > 0 ? `${r.viajes_volqueta} Volqueta` : '',
+        ].filter(Boolean).join(' + ');
+        L.push(`   • Acarreados: ${nWa(r.m3_acarreados || 0)} m³  ·  Viajes: ${r.viajes || 0}${desg ? ` (${desg})` : ''}`);
+      }
       if (r.maq_en_uso) L.push(`   • Maq. en uso: ${r.maq_en_uso}`);
       if (r.maq_inoperativo) L.push(`   • Maq. inoperativa: ${r.maq_inoperativo}`);
       if (r.maq_requerimiento) L.push(`   • Maq. por requerimiento: ${r.maq_requerimiento}`);
@@ -207,13 +212,17 @@ export async function buildOpEdificioWhatsApp(date: string, supervisorId?: strin
   // Totales del día.
   const t = conDato.reduce((a, r) => ({
     rem: a.rem + (r.m3 || 0), aca: a.aca + (r.m3_acarreados || 0), via: a.via + (r.viajes || 0),
+    vt: a.vt + (r.viajes_toronto || 0), vv: a.vv + (r.viajes_volqueta || 0),
     acum: a.acum + (r.acumulado || 0), sup: a.sup + (r.supervivientes || 0), fal: a.fal + (r.fallecidos || 0),
-  }), { rem: 0, aca: 0, via: 0, acum: 0, sup: 0, fal: 0 });
+  }), { rem: 0, aca: 0, via: 0, vt: 0, vv: 0, acum: 0, sup: 0, fal: 0 });
   L.push('');
   L.push('━━━━━━━━━━━━━━');
   L.push('📊 *TOTALES DEL DÍA*');
   L.push(`• Removido hoy: ${nWa(t.rem)} m³`);
-  if (t.aca > 0 || t.via > 0) L.push(`• Acarreados: ${nWa(t.aca)} m³  ·  Viajes: ${t.via}`);
+  if (t.aca > 0 || t.via > 0) {
+    const desgT = [t.vt > 0 ? `${t.vt} Toronto ×18` : '', t.vv > 0 ? `${t.vv} Volqueta ×25` : ''].filter(Boolean).join(' + ');
+    L.push(`• Acarreados: ${nWa(t.aca)} m³  ·  Viajes: ${t.via}${desgT ? ` (${desgT})` : ''}`);
+  }
   L.push(`• Acumulado general: ${nWa(t.acum)} m³`);
   if (t.sup > 0 || t.fal > 0) L.push(`• Cuerpos: ${t.sup} supervivientes · ${t.fal} fallecidos`);
   L.push(`• Edificios reportados: ${conDato.length}`);

@@ -293,9 +293,39 @@ export async function fetchEdificioM3TotalGlobal(date: string): Promise<number> 
   return Math.round(Object.values(g).reduce((a, r) => a + r.acumulado, 0) * 10) / 10;
 }
 
+/**
+ * m³ ACARREADOS acumulados de TODA la operación (suma de m3_acarreados de todos los
+ * registros por edificio). Si `supervisorId` viene, solo los de ese supervisor.
+ * Alimenta la tarjeta "M³ ACARREADOS TOTALES" del teléfono y el panel.
+ */
+export async function fetchAcarreadoTotalGlobal(supervisorId?: string | null): Promise<number> {
+  let q = supabase.from('op_edificio_removidos').select('m3_acarreados');
+  if (supervisorId) q = q.eq('supervisor_id', supervisorId);
+  const { data, error } = await q;
+  if (error) throw error;
+  const tot = (data ?? []).reduce((a: number, r: any) => a + (Number(r.m3_acarreados) || 0), 0);
+  return Math.round(tot * 10) / 10;
+}
+
+// CAPACIDAD por VIAJE de cada vehículo de acarreo (m³). El m³ acarreado se CALCULA
+// de los viajes por tipo: Camión Volteo Toronto = 18 m³/viaje, Chuto con Volqueta =
+// 25 m³/viaje. Ej: 4 viajes Toronto = 72 m³. Fuente única para tlf, PC y reportes.
+export const CAP_TORONTO_M3 = 18;
+export const CAP_VOLQUETA_M3 = 25;
+/** m³ acarreados = viajes Toronto × 18 + viajes Volqueta × 25. */
+export function m3AcarreadosDe(viajesToronto: number, viajesVolqueta: number): number {
+  const t = Math.max(0, Math.round(Number(viajesToronto) || 0));
+  const v = Math.max(0, Math.round(Number(viajesVolqueta) || 0));
+  return t * CAP_TORONTO_M3 + v * CAP_VOLQUETA_M3;
+}
+
 // Campos del REPORTE DETALLADO por edificio (Fase 2): maquinaria, acarreo, viajes,
 // avance, cuerpos, actividades y si el frente fue entregado. Todos opcionales.
+// El acarreo se desglosa por VEHÍCULO (viajes_toronto / viajes_volqueta); m3_acarreados
+// y viajes (total) se DERIVAN de esos dos (ver m3AcarreadosDe).
 export type OpEdificioDetalle = {
+  viajes_toronto?: number;
+  viajes_volqueta?: number;
   m3_acarreados?: number;
   viajes?: number;
   avance?: number | null;
@@ -338,9 +368,15 @@ export async function saveEdificioRemovido(p: {
   };
   if (p.detalle) {
     const d = p.detalle;
+    // Acarreo por vehículo: los viajes por tipo son la fuente; m³ y viajes-total se
+    // DERIVAN (no se confía en lo que venga en d.m3_acarreados/d.viajes).
+    const vt = Math.max(0, Math.round(Number(d.viajes_toronto) || 0));
+    const vv = Math.max(0, Math.round(Number(d.viajes_volqueta) || 0));
     Object.assign(payload, {
-      m3_acarreados: d.m3_acarreados ?? 0,
-      viajes: d.viajes ?? 0,
+      viajes_toronto: vt,
+      viajes_volqueta: vv,
+      m3_acarreados: m3AcarreadosDe(vt, vv),
+      viajes: vt + vv,
       avance: d.avance ?? null,
       maq_en_uso: (d.maq_en_uso ?? '').trim() || null,
       maq_inoperativo: (d.maq_inoperativo ?? '').trim() || null,
@@ -381,6 +417,8 @@ export async function fetchEdificioReportesDia(date: string, supervisorId?: stri
     m3: Number(r.m3) || 0,
     m3_acarreados: Number(r.m3_acarreados) || 0,
     viajes: Number(r.viajes) || 0,
+    viajes_toronto: Number(r.viajes_toronto) || 0,
+    viajes_volqueta: Number(r.viajes_volqueta) || 0,
     avance: r.avance == null ? null : Number(r.avance),
     maq_en_uso: r.maq_en_uso ?? null,
     maq_inoperativo: r.maq_inoperativo ?? null,
@@ -398,7 +436,7 @@ export async function fetchEdificioReportesDia(date: string, supervisorId?: stri
 /** Fila del HISTÓRICO por edificio (un registro por edificio+fecha, con detalle). */
 export type OpEdificioHist = {
   report_date: string; edificio: string; sub_sector: string | null;
-  m3: number; m3_acarreados: number; viajes: number;
+  m3: number; m3_acarreados: number; viajes: number; viajes_toronto: number; viajes_volqueta: number;
   maq_en_uso: string | null; maq_inoperativo: string | null; maq_requerimiento: string | null;
   supervivientes: number; fallecidos: number; actividades: string | null; entregado: boolean;
   supervisor_name: string | null;
@@ -415,6 +453,7 @@ export async function fetchEdificioRemovidosRange(from: string, to: string): Pro
   return (rowsRes.data ?? []).map((r: any): OpEdificioHist => ({
     report_date: r.report_date, edificio: r.edificio, sub_sector: sec.get(r.edificio) ?? null,
     m3: Number(r.m3) || 0, m3_acarreados: Number(r.m3_acarreados) || 0, viajes: Number(r.viajes) || 0,
+    viajes_toronto: Number(r.viajes_toronto) || 0, viajes_volqueta: Number(r.viajes_volqueta) || 0,
     maq_en_uso: r.maq_en_uso ?? null, maq_inoperativo: r.maq_inoperativo ?? null, maq_requerimiento: r.maq_requerimiento ?? null,
     supervivientes: Number(r.supervivientes) || 0, fallecidos: Number(r.fallecidos) || 0,
     actividades: r.actividades ?? null, entregado: !!r.entregado, supervisor_name: r.supervisor_name ?? null,

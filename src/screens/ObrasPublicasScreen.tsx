@@ -11,7 +11,7 @@ import { useToast } from '../components/ToastProvider';
 import {
   listMyOpMachineIds, fetchOpRounds, fetchOpMaintPending,
   opStartJornada, opFinishJornada, opMarkMaint, opClearMaint, opRegistrarVisita, updateMachineLocation,
-  fetchEdificioResumen, fetchEdificioM3TotalGlobal, OpEdificioResumen,
+  fetchEdificioResumen, fetchEdificioM3TotalGlobal, fetchAcarreadoTotalGlobal, OpEdificioResumen,
   fetchMyDailyReport, saveDailyReport, OpDailyReport,
   fetchEdificioReportesDia, OpEdificioReporte,
   OpRound, OpMaint,
@@ -60,6 +60,7 @@ export default function ObrasPublicasScreen() {
   const [maint, setMaint] = useState<Record<string, OpMaint>>({});
   const [resumenEdif, setResumenEdif] = useState<Record<string, OpEdificioResumen>>({}); // m³ removidos POR USUARIO
   const [m3TotalGlobal, setM3TotalGlobal] = useState(0); // m³ totales GLOBAL (compartido)
+  const [m3AcarreadoTotal, setM3AcarreadoTotal] = useState(0); // m³ ACARREADOS totales GLOBAL
   const [removidosOpen, setRemovidosOpen] = useState(false);
   const [q, setQ] = useState('');
   const [kpiFilter, setKpiFilter] = useState<'trabajando' | 'averia' | null>(null);
@@ -96,12 +97,14 @@ export default function ObrasPublicasScreen() {
       const ids = await listMyOpMachineIds(uid);
       // POR USUARIO (sesión): el resumen de m³/edificios es SOLO de este supervisor
       // (los edificios de otro le son indiferentes). Lo único compartido es "m³ totales".
-      const [resu, m3TotG] = await Promise.all([
+      const [resu, m3TotG, acaTotG] = await Promise.all([
         fetchEdificioResumen(roundDate, uid).catch(() => ({} as Record<string, OpEdificioResumen>)),
         fetchEdificioM3TotalGlobal(roundDate).catch(() => 0),
+        fetchAcarreadoTotalGlobal().catch(() => 0),
       ]);
       setResumenEdif(resu);
       setM3TotalGlobal(m3TotG);
+      setM3AcarreadoTotal(acaTotG);
       if (!ids.length) { setMachines([]); setRounds({}); setMaint({}); return; }
       const [{ data: machs }, r, mt] = await Promise.all([
         supabase.from('machinery').select('*').in('id', ids),
@@ -169,9 +172,11 @@ export default function ObrasPublicasScreen() {
       { key: 'averiadas', label: 'Averiadas', value: averiadas, tone: 'danger', icon: '🔧' },
       // m³ totales = GLOBAL (compartido por todos los supervisores).
       { key: 'm3tot', label: 'm³ totales', value: r1(m3TotalGlobal), tone: 'accent', icon: '📦' },
+      // m³ ACARREADOS totales = GLOBAL (Toronto 18 + Volqueta 25 por viaje, acumulado).
+      { key: 'm3acarreado', label: 'm³ acarreados totales', value: r1(m3AcarreadoTotal), tone: 'brand', icon: '🚚' },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machines, rounds, maint, resumenEdif, m3TotalGlobal]);
+  }, [machines, rounds, maint, resumenEdif, m3TotalGlobal, m3AcarreadoTotal]);
 
   // Tocar una tarjeta KPI abre el DETALLE (con fechas) de lo que hay detrás del número.
   const onKpi = (k: string) => { setKpiDetail(k); setKpiDetailQ(''); };
@@ -200,6 +205,9 @@ export default function ObrasPublicasScreen() {
     if (kpiDetail === 'averiadas') {
       return { title: '🔧 Averiadas / Paradas', isEdif: false, rows: machines.filter((m) => { const e = estadoOf(m.id); return e === 'averia' || e === 'parada'; }).map((m) => ({ title: m.code || '—', sub: [machSub(m), maint[m.id]?.motivo].filter(Boolean).join(' · '), right: maint[m.id]?.tipo === 'averia' ? '🔧 Avería' : '🟡 Parada', date: dmy(roundDate) })) };
     }
+    if (kpiDetail === 'm3acarreado') {
+      return { title: '🚚 m³ acarreados totales', isEdif: false, rows: [{ title: 'Acumulado de toda la operación', sub: `Toronto ${18} + Volqueta ${25} m³/viaje`, right: `${r1(m3AcarreadoTotal)} m³` }] };
+    }
     const edifs = Object.values(resumenEdif);
     if (kpiDetail === 'm3tot') {
       return { title: '📦 m³ acumulados por edificio', isEdif: true, rows: edifs.filter((r) => r.acumulado > 0).sort((a, b) => b.acumulado - a.acumulado).map((r) => ({ title: r.edificio, sub: r.base_date ? `base ${dmy(r.base_date)}` : '', right: `${r1(r.acumulado)} m³`, date: '' })) };
@@ -207,7 +215,7 @@ export default function ObrasPublicasScreen() {
     // m3hoy / edificios → edificios con removido hoy
     return { title: kpiDetail === 'edificios' ? '🏢 Edificios de hoy' : '⛰️ m³ removidos hoy', isEdif: true, rows: edifs.filter((r) => r.removido_hoy > 0).sort((a, b) => b.removido_hoy - a.removido_hoy).map((r) => ({ title: r.edificio, sub: r.supervisor_name || '', right: `${r1(r.removido_hoy)} m³`, date: dmy(roundDate) })) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kpiDetail, machines, rounds, maint, resumenEdif, roundDate]);
+  }, [kpiDetail, machines, rounds, maint, resumenEdif, roundDate, m3AcarreadoTotal]);
 
   const openDetail = (m: Maquina) => {
     setCi(m); setGps(null); setParadaTab('averia'); setAvMat(null); setAvMotivo(''); setNtMotivo(''); setCiMsg(null);
