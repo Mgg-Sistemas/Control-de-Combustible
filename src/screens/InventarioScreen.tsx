@@ -249,7 +249,15 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       const c = (it.carga || '').toLowerCase();
       if (cargaFilter === '__sin__') { if (CARGA_OPTS.includes(c)) return false; } else if (c !== cargaFilter) return false;
     }
-    return !nq || norm(it.name).includes(nq) || norm(it.category).includes(nq) || norm(it.tipo || '').includes(nq);
+    // Búsqueda por CUALQUIER característica: nombre, categoría (clave + etiqueta),
+    // SKU, unidad, estado, tipo y carga. Antes solo miraba nombre/categoría/tipo, así
+    // que un producto no salía al buscar por su SKU/unidad/estado (bug reportado al
+    // cargar la plantilla de Excel: los productos ingresados no se filtraban por nombre
+    // porque el término no calzaba con esos 3 campos).
+    if (!nq) return true;
+    const hay = norm([it.name, it.category, catInfo(it.category).label, it.sku, it.unit, it.estado, it.tipo, it.carga]
+      .filter(Boolean).join(' '));
+    return hay.includes(nq);
   }).sort((a, b) => cmpText(a.name, b.name)), [levels, nq, tipoFilter, cargaFilter]);
   const totalValor = useMemo(() => levels.reduce((s, it) => s + (Number(it.stock) || 0) * (Number(it.avg_cost) || 0), 0), [levels]);
   const bajoMin = useMemo(() => levels.filter((it) => Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0).length, [levels]);
@@ -568,7 +576,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       </View>
 
       <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
-        <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto…" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+        <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar: nombre, SKU, categoría, unidad, tipo, estado…" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
         {canWrite ? (
           <TouchableOpacity onPress={openCreate} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>+ Producto</Text>
