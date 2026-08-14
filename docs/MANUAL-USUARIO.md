@@ -2227,8 +2227,14 @@ ve en el mapa y el catálogo).
   > **Solo GOLDEN y LICCIONE (14-ago-2026):** el listado de asignación de Obras Públicas SOLO muestra
   > las máquinas de las empresas **GOLDEN** y **LICCIONE** (las que operan en este módulo). Las de otras
   > empresas no aparecen.
+  > **Acarreo por VIAJES (14-ago-2026):** en el "▾ Detalle" de cada edificio, el m³ acarreado ya
+  > NO se teclea a mano — se ingresan los **viajes por tipo de vehículo** y el m³ se **calcula solo**:
+  > 🚛 **Camión Volteo Toronto = 18 m³/viaje** · 🚚 **Chuto con Volqueta = 25 m³/viaje** (ej.: 4 viajes
+  > Toronto = 72 m³). Hay una tarjeta **"🚚 m³ acarreados totales"** (teléfono y PC) que suma todo el
+  > acarreo. Al marcar **"✅ Frente entregado"**, los m³ acarreados deben **cuadrar** con los m³ removidos;
+  > si no, sale un aviso con la diferencia.
 - **Vista del supervisor (teléfono):** arriba ve una fila de **tarjetas resumen**
-  (**m³ removidos hoy · edificios de hoy · máquinas asignadas · trabajando · averiadas · m³ totales**);
+  (**m³ removidos hoy · edificios de hoy · máquinas asignadas · trabajando · averiadas · m³ totales · m³ acarreados totales**);
   tocar "Trabajando" o "Averiadas" **filtra** la lista, y tocar "m³ removidos hoy" / "Edificios hoy" /
   "m³ totales" abre el **módulo de m³ por edificio**. Por cada máquina registra **visita (GPS)**,
   **inicia/finaliza jornada**, marca **avería o parada** y **actualiza ubicación**.

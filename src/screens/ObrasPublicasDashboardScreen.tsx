@@ -193,6 +193,8 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
     return {
       m3: (settings.base_m3 || 0) + post.reduce((a, r) => a + r.m3, 0),
       cuerpos: (settings.base_cuerpos || 0) + post.reduce((a, r) => a + r.supervivientes + r.fallecidos, 0),
+      // m³ ACARREADOS: Σ de TODOS los reportes (Toronto 18 + Volqueta 25 por viaje). Sin base.
+      acarreado: edifHist.reduce((a, r) => a + (r.m3_acarreados || 0), 0),
     };
   }, [edifHist, settings]);
 
@@ -393,6 +395,13 @@ export default function ObrasPublicasDashboardScreen({ navigation }: any) {
           <View style={{ flex: 1, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
             <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{fmtNum(acumulado.cuerpos)}</Text>
             <Text style={{ color: colors.accentSoftText, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' }}>Cuerpos acumulados</Text>
+          </View>
+        </View>
+        {/* M³ ACARREADOS TOTALES — acumulado de acarreo (Toronto 18 + Volqueta 25 por viaje). */}
+        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+          <View style={{ flex: 1, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{fmtNum(acumulado.acarreado)}<Text style={{ fontSize: 11, fontWeight: '700' }}> m³</Text></Text>
+            <Text style={{ color: colors.accentSoftText, fontSize: 10.5, fontWeight: '700', textTransform: 'uppercase' }}>🚚 M³ acarreados totales</Text>
           </View>
         </View>
         {settings.base_date ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: spacing.xs }}>Base al {dm(settings.base_date)}/{settings.base_date.split('-')[0]} + reportes posteriores.</Text> : null}

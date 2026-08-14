@@ -11,18 +11,21 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { norm, cmpText } from '../lib/text';
 import { fetchEdificiosConSector, addEdificio, EdificioConSector } from '../lib/edificios';
-import { fetchEdificioResumen, saveEdificioRemovido, fetchEdificioReportesDia, listMyOpMachines, listOpExternalMachines, addOpExternalMachine, OpEdificioResumen, OpEdificioDetalle, OpMyMachine } from '../lib/obrasPublicas';
+import { fetchEdificioResumen, saveEdificioRemovido, fetchEdificioReportesDia, listMyOpMachines, listOpExternalMachines, addOpExternalMachine, OpEdificioResumen, OpEdificioDetalle, OpMyMachine, CAP_TORONTO_M3, CAP_VOLQUETA_M3, m3AcarreadosDe } from '../lib/obrasPublicas';
+import { supabase } from '../lib/supabase';
 import { buildOpEdificioWhatsApp } from '../lib/obrasPublicasReport';
 import { useToast } from './ToastProvider';
 
 // El detalle (Fase 2) se teclea como texto y se convierte a números al guardar.
+// ACARREO por VEHÍCULO: se ingresan los VIAJES por tipo (Toronto/Volqueta); el m³
+// acarreado se CALCULA (Toronto 18 · Volqueta 25). No hay campo de m³ manual.
 type DetForm = {
-  m3_acarreados?: string; viajes?: string; avance?: string;
+  viajes_toronto?: string; viajes_volqueta?: string; avance?: string;
   maq_en_uso?: string; maq_inoperativo?: string; maq_requerimiento?: string;
   supervivientes?: string; fallecidos?: string; actividades?: string; entregado?: boolean;
 };
 const hasDetForm = (f?: DetForm): boolean =>
-  !!f && (!!(f.m3_acarreados || '').trim() || !!(f.viajes || '').trim() || !!(f.avance || '').trim() ||
+  !!f && (!!(f.viajes_toronto || '').trim() || !!(f.viajes_volqueta || '').trim() || !!(f.avance || '').trim() ||
     !!(f.maq_en_uso || '').trim() || !!(f.maq_inoperativo || '').trim() || !!(f.maq_requerimiento || '').trim() ||
     !!(f.supervivientes || '').trim() || !!(f.fallecidos || '').trim() || !!(f.actividades || '').trim() || !!f.entregado);
 
@@ -96,8 +99,8 @@ export default function OpRemovidosModal({
       const dmap: Record<string, DetForm> = {};
       reps.forEach((rep) => {
         const f: DetForm = {};
-        if (rep.m3_acarreados) f.m3_acarreados = String(rep.m3_acarreados);
-        if (rep.viajes) f.viajes = String(rep.viajes);
+        if (rep.viajes_toronto) f.viajes_toronto = String(rep.viajes_toronto);
+        if (rep.viajes_volqueta) f.viajes_volqueta = String(rep.viajes_volqueta);
         if (rep.avance != null) f.avance = String(rep.avance);
         if (rep.maq_en_uso) f.maq_en_uso = rep.maq_en_uso;
         if (rep.maq_inoperativo) f.maq_inoperativo = rep.maq_inoperativo;
@@ -213,9 +216,13 @@ export default function OpRemovidosModal({
   const toDetalle = (f?: DetForm): OpEdificioDetalle | undefined => {
     if (!hasDetForm(f)) return undefined;
     const g = f!;
+    const vt = Math.max(0, Math.round(numOf(g.viajes_toronto || '') || 0));
+    const vv = Math.max(0, Math.round(numOf(g.viajes_volqueta || '') || 0));
     return {
-      m3_acarreados: numOf(g.m3_acarreados || '') || 0,
-      viajes: Math.round(numOf(g.viajes || '') || 0),
+      viajes_toronto: vt,
+      viajes_volqueta: vv,
+      m3_acarreados: m3AcarreadosDe(vt, vv),   // derivado (Toronto×18 + Volqueta×25)
+      viajes: vt + vv,                          // total derivado
       avance: (g.avance || '').trim() === '' ? null : Math.round(numOf(g.avance || '') || 0),
       maq_en_uso: (g.maq_en_uso || '').trim() || null,
       maq_inoperativo: (g.maq_inoperativo || '').trim() || null,
@@ -279,7 +286,25 @@ export default function OpRemovidosModal({
         await saveEdificioRemovido({ edificio: edif, date, m3, base, supervisorId, supervisorName, detalle: toDetalle(detalles[edif]) });
       }
       await reload();
-      setMsg({ tone: 'ok', text: `✅ Guardados ${edifs.length} edificio(s) · ${fmt(conM3.reduce((a, x) => a + x.m3, 0))} m³ hoy.` });
+      // REGLA (14-ago-2026): al ENTREGAR el frente, los m³ ACARREADOS deben CUADRAR con
+      // los m³ REMOVIDOS del frente. Si no coinciden, se avisa con la diferencia (el
+      // guardado igual se hace; es un aviso para que el supervisor cuadre antes de cerrar).
+      const entregados = edifs.filter((e) => toDetalle(detalles[e])?.entregado);
+      let avisoEntrega = '';
+      if (entregados.length) {
+        const { data: sums } = await supabase.from('op_edificio_removidos')
+          .select('edificio, m3, m3_acarreados').in('edificio', entregados);
+        const acc: Record<string, { rem: number; aca: number }> = {};
+        (sums ?? []).forEach((r: any) => {
+          const k = r.edificio as string; acc[k] = acc[k] ?? { rem: 0, aca: 0 };
+          acc[k].rem += Number(r.m3) || 0; acc[k].aca += Number(r.m3_acarreados) || 0;
+        });
+        const desc = entregados
+          .filter((e) => Math.abs((acc[e]?.rem ?? 0) - (acc[e]?.aca ?? 0)) > 0.5)
+          .map((e) => `“${e}”: removido ${fmt(acc[e]?.rem ?? 0)} ≠ acarreado ${fmt(acc[e]?.aca ?? 0)} m³`);
+        if (desc.length) avisoEntrega = ` ⚠️ Frente ENTREGADO pero NO cuadra acarreado con removido — ${desc.join(' · ')}. Ajusta los viajes o los m³ removidos.`;
+      }
+      setMsg({ tone: avisoEntrega ? 'err' : 'ok', text: `✅ Guardados ${edifs.length} edificio(s) · ${fmt(conM3.reduce((a, x) => a + x.m3, 0))} m³ hoy.${avisoEntrega}` });
       toast.success('Reporte por edificio guardado.');
       onChanged?.();
     } catch (e: any) {
@@ -387,18 +412,33 @@ export default function OpRemovidosModal({
                               </TouchableOpacity>
                               {abierto ? (
                                 <View style={{ gap: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                                  {/* 🚚 ACARREO POR VIAJES: se ingresan los viajes por TIPO de vehículo;
+                                      el m³ acarreado se CALCULA (Toronto 18 · Volqueta 25 m³/viaje). Así el
+                                      acarreo va ATADO a los viajes (no hay m³ sin viajes ni al revés). */}
+                                  <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>🚚 ACARREO — VIAJES POR VEHÍCULO (el m³ se calcula solo)</Text>
                                   <View style={{ flexDirection: 'row', gap: spacing.xs }}>
                                     <View style={{ flex: 1 }}>
-                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>M³ ACARREADOS</Text>
-                                      <TextInput value={d.m3_acarreados ?? ''} onChangeText={(t) => setDet(edif, { m3_acarreados: t })}
-                                        placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
+                                      <Text style={{ color: colors.muted, fontSize: 10 }}>🚛 Toronto · {CAP_TORONTO_M3} m³/viaje</Text>
+                                      <TextInput value={d.viajes_toronto ?? ''} onChangeText={(t) => setDet(edif, { viajes_toronto: t })}
+                                        placeholder="viajes" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
                                     </View>
                                     <View style={{ flex: 1 }}>
-                                      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>VIAJES</Text>
-                                      <TextInput value={d.viajes ?? ''} onChangeText={(t) => setDet(edif, { viajes: t })}
-                                        placeholder="0" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
+                                      <Text style={{ color: colors.muted, fontSize: 10 }}>🚚 Volqueta · {CAP_VOLQUETA_M3} m³/viaje</Text>
+                                      <TextInput value={d.viajes_volqueta ?? ''} onChangeText={(t) => setDet(edif, { viajes_volqueta: t })}
+                                        placeholder="viajes" placeholderTextColor={colors.muted} keyboardType="numeric" style={input} />
                                     </View>
                                   </View>
+                                  {(() => {
+                                    const vt = Math.max(0, Math.round(numOf(d.viajes_toronto || '') || 0));
+                                    const vv = Math.max(0, Math.round(numOf(d.viajes_volqueta || '') || 0));
+                                    const m3a = m3AcarreadosDe(vt, vv);
+                                    const partes = [vt ? `${vt}×${CAP_TORONTO_M3}` : '', vv ? `${vv}×${CAP_VOLQUETA_M3}` : ''].filter(Boolean).join(' + ');
+                                    return (
+                                      <Text style={{ color: colors.text, fontSize: 11.5, fontWeight: '800' }}>
+                                        🧮 M³ acarreados: {fmt(m3a)} m³ · Viajes: {vt + vv}{partes ? `  (${partes})` : ''}
+                                      </Text>
+                                    );
+                                  })()}
                                   {/* 🚜 MAQUINARIA EN USO: check BUSCABLE de las máquinas asignadas ∪ externas,
                                       mostrando serial · placa · empresa. Se guarda como códigos separados
                                       por coma en maq_en_uso (igual que "por requerimiento"). */}
