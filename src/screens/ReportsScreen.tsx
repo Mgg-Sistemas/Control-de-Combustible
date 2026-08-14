@@ -441,7 +441,7 @@ export default function ReportsScreen({ route }: any) {
   const { colors } = useTheme();
   const navigation = useNavigation<any>();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [from, setFrom] = useState(isoDaysAgo(7));
+  const [from, setFrom] = useState(isoDaysAgo(0)); // por defecto: solo el día de hoy
   const [to, setTo] = useState(isoDaysAgo(0));
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Row[] | null>(null);
