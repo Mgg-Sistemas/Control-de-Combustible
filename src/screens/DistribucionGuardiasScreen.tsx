@@ -109,30 +109,14 @@ export default function DistribucionGuardiasScreen() {
 
   const load = async () => {
     setLoading(true);
-    const [m, s, p, mp, ar] = await Promise.all([
+    const [m, s, p] = await Promise.all([
       supabase.from('guard_inspector_meta').select('id, inspector_id, inspector_name, cedula, telefono, sector, cargo, grupo'),
       supabase.from('guard_shifts').select('id, inspector_name, from_date, to_date, kind, grupo'),
-      // SOLO INSPECTORES. Antes esta lista traía además 'coordinador_patio', y los
-      // coordinadores terminaban ofreciéndose para la rotación de guardias, que es
-      // de inspectores de campo. La rotación 14×7 se reparte entre quienes hacen
-      // las rondas; meter a un coordinador descuadra los grupos y la cobertura.
-      supabase.from('profiles').select('id, full_name, cedula, role, app_role_id').eq('role', 'supervisor'),
-      // Un COORDINADOR DE INSPECTORES no se distingue por el rol —muchos están como
-      // 'supervisor'—, sino porque tiene el módulo 'coordinador_inspectores'. Puede
-      // venirle por permiso propio (module_permissions) o por su rol dinámico
-      // (app_roles.modules). Con cualquiera de las dos vías queda fuera de la lista.
-      supabase.from('module_permissions').select('user_id, level').eq('module', 'coordinador_inspectores').neq('level', 'none'),
-      supabase.from('app_roles').select('id, modules'),
+      supabase.from('profiles').select('id, full_name, cedula, role').in('role', ['supervisor', 'coordinador_patio']),
     ]);
     setMetas(((m.data ?? []) as any[]).sort((a, b) => grupoRank(a.grupo) - grupoRank(b.grupo) || cmpText(a.inspector_name, b.inspector_name)));
     setShifts((s.data ?? []) as any);
-    const coordUids = new Set<string>(((mp.data ?? []) as any[]).map((r) => r.user_id));
-    const coordRoles = new Set<string>(((ar.data ?? []) as any[])
-      .filter((r) => { const lvl = r.modules?.coordinador_inspectores; return !!lvl && lvl !== 'none'; })
-      .map((r) => r.id));
-    setProfs(((p.data ?? []) as any[])
-      .filter((x) => !coordUids.has(x.id) && !(x.app_role_id && coordRoles.has(x.app_role_id)))
-      .map((x) => ({ id: x.id, full_name: x.full_name || '—', cedula: x.cedula ?? null })));
+    setProfs(((p.data ?? []) as any[]).map((x) => ({ id: x.id, full_name: x.full_name || '—', cedula: x.cedula ?? null })));
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -476,9 +460,6 @@ export default function DistribucionGuardiasScreen() {
         <Pressable onPress={() => setAddOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
           <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '80%', padding: spacing.lg }}>
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: spacing.sm }}>➕ Agregar inspector</Text>
-            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-              Solo aparecen los <Text style={{ fontWeight: '700' }}>inspectores</Text>. Los coordinadores de inspectores no entran en la rotación de guardias.
-            </Text>
             <ScrollView keyboardShouldPersistTaps="handled">
               {disponibles.length === 0 ? <Text style={{ color: colors.muted, fontSize: 13 }}>Todos los inspectores ya están en la distribución.</Text> : disponibles.map((p) => (
                 <TouchableOpacity key={p.id} onPress={() => agregarInspector(p)} disabled={busy} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
