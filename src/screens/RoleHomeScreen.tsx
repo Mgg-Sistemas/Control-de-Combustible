@@ -13,7 +13,7 @@ import { useTheme } from '../theme/ThemeContext';
 
 /** Mapa módulo → destino de navegación (para el panel de un rol dinámico). */
 const MODULE_NAV: Record<string, { label: string; route: string; icon: string; desc: string }> = {
-  mantenimiento: { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', icon: '🩺', desc: 'Horómetros: mantenimiento preventivo programado por horas' },
+  mantenimiento: { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', icon: '🧰', desc: 'Horómetros: mantenimiento preventivo programado por horas' },
   servicio: { label: 'Servicio de Maquinaria', route: 'ServicioMaquinaria', icon: '🔧', desc: 'Averías reportadas, taller y reporte de gasto' },
   operadores: { label: 'Operadores', route: 'Operadores', icon: '👷', desc: 'Jornadas de operadores (quién trabaja y en qué máquina)' },
   supervision: { label: 'Inspecciones', route: 'Supervision', icon: '🪖', desc: 'Rondas de inspectores: check-ins por máquina' },

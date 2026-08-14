@@ -688,7 +688,7 @@ los paneles de **Coordinador** y **Asistencia**.
 El taller de maquinaria **se ve en dos módulos distintos**, porque son dos trabajos distintos que
 antes vivían mezclados en una sola pantalla de cinco pestañas:
 
-| | 🩺 **Mantenimiento** (§4.7a) | 🔧 **Servicio** (§4.7b) |
+| | 🧰 **Mantenimiento** (§4.7a) | 🔧 **Servicio** (§4.7b) |
 |---|---|---|
 | **¿Quién lo manda?** | El **horómetro** de la máquina | Una **avería** que alguien reportó |
 | **¿Es previsible?** | Sí: se sabe con horas de anticipación | No: la máquina se dañó |
@@ -696,7 +696,7 @@ antes vivían mezclados en una sola pantalla de cinco pestañas:
 | **Tipo en el expediente** | `preventivo` | `correctivo` |
 
 > **La frontera es el TIPO.** Cuando envías una máquina al taller, la sección **fija sola** el tipo:
-> desde Mantenimiento sale como **🩺 preventivo** y desde Servicio como **🔧 correctivo**. Ya **no
+> desde Mantenimiento sale como **🧰 preventivo** y desde Servicio como **🔧 correctivo**. Ya **no
 > hay selector de tipo** en el formulario, a propósito: si se pudiera cambiar ahí, el expediente se
 > mudaría a la otra sección al guardarlo y quien lo abrió no volvería a encontrarlo.
 
@@ -711,11 +711,11 @@ antes vivían mezclados en una sola pantalla de cinco pestañas:
 
 ### 4.7a. Mantenimiento de Maquinaria (preventivo · horómetros)
 Lo **programado**. Abre directo en la pestaña **⏱️ Horómetros**, que es lo que manda aquí. Tiene
-tres pestañas: **⏱️ Horómetros · 🩺 En mantenimiento · ✓ Historial**.
+tres pestañas: **⏱️ Horómetros · 🧰 En mantenimiento · ✓ Historial**.
 
-**Enviar a mantenimiento:** el botón **"🩺 Enviar a mantenimiento"** abre la lista de máquinas.
+**Enviar a mantenimiento:** el botón **"🧰 Enviar a mantenimiento"** abre la lista de máquinas.
 Indica la **fecha de entrada**, el **motivo** (ej. *servicio de 250 h, cambio de aceite y filtros*),
-los **días estimados** y **qué se le va a cambiar**. Queda registrado como **🩺 preventivo** y, como
+los **días estimados** y **qué se le va a cambiar**. Queda registrado como **🧰 preventivo** y, como
 cualquier salida al taller, la máquina pasa a **No operativa** mientras esté adentro.
 
 - **⏱️ Horómetros:** pestaña dedicada al **control de horómetros de TODAS las máquinas**. Por cada
@@ -750,7 +750,7 @@ horas acumuladas (NO toca el horómetro físico de la máquina). Esta misma aler
 supervisor) apenas una máquina cruza un umbral, sin duplicarse el mismo día por máquina; deja de
 generarse en cuanto se confirma el mantenimiento.
 
-**🩺 En mantenimiento** lista las máquinas que están en su servicio programado, y **✓ Historial** los
+**🧰 En mantenimiento** lista las máquinas que están en su servicio programado, y **✓ Historial** los
 mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — esas están en Servicio.
 
 ### 4.7b. Servicio de Maquinaria (averías · taller · reporte)
@@ -789,7 +789,7 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en
 > Inventario conviene elegir el **🚜 equipo** destino: así el gasto queda bien atribuido en este reporte.
 - **🔧 En reparación:** máquinas que salieron a reparación **por avería** (correctivas). Las que
-  están en su **servicio programado** no salen aquí, sino en Mantenimiento → 🩺 En mantenimiento.
+  están en su **servicio programado** no salen aquí, sino en Mantenimiento → 🧰 En mantenimiento.
 - **✓ Historial:** reparaciones correctivas ya cerradas.
 
 **🔴 Paradas viejas sin resolver:** arriba de esta sección aparece un banner rojo cuando una máquina
