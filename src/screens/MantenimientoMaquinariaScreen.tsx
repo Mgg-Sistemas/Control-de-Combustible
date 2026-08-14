@@ -56,16 +56,53 @@ type Mach = { id: string; code: string; tipo: string | null; clasificacion: stri
 type HoroRound = { reading: number | null; at: string | null; operator: string | null; inicial: number | null; final: number | null; photo: string | null };
 
 type Tab = 'averias' | 'reparacion' | 'historial' | 'horometros' | 'reporte';
+
+// ── LAS DOS SECCIONES ────────────────────────────────────────────────────────
+// El taller se ve en dos apartados separados, porque son dos trabajos distintos
+// que antes vivían mezclados en una sola pantalla de 5 pestañas:
+//
+//   🩺 MANTENIMIENTO → lo PROGRAMADO. Lo manda el horómetro (cada 250 h toca
+//      servicio). Nadie reporta nada: el reloj de la máquina avisa solo.
+//   🔧 SERVICIO      → lo que se DAÑÓ. Lo manda una avería que alguien reportó
+//      (operador por QR, inspector desde el teléfono, coordinador escaneando).
+//
+// La frontera es `machinery_repairs.tipo`, que ya existía en la base de datos:
+// 'preventivo' es de Mantenimiento y 'correctivo' es de Servicio. Por eso la
+// sección FIJA el tipo al enviar una máquina al taller (antes era un selector
+// dentro del formulario): si se pudiera escoger, un expediente abierto desde
+// Servicio se mudaría solo a Mantenimiento y el usuario no lo encontraría más.
+//
+// Las dos secciones son EL MISMO componente con distinto `seccion`: mismas
+// consultas, mismas tablas, mismos guardados. No se tocó nada de la base de
+// datos, así que la app móvil (que escribe en maintenance_requests y lee
+// machinery.operational) sigue funcionando exactamente igual que antes.
+export type Seccion = 'mantenimiento' | 'servicio';
+
+// Una reparación pertenece a Mantenimiento solo si es preventiva. Las viejas sin
+// tipo caen en Servicio, que es el comportamiento histórico (el formulario
+// siempre venía con 'correctivo' preseleccionado).
+const esPreventiva = (r: Rep) => r.tipo === 'preventivo';
+
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
- * MANTENIMIENTO DE MAQUINARIA (coordinadores de mantenimiento).
+ * TALLER DE MAQUINARIA — pantalla compartida por las dos secciones.
+ *
+ * 🩺 MANTENIMIENTO (preventivo, por horómetro):
+ *  - Horómetros: horas acumuladas y cuánto falta para el próximo servicio.
+ *  - Alertas de máquinas próximas a mantenimiento (200 h / 220 h / 250 h).
+ *  - Enviar a mantenimiento y registrar el retorno operativo.
+ *  - Historial de mantenimientos preventivos.
+ *
+ * 🔧 SERVICIO (correctivo, por avería):
  *  - Averías por empresa → máquina (lo que reporta el operador por QR).
- *  - Enviar una máquina a reparación (salida, tiempo estimado, tipo) → queda No operativa.
+ *  - Aviso de paradas viejas sin resolver.
+ *  - Enviar una máquina a reparación (salida, tiempo estimado) → queda No operativa.
  *  - Registrar el retorno operativo (qué se le cambió + fecha) → vuelve a Operativa.
- *  - Historial de reparaciones por máquina.
+ *  - Historial de reparaciones y reporte de averías/gasto por empresa.
  */
-export default function MantenimientoMaquinariaScreen() {
+export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
+  const esServicio = seccion === 'servicio';
   const { colors } = useTheme();
   const { canSee, session } = useAuth();
   const confirm = useConfirm();
@@ -76,13 +113,17 @@ export default function MantenimientoMaquinariaScreen() {
   const [repairs, setRepairs] = useState<Rep[]>([]);
   const [machines, setMachines] = useState<Mach[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('averias');
+  // Pestaña de entrada de cada sección: Servicio abre en lo que hay que atender
+  // (las averías); Mantenimiento abre en el horómetro, que es lo que manda ahí.
+  const [tab, setTab] = useState<Tab>(esServicio ? 'averias' : 'horometros');
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Enviar a reparación
+  // Enviar al taller. El TIPO ya no se escoge: lo fija la sección (Mantenimiento
+  // manda preventivos, Servicio manda correctivos), porque es justo el campo que
+  // decide en cuál de las dos secciones queda el expediente.
   const [repFor, setRepFor] = useState<Mach | null>(null);
-  const [rTipo, setRTipo] = useState<'preventivo' | 'correctivo'>('correctivo');
+  const rTipo: 'preventivo' | 'correctivo' = esServicio ? 'correctivo' : 'preventivo';
   const [rOut, setROut] = useState(todayISO());
   const [rDays, setRDays] = useState('');
   const [rNote, setRNote] = useState('');
@@ -430,9 +471,9 @@ export default function MantenimientoMaquinariaScreen() {
     await exportPdf(html, 'Reporte de averias e inspeccion');
   };
 
-  // ── Enviar a reparación ─────────────────────────────────────────────────────
+  // ── Enviar al taller (reparación en Servicio · mantenimiento en Mantenimiento) ─
   const openRepair = (m: Mach) => {
-    setRepFor(m); setRTipo('correctivo'); setROut(todayISO()); setRDays(''); setRNote(''); setRWork('');
+    setRepFor(m); setROut(todayISO()); setRDays(''); setRNote(''); setRWork('');
     setPickerOpen(false);
   };
   const enviarReparacion = async () => {
@@ -545,14 +586,27 @@ export default function MantenimientoMaquinariaScreen() {
   }, [machines, horoByMachine, asigByMachine, nq]);
 
   const matchesRep = (r: Rep) => matchesQ(r.code, r.company, r.machineTipo, r.tipo, r.estimated_note, r.work_done, r.createdByName, r.closedByName);
-  const enReparacion = useMemo(() => repairs.filter((r) => r.status === 'en_reparacion' && matchesRep(r)), [repairs, nq]);
-  const historial = useMemo(() => repairs.filter((r) => r.status === 'operativa' && matchesRep(r)), [repairs, nq]);
+  // Expedientes de taller que le tocan a ESTA sección: los preventivos son de
+  // Mantenimiento y los correctivos de Servicio. Ojo: `activeRepairByMachine`
+  // (el aviso "ya está en el taller" que sale en la tarjeta de una avería) se
+  // queda mirando TODAS las reparaciones a propósito — si la máquina está en
+  // mantenimiento preventivo, quien mira la avería en Servicio también tiene
+  // que enterarse, o la mandaría al taller dos veces.
+  const repsSeccion = useMemo(() => repairs.filter((r) => esPreventiva(r) !== esServicio), [repairs, esServicio]);
+  const enReparacion = useMemo(() => repsSeccion.filter((r) => r.status === 'en_reparacion' && matchesRep(r)), [repsSeccion, nq]);
+  const historial = useMemo(() => repsSeccion.filter((r) => r.status === 'operativa' && matchesRep(r)), [repsSeccion, nq]);
 
   const pendientes = reqs.filter((r) => r.status === 'pendiente').length;
-  const enRepCount = repairs.filter((r) => r.status === 'en_reparacion').length;
+  const enRepCount = repsSeccion.filter((r) => r.status === 'en_reparacion').length;
 
-  if (!canSee('mantenimiento')) {
-    return (<Screen><SectionTitle>Mantenimiento de Maquinaria</SectionTitle><EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo." /></Screen>);
+  // Título de la sección (encabezado, pantalla "Sin acceso" y menús).
+  const titulo = esServicio ? '🔧 Servicio de Maquinaria' : '🩺 Mantenimiento de Maquinaria';
+
+  // Cada sección tiene su propio módulo de permisos. 'servicio' hereda de
+  // 'mantenimiento' mientras un admin no le ponga nivel propio (MODULE_HEREDA_DE),
+  // así que quien entraba antes sigue entrando a las dos.
+  if (!canSee(esServicio ? 'servicio' : 'mantenimiento')) {
+    return (<Screen><SectionTitle>{titulo}</SectionTitle><EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo." /></Screen>);
   }
 
   const TIPO_BADGE = (t: string) => (t === 'preventivo' ? { label: '🩺 Preventivo', tone: 'muted' as const } : { label: '🔧 Correctivo', tone: 'warning' as const });
@@ -562,15 +616,23 @@ export default function MantenimientoMaquinariaScreen() {
   return (
     <Screen>
       <ConfigBanner />
-      <SectionTitle>Mantenimiento de Maquinaria</SectionTitle>
+      <SectionTitle>{titulo}</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 12, marginTop: -spacing.xs, marginBottom: spacing.sm }}>
+        {esServicio
+          ? 'Lo que se dañó: averías reportadas, taller y gasto. El mantenimiento programado está en su propia sección.'
+          : 'Lo programado por horómetro: cada máquina y cuánto le falta para su próximo servicio. Las averías están en Servicio.'}
+      </Text>
 
-      {/* Pestañas — scroll horizontal (no flex:1): con 5 pestañas, encogerlas a la fuerza
-          hace que el texto se salga del botón en pantallas angostas (el bug clásico de
-          flexbox: un TouchableOpacity con flex:1 no se encoge por debajo del ancho de su
-          propio texto salvo que además tenga minWidth:0). Aquí cada pestaña conserva su
-          ancho natural y legible, y la fila entera se desliza si no cabe. */}
+      {/* Pestañas — scroll horizontal (no flex:1): encogerlas a la fuerza hace que el
+          texto se salga del botón en pantallas angostas (el bug clásico de flexbox: un
+          TouchableOpacity con flex:1 no se encoge por debajo del ancho de su propio
+          texto salvo que además tenga minWidth:0). Aquí cada pestaña conserva su ancho
+          natural y legible, y la fila entera se desliza si no cabe. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }} contentContainerStyle={{ flexDirection: 'row', gap: spacing.xs }}>
-        {([['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 Reparación (${enRepCount})`], ['historial', '✓ Historial'], ['horometros', '⏱️ Horómetros'], ['reporte', '📊 Reporte']] as const).map(([k, label]) => {
+        {((esServicio
+          ? [['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 En reparación (${enRepCount})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
+          : [['horometros', '⏱️ Horómetros'], ['reparacion', `🩺 En mantenimiento (${enRepCount})`], ['historial', '✓ Historial']]
+        ) as [Tab, string][]).map(([k, label]) => {
           const on = tab === k;
           return (
             <TouchableOpacity key={k} onPress={() => setTab(k)} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
@@ -589,8 +651,10 @@ export default function MantenimientoMaquinariaScreen() {
         </TouchableOpacity>
       ) : null}
 
-      {/* ── PARADAS viejas: "MÁQUINA PARADA" pendiente hace más de 4h sin que nadie la resuelva ── */}
-      {paradasStale.length > 0 ? (
+      {/* ── PARADAS viejas: "MÁQUINA PARADA" pendiente hace más de 4h sin que nadie la
+          resuelva. Va solo en SERVICIO: una parada es una máquina caída, no un
+          mantenimiento programado. ── */}
+      {esServicio && paradasStale.length > 0 ? (
         <TouchableOpacity activeOpacity={0.8} onPress={() => setParadasOpen((v) => !v)} style={{ marginBottom: spacing.sm }}>
           <View style={{ backgroundColor: colors.dangerSoftBg, borderLeftWidth: 4, borderLeftColor: colors.danger, borderRadius: radius.md, padding: spacing.md }}>
             <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>🔴 {paradasStale.length} máquina(s) parada(s) hace más de {PARADA_STALE_HOURS}h sin resolver {paradasOpen ? '▾' : '▸'}</Text>
@@ -609,8 +673,9 @@ export default function MantenimientoMaquinariaScreen() {
         </TouchableOpacity>
       ) : null}
 
-      {/* ── Alertas por HORÓMETRO: máquinas próximas a mantenimiento (200h/220h/250h) ── */}
-      {horometroAlertas.length > 0 ? (
+      {/* ── Alertas por HORÓMETRO: máquinas próximas a mantenimiento (200h/220h/250h).
+          Va solo en MANTENIMIENTO: es exactamente el trabajo de esa sección. ── */}
+      {!esServicio && horometroAlertas.length > 0 ? (
         <TouchableOpacity activeOpacity={0.8} onPress={() => setHoroOpen((v) => !v)} style={{ marginBottom: spacing.sm }}>
           <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: horometroAlertas[0].alerta.color, borderRadius: radius.md, padding: spacing.md }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>⏱️ {horometroAlertas.length} máquina(s) próxima(s) a mantenimiento {horoOpen ? '▾' : '▸'}</Text>
@@ -629,12 +694,16 @@ export default function MantenimientoMaquinariaScreen() {
         </TouchableOpacity>
       ) : null}
 
+      {/* Acciones de la sección. Reportar una avería solo tiene sentido en Servicio;
+          en Mantenimiento el único envío al taller es el preventivo. */}
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, minWidth: 0, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📷 Escanear · reportar avería</Text>
-        </TouchableOpacity>
+        {esServicio ? (
+          <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, minWidth: 0, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📷 Escanear · reportar avería</Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, minWidth: 0, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>🔧 Enviar a reparación</Text>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>{esServicio ? '🔧 Enviar a reparación' : '🩺 Enviar a mantenimiento'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -720,7 +789,7 @@ export default function MantenimientoMaquinariaScreen() {
         )
       ) : tab === 'reparacion' ? (
         enReparacion.length === 0 ? (
-          <EmptyState title="Ninguna máquina en reparación" subtitle="Usa “Enviar una máquina a reparación” para registrar una salida." />
+          <EmptyState title={esServicio ? 'Ninguna máquina en reparación' : 'Ninguna máquina en mantenimiento'} subtitle={esServicio ? 'Usa “🔧 Enviar a reparación” para registrar una salida al taller.' : 'Usa “🩺 Enviar a mantenimiento” cuando le toque el servicio programado a una máquina.'} />
         ) : (
           enReparacion.map((r) => (
             <Card key={r.id}>
@@ -742,7 +811,7 @@ export default function MantenimientoMaquinariaScreen() {
         )
       ) : tab === 'historial' ? (
         historial.length === 0 ? (
-          <EmptyState title="Sin reparaciones cerradas" subtitle="Las reparaciones terminadas (máquina de vuelta operativa) aparecerán aquí." />
+          <EmptyState title={esServicio ? 'Sin reparaciones cerradas' : 'Sin mantenimientos cerrados'} subtitle={esServicio ? 'Las reparaciones terminadas (máquina de vuelta operativa) aparecerán aquí.' : 'Los mantenimientos preventivos terminados aparecerán aquí.'} />
         ) : (
           historial.map((r) => (
             <Card key={r.id}>
@@ -1035,11 +1104,11 @@ export default function MantenimientoMaquinariaScreen() {
         })()
       )}
 
-      {/* Modal: selector de máquina para enviar a reparación */}
+      {/* Modal: selector de máquina para enviar al taller */}
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '85%' }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.sm }}>Elige la máquina a reparar</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.sm }}>{esServicio ? 'Elige la máquina a reparar' : 'Elige la máquina a la que le toca mantenimiento'}</Text>
             <TextInput value={pickerQ} onChangeText={setPickerQ} placeholder="🔎 Buscar máquina o empresa…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
             <ScrollView>
               {pickerList.map((m) => {
@@ -1067,23 +1136,24 @@ export default function MantenimientoMaquinariaScreen() {
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '90%' }}>
             {repFor ? (
               <ScrollView>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>🔧 Enviar a reparación</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>{esServicio ? '🔧 Enviar a reparación' : '🩺 Enviar a mantenimiento'}</Text>
                 <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>{repFor.code}{repFor.tipo ? ` · 🏷️ ${repFor.tipo}` : ''} · {repFor.company}</Text>
 
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo</Text>
-                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
-                  {(['correctivo', 'preventivo'] as const).map((t) => (
-                    <TouchableOpacity key={t} onPress={() => setRTipo(t)} style={{ flex: 1, minWidth: 0, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: rTipo === t ? colors.brand : colors.border, backgroundColor: rTipo === t ? colors.brand : colors.surface }}>
-                      <Text style={{ color: rTipo === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>{t === 'correctivo' ? '🔧 Correctivo' : '🩺 Preventivo'}</Text>
-                    </TouchableOpacity>
-                  ))}
+                {/* El tipo ya NO se escoge aquí: lo fija la sección. Si se pudiera
+                    cambiar, el expediente se mudaría a la otra sección al guardarlo
+                    y quien lo abrió no volvería a encontrarlo. */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+                  <Badge {...TIPO_BADGE(rTipo)} />
+                  <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }} numberOfLines={2}>
+                    {esServicio ? 'Se registra como reparación correctiva (quedará en Servicio).' : 'Se registra como mantenimiento preventivo (quedará en Mantenimiento).'}
+                  </Text>
                 </View>
 
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Fecha de salida a reparación</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>{esServicio ? 'Fecha de salida a reparación' : 'Fecha de entrada a mantenimiento'}</Text>
                 <DateField value={rOut} onChange={setROut} />
 
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Motivo de la avería (obligatorio)</Text>
-                <TextInput value={rNote} onChangeText={setRNote} placeholder="Ej. falla hidráulica, sin arranque, espera de repuesto…" placeholderTextColor={colors.muted} style={input} />
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>{esServicio ? 'Motivo de la avería (obligatorio)' : 'Motivo del mantenimiento (obligatorio)'}</Text>
+                <TextInput value={rNote} onChangeText={setRNote} placeholder={esServicio ? 'Ej. falla hidráulica, sin arranque, espera de repuesto…' : 'Ej. servicio de 250 h, cambio de aceite y filtros…'} placeholderTextColor={colors.muted} style={input} />
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Por cuánto tiempo? (días estimados, opcional)</Text>
                 <TextInput value={rDays} onChangeText={(t) => setRDays(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Ej. 5" placeholderTextColor={colors.muted} style={input} />
@@ -1098,7 +1168,7 @@ export default function MantenimientoMaquinariaScreen() {
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={enviarReparacion} disabled={busy === 'rep' || !rNote.trim()} style={{ flex: 2, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (busy === 'rep' || !rNote.trim()) ? 0.7 : 1 }}>
-                    <Text style={{ color: colors.accentContrast, fontWeight: '800', textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>{busy === 'rep' ? 'Guardando…' : '🔧 Enviar a reparación'}</Text>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800', textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>{busy === 'rep' ? 'Guardando…' : (esServicio ? '🔧 Enviar a reparación' : '🩺 Enviar a mantenimiento')}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.lg }} />
@@ -1373,4 +1443,9 @@ export default function MantenimientoMaquinariaScreen() {
       </Modal>
     </Screen>
   );
+}
+
+/** 🩺 MANTENIMIENTO — sección de lo PROGRAMADO (horómetros y preventivos). */
+export default function MantenimientoMaquinariaScreen() {
+  return <TallerMaquinariaScreen seccion="mantenimiento" />;
 }

@@ -7,12 +7,14 @@ import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import CoordinadorQrPanel from '../components/CoordinadorQrPanel';
 import { AsistenciaButton } from '../components/AsistenciaButton';
 import { useAuth } from '../context/AuthContext';
+import { MODULE_HEREDA_DE } from '../lib/permissions';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 /** Mapa módulo → destino de navegación (para el panel de un rol dinámico). */
 const MODULE_NAV: Record<string, { label: string; route: string; icon: string; desc: string }> = {
-  mantenimiento: { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', icon: '🛠️', desc: 'Averías por máquina y control de reparaciones' },
+  mantenimiento: { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', icon: '🩺', desc: 'Horómetros: mantenimiento preventivo programado por horas' },
+  servicio: { label: 'Servicio de Maquinaria', route: 'ServicioMaquinaria', icon: '🔧', desc: 'Averías reportadas, taller y reporte de gasto' },
   operadores: { label: 'Operadores', route: 'Operadores', icon: '👷', desc: 'Jornadas de operadores (quién trabaja y en qué máquina)' },
   supervision: { label: 'Inspecciones', route: 'Supervision', icon: '🪖', desc: 'Rondas de inspectores: check-ins por máquina' },
   inspecciones_maq: { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', icon: '🔍', desc: 'Control por equipo: herramientas/accesorios y reporte de inspección' },
@@ -40,7 +42,16 @@ export default function RoleHomeScreen({ navigation }: any) {
 
   // La asistencia se ofrece SIEMPRE con el botón grande de abajo; se saca de la
   // lista de módulos para no mostrarla dos veces.
-  const keys = Object.keys(appRole?.modules ?? {}).filter((k) => k !== 'asistencia' && MODULE_NAV[k] && canSee(k));
+  //
+  // A los módulos del rol se les suman los HEREDADOS (MODULE_HEREDA_DE): un rol
+  // creado antes de dividir el taller solo trae 'mantenimiento' en su jsonb, así
+  // que 'servicio' —donde ahora viven las averías— nunca saldría en su panel.
+  // `canSee` ya resuelve el nivel heredado; esto solo hace que la fila exista.
+  const propios = Object.keys(appRole?.modules ?? {});
+  const heredados = Object.entries(MODULE_HEREDA_DE)
+    .filter(([hijo, padre]) => !propios.includes(hijo) && propios.includes(padre))
+    .map(([hijo]) => hijo);
+  const keys = [...propios, ...heredados].filter((k) => k !== 'asistencia' && MODULE_NAV[k] && canSee(k));
 
   return (
     <Screen>

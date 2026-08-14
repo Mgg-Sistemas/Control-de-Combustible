@@ -116,7 +116,7 @@ export async function generateInspectorGuide(): Promise<boolean> {
     qaTable('Botón', 'Qué hace', [
       ['🟢 INICIAR', 'Pide el **horómetro inicial** (precargado), guarda la hora y marca la máquina en Inspecciones.'],
       ['🏁 FINALIZAR', 'Confirma el **total de horas** y pide el **horómetro final**. Las horas van a Control.'],
-      ['🟡 PARADA', 'Pide el **motivo** y crea la **avería** (Mantenimiento + Inspecciones).'],
+      ['🟡 PARADA', 'Pide el **motivo** y crea la **avería** (Servicio + Inspecciones).'],
     ])
   );
 

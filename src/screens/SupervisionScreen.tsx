@@ -114,9 +114,10 @@ export default function SupervisionScreen({ navigation }: any) {
   const [secClosed, setSecClosed] = useState<Set<string>>(() => new Set(ALL_SECS));
   const toggleSec = (k: string) => setSecClosed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   // Abre la ficha de ESA máquina. Si fue reportada AVERIADA (parada), va al módulo
-  // de Mantenimiento de Maquinaria; si no, al Catálogo (por serial único o código).
+  // de SERVICIO de Maquinaria —ahí viven las averías desde que el taller se dividió
+  // en dos secciones—; si no, al Catálogo (por serial único o código).
   const openMachine = (v: VisitRow) => {
-    if (v.status === 'parada') { navigation?.navigate?.('MantenimientoMaquinaria', { q: String(v.machineSerial || v.machineCode || '') }); return; }
+    if (v.status === 'parada') { navigation?.navigate?.('ServicioMaquinaria', { q: String(v.machineSerial || v.machineCode || '') }); return; }
     const term = v.machineSerial || v.machineCode;
     if (term) navigation?.navigate?.('Equipos', { q: String(term) });
   };
@@ -1166,12 +1167,12 @@ export default function SupervisionScreen({ navigation }: any) {
                       <Text style={{ color: colors.muted, textAlign: 'center', paddingVertical: spacing.lg }}>Sin resultados.</Text>
                     ) : kpiModal === 'averiadas' ? (
                       aList.map((p) => (
-                        <TouchableOpacity key={p.id} onPress={() => { setKpiModal(null); navigation?.navigate?.('MantenimientoMaquinaria', { q: String(p.serial || p.code || '') }); }} activeOpacity={0.6} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <TouchableOpacity key={p.id} onPress={() => { setKpiModal(null); navigation?.navigate?.('ServicioMaquinaria', { q: String(p.serial || p.code || '') }); }} activeOpacity={0.6} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🟡 {p.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {p.companyName}</Text></Text>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {p.serial || '—'} / {p.plate || '—'}</Text>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>👮 {p.byName} · 🕒 {caracasClock(p.at)}{p.status !== 'pendiente' ? ' · ✅ resuelta' : ''}</Text>
                           <Text style={{ color: '#B45309', fontSize: 13, fontWeight: '700' }}>🔧 Motivo: {p.motivo || '—'}</Text>
-                          <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>Ver en Mantenimiento ›</Text>
+                          <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>Ver en Servicio ›</Text>
                         </TouchableOpacity>
                       ))
                     ) : (

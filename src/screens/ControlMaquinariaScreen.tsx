@@ -1289,7 +1289,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     closeAveria();
     setNotice(
       `⚠️ ${m.code} quedó marcada como AVERIADA (No operativa).` +
-      (eRep || eMr ? ' Algo no se pudo registrar completo, pero el equipo ya salió del control.' : ' Gestiona su reparación en Mantenimiento de Maquinaria.')
+      (eRep || eMr ? ' Algo no se pudo registrar completo, pero el equipo ya salió del control.' : ' Gestiona su reparación en Servicio de Maquinaria.')
     );
   };
 
@@ -2267,7 +2267,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     multiline
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 54 }}
                   />
-                  <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.sm }}>⚠️ Al confirmar, el equipo queda No operativa, sale del control y pasa a “En reparación” en Mantenimiento.</Text>
+                  <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.sm }}>⚠️ Al confirmar, el equipo queda No operativa, sale del control y pasa a “En reparación” en Servicio.</Text>
                 </View>
               ) : null}
 

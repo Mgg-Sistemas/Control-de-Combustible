@@ -126,7 +126,7 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > inspector y **ya se resolvió** (alguien tocó "🟢 Volver a OPERATIVA"), su ficha muestra un
 > resumen: **"Inactivo desde [fecha/hora] hasta [fecha/hora] — Total: Xd Yh"**. Solo se ve cuando
 > la máquina **no está parada/averiada en este momento** (si está parada ahora, en su lugar sale
-> el aviso de la avería/parada **vigente**, ver 4.7).
+> el aviso de la avería/parada **vigente**, ver 4.7b).
 
 Otras cosas que puedes hacer en cada máquina:
 - 📍 **Ubicación** — guarda dónde está (con el GPS).
@@ -209,14 +209,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **serial / placa** para no confundirlo). Puedes escribir para buscarlo.
 - Escribe el **motivo** de la avería (opcional) y toca **⚠️ Marcar averiado**.
 - El equipo queda **No operativa**, **sale del control** y pasa a **"En reparación"** en el módulo
-  **Mantenimiento de Maquinaria**, donde se registra su retorno operativo cuando quede lista.
+  **Servicio de Maquinaria**, donde se registra su retorno operativo cuando quede lista.
 
 **🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
 - Las máquinas asignadas al inspector **SOS LA GUAIRA** **nunca se muestran como parada ni averiada**:
   siempre cuentan como **trabajando** y sus horas paradas se cuentan como **trabajadas** — en el
   catálogo, el panel de Inspecciones (contadores), el teléfono y todos los reportes (por inspector,
   resumen y por empresa).
-- Si a una de esas máquinas se le reporta una avería/parada, el ticket **sí queda** en **Mantenimiento
+- Si a una de esas máquinas se le reporta una avería/parada, el ticket **sí queda** en **Servicio
   de Maquinaria** (para el mecánico), pero **no cambia su estado** de trabajando en las inspecciones.
 
 **Sección "En espera" (recibir máquinas):**
@@ -684,41 +684,40 @@ los paneles de **Coordinador** y **Asistencia**.
   autogenerado.
 - **📄 Exportar PDF** genera el calendario completo para imprimir o compartir.
 
-### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
-Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
-- **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
-  material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. **Ya no muestra**
-  los tickets internos **"MÁQUINA PARADA"** (el marcador que usa Inspecciones/Control para pintar
-  una máquina como parada): esta lista trae **solo averías reales**, sin mezclarse con ese marcador.
-  Al reportar por QR,
-  además de los materiales predeterminados (**🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto**) hay
-  un botón **✏️ Otro** para **describir a mano** una falla distinta (ej. “no arranca”, “fuga de aceite”).
-  Cada **empresa se muestra colapsada** (toca su encabezado para abrir/cerrar sus máquinas) y arriba
-  puedes **buscar** por empresa o máquina; al buscar se abren todas para no ocultar resultados.
-- **📷 Escanear · reportar avería:** botón arriba del módulo. Escanea el **QR de la máquina** y
-  registra la avería directamente (material o **✏️ Otro**, cantidad, nota y foto). Es lo mismo que
-  reporta el operador, pero desde la vista del administrador.
-- **📊 Reporte (dashboard de averías):** cuarta pestaña. Muestra un **ranking** (gráfico de barras) de
-  **qué equipo genera más averías**, con su **total de averías** y el **gasto en $**. Puedes agrupar por
-  **🚜 Equipo · 🏢 Empresa · 🏷️ Tipo de maquinaria** y filtrar por tipo. Arriba salen los **totales**
-  (total de averías + gasto total). Toca **📄 Exportar reporte (PDF)** para el reporte por empresa → equipo
-  (averías, desglose por material —cauchos, filtros…— y gasto).
-  - En modo **Equipo**, toca una máquina para ver su **detalle**: empresa, placa/serial, total de averías,
-    el **desglose por tipo** (cuántos cauchos, filtros, aceites, repuestos, otros) y **cada avería con su fecha**.
-  - El detalle también **cruza con la Inspección de Maquinaria**: muestra la **última inspección** del equipo
-    (fecha, inspector, condición general) y los **puntos observados** (🔴/🟠) que detectó. En el ranking por
-    equipo aparece un **🔍 N obs.** cuando la última inspección tiene puntos observados.
-  - El reporte contempla los **3 casos** y puedes **filtrar** por ellos (con su conteo): **🔧🔍 Avería +
-    inspección** (tiene averías y además fue inspeccionado), **🔧 Avería sin inspección** (tiene averías pero
-    nunca se le hizo inspección) e **🔍 Inspección sin avería** (fue inspeccionado —a veces con puntos
-    observados— pero aún no tiene averías reportadas). Cada equipo del ranking trae su **etiqueta de caso**, y
-    el PDF incluye una columna **Caso** con los totales por tipo.
+### 4.7. El taller: dos secciones separadas
+El taller de maquinaria **se ve en dos módulos distintos**, porque son dos trabajos distintos que
+antes vivían mezclados en una sola pantalla de cinco pestañas:
 
-> **💰 De dónde sale el gasto:** el dinero que genera cada equipo se toma del **almacén** — los materiales
-> que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en
-> Inventario conviene elegir el **🚜 equipo** destino: así el gasto queda bien atribuido en este reporte.
-- **🔧 En reparación:** máquinas que salieron a reparación.
-- **✓ Historial:** reparaciones ya cerradas.
+| | 🩺 **Mantenimiento** (§4.7a) | 🔧 **Servicio** (§4.7b) |
+|---|---|---|
+| **¿Quién lo manda?** | El **horómetro** de la máquina | Una **avería** que alguien reportó |
+| **¿Es previsible?** | Sí: se sabe con horas de anticipación | No: la máquina se dañó |
+| **¿Qué se ve?** | Horas acumuladas y cuánto falta para el próximo servicio | Averías pendientes, taller y gasto |
+| **Tipo en el expediente** | `preventivo` | `correctivo` |
+
+> **La frontera es el TIPO.** Cuando envías una máquina al taller, la sección **fija sola** el tipo:
+> desde Mantenimiento sale como **🩺 preventivo** y desde Servicio como **🔧 correctivo**. Ya **no
+> hay selector de tipo** en el formulario, a propósito: si se pudiera cambiar ahí, el expediente se
+> mudaría a la otra sección al guardarlo y quien lo abrió no volvería a encontrarlo.
+
+> **Los permisos no cambiaron.** Quien ya entraba a Mantenimiento entra a las dos secciones sin que
+> nadie tenga que tocar nada: **Servicio hereda el permiso de Mantenimiento** mientras un
+> administrador no le asigne uno propio. Los **coordinadores de mantenimiento** (preventivo y
+> correctivo) siguen viendo **solo** estos módulos.
+>
+> En **Usuarios → Permisos por módulo** aparece ahora **"Servicio de maquinaria (averías)"** como
+> fila aparte, por si quieres separarlos de verdad: al mecánico déjale **Mantenimiento maquinaria**
+> en escritura y **Servicio** en *Sin acceso*, o al revés para el coordinador de averías.
+
+### 4.7a. Mantenimiento de Maquinaria (preventivo · horómetros)
+Lo **programado**. Abre directo en la pestaña **⏱️ Horómetros**, que es lo que manda aquí. Tiene
+tres pestañas: **⏱️ Horómetros · 🩺 En mantenimiento · ✓ Historial**.
+
+**Enviar a mantenimiento:** el botón **"🩺 Enviar a mantenimiento"** abre la lista de máquinas.
+Indica la **fecha de entrada**, el **motivo** (ej. *servicio de 250 h, cambio de aceite y filtros*),
+los **días estimados** y **qué se le va a cambiar**. Queda registrado como **🩺 preventivo** y, como
+cualquier salida al taller, la máquina pasa a **No operativa** mientras esté adentro.
+
 - **⏱️ Horómetros:** pestaña dedicada al **control de horómetros de TODAS las máquinas**. Por cada
   máquina muestra el **horómetro actual**, las **horas acumuladas** desde el último mantenimiento
   confirmado y **lo que falta** para el próximo mantenimiento (objetivo **250 h**), con una barra de
@@ -751,15 +750,65 @@ horas acumuladas (NO toca el horómetro físico de la máquina). Esta misma aler
 supervisor) apenas una máquina cruza un umbral, sin duplicarse el mismo día por máquina; deja de
 generarse en cuanto se confirma el mantenimiento.
 
-**Enviar una máquina a reparación:** toca **"🔧 Enviar una máquina a reparación"** (o el botón en la
-tarjeta de la máquina). Indica: **tipo** (correctivo/preventivo), **fecha de salida**, **por cuánto
-tiempo** (días estimados) y, si quieres, **qué se le va a cambiar**. Al enviarla, la máquina queda
-**No operativa** en todo el sistema.
+**🩺 En mantenimiento** lista las máquinas que están en su servicio programado, y **✓ Historial** los
+mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — esas están en Servicio.
+
+### 4.7b. Servicio de Maquinaria (averías · taller · reporte)
+Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
+**⏳ Averías · 🔧 En reparación · ✓ Historial · 📊 Reporte**.
+
+- **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
+  material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. **Ya no muestra**
+  los tickets internos **"MÁQUINA PARADA"** (el marcador que usa Inspecciones/Control para pintar
+  una máquina como parada): esta lista trae **solo averías reales**, sin mezclarse con ese marcador.
+  Al reportar por QR,
+  además de los materiales predeterminados (**🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto**) hay
+  un botón **✏️ Otro** para **describir a mano** una falla distinta (ej. “no arranca”, “fuga de aceite”).
+  Cada **empresa se muestra colapsada** (toca su encabezado para abrir/cerrar sus máquinas) y arriba
+  puedes **buscar** por empresa o máquina; al buscar se abren todas para no ocultar resultados.
+- **📷 Escanear · reportar avería:** botón arriba del módulo. Escanea el **QR de la máquina** y
+  registra la avería directamente (material o **✏️ Otro**, cantidad, nota y foto). Es lo mismo que
+  reporta el operador, pero desde la vista del administrador.
+- **📊 Reporte (dashboard de averías):** cuarta pestaña. Muestra un **ranking** (gráfico de barras) de
+  **qué equipo genera más averías**, con su **total de averías** y el **gasto en $**. Puedes agrupar por
+  **🚜 Equipo · 🏢 Empresa · 🏷️ Tipo de maquinaria** y filtrar por tipo. Arriba salen los **totales**
+  (total de averías + gasto total). Toca **📄 Exportar reporte (PDF)** para el reporte por empresa → equipo
+  (averías, desglose por material —cauchos, filtros…— y gasto).
+  - En modo **Equipo**, toca una máquina para ver su **detalle**: empresa, placa/serial, total de averías,
+    el **desglose por tipo** (cuántos cauchos, filtros, aceites, repuestos, otros) y **cada avería con su fecha**.
+  - El detalle también **cruza con la Inspección de Maquinaria**: muestra la **última inspección** del equipo
+    (fecha, inspector, condición general) y los **puntos observados** (🔴/🟠) que detectó. En el ranking por
+    equipo aparece un **🔍 N obs.** cuando la última inspección tiene puntos observados.
+  - El reporte contempla los **3 casos** y puedes **filtrar** por ellos (con su conteo): **🔧🔍 Avería +
+    inspección** (tiene averías y además fue inspeccionado), **🔧 Avería sin inspección** (tiene averías pero
+    nunca se le hizo inspección) e **🔍 Inspección sin avería** (fue inspeccionado —a veces con puntos
+    observados— pero aún no tiene averías reportadas). Cada equipo del ranking trae su **etiqueta de caso**, y
+    el PDF incluye una columna **Caso** con los totales por tipo.
+
+> **💰 De dónde sale el gasto:** el dinero que genera cada equipo se toma del **almacén** — los materiales
+> que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en
+> Inventario conviene elegir el **🚜 equipo** destino: así el gasto queda bien atribuido en este reporte.
+- **🔧 En reparación:** máquinas que salieron a reparación **por avería** (correctivas). Las que
+  están en su **servicio programado** no salen aquí, sino en Mantenimiento → 🩺 En mantenimiento.
+- **✓ Historial:** reparaciones correctivas ya cerradas.
+
+**🔴 Paradas viejas sin resolver:** arriba de esta sección aparece un banner rojo cuando una máquina
+lleva **más de 4 horas** marcada **"MÁQUINA PARADA"** sin que nadie la libere. Trae el botón
+**"✓ Ya está operativa (resolver)"**, que cierra la parada **y** cualquier avería pendiente de esa
+máquina. Este aviso vive **solo en Servicio**: una parada es una máquina caída, no un mantenimiento
+programado.
+
+**Enviar una máquina a reparación:** toca **"🔧 Enviar a reparación"** (o el botón en la tarjeta de la
+máquina). Indica la **fecha de salida**, el **motivo de la avería** (obligatorio), **por cuánto
+tiempo** (días estimados) y, si quieres, **qué se le va a cambiar**. Se registra como **🔧
+correctivo** y la máquina queda **No operativa** en todo el sistema.
 
 **Registrar el retorno:** cuando vuelve, toca **"✓ Registrar retorno operativo"**, pon **qué se le
-cambió** y la **fecha de retorno**. La máquina vuelve a **Operativa** automáticamente.
+cambió** y la **fecha de retorno**. La máquina vuelve a **Operativa** automáticamente, y se cierran
+tanto el marcador **MÁQUINA PARADA** como las **averías pendientes** de esa máquina.
 
-> Los **coordinadores de mantenimiento** (preventivo y correctivo) ven **solo** este módulo.
+> El botón **"✓ Registrar retorno operativo"** funciona igual en las dos secciones — la diferencia
+> es solo **cuál** de las dos listas te lo muestra.
 
 ### 4.8. Operadores
 La lista de operadores. Su vista es **sencilla a propósito**: solo lo que necesitan en el
@@ -938,7 +987,7 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
   a **🏁 FINALIZAR JORNADA** con un **contador** del tiempo trabajado.
   > **🔴 Máquina averiada / 🟡 parada (13-ago-2026):** si la máquina está **averiada** o **parada**,
   > el botón **INICIAR JORNADA no aparece** — en su lugar sale **🟢 Volver a OPERATIVA**. **Primero**
-  > se toca "Volver a OPERATIVA" (eso **cierra la avería** en Mantenimiento) y **después** aparece
+  > se toca "Volver a OPERATIVA" (eso **cierra la avería** en Servicio) y **después** aparece
   > "INICIAR JORNADA". Antes se podía iniciar jornada directo sobre una averiada, pero la avería
   > quedaba **pendiente** y se **arrastraba**: la máquina volvía a salir **🔴 averiada al día
   > siguiente**. Con este flujo (**averiada → Volver operativa → Iniciar jornada**) ya no reaparece.
@@ -968,17 +1017,17 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
   - **🔧 Por avería** — elige el **material** (🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto ·
     ✏️ Otro), escribe el **texto de la falla** (obligatorio solo si eliges "Otro") y, opcional,
     una **foto**. Al confirmar (**"🟡 Confirmar PARADA + avería"**) crea la solicitud en
-    **Mantenimiento de Maquinaria** y la máquina sigue saliendo **PARADA** en Inspecciones/Control.
+    **Servicio de Maquinaria** y la máquina sigue saliendo **PARADA** en Inspecciones/Control.
   - **📍 Parada / No trabajó** — el texto **"NO TRABAJÓ"** queda **fijo**; opcionalmente escribes
     el **motivo** (sin combustible, sin operador, lluvia…) que aparece **al lado** ("NO TRABAJÓ ·
     &lt;motivo&gt;"). Captura la **ubicación
     GPS** del inspector (botón **"📍 Capturar mi ubicación GPS"**) y el **edificio/referencia**. Al
     confirmar (**"🟡 Confirmar PARADA (no trabajó)"**) **solo** se refleja en Inspecciones/Control
-    (**no** crea nada en Mantenimiento de Maquinaria).
+    (**no** crea nada en Servicio de Maquinaria).
   - En ambos casos la máquina queda marcada **🟡 PARADA** y en Control sale **🔴 MÁQUINA PARADA**;
     desde la ficha de la máquina sale **🟢 Volver a OPERATIVA** para revertirla.
   - **📋 Reportar sin detener la máquina → 🛠️ Avería de maquinaria** (sección aparte, más abajo en
-    la misma ficha): reporta una falla a Mantenimiento **sin** marcar la máquina como parada — la
+    la misma ficha): reporta una falla a Servicio **sin** marcar la máquina como parada — la
     máquina sigue en su estado actual. Es distinto de "⛔ Detener la máquina → 🔧 Por avería", que
     SÍ la marca parada. Desde 05/08/2026 ambas secciones traen un texto corto aclarando cuál hace
     qué, para no confundirlas.
@@ -1522,7 +1571,7 @@ Rol para controlar la **jornada y la entrada/salida de camiones** al patio, y re
   botón **🏁 Finalizar** por cada uno.
 - **📷 Entrada / Salida** → elige **ENTRADA** o **SALIDA** del camión (queda con la hora).
 - **⛽ Surtir gasoil** → horómetro + litros.
-- **🛠️ Avería** → reporta la falla (va a Mantenimiento).
+- **🛠️ Avería** → reporta la falla (va a Servicio).
 - **🚚 Entrada y salida de camiones** → un **CALENDARIO**: cada día muestra cuántos camiones
   entraron (↓) y salieron (↑); toca un día para el detalle. (El administrador también lo ve
   dentro de *Inspecciones*.)
@@ -1534,7 +1583,7 @@ Rol para controlar la **jornada y la entrada/salida de camiones** al patio, y re
 Los roles con panel **📷 Coordinador QR** ven botones grandes: escanean el QR de la máquina y:
 
 - **⛽ Surtir gasoil** (horómetro + litros).
-- **🛠️ Registrar avería** (va a Mantenimiento).
+- **🛠️ Registrar avería** (va a Servicio).
 - **✅ Marcar máquina lista** → cierra las **averías pendientes** de esa máquina y la vuelve
   **Operativa**.
 

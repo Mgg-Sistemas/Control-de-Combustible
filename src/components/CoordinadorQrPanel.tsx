@@ -98,7 +98,7 @@ export default function CoordinadorQrPanel({ title = 'Mi panel' }: { title?: str
     const code = machine.code;
     setMachine(null); setAction(null);
     if (error) { setNotice('❌ ' + error.message); return; }
-    setNotice(`✅ Avería registrada · ${code}. Va a Mantenimiento de Maquinaria.`);
+    setNotice(`✅ Avería registrada · ${code}. Va a Servicio de Maquinaria.`);
   };
 
   const marcarLista = async () => {
@@ -139,7 +139,7 @@ export default function CoordinadorQrPanel({ title = 'Mi panel' }: { title?: str
       ) : null}
 
       {bigBtn('⛽  SURTIR GASOIL', 'Horómetro + litros (surtido vs consumido)', '#15803D', () => setScanFor('gasoil'))}
-      {bigBtn('🛠️  AVERÍA DE MAQUINARIA', 'Reportar una falla (va a Mantenimiento)', '#B45309', () => setScanFor('averia'))}
+      {bigBtn('🛠️  AVERÍA DE MAQUINARIA', 'Reportar una falla (va a Servicio)', '#B45309', () => setScanFor('averia'))}
       {bigBtn('✅  MÁQUINA LISTA', 'Cierra sus averías y la vuelve Operativa', '#2563EB', () => setScanFor('lista'))}
 
       <SectionTitle>Seguridad</SectionTitle>
