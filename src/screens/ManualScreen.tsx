@@ -695,6 +695,7 @@ const SECTIONS: Sec[] = [
     title: 'Ajustes',
     blocks: [
       { t: 'p', text: 'Se llega desde Más → Ajustes. La apariencia (modo oscuro/claro) y la seguridad (contraseña, huella/Face ID) viven en la tuerca ⚙️ del encabezado, no aquí.' },
+      { t: 'p', text: 'En la tuerca ⚙️, arriba a la derecha, se muestra CON QUÉ CUENTA estás dentro: tu nombre y, debajo, tu 👤 usuario de inicio de sesión. Sirve para saber de un vistazo con quién quedó abierta la sesión, sobre todo en las computadoras o teléfonos que usan varias personas.' },
       { t: 'bullets', items: [
         'Cerrar sesión.',
         '⬇️ Descargar backup (solo administradores puntuales, en computadora): descarga un archivo con TODOS los datos del sistema, por si hace falta un respaldo manual. Acceso restringido a las cuentas designadas.',

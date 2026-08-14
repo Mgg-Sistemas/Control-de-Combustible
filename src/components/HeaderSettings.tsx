@@ -3,6 +3,8 @@ import { Text, View, TouchableOpacity, Modal, Pressable, Switch, ScrollView, Pla
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from './ToastProvider';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { isBiometricSupported, isBiometricEnabled, enableBiometric, disableBiometric } from '../lib/biometric';
 import { ChangePasswordButton } from './ChangePasswordButton';
 import { forceReloadLatest } from '../lib/version';
@@ -16,9 +18,15 @@ export default function HeaderSettings() {
   const { colors, scheme, toggle } = useTheme();
   const toast = useToast();
   const navigation = useNavigation<any>();
+  const { fullName, session } = useAuth();
   const [open, setOpen] = React.useState(false);
   const [bioSupported, setBioSupported] = React.useState(false);
   const [bioOn, setBioOn] = React.useState(false);
+  // USUARIO de inicio de sesión (profiles.username, máx. 10 caracteres). No está en
+  // AuthContext, así que se trae aquí — pero SOLO al abrir la tuerca, no al montar:
+  // este componente vive en el encabezado de todas las pantallas y una consulta por
+  // montaje sería una llamada extra en cada navegación, a cambio de nada.
+  const [username, setUsername] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -26,6 +34,19 @@ export default function HeaderSettings() {
       setBioOn(await isBiometricEnabled());
     })();
   }, []);
+
+  React.useEffect(() => {
+    const uid = session?.user?.id;
+    if (!open || !uid || username !== null) return;
+    let vivo = true;
+    supabase
+      .from('profiles')
+      .select('username')
+      .eq('id', uid)
+      .single()
+      .then(({ data }) => { if (vivo) setUsername((data as any)?.username ?? ''); });
+    return () => { vivo = false; };
+  }, [open, session?.user?.id, username]);
 
   const toggleBio = async (value: boolean) => {
     if (value) {
@@ -76,8 +97,22 @@ export default function HeaderSettings() {
               overflow: 'hidden',
             }}
           >
-            <View style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            {/* Encabezado: a la izquierda el título; a la derecha CON QUIÉN está abierta
+                la sesión (nombre + usuario de inicio de sesión). Sirve para saber de un
+                vistazo con qué cuenta se está trabajando, sobre todo en los equipos que
+                comparten varias personas. */}
+            <View style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>⚙️ Ajustes</Text>
+              {session ? (
+                <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                  <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>
+                    {fullName || 'Sesión iniciada'}
+                  </Text>
+                  <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>
+                    {username === null ? 'cargando…' : username ? `👤 ${username}` : 'sin usuario asignado'}
+                  </Text>
+                </View>
+              ) : null}
             </View>
             <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 14, gap: 14 }}>
               {/* Modo oscuro */}
