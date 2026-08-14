@@ -61,7 +61,7 @@ type Tab = 'averias' | 'reparacion' | 'historial' | 'horometros' | 'reporte';
 // El taller se ve en dos apartados separados, porque son dos trabajos distintos
 // que antes vivían mezclados en una sola pantalla de 5 pestañas:
 //
-//   🩺 MANTENIMIENTO → lo PROGRAMADO. Lo manda el horómetro (cada 250 h toca
+//   🧰 MANTENIMIENTO → lo PROGRAMADO. Lo manda el horómetro (cada 250 h toca
 //      servicio). Nadie reporta nada: el reloj de la máquina avisa solo.
 //   🔧 SERVICIO      → lo que se DAÑÓ. Lo manda una avería que alguien reportó
 //      (operador por QR, inspector desde el teléfono, coordinador escaneando).
@@ -88,7 +88,7 @@ const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLoca
 /**
  * TALLER DE MAQUINARIA — pantalla compartida por las dos secciones.
  *
- * 🩺 MANTENIMIENTO (preventivo, por horómetro):
+ * 🧰 MANTENIMIENTO (preventivo, por horómetro):
  *  - Horómetros: horas acumuladas y cuánto falta para el próximo servicio.
  *  - Alertas de máquinas próximas a mantenimiento (200 h / 220 h / 250 h).
  *  - Enviar a mantenimiento y registrar el retorno operativo.
@@ -600,7 +600,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const enRepCount = repsSeccion.filter((r) => r.status === 'en_reparacion').length;
 
   // Título de la sección (encabezado, pantalla "Sin acceso" y menús).
-  const titulo = esServicio ? '🔧 Servicio de Maquinaria' : '🩺 Mantenimiento de Maquinaria';
+  const titulo = esServicio ? '🔧 Servicio de Maquinaria' : '🧰 Mantenimiento de Maquinaria';
 
   // Cada sección tiene su propio módulo de permisos. 'servicio' hereda de
   // 'mantenimiento' mientras un admin no le ponga nivel propio (MODULE_HEREDA_DE),
@@ -609,7 +609,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     return (<Screen><SectionTitle>{titulo}</SectionTitle><EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo." /></Screen>);
   }
 
-  const TIPO_BADGE = (t: string) => (t === 'preventivo' ? { label: '🩺 Preventivo', tone: 'muted' as const } : { label: '🔧 Correctivo', tone: 'warning' as const });
+  const TIPO_BADGE = (t: string) => (t === 'preventivo' ? { label: '🧰 Preventivo', tone: 'muted' as const } : { label: '🔧 Correctivo', tone: 'warning' as const });
 
   const pickerList = machines.filter((m) => { const q = norm(pickerQ.trim()); return !q || norm(m.code).includes(q) || norm(m.company).includes(q); });
 
@@ -631,7 +631,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }} contentContainerStyle={{ flexDirection: 'row', gap: spacing.xs }}>
         {((esServicio
           ? [['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 En reparación (${enRepCount})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
-          : [['horometros', '⏱️ Horómetros'], ['reparacion', `🩺 En mantenimiento (${enRepCount})`], ['historial', '✓ Historial']]
+          : [['horometros', '⏱️ Horómetros'], ['reparacion', `🧰 En mantenimiento (${enRepCount})`], ['historial', '✓ Historial']]
         ) as [Tab, string][]).map(([k, label]) => {
           const on = tab === k;
           return (
@@ -703,7 +703,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           </TouchableOpacity>
         ) : null}
         <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, minWidth: 0, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>{esServicio ? '🔧 Enviar a reparación' : '🩺 Enviar a mantenimiento'}</Text>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>{esServicio ? '🔧 Enviar a reparación' : '🧰 Enviar a mantenimiento'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -789,7 +789,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         )
       ) : tab === 'reparacion' ? (
         enReparacion.length === 0 ? (
-          <EmptyState title={esServicio ? 'Ninguna máquina en reparación' : 'Ninguna máquina en mantenimiento'} subtitle={esServicio ? 'Usa “🔧 Enviar a reparación” para registrar una salida al taller.' : 'Usa “🩺 Enviar a mantenimiento” cuando le toque el servicio programado a una máquina.'} />
+          <EmptyState title={esServicio ? 'Ninguna máquina en reparación' : 'Ninguna máquina en mantenimiento'} subtitle={esServicio ? 'Usa “🔧 Enviar a reparación” para registrar una salida al taller.' : 'Usa “🧰 Enviar a mantenimiento” cuando le toque el servicio programado a una máquina.'} />
         ) : (
           enReparacion.map((r) => (
             <Card key={r.id}>
@@ -799,7 +799,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
               </View>
               {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
-              <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>{esServicio ? '🔧 Salió a reparación' : '🩺 Entró a mantenimiento'}: {fmtDMY(r.out_at)}{r.estimated_days != null ? ` · estimado ${r.estimated_days} día(s)` : ''}</Text>
+              <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>{esServicio ? '🔧 Salió a reparación' : '🧰 Entró a mantenimiento'}: {fmtDMY(r.out_at)}{r.estimated_days != null ? ` · estimado ${r.estimated_days} día(s)` : ''}</Text>
               {r.createdByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Enviada por {r.createdByName}</Text> : null}
               {r.estimated_note ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔧 Motivo: {r.estimated_note}</Text> : null}
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔩 {r.work_done}</Text> : null}
@@ -1140,7 +1140,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '90%' }}>
             {repFor ? (
               <ScrollView>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>{esServicio ? '🔧 Enviar a reparación' : '🩺 Enviar a mantenimiento'}</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>{esServicio ? '🔧 Enviar a reparación' : '🧰 Enviar a mantenimiento'}</Text>
                 <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>{repFor.code}{repFor.tipo ? ` · 🏷️ ${repFor.tipo}` : ''} · {repFor.company}</Text>
 
                 {/* El tipo ya NO se escoge aquí: lo fija la sección. Si se pudiera
@@ -1172,7 +1172,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={enviarReparacion} disabled={busy === 'rep' || !rNote.trim()} style={{ flex: 2, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (busy === 'rep' || !rNote.trim()) ? 0.7 : 1 }}>
-                    <Text style={{ color: colors.accentContrast, fontWeight: '800', textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>{busy === 'rep' ? 'Guardando…' : (esServicio ? '🔧 Enviar a reparación' : '🩺 Enviar a mantenimiento')}</Text>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800', textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>{busy === 'rep' ? 'Guardando…' : (esServicio ? '🔧 Enviar a reparación' : '🧰 Enviar a mantenimiento')}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.lg }} />
@@ -1449,7 +1449,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   );
 }
 
-/** 🩺 MANTENIMIENTO — sección de lo PROGRAMADO (horómetros y preventivos). */
+/** 🧰 MANTENIMIENTO — sección de lo PROGRAMADO (horómetros y preventivos). */
 export default function MantenimientoMaquinariaScreen() {
   return <TallerMaquinariaScreen seccion="mantenimiento" />;
 }
