@@ -22,6 +22,7 @@ import ControlMaquinariaScreen from '../screens/ControlMaquinariaScreen';
 import ControlPagosScreen from '../screens/ControlPagosScreen';
 import MargenGananciaScreen from '../screens/MargenGananciaScreen';
 import MantenimientoMaquinariaScreen from '../screens/MantenimientoMaquinariaScreen';
+import ServicioMaquinariaScreen from '../screens/ServicioMaquinariaScreen';
 import RoleHomeScreen from '../screens/RoleHomeScreen';
 import OperadoresScreen from '../screens/OperadoresScreen';
 import CoordinadorOperadoresScreen from '../screens/CoordinadorOperadoresScreen';
@@ -223,6 +224,7 @@ function MoreStack() {
       <Stack.Screen name="ControlPagos" component={ControlPagosScreen} options={{ title: 'Control de pagos' }} />
       <Stack.Screen name="MargenGanancia" component={MargenGananciaScreen} options={{ title: 'Margen de ganancia' }} />
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
+      <Stack.Screen name="ServicioMaquinaria" component={ServicioMaquinariaScreen} options={{ title: 'Servicio maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
       <Stack.Screen name="CoordOperadores" component={CoordinadorOperadoresScreen} options={{ title: 'Coordinador de Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
@@ -300,6 +302,7 @@ function CoordinadorStack() {
     <Stack.Navigator screenOptions={screenHeader}>
       <Stack.Screen name="RoleHome" component={RoleHomeScreen} options={{ title: 'Mi panel' }} />
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento de Maquinaria' }} />
+      <Stack.Screen name="ServicioMaquinaria" component={ServicioMaquinariaScreen} options={{ title: 'Servicio de Maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
       <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
@@ -734,6 +737,7 @@ const moreScreens = {
   ControlPagos: 'control-pagos',
   MargenGanancia: 'margen-ganancia',
   MantenimientoMaquinaria: 'mantenimiento',
+  ServicioMaquinaria: 'servicio',
   Operadores: 'operadores',
   CoordOperadores: 'coordinacion-operadores',
   Supervision: 'inspecciones',
@@ -828,6 +832,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   coordinador: {
     RoleHome: 'panel',
     MantenimientoMaquinaria: 'mantenimiento',
+    ServicioMaquinaria: 'servicio',
     Operadores: 'operadores',
     Supervision: 'inspecciones',
     HistoricoJornadas: 'historico',

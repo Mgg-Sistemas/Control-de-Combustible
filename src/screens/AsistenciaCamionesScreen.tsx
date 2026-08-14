@@ -277,7 +277,7 @@ export default function AsistenciaCamionesScreen() {
     if (error) { setNotice('❌ ' + error.message); return; }
     const code = avTruck.code;
     setAvTruck(null); setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null);
-    setNotice(`✅ Avería registrada · ${code}. Va a Mantenimiento.`);
+    setNotice(`✅ Avería registrada · ${code}. Va a Servicio.`);
   };
 
   if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;

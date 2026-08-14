@@ -1554,7 +1554,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     }
     setAvSaving(false);
     setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setAvOpen(false);
-    setNotice('✅ Avería registrada. Va al módulo de Mantenimiento de Maquinaria.');
+    setNotice('✅ Avería registrada. Va al módulo de Servicio de Maquinaria.');
   };
 
   // Distancia del supervisor a la máquina (si ambos tienen coordenadas).
@@ -1958,7 +1958,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setCiSaving(false);
     logAudit('PARADA', 'machinery', ci.id, `${ci.code} · avería: ${matLabelOf(paMaterial)}${ciMotivo.trim() ? ` · ${ciMotivo.trim()}` : ''}`); // bitácora
     reloadEstados();
-    setNotice(`🟡 ${ci.code} marcada PARADA${(e1 || e2) ? ' · ⚠️ no se pudo registrar todo' : ' · 🔧 avería registrada (Mantenimiento)'}. Aparece en Inspecciones.`);
+    setNotice(`🟡 ${ci.code} marcada PARADA${(e1 || e2) ? ' · ⚠️ no se pudo registrar todo' : ' · 🔧 avería registrada (Servicio)'}. Aparece en Inspecciones.`);
     setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null);
     setCi(null);
   };
@@ -2093,7 +2093,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setCiSaving(false);
     logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · vuelve a OPERATIVA`);
     await reloadEstados();
-    setNotice(`🟢 ${ci.code} de nuevo OPERATIVA${upErr || upErr2 ? ' · ⚠️ una avería no se pudo cerrar' : ' · avería(s) cerrada(s) en Mantenimiento'}.`);
+    setNotice(`🟢 ${ci.code} de nuevo OPERATIVA${upErr || upErr2 ? ' · ⚠️ una avería no se pudo cerrar' : ' · avería(s) cerrada(s) en Servicio'}.`);
   };
 
   // Escanea el carnet del operador (QR ?empleado=<id>): valida que exista, que su
@@ -3275,7 +3275,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   return (
                     <View style={{ backgroundColor: averiada ? colors.dangerSoftBg : colors.warningSoftBg, borderWidth: 1, borderColor: averiada ? colors.dangerSoftBorder : colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                       <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>{averiada ? '🔴 Máquina averiada' : '🟡 Máquina parada'}</Text>
-                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar jornada mientras esté {averiada ? 'averiada' : 'parada'}. Vuélvela a OPERATIVA primero (abajo){averiada ? ' — así se cierra la avería en Mantenimiento y no vuelve a aparecer averiada mañana' : ''}.</Text>
+                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar jornada mientras esté {averiada ? 'averiada' : 'parada'}. Vuélvela a OPERATIVA primero (abajo){averiada ? ' — así se cierra la avería en Servicio y no vuelve a aparecer averiada mañana' : ''}.</Text>
                     </View>
                   );
                 })()
@@ -3404,7 +3404,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <TouchableOpacity onPress={volverOperativa} disabled={ciSaving} style={{ marginTop: spacing.xs, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : (averiada ? '🟢 Volver a OPERATIVA (y luego iniciar jornada)' : '🟢 Volver a OPERATIVA')}</Text>
                       </TouchableOpacity>
-                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontSize: 11, marginTop: 4 }}>Cierra la avería en Mantenimiento y la máquina deja de aparecer como {averiada ? 'averiada' : 'parada'} en Control{averiada ? '. Después podrás iniciar la jornada' : ''}.</Text>
+                      <Text style={{ color: averiada ? colors.dangerSoftText : colors.warningSoftText, fontSize: 11, marginTop: 4 }}>Cierra la avería en Servicio y la máquina deja de aparecer como {averiada ? 'averiada' : 'parada'} en Control{averiada ? '. Después podrás iniciar la jornada' : ''}.</Text>
                     </View>
                   );
                 })()
@@ -3432,7 +3432,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       lo que cambia es si hay o no una falla mecánica de por medio). */}
                   <Text style={{ color: '#7A4A0B', fontSize: 11, marginBottom: spacing.sm, fontStyle: 'italic' }}>
                     {paradaTab === 'averia'
-                      ? 'La máquina queda PARADA y se reporta la falla a Mantenimiento.'
+                      ? 'La máquina queda PARADA y se reporta la falla a Servicio.'
                       : 'La máquina queda PARADA sin que sea una falla mecánica (clima, sin combustible, sin operador, etc.).'}
                   </Text>
 
@@ -3463,7 +3463,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                           <Text style={{ color: paPhoto ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{paPhotoUp ? 'Subiendo…' : paPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
                         </TouchableOpacity>
                       ) : null}
-                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Crea la solicitud en Mantenimiento con el material y sigue marcándose PARADA en Inspecciones (Control saldrá “MÁQUINA PARADA”).</Text>
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Crea la solicitud en Servicio con el material y sigue marcándose PARADA en Inspecciones (Control saldrá “MÁQUINA PARADA”).</Text>
                       <TouchableOpacity onPress={marcarParadaAveria} disabled={ciSaving || !paMaterial || !ciMotivo.trim()} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !paMaterial || !ciMotivo.trim()) ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA + avería'}</Text>
                       </TouchableOpacity>
@@ -3473,7 +3473,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>🟡 NO TRABAJÓ</Text>
                       <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: 4 }}>El texto "NO TRABAJÓ" queda fijo. Escribe el motivo (obligatorio, aparece al lado).</Text>
                       <TextInput value={ntMotivo} onChangeText={setNtMotivo} placeholder="Motivo (ej: sin combustible, sin operador, lluvia, sin frente…)" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
-                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginBottom: spacing.sm }}>Intentamos ubicarte solos para dejar constancia de dónde estaba. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginBottom: spacing.sm }}>Intentamos ubicarte solos para dejar constancia de dónde estaba. Solo se refleja en Inspecciones — no crea nada en Servicio.</Text>
                       <TouchableOpacity onPress={() => capturarUbicacionNoTrabajo(false)} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
                         <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar'}</Text>
                       </TouchableOpacity>
@@ -3548,11 +3548,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.primary, fontWeight: '800' }}>{avOpen ? '▲' : '▼'}</Text>
                 </TouchableOpacity>
                 <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-                  Reporta una falla a Mantenimiento SIN marcar la máquina como parada (la máquina sigue en su estado actual). Para detenerla, usa 🟡 PARADA más arriba.
+                  Reporta una falla a Servicio SIN marcar la máquina como parada (la máquina sigue en su estado actual). Para detenerla, usa 🟡 PARADA más arriba.
                 </Text>
                 {avOpen ? (
                   <View style={{ marginTop: spacing.sm }}>
-                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Toca el material que se necesita cambiar. Va al módulo de Mantenimiento de Maquinaria.</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Toca el material que se necesita cambiar. Va al módulo de Servicio de Maquinaria.</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
                       {AV_MATERIALS.map((mt) => {
                         const on = avMaterial === mt.key;

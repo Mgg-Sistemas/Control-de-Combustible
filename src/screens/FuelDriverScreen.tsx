@@ -395,7 +395,7 @@ export default function FuelDriverScreen() {
         photos: averiaPhotos.length ? averiaPhotos : null,
       });
       if (error) { setResult({ ok: false, msg: `❌ ${error.message}` }); return; }
-      setResult({ ok: true, msg: '✅ Avería reportada a Mantenimiento.' });
+      setResult({ ok: true, msg: '✅ Avería reportada a Servicio.' });
       setAveriaMaterial(null); setAveriaNote(''); setAveriaPhotos([]); setAveriaOpen(false);
     } finally {
       setSavingAveria(false);
@@ -658,7 +658,7 @@ export default function FuelDriverScreen() {
                             </View>
                           ) : null}
                           <TouchableOpacity onPress={marcarAveria} disabled={savingAveria || !averiaNote.trim()} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: (savingAveria || !averiaNote.trim()) ? 0.6 : 1 }}>
-                            <Text style={{ color: '#fff', fontWeight: '800' }}>{savingAveria ? 'Guardando…' : '🔧 Reportar avería a Mantenimiento'}</Text>
+                            <Text style={{ color: '#fff', fontWeight: '800' }}>{savingAveria ? 'Guardando…' : '🔧 Reportar avería a Servicio'}</Text>
                           </TouchableOpacity>
                         </>
                       ) : null}

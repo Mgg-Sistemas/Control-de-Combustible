@@ -10,7 +10,8 @@ import { useTheme } from '../theme/ThemeContext';
 const items: { label: string; route: string; desc: string; icon: string; module: string }[] = [
   { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
   { label: 'Margen de ganancia', route: 'MargenGanancia', desc: 'Costo inicial, valor útil y % de ganancia por máquina y empresa', icon: '🚜', module: 'margen_ganancia' },
-  { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', desc: 'Averías por máquina, enviar a reparación (salida, tiempo, cambios) y retorno operativo', icon: '🛠️', module: 'mantenimiento' },
+  { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', desc: 'Mantenimiento preventivo: horómetros, horas acumuladas y máquinas próximas a su servicio', icon: '🧰', module: 'mantenimiento' },
+  { label: 'Servicio de Maquinaria', route: 'ServicioMaquinaria', desc: 'Averías reportadas, enviar a reparación (salida, tiempo, cambios), retorno operativo y reporte de gasto', icon: '🔧', module: 'servicio' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
   { label: 'Coordinador de Operadores', route: 'CoordOperadores', desc: 'Asignar operadores a máquinas por turno, marcar su asistencia y avisar novedades', icon: '👷‍♂️', module: 'coordinacion_operadores' },
   { label: 'Inspecciones', route: 'Supervision', desc: 'Rondas de inspectores: quién marcó cada máquina (GPS + estado), jornadas e histórico por inspector', icon: '🪖', module: 'supervision' },

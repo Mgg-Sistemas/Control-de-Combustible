@@ -96,7 +96,7 @@ export async function generateChoferCombustibleGuide(): Promise<boolean> {
         'Con **Combustible** o **Aceite**: escribe los **litros** y el **monto por litro** — el **monto total** se calcula solo.',
         'Con **Aire**: no hay litros, solo una **nota opcional** (ej. "se infló los 4 cauchos").',
         'Toca 📷 **Agregar foto** las veces que necesites; cada miniatura tiene una **×** para borrarla.',
-        'Si la máquina tiene una falla, abre **🔧 Reportar avería**: elige el material, describe la falla si es "Otro" y agrega fotos — queda registrada en Mantenimiento.',
+        'Si la máquina tiene una falla, abre **🔧 Reportar avería**: elige el material, describe la falla si es "Otro" y agrega fotos — queda registrada en Servicio.',
         'Toca **Registrar surtido** (o **Registrar aceite** / **Registrar aire**, según lo que elegiste) para guardar.',
       ]) +
       calloutInfo('<b>Sin tope diario (solo Combustible):</b> a diferencia de otros roles, el chofer de combustible <b>no tiene</b> el límite de "2× el consumo esperado" al surtir combustible — puede surtir sin ese tope.') +
@@ -113,7 +113,7 @@ export async function generateChoferCombustibleGuide(): Promise<boolean> {
       ['No hay QR o prefieres buscarla', 'Usa **O elige la máquina** y busca por código, empresa, serial o placa.'],
       ['Vas a surtir combustible o aceite', 'Elige el tipo arriba, llena **litros** y **monto por litro**, agrega fotos si quieres y toca **Registrar**.'],
       ['Solo le diste aire', 'Elige 💨 **Aire**, escribe una nota si quieres y toca **Registrar aire** (sin litros).'],
-      ['La máquina tiene una falla', 'Abre **🔧 Reportar avería**, elige el material y describe/agrega fotos — queda en Mantenimiento.'],
+      ['La máquina tiene una falla', 'Abre **🔧 Reportar avería**, elige el material y describe/agrega fotos — queda en Servicio.'],
       ['Debes surtir otra vez a la misma máquina', 'El formulario queda **abierto y limpio**: solo llena los datos y **Registrar** de nuevo.'],
       ['Terminaste con esa máquina', 'Toca **Cerrar** para volver a la lista.'],
     ],

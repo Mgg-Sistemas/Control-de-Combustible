@@ -5,7 +5,7 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { consumeSoftReload } from '../lib/version';
 import { nameToEmail, validateName } from '../lib/username';
 import { UserRole, AppRole } from '../types/database';
-import { PermLevel, defaultLevel, maxLevel } from '../lib/permissions';
+import { PermLevel, defaultLevel, maxLevel, MODULE_HEREDA_DE } from '../lib/permissions';
 import { logAudit } from '../lib/audit';
 import {
   isBiometricSupported,
@@ -424,6 +424,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Permiso EXPLÍCITO por módulo que un admin le asignó a este usuario (matriz de
     // "Permisos por módulo"). Solo existe si el admin lo marcó (sin default aquí).
     const explicit = permissions[moduleKey];
+    // Módulo HEREDADO (ver MODULE_HEREDA_DE): 'servicio' salió de dividir
+    // 'mantenimiento' en dos secciones. Si nadie le asignó un nivel propio —ni
+    // por usuario ni por rol— toma el del módulo del que salió, para que la
+    // división no le regale ni le quite el acceso a nadie.
+    const padre = MODULE_HEREDA_DE[moduleKey];
+    if (padre && !explicit && !appRole?.modules?.[moduleKey]) return moduleLevel(padre);
     // Rol personalizado (FIJO): ve los módulos de su rol, PERO si además tiene un
     // permiso explícito por módulo, se respeta el MAYOR de los dos. Así el "Full a
     // todo"/Escritura extra que el admin le dio en Editar usuario SÍ surte efecto

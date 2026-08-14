@@ -63,7 +63,7 @@ export async function generateCoordinadorQrGuide(): Promise<boolean> {
       )
     )
   );
-  const step2 = stepSection(2, '🛠️ AVERÍA DE MAQUINARIA', 'Reportar una falla (va a Mantenimiento)',
+  const step2 = stepSection(2, '🛠️ AVERÍA DE MAQUINARIA', 'Reportar una falla (va a Servicio)',
     twoCol(
       step2Mock,
       stepList([
@@ -71,7 +71,7 @@ export async function generateCoordinadorQrGuide(): Promise<boolean> {
         'Elige **al menos un material**: Caucho, Aceite, Filtro o Repuesto.',
         'Si quieres, agrega **Cantidad** y una **Nota** (ambos opcionales).',
         'Puedes adjuntar **📷 Foto de referencia** (opcional).',
-        'Toca **Registrar avería**: el reporte va a **Mantenimiento**.',
+        'Toca **Registrar avería**: el reporte va a **Servicio**.',
       ]) + calloutWarn('<b>Obligatorio:</b> el botón "Registrar avería" no se activa hasta elegir <b>al menos un material</b>.')
     )
   );

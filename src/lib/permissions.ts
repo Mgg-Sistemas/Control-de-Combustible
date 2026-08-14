@@ -30,6 +30,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'control_pagos', label: 'Control de Pagos' },
   { key: 'margen_ganancia', label: 'Margen de ganancia' },
   { key: 'mantenimiento', label: 'Mantenimiento maquinaria' },
+  { key: 'servicio', label: 'Servicio de maquinaria (averías)' },
   { key: 'operadores', label: 'Operadores' },
   { key: 'supervision', label: 'Inspecciones (rondas)' },
   { key: 'inspecciones_maq', label: 'Inspecciones de Maquinaria' },
@@ -62,6 +63,20 @@ export function defaultLevel(moduleKey: string): PermLevel {
   if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'viajes_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta') return 'none';
   return 'escritura';
 }
+
+/** Módulos que NACEN heredando el permiso de otro (hijo → padre).
+ *
+ *  'servicio' salió de partir en dos el módulo 'mantenimiento': lo preventivo
+ *  (horómetros) se quedó en Mantenimiento y lo correctivo (averías, taller,
+ *  reporte) pasó a Servicio. Mientras un admin no le ponga un nivel propio,
+ *  cada usuario ve Servicio con el MISMO nivel que ya tenía en Mantenimiento.
+ *
+ *  Sin esta herencia la división cambiaría accesos sola, en las dos direcciones:
+ *  quien tenía Mantenimiento en "Sin acceso" vería Servicio abierto (porque
+ *  `defaultLevel` devuelve 'escritura' para todo lo que no esté en su lista
+ *  negra), y quien lo tenía por rol dinámico perdería las averías de un día
+ *  para otro (su `app_roles.modules` no trae la clave nueva). */
+export const MODULE_HEREDA_DE: Record<string, string> = { servicio: 'mantenimiento' };
 
 const ORDER: PermLevel[] = ['none', 'lectura', 'escritura', 'full'];
 /** ¿el nivel `have` cubre al menos `need`? */
