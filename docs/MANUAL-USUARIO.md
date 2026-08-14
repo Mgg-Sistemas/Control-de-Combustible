@@ -2217,6 +2217,9 @@ ve en el mapa y el catálogo).
 - **Asignar máquinas:** desde el **Catálogo → botón 🏛️ Obras Públicas** eliges el supervisor (de
   los usuarios con ese rol) y le asignas máquinas **por lote o individual**. La máquina le aparece
   al supervisor en su teléfono ("🏛️ Mis máquinas").
+  > **Solo GOLDEN y LICCIONE (14-ago-2026):** el listado de asignación de Obras Públicas SOLO muestra
+  > las máquinas de las empresas **GOLDEN** y **LICCIONE** (las que operan en este módulo). Las de otras
+  > empresas no aparecen.
 - **Vista del supervisor (teléfono):** arriba ve una fila de **tarjetas resumen**
   (**m³ removidos hoy · edificios de hoy · máquinas asignadas · trabajando · averiadas · m³ totales**);
   tocar "Trabajando" o "Averiadas" **filtra** la lista, y tocar "m³ removidos hoy" / "Edificios hoy" /

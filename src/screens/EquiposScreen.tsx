@@ -1491,7 +1491,13 @@ export default function EquiposScreen({ navigation, route }: any) {
       <ObrasPublicasAssignModal
         visible={opAssignOpen}
         onClose={() => { setOpAssignOpen(false); reloadOpAssigns(); }}
-        machines={[...averiadaMachines, ...activeMachines]}
+        // Regla Obras Públicas (14-ago-2026): en la asignación SOLO se ofrecen las
+        // máquinas de las empresas GOLDEN y LICCIONE (las que operan en el módulo).
+        // Se filtra por el NOMBRE de la empresa (contiene 'golden' | 'liccione').
+        machines={[...averiadaMachines, ...activeMachines].filter((m) => {
+          const cn = (companyName(m.company_id ?? null) || '').toLowerCase();
+          return cn.includes('golden') || cn.includes('liccione');
+        })}
         statusOf={liveStatusOf}
         companyName={companyName}
         userId={session?.user?.id}
