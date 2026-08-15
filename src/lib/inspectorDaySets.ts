@@ -100,7 +100,7 @@ export type EstadoTurno = 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendie
  * tarjeta decía "🟡 Parada" y el reporte/teléfono "⏳ Por iniciar" para la misma máquina).
  *
  * Prioridad (de mayor a menor): avería > parada > (trabajó → iniciada/cerrada) >
- * (SIEMPRE ACTIVO → iniciada/cerrada) > (declaró jornada + 0h → PARADA) > pendiente.
+ * (SIEMPRE ACTIVO → iniciada/cerrada) > (declaró jornada → iniciada/CERRADA) > pendiente.
  *
  * Reglas de negocio embebidas:
  *  - `averia`/`parada`: la marca vigente de ESTE turno (quien llama ya aplicó la
@@ -110,9 +110,11 @@ export type EstadoTurno = 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendie
  *  - `siempreActivo` (SOS LA GUAIRA): nunca queda avería/parada/pendiente — cae a
  *    iniciada/cerrada según su jornada (se ignora el ticket).
  *  - `declaro` (`jornada_shift === turno`, persiste tras el auto-cierre aunque se
- *    nulen horas y `jornada_start_at`): "0 horas = parada" — arrancó jornada y cerró
- *    en 0h sin ticket → PARADA, no "pendiente por iniciar". Solo las que NUNCA
- *    arrancaron (sin ronda del turno) quedan pendientes.
+ *    nulen horas y `jornada_start_at`): la jornada del turno se INICIÓ (y normalmente
+ *    se le bancan sus 12h) → cuenta como FINALIZADA/CERRADA aunque quede en 0h, NO
+ *    parada. PARADA queda SOLO por ticket explícito (avería/botón de parada), arriba.
+ *    Regla del cliente (14-ago-2026): "una jornada iniciada y finalizada NO puede salir
+ *    parada". Solo las que NUNCA arrancaron (sin ronda del turno) quedan pendientes.
  *
  * Blindada por `scripts/test-clasificacion.mjs` (`npm run test:clasificacion`): tests
  * directos de esta función + verificación de que `buildDaySets` produce lo mismo.
@@ -129,7 +131,11 @@ export function clasificarEstadoTurno(x: {
   if (x.parada) return 'parada';
   if (x.trabajo) return x.abierta ? 'iniciada' : 'cerrada';
   if (x.siempreActivo) return x.abierta ? 'iniciada' : 'cerrada';
-  if (x.declaro) return 'parada';
+  // Arrancó jornada del turno (declaró) pero aún sin horas y sin ticket: la jornada se
+  // INICIÓ (y normalmente se le bancan 12h) → CERRADA/FINALIZADA, NO parada. La parada
+  // solo viene de un ticket explícito (arriba). Cliente 14-ago-2026: una jornada
+  // iniciada/finalizada no puede salir "parada".
+  if (x.declaro) return x.abierta ? 'iniciada' : 'cerrada';
   return 'pendiente';
 }
 
