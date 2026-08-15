@@ -554,7 +554,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Ventana de gracia 7–9am: fuente de verdad única en caracasDay.ts (nightGraceRoundDate).
     const nightGraceDay = nightGraceRoundDate();
     const [{ data: rs, error: rsErr }, { data: rsRescue, error: rsRescueErr }, { data: rsNight, error: rsNightErr }, { data: par, error: parErr }, { data: avPend, error: avPendErr }, { data: segs }] = await Promise.all([
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').in('round_date', roundDates),
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours, declared_day, declared_night').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
       // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
       // esto el círculo 🟢 se apagaba al pasar las 12) como una jornada de DÍA que
@@ -627,12 +627,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         // si la jornada arrancó DESPUÉS de la avería, la máquina volvió a trabajar).
         openStartDay: Math.max(prev.openStartDay, isOpen && openSh === 'day' && !isNaN(startMs) ? startMs : 0),
         openStartNight: Math.max(prev.openStartNight, isOpen && openSh === 'night' && !isNaN(startMs) ? startMs : 0),
-        // DECLARÓ jornada del turno (jornada_shift), aunque ya cerró y quedó en 0h: la
-        // jornada se INICIÓ → cuenta como FINALIZADA/CERRADA, no pendiente (igual que
-        // inspectorDaySets `declaredSet`). Así el teléfono no la deja "por iniciar"
-        // mientras el reporte la da por cerrada.
-        declaredDay: prev.declaredDay || r.jornada_shift === 'day' || (isOpen && openSh === 'day'),
-        declaredNight: prev.declaredNight || r.jornada_shift === 'night' || (isOpen && openSh === 'night'),
+        // DECLARÓ jornada del turno, aunque ya cerró y quedó en 0h: la jornada se INICIÓ
+        // → cuenta como FINALIZADA/CERRADA, no pendiente (igual que inspectorDaySets
+        // `declaredSet`). Señal DURABLE por-turno `declared_day`/`declared_night` (no se
+        // pisan entre turnos), con FALLBACK a `jornada_shift` si la fila no las trae.
+        declaredDay: prev.declaredDay || r.declared_day === true || (r.declared_day == null && r.jornada_shift === 'day') || (isOpen && openSh === 'day'),
+        declaredNight: prev.declaredNight || r.declared_night === true || (r.declared_night == null && r.jornada_shift === 'night') || (isOpen && openSh === 'night'),
       };
     });
     // Cualquier jornada de un día anterior aún abierta cuenta como 🟢 trabajando,

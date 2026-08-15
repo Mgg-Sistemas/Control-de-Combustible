@@ -80,7 +80,7 @@ export default function HistoricoJornadasScreen() {
     const [rs, maintRows, machRows] = await Promise.all([
       selectAllRows(
         'machine_rounds',
-        'id, machinery_id, round_date, day_hours, night_hours, horometro_inicial, horometro_final, jornada_start_at, jornada_shift, machine:machinery_id(code, serial, plate, company:company_id(name))',
+        'id, machinery_id, round_date, day_hours, night_hours, horometro_inicial, horometro_final, jornada_start_at, jornada_shift, declared_day, declared_night, machine:machinery_id(code, serial, plate, company:company_id(name))',
         (q) => q.gte('round_date', from).lte('round_date', to),
       ),
       selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, status, resolved_at', (q) => q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${toPlus1}T07:00:00-04:00`)),
@@ -167,10 +167,14 @@ export default function HistoricoJornadasScreen() {
       // persiste tras el auto-cierre). SIEMPRE ACTIVO (SOS) nunca queda parada.
       const dInsp = dayInsp.get(r.machinery_id) || '';
       const nInsp = nightInsp.get(r.machinery_id) || '';
-      if (dayH <= 0 && !avDia && r.jornada_shift === 'day' && !inspectorSiempreActivo(dInsp)) {
+      // "Declaró" con señal DURABLE por-turno (declared_day/declared_night, no se pisan
+      // entre turnos), con FALLBACK a jornada_shift si la fila no la trae (blindaje 14-ago).
+      const declDay = r.declared_day == null ? r.jornada_shift === 'day' : r.declared_day === true;
+      const declNight = r.declared_night == null ? r.jornada_shift === 'night' : r.declared_night === true;
+      if (dayH <= 0 && !avDia && declDay && !inspectorSiempreActivo(dInsp)) {
         list.push({ ...base, id: `${r.id}:pd`, inspector: dInsp, shift: 'day', dayH: 0, nightH: 0, total: 0, horoIni: null, horoFin: null, estado: 'parada', motivo: null });
       }
-      if (nightH <= 0 && !avNoche && r.jornada_shift === 'night' && !inspectorSiempreActivo(nInsp)) {
+      if (nightH <= 0 && !avNoche && declNight && !inspectorSiempreActivo(nInsp)) {
         list.push({ ...base, id: `${r.id}:pn`, inspector: nInsp, shift: 'night', dayH: 0, nightH: 0, total: 0, horoIni: null, horoFin: null, estado: 'parada', motivo: null });
       }
     });

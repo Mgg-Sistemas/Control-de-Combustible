@@ -69,6 +69,7 @@ const round = (id, o = {}) => ({
   machinery_id: id, round_date: DAY,
   day_hours: o.day_hours ?? null, night_hours: o.night_hours ?? null,
   jornada_shift: o.jornada_shift ?? null, jornada_start_at: o.jornada_start_at ?? null,
+  declared_day: o.declared_day ?? null, declared_night: o.declared_night ?? null,
 });
 const maint = (id, hhmm, material = null, plusDay = 0) => ({
   machinery_id: id, material, created_at: iso(hhmm[0], hhmm[1] || 0, plusDay),
@@ -213,6 +214,23 @@ eq('ladder trabajo gana a declaro', E({ trabajo: true, abierta: false, declaro: 
   const ds = run({ shift: 'day', assignments: [assign('Q', 'juan', 'day')] });
   eq('sin ronda = pendiente', arr(ds.pendSet), ['Q']);
   eq('sin ronda no parada', arr(ds.paradaSet), []);
+}
+// 20) BLINDAJE por-turno (14-ago-2026): una máquina que DECLARÓ DÍA (declared_day)
+//     pero cuya `jornada_shift` fue sobrescrita a 'night' al iniciar la noche (día 0h)
+//     → el DÍA sale CERRADA por la señal DURABLE, NO pendiente. Antes, al depender solo
+//     de `jornada_shift === 'day'`, caía a ⏳ pendiente de día por error.
+{
+  const r = round('R', { jornada_shift: 'night', night_hours: 5, day_hours: 0, declared_day: true, declared_night: true });
+  const dd = run({ shift: 'day', assignments: [assign('R', 'juan', 'day')], rounds: [r] });
+  eq('declared_day durable = dia cerrada', arr(dd.closedSet), ['R']);
+  eq('declared_day durable no pendiente', arr(dd.pendSet), []);
+}
+// 21) FALLBACK: sin flags declared_* (fila vieja), se usa jornada_shift === turno
+//     (comportamiento previo) — declaró día con 0h sigue saliendo cerrada.
+{
+  const dd = run({ shift: 'day', assignments: [assign('T', 'juan', 'day')],
+    rounds: [round('T', { jornada_shift: 'day', day_hours: 0 })] });
+  eq('fallback jornada_shift dia cerrada', arr(dd.closedSet), ['T']);
 }
 
 console.log(`\n${'='.repeat(60)}`);

@@ -99,7 +99,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
 
   // Lecturas del día en PARALELO (todas dependen solo de `ids`/`date`) — una sola
   // espera de red en vez de 5 encadenadas al generar el reporte.
-  const roundsSelect = 'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift, jornada_marked_by';
+  const roundsSelect = 'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift, declared_day, declared_night, jornada_marked_by';
   // La ventana de avería/parada llega hasta las 07:00 del día SIGUIENTE (no medianoche):
   // el turno noche va de 19:00 a 07:00+1, así que una avería/parada marcada (o reactivada)
   // a la 1am cae dentro del turno noche de HOY — igual criterio que inspectorReport.ts.
@@ -428,8 +428,14 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // SIN esta rama el reporte por empresa OMITÍA la máquina que las tarjetas contaban
     // como 🟡 Parada — la desincronización que reportó el cliente (11-ago-2026). Se exige
     // jornada CERRADA (`!jornada_start_at`): una jornada aún abierta es actividad, no parada.
+    // "Declaró" usa la señal DURABLE por-turno (declared_day/declared_night, no se pisan
+    // entre turnos), con FALLBACK a `jornada_shift` si la fila no la trae (blindaje 14-ago).
+    const dFlag = (r as any)?.declared_day, nFlag = (r as any)?.declared_night;
+    const declaredAny = (dFlag == null && nFlag == null)
+      ? (r?.jornada_shift === 'day' || r?.jornada_shift === 'night')
+      : (dFlag === true || nFlag === true);
     const esParadaDeclarada = trab <= 0 && !averiaBase && !siempreActivoIds.has(id)
-      && !!r && !r.jornada_start_at && (r.jornada_shift === 'day' || r.jornada_shift === 'night');
+      && !!r && !r.jornada_start_at && declaredAny;
     // CLASIFICACIÓN en 2 grupos:
     //  · averia  → averiada/parada que NO trabajó (trab<=0 con avería/parada, o jornada en 0); se marca en 0.
     //  · activa  → trabajó (trab>0).

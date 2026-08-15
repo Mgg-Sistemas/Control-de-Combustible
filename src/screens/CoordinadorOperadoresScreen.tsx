@@ -100,7 +100,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const load = useCallback(async () => {
     const [{ data: machs }, { data: rs }, { data: mr }, insp, { rows: op, missing }, { data: emps }, { data: att }, scopedIds] = await Promise.all([
       supabase.from('machinery').select('id, code, plate, serial, tipo, sector, active, operational, en_espera, encargado, referencia, latitude, longitude, company:company_id(name)').eq('active', true),
-      supabase.from('machine_rounds').select('machinery_id, round_date, day_hours, night_hours, day_operator, night_operator, jornada_shift, jornada_start_at').eq('round_date', today),
+      supabase.from('machine_rounds').select('machinery_id, round_date, day_hours, night_hours, day_operator, night_operator, jornada_shift, jornada_start_at, declared_day, declared_night').eq('round_date', today),
       supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').eq('status', 'pendiente'),
       listInspectorAssignments(),
       listOperatorAssignments(),
@@ -117,6 +117,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     setRounds(((rs ?? []) as any[]).map((r) => ({
       machinery_id: r.machinery_id, round_date: r.round_date, day_hours: r.day_hours, night_hours: r.night_hours,
       jornada_shift: r.jornada_shift, jornada_start_at: r.jornada_start_at,
+      declared_day: r.declared_day, declared_night: r.declared_night,
       day_operator: r.day_operator ?? null, night_operator: r.night_operator ?? null,
     })));
     setMaint(((mr ?? []) as any[]).map((m) => ({ machinery_id: m.machinery_id, material: m.material, created_at: m.created_at })));
