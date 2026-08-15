@@ -989,6 +989,12 @@ export default function EquiposScreen({ navigation, route }: any) {
     return 'operativa';
   };
   const [reportEstados, setReportEstados] = useState<Set<EstadoConteo>>(new Set());
+  // ¿El PDF de conteo lleva las dos columnas de INSPECTOR (☀️ día / 🌙 noche)?
+  // Arranca en `true` porque es como salía el reporte hasta ahora: quien no toque
+  // el interruptor sigue descargando exactamente el mismo documento. Se apaga
+  // cuando el reporte es para alguien que solo necesita el conteo de equipos y
+  // las dos columnas extra solo estorban (y estrechan el resto de la tabla).
+  const [reportConInspector, setReportConInspector] = useState(true);
   const toggleReportEstado = (e: EstadoConteo) =>
     setReportEstados((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
   const matchEstadoConteo = (m: Machinery) => reportEstados.size === 0 || reportEstados.has(estadoConteoOf(m));
@@ -1162,8 +1168,7 @@ export default function EquiposScreen({ navigation, route }: any) {
               <td>${esc(m.plate || '—')}</td>
               <td>${esc((m as any).sector || '—')}</td>
               <td>${esc(edificioOrRef(m))}</td>
-              <td>${esc(insp?.day || '—')}</td>
-              <td>${esc(insp?.night || '—')}</td>
+              ${reportConInspector ? `<td>${esc(insp?.day || '—')}</td><td>${esc(insp?.night || '—')}</td>` : ''}
               <td style="color:${estColor(m)}">${esc(estadoTxt(m))}</td>
             </tr>`;
           })
@@ -1171,7 +1176,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         return `<h3 class="emp">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
           <table><thead><tr>
             <th style="width:26px">#</th><th>Equipo</th><th>Clasificación</th><th>Serial</th><th>Placa</th>
-            <th>Sector</th><th>Edificio / Referencia</th><th>Inspector ☀️ Día</th><th>Inspector 🌙 Noche</th><th>Estado</th>
+            <th>Sector</th><th>Edificio / Referencia</th>${reportConInspector ? '<th>Inspector ☀️ Día</th><th>Inspector 🌙 Noche</th>' : ''}<th>Estado</th>
           </tr></thead>
           <tbody>${rows}</tbody></table>`;
       })
@@ -2231,12 +2236,34 @@ export default function EquiposScreen({ navigation, route }: any) {
             </View>
           ) : null}
 
+          {/* Interruptor de las columnas de inspector. Va PEGADO al botón de descarga
+              (no arriba con los filtros de estado/clasificación) porque no filtra qué
+              equipos salen, sino qué columnas trae el PDF: al lado del botón se ve
+              justo antes de descargarlo. */}
+          <TouchableOpacity
+            onPress={() => setReportConInspector((v) => !v)}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.sm }}
+          >
+            <Text style={{ fontSize: 17 }}>{reportConInspector ? '☑️' : '⬜'}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Incluir el inspector asignado</Text>
+              <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                {reportConInspector
+                  ? 'El PDF trae las columnas ☀️ Día y 🌙 Noche.'
+                  : 'El PDF sale solo con el conteo, sin columnas de inspector.'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
             onPress={() => downloadReportPdf(reportCompany)}
             disabled={reportTotal === 0}
           >
-            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar PDF (conteo)</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
+              {reportConInspector ? '⬇️ Descargar PDF (conteo · con inspector)' : '⬇️ Descargar PDF (solo conteo)'}
+            </Text>
           </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
