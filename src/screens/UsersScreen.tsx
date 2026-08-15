@@ -1000,6 +1000,10 @@ function EditUserForm({
     const ci = cedula.trim() || null;
     const un = username.trim() || null;
     if (!un) { setSaving(false); setError('El USUARIO es obligatorio (con él inicia sesión).'); return; }
+    // No permitir que el USUARIO choque con OTRA persona (case-insensitive, excluye al
+    // propio). Aviso amigable ANTES del índice único de la BD (que también lo bloquea).
+    const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', un).neq('id', user.id).limit(1);
+    if (dupU && dupU.length) { setSaving(false); setError('Ya existe otro usuario con ese "Usuario". Elige otro.'); return; }
     const { error: ciErr } = await supabase.from('profiles').update({ cedula: ci, username: un }).eq('id', user.id);
     setSaving(false);
     if (ciErr) {
