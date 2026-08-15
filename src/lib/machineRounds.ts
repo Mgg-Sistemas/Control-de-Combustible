@@ -122,11 +122,17 @@ export async function freezeOpenJornadaNow(
   const shift: 'day' | 'night' = round.jornada_shift === 'night' ? 'night'
     : round.jornada_shift === 'day' ? 'day'
     : (caracasHour(round.jornada_start_at) >= 7 && caracasHour(round.jornada_start_at) < 19 ? 'day' : 'night');
-  // TOPE 12h por turno (igual que finalizar/parada/offline y TODOS los reportes):
-  // el turno dura 12h, así que lo bancado nunca supera 12 → día+noche nunca pasa de 24.
+  // TOPE FÍSICO (igual que finalizar/parada): lo bancado nunca supera lo transcurrido
+  // desde el inicio del turno (7am día / 7pm noche) ni las 12h. Al re-abrir una jornada
+  // el inicio se re-ancla al inicio del turno, así que `bancado + elapsed` contaría dos
+  // veces el tramo ya bancado (bug 14-ago-2026: noche 3.49h con solo 1.82h desde 7pm).
+  const shiftStartMs = shift === 'night'
+    ? new Date(roundDate + 'T19:00:00-04:00').getTime()
+    : new Date(roundDate + 'T07:00:00-04:00').getTime();
+  const topeFisico = Math.min(12, Math.max(0, (now.getTime() - shiftStartMs) / 3600000));
   const patch = shift === 'night'
-    ? { night_hours: Math.min(12, Number(round.night_hours ?? 0) + elapsed), jornada_start_at: null }
-    : { day_hours: Math.min(12, Number(round.day_hours ?? 0) + elapsed), jornada_start_at: null };
+    ? { night_hours: Math.min(topeFisico, Number(round.night_hours ?? 0) + elapsed), jornada_start_at: null }
+    : { day_hours: Math.min(topeFisico, Number(round.day_hours ?? 0) + elapsed), jornada_start_at: null };
   const res = await upsertMachineRound(machineryId, roundDate, patch as RoundPatch);
   if (res.error) return { closed: false, error: res.error };
   if (elapsed > 0) {

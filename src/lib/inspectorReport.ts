@@ -442,8 +442,11 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     const liveElapsedH = estado === 'encurso' && rd?.jornada_start_at
       ? Math.max(0, Math.min(12, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000))
       : 0;
-    const dayHDisp = turno === 'day' && estado === 'encurso' ? r2(Math.min(12, dayH + liveElapsedH)) : r2(Math.min(12, dayH));
-    const nightHDisp = turno === 'night' && estado === 'encurso' ? r2(Math.min(12, nightH + liveElapsedH)) : r2(Math.min(12, nightH));
+    // MAYOR (no suma) de bancado vs transcurrido: al re-abrir una jornada ya cerrada el
+    // inicio se re-ancla al arranque del turno, así que sumar bancado + transcurrido
+    // contaría DOS VECES el tramo ya bancado (bug 14-ago-2026, ver liveHorasOf).
+    const dayHDisp = turno === 'day' && estado === 'encurso' ? r2(Math.min(12, Math.max(dayH, liveElapsedH))) : r2(Math.min(12, dayH));
+    const nightHDisp = turno === 'night' && estado === 'encurso' ? r2(Math.min(12, Math.max(nightH, liveElapsedH))) : r2(Math.min(12, nightH));
     iMap.set(id, {
       id,
       code: base.code,
