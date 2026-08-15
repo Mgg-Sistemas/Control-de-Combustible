@@ -1813,11 +1813,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const prev = await getMachineRound(ci.id, roundDate);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
-    // TOPE 12h por turno: el turno dura 12h, así que las horas bancadas nunca superan 12
-    // (mismo tope que el módulo de Inspecciones y TODOS los reportes: min(12, ...)). Sin
-    // esto el teléfono podía bancar >12h (jornada dejada abierta y cerrada tarde) y luego
-    // el reporte/módulo re-topaban a 12 al mostrar → el número del teléfono no cuadraba.
-    const totalTurno = Math.round(Math.min(12, base + horas) * 100) / 100;
+    // TOPE FÍSICO: las horas bancadas NUNCA superan lo transcurrido desde el INICIO del
+    // turno (7am día / 7pm noche) — ni las 12h. Al re-abrir una jornada, `jornadaStart`
+    // se re-ancla al inicio del turno, así que `base + horas` contaría DOS VECES el tramo
+    // ya bancado (bug 14-ago-2026: noche 3.49h con solo 1.82h desde las 7pm). El min con
+    // el tope físico lo evita; en un inicio tardío/real (sin re-ancla) base+horas queda.
+    const shiftStartMs = jornadaShift === 'night'
+      ? new Date(roundDate + 'T19:00:00-04:00').getTime()
+      : new Date(roundDate + 'T07:00:00-04:00').getTime();
+    const topeFisico = Math.min(12, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
+    const totalTurno = Math.round(Math.min(topeFisico, base + horas) * 100) / 100;
     const res = await upsertMachineRound(ci.id, roundDate, { [key]: totalTurno, ...(hfValid ? { horometro_final: hfNum } : {}), ...(horoFinPhoto ? { horometro_photo: horoFinPhoto } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
@@ -1844,8 +1849,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     reloadEstados();
     // TAREA 2: además del total de ESTA sesión, muestra el acumulado del turno en
     // el día (horas ya registradas antes de abrir esta sesión + lo recién cerrado).
-    const totalAcumuladoTurno = Math.round(Math.min(12, curRoundHours[jornadaShift] + horas) * 100) / 100;
-    setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}). Acumulado del turno: ${totalAcumuladoTurno.toFixed(2)} h.`);
+    // Acumulado = lo REALMENTE bancado (topeFisico ya evita el doble-conteo al re-abrir).
+    setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}). Acumulado del turno: ${totalTurno.toFixed(2)} h.`);
   };
 
   // Sube una foto de referencia para la avería del camino "PARADA · por avería".
@@ -1898,8 +1903,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const prevRound = await getMachineRound(ci.id, roundDate);
       const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
       const base = Number((prevRound as any)?.[key] ?? 0);
-      // TOPE 12h por turno (igual que finalizarJornada, el módulo y los reportes).
-      const total = Math.round(Math.min(12, base + horas) * 100) / 100;
+      // TOPE FÍSICO (igual que finalizarJornada): nunca más que lo transcurrido desde el
+      // inicio del turno — evita contar doble el tramo bancado al re-abrir la jornada.
+      const shiftStartMs = jornadaShift === 'night'
+        ? new Date(roundDate + 'T19:00:00-04:00').getTime()
+        : new Date(roundDate + 'T07:00:00-04:00').getTime();
+      const topeFisico = Math.min(12, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
+      const total = Math.round(Math.min(topeFisico, base + horas) * 100) / 100;
       const res = await upsertMachineRound(ci.id, roundDate, { [key]: total, jornada_start_at: null }, uid || null);
       // Si el bancado de horas falla, NO seguimos como si hubiera ido bien: se
       // devuelve false para que marcarParadaAveria/marcarParadaNoTrabajo encolen
@@ -3316,7 +3326,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       {/* TAREA 2: refuerza el total con el ACUMULADO del turno en el día
                           (curRoundHours = horas ya registradas ANTES de esta sesión). */}
                       <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
-                        Acumulado del turno: <Text style={{ fontWeight: '900' }}>{Math.min(12, curRoundHours[jornadaShift] + (Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000)).toFixed(2)} h</Text>
+                        Acumulado del turno: <Text style={{ fontWeight: '900' }}>{Math.min(12, Math.max(curRoundHours[jornadaShift], Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000)).toFixed(2)} h</Text>
                       </Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
