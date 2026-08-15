@@ -768,14 +768,24 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return m.en_espera !== true;
   };
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id) && visibleParaInspector(m)), [machines, mineIds, roundsById]);
-  const matchQuery = (m: Mach, q: string) => !q
-    || norm(m.code).includes(q)
-    || norm(m.companyName || '').includes(q)
-    || norm((m as any).serial || '').includes(q)
-    || norm((m as any).plate || '').includes(q)
-    || norm((m as any).encargado || '').includes(q)
-    || norm((m as any).referencia || '').includes(q)
-    || norm((m as any).tipo || '').includes(q);
+  // Busca por cualquier característica de la máquina Y por el INSPECTOR que la
+  // tiene asignada (☀️ día y 🌙 noche). Lo del inspector hace falta sobre todo en
+  // el CHECK: para mover a alguien de turno hay que poder juntar SUS máquinas
+  // escribiendo su nombre, y por código/empresa no hay forma de agruparlas.
+  // `assignMap` ya está cargado aquí para pintar los turnos de cada fila.
+  const matchQuery = (m: Mach, q: string) => {
+    if (!q) return true;
+    const asg = assignMap[m.id];
+    return norm(m.code).includes(q)
+      || norm(m.companyName || '').includes(q)
+      || norm((m as any).serial || '').includes(q)
+      || norm((m as any).plate || '').includes(q)
+      || norm((m as any).encargado || '').includes(q)
+      || norm((m as any).referencia || '').includes(q)
+      || norm((m as any).tipo || '').includes(q)
+      || norm(asg?.day?.name || '').includes(q)
+      || norm(asg?.night?.name || '').includes(q);
+  };
   // mineList/searchList (con el filtro de segmento) y `grupos` se definen más abajo,
   // después de paradaIds/paradaHoyIds (los usa segmentoDe).
   // Listado del CHECK: solo máquinas ACTIVAS y OPERATIVAS (buscable) para
@@ -788,7 +798,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Tampoco las EN ESPERA DE INSTRUCCIONES (pedido del cliente 11-ago-2026): están
     // congeladas, no tiene sentido asignarles inspector todavía.
     return machines.filter((m) => m.active !== false && m.operational !== false && !m.en_espera && matchQuery(m, q));
-  }, [machines, checkQuery]);
+    // `assignMap`: ahora se busca también por inspector, así que la lista tiene que
+    // recalcularse cuando llegan (o cambian) las asignaciones.
+  }, [machines, checkQuery, assignMap]);
   // Solo las máquinas realmente EN SERVICIO necesitan inspector — mismo criterio que
   // usa el cron assign_missing_to_placeholder() (supabase/maquinas_faltantes.sql) para
   // no auto-asignarle horas a algo que no está trabajando. CONFIRMADO por el cliente
@@ -1280,20 +1292,49 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     () => (fixedShift ? mine.filter((m) => shiftOfMine(m.id) === fixedShift) : []),
     [mine, assignMap, uid, fixedShift],
   );
-  const puedeDescargarCierre = useMemo(
-    () => !!fixedShift && misMaquinasDelTurno.length > 0 && misMaquinasDelTurno.every((m) => !openMine(m.id)),
-    [fixedShift, misMaquinasDelTurno, roundsById],
+  // ¿YA CERRÓ el turno? (ninguna máquina suya con jornada abierta). Ya NO decide si
+  // el botón existe — solo si el reporte sale completo o parcial, para poder avisarlo.
+  const turnoYaCerrado = useMemo(
+    () => misMaquinasDelTurno.length > 0 && misMaquinasDelTurno.every((m) => !openMine(m.id)),
+    [misMaquinasDelTurno, roundsById],
   );
+  // El reporte se puede pedir SIEMPRE (antes solo aparecía al terminar el turno, así
+  // que un inspector no podía sacar el de ayer, ni revisar el de hoy a media jornada).
+  // Lo único que hace falta es tener turno fijo: `generateMyShiftReceipt` busca por
+  // nombre + turno, sin turno no hay a quién buscarle nada.
+  const puedeDescargarCierre = !!fixedShift;
+
+  // ── Jornada que se va a imprimir (día de negocio + turno) ────────────────────
+  // Arranca en HOY y en el turno del inspector, que es el caso normal; se puede
+  // mover atrás para reimprimir jornadas anteriores. Hacia adelante no pasa de hoy.
+  const [receiptDay, setReceiptDay] = useState<string>(() => caracasBusinessToday());
+  const [receiptShift, setReceiptShift] = useState<'day' | 'night' | null>(null);
+  const receiptShiftEff = receiptShift ?? fixedShift ?? 'day';
+  const hoyNegocio = caracasBusinessToday();
+  const receiptEsHoy = receiptDay === hoyNegocio;
+  const shiftReceiptDay = (delta: number) => {
+    // setUTCDate (no setDate): la fecha se ancla al mediodía de Caracas, y moverla en
+    // UTC la deja siempre al mediodía. Con setDate, que trabaja en la hora LOCAL del
+    // teléfono, un equipo con zona horaria lejana podía saltarse o repetir un día.
+    // Mismo criterio que `yesterday` más arriba en este archivo.
+    const d = new Date(`${receiptDay}T12:00:00-04:00`);
+    d.setUTCDate(d.getUTCDate() + delta);
+    const iso = caracasParts(d).iso;
+    if (iso > hoyNegocio) return;            // nunca por delante del día de negocio
+    setReceiptDay(iso);
+  };
+  const fmtDia = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+
   const [receiptBusy, setReceiptBusy] = useState(false);
   const descargarCierreJornada = async () => {
-    if (!fixedShift || receiptBusy) return;
+    if (receiptBusy) return;
     setReceiptBusy(true);
     try {
       // "día de negocio" (no calendario): un cierre de turno NOCHE puede pulsarse
       // después de medianoche, cuando `today` (calendario) ya rodó — pero el round
       // real (y lo que ve computeInspectorData) sigue perteneciendo al día en que
       // arrancó. Sin esto el PDF salía vacío/con el día equivocado.
-      await generateMyShiftReceipt({ date: caracasBusinessToday(), shift: fixedShift, inspectorName: fullName || 'Inspector' });
+      await generateMyShiftReceipt({ date: receiptDay, shift: receiptShiftEff, inspectorName: fullName || 'Inspector' });
     } catch {
       setNotice('❌ No se pudo generar el PDF del reporte.');
     } finally {
@@ -2515,14 +2556,52 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </>
       )}
 
-      {/* 📄 Cierre de jornada: PDF descargable con el resumen de MIS máquinas de
-          este turno, para tener respaldo propio (misma data que el reporte que
-          imprime el jefe). Solo sale cuando ya no queda ninguna en curso. */}
+      {/* 📄 Reporte de jornada: PDF con el resumen de MIS máquinas de un turno, para
+          tener respaldo propio (misma data que el reporte que imprime el jefe).
+          Se puede pedir CUANDO SEA y de CUALQUIER día, no solo al cerrar el turno. */}
       {puedeDescargarCierre ? (
-        <TouchableOpacity onPress={descargarCierreJornada} disabled={receiptBusy} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, backgroundColor: '#1E3A5F', borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm, opacity: receiptBusy ? 0.6 : 1 }}>
-          <Text style={{ fontSize: 16 }}>📄</Text>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{receiptBusy ? 'Generando…' : 'Descargar mi reporte de cierre (PDF)'}</Text>
-        </TouchableOpacity>
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: colors.surface }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>📄 Mi reporte de jornada</Text>
+
+          {/* Día: ◀ ▶ sobre el día de NEGOCIO (el turno noche pertenece al día en que arrancó). */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+            <TouchableOpacity onPress={() => shiftReceiptDay(-1)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800' }}>◀</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fmtDia(receiptDay)}</Text>
+              {receiptEsHoy ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>hoy</Text> : null}
+            </View>
+            <TouchableOpacity onPress={() => shiftReceiptDay(1)} disabled={receiptEsHoy} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, opacity: receiptEsHoy ? 0.35 : 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '800' }}>▶</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Turno: arranca en el del inspector; se puede cambiar por si cubrió el otro. */}
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+            {(['day', 'night'] as const).map((s) => {
+              const on = receiptShiftEff === s;
+              return (
+                <TouchableOpacity key={s} onPress={() => setReceiptShift(s)} style={{ flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                  <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>{s === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Aviso honesto: antes el botón solo existía con el turno cerrado, así que el
+              PDF siempre salía completo. Ahora se puede pedir a media jornada — se dice. */}
+          {receiptEsHoy && receiptShiftEff === fixedShift && !turnoYaCerrado ? (
+            <Text style={{ color: colors.warning, fontSize: 11, marginBottom: spacing.xs }}>
+              ⚠️ Todavía tienes máquinas en curso: el reporte sale con lo que hay hasta ahora.
+            </Text>
+          ) : null}
+
+          <TouchableOpacity onPress={descargarCierreJornada} disabled={receiptBusy} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, backgroundColor: '#1E3A5F', borderRadius: radius.md, paddingVertical: spacing.sm, opacity: receiptBusy ? 0.6 : 1 }}>
+            <Text style={{ fontSize: 16 }}>📄</Text>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{receiptBusy ? 'Generando…' : 'Descargar reporte (PDF)'}</Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
 
       {/* 📚 HISTÓRICO por inspector (jornadas finalizadas) — también desde el teléfono. */}
@@ -2620,7 +2699,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 <SectionTitle>Todas las máquinas</SectionTitle>
                 <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity>
               </View>
-              <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, inspector, edificio…" placeholderTextColor={colors.muted} style={input} />
               {renderSegChips()}
             </>
           ) : (
@@ -2997,7 +3076,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       );
                     })}
                   </View>
-                  <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
+                  <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, inspector…" placeholderTextColor={colors.muted} style={input} />
                   {/* Seleccionar todas (las filtradas) + contador */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
                     <TouchableOpacity onPress={() => setSelIds(allSel ? new Set() : new Set(shown.map((m) => m.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

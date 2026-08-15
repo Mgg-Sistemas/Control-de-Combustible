@@ -523,7 +523,16 @@ export default function EquiposScreen({ navigation, route }: any) {
   // + detalle: agrupa por TIPO de equipo (= código, lo que se lee "CAMION VOLTEO
   // TORONTO") y bajo cada tipo lista los equipos por empresa. Sin horas ni precios.
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
+  // Empresas del reporte. Vacío = general (todas). Se pueden marcar varias.
+  const [reportCompanies, setReportCompanies] = useState<Set<string>>(new Set());
+  const toggleReportCompany = (v: string) =>
+    setReportCompanies((prev) => {
+      // "General (todas)" no es una empresa más: limpia la selección.
+      if (v === '__all__') return new Set<string>();
+      const n = new Set(prev);
+      n.has(v) ? n.delete(v) : n.add(v);
+      return n;
+    });
   // Filtro por TIPO (código, unificado por texto normalizado). Vacío = todos.
   const [reportTypes, setReportTypes] = useState<Set<string>>(new Set());
   const [reportTypeQ, setReportTypeQ] = useState(''); // buscador del filtro de tipos
@@ -543,12 +552,13 @@ export default function EquiposScreen({ navigation, route }: any) {
   // remoción y/o excavación" sin tener que marcar cada código uno por uno.
   const repClasifKey = (m: Machinery) => norm((m as any).clasificacion || '').trim();
   const repClasifLabel = (m: Machinery) => (String((m as any).clasificacion || '').trim().toUpperCase() || 'SIN CLASIFICACIÓN');
-  const scopedMachines = (scope: string) =>
-    scope === '__all__'
+  // Alcance del reporte por EMPRESA: conjunto vacío = TODAS (general). Antes era una
+  // sola empresa a la vez y no había forma de pedir "estas tres": tocaba sacar un PDF
+  // por empresa y juntarlos a mano. '__none__' representa las máquinas sin empresa.
+  const scopedMachines = (sel: Set<string>) =>
+    sel.size === 0
       ? machinery.data
-      : scope === '__none__'
-      ? machinery.data.filter((m) => !m.company_id)
-      : machinery.data.filter((m) => m.company_id === scope);
+      : machinery.data.filter((m) => (m.company_id ? sel.has(m.company_id) : sel.has('__none__')));
 
   // Horas trabajadas por máquina HASTA el 05/07/2026 (para el reporte de maquinaria).
   // Se carga una vez; horas = (día + noche) − parada + extras, dedupe por máquina+día.
@@ -989,12 +999,18 @@ export default function EquiposScreen({ navigation, route }: any) {
     return 'operativa';
   };
   const [reportEstados, setReportEstados] = useState<Set<EstadoConteo>>(new Set());
+  // ¿El PDF de conteo lleva las dos columnas de INSPECTOR (☀️ día / 🌙 noche)?
+  // Arranca en `true` porque es como salía el reporte hasta ahora: quien no toque
+  // el interruptor sigue descargando exactamente el mismo documento. Se apaga
+  // cuando el reporte es para alguien que solo necesita el conteo de equipos y
+  // las dos columnas extra solo estorban (y estrechan el resto de la tabla).
+  const [reportConInspector, setReportConInspector] = useState(true);
   const toggleReportEstado = (e: EstadoConteo) =>
     setReportEstados((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
   const matchEstadoConteo = (m: Machinery) => reportEstados.size === 0 || reportEstados.has(estadoConteoOf(m));
-  const buildReportData = (scope: string, sel: Set<string>) => {
-    const base = scopedMachines(scope).filter(matchEstadoConteo);
-    const src = sel.size === 0 ? base : base.filter((m) => sel.has(repClasifKey(m)));
+  const buildReportData = (empresasSel: Set<string>, clasif: Set<string>) => {
+    const base = scopedMachines(empresasSel).filter(matchEstadoConteo);
+    const src = clasif.size === 0 ? base : base.filter((m) => clasif.has(repClasifKey(m)));
     const byCo = new Map<string, { name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
@@ -1007,30 +1023,38 @@ export default function EquiposScreen({ navigation, route }: any) {
       .sort((a, b) => (a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name)));
     return { total: src.length, empresas };
   };
-  const reportData = useMemo(() => buildReportData(reportCompany, reportTypes), [reportCompany, reportTypes, reportEstados, machinery.data, companyName, averiaCat, jornadaCat, nowTick, inspByShift]);
+  const reportData = useMemo(() => buildReportData(reportCompanies, reportTypes), [reportCompanies, reportTypes, reportEstados, machinery.data, companyName, averiaCat, jornadaCat, nowTick, inspByShift]);
   // Opciones del checklist: CLASIFICACIONES del alcance con su cantidad (ej. Excavadora,
   // Volteo, Retro… — para poder pedir "solo remoción y/o excavación" de una vez).
   const reportTypeOptions = useMemo(() => {
     const m = new Map<string, { key: string; tipo: string; count: number }>();
-    scopedMachines(reportCompany).filter(matchEstadoConteo).forEach((it) => {
+    scopedMachines(reportCompanies).filter(matchEstadoConteo).forEach((it) => {
       const k = repClasifKey(it);
       const e = m.get(k) ?? { key: k, tipo: repClasifLabel(it), count: 0 };
       e.count += 1;
       m.set(k, e);
     });
     return Array.from(m.values()).sort((a, b) => cmpText(a.tipo, b.tipo));
-  }, [reportCompany, reportEstados, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
+  }, [reportCompanies, reportEstados, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
   // Conteo por ESTADO dentro del alcance elegido (empresa), para los chips del filtro —
   // NO se filtra por el propio reportEstados, así los números siempre se ven completos.
   const reportEstadoCounts = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
-    scopedMachines(reportCompany).forEach((m) => { counts[estadoConteoOf(m)] += 1; });
+    scopedMachines(reportCompanies).forEach((m) => { counts[estadoConteoOf(m)] += 1; });
     return counts;
-  }, [reportCompany, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
+  }, [reportCompanies, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
   const reportTotal = reportData.total;
-  const titleForScope = (scope: string) =>
-    scope === '__all__' ? 'Conteo de equipos — general' : `Conteo de equipos — ${companyName(scope) || 'Sin empresa'}`;
-  const reportTitle = titleForScope(reportCompany);
+  // Nombre legible de una empresa del alcance ('__none__' = las que no tienen empresa).
+  const scopeLabel = (v: string) => (v === '__none__' ? 'Sin empresa' : companyName(v) || 'Sin empresa');
+  // Con varias empresas el título no puede listarlas todas (no cabe en el PDF ni en la
+  // pantalla): hasta 2 se nombran, de 3 en adelante se resume en la cantidad.
+  const titleForScope = (sel: Set<string>) => {
+    if (sel.size === 0) return 'Conteo de equipos — general';
+    const nombres = Array.from(sel).map(scopeLabel).sort(cmpText);
+    if (nombres.length <= 2) return `Conteo de equipos — ${nombres.join(' + ')}`;
+    return `Conteo de equipos — ${nombres.length} empresas`;
+  };
+  const reportTitle = titleForScope(reportCompanies);
   const estadoTxt = (m: Machinery) => ESTADO_CONTEO_META[estadoConteoOf(m)].label;
   const estadoColor = (m: Machinery) => ESTADO_CONTEO_META[estadoConteoOf(m)].color;
   // Fecha (DD/MM/YYYY) de un timestamp ISO; null si no hay.
@@ -1123,7 +1147,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     return edificioCanonico(ref) || (ref && ref.trim()) || '—';
   };
 
-  const buildReportHtml = (scope: string) => {
+  const buildReportHtml = (scope: Set<string>) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const { total, empresas } = buildReportData(scope, reportTypes);
     const estColor = (m: Machinery) => ESTADO_CONTEO_META[estadoConteoOf(m)].hex;
@@ -1162,8 +1186,7 @@ export default function EquiposScreen({ navigation, route }: any) {
               <td>${esc(m.plate || '—')}</td>
               <td>${esc((m as any).sector || '—')}</td>
               <td>${esc(edificioOrRef(m))}</td>
-              <td>${esc(insp?.day || '—')}</td>
-              <td>${esc(insp?.night || '—')}</td>
+              ${reportConInspector ? `<td>${esc(insp?.day || '—')}</td><td>${esc(insp?.night || '—')}</td>` : ''}
               <td style="color:${estColor(m)}">${esc(estadoTxt(m))}</td>
             </tr>`;
           })
@@ -1171,7 +1194,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         return `<h3 class="emp">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
           <table><thead><tr>
             <th style="width:26px">#</th><th>Equipo</th><th>Clasificación</th><th>Serial</th><th>Placa</th>
-            <th>Sector</th><th>Edificio / Referencia</th><th>Inspector ☀️ Día</th><th>Inspector 🌙 Noche</th><th>Estado</th>
+            <th>Sector</th><th>Edificio / Referencia</th>${reportConInspector ? '<th>Inspector ☀️ Día</th><th>Inspector 🌙 Noche</th>' : ''}<th>Estado</th>
           </tr></thead>
           <tbody>${rows}</tbody></table>`;
       })
@@ -1200,7 +1223,7 @@ export default function EquiposScreen({ navigation, route }: any) {
          ${detalle || '<p class="muted">Sin equipos para este filtro.</p>'}`,
     });
   };
-  const downloadReportPdf = async (scope: string = reportCompany) => {
+  const downloadReportPdf = async (scope: Set<string> = reportCompanies) => {
     await exportPdf(buildReportHtml(scope), 'Catálogo - Conteo de equipos');
   };
 
@@ -2130,24 +2153,38 @@ export default function EquiposScreen({ navigation, route }: any) {
             <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>📄 Reportes de maquinaria</SectionTitle>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Elige el alcance del reporte</Text>
+          {/* Alcance por EMPRESA: multi-selección (igual criterio que el filtro de estado
+              de abajo — vacío = todas). "General (todas)" no es una empresa: limpia. */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>
+            Elige el alcance del reporte{reportCompanies.size > 0 ? ` · ${reportCompanies.size} empresa(s) marcada(s)` : ' (todas)'}
+          </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
             {companyOptions
               .map((o) => ({ ...o, label: o.value === '__all__' ? 'General (todas)' : o.label }))
               .map((o) => {
-                const active = reportCompany === o.value;
+                // "General" se ve encendida solo cuando no hay ninguna empresa marcada.
+                const esGeneral = o.value === '__all__';
+                const active = esGeneral ? reportCompanies.size === 0 : reportCompanies.has(o.value);
                 return (
                   <TouchableOpacity
                     key={o.value}
-                    onPress={() => setReportCompany(o.value)}
+                    onPress={() => toggleReportCompany(o.value)}
                     style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
                   >
+                    {!esGeneral ? (
+                      <Text style={{ fontSize: 12 }}>{active ? '☑️' : '⬜'}</Text>
+                    ) : null}
                     <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
                     <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
                   </TouchableOpacity>
                 );
               })}
           </View>
+          {reportCompanies.size > 0 ? (
+            <TouchableOpacity onPress={() => setReportCompanies(new Set())} style={{ alignSelf: 'flex-start', marginTop: -spacing.xs, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Quitar la selección (volver a general)</Text>
+            </TouchableOpacity>
+          ) : null}
 
           {/* Filtro por ESTADO: multi-selección (vacío = todos los estados). Antes el
               conteo excluía en silencio Retiradas y Esperando instrucciones, sin forma de
@@ -2231,12 +2268,34 @@ export default function EquiposScreen({ navigation, route }: any) {
             </View>
           ) : null}
 
+          {/* Interruptor de las columnas de inspector. Va PEGADO al botón de descarga
+              (no arriba con los filtros de estado/clasificación) porque no filtra qué
+              equipos salen, sino qué columnas trae el PDF: al lado del botón se ve
+              justo antes de descargarlo. */}
+          <TouchableOpacity
+            onPress={() => setReportConInspector((v) => !v)}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.sm }}
+          >
+            <Text style={{ fontSize: 17 }}>{reportConInspector ? '☑️' : '⬜'}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Incluir el inspector asignado</Text>
+              <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                {reportConInspector
+                  ? 'El PDF trae las columnas ☀️ Día y 🌙 Noche.'
+                  : 'El PDF sale solo con el conteo, sin columnas de inspector.'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
-            onPress={() => downloadReportPdf(reportCompany)}
+            onPress={() => downloadReportPdf(reportCompanies)}
             disabled={reportTotal === 0}
           >
-            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar PDF (conteo)</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>
+              {reportConInspector ? '⬇️ Descargar PDF (conteo · con inspector)' : '⬇️ Descargar PDF (solo conteo)'}
+            </Text>
           </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>

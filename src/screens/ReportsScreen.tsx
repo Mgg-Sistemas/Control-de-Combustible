@@ -466,7 +466,10 @@ export default function ReportsScreen({ route }: any) {
   type MachineDetail = { code: string; serial: string | null; plate: string | null; company: string; tipo: string; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
-  type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean };
+  // `insDia`/`insNoche`: inspector asignado por turno (machine_inspectors). Se cargan
+  // SIEMPRE al generar el conteo, pero solo salen en el PDF si se activa el switch
+  // "Incluir inspector asignado" — así se puede cambiar de opinión sin regenerar.
+  type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean; insDia: string | null; insNoche: string | null };
   const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; ubicadosGps: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[]; zonaCountsGps: { name: string; count: number }[]; sinGpsByTipo: { name: string; count: number }[]; sinGpsCount: number } | null>(null);
   const [conteoMap, setConteoMap] = useState(false); // modal del mapa por sectores
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
@@ -476,6 +479,9 @@ export default function ReportsScreen({ route }: any) {
   const [tacConPersonal, setTacConPersonal] = useState(false);
   // Filtro por ZONA del conteo: '__all__' (todas), un nombre de zona, o 'Sin zona'.
   const [conteoZona, setConteoZona] = useState<string>('__all__');
+  // Conteo de equipos: ON = el PDF agrega el desglose por inspector y el detalle
+  // equipo→inspector (☀️ día / 🌙 noche). OFF = el reporte de siempre, solo totales.
+  const [conteoConInspector, setConteoConInspector] = useState(false);
   // Al reabrir el conteo, arranca mostrando todas las zonas.
   useEffect(() => { if (conteoPreview) setConteoZona('__all__'); }, [conteoPreview]);
   // Actualización EN VIVO del reporte abierto: guarda la función para regenerarlo con
@@ -1306,6 +1312,18 @@ export default function ReportsScreen({ route }: any) {
       });
       hoursByMachine.forEach((v, k) => { if (v > 0) workedSet.add(k); });
     }
+    // Inspector asignado por máquina y turno. Es aditivo: si la consulta falla (o falta
+    // correr el SQL de machine_inspectors), el conteo sale igual y el inspector queda en
+    // blanco — no se rompe el reporte por un dato opcional.
+    const insByMachine = new Map<string, { day?: string; night?: string }>();
+    try {
+      const { rows: asg } = await listInspectorAssignments();
+      (asg ?? []).forEach((r) => {
+        const g = insByMachine.get(r.machinery_id) ?? {};
+        if (r.shift === 'night') g.night = r.inspector_name; else g.day = r.inspector_name;
+        insByMachine.set(r.machinery_id, g);
+      });
+    } catch { /* sin asignaciones: el PDF mostrará "—" en las columnas de inspector */ }
     const clasMap = new Map<string, ConteoRow>();
     const tipoMap = new Map<string, ConteoRow>();
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
@@ -1357,6 +1375,8 @@ export default function ReportsScreen({ route }: any) {
       zona: zonaR(m),
       dispo: (m.zona && String(m.zona).trim()) || 'Propias',
       tieneHoras: workedSet.has(m.id),
+      insDia: insByMachine.get(m.id)?.day ?? null,
+      insNoche: insByMachine.get(m.id)?.night ?? null,
     }));
     // Puntos del mapa (solo las ubicadas), coloreados por empresa como el mapa general.
     const mapPins: MapPin[] = list
@@ -1469,6 +1489,36 @@ export default function ReportsScreen({ route }: any) {
             <tfoot><tr><td>TOTAL SIN UBICACIÓN</td><td style="text-align:right">${sinUbic}</td></tr></tfoot></table>`;
       }
     }
+    // ── INSPECTOR ASIGNADO (opcional, switch "Incluir inspector asignado") ──────
+    // Dos tablas: cuántos equipos lleva cada inspector por turno, y el detalle
+    // equipo→inspector. Respeta el filtro de zona igual que el resto del reporte.
+    let inspectorHtml = '';
+    if (conteoConInspector) {
+      const porInspector = new Map<string, { dia: number; noche: number }>();
+      rowsZona.forEach((r) => {
+        if (r.insDia) { const e = porInspector.get(r.insDia) ?? { dia: 0, noche: 0 }; e.dia += 1; porInspector.set(r.insDia, e); }
+        if (r.insNoche) { const e = porInspector.get(r.insNoche) ?? { dia: 0, noche: 0 }; e.noche += 1; porInspector.set(r.insNoche, e); }
+      });
+      const insRows = [...porInspector.entries()]
+        .sort((a, b) => cmpText(a[0], b[0]))
+        .map(([name, c]) => `<tr><td>${esc(name)}</td><td style="text-align:right;font-weight:700">${c.dia || ''}</td><td style="text-align:right;font-weight:700">${c.noche || ''}</td><td style="text-align:right;font-weight:800">${c.dia + c.noche}</td></tr>`)
+        .join('');
+      const sinAsignar = rowsZona.filter((r) => !r.insDia && !r.insNoche).length;
+      const detalleRows = rowsZona
+        .slice()
+        .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code))
+        .map((r) => `<tr><td>${esc(r.code)}</td><td>${esc(r.serial || '—')}</td><td>${esc(r.company)}</td><td>${esc(r.insDia || '—')}</td><td>${esc(r.insNoche || '—')}</td></tr>`)
+        .join('');
+      inspectorHtml = `
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Equipos por inspector · ${esc(zonaTxt)}</h2>
+      <table class="cnt"><thead><tr><th>Inspector</th><th style="text-align:right">☀️ Día</th><th style="text-align:right">🌙 Noche</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${insRows || '<tr><td colspan="4" style="text-align:center">Sin inspectores asignados</td></tr>'}</tbody></table>
+      ${sinAsignar ? `<p style="font-size:11px;color:#6B7280;margin:-10px 0 12px">${sinAsignar} equipo(s) sin ningún inspector asignado.</p>` : ''}
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Detalle: equipo e inspector asignado</h2>
+      <table class="cnt"><thead><tr><th>Equipo</th><th>Serial</th><th>Empresa</th><th>☀️ Día</th><th>🌙 Noche</th></tr></thead>
+        <tbody>${detalleRows}</tbody>
+        <tfoot><tr><td colspan="4">TOTAL EQUIPOS</td><td style="text-align:right">${rowsZona.length}</td></tr></tfoot></table>`;
+    }
     const tablasHtml = `${zonaSummary}
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación · ${esc(zonaTxt)}</h2>
       <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
@@ -1480,7 +1530,8 @@ export default function ReportsScreen({ route }: any) {
         <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>
       ${dispoHtml}
       ${tipoZonaHtml}
-      ${sinUbicHtml}`;
+      ${sinUbicHtml}
+      ${inspectorHtml}`;
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -2579,9 +2630,17 @@ export default function ReportsScreen({ route }: any) {
           <SectionTitle>📊 Conteo de equipos</SectionTitle>
           {conteo ? (
             <>
+              {/* Switch: agrega al PDF el desglose por inspector y el detalle equipo→inspector.
+                  No hace falta regenerar el conteo — los inspectores ya vienen cargados. */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
+                  {conteoConInspector ? '👷 Con inspector asignado (☀️ día · 🌙 noche)' : '📊 Solo el conteo (sin inspector)'}
+                </Text>
+                <Switch value={conteoConInspector} onValueChange={setConteoConInspector} />
+              </View>
               {/* Botón de descarga ARRIBA (a la mano, sin bajar hasta el final). */}
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginBottom: spacing.sm }]} onPress={downloadConteoPdf}>
-                <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+                <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF{conteoConInspector ? ' · con inspector' : ''}</Text>
               </TouchableOpacity>
               {/* Reporte Diario de Operaciones (máquinas reales por a cargo de + ubicaciones). */}
               {/* Switch: solo ubicaciones (por defecto) o CON PERSONAL (operadores por máquina + coordinadores/inspectores por zona). */}

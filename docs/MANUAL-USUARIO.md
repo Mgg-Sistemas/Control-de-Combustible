@@ -165,6 +165,26 @@ ahora trae el detalle completo de cada equipo, no solo el conteo. Muestra, en es
   remoción y excavación de una sola vez). Los equipos sin clasificación cargada aparecen bajo
   **"Sin clasificación"**, no se esconden. Botón **⬇️ Descargar PDF (conteo)**.
 
+> **🏢 Varias empresas a la vez (15/08/2026):** el alcance del reporte ya **no es una sola
+> empresa**. Las pastillas de empresa ahora son **casillas** y se pueden marcar **varias**:
+> marca GOLDEN y LICCIONE y el PDF sale con las dos, agrupadas por empresa como siempre.
+> **General (todas)** no es una empresa más — al tocarla se **limpia** la selección y el
+> reporte vuelve a salir completo. Arriba se indica cuántas llevas marcadas, y aparece el
+> enlace **"✕ Quitar la selección (volver a general)"**. El título del reporte se adapta:
+> con una o dos empresas las nombra (*"Conteo de equipos — GOLDEN + LICCIONE"*) y de tres
+> en adelante resume (*"Conteo de equipos — 3 empresas"*), porque los nombres completos no
+> caben. Los filtros de **estado** y **clasificación** siguen aplicándose encima de lo que
+> hayas marcado.
+
+> **☑️ Incluir el inspector asignado (15/08/2026):** justo encima del botón de descarga hay una
+> casilla que decide si el PDF trae las dos columnas **Inspector ☀️ Día** e **Inspector 🌙 Noche**.
+> Viene **tildada**, que es como salía el reporte hasta ahora: quien no la toque descarga
+> exactamente el mismo documento de siempre. Al destildarla el PDF sale **solo con el conteo**
+> (equipo, clasificación, serial, placa, sector, edificio y estado), y el botón cambia a
+> **"⬇️ Descargar PDF (solo conteo)"** para que sepas qué vas a bajar antes de tocarlo. Sirve
+> para cuando el reporte es para alguien que solo necesita cuántos equipos hay y dónde están:
+> las dos columnas de inspector estrechan el resto de la tabla y no le aportan nada.
+
 ### 4.5. Control de maquinaria (las horas que trabaja cada máquina)
 Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** cada máquina.
 
@@ -818,6 +838,25 @@ campo.
 Sirve para saber si los inspectores **sí están yendo a las máquinas** a revisar que estén
 trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
+
+> **📄 Mi reporte de jornada — desde el teléfono, cuando quiera (15/08/2026):** el inspector
+> tiene en su pantalla un bloque **"📄 Mi reporte de jornada"** con el que se descarga el PDF
+> del resumen de **sus** máquinas: cada una con su estado, las horas que trabajó, las de parada
+> y el total de la jornada. Es el mismo dato que ve el jefe.
+>
+> **Antes solo aparecía al terminar el turno** (cuando ya no le quedaba ninguna máquina en
+> curso), así que no podía sacar el de ayer ni revisar el de hoy a media jornada. Ahora:
+> - Elige el **día** con **◀ ▶** — hacia atrás lo que necesite; hacia adelante no pasa de hoy.
+> - Elige el **turno** ☀️ Día / 🌙 Noche. Arranca en el suyo; se puede cambiar por si cubrió el otro.
+> - Descarga con **📄 Descargar reporte (PDF)**.
+>
+> Si lo pide **a media jornada**, sale el aviso *"⚠️ Todavía tienes máquinas en curso: el reporte
+> sale con lo que hay hasta ahora"* — para que no lo confunda con el cierre definitivo. El día
+> que manda es el **día de negocio**: el turno de noche pertenece al día en que arrancó, así que
+> un reporte de noche pedido a la 1:00 am sigue siendo el del día anterior.
+>
+> Este botón **solo lee**: genera el PDF y no cambia nada en el sistema. Se puede pedir las veces
+> que haga falta.
 
 > **📱 Teléfono vs 💻 PC:** cada rol entra a **su propia pantalla**, igual en teléfono que en PC
 > (ver 4.25 "Enrutamiento por rol al iniciar sesión" para el mapa completo) — el **inspector**
