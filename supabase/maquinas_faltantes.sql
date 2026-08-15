@@ -98,9 +98,9 @@ begin
 end $$;
 
 -- 3) Función: genera la jornada de "ayer" (hora Caracas) para cada máquina que
---    tenga uno o ambos turnos en manos del virtual. Bolqueta/toronto (camión):
---    12h si es el turno día, 12h si es el turno noche (ambos → 24h, 12x12).
---    Cualquier otra máquina: 12h día / 6h noche (ambos → 18h), como antes.
+--    tenga uno o ambos turnos en manos del virtual. NOCHE = 12h (7pm→7am) para
+--    TODAS (regla 14-ago-2026; antes el genérico eran 6h y se "paraba a la 1am").
+--    Día = 12h. Con ambos turnos → 24h (12h día + 12h noche).
 --    ACTUALIZADO 2026-08-04 (ver supabase/auto_start_dia_maquinas_faltantes.sql):
 --    el turno DÍA ahora normalmente ya lo maneja auto_start_placeholder_day()
 --    (arranca jornada_start_at a las 7am, la cierra solo auto_close_jornadas()
@@ -137,10 +137,14 @@ begin
       continue; -- por si acaso: ya no le pertenece a ninguno de los dos turnos
     end if;
 
-    es_camion := lower(coalesce(r.code, '')) ~ 'volqueta|toronto';
-    night_len := case when es_camion then interval '12 hours' else interval '6 hours' end;
+    -- NOCHE = 12h (7pm→7am) para TODAS las máquinas faltantes (regla cliente
+    -- 14-ago-2026: la noche cierra a las 7:00am, ya no a la 1:00am). Antes el
+    -- genérico cargaba 6h (7pm→1am, "se paraba a la 1am") y solo la volqueta/
+    -- toronto cargaba 12h — esa distinción se eliminó: todas cuentan 12h de noche.
+    es_camion := lower(coalesce(r.code, '')) ~ 'volqueta|toronto';  -- (ya sin efecto en noche)
+    night_len := interval '12 hours';
     v_day   := case when day_owned then 12 else 0 end;
-    v_night := case when night_owned then (case when es_camion then 12 else 6 end) else 0 end;
+    v_night := case when night_owned then 12 else 0 end;
 
     day_start   := (ayer + time '07:00') at time zone 'America/Caracas';
     day_end     := (ayer + time '19:00') at time zone 'America/Caracas';
