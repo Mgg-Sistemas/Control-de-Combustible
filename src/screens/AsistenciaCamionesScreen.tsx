@@ -19,6 +19,7 @@ import { saveVisit } from '../lib/supervisorVisits';
 import { shiftOf, caracasParts } from '../lib/jornada';
 import { logAudit } from '../lib/audit';
 import { logTruckYard } from '../lib/truckYard';
+import { isCierreAnticipado } from '../lib/caracasDay';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -79,6 +80,7 @@ export default function AsistenciaCamionesScreen() {
   const [jorRound, setJorRound] = useState<Round | null>(null); // si tiene jornada abierta
   const [horoIni, setHoroIni] = useState('');
   const [horoFin, setHoroFin] = useState('');
+  const [motivoFin, setMotivoFin] = useState(''); // motivo OBLIGATORIO si el cierre es anticipado
   const [jorBusy, setJorBusy] = useState(false);
 
   // Avería.
@@ -242,6 +244,11 @@ export default function AsistenciaCamionesScreen() {
     if (jorRound.iniHoro != null && hf < jorRound.iniHoro) {
       setNotice(`❌ El horómetro final (${hf}) no puede ser menor al inicial (${jorRound.iniHoro}).`); return;
     }
+    // MOTIVO OBLIGATORIO si se finaliza ANTES de la hora de fin del turno (día <7pm /
+    // noche <7am) — regla cliente 15-ago-2026: TODO cierre anticipado debe registrarlo.
+    const anticipado = isCierreAnticipado(date, jorRound.shift ?? 'day');
+    const motivo = motivoFin.trim();
+    if (anticipado && !motivo) { setNotice('❌ Cierre anticipado: escribe el MOTIVO del cierre para finalizar.'); return; }
     setJorBusy(true);
     const horas = Math.max(0, Math.round((Date.now() - new Date(jorRound.startAt).getTime()) / 3600000 * 100) / 100);
     const prev = await getMachineRound(jorTruck.id, date);
@@ -250,10 +257,18 @@ export default function AsistenciaCamionesScreen() {
     const res = await upsertMachineRound(jorTruck.id, date, { [key]: Math.round((base + horas) * 100) / 100, horometro_final: hf, jornada_start_at: null }, uid || null);
     setJorBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
-    logAudit('JORNADA_FIN', 'machinery', jorTruck.id, `${jorTruck.code} · ${horas.toFixed(2)} h`);
+    logAudit('JORNADA_FIN', 'machinery', jorTruck.id, `${jorTruck.code} · ${horas.toFixed(2)} h${motivo ? ` · Motivo cierre: ${motivo}` : ''}`);
     logTruckYard(jorTruck.id, jorTruck.code, 'entrada', uid || null, fullName || null); // camión: ENTRADA al finalizar
+    // 📋 Tramo auditable (best-effort): guarda el motivo del cierre en close_reason
+    // para que se vea en el resumen de CERRADAS/FINALIZADAS.
+    supabase.from('machine_work_segments').insert({
+      machinery_id: jorTruck.id, round_date: date, shift: jorRound.shift,
+      started_at: jorRound.startAt, ended_at: new Date().toISOString(), hours: horas,
+      source: anticipado ? 'manual_finish_early' : 'manual_finish', recorded_by: uid || null,
+      ...(motivo ? { close_reason: motivo } : {}),
+    }).then(() => {}, () => {});
     setNotice(`🏁 Jornada finalizada · ${jorTruck.code} · ${horas.toFixed(2)} h → Control · ENTRADA registrada.`);
-    setJorTruck(null); setJorRound(null); load();
+    setJorTruck(null); setJorRound(null); setMotivoFin(''); load();
   };
 
   // ── Avería ────────────────────────────────────────────────────────────────
@@ -422,7 +437,7 @@ export default function AsistenciaCamionesScreen() {
       </Modal>
 
       {/* Jornada: iniciar o finalizar */}
-      <Modal visible={!!jorTruck} transparent animationType="fade" onRequestClose={() => { setJorTruck(null); setJorRound(null); }}>
+      <Modal visible={!!jorTruck} transparent animationType="fade" onRequestClose={() => { setJorTruck(null); setJorRound(null); setMotivoFin(''); }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <Card>
             {jorTruck ? (
@@ -434,8 +449,16 @@ export default function AsistenciaCamionesScreen() {
                     <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm }}>Inició {caracasClock(jorRound.startAt!)} ({jorRound.shift === 'night' ? '🌙 noche' : '☀️ día'})</Text>
                     <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final</Text>
                     <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.md }]} />
+                    {isCierreAnticipado(date, jorRound.shift ?? 'day') ? (
+                      <View style={{ backgroundColor: (colors as any).warningSoftBg ?? '#FEF3C7', borderWidth: 1, borderColor: (colors as any).warningSoftBorder ?? '#F59E0B', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md }}>
+                        <Text style={{ color: (colors as any).warningSoftText ?? '#92400E', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>
+                          ⚠️ Cierre anticipado ({jorRound.shift === 'night' ? 'antes de las 7:00am' : 'antes de las 7:00pm'}) · Motivo OBLIGATORIO
+                        </Text>
+                        <TextInput value={motivoFin} onChangeText={setMotivoFin} placeholder="Motivo del cierre (obligatorio)" placeholderTextColor={colors.muted} multiline style={[input, { minHeight: 54, textAlignVertical: 'top' }]} />
+                      </View>
+                    ) : null}
                     <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                      <TouchableOpacity onPress={() => { setJorTruck(null); setJorRound(null); }} disabled={jorBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                      <TouchableOpacity onPress={() => { setJorTruck(null); setJorRound(null); setMotivoFin(''); }} disabled={jorBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={finalizarJornada} disabled={jorBusy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jorBusy ? 0.6 : 1 }}>

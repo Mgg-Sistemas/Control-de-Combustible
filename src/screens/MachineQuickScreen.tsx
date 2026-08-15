@@ -8,6 +8,7 @@ import { Machinery, MaintenanceMaterial, OperatorAssignment } from '../types/dat
 import { insertMachineDispatch } from '../lib/dispatches';
 import { upsertMachineRound } from '../lib/machineRounds';
 import { startJornada } from '../lib/jornada';
+import { isCierreAnticipado } from '../lib/caracasDay';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { captureLocation, warmLocation, getCurrentCoords } from '../lib/location';
 import { formatUTM } from '../lib/utm';
@@ -150,6 +151,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const [empSearching, setEmpSearching] = useState(false);
   const [hIni, setHIni] = useState('');
   const [hFin, setHFin] = useState('');
+  const [motivoFin, setMotivoFin] = useState(''); // motivo OBLIGATORIO si el cierre es anticipado
   const [horPhoto, setHorPhoto] = useState<string | null>(null);
   const [horUploading, setHorUploading] = useState(false);
   // Reloj en vivo (refresca cada 20 s) para mostrar la hora de Caracas y la jornada.
@@ -337,6 +339,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const abrirFin = () => {
     setNotice(null);
     setHFin('');
+    setMotivoFin('');
     setView('jfin');
   };
 
@@ -451,10 +454,15 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     const hf = Number((hFin || '').replace(',', '.'));
     if (!isFinite(hf)) { setNotice('❌ Ingresa el horómetro final.'); return; }
     if (hf < hi) { setNotice(`❌ El horómetro final (${hf}) no puede ser menor al inicial (${hi}).`); return; }
+    const sh = shiftOf(caracasParts(start).hour);
+    // MOTIVO OBLIGATORIO si se finaliza ANTES de la hora de fin del turno (día <7pm /
+    // noche <7am) — regla cliente 15-ago-2026: TODO cierre anticipado debe registrarlo.
+    const anticipado = isCierreAnticipado(roundDate, sh.key);
+    const motivo = motivoFin.trim();
+    if (anticipado && !motivo) { setNotice('❌ Cierre anticipado: escribe el MOTIVO del cierre para finalizar.'); return; }
     setJornadaBusy(true); setNotice(null);
     const now = new Date();
     const hours = Math.round((hf - hi) * 100) / 100; // total de horas = HF − HI
-    const sh = shiftOf(caracasParts(start).hour);
     const full = asg ? `${asg.first_name} ${asg.last_name}` : (fullName || null);
     const ci = asg?.cedula ?? null;
     const roundPatch: any = sh.key === 'day'
@@ -475,6 +483,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     setJornadaStartAt(null);
     setAsg(null);
     setMachine((p) => (p ? { ...p, last_horometro: hf } : p));
+    setMotivoFin('');
     setView('home');
     setNotice(`✅ Jornada finalizada · ${sh.label} · Horómetro ${hi} → ${hf} = ${hours} h registradas en Control de maquinaria.`);
     // Registro best-effort en paralelo para analítica de horas por segmento; nunca
@@ -482,7 +491,8 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     supabase.from('machine_work_segments').insert({
       machinery_id: machine.id, round_date: roundDate, shift: sh.key,
       started_at: start.toISOString(), ended_at: now.toISOString(), hours,
-      source: 'manual_finish', recorded_by: uid || null,
+      source: anticipado ? 'manual_finish_early' : 'manual_finish', recorded_by: uid || null,
+      ...(motivo ? { close_reason: motivo } : {}),
     }).then(() => {}, () => {});
   };
 
@@ -756,6 +766,21 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
               <Text style={{ color: ok ? colors.success : colors.muted, fontSize: 12, marginTop: 4, fontWeight: '700' }}>
                 {ok ? `Total de horas = ${Math.round((hfN - hiRef) * 100) / 100} h (HF − HI)` : `HF − HI (HI = ${hiRef})`}
               </Text>
+            );
+          })()}
+          {(() => {
+            // MOTIVO OBLIGATORIO si el cierre es anticipado (día <7pm / noche <7am).
+            const start = jornadaStartAt ? new Date(jornadaStartAt) : new Date();
+            const roundDate = jornadaStartDate || asg?.work_date || caracasParts(start).iso;
+            const sh = shiftOf(caracasParts(start).hour);
+            if (!isCierreAnticipado(roundDate, sh.key)) return null;
+            return (
+              <View style={{ backgroundColor: (colors as any).warningSoftBg ?? '#FEF3C7', borderWidth: 1, borderColor: (colors as any).warningSoftBorder ?? '#F59E0B', borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm }}>
+                <Text style={{ color: (colors as any).warningSoftText ?? '#92400E', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>
+                  ⚠️ Cierre anticipado ({sh.key === 'night' ? 'antes de las 7:00am' : 'antes de las 7:00pm'}) · Motivo OBLIGATORIO
+                </Text>
+                <TextInput value={motivoFin} onChangeText={setMotivoFin} placeholder="Motivo del cierre (obligatorio)" placeholderTextColor={colors.muted} multiline style={[input, { minHeight: 54, textAlignVertical: 'top' }]} />
+              </View>
             );
           })()}
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>

@@ -1792,14 +1792,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   };
   // ¿Se está cerrando ANTES de la hora de fin del turno? (cierre anticipado)
   const cierreAnticipado = (): boolean => { const e = jornadaEndMs(); return e != null && Date.now() < e; };
-  // ¿Exige MOTIVO este cierre? Solo cierres MANUALES anticipados de inspectores NORMALES.
-  // El inspector "SOS LA GUAIRA" (siempre activo, cierre/fin automático 12h) queda FUERA
-  // de la regla: sus máquinas nunca piden motivo (regla 12-ago-2026).
-  const requiereMotivoCierre = (): boolean => {
-    if (!ci || !cierreAnticipado()) return false;
-    const insp = (assignMap[ci.id] as any)?.[jornadaShift]?.name ?? '';
-    return !inspectorSiempreActivo(insp);
-  };
+  // ¿Exige MOTIVO este cierre? TODO cierre MANUAL anticipado (antes de la hora de fin
+  // del turno) exige motivo, SIN excepciones (regla cliente 15-ago-2026). Antes el
+  // inspector "SOS LA GUAIRA" (siempre activo) quedaba fuera; ya no — los cierres
+  // anticipados de cualquier máquina/inspector deben registrar el motivo para que se
+  // vea en el resumen de CERRADAS/FINALIZADAS.
+  const requiereMotivoCierre = (): boolean => !!ci && cierreAnticipado();
 
   const finalizarJornada = async () => {
     if (!ci || !jornadaStart || jornadaBusy) return;

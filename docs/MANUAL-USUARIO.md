@@ -216,10 +216,13 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > (permanencia de noche = 6h). **Excepción LUMINARIA:** las **luminarias** (torres/equipos de
 > iluminación) trabajan **toda la noche (7pm→7am)**, así que su jornada de **noche cierra a las 7:00am
 > (12h)** — igual pueden cerrarse a mano antes. El único equipo que trabaja **24h** y **nunca** se
-> auto-cierra es el **COMPRESOR CON MARTILLO (serial 79669)**. El inspector puede **finalizar manualmente antes**, pero
-> si cierra **antes de la hora** (día <7pm / noche <1am) el sistema le exige **OBLIGATORIO el MOTIVO
-> del cierre**. **Excepción:** el inspector **"SOS LA GUAIRA"** (máquinas siempre activas) cierra y
-> finaliza automático (12h fijas) y **no** pide motivo.
+> auto-cierra es el **COMPRESOR CON MARTILLO (serial 79669)**. Quien opera puede **finalizar manualmente antes**, pero
+> si cierra **antes de la hora de fin del turno** (día <7pm / noche <7am) el sistema le exige
+> **OBLIGATORIO el MOTIVO del cierre**. **(Regla 15-ago-2026:)** esto aplica ahora a **TODO cierre
+> anticipado, sin excepción** — incluye las máquinas del inspector **"SOS LA GUAIRA"** (siempre
+> activas) y los **camiones** cerrados desde **Patio**, **Asistencia de camiones** o el **escaneo de
+> QR de la máquina**. Así el motivo queda **siempre registrado** y se ve en la lista de
+> **🏁 Cerradas / finalizadas**.
 - Si un día no tiene tramos (por ejemplo, uno de antes de que existiera esta función), el total
   de arriba sigue siendo válido — simplemente no hay desglose para ese día.
 
@@ -1039,12 +1042,15 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
   > del total de la sesión que se está cerrando, se muestra el **acumulado del turno en el día**
   > (lo ya trabajado antes + lo que se acaba de cerrar) — para ver de una vez el total real del
   > turno, no solo el último tramo. Aplica igual en teléfono y en PC.
-  > **📝 Motivo de cierre (13-ago-2026):** si el inspector finaliza la jornada **antes de la hora de
-  > fin** (día <7pm / noche <1am) debe escribir un **motivo obligatorio**. Ese motivo ahora **se
-  > guarda y se muestra**: en la lista **🏁 Cerradas / finalizadas** (por inspector) y en los tres
-  > informes — **por firma, por empresa y por jornada** — junto a la máquina. (Antes solo quedaba en
-  > la bitácora; el `source='manual_finish_early'` no lo permitía el CHECK de la tabla y el motivo se
-  > perdía — corregido con `supabase/machine_segments_source_finish_early.sql`.)
+  > **📝 Motivo de cierre (13-ago-2026 · ampliado 15-ago-2026):** si se finaliza la jornada **antes de
+  > la hora de fin** (día <7pm / noche <7am) el sistema exige un **motivo obligatorio**. Ese motivo
+  > **se guarda y se muestra**: en la lista **🏁 Cerradas / finalizadas** (por inspector) y en los tres
+  > informes — **por firma, por empresa y por jornada** — junto a la máquina. **Desde el 15-ago-2026 el
+  > motivo se pide en TODO cierre anticipado, sin excepción:** también en máquinas **"SOS LA GUAIRA"**
+  > (siempre activas) y en **camiones** cerrados desde **Patio**, **Asistencia de camiones** o el
+  > **escaneo de QR** — antes esos cierres quedaban como `manual_finish` sin motivo y la lista salía en
+  > blanco. (Antes solo quedaba en la bitácora; el `source='manual_finish_early'` no lo permitía el
+  > CHECK de la tabla y el motivo se perdía — corregido con `supabase/machine_segments_source_finish_early.sql`.)
   > **▶️ Iniciada por / 🏁 Finalizada por (13-ago-2026):** cada jornada ahora muestra **quién la inició**
   > y **quién la finalizó** (nombre y apellido del supervisor/inspector). Aparece **sincronizado en todas
   > las tarjetas** del panel de Inspecciones (lista de máquinas al abrir cualquier categoría y su detalle)
