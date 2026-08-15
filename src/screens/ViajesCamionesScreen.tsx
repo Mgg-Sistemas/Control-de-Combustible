@@ -52,7 +52,7 @@ import {
   setAlertaHoras,
   resolveChoferActual,
 } from '../lib/camionViajes';
-import { QueuedViaje, subscribeViajesQueue, enqueueViaje, flushViajesQueue } from '../lib/viajesOfflineQueue';
+import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes } from '../lib/viajesOfflineQueue';
 
 // ── Fecha/hora en Caracas (mismas utilidades locales que otras pantallas de
 //    reportes, p. ej. AuditScreen/CoordinadorOperadoresScreen) ──────────────
@@ -121,7 +121,11 @@ const ESTADO_ADVERSO: EstadoConteo[] = ['averiada', 'parada', 'retirada'];
 
 type Preset = 'hoy' | 'semana' | 'mes' | 'rango' | 'dias';
 
-type DisplayViaje = CamionViajeRow & { queued?: boolean };
+// `queued` = guardado en el teléfono, esperando señal (normal, ámbar).
+// `stuck`  = APARTADO: no pudo subirse por un error que no se resuelve solo
+//            (camión borrado, dato inválido). Rojo + motivo — necesita que
+//            alguien actúe, ver `src/lib/colaOfflinePolicy.ts`.
+type DisplayViaje = CamionViajeRow & { queued?: boolean; stuck?: boolean; stuckError?: string };
 
 export default function ViajesCamionesScreen() {
   const { colors } = useTheme();
@@ -271,9 +275,14 @@ export default function ViajesCamionesScreen() {
   // ── Cola offline: mismo tratamiento visual (insignia ámbar) que la del
   //    Inspector en SupervisorScreen — reintenta sola al recuperar señal. ──
   const [queuedItems, setQueuedItems] = useState<QueuedViaje[]>([]);
+  // APARTADOS: los que fallaron por algo que no se arregla solo. Van aparte para
+  // que un viaje roto no siga contando como "se sube solo" cuando no es cierto.
+  const [stuckItems, setStuckItems] = useState<QuarantinedViaje[]>([]);
+  const [retrying, setRetrying] = useState(false);
   useEffect(() => {
     if (!canWrite) return;
     const unsub = subscribeViajesQueue((items) => setQueuedItems(items));
+    const unsubQ = subscribeViajesQuarantine((items) => setStuckItems(items));
     const tryFlush = () => {
       flushViajesQueue()
         .then((r) => { if (r.synced > 0) loadMisViajes(); })
@@ -282,9 +291,26 @@ export default function ViajesCamionesScreen() {
     tryFlush();
     const unsubConn = onConnectivityChange((online) => { if (online) tryFlush(); });
     const poll = setInterval(tryFlush, 30000);
-    return () => { unsub(); unsubConn(); clearInterval(poll); };
+    return () => { unsub(); unsubQ(); unsubConn(); clearInterval(poll); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canWrite, uid]);
+
+  // Reintento manual de los apartados (una vez resuelta la causa). Conservan su
+  // `client_action_id`, así que reintentar NUNCA duplica un viaje ya insertado.
+  const reintentarApartados = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      const r = await retryQuarantinedViajes();
+      if (r.synced > 0) loadMisViajes();
+      if (r.quarantined === 0) toast.success(r.synced > 0 ? `${r.synced} viaje(s) subido(s).` : 'Listo, no quedan viajes apartados.');
+      else toast.error(`Siguen sin poder subirse ${r.quarantined} viaje(s). Avisa al administrador.`);
+    } catch {
+      toast.error('No se pudo reintentar. Revisa la conexión.');
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const misViajesDisplay: DisplayViaje[] = useMemo(() => {
     const queuedRows: DisplayViaje[] = queuedItems.map((q) => ({
@@ -300,9 +326,26 @@ export default function ViajesCamionesScreen() {
       registeredAt: q.payload.registeredAt,
       queued: true,
     }));
+    // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
+    // se esfumaría de la pantalla del listero y él lo daría por registrado.
+    const stuckRows: DisplayViaje[] = stuckItems.map((q) => ({
+      id: `stuck-${q.id}`,
+      machineryId: q.payload.machineryId,
+      machineCode: q.payload.machineCode,
+      listeroId: q.payload.listeroId,
+      listeroName: q.payload.listeroName,
+      choferName: q.payload.choferName,
+      shift: q.payload.shift,
+      estadoMaquina: q.payload.estadoMaquina,
+      note: q.payload.note ?? null,
+      registeredAt: q.payload.registeredAt,
+      queued: true,
+      stuck: true,
+      stuckError: q.error,
+    }));
     const synced: DisplayViaje[] = misViajes.map((r) => ({ ...r, queued: false }));
-    return [...queuedRows, ...synced].sort((a, b) => (a.registeredAt < b.registeredAt ? 1 : -1));
-  }, [queuedItems, misViajes]);
+    return [...stuckRows, ...queuedRows, ...synced].sort((a, b) => (a.registeredAt < b.registeredAt ? 1 : -1));
+  }, [queuedItems, stuckItems, misViajes]);
 
   const doRegistrarViaje = async () => {
     if (!selectedTruck || registering) return;
@@ -663,8 +706,11 @@ export default function ViajesCamionesScreen() {
           <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }}>
             🚜 {row.machineCode}{opts.showListero ? ` · ${row.listeroName}` : ''}
           </Text>
-          {row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
+          {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
         </View>
+        {row.stuck && row.stuckError ? (
+          <Text style={{ color: '#B42318', fontSize: 11, fontStyle: 'italic' }} numberOfLines={2}>{row.stuckError}</Text>
+        ) : null}
         {placaSerial ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>{placaSerial}</Text> : null}
         <Text style={{ color: colors.muted, fontSize: 12 }}>
           {fmtFecha(row.registeredAt)} · {fmtHora(row.registeredAt)} · {row.shift === 'night' ? '🌙 Noche' : row.shift === 'day' ? '☀️ Día' : '—'}
@@ -733,6 +779,27 @@ export default function ViajesCamionesScreen() {
           <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
             {queuedItems.length} {queuedItems.length === 1 ? 'viaje guardado' : 'viajes guardados'} en el teléfono sin subir. Se suben solos al recuperar señal.
           </Text>
+        </View>
+      ) : null}
+
+      {/* APARTADOS: no se suben solos por más que se espere — hace falta que
+          alguien resuelva la causa. Aviso ROJO y separado del ámbar de arriba,
+          justamente para que no se confunda con "esperando señal". */}
+      {stuckItems.length > 0 ? (
+        <View style={{ backgroundColor: '#FEF3F2', borderRadius: radius.md, borderWidth: 1, borderColor: '#F97066', padding: spacing.sm, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 16 }}>⚠️</Text>
+            <Text style={{ color: '#B42318', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
+              {stuckItems.length} {stuckItems.length === 1 ? 'viaje no pudo subirse' : 'viajes no pudieron subirse'}. NO se pierden, pero tampoco se suben solos: avisa al administrador.
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={reintentarApartados}
+            disabled={retrying}
+            style={{ alignSelf: 'flex-start', paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: retrying ? colors.muted : '#B42318' }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{retrying ? 'Reintentando…' : '🔄 Reintentar'}</Text>
+          </TouchableOpacity>
         </View>
       ) : null}
 

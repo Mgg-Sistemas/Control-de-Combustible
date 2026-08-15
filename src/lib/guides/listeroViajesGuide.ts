@@ -97,7 +97,8 @@ export async function generateListeroViajesGuide(): Promise<boolean> {
       'Listo — no hay que llenar más campos ni escribir la hora, queda registrada al instante.',
       'La pantalla te confirma con "✅ Viaje registrado" y la hora exacta.',
     ]) +
-    calloutInfo('📶 <b>¿Sin señal?</b> No pasa nada: el viaje se guarda igual en tu teléfono y se sube solo apenas vuelva la señal. No hace falta hacer nada especial ni volver a registrarlo.')
+    calloutInfo('📶 <b>¿Sin señal?</b> No pasa nada: el viaje se guarda igual en tu teléfono y se sube solo apenas vuelva la señal. No hace falta hacer nada especial ni volver a registrarlo. Lo verás con la insignia ámbar <b>📤 pendiente</b> hasta que suba.') +
+    calloutInfo('⚠️ <b>¿Un viaje sale en rojo "no subió"?</b> Ese no es problema de señal: algo del viaje quedó mal (por ejemplo, borraron el camión del catálogo). <b>No se pierde</b> y no bloquea a los demás — los otros viajes siguen subiendo normal. Debajo del viaje sale el motivo. Avísale a tu jefa o al administrador; cuando lo resuelvan, toca <b>🔄 Reintentar</b> en el aviso rojo de arriba.')
   );
 
   const step4Mock = phoneFrame(
@@ -138,7 +139,8 @@ export async function generateListeroViajesGuide(): Promise<boolean> {
     rows: [
       ['Vas a registrar un viaje', 'Busca el camión (placa o código) → tócalo → 🚛 **Registrar viaje**. La hora queda sola.'],
       ['El camión sale 🔴 averiado o 🟡 parado', 'Es solo un aviso — igual puedes registrar el viaje.'],
-      ['No hay señal', 'Se guarda igual en tu teléfono y sube solo cuando vuelva la señal.'],
+      ['No hay señal', 'Se guarda igual en tu teléfono (insignia ámbar 📤 **pendiente**) y sube solo cuando vuelva la señal.'],
+      ['Un viaje sale en rojo "⚠️ no subió"', 'No es la señal: algo del viaje quedó mal. No se pierde ni bloquea a los demás. Avisa al administrador y luego toca 🔄 **Reintentar**.'],
       ['Te equivocaste de HORA', '"Mis viajes de hoy" → ✎ **Corregir hora**, mientras tu jornada siga abierta.'],
       ['Te equivocaste de CAMIÓN', 'No lo puedes corregir ni borrar tú — avísale a tu jefa.'],
       ['Eres la jefa/admin (permiso Full)', 'Ves todos los viajes por listero, con metas por camión; corriges/borras cualquiera y ajustas la alerta de "sin viajes".'],
