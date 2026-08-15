@@ -165,6 +165,17 @@ ahora trae el detalle completo de cada equipo, no solo el conteo. Muestra, en es
   remoción y excavación de una sola vez). Los equipos sin clasificación cargada aparecen bajo
   **"Sin clasificación"**, no se esconden. Botón **⬇️ Descargar PDF (conteo)**.
 
+> **🏢 Varias empresas a la vez (15/08/2026):** el alcance del reporte ya **no es una sola
+> empresa**. Las pastillas de empresa ahora son **casillas** y se pueden marcar **varias**:
+> marca GOLDEN y LICCIONE y el PDF sale con las dos, agrupadas por empresa como siempre.
+> **General (todas)** no es una empresa más — al tocarla se **limpia** la selección y el
+> reporte vuelve a salir completo. Arriba se indica cuántas llevas marcadas, y aparece el
+> enlace **"✕ Quitar la selección (volver a general)"**. El título del reporte se adapta:
+> con una o dos empresas las nombra (*"Conteo de equipos — GOLDEN + LICCIONE"*) y de tres
+> en adelante resume (*"Conteo de equipos — 3 empresas"*), porque los nombres completos no
+> caben. Los filtros de **estado** y **clasificación** siguen aplicándose encima de lo que
+> hayas marcado.
+
 > **☑️ Incluir el inspector asignado (15/08/2026):** justo encima del botón de descarga hay una
 > casilla que decide si el PDF trae las dos columnas **Inspector ☀️ Día** e **Inspector 🌙 Noche**.
 > Viene **tildada**, que es como salía el reporte hasta ahora: quien no la toque descarga
