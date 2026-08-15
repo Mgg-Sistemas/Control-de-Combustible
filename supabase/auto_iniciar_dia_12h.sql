@@ -14,7 +14,8 @@ select count(*) as se_iniciaran
 from public.machinery m
 where m.active = true and m.operational = true
   and exists (select 1 from public.machine_inspectors mi where mi.machinery_id = m.id and mi.shift = 'day' and mi.active = true)
-  and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente')
+  and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente'
+                  and extract(hour from (mr.created_at at time zone 'America/Caracas')) between 7 and 18)
   and not exists (
     select 1 from public.machine_rounds r
     where r.machinery_id = m.id and r.round_date = (now() at time zone 'America/Caracas')::date
@@ -28,7 +29,8 @@ select distinct m.id, (now() at time zone 'America/Caracas')::date, 1, 12, 'day'
 from public.machinery m
 join public.machine_inspectors mi on mi.machinery_id = m.id and mi.shift = 'day' and mi.active = true
 where m.active = true and m.operational = true
-  and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente')
+  and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente'
+                  and extract(hour from (mr.created_at at time zone 'America/Caracas')) between 7 and 18)
   and not exists (select 1 from public.machine_rounds r where r.machinery_id = m.id and r.round_date = (now() at time zone 'America/Caracas')::date)
 on conflict (machinery_id, round_date, round_no) do nothing;
 
@@ -43,7 +45,8 @@ where r.round_date = (now() at time zone 'America/Caracas')::date
     select 1 from public.machinery m
     join public.machine_inspectors mi on mi.machinery_id = m.id and mi.shift = 'day' and mi.active = true
     where m.id = r.machinery_id and m.active = true and m.operational = true
-      and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente')
+      and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente'
+                  and extract(hour from (mr.created_at at time zone 'America/Caracas')) between 7 and 18)
   );
 
 -- 3) Traza en machine_work_segments (7am → 7pm, 12h) para las de día 12h sin segmento hoy.
