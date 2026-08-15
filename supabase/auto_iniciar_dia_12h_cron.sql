@@ -10,7 +10,8 @@
 --   · las que trabajaron con jornada cronometrada CONSERVAN sus horas reales
 --     (solo se topan las que quedaron en 0h — la regla solo toca day_hours=0);
 --   · las de día iniciadas/permanencia que quedaron en 0h → 12h (FINALIZADA);
---   · las averiadas/paradas con TICKET pendiente quedan EXCLUIDAS (no cobran);
+--   · quedan EXCLUIDAS solo las que tienen ticket pendiente del TURNO DÍA (marca en
+--     horas 7–18); una avería/parada marcada de NOCHE NO bloquea el día (por-turno);
 --   · NO toca la NOCHE ni las jornadas todavía ABIERTAS.
 -- Idempotente. Correr UNA vez en Supabase → SQL Editor (crea la función y el cron).
 -- ============================================================================
@@ -26,9 +27,12 @@ begin
   from public.machinery m
   join public.machine_inspectors mi on mi.machinery_id = m.id and mi.shift = 'day' and mi.active = true
   where m.active = true and m.operational = true
+    -- Bloquea el 12h de DÍA SOLO si hay un ticket pendiente del TURNO DÍA (marca en
+    -- horas 7–18 Caracas), sea avería o parada — MISMO criterio por-turno que el
+    -- clasificador (paradaShiftOf). Una avería/parada marcada de NOCHE (19–06) NO
+    -- bloquea el día: la máquina puede trabajar de día aunque esté averiada de noche.
     and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente'
-                    and (mr.material is distinct from 'MÁQUINA PARADA'
-                         or extract(hour from (mr.created_at at time zone 'America/Caracas')) between 7 and 18))
+                    and extract(hour from (mr.created_at at time zone 'America/Caracas')) between 7 and 18)
     and not exists (select 1 from public.machine_rounds r where r.machinery_id = m.id and r.round_date = d)
   on conflict (machinery_id, round_date, round_no) do nothing;
 
@@ -42,9 +46,12 @@ begin
       select 1 from public.machinery m
       join public.machine_inspectors mi on mi.machinery_id = m.id and mi.shift = 'day' and mi.active = true
       where m.id = r.machinery_id and m.active = true and m.operational = true
-        and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente'
-                    and (mr.material is distinct from 'MÁQUINA PARADA'
-                         or extract(hour from (mr.created_at at time zone 'America/Caracas')) between 7 and 18)));
+        -- Bloquea el 12h de DÍA SOLO si hay un ticket pendiente del TURNO DÍA (marca en
+    -- horas 7–18 Caracas), sea avería o parada — MISMO criterio por-turno que el
+    -- clasificador (paradaShiftOf). Una avería/parada marcada de NOCHE (19–06) NO
+    -- bloquea el día: la máquina puede trabajar de día aunque esté averiada de noche.
+    and not exists (select 1 from public.maintenance_requests mr where mr.machinery_id = m.id and mr.status = 'pendiente'
+                    and extract(hour from (mr.created_at at time zone 'America/Caracas')) between 7 and 18));
 
   -- 3) Traza (7am→7pm, 12h) para las de día 12h sin segmento hoy.
   insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
