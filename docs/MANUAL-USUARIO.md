@@ -165,6 +165,15 @@ ahora trae el detalle completo de cada equipo, no solo el conteo. Muestra, en es
   remoción y excavación de una sola vez). Los equipos sin clasificación cargada aparecen bajo
   **"Sin clasificación"**, no se esconden. Botón **⬇️ Descargar PDF (conteo)**.
 
+> **☑️ Incluir el inspector asignado (15/08/2026):** justo encima del botón de descarga hay una
+> casilla que decide si el PDF trae las dos columnas **Inspector ☀️ Día** e **Inspector 🌙 Noche**.
+> Viene **tildada**, que es como salía el reporte hasta ahora: quien no la toque descarga
+> exactamente el mismo documento de siempre. Al destildarla el PDF sale **solo con el conteo**
+> (equipo, clasificación, serial, placa, sector, edificio y estado), y el botón cambia a
+> **"⬇️ Descargar PDF (solo conteo)"** para que sepas qué vas a bajar antes de tocarlo. Sirve
+> para cuando el reporte es para alguien que solo necesita cuántos equipos hay y dónde están:
+> las dos columnas de inspector estrechan el resto de la tabla y no le aportan nada.
+
 ### 4.5. Control de maquinaria (las horas que trabaja cada máquina)
 Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** cada máquina.
 
