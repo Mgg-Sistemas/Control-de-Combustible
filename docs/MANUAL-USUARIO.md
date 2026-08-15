@@ -839,6 +839,25 @@ Sirve para saber si los inspectores **sí están yendo a las máquinas** a revis
 trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
+> **📄 Mi reporte de jornada — desde el teléfono, cuando quiera (15/08/2026):** el inspector
+> tiene en su pantalla un bloque **"📄 Mi reporte de jornada"** con el que se descarga el PDF
+> del resumen de **sus** máquinas: cada una con su estado, las horas que trabajó, las de parada
+> y el total de la jornada. Es el mismo dato que ve el jefe.
+>
+> **Antes solo aparecía al terminar el turno** (cuando ya no le quedaba ninguna máquina en
+> curso), así que no podía sacar el de ayer ni revisar el de hoy a media jornada. Ahora:
+> - Elige el **día** con **◀ ▶** — hacia atrás lo que necesite; hacia adelante no pasa de hoy.
+> - Elige el **turno** ☀️ Día / 🌙 Noche. Arranca en el suyo; se puede cambiar por si cubrió el otro.
+> - Descarga con **📄 Descargar reporte (PDF)**.
+>
+> Si lo pide **a media jornada**, sale el aviso *"⚠️ Todavía tienes máquinas en curso: el reporte
+> sale con lo que hay hasta ahora"* — para que no lo confunda con el cierre definitivo. El día
+> que manda es el **día de negocio**: el turno de noche pertenece al día en que arrancó, así que
+> un reporte de noche pedido a la 1:00 am sigue siendo el del día anterior.
+>
+> Este botón **solo lee**: genera el PDF y no cambia nada en el sistema. Se puede pedir las veces
+> que haga falta.
+
 > **📱 Teléfono vs 💻 PC:** cada rol entra a **su propia pantalla**, igual en teléfono que en PC
 > (ver 4.25 "Enrutamiento por rol al iniciar sesión" para el mapa completo) — el **inspector**
 > (rol `supervisor`) es quien realmente cae aquí, en 🪖 Revisar. El **coordinador de patio** ve su
