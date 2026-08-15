@@ -78,7 +78,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   // red en vez de 4 encadenadas. Ventana de avería/parada hasta las 07:00 del día
   // SIGUIENTE (el turno noche cruza medianoche) — igual criterio que buildDaySets.
   const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
-  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift';
+  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift, declared_day, declared_night';
   const [{ data: rs }, { data: rsAyer }, mr, { rows: assignsAll }] = await Promise.all([
     // 1) Rondas (jornadas) del día — para clasificar iniciada/cerrada/avería/parada por
     //    turno con `buildDaySets` (mismo cálculo que InspectionsSummary.tsx).
@@ -103,12 +103,12 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   ((rs ?? []) as any[]).forEach((r) => {
     if (seenToday.has(r.machinery_id)) return; // 1 ronda por máquina/día
     seenToday.add(r.machinery_id);
-    roundsForDaySets.push({ machinery_id: r.machinery_id, round_date: date, day_hours: r.day_hours, night_hours: r.night_hours, jornada_shift: r.jornada_shift, jornada_start_at: r.jornada_start_at });
+    roundsForDaySets.push({ machinery_id: r.machinery_id, round_date: date, day_hours: r.day_hours, night_hours: r.night_hours, jornada_shift: r.jornada_shift, jornada_start_at: r.jornada_start_at, declared_day: r.declared_day, declared_night: r.declared_night });
   });
   ((rsAyer ?? []) as any[]).forEach((r) => {
     if (seenToday.has(r.machinery_id)) return;
     seenToday.add(r.machinery_id);
-    roundsForDaySets.push({ machinery_id: r.machinery_id, round_date: date, day_hours: r.day_hours, night_hours: r.night_hours, jornada_shift: r.jornada_shift, jornada_start_at: r.jornada_start_at });
+    roundsForDaySets.push({ machinery_id: r.machinery_id, round_date: date, day_hours: r.day_hours, night_hours: r.night_hours, jornada_shift: r.jornada_shift, jornada_start_at: r.jornada_start_at, declared_day: r.declared_day, declared_night: r.declared_night });
   });
 
   // selectAllRows pagina por id (no por fecha) — se reordena acá por created_at DESC,

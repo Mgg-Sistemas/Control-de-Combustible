@@ -59,6 +59,12 @@ export type DaySetRound = {
   night_hours: number | null;
   jornada_shift: string | null;
   jornada_start_at: string | null;
+  // "Declaró jornada" DURABLE por turno (no se pisan entre sí, a diferencia de la
+  // columna única `jornada_shift`). Opcionales: si la consulta no los trae, se hace
+  // fallback a `jornada_shift === turno` (comportamiento previo). Ver
+  // supabase/declared_por_turno_blindaje.sql.
+  declared_day?: boolean | null;
+  declared_night?: boolean | null;
 };
 export type DaySetMaint = { machinery_id: string; material: string | null; created_at: string };
 export type DaySetAssign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night' };
@@ -217,10 +223,19 @@ export function buildDaySets(params: {
   // NO es "pendiente por iniciar" (arrancó), es PARADA. Solo las que nunca arrancaron
   // (sin ronda de este turno) quedan pendientes.
   const declaredSet = new Set<string>();
+  // "Declaró el turno" por señal DURABLE por-turno (`declared_day`/`declared_night`),
+  // con FALLBACK a la frágil `jornada_shift === turno` si la fila no trae los flags.
+  // Antes se usaba solo `jornada_shift === shiftArg`: como esa columna es única por
+  // round_date, al iniciar la NOCHE se pisaba el "declaró DÍA" y una máquina con día
+  // 0h + noche caía a ⏳ pendiente de día por error (blindaje 14-ago-2026).
+  const declaredEnTurno = (r: DaySetRound): boolean => {
+    const flag = shiftArg === 'day' ? r.declared_day : r.declared_night;
+    return flag == null ? r.jornada_shift === shiftArg : !!flag;
+  };
   rounds.forEach((r) => {
     if (r.round_date !== selDay) return;
     if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
-    if (r.jornada_shift === shiftArg) declaredSet.add(r.machinery_id);
+    if (declaredEnTurno(r)) declaredSet.add(r.machinery_id);
     if (r.jornada_start_at) {
       anyOpenSet.add(r.machinery_id);
       if (openShiftOf(r) === shiftArg) {

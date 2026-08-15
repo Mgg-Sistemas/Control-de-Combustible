@@ -2618,6 +2618,14 @@ for each row execute function public.enforce_max_operators_per_shift();
 -- jornada_marked_at: hora REAL en que el inspector marcó la jornada (≠ inicio declarado).
 alter table public.machine_rounds add column if not exists jornada_marked_at timestamptz;
 
+-- declared_day/declared_night: "declaró jornada" DURABLE POR TURNO (blindaje 14-ago-2026,
+-- ver supabase/declared_por_turno_blindaje.sql). `jornada_shift` es UNA sola columna por
+-- round_date y día+noche del mismo día comparten el round → al iniciar la noche se pisaba
+-- el "declaró día". Estas dos NUNCA se pisan entre turnos; el RPC las deriva (OR-in) al
+-- abrir jornada de un turno o bancarle horas. El clasificador las usa en vez de jornada_shift.
+alter table public.machine_rounds add column if not exists declared_day   boolean not null default false;
+alter table public.machine_rounds add column if not exists declared_night boolean not null default false;
+
 -- sync#3: upsert ATÓMICO de la jornada (round_no=1) — escribe solo las columnas
 -- presentes en el patch jsonb (clave presente, aun null, gana; ausente conserva
 -- lo de la BD) y deriva `status`. Elimina el lost-update de upsertMachineRound /
@@ -2633,19 +2641,25 @@ declare
   row_out public.machine_rounds;
   ins_day numeric := coalesce((j->>'day_hours')::numeric, 0);
   ins_night numeric := coalesce((j->>'night_hours')::numeric, 0);
+  -- ¿este patch ABRE jornada? (jornada_start_at presente y no nulo) y ¿DECLARA día/noche?
+  v_shift text := j->>'jornada_shift';
+  v_open boolean := (j ? 'jornada_start_at') and nullif(j->>'jornada_start_at', '') is not null;
+  ins_decl_day   boolean := (ins_day   > 0) or (v_open and v_shift = 'day');
+  ins_decl_night boolean := (ins_night > 0) or (v_open and v_shift = 'night');
 begin
   insert into public.machine_rounds as mr (
     machinery_id, round_date, round_no, day_hours, night_hours, hours_stopped, overtime_hours,
     day_operator, day_operator_ci, night_operator, night_operator_ci,
     horometro_inicial, horometro_final, horometro_photo, jornada_start_at, jornada_shift,
-    jornada_marked_at, jornada_marked_by, recorded_by, status
+    jornada_marked_at, jornada_marked_by, declared_day, declared_night, recorded_by, status
   ) values (
     p_machinery_id, p_round_date, 1, ins_day, ins_night,
     coalesce((j->>'hours_stopped')::numeric, 0), coalesce((j->>'overtime_hours')::numeric, 0),
     j->>'day_operator', j->>'day_operator_ci', j->>'night_operator', j->>'night_operator_ci',
     (j->>'horometro_inicial')::numeric, (j->>'horometro_final')::numeric, j->>'horometro_photo',
     (j->>'jornada_start_at')::timestamptz, j->>'jornada_shift', (j->>'jornada_marked_at')::timestamptz,
-    (j->>'jornada_marked_by')::uuid, p_recorded_by, case when ins_day + ins_night > 0 then 'operativa' else 'parada' end
+    (j->>'jornada_marked_by')::uuid, ins_decl_day, ins_decl_night, p_recorded_by,
+    case when ins_day + ins_night > 0 then 'operativa' else 'parada' end
   )
   on conflict (machinery_id, round_date, round_no) do update set
     day_hours      = case when j ? 'day_hours'      then coalesce((j->>'day_hours')::numeric,0)      else mr.day_hours end,
@@ -2663,6 +2677,12 @@ begin
     jornada_shift     = case when j ? 'jornada_shift'     then j->>'jornada_shift'     else mr.jornada_shift end,
     jornada_marked_at = case when j ? 'jornada_marked_at' then (j->>'jornada_marked_at')::timestamptz else mr.jornada_marked_at end,
     jornada_marked_by = case when j ? 'jornada_marked_by' then (j->>'jornada_marked_by')::uuid else mr.jornada_marked_by end,
+    -- DECLARADO por-turno DURABLE (OR-in): true si ya lo era, o si este patch abre/banca
+    -- ese turno, o si el turno queda con horas > 0 tras el merge. Nunca se pisa entre turnos.
+    declared_day = mr.declared_day or ins_decl_day
+      or (case when j ? 'day_hours'   then coalesce((j->>'day_hours')::numeric,0)   else mr.day_hours   end) > 0,
+    declared_night = mr.declared_night or ins_decl_night
+      or (case when j ? 'night_hours' then coalesce((j->>'night_hours')::numeric,0) else mr.night_hours end) > 0,
     status = case when (
         (case when j ? 'day_hours'   then coalesce((j->>'day_hours')::numeric,0)   else mr.day_hours end)
       + (case when j ? 'night_hours' then coalesce((j->>'night_hours')::numeric,0) else mr.night_hours end)

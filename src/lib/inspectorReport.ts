@@ -137,7 +137,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // ese día aunque se resolviera un día posterior). Para HOY el borde es futuro → solo pendientes.
   const resolvedHoyFilter = `status.eq.pendiente,resolved_at.gt.${nightEndBound}`;
   // Mismo `select` para la ronda de HOY y la de ANOCHE (jornada de noche que cruza medianoche).
-  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_marked_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
+  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_shift, declared_day, declared_night, recorded_by, jornada_marked_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
   const [
     { data: machFlagsAll },
     { data: profs },
@@ -366,7 +366,10 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // (regla del cliente "0 horas = parada"). SIN esta rama el PDF marcaba "⏳ Por
     // iniciar" donde las tarjetas ya decían "🟡 Parada" — la desincronización que
     // reportó el cliente (11-ago-2026).
-    const declaredShift = rd?.jornada_shift === turno;
+    // Señal DURABLE por-turno (`declared_day`/`declared_night`, no se pisan entre turnos),
+    // con FALLBACK a `jornada_shift === turno` si la fila no la trae (blindaje 14-ago-2026).
+    const declFlag = rd ? (turno === 'day' ? (rd as any).declared_day : (rd as any).declared_night) : null;
+    const declaredShift = declFlag == null ? rd?.jornada_shift === turno : !!declFlag;
     // ESCALERA DE DECISIÓN ÚNICA compartida con las tarjetas y el teléfono
     // (`clasificarEstadoTurno` en inspectorDaySets.ts): este PDF ya NO tiene su propia
     // copia del orden de prioridad — mapea sus datos y delega. `encurso`=iniciada,

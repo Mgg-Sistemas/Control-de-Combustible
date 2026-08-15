@@ -96,6 +96,7 @@ const HORAS_KEY = '__horas_mant__';
 type Round = {
   machinery_id: string; round_date: string; day_hours: number | null; night_hours: number | null;
   jornada_shift: string | null; jornada_start_at: string | null; jornada_marked_at: string | null; recorded_by: string | null;
+  declared_day?: boolean | null; declared_night?: boolean | null;
   horometro_inicial: number | null; horometro_final: number | null; machine?: { code?: string } | null;
 };
 type Maint = { machinery_id: string; material: string | null; notes: string | null; created_at: string; machine?: { code?: string } | null };
@@ -336,7 +337,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const nextBiz = new Date(selDay + 'T12:00:00-04:00'); nextBiz.setUTCDate(nextBiz.getUTCDate() + 1);
     const nightEndBound = `${nextBiz.toISOString().slice(0, 10)}T07:00:00-04:00`;
     const [roundsRows, maintRows, asg, machRows, allHoursMap, profRows] = await Promise.all([
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, jornada_marked_at, jornada_marked_by, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, jornada_marked_at, jornada_marked_by, recorded_by, declared_day, declared_night, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
       // selectAllRows (no .from directo): con el uso normal de la flota, las
       // averías/paradas "pendiente" se acumulan indefinidamente (se arrastran hasta
       // resolverse) y pueden superar las ~1000 filas que corta PostgREST por
