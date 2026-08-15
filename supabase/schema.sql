@@ -2642,7 +2642,7 @@ declare
   ins_day numeric := coalesce((j->>'day_hours')::numeric, 0);
   ins_night numeric := coalesce((j->>'night_hours')::numeric, 0);
   -- ¿este patch ABRE jornada? (jornada_start_at presente y no nulo) y ¿DECLARA día/noche?
-  v_shift text := j->>'jornada_shift';
+  v_shift text := coalesce(j->>'jornada_shift', '');  -- coalesce: evita NULL en comparaciones
   v_open boolean := (j ? 'jornada_start_at') and nullif(j->>'jornada_start_at', '') is not null;
   ins_decl_day   boolean := (ins_day   > 0) or (v_open and v_shift = 'day');
   ins_decl_night boolean := (ins_night > 0) or (v_open and v_shift = 'night');
