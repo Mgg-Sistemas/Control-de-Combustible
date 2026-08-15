@@ -17,6 +17,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Inspecciones', route: 'Supervision', desc: 'Rondas de inspectores: quién marcó cada máquina (GPS + estado), jornadas e histórico por inspector', icon: '🪖', module: 'supervision' },
   { label: 'Ubicaciones', route: 'Ubicaciones', desc: 'Catálogo de edificios/ubicaciones (Macuto, Caraballeda…): agregar, editar y eliminar; se sincroniza con el EDIFICIO del inspector y el catálogo', icon: '📍', module: 'supervision' },
   { label: 'Obras Públicas', route: 'ObrasPublicasDashboard', desc: 'Panel del módulo Obras Públicas: KPIs, estado de flota, horas y visitas de todos los supervisores externos', icon: '🏛️', module: 'obras_publicas' },
+  { label: 'Lavado de maquinaria', route: 'LavadoMaquinariaDashboard', desc: 'Máquinas lavadas por mes: cuántas veces se lavó cada máquina, con detalle (fecha, tipo, quién y foto)', icon: '🚿', module: 'lavado_maquinaria' },
   { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', desc: 'Control por equipo: inventario de herramientas/accesorios y REPORTE DE INSPECCIÓN en PDF', icon: '🔍', module: 'inspecciones_maq' },
   { label: 'Geodesta', route: 'Geodesta', desc: 'Topografía: levantamientos ligados a obra, curvas de nivel y cubicaciones (UTM SIRGAS-REGVEN 19N)', icon: '📐', module: 'geodesta' },
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },

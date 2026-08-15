@@ -1699,6 +1699,25 @@ Módulo de **topografía**: levanta terreno, genera **curvas de nivel**, calcula
 
 ---
 
+## 4.24c. Lavado de maquinaria 🚿
+
+Módulo **aislado** para el personal de **lavado**: registra qué máquinas se lavan y lleva la cuenta de **cuántas veces al mes** se lavó cada una. No toca inspecciones, horas ni pagos — solo usa el catálogo de máquinas.
+
+**Acceso:** se le da al usuario el rol **"Lavado de maquinaria"** (o el permiso del módulo en *Usuarios*). El lavador **escanea el QR de inicio**, se loguea con su usuario y cae **directo en su vista de lavado** en el teléfono.
+
+**Vista del lavador (teléfono)** — tablero por estado:
+- Dos columnas: **🚿 Por lavar** / **✅ Lavadas**, con un selector de periodo arriba (**Hoy · Semana · Mes**; por defecto Hoy).
+- **"Por lavar"** = máquinas activas que todavía NO se han lavado en ese periodo. Al registrar el lavado pasan a **"Lavadas"**.
+- **Registrar un lavado** (dos formas): (1) buscar la máquina en la lista y tocarla, o (2) botón **"📷 Escanear QR de máquina"** (el mismo QR que ya trae cada máquina). Se abre **"Registrar lavado"**: eliges el **tipo** (Exterior / Motor / Completo, y puedes **agregar** tipos nuevos), escribes una **observación** (opcional) y adjuntas una **foto** (opcional). Al tocar **"✅ Marcar como lavada"** queda registrado con la hora y tu nombre.
+
+**Panel de PC** (*Más → 🚿 Lavado de maquinaria*) — **"Máquinas lavadas"**:
+- Muestra, **por mes** (flechas ◀ ▶ para cambiar de mes), **cuántas veces se lavó cada máquina**, más dos totales arriba (lavados del mes · máquinas lavadas).
+- Al **tocar una máquina** se abre el **detalle** con cada lavado de ese mes: fecha, tipo, quién lo hizo, observación y foto.
+
+> Los datos de lavado viven en tablas aparte (`lm_*`) y no afectan a ningún otro módulo. Correr una vez `supabase/lavado_maquinaria.sql` en Supabase para crear las tablas.
+
+---
+
 ## 4.25. Notas técnicas (para quien administra el proyecto)
 
 Pendientes que requieren una acción **manual** (fuera del código) para que algunas funciones nuevas
