@@ -92,6 +92,30 @@ export function nightGraceRoundDate(): string | null {
 }
 
 /**
+ * Instante (ms epoch) de FIN del turno de negocio: DÍA → 7:00pm del `round_date`;
+ * NOCHE → 7:00am del día siguiente (12h para TODAS las máquinas, regla 14-ago-2026).
+ * Caracas es UTC-4 fijo (sin horario de verano): 7pm=23:00 UTC, 7am=11:00 UTC. Mismo
+ * criterio que el auto-cierre del servidor (supabase/auto_close_jornadas.sql).
+ */
+export function shiftEndMs(roundDate: string, shift: 'day' | 'night'): number {
+  const [y, m, d] = roundDate.split('-').map(Number);
+  return shift === 'night'
+    ? Date.UTC(y, m - 1, d + 1, 11, 0, 0)
+    : Date.UTC(y, m - 1, d, 23, 0, 0);
+}
+
+/**
+ * ¿Se está FINALIZANDO la jornada ANTES de la hora de fin del turno? (cierre
+ * anticipado). Regla cliente 15-ago-2026: TODO cierre manual anticipado —sin importar
+ * la pantalla ni si el inspector es "siempre activo"— debe registrar el MOTIVO del
+ * cierre. Las pantallas que finalizan jornada usan esto para exigir el motivo y marcar
+ * el tramo como `manual_finish_early` con su `close_reason`.
+ */
+export function isCierreAnticipado(roundDate: string, shift: 'day' | 'night'): boolean {
+  return Date.now() < shiftEndMs(roundDate, shift);
+}
+
+/**
  * Horas TRANSCURRIDAS del turno (día 07:00–19:00 · noche 19:00–07:00+1), tope 12h.
  * Corrección 08-ago-2026 (pedido cliente): la "eficiencia" ponderada por horas reales
  * dividía SIEMPRE entre 12h fijas aunque el turno recién hubiera empezado — a los 38

@@ -16,7 +16,7 @@ import { spacing, radius } from '../theme';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { saveVisit } from '../lib/supervisorVisits';
 import { shiftOf, caracasParts } from '../lib/jornada';
-import { caracasToday, isoYesterday } from '../lib/caracasDay';
+import { caracasToday, isoYesterday, isCierreAnticipado } from '../lib/caracasDay';
 import { logAudit } from '../lib/audit';
 
 const CARACAS_TZ = 'America/Caracas';
@@ -68,6 +68,7 @@ export default function PatioScreen({ navigation }: any) {
   const [pendingStart, setPendingStart] = useState<PendingStart | null>(null);
   const [horoIni, setHoroIni] = useState('');
   const [horoFin, setHoroFin] = useState('');
+  const [motivoFin, setMotivoFin] = useState(''); // motivo OBLIGATORIO si el cierre es anticipado
   const [jornBusy, setJornBusy] = useState(false);
 
   // Formulario de avería.
@@ -204,6 +205,11 @@ export default function PatioScreen({ navigation }: any) {
     // que empezó (mismo criterio que SupervisorScreen.finalizarJornada). Usar "hoy" acá
     // crearía un round nuevo vacío y dejaría el original abierto para siempre.
     const roundDate = pendingFin.roundDate;
+    // MOTIVO OBLIGATORIO si se finaliza ANTES de la hora de fin del turno (día <7pm /
+    // noche <7am) — regla cliente 15-ago-2026: TODO cierre anticipado debe registrarlo.
+    const anticipado = isCierreAnticipado(roundDate, pendingFin.shift);
+    const motivo = motivoFin.trim();
+    if (anticipado && !motivo) { setJornBusy(false); setNotice('❌ Cierre anticipado: escribe el MOTIVO del cierre para finalizar.'); return; }
     const horas = Math.max(0, Math.round((Date.now() - new Date(pendingFin.start).getTime()) / 3600000 * 100) / 100);
     const round = await getMachineRound(pendingFin.id, roundDate);
     const hi = Number((round as any)?.horometro_inicial);
@@ -213,9 +219,18 @@ export default function PatioScreen({ navigation }: any) {
     const res = await upsertMachineRound(pendingFin.id, roundDate, { [key]: Math.round((base + horas) * 100) / 100, horometro_final: hf, jornada_start_at: null }, uid || null);
     setJornBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
-    logAudit('JORNADA_FIN', 'machinery', pendingFin.id, `${pendingFin.code} · ${horas.toFixed(2)} h`);
+    logAudit('JORNADA_FIN', 'machinery', pendingFin.id, `${pendingFin.code} · ${horas.toFixed(2)} h${motivo ? ` · Motivo cierre: ${motivo}` : ''}`);
+    // 📋 Tramo auditable del trabajo (best-effort): guarda el motivo del cierre en
+    // close_reason para que se vea en el resumen de CERRADAS/FINALIZADAS.
+    supabase.from('machine_work_segments').insert({
+      machinery_id: pendingFin.id, round_date: roundDate, shift: pendingFin.shift,
+      started_at: pendingFin.start, ended_at: new Date().toISOString(), hours: horas,
+      source: anticipado ? 'manual_finish_early' : 'manual_finish', recorded_by: uid || null,
+      ...(motivo ? { close_reason: motivo } : {}),
+    }).then(() => {}, () => {});
     setNotice(`🏁 Jornada FINALIZADA · ${pendingFin.code} · ${horas.toFixed(2)} h → Control de maquinaria (turno ${pendingFin.shift === 'night' ? 'noche' : 'día'}).`);
     setPendingFin(null);
+    setMotivoFin('');
     loadOpen();
   };
 
@@ -294,7 +309,7 @@ export default function PatioScreen({ navigation }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{j.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text></Text>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Desde {caracasClock(j.start)} · ⏱️ {elapsedLabel(j.start)}</Text>
               </View>
-              <TouchableOpacity onPress={() => { setHoroFin(''); setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift, iniHoro: j.iniHoro, roundDate: j.roundDate }); }} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <TouchableOpacity onPress={() => { setHoroFin(''); setMotivoFin(''); setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift, iniHoro: j.iniHoro, roundDate: j.roundDate }); }} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                 <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🏁 Finalizar</Text>
               </TouchableOpacity>
             </View>
@@ -387,6 +402,15 @@ export default function PatioScreen({ navigation }: any) {
                 <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                   style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 4 }} />
                 <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Será el horómetro inicial de la próxima jornada.</Text>
+                {isCierreAnticipado(pendingFin.roundDate, pendingFin.shift) ? (
+                  <View style={{ backgroundColor: colors.warningSoftBg ?? '#FEF3C7', borderWidth: 1, borderColor: colors.warningSoftBorder ?? '#F59E0B', borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, marginBottom: 4 }}>
+                    <Text style={{ color: colors.warningSoftText ?? '#92400E', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>
+                      ⚠️ Cierre anticipado ({pendingFin.shift === 'night' ? 'antes de las 7:00am' : 'antes de las 7:00pm'}) · Motivo OBLIGATORIO
+                    </Text>
+                    <TextInput value={motivoFin} onChangeText={setMotivoFin} placeholder="Motivo del cierre (obligatorio)" placeholderTextColor={colors.muted} multiline
+                      style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 54, textAlignVertical: 'top' }} />
+                  </View>
+                ) : null}
                 {(() => {
                   const hf = Number((horoFin || '').replace(',', '.'));
                   const hi = pendingFin.iniHoro;
@@ -396,7 +420,7 @@ export default function PatioScreen({ navigation }: any) {
                   return <View style={{ marginBottom: spacing.md }} />;
                 })()}
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                  <TouchableOpacity onPress={() => setPendingFin(null)} disabled={jornBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                  <TouchableOpacity onPress={() => { setPendingFin(null); setMotivoFin(''); }} disabled={jornBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={confirmarFin} disabled={jornBusy} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornBusy ? 0.6 : 1 }}>
