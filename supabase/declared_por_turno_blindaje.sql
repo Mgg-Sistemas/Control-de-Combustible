@@ -40,7 +40,7 @@ declare
   row_out public.machine_rounds;
   ins_day numeric := coalesce((j->>'day_hours')::numeric, 0);
   ins_night numeric := coalesce((j->>'night_hours')::numeric, 0);
-  v_shift text := j->>'jornada_shift';
+  v_shift text := coalesce(j->>'jornada_shift', '');  -- coalesce: evita NULL en las comparaciones
   -- ¿este patch ABRE una jornada? (jornada_start_at presente y no nulo)
   v_open boolean := (j ? 'jornada_start_at') and nullif(j->>'jornada_start_at', '') is not null;
   -- ¿este patch DECLARA día/noche? = abre jornada de ese turno, o le banca horas.
@@ -95,17 +95,19 @@ grant execute on function public.upsert_machine_round(uuid, date, jsonb, uuid) t
 -- 3) BACKFILL de lo ya existente: deriva declared_* de las señales durables que
 --    SÍ sobrevivieron (horas del turno, jornada_shift actual, y los segmentos de
 --    trabajo, que son por-turno). Así el histórico queda coherente.
+-- coalesce(..., false) es OBLIGATORIO: `jornada_shift = 'night'` da NULL (no false)
+-- cuando jornada_shift es NULL, y `false OR NULL` = NULL → violaría el not-null.
 update public.machine_rounds mr set
-  declared_day = mr.declared_day
+  declared_day = coalesce(mr.declared_day
     or mr.jornada_shift = 'day'
     or coalesce(mr.day_hours, 0) > 0
     or exists (select 1 from public.machine_work_segments s
-               where s.machinery_id = mr.machinery_id and s.round_date = mr.round_date and s.shift = 'day'),
-  declared_night = mr.declared_night
+               where s.machinery_id = mr.machinery_id and s.round_date = mr.round_date and s.shift = 'day'), false),
+  declared_night = coalesce(mr.declared_night
     or mr.jornada_shift = 'night'
     or coalesce(mr.night_hours, 0) > 0
     or exists (select 1 from public.machine_work_segments s
-               where s.machinery_id = mr.machinery_id and s.round_date = mr.round_date and s.shift = 'night')
+               where s.machinery_id = mr.machinery_id and s.round_date = mr.round_date and s.shift = 'night'), false)
 where mr.declared_day = false or mr.declared_night = false;
 
 -- 4) Verificación (opcional):
