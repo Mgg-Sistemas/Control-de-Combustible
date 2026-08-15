@@ -135,7 +135,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const nightEndBound = `${nextDate}T07:00:00-04:00`;
   // Pendiente O resuelta DESPUÉS del fin del día del reporte (se mantuvo averiada/parada
   // ese día aunque se resolviera un día posterior). Para HOY el borde es futuro → solo pendientes.
-  const resolvedHoyFilter = `status.eq.pendiente,resolved_at.gt.${nightEndBound}`;
+  const resolvedHoyFilter = `status.eq.pendiente,resolved_at.gte.${nightEndBound}`;
   // Mismo `select` para la ronda de HOY y la de ANOCHE (jornada de noche que cruza medianoche).
   const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_shift, declared_day, declared_night, recorded_by, jornada_marked_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
   const [

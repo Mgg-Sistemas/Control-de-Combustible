@@ -342,7 +342,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // averías/paradas "pendiente" se acumulan indefinidamente (se arrastran hasta
       // resolverse) y pueden superar las ~1000 filas que corta PostgREST por
       // consulta — igual que ya se cuidó arriba con machine_rounds/machinery.
-      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at, machine:machinery_id(code)', (q) => q.or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`)),
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at, machine:machinery_id(code)', (q) => q.or(`status.eq.pendiente,resolved_at.gte.${nightEndBound}`)),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
