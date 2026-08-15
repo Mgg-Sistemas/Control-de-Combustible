@@ -123,7 +123,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       .select('machinery_id, material, notes, created_at, status, resolved_at')
       .in('machinery_id', ids)
       .lte('created_at', nightEndBound)
-      .or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`)
+      .or(`status.eq.pendiente,resolved_at.gte.${nightEndBound}`)
       .order('created_at', { ascending: false }),
   ]);
   const roundBy = new Map<string, any>();

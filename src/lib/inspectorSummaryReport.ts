@@ -90,7 +90,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     // 2) Averías/paradas PENDIENTES vigentes (arrastradas) + RESUELTAS ese día. Para HOY el
     //    borde es futuro → solo pendientes. Igual que InspectionsSummary. selectAllRows
     //    (pagina): con >1000 pendientes la consulta cruda se truncaba, perdiendo las más viejas.
-    selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at', (q) => q.or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`).lte('created_at', nightEndBound)),
+    selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at', (q) => q.or(`status.eq.pendiente,resolved_at.gte.${nightEndBound}`).lte('created_at', nightEndBound)),
     // 3) Asignaciones (CHECK) inspector ↔ máquina — la columna vertebral (AMBOS turnos).
     listInspectorAssignments(),
   ]);
