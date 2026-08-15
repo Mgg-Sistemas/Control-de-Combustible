@@ -178,9 +178,9 @@ eq('paradaShiftOf 02:00 = night', paradaShiftOf(iso(2)), 'night');
 
 // ── BLINDAJE sync#3 (11-ago-2026): la ESCALERA ÚNICA `clasificarEstadoTurno` ────────
 // Todas las superficies (tarjetas, teléfono, reporte con firma) delegan aquí. Estos
-// tests fijan el orden de prioridad + la regla "0 horas = parada" para que ninguna
-// superficie pueda volver a desincronizarse (era: tarjeta "🟡 Parada" vs reporte/tlf
-// "⏳ Por iniciar" para la misma máquina).
+// tests fijan el orden de prioridad + la regla "jornada iniciada = finalizada/cerrada
+// (no parada)" para que ninguna superficie pueda volver a desincronizarse (era: tarjeta
+// "🟡 Parada" vs reporte/tlf "⏳ Por iniciar" para la misma máquina).
 const E = (o) => clasificarEstadoTurno({
   averia: !!o.averia, parada: !!o.parada, trabajo: !!o.trabajo,
   abierta: !!o.abierta, siempreActivo: !!o.siempreActivo, declaro: !!o.declaro,
@@ -192,15 +192,20 @@ eq('ladder trabajo+abierta = iniciada', E({ trabajo: true, abierta: true }), 'in
 eq('ladder trabajo sin abierta = cerrada', E({ trabajo: true, abierta: false }), 'cerrada');
 eq('ladder SOS sin jornada = cerrada', E({ siempreActivo: true, abierta: false }), 'cerrada');
 eq('ladder SOS con jornada = iniciada', E({ siempreActivo: true, abierta: true }), 'iniciada');
-// 17) EL BUG que se corrigió: declaró jornada + 0h (sin nada más) = PARADA, no pendiente
-eq('ladder declaro+0h = parada', E({ declaro: true }), 'parada');
+// 17) Regla cliente 14-ago-2026: declaró jornada (la INICIÓ) = FINALIZADA/CERRADA aunque
+//     quede en 0h — NO parada. La parada solo viene de un ticket explícito. Si nunca
+//     declaró (sin ronda del turno) sigue pendiente.
+eq('ladder declaro sin horas = cerrada', E({ declaro: true }), 'cerrada');
+eq('ladder declaro + abierta = iniciada', E({ declaro: true, abierta: true }), 'iniciada');
 eq('ladder sin declarar = pendiente', E({}), 'pendiente');
 eq('ladder trabajo gana a declaro', E({ trabajo: true, abierta: false, declaro: true }), 'cerrada');
-// 18) buildDaySets: máquina que DECLARÓ jornada de día y cerró con 0h (sin ticket) = PARADA
+// 18) buildDaySets: máquina que DECLARÓ jornada de día y cerró con 0h (sin ticket) =
+//     CERRADA/FINALIZADA (se le bancarán sus 12h), NO parada.
 {
   const ds = run({ shift: 'day', assignments: [assign('P', 'juan', 'day')],
     rounds: [round('P', { jornada_shift: 'day', day_hours: 0 })] });
-  eq('declaro 0h dia = parada (buildDaySets)', arr(ds.paradaSet), ['P']);
+  eq('declaro 0h dia = cerrada (buildDaySets)', arr(ds.closedSet), ['P']);
+  eq('declaro 0h dia no parada', arr(ds.paradaSet), []);
   eq('declaro 0h dia no pendiente', arr(ds.pendSet), []);
 }
 // 19) buildDaySets: máquina asignada SIN ronda del turno = pendiente (nunca arrancó)
