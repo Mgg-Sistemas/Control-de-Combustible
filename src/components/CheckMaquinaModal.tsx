@@ -102,14 +102,24 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
     onClose();
   };
 
-  const matchQuery = (m: Mach, q: string) => !q
-    || norm(m.code).includes(q)
-    || norm(m.companyName || '').includes(q)
-    || norm((m as any).serial || '').includes(q)
-    || norm((m as any).plate || '').includes(q)
-    || norm((m as any).encargado || '').includes(q)
-    || norm((m as any).referencia || '').includes(q)
-    || norm((m as any).tipo || '').includes(q);
+  // Busca por cualquier característica de la máquina Y por el INSPECTOR que la
+  // tiene asignada (☀️ día y 🌙 noche). Lo del inspector hace falta sobre todo en
+  // el CHECK: para mover a alguien de turno hay que poder juntar SUS máquinas
+  // escribiendo su nombre, y por código/empresa no hay forma de agruparlas.
+  // `assignMap` ya está cargado aquí para pintar los turnos de cada fila.
+  const matchQuery = (m: Mach, q: string) => {
+    if (!q) return true;
+    const asg = assignMap[m.id];
+    return norm(m.code).includes(q)
+      || norm(m.companyName || '').includes(q)
+      || norm((m as any).serial || '').includes(q)
+      || norm((m as any).plate || '').includes(q)
+      || norm((m as any).encargado || '').includes(q)
+      || norm((m as any).referencia || '').includes(q)
+      || norm((m as any).tipo || '').includes(q)
+      || norm(asg?.day?.name || '').includes(q)
+      || norm(asg?.night?.name || '').includes(q);
+  };
 
   // Listado del CHECK: máquinas ACTIVAS y OPERATIVAS (mismo criterio que el teléfono).
   // Tampoco EN ESPERA DE INSTRUCCIONES (pedido del cliente 11-ago-2026, congeladas):
@@ -118,7 +128,9 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
   const checkList = useMemo(() => {
     const q = norm(checkQuery.trim());
     return machines.filter((m) => m.active !== false && m.operational !== false && !m.en_espera && matchQuery(m, q));
-  }, [machines, checkQuery]);
+    // `assignMap`: ahora se busca también por inspector, así que la lista tiene que
+    // recalcularse cuando llegan (o cambian) las asignaciones.
+  }, [machines, checkQuery, assignMap]);
 
   const necesitaInspector = (m: Mach) => m.active !== false && (m as any).operational !== false && !m.en_espera;
   const esVirtual = (id?: string | null) => id === PLACEHOLDER_INSPECTOR_ID;
@@ -564,7 +576,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                         );
                       })}
                     </View>
-                    <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, tipo, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
+                    <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, tipo, empresa, encargado, inspector…" placeholderTextColor={colors.muted} style={input} />
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
                       <TouchableOpacity onPress={() => setSelIds(allSel ? new Set() : new Set(shown.map((m) => m.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.primary : colors.border, backgroundColor: allSel ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>

@@ -768,14 +768,24 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return m.en_espera !== true;
   };
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id) && visibleParaInspector(m)), [machines, mineIds, roundsById]);
-  const matchQuery = (m: Mach, q: string) => !q
-    || norm(m.code).includes(q)
-    || norm(m.companyName || '').includes(q)
-    || norm((m as any).serial || '').includes(q)
-    || norm((m as any).plate || '').includes(q)
-    || norm((m as any).encargado || '').includes(q)
-    || norm((m as any).referencia || '').includes(q)
-    || norm((m as any).tipo || '').includes(q);
+  // Busca por cualquier característica de la máquina Y por el INSPECTOR que la
+  // tiene asignada (☀️ día y 🌙 noche). Lo del inspector hace falta sobre todo en
+  // el CHECK: para mover a alguien de turno hay que poder juntar SUS máquinas
+  // escribiendo su nombre, y por código/empresa no hay forma de agruparlas.
+  // `assignMap` ya está cargado aquí para pintar los turnos de cada fila.
+  const matchQuery = (m: Mach, q: string) => {
+    if (!q) return true;
+    const asg = assignMap[m.id];
+    return norm(m.code).includes(q)
+      || norm(m.companyName || '').includes(q)
+      || norm((m as any).serial || '').includes(q)
+      || norm((m as any).plate || '').includes(q)
+      || norm((m as any).encargado || '').includes(q)
+      || norm((m as any).referencia || '').includes(q)
+      || norm((m as any).tipo || '').includes(q)
+      || norm(asg?.day?.name || '').includes(q)
+      || norm(asg?.night?.name || '').includes(q);
+  };
   // mineList/searchList (con el filtro de segmento) y `grupos` se definen más abajo,
   // después de paradaIds/paradaHoyIds (los usa segmentoDe).
   // Listado del CHECK: solo máquinas ACTIVAS y OPERATIVAS (buscable) para
@@ -788,7 +798,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Tampoco las EN ESPERA DE INSTRUCCIONES (pedido del cliente 11-ago-2026): están
     // congeladas, no tiene sentido asignarles inspector todavía.
     return machines.filter((m) => m.active !== false && m.operational !== false && !m.en_espera && matchQuery(m, q));
-  }, [machines, checkQuery]);
+    // `assignMap`: ahora se busca también por inspector, así que la lista tiene que
+    // recalcularse cuando llegan (o cambian) las asignaciones.
+  }, [machines, checkQuery, assignMap]);
   // Solo las máquinas realmente EN SERVICIO necesitan inspector — mismo criterio que
   // usa el cron assign_missing_to_placeholder() (supabase/maquinas_faltantes.sql) para
   // no auto-asignarle horas a algo que no está trabajando. CONFIRMADO por el cliente
@@ -2620,7 +2632,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 <SectionTitle>Todas las máquinas</SectionTitle>
                 <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity>
               </View>
-              <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, inspector, edificio…" placeholderTextColor={colors.muted} style={input} />
               {renderSegChips()}
             </>
           ) : (
@@ -2997,7 +3009,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       );
                     })}
                   </View>
-                  <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
+                  <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, inspector…" placeholderTextColor={colors.muted} style={input} />
                   {/* Seleccionar todas (las filtradas) + contador */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
                     <TouchableOpacity onPress={() => setSelIds(allSel ? new Set() : new Set(shown.map((m) => m.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
