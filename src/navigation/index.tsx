@@ -31,6 +31,8 @@ import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
 import ObrasPublicasScreen from '../screens/ObrasPublicasScreen';
 import ObrasPublicasDashboardScreen from '../screens/ObrasPublicasDashboardScreen';
+import LavadoMaquinariaScreen from '../screens/LavadoMaquinariaScreen';
+import LavadoMaquinariaDashboardScreen from '../screens/LavadoMaquinariaDashboardScreen';
 import FuelDriverScreen from '../screens/FuelDriverScreen';
 import SupervisionScreen from '../screens/SupervisionScreen';
 import HistoricoJornadasScreen from '../screens/HistoricoJornadasScreen';
@@ -230,6 +232,7 @@ function MoreStack() {
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
       <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
       <Stack.Screen name="ObrasPublicasDashboard" component={ObrasPublicasDashboardScreen} options={{ title: 'Obras Públicas' }} />
+      <Stack.Screen name="LavadoMaquinariaDashboard" component={LavadoMaquinariaDashboardScreen} options={{ title: 'Lavado de maquinaria' }} />
       <Stack.Screen name="Ubicaciones" component={UbicacionesScreen} options={{ title: 'Ubicaciones' }} />
       <Stack.Screen name="Geodesta" component={GeodestaScreen} options={{ title: 'Geodesta' }} />
       <Stack.Screen name="GeodestaDetalle" component={GeodestaProjectDetail} options={{ title: 'Levantamiento' }} />
@@ -569,6 +572,27 @@ function ObrasPublicasTabs() {
   );
 }
 
+/** Rol "Lavado de maquinaria" (rol dinámico con el módulo `lavado_maquinaria`):
+ *  entra DIRECTO a SU vista de lavado (tablero Por lavar / Lavadas). Sus datos
+ *  viven en tablas lm_* AISLADAS; solo referencia el catálogo `machinery`. Mismo
+ *  patrón de detección por módulo único que obras públicas. */
+function esRolLavado(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  return !!mods['lavado_maquinaria'] && mods['lavado_maquinaria'] !== 'none';
+}
+
+/** Panel del lavador: su vista de lavado (una pantalla) + Manual/Ajustes. */
+function LavadoStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
+      <Stack.Screen name="LavadoHome" component={LavadoMaquinariaScreen} options={{ title: 'Lavado de maquinaria', headerLeft: () => null }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
  *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
@@ -743,6 +767,7 @@ const moreScreens = {
   Supervision: 'inspecciones',
   HistoricoJornadas: 'historico',
   ObrasPublicasDashboard: 'obras-publicas-panel',
+  LavadoMaquinariaDashboard: 'lavado-maquinaria-panel',
   Ubicaciones: 'ubicaciones',
   Geodesta: 'geodesta',
   GeodestaDetalle: 'geodesta/levantamiento',
@@ -799,7 +824,7 @@ const moreScreens = {
  *  (ver `pickTree` más abajo). `operador` es una pantalla suelta sin Stack/Tab,
  *  así que no tiene config de `linking` propia; `cocina` sí tiene su propio
  *  Stack (ver `CocinaStack`), con config de `linking` en `TREE_LINKING`. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina' | 'obrasPublicas';
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina' | 'obrasPublicas' | 'lavadoMaquinaria';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -859,6 +884,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', DistribucionGuardias: 'distribucion-guardias', Manual: 'manual', Ajustes: 'ajustes' },
   cocina: { CocinaHome: 'cocina', Comida: 'comida', Manual: 'manual', Ajustes: 'ajustes' },
   obrasPublicas: { ObrasPublicasHome: 'obras-publicas', Map: 'mapa' },
+  lavadoMaquinaria: { LavadoHome: 'lavado-maquinaria', Manual: 'manual', Ajustes: 'ajustes' },
 };
 
 /** URL "de inicio" de cada árbol (su pantalla raíz). Al entrar SIN deep link
@@ -879,6 +905,7 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   asistencia: '/asistencia',
   cocina: '/cocina',
   obrasPublicas: '/obras-publicas',
+  lavadoMaquinaria: '/lavado-maquinaria',
 };
 
 /** Elige el árbol de navegación (y su pantalla) del usuario logueado, EN EL
@@ -914,6 +941,9 @@ function pickTree(ctx: {
   // aislado). Va temprano — sus usuarios tienen profiles.role base 'conductor' + este
   // appRole, así que sin esto caerían en el catch-all `tabs` (app completa).
   if (appRole && role !== 'admin' && esRolObrasPublicas(appRole)) return { key: 'obrasPublicas', node: <ObrasPublicasTabs /> };
+  // LAVADO DE MAQUINARIA: su propia vista (tablero de lavado, lm_* aislado). Va
+  // temprano por la misma razón que obras públicas — base role 'conductor' + appRole.
+  if (appRole && role !== 'admin' && esRolLavado(appRole)) return { key: 'lavadoMaquinaria', node: <LavadoStack /> };
   if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
   // El admin (rol genérico) SIEMPRE arranca en la app completa en teléfono — el
   // cliente pidió explícitamente que el/los administrador(es) no inicien en la

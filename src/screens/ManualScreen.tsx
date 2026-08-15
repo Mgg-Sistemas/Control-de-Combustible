@@ -171,6 +171,18 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🚿',
+    title: 'Lavado de maquinaria',
+    blocks: [
+      { t: 'p', text: 'Módulo AISLADO para el personal de LAVADO: registra qué máquinas se lavan y lleva la cuenta de cuántas veces al mes se lavó cada una. No toca inspecciones ni ningún otro módulo — solo usa el catálogo de máquinas.' },
+      { t: 'p', text: 'Acceso: se le da al usuario el rol "Lavado de maquinaria" (o el permiso del módulo en Usuarios). El lavador escanea el QR de inicio, se loguea con su usuario y cae DIRECTO en su vista de lavado en el teléfono.' },
+      { t: 'p', text: 'Vista del lavador (teléfono): un tablero por estado — 🚿 Por lavar / ✅ Lavadas — con un selector de periodo arriba (Hoy · Semana · Mes; por defecto Hoy). "Por lavar" son las máquinas activas que todavía NO se han lavado en ese periodo; al registrar el lavado pasan a "Lavadas".' },
+      { t: 'p', text: 'Registrar un lavado: se puede de DOS formas — (1) buscando la máquina en la lista y tocándola, o (2) con el botón "📷 Escanear QR de máquina" (el mismo QR que ya trae cada máquina). Se abre la ventana "Registrar lavado": eliges el TIPO de lavado (Exterior / Motor / Completo, y puedes AGREGAR tipos nuevos con "+ Agregar"), escribes una observación (opcional) y adjuntas una foto (opcional). Al tocar "✅ Marcar como lavada" queda registrado con la hora y tu nombre.' },
+      { t: 'p', text: 'Panel de PC (Más → 🚿 Lavado de maquinaria) — "Máquinas lavadas": muestra, por MES (con flechas ◀ ▶ para cambiar de mes), cuántas veces se lavó cada máquina, más dos totales arriba (lavados del mes · máquinas lavadas). Al tocar una máquina se abre el DETALLE con cada lavado de ese mes: fecha, tipo, quién lo hizo, observación y foto.' },
+      { t: 'note', text: 'Los datos de lavado viven en tablas aparte (lm_*) y no afectan horas, pagos ni reportes de ningún otro módulo. La foto de cada lavado se guarda como evidencia.' },
+    ],
+  },
+  {
     icon: '🛠️',
     title: 'Control de maquinaria (las horas que trabaja)',
     blocks: [
