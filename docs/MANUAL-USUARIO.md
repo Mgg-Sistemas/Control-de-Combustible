@@ -2437,7 +2437,14 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   teléfono en el momento del toque) y el **chofer** también: es el que el Coordinador de Operadores
   tiene asignado a ese camión en el turno actual (no se escribe a mano).
 - **Sin señal:** el viaje se guarda igual en el teléfono y se sube solo en cuanto vuelva la
-  conexión — se ve una insignia de "pendiente de sincronizar" mientras tanto.
+  conexión — se ve una insignia **ámbar "📤 pendiente"** mientras tanto. Por muchos días que
+  pase el listero sin cobertura, nunca se pierde ni se descarta nada.
+- **⚠️ Viajes que no pudieron subirse:** si un viaje falla por algo que **no** es la señal (el
+  camión se borró del catálogo, un dato quedó inválido), el sistema lo reintenta 3 veces y
+  después lo **aparta** — pero **la cola sigue subiendo los demás**. El viaje apartado no se
+  pierde: sale en rojo con **"⚠️ no subió"**, el motivo del error debajo, y un aviso arriba con
+  botón **🔄 Reintentar** para volver a intentarlo una vez resuelta la causa. Reintentar nunca
+  duplica un viaje que ya hubiera entrado.
 - **Mis viajes de hoy:** el listero puede **corregir la hora** de un viaje propio mientras su
   jornada siga abierta (no puede borrarlo, ni tocar los de otro listero). Si tocó el camión
   equivocado, debe avisarle a su jefa para que lo corrija.

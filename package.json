@@ -49,7 +49,8 @@
     "web": "expo start --web",
     "build:web": "expo export -p web",
     "deploy": "node scripts/deploy.mjs",
-    "test:clasificacion": "node scripts/test-clasificacion.mjs"
+    "test:clasificacion": "node scripts/test-clasificacion.mjs",
+    "test:cola-offline": "node scripts/test-cola-offline.mjs"
   },
   "private": true
 }
