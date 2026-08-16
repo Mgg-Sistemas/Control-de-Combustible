@@ -1479,6 +1479,14 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 (en curso/parada/finalizada/por iniciar), horas de día/noche/total, desglose por sector y las
 ubicaciones cuando una máquina cambió de sitio. La jornada de día la firma un inspector y la
 de noche otro; al final de cada uno va su línea de firma.
+
+> **🟡 Horas paradas (15-ago-2026):** el reporte trae una columna **"Horas parada"** por máquina,
+> su total en el pie de la tabla, en el desglose por sector y en las tarjetas de arriba
+> (**"Total hrs paradas día"** / **"noche"**). Son **las mismas cifras** que el inspector ve en el
+> recibo que imprime desde su teléfono, para que los dos documentos **cuadren al compararlos**.
+> Ojo con la diferencia: las **horas trabajadas** de una máquina que trabajó y *después* paró
+> **sí cuentan** en el total de la jornada; las **horas paradas** van aparte y **no** suman a la
+> jornada (jornada = horas activas).
 1. Elige el **Día**.
 2. Elige el **Turno**: **☀️ Día**, **🌙 Noche** o **☀️🌙 Ambos**.
 3. Debajo aparece **"Inspectores (marca uno o varios)"**: una lista de **checkboxes** con los
