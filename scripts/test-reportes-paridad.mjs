@@ -143,28 +143,32 @@ const tJor = kpi(tlf, 'Total de jornada');
 
 eq('el reporte del jefe trae horas trabajadas', jTrab, TRABAJADAS);
 eq('el recibo del teléfono trae horas trabajadas', tTrab, TRABAJADAS);
-eq('el reporte del jefe trae horas PARADAS', typeof jPar === 'number', true);
-eq('el recibo del teléfono trae horas PARADAS', typeof tPar === 'number', true);
 
-// El corazón del test: las tres cifras deben ser IGUALES en los dos documentos.
+// El corazón del test: las cifras deben ser IGUALES en los dos documentos.
 eq('PARIDAD · horas trabajadas', jTrab, tTrab);
-eq('PARIDAD · horas paradas', jPar, tPar);
 eq('PARIDAD · jornada', jJor, tJor);
 
 // Una máquina que trabajó y LUEGO paró debe aportar sus horas a los dos.
 eq('las horas de una máquina parada cuentan como trabajadas', jTrab >= 8.33, true);
-// Y una parada de verdad debe sumar horas paradas (no quedarse en 0, que fue
-// justo el motivo por el que se quitaron estas cifras el 10-ago-2026).
-eq('las horas paradas no son 0', jPar > 0, true);
 
-// La columna de la tabla y el pie de sección también deben cuadrar.
+// DECISIÓN DEL CLIENTE (15-ago-2026): NINGUNO de los dos documentos muestra el
+// TOTAL agregado de horas paradas. Se pidió quitarlo tras verlo en pantalla (ya
+// se había quitado una vez el 10-ago). Este par de aserciones existe para que no
+// se reponga por descuido: si vuelve a aparecer la tarjeta, el test falla.
+eq('el reporte del jefe NO muestra total de horas paradas', jPar, null);
+eq('el recibo del teléfono NO muestra total de horas paradas', tPar, null);
+
+// Pero el dato POR MÁQUINA sí se conserva en los dos.
+eq('el jefe conserva la columna Horas parada', /Horas<br>parada/.test(jefe), true);
+eq('el teléfono conserva la parada por máquina', /Parada [\d.]+h/.test(tlf), true);
+
+// El pie de sección del reporte del jefe cuadra con su KPI.
 const pieTrab = jefe.match(/Total de horas de día: <b>([\d.]+) h<\/b>/);
-const piePar = jefe.match(/Paradas: <b>([\d.]+) h<\/b>/);
 eq('pie de sección · trabajadas', pieTrab && Number(pieTrab[1]), TRABAJADAS);
-eq('pie de sección · paradas', piePar && Number(piePar[1]), jPar);
+eq('el pie de sección NO trae total de paradas', /Paradas: <b>/.test(jefe), false);
 
-console.log(`\n  jefe    → trabajadas ${jTrab} h · paradas ${jPar} h · jornada ${jJor} h`);
-console.log(`  teléfono→ trabajadas ${tTrab} h · paradas ${tPar} h · jornada ${tJor} h`);
+console.log(`\n  jefe    → trabajadas ${jTrab} h · jornada ${jJor} h · total paradas: ${jPar === null ? 'no se muestra ✓' : jPar}`);
+console.log(`  teléfono→ trabajadas ${tTrab} h · jornada ${tJor} h · total paradas: ${tPar === null ? 'no se muestra ✓' : tPar}`);
 console.log(`\n${pass} OK · ${fail} FALLO(S)`);
 if (failures.length) {
   console.log('\nFallos:');
