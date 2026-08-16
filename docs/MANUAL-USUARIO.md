@@ -242,6 +242,12 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - Si a una de esas máquinas se le reporta una avería/parada, el ticket **sí queda** en **Servicio
   de Maquinaria** (para el mecánico), pero **no cambia su estado** de trabajando en las inspecciones.
 
+> **📊 Reporte del día por empresa — TODAS las máquinas (15-ago-2026):** el PDF **📊 REPORTE DEL DÍA
+> POR EMPRESA** ahora lista **todas las máquinas de cada empresa MENOS las retiradas/eliminadas**,
+> agrupadas por estado: **✅ Activas** (trabajaron), **🔴 Averiadas / Paradas**, **⏳ Esperando
+> instrucciones** y **⏳ Pendientes por iniciar**. Antes solo salían las que tuvieron actividad
+> (trabajaron, avería o parada) y se omitían las de 0 actividad y las en espera.
+
 **Sección "En espera" (recibir máquinas):**
 - Arriba aparece **🕓 En espera** con las máquinas que **aún no se han recibido**.
 - Para recibir una: elige su **fecha de entrada** y toca **📥 Recibir**.
