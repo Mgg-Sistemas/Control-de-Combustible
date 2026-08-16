@@ -16,11 +16,13 @@ import { isoYesterday } from './caracasDay';
  * TODOS los tramos de `machine_work_segments` con TODAS las paradas de
  * `maintenance_requests` de ese día, no solo el resumen agregado).
  *
- * Incluye las máquinas de esas empresas que tuvieron ACTIVIDAD ese día (horas
- * trabajadas o paradas) o una avería/parada pendiente vigente — es un "resumen del
- * día", no todo el catálogo. Horas trabajadas = día+noche+extra (los tramos que de
- * verdad se trabajaron); Horas paradas = hours_stopped; la avería sale de
- * maintenance_requests (motivo en notes, o el material si no hay nota).
+ * Incluye TODAS las máquinas de esas empresas MENOS las RETIRADAS/eliminadas del
+ * catálogo (operational=false = retirada, active=false = eliminada) — regla cliente
+ * 15-ago-2026. Se agrupan por estado: ✅ Activas (trabajaron) · 🔴 Averiadas/Paradas ·
+ * ⏳ En espera (en_espera) · ⏳ Pendientes por iniciar (sin actividad aún). Horas
+ * trabajadas = día+noche+extra (los tramos que de verdad se trabajaron); Horas paradas
+ * = hours_stopped; la avería sale de maintenance_requests (motivo en notes, o el
+ * material si no hay nota).
  */
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -48,7 +50,7 @@ const horaCaracas = (iso: string | null): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso)); } catch { return '—'; }
 };
 
-type Grupo = 'activa' | 'averia' | 'inactiva';
+type Grupo = 'activa' | 'averia' | 'espera' | 'pendiente';
 type Fila = {
   grupo: Grupo;
   code: string; modelo: string; serialPlaca: string; inspector: string;
@@ -89,7 +91,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   //    `tipo` = MODELO de la máquina (CAT 320, Komatsu PC200…); `encargado` para filtrar.
   const machs = await selectAllRows(
     'machinery',
-    'id, code, serial, plate, tipo, encargado, active, operational, company_id, company:company_id(name)',
+    'id, code, serial, plate, tipo, encargado, active, operational, en_espera, company_id, company:company_id(name)',
     (q) => { let qq = q.in('company_id', companyIds); if (encargados.length) qq = qq.in('encargado', encargados); return qq; },
   );
   const ids = ((machs ?? []) as any[]).map((m) => m.id);
@@ -436,13 +438,19 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       : (dFlag === true || nFlag === true);
     const esParadaDeclarada = trab <= 0 && !averiaBase && !siempreActivoIds.has(id)
       && !!r && !r.jornada_start_at && declaredAny;
-    // CLASIFICACIÓN en 2 grupos:
-    //  · averia  → averiada/parada que NO trabajó (trab<=0 con avería/parada, o jornada en 0); se marca en 0.
-    //  · activa  → trabajó (trab>0).
-    // Una máquina sin actividad, SIN avería y que NUNCA declaró jornada (pendiente pura) no se lista.
+    // CLASIFICACIÓN en 4 grupos (regla cliente 15-ago-2026: se listan TODAS las máquinas
+    // de la empresa MENOS las retiradas/eliminadas, ya filtradas arriba):
+    //  · activa    → trabajó (trab>0).
+    //  · averia    → averiada/parada que NO trabajó (trab<=0 con avería/parada, o jornada en 0).
+    //  · espera    → "Esperando instrucciones" (en_espera=true) sin actividad ni ticket.
+    //  · pendiente → sin actividad, sin avería/parada y sin declarar jornada (pendiente por iniciar).
+    // Antes las de 0 actividad sin avería se OMITÍAN; ahora se listan (espera/pendiente).
     const esAveria = trab <= 0 && !!averiaBase;
-    if (trab <= 0 && !esAveria && !esParadaDeclarada) return;
-    const grupo: Grupo = (esAveria || esParadaDeclarada) ? 'averia' : 'activa';
+    const enEspera = m?.en_espera === true;
+    const grupo: Grupo = trab > 0 ? 'activa'
+      : (esAveria || esParadaDeclarada) ? 'averia'
+      : enEspera ? 'espera'
+      : 'pendiente';
     // Solo las ACTIVAS muestran horario y suman a los totales; las averiadas van en 0.
     const ddAct = grupo === 'activa' ? dd : 0;
     const nnAct = grupo === 'activa' ? nn : 0;
@@ -493,7 +501,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // Tabla de un GRUPO con columnas: Nº · Máquina · Modelo/Marca · Serial/Placa ·
   // Inspector · Horario DÍA (inicio arriba / fin abajo) · Horario NOCHE (idem).
   const tabla = (filas: Fila[]): string => {
-    const cls = (g: Grupo) => g === 'averia' ? ' class="aver"' : '';
+    const cls = (g: Grupo) => g === 'averia' ? ' class="aver"' : g === 'espera' ? ' class="espera"' : g === 'pendiente' ? ' class="pend"' : '';
     // Celda de un turno: INICIO (arriba) · FIN (abajo, en verde "EN CURSO" si sigue abierta)
     // · TOTAL de horas del turno EN VERDE (p. ej. 12 h).
     const celda = (ini: string, fin: string, enCurso: boolean, horas: number) =>
@@ -529,16 +537,27 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     </tr></thead><tbody>${rows}</tbody></table>`;
   };
 
-  // Por empresa: ACTIVAS, luego AVERIADAS/PARADAS (agrupadas, en 0). Las INACTIVAS ya no se muestran.
+  // Por empresa: ACTIVAS, AVERIADAS/PARADAS, EN ESPERA y PENDIENTES POR INICIAR — TODAS
+  // las máquinas de la empresa MENOS las retiradas/eliminadas (ya filtradas arriba).
   const secciones = empresas.map(([name, filas]) => {
     const activas = filas.filter((f) => f.grupo === 'activa');
     const averias = filas.filter((f) => f.grupo === 'averia');
+    const esperas = filas.filter((f) => f.grupo === 'espera');
+    const pendientes = filas.filter((f) => f.grupo === 'pendiente');
     let out = `<h3>🏢 ${esc(name)} · ${filas.length} máquina(s)</h3>`;
     out += `<div class="grp grp-ok">✅ Activas · ${activas.length}</div>`;
     out += activas.length ? tabla(activas) : '<p class="vacio">Sin máquinas activas este día.</p>';
     if (averias.length) {
       out += `<div class="grp grp-aver">🔴 Averiadas / Paradas (en 0) · ${averias.length}</div>`;
       out += tabla(averias);
+    }
+    if (esperas.length) {
+      out += `<div class="grp grp-espera">⏳ Esperando instrucciones · ${esperas.length}</div>`;
+      out += tabla(esperas);
+    }
+    if (pendientes.length) {
+      out += `<div class="grp grp-pend">⏳ Pendientes por iniciar · ${pendientes.length}</div>`;
+      out += tabla(pendientes);
     }
     return out;
   }).join('');
@@ -574,11 +593,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     td.mot{color:#B42318;font-weight:700}
     th .sub{font-weight:400;font-size:8.5px;opacity:.85}
     table.ir tr.aver td{color:#B42318;background:#FEF3F2}
+    table.ir tr.espera td{color:#B45309;background:#FFFBEB}
+    table.ir tr.pend td{color:#6B7280;background:#F9FAFB;font-style:italic}
     table.ir tr.inact td{color:#9CA3AF;background:#F9FAFB;font-style:italic}
     .grp{margin:10px 0 2px;font-size:11px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:6px;display:inline-block}
     .grp-ok{color:#067647;background:#ECFDF3;border:1px solid #ABEFC6}
     .grp-aver{color:#B42318;background:#FEF3F2;border:1px solid #FECDCA}
     .grp-inact{color:#6B7280;background:#F3F4F6;border:1px solid #E5E7EB}
+    .grp-espera{color:#B45309;background:#FFFBEB;border:1px solid #FDE68A}
+    .grp-pend{color:#6B7280;background:#F3F4F6;border:1px solid #E5E7EB}
     .vacio{font-size:10.5px;color:#9CA3AF;margin:2px 0 10px}
     .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px}
     .kpi{flex:1;min-width:120px;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;background:#F8FAFC}
