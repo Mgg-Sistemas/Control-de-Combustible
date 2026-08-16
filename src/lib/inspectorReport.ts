@@ -561,11 +561,11 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     // (pedido del cliente 10-ago-2026: que se vea igual que el reporte por empresa).
     const hLabel = turno === 'day' ? 'Horario DÍA' : 'Horario NOCHE';
     const HORA_INI = horarioNominal(turno).ini;          // 7am día / 7pm noche (fuente única)
-    let tWork = 0, tJor = 0, tPar = 0;
+    let tWork = 0, tJor = 0;
     const rows = list.map((m, i) => {
       const shiftH = r2(turno === 'day' ? m.dayH : m.nightH);       // horas de SU turno
       const jornada = shiftH;                                        // jornada = horas ACTIVAS (trabajadas)
-      tWork = r2(tWork + shiftH); tJor = r2(tJor + jornada); tPar = r2(tPar + m.horasParada);
+      tWork = r2(tWork + shiftH); tJor = r2(tJor + jornada);
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
       const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>`;
@@ -610,13 +610,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
         : '<td class="r">—</td>';
       return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.tipo)}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td>${paradaCell}${horarioCell}</tr>`;
     }).join('');
-    // Columna "Horas parada" REPUESTA (pedido del cliente 15-ago-2026). Se había
-    // quitado el 10-ago-2026 porque entonces salía SIEMPRE en 0 y confundía; ese
-    // cálculo (`horasParada` en computeInspectorData) ya funciona, y sin esta
-    // columna los números del reporte del jefe no cuadraban con los que ve el
-    // inspector en su recibo del teléfono, que sí las trae. NO volver a quitarla
-    // sin confirmar con el cliente.
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca-Modelo</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">Horas<br>parada</th><th>${hLabel}<br><span class="sub">inicio · fin</span></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="9">Total · ${list.length} equipo(s)</td><td class="r b" style="color:#B45309">${tPar} h</td><td class="r b">${tWork} h</td></tr></tfoot></table>`;
+    // Columna "Horas parada" POR MÁQUINA (pedido del cliente 15-ago-2026: "que
+    // también salgan las paradas"). Se muestra el dato de cada máquina, pero SIN
+    // total agregado en el pie — el cliente rechazó los totales de paradas ese
+    // mismo día al verlos en pantalla. Antes de tocar esto, leer la nota de los
+    // KPIs más abajo.
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca-Modelo</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">Horas<br>parada</th><th>${hLabel}<br><span class="sub">inicio · fin</span></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="9">Total · ${list.length} equipo(s)</td><td class="r"></td><td class="r b">${tWork} h</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales (solo horas del turno de este inspector).
     const bySec = new Map<string, { c: number; h: number; p: number }>();
@@ -651,7 +650,9 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     // Total de horas del TURNO de esta sección (junto a la firma). Para el inspector
     // de día muestra el total de horas de día; para el de noche, las de noche.
     const totLabel = turno === 'day' ? 'día' : 'noche';
-    const totHoras = `<div class="tot-horas">🕒 Total de horas de ${totLabel}: <b>${tWork} h</b> · 🟡 Paradas: <b>${tPar} h</b> · Jornada: <b>${tJor} h</b></div>`;
+    // Sin total de "paradas" acá tampoco (ver la nota de los KPIs de arriba): el
+    // cliente quiere el dato POR MÁQUINA, no agregado.
+    const totHoras = `<div class="tot-horas">🕒 Total de horas de ${totLabel}: <b>${tWork} h</b> · Jornada: <b>${tJor} h</b></div>`;
 
     // Firma de ESTA sección (nombre completo + línea + rótulo del rol).
     const firmaInsp = `<div class="firma-insp"><div class="line"></div><div class="fname">${esc(name)}</div><div class="frole">${roleWord}</div></div>`;
@@ -747,16 +748,16 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   // por lo que en "Ambos" cada turno/inspector queda con su propia línea de firma.
 
   const shiftTxt = shift === 'day' ? 'Turno día ☀️' : shift === 'night' ? 'Turno noche 🌙' : 'Ambos turnos ☀️ 🌙';
-  // TOTALES arriba: HRS DÍA · HRS PARADAS DÍA · HRS NOCHE · HRS PARADAS NOCHE ·
-  // JORNADA · ACTIVAS · AVERIADAS. Se suman de los turnos e inspectores REALMENTE
-  // incluidos: día usa dayH del turno día; noche, nightH del turno noche.
+  // TOTALES arriba: HRS DÍA · HRS NOCHE · JORNADA · ACTIVAS · AVERIADAS. Se suman
+  // de los turnos e inspectores REALMENTE incluidos: día usa dayH del turno día;
+  // noche, nightH del turno noche.
   //
-  // Las tarjetas de "horas paradas" se REPUSIERON el 15-ago-2026. Se habían quitado
-  // el 10-ago-2026 porque salían siempre en 0 (el cálculo de `horasParada` todavía
-  // no funcionaba) y confundían. Ya funciona, y el recibo del teléfono del inspector
-  // SÍ las trae: sin ellas acá, los dos documentos no cuadraban. Mismas 5 etiquetas
-  // que el recibo del teléfono, a propósito.
-  let tDayH = 0, tNightH = 0, tParDay = 0, tParNight = 0;
+  // SIN tarjeta de "horas paradas" (decisión del cliente, 15-ago-2026, confirmada
+  // por segunda vez tras verla en pantalla — ya se habían quitado el 10-ago-2026).
+  // El dato NO se perdió: sigue por máquina en la columna "Horas parada" de la
+  // tabla. Lo que el cliente no quiere es el TOTAL agregado, ni acá ni en el recibo
+  // del teléfono. No reponerlo sin pedírselo.
+  let tDayH = 0, tNightH = 0;
   // Conteo de máquinas (mismo alcance que las horas de arriba: turnos e
   // inspectores REALMENTE incluidos en este reporte).
   let tActivas = 0, tAveriadas = 0;
@@ -765,8 +766,8 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     tMap.forEach((mm, insp) => {
       if (inspFilter && !inspFilter.has(insp)) return;
       mm.forEach((m) => {
-        if (t === 'day') { tDayH += m.dayH; tParDay += m.horasParada; }
-        else { tNightH += m.nightH; tParNight += m.horasParada; }
+        if (t === 'day') tDayH += m.dayH;
+        else tNightH += m.nightH;
         if (m.estado === 'encurso') tActivas++;
         if (m.estado === 'averia') tAveriadas++;
       });
@@ -780,9 +781,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   const kpis = `
     <div class="kpis">
       ${showDay ? `<div class="kpi"><div class="k">Total hrs día</div><div class="v">${r2(tDayH)} H</div></div>` : ''}
-      ${showDay ? `<div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">${r2(tParDay)} H</div></div>` : ''}
       ${showNight ? `<div class="kpi"><div class="k">Total hrs noche</div><div class="v">${r2(tNightH)} H</div></div>` : ''}
-      ${showNight ? `<div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${r2(tParNight)} H</div></div>` : ''}
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${tJornada} H</div></div>
       <div class="kpi ok"><div class="k">Máquinas activas</div><div class="v">${tActivas}</div></div>
       <div class="kpi warn"><div class="k">Total de máquinas averiadas</div><div class="v">${tAveriadas}</div></div>
@@ -859,13 +858,12 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
   const list = machMap ? [...machMap.values()].sort((a, b) => cmpText(a.code, b.code)) : [];
 
   // SOLO las horas del TURNO del inspector: si es de día, sus horas de DÍA; si es de
-  // noche, sus horas de NOCHE (no se mezcla el otro turno de la misma máquina). Con su
-  // total de paradas y la jornada (horas del turno − paradas).
-  let tH = 0, tPar = 0, tJor = 0;
+  // noche, sus horas de NOCHE (no se mezcla el otro turno de la misma máquina).
+  let tH = 0, tJor = 0;
   const rows = list.map((m) => {
     const shiftH = r2(shift === 'day' ? m.dayH : m.nightH);       // horas de SU turno
     const jornada = shiftH;                                        // jornada = horas ACTIVAS (trabajadas)
-    tH += shiftH; tPar += m.horasParada; tJor += jornada;
+    tH += shiftH; tJor += jornada;
     const em = ESTADO_META[m.estado];
     const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo
       ? `<div class="mot">${esc(m.motivo)}</div>` : '';
@@ -877,16 +875,18 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
   }).join('');
 
   const turnoTxt = shift === 'day' ? '☀️ Turno Día (7:00am–7:00pm)' : '🌙 Turno Noche';
-  // TOTALES ARRIBA en tarjetas, MISMO formato que el reporte por empresa (día y noche
-  // se ven IGUAL): HRS DÍA · PARADAS DÍA · HRS NOCHE · PARADA NOCHE · JORNADA. El lado que
-  // no es del turno del inspector queda en 0. Jornada = trabajando − paradas.
+  // TOTALES ARRIBA en tarjetas: HRS DÍA · HRS NOCHE · JORNADA. El lado que no es del
+  // turno del inspector queda en 0.
+  //
+  // SIN tarjetas de "horas paradas" (decisión del cliente, 15-ago-2026: las vio en
+  // pantalla y pidió quitarlas de los DOS documentos, este y el reporte del jefe).
+  // El dato NO se perdió: sigue máquina por máquina en la línea "Parada Xh" de cada
+  // fila. Lo que no quiere es el TOTAL agregado. No reponerlo sin pedírselo.
   const isDay = shift === 'day';
   const kpis = `
     <div class="kpis">
       <div class="kpi"><div class="k">Total hrs día</div><div class="v">${isDay ? r2(tH) : 0} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">${isDay ? r2(tPar) : 0} H</div></div>
       <div class="kpi"><div class="k">Total hrs noche</div><div class="v">${!isDay ? r2(tH) : 0} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${!isDay ? r2(tPar) : 0} H</div></div>
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${r2(tJor)} H</div></div>
     </div>
     <div class="kpi-note">Máquinas: ${list.length} · Jornada = total de horas ACTIVAS (trabajadas).</div>`;
