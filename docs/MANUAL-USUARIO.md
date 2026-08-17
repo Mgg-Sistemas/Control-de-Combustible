@@ -575,15 +575,15 @@ su semana libre del ciclo — **cada quien puede descansar una semana distinta**
   sale solo de lo filtrado**. **Limpiar ✕** quita el filtro.
 - Elige el **Ciclo** (Desde / Hasta) arriba: define cuántas **semanas** hay para repartir (cada 7 días
   = una semana).
-- **Toca un cargo** para abrirlo y ver su gente. En cada **persona** aparecen las **semanas del ciclo
-  con fechas reales**; **toca la semana** en que esa persona descansa (se marca de color al instante).
-- Si otra persona **del mismo cargo** ya descansa esa semana, el botón muestra **⚠ N más** para avisarte
-  del **choque** y repartas mejor.
+- La vista es un **calendario tipo matriz**: **filas = personas** (agrupadas por su cargo),
+  **columnas = las semanas** del ciclo con sus fechas. **Toca la celda** de una persona en una semana
+  para marcar ahí su **día libre** (se pinta de color); toca la celda ya marcada para **quitarla**.
+- Debajo de cada columna, **"Libres / semana"** cuenta cuántas personas descansan esa semana — así ves
+  de un vistazo si se **juntan** (choque).
 - **✨ Repartir automático** (arriba) deja, dentro de cada cargo, a su gente en semanas **distintas** de
-  una vez. Después ajustas cualquiera a mano tocando otra semana.
-- Arriba, **"Personas libres por semana"** cuenta cuántas descansan cada semana (para ver si se juntan).
-- **➕ Semana libre en otra fecha** pone a una persona una semana suelta (Desde / Hasta); **Limpiar ✕**
-  borra la de esa persona. **📄 Generar PDF** imprime el calendario de días libres por persona (respeta el filtro).
+  una vez. Después ajustas cualquier celda a mano.
+- **Toca el nombre** de una persona (columna izquierda) para ver/borrar sus días libres o agregarle una
+  **fecha suelta**. **📄 Generar PDF** imprime el calendario de días libres por persona (respeta el filtro).
 - Se actualiza **en vivo** entre dispositivos. **SQL a correr:** `supabase/dias_libres_cargo.sql`.
 
 ### 4.6c. Distribución de uniformes (módulo propio, antes solo dentro de Nómina)
