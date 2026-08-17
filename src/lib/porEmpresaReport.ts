@@ -423,7 +423,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const declaredAny = (dFlag == null && nFlag == null)
       ? (r?.jornada_shift === 'day' || r?.jornada_shift === 'night')
       : (dFlag === true || nFlag === true);
-    const esParadaDeclarada = trab <= 0 && !averiaBase && !siempreActivoIds.has(id)
+    const esFinalizadaDeclarada = trab <= 0 && !averiaBase && !siempreActivoIds.has(id)
       && !!r && !r.jornada_start_at && declaredAny;
     // CLASIFICACIÓN en 4 grupos (regla cliente 15-ago-2026: se listan TODAS las máquinas
     // de la empresa MENOS las retiradas/eliminadas, ya filtradas arriba):
@@ -434,8 +434,12 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // Antes las de 0 actividad sin avería se OMITÍAN; ahora se listan (espera/pendiente).
     const esAveria = trab <= 0 && !!averiaBase;
     const enEspera = m?.en_espera === true;
-    const grupo: Grupo = trab > 0 ? 'activa'
-      : (esAveria || esParadaDeclarada) ? 'averia'
+    // "Declaró jornada + cerró en 0h" = ✅ FINALIZADA (regla cliente 14-ago-2026), NO parada:
+    // va con las ACTIVAS (actuó/finalizó), igual que la ve el teléfono, las tarjetas y el
+    // reporte por firma. Antes caía en 'averia' con la regla vieja "0h = parada" y
+    // desincronizaba con el resto de las vistas (fuente de verdad = teléfono, 17-ago-2026).
+    const grupo: Grupo = (trab > 0 || esFinalizadaDeclarada) ? 'activa'
+      : esAveria ? 'averia'
       : enEspera ? 'espera'
       : 'pendiente';
     // Solo las ACTIVAS muestran horario y suman a los totales; las averiadas van en 0.
@@ -461,7 +465,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       diaEnCurso: ddAct > 0 && dayOpen,
       nocheEnCurso: nnAct > 0 && nightOpen,
       diaHoras: n2(ddAct), nocheHoras: n2(nnAct),
-      motivo: esAveria ? averiaBase : esParadaDeclarada ? 'Parada · jornada en 0 h' : '',
+      motivo: esAveria ? averiaBase : esFinalizadaDeclarada ? 'Jornada finalizada (0 h)' : '',
       // POR TURNO: motivo del DÍA y de la NOCHE por separado, para que la parada/avería
       // de un turno se muestre SOLO en su columna (antes el motivo abarcaba día+noche con
       // colspan=2 → una parada de noche hacía ver la máquina como "no trabajó todo el día").
@@ -472,9 +476,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       //    ESTE día (no arrastra paradas viejas junto a un turno trabajado). Las que no
       //    trabajaron nada (grupo 'averia') sí explican su estado real aunque venga arrastrado.
       motivoDia: (siempreActivoIds.has(id) || !dayStarted) ? '' : (motivoDe(motRows(id, grupo), 'day')
-        || (esParadaDeclarada && r?.jornada_shift === 'day' ? 'No trabajó (jornada en 0 h)' : '')),
+        || (esFinalizadaDeclarada && r?.jornada_shift === 'day' ? 'Jornada finalizada (0 h)' : '')),
       motivoNoche: (siempreActivoIds.has(id) || !nightStarted) ? '' : (motivoDe(motRows(id, grupo), 'night')
-        || (esParadaDeclarada && r?.jornada_shift === 'night' ? 'No trabajó (jornada en 0 h)' : '')),
+        || (esFinalizadaDeclarada && r?.jornada_shift === 'night' ? 'Jornada finalizada (0 h)' : '')),
       cierreMotivo: grupo === 'activa' ? (cierreMotivoByMachine.get(id)?.motivo || '') : '',
       iniBy: nameById[r?.jornada_marked_by || ''] || '',
       cierreFinBy: nameById[cierreFinByMachine.get(id)?.id || ''] || '',
