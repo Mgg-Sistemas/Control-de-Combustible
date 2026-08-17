@@ -290,8 +290,7 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - **Switch 🔒 "Blindar precio a estas fechas"** (viene activado): **clava** el precio en
   esas fechas. Si el precio **sube en otra semana, esta no cambia**; y si lo **modificas,
   solo afecta esa semana**. El **Informe por jornada** y **Control de Pagos** usan ese mismo
-  precio blindado (el reporte **Maquinaria/Vehículo**, desde el 08/08/2026, ya **no muestra
-  precios ni montos en $** — ver más abajo).
+  precio blindado (el reporte **Maquinaria** no muestra precios ni montos en $ — ver más abajo).
 - **Si no cambias el precio, se mantiene el de la semana anterior** (arrastre automático):
   una jornada sin precio propio hereda el último precio que pusiste en una fecha anterior
   de esa misma máquina. Solo tocas el precio cuando **cambia**.
@@ -300,22 +299,15 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   actualiza al instante y los demás no se tocan. Funciona esté el corte **abierto o cerrado**.
 - Al **cerrar un corte**, el sistema **congela el precio**: respeta el precio por rango ya
   fijado y a las jornadas sin precio propio les pone el precio actual de la máquina.
-- **Reporte 🚚 Maquinaria/Vehículo (08/08/2026 — ya NO muestra montos en $):** vive dentro de
-  **Reportes**, con sus mismos filtros de **rango de fechas** y **empresas** (checkboxes). Tiene
-  **3 bloques**, todos operativos (sin precios ni facturación):
-  1. **Totales Generales:** cantidad de **equipos**, cuántos están **trabajando**, **parados**,
-     **averiados**, y las **horas acumuladas** del rango completo.
-  2. **Totales por Empresa:** el mismo desglose (equipos, trabajando, parados, averiados, horas),
-     pero agrupado por cada empresa.
-  3. **Trazabilidad de Maquinaria:** una fila por **cada equipo**, con su **empresa**, **días
-     trabajados** en el rango, **horas trabajadas**, cantidad de **averías** y **paradas**, y su
-     **estado** actual. Cada fila tiene un botón **"Ver detalle"** que abre el **historial
-     completo de esa máquina** (ver **Trazabilidad e Historial por Equipo** más abajo). *Nota:* la
-     trazabilidad por ahora solo existe para **maquinaria** — las filas de **vehículos** de este
-     mismo reporte no muestran el botón.
-  El botón **⬇️ PDF** genera el mismo reporte, en 3 secciones, para imprimir o compartir.
+- **Reporte 🚜 Maquinaria (17/08/2026 — ahora es SOLO maquinaria, ya no incluye vehículos):** vive
+  dentro de **Reportes**, con sus mismos filtros de **rango de fechas**, **empresas** (checkboxes) y
+  **clasificación**. Lista **solo las máquinas que TRABAJARON** en el rango de fechas, cada una con su
+  **ficha de catálogo**: **Máquina** (nombre), **Marca**, **Modelo**, **Placa**, **Serial** y
+  **Clasificación**. Cada fila tiene un botón **"Ver detalle"** que abre el **historial completo de esa
+  máquina** (ver **Trazabilidad e Historial por Equipo** más abajo). El botón **⬇️ PDF** genera la
+  misma tabla para imprimir o compartir.
 - **🧭 Trazabilidad e Historial por Equipo (nuevo):** pantalla propia dentro de **Reportes →
-  Maquinaria/Vehículo** (o tocando **"Ver detalle"** desde cualquier fila del bloque de arriba, que
+  Maquinaria** (o tocando **"Ver detalle"** desde cualquier fila del listado de arriba, que
   llega con la máquina ya elegida). Muestra la **historia completa de UNA máquina** en el rango de
   fechas que elijas:
   1. Elige la **máquina** (buscador por código, serial, placa, empresa o encargado) y el **rango**
