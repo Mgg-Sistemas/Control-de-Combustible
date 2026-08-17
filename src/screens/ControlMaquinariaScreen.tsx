@@ -7,7 +7,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, pdfDocument, dateRangeLabel } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
-import { turnoH, workedFromShifts } from '../lib/hours';
+import { turnoH, workedFromShifts, horasTurnoDelDia } from '../lib/hours';
 import { norm, onlyDecimal, onlyDigits, cmpText } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
@@ -930,7 +930,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // Resumen por RANGO de fecha (editable): incluye todas las empresas con
     // actividad en el rango, sumando también las jornadas ya cerradas.
     // Paginado: con >1000 rondas una consulta simple se truncaba (faltaban empresas/horas).
-    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price', (q) => q.gte('round_date', fromArg).lte('round_date', toArg));
+    // `jornada_start_at`/`jornada_shift`: los necesita `horasTurnoDelDia` para contar
+    // EN VIVO la jornada abierta de HOY, igual que el reporte por empresa.
+    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift', (q) => q.gte('round_date', fromArg).lte('round_date', toArg));
     // Una fila por (máquina, fecha) para no duplicar si hubiera varias rondas el mismo día.
     const byMD = new Map<string, any>();
     (allRounds ?? []).forEach((b: any) => {
@@ -947,7 +949,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // del rango si existe; si no, el precio ACTUAL de la máquina (sin arrastre).
     const amountByMachine = new Map<string, number>();
     byMD.forEach((b) => {
-      const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+      // MISMO cálculo que el reporte por empresa. En días pasados devuelve lo bancado
+      // (los cierres y montos ya cerrados no se mueven); solo el día de HOY suma en vivo.
+      const w = horasTurnoDelDia(b, b.round_date).trabajadas;
       if (w > 0) {
         workedByMachine.set(b.machinery_id, (workedByMachine.get(b.machinery_id) ?? 0) + w);
         const p = effectivePrice(b.machinery_id, b.frozen_price);
@@ -1066,7 +1070,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const days: string[] = [];
     for (let d = fromArg; d <= toArg && days.length < 62; d = addDaysISO(d, 1)) days.push(d);
     // Rondas del rango (paginado por si hay >1000).
-    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (qb) => qb.gte('round_date', fromArg).lte('round_date', toArg));
+    // `jornada_start_at`/`jornada_shift` hacen falta para que `horasTurnoDelDia` pueda
+    // contar EN VIVO la jornada abierta de HOY, igual que el reporte por empresa.
+    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift', (qb) => qb.gte('round_date', fromArg).lte('round_date', toArg));
     // Una fila por (máquina, fecha) para no duplicar; solo cuenta si trabajó ese día.
     const byMD = new Map<string, any>();
     (allRounds ?? []).forEach((b: any) => byMD.set(`${b.machinery_id}|${b.round_date}`, b));
@@ -1079,7 +1085,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const totalByCompany = new Map<string, Set<string>>();
     const totalByDay = new Map<string, Set<string>>();
     byMD.forEach((b) => {
-      const worked = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+      // MISMO cálculo que el reporte por empresa (`horasTurnoDelDia`): con jornada
+      // abierta HOY cuenta desde las 7am/7pm nominales. En días pasados devuelve
+      // exactamente lo bancado, así que el calendario histórico no se mueve.
+      const worked = horasTurnoDelDia(b, b.round_date).trabajadas;
       if (worked <= 0) return;
       const cname = companyOf.get(b.machinery_id);
       if (!cname) return; // máquina fuera del alcance
@@ -2025,11 +2034,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <View style={{ marginTop: spacing.sm, gap: spacing.sm }}>
                 {weekDays.map((dISO) => {
                   const b = rounds[rkey(m.id, dISO)];
-                  const dayH = Number(b?.day_hours ?? 0);
-                  const nightH = Number(b?.night_hours ?? 0);
+                  // HORAS: mismo cálculo que el Reporte por Empresa (`horasTurnoDelDia`),
+                  // que es el documento de referencia del cliente. Con la jornada abierta
+                  // de HOY cuenta desde las 7am/7pm nominales; en días pasados devuelve
+                  // exactamente lo bancado, así que el histórico no cambia.
+                  // `dayH`/`nightH` salen de ahí (no crudos) para que el "N h · turno" de
+                  // la derecha cuadre con las horas mostradas.
+                  const hrs = horasTurnoDelDia(b, dISO);
+                  const dayH = hrs.dia;
+                  const nightH = hrs.noche;
                   const stopped = Number(b?.hours_stopped ?? 0);
                   const ot = Number(b?.overtime_hours ?? 0);
-                  const worked = workedFromShifts(dayH, nightH, stopped, ot);
+                  const worked = hrs.trabajadas;
                   const ik = `${m.id}|${dISO}`;
                   return (
                     <View key={dISO} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
