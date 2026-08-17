@@ -575,9 +575,14 @@ su semana libre del ciclo — **cada quien puede descansar una semana distinta**
   sale solo de lo filtrado**. **Limpiar ✕** quita el filtro.
 - Elige el **Ciclo** (Desde / Hasta) arriba: define cuántas **semanas** hay para repartir (cada 7 días
   = una semana).
-- La vista es un **calendario tipo matriz**: **filas = personas** (agrupadas por su cargo),
-  **columnas = las semanas** del ciclo con sus fechas. **Toca la celda** de una persona en una semana
-  para marcar ahí su **día libre** (se pinta de color); toca la celda ya marcada para **quitarla**.
+- La vista es un **calendario tipo matriz** (filas = personas agrupadas por su cargo). Con el
+  **conmutador 📅 Semana / 📆 Día** (arriba a la derecha) eliges si el descanso se marca por **semana
+  completa** o por **días sueltos**:
+  - **Por semana:** columnas = las semanas del ciclo. **Toca la celda** para marcar la semana libre
+    (se pinta de color); toca la marcada para **quitarla**.
+  - **Por día:** columnas = cada día del ciclo. **Toca un día** para marcarlo libre (verde) y toca el
+    día marcado para quitarlo. Los días que ya vienen de una semana salen con el color de la semana y
+    se editan en modo Semana.
 - Debajo de cada columna, **"Libres / semana"** cuenta cuántas personas descansan esa semana — así ves
   de un vistazo si se **juntan** (choque).
 - **✨ Repartir automático** (arriba) deja, dentro de cada cargo, a su gente en semanas **distintas** de
