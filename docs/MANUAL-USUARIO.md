@@ -2430,9 +2430,9 @@ ve en el mapa y el catálogo).
 - **Asignar máquinas:** desde el **Catálogo → botón 🏛️ Obras Públicas** eliges el supervisor (de
   los usuarios con ese rol) y le asignas máquinas **por lote o individual**. La máquina le aparece
   al supervisor en su teléfono ("🏛️ Mis máquinas").
-  > **Solo GOLDEN y LICCIONE (14-ago-2026):** el listado de asignación de Obras Públicas SOLO muestra
-  > las máquinas de las empresas **GOLDEN** y **LICCIONE** (las que operan en este módulo). Las de otras
-  > empresas no aparecen.
+  > **Cualquier empresa (17-ago-2026):** el listado ya NO está limitado a GOLDEN y LICCIONE. Salen
+  > **todas** las máquinas del catálogo (operativas y averiadas), de cualquier empresa. Darle o quitarle
+  > una máquina a Obras Públicas es cosa de marcarla acá; ya no hace falta tocar el código.
   > **Acarreo por VIAJES (14-ago-2026):** en el "▾ Detalle" de cada edificio, el m³ acarreado ya
   > NO se teclea a mano — se ingresan los **viajes por tipo de vehículo** y el m³ se **calcula solo**:
   > 🚛 **Camión Volteo Toronto = 18 m³/viaje** · 🚚 **Chuto con Volqueta = 25 m³/viaje** (ej.: 4 viajes
@@ -2562,7 +2562,8 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 Es la **libreta de deudas** de la empresa. Compras te dice **qué se compró**; esta sección te dice
 **qué se debe** y **qué te deben**, con su **fecha de vencimiento** y su **saldo**. Se entra por
-*Más → 🧾 Cuentas por pagar y cobrar*.
+*Compras → pestañas 💸 **Por pagar** y 💰 **Por cobrar***, junto a Solicitudes, Órdenes,
+Proveedores y Resumen.
 
 **Dos pestañas arriba:**
 - **💸 Por pagar** — lo que la empresa le debe a sus **proveedores**.
