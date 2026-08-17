@@ -8,6 +8,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
+import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
@@ -843,11 +844,21 @@ export default function ComprasScreen() {
   const { colors } = useTheme();
   const { moduleLevel } = useAuth();
   const canWrite = levelMeets(moduleLevel('compras'), 'escritura');
+
+  // Cuentas por pagar / por cobrar viven ACÁ dentro (pedido del cliente,
+  // 17-ago-2026: "en compras estén las cuentas por cobrar y cuentas por pagar"),
+  // pero con permiso PROPIO: las políticas RLS de `cuentas` consultan
+  // `cuentas_nivel()`, así que abrirlas con el permiso de compras solo lograría
+  // que las pestañas salieran vacías. Sin el permiso, ni se muestran.
+  const veCuentas = levelMeets(moduleLevel('cuentas'), 'lectura');
+  const cuentasWrite = levelMeets(moduleLevel('cuentas'), 'escritura');
+
   const TABS = [
     { key: 'solicitudes', label: 'Solicitudes', icon: '📝' },
     { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
+    ...(veCuentas ? CUENTAS_TABS : []),
   ];
   const [active, setActive] = useState('solicitudes');
 
@@ -867,7 +878,11 @@ export default function ComprasScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : <ProveedoresTab canWrite={canWrite} />}
+        {active === 'por_pagar' || active === 'por_cobrar' ? (
+          // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
+          // propio buscador y formulario limpios.
+          <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
+        ) : active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : <ProveedoresTab canWrite={canWrite} />}
       </View>
     </View>
   );

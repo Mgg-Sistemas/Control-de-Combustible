@@ -133,7 +133,7 @@ function calcular(c: Cuenta, abonos: CuentaAbono[], hoy: string, contraparte: st
 }
 
 // ── Pestaña (el mismo componente para los dos tipos) ─────────────────────────
-function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boolean }) {
+export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
@@ -585,51 +585,9 @@ function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boolean })
   );
 }
 
-// ── Contenedor con las dos pestañas ──────────────────────────────────────────
-export default function CuentasScreen() {
-  const { colors } = useTheme();
-  const { moduleLevel, canSee } = useAuth();
-  const puede = canSee('cuentas');
-  const canWrite = levelMeets(moduleLevel('cuentas'), 'escritura');
-  const [active, setActive] = useState<CuentaTipo>('por_pagar');
-
-  // El módulo NACE CERRADO: sin permiso explícito no se ve nada.
-  if (!puede) {
-    return (
-      <Screen>
-        <EmptyState
-          title="Sin acceso"
-          subtitle="No tienes permiso para ver las cuentas por pagar y por cobrar. Pídeselo a un administrador (módulo “Cuentas por pagar y cobrar”)."
-        />
-      </Screen>
-    );
-  }
-
-  const TABS: { key: CuentaTipo; label: string; icon: string }[] = [
-    { key: 'por_pagar', label: TIPO_CFG.por_pagar.label, icon: TIPO_CFG.por_pagar.icon },
-    { key: 'por_cobrar', label: TIPO_CFG.por_cobrar.label, icon: TIPO_CFG.por_cobrar.icon },
-  ];
-
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, gap: spacing.sm }}>
-          {TABS.map((t) => {
-            const on = t.key === active;
-            return (
-              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
-                <Text style={{ fontSize: 15 }}>{t.icon}</Text>
-                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-      <View style={{ flex: 1 }}>
-        {/* `key` fuerza remontar al cambiar de pestaña: cada tipo arranca con su
-            propio buscador y formulario limpios. */}
-        <CuentasTab key={active} tipo={active} canWrite={canWrite} />
-      </View>
-    </View>
-  );
-}
+// Las dos pestañas, para que Compras las monte junto a las suyas. Se exponen
+// desde acá para no repetir etiqueta ni icono en dos archivos.
+export const CUENTAS_TABS: { key: CuentaTipo; label: string; icon: string }[] = [
+  { key: 'por_pagar',  label: TIPO_CFG.por_pagar.label,  icon: TIPO_CFG.por_pagar.icon },
+  { key: 'por_cobrar', label: TIPO_CFG.por_cobrar.label, icon: TIPO_CFG.por_cobrar.icon },
+];
