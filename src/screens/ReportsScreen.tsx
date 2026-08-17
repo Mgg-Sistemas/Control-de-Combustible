@@ -1967,24 +1967,38 @@ export default function ReportsScreen({ route }: any) {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const alcance = repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : repCompanies.length > 1 ? `Empresas: ${repCompanies.join(', ')}` : 'General · todas las empresas';
 
-    const rows = fleetItems
-      .slice()
-      .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
-      .map(
-        (it) =>
-          `<tr><td>${esc(it.name)}</td><td>${esc(it.marca)}</td><td>${esc(it.modelo)}</td><td>${esc(it.plate || '—')}</td><td>${esc(it.serial || '—')}</td><td>${esc(it.tipo)}</td><td>${esc(it.company)}</td></tr>`
-      )
+    // Agrupado POR EMPRESA: la empresa va como TÍTULO arriba de cada bloque (no como
+    // columna repetida). Dentro de cada empresa, la tabla lista solo los datos de la máquina.
+    const groups = new Map<string, FleetItem[]>();
+    fleetItems.forEach((it) => {
+      const arr = groups.get(it.company) ?? [];
+      arr.push(it);
+      groups.set(it.company, arr);
+    });
+    const bloques = Array.from(groups.keys())
+      .sort((a, b) => cmpText(a, b))
+      .map((co) => {
+        const rows = (groups.get(co) ?? [])
+          .slice()
+          .sort((a, b) => cmpText(a.name, b.name))
+          .map(
+            (it) =>
+              `<tr><td>${esc(it.name)}</td><td>${esc(it.marca)}</td><td>${esc(it.modelo)}</td><td>${esc(it.plate || '—')}</td><td>${esc(it.serial || '—')}</td><td>${esc(it.tipo)}</td></tr>`
+          )
+          .join('');
+        return `<h2 class="emp">🏢 ${esc(co)} — ${(groups.get(co) ?? []).length} máquina(s)</h2>
+          <table><thead><tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca</th><th style="text-align:left">Modelo</th><th style="text-align:left">Placa</th><th style="text-align:left">Serial</th><th style="text-align:left">Clasificación</th></tr></thead>
+          <tbody>${rows}</tbody></table>`;
+      })
       .join('');
-    const tabla = `
-      <table><thead><tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca</th><th style="text-align:left">Modelo</th><th style="text-align:left">Placa</th><th style="text-align:left">Serial</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Empresa</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="7" style="text-align:center">Sin maquinaria en el rango</td></tr>'}</tbody></table>`;
 
-    const body = `
+    const body = `<style>.emp{font-size:14px;color:#1E3A5F;font-weight:800;margin:16px 0 4px}</style>
       <div class="muted">${esc(alcance)} · Maquinaria que trabajó del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary">
         <div><span class="k">Máquinas</span><b>${fleetItems.length}</b></div>
+        <div><span class="k">Empresas</span><b>${groups.size}</b></div>
       </div>
-      ${tabla}`;
+      ${bloques || '<p class="muted">Sin maquinaria en el rango.</p>'}`;
     await exportPdf(pdfShell('REPORTE DE MAQUINARIA', alcance, body), 'Reportes - Maquinaria');
   };
 
@@ -2163,7 +2177,7 @@ export default function ReportsScreen({ route }: any) {
                 // Jornada arranca en HOY (fecha del día) por defecto; el usuario amplía el
                 // rango con los botones de abajo. Maquinaria (fleet) sí arranca en la semana base.
                 if (t.v === 'rounds') { setFrom(isoDaysAgo(0)); setTo(isoDaysAgo(0)); }
-                if (t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
+                if (t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
                 // Despliegue arranca desde la semana base hasta HOY (editable).
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
                 // Inspectores (jornadas de inspección): reporte de UN día; arranca en HOY.
@@ -3389,32 +3403,37 @@ export default function ReportsScreen({ route }: any) {
           {fleetItems.length === 0 ? (
             <Card><Text style={{ color: colors.muted }}>Ninguna máquina trabajó en el rango de fechas.</Text></Card>
           ) : (
-            <Card>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🚜 Maquinaria ({fleetItems.length})</Text>
-              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Máquinas que trabajaron en el rango, con sus datos de catálogo.</Text>
-              {fleetItems
-                .slice()
-                .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
-                .map((it) => (
-                  <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.name}</Text>
-                      {(it.marca !== '—' || it.modelo !== '—') ? (
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {[it.marca, it.modelo].filter((x) => x && x !== '—').join(' ')}</Text>
-                      ) : null}
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>
-                        🚗 {it.plate || '—'} · 🔢 {it.serial || '—'}
-                      </Text>
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>
-                        🗂️ {it.tipo} · {it.company}
-                      </Text>
-                    </View>
-                    <TouchableOpacity onPress={() => { setFleetPreview(false); navigation?.navigate?.('MachineTraceability', { machineId: it.id }); }} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver detalle</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-            </Card>
+            // Agrupado POR EMPRESA: cada empresa es un bloque con su título arriba (no columna).
+            Array.from(
+              fleetItems.reduce((m, it) => { (m.get(it.company) ?? m.set(it.company, []).get(it.company))!.push(it); return m; }, new Map<string, FleetItem[]>())
+            )
+              .sort((a, b) => cmpText(a[0], b[0]))
+              .map(([company, machines]) => (
+                <Card key={company}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🏢 {company}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{machines.length} máquina(s) que trabajaron en el rango.</Text>
+                  {machines
+                    .slice()
+                    .sort((a, b) => cmpText(a.name, b.name))
+                    .map((it) => (
+                      <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.name}</Text>
+                          {(it.marca !== '—' || it.modelo !== '—') ? (
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {[it.marca, it.modelo].filter((x) => x && x !== '—').join(' ')}</Text>
+                          ) : null}
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            🚗 {it.plate || '—'} · 🔢 {it.serial || '—'}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>🗂️ {it.tipo}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => { setFleetPreview(false); navigation?.navigate?.('MachineTraceability', { machineId: it.id }); }} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver detalle</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                </Card>
+              ))
           )}
 
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt, marginTop: spacing.md }]} onPress={() => setFleetPreview(false)}>
