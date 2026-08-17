@@ -7,7 +7,7 @@ import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
@@ -48,7 +48,7 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
   return s && s !== 'Sin zona' ? s : ((referencia || '').trim() || 'Sin zona');
 };
 
-type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
+type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; resolved_at: string | null; resolvedByName: string | null; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; machineTipo: string | null; company: string; createdByName: string | null; closedByName: string | null };
 type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; latitude: number | null; longitude: number | null; operational: boolean; last_horometro: number | null; horometro_base: number | null; horometro_maint_pending: boolean };
 // Lectura de horómetro + foto que ingresa el inspector/operador al iniciar/finalizar la jornada
@@ -197,7 +197,11 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       // 'MÁQUINA PARADA' es el marcador interno de "parada" (Inspecciones/Control):
       // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
       // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
-      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
+      // `resolved_at`/`resolved_by`: hacen falta para el HISTORIAL. Antes no se pedían y
+      // una avería marcada como REALIZADO desaparecía de la pantalla sin dejar rastro:
+      // salía de "Averías" (que solo lista pendientes) y el Historial solo mostraba
+      // expedientes de taller (`machinery_repairs`), no averías resueltas.
+      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, resolved_at, resolved_by, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
@@ -209,7 +213,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
     const nameById = new Map<string, string>();
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
-    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
+    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null, resolved_at: r.resolved_at ?? null, resolvedByName: r.resolved_by ? (nameById.get(r.resolved_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', createdByName: r.created_by ? (nameById.get(r.created_by) ?? null) : null, closedByName: r.closed_by ? (nameById.get(r.closed_by) ?? null) : null })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null, horometro_maint_pending: m.horometro_maint_pending === true })));
     setLoading(false);
@@ -222,11 +226,21 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   // se atribuye leyendo el CÓDIGO del equipo en el texto de la salida (reason).
   const loadReportData = async () => {
     setReportLoading(true);
-    const [{ data: mv }, { data: items }, { data: insp }] = await Promise.all([
-      supabase.from('inventory_movements').select('item_id, qty, unit_cost, machinery_id, reason, kind').in('kind', ['salida', 'consumo']),
-      supabase.from('inventory_items').select('id, machinery_id, avg_cost'),
-      supabase.from('machine_inspections').select('id, machinery_id, inspected_at, inspector_name, condicion_general, items').order('inspected_at', { ascending: false }),
+    try {
+    // PAGINADO (`selectAllRows`): PostgREST corta en ~1000 filas por consulta.
+    // `inventory_movements` es de las tablas más voluminosas del sistema, así que sin
+    // paginar el GASTO salía POR DEBAJO de lo real y los equipos con inspección vieja
+    // se caían del reporte (bug 17-ago-2026). El resto del proyecto ya usaba este
+    // helper justamente por esto; acá se había quedado con el `select` simple.
+    const [mv, items, inspRaw] = await Promise.all([
+      selectAllRows('inventory_movements', 'item_id, qty, unit_cost, machinery_id, reason, kind', (q) => q.in('kind', ['salida', 'consumo'])),
+      selectAllRows('inventory_items', 'id, machinery_id, avg_cost'),
+      selectAllRows('machine_inspections', 'id, machinery_id, inspected_at, inspector_name, condicion_general, items'),
     ]);
+    // `selectAllRows` pagina por id, así que el orden del `order(...)` se pierde: se
+    // reordena acá porque el reporte asume que la PRIMERA inspección de cada equipo es
+    // la MÁS RECIENTE (`flaggedOf` usa `ins[0]`).
+    const insp = (inspRaw ?? []).slice().sort((a: any, b: any) => String(b.inspected_at ?? '').localeCompare(String(a.inspected_at ?? '')));
     // Inspecciones agrupadas por equipo (para cruzarlas con las averías en el detalle).
     const inspMap: Record<string, any[]> = {};
     (insp ?? []).forEach((r: any) => { if (r.machinery_id) (inspMap[r.machinery_id] ??= []).push(r); });
@@ -245,8 +259,19 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       if (mid) gasto[mid] = (gasto[mid] ?? 0) + cost;
     });
     setGastoByMachine(gasto);
+    // `setReportLoaded(true)` SOLO si la carga salió bien. Antes se marcaba siempre, así
+    // que un fallo (RLS, timeout, sin red) quedaba CACHEADO como "cargado": el reporte se
+    // veía en $0.00 para siempre y no se reintentaba nunca, sin avisar de nada.
     setReportLoaded(true);
-    setReportLoading(false);
+    return { gasto, inspMap };
+    } catch (e: any) {
+      // Antes no había try/catch: si la promesa se rechazaba, nunca se llegaba a
+      // `setReportLoading(false)` y el spinner giraba sin fin.
+      toast.error('No se pudo cargar el reporte. Revisa la conexión e inténtalo de nuevo.');
+      return null;
+    } finally {
+      setReportLoading(false);
+    }
   };
   useEffect(() => { if (tab === 'reporte' && !reportLoaded && !loading) loadReportData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loading]);
   // Solo refresca el reporte si ya se cargó (evita gastar la consulta cuando nadie visitó la pestaña).
@@ -595,6 +620,18 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const repsSeccion = useMemo(() => repairs.filter((r) => esPreventiva(r) !== esServicio), [repairs, esServicio]);
   const enReparacion = useMemo(() => repsSeccion.filter((r) => r.status === 'en_reparacion' && matchesRep(r)), [repsSeccion, nq]);
   const historial = useMemo(() => repsSeccion.filter((r) => r.status === 'operativa' && matchesRep(r)), [repsSeccion, nq]);
+  // AVERÍAS RESUELTAS — solo en Servicio (Mantenimiento no tiene pestaña de averías).
+  // Sin esto, marcar una avería como REALIZADO la hacía desaparecer del módulo por
+  // completo: salía de "Averías" (que solo lista pendientes) y el Historial únicamente
+  // mostraba expedientes de taller cerrados. El dato nunca se perdió en la base, pero no
+  // había forma de verlo. Queja del cliente (17-ago-2026): "marqué una como realizado y
+  // no me quedó ningún registro en el historial".
+  const averiasResueltas = useMemo(
+    () => (!esServicio ? [] : reqs
+      .filter((r) => r.status === 'realizado' && matchesQ(r.code, r.company, r.tipo, matLabel(r.material), r.notes, r.plate, r.serial, r.requestedByName, r.resolvedByName))
+      .sort((a, b) => String(b.resolved_at ?? b.created_at).localeCompare(String(a.resolved_at ?? a.created_at)))),
+    [reqs, nq, esServicio],
+  );
 
   const pendientes = reqs.filter((r) => r.status === 'pendiente').length;
   const enRepCount = repsSeccion.filter((r) => r.status === 'en_reparacion').length;
@@ -810,10 +847,41 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           ))
         )
       ) : tab === 'historial' ? (
-        historial.length === 0 ? (
-          <EmptyState title={esServicio ? 'Sin reparaciones cerradas' : 'Sin mantenimientos cerrados'} subtitle={esServicio ? 'Las reparaciones terminadas (máquina de vuelta operativa) aparecerán aquí.' : 'Los mantenimientos preventivos terminados aparecerán aquí.'} />
+        historial.length === 0 && averiasResueltas.length === 0 ? (
+          <EmptyState title={esServicio ? 'Sin reparaciones cerradas' : 'Sin mantenimientos cerrados'} subtitle={esServicio ? 'Las reparaciones terminadas y las averías marcadas como realizadas aparecerán aquí.' : 'Los mantenimientos preventivos terminados aparecerán aquí.'} />
         ) : (
-          historial.map((r) => (
+        <>
+          {/* AVERÍAS RESUELTAS (solo Servicio): las que se marcaron "realizado" sin pasar
+              por el taller. Antes no se veían en ninguna parte — ver `averiasResueltas`. */}
+          {averiasResueltas.length > 0 ? (
+            <>
+              <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12, marginBottom: spacing.xs }}>
+                ✅ AVERÍAS RESUELTAS ({averiasResueltas.length})
+              </Text>
+              {averiasResueltas.map((r) => (
+                <Card key={`req-${r.id}`}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
+                    <Badge label={`🔧 ${matLabel(r.material)}`} tone="muted" />
+                  </View>
+                  {r.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.tipo}</Text> : null}
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
+                  {r.notes ? <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📝 {r.notes}</Text> : null}
+                  <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>
+                    📅 {fmtDMY(r.created_at)} → {fmtDMY(r.resolved_at)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Resuelta</Text>
+                  </Text>
+                  {r.requestedByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Reportada por {r.requestedByName}</Text> : null}
+                  {r.resolvedByName ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Resuelta por {r.resolvedByName}</Text> : null}
+                </Card>
+              ))}
+            </>
+          ) : null}
+          {historial.length > 0 && averiasResueltas.length > 0 ? (
+            <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12, marginTop: spacing.sm, marginBottom: spacing.xs }}>
+              🧰 PASARON POR EL TALLER ({historial.length})
+            </Text>
+          ) : null}
+          {historial.map((r) => (
             <Card key={r.id}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
@@ -826,7 +894,8 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
               {r.closedByName ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Reactivada por {r.closedByName}</Text> : null}
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔩 Se cambió: {r.work_done}</Text> : null}
             </Card>
-          ))
+          ))}
+        </>
         )
       ) : tab === 'horometros' ? (
         // ── ⏱️ HORÓMETROS: horas acumuladas + lo que falta para el mantenimiento ──
@@ -979,7 +1048,13 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           };
           // Conteo por caso (sobre el universo filtrado por clasificación).
           const clasValues = Array.from(new Set(universe.map((s) => s.clasificacion || 'Sin clasificación'))).sort(cmpText);
-          const byClas = universe.filter((s) => repClasFilter === '__all__' || (s.clasificacion || 'Sin clasificación') === repClasFilter);
+          // BUSCADOR: esta pestaña era la ÚNICA que no aplicaba el filtro de la caja de
+          // búsqueda, aunque la caja se dibuja igual arriba y su placeholder promete
+          // buscar por máquina/empresa/placa/serial. El usuario escribía y la lista no
+          // se movía — "el buscador no funciona" (17-ago-2026). Se filtra el universo
+          // ANTES de agrupar, para que los totales y el ranking cuadren con lo buscado.
+          const byQuery = universe.filter((s) => matchesQ(s.code, s.company, s.plate, s.serial, s.clasificacion, s.tipo));
+          const byClas = byQuery.filter((s) => repClasFilter === '__all__' || (s.clasificacion || 'Sin clasificación') === repClasFilter);
           const casoCount = { con: 0, sin_insp: 0, sin_averia: 0 };
           byClas.forEach((s) => { casoCount[casoOf(s.id, s.total)]++; });
           // Aplica también el filtro por caso.
