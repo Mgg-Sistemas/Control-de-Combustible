@@ -148,6 +148,69 @@ create index if not exists machine_rounds_inspector_night_idx
 
 
 -- ════════════════════════════════════════════════════════════════════════════
+-- BLOQUE 4b · ENSAYO EN SECO — escribe y se deshace solo  (opcional)
+-- ════════════════════════════════════════════════════════════════════════════
+-- Para verlo funcionar SIN comprometerse. Hace el relleno de verdad dentro de
+-- una transacción, te muestra cuántas filas quedarían con inspector y con qué
+-- nombres, y al final hace ROLLBACK: la base queda EXACTAMENTE como estaba.
+--
+-- Pégalo COMPLETO de una vez (desde el `begin;` hasta el `rollback;`). Si lo
+-- corres por pedazos, la transacción queda abierta y el `rollback` no llega.
+--
+-- Requiere haber corrido el BLOQUE 4 (las columnas tienen que existir).
+begin;
+
+  with visitas as (
+    select
+      sv.machinery_id, sv.visit_date,
+      case when extract(hour from (sv.visited_at at time zone 'America/Caracas')) between 7 and 18
+           then 'day' else 'night' end as turno,
+      sv.supervisor_name,
+      count(*) as marcas,
+      min(sv.visited_at) as primera
+    from public.supervisor_visits sv
+    where sv.supervisor_name is not null and btrim(sv.supervisor_name) <> ''
+    group by 1, 2, 3, 4
+  ),
+  ganador as (
+    select distinct on (machinery_id, visit_date, turno)
+           machinery_id, visit_date, turno, supervisor_name
+    from visitas
+    order by machinery_id, visit_date, turno, marcas desc, primera asc
+  ),
+  porRonda as (
+    select r.id,
+           max(case when g.turno = 'day'   then g.supervisor_name end) as insp_dia,
+           max(case when g.turno = 'night' then g.supervisor_name end) as insp_noche
+    from public.machine_rounds r
+    join ganador g on g.machinery_id = r.machinery_id and g.visit_date = r.round_date
+    group by r.id
+  )
+  update public.machine_rounds r
+     set inspector_day   = coalesce(r.inspector_day,   p.insp_dia),
+         inspector_night = coalesce(r.inspector_night, p.insp_noche)
+    from porRonda p
+   where p.id = r.id
+     and (r.inspector_day is null or r.inspector_night is null);
+
+  -- Cómo quedaría, día por día:
+  select round_date,
+         count(*)               as rondas,
+         count(inspector_day)   as quedarian_con_inspector_dia,
+         count(inspector_night) as quedarian_con_inspector_noche
+  from public.machine_rounds
+  where round_date >= (current_date - 15)
+  group by round_date order by round_date desc;
+
+rollback;   -- ← NADA de lo de arriba queda. Vuelve todo a como estaba.
+
+-- Después del rollback, esto DEBE dar 0 en las dos columnas (comprueba que el
+-- ensayo no dejó rastro). Córrelo aparte, ya fuera de la transacción:
+--   select count(inspector_day) as dia, count(inspector_night) as noche
+--   from public.machine_rounds;
+
+
+-- ════════════════════════════════════════════════════════════════════════════
 -- BLOQUE 5 · RELLENO 1/2 — LA HISTORIA REAL, desde los check-in
 -- ════════════════════════════════════════════════════════════════════════════
 -- ⚠️ ESTO SÍ ESCRIBE. Solo rellena lo que esté en NULL: nunca pisa un valor ya
