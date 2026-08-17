@@ -516,6 +516,7 @@ export interface Supplier {
   phone: string | null;
   email: string | null;
   address: string | null;
+  tags: string[] | null; // etiquetas de rubro (VÍVERES, REPUESTOS…) — para filtrar
   active: boolean;
   created_at: string;
 }
