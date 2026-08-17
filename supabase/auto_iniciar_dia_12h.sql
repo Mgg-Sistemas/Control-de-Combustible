@@ -53,7 +53,7 @@ where r.round_date = (now() at time zone 'America/Caracas')::date
 insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
 select r.machinery_id, r.round_date, 'day',
        (r.round_date + time '07:00') at time zone 'America/Caracas',
-       (r.round_date + time '19:00') at time zone 'America/Caracas', 12, 'auto_inicio_dia'
+       (r.round_date + time '19:00') at time zone 'America/Caracas', 12, 'auto_full_shift'
 from public.machine_rounds r
 where r.round_date = (now() at time zone 'America/Caracas')::date and r.day_hours = 12
   and exists (select 1 from public.machine_inspectors mi where mi.machinery_id = r.machinery_id and mi.shift = 'day' and mi.active = true)
