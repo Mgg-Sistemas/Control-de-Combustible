@@ -8,6 +8,7 @@ import { horarioNominal, horaFinJornada } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { computeMachineVisibilitySets, clasificarEstadoTurno } from './inspectorDaySets';
 import { motivoParada } from './paradaMotivo';
+import { caracasBusinessToday } from './caracasDay';
 
 /**
  * Reporte de INSPECTORES (jornadas de inspección) en PDF.
@@ -213,6 +214,11 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const paradaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
   const nowMs = Date.now();
+  // ¿El día pedido es el día de negocio ACTUAL? El cálculo EN VIVO (jornada abierta que
+  // sigue sumando) SOLO tiene sentido hoy; un día pasado debe mostrar únicamente lo que
+  // quedó bancado. Mismo candado que `liveHorasOf` en InspectionsSummary y que
+  // `horasTurnoDelDia` en hours.ts — ver la nota larga donde se usa, más abajo.
+  const esDiaDeHoy = date === caracasBusinessToday();
   ((maint ?? []) as any[]).forEach((m) => {
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
@@ -442,7 +448,16 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // operara con normalidad.
     // Tope por turno: DÍA máx 12h, NOCHE máx 12h (el elapsed en vivo y el total del
     // turno nunca superan las 12h de duración del turno).
-    const liveElapsedH = estado === 'encurso' && rd?.jornada_start_at
+    // SOLO si el día pedido es HOY (`esDiaDeHoy`, calculado una vez arriba). Sin esa
+    // condición, pedir el reporte de un día PASADO con jornadas que nunca cerraron
+    // devolvía `ahora − jornada_start_at`, que ya pasó de 12 h → 12.00 EXACTAS por
+    // máquina, y para siempre: el mismo PDF daba el mismo número inventado hoy,
+    // mañana y dentro de un mes. Caso real (CESAR FLAMES, 16-ago-2026): el teléfono
+    // dio 137.38 h y el Histórico 35.38 h — 102 h de diferencia, unas 8-10 máquinas
+    // abiertas contadas a 12 h cada una. El mismo candado ya existía en el panel de
+    // Inspecciones (InspectionsSummary `liveHorasOf`) y en `hours.ts`; a este reporte
+    // le faltaba. Ver `scripts/test-reportes-paridad.mjs`.
+    const liveElapsedH = esDiaDeHoy && estado === 'encurso' && rd?.jornada_start_at
       ? Math.max(0, Math.min(12, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000))
       : 0;
     // MAYOR (no suma) de bancado vs transcurrido: al re-abrir una jornada ya cerrada el

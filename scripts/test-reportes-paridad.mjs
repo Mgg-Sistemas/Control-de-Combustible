@@ -84,6 +84,9 @@ const averias = MAQ.filter((x) => x.estado === 'averia').map((x) => ({
 
 const callN = {};
 const reset = () => { for (const k of Object.keys(callN)) delete callN[k]; };
+// Rondas que devuelve el stub. Mutable para poder montar un segundo escenario
+// (jornada de un día PASADO que quedó abierta) al final del archivo.
+let roundsActuales = rounds;
 stubs['supabase'] = {
   supabase: { from: (t) => ({ select: async () => ({
     data: t === 'machinery'
@@ -92,7 +95,7 @@ stubs['supabase'] = {
   }) }) },
   selectAllRows: async (table) => {
     callN[table] = (callN[table] ?? 0) + 1;
-    if (table === 'machine_rounds') return callN[table] === 1 ? rounds : [];
+    if (table === 'machine_rounds') return callN[table] === 1 ? roundsActuales : [];
     if (table === 'maintenance_requests') return callN[table] === 1 ? paradas : averias;
     return [];
   },
@@ -169,6 +172,46 @@ eq('el pie de sección NO trae total de paradas', /Paradas: <b>/.test(jefe), fal
 
 console.log(`\n  jefe    → trabajadas ${jTrab} h · jornada ${jJor} h · total paradas: ${jPar === null ? 'no se muestra ✓' : jPar}`);
 console.log(`  teléfono→ trabajadas ${tTrab} h · jornada ${tJor} h · total paradas: ${tPar === null ? 'no se muestra ✓' : tPar}`);
+
+// ── ESCENARIO 2: día PASADO con jornadas que nunca cerraron ────────────────
+//
+// Caso real (CESAR FLAMES, jornada del 16-ago-2026): unas 8-10 máquinas quedaron
+// con `jornada_start_at = 07:00` y sin cerrar, así que `day_hours` siguió en 0.
+// El reporte calculaba `ahora − 07:00`, que ya pasó de 12 h, y lo topaba en 12.00
+// EXACTAS por máquina — para siempre. El teléfono daba 137.38 h y el Histórico
+// (que solo lee lo bancado) 35.38 h: 102 h de diferencia inventadas.
+//
+// Regla: en un día que NO es hoy, el reporte muestra SOLO lo bancado. Si esta
+// aserción falla, el candado `esDiaDeHoy` de inspectorReport.ts se perdió.
+const DIA_VIEJO = '2020-01-15'; // pasado sin ambigüedad, no depende de la fecha real
+roundsActuales = MAQ.map((x) => ({
+  machinery_id: x.id,
+  day_hours: 0,                                    // nunca cerró → nada bancado
+  night_hours: 0,
+  jornada_shift: 'day',
+  jornada_start_at: `${DIA_VIEJO}T07:00:00-04:00`, // sigue abierta desde las 7am
+  recorded_by: 'u1', jornada_marked_by: 'u1',
+  machine: rounds[0].machine,
+}));
+
+captured = []; reset();
+await rep.generateInspectorReport({ date: DIA_VIEJO, shift: 'day' });
+const jefeViejo = captured[0];
+captured = []; reset();
+await rep.generateMyShiftReceipt({ date: DIA_VIEJO, shift: 'day', inspectorName: INSP });
+const tlfViejo = captured[0];
+
+const kpiDia = (html) => { const m = html.match(/Total hrs día<\/div><div class="v">([\d.]+) H/); return m ? Number(m[1]) : null; };
+const jViejo = kpiDia(jefeViejo);
+const tViejo = kpiDia(tlfViejo);
+
+eq('día pasado · el reporte del jefe NO inventa horas', jViejo, 0);
+eq('día pasado · el recibo del teléfono NO inventa horas', tViejo, 0);
+eq('día pasado · PARIDAD entre los dos', jViejo, tViejo);
+// Blindaje explícito contra el número exacto del bug: 4 máquinas × 12 h = 48.
+eq('día pasado · no aparece el tope de 12 h por máquina', jViejo === MAQ.length * 12, false);
+
+console.log(`  día pasado (${DIA_VIEJO}) → jefe ${jViejo} h · teléfono ${tViejo} h (bancado: 0, sin inventar) ✓`);
 console.log(`\n${pass} OK · ${fail} FALLO(S)`);
 if (failures.length) {
   console.log('\nFallos:');
