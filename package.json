@@ -53,7 +53,8 @@
     "test:cola-offline": "node scripts/test-cola-offline.mjs",
     "test:reportes": "node scripts/test-reportes-paridad.mjs",
     "test:horas": "node scripts/test-horas-control.mjs",
-    "test:empresa": "node scripts/test-empresa-sync.mjs"
+    "test:empresa": "node scripts/test-empresa-sync.mjs",
+    "test:control": "node scripts/test-control-estado.mjs"
   },
   "private": true
 }

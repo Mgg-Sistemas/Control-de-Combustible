@@ -18,6 +18,7 @@ import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
+import { computeControlAveriadas } from '../lib/controlEstado';
 import { listOperatorAssignments } from '../lib/machineOperators';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { useTheme } from '../theme/ThemeContext';
@@ -381,23 +382,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             if (h > 0) workedTodayByMachine[row.machinery_id] = Math.max(workedTodayByMachine[row.machinery_id] || 0, h);
           });
           const dayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
-          const next = new Set<string>();
-          const nextTipo: Record<string, 'averia' | 'parada'> = {};
-          ((data ?? []) as any[]).forEach((r) => {
-            const id = r.machinery_id as string;
-            if (sos.has(id)) return;
-            const openStart = openStartByMachine[id];
-            const createdMs = r.created_at ? new Date(r.created_at).getTime() : 0;
-            if (openStart != null && openStart >= createdMs) return; // reactivada: jornada abierta después de la marca
-            // ARRASTRADA (marcada antes de hoy) + trabajó hoy → ya no aplica, igual que el
-            // teléfono: la de HOY sí se mantiene (parada del día gana sobre las horas).
-            const esArrastrada = createdMs < dayStartMs;
-            if (esArrastrada && (workedTodayByMachine[id] ?? 0) > 0) return;
-            next.add(id);
-            // Avería REAL gana sobre "MÁQUINA PARADA" si hay ambas (mismo criterio que
-            // Catálogo/Inspecciones); no pisa una avería ya asignada con una parada después.
-            if (r.material === 'MÁQUINA PARADA') { if (!nextTipo[id]) nextTipo[id] = 'parada'; }
-            else nextTipo[id] = 'averia';
+          // Clasificación en la función PURA (src/lib/controlEstado.ts), blindada por
+          // `npm run test:control` — misma regla que el teléfono `segmentoDe`.
+          const { averiadas: next, tipo: nextTipo } = computeControlAveriadas({
+            tickets: (data ?? []) as any[],
+            sos, openStartByMachine, workedTodayByMachine, dayStartMs,
           });
           setAveriadas(next);
           setAveriaTipo(nextTipo);
