@@ -88,7 +88,8 @@ type FleetItem = {
   serial: string | null;
   tipo: string;        // clasificación (se usa para agrupar/filtrar)
   company: string;
-  worked: number;      // horas trabajadas REALES en el rango (para filtrar las que trabajaron)
+  worked: number;      // horas trabajadas REALES en el rango (activa si > 0)
+  averiada: boolean;   // tiene avería pendiente (se incluye aunque no haya trabajado)
 };
 
 // Período de las jornadas que resume el reporte de flota (horas trabajadas).
@@ -1064,13 +1065,16 @@ export default function ReportsScreen({ route }: any) {
     // abierto — mismo patrón que generateRounds/generateConteo (ver liveRef arriba).
     liveRef.current = generateFleet;
     setLoading(true);
-    // SOLO MAQUINARIA (sin vehículos) y SOLO las que TRABAJARON en el rango de fechas.
-    // Reporte de IDENTIDAD/catálogo: nombre, marca, modelo, placa, serial, clasificación.
-    const [{ data: mach }, rnds] = await Promise.all([
+    // SOLO MAQUINARIA (sin vehículos). Se incluyen las ACTIVAS (trabajaron en el rango) y
+    // las AVERIADAS (con avería pendiente), SIN IMPORTAR EL ESTATUS operativo. Reporte de
+    // IDENTIDAD/catálogo: nombre, marca, modelo, placa, serial, clasificación.
+    const [{ data: mach }, rnds, pend] = await Promise.all([
       supabase.from('machinery').select('id, code, marca, modelo, plate, serial, clasificacion, company:company_id(name)'),
       // Horas trabajadas REALES dentro del rango del reporte (día + noche − parada + extras).
       // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas.
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
+      // Averías PENDIENTES (estado actual): material distinto de 'MÁQUINA PARADA' = avería real.
+      selectAllRows('maintenance_requests', 'machinery_id, material', (q) => q.eq('status', 'pendiente')),
     ]);
     // Horas trabajadas por máquina en el rango (dedupe por máquina+día).
     const byMD = new Map<string, any>();
@@ -1080,6 +1084,9 @@ export default function ReportsScreen({ route }: any) {
       const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
       if (w > 0) mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
     });
+    // Averiadas = tienen una solicitud pendiente que NO sea "MÁQUINA PARADA" (esa es parada, no avería).
+    const averiaSet = new Set<string>();
+    (pend ?? []).forEach((r: any) => { if (r.material !== 'MÁQUINA PARADA') averiaSet.add(r.machinery_id); });
     const items: FleetItem[] = (mach ?? []).map((m: any) => ({
       id: m.id,
       name: m.code,
@@ -1091,10 +1098,11 @@ export default function ReportsScreen({ route }: any) {
       tipo: canonTipo(m.clasificacion) || 'Sin clasificación',
       company: m.company?.name || 'Sin empresa',
       worked: mHours.get(m.id) ?? 0,
+      averiada: averiaSet.has(m.id),
     }));
     const filtered = items.filter(
       (it) =>
-        it.worked > 0 && // solo las que trabajaron en el rango
+        (it.worked > 0 || it.averiada) && // activas (trabajaron) o averiadas, sin importar el estatus
         (repCompanies.length === 0 || repCompanies.includes(it.company)) &&
         (fleetTypes.length === 0 || fleetTypes.includes(it.tipo))
     );
@@ -1993,7 +2001,7 @@ export default function ReportsScreen({ route }: any) {
       .join('');
 
     const body = `<style>.emp{font-size:14px;color:#1E3A5F;font-weight:800;margin:16px 0 4px}</style>
-      <div class="muted">${esc(alcance)} · Maquinaria que trabajó del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
+      <div class="muted">${esc(alcance)} · Maquinaria activa y averiada · del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary">
         <div><span class="k">Máquinas</span><b>${fleetItems.length}</b></div>
         <div><span class="k">Empresas</span><b>${groups.size}</b></div>
@@ -3401,7 +3409,7 @@ export default function ReportsScreen({ route }: any) {
           </TouchableOpacity>
 
           {fleetItems.length === 0 ? (
-            <Card><Text style={{ color: colors.muted }}>Ninguna máquina trabajó en el rango de fechas.</Text></Card>
+            <Card><Text style={{ color: colors.muted }}>Ninguna máquina activa o averiada en el rango de fechas.</Text></Card>
           ) : (
             // Agrupado POR EMPRESA: cada empresa es un bloque con su título arriba (no columna).
             Array.from(
@@ -3411,7 +3419,7 @@ export default function ReportsScreen({ route }: any) {
               .map(([company, machines]) => (
                 <Card key={company}>
                   <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🏢 {company}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{machines.length} máquina(s) que trabajaron en el rango.</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{machines.length} máquina(s) activas o averiadas.</Text>
                   {machines
                     .slice()
                     .sort((a, b) => cmpText(a.name, b.name))
