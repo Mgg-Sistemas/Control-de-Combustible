@@ -1255,22 +1255,16 @@ empresa, estado y ubicación) y las jornadas sin validar.
 > sector/ubicación, estado** en que la encontró y si estaba **cerca** (distancia GPS).
 >
 > Además trae, en el **mismo documento**, la información de un **reporte diario** (pedido del
-> cliente): el **turno** de cada revisión, las **horas de la máquina** (día y noche) y —lo que de
-> verdad importa para el pago— las **HORAS DE SU JORNADA**, que son SOLO las del turno que esa
-> persona cubrió. Más la columna
+> cliente): **horas de día, horas de noche y horas trabajadas** de cada máquina, y la columna
 > **"Inició"** con el **nombre de quien marcó el inicio de la jornada**. Arriba sale un
-> **resumen general** (inspectores, revisiones, máquinas distintas y horas de jornada), y **cada**
-> **inspector** tiene su propio total.
+> **resumen general** (inspectores, revisiones, máquinas distintas y horas), y **cada inspector**
+> tiene su propio total (máquinas distintas revisadas, horas de día, de noche y trabajadas).
 >
 > **Tres cosas importantes de leer bien:**
-> - **Solo cuentan las horas del turno que cubrió.** Una máquina puede trabajar de día **y** de
->   noche el mismo día (el 16-ago-2026 le pasó a 102 de 173 máquinas). Al inspector de día NO se le
->   suman las horas de la noche: ese trabajo es del inspector nocturno. El turno de cada revisión
->   sale de la **hora del check-in** (día 7am–7pm, noche el resto).
-> - Por eso **el total NO es la suma de las columnas "Máquina día" y "Máquina noche"**: esas dos son
->   el día completo de la máquina y están ahí para que puedas ver de dónde sale la diferencia.
-> - **Nada se cuenta dos veces**: aunque haya revisado la misma máquina 5 veces en su turno, esas
->   horas suman UNA sola vez.
+> - Las **horas son del DÍA COMPLETO de la máquina**, no de esa visita. Si el inspector revisó la
+>   misma máquina 3 veces, las 3 filas muestran las mismas horas del día.
+> - Por eso **los totales cuentan cada máquina UNA sola vez** (aunque tenga varias revisiones): las
+>   horas **no** se suman fila por fila.
 > - Si una máquina **no tiene ronda registrada** ese día, sus horas salen **"—"** (no hay dato), que
 >   **no es lo mismo** que trabajar **0,00** horas.
 >
