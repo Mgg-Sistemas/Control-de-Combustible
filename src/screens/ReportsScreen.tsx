@@ -485,21 +485,8 @@ export default function ReportsScreen({ route }: any) {
     (company: string) => conteoEmpresas.size === 0 || conteoEmpresas.has(company),
     [conteoEmpresas],
   );
-  // Selección de MÁQUINAS concretas (por código; vacío = todas las que pasen los
-  // demás filtros). Cliente 17-ago-2026: "si yo selecciono una empresa y máquinas en
-  // específico, el PDF me salga con esa información".
-  const [conteoMaquinas, setConteoMaquinas] = useState<Set<string>>(new Set());
-  const [conteoMaqQ, setConteoMaqQ] = useState('');
-  const toggleConteoMaquina = (code: string) =>
-    setConteoMaquinas((prev) => { const n = new Set(prev); n.has(code) ? n.delete(code) : n.add(code); return n; });
-  // Al reabrir el conteo se limpia la selección (igual que el buscador por tipo).
-  useEffect(() => {
-    if (conteoPreview) { setConteoEmpresas(new Set()); setConteoMaquinas(new Set()); setConteoMaqQ(''); }
-  }, [conteoPreview]);
-  // Al cambiar de empresa se limpia la selección de máquinas: si no, quedarían
-  // marcadas máquinas de una empresa que ya no está en el alcance y el PDF saldría
-  // con equipos que el usuario ya no ve en pantalla.
-  useEffect(() => { setConteoMaquinas(new Set()); }, [conteoEmpresas]);
+  // Al reabrir el conteo se limpia la selección de empresas (igual que el buscador por tipo).
+  useEffect(() => { if (conteoPreview) setConteoEmpresas(new Set()); }, [conteoPreview]);
   // Conteo de equipos: ON = el PDF agrega el desglose por inspector y el detalle
   // equipo→inspector (☀️ día / 🌙 noche). OFF = el reporte de siempre, solo totales.
   const [conteoConInspector, setConteoConInspector] = useState(false);
@@ -1321,8 +1308,7 @@ export default function ReportsScreen({ route }: any) {
     // filtrar acá deja todo consistente de una sola vez. Sin empresas marcadas = todas.
     const rowsZona = conteo.activeRows
       .filter((r) => conteoZona === '__all__' || r.zona === conteoZona)
-      .filter((r) => empresaEnConteo(r.company))
-      .filter((r) => conteoMaquinas.size === 0 || conteoMaquinas.has(r.code));
+      .filter((r) => empresaEnConteo(r.company));
     const aggregate = (key: 'clas' | 'tipo') => {
       const m = new Map<string, number>();
       rowsZona.forEach((r) => m.set(r[key], (m.get(r[key]) ?? 0) + 1));
@@ -2688,71 +2674,6 @@ export default function ReportsScreen({ route }: any) {
                 );
               })()}
 
-              {/* Selección de MÁQUINAS concretas. Lo que se marque acá es lo que sale en
-                  las tablas de abajo Y en el PDF (los tres filtros —empresa, zona y
-                  máquina— se aplican en el mismo sitio, `rowsZona`). Ninguna marcada =
-                  todas las que pasen los otros filtros. */}
-              {(() => {
-                const base = conteo.activeRows
-                  .filter((r) => conteoZona === '__all__' || r.zona === conteoZona)
-                  .filter((r) => empresaEnConteo(r.company));
-                const q = norm(conteoMaqQ.trim());
-                const vistas = (q
-                  ? base.filter((r) => norm(`${r.code} ${r.serial ?? ''} ${r.company} ${r.tipo}`).includes(q))
-                  : base
-                ).slice().sort((a, b) => cmpText(a.code, b.code));
-                if (base.length === 0) return null;
-                return (
-                  <Card>
-                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginBottom: 6 }}>
-                      🚜 Elegir máquinas para el reporte
-                    </Text>
-                    <TextInput
-                      value={conteoMaqQ}
-                      onChangeText={setConteoMaqQ}
-                      placeholder="🔎 Buscar máquina, serial, empresa o tipo…"
-                      placeholderTextColor={colors.muted}
-                      style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, backgroundColor: colors.surface }}
-                    />
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                      <TouchableOpacity onPress={() => setConteoMaquinas(new Set(vistas.map((r) => r.code)))}>
-                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✓ Seleccionar todas ({vistas.length})</Text>
-                      </TouchableOpacity>
-                      {conteoMaquinas.size > 0 ? (
-                        <TouchableOpacity onPress={() => setConteoMaquinas(new Set())}>
-                          <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar ({conteoMaquinas.size})</Text>
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
-                    <ScrollView style={{ maxHeight: 220, marginTop: spacing.xs }} nestedScrollEnabled>
-                      {vistas.length === 0 ? (
-                        <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.sm }}>Sin coincidencias.</Text>
-                      ) : (
-                        vistas.map((r) => {
-                          const on = conteoMaquinas.has(r.code);
-                          return (
-                            <TouchableOpacity key={r.code} onPress={() => toggleConteoMaquina(r.code)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                              <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                                {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{r.code}</Text>
-                                <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>{r.company} · {r.tipo}</Text>
-                              </View>
-                            </TouchableOpacity>
-                          );
-                        })
-                      )}
-                    </ScrollView>
-                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
-                      {conteoMaquinas.size === 0
-                        ? 'Ninguna marcada = TODAS las de arriba. Marca las que quieras y el PDF sale solo con esas.'
-                        : `El PDF saldrá con ${conteoMaquinas.size} máquina(s).`}
-                    </Text>
-                  </Card>
-                );
-              })()}
-
               {/* Filtro por ZONA GEOGRÁFICA (sector del mapa, según GPS). Cada chip muestra
                   cuántas máquinas hay ubicadas en esa zona; "Sin zona" = sin ubicación GPS.
                   Al elegir una, las tablas de abajo se recalculan solo con esa zona. */}
@@ -2862,8 +2783,7 @@ export default function ReportsScreen({ route }: any) {
     // filtrar acá deja todo consistente de una sola vez. Sin empresas marcadas = todas.
     const rowsZona = conteo.activeRows
       .filter((r) => conteoZona === '__all__' || r.zona === conteoZona)
-      .filter((r) => empresaEnConteo(r.company))
-      .filter((r) => conteoMaquinas.size === 0 || conteoMaquinas.has(r.code));
+      .filter((r) => empresaEnConteo(r.company));
                 const aggregate = (key: 'clas' | 'tipo'): ConteoRow[] => {
                   const m = new Map<string, ConteoRow>();
                   rowsZona.forEach((r) => { const k = r[key]; const a = m.get(k) ?? { name: k, count: 0, conHoras: 0, sinHoras: 0 }; a.count += 1; if (r.tieneHoras) a.conHoras += 1; else a.sinHoras += 1; m.set(k, a); });
