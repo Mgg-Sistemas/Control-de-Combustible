@@ -239,6 +239,7 @@ export default function DiasLibresCargoScreen() {
         from, to, rotation: 'Semana libre por persona', inspectors, shifts: shiftsIn,
         title: 'DISTRIBUCIÓN DE DÍAS LIBRES',
         subtitle: `${alcance} · semana libre por persona · Ciclo ${dmy(from)} — ${dmy(to)}`,
+        personLabel: 'Trabajador', personLabelPlural: 'Trabajadores', showCoverage: false,
       });
     } finally { setBusy(false); }
   };

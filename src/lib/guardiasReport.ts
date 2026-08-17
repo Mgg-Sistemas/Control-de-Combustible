@@ -42,11 +42,18 @@ export async function generateGuardiasReport(opts: {
   // Título/subtítulo opcionales para REUSAR este reporte en otros módulos (p. ej. la
   // distribución de días libres por cargo de Nómina). Por defecto, los de guardias.
   title?: string; subtitle?: string;
+  // Genéricos para reusar el reporte fuera de Inspecciones (p. ej. días libres de Nómina):
+  // etiqueta de la "persona" (por defecto Inspector) y si se muestra la sección de
+  // Cobertura por grupo (que habla de coordinadores/nocturnos, propia de Inspecciones).
+  personLabel?: string; personLabelPlural?: string; showCoverage?: boolean;
 }): Promise<boolean> {
   const { from, to, inspectors, shifts } = opts;
   const rotation = opts.rotation || '14x7';
   const docTitle = opts.title || 'DISTRIBUCIÓN DE GUARDIAS';
   const subtitle = opts.subtitle || `Inspectores de equipo · jornada ${rotation} · Ciclo ${dmy(from)} — ${dmy(to)}`;
+  const PL = opts.personLabel || 'Inspector';
+  const PLp = opts.personLabelPlural || 'Inspectores';
+  const showCoverage = opts.showCoverage !== false;
 
   const extraCss = `
     h3{margin:16px 0 3px;font-size:13px;color:#1E3A5F;padding-bottom:3px;border-bottom:2px solid #1E3A5F}
@@ -167,11 +174,11 @@ export async function generateGuardiasReport(opts: {
     return `<tr><td class="name"><b>${esc(i.name)}</b></td>${celdas}</tr>`;
   }).join('');
   const tablaSemanal = nSemanas
-    ? `<table class="wk"><thead><tr><th class="name">Inspector</th>${headSemanas}</tr></thead>` +
+    ? `<table class="wk"><thead><tr><th class="name">${esc(PL)}</th>${headSemanas}</tr></thead>` +
       `<tbody>${filasSemanal}</tbody>` +
       `<tfoot>` +
-      `<tr><th class="name">Inspectores Activos</th>${activosPorSemana.map((n) => `<th>${n}</th>`).join('')}</tr>` +
-      `<tr><th class="name">Inspectores en Descanso</th>${descansoPorSemana.map((n) => `<th>${n}</th>`).join('')}</tr>` +
+      `<tr><th class="name">${esc(PLp)} Activos</th>${activosPorSemana.map((n) => `<th>${n}</th>`).join('')}</tr>` +
+      `<tr><th class="name">${esc(PLp)} en Descanso</th>${descansoPorSemana.map((n) => `<th>${n}</th>`).join('')}</tr>` +
       `<tr><th class="name">% Cobertura Operativa</th>${activosPorSemana.map((n) => `<th>${inspectors.length ? Math.round((n / inspectors.length) * 100) : 0}%</th>`).join('')}</tr>` +
       `</tfoot></table>`
     : '';
@@ -181,10 +188,10 @@ export async function generateGuardiasReport(opts: {
   const coberturaMin = activosPorSemana.length ? Math.round((Math.min(...activosPorSemana) / inspectors.length) * 100) : 100;
   const observaciones = isWeekly
     ? `<div class="obs"><b>OBSERVACIONES Y CONCLUSIONES OPERATIVAS:</b><ul>` +
-      `<li><b>Rotación de descansos:</b> a lo largo de ${nSemanas} semana(s), cada inspector tiene su semana de descanso completa (lunes a domingo) de forma secuencial por grupo.</li>` +
+      `<li><b>Rotación de descansos:</b> a lo largo de ${nSemanas} semana(s), cada ${esc(PL.toLowerCase())} tiene su semana de descanso completa (lunes a domingo) de forma secuencial por grupo.</li>` +
       (semanaCompletaIdx >= 0
-        ? `<li><b>Semana completa operativa:</b> la <b>Sem ${semanaCompletaIdx + 1}</b> (${dm(semanas[semanaCompletaIdx][0])}-${dm(semanas[semanaCompletaIdx][semanas[semanaCompletaIdx].length - 1])}) es la única semana del ciclo donde los ${inspectors.length} inspectores quedan trabajando simultáneamente (100%).</li>`
-        : `<li><b>Cobertura del ciclo:</b> en este ciclo siempre hay al menos un grupo de descanso — ninguna semana llega al 100% de inspectores activos a la vez.</li>`) +
+        ? `<li><b>Semana completa operativa:</b> la <b>Sem ${semanaCompletaIdx + 1}</b> (${dm(semanas[semanaCompletaIdx][0])}-${dm(semanas[semanaCompletaIdx][semanas[semanaCompletaIdx].length - 1])}) es la única semana del ciclo donde ${esc(PLp.toLowerCase())} (${inspectors.length}) quedan trabajando simultáneamente (100%).</li>`
+        : `<li><b>Cobertura del ciclo:</b> en este ciclo siempre hay al menos un grupo de descanso — ninguna semana llega al 100% de ${esc(PLp.toLowerCase())} activos a la vez.</li>`) +
       `<li><b>Continuidad operativa:</b> durante todo el ciclo se garantiza un mínimo de ${coberturaMin}% de cobertura activa.</li>` +
       `</ul></div>`
     : '';
@@ -202,7 +209,7 @@ export async function generateGuardiasReport(opts: {
 
   const kpis =
     `<div>` +
-    `<div class="kpi"><b>${nInspectores}</b>INSPECTORES EN ROTACIÓN</div>` +
+    `<div class="kpi"><b>${nInspectores}</b>${esc(PLp.toUpperCase())} EN ROTACIÓN</div>` +
     `<div class="kpi"><b>${nGrupos}</b>GRUPOS</div>` +
     `<div class="kpi"><b>${nDias}</b>DÍAS POR CICLO</div>` +
     `<div class="kpi"><b>${maxDescansoDia}</b>EN DESCANSO (máx/día)</div>` +
@@ -252,7 +259,7 @@ export async function generateGuardiasReport(opts: {
     </tr>`).join('');
   const tablaGrupos =
     `<table class="ir"><thead><tr>` +
-    `<th>Grupo</th><th>Inspector</th><th>Cédula</th><th>Teléfono</th><th>Sector</th><th>Cargo</th><th>Descanso del ciclo</th>` +
+    `<th>Grupo</th><th>${esc(PL)}</th><th>Cédula</th><th>Teléfono</th><th>Sector</th><th>Cargo</th><th>Descanso del ciclo</th>` +
     `</tr></thead><tbody>${filasGrupo}</tbody></table>`;
 
   // Cobertura por grupo.
@@ -285,9 +292,7 @@ export async function generateGuardiasReport(opts: {
     observaciones +
     `<h3>Conformación de los grupos</h3>` +
     tablaGrupos +
-    `<h3>Cobertura por grupo</h3>` +
-    tablaCobertura +
-    criterio;
+    (showCoverage ? `<h3>Cobertura por grupo</h3>` + tablaCobertura + criterio : '');
 
   const html = pdfDocument({
     title: 'DISTRIBUCIÓN DE GUARDIAS',
