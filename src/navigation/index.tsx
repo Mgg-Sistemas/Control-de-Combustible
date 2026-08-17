@@ -64,6 +64,7 @@ import ViajesCamionesScreen from '../screens/ViajesCamionesScreen';
 import DistribucionGuardiasScreen from '../screens/DistribucionGuardiasScreen';
 import DiasLibresCargoScreen from '../screens/DiasLibresCargoScreen';
 import ComprasScreen from '../screens/ComprasScreen';
+import CuentasScreen from '../screens/CuentasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
 import ManguerasScreen from '../screens/ManguerasScreen';
@@ -267,6 +268,9 @@ function MoreStack() {
       <Stack.Screen name="ViajesCamiones" component={ViajesCamionesScreen} options={{ title: 'Registro de viajes (camiones)' }} />
       <Stack.Screen name="DistribucionGuardias" component={DistribucionGuardiasScreen} options={{ title: 'Distribución de guardias' }} />
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
+      {/* Cuentas por pagar / por cobrar. Nace del módulo de Compras pero vive
+          aparte, con su propio permiso `cuentas` (cerrado por defecto). */}
+      <Stack.Screen name="Cuentas" component={CuentasScreen} options={{ title: 'Cuentas por pagar y cobrar' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
       <Stack.Screen name="FabricacionHub" component={FabricacionHubScreen} options={{ title: 'Fabricación' }} />
@@ -795,6 +799,7 @@ const moreScreens = {
   ViajesCamiones: 'viajes-camiones',
   DistribucionGuardias: 'distribucion-guardias',
   Compras: 'compras',
+  Cuentas: 'cuentas',
   Inventario: 'inventario',
   InspeccionesMaq: 'inspecciones-maquinaria',
   FabricacionHub: 'fabricacion',

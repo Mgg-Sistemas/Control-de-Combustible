@@ -1484,3 +1484,50 @@ export interface GeodestaPoint {
   created_by: string | null;
   created_at: string;
 }
+
+// ── CUENTAS POR PAGAR Y POR COBRAR (módulo `cuentas`) ────────────────────────
+// Tablas creadas por `supabase/cuentas_por_pagar_y_cobrar.sql`.
+
+/** De qué lado del dinero está la cuenta. */
+export type CuentaTipo = 'por_pagar' | 'por_cobrar';
+/** 'anulada' = registrada por error / sin efecto; NO suma en ningún total. */
+export type CuentaEstado = 'pendiente' | 'pagada' | 'anulada';
+
+/** Una deuda viva. La contraparte va SIEMPRE por id contra los maestros que ya
+ *  existen — el nombre NO se copia en texto, se resuelve con el catálogo:
+ *  'por_pagar' usa `supplier_id` (obligatorio, `company_id` null) y
+ *  'por_cobrar' usa `company_id` (obligatorio, `supplier_id` null). Un CHECK en
+ *  la base lo garantiza. El saldo se calcula en pantalla: `monto − Σ abonos`. */
+export interface Cuenta {
+  id: string;
+  tipo: CuentaTipo;
+  supplier_id: string | null;   // obligatorio si tipo = 'por_pagar'
+  company_id: string | null;    // obligatorio si tipo = 'por_cobrar'
+  order_id: string | null;        // orden de compra que originó la deuda
+  concepto: string;
+  documento: string | null;       // Nº de factura / control / recibo
+  monto: number;
+  moneda: string;
+  fecha_emision: string;          // date
+  fecha_vencimiento: string | null; // date — sin ella la cuenta nunca vence
+  estado: CuentaEstado;
+  nota: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  settled_by: string | null;
+  settled_at: string | null;
+}
+
+/** Abono (pago parcial) contra una cuenta. */
+export interface CuentaAbono {
+  id: string;
+  cuenta_id: string;
+  monto: number;
+  fecha: string;                  // date
+  metodo: string | null;          // efectivo / transferencia / cheque…
+  referencia: string | null;
+  nota: string | null;
+  created_by: string | null;
+  created_at: string;
+}
