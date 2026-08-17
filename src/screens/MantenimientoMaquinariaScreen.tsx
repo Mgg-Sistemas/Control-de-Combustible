@@ -13,6 +13,7 @@ import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
 import { listInspectorAssignments } from '../lib/machineInspectors';
 import { caracasParts } from '../lib/jornada';
+import { levelMeets } from '../lib/permissions';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
@@ -95,19 +96,33 @@ const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLoca
  *  - Historial de mantenimientos preventivos.
  *
  * 🔧 SERVICIO (correctivo, por avería):
- *  - Averías por empresa → máquina (lo que reporta el operador por QR).
+ *  - Averías por empresa → máquina (lo que reporta el operador por QR, el inspector
+ *    desde el teléfono, o lo que se carga a mano acá con "➕ Registrar avería").
+ *  - Corregir una avería pendiente (material / cantidad / nota).
  *  - Aviso de paradas viejas sin resolver.
- *  - Enviar una máquina a reparación (salida, tiempo estimado) → queda No operativa.
- *  - Registrar el retorno operativo (qué se le cambió + fecha) → vuelve a Operativa.
- *  - Historial de reparaciones y reporte de averías/gasto por empresa.
+ *  - Marcar la avería como REALIZADO → queda su registro en el Historial.
+ *  - Historial (averías resueltas + lo que pasó por el taller) y reporte de
+ *    averías/gasto por empresa.
+ *
+ *  Servicio NO manda máquinas al taller: el circuito de "enviado a reparar"
+ *  (pestaña En reparación, envío y retorno operativo) se retiró a pedido del
+ *  cliente y vive solo en Mantenimiento. Los expedientes correctivos YA cerrados
+ *  se siguen viendo en el Historial de Servicio.
  */
 export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const esServicio = seccion === 'servicio';
   const { colors } = useTheme();
-  const { canSee, session } = useAuth();
+  const { canSee, moduleLevel, session } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const uid = session?.user?.id ?? null;
+
+  // ¿puede REGISTRAR y CORREGIR averías a mano? Se usa la MISMA llave de permiso que
+  // ya decide si entra o no al módulo (Servicio → 'servicio', que hereda de
+  // 'mantenimiento' mientras un admin no le ponga nivel propio; ver MODULE_HEREDA_DE).
+  // No se inventa un módulo nuevo: quien tenía LECTURA sigue solo mirando, y quien
+  // tiene ESCRITURA o full también carga y corrige.
+  const canWrite = levelMeets(moduleLevel(esServicio ? 'servicio' : 'mantenimiento'), 'escritura');
 
   const [reqs, setReqs] = useState<Req[]>([]);
   const [repairs, setRepairs] = useState<Rep[]>([]);
@@ -134,7 +149,10 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const [retBack, setRetBack] = useState(todayISO());
   const [retWork, setRetWork] = useState('');
 
-  // Selector de máquina (para enviar cualquiera a reparación)
+  // Selector de máquina, buscable. Sirve a las DOS secciones pero para cosas
+  // distintas: en Mantenimiento elige a cuál máquina le toca el servicio (la manda
+  // al taller) y en Servicio elige a cuál se le va a REGISTRAR una avería a mano
+  // (en Servicio ya no existe el envío al taller — ver el bloque de acciones).
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQ, setPickerQ] = useState('');
 
@@ -150,6 +168,17 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const [avPhoto, setAvPhoto] = useState<string | null>(null);
   const [avPhotoUp, setAvPhotoUp] = useState(false);
   const [avBusy, setAvBusy] = useState(false);
+
+  // EDITAR una avería pendiente (material / cantidad / nota). Hasta ahora una avería
+  // solo se podía crear —por QR o desde el teléfono del inspector— y nunca corregir:
+  // si el operador escogía mal el material o escribía la nota a medias, quedaba así
+  // para siempre. Solo se tocan columnas que ya existen en maintenance_requests.
+  const [editReq, setEditReq] = useState<Req | null>(null);
+  const [edMaterial, setEdMaterial] = useState<string | null>(null);
+  const [edQty, setEdQty] = useState('');
+  const [edNote, setEdNote] = useState('');
+  const [edBusy, setEdBusy] = useState(false);
+
   const [notice, setNotice] = useState<string | null>(null);
   const [horoOpen, setHoroOpen] = useState(false); // banner de alertas por horómetro (colapsable)
 
@@ -453,6 +482,44 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     await load();
   };
 
+  // ── Registrar una avería A MANO (sin QR) ────────────────────────────────────
+  // Las averías solo entraban por el QR del operador o desde el teléfono del
+  // inspector: si la máquina estaba lejos, con el QR roto o el reporte llegaba por
+  // radio, no había forma de cargarla. Se elige la máquina en el MISMO selector
+  // buscable y se reutiliza el formulario del escáner, así el INSERT es exactamente
+  // el mismo (misma tabla, mismas columnas, mismo `status: 'pendiente'`).
+  const abrirAveriaManual = (m: Mach) => {
+    setPickerOpen(false);
+    setAvMachine({ id: m.id, code: m.code, plate: m.plate, tipo: m.tipo });
+    setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setNotice(null);
+  };
+
+  // ── Editar una avería PENDIENTE ─────────────────────────────────────────────
+  const abrirEdicionAveria = (r: Req) => {
+    setEditReq(r);
+    setEdMaterial(r.material);
+    setEdQty(r.quantity != null ? String(r.quantity) : '');
+    setEdNote(r.notes ?? '');
+  };
+  const guardarEdicionAveria = async () => {
+    if (!editReq || !edMaterial) return;
+    if (!edNote.trim()) { setNotice('❌ Describe la falla — la nota es obligatoria.'); return; }
+    setEdBusy(true);
+    // Solo material/cantidad/nota: NO se tocan `status`, `resolved_*` ni `requested_by`,
+    // para que corregir un dato no cambie de dueño la avería ni la dé por resuelta.
+    const { error } = await supabase.from('maintenance_requests').update({
+      material: edMaterial,
+      quantity: edMaterial === 'otro' ? null : numOrNull(edQty),
+      notes: edNote.trim() || null,
+    }).eq('id', editReq.id);
+    setEdBusy(false);
+    if (error) { setNotice('❌ ' + error.message); return; }
+    const code = editReq.code;
+    setEditReq(null);
+    setNotice(`✅ Avería corregida · ${code}.`);
+    await load();
+  };
+
   // ── Exportar el reporte de averías a PDF (por empresa → equipo) ──────────────
   const exportReportePdf = async () => {
     if (!reportLoaded) await loadReportData();
@@ -539,7 +606,10 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     if (e1 || e2 || e3) toast.error((e1?.message || e2?.message || e3?.message) as string);
     setRepFor(null);
     await load();
-    setTab('reparacion');
+    // La pestaña de taller SOLO existe en Mantenimiento: en Servicio se sacó el
+    // circuito de "enviado a reparar" completo, así que ahí no hay a dónde saltar
+    // (dejar `tab` en 'reparacion' mostraría una pestaña que ya no se dibuja).
+    if (!esServicio) setTab('reparacion');
   };
 
   // ── Registrar retorno operativo ─────────────────────────────────────────────
@@ -613,10 +683,10 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const matchesRep = (r: Rep) => matchesQ(r.code, r.company, r.machineTipo, r.tipo, r.estimated_note, r.work_done, r.createdByName, r.closedByName);
   // Expedientes de taller que le tocan a ESTA sección: los preventivos son de
   // Mantenimiento y los correctivos de Servicio. Ojo: `activeRepairByMachine`
-  // (el aviso "ya está en el taller" que sale en la tarjeta de una avería) se
-  // queda mirando TODAS las reparaciones a propósito — si la máquina está en
-  // mantenimiento preventivo, quien mira la avería en Servicio también tiene
-  // que enterarse, o la mandaría al taller dos veces.
+  // (el aviso "ya está en el taller" del selector de máquina) se queda mirando
+  // TODAS las reparaciones a propósito — una máquina que ya salió por una avería
+  // correctiva no se puede mandar además a mantenimiento preventivo, o quedarían
+  // dos expedientes abiertos para la misma salida.
   const repsSeccion = useMemo(() => repairs.filter((r) => esPreventiva(r) !== esServicio), [repairs, esServicio]);
   const enReparacion = useMemo(() => repsSeccion.filter((r) => r.status === 'en_reparacion' && matchesRep(r)), [repsSeccion, nq]);
   const historial = useMemo(() => repsSeccion.filter((r) => r.status === 'operativa' && matchesRep(r)), [repsSeccion, nq]);
@@ -666,8 +736,12 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           texto salvo que además tenga minWidth:0). Aquí cada pestaña conserva su ancho
           natural y legible, y la fila entera se desliza si no cabe. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }} contentContainerStyle={{ flexDirection: 'row', gap: spacing.xs }}>
+        {/* SERVICIO ya NO tiene "🔧 En reparación": el cliente pidió sacar el circuito
+            de "enviado a reparar" de este módulo — acá se atiende la avería y, si se
+            arregla, queda el registro en el Historial. MANTENIMIENTO conserva su
+            pestaña de taller intacta (es su forma de trabajar el preventivo). */}
         {((esServicio
-          ? [['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 En reparación (${enRepCount})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
+          ? [['averias', `⏳ Averías (${pendientes})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
           : [['horometros', '⏱️ Horómetros'], ['reparacion', `🧰 En mantenimiento (${enRepCount})`], ['historial', '✓ Historial']]
         ) as [Tab, string][]).map(([k, label]) => {
           const on = tab === k;
@@ -731,17 +805,29 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         </TouchableOpacity>
       ) : null}
 
-      {/* Acciones de la sección. Reportar una avería solo tiene sentido en Servicio;
-          en Mantenimiento el único envío al taller es el preventivo. */}
+      {/* Acciones de la sección. En SERVICIO las dos son para meter la avería: por QR
+          (el flujo de siempre) o eligiendo la máquina a mano, para cuando el reporte
+          llega por radio o el QR está roto. El "Enviar a reparación" que vivía acá se
+          quitó: en Servicio ya no se manda nada al taller.
+          En MANTENIMIENTO el único envío al taller es el preventivo y sigue igual. */}
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
         {esServicio ? (
           <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, minWidth: 0, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📷 Escanear · reportar avería</Text>
           </TouchableOpacity>
         ) : null}
-        <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, minWidth: 0, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>{esServicio ? '🔧 Enviar a reparación' : '🧰 Enviar a mantenimiento'}</Text>
-        </TouchableOpacity>
+        {/* Registrar/corregir a mano pide ESCRITURA: quien solo tiene lectura mira el
+            módulo pero no carga averías (mismo criterio que el resto de la app). */}
+        {esServicio && canWrite ? (
+          <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, minWidth: 0, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>➕ Registrar avería</Text>
+          </TouchableOpacity>
+        ) : null}
+        {!esServicio ? (
+          <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, minWidth: 0, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>🧰 Enviar a mantenimiento</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <TextInput value={query} onChangeText={setQuery} placeholder={tab === 'horometros' ? '🔎 Máquina, serial, placa, empresa, encargado, inspector, ubicación…' : '🔎 Máquina, empresa, placa, serial, material, nota, quién reportó…'} placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
@@ -750,7 +836,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         <Loading />
       ) : tab === 'averias' ? (
         averiaGroups.length === 0 ? (
-          <EmptyState title="Sin averías pendientes" subtitle="Cuando un operador reporte una avería, aparecerá aquí por máquina." />
+          <EmptyState title="Sin averías pendientes" subtitle={canWrite ? 'Cuando un operador reporte una avería, aparecerá aquí por máquina. También puedes cargarla a mano con “➕ Registrar avería”.' : 'Cuando un operador reporte una avería, aparecerá aquí por máquina.'} />
         ) : (
           averiaGroups.map((g) => {
             // Colapsable: cerrada por defecto; al buscar (nq) se abren todas para no ocultar resultados.
@@ -770,8 +856,6 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                 </Card>
               </TouchableOpacity>
               {open ? g.machines.map((mm) => {
-                const rep = activeRepairByMachine.get(mm.machinery_id);
-                const mac = machById.get(mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, encargado: null, referencia: null, latitude: null, longitude: null, operational: true, last_horometro: null, horometro_base: null, horometro_maint_pending: false };
                 return (
                   <Card key={mm.code}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{mm.code}{mm.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {mm.tipo}</Text> : null}</Text>
@@ -799,24 +883,32 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                           <Text style={{ color: colors.muted, fontSize: 12 }}>👮 Reportó: <Text style={{ color: colors.text, fontWeight: '600' }}>{r.requestedByName || '—'}</Text></Text>
                           <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{fmtDT(r.created_at)} · ver detalle ›</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => marcarRealizado(r)} disabled={busy === r.id} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{busy === r.id ? '…' : '✓ Realizado'}</Text>
-                        </TouchableOpacity>
+                        {/* Botones APILADOS, no en fila: "✏️ Editar" al lado de
+                            "✓ Realizado" le comía el ancho al texto de la avería y
+                            en un teléfono angosto la nota se partía en tres líneas.
+                            Apilados, la columna mide lo mismo que antes. */}
+                        <View style={{ gap: 4 }}>
+                          {/* Corregir la avería: el operador escoge el material con el
+                              teléfono en la mano y a veces se equivoca o deja la nota a
+                              medias. Solo con permiso de ESCRITURA. */}
+                          {canWrite ? (
+                            <TouchableOpacity onPress={() => abrirEdicionAveria(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, alignItems: 'center' }}>
+                              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Editar</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          <TouchableOpacity onPress={() => marcarRealizado(r)} disabled={busy === r.id} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, alignItems: 'center' }}>
+                            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{busy === r.id ? '…' : '✓ Realizado'}</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     ))}
-                    {rep ? (
-                      <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.warning }}>
-                        <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>🔧 En reparación desde {fmtDMY(rep.out_at)}{rep.estimated_days != null ? ` · estimado ${rep.estimated_days} día(s)` : ''}</Text>
-                        {rep.createdByName ? <Text style={{ color: colors.muted, fontSize: 11 }}>👮 Enviada por {rep.createdByName}</Text> : null}
-                        <TouchableOpacity onPress={() => openReturn(rep)} style={{ marginTop: spacing.xs, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.xs, alignItems: 'center' }}>
-                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✓ Registrar retorno operativo</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity onPress={() => openRepair(mac)} style={{ marginTop: spacing.sm, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: colors.accentSoftText, fontWeight: '800', fontSize: 12 }}>🔧 Enviar a reparación</Text>
-                      </TouchableOpacity>
-                    )}
+                    {/* Acá vivían el aviso "🔧 En reparación desde…" (con su botón de
+                        retorno operativo) y el botón "🔧 Enviar a reparación". Se
+                        quitaron: esta pestaña es exclusiva de Servicio y el cliente
+                        pidió sacar el circuito de "enviado a reparar" del módulo — la
+                        avería se atiende y al marcarla REALIZADO queda su registro en
+                        el Historial. En Mantenimiento nada de esto cambió: su pestaña
+                        de taller y sus modales siguen tal cual. */}
                   </Card>
                 );
               }) : null}
@@ -1179,17 +1271,23 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         })()
       )}
 
-      {/* Modal: selector de máquina para enviar al taller */}
+      {/* Modal: selector de máquina. En Mantenimiento elige a cuál mandar al taller;
+          en Servicio elige a cuál registrarle la avería a mano. */}
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '85%' }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.sm }}>{esServicio ? 'Elige la máquina a reparar' : 'Elige la máquina a la que le toca mantenimiento'}</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.sm }}>{esServicio ? 'Elige la máquina con la avería' : 'Elige la máquina a la que le toca mantenimiento'}</Text>
             <TextInput value={pickerQ} onChangeText={setPickerQ} placeholder="🔎 Buscar máquina o empresa…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
             <ScrollView>
               {pickerList.map((m) => {
+                // El bloqueo por "ya está en el taller" es SOLO de Mantenimiento: allá
+                // impide abrir dos expedientes para la misma salida. En Servicio no
+                // aplica — una máquina en el taller igual puede tener otra avería que
+                // haga falta dejar anotada.
                 const inRep = activeRepairByMachine.has(m.id);
+                const bloqueada = !esServicio && inRep;
                 return (
-                  <TouchableOpacity key={m.id} onPress={() => !inRep && openRepair(m)} disabled={inRep} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface, opacity: inRep ? 0.5 : 1 }}>
+                  <TouchableOpacity key={m.id} onPress={() => (esServicio ? abrirAveriaManual(m) : (!inRep && openRepair(m)))} disabled={bloqueada} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface, opacity: bloqueada ? 0.5 : 1 }}>
                     {/* "en el taller" a secas: el bloqueo mira las reparaciones de LAS DOS
                         secciones, así que la máquina puede estar en un preventivo aunque
                         estemos en Servicio (o al revés). Decir "en reparación" aquí sería
@@ -1209,7 +1307,9 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         </View>
       </Modal>
 
-      {/* Modal: enviar a reparación */}
+      {/* Modal: enviar al taller — SOLO Mantenimiento. En Servicio se retiró el
+          circuito de "enviado a reparar" completo, así que ni siquiera se monta. */}
+      {!esServicio ? (
       <Modal visible={!!repFor} transparent animationType="slide" onRequestClose={() => setRepFor(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '90%' }}>
@@ -1256,6 +1356,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           </View>
         </View>
       </Modal>
+      ) : null}
 
       {/* Modal: detalle de la avería (datos de la máquina + la falla + foto) */}
       <Modal visible={!!detailReq} transparent animationType="slide" onRequestClose={() => setDetailReq(null)}>
@@ -1311,7 +1412,10 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         </View>
       </Modal>
 
-      {/* Modal: registrar retorno operativo */}
+      {/* Modal: registrar retorno operativo — SOLO Mantenimiento. Se abría desde la
+          pestaña de taller y desde el aviso "en reparación" de una avería, y las dos
+          entradas desaparecieron de Servicio junto con el circuito de reparación. */}
+      {!esServicio ? (
       <Modal visible={!!retFor} transparent animationType="slide" onRequestClose={() => setRetFor(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '90%' }}>
@@ -1342,6 +1446,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
           </View>
         </View>
       </Modal>
+      ) : null}
 
       {/* Escáner de máquina para reportar una avería */}
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
@@ -1350,7 +1455,9 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         </View>
       </Modal>
 
-      {/* Formulario de AVERÍA (máquina escaneada) */}
+      {/* Formulario de AVERÍA. Lo comparten las DOS entradas: la máquina escaneada por
+          QR y la elegida a mano en el selector (➕ Registrar avería) — así el guardado
+          es uno solo y no hay dos formas distintas de crear la misma avería. */}
       <Modal visible={!!avMachine} transparent animationType="fade" onRequestClose={() => setAvMachine(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%' }}>
@@ -1398,6 +1505,66 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                   </TouchableOpacity>
                   <TouchableOpacity onPress={registrarAveria} disabled={avBusy || !avMaterial || !avNote.trim()} style={{ flex: 2, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (avBusy || !avMaterial || !avNote.trim()) ? 0.5 : 1 }}>
                     <Text style={{ color: colors.accentContrast, fontWeight: '900' }} numberOfLines={1} adjustsFontSizeToFit>{avBusy ? 'Guardando…' : 'Registrar avería'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ height: spacing.md }} />
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal: CORREGIR una avería pendiente (material / cantidad / nota).
+          La foto NO se toca acá: es la evidencia de quien reportó y sustituirla desde
+          el escritorio borraría el rastro de lo que se vio en campo. */}
+      <Modal visible={!!editReq} transparent animationType="fade" onRequestClose={() => setEditReq(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%' }}>
+            {editReq ? (
+              <ScrollView>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>✏️ Corregir avería · {editReq.code}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 2 }}>🏢 {editReq.company}{editReq.tipo ? ` · 🏷️ ${editReq.tipo}` : ''}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 2 }}>Reportada {fmtDT(editReq.created_at)}{editReq.requestedByName ? ` · 👮 ${editReq.requestedByName}` : ''}</Text>
+
+                <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>¿Qué necesita?</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {AV_MATERIALS.map((mt) => {
+                    const on = edMaterial === mt.key;
+                    return (
+                      <TouchableOpacity key={mt.key} onPress={() => setEdMaterial(mt.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text>{mt.icon}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{mt.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {/* Averías viejas o del teléfono pueden traer un material que no está en
+                    la lista de arriba: se avisa cuál es y se CONSERVA si nadie toca los
+                    botones, para que corregir la nota no reescriba el material. */}
+                {edMaterial && !AV_MATERIALS.some((mt) => mt.key === edMaterial) ? (
+                  <Text style={{ color: colors.warning, fontSize: 11, marginTop: 4 }}>Material actual: “{matLabel(edMaterial)}”. Se mantiene si no eliges otro.</Text>
+                ) : null}
+
+                {edMaterial === 'otro' ? (
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>¿Qué falla presenta? (describe la avería)</Text>
+                    <TextInput value={edNote} onChangeText={setEdNote} placeholder="Ej. no arranca, fuga de aceite…" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 64 }} />
+                  </>
+                ) : (
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Cantidad (opcional)</Text>
+                    <TextInput value={edQty} onChangeText={(t) => setEdQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Ej: 2" placeholderTextColor={colors.muted} style={input} />
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (obligatoria)</Text>
+                    <TextInput value={edNote} onChangeText={setEdNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 60 }} />
+                  </>
+                )}
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+                  <TouchableOpacity onPress={() => setEditReq(null)} style={{ flex: 1, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={guardarEdicionAveria} disabled={edBusy || !edMaterial || !edNote.trim()} style={{ flex: 2, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (edBusy || !edMaterial || !edNote.trim()) ? 0.5 : 1 }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '900' }} numberOfLines={1} adjustsFontSizeToFit>{edBusy ? 'Guardando…' : 'Guardar cambios'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.md }} />
