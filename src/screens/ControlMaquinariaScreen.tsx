@@ -1899,7 +1899,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <View style={{ marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }}>
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>📊 Total del rango (empresa)</Text>
                     <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
-                      {Math.round(compTot.hours)} h · ${compTot.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      {Math.round(compTot.hours * 100) / 100} h · ${compTot.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </Text>
                   </View>
                 );
@@ -1973,7 +1973,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     {m.entry_at && !m.exit_at ? '▶ En obra' : '⏹ Sin entrada activa'}
                   </Text>
                   <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 14 }}>
-                    {Math.round(weekWorked)} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ''}
+                    {Math.round(weekWorked * 100) / 100} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ''}
                   </Text>
                 </View>
               ) : null}
@@ -2034,7 +2034,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                 <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>📊 Total del rango</Text>
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>
-                  {Math.round(weekWorked)} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ' · sin precio'}
+                  {Math.round(weekWorked * 100) / 100} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ' · sin precio'}
                 </Text>
               </View>
 
@@ -2156,7 +2156,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
               <View style={{ marginTop: spacing.sm, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Total del bloque ({dayCount} día(s))</Text>
-                <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{Math.round(weekWorked)} h</Text>
+                <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{Math.round(weekWorked * 100) / 100} h</Text>
               </View>
               </>) : null}
             </Card>
@@ -2493,12 +2493,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
                     <Text style={{ color: colors.muted, fontSize: 13 }}>Horas trabajadas del bloque</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>{Math.round(workedH)} h</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{Math.round(workedH * 100) / 100} h</Text>
                   </View>
                   {stoppedH > 0 ? (
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
                       <Text style={{ color: colors.warning, fontSize: 13 }}>⏸ Horas paradas (descontadas)</Text>
-                      <Text style={{ color: colors.warning, fontWeight: '700' }}>−{Math.round(stoppedH)} h</Text>
+                      <Text style={{ color: colors.warning, fontWeight: '700' }}>−{Math.round(stoppedH * 100) / 100} h</Text>
                     </View>
                   ) : null}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
