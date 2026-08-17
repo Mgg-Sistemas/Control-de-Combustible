@@ -39,10 +39,14 @@ const colorGrupo = (g: string | null) => (g && GRUPO_COLOR[g.trim().toUpperCase(
  */
 export async function generateGuardiasReport(opts: {
   from: string; to: string; rotation?: string; inspectors: GuardInspector[]; shifts: GuardShift[];
+  // Título/subtítulo opcionales para REUSAR este reporte en otros módulos (p. ej. la
+  // distribución de días libres por cargo de Nómina). Por defecto, los de guardias.
+  title?: string; subtitle?: string;
 }): Promise<boolean> {
   const { from, to, inspectors, shifts } = opts;
   const rotation = opts.rotation || '14x7';
-  const subtitle = `Inspectores de equipo · jornada ${rotation} · Ciclo ${dmy(from)} — ${dmy(to)}`;
+  const docTitle = opts.title || 'DISTRIBUCIÓN DE GUARDIAS';
+  const subtitle = opts.subtitle || `Inspectores de equipo · jornada ${rotation} · Ciclo ${dmy(from)} — ${dmy(to)}`;
 
   const extraCss = `
     h3{margin:16px 0 3px;font-size:13px;color:#1E3A5F;padding-bottom:3px;border-bottom:2px solid #1E3A5F}
@@ -74,7 +78,7 @@ export async function generateGuardiasReport(opts: {
 
   if (!inspectors.length) {
     const html = pdfDocument({
-      title: 'DISTRIBUCIÓN DE GUARDIAS',
+      title: docTitle,
       subtitle,
       body: '<p>No hay inspectores en la distribución. Agrega inspectores y sus guardias.</p>',
       extraCss,

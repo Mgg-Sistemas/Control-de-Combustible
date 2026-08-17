@@ -345,6 +345,19 @@ export default function NominaScreen({ navigation }: any) {
         <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
 
+      {/* Distribución de días libres por TIPO DE CARGO (semana libre rotativa, autogenerada). */}
+      <TouchableOpacity
+        onPress={() => navigation?.navigate('DiasLibresCargo')}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }}
+      >
+        <Text style={{ fontSize: 20 }}>🗓️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Distribución de días libres</Text>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>Semana libre por tipo de cargo: rotación autogenerada y editable, con calendario y PDF</Text>
+        </View>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
+      </TouchableOpacity>
+
       {/* Organigrama por cargos (vista previa + descarga PDF/PNG, sincronizado con la nómina). */}
       <TouchableOpacity
         onPress={() => setOrgOpen(true)}

@@ -61,6 +61,7 @@ import AsistenciaScreen from '../screens/AsistenciaScreen';
 import AsistenciaCamionesScreen from '../screens/AsistenciaCamionesScreen';
 import ViajesCamionesScreen from '../screens/ViajesCamionesScreen';
 import DistribucionGuardiasScreen from '../screens/DistribucionGuardiasScreen';
+import DiasLibresCargoScreen from '../screens/DiasLibresCargoScreen';
 import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
@@ -254,6 +255,7 @@ function MoreStack() {
       <Stack.Screen name="Aliados" component={AliadosScreen} options={{ title: 'Aliados' }} />
       <Stack.Screen name="AliadoCard" component={AliadoCardScreen} options={{ title: 'Ficha de aliado' }} />
       <Stack.Screen name="Nomina" component={NominaScreen} options={{ title: 'Nómina' }} />
+      <Stack.Screen name="DiasLibresCargo" component={DiasLibresCargoScreen} options={{ title: 'Distribución de días libres' }} />
       <Stack.Screen name="PagoPersonal" component={PagoPersonalScreen} options={{ title: 'Pago a personal' }} />
       <Stack.Screen name="Uniformes" component={UniformesScreen} options={{ title: 'Distribución de uniformes' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
@@ -780,6 +782,7 @@ const moreScreens = {
   Aliados: 'aliados',
   AliadoCard: 'ficha-aliado',
   Nomina: 'nomina',
+  DiasLibresCargo: 'dias-libres-cargo',
   PagoPersonal: 'pago-personal',
   Uniformes: 'uniformes',
   Asistencia: 'asistencia',

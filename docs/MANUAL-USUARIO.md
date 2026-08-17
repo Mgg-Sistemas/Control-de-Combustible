@@ -571,6 +571,23 @@ depende** (reporta a) y qué **personal tiene a su cargo** (subordinados). Toca 
 todos los cargos"** para un solo documento con todos los cargos agrupados por área, o toca un
 **cargo de la lista** para descargar solo su ficha individual.
 
+### 4.6bc. Distribución de días libres (dentro de Nómina)
+Reparte la **semana libre por TIPO DE CARGO** — misma idea que la **Distribución de guardias** de
+Inspecciones, pero la unidad es el **cargo**, no la persona: cada cargo descansa una semana del
+ciclo y **toda la gente de ese cargo descansa esa semana**. Está dentro de **Nómina → 🗓️
+Distribución de días libres**.
+
+- Los **cargos** salen solos del **personal activo** de la nómina (cada cargo distinto que tenga
+  gente activa), con su **cantidad de personas**.
+- Elige el **Ciclo** (Desde / Hasta) arriba.
+- **⚙️ Semana libre por cargo:** asigna a cada cargo la semana en que descansa (Sem 1, Sem 2…).
+  Usa **✨ Sugerir automático** para repartir cada cargo en una semana distinta y ajusta a mano.
+  **⚙️ Generar semana libre** crea la rotación (reemplaza lo anterior).
+- El **calendario cargo × día** muestra **L = semana libre / T = trabaja**, con color por semana.
+- **➕ Agregar semana libre** pone una semana suelta a un cargo (Desde / Hasta); **Limpiar** borra
+  las de un cargo. **📄 Generar PDF** imprime el calendario de días libres por cargo.
+- Se actualiza **en vivo** entre dispositivos. **SQL a correr:** `supabase/dias_libres_cargo.sql`.
+
 ### 4.6c. Distribución de uniformes (módulo propio, antes solo dentro de Nómina)
 Lleva las **tallas de uniforme** de cada empleado, sus entregas, e imprime el listado para la
 entrega. Tiene **2 pestañas**: **🧥 Dotación básica** (tallas + entregas de uniforme, lo de
