@@ -564,27 +564,26 @@ todos los cargos"** para un solo documento con todos los cargos agrupados por á
 **cargo de la lista** para descargar solo su ficha individual.
 
 ### 4.6bc. Distribución de días libres (dentro de Nómina)
-Reparte la **semana libre por TIPO DE CARGO** — misma idea que la **Distribución de guardias** de
-Inspecciones, pero la unidad es el **cargo**, no la persona: cada cargo descansa una semana del
-ciclo y **toda la gente de ese cargo descansa esa semana**. Está dentro de **Nómina → 🗓️
-Distribución de días libres**.
+Reparte la **semana libre POR PERSONA**: se navega por **cargo** (para ordenarse), pero el descanso es
+de **cada persona**. Abres un cargo, ves su **gente** (del personal activo) y a cada persona le asignas
+su semana libre del ciclo — **cada quien puede descansar una semana distinta**. Está dentro de
+**Nómina → 🗓️ Distribución de días libres**.
 
-- Los **cargos** salen solos del **personal activo** de la nómina (cada cargo distinto que tenga
-  gente activa), con su **cantidad de personas**.
-- **🔎 Filtrar por departamento o por cargo:** toca un **departamento** para ver solo sus cargos, o
-  escribe en **"Buscar cargo…"** para acotar por nombre — así trabajas un departamento a la vez y no
-  todos los cargos juntos. La **semana libre y el PDF se generan solo sobre lo filtrado** (ideal para
-  armar la rotación de un departamento por separado). **Limpiar ✕** quita el filtro.
-- Elige el **Ciclo** (Desde / Hasta) arriba.
-- **Directo por cargo:** en cada cargo aparecen las **semanas del ciclo con fechas reales**; **toca
-  la semana** en que ese cargo descansa (se marca de color al instante). Si otra fila ya descansa esa
-  semana, el botón muestra **⚠ N cargo(s)** para avisarte del **choque** y elijas otra.
-- **✨ Repartir automático** (arriba) reparte cada cargo en una semana **distinta** de una vez, **sin
-  choques**. Después puedes ajustar cualquiera a mano tocando otra semana.
-- El **calendario cargo × día** muestra **L = semana libre / T = trabaja**, con color por semana; abajo
-  **"Cargos libres"** cuenta cuántos descansan cada día (para ver si se juntan).
-- **➕ Semana libre en otra fecha** pone una semana suelta a un cargo (Desde / Hasta); **Limpiar ✕**
-  borra la de un cargo. **📄 Generar PDF** imprime el calendario de días libres por cargo (respeta el filtro).
+- Los **cargos y su gente** salen solos del **personal activo** de la nómina.
+- **🔎 Filtrar por departamento o por cargo:** el departamento es una **lista desplegable buscable**;
+  o escribe en **"Buscar cargo…"**. Así trabajas un departamento a la vez y no todo junto. El **PDF
+  sale solo de lo filtrado**. **Limpiar ✕** quita el filtro.
+- Elige el **Ciclo** (Desde / Hasta) arriba: define cuántas **semanas** hay para repartir (cada 7 días
+  = una semana).
+- **Toca un cargo** para abrirlo y ver su gente. En cada **persona** aparecen las **semanas del ciclo
+  con fechas reales**; **toca la semana** en que esa persona descansa (se marca de color al instante).
+- Si otra persona **del mismo cargo** ya descansa esa semana, el botón muestra **⚠ N más** para avisarte
+  del **choque** y repartas mejor.
+- **✨ Repartir automático** (arriba) deja, dentro de cada cargo, a su gente en semanas **distintas** de
+  una vez. Después ajustas cualquiera a mano tocando otra semana.
+- Arriba, **"Personas libres por semana"** cuenta cuántas descansan cada semana (para ver si se juntan).
+- **➕ Semana libre en otra fecha** pone a una persona una semana suelta (Desde / Hasta); **Limpiar ✕**
+  borra la de esa persona. **📄 Generar PDF** imprime el calendario de días libres por persona (respeta el filtro).
 - Se actualiza **en vivo** entre dispositivos. **SQL a correr:** `supabase/dias_libres_cargo.sql`.
 
 ### 4.6c. Distribución de uniformes (módulo propio, antes solo dentro de Nómina)

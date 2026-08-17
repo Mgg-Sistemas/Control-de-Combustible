@@ -20,6 +20,15 @@ create table if not exists public.dias_libres_cargo (
 create index if not exists dias_libres_cargo_cargo_idx on public.dias_libres_cargo (cargo);
 create index if not exists dias_libres_cargo_fecha_idx on public.dias_libres_cargo (from_date, to_date);
 
+-- 17-ago-2026: el descanso pasa a ser POR PERSONA (se navega por cargo pero cada
+-- persona tiene su propia semana libre). Se agrega el empleado y un snapshot del nombre.
+alter table public.dias_libres_cargo
+  add column if not exists employee_id uuid references public.employees(id) on delete cascade,
+  add column if not exists persona    text;
+create index if not exists dias_libres_cargo_emp_idx on public.dias_libres_cargo (employee_id);
+-- Limpieza del modelo viejo por-cargo (registros sin persona): ya no se usan.
+delete from public.dias_libres_cargo where employee_id is null;
+
 -- RLS: lectura/escritura autenticada (igual que guard_shifts y el resto de módulos).
 alter table public.dias_libres_cargo enable row level security;
 drop policy if exists dias_libres_cargo_rw on public.dias_libres_cargo;
