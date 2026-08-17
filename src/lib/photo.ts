@@ -228,6 +228,21 @@ export async function pickPhotoFromGalleryAndUpload(
 export async function pickAndUploadRequirementFile(
   reqId: string
 ): Promise<{ ok: boolean; url?: string; kind?: 'image' | 'pdf'; name?: string; error?: string }> {
+  return pickAndUploadDocFile('requerimientos', reqId);
+}
+
+/**
+ * Selecciona un FORMATO (imagen o PDF) y lo sube al bucket 'machinery' en la carpeta
+ * `<folder>/<id>/`, devolviendo la URL pública, el tipo ('image'|'pdf') y el nombre.
+ * Genérico: sirve para facturas de Cuentas (folder 'facturas'), formatos de
+ * requerimientos (folder 'requerimientos'), etc.
+ * - WEB: <input type=file> nativo (acepta imagen Y PDF), sin dependencias nuevas.
+ * - NATIVO: cae a la galería (solo imagen).
+ */
+export async function pickAndUploadDocFile(
+  folder: string,
+  id: string
+): Promise<{ ok: boolean; url?: string; kind?: 'image' | 'pdf'; name?: string; error?: string }> {
   if (Platform.OS === 'web') {
     const file = await new Promise<File | null>((resolve) => {
       const input = document.createElement('input');
@@ -249,7 +264,7 @@ export async function pickAndUploadRequirementFile(
     if (!file) return { ok: false };
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     const ext = isPdf ? 'pdf' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg');
-    const path = `requerimientos/${reqId}/${Date.now()}.${ext}`;
+    const path = `${folder}/${id}/${Date.now()}.${ext}`;
     const up = await supabase.storage.from('machinery').upload(path, file, {
       contentType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
       upsert: true,
@@ -265,7 +280,7 @@ export async function pickAndUploadRequirementFile(
   if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
   const body = await assetToBody(res.assets[0]);
   if (!body) return { ok: false, error: 'No se pudo leer la imagen.' };
-  const path = `requerimientos/${reqId}/${Date.now()}.jpg`;
+  const path = `${folder}/${id}/${Date.now()}.jpg`;
   const r = await uploadToMachinery(path, body);
   return r.ok ? { ok: true, url: r.url, kind: 'image', name: 'formato.jpg' } : { ok: false, error: r.error };
 }

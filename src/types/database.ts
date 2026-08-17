@@ -1507,6 +1507,8 @@ export interface Cuenta {
   order_id: string | null;        // orden de compra que originó la deuda
   concepto: string;
   documento: string | null;       // Nº de factura / control / recibo
+  factura_url: string | null;     // archivo de la factura (imagen/PDF) en storage
+  prioridad: 'alta' | 'media' | 'baja' | null; // grado de prioridad (opcional)
   monto: number;
   moneda: string;
   fecha_emision: string;          // date
