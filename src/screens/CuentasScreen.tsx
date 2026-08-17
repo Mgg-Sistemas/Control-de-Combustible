@@ -17,7 +17,7 @@
 // El módulo se llama 'cuentas' y NACE CERRADO: nadie lo ve hasta que un
 // administrador le dé el permiso desde Usuarios.
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -26,11 +26,21 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company } from '../types/database';
+import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder } from '../types/database';
 import { generalCompanies } from '../lib/companies';
+import { pickAndUploadDocFile } from '../lib/photo';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { matchNorm, norm, cmpText } from '../lib/text';
+
+// Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
+type Prioridad = 'alta' | 'media' | 'baja';
+const PRIORIDAD_INFO: Record<Prioridad, { label: string; tone: 'danger' | 'warning' | 'info' }> = {
+  alta:  { label: '🔺 Alta',  tone: 'danger'  },
+  media: { label: '🔸 Media', tone: 'warning' },
+  baja:  { label: '🔹 Baja',  tone: 'info'    },
+};
+const PRIORIDAD_RANK: Record<Prioridad, number> = { alta: 0, media: 1, baja: 2 };
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
@@ -145,6 +155,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const { data: abonos, refetch: refetchAbonos } = useTable<CuentaAbono>('cuenta_abonos', { orderBy: 'fecha', ascending: false });
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const { data: orders } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
 
   // Maestro de contrapartes: proveedores para pagar, empresas para cobrar.
   const maestro = useMemo(
@@ -175,7 +186,18 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const [emision, setEmision] = useState(hoy);
   const [vence, setVence] = useState('');
   const [nota, setNota] = useState('');
+  const [prioridad, setPrioridad] = useState<Prioridad | null>(null);   // grado de prioridad (opcional)
+  const [orderId, setOrderId] = useState<string | null>(null);          // orden de compra atada (opcional)
+  const [facturaUrl, setFacturaUrl] = useState<string | null>(null);    // archivo de la factura
+  const [subiendoFactura, setSubiendoFactura] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Órdenes de compra ligables (con etiqueta legible). Solo las de esta contraparte
+  // si se puede resolver; si no, todas. purchase_orders puede estar vacía.
+  const ordenLabel = (o: PurchaseOrder) => {
+    const quien = (o.supplier_id ? suppliers.find((s) => s.id === o.supplier_id)?.name : companies.find((c) => c.id === o.company_id)?.name) || '';
+    return `${fmtFecha((o.created_at || '').slice(0, 10))}${quien ? ` · ${quien}` : ''} · ${usd(Number(o.total) || 0)}`;
+  };
 
   // ── Abono (pago parcial) ──────────────────────────────────────────────────
   const [abonoDe, setAbonoDe] = useState<CuentaCalc | null>(null);
@@ -186,7 +208,9 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
 
   const abrirNueva = () => {
     setEdit(null); setContraparteId(null); setConcepto(''); setDocumento('');
-    setMonto(''); setEmision(hoy); setVence(''); setNota(''); setOpen(true);
+    setMonto(''); setEmision(hoy); setVence(''); setNota('');
+    setPrioridad(null); setOrderId(null); setFacturaUrl(null);
+    setOpen(true);
   };
   const abrirEdicion = (c: Cuenta) => {
     setEdit(c);
@@ -197,7 +221,20 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     setEmision(c.fecha_emision);
     setVence(c.fecha_vencimiento ?? '');
     setNota(c.nota ?? '');
+    setPrioridad((c.prioridad as Prioridad) ?? null);
+    setOrderId(c.order_id ?? null);
+    setFacturaUrl(c.factura_url ?? null);
     setOpen(true);
+  };
+
+  // Sube la FACTURA (imagen/PDF) al bucket y guarda su URL en el estado del formulario.
+  const subirFactura = async () => {
+    setSubiendoFactura(true);
+    try {
+      const r = await pickAndUploadDocFile('facturas', edit?.id ?? 'nuevas');
+      if (r.ok && r.url) { setFacturaUrl(r.url); toast.success('Factura adjuntada.'); }
+      else if (r.error) toast.error(r.error);
+    } finally { setSubiendoFactura(false); }
   };
 
   const guardar = async () => {
@@ -215,8 +252,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       tipo,
       supplier_id: tipo === 'por_pagar' ? contraparteId : null,
       company_id: tipo === 'por_cobrar' ? contraparteId : null,
+      order_id: orderId,
       concepto: concepto.trim().toUpperCase(),
       documento: documento.trim().toUpperCase() || null,
+      factura_url: facturaUrl,
+      prioridad,
       monto: importe,
       fecha_emision: emision,
       fecha_vencimiento: vence || null,
@@ -334,6 +374,11 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
       .sort((a, b) => {
         const rank: Record<Situacion, number> = { vencida: 0, por_vencer: 1, pendiente: 2, pagada: 3, anulada: 4 };
         if (rank[a.situacion] !== rank[b.situacion]) return rank[a.situacion] - rank[b.situacion];
+        // Dentro de la misma situación, la prioridad marcada por el usuario manda
+        // (alta antes que media/baja/sin), y luego el vencimiento más cercano.
+        const pa = a.prioridad ? PRIORIDAD_RANK[a.prioridad as Prioridad] : 3;
+        const pb = b.prioridad ? PRIORIDAD_RANK[b.prioridad as Prioridad] : 3;
+        if (pa !== pb) return pa - pb;
         const av = a.fecha_vencimiento ?? '9999-12-31';
         const bv = b.fecha_vencimiento ?? '9999-12-31';
         if (av !== bv) return av < bv ? -1 : 1;
@@ -409,6 +454,7 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
               <View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                   <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>{c.contraparte}</Text>
+                  {c.prioridad ? <Pill label={PRIORIDAD_INFO[c.prioridad as Prioridad].label} {...toneSoft(colors, PRIORIDAD_INFO[c.prioridad as Prioridad].tone)} /> : null}
                   <Pill label={st.label} {...toneSoft(colors, st.tone)} />
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
@@ -429,7 +475,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Abonado: {usd(c.abonado)}</Text>
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Saldo: {usd(c.saldo)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Emitida: {fmtFecha(c.fecha_emision)}</Text>
+                {c.order_id ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🧾 Atada a una orden de compra</Text> : null}
                 {c.nota ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {c.nota}</Text> : null}
+                {c.factura_url ? (
+                  <TouchableOpacity onPress={() => Linking.openURL(c.factura_url!)} style={{ alignSelf: 'flex-start', marginTop: spacing.xs, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📎 Ver factura</Text>
+                  </TouchableOpacity>
+                ) : null}
 
                 {/* Historial de abonos de esta cuenta */}
                 {abonos.filter((a) => a.cuenta_id === c.id).length > 0 ? (
@@ -529,6 +581,71 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
               <TextInput value={nota} onChangeText={(t) => setNota(t.toUpperCase())} autoCapitalize="characters" placeholder="OBSERVACIÓN…" placeholderTextColor={colors.muted} style={inputStyle} />
+            </Card>
+
+            {/* Prioridad (opcional) */}
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Prioridad (opcional)</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                {(['alta', 'media', 'baja'] as const).map((p) => {
+                  const on = prioridad === p;
+                  const t = toneSoft(colors, PRIORIDAD_INFO[p].tone);
+                  return (
+                    <TouchableOpacity key={p} onPress={() => setPrioridad(on ? null : p)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? t.border : colors.border, backgroundColor: on ? t.bg : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? t.text : colors.text, fontWeight: '800', fontSize: 12 }}>{PRIORIDAD_INFO[p].label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {prioridad ? (
+                  <TouchableOpacity onPress={() => setPrioridad(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Quitar ✕</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </Card>
+
+            {/* Atar a una orden de compra (opcional) */}
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Atar a una compra (orden, opcional)</Text>
+              {orders.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 13 }}>No hay órdenes de compra registradas todavía.</Text>
+              ) : (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  <TouchableOpacity onPress={() => setOrderId(null)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: !orderId ? colors.brand : colors.border, backgroundColor: !orderId ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: !orderId ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>Sin orden</Text>
+                  </TouchableOpacity>
+                  {orders.map((o) => {
+                    const on = orderId === o.id;
+                    return (
+                      <TouchableOpacity key={o.id} onPress={() => setOrderId(o.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{ordenLabel(o)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </Card>
+
+            {/* Factura (archivo imagen/PDF, opcional) */}
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Factura (imagen o PDF, opcional)</Text>
+              {facturaUrl ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+                  <TouchableOpacity onPress={() => Linking.openURL(facturaUrl)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📎 Ver factura adjunta</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={subirFactura} disabled={subiendoFactura} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>{subiendoFactura ? 'Subiendo…' : 'Reemplazar'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setFacturaUrl(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+                    <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>Quitar ✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity onPress={subirFactura} disabled={subiendoFactura} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendoFactura ? 0.6 : 1 }}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendoFactura ? 'Subiendo…' : '📎 Adjuntar factura'}</Text>
+                </TouchableOpacity>
+              )}
             </Card>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>

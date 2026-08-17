@@ -213,6 +213,19 @@ create table if not exists public.cuentas (
 );
 
 
+-- ── 2b) COLUMNAS AÑADIDAS (17-ago-2026) ─────────────────────────────────────
+-- A pedido del cliente: poder ADJUNTAR LA FACTURA (archivo imagen/PDF) y marcar
+-- un GRADO DE PRIORIDAD. Son ALTER idempotentes (add column if not exists) para
+-- que re-correr el script las aplique también sobre la tabla ya creada.
+--   • factura_url → URL pública del archivo de la factura en el bucket 'machinery'
+--     (subcarpeta facturas/), igual patrón que los formatos de requerimientos.
+--   • prioridad   → 'alta' | 'media' | 'baja', NULL = sin prioridad (opcional).
+alter table public.cuentas
+  add column if not exists factura_url text,
+  add column if not exists prioridad   text check (prioridad in ('alta', 'media', 'baja'));
+create index if not exists cuentas_prioridad_idx on public.cuentas (prioridad);
+
+
 -- ── 3) TABLA DE ABONOS (pagos parciales) ────────────────────────────────────
 -- Una fila = un abono contra una cuenta. El SALDO de la cuenta es
 -- `cuentas.monto − sum(cuenta_abonos.monto)`; se calcula en la app (mismo
