@@ -1055,9 +1055,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   }, [roundDetail, selDay]);
 
   // Horas REALES de SOLO el turno actual (`shift`, el que está elegido arriba) — a
-  // diferencia de `liveHorasOf` (día+noche combinados, usado en la tarjeta "Horas
-  // reales"), esta es la base de la EFICIENCIA por inspector: cada inspector solo
-  // responde por su propio turno, no por el del otro inspector en la misma máquina.
+  // diferencia de `liveHorasOf` (día+noche combinados, usado solo en "Horas reales
+  // TOTALES" histórico), esta es la base de la EFICIENCIA y de la tarjeta "Horas
+  // reales" del turno: cada inspector solo responde por su propio turno, no por el
+  // del otro inspector en la misma máquina.
   const liveHorasShiftOf = useCallback((id: string): number => {
     const rd = roundDetail.get(id);
     if (!rd) return 0;
@@ -1289,7 +1290,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // Horas REALES del turno: suma de lo trabajado (bancado + en vivo si sigue
       // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
       // parada a mitad de jornada también dejó horas bancadas antes de parar.
-      const horas = Math.round(visibleIds.reduce((sum, id) => sum + liveHorasOf(id), 0) * 10) / 10;
+      // SOLO el turno visible (`liveHorasShiftOf`), NO día+noche combinados: el
+      // inspector responde por SU turno. Antes usaba `liveHorasOf` (día+noche) y una
+      // máquina asignada al DÍA con 0 actividad hoy pero horas de NOCHE inflaba las
+      // "horas reales" del turno día — 56 pendientes salían con 243.8h (bug reportado
+      // 16-ago-2026). Ahora cuadra con la clasificación: 0 iniciadas/paradas → 0 horas.
+      const horas = Math.round(visibleIds.reduce((sum, id) => sum + liveHorasShiftOf(id), 0) * 10) / 10;
       // Horas TOTALES (histórico completo, no solo selDay): suma de allHoursByMachine
       // en las mismas máquinas visibles — acumulado de todas las rondas alguna vez
       // registradas, no limitado a los 14 días de `rounds`.
@@ -1350,11 +1356,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       return {
         id, estado, info,
         code: info?.code ?? codeById.get(id) ?? '—',
-        horasDia: Math.round(liveHorasOf(id) * 10) / 10,
+        // Horas del TURNO visible (mismo criterio que la tarjeta "Horas reales", que
+        // suma estas filas) — no día+noche combinados.
+        horasDia: Math.round(liveHorasShiftOf(id) * 10) / 10,
         horasTotal: Math.round((allHoursByMachine[id] ?? 0) * 10) / 10,
       };
     });
-  }, [horasModal, perInspector, machineInfo, codeById, liveHorasOf, allHoursByMachine]);
+  }, [horasModal, perInspector, machineInfo, codeById, liveHorasShiftOf, allHoursByMachine]);
   // Filtrado (buscador + chip de estado) y orden por mayor cantidad de horas (día o
   // total, según la tarjeta que se tocó para abrir el modal).
   const horasShown = useMemo(() => {
@@ -1370,7 +1378,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // El cajón MAQUINAS FALTANTES NO es un inspector real: no va como barra propia.
     // Sus máquinas se muestran como "MÁQUINAS POR ASIGNAR" (pendiente por asignar),
     // una sola fuente — así no aparece un pseudo-inspector con 100% que descuadra.
-    const base = perInspector.filter((i) => !i.isFaltantes);
+    // Además: un inspector cuyas máquinas asignadas están TODAS fuera de vista (0
+    // visibles: retiradas, inactivas o en espera) NO debe aparecer — antes salía como
+    // barra vacía "0 asignadas" (reportado 16-ago-2026). `total` = visibleIds.length.
+    const base = perInspector.filter((i) => !i.isFaltantes && i.total > 0);
     return nq ? base.filter((i) => norm(i.name).includes(nq)) : base;
   }, [perInspector, inspQ]);
   const sel = selInsp ? perInspector.find((i) => i.name === selInsp) ?? null : null;
