@@ -1223,6 +1223,8 @@ export default function EquiposScreen({ navigation, route }: any) {
               <td style="text-align:center">${i + 1}</td>
               <td>${esc(repTipoLabel(m))}</td>
               <td>${esc(repClasifLabel(m))}</td>
+              <td>${esc((m as any).marca || '—')}</td>
+              <td>${esc((m as any).modelo || '—')}</td>
               <td>${esc(m.serial || '—')}</td>
               <td>${esc(m.plate || '—')}</td>
               <td>${esc((m as any).sector || '—')}</td>
@@ -1243,7 +1245,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         return `<h3 class="emp${saltoHoja}">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
           ${resumenPropio}
           <table><thead><tr>
-            <th style="width:26px">#</th><th>Equipo</th><th>Clasificación</th><th>Serial</th><th>Placa</th>
+            <th style="width:26px">#</th><th>Equipo</th><th>Clasificación</th><th>Marca</th><th>Modelo</th><th>Serial</th><th>Placa</th>
             <th>Sector</th><th>Edificio / Referencia</th>${reportConInspector ? '<th>Inspector ☀️ Día</th><th>Inspector 🌙 Noche</th>' : ''}<th>Estado</th>
           </tr></thead>
           <tbody>${rows}</tbody></table>`;
