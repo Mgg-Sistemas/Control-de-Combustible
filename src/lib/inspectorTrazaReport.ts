@@ -3,14 +3,14 @@ import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { horasTurnoDelDia, type RondaHoras } from './hours';
+import { paradaShiftOf } from './inspectorDaySets';
 
 /**
  * Reporte "RECORRIDO DEL INSPECTOR" (PDF). Reconstruye la SECUENCIA HORARIA de las
  * revisiones (check-ins) que hizo cada inspector durante un día: a qué hora revisó
  * cada máquina, en qué sector/ubicación estaba, en qué estado la encontró
  * (trabajando / parada / no está), si estaba CERCA del equipo (distancia GPS) y —
- * desde 17-ago-2026 — las HORAS TRABAJADAS de esa máquina ese día (día / noche /
- * trabajadas) más QUIÉN INICIÓ la jornada.
+ * desde 17-ago-2026 — las HORAS DE SU JORNADA más QUIÉN INICIÓ la jornada.
  *
  * Fuente del recorrido: `supervisor_visits` (un registro por check-in). Se filtra por
  * `visit_date` y, opcionalmente, por los inspectores elegidos. Las filas se ordenan por
@@ -30,10 +30,19 @@ import { horasTurnoDelDia, type RondaHoras } from './hours';
  * de horas distintas en 8 archivos (un inspector veía 137,38 h en el teléfono y
  * 35,38 h en la web).
  *
- * ⚠️ REGLA DE ORO DE LOS TOTALES: las filas del recorrido son POR VISITA (una máquina
- * puede revisarse varias veces el mismo día), pero las horas son POR MÁQUINA Y DÍA. Todo
- * total DEDUPLICA por `machinery_id` antes de sumar (`totalesDe`); sumar fila por fila
- * inflaría las horas tantas veces como visitas tenga la máquina.
+ * ⚠️ DOS REGLAS DE ORO DE LOS TOTALES (las dos son de PAGO, no de estética):
+ *
+ * 1. SOLO EL TURNO QUE CUBRIÓ. Una máquina puede trabajar los DOS turnos el mismo día
+ *    (el 16-ago-2026: 102 de 173 máquinas). Al inspector le tocan ÚNICAMENTE las horas
+ *    del turno en que la revisó — el turno sale de la HORA de su check-in
+ *    (`paradaShiftOf`). Sumarle el día completo sería acreditarle el trabajo del
+ *    inspector del otro turno. Las columnas "Máquina día/noche" quedan a la vista como
+ *    contexto, pero el total del inspector NO es su suma.
+ *
+ * 2. NADA SE CUENTA DOS VECES. Las filas son POR VISITA (una máquina puede revisarse
+ *    varias veces), pero las horas son POR MÁQUINA Y TURNO. `totalesDe` deduplica por
+ *    el par (máquina, turno) antes de sumar; sumar fila por fila multiplicaría las
+ *    horas por la cantidad de revisiones.
  */
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -92,8 +101,31 @@ type RondaDia = RondaHoras & {
 /** Horas del día de UNA máquina, calculadas UNA SOLA VEZ (nunca por visita). */
 type HorasDia = { dia: number; noche: number; trabajadas: number; iniPor: string; parada: boolean };
 
-/** Totales de un grupo de visitas, con las máquinas contadas UNA SOLA VEZ. */
-type Totales = { maquinas: number; conRonda: number; dia: number; noche: number; trabajadas: number };
+/**
+ * Totales de un grupo de visitas, con cada par (máquina, turno) contado UNA SOLA VEZ.
+ * `suyas` es LO QUE LE TOCA AL INSPECTOR: solo las horas del turno en que revisó.
+ * `dia` / `noche` son el contexto de sus máquinas (el día completo), que sirve para
+ * ver de dónde sale la diferencia, pero NO es lo que esa persona trabajó.
+ */
+type Totales = { maquinas: number; conRonda: number; dia: number; noche: number; suyas: number };
+
+/**
+ * Turno al que pertenece una VISITA, por la hora en que se hizo (Caracas): día
+ * 7am–7pm, noche el resto. Se reusa `paradaShiftOf`, el mismo criterio que ya usa
+ * la clasificación de estados (y que su suite de tests cubre) — no se inventa uno
+ * nuevo, que es como este sistema terminó con 13 fórmulas de horas distintas.
+ *
+ * POR QUÉ IMPORTA: una máquina puede trabajar los DOS turnos el mismo día (el
+ * 16-ago-2026 le pasó a 102 de 173 máquinas). Si al inspector de día se le suman
+ * también las horas de la noche, se le acredita el trabajo del inspector de noche
+ * — y estas horas son la base del pago.
+ */
+const turnoDeVisita = (visitedAt: string | null): 'day' | 'night' =>
+  visitedAt ? paradaShiftOf(visitedAt) : 'day';
+
+/** Horas que le corresponden al inspector por esa máquina, según el turno que cubrió. */
+const horasDelTurno = (hm: HorasDia | undefined, turno: 'day' | 'night'): number =>
+  !hm ? 0 : (turno === 'night' ? hm.noche : hm.dia);
 
 /**
  * Genera y exporta el PDF del recorrido del inspector.
@@ -161,18 +193,31 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
    * y en el detalle salen "—": no es lo mismo "no trabajó" que "no hay dato").
    */
   const totalesDe = (visitas: any[]): Totales => {
-    const vistas = new Set<string>();
-    let dia = 0, noche = 0, trabajadas = 0, conRonda = 0;
+    // Dos llaves distintas a propósito:
+    //  · `maquinas`   — máquinas DISTINTAS que revisó (una máquina vista de día y de
+    //                   noche sigue siendo UNA máquina).
+    //  · `parCubierto` — (máquina, turno). Es la unidad de las HORAS: si cubrió la
+    //                   misma máquina en los dos turnos, le tocan las horas de ambos,
+    //                   pero cada turno una sola vez por más visitas que haya hecho.
+    const maquinas = new Set<string>();
+    const parCubierto = new Set<string>();
+    let dia = 0, noche = 0, suyas = 0, conRonda = 0;
     visitas.forEach((v) => {
       const id = String(v.machinery_id ?? '');
-      if (!id || vistas.has(id)) return;
-      vistas.add(id);
+      if (!id) return;
+      const turno = turnoDeVisita(v.visited_at);
+      const par = `${id}|${turno}`;
+      if (parCubierto.has(par)) return;
+      parCubierto.add(par);
       const hm = horasByMachine.get(id);
-      if (!hm) return;
-      conRonda += 1;
-      dia += hm.dia; noche += hm.noche; trabajadas += hm.trabajadas;
+      // El contexto del día completo se cuenta UNA vez por máquina, no por turno.
+      if (!maquinas.has(id)) {
+        maquinas.add(id);
+        if (hm) { conRonda += 1; dia += hm.dia; noche += hm.noche; }
+      }
+      suyas += horasDelTurno(hm, turno);
     });
-    return { maquinas: vistas.size, conRonda, dia, noche, trabajadas };
+    return { maquinas: maquinas.size, conRonda, dia, noche, suyas };
   };
 
   // Agrupa por inspector (manteniendo el orden cronológico ya aplicado).
@@ -195,29 +240,34 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
         hm ? `<td class="r${extraCls}">${h2(val)}</td>` : '<td class="r nd">—</td>';
       // La ronda quedó marcada 'parada' y sin horas → se resalta en ámbar (regla del
       // sistema "0 horas = parada"), sin inventar un valor distinto de 0.00.
-      const trabCls = hm && hm.parada && hm.trabajadas <= 0 ? ' par' : ' b';
+      const turno = turnoDeVisita(v.visited_at);
+      const suyas = horasDelTurno(hm, turno);
+      const suyasCls = hm && hm.parada && suyas <= 0 ? ' par' : ' b';
       return `<tr>
         <td>${i + 1}</td>
         <td>${esc(horaCaracas(v.visited_at))}</td>
+        <td class="c-tur">${turno === 'night' ? '🌙 Noche' : '☀️ Día'}</td>
         <td><b>${esc(m.code || '—')}</b></td>
         <td>${esc(marcaModeloTxt(m))}</td>
         <td>${esc(m.serial || m.plate || '—')}</td>
         <td>${esc(ubicacionTxt(v.lat, v.lng, m))}</td>
         <td>${esc(estadoTxt(v.status))}</td>
         <td>${esc(cercaTxt(v.near, v.distance_m))}</td>
-        ${celdaH(hm?.dia ?? 0)}${celdaH(hm?.noche ?? 0)}${celdaH(hm?.trabajadas ?? 0, trabCls)}
+        ${celdaH(hm?.dia ?? 0)}${celdaH(hm?.noche ?? 0)}${celdaH(suyas, suyasCls)}
         <td class="ini">${hm && hm.iniPor ? esc(hm.iniPor) : '—'}</td>
       </tr>`;
     }).join('');
-    // Pie con los TOTALES del inspector, ya deduplicados por máquina (ver `totalesDe`).
+    // Pie con los TOTALES del inspector. Ojo: "su jornada" NO es la suma de las dos
+    // columnas anteriores — esas son del día completo de la máquina, y a él solo le
+    // toca su turno (ver `totalesDe`).
     const tfoot = `<tfoot><tr>
-      <td colspan="8">Total · ${t.maquinas} máquina(s) distinta(s) · ${visitas.length} revisión(es)</td>
-      <td class="r b">${h2(t.dia)}</td><td class="r b">${h2(t.noche)}</td><td class="r b">${h2(t.trabajadas)}</td><td></td>
+      <td colspan="9">Total · ${t.maquinas} máquina(s) distinta(s) · ${visitas.length} revisión(es)</td>
+      <td class="r">${h2(t.dia)}</td><td class="r">${h2(t.noche)}</td><td class="r b">${h2(t.suyas)}</td><td></td>
     </tr></tfoot>`;
     return `<table class="ir"><thead><tr>
-      <th class="c-num">Nº</th><th class="c-hora">Hora</th><th class="c-maq">Máquina</th><th class="c-mm">Marca/Modelo</th><th class="c-ser">Serial/Placa</th>
+      <th class="c-num">Nº</th><th class="c-hora">Hora</th><th class="c-tur">Turno</th><th class="c-maq">Máquina</th><th class="c-mm">Marca/Modelo</th><th class="c-ser">Serial/Placa</th>
       <th class="c-sec">Sector/Ubicación</th><th class="c-est">Estado</th><th class="c-cer">Cerca</th>
-      <th class="r c-h">Horas<br>día</th><th class="r c-h">Horas<br>noche</th><th class="r c-h">Horas<br>trabajadas</th><th class="c-ini">Inició</th>
+      <th class="r c-h">Máquina<br>día</th><th class="r c-h">Máquina<br>noche</th><th class="r c-h">Su<br>jornada</th><th class="c-ini">Inició</th>
     </tr></thead><tbody>${trs}</tbody>${tfoot}</table>`;
   };
 
@@ -225,8 +275,12 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
     const t = totalesDe(visitas);
     const sinRonda = t.maquinas - t.conRonda;
     const resumen = `<div class="tot-insp">`
-      + `🚜 <b>${t.maquinas}</b> máquina(s) distinta(s) · ☀️ <b>${h2(t.dia)} h</b> día · 🌙 <b>${h2(t.noche)} h</b> noche · 🕒 <b>${h2(t.trabajadas)} h</b> trabajadas`
-      + `<div class="nota">Horas del DÍA COMPLETO de cada máquina (no de la visita). Cada máquina cuenta UNA sola vez${sinRonda > 0 ? ` · ${sinRonda} sin ronda registrada (—)` : ''}.</div>`
+      + `🚜 <b>${t.maquinas}</b> máquina(s) distinta(s) · 🕒 HORAS DE SU JORNADA: <b>${h2(t.suyas)} h</b>`
+      + `<div class="nota">Solo el turno que cubrió. Sus máquinas, en el día completo, dan `
+      + `☀️ ${h2(t.dia)} h de día y 🌙 ${h2(t.noche)} h de noche (${h2(t.dia + t.noche)} h en total), `
+      + `pero esa diferencia es de los otros turnos y no le corresponde. `
+      + `Cada máquina cuenta UNA sola vez por turno, por más veces que la haya revisado`
+      + `${sinRonda > 0 ? ` · ${sinRonda} sin ronda registrada (—)` : ''}.</div>`
       + `</div>`;
     // Sin línea de firma, a diferencia del reporte diario: este documento es de
     // CONSULTA (se saca cualquier día para mirar las horas), no un papel que se
@@ -246,9 +300,9 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
       <div class="kpi"><div class="k">Inspectores</div><div class="v">${inspectoresCount}</div></div>
       <div class="kpi"><div class="k">Revisiones</div><div class="v">${totalVisitas}</div></div>
       <div class="kpi"><div class="k">Máquinas distintas</div><div class="v">${tg.maquinas}</div></div>
-      <div class="kpi"><div class="k">Horas día</div><div class="v">${h2(tg.dia)}</div></div>
-      <div class="kpi"><div class="k">Horas noche</div><div class="v">${h2(tg.noche)}</div></div>
-      <div class="kpi ok"><div class="k">Horas trabajadas</div><div class="v">${h2(tg.trabajadas)}</div></div>
+      <div class="kpi"><div class="k">Máquinas · día</div><div class="v">${h2(tg.dia)}</div></div>
+      <div class="kpi"><div class="k">Máquinas · noche</div><div class="v">${h2(tg.noche)}</div></div>
+      <div class="kpi ok"><div class="k">Horas de jornada</div><div class="v">${h2(tg.suyas)}</div></div>
     </div>
     <div class="nota-gen">Las horas salen de la jornada del día de cada máquina (misma fórmula que el Reporte por Empresa
     y el Control de maquinaria). Cada máquina se cuenta UNA sola vez aunque tenga varias revisiones; si dos inspectores
@@ -275,8 +329,9 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
     table.ir td.ini{font-size:9px;color:#059669;font-weight:700}
     table.ir tfoot td{background:#F1F5F9;font-weight:800;border-top:2px solid #1E3A5F}
     /* Anchos EXPLÍCITOS que suman 100% (c-h se repite 3 veces: 6.5 × 3 = 19.5). */
-    .c-num{width:2.5%} .c-hora{width:6%} .c-maq{width:8.5%} .c-mm{width:13%} .c-ser{width:10%}
-    .c-sec{width:14.5%} .c-est{width:8.5%} .c-cer{width:5.5%} .c-h{width:6.5%} .c-ini{width:12%}
+    .c-num{width:2.5%} .c-hora{width:5.5%} .c-tur{width:5%} .c-maq{width:8.5%} .c-mm{width:12.5%} .c-ser{width:9.5%}
+    .c-sec{width:13%} .c-est{width:8%} .c-cer{width:5%} .c-h{width:6.5%} .c-ini{width:11%}
+    table.ir td.c-tur{white-space:nowrap;font-size:9px}
     .tot-insp{font-size:10.5px;color:#1E3A5F;background:#F1F5F9;border:1px solid #CBD5E1;border-radius:8px;padding:5px 9px;margin:4px 0 2px}
     .tot-insp .nota{font-size:8.5px;color:#6B7280;font-weight:400;margin-top:2px;text-transform:none}
     .nota-gen{font-size:8.5px;color:#6B7280;margin:-6px 0 10px;text-transform:none}
@@ -287,7 +342,7 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
     .kpi.ok{background:#ECFDF3;border-color:#ABEFC6} .kpi.ok .v{color:#067647}
   `;
 
-  const subtitle = `${fecha} · ${inspectoresCount} inspector(es) · ${totalVisitas} revisión(es) · ${tg.maquinas} máquina(s) · 🕒 ${h2(tg.trabajadas)} h trabajadas`;
+  const subtitle = `${fecha} · ${inspectoresCount} inspector(es) · ${totalVisitas} revisión(es) · ${tg.maquinas} máquina(s) · 🕒 ${h2(tg.suyas)} h de jornada`;
 
   const html = pdfDocument({
     title: 'RECORRIDO DEL INSPECTOR',
