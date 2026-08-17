@@ -38,9 +38,12 @@ function daysBetween(from: string, to: string): string[] {
   return out;
 }
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}` : iso; };
+const DOW = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+const dowOf = (iso: string) => DOW[new Date(iso + 'T00:00:00Z').getUTCDay()];
+const ddOf = (iso: string) => iso.slice(-2);
 
-// Medidas de la MATRIZ Persona × Semana (nombres fijos a la izquierda, semanas con scroll).
-const NAME_W = 134, WEEK_W = 66, HEADER_H = 46, CARGO_H = 26, PERSONA_H = 40, FOOTER_H = 30;
+// Medidas de la MATRIZ (nombres fijos a la izquierda; semanas o días con scroll).
+const NAME_W = 134, WEEK_W = 66, DAY_W = 30, HEADER_H = 46, CARGO_H = 26, PERSONA_H = 40, FOOTER_H = 30;
 
 type Cargo = { name: string; count: number; departments: string[] };
 type Persona = { id: string; name: string; cedula: string | null; cargo: string };
@@ -66,6 +69,7 @@ export default function DiasLibresCargoScreen() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [modo, setModo] = useState<'semana' | 'dia'>('semana'); // asignar por semana o por día
   const [descansoFor, setDescansoFor] = useState<Persona | null>(null); // detalle / semana en otra fecha de una persona
   const [dFrom, setDFrom] = useState(today);
   const [dTo, setDTo] = useState(addDaysISO(today, 6));
@@ -176,6 +180,34 @@ export default function DiasLibresCargoScreen() {
     await supabase.from('dias_libres_cargo').delete().eq('employee_id', p.id).not('grupo', 'is', null);
     setBusy(false); load();
   };
+
+  // ── Modo POR DÍA ──────────────────────────────────────────────────────────
+  // Estado de un DÍA para una persona: 'week' = cubierto por su semana de rotación,
+  // 'day' = día suelto (from==to), 'other' = rango libre de "otra fecha", 'free' = trabaja.
+  const estadoDiaPersona = (empId: string, day: string): 'week' | 'day' | 'other' | 'free' => {
+    let week = false, exact = false, other = false;
+    for (const s of shiftsByPerson.get(empId) ?? []) {
+      if (!(s.from_date <= day && day <= s.to_date)) continue;
+      if (s.grupo) week = true;
+      else if (s.from_date === day && s.to_date === day) exact = true;
+      else other = true;
+    }
+    return week ? 'week' : exact ? 'day' : other ? 'other' : 'free';
+  };
+  const idDiaSuelto = (empId: string, day: string): string | null =>
+    (shiftsByPerson.get(empId) ?? []).find((x) => !x.grupo && x.from_date === day && x.to_date === day)?.id ?? null;
+  // Toca un día: libre → lo marca; día suelto ya marcado → lo quita. Los cubiertos por
+  // semana ('week') o por un rango 'other' no se tocan aquí (se editan en modo semana o
+  // desde el detalle del nombre).
+  const toggleDia = async (p: Persona, day: string) => {
+    const st = estadoDiaPersona(p.id, day);
+    if (st === 'week' || st === 'other') { setNotice('Ese día viene de una semana/rango; edítalo en modo Semana o tocando el nombre.'); return; }
+    setBusy(true); setNotice(null);
+    if (st === 'day') { const id = idDiaSuelto(p.id, day); if (id) await supabase.from('dias_libres_cargo').delete().eq('id', id); }
+    else await supabase.from('dias_libres_cargo').insert({ cargo: p.cargo, employee_id: p.id, persona: p.name, from_date: day, to_date: day, grupo: null, created_by: uid });
+    setBusy(false); load();
+  };
+  const libresPorDia = (day: string) => personasShown.reduce((n, p) => n + (estadoDiaPersona(p.id, day) !== 'free' ? 1 : 0), 0);
 
   // Asigna (o cambia) la semana libre de UNA persona tocando su botón.
   const asignarSemana = async (p: Persona, idx: number) => {
@@ -343,8 +375,24 @@ export default function DiasLibresCargoScreen() {
         <EmptyState title="Sin personas" subtitle="No hay personal activo con cargo en la nómina, o el filtro no arroja a nadie." />
       ) : (
         <Card>
-          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14, marginBottom: 2 }}>📅 Calendario · Persona × Semana</Text>
-          <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>Toca una celda para marcar la semana libre; toca la marcada para quitarla. Toca el nombre para una fecha suelta.</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>📅 Calendario · Persona × {modo === 'semana' ? 'Semana' : 'Día'}</Text>
+            <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, overflow: 'hidden' }}>
+              {(['semana', 'dia'] as const).map((m) => {
+                const on = modo === m;
+                return (
+                  <TouchableOpacity key={m} onPress={() => setModo(m)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, backgroundColor: on ? colors.brand : 'transparent' }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.muted, fontWeight: '800', fontSize: 12 }}>{m === 'semana' ? '📅 Semana' : '📆 Día'}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
+            {modo === 'semana'
+              ? 'Toca una celda para marcar la semana libre; toca la marcada para quitarla. Toca el nombre para una fecha suelta.'
+              : 'Toca un día para marcarlo libre; toca el día marcado para quitarlo. Los días que vienen de una semana (color) se editan en modo Semana.'}
+          </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View style={{ flexDirection: 'row' }}>
               {/* Columna fija: nombres */}
@@ -362,52 +410,103 @@ export default function DiasLibresCargoScreen() {
                   </TouchableOpacity>
                 ))}
                 <View style={{ height: FOOTER_H, width: NAME_W, justifyContent: 'center' }}>
-                  <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>Libres / semana</Text>
+                  <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>Libres / {modo === 'semana' ? 'semana' : 'día'}</Text>
                 </View>
               </View>
-              {/* Semanas (una columna cada una) */}
-              <View>
-                <View style={{ flexDirection: 'row' }}>
-                  {semanas.map((w) => (
-                    <View key={w.idx} style={{ width: WEEK_W, height: HEADER_H, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3, borderBottomWidth: 2.5, borderBottomColor: grupoColor(w.letra) }}>
-                      <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '800' }}>{dmy(w.from)}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 9 }}>{dmy(w.to)}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 8.5 }}>Sem {w.idx + 1}</Text>
+              {modo === 'semana' ? (
+                /* Columnas = SEMANAS */
+                <View>
+                  <View style={{ flexDirection: 'row' }}>
+                    {semanas.map((w) => (
+                      <View key={w.idx} style={{ width: WEEK_W, height: HEADER_H, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3, borderBottomWidth: 2.5, borderBottomColor: grupoColor(w.letra) }}>
+                        <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '800' }}>{dmy(w.from)}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 9 }}>{dmy(w.to)}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 8.5 }}>Sem {w.idx + 1}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {matrixRows.map((r, i) => r.kind === 'cargo' ? (
+                    <View key={`cc${i}`} style={{ flexDirection: 'row', height: CARGO_H, backgroundColor: colors.surfaceAlt }}>
+                      {semanas.map((w) => <View key={w.idx} style={{ width: WEEK_W }} />)}
+                    </View>
+                  ) : (
+                    <View key={r.p.id} style={{ flexDirection: 'row', height: PERSONA_H }}>
+                      {semanas.map((w) => {
+                        const on = semanaIdxDePersona(r.p.id) === w.idx;
+                        return (
+                          <TouchableOpacity
+                            key={w.idx}
+                            disabled={busy}
+                            onPress={() => (on ? quitarSemanaPersona(r.p) : asignarSemana(r.p, w.idx))}
+                            style={{ width: WEEK_W, height: PERSONA_H, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: colors.border, backgroundColor: on ? grupoColor(w.letra) : 'transparent', opacity: busy ? 0.7 : 1 }}
+                          >
+                            <Text style={{ color: on ? '#fff' : colors.border, fontSize: 9.5, fontWeight: '800' }}>{on ? 'LIBRE' : '·'}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   ))}
-                </View>
-                {matrixRows.map((r, i) => r.kind === 'cargo' ? (
-                  <View key={`cc${i}`} style={{ flexDirection: 'row', height: CARGO_H, backgroundColor: colors.surfaceAlt }}>
-                    {semanas.map((w) => <View key={w.idx} style={{ width: WEEK_W }} />)}
-                  </View>
-                ) : (
-                  <View key={r.p.id} style={{ flexDirection: 'row', height: PERSONA_H }}>
+                  <View style={{ flexDirection: 'row', height: FOOTER_H }}>
                     {semanas.map((w) => {
-                      const on = semanaIdxDePersona(r.p.id) === w.idx;
+                      const n = ocupacion.get(w.letra) ?? 0;
                       return (
-                        <TouchableOpacity
-                          key={w.idx}
-                          disabled={busy}
-                          onPress={() => (on ? quitarSemanaPersona(r.p) : asignarSemana(r.p, w.idx))}
-                          style={{ width: WEEK_W, height: PERSONA_H, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: colors.border, backgroundColor: on ? grupoColor(w.letra) : 'transparent', opacity: busy ? 0.7 : 1 }}
-                        >
-                          <Text style={{ color: on ? '#fff' : colors.border, fontSize: 9.5, fontWeight: '800' }}>{on ? 'LIBRE' : '·'}</Text>
-                        </TouchableOpacity>
+                        <View key={w.idx} style={{ width: WEEK_W, alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: n > 0 ? colors.brandText : colors.muted, fontSize: 12, fontWeight: '900' }}>{n}</Text>
+                        </View>
                       );
                     })}
                   </View>
-                ))}
-                <View style={{ flexDirection: 'row', height: FOOTER_H }}>
-                  {semanas.map((w) => {
-                    const n = ocupacion.get(w.letra) ?? 0;
-                    return (
-                      <View key={w.idx} style={{ width: WEEK_W, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: n > 0 ? colors.brandText : colors.muted, fontSize: 12, fontWeight: '900' }}>{n}</Text>
-                      </View>
-                    );
-                  })}
                 </View>
-              </View>
+              ) : (
+                /* Columnas = DÍAS */
+                <View>
+                  <View style={{ flexDirection: 'row' }}>
+                    {days.map((d) => {
+                      const wknd = dowOf(d) === 'S' || dowOf(d) === 'D';
+                      return (
+                        <View key={d} style={{ width: DAY_W, height: HEADER_H, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3 }}>
+                          <Text style={{ color: colors.text, fontSize: 10, fontWeight: '800' }}>{ddOf(d)}</Text>
+                          <Text style={{ color: wknd ? colors.danger : colors.muted, fontSize: 9, fontWeight: '700' }}>{dowOf(d)}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  {matrixRows.map((r, i) => r.kind === 'cargo' ? (
+                    <View key={`cd${i}`} style={{ flexDirection: 'row', height: CARGO_H, backgroundColor: colors.surfaceAlt }}>
+                      {days.map((d) => <View key={d} style={{ width: DAY_W }} />)}
+                    </View>
+                  ) : (
+                    <View key={r.p.id} style={{ flexDirection: 'row', height: PERSONA_H }}>
+                      {days.map((d) => {
+                        const st = estadoDiaPersona(r.p.id, d);
+                        const g = grupoDePersona(r.p.id);
+                        const bg = st === 'week' ? grupoColor(g) : st === 'day' ? colors.success : st === 'other' ? colors.warning : 'transparent';
+                        const wknd = dowOf(d) === 'S' || dowOf(d) === 'D';
+                        return (
+                          <TouchableOpacity
+                            key={d}
+                            disabled={busy}
+                            onPress={() => toggleDia(r.p, d)}
+                            style={{ width: DAY_W, height: PERSONA_H, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: colors.border, backgroundColor: st === 'free' ? (wknd ? colors.surfaceAlt : 'transparent') : bg, opacity: busy ? 0.7 : 1 }}
+                          >
+                            <Text style={{ color: st === 'free' ? colors.border : '#fff', fontSize: 10, fontWeight: '800' }}>{st === 'free' ? '·' : 'L'}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ))}
+                  <View style={{ flexDirection: 'row', height: FOOTER_H }}>
+                    {days.map((d) => {
+                      const n = libresPorDia(d);
+                      return (
+                        <View key={d} style={{ width: DAY_W, alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: n > 0 ? colors.brandText : colors.muted, fontSize: 10, fontWeight: '900' }}>{n}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
             </View>
           </ScrollView>
         </Card>
