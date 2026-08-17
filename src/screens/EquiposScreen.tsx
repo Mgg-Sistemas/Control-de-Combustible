@@ -1009,12 +1009,28 @@ export default function EquiposScreen({ navigation, route }: any) {
   // por tipo arriba. SEPARADO (true) = cada empresa en su propia HOJA y con su PROPIO
   // resumen por tipo, para entregarle a cada una solo lo suyo (cliente 17-ago-2026).
   const [reportSepararEmpresa, setReportSepararEmpresa] = useState(false);
+  // Máquinas elegidas a mano para el reporte (por `id`; vacío = todas las que pasen
+  // los demás filtros). Cliente 17-ago-2026: "lo único que falta es que yo pueda
+  // seleccionar las maquinarias que saldrían en ese reporte".
+  const [reportMaquinas, setReportMaquinas] = useState<Set<string>>(new Set());
+  const [reportMaqQ, setReportMaqQ] = useState('');
+  const toggleReportMaquina = (id: string) =>
+    setReportMaquinas((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Al cambiar de empresa se limpia la selección: si no, quedarían marcadas máquinas
+  // fuera del alcance y el PDF saldría con equipos que ya no se ven en pantalla.
+  useEffect(() => { setReportMaquinas(new Set()); }, [reportCompanies]);
   const toggleReportEstado = (e: EstadoConteo) =>
     setReportEstados((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
   const matchEstadoConteo = (m: Machinery) => reportEstados.size === 0 || reportEstados.has(estadoConteoOf(m));
   const buildReportData = (empresasSel: Set<string>, clasif: Set<string>) => {
     const base = scopedMachines(empresasSel).filter(matchEstadoConteo);
-    const src = clasif.size === 0 ? base : base.filter((m) => clasif.has(repClasifKey(m)));
+    const porClas = clasif.size === 0 ? base : base.filter((m) => clasif.has(repClasifKey(m)));
+    // SELECCIÓN MANUAL DE MÁQUINAS (cliente 17-ago-2026): si hay alguna marcada, el
+    // reporte sale SOLO con esas. Vacío = todas las que pasen los demás filtros.
+    // Se identifican por `id` (uuid), NUNCA por código: el código NO es único — hay
+    // varias máquinas distintas con el mismo (p. ej. varios "OXICORTE" de la misma
+    // empresa), y usar el código marcaría a todas sus homónimas de golpe.
+    const src = reportMaquinas.size === 0 ? porClas : porClas.filter((m) => reportMaquinas.has(m.id));
     const byCo = new Map<string, { name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
@@ -1027,7 +1043,9 @@ export default function EquiposScreen({ navigation, route }: any) {
       .sort((a, b) => (a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name)));
     return { total: src.length, empresas };
   };
-  const reportData = useMemo(() => buildReportData(reportCompanies, reportTypes), [reportCompanies, reportTypes, reportEstados, machinery.data, companyName, averiaCat, jornadaCat, nowTick, inspByShift]);
+  // `reportMaquinas` va en las dependencias: sin él, marcar o desmarcar una máquina
+  // no recalculaba la vista previa y la pantalla mostraba un total distinto al del PDF.
+  const reportData = useMemo(() => buildReportData(reportCompanies, reportTypes), [reportCompanies, reportTypes, reportEstados, reportMaquinas, machinery.data, companyName, averiaCat, jornadaCat, nowTick, inspByShift]);
   // Opciones del checklist: CLASIFICACIONES del alcance con su cantidad (ej. Excavadora,
   // Volteo, Retro… — para poder pedir "solo remoción y/o excavación" de una vez).
   const reportTypeOptions = useMemo(() => {
@@ -2324,6 +2342,70 @@ export default function EquiposScreen({ navigation, route }: any) {
               </Text>
             </View>
           </TouchableOpacity>
+
+          {/* ELEGIR MÁQUINAS a mano. Lo que se marque acá es EXACTAMENTE lo que sale en
+              el PDF (pasa por `buildReportData`, la misma fuente que la vista previa).
+              La lista respeta los filtros de arriba: empresa, estado y clasificación. */}
+          {(() => {
+            const base = scopedMachines(reportCompanies)
+              .filter(matchEstadoConteo)
+              .filter((m) => reportTypes.size === 0 || reportTypes.has(repClasifKey(m)));
+            const q = norm(reportMaqQ.trim());
+            const vistas = (q
+              ? base.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${repTipoLabel(m)} ${companyName(m.company_id ?? null) ?? ''}`).includes(q))
+              : base
+            ).slice().sort((a, b) => cmpText(repTipoLabel(a), repTipoLabel(b)) || cmpText(a.code, b.code));
+            if (base.length === 0) return null;
+            return (
+              <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: colors.surface }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: spacing.xs }}>🚜 Elegir máquinas para el reporte</Text>
+                <TextInput
+                  value={reportMaqQ}
+                  onChangeText={setReportMaqQ}
+                  placeholder="🔎 Buscar máquina, serial, placa, tipo o empresa…"
+                  placeholderTextColor={colors.muted}
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, backgroundColor: colors.surfaceAlt }}
+                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                  <TouchableOpacity onPress={() => setReportMaquinas(new Set(vistas.map((m) => m.id)))}>
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✓ Marcar todas ({vistas.length})</Text>
+                  </TouchableOpacity>
+                  {reportMaquinas.size > 0 ? (
+                    <TouchableOpacity onPress={() => setReportMaquinas(new Set())}>
+                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar ({reportMaquinas.size})</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} nestedScrollEnabled>
+                  {vistas.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.sm }}>Sin coincidencias.</Text>
+                  ) : (
+                    vistas.map((m) => {
+                      const on = reportMaquinas.has(m.id);
+                      return (
+                        <TouchableOpacity key={m.id} onPress={() => toggleReportMaquina(m.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{repTipoLabel(m)}</Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
+                              {m.serial || m.plate || 'sin serial'} · {companyName(m.company_id ?? null) || 'Sin empresa'}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </ScrollView>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                  {reportMaquinas.size === 0
+                    ? 'Ninguna marcada = TODAS las que pasen los filtros de arriba.'
+                    : `El reporte saldrá con ${reportMaquinas.size} máquina(s).`}
+                </Text>
+              </View>
+            );
+          })()}
 
           {/* COMPLETO vs SEPARADO POR EMPRESA (cliente 17-ago-2026): el mismo reporte,
               o todo seguido, o con una hoja por empresa para entregarle a cada una lo
