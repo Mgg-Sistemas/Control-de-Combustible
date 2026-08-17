@@ -298,6 +298,22 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🗓️',
+    title: 'Distribución de días libres (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Reparte la SEMANA LIBRE por TIPO DE CARGO (igual idea que la Distribución de guardias de Inspecciones, pero la unidad es el cargo, no la persona). Cada cargo descansa una semana del ciclo: toda la gente de ese cargo descansa esa semana. Está dentro de Nómina: abre 🗓️ Distribución de días libres.' },
+      { t: 'steps', items: [
+        'Los CARGOS salen solos del personal ACTIVO de la nómina (cada cargo distinto que tenga gente activa), con su cantidad de personas.',
+        'Elige el "Ciclo" (Desde / Hasta) arriba.',
+        'Toca "⚙️ Semana libre por cargo": asigna a cada cargo la semana en que descansa (Sem 1, Sem 2…). Puedes tocar "✨ Sugerir automático" para que reparta cada cargo en una semana distinta, y ajustar lo que quieras a mano.',
+        'Toca "⚙️ Generar semana libre": crea la rotación (reemplaza las semanas libres anteriores). El calendario cargo×día muestra L = semana libre / T = trabaja, con color por semana.',
+        'También puedes agregar una semana libre suelta a un cargo con "➕ Agregar semana libre" (eliges Desde / Hasta), o "Limpiar" para borrar las de un cargo.',
+        'Toca "📄 Generar PDF" para el calendario imprimible de días libres por cargo.',
+      ] },
+      { t: 'note', text: 'La "semana libre" es por CARGO: todos los que tienen ese cargo descansan esa semana. Se refresca en vivo entre dispositivos.' },
+    ],
+  },
+  {
     icon: '💵',
     title: 'Control de pago a personal (dentro de Nómina)',
     blocks: [
