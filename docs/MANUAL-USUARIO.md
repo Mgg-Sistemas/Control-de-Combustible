@@ -188,6 +188,18 @@ ahora trae el detalle completo de cada equipo, no solo el conteo. Muestra, en es
 ### 4.5. Control de maquinaria (las horas que trabaja cada máquina)
 Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** cada máquina.
 
+> **🔗 Control y el Reporte por Empresa dan las MISMAS horas (16-ago-2026).** Antes no
+> cuadraban: durante el turno, Control mostraba **0 h** en una máquina que el Reporte por
+> Empresa ya daba trabajando, porque Control solo veía las horas ya **guardadas** y el reporte
+> contaba además la **jornada abierta**. Ahora los dos usan el mismo cálculo:
+> - una jornada **abierta hoy** cuenta desde el **inicio del turno** (7:00 am el día,
+>   7:00 pm la noche), aunque el inspector la haya marcado más tarde — con tope de **12 h**;
+> - los **días pasados** no cambian **nada**: muestran exactamente lo que quedó guardado, así
+>   que **los cierres y los pagos ya hechos siguen igual**.
+>
+> Lo que ves en Control durante el turno es una **estimación en curso** que va subiendo hasta
+> que el inspector cierre la jornada — igual que el Reporte por Empresa.
+
 **Anotar el trabajo de un día:**
 1. Elige la **semana** con las flechas ◀ ▶ o el calendario.
 2. Abre la empresa y luego la máquina.
