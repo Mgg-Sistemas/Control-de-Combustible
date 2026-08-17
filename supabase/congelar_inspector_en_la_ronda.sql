@@ -234,24 +234,6 @@ ganador as (
          machinery_id, visit_date, turno, supervisor_name
   from visitas
   order by machinery_id, visit_date, turno, marcas desc, primera asc
-)
-with visitas as (
-  select
-    sv.machinery_id, sv.visit_date,
-    case when extract(hour from (sv.visited_at at time zone 'America/Caracas')) between 7 and 18
-         then 'day' else 'night' end as turno,
-    sv.supervisor_name,
-    count(*) as marcas,
-    min(sv.visited_at) as primera
-  from public.supervisor_visits sv
-  where sv.supervisor_name is not null and btrim(sv.supervisor_name) <> ''
-  group by 1, 2, 3, 4
-),
-ganador as (
-  select distinct on (machinery_id, visit_date, turno)
-         machinery_id, visit_date, turno, supervisor_name
-  from visitas
-  order by machinery_id, visit_date, turno, marcas desc, primera asc
 ),
 porRonda as (
   select r.id,
