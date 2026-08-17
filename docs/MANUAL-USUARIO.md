@@ -798,6 +798,18 @@ mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — 
 Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 **⏳ Averías · 🔧 En reparación · ✓ Historial · 📊 Reporte**.
 
+> **✅ Arreglos del 17-ago-2026:**
+> - **El Historial ahora muestra las averías resueltas.** Antes, al marcar una avería como
+>   **✓ Realizado**, desaparecía de la pantalla y **no quedaba en ninguna parte**: salía de
+>   "Averías" (que solo lista pendientes) y el Historial únicamente mostraba las máquinas que
+>   pasaron por el taller. Ahora el Historial trae dos bloques: **✅ Averías resueltas**
+>   (con quién la reportó, quién la resolvió y las dos fechas) y **🧰 Pasaron por el taller**.
+> - **El buscador funciona en 📊 Reporte.** Era la única pestaña que ignoraba la caja de
+>   búsqueda: escribías y la lista no se movía.
+> - **El reporte ya no se queda corto.** La consulta se cortaba en ~1000 filas, así que el
+>   **gasto salía por debajo de lo real**. Ahora trae todo. Además, si falla la carga te
+>   **avisa** y puedes reintentar (antes se quedaba en $0.00 en silencio, para siempre).
+
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
   material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. **Ya no muestra**
   los tickets internos **"MÁQUINA PARADA"** (el marcador que usa Inspecciones/Control para pintar
