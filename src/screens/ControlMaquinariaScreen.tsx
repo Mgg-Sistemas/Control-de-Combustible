@@ -358,7 +358,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           const [data, { rows }, { data: todayRounds }, { data: nightRounds }] = await Promise.all([
             selectAllRows('maintenance_requests', 'machinery_id, material, created_at', (q) => q.eq('status', 'pendiente')),
             listInspectorAssignments(),
-            supabase.from('machine_rounds').select('machinery_id, jornada_start_at').eq('round_date', today).not('jornada_start_at', 'is', null),
+            supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
             supabase.from('machine_rounds').select('machinery_id, jornada_start_at').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
           ]);
           const sos = new Set(rows.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id));
@@ -369,6 +369,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             const prev = openStartByMachine[row.machinery_id];
             openStartByMachine[row.machinery_id] = prev == null ? t : Math.max(prev, t);
           });
+          // Horas BANCADAS de hoy por máquina (día+noche): una parada/avería ARRASTRADA de
+          // ayer NO cuenta si la máquina ya trabajó hoy (aunque la jornada ya haya cerrado y
+          // `jornada_start_at` sea null) — mismo criterio que el teléfono (`hoursMine` gana a
+          // la arrastrada) y las tarjetas. Antes Control solo la soltaba por jornada ABIERTA,
+          // así que una arrastrada + trabajó-y-cerró seguía saliendo parada acá (fuente de
+          // verdad = teléfono, 17-ago-2026).
+          const workedTodayByMachine: Record<string, number> = {};
+          ((todayRounds ?? []) as any[]).forEach((row) => {
+            const h = (Number(row.day_hours) || 0) + (Number(row.night_hours) || 0);
+            if (h > 0) workedTodayByMachine[row.machinery_id] = Math.max(workedTodayByMachine[row.machinery_id] || 0, h);
+          });
+          const dayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
           const next = new Set<string>();
           const nextTipo: Record<string, 'averia' | 'parada'> = {};
           ((data ?? []) as any[]).forEach((r) => {
@@ -377,6 +389,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             const openStart = openStartByMachine[id];
             const createdMs = r.created_at ? new Date(r.created_at).getTime() : 0;
             if (openStart != null && openStart >= createdMs) return; // reactivada: jornada abierta después de la marca
+            // ARRASTRADA (marcada antes de hoy) + trabajó hoy → ya no aplica, igual que el
+            // teléfono: la de HOY sí se mantiene (parada del día gana sobre las horas).
+            const esArrastrada = createdMs < dayStartMs;
+            if (esArrastrada && (workedTodayByMachine[id] ?? 0) > 0) return;
             next.add(id);
             // Avería REAL gana sobre "MÁQUINA PARADA" si hay ambas (mismo criterio que
             // Catálogo/Inspecciones); no pisa una avería ya asignada con una parada después.
