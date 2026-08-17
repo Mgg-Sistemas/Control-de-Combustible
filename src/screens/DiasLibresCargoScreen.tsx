@@ -58,6 +58,8 @@ export default function DiasLibresCargoScreen() {
   const [cargosAll, setCargosAll] = useState<Cargo[]>([]);
   const [deptList, setDeptList] = useState<string[]>([]);
   const [deptFiltro, setDeptFiltro] = useState<string>(''); // '' = todos los departamentos
+  const [deptOpen, setDeptOpen] = useState(false);          // desplegable de departamento
+  const [deptQuery, setDeptQuery] = useState('');           // búsqueda dentro del desplegable
   const [cargoQuery, setCargoQuery] = useState('');
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
@@ -255,18 +257,48 @@ export default function DiasLibresCargoScreen() {
         {deptList.length > 0 ? (
           <>
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Por departamento</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                {['', ...deptList].map((d) => {
-                  const on = deptFiltro === d;
-                  return (
-                    <TouchableOpacity key={d || '__all'} onPress={() => setDeptFiltro(d)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.brand : colors.border }}>
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{d || 'Todos'}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+            {/* Desplegable BUSCABLE de departamento (patrón EdificioPicker) */}
+            <TouchableOpacity
+              onPress={() => setDeptOpen((v) => !v)}
+              activeOpacity={0.8}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}
+            >
+              <Text style={{ color: deptFiltro ? colors.text : colors.muted, fontSize: 14, flex: 1 }} numberOfLines={1}>
+                {deptFiltro || 'Todos los departamentos'}
+              </Text>
+              <Text style={{ color: colors.primary, fontWeight: '800' }}>{deptOpen ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {deptOpen ? (
+              <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: 4, overflow: 'hidden' }}>
+                <TextInput
+                  value={deptQuery}
+                  onChangeText={setDeptQuery}
+                  placeholder="🔎 Buscar departamento…"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, color: colors.text, fontSize: 14, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                />
+                <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {['', ...deptList]
+                    .filter((d) => (d === '' ? !deptQuery.trim() : norm(d).includes(norm(deptQuery))))
+                    .map((d) => {
+                      const on = deptFiltro === d;
+                      return (
+                        <TouchableOpacity
+                          key={d || '__all'}
+                          onPress={() => { setDeptFiltro(d); setDeptOpen(false); setDeptQuery(''); }}
+                          style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.surfaceAlt : colors.surface }}
+                        >
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: on ? '800' : '400' }}>{on ? '✓ ' : ''}{d || 'Todos los departamentos'}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {deptQuery.trim() && !deptList.some((d) => norm(d).includes(norm(deptQuery))) ? (
+                    <View style={{ padding: spacing.md }}><Text style={{ color: colors.muted, fontSize: 13 }}>Sin departamentos que coincidan.</Text></View>
+                  ) : null}
+                </ScrollView>
               </View>
-            </ScrollView>
+            ) : null}
+            <View style={{ height: spacing.sm }} />
           </>
         ) : null}
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Por cargo</Text>
