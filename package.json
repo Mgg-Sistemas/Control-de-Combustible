@@ -52,7 +52,8 @@
     "test:clasificacion": "node scripts/test-clasificacion.mjs",
     "test:cola-offline": "node scripts/test-cola-offline.mjs",
     "test:reportes": "node scripts/test-reportes-paridad.mjs",
-    "test:horas": "node scripts/test-horas-control.mjs"
+    "test:horas": "node scripts/test-horas-control.mjs",
+    "test:empresa": "node scripts/test-empresa-sync.mjs"
   },
   "private": true
 }
