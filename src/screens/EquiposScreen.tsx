@@ -1005,6 +1005,10 @@ export default function EquiposScreen({ navigation, route }: any) {
   // cuando el reporte es para alguien que solo necesita el conteo de equipos y
   // las dos columnas extra solo estorban (y estrechan el resto de la tabla).
   const [reportConInspector, setReportConInspector] = useState(true);
+  // COMPLETO (false, por defecto) = todas las empresas seguidas, con un único resumen
+  // por tipo arriba. SEPARADO (true) = cada empresa en su propia HOJA y con su PROPIO
+  // resumen por tipo, para entregarle a cada una solo lo suyo (cliente 17-ago-2026).
+  const [reportSepararEmpresa, setReportSepararEmpresa] = useState(false);
   const toggleReportEstado = (e: EstadoConteo) =>
     setReportEstados((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
   const matchEstadoConteo = (m: Machinery) => reportEstados.size === 0 || reportEstados.has(estadoConteoOf(m));
@@ -1154,22 +1158,41 @@ export default function EquiposScreen({ navigation, route }: any) {
     const resumenRows = empresas
       .map((c) => `<tr><td>${esc(c.name)}</td><td style="text-align:right;font-weight:700">${c.items.length}</td></tr>`)
       .join('');
-    // Totales POR TIPO DE MAQUINARIA (arriba del reporte): cuántos equipos de cada tipo
-    // y DÓNDE se ubican (🟢 Este / 🟠 Oeste, por GPS). Ej.: "PAYLOADER 7 · 3 Este · 4 Oeste".
-    // A→Z natural. La zona sale del sector geográfico (sectorOf) igual que el mapa.
-    const porTipo = new Map<string, { total: number; este: number; oeste: number; su: number }>();
-    empresas.forEach((c) => c.items.forEach((m) => {
-      const k = repTipoLabel(m);
-      const e = porTipo.get(k) ?? { total: 0, este: 0, oeste: 0, su: 0 };
-      e.total += 1;
-      const macro = sectorMacro(sectorOf((m as any).latitude, (m as any).longitude));
-      if (macro === 'OESTE') e.oeste += 1; else if (macro === 'ESTE') e.este += 1; else e.su += 1;
-      porTipo.set(k, e);
-    }));
-    const tipoTot = { este: 0, oeste: 0, su: 0 };
-    porTipo.forEach((v) => { tipoTot.este += v.este; tipoTot.oeste += v.oeste; tipoTot.su += v.su; });
-    const anySU = tipoTot.su > 0;
-    const clasifRows = Array.from(porTipo.entries())
+    // Totales POR TIPO DE MAQUINARIA: cuántos equipos de cada tipo y DÓNDE se ubican
+    // (🟢 Este / 🟠 Oeste, por GPS). Ej.: "PAYLOADER 7 · 3 Este · 4 Oeste". A→Z natural.
+    // La zona sale del sector geográfico (sectorOf) igual que el mapa.
+    // Extraído a función para poder calcularlo TAMBIÉN por empresa cuando está activo
+    // "separar por empresa" (pedido del cliente 17-ago-2026): antes este resumen era
+    // siempre global, así que al entregarle su hoja a cada empresa el conteo por tipo
+    // que veía era el de TODAS mezcladas.
+    const tipoStats = (items: Machinery[]) => {
+      const porTipo = new Map<string, { total: number; este: number; oeste: number; su: number }>();
+      items.forEach((m) => {
+        const k = repTipoLabel(m);
+        const e = porTipo.get(k) ?? { total: 0, este: 0, oeste: 0, su: 0 };
+        e.total += 1;
+        const macro = sectorMacro(sectorOf((m as any).latitude, (m as any).longitude));
+        if (macro === 'OESTE') e.oeste += 1; else if (macro === 'ESTE') e.este += 1; else e.su += 1;
+        porTipo.set(k, e);
+      });
+      const tot = { este: 0, oeste: 0, su: 0 };
+      porTipo.forEach((v) => { tot.este += v.este; tot.oeste += v.oeste; tot.su += v.su; });
+      return { porTipo, tot, anySU: tot.su > 0 };
+    };
+    /** Tabla "por tipo" (encabezado + filas) para un conjunto de equipos. */
+    const tipoTable = (items: Machinery[], titulo: string) => {
+      const { porTipo, anySU } = tipoStats(items);
+      const filas = Array.from(porTipo.entries())
+        .sort((a, b) => cmpText(a[0], b[0]))
+        .map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td>${anySU ? `<td style="text-align:right;color:#B91C1C">${v.su}</td>` : ''}</tr>`)
+        .join('');
+      return `<h3 class="emp">${esc(titulo)}</h3>
+        <table><thead><tr><th>Equipo</th><th style="text-align:right">Total</th><th style="text-align:right">🟢 Este</th><th style="text-align:right">🟠 Oeste</th>${anySU ? '<th style="text-align:right">Sin ubicar</th>' : ''}</tr></thead>
+        <tbody>${filas}</tbody></table>`;
+    };
+    const todosLosItems = empresas.flatMap((c) => c.items);
+    const { anySU } = tipoStats(todosLosItems);
+    const clasifRows = Array.from(tipoStats(todosLosItems).porTipo.entries())
       .sort((a, b) => cmpText(a[0], b[0]))
       .map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td>${anySU ? `<td style="text-align:right;color:#B91C1C">${v.su}</td>` : ''}</tr>`)
       .join('');
@@ -1191,7 +1214,16 @@ export default function EquiposScreen({ navigation, route }: any) {
             </tr>`;
           })
           .join('');
-        return `<h3 class="emp">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
+        // SEPARADO POR EMPRESA: cada una arranca en HOJA NUEVA y lleva su PROPIO
+        // resumen por tipo, para poder entregarle a cada empresa solo lo suyo.
+        // COMPLETO (por defecto): todo seguido, con un único resumen global arriba
+        // — el comportamiento de siempre.
+        const saltoHoja = reportSepararEmpresa ? ' pagebreak' : '';
+        const resumenPropio = reportSepararEmpresa
+          ? tipoTable(c.items, `📊 Resumen de ${c.name.toUpperCase()} — ${c.items.length} equipo(s)`)
+          : '';
+        return `<h3 class="emp${saltoHoja}">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
+          ${resumenPropio}
           <table><thead><tr>
             <th style="width:26px">#</th><th>Equipo</th><th>Clasificación</th><th>Serial</th><th>Placa</th>
             <th>Sector</th><th>Edificio / Referencia</th>${reportConInspector ? '<th>Inspector ☀️ Día</th><th>Inspector 🌙 Noche</th>' : ''}<th>Estado</th>
@@ -1204,6 +1236,11 @@ export default function EquiposScreen({ navigation, route }: any) {
       subtitle: `Total general de equipos: ${total}${reportEstados.size > 0 ? ` · estado: ${ESTADO_CONTEO_ORDER.filter((e) => reportEstados.has(e)).map((e) => ESTADO_CONTEO_META[e].label).join(', ')}` : ''}${reportTypes.size > 0 ? ' · filtro de clasificación aplicado' : ''}`,
       extraCss: `
         .muted{color:#666;font-size:12px}
+        /* Salto de hoja al separar por empresa. break-before es el estándar moderno y
+           page-break-before queda como respaldo para motores viejos. La PRIMERA no
+           salta (:first-of-type), para no abrir el PDF con una hoja en blanco. */
+        h3.emp.pagebreak{break-before:page;page-break-before:always}
+        h3.emp.pagebreak:first-of-type{break-before:auto;page-break-before:auto}
         table{width:100%;border-collapse:collapse;margin-top:2px;font-size:9.5px}
         th,td{border:1px solid #ccc;padding:4px 5px;text-align:left}
         th{background:#1E3A5F;color:#fff}
@@ -2284,6 +2321,25 @@ export default function EquiposScreen({ navigation, route }: any) {
                 {reportConInspector
                   ? 'El PDF trae las columnas ☀️ Día y 🌙 Noche.'
                   : 'El PDF sale solo con el conteo, sin columnas de inspector.'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* COMPLETO vs SEPARADO POR EMPRESA (cliente 17-ago-2026): el mismo reporte,
+              o todo seguido, o con una hoja por empresa para entregarle a cada una lo
+              suyo. Las empresas que entran se eligen arriba, en "alcance del reporte". */}
+          <TouchableOpacity
+            onPress={() => setReportSepararEmpresa((v) => !v)}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.sm }}
+          >
+            <Text style={{ fontSize: 17 }}>{reportSepararEmpresa ? '☑️' : '⬜'}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Separar por empresa (una hoja cada una)</Text>
+              <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                {reportSepararEmpresa
+                  ? 'Cada empresa arranca en hoja nueva y trae su PROPIO resumen por tipo.'
+                  : 'Reporte completo: todas seguidas, con un solo resumen general arriba.'}
               </Text>
             </View>
           </TouchableOpacity>
