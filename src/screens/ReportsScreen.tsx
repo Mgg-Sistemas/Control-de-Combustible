@@ -14,7 +14,6 @@ import {
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { caracasParts } from '../lib/jornada';
 import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, dateRangeLabel, REPORT_BRAND } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
@@ -75,26 +74,22 @@ type Row = {
   company: string;
 };
 
-// Reporte MAQUINARIA/VEHÍCULO (pestaña "fleet"): SOLO datos operativos/numéricos —
-// sin montos en $ (eso vive exclusivamente en el reporte de Jornada). Depurado
-// 08-ago-2026 a pedido del cliente: antes mezclaba horas/cantidades con precios y
-// fletes; ahora es puramente Totales Generales / Totales por Empresa / Trazabilidad.
-type FleetEstado = 'averia' | 'parada' | 'activo';
+// Reporte MAQUINARIA (pestaña "fleet"): listado de IDENTIDAD de la maquinaria —
+// nombre, marca, modelo, placa, serial y clasificación. Depurado 17-ago-2026 a
+// pedido del cliente: antes mezclaba maquinaria + vehículos con horas/averías/
+// paradas; ahora es SOLO maquinaria (sin vehículos) y solo las que trabajaron en
+// el rango de fechas, con sus datos de catálogo.
 type FleetItem = {
   id: string;
-  name: string;
+  name: string;        // code / nombre de la máquina
+  marca: string;       // MARCA (CAT, Komatsu…)
+  modelo: string;      // MODELO (320, PC200…)
   plate: string | null;
-  kind: string;
-  marcaModelo: string; // marca / modelo del equipo
+  serial: string | null;
   tipo: string;        // clasificación (se usa para agrupar/filtrar)
   company: string;
-  worked: number;        // horas trabajadas REALES acumuladas en el rango (machine_rounds)
-  diasTrabajados: number; // días distintos del rango con horas > 0
-  estado: FleetEstado;    // estado ACTUAL (ahora mismo, no solo del rango): avería > parada > activo
-  averias: number;        // # de averías marcadas dentro del rango
-  paradas: number;        // # de paradas marcadas dentro del rango
+  worked: number;      // horas trabajadas REALES en el rango (para filtrar las que trabajaron)
 };
-type FleetCompany = { company: string; count: number; items: FleetItem[] };
 
 // Período de las jornadas que resume el reporte de flota (horas trabajadas).
 // Exportado: Control de Pagos usa el MISMO piso para que el facturado coincida
@@ -547,42 +542,6 @@ export default function ReportsScreen({ route }: any) {
   // (Totales por Empresa) se apaga la sincronización en vivo.
   useEffect(() => { if (!fleetPreview) liveRef.current = null; }, [fleetPreview]);
 
-  const fleetByCompany = useMemo(() => {
-    const m = new Map<string, FleetCompany>();
-    fleetItems.forEach((it) => {
-      const c = m.get(it.company) ?? { company: it.company, count: 0, items: [] };
-      c.count += 1;
-      c.items.push(it);
-      m.set(it.company, c);
-    });
-    // Orden ALFABÉTICO por empresa (así se ve en el sistema y en los reportes).
-    return Array.from(m.values()).sort((a, b) => cmpText(a.company, b.company));
-  }, [fleetItems]);
-  // Totales GENERALES (Bloque 1): activos/iniciados(trabajaron en el rango)/parados/
-  // averiados + horas acumuladas, sobre TODOS los equipos filtrados (empresa/tipo).
-  const fleetTotales = useMemo(() => {
-    const t = { equipos: fleetItems.length, iniciados: 0, parados: 0, averiados: 0, horas: 0 };
-    fleetItems.forEach((it) => {
-      if (it.worked > 0) t.iniciados += 1;
-      if (it.estado === 'parada') t.parados += 1;
-      if (it.estado === 'averia') t.averiados += 1;
-      t.horas += it.worked;
-    });
-    return t;
-  }, [fleetItems]);
-  // Totales POR EMPRESA (Bloque 2): mismo desglose que fleetTotales, agrupado.
-  const fleetTotalesPorEmpresa = useMemo(() => {
-    return fleetByCompany.map((c) => {
-      const t = { company: c.company, equipos: c.count, iniciados: 0, parados: 0, averiados: 0, horas: 0 };
-      c.items.forEach((it) => {
-        if (it.worked > 0) t.iniciados += 1;
-        if (it.estado === 'parada') t.parados += 1;
-        if (it.estado === 'averia') t.averiados += 1;
-        t.horas += it.worked;
-      });
-      return t;
-    });
-  }, [fleetByCompany]);
   // Buscador CON CHECKS por tipo de equipo (en el reporte "Conteo de equipos"). Cada tipo
   // (código/modelo del equipo, p. ej. "CAMIÓN VOLTEO TORONTO") es una casilla con su
   // cantidad total; el buscador filtra la lista. Al tildar uno o varios se ve el reporte
@@ -1077,145 +1036,41 @@ export default function ReportsScreen({ route }: any) {
   const generateFleet = async () => {
     // Recordar la función para la actualización EN VIVO (realtime) del reporte
     // abierto — mismo patrón que generateRounds/generateConteo (ver liveRef arriba).
-    // Antes faltaba esta línea: el reporte de Maquinaria/Vehículo (Totales por
-    // Empresa) nunca se refrescaba solo mientras estaba abierto, aunque el canal
-    // realtime de machine_rounds/fletes/machinery ya estaba escuchando cambios.
     liveRef.current = generateFleet;
     setLoading(true);
-    const today = caracasParts(new Date()).iso;
-    const yesterday = caracasParts(new Date(Date.now() - 86400000)).iso;
-    const todayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
-    const [{ data: mach }, { data: vehs }, rnds, pend, evRange, { data: todayRnds }, { data: nightRnds }] = await Promise.all([
-      supabase.from('machinery').select('id, code, plate, machinery_type, tipo, clasificacion, company:company_id(name)'),
-      supabase.from('vehicles').select('id, plate, brand, model'),
+    // SOLO MAQUINARIA (sin vehículos) y SOLO las que TRABAJARON en el rango de fechas.
+    // Reporte de IDENTIDAD/catálogo: nombre, marca, modelo, placa, serial, clasificación.
+    const [{ data: mach }, rnds] = await Promise.all([
+      supabase.from('machinery').select('id, code, marca, modelo, plate, serial, clasificacion, company:company_id(name)'),
       // Horas trabajadas REALES dentro del rango del reporte (día + noche − parada + extras).
       // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas.
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
-      // Estado ACTUAL (ahora mismo, sin importar el rango): avería/parada pendiente por
-      // resolver. Mismo criterio que Catálogo/Inspecciones: material 'MÁQUINA PARADA' =
-      // parada; cualquier otro material = avería real (gana sobre la parada). Paginado
-      // (>1000 pendientes truncaba la consulta y perdía justo las más antiguas/arrastradas).
-      selectAllRows('maintenance_requests', 'machinery_id, material, created_at', (q) => q.eq('status', 'pendiente')),
-      // Eventos (paradas/averías) MARCADOS dentro del rango del reporte, para la Trazabilidad.
-      selectAllRows('maintenance_requests', 'machinery_id, material, created_at', (q) =>
-        q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${addDaysISO(to, 1)}T00:00:00-04:00`)
-      ),
-      // Jornada de HOY (día de negocio Caracas), para la regla de reactivación de abajo.
-      supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift').eq('round_date', today),
-      // Jornada de NOCHE de anoche aún abierta → cuenta como noche de hoy (mismo criterio que Catálogo).
-      supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
     ]);
-    // Horas y DÍAS TRABAJADOS por máquina (dedupe por máquina+día).
+    // Horas trabajadas por máquina en el rango (dedupe por máquina+día).
     const byMD = new Map<string, any>();
     (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
     const mHours = new Map<string, number>();
-    const mDias = new Map<string, number>();
     byMD.forEach((r) => {
       const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
-      if (w > 0) {
-        mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
-        mDias.set(r.machinery_id, (mDias.get(r.machinery_id) ?? 0) + 1);
-      }
+      if (w > 0) mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
     });
-    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA, machineInspectors.ts): sus máquinas nunca
-    // cuentan como avería/parada — mismo criterio que Catálogo/Inspecciones/Control.
-    const { rows: assigns } = await listInspectorAssignments();
-    const siempreActivoSet = new Set(assigns.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id));
-    // Jornada de HOY por máquina (abierta ahora / ya trabajó), para la reactivación de abajo.
-    const liveJornada = new Map<string, { hasOpen: boolean; openStart: number; worked: boolean }>();
-    const ensureLive = (id: string) => {
-      let e = liveJornada.get(id);
-      if (!e) { e = { hasOpen: false, openStart: 0, worked: false }; liveJornada.set(id, e); }
-      return e;
-    };
-    (todayRnds ?? []).forEach((r: any) => {
-      const e = ensureLive(r.machinery_id);
-      if (Number(r.day_hours) > 0 || Number(r.night_hours) > 0) e.worked = true;
-      if (r.jornada_start_at) { e.hasOpen = true; e.openStart = Math.max(e.openStart, new Date(r.jornada_start_at).getTime()); }
-    });
-    (nightRnds ?? []).forEach((r: any) => {
-      const e = ensureLive(r.machinery_id);
-      if (Number(r.night_hours) > 0) e.worked = true;
-      if (r.jornada_start_at) { e.hasOpen = true; e.openStart = Math.max(e.openStart, new Date(r.jornada_start_at).getTime()); }
-    });
-    // Estado ACTUAL por máquina: avería real gana sobre el marcador "MÁQUINA PARADA".
-    // REACTIVACIÓN (mismo criterio que segmentoDe/liveStatusOf): una marca de HOY gana
-    // siempre, salvo que la jornada haya (re)arrancado después de ella; una marca
-    // ARRASTRADA (de días anteriores) solo cuenta si la máquina sigue totalmente
-    // pendiente hoy (ni jornada abierta ni horas ya trabajadas). Antes esta función no
-    // aplicaba ninguna de estas dos reglas: cualquier solicitud pendiente aparecía como
-    // avería/parada aunque la máquina ya estuviera trabajando o hubiese cerrado jornada.
-    const avAgg = new Map<string, { hoy: boolean; max: number }>();
-    const paAgg = new Map<string, { hoy: boolean; max: number }>();
-    (pend ?? []).forEach((r: any) => {
-      if (siempreActivoSet.has(r.machinery_id)) return;
-      const isParada = r.material === 'MÁQUINA PARADA';
-      const agg = isParada ? paAgg : avAgg;
-      const createdMs = r.created_at ? new Date(r.created_at).getTime() : 0;
-      let e = agg.get(r.machinery_id);
-      if (!e) { e = { hoy: false, max: 0 }; agg.set(r.machinery_id, e); }
-      if (createdMs >= todayStartMs) e.hoy = true;
-      e.max = Math.max(e.max, createdMs);
-    });
-    const estadoMap = new Map<string, FleetEstado>();
-    const pendIds = new Set<string>([...avAgg.keys(), ...paAgg.keys()]);
-    pendIds.forEach((id) => {
-      const live = liveJornada.get(id);
-      const hasOpen = live?.hasOpen ?? false;
-      const worked = live?.worked ?? false;
-      const openStart = live?.openStart ?? 0;
-      const av = avAgg.get(id);
-      const pa = paAgg.get(id);
-      const avOff = !!av && hasOpen && openStart >= av.max;
-      const paOff = !!pa && hasOpen && openStart >= pa.max;
-      const avVigente = !!av && !avOff && (av.hoy || (!hasOpen && !worked));
-      const paVigente = !!pa && !paOff && (pa.hoy || (!hasOpen && !worked));
-      if (avVigente) estadoMap.set(id, 'averia');
-      else if (paVigente) estadoMap.set(id, 'parada');
-    });
-    // Conteo de eventos (paradas/averías) marcados DENTRO del rango, por máquina.
-    const averiasEnRango = new Map<string, number>();
-    const paradasEnRango = new Map<string, number>();
-    (evRange ?? []).forEach((r: any) => {
-      const m = r.material === 'MÁQUINA PARADA' ? paradasEnRango : averiasEnRango;
-      m.set(r.machinery_id, (m.get(r.machinery_id) ?? 0) + 1);
-    });
-    const items: FleetItem[] = [];
-    (mach ?? []).forEach((m: any) => {
-      items.push({
-        id: m.id,
-        name: m.code,
-        plate: m.plate,
-        kind: m.machinery_type || 'maquinaria',
-        marcaModelo: (m.tipo && String(m.tipo).trim()) || '—',
-        // El reporte de maquinaria agrupa/filtra por CLASIFICACIÓN (no por modelo).
-        tipo: canonTipo(m.clasificacion) || 'Sin clasificación',
-        company: m.company?.name || 'Sin empresa',
-        worked: mHours.get(m.id) ?? 0,
-        diasTrabajados: mDias.get(m.id) ?? 0,
-        estado: estadoMap.get(m.id) ?? 'activo',
-        averias: averiasEnRango.get(m.id) ?? 0,
-        paradas: paradasEnRango.get(m.id) ?? 0,
-      });
-    });
-    (vehs ?? []).forEach((v: any) =>
-      items.push({
-        id: v.id,
-        name: v.plate,
-        plate: v.plate,
-        kind: 'vehiculo',
-        marcaModelo: [v.brand, v.model].filter(Boolean).join(' ') || '—',
-        tipo: 'Vehículo',
-        company: 'Vehículos',
-        worked: 0,
-        diasTrabajados: 0,
-        estado: 'activo',
-        averias: 0,
-        paradas: 0,
-      })
-    );
+    const items: FleetItem[] = (mach ?? []).map((m: any) => ({
+      id: m.id,
+      name: m.code,
+      marca: (m.marca && String(m.marca).trim()) || '—',
+      modelo: (m.modelo && String(m.modelo).trim()) || '—',
+      plate: m.plate,
+      serial: m.serial,
+      // El reporte de maquinaria agrupa/filtra por CLASIFICACIÓN.
+      tipo: canonTipo(m.clasificacion) || 'Sin clasificación',
+      company: m.company?.name || 'Sin empresa',
+      worked: mHours.get(m.id) ?? 0,
+    }));
     const filtered = items.filter(
-      (it) => (repCompanies.length === 0 || repCompanies.includes(it.company)) && (fleetTypes.length === 0 || fleetTypes.includes(it.tipo))
+      (it) =>
+        it.worked > 0 && // solo las que trabajaron en el rango
+        (repCompanies.length === 0 || repCompanies.includes(it.company)) &&
+        (fleetTypes.length === 0 || fleetTypes.includes(it.tipo))
     );
     setFleetItems(filtered);
     setLoading(false);
@@ -2073,56 +1928,32 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('TRANSPORTE DE ESCOMBROS · TURNOS DÍA/NOCHE', subLabel, body), fileLabel);
   };
 
-  // PDF único de Maquinaria/Vehículo: SOLO 3 bloques, 100% operativo/numérico
-  // (sin $ — los montos viven exclusivamente en el reporte de Jornada). Depurado
-  // 08-ago-2026 a pedido del cliente.
+  // PDF de MAQUINARIA: listado de identidad/catálogo de las máquinas que trabajaron
+  // en el rango — Máquina, Marca, Modelo, Placa, Serial, Clasificación. Depurado
+  // 17-ago-2026 a pedido del cliente (antes mezclaba vehículos + horas/averías/paradas).
   const downloadFleetPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const alcance = repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : repCompanies.length > 1 ? `Empresas: ${repCompanies.join(', ')}` : 'General · todas las empresas';
-    const t = fleetTotales;
 
-    const totalesGeneralesBlock = `
-      <h2>Totales generales</h2>
-      <table><thead><tr><th style="text-align:left">Indicador</th><th style="text-align:right">Cantidad</th></tr></thead>
-      <tbody>
-        <tr><td>Equipos</td><td style="text-align:right;font-weight:700">${t.equipos}</td></tr>
-        <tr><td>Trabajando en el rango</td><td style="text-align:right;font-weight:700">${t.iniciados}</td></tr>
-        <tr><td>Parados (estado actual)</td><td style="text-align:right;font-weight:700">${t.parados}</td></tr>
-        <tr><td>Averiados (estado actual)</td><td style="text-align:right;font-weight:700">${t.averiados}</td></tr>
-        <tr><td>Horas acumuladas</td><td style="text-align:right;font-weight:700">${t.horas.toFixed(1)} h</td></tr>
-      </tbody></table>`;
-
-    const empresaRows = fleetTotalesPorEmpresa
-      .map((c) => `<tr><td>${esc(c.company)}</td><td style="text-align:right">${c.equipos}</td><td style="text-align:right">${c.iniciados}</td><td style="text-align:right">${c.parados}</td><td style="text-align:right">${c.averiados}</td><td style="text-align:right;font-weight:700">${c.horas.toFixed(1)} h</td></tr>`)
-      .join('');
-    const totalesPorEmpresaBlock = `
-      <h2 style="margin-top:16px">Totales por empresa</h2>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Trabajando</th><th style="text-align:right">Parados</th><th style="text-align:right">Averiados</th><th style="text-align:right">Horas</th></tr></thead>
-      <tbody>${empresaRows || '<tr><td colspan="6" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${t.equipos}</td><td style="text-align:right">${t.iniciados}</td><td style="text-align:right">${t.parados}</td><td style="text-align:right">${t.averiados}</td><td style="text-align:right;font-weight:700">${t.horas.toFixed(1)} h</td></tr></tfoot></table>`;
-
-    const ESTADO_LABEL: Record<FleetEstado, string> = { averia: '🔴 Averiada', parada: '🟡 Parada', activo: '🟢 Activo' };
-    const trazaRows = fleetItems
+    const rows = fleetItems
       .slice()
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
-      .map((it) => `<tr><td>${esc(it.name)}</td><td>${esc(it.marcaModelo)}</td><td>${esc(it.company)}</td><td style="text-align:right">${it.diasTrabajados}</td><td style="text-align:right">${it.worked.toFixed(1)} h</td><td style="text-align:right">${it.averias}</td><td style="text-align:right">${it.paradas}</td><td>${ESTADO_LABEL[it.estado]}</td></tr>`)
+      .map(
+        (it) =>
+          `<tr><td>${esc(it.name)}</td><td>${esc(it.marca)}</td><td>${esc(it.modelo)}</td><td>${esc(it.plate || '—')}</td><td>${esc(it.serial || '—')}</td><td>${esc(it.tipo)}</td><td>${esc(it.company)}</td></tr>`
+      )
       .join('');
-    const trazabilidadBlock = `
-      <h2 style="margin-top:16px">Trazabilidad de maquinaria</h2>
-      <p class="muted">Días/horas trabajadas y # de averías/paradas MARCADAS dentro del rango; el estado es el ACTUAL (ahora mismo).</p>
-      <table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Empresa</th><th style="text-align:right">Días trab.</th><th style="text-align:right">Horas</th><th style="text-align:right">Averías</th><th style="text-align:right">Paradas</th><th style="text-align:left">Estado actual</th></tr></thead>
-      <tbody>${trazaRows || '<tr><td colspan="8" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
+    const tabla = `
+      <table><thead><tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca</th><th style="text-align:left">Modelo</th><th style="text-align:left">Placa</th><th style="text-align:left">Serial</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Empresa</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center">Sin maquinaria en el rango</td></tr>'}</tbody></table>`;
 
     const body = `
-      <div class="muted">${esc(alcance)} · Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
+      <div class="muted">${esc(alcance)} · Maquinaria que trabajó del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary">
-        <div><span class="k">Equipos</span><b>${t.equipos}</b></div>
-        <div><span class="k">Empresas</span><b>${fleetTotalesPorEmpresa.length}</b></div>
+        <div><span class="k">Máquinas</span><b>${fleetItems.length}</b></div>
       </div>
-      ${totalesGeneralesBlock}
-      ${totalesPorEmpresaBlock}
-      ${trazabilidadBlock}`;
-    await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', alcance, body), 'Reportes - Maquinaria-Vehículo');
+      ${tabla}`;
+    await exportPdf(pdfShell('REPORTE DE MAQUINARIA', alcance, body), 'Reportes - Maquinaria');
   };
 
   // PDF del conteo por tipo TILDADO: total (solo número) + cantidad por tipo y por empresa.
@@ -2285,7 +2116,7 @@ export default function ReportsScreen({ route }: any) {
         {([
           { v: 'fuel', label: '⛽ Combustible' },
           { v: 'rounds', label: '🛠️ Jornada' },
-          { v: 'fleet', label: '🚚 Maquinaria/Vehículo' },
+          { v: 'fleet', label: '🚜 Maquinaria' },
           { v: 'deploy', label: '🚜 Despliegue' },
           { v: 'conteo', label: '📊 Conteo equipos' },
           { v: 'camiones', label: '🚛 Camiones E/S' },
@@ -3404,8 +3235,8 @@ export default function ReportsScreen({ route }: any) {
           >
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>← Volver</Text>
           </TouchableOpacity>
-          <SectionTitle>Maquinaria/Vehículo</SectionTitle>
-          <ReportHeader title="REPORTE DE MAQUINARIA/VEHÍCULOS" colors={colors} />
+          <SectionTitle>Maquinaria</SectionTitle>
+          <ReportHeader title="REPORTE DE MAQUINARIA" colors={colors} />
           <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
 
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginTop: spacing.sm }]} onPress={downloadFleetPdf}>
@@ -3413,68 +3244,34 @@ export default function ReportsScreen({ route }: any) {
           </TouchableOpacity>
 
           {fleetItems.length === 0 ? (
-            <Card><Text style={{ color: colors.muted }}>Sin equipos registrados.</Text></Card>
+            <Card><Text style={{ color: colors.muted }}>Ninguna máquina trabajó en el rango de fechas.</Text></Card>
           ) : (
-            <>
-              {/* Bloque 1: Totales generales */}
-              <Card>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📊 Totales generales</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg }}>
-                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetTotales.equipos}</Text></View>
-                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Trabajando</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.success }}>{fleetTotales.iniciados}</Text></View>
-                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Parados</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.warning }}>{fleetTotales.parados}</Text></View>
-                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Averiados</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.danger }}>{fleetTotales.averiados}</Text></View>
-                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Horas acumuladas</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetTotales.horas.toFixed(1)} h</Text></View>
-                </View>
-              </Card>
-
-              {/* Bloque 2: Totales por empresa */}
-              <Card>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 Totales por empresa</Text>
-                {fleetTotalesPorEmpresa.map((c) => (
-                  <View key={c.company} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{c.company}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>
-                      {c.equipos} equipo(s) · 🟢 {c.iniciados} trabajando · 🟡 {c.parados} parados · 🔴 {c.averiados} averiados · {c.horas.toFixed(1)} h
-                    </Text>
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🚜 Maquinaria ({fleetItems.length})</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Máquinas que trabajaron en el rango, con sus datos de catálogo.</Text>
+              {fleetItems
+                .slice()
+                .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
+                .map((it) => (
+                  <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.name}</Text>
+                      {(it.marca !== '—' || it.modelo !== '—') ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {[it.marca, it.modelo].filter((x) => x && x !== '—').join(' ')}</Text>
+                      ) : null}
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        🚗 {it.plate || '—'} · 🔢 {it.serial || '—'}
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        🗂️ {it.tipo} · {it.company}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => { setFleetPreview(false); navigation?.navigate?.('MachineTraceability', { machineId: it.id }); }} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver detalle</Text>
+                    </TouchableOpacity>
                   </View>
                 ))}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
-                  <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800' }}>{fleetTotales.equipos} equipos · {fleetTotales.horas.toFixed(1)} h</Text>
-                </View>
-              </Card>
-
-              {/* Bloque 3: Trazabilidad de maquinaria */}
-              <Card>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🧭 Trazabilidad de maquinaria</Text>
-                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Días/horas trabajadas y # de averías/paradas del rango. El estado es el ACTUAL (ahora mismo).</Text>
-                {fleetItems
-                  .slice()
-                  .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
-                  .map((it) => (
-                    <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
-                          {it.name} {it.estado === 'averia' ? '🔴' : it.estado === 'parada' ? '🟡' : '🟢'}
-                        </Text>
-                        {it.marcaModelo && it.marcaModelo !== '—' ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {it.marcaModelo}</Text> : null}
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>
-                          {it.company} · {it.diasTrabajados} día(s) trab. · {it.worked.toFixed(1)} h · {it.averias} avería(s) · {it.paradas} parada(s)
-                        </Text>
-                      </View>
-                      {/* La trazabilidad (jornadas/averías por rango) solo existe para MAQUINARIA —
-                          los vehículos de este mismo reporte (kind='vehiculo') no tienen esa pantalla,
-                          así que se oculta el botón ahí en vez de abrir una pantalla vacía. */}
-                      {it.kind !== 'vehiculo' ? (
-                        <TouchableOpacity onPress={() => { setFleetPreview(false); navigation?.navigate?.('MachineTraceability', { machineId: it.id }); }} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver detalle</Text>
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
-                  ))}
-              </Card>
-            </>
+            </Card>
           )}
 
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt, marginTop: spacing.md }]} onPress={() => setFleetPreview(false)}>
