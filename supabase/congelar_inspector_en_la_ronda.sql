@@ -46,13 +46,15 @@ set time zone 'America/Caracas';
 -- Por día: cuántas rondas hay, para cuántas existe un check-in que diga quién
 -- estuvo de verdad, y cuántas van a tener que caer a la asignación actual.
 with visitas as (
-  select
-    sv.machinery_id,
-    sv.visit_date,
-    case when extract(hour from (sv.visited_at at time zone 'America/Caracas')) between 7 and 18
-         then 'day' else 'night' end as turno
+  -- UNA fila por (máquina, día). NO se agrupa por turno a propósito: si se
+  -- agrupara, una máquina revisada de día Y de noche daría DOS filas, el LEFT
+  -- JOIN de abajo contaría esa ronda dos veces y tanto `rondas` como el
+  -- porcentaje saldrían inflados. (Error detectado el 17-ago-2026 al ver que la
+  -- suma de 60 días daba 11.137 rondas y el respaldo COMPLETO de la tabla solo
+  -- 9.735 — imposible.) El bloque 5, que sí escribe, nunca tuvo este problema:
+  -- colapsa con `group by r.id` antes de actualizar.
+  select distinct sv.machinery_id, sv.visit_date
   from public.supervisor_visits sv
-  group by 1, 2, 3
 )
 select
   r.round_date,
