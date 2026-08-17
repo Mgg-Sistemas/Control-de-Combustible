@@ -5,7 +5,7 @@
 // semana. Los cargos salen EN VIVO del personal activo (employees.status='activo').
 // Datos en la tabla `dias_libres_cargo` (ver supabase/dias_libres_cargo.sql).
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, Pressable, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, Pressable, ScrollView, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -43,7 +43,7 @@ const dowOf = (iso: string) => DOW[new Date(iso + 'T00:00:00Z').getUTCDay()];
 const ddOf = (iso: string) => iso.slice(-2);
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}` : iso; };
 
-type Cargo = { name: string; count: number };
+type Cargo = { name: string; count: number; departments: string[] };
 type Shift = { id: string; cargo: string; from_date: string; to_date: string; grupo: string | null };
 
 export default function DiasLibresCargoScreen() {
@@ -55,7 +55,10 @@ export default function DiasLibresCargoScreen() {
   const today = caracasTodayISO();
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(addDaysISO(today, 27)); // 4 semanas por defecto
-  const [cargos, setCargos] = useState<Cargo[]>([]);
+  const [cargosAll, setCargosAll] = useState<Cargo[]>([]);
+  const [deptList, setDeptList] = useState<string[]>([]);
+  const [deptFiltro, setDeptFiltro] = useState<string>(''); // '' = todos los departamentos
+  const [cargoQuery, setCargoQuery] = useState('');
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -67,6 +70,19 @@ export default function DiasLibresCargoScreen() {
   const [dFrom, setDFrom] = useState(today);
   const [dTo, setDTo] = useState(addDaysISO(today, 6));
 
+  // Cargos MOSTRADOS = todos filtrados por departamento y por búsqueda de cargo. Todo lo
+  // de abajo (calendario, lista, PDF, rotación) trabaja sobre esta lista filtrada — así la
+  // semana libre se puede armar por departamento o por cargo, no todo junto.
+  const cargos = useMemo(
+    () =>
+      cargosAll.filter(
+        (c) =>
+          (!deptFiltro || c.departments.includes(deptFiltro)) &&
+          (!cargoQuery.trim() || norm(c.name).includes(norm(cargoQuery)))
+      ),
+    [cargosAll, deptFiltro, cargoQuery]
+  );
+
   // Una SEMANA por cargo (rotación): tantas semanas como cargos haya.
   const nSemanas = Math.max(1, cargos.length);
   const GRUPOS = useMemo(() => Array.from({ length: nSemanas }, (_, i) => String.fromCharCode(65 + i)), [nSemanas]);
@@ -74,19 +90,30 @@ export default function DiasLibresCargoScreen() {
   const load = async () => {
     setLoading(true);
     const [emp, sh] = await Promise.all([
-      supabase.from('employees').select('cargo, status'),
+      supabase.from('employees').select('cargo, department, status'),
       supabase.from('dias_libres_cargo').select('id, cargo, from_date, to_date, grupo'),
     ]);
-    // Cargos EN VIVO del personal ACTIVO (con su conteo de personas).
+    // Cargos EN VIVO del personal ACTIVO (con su conteo de personas y su(s) departamento(s)).
     const counts = new Map<string, number>();
+    const depts = new Map<string, Set<string>>();
+    const deptSet = new Set<string>();
     ((emp.data ?? []) as any[]).forEach((e) => {
       if ((e.status || '').toLowerCase() !== 'activo') return;
       const c = String(e.cargo ?? '').trim();
       if (!c) return;
       counts.set(c, (counts.get(c) ?? 0) + 1);
+      const d = String(e.department ?? '').trim();
+      if (d) {
+        if (!depts.has(c)) depts.set(c, new Set());
+        depts.get(c)!.add(d);
+        deptSet.add(d);
+      }
     });
-    const list: Cargo[] = [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
-    setCargos(list);
+    const list: Cargo[] = [...counts.entries()]
+      .map(([name, count]) => ({ name, count, departments: [...(depts.get(name) ?? [])] }))
+      .sort((a, b) => cmpText(a.name, b.name));
+    setCargosAll(list);
+    setDeptList([...deptSet].sort((a, b) => cmpText(a, b)));
     setShifts((sh.data ?? []) as Shift[]);
     setLoading(false);
   };
@@ -182,10 +209,11 @@ export default function DiasLibresCargoScreen() {
       // Se reusa el reporte de guardias mapeando cada CARGO como una "fila" (name=cargo).
       const inspectors: GuardInspector[] = cargos.map((c) => ({ name: c.name, grupo: grupoDe(c.name), cargo: `${c.count} persona(s)`, cedula: null, telefono: null, sector: null }));
       const shiftsIn: GuardShift[] = shifts.map((s) => ({ inspector_name: s.cargo, from_date: s.from_date, to_date: s.to_date, kind: 'descanso' }));
+      const alcance = deptFiltro ? `Departamento: ${deptFiltro}` : cargoQuery.trim() ? `Cargo: ${cargoQuery.trim()}` : 'Todos los cargos';
       await generateGuardiasReport({
         from, to, rotation: 'Semana libre por cargo', inspectors, shifts: shiftsIn,
         title: 'DISTRIBUCIÓN DE DÍAS LIBRES POR CARGO',
-        subtitle: `Por tipo de cargo · semana libre rotativa · Ciclo ${dmy(from)} — ${dmy(to)}`,
+        subtitle: `${alcance} · semana libre rotativa · Ciclo ${dmy(from)} — ${dmy(to)}`,
       });
     } finally { setBusy(false); }
   };
@@ -210,6 +238,46 @@ export default function DiasLibresCargoScreen() {
             <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12.5 }}>📄 Generar PDF</Text>
           </TouchableOpacity>
         </View>
+      </Card>
+
+      {/* FILTRO por departamento o por cargo (no todo junto) */}
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🔎 Filtrar</Text>
+        {deptList.length > 0 ? (
+          <>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Por departamento</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {['', ...deptList].map((d) => {
+                  const on = deptFiltro === d;
+                  return (
+                    <TouchableOpacity key={d || '__all'} onPress={() => setDeptFiltro(d)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.brand : colors.border }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{d || 'Todos'}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </>
+        ) : null}
+        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Por cargo</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          <TextInput
+            value={cargoQuery}
+            onChangeText={setCargoQuery}
+            placeholder="Buscar cargo…"
+            placeholderTextColor={colors.muted}
+            style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text }}
+          />
+          {(cargoQuery || deptFiltro) ? (
+            <TouchableOpacity onPress={() => { setCargoQuery(''); setDeptFiltro(''); }} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>Limpiar ✕</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 6 }}>
+          Mostrando {cargos.length} de {cargosAll.length} cargo(s){deptFiltro ? ` · Depto: ${deptFiltro}` : ''}. La semana libre y el PDF se generan solo sobre lo filtrado.
+        </Text>
       </Card>
 
       {notice ? <Text style={{ color: notice.startsWith('✅') ? colors.success : colors.danger, fontWeight: '700', marginBottom: spacing.sm }}>{notice}</Text> : null}

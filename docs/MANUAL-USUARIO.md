@@ -571,6 +571,10 @@ Distribución de días libres**.
 
 - Los **cargos** salen solos del **personal activo** de la nómina (cada cargo distinto que tenga
   gente activa), con su **cantidad de personas**.
+- **🔎 Filtrar por departamento o por cargo:** toca un **departamento** para ver solo sus cargos, o
+  escribe en **"Buscar cargo…"** para acotar por nombre — así trabajas un departamento a la vez y no
+  todos los cargos juntos. La **semana libre y el PDF se generan solo sobre lo filtrado** (ideal para
+  armar la rotación de un departamento por separado). **Limpiar ✕** quita el filtro.
 - Elige el **Ciclo** (Desde / Hasta) arriba.
 - **⚙️ Semana libre por cargo:** asigna a cada cargo la semana en que descansa (Sem 1, Sem 2…).
   Usa **✨ Sugerir automático** para repartir cada cargo en una semana distinta y ajusta a mano.
