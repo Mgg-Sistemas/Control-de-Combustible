@@ -479,6 +479,19 @@ export default function ReportsScreen({ route }: any) {
   const [tacConPersonal, setTacConPersonal] = useState(false);
   // Filtro por ZONA del conteo: '__all__' (todas), un nombre de zona, o 'Sin zona'.
   const [conteoZona, setConteoZona] = useState<string>('__all__');
+  // Filtro por EMPRESA del conteo (multi-selección; vacío = TODAS). Pedido del cliente
+  // 17-ago-2026: "en reportes, conteo de equipos, no puedo seleccionar por empresa".
+  // El conteo del Catálogo sí lo tenía, este no — solo filtraba por zona.
+  const [conteoEmpresas, setConteoEmpresas] = useState<Set<string>>(new Set());
+  const toggleConteoEmpresa = (name: string) =>
+    setConteoEmpresas((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  /** ¿Esta empresa entra en el conteo? Sin selección = todas. */
+  const empresaEnConteo = useCallback(
+    (company: string) => conteoEmpresas.size === 0 || conteoEmpresas.has(company),
+    [conteoEmpresas],
+  );
+  // Al reabrir el conteo se limpia la selección de empresas (igual que el buscador por tipo).
+  useEffect(() => { if (conteoPreview) setConteoEmpresas(new Set()); }, [conteoPreview]);
   // Conteo de equipos: ON = el PDF agrega el desglose por inspector y el detalle
   // equipo→inspector (☀️ día / 🌙 noche). OFF = el reporte de siempre, solo totales.
   const [conteoConInspector, setConteoConInspector] = useState(false);
@@ -1435,7 +1448,12 @@ export default function ReportsScreen({ route }: any) {
     if (!conteo) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // Respeta la ZONA elegida en el filtro: recalcula las tablas con esas máquinas.
-    const rowsZona = conteoZona === '__all__' ? conteo.activeRows : conteo.activeRows.filter((r) => r.zona === conteoZona);
+    // Filtro por ZONA y por EMPRESA. `rowsZona` es el embudo del que salen TODAS las
+    // tablas del conteo (byClas, byTipo, totales, desglose por inspector), así que
+    // filtrar acá deja todo consistente de una sola vez. Sin empresas marcadas = todas.
+    const rowsZona = conteo.activeRows
+      .filter((r) => conteoZona === '__all__' || r.zona === conteoZona)
+      .filter((r) => empresaEnConteo(r.company));
     const aggregate = (key: 'clas' | 'tipo') => {
       const m = new Map<string, number>();
       rowsZona.forEach((r) => m.set(r[key], (m.get(r[key]) ?? 0) + 1));
@@ -2771,6 +2789,46 @@ export default function ReportsScreen({ route }: any) {
                 )}
               </Card>
 
+              {/* Filtro por EMPRESA (multi-selección). Cliente 17-ago-2026: el conteo de
+                  Reportes solo filtraba por zona; ahora se pueden marcar las empresas que
+                  se quieran. La lista sale de las MÁQUINAS DEL PROPIO CONTEO (no de la
+                  tabla `companies`), así no salen empresas con 0 equipos y sí sale
+                  "Sin empresa" si la hay. Ninguna marcada = todas. */}
+              {(() => {
+                const cnt = new Map<string, number>();
+                conteo.activeRows.forEach((r) => cnt.set(r.company, (cnt.get(r.company) ?? 0) + 1));
+                const empresas = [...cnt.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+                if (empresas.length <= 1) return null; // una sola empresa: el filtro no aporta
+                return (
+                  <Card>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, flex: 1 }}>🏢 Filtrar por empresa</Text>
+                      {conteoEmpresas.size > 0 ? (
+                        <TouchableOpacity onPress={() => setConteoEmpresas(new Set())}>
+                          <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar ({conteoEmpresas.size})</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {empresas.map((e) => {
+                        const on = conteoEmpresas.has(e.name);
+                        return (
+                          <TouchableOpacity key={e.name} onPress={() => toggleConteoEmpresa(e.name)}
+                            style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{e.name} · {e.count}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                      {conteoEmpresas.size === 0
+                        ? 'Ninguna marcada = TODAS las empresas. Toca las que quieras para dejar solo esas.'
+                        : `Mostrando ${conteoEmpresas.size} empresa(s). Las tablas de abajo y el PDF salen solo con esas.`}
+                    </Text>
+                  </Card>
+                );
+              })()}
+
               {/* Filtro por ZONA GEOGRÁFICA (sector del mapa, según GPS). Cada chip muestra
                   cuántas máquinas hay ubicadas en esa zona; "Sin zona" = sin ubicación GPS.
                   Al elegir una, las tablas de abajo se recalculan solo con esa zona. */}
@@ -2875,7 +2933,12 @@ export default function ReportsScreen({ route }: any) {
 
               {/* Tablas del conteo (recalculadas según la zona elegida). */}
               {(() => {
-                const rowsZona = conteoZona === '__all__' ? conteo.activeRows : conteo.activeRows.filter((r) => r.zona === conteoZona);
+                // Filtro por ZONA y por EMPRESA. `rowsZona` es el embudo del que salen TODAS las
+    // tablas del conteo (byClas, byTipo, totales, desglose por inspector), así que
+    // filtrar acá deja todo consistente de una sola vez. Sin empresas marcadas = todas.
+    const rowsZona = conteo.activeRows
+      .filter((r) => conteoZona === '__all__' || r.zona === conteoZona)
+      .filter((r) => empresaEnConteo(r.company));
                 const aggregate = (key: 'clas' | 'tipo'): ConteoRow[] => {
                   const m = new Map<string, ConteoRow>();
                   rowsZona.forEach((r) => { const k = r[key]; const a = m.get(k) ?? { name: k, count: 0, conHoras: 0, sinHoras: 0 }; a.count += 1; if (r.tieneHoras) a.conHoras += 1; else a.sinHoras += 1; m.set(k, a); });
