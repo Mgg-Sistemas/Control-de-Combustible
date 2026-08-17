@@ -31,6 +31,7 @@ import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
 import ObrasPublicasScreen from '../screens/ObrasPublicasScreen';
 import ObrasPublicasDashboardScreen from '../screens/ObrasPublicasDashboardScreen';
+import ObrasPublicasAsignacionScreen from '../screens/ObrasPublicasAsignacionScreen';
 import LavadoMaquinariaScreen from '../screens/LavadoMaquinariaScreen';
 import LavadoMaquinariaDashboardScreen from '../screens/LavadoMaquinariaDashboardScreen';
 import FuelDriverScreen from '../screens/FuelDriverScreen';
@@ -233,6 +234,9 @@ function MoreStack() {
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
       <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
       <Stack.Screen name="ObrasPublicasDashboard" component={ObrasPublicasDashboardScreen} options={{ title: 'Obras Públicas' }} />
+      {/* Panel de ADMINISTRACIÓN de Obras Públicas (asignar máquinas a supervisores).
+          Vive FUERA del módulo de Obras Públicas, con su propio permiso `op_asignacion`. */}
+      <Stack.Screen name="ObrasPublicasAsignacion" component={ObrasPublicasAsignacionScreen} options={{ title: 'Obras Públicas · asignar máquinas' }} />
       <Stack.Screen name="LavadoMaquinariaDashboard" component={LavadoMaquinariaDashboardScreen} options={{ title: 'Lavado de maquinaria' }} />
       <Stack.Screen name="Ubicaciones" component={UbicacionesScreen} options={{ title: 'Ubicaciones' }} />
       <Stack.Screen name="Geodesta" component={GeodestaScreen} options={{ title: 'Geodesta' }} />
@@ -769,6 +773,7 @@ const moreScreens = {
   Supervision: 'inspecciones',
   HistoricoJornadas: 'historico',
   ObrasPublicasDashboard: 'obras-publicas-panel',
+  ObrasPublicasAsignacion: 'obras-publicas-asignacion',
   LavadoMaquinariaDashboard: 'lavado-maquinaria-panel',
   Ubicaciones: 'ubicaciones',
   Geodesta: 'geodesta',
