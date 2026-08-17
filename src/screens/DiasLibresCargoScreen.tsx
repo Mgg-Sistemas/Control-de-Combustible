@@ -64,8 +64,6 @@ export default function DiasLibresCargoScreen() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [semanaOpen, setSemanaOpen] = useState(false);       // armar semana libre por cargo
-  const [semanaSel, setSemanaSel] = useState<Record<string, string>>({}); // cargo → letra de semana
   const [descansoFor, setDescansoFor] = useState<string | null>(null);    // agregar descanso manual a un cargo
   const [dFrom, setDFrom] = useState(today);
   const [dTo, setDTo] = useState(addDaysISO(today, 6));
@@ -140,44 +138,55 @@ export default function DiasLibresCargoScreen() {
     return list[0]?.grupo ?? null;
   };
 
-  // Sugerencia AUTOMÁTICA: cada cargo a una semana distinta, en orden (A, B, C…).
-  const computeAutoSemanas = (): Record<string, string> => {
-    const out: Record<string, string> = {};
-    cargos.forEach((c, i) => { out[c.name] = GRUPOS[i % GRUPOS.length]; });
-    return out;
+  // Semanas del ciclo (con FECHAS REALES) desde `from`. Tantas semanas como cargos haya,
+  // así cada cargo puede tener una semana propia SIN CHOCAR con otro.
+  const semanas = useMemo(
+    () => Array.from({ length: nSemanas }, (_, i) => ({
+      idx: i,
+      letra: GRUPOS[i],
+      from: addDaysISO(from, i * 7),
+      to: addDaysISO(from, i * 7 + 6),
+    })),
+    [nSemanas, GRUPOS, from]
+  );
+  // Índice de semana (0-based) que descansa un cargo, o -1 si no tiene.
+  const semanaIdxDe = (cargo: string): number => {
+    const g = grupoDe(cargo);
+    return g ? g.charCodeAt(0) - 65 : -1;
   };
+  // Ocupación por semana (letra → cargos que descansan esa semana), para AVISAR choques.
+  const ocupacion = useMemo(() => {
+    const m = new Map<string, string[]>();
+    cargos.forEach((c) => { const g = grupoDe(c.name); if (g) { const l = m.get(g) ?? []; l.push(c.name); m.set(g, l); } });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cargos, shiftsByCargo]);
 
-  const abrirSemana = () => {
-    if (cargos.length === 0) { setNotice('❌ No hay cargos con personal activo en la nómina.'); return; }
-    const init: Record<string, string> = {};
-    let alguno = false;
-    cargos.forEach((c) => { const g = grupoDe(c.name); if (g && GRUPOS.includes(g)) { init[c.name] = g; alguno = true; } });
-    setSemanaSel(alguno ? init : computeAutoSemanas());
-    setNotice(null);
-    setSemanaOpen(true);
-  };
-
-  // GENERA la rotación de semana libre: cada cargo descansa la semana que se le
-  // asignó (A = semana 1, B = semana 2…) desde el inicio del ciclo. Reemplaza lo previo.
-  const generarSemanas = async () => {
-    const faltan = cargos.filter((c) => !semanaSel[c.name]);
-    if (faltan.length) { setNotice(`❌ Falta asignar semana a ${faltan.length} cargo(s).`); return; }
+  // Asigna (o cambia) la semana libre de UN cargo tocando su botón. Reemplaza su semana previa.
+  const asignarSemana = async (cargo: string, idx: number) => {
     setBusy(true); setNotice(null);
-    const semanaDe: Record<string, number> = {}; GRUPOS.forEach((l, i) => { semanaDe[l] = i; });
+    const from_date = addDaysISO(from, idx * 7);
+    const to_date = addDaysISO(from, idx * 7 + 6);
+    await supabase.from('dias_libres_cargo').delete().eq('cargo', cargo);
+    await supabase.from('dias_libres_cargo').insert({ cargo, from_date, to_date, grupo: GRUPOS[idx], created_by: uid });
+    if (to_date > to) setTo(to_date);
+    setBusy(false); load();
+  };
+
+  // REPARTIR AUTOMÁTICO: cada cargo a una semana distinta (round-robin), SIN CHOQUES.
+  const repartirAuto = async () => {
+    if (cargos.length === 0) { setNotice('❌ No hay cargos con personal activo en la nómina.'); return; }
+    setBusy(true); setNotice(null);
     const cycleStart = from;
-    const nuevos: any[] = [];
-    let maxWk = 0;
-    for (const c of cargos) {
-      const letra = semanaSel[c.name];
-      const wk = semanaDe[letra] ?? 0;
-      maxWk = Math.max(maxWk, wk);
-      nuevos.push({ cargo: c.name, from_date: addDaysISO(cycleStart, wk * 7), to_date: addDaysISO(cycleStart, wk * 7 + 6), grupo: letra, created_by: uid });
-    }
+    const nuevos = cargos.map((c, i) => {
+      const wk = i % nSemanas; // nSemanas = cargos.length → semana única por cargo
+      return { cargo: c.name, from_date: addDaysISO(cycleStart, wk * 7), to_date: addDaysISO(cycleStart, wk * 7 + 6), grupo: GRUPOS[wk], created_by: uid };
+    });
     await supabase.from('dias_libres_cargo').delete().in('cargo', cargos.map((c) => c.name));
     if (nuevos.length) await supabase.from('dias_libres_cargo').insert(nuevos);
-    setTo(addDaysISO(cycleStart, (maxWk + 1) * 7 - 1));
-    setBusy(false); setSemanaOpen(false); load();
-    setNotice('✅ Semana libre por cargo generada.');
+    setTo(addDaysISO(cycleStart, nSemanas * 7 - 1));
+    setBusy(false); load();
+    setNotice('✅ Semanas libres repartidas sin choques (una por cargo).');
   };
 
   const agregarDescanso = async () => {
@@ -231,8 +240,8 @@ export default function DiasLibresCargoScreen() {
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Hasta</Text>
         <DateField value={to} onChange={setTo} />
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-          <TouchableOpacity onPress={abrirSemana} disabled={busy} style={{ flex: 1, minWidth: 150, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>⚙️ Semana libre por cargo</Text>
+          <TouchableOpacity onPress={repartirAuto} disabled={busy} style={{ flex: 1, minWidth: 150, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>✨ Repartir automático</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={generarPDF} disabled={busy} style={{ flex: 1, minWidth: 130, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12.5 }}>📄 Generar PDF</Text>
@@ -345,63 +354,46 @@ export default function DiasLibresCargoScreen() {
               {desc.length ? <TouchableOpacity onPress={() => limpiarCargo(c.name)}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>Limpiar ✕</Text></TouchableOpacity> : null}
             </View>
             <View style={{ marginTop: spacing.xs }}>
-              {desc.length === 0 ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>Sin semana libre definida.</Text> : desc.map((s) => (
+              {desc.length === 0 ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>Sin semana libre. Toca una semana abajo 👇</Text> : desc.map((s) => (
                 <View key={s.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 }}>
                   <Text style={{ color: colors.text, fontSize: 12 }}>🛌 Libre: {dmy(s.from_date)} al {dmy(s.to_date)}</Text>
                   <TouchableOpacity onPress={() => quitarShift(s.id)}><Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>Borrar</Text></TouchableOpacity>
                 </View>
               ))}
-              <TouchableOpacity onPress={() => { setDescansoFor(c.name); setDFrom(from); setDTo(addDaysISO(from, 6)); }} style={{ marginTop: 4, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>➕ Agregar semana libre</Text>
+              {/* Botones de SEMANA (fechas reales) — toca la semana en que descansa este cargo.
+                  Si otra(s) fila(s) ya descansan esa semana, se avisa el choque (⚠). */}
+              <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 4, marginBottom: 3 }}>Descansa la semana:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {semanas.map((w) => {
+                    const on = semanaIdxDe(c.name) === w.idx;
+                    const otros = (ocupacion.get(w.letra) ?? []).filter((x) => x !== c.name).length;
+                    return (
+                      <TouchableOpacity
+                        key={w.idx}
+                        onPress={() => asignarSemana(c.name, w.idx)}
+                        disabled={busy}
+                        style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, alignItems: 'center', backgroundColor: on ? grupoColor(w.letra) : colors.surfaceAlt, borderWidth: 1.5, borderColor: on ? grupoColor(w.letra) : otros > 0 ? colors.warning : colors.border, opacity: busy ? 0.6 : 1 }}
+                      >
+                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 11 }}>{dmy(w.from)}–{dmy(w.to)}</Text>
+                        {otros > 0 && !on ? (
+                          <Text style={{ color: colors.warning, fontSize: 8.5, fontWeight: '800' }}>⚠ {otros} cargo(s)</Text>
+                        ) : (
+                          <Text style={{ color: on ? '#fff' : colors.muted, fontSize: 8.5 }}>Sem {w.idx + 1}</Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+              <TouchableOpacity onPress={() => { setDescansoFor(c.name); setDFrom(from); setDTo(addDaysISO(from, 6)); }} style={{ marginTop: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11.5 }}>➕ Semana libre en otra fecha</Text>
               </TouchableOpacity>
             </View>
           </Card>
         );
       })}
       <View style={{ height: spacing.xl }} />
-
-      {/* Modal: ARMAR SEMANA LIBRE por cargo */}
-      <Modal visible={semanaOpen} transparent animationType="slide" onRequestClose={() => setSemanaOpen(false)}>
-        <Pressable onPress={() => setSemanaOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '88%', padding: spacing.lg }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: 2 }}>⚙️ Semana libre por cargo</Text>
-            <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
-              Asigna a cada cargo la semana en que descansa (A = semana 1, B = semana 2…), desde {dmy(from)}. Toda la gente de ese cargo descansa esa semana. Al generar se reemplazan las semanas libres actuales.
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginBottom: spacing.sm }}>
-              <TouchableOpacity onPress={() => setSemanaSel(computeAutoSemanas())} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
-                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>✨ Sugerir automático</Text>
-              </TouchableOpacity>
-            </View>
-            {notice && semanaOpen ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12, marginBottom: spacing.xs }}>{notice}</Text> : null}
-            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 400 }}>
-              {cargos.map((c) => (
-                <View key={c.name} style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{c.name} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>· {c.count} persona(s)</Text></Text>
-                  <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap', marginTop: 5 }}>
-                    {GRUPOS.map((g, i) => {
-                      const on = semanaSel[c.name] === g;
-                      return (
-                        <TouchableOpacity key={g} onPress={() => setSemanaSel((prev) => ({ ...prev, [c.name]: g }))} style={{ minWidth: 44, paddingHorizontal: 6, height: 30, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? grupoColor(g) : colors.surfaceAlt, borderWidth: 1.5, borderColor: on ? grupoColor(g) : colors.border }}>
-                          <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '900', fontSize: 11 }}>Sem {i + 1}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
-              <TouchableOpacity onPress={() => setSemanaOpen(false)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={generarSemanas} disabled={busy} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: busy ? 0.6 : 1 }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '⚙️ Generar semana libre'}</Text>
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       {/* Modal: agregar semana libre manual a un cargo */}
       <Modal visible={!!descansoFor} transparent animationType="slide" onRequestClose={() => setDescansoFor(null)}>
