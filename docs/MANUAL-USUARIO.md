@@ -883,6 +883,19 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > - Elige el **turno** ☀️ Día / 🌙 Noche. Arranca en el suyo; se puede cambiar por si cubrió el otro.
 > - Descarga con **📄 Descargar reporte (PDF)**.
 >
+> **⏱️ Hoy sí cuenta en vivo; un día pasado, no (17/08/2026).** El reporte de **HOY** suma la
+> jornada que sigue abierta, así que el número va subiendo hasta que el inspector la cierre.
+> El de un **día anterior** muestra **solo lo que quedó guardado al cerrar**.
+> Antes no distinguía: si una jornada se quedaba sin cerrar, el reporte de ese día pasado
+> contaba "desde las 7am hasta ahora", se topaba en **12 h exactas por máquina** y daba ese
+> número inventado para siempre. Caso real del 16/08: el teléfono decía 137,38 h y el
+> Histórico 35,38 h — **102 h de diferencia** por unas 8-10 máquinas que nunca cerraron.
+>
+> ⚠️ **Ojo con lo que esto significa:** si una jornada se queda sin cerrar, su día saldrá con
+> **menos horas de las reales** (o en 0). Eso ya no es un error de cálculo, es un aviso de que
+> **esas jornadas hay que cerrarlas** — normalmente porque el cierre automático no corrió.
+> Ver [[crons-pg-cron-y-restore]].
+>
 > Si lo pide **a media jornada**, sale el aviso *"⚠️ Todavía tienes máquinas en curso: el reporte
 > sale con lo que hay hasta ahora"* — para que no lo confunda con el cierre definitivo. El día
 > que manda es el **día de negocio**: el turno de noche pertenece al día en que arrancó, así que
