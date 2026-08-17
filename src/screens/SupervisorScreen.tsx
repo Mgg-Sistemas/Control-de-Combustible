@@ -1852,7 +1852,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       ? new Date(roundDate + 'T19:00:00-04:00').getTime()
       : new Date(roundDate + 'T07:00:00-04:00').getTime();
     const topeFisico = Math.min(12, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
-    const totalTurno = Math.round(Math.min(topeFisico, base + horas) * 100) / 100;
+    // Las horas bancadas NUNCA pueden ser MENORES a lo realmente trabajado en ESTA
+    // sesión (inicio → ahora, tope 12h). El `min(topeFisico, …)` protege del doble
+    // conteo al re-abrir, PERO cuando `jornada_start_at` cae antes del inicio nominal
+    // del turno (p. ej. una jornada de día marcada de madrugada) y se cierra temprano,
+    // `topeFisico` daba 0 y bancaba 0 aunque el tramo tuviera 6-12h reales (bug ago-2026:
+    // decenas de máquinas de ayer con horas_ronda=0 y horas_tramo=9-12). El piso real
+    // lo evita sin romper el tope físico ni el anti-doble-conteo del re-abrir.
+    const pisoReal = Math.min(12, Math.max(0, horas));
+    const totalTurno = Math.round(Math.max(pisoReal, Math.min(topeFisico, base + horas)) * 100) / 100;
     const res = await upsertMachineRound(ci.id, roundDate, { [key]: totalTurno, ...(hfValid ? { horometro_final: hfNum } : {}), ...(horoFinPhoto ? { horometro_photo: horoFinPhoto } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
