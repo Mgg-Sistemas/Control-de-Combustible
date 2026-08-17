@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
-import { ListScreen } from '../components/ListScreen';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -176,31 +175,198 @@ function CategoryPicker({ value, onChange, colors }: { value: string; onChange: 
 }
 
 // ── Proveedores ──────────────────────────────────────────────────────────────
+// Lista con COLORES del tema (antes el texto salía negro/invisible en oscuro),
+// ETIQUETAS de rubro por proveedor (VÍVERES, REPUESTOS…) y FILTRO por etiqueta/búsqueda.
 function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
+  const { colors } = useTheme();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const { data: suppliers, loading, refetch } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+
+  const [q, setQ] = useState('');
+  const [tagFiltro, setTagFiltro] = useState('');
+
+  const allTags = useMemo(() => {
+    const s = new Set<string>();
+    suppliers.forEach((p) => (p.tags ?? []).forEach((t) => t && s.add(t)));
+    return [...s].sort((a, b) => cmpText(a, b));
+  }, [suppliers]);
+
+  const shown = useMemo(() => suppliers.filter((p) => {
+    if (tagFiltro && !(p.tags ?? []).includes(tagFiltro)) return false;
+    if (q.trim()) {
+      const n = norm(q);
+      const hay = norm(p.name).includes(n) || norm(p.rif ?? '').includes(n) || (p.tags ?? []).some((t) => norm(t).includes(n));
+      if (!hay) return false;
+    }
+    return true;
+  }), [suppliers, q, tagFiltro]);
+
+  // Editor (alta/edición)
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Supplier | null>(null);
+  const [name, setName] = useState('');
+  const [rif, setRif] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const abrir = (s: Supplier | null) => {
+    setEditing(s);
+    setName(s?.name ?? ''); setRif(s?.rif ?? ''); setPhone(s?.phone ?? ''); setEmail(s?.email ?? ''); setAddress(s?.address ?? '');
+    setTags(s?.tags ?? []); setTagInput('');
+    setOpen(true);
+  };
+  const addTag = (raw?: string) => {
+    const t = (raw ?? tagInput).trim().toUpperCase();
+    if (!t) return;
+    setTags((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    setTagInput('');
+  };
+  const guardar = async () => {
+    if (!name.trim()) return toast.error('El nombre es obligatorio.');
+    setBusy(true);
+    const payload = {
+      name: name.trim().toUpperCase(), rif: rif.trim() || null, phone: phone.trim() || null,
+      email: email.trim() || null, address: address.trim() || null, tags: tags.length ? tags : null,
+    };
+    const { error } = editing
+      ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
+      : await supabase.from('suppliers').insert(payload);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    setOpen(false); refetch();
+  };
+  const borrar = async () => {
+    if (!editing) return;
+    const ok = await confirm({ title: 'Eliminar proveedor', message: `¿Eliminar a "${editing.name}"?`, confirmText: 'Eliminar', danger: true });
+    if (!ok) return;
+    const { error } = await supabase.from('suppliers').delete().eq('id', editing.id);
+    if (error) return toast.error(error.message);
+    setOpen(false); refetch();
+  };
+
+  const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, fontSize: 14 } as const;
+
   return (
-    <ListScreen<Supplier>
-      title="Proveedores"
-      table="suppliers"
-      orderBy="name"
-      editable={canWrite}
-      emptyTitle="Sin proveedores"
-      emptySubtitle="Registra a quién le compras."
-      formTitle="Nuevo proveedor"
-      formFields={[
-        { key: 'name', label: 'Nombre', type: 'text', required: true },
-        { key: 'rif', label: 'RIF', type: 'text' },
-        { key: 'phone', label: 'Teléfono', type: 'text' },
-        { key: 'email', label: 'Correo', type: 'text' },
-        { key: 'address', label: 'Dirección', type: 'text' },
-      ]}
-      renderItem={(s) => (
-        <>
-          <Text style={{ fontWeight: '700', fontSize: 16 }}>{s.name}</Text>
-          {s.rif ? <Text style={{ opacity: 0.7, fontSize: 13 }}>RIF {s.rif}</Text> : null}
-          {s.phone ? <Text style={{ opacity: 0.7, fontSize: 13 }}>{s.phone}</Text> : null}
-        </>
-      )}
-    />
+    <Screen>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <SectionTitle>Proveedores</SectionTitle>
+        {canWrite ? (
+          <TouchableOpacity onPress={() => abrir(null)} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {/* Filtro: búsqueda + etiquetas de rubro */}
+      <Card>
+        <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por nombre, RIF o etiqueta…" placeholderTextColor={colors.muted} style={input} />
+        {allTags.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.sm }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {['', ...allTags].map((t) => {
+                const on = tagFiltro === t;
+                return (
+                  <TouchableOpacity key={t || '__all'} onPress={() => setTagFiltro(t)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.brand : colors.border }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t ? `🏷️ ${t}` : 'Todos'}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+        ) : null}
+      </Card>
+
+      {loading ? <Loading /> : shown.length === 0 ? (
+        <EmptyState title={q || tagFiltro ? 'Sin resultados' : 'Sin proveedores'} subtitle={q || tagFiltro ? 'Prueba con otro filtro.' : 'Registra a quién le compras.'} />
+      ) : shown.map((s) => (
+        <TouchableOpacity key={s.id} activeOpacity={canWrite ? 0.7 : 1} onPress={() => canWrite && abrir(s)}>
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{s.name}</Text>
+            {s.rif ? <Text style={{ color: colors.muted, fontSize: 13 }}>RIF {s.rif}</Text> : null}
+            {s.phone ? <Text style={{ color: colors.muted, fontSize: 13 }}>{s.phone}</Text> : null}
+            {(s.tags ?? []).length ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: spacing.xs }}>
+                {(s.tags ?? []).map((t) => (
+                  <View key={t} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                    <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800' }}>🏷️ {t}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {canWrite ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Toca para editar</Text> : null}
+          </Card>
+        </TouchableOpacity>
+      ))}
+      <View style={{ height: spacing.xl }} />
+
+      {/* Modal alta/edición */}
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '90%' }}>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg }} keyboardShouldPersistTaps="handled">
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, marginBottom: spacing.sm }}>{editing ? 'Editar proveedor' : 'Nuevo proveedor'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre *</Text>
+              <TextInput value={name} onChangeText={setName} placeholder="Nombre o razón social" placeholderTextColor={colors.muted} style={input} />
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>RIF</Text>
+              <TextInput value={rif} onChangeText={setRif} placeholder="J-000000000" placeholderTextColor={colors.muted} style={input} />
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Teléfono</Text>
+              <TextInput value={phone} onChangeText={setPhone} placeholder="04xx…" placeholderTextColor={colors.muted} style={input} keyboardType="phone-pad" />
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Correo</Text>
+              <TextInput value={email} onChangeText={setEmail} placeholder="correo@…" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" keyboardType="email-address" />
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Dirección</Text>
+              <TextInput value={address} onChangeText={setAddress} placeholder="Dirección" placeholderTextColor={colors.muted} style={input} />
+
+              {/* Etiquetas de rubro */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Etiquetas (rubro que vende)</Text>
+              {tags.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: spacing.xs }}>
+                  {tags.map((t) => (
+                    <TouchableOpacity key={t} onPress={() => setTags((prev) => prev.filter((x) => x !== t))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '800' }}>🏷️ {t}</Text>
+                      <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '900' }}>✕</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TextInput value={tagInput} onChangeText={setTagInput} onSubmitEditing={() => addTag()} placeholder="Ej.: VÍVERES" placeholderTextColor={colors.muted} style={[input, { flex: 1 }]} autoCapitalize="characters" />
+                <TouchableOpacity onPress={() => addTag()} style={{ paddingHorizontal: spacing.md, justifyContent: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800' }}>➕ Agregar</Text>
+                </TouchableOpacity>
+              </View>
+              {allTags.filter((t) => !tags.includes(t)).length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: spacing.xs }}>
+                  {allTags.filter((t) => !tags.includes(t)).map((t) => (
+                    <TouchableOpacity key={t} onPress={() => addTag(t)} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>+ {t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={guardar} disabled={busy} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: busy ? 0.6 : 1 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Guardar'}</Text>
+                </TouchableOpacity>
+              </View>
+              {editing ? (
+                <TouchableOpacity onPress={borrar} style={{ marginTop: spacing.sm, padding: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.danger, fontWeight: '800' }}>Eliminar proveedor</Text>
+                </TouchableOpacity>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </Screen>
   );
 }
 

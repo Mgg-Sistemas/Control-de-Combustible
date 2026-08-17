@@ -30,6 +30,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Viajes de camiones', route: 'ViajesCamiones', desc: 'Registro de viajes por listero: un toque por cada regreso/entrada, con hora automática y chofer del turno', icon: '🚛', module: 'viajes_camiones' },
   { label: 'Aliados', route: 'Aliados', desc: 'Colaboradores externos con ficha y carnet propios (QR con sus datos)', icon: '🤝', module: 'aliados' },
   { label: 'Compras', route: 'Compras', desc: 'Solicitudes de pedido, órdenes de compra con aprobación y proveedores', icon: '🛒', module: 'compras' },
+  { label: 'Cuentas por pagar y cobrar', route: 'Cuentas', desc: 'Lo que se le debe a los proveedores y lo que las empresas deben: saldos, vencimientos y abonos', icon: '🧾', module: 'cuentas' },
   { label: 'Inventario', route: 'Inventario', desc: 'Existencias por material con PMP, entradas desde compras, salidas y consumo', icon: '📦', module: 'inventario' },
   { label: 'Escanear QR', route: 'ScanQr', desc: 'Escanea el QR de una máquina con la cámara', icon: '📷', module: 'equipos' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },

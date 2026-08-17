@@ -4,9 +4,10 @@ import { TallerMaquinariaScreen } from './MantenimientoMaquinariaScreen';
 /**
  * 🔧 SERVICIO DE MAQUINARIA — sección de lo que se DAÑÓ.
  *
- * Averías reportadas (por QR, por el inspector desde el teléfono o escaneando
- * desde acá), envío al taller, retorno operativo y el reporte de averías/gasto
- * por empresa.
+ * Averías reportadas (por QR, por el inspector desde el teléfono, escaneando desde
+ * acá o cargándolas a mano), su corrección, el historial de lo resuelto y el
+ * reporte de averías/gasto por empresa. Acá NO se manda nada al taller: el envío
+ * a reparación y el retorno operativo viven solo en Mantenimiento.
  *
  * Es la misma pantalla que Mantenimiento con `seccion="servicio"`: mismas
  * consultas y mismas tablas, solo cambia QUÉ se muestra. Lo programado por

@@ -1248,10 +1248,32 @@ Cada inspector trae un **resumen de cercanía** para saber qué tan confiables f
 informe del día con ese resumen por inspector, el detalle de cada visita (hora, máquina,
 empresa, estado y ubicación) y las jornadas sin validar.
 
-> **📊 Reporte por inspector (día o rango):** dentro de Inspecciones hay un reporte con filtro por
-> **📅 un día** o **📆 rango de fechas** y un filtro de inspectores **tipo check** (marcas uno o
-> varios; vacío = todos). Muestra, por inspector, la **hora de inicio**, la **máquina**, el
-> **serial/placa**, el **sector** y la **empresa**, y se puede **descargar en PDF**.
+> **📊 Reporte por inspector — "Recorrido del inspector" (PDF):** en **Inspecciones → Reportes →
+> ✅ Máquinas asignadas por inspector** hay un reporte con **📅 un día** y un filtro de inspectores
+> **tipo check** (marcas uno o varios; vacío = todos). Reconstruye el **recorrido** de cada
+> inspector en orden cronológico: **hora de la revisión, máquina, marca/modelo, serial/placa,
+> sector/ubicación, estado** en que la encontró y si estaba **cerca** (distancia GPS).
+>
+> Además trae, en el **mismo documento**, la información de un **reporte diario** (pedido del
+> cliente): **horas de día, horas de noche y horas trabajadas** de cada máquina, y la columna
+> **"Inició"** con el **nombre de quien marcó el inicio de la jornada**. Arriba sale un
+> **resumen general** (inspectores, revisiones, máquinas distintas y horas), y **cada inspector**
+> tiene su propio total (máquinas distintas revisadas, horas de día, de noche y trabajadas).
+>
+> **Tres cosas importantes de leer bien:**
+> - Las **horas son del DÍA COMPLETO de la máquina**, no de esa visita. Si el inspector revisó la
+>   misma máquina 3 veces, las 3 filas muestran las mismas horas del día.
+> - Por eso **los totales cuentan cada máquina UNA sola vez** (aunque tenga varias revisiones): las
+>   horas **no** se suman fila por fila.
+> - Si una máquina **no tiene ronda registrada** ese día, sus horas salen **"—"** (no hay dato), que
+>   **no es lo mismo** que trabajar **0,00** horas.
+>
+> Las horas se calculan con la **misma fórmula** que el **Reporte del día por empresa** y el
+> **Control de maquinaria**, así que los números **coinciden** entre los tres.
+>
+> **Por qué este reporte es el fiel:** agrupa por **quién hizo el check-in de verdad**, congelado
+> en el momento de la visita. El **Histórico de Jornadas** atribuye por la **asignación actual**, así
+> que cambia el pasado cuando se **reasignan** máquinas; este **no**.
 
 > **🚚 Jornada de camiones (coordinador de patio):** el coordinador de patio **escanea el QR del
 > camión** para **iniciar** su jornada; al **escanearlo de nuevo** la **finaliza** (pide confirmar
@@ -2533,6 +2555,66 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > De paso, el Catálogo y Control de Maquinaria ahora muestran el **operador planeado** por el
 > Coordinador de Operadores (antes solo se veía dentro de ese módulo) — mismo tratamiento que ya
 > tenía el Inspector, para que una reasignación se note en toda la app, no solo ahí.
+
+---
+
+## 4.32. Cuentas por pagar y por cobrar 🧾
+
+Es la **libreta de deudas** de la empresa. Compras te dice **qué se compró**; esta sección te dice
+**qué se debe** y **qué te deben**, con su **fecha de vencimiento** y su **saldo**. Se entra por
+*Más → 🧾 Cuentas por pagar y cobrar*.
+
+**Dos pestañas arriba:**
+- **💸 Por pagar** — lo que la empresa le debe a sus **proveedores**.
+- **💰 Por cobrar** — lo que las **empresas** le deben a la empresa.
+
+Las dos funcionan **exactamente igual**; lo único que cambia es de qué lado está el dinero.
+
+**Los tres totales de arriba** (son de TODAS las cuentas de esa pestaña, no de lo que estés
+buscando):
+- **Total pendiente:** todo lo que falta por pagar/cobrar.
+- **Vencido:** lo que ya se pasó de la fecha (y cuántas cuentas son).
+- **Por vencer:** lo que vence dentro de los **próximos 7 días**.
+
+**Registrar una cuenta** (botón **"+ Nueva"**):
+1. Toca **a quién** — el **proveedor** (si es por pagar) o la **empresa** (si es por cobrar). Se
+   elige de la lista, **no se escribe**: así, si mañana corrigen ese nombre, todas sus deudas
+   quedan corregidas solas. Si el proveedor no aparece, créalo primero en *Compras → Proveedores*.
+2. Escribe el **concepto** (por qué se debe) y, si tienes, el **Nº de factura o control**.
+3. Pon el **monto** en dólares.
+4. Pon la **fecha de emisión** y la de **vencimiento** (formato **AAAA-MM-DD**). Para el
+   vencimiento hay botones rápidos: **Hoy · 15 días · 30 días · 60 días**. Si la dejas vacía, esa
+   cuenta **nunca vence**.
+5. **Guardar cuenta**.
+
+**Cómo se lee la lista:** lo más urgente sale **arriba** (primero lo 🔴 **vencido**, luego lo 🟠
+**por vencer**, después lo 🕓 **pendiente**). Cada tarjeta muestra el nombre, el concepto, cuándo
+vence (**"hace 3 día(s)"** / **"HOY"** / **"en 12 día(s)"**) y el **saldo**. Lo **vencido** además
+lleva una **franja roja al lado izquierdo** para que salte a la vista.
+
+**Toca una cuenta** para desplegarla y ver el monto original, lo abonado, el saldo, la nota y el
+historial de abonos. Ahí abajo están los botones:
+- **✅ Marcar pagada** — pide confirmación. Si todavía queda saldo, te lo advierte antes.
+- **💵 Registrar abono** — para cuando se paga **en partes**: monto, fecha, método (efectivo,
+  transferencia, cheque…) y referencia. El saldo baja solo. Cuando el saldo llega a **cero**, la
+  cuenta pasa a **pagada** sola, sin que tengas que tocar nada más.
+- **✎ Editar** — corrige cualquier dato de la cuenta.
+- **⛔ Anular** — para lo que se registró por error. **No se borra**: deja de sumar en los totales
+  pero queda en el historial como anulada.
+- **↩ Volver a pendiente** — en las pagadas o anuladas, por si fue un error.
+
+**🔎 Buscador:** por nombre, concepto, factura o nota. Por defecto solo se ven las cuentas
+**vivas**; con el botón **"Mostrar también pagadas y anuladas"** aparecen todas.
+
+> **Acceso:** el módulo **nace cerrado** — nadie lo ve hasta que un administrador le dé el permiso
+> **"Cuentas por pagar y cobrar"** desde *Usuarios*. Con **lectura** solo se consulta; para
+> registrar, abonar o marcar pagada hace falta **escritura**.
+
+> ⚠️ **Antes de usarlo hay que correr una vez** `supabase/cuentas_por_pagar_y_cobrar.sql` en
+> Supabase (SQL Editor): crea las tablas `cuentas` y `cuenta_abonos`. Ese script **no modifica
+> nada** de lo que ya existe. Un detalle a tener en cuenta: a partir de ahí **no se podrá borrar
+> un proveedor ni una empresa que tenga cuentas registradas** (la base lo impide a propósito, para
+> no perder el rastro de una deuda); primero hay que anular o eliminar sus cuentas.
 
 ---
 
