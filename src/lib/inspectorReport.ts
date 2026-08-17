@@ -457,8 +457,18 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // abiertas contadas a 12 h cada una. El mismo candado ya existía en el panel de
     // Inspecciones (InspectionsSummary `liveHorasOf`) y en `hours.ts`; a este reporte
     // le faltaba. Ver `scripts/test-reportes-paridad.mjs`.
+    // ANCLA del "en vivo": el turno DÍA cuenta desde su inicio NOMINAL 7am (igual que
+    // hours.ts → Control / Reporte por empresa / Pagos: "aunque la marquen a las 9am,
+    // cuenta el turno completo", regla cliente testeada en test-horas-control). Antes este
+    // reporte contaba desde `jornada_start_at` real → daba MENOS horas que Control/empresa
+    // para una máquina marcada tarde (divergencia #2 de la auditoría 17-ago-2026). La NOCHE
+    // se deja en el inicio REAL porque cruza medianoche (el nominal 7pm del día del reporte
+    // quedaría en el futuro y daría 0/negativo para una jornada que arrancó anoche).
+    const nominalDiaStartMs = new Date(`${date}T07:00:00-04:00`).getTime();
     const liveElapsedH = esDiaDeHoy && estado === 'encurso' && rd?.jornada_start_at
-      ? Math.max(0, Math.min(12, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000))
+      ? (turno === 'day'
+          ? Math.max(0, Math.min(12, (Date.now() - nominalDiaStartMs) / 3600000))
+          : Math.max(0, Math.min(12, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000)))
       : 0;
     // MAYOR (no suma) de bancado vs transcurrido: al re-abrir una jornada ya cerrada el
     // inicio se re-ancla al arranque del turno, así que sumar bancado + transcurrido

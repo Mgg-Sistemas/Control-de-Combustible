@@ -125,7 +125,13 @@ export function makeLiveStatusOf(params: {
     const nightH = j?.nightH ?? 0;
     const openStartDay = j?.openStartDay ?? null;
     const openStartNight = j?.openStartNight ?? null;
-    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - openStartDay) / 3600000)) : 0;
+    // ANCLA del "en vivo": el DÍA cuenta desde su inicio NOMINAL 7am (igual que hours.ts →
+    // Control / Reporte por empresa / Pagos y el reporte por firma; regla cliente "cuenta el
+    // turno completo aunque marque a las 9am"). Antes contaba desde el inicio real y daba
+    // menos horas que esas vistas para una máquina marcada tarde (unificación 17-ago-2026).
+    // La NOCHE se deja en el inicio REAL porque cruza medianoche.
+    const nominalDiaStart = new Date(`${caracasParts(new Date(nowTick)).iso}T07:00:00-04:00`).getTime();
+    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - nominalDiaStart) / 3600000)) : 0;
     const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
     const workedDia = Math.min(12, dayH + elapsedDia);
     const workedNoche = Math.min(12, nightH + elapsedNoche);
