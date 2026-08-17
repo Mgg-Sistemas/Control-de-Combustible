@@ -21,6 +21,24 @@
 --
 -- ⚠️ AFECTA PAGOS. Correr BLOQUE POR BLOQUE, en orden, leyendo cada resultado.
 --    El editor de Supabase solo muestra el resultado de la última consulta.
+--
+-- ════════════════════════════════════════════════════════════════════════════
+-- 🛑 ESTADO AL 17-ago-2026, 15:00 — ESTE SCRIPT YA NO HACE FALTA
+--
+-- Se revisó la base: el cron `auto-close-jornadas` SÍ está vivo y cerró solo
+-- todos los días. No queda NINGUNA jornada sin cerrar de días pasados:
+--     16/08 → 173 filas, 2517.86 h bancadas, 0 sin cerrar
+--     15/08 → 208 filas, 3155.42 h bancadas, 0 sin cerrar
+--     14/08 → 205 filas, 3112.01 h bancadas, 0 sin cerrar
+--     13/08 → 197 filas, 2092.51 h bancadas, 0 sin cerrar
+-- Las horas de César Flames del 16/08 ya están bancadas. No hay nada que
+-- recuperar. Se deja el script como herramienta por si vuelve a pasar.
+--
+-- ⛔ NO LO CORRAS "por si acaso". Las ÚNICAS jornadas abiertas son las de HOY,
+--    que están EN CURSO. El bloque 4 las cerraría antes de tiempo bancando
+--    horas hasta las 7pm que todavía nadie trabajó → inflaría los pagos.
+--    Por eso los bloques 3 y 4 ahora llevan `round_date < current_date`.
+-- ════════════════════════════════════════════════════════════════════════════
 -- ============================================================================
 set time zone 'America/Caracas';
 
@@ -92,6 +110,7 @@ left join public.machine_inspectors mi
       and mi.shift = coalesce(r.jornada_shift, 'day')
       and mi.active = true
 where r.jornada_start_at is not null
+  and r.round_date < current_date   -- ← nunca las de HOY: están en curso
   and lower(coalesce(mi.inspector_name, '')) not like '%sos la guaira%';
 
 -- Verifica que el respaldo tenga filas ANTES de seguir:
@@ -117,6 +136,8 @@ begin
           and mi.shift = coalesce(mr.jornada_shift, 'day')
           and mi.active = true
     where mr.jornada_start_at is not null
+      and mr.round_date < current_date   -- ← nunca las de HOY: están en curso y
+                                         --    cerrarlas ahora regalaría horas
       and lower(coalesce(mi.inspector_name, '')) not like '%sos la guaira%'
     order by mr.round_date, mr.machinery_id
   loop

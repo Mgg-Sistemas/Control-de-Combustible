@@ -77,8 +77,8 @@ export default function ReportesSection(props: { navigation?: any }) {
       cards: [
         {
           key: 'rep-inspector', icon: '📊', title: 'Reporte por inspector',
-          desc: 'Máquinas revisadas por cada inspector en un día, con hora, sector y empresa.',
-          fields: ['Hora de inicio', 'Máquina', 'Serial / placa', 'Sector', 'Empresa'],
+          desc: 'Máquinas revisadas por cada inspector en un día, con hora, sector, marca/modelo y las HORAS trabajadas (día, noche y total) de cada máquina, más quién inició la jornada.',
+          fields: ['Hora de la revisión', 'Máquina', 'Marca / modelo', 'Serial / placa', 'Sector', 'Horas día / noche / trabajadas', 'Inició la jornada'],
           onPress: () => openRunner({ title: 'Reporte por inspector', mode: 'dia', pick: 'inspectors', run: ({ date, names }) => generateInspectorTrazaReport({ date, inspectors: names.length ? names : undefined }) }),
         },
         {
