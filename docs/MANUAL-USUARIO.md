@@ -576,12 +576,15 @@ Distribución de días libres**.
   todos los cargos juntos. La **semana libre y el PDF se generan solo sobre lo filtrado** (ideal para
   armar la rotación de un departamento por separado). **Limpiar ✕** quita el filtro.
 - Elige el **Ciclo** (Desde / Hasta) arriba.
-- **⚙️ Semana libre por cargo:** asigna a cada cargo la semana en que descansa (Sem 1, Sem 2…).
-  Usa **✨ Sugerir automático** para repartir cada cargo en una semana distinta y ajusta a mano.
-  **⚙️ Generar semana libre** crea la rotación (reemplaza lo anterior).
-- El **calendario cargo × día** muestra **L = semana libre / T = trabaja**, con color por semana.
-- **➕ Agregar semana libre** pone una semana suelta a un cargo (Desde / Hasta); **Limpiar** borra
-  las de un cargo. **📄 Generar PDF** imprime el calendario de días libres por cargo.
+- **Directo por cargo:** en cada cargo aparecen las **semanas del ciclo con fechas reales**; **toca
+  la semana** en que ese cargo descansa (se marca de color al instante). Si otra fila ya descansa esa
+  semana, el botón muestra **⚠ N cargo(s)** para avisarte del **choque** y elijas otra.
+- **✨ Repartir automático** (arriba) reparte cada cargo en una semana **distinta** de una vez, **sin
+  choques**. Después puedes ajustar cualquiera a mano tocando otra semana.
+- El **calendario cargo × día** muestra **L = semana libre / T = trabaja**, con color por semana; abajo
+  **"Cargos libres"** cuenta cuántos descansan cada día (para ver si se juntan).
+- **➕ Semana libre en otra fecha** pone una semana suelta a un cargo (Desde / Hasta); **Limpiar ✕**
+  borra la de un cargo. **📄 Generar PDF** imprime el calendario de días libres por cargo (respeta el filtro).
 - Se actualiza **en vivo** entre dispositivos. **SQL a correr:** `supabase/dias_libres_cargo.sql`.
 
 ### 4.6c. Distribución de uniformes (módulo propio, antes solo dentro de Nómina)
