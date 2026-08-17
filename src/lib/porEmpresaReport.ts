@@ -1,7 +1,7 @@
 import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText, norm } from './text';
-import { workedFromShifts } from './hours';
+import { workedFromShifts, horasTurnoDelDia } from './hours';
 import { motivoParada } from './paradaMotivo';
 import { horarioNominal, horaFinJornada } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
@@ -390,38 +390,25 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // Informe por jornada. Las horas trabajadas se calculan con `workedFromShifts` (la
     // fórmula canónica compartida) para que AMBOS reportes COINCIDAN: ceil(día)+ceil(noche)
     // − paradas + extras (las paradas SÍ se descuentan, igual que facturación/pagos).
-    let dd = Number(r?.day_hours) || 0;
-    let nn = Number(r?.night_hours) || 0;
-    // Umbral mínimo defensivo (mismo criterio que MIN_WORKED_HOURS en
-    // inspectorDaySets.ts): un round con round_date mal calculado por cruce de
-    // medianoche del turno NOCHE (BUG 10-ago-2026, ya corregido en el guardado —
-    // ver businessRoundDateOf en caracasDay.ts) podía dejar un residuo mínimo de
-    // horas (~0.02h) pegado al round de HOY. Sin este umbral, ese residuo hacía
-    // que este reporte mostrara "HORARIO NOCHE: 07:00 p.m. → 07:00 a.m." como si
-    // el turno noche ya hubiera ocurrido, aunque siguiera corriendo el turno día.
-    // 0.05h (3 min) está muy por debajo de cualquier jornada real.
-    const MIN_WORKED_HOURS = 0.05;
-    if (dd <= MIN_WORKED_HOURS) dd = 0;
-    if (nn <= MIN_WORKED_HOURS) nn = 0;
+    // HORAS: umbral mínimo + cálculo EN VIVO anclado al inicio nominal del turno
+    // (7am/7pm) + resta de paradas. Todo eso vive AHORA en `horasTurnoDelDia`
+    // (src/lib/hours.ts) — se movió tal cual desde acá, sin cambiar una sola regla,
+    // para que el módulo de CONTROL pueda llamar EXACTAMENTE el mismo cálculo. Antes
+    // Control leía `day_hours`/`night_hours` crudos (ni siquiera consultaba
+    // `jornada_start_at`), así que durante el turno mostraba 0 h donde este reporte
+    // ya daba horas — la desincronización que reportó el cliente (16-ago-2026).
+    // `scripts/test-horas-control.mjs` fija que los dos den lo mismo.
+    const hrs = horasTurnoDelDia(r, date, nowMs);
+    let dd = hrs.dia;
+    let nn = hrs.noche;
     const sRaw = Number(r?.hours_stopped) || 0;
     const oRaw = Number(r?.overtime_hours) || 0;
-    // EN VIVO: una jornada ABIERTA cuenta desde el INICIO DE SU TURNO (no desde que la
-    // marcaron): DÍA desde las 7am, NOCHE desde las 7pm (jornadas fijas 7am–7pm / 7pm–7am).
-    // Así, aunque la marquen a las 9am o 9pm, cuenta el turno completo. Si estuvo averiada/
-    // parada y luego la reactivaron, la resta de paradas (workedFromShifts) deja SOLO las
-    // horas ACTIVAS. Mismo anclaje en el Informe por jornada → ambos reportes coinciden.
+    // `jStart`/`jShift`/`jStartHoy` se siguen necesitando más abajo para saber si el
+    // turno está EN CURSO (dayOpen/nightOpen) y pintar el horario.
     const jStart = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
     const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day' : null;
-    // La jornada abierta suma en vivo SOLO si estamos viendo HOY y arrancó DENTRO de
-    // este día (si arrancó otro día — p. ej. máquina averiada arrastrada — no infla el día).
     const jStartHoy = jStart != null && jStart >= dayBoundStart && jStart <= dayBoundEnd;
-    if (isToday && jStart && jShift && jStartHoy) {
-      const shiftStart = jShift === 'night' ? day19 : day7; // 7pm noche · 7am día
-      const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
-      if (jShift === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
-    }
-    // Horas trabajadas = workedFromShifts (misma fórmula que Informe/Pagos/Control) → cuadra.
-    const trab = workedFromShifts(dd, nn, sRaw, oRaw);
+    const trab = hrs.trabajadas;
     const averiaBase = averiaTxt(id); // '' si es SOS "siempre activo"
     // ¿DECLARÓ jornada de este día pero cerró con 0h y SIN ticket de avería/parada?
     // `jornada_shift` persiste tras el auto-cierre aunque `jornada_start_at` se nule y

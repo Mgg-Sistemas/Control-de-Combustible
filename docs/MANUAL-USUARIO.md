@@ -188,6 +188,18 @@ ahora trae el detalle completo de cada equipo, no solo el conteo. Muestra, en es
 ### 4.5. Control de maquinaria (las horas que trabaja cada máquina)
 Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** cada máquina.
 
+> **🔗 Control y el Reporte por Empresa dan las MISMAS horas (16-ago-2026).** Antes no
+> cuadraban: durante el turno, Control mostraba **0 h** en una máquina que el Reporte por
+> Empresa ya daba trabajando, porque Control solo veía las horas ya **guardadas** y el reporte
+> contaba además la **jornada abierta**. Ahora los dos usan el mismo cálculo:
+> - una jornada **abierta hoy** cuenta desde el **inicio del turno** (7:00 am el día,
+>   7:00 pm la noche), aunque el inspector la haya marcado más tarde — con tope de **12 h**;
+> - los **días pasados** no cambian **nada**: muestran exactamente lo que quedó guardado, así
+>   que **los cierres y los pagos ya hechos siguen igual**.
+>
+> Lo que ves en Control durante el turno es una **estimación en curso** que va subiendo hasta
+> que el inspector cierre la jornada — igual que el Reporte por Empresa.
+
 **Anotar el trabajo de un día:**
 1. Elige la **semana** con las flechas ◀ ▶ o el calendario.
 2. Abre la empresa y luego la máquina.
@@ -785,6 +797,18 @@ mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — 
 ### 4.7b. Servicio de Maquinaria (averías · taller · reporte)
 Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 **⏳ Averías · 🔧 En reparación · ✓ Historial · 📊 Reporte**.
+
+> **✅ Arreglos del 17-ago-2026:**
+> - **El Historial ahora muestra las averías resueltas.** Antes, al marcar una avería como
+>   **✓ Realizado**, desaparecía de la pantalla y **no quedaba en ninguna parte**: salía de
+>   "Averías" (que solo lista pendientes) y el Historial únicamente mostraba las máquinas que
+>   pasaron por el taller. Ahora el Historial trae dos bloques: **✅ Averías resueltas**
+>   (con quién la reportó, quién la resolvió y las dos fechas) y **🧰 Pasaron por el taller**.
+> - **El buscador funciona en 📊 Reporte.** Era la única pestaña que ignoraba la caja de
+>   búsqueda: escribías y la lista no se movía.
+> - **El reporte ya no se queda corto.** La consulta se cortaba en ~1000 filas, así que el
+>   **gasto salía por debajo de lo real**. Ahora trae todo. Además, si falla la carga te
+>   **avisa** y puedes reintentar (antes se quedaba en $0.00 en silencio, para siempre).
 
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
   material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. **Ya no muestra**
@@ -1479,6 +1503,14 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 (en curso/parada/finalizada/por iniciar), horas de día/noche/total, desglose por sector y las
 ubicaciones cuando una máquina cambió de sitio. La jornada de día la firma un inspector y la
 de noche otro; al final de cada uno va su línea de firma.
+
+> **🟡 Horas paradas (15-ago-2026):** el reporte trae una columna **"Horas parada"** por máquina
+> y su desglose por sector, para ver cuánto estuvo detenida cada una. **No lleva el total
+> agregado de paradas** arriba (ni el reporte del jefe ni el recibo del teléfono): el dato se
+> consulta máquina por máquina.
+> Ojo con la diferencia: las **horas trabajadas** de una máquina que trabajó y *después* paró
+> **sí cuentan** en el total de la jornada; las **horas paradas** van aparte y **no** suman a la
+> jornada (jornada = horas activas).
 1. Elige el **Día**.
 2. Elige el **Turno**: **☀️ Día**, **🌙 Noche** o **☀️🌙 Ambos**.
 3. Debajo aparece **"Inspectores (marca uno o varios)"**: una lista de **checkboxes** con los
