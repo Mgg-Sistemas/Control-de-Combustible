@@ -10,6 +10,7 @@ import { cmpText, norm } from '../lib/text';
 import { DateField } from './DateField';
 import ReportesHub, { ReportSection } from './ReportesHub';
 import { generateInspectorTrazaReport } from '../lib/inspectorTrazaReport';
+import { generateHistoricoInspectorReport } from '../lib/historicoInspectorReport';
 
 function caracasTodayISO(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -86,6 +87,21 @@ export default function ReportesSection(props: { navigation?: any }) {
           desc: 'Calendario con el conteo de camiones que entraron y salieron cada día.',
           fields: ['Vista mensual', 'Entradas', 'Salidas'],
           onPress: () => go('Camiones'),
+        },
+      ],
+    },
+    // HISTÓRICO — va JUSTO DEBAJO de "Máquinas asignadas por inspector" y ANTES de
+    // "Maquinaria / Vehículos" (posición señalada por el cliente, 17-ago-2026). Es un
+    // grupo APARTE a propósito: el de arriba responde "quién tiene qué HOY" y este
+    // responde "quién tuvo qué ENTONCES", que es otra pregunta.
+    {
+      key: 'historico', icon: '🕰️', title: 'Histórico',
+      cards: [
+        {
+          key: 'rep-historico-inspector', icon: '📜', title: 'Histórico por inspector',
+          desc: 'La jornada de cada inspector en un RANGO de fechas, tomada de sus check-in (no de la asignación actual): sirve para ver lo que hizo alguien que ya no está en la empresa o a quien le reasignaron las máquinas. Marca a los inspectores que ya no figuran como activos.',
+          fields: ['Rango de fechas', 'Por inspector y fecha', 'Máquina', 'Marca / modelo', 'Serial / placa', 'Turno cubierto', 'Horas de SU turno', 'Aviso de inspector dado de baja'],
+          onPress: () => openRunner({ title: 'Histórico por inspector', mode: 'rango', pick: 'inspectors', run: ({ from, to, names }) => generateHistoricoInspectorReport({ from, to, inspectors: names.length ? names : undefined }) }),
         },
       ],
     },

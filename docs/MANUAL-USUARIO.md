@@ -1275,6 +1275,35 @@ empresa, estado y ubicación) y las jornadas sin validar.
 > en el momento de la visita. El **Histórico de Jornadas** atribuye por la **asignación actual**, así
 > que cambia el pasado cuando se **reasignan** máquinas; este **no**.
 
+> **🕰️ Histórico → 📜 Histórico por inspector (PDF):** justo **debajo** de "Máquinas asignadas por
+> inspector" hay un apartado aparte llamado **Histórico**. Responde otra pregunta: el de arriba dice
+> **quién tiene qué hoy**; este dice **quién tuvo qué entonces**.
+>
+> **Para qué sirve, con un caso real (17-ago-2026):** *César Flames se fue de la empresa y sus
+> máquinas se le reasignaron a José Cardona. El 16 la jornada era de César; el 17, de José.* En los
+> reportes que atribuyen por asignación, las horas del 16 pasan a mostrarse bajo José y César
+> desaparece. **Aquí no**: César sigue apareciendo el 16 con sus máquinas y sus horas, y José el 17.
+>
+> Se pide por **📆 rango de fechas** (no por un día) y con filtro de inspectores tipo check. Agrupa
+> **por inspector** y, dentro, **por fecha**. A quien ya no figure en la lista de inspectores activos
+> se le pone el distintivo **"Ya no activo"** con una nota — es el caso de César.
+>
+> **Tres cosas de leer bien:**
+> - **Los nombres salen de los check-in**, que quedan congelados en el momento en que se hacen. Por
+>   eso reasignar una máquina **no** cambia lo que dice este documento.
+> - **Solo cuentan las horas del TURNO que cubrió.** Una máquina puede trabajar de día **y** de noche
+>   el mismo día (el 16-ago-2026 le pasó a 102 de 173 máquinas). Al inspector de día **no** se le suman
+>   las horas de la noche: ese trabajo es del nocturno. El turno sale de la **hora del check-in**
+>   (día 7am–7pm). Las columnas **"Día (contexto)"** y **"Noche (contexto)"** muestran el día completo
+>   de la máquina, para que puedas comprobar de dónde sale la diferencia — pero el total **no** es su suma.
+> - **Nada se cuenta dos veces**: si revisó la misma máquina 3 veces en su turno, la columna **"Rev."**
+>   dice 3 pero las horas suman **una sola vez**.
+>
+> **Un límite que conviene saber:** solo aparece lo que el inspector **alcanzó a revisar**. Si tenía 12
+> máquinas asignadas y marcó 8, las otras 4 no salen con su nombre, porque no quedó rastro de que
+> fueran suyas. Eso se arregla del todo corriendo `supabase/congelar_inspector_en_la_ronda.sql`, que
+> guarda el inspector dentro de la ronda el día que se trabaja.
+
 > **🚚 Jornada de camiones (coordinador de patio):** el coordinador de patio **escanea el QR del
 > camión** para **iniciar** su jornada; al **escanearlo de nuevo** la **finaliza** (pide confirmar
 > con el total de horas). Las horas van a **Control de maquinaria** y la marca aparece en
