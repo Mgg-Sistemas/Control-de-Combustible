@@ -228,6 +228,9 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
       + `🚜 <b>${t.maquinas}</b> máquina(s) distinta(s) · ☀️ <b>${h2(t.dia)} h</b> día · 🌙 <b>${h2(t.noche)} h</b> noche · 🕒 <b>${h2(t.trabajadas)} h</b> trabajadas`
       + `<div class="nota">Horas del DÍA COMPLETO de cada máquina (no de la visita). Cada máquina cuenta UNA sola vez${sinRonda > 0 ? ` · ${sinRonda} sin ronda registrada (—)` : ''}.</div>`
       + `</div>`;
+    // Sin línea de firma, a diferencia del reporte diario: este documento es de
+    // CONSULTA (se saca cualquier día para mirar las horas), no un papel que se
+    // firme en sitio. Decisión expresa del cliente (17-ago-2026).
     return `<h3>👮 ${esc(nombre)} · ${visitas.length} revisión(es)</h3>${resumen}${tabla(visitas, t)}`;
   }).join('');
 
