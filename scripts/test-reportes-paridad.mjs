@@ -165,6 +165,20 @@ eq('el recibo del teléfono NO muestra total de horas paradas', tPar, null);
 eq('el jefe conserva la columna Horas parada', /Horas<br>parada/.test(jefe), true);
 eq('el teléfono conserva la parada por máquina', /Parada [\d.]+h/.test(tlf), true);
 
+// REGLA DEL CLIENTE (18-ago-2026): una máquina cuyo turno TRABAJÓ horas y LUEGO se
+// averió/paró cuenta como TRABAJÓ en los reportes — sus horas SUMAN y NO va en el
+// grupo "🔴 Averiadas / Paradas", pero conserva una NOTA del incidente (hora + motivo).
+// m2 (JUMBO 330) trabajó 8.33h y LUEGO paró: debe salir como trabajó (finalizada),
+// NO "🟡 Parada", con su nota "se paró a las ...". m3 (PAYLOADER, 0h) SÍ sigue parada.
+const filaJumbo330 = jefe.split('<b>JUMBO 330</b>')[1]?.split('</tr>')[0] ?? '';
+eq('m2 trabajó-y-paró: NO sale como 🟡 Parada en el jefe', /🟡 Parada/.test(filaJumbo330), false);
+eq('m2 trabajó-y-paró: sale como trabajó (✅ Finalizada) en el jefe', /✅ Finalizada/.test(filaJumbo330), true);
+eq('m2 conserva la nota del incidente en el jefe', /se paró a las/.test(filaJumbo330), true);
+eq('m2 conserva la nota del incidente en el teléfono', /se paró a las/.test(tlf), true);
+eq('m2 suma sus horas trabajadas pese al incidente', jTrab, TRABAJADAS);
+// m3 (0 horas + parada) SÍ debe seguir figurando como parada (no trabajó nada).
+eq('m3 (0h + parada) sigue como 🟡 Parada en el jefe', /🟡 Parada/.test(jefe), true);
+
 // El pie de sección del reporte del jefe cuadra con su KPI.
 const pieTrab = jefe.match(/Total de horas de día: <b>([\d.]+) h<\/b>/);
 eq('pie de sección · trabajadas', pieTrab && Number(pieTrab[1]), TRABAJADAS);

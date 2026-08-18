@@ -488,12 +488,21 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const enEspera = m?.en_espera === true;
     // Decisión en la función PURA (src/lib/empresaGrupo.ts), blindada por la matriz de
     // `npm run test:empresa-grupo` — misma regla por-turno que el teléfono.
-    const grupo: Grupo = grupoEmpresaDe({
+    let grupo: Grupo = grupoEmpresaDe({
       dia:   { worked: dd > 0, declared: declaredDay,   hasFault: faultDia },
       noche: { worked: nn > 0, declared: declaredNight, hasFault: faultNoche },
       hasFaultAny: faultDia || faultNoche,
       enEspera,
     });
+    // OVERRIDE LOCAL (SOLO este reporte por empresa · regla cliente 18-ago-2026):
+    // una máquina cuyo turno TRABAJÓ HORAS (>0) y LUEGO se averió/paró durante la
+    // jornada CUENTA COMO QUE TRABAJÓ → va en "✅ Activas" y sus horas SUMAN en los
+    // totales, NO en "🔴 Averiadas / Paradas". Solo los turnos con 0 h + avería/parada
+    // quedan en Averiadas. La NOTA de avería (hora + motivo) se conserva porque se pinta
+    // por turno vía faultDia/faultNoche + diaBreakHora + motivoDia/motivoNoche (celdaAveriada),
+    // que son independientes de `grupo`. Esto NO toca `grupoEmpresaDe` (src/lib/empresaGrupo.ts),
+    // que las vistas EN VIVO siguen usando con la regla "avería-manda".
+    if (grupo === 'averia' && (dd > 0 || nn > 0)) grupo = 'activa';
     // Las HORAS TRABAJADAS reales se muestran/suman SIEMPRE, aunque el turno haya quedado
     // averiado (regla cliente 18-ago-2026: "mostrar las horas trabajadas, indicar la hora
     // que se averió y marcarse como averiada" — no perder las horas de facturación). Las
