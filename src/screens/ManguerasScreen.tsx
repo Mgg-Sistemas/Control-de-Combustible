@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { levelMeets } from '../lib/permissions';
 import { useBcvRate, bsFromUsd, fmtUsd, fmtBs } from '../lib/bcv';
 import { HoseService, HoseInstallStatus, HosePaymentStatus } from '../types/database';
-import { generateHoseServiceReport } from '../lib/hoseServiceReport';
+import { generateHoseServiceReport, generateHoseAuthorization } from '../lib/hoseServiceReport';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../components/ToastProvider';
@@ -47,7 +47,7 @@ const INSTALL_INFO: Record<HoseInstallStatus, { label: string; tone: Tone }> = {
 };
 const PAYMENT_INFO: Record<HosePaymentStatus, { label: string; tone: Tone }> = {
   pendiente: { label: '⏳ Pendiente', tone: 'warning' },
-  en_proceso_autorizacion: { label: '📤 En autorización', tone: 'info' },
+  en_proceso_autorizacion: { label: '📤 Pendiente por autorización', tone: 'info' },
   pagado: { label: '✅ Pagado', tone: 'success' },
 };
 
@@ -59,7 +59,7 @@ const INSTALL_FILTERS: { key: '' | HoseInstallStatus; label: string }[] = [
 const PAYMENT_FILTERS: { key: '' | HosePaymentStatus; label: string }[] = [
   { key: '', label: 'Todas' },
   { key: 'pendiente', label: '⏳ Pendiente' },
-  { key: 'en_proceso_autorizacion', label: '📤 En autorización' },
+  { key: 'en_proceso_autorizacion', label: '📤 Pendiente por autorización' },
   { key: 'pagado', label: '✅ Pagado' },
 ];
 
@@ -191,7 +191,7 @@ export default function ManguerasScreen() {
     // Proveedor REAL del catálogo (antes texto libre). Es a quién se le paga y con
     // eso se genera la CUENTA POR PAGAR automática (trigger en BD). Se puede crear
     // uno nuevo escribiéndolo. Obligatorio: cada manguera queda ligada a un proveedor.
-    { key: 'supplier_id', label: 'Proveedor (a quién se le paga)', type: 'lookup', table: 'suppliers', labelCol: 'name', createColumn: 'name', required: true },
+    { key: 'supplier_id', label: 'Proveedor (a quién se le paga)', type: 'lookup', table: 'suppliers', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
     installStatusField,
   ];
 
@@ -439,6 +439,17 @@ export default function ManguerasScreen() {
                         esto por si acaso). */}
                     {canApprove && h.payment_status !== 'pagado' && h.install_status === 'instalada' ? (
                       <Btn label="✅ Aprobar y marcar pagado" color="#059669" disabled={busy === h.id + '-approve'} onPress={() => aprobarPago(h)} />
+                    ) : null}
+                    {/* PDF de autorización con la firma del Director General (Jesús Lozada):
+                        para enviárselo a autorizar (pendiente) o como constancia (ya pagado). */}
+                    {h.payment_status !== 'pendiente' ? (
+                      <Btn label="📄 Autorización (PDF)" color="#1D4ED8" disabled={busy === h.id + '-pdf'} onPress={async () => {
+                        setBusy(h.id + '-pdf');
+                        try {
+                          const label = h.is_external ? (h.external_client || 'Externa') : (mach?.code || '—');
+                          await generateHoseAuthorization({ hose: h, machineLabel: label, bcvRate });
+                        } finally { setBusy(null); }
+                      }} />
                     ) : null}
                   </View>
                 </Card>

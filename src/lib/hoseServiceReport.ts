@@ -1,6 +1,7 @@
 import { HoseService } from '../types/database';
 import { pdfDocument, exportPdf } from './pdf';
 import { fmtUsd, fmtBs, bsFromUsd } from './bcv';
+import { FIRMA_DATA_URI } from './firmaData';
 
 /**
  * Reporte "Confección y Pago — Mangueras Hidráulicas" (PDF), Fase 1 del
@@ -128,4 +129,75 @@ export async function generateHoseServiceReport(opts: {
   });
 
   return await exportPdf(html, 'Reporte - Confección y pago - Fabricación');
+}
+
+// ── Autorización de UNA manguera (PDF con firma), igual que el requerimiento ──
+const INSTALL_LBL: Record<HoseService['install_status'], string> = {
+  en_proceso: 'En proceso', instalada: 'Instalada',
+};
+const PAYMENT_LBL: Record<HoseService['payment_status'], string> = {
+  pendiente: 'Pendiente por pagar',
+  en_proceso_autorizacion: 'Pendiente por autorización',
+  pagado: 'Pagado / Autorizado',
+};
+
+/**
+ * PDF de AUTORIZACIÓN de UNA manguera — para pasárselo al Director General (Jesús
+ * Lozada) a autorizar el pago, mismo formato/firma que el requerimiento de compra.
+ * Si ya está PAGADA (autorizada) sale la firma escaneada del Director General; si
+ * aún está pendiente, sale la línea para firmar a mano.
+ * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
+ */
+export async function generateHoseAuthorization(opts: {
+  hose: HoseService;
+  machineLabel: string;   // código de la máquina (o cliente externo)
+  bcvRate?: number | null;
+}): Promise<boolean> {
+  const { hose: h, machineLabel, bcvRate } = opts;
+  const autorizada = h.payment_status === 'pagado';
+  const costoTxt = `${fmtUsd(h.cost_usd)}${bcvRate ? ` (${fmtBs(bsFromUsd(h.cost_usd, bcvRate))})` : ''}`;
+
+  const filas: [string, string][] = [
+    ['Código de la fabricación', esc(h.code)],
+    [h.is_external ? 'Máquina / empresa externa' : 'Máquina', esc(machineLabel || '—')],
+    ['Descripción del trabajo', esc(h.description ?? '—')],
+    ['Fecha', dmy(h.service_date)],
+    ['Costo', costoTxt],
+    ['Proveedor (a quién se le paga)', esc(h.provider ?? '—')],
+    ['Estado de instalación', esc(INSTALL_LBL[h.install_status] ?? h.install_status)],
+    ['Estado de pago', esc(PAYMENT_LBL[h.payment_status] ?? h.payment_status)],
+  ];
+  const tabla = `<table class="det"><tbody>${filas
+    .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</tbody></table>`;
+
+  // Bloque de firma: autorizada → firma escaneada del Director General; si no, línea a mano.
+  const firmaBlock = autorizada
+    ? `<img src="${FIRMA_DATA_URI}"/><div class="line">Autorizado por Director General</div><div class="firmante">JESÚS LOZADA</div>`
+    : `<div class="line">Autoriza — Director General (Jesús Lozada)</div>`;
+
+  const extraCss = `
+    table.det{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}
+    table.det th,table.det td{border:1px solid #c9d2dc;padding:7px 10px;text-align:left;vertical-align:top}
+    table.det th{background:#16324F;color:#fff;width:38%}
+    .authbody{display:flex;flex-direction:column;min-height:20cm}
+    .push{flex:1 1 auto;min-height:24px}
+    .firma{text-align:center;page-break-inside:avoid}
+    .firma img{height:auto;max-height:110px;max-width:260px;display:block;margin:0 auto 2px}
+    .firma .line{width:300px;margin:0 auto;border-top:1px solid #1a1a1a;padding-top:6px;font-weight:800;color:#16324F}
+    .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}`;
+
+  const body = `
+    <div class="authbody">
+      <div>${tabla}</div>
+      <div class="push"></div>
+      <div class="firma">${firmaBlock}</div>
+    </div>`;
+
+  const html = pdfDocument({
+    title: 'Autorización de Fabricación de Manguera',
+    subtitle: `${esc(h.code)} · ${dmy(h.service_date)} · Estado: ${esc(PAYMENT_LBL[h.payment_status] ?? h.payment_status)}`,
+    body,
+    extraCss,
+  });
+  return await exportPdf(html, `Autorización de manguera ${h.code}`);
 }
