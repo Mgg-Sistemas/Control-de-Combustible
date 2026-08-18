@@ -196,6 +196,11 @@ export interface Machinery {
   width_m?: number | null;          // ancho (m)
   height_m?: number | null;         // alto (m)
   transport_status?: 'operativa' | 'para_reparacion' | 'chatarra' | null; // estado para transporte
+  // Lubricación — bloque de la FICHA TÉCNICA que pidió el cliente (18-ago-2026).
+  // Se edita en Control de Maquinaria y se imprime en machineServiceReport.ts.
+  oil_type?: string | null;        // tipo de aceite recomendado del motor
+  oil_capacity_l?: number | null;  // cantidad requerida, en litros
+  oil_notes?: string | null;       // nota libre, para lo que no se mide en litros
   created_at: string;
 }
 
@@ -996,6 +1001,42 @@ export interface MachineryRepair {
   created_by: string | null;
   closed_by: string | null;
   created_at: string;
+}
+
+// ── Servicio de Maquinaria ───────────────────────────────────────────────────
+// Registro de lo que se le hizo a una máquina, con el formato del formulario en
+// papel del cliente. SIN DINERO: este módulo no lleva costos ni pagos.
+// La lógica vive en `src/lib/machineService.ts`; el PDF, en `machineServiceReport.ts`.
+export type MachineryServiceOrigen = 'interno' | 'externo';
+
+export interface MachineryServiceOrder {
+  id: string;
+  machinery_id: string;
+  /** La avería que atiende. Apuntar a ella NO la modifica: el módulo no escribe
+   *  en `maintenance_requests`. Ver la frontera en `machineService.ts`. */
+  maintenance_request_id: string | null;
+  service_date: string;             // AAAA-MM-DD
+  origen: MachineryServiceOrigen | string;
+  technician: string | null;        // «Operador / Técnico» (interno)
+  provider: string | null;          // persona o taller externo
+  /** 'mecanica' | 'electricidad' | 'mangueras' | 'servicio' — se puede marcar varias. */
+  intervenciones: string[];
+  problem: string | null;           // «Descripción del problema»
+  work_done: string | null;         // «Acciones realizadas»
+  photos: string[];
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface MachineryServicePart {
+  id: string;
+  service_order_id: string;
+  quantity: number | null;
+  description: string;
+  estado: string | null;            // Nuevo | Usado | Reparado | Reacondicionado (sin candado en la base)
+  /** Conserva el orden en que se cargaron los renglones. */
+  position: number;
 }
 
 // Rol dinámico creado desde Usuarios: define qué módulos ve (clave → nivel).
