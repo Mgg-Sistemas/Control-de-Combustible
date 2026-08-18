@@ -1668,6 +1668,40 @@ que antes no quedaban:
 Se filtra por **día**, por **usuario** y por **tipo**. Tocando un renglón se ve el detalle
 completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 
+> **🚜 Retiros y "en espera" — ahora sí quedan registrados (18/08/2026):** el cliente reportó que
+> no veía **quién retiraba una máquina** ni **quién la ponía o la sacaba de "en espera"**. Era
+> cierto, y por dos motivos distintos:
+>
+> - **"En espera" no se guardaba en ninguna parte.** Ese interruptor se cambia desde **cinco**
+>   pantallas (Equipos, Control de Maquinaria al sacar y al reingresar, el panel QR del
+>   Coordinador, y Mantenimiento al cerrar una reparación). Todas escribían directo, sin dejar
+>   rastro, y el vigilante que lo habría capturado solo (`trg_audit` sobre `machinery`) estaba
+>   **apagado** desde antes del 10/08/2026.
+> - **"Retirar" sí se guardaba, pero en otro sitio y solo la última vez.** Queda en la ficha de la
+>   máquina, dentro de **Equipos** — no en Auditoría — y como es un campo de la máquina y no un
+>   historial, **se sobrescribe**: si una máquina se retira y se reactiva tres veces, solo
+>   sobrevive la última.
+>
+> Se encendió el vigilante de `machinery` (es un **catálogo** de ~200 filas que se editan de vez en
+> cuando, así que no pesa). Desde ahora cada retiro, reactivación y cambio de "en espera" queda con
+> **quién, cuándo y el antes/después**.
+>
+> **Y se lee en cristiano.** Antes la sección "Cambios" mostraba el nombre técnico de la columna:
+> `en_espera: false → true`. Ahora dice **"En espera: no → sí"**, **"Activa: sí → no"**, **"Fecha
+> de salida: ∅ → 18/08/2026"**. Además el cambio se ve **en la propia lista**, sin tener que abrir
+> renglón por renglón: si fueron más de dos campos, se muestran los dos primeros y un **"+N más"**.
+> Vale igual para el **PDF**.
+>
+> **Dos límites que conviene tener claros:**
+> - **No recupera el pasado.** Lo que se hizo antes de encenderlo no quedó registrado y no se puede
+>   reconstruir. Sirve de aquí en adelante.
+> - **Las jornadas siguen sin registrarse.** El vigilante de `machine_rounds` se apagó el
+>   09/08/2026 porque el sistema se estaba cayendo: los automatismos escriben esa tabla cada 10
+>   minutos por cada una de las ~173 máquinas, y eso generaba entre 15 y 20 mil renglones de
+>   bitácora **al día**. Mientras siga apagado, **ningún cambio de horas de jornada deja rastro**.
+>   La salida es un vigilante que solo registre cuando hay **una persona** detrás y deje pasar el
+>   ruido de los automatismos — pendiente de decisión.
+
 > **🔎 A qué se le hizo — más contexto (08/08/2026):** además de máquinas, empleados y usuarios, la
 > auditoría ahora también reconoce por **nombre** (no solo por ID) los **pagos de empresa** (nombre
 > de la empresa), los **ingresos de combustible** (proveedor), los **traslados** por **vehículo/
