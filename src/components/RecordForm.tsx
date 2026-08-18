@@ -377,7 +377,23 @@ export function RecordForm({
                     value={values[f.key]}
                     onChange={(v) => set(f.key, v)}
                     placeholder={f.placeholder ?? 'Seleccionar…'}
-                    clearLabel="— Sin empresa (general)"
+                    // Requerido → sin opción "vaciar" (obliga a elegir/crear uno).
+                    clearLabel={f.required ? undefined : '— Sin empresa (general)'}
+                    // Con `createColumn` el desplegable es BUSCABLE y permite AGREGAR uno
+                    // nuevo (crea la fila en la tabla y usa su id) si no existe todavía.
+                    allowCustom={!!f.createColumn}
+                    onCreate={f.createColumn ? async (text: string) => {
+                      const val = text.trim().toUpperCase(); // los nombres nuevos van en MAYÚSCULA
+                      const { data, error } = await supabase
+                        .from(f.table)
+                        .insert({ [f.createColumn as string]: val } as any)
+                        .select()
+                        .single();
+                      if (error || !data) return null;
+                      const opt = { label: val, value: (data as any).id };
+                      setLookups((prev) => ({ ...prev, [f.key]: [...(prev[f.key] ?? []), opt] }));
+                      return opt;
+                    } : undefined}
                   />
                 ) : f.type === 'lookup' ? (
                   <SearchSelect
@@ -634,6 +650,7 @@ function DropdownSelect({
   placeholder = 'Seleccionar…',
   clearLabel,
   allowCustom = false,
+  onCreate,
 }: {
   options: Option[];
   value?: string;
@@ -642,10 +659,14 @@ function DropdownSelect({
   clearLabel?: string;
   /** Permite escribir un valor NUEVO (no listado) desde el buscador. */
   allowCustom?: boolean;
+  /** Si se define, "➕ Agregar" CREA la fila (p. ej. un proveedor nuevo) y devuelve su
+   *  opción {label,value:id}; el valor elegido es ese id (no el texto). Para lookups. */
+  onCreate?: (text: string) => Promise<Option | null>;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState('');
   // Con allowCustom el valor puede no estar en la lista (texto libre): se muestra tal cual.
   const selected = options.find((o) => o.value === value) ?? (allowCustom && value ? { label: value, value } : undefined);
@@ -692,8 +713,23 @@ function DropdownSelect({
               </TouchableOpacity>
             ) : null}
             {canAddCustom ? (
-              <TouchableOpacity onPress={() => { onChange(customValue); close(); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>➕ Usar «{customValue}»</Text>
+              <TouchableOpacity
+                disabled={creating}
+                onPress={async () => {
+                  // Con onCreate (lookup): CREA la fila (proveedor) y usa su id. Sin él
+                  // (suggest de texto): usa el texto tal cual.
+                  if (onCreate) {
+                    setCreating(true);
+                    const opt = await onCreate(customValue);
+                    setCreating(false);
+                    if (opt) { onChange(opt.value); close(); }
+                    return;
+                  }
+                  onChange(customValue); close();
+                }}
+                style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>{creating ? 'Agregando…' : `➕ Agregar «${customValue}»`}</Text>
               </TouchableOpacity>
             ) : null}
             {allowCustom && query.trim().length > 0 && exists ? (

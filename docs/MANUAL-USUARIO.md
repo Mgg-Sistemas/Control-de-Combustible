@@ -2343,9 +2343,14 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
    con estado de pago **⏳ Pendiente por pagar** automáticamente.
 4. Cuando se instale, toca **"🔧 Marcar instalada"** en su tarjeta.
 5. Cuando el trabajo esté listo para cobrarse, toca **"📤 Enviar a autorización"**: pasa a
-   **📤 En proceso de autorización**. Solo desde ahí, quien tenga **Full control** puede tocar
-   **"✅ Aprobar y marcar pagado"**, que la deja en **✅ Pagado** y guarda **quién aprobó y
-   cuándo** (queda visible en la tarjeta: "Aprobado por … el …").
+   **📤 Pendiente por autorización**. Esto **genera una alerta (campana)** para los
+   administradores, igual que un requerimiento de compra. Solo desde ahí, quien tenga
+   **Full control** puede tocar **"✅ Aprobar y marcar pagado"**, que la deja en **✅ Pagado**
+   y guarda **quién aprobó y cuándo** (queda visible en la tarjeta: "Aprobado por … el …").
+   - 📄 **Autorización (PDF):** con la manguera en autorización o ya pagada aparece el botón
+     **"📄 Autorización (PDF)"**, que descarga un documento de la manguera con la **firma del
+     Director General (Jesús Lozada)** — para enviárselo a autorizar o archivarlo. Mientras no
+     esté pagada sale la línea para firmar a mano; una vez pagada, sale la firma escaneada.
 
 > No hay forma de **eliminar** un registro de manguera (ni botón ni permiso de borrado): el
 > historial completo se conserva a propósito.
