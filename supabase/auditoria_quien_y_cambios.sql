@@ -154,11 +154,27 @@ create policy mi_read on public.machine_inspectors for select to authenticated u
 create index if not exists idx_mo_assigned_by on public.machine_operators(assigned_by);
 
 -- ============================================================================
--- PENDIENTE DE DECISIÓN (NO aplicado): trg_audit en `machinery` está DESHABILITADO
--- (tgenabled='D') desde ANTES de esta sesión — ninguna migración de este archivo lo
--- tocó, y el sistema bloqueó automáticamente mi intento de reactivarlo sin
--- confirmación explícita del cliente (ver commit/conversación 2026-08-10). Mientras
--- siga apagado, ediciones del catálogo que NO sean inactivar/reactivar (referencia,
--- tarifa, etc.) no quedan en audit_log con antes/después. Reactivarlo:
+-- RESUELTO el 18-ago-2026: trg_audit en `machinery` YA ESTÁ ENCENDIDO.
+--
+-- Estuvo en tgenabled='D' desde antes del 10-ago-2026. Se detectó porque el
+-- cliente reportó que la bitácora no mostraba quién RETIRABA una máquina ni
+-- quién la ponía EN ESPERA — y en efecto no lo mostraba: `en_espera` se cambia
+-- desde cinco pantallas (EquiposScreen, ControlMaquinariaScreen ×2,
+-- CoordinadorQrPanel, MantenimientoMaquinariaScreen), todas con un update
+-- directo, y sin el trigger no quedaba rastro en ninguna parte.
+--
+-- Encendido por el cliente con:
 --   alter table public.machinery enable trigger trg_audit;
+--
+-- Es barato: `machinery` es un CATÁLOGO (~200 filas que se editan de vez en
+-- cuando), nada que ver con el volumen que obligó a apagar el de jornadas.
+-- Para volver atrás:  alter table public.machinery disable trigger trg_audit;
+--
+-- ⚠️ SIGUE APAGADO el de `machine_rounds` (tgenabled='D' desde el 09-ago-2026,
+--    misma fecha que audit_perf_indexes.sql, cuando el sistema se caía por el
+--    volumen: los crons la escriben cada 10 min por ~173 máquinas). Consecuencia
+--    viva: NINGÚN cambio de jornada deja rastro desde entonces. Encenderlo tal
+--    cual repetiría la caída; la salida es un trigger que solo registre cuando
+--    hay una persona detrás (auth.uid() is not null), que deja pasar el ruido
+--    de los crons. Pendiente de decisión del cliente.
 -- ============================================================================
