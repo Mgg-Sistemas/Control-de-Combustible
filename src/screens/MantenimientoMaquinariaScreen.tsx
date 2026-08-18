@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import ServicioRegistroTab from './ServicioRegistroTab';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -56,7 +57,7 @@ type Mach = { id: string; code: string; tipo: string | null; clasificacion: stri
 // (machine_rounds). Se muestra en la pestaña Horómetros junto a las horas acumuladas.
 type HoroRound = { reading: number | null; at: string | null; operator: string | null; inicial: number | null; final: number | null; photo: string | null };
 
-type Tab = 'averias' | 'reparacion' | 'historial' | 'horometros' | 'reporte';
+type Tab = 'averias' | 'reparacion' | 'historial' | 'horometros' | 'reporte' | 'servicios';
 
 // ── LAS DOS SECCIONES ────────────────────────────────────────────────────────
 // El taller se ve en dos apartados separados, porque son dos trabajos distintos
@@ -741,7 +742,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
             arregla, queda el registro en el Historial. MANTENIMIENTO conserva su
             pestaña de taller intacta (es su forma de trabajar el preventivo). */}
         {((esServicio
-          ? [['averias', `⏳ Averías (${pendientes})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
+          ? [['averias', `⏳ Averías (${pendientes})`], ['servicios', '🧾 Servicios'], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
           : [['horometros', '⏱️ Horómetros'], ['reparacion', `🧰 En mantenimiento (${enRepCount})`], ['historial', '✓ Historial']]
         ) as [Tab, string][]).map(([k, label]) => {
           const on = tab === k;
@@ -834,6 +835,8 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
 
       {loading ? (
         <Loading />
+      ) : tab === 'servicios' ? (
+        <ServicioRegistroTab machines={machines} reqs={reqs} canWrite={canWrite} uid={uid} />
       ) : tab === 'averias' ? (
         averiaGroups.length === 0 ? (
           <EmptyState title="Sin averías pendientes" subtitle={canWrite ? 'Cuando un operador reporte una avería, aparecerá aquí por máquina. También puedes cargarla a mano con “➕ Registrar avería”.' : 'Cuando un operador reporte una avería, aparecerá aquí por máquina.'} />
