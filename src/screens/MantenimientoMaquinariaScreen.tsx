@@ -400,6 +400,15 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     // Reparada: reinicia la base (acumulado → 0) Y limpia el arrastre "requiere
     // mantenimiento" (horometro_maint_pending). Es la ÚNICA forma de sacar una
     // máquina vencida de la lista.
+    //
+    // ⚠️ EXCEPCIÓN DELIBERADA A LA FRONTERA — no borrar creyendo que se escapó.
+    // Este módulo dejó de escribir en `machinery` (se le quitaron `operational` y
+    // `en_espera` el 18-ago-2026), MENOS acá: el cliente lo pidió expreso — «lo de
+    // los horómetros que sí funcione». Es la lógica del ciclo de mantenimiento.
+    // Ojo con el alcance: `horometro_base` lo leen también `machineHoursReport.ts`
+    // (horas acumuladas = last_horometro − horometro_base) y el panel de Supervisión,
+    // así que confirmar un mantenimiento reinicia ese contador en los dos.
+    // Ver docs/superpowers/specs/2026-08-18-servicio-maquinaria-design.md
     const { error } = await supabase.from('machinery').update({ horometro_base: m.last_horometro, horometro_maint_pending: false }).eq('id', m.id);
     setConfirmingHoro(null);
     if (error) return toast.error(error.message);
@@ -581,10 +590,15 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       estimated_note: nota, work_done: rWork.trim() || null,
       status: 'en_reparacion', created_by: uid,
     };
-    const [{ error: e1 }, { error: e2 }] = await Promise.all([
-      supabase.from('machinery_repairs').insert(payload),
-      supabase.from('machinery').update({ operational: false }).eq('id', target.id),
-    ]);
+    // ⚠️ LA FRONTERA (pedido del cliente, 18-ago-2026). Acá ANTES se ponía
+    // `machinery.operational = false`. Ya no: este módulo no mueve el estado de la
+    // flota. Quien saca una máquina de operación es Control de Maquinaria.
+    // El marcador "MÁQUINA PARADA" de más abajo SÍ se conserva — eso es un REPORTE,
+    // no el estado de la máquina, y es lo que la hace visible en Inspecciones.
+    // Va junto con el `operational: true` que se quitó de `registrarRetorno`: los
+    // dos se fueron a la vez, así el módulo nunca pone un estado que después
+    // tendría que deshacer.
+    const { error: e1 } = await supabase.from('machinery_repairs').insert(payload);
     // Además del expediente de reparación, deja el marcador "MÁQUINA PARADA" (igual
     // que el inspector desde el teléfono): sin esto, la máquina queda "No operativa
     // en todo el sistema" (ver aviso del modal) pero NO se refleja en Inspecciones,
@@ -602,9 +616,9 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         })).error
       : null);
     setBusy(null);
-    // No aborta el cierre/recarga en error parcial: machinery_repairs/machinery ya
-    // pudieron haberse guardado — reintentar con el modal abierto duplicaría el expediente.
-    if (e1 || e2 || e3) toast.error((e1?.message || e2?.message || e3?.message) as string);
+    // No aborta el cierre/recarga en error parcial: el expediente ya pudo haberse
+    // guardado — reintentar con el modal abierto lo duplicaría.
+    if (e1 || e3) toast.error((e1?.message || e3?.message) as string);
     setRepFor(null);
     await load();
     // La pestaña de taller SOLO existe en Mantenimiento: en Servicio se sacó el
@@ -625,14 +639,23 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     // pendiente de esta máquina (mismo criterio de "cierre doble" que resolverParadaVieja
     // y volverOperativa) — si no, la avería que originó el envío a reparación se quedaría
     // pendiente para siempre en Mantenimiento aunque la máquina ya volvió operativa.
-    const [{ error: e1 }, { error: e2 }, { error: e3 }, { error: e4 }] = await Promise.all([
+    // ⚠️ LA FRONTERA (pedido del cliente, 18-ago-2026). Acá ANTES se ponía
+    // `machinery.operational = true, en_espera = false`. Ya no: este módulo no
+    // reactiva máquinas. La reactiva el coordinador desde el panel QR o Control de
+    // Maquinaria, que son los que de verdad la ven. Se quitó junto con el
+    // `operational: false` de `enviarReparacion` — los dos a la vez, para que el
+    // módulo no deje un estado a medias.
+    //
+    // Los cierres de `maintenance_requests` SÍ se conservan: son el REPORTE, no el
+    // estado, y son justo lo que evita que las averías se acumulen para siempre —
+    // que es el problema que el cliente quería resolver.
+    const [{ error: e1 }, { error: e3 }, { error: e4 }] = await Promise.all([
       supabase.from('machinery_repairs').update({ status: 'operativa', back_at: retBack, work_done: retWork.trim(), closed_by: uid }).eq('id', retFor.id),
-      supabase.from('machinery').update({ operational: true, en_espera: false }).eq('id', retFor.machinery_id),
       supabase.from('maintenance_requests').update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso }).eq('machinery_id', retFor.machinery_id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
       supabase.from('maintenance_requests').update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso }).eq('machinery_id', retFor.machinery_id).neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]);
     setBusy(null);
-    if (e1 || e2 || e3 || e4) return toast.error((e1?.message || e2?.message || e3?.message || e4?.message) as string);
+    if (e1 || e3 || e4) return toast.error((e1?.message || e3?.message || e4?.message) as string);
     setRetFor(null);
     await load();
   };
@@ -1343,7 +1366,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Qué se le va a cambiar? (opcional, se puede llenar al volver)</Text>
                 <TextInput value={rWork} onChangeText={setRWork} placeholder="Ej. cambio de bomba hidráulica…" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 60 }} />
 
-                <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.sm }}>⚠️ Al enviar, la máquina queda marcada como “No operativa” en todo el sistema.</Text>
+                <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.sm }}>⚠️ Esto abre el expediente y la deja reportada como parada en Inspecciones, pero NO cambia el estado de la máquina. Para ponerla No operativa: Control de Maquinaria.</Text>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
                   <TouchableOpacity onPress={() => setRepFor(null)} style={{ flex: 1, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
