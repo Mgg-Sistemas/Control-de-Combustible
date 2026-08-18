@@ -1176,6 +1176,32 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 > hay que **sacarla de ese estado** (botón "✅ Ya se decidió" en su detalle, ver 4.4). Cualquiera de
 > los dos caminos saca a la máquina del bloqueo.
 
+> **🟢 Iniciar desde el QR ya deja constancia (18/08/2026):** el cliente reportó una máquina
+> **iniciada a las 11:30 según la Auditoría** que en **Inspecciones seguía saliendo ⏳ pendiente**.
+> Era cierto, y pasaba con **todas** las jornadas arrancadas desde el **QR del operador** o el
+> **carnet del inspector**: ese camino guardaba nombre, cédula y horómetro, pero **no guardaba que
+> la jornada había arrancado**. Como Inspecciones se fija justamente en ese dato, la máquina salía
+> como si nunca hubiera empezado — con el operador trabajando. Desde el 1 de julio le pasó a
+> **1.410 rondas**; la mayoría se tapaba sola cuando el sistema les bancaba las horas al cerrar, y
+> por eso el problema no saltaba a la vista.
+>
+> Ya quedó arreglado, y con una ventaja: **los dos caminos de inicio ahora usan la misma regla**
+> (antes cada uno tenía la suya). Esa regla es la de siempre, sin cambios:
+> - El turno de **día arranca a las 7:00am** y el de **noche a las 7:00pm**. Si se marca **dentro
+>   del margen** (hasta las 9:00am / 9:00pm), la jornada se **ancla al arranque del turno** aunque
+>   se marque un poco más tarde → cuenta el turno completo.
+> - Si se marca **fuera del margen**, conserva la **hora real** y se registra el retraso: no se le
+>   regalan 12 horas a una marca muy tardía.
+> - Una jornada de **noche** iniciada **pasada la medianoche** pertenece a la noche que arrancó
+>   **ayer** a las 7pm, no al día nuevo.
+>
+> **También se corrigió un estado pegado:** una ronda que nace sin horas queda marcada "parada", y
+> al arrancar la jornada nadie la devolvía a **operativa** — quedaban rondas con la jornada abierta
+> y el estado en "parada" al mismo tiempo. Importa porque **Control de Pagos lee ese estado**.
+>
+> **Nada de esto borra ni cambia lo ya registrado:** solo se completan campos que antes quedaban
+> vacíos. Las jornadas viejas conservan sus horas tal cual.
+
 > El inspector marca desde **"Mis máquinas asignadas"** (las que se asignó con **✅ CHECK MÁQUINA**)
 > o escaneando el QR físico. El check-in aparece de inmediato en el módulo **Inspecciones**
 > (Traza por inspector) y **valida la jornada**.
@@ -1667,6 +1693,40 @@ que antes no quedaban:
 
 Se filtra por **día**, por **usuario** y por **tipo**. Tocando un renglón se ve el detalle
 completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
+
+> **🚜 Retiros y "en espera" — ahora sí quedan registrados (18/08/2026):** el cliente reportó que
+> no veía **quién retiraba una máquina** ni **quién la ponía o la sacaba de "en espera"**. Era
+> cierto, y por dos motivos distintos:
+>
+> - **"En espera" no se guardaba en ninguna parte.** Ese interruptor se cambia desde **cinco**
+>   pantallas (Equipos, Control de Maquinaria al sacar y al reingresar, el panel QR del
+>   Coordinador, y Mantenimiento al cerrar una reparación). Todas escribían directo, sin dejar
+>   rastro, y el vigilante que lo habría capturado solo (`trg_audit` sobre `machinery`) estaba
+>   **apagado** desde antes del 10/08/2026.
+> - **"Retirar" sí se guardaba, pero en otro sitio y solo la última vez.** Queda en la ficha de la
+>   máquina, dentro de **Equipos** — no en Auditoría — y como es un campo de la máquina y no un
+>   historial, **se sobrescribe**: si una máquina se retira y se reactiva tres veces, solo
+>   sobrevive la última.
+>
+> Se encendió el vigilante de `machinery` (es un **catálogo** de ~200 filas que se editan de vez en
+> cuando, así que no pesa). Desde ahora cada retiro, reactivación y cambio de "en espera" queda con
+> **quién, cuándo y el antes/después**.
+>
+> **Y se lee en cristiano.** Antes la sección "Cambios" mostraba el nombre técnico de la columna:
+> `en_espera: false → true`. Ahora dice **"En espera: no → sí"**, **"Activa: sí → no"**, **"Fecha
+> de salida: ∅ → 18/08/2026"**. Además el cambio se ve **en la propia lista**, sin tener que abrir
+> renglón por renglón: si fueron más de dos campos, se muestran los dos primeros y un **"+N más"**.
+> Vale igual para el **PDF**.
+>
+> **Dos límites que conviene tener claros:**
+> - **No recupera el pasado.** Lo que se hizo antes de encenderlo no quedó registrado y no se puede
+>   reconstruir. Sirve de aquí en adelante.
+> - **Las jornadas siguen sin registrarse.** El vigilante de `machine_rounds` se apagó el
+>   09/08/2026 porque el sistema se estaba cayendo: los automatismos escriben esa tabla cada 10
+>   minutos por cada una de las ~173 máquinas, y eso generaba entre 15 y 20 mil renglones de
+>   bitácora **al día**. Mientras siga apagado, **ningún cambio de horas de jornada deja rastro**.
+>   La salida es un vigilante que solo registre cuando hay **una persona** detrás y deje pasar el
+>   ruido de los automatismos — pendiente de decisión.
 
 > **🔎 A qué se le hizo — más contexto (08/08/2026):** además de máquinas, empleados y usuarios, la
 > auditoría ahora también reconoce por **nombre** (no solo por ID) los **pagos de empresa** (nombre

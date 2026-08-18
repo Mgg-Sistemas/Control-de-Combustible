@@ -4,7 +4,6 @@
 // operador no tiene teléfono). Así las reglas viven en UN solo lugar.
 import { supabase } from './supabase';
 import { upsertMachineRound } from './machineRounds';
-import { businessRoundDateOf } from './caracasDay';
 import { OperatorAssignment } from '../types/database';
 import { norm } from './text';
 
@@ -64,68 +63,6 @@ export function horaFinJornada(shift: 'day' | 'night', horasTrabajadas: number):
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ap}`;
 }
 
-/** Lo que hay que escribir en `machine_rounds` para que una jornada quede INICIADA. */
-export type InicioJornada = {
-  /** `round_date` de NEGOCIO (no de calendario): una noche que cruzó la medianoche
-   *  pertenece al día en que arrancó a las 7pm, no al siguiente. */
-  roundDate: string;
-  /** `jornada_start_at`: inicio NOMINAL del turno si marcó a tiempo; el declarado si no. */
-  startIso: string;
-  shift: 'day' | 'night';
-  /** Minutos de retraso sobre el margen (≤0 = marcó dentro). */
-  retrasoMin: number;
-  /** true = se ancló al arranque nominal del turno (7am/7pm). */
-  anclada: boolean;
-};
-
-/**
- * REGLA ÚNICA DEL INICIO DE JORNADA — un solo lugar para todo el sistema.
- *
- * Extraída de `SupervisorScreen.iniciarJornada`, que era el único camino que la
- * aplicaba bien. `startJornada` (QR del operador / carnet del supervisor) ni siquiera
- * escribía `jornada_start_at`, así que 1.410 rondas desde el 01-jul-2026 quedaron
- * invisibles para el sistema: la máquina tenía operador y horómetro pero salía
- * "⏳ pendiente por iniciar" en Inspecciones (queja del cliente 18-ago-2026).
- * Centralizarla acá garantiza que los dos caminos escriban EXACTAMENTE lo mismo.
- *
- * Las dos reglas que aplica, ambas ya acordadas con el cliente:
- *  1. `round_date` de NEGOCIO (`businessRoundDateOf`): una jornada de NOCHE iniciada
- *     pasada la medianoche sigue perteneciendo a la noche que arrancó AYER a las 7pm.
- *     Usar la fecha de calendario creaba rondas "fantasma" (BUG 10-ago-2026).
- *  2. ANCLAJE AL TURNO (13-ago-2026): el turno de DÍA inicia siempre a las 7:00am y el
- *     de NOCHE a las 7:00pm. Si se marca DENTRO del margen (≤9:00am día / ≤9:00pm
- *     noche), la jornada se ancla al arranque nominal aunque se marque un poco más
- *     tarde → cuenta el turno completo. Fuera del margen conserva el inicio DECLARADO,
- *     para no regalarle 12 h a una marca muy tardía.
- *
- * Blindada por `scripts/test-inicio-jornada.mjs` (`npm run test:inicio`).
- *
- * @param declaredIso instante DECLARADO del inicio (ISO con offset de Caracas)
- * @param now instante de referencia (inyectable para poder probarlo)
- */
-export function calcularInicioJornada(p: {
-  declaredIso: string;
-  shift: 'day' | 'night';
-  now?: Date;
-}): InicioJornada {
-  const now = p.now ?? new Date();
-  const nowParts = caracasParts(now);
-  const roundDate = businessRoundDateOf(new Date(p.declaredIso), p.shift);
-  // Margen para marcar SIN alerta: 9:00am (día) / 9:00pm (noche). Si el turno de noche
-  // ya pasó la medianoche (hora < 6), el margen fue el del día anterior.
-  let limitDay = nowParts.iso;
-  if (p.shift === 'night' && nowParts.hour < 6) {
-    const d = new Date(`${nowParts.iso}T12:00:00-04:00`);
-    d.setUTCDate(d.getUTCDate() - 1);
-    limitDay = caracasParts(d).iso;
-  }
-  const limitIso = p.shift === 'night' ? `${limitDay}T21:00:00-04:00` : `${limitDay}T09:00:00-04:00`;
-  const retrasoMin = Math.round((now.getTime() - new Date(limitIso).getTime()) / 60000);
-  const nominalIso = p.shift === 'night' ? `${roundDate}T19:00:00-04:00` : `${roundDate}T07:00:00-04:00`;
-  const anclada = retrasoMin <= 0;
-  return { roundDate, startIso: anclada ? nominalIso : p.declaredIso, shift: p.shift, retrasoMin, anclada };
-}
-
 // Solo estos cargos (en nómina) pueden iniciar jornada en una máquina.
 export const OPERATOR_CARGOS = ['operador', 'chofer', 'servicios generales', 'obrero'];
 export const isOperatorCargo = (cargo?: string | null): boolean => {
@@ -148,10 +85,7 @@ export type StartJornadaInput = {
 };
 
 export type StartJornadaResult =
-  // `workDate` = fecha de CALENDARIO (la de `operator_assignments`). `roundDate` = fecha
-  // de NEGOCIO, la de `machine_rounds`: son distintas en una noche que cruzó la medianoche,
-  // y quien cierre la jornada debe usar `roundDate` o la partiría en dos rondas.
-  | { ok: true; assignment: OperatorAssignment | null; shift: { key: 'day' | 'night'; label: string }; startedAt: string; workDate: string; roundDate: string; horometroInicial: number }
+  | { ok: true; assignment: OperatorAssignment | null; shift: { key: 'day' | 'night'; label: string }; startedAt: string; workDate: string; horometroInicial: number }
   | { ok: false; error: string };
 
 /**
@@ -255,36 +189,14 @@ export async function startJornada(inp: StartJornadaInput): Promise<StartJornada
     .select()
     .single();
   // 2) Máquina "En obra" + 3) ronda con operador + horómetro inicial.
-  //
-  // ⚠️ LOS CAMPOS `jornada_*` SON OBLIGATORIOS, no adorno. Hasta el 18-ago-2026 este
-  // camino escribía SOLO operador y horómetro: la máquina quedaba con nombre, cédula y
-  // horómetro guardados, pero para toda la app NUNCA había arrancado. `clasificarEstadoTurno`
-  // mira exactamente `jornada_start_at`, `declared_day/night` (que el RPC deriva de
-  // `jornada_shift`) y las horas — nada más — así que caía en "⏳ pendiente por iniciar".
-  // Eran 1.410 rondas desde el 01-jul-2026. La regla del inicio se comparte con
-  // SupervisorScreen vía `calcularInicioJornada` para que los dos escriban IGUAL.
-  const ini = calcularInicioJornada({ declaredIso: now.toISOString(), shift: sh.key, now });
-  const jornadaPatch = {
-    jornada_start_at: ini.startIso,
-    jornada_shift: ini.shift,
-    jornada_marked_at: now.toISOString(),
-    jornada_marked_by: inp.recordedBy ?? null,
-    // La ronda nace en 'parada' cuando llega con 0 horas (lo pone el RPC). Arrancar una
-    // jornada la vuelve operativa: si no, el estado se queda pegado en "parada" con la
-    // jornada abierta — y Control de Pagos lee esa columna.
-    status: 'operativa' as const,
-  };
   const roundPatch: any = sh.key === 'day'
-    ? { ...jornadaPatch, day_operator: full, day_operator_ci: ci, horometro_inicial: hi, horometro_photo: inp.horometroPhoto ?? null }
-    : { ...jornadaPatch, night_operator: full, night_operator_ci: ci, horometro_inicial: hi, horometro_photo: inp.horometroPhoto ?? null };
+    ? { day_operator: full, day_operator_ci: ci, horometro_inicial: hi, horometro_photo: inp.horometroPhoto ?? null }
+    : { night_operator: full, night_operator_ci: ci, horometro_inicial: hi, horometro_photo: inp.horometroPhoto ?? null };
   const [{ error: e2 }, r3] = await Promise.all([
     supabase.from('machinery').update({ entry_at: now.toISOString(), entry_date: iso, exit_at: null, exit_date: null }).eq('id', inp.machineId),
-    // La ronda va a la fecha de NEGOCIO (`ini.roundDate`), no a la de calendario: una
-    // jornada de noche iniciada pasada la medianoche pertenece a la noche de AYER.
-    // `operator_assignments.work_date` sigue usando `iso` (calendario) a propósito.
-    upsertMachineRound(inp.machineId, ini.roundDate, roundPatch, inp.recordedBy ?? null),
+    upsertMachineRound(inp.machineId, iso, roundPatch, inp.recordedBy ?? null),
   ]);
   if (eAsg || e2 || r3.error) return { ok: false, error: (eAsg?.message || e2?.message || r3.error) as string };
 
-  return { ok: true, assignment: (asgRow as OperatorAssignment) ?? null, shift: sh, startedAt: ini.startIso, workDate: iso, roundDate: ini.roundDate, horometroInicial: hi };
+  return { ok: true, assignment: (asgRow as OperatorAssignment) ?? null, shift: sh, startedAt: now.toISOString(), workDate: iso, horometroInicial: hi };
 }

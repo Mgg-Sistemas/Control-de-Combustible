@@ -19,7 +19,7 @@ import QrScanner from '../components/QrScanner';
 import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
-import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts, calcularInicioJornada } from '../lib/jornada';
+import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
 import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
@@ -1681,13 +1681,31 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const nowParts = caracasParts(now);
     // Instante declarado del inicio (hoy, a la hora escrita).
     const declaredIso = `${today}T${hh}:${mm}:00-04:00`;
-    // Fecha de NEGOCIO de la ronda + anclaje al arranque nominal del turno. Las dos
-    // reglas viven ahora en `calcularInicioJornada` (src/lib/jornada.ts), COMPARTIDA con
-    // `startJornada` — el camino del QR del operador y del carnet del supervisor. Antes
-    // esta pantalla era la única que las aplicaba: el otro camino ni siquiera escribía
-    // `jornada_start_at`, y sus 1.410 rondas salían "⏳ pendiente" (cliente 18-ago-2026).
-    // El detalle de cada regla está documentado en la función.
-    const { roundDate, startIso, retrasoMin } = calcularInicioJornada({ declaredIso, shift: sh, now });
+    // Límite para declarar SIN alerta: 9:00am (día) / 9:00pm (noche). Si el turno de
+    // noche ya pasó la medianoche (hora < 6), el límite fue el día anterior.
+    let limitDay = today;
+    if (sh === 'night' && nowParts.hour < 6) {
+      const d = new Date(`${today}T12:00:00-04:00`); d.setUTCDate(d.getUTCDate() - 1);
+      limitDay = caracasParts(d).iso;
+    }
+    const limitIso = sh === 'night' ? `${limitDay}T21:00:00-04:00` : `${limitDay}T09:00:00-04:00`;
+    const retrasoMin = Math.round((now.getTime() - new Date(limitIso).getTime()) / 60000);
+    // round_date de NEGOCIO del inicio: una jornada de NOCHE iniciada (o reanudada
+    // tras una parada) YA pasada la medianoche (ej. 00:13am) sigue perteneciendo a
+    // la noche que arrancó AYER a las 7pm — usar `today` (calendario) aquí creaba un
+    // round "fantasma" del día de HOY con horas de noche residuales que después
+    // contaminaban la clasificación del turno noche de HOY (BUG real 10-ago-2026:
+    // máquinas mostradas "Cerradas" horas ANTES de que el turno noche empezara).
+    const roundDate = businessRoundDateOf(new Date(declaredIso), sh);
+    // REGLA (13-ago-2026): el turno DÍA inicia SIEMPRE a las 7:00am y el de NOCHE a las
+    // 7:00pm. Si el inspector marca DENTRO del margen (≤9:00am día / ≤9:00pm noche), la
+    // jornada se ANCLA al arranque NOMINAL del turno (7am/7pm) aunque la marque/declare un
+    // poco más tarde → cuenta el turno completo (12h al cerrar a las 7pm). Si marca FUERA
+    // del margen (retrasoMin>0, ej. 9am, 11am o JUMBO 320 a las 5:34pm), conserva el inicio
+    // DECLARADO → horas REALES + alerta (no se le regalan 12h a una marca muy tardía).
+    // Las paradas/averías siguen restando aparte, así que anclar a 7am no infla lo parado.
+    const nominalIso = sh === 'night' ? `${roundDate}T19:00:00-04:00` : `${roundDate}T07:00:00-04:00`;
+    const startIso = retrasoMin <= 0 ? nominalIso : declaredIso;
 
     setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');
