@@ -1041,7 +1041,9 @@ export interface HoseService {
   description: string | null;
   service_date: string; // YYYY-MM-DD
   cost_usd: number;
-  provider: string | null;
+  provider: string | null; // nombre del proveedor (espejo de supplier_id, para lista/reporte)
+  /** Proveedor real (catálogo suppliers) al que se le paga; genera la cuenta por pagar. */
+  supplier_id: string | null;
   install_status: HoseInstallStatus;
   payment_status: HosePaymentStatus;
   created_by: string | null;

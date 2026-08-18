@@ -188,7 +188,10 @@ export default function ManguerasScreen() {
     { key: 'description', label: 'Descripción del trabajo', type: 'textarea', placeholder: 'Detalle del trabajo realizado…' },
     { key: 'service_date', label: 'Fecha', type: 'date', required: true, defaultValue: new Date().toISOString().slice(0, 10) },
     { key: 'cost_usd', label: 'Costo (US$)', type: 'number', required: true },
-    { key: 'provider', label: 'Proveedor', type: 'suggest', table: 'hose_services', column: 'provider', dropdown: true },
+    // Proveedor REAL del catálogo (antes texto libre). Es a quién se le paga y con
+    // eso se genera la CUENTA POR PAGAR automática (trigger en BD). Se puede crear
+    // uno nuevo escribiéndolo. Obligatorio: cada manguera queda ligada a un proveedor.
+    { key: 'supplier_id', label: 'Proveedor (a quién se le paga)', type: 'lookup', table: 'suppliers', labelCol: 'name', createColumn: 'name', required: true },
     installStatusField,
   ];
 
@@ -409,6 +412,10 @@ export default function ManguerasScreen() {
                     </Text>
                   </View>
                   {h.provider ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏭 {h.provider}</Text> : null}
+                  {/* La cuenta por pagar se genera/sincroniza sola en la BD (trigger). */}
+                  {h.supplier_id && (Number(h.cost_usd) || 0) > 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>🧾 Cuenta por pagar {h.payment_status === 'pagado' ? 'saldada' : 'generada'} en Cuentas ({fmtUsd(h.cost_usd)})</Text>
+                  ) : null}
 
                   <Text style={{ color: colors.muted, fontSize: 11 }}>Registrado por {registradoPor} el {fmtFecha(h.created_at)}</Text>
                   {aprobadoPor ? (

@@ -2230,7 +2230,14 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 1. Toca **"+ Nueva manguera"**.
 2. Llena el **Código de la manguera** (la numeración física, ej. "87-AC"), elige la **Máquina**
    (buscador del catálogo de maquinaria existente), la **Descripción del trabajo**, la **Fecha**,
-   el **Costo (US$)** y el **Proveedor** (operador del taller que la hizo).
+   el **Costo (US$)** y el **Proveedor** (a quién se le paga).
+   - 💵 **Proveedor del catálogo:** el proveedor se **elige del catálogo de Proveedores** (puedes
+     crear uno nuevo escribiéndolo) y es **obligatorio**.
+   - 🧾 **Cuenta por pagar automática:** al guardar, el sistema **crea sola** una cuenta por pagar
+     al proveedor por el costo de la manguera, visible en **Más → Cuentas → Por pagar**. Queda
+     **sincronizada**: si cambias el costo se actualiza el monto, y cuando la manguera se marca
+     **✅ Pagada**, la cuenta se **salda** automáticamente. Convive con el flujo de aprobación
+     (Chelia) — es el mismo dato visto desde Cuentas.
    - 🏭 **Máquina o empresa externa (fuera de la flota):** si la manguera **no** es para una máquina
      de la flota, activa el interruptor **"Es para una máquina o empresa externa"**. Se oculta el
      selector de máquina y aparece un campo para **escribir libremente** el nombre de la máquina o
