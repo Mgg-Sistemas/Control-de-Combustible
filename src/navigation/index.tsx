@@ -401,6 +401,36 @@ function AsistenciaStack() {
   );
 }
 
+/** Rol LISTERO de viajes: sus módulos activos son SOLO el registro de viajes de
+ *  camiones, así que entra DIRECTO a esa pantalla en vez de pasar por "Más".
+ *  Su trabajo es un toque por cada regreso del camión — hacerle navegar un menú
+ *  para eso no tiene sentido.
+ *
+ *  Se exige que sea su ÚNICO módulo (mismo criterio que asistencia/inventario, y
+ *  NO el de lavado, que basta con tenerlo). Es a propósito: `viajes_camiones` lo
+ *  puede tener también un coordinador junto con otros módulos, y con la regla
+ *  laxa lo encerraríamos en una sola pantalla y perdería todo lo demás. */
+const VIAJES_MODULES = ['viajes_camiones'];
+function esRolViajes(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
+  return activos.length > 0 && activos.every((k) => VIAJES_MODULES.includes(k));
+}
+
+/** Panel del listero: su pantalla de viajes + Manual/Ajustes. Nada más. */
+function ViajesStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
+      {/* Pantalla RAÍZ: sin flecha (no hay a dónde volver) — "Cerrar sesión" ya
+          está en el header compartido. */}
+      <Stack.Screen name="ViajesHome" component={ViajesCamionesScreen} options={{ title: 'Viajes de camiones', headerLeft: () => null }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Pantalla "de inicio" dentro del árbol `tabs` para un rol PERSONALIZADO cuyos
  *  módulos son una MEZCLA (no calza en ningún panel dedicado ni en el combo
  *  100% combustible de `esRolCombustible`): entra por el PRIMER módulo que sí
@@ -827,7 +857,7 @@ const moreScreens = {
  *  (ver `pickTree` más abajo). `operador` es una pantalla suelta sin Stack/Tab,
  *  así que no tiene config de `linking` propia; `cocina` sí tiene su propio
  *  Stack (ver `CocinaStack`), con config de `linking` en `TREE_LINKING`. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina' | 'obrasPublicas' | 'lavadoMaquinaria';
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'coordOperadores' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina' | 'obrasPublicas' | 'lavadoMaquinaria' | 'viajesCamiones';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -888,6 +918,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   cocina: { CocinaHome: 'cocina', Comida: 'comida', Manual: 'manual', Ajustes: 'ajustes' },
   obrasPublicas: { ObrasPublicasHome: 'obras-publicas', Map: 'mapa' },
   lavadoMaquinaria: { LavadoHome: 'lavado-maquinaria', Manual: 'manual', Ajustes: 'ajustes' },
+  viajesCamiones: { ViajesHome: 'viajes-camiones-directo', Manual: 'manual', Ajustes: 'ajustes' },
 };
 
 /** URL "de inicio" de cada árbol (su pantalla raíz). Al entrar SIN deep link
@@ -909,6 +940,7 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   cocina: '/cocina',
   obrasPublicas: '/obras-publicas',
   lavadoMaquinaria: '/lavado-maquinaria',
+  viajesCamiones: '/viajes-camiones-directo',
 };
 
 /** Elige el árbol de navegación (y su pantalla) del usuario logueado, EN EL
@@ -979,6 +1011,8 @@ function pickTree(ctx: {
   if (appRole && role !== 'admin' && esRolInventario(appRole)) return { key: 'inventario', node: <InventarioStack /> };
   // Rol por módulos cuyo único acceso es el KIOSCO DE PLANTA: directo al Kiosco.
   if (appRole && role !== 'admin' && esRolFabricacionPlanta(appRole)) return { key: 'fabricacionPlanta', node: <FabricacionPlantaStack /> };
+  // Rol LISTERO: su único acceso es registrar viajes de camiones → directo a esa pantalla.
+  if (appRole && role !== 'admin' && esRolViajes(appRole)) return { key: 'viajesCamiones', node: <ViajesStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
   if (role === 'cocina') return { key: 'cocina', node: <CocinaStack /> };
