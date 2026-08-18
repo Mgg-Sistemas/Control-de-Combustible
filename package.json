@@ -57,15 +57,9 @@
     "test:empresa-grupo": "node scripts/test-empresa-grupo.mjs",
     "test:control": "node scripts/test-control-estado.mjs",
     "test:auditoria": "node scripts/test-auditoria-labels.mjs",
-<<<<<<< HEAD
     "test:inicio": "node scripts/test-inicio-jornada.mjs",
     "test:maquina": "node scripts/test-machine-label.mjs",
     "test:all": "node scripts/test-clasificacion.mjs && node scripts/test-horas-control.mjs && node scripts/test-reportes-paridad.mjs && node scripts/test-empresa-sync.mjs && node scripts/test-empresa-grupo.mjs && node scripts/test-control-estado.mjs && node scripts/test-cola-offline.mjs && node scripts/test-auditoria-labels.mjs && node scripts/test-inicio-jornada.mjs && node scripts/test-machine-label.mjs"
-=======
-    "test:all": "node scripts/test-clasificacion.mjs && node scripts/test-horas-control.mjs && node scripts/test-reportes-paridad.mjs && node scripts/test-empresa-sync.mjs && node scripts/test-empresa-grupo.mjs && node scripts/test-control-estado.mjs && node scripts/test-cola-offline.mjs && node scripts/test-auditoria-labels.mjs && node scripts/test-inicio-jornada.mjs && node scripts/test-machine-label.mjs",
-    "test:inicio": "node scripts/test-inicio-jornada.mjs",
-    "test:maquina": "node scripts/test-machine-label.mjs"
->>>>>>> dev
   },
   "private": true
 }
