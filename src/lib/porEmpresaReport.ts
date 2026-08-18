@@ -61,6 +61,10 @@ type Fila = {
   diaEnCurso: boolean; nocheEnCurso: boolean;
   // Total de horas del turno (para mostrar EN VERDE: p. ej. 7am–7pm = 12 h).
   diaHoras: number; nocheHoras: number;
+  // ¿Trabajó Y luego se averió/paró ese turno? → horario + hora de avería + motivo en rojo.
+  diaFault: boolean; nocheFault: boolean;
+  // Hora (Caracas) en que se averió ese turno (solo cuando trabajó y luego se averió).
+  diaBreakHora: string; nocheBreakHora: string;
   // Motivo de avería/parada (solo grupo 'averia') — se muestra EN LÍNEA en la fila.
   motivo: string;
   // Motivo de avería/parada SEPARADO por turno (POR TURNO: la parada de NOCHE no tapa
@@ -341,6 +345,40 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     if (grupo !== 'activa') return all;
     return all.filter((rr: any) => { const t = new Date(rr.created_at).getTime(); return t >= dayBoundStart && t <= dayBoundEnd; });
   };
+  // ¿Ese turno tiene una avería/parada VIGENTE? MISMA regla que Inspecciones/teléfono
+  // (`buildDaySets`/`clasificarEstadoTurno`) para que el ESTADO cuadre entre reportes:
+  //   · por turno (la marca pertenece al turno de la HORA en que se registró),
+  //   · SOS "siempre activo" nunca tiene avería/parada,
+  //   · REACTIVACIÓN: si la jornada de ESE turno (re)arrancó en/después de la marca, no cuenta,
+  //   · ARRASTRE: una marca de un día anterior solo cuenta si la máquina NO trabajó ese turno.
+  // (Antes el reporte usaba `motivoDe` crudo para decidir el estado: no aplicaba reactivación
+  // ni arrastre, así que veía avería donde el teléfono ya la había soltado, y viceversa.)
+  const turnoFault = (id: string, sh: 'day' | 'night', worked: boolean): boolean => {
+    if (siempreActivoIds.has(id)) return false;
+    const rows = mrByMachine.get(id) || [];
+    if (!rows.length) return false;
+    const r = roundBy.get(id);
+    const jStart = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
+    const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day' : null;
+    const openStart = (jStart != null && jShift === sh) ? jStart : null; // reactivación de ESE turno
+    return rows.some((m: any) => {
+      const t = new Date(m.created_at).getTime();
+      if (paradaShiftOf(t) !== sh) return false;
+      if (t > dayBoundEnd) return false;
+      if (openStart != null && openStart >= t) return false; // reactivada tras la marca
+      const arr = t < dayBoundStart;                          // arrastrada (día anterior)
+      return arr ? !worked : true;                            // arrastrada: solo si NO trabajó ese turno
+    });
+  };
+  // Hora (Caracas) en que se averió/paró ese turno = primer episodio de parada del turno
+  // dentro del día. Se muestra como "fin" cuando la máquina trabajó y luego se averió.
+  const breakHoraDe = (id: string, sh: 'day' | 'night'): string => {
+    const eps = (paradasByMachine.get(id) || [])
+      .filter((p) => paradaShiftOf(p.start) === sh && p.start >= dayBoundStart && p.start <= dayBoundEnd);
+    if (!eps.length) return '';
+    const first = eps.reduce((a, b) => (a.start <= b.start ? a : b));
+    return horaCaracas(new Date(first.start).toISOString());
+  };
   // Avería/motivo etiquetado por turno: "☀️ <día> · 🌙 <noche>" (solo los que existan).
   const averiaTxt = (id: string): string => {
     if (siempreActivoIds.has(id)) return ''; // SOS LA GUAIRA: nunca avería/parada
@@ -425,9 +463,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // jornada_shift si la fila no las trae). Día y noche NO se pisan entre sí.
     const declaredDay = (dFlag == null && nFlag == null) ? r?.jornada_shift === 'day' : dFlag === true;
     const declaredNight = (dFlag == null && nFlag == null) ? r?.jornada_shift === 'night' : nFlag === true;
-    // Avería/parada VIGENTE por turno (misma fuente que las columnas): día indep. de noche.
-    const diaMotivo = motivoDe(mrByMachine.get(id) || [], 'day');
-    const nocheMotivo = motivoDe(mrByMachine.get(id) || [], 'night');
+    // Avería/parada VIGENTE por turno con la MISMA regla que Inspecciones/teléfono
+    // (reactivación + arrastre-si-trabajó), no el `motivoDe` crudo — así el estado CUADRA.
+    const faultDia = turnoFault(id, 'day', dd > 0);
+    const faultNoche = turnoFault(id, 'night', nn > 0);
     // CLASIFICACIÓN en 4 grupos, evaluada POR TURNO (fuente de verdad = teléfono):
     //  · Un turno está ACTIVO/LIMPIO si trabajó horas O declaró jornada de ESE turno SIN
     //    avería/parada propia (→ finalizada, aunque haya cerrado en 0h — regla 14-ago-2026).
@@ -443,14 +482,17 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // Decisión en la función PURA (src/lib/empresaGrupo.ts), blindada por la matriz de
     // `npm run test:empresa-grupo` — misma regla por-turno que el teléfono.
     const grupo: Grupo = grupoEmpresaDe({
-      dia:   { worked: dd > 0, declared: declaredDay,   hasFault: !!diaMotivo },
-      noche: { worked: nn > 0, declared: declaredNight, hasFault: !!nocheMotivo },
-      hasFaultAny: !!averiaBase,
+      dia:   { worked: dd > 0, declared: declaredDay,   hasFault: faultDia },
+      noche: { worked: nn > 0, declared: declaredNight, hasFault: faultNoche },
+      hasFaultAny: faultDia || faultNoche,
       enEspera,
     });
-    // Solo las ACTIVAS muestran horario y suman a los totales; las averiadas van en 0.
-    const ddAct = grupo === 'activa' ? dd : 0;
-    const nnAct = grupo === 'activa' ? nn : 0;
+    // Las HORAS TRABAJADAS reales se muestran/suman SIEMPRE, aunque el turno haya quedado
+    // averiado (regla cliente 18-ago-2026: "mostrar las horas trabajadas, indicar la hora
+    // que se averió y marcarse como averiada" — no perder las horas de facturación). Las
+    // que no trabajaron nada quedan en 0 igual.
+    const ddAct = dd;
+    const nnAct = nn;
     const dayOpen = isToday && jShift === 'day' && jStart != null && jStartHoy;
     const nightOpen = isToday && jShift === 'night' && jStart != null && jStartHoy;
     totDayH = n2(totDayH + ddAct); totNightH = n2(totNightH + nnAct);
@@ -468,9 +510,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       diaFin: ddAct > 0 ? (dayOpen ? 'EN CURSO' : horaFinJornada('day', ddAct)) : '—',
       nocheIni: nnAct > 0 ? HORA_NOCHE_INI : '—',
       nocheFin: nnAct > 0 ? (nightOpen ? 'EN CURSO' : horaFinJornada('night', nnAct)) : '—',
-      diaEnCurso: ddAct > 0 && dayOpen,
-      nocheEnCurso: nnAct > 0 && nightOpen,
+      // Si el turno trabajó y LUEGO se averió, no está "en curso": su fin es la hora de avería.
+      diaEnCurso: ddAct > 0 && dayOpen && !faultDia,
+      nocheEnCurso: nnAct > 0 && nightOpen && !faultNoche,
       diaHoras: n2(ddAct), nocheHoras: n2(nnAct),
+      // ¿Trabajó Y luego se averió/paró ese turno? → se muestra horario + hora de avería + motivo.
+      diaFault: faultDia && dd > 0,
+      nocheFault: faultNoche && nn > 0,
+      diaBreakHora: (faultDia && dd > 0) ? breakHoraDe(id, 'day') : '',
+      nocheBreakHora: (faultNoche && nn > 0) ? breakHoraDe(id, 'night') : '',
       motivo: grupo === 'averia' ? averiaBase : '',
       // POR TURNO: motivo del DÍA y de la NOCHE por separado, para que la parada/avería
       // de un turno se muestre SOLO en su columna (antes el motivo abarcaba día+noche con
@@ -485,10 +533,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       // (sin avería/parada propia) y cerró en 0h → "Jornada finalizada (0 h)" (se pinta en
       // verde, no rojo, en colTurno). Así el día declarado sale finalizado aunque la noche
       // esté parada (y viceversa).
-      motivoDia: (siempreActivoIds.has(id) || !dayStarted) ? '' : (motivoDe(motRows(id, grupo), 'day')
-        || (dd <= 0 && declaredDay && !diaMotivo ? 'Jornada finalizada (0 h)' : '')),
-      motivoNoche: (siempreActivoIds.has(id) || !nightStarted) ? '' : (motivoDe(motRows(id, grupo), 'night')
-        || (nn <= 0 && declaredNight && !nocheMotivo ? 'Jornada finalizada (0 h)' : '')),
+      // El motivo (avería/parada) se muestra SOLO si el turno tiene una falla VIGENTE
+      // (faultDia/faultNoche, la misma regla del estado). Si no, y declaró y cerró 0h →
+      // "Jornada finalizada (0 h)" (verde). Así el estado y el motivo NUNCA se contradicen.
+      motivoDia: (siempreActivoIds.has(id) || !dayStarted) ? ''
+        : (faultDia ? (motivoDe(motRows(id, grupo), 'day') || 'Avería/parada')
+                    : (dd <= 0 && declaredDay ? 'Jornada finalizada (0 h)' : '')),
+      motivoNoche: (siempreActivoIds.has(id) || !nightStarted) ? ''
+        : (faultNoche ? (motivoDe(motRows(id, grupo), 'night') || 'Avería/parada')
+                      : (nn <= 0 && declaredNight ? 'Jornada finalizada (0 h)' : '')),
       cierreMotivo: grupo === 'activa' ? (cierreMotivoByMachine.get(id)?.motivo || '') : '',
       iniBy: nameById[r?.jornada_marked_by || ''] || '',
       cierreFinBy: nameById[cierreFinByMachine.get(id)?.id || ''] || '',
@@ -513,8 +566,18 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // horario; si estuvo parada/averiada, SU motivo (solo en esa columna); si no hubo nada, "—".
     // Antes las averiadas usaban colspan=2 (motivo abarcando día+noche) → una parada de NOCHE
     // hacía ver la máquina como "no trabajó todo el DÍA". Ahora cada turno es autónomo.
-    const colTurno = (worked: boolean, ini: string, fin: string, enCurso: boolean, horas: number, motivoTurno: string) =>
-      worked ? celda(ini, fin, enCurso, horas)
+    // Trabajó y luego se averió: horario (inicio → HORA DE AVERÍA en rojo · horas) + motivo.
+    const celdaAveriada = (ini: string, breakHora: string, finFallback: string, horas: number, motivoTurno: string) =>
+      `<td class="hr"><div class="ini">${esc(ini)}</div>` +
+      `<div class="fin" style="color:#B91C1C">🔴 ${esc(breakHora || finFallback)}</div>` +
+      `${horas > 0 ? `<div class="tot">${n2(horas)} h</div>` : ''}` +
+      `${motivoTurno ? `<div style="color:#B91C1C;font-size:8.5px;margin-top:1px">${esc(motivoTurno)}</div>` : ''}</td>`;
+    const colTurno = (worked: boolean, ini: string, fin: string, enCurso: boolean, horas: number, motivoTurno: string, fault: boolean, breakHora: string) =>
+      worked
+        ? (fault
+            // Trabajó Y se averió/paró: se muestran las horas trabajadas + la hora de avería.
+            ? celdaAveriada(ini, breakHora, fin, horas, motivoTurno)
+            : celda(ini, fin, enCurso, horas))
         : motivoTurno
           ? (/finalizada/i.test(motivoTurno)
               // Turno declarado limpio (finalizado, 0h): verde ✅, no es avería/parada.
@@ -523,8 +586,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
         : `<td class="hr">—</td>`;
     const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) => {
       const horario =
-        colTurno(f.diaHoras > 0, f.diaIni, f.diaFin, f.diaEnCurso, f.diaHoras, f.motivoDia) +
-        colTurno(f.nocheHoras > 0, f.nocheIni, f.nocheFin, f.nocheEnCurso, f.nocheHoras, f.motivoNoche);
+        colTurno(f.diaHoras > 0, f.diaIni, f.diaFin, f.diaEnCurso, f.diaHoras, f.motivoDia, f.diaFault, f.diaBreakHora) +
+        colTurno(f.nocheHoras > 0, f.nocheIni, f.nocheFin, f.nocheEnCurso, f.nocheHoras, f.motivoNoche, f.nocheFault, f.nocheBreakHora);
       // Cierre manual anticipado: el MOTIVO va bajo el nombre de la máquina (no rompe columnas).
       // Debajo, quién INICIÓ y quién FINALIZÓ la jornada (nombre y apellido) cuando aplique.
       const cierreNota = (f.cierreMotivo ? `<div style="color:#B45309;font-size:9px;margin-top:1px">📝 ${esc(f.cierreMotivo)}</div>` : '')
@@ -553,7 +616,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     out += `<div class="grp grp-ok">✅ Activas · ${activas.length}</div>`;
     out += activas.length ? tabla(activas) : '<p class="vacio">Sin máquinas activas este día.</p>';
     if (averias.length) {
-      out += `<div class="grp grp-aver">🔴 Averiadas / Paradas (en 0) · ${averias.length}</div>`;
+      out += `<div class="grp grp-aver">🔴 Averiadas / Paradas · ${averias.length}</div>`;
       out += tabla(averias);
     }
     if (esperas.length) {

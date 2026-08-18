@@ -66,16 +66,23 @@ const MACHS = [
   { id: 'm2', code: 'PALA PARADA',     serial: 'S2', plate: null, tipo: 'MARCA B', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
   { id: 'm3', code: 'EXCA TRABAJO',    serial: 'S3', plate: null, tipo: 'MARCA C', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
   { id: 'm4', code: 'JUMBO DIANOCHE',  serial: 'S4', plate: null, tipo: 'MARCA D', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
+  // m5: TRABAJÓ 8 h de día y LUEGO se averió (avería del mismo día) → AVERIADA, pero se
+  //     muestran las 8 h y la hora de avería (fix 18-ago-2026). Antes salía Activa.
+  { id: 'm5', code: 'PAYLOADER TRABMORE', serial: 'S5', plate: null, tipo: 'MARCA E', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
 ];
 const ROUNDS = [
   { machinery_id: 'm1', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
   { machinery_id: 'm2', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: null,  declared_day: null,  declared_night: null,  jornada_marked_by: null },
   { machinery_id: 'm3', day_hours: 12, night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
   { machinery_id: 'm4', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: false, jornada_marked_by: null },
+  { machinery_id: 'm5', day_hours: 8,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
 ];
 const MR = [
   { machinery_id: 'm2', material: 'MÁQUINA PARADA', notes: 'NO TRABAJÓ · sin operador', created_at: at(9),  status: 'pendiente', resolved_at: null },
   { machinery_id: 'm4', material: 'MÁQUINA PARADA', notes: 'NO TRABAJÓ DE NOCHE',        created_at: at(21), status: 'pendiente', resolved_at: null },
+  // m5: trabajó de día y a las 2pm se averió (par MÁQUINA PARADA + avería real, mismo evento).
+  { machinery_id: 'm5', material: 'MÁQUINA PARADA', notes: 'GATO HIDRÁULICO',            created_at: at(14), status: 'pendiente', resolved_at: null },
+  { machinery_id: 'm5', material: 'GATO HIDRÁULICO', notes: 'GATO HIDRÁULICO',           created_at: at(14), status: 'pendiente', resolved_at: null },
 ];
 
 // supabase: `from(t)` devuelve una cadena thenable (sirve tanto para
@@ -124,7 +131,7 @@ const grpCount = (label) => { const m = html.match(new RegExp(`${label} · (\\d+
 
 ok('el reporte se generó', html.length > 0);
 ok('ACTIVAS = 3 (declaró+0h + trabajó 12h + día limpio/noche parada)', grpCount('✅ Activas') === 3);
-ok('AVERIADAS/PARADAS = 1 (solo la parada real de ambos turnos)', grpCount('🔴 Averiadas / Paradas \\(en 0\\)') === 1);
+ok('AVERIADAS/PARADAS = 2 (parada real + trabajó-y-se-averió)', grpCount('🔴 Averiadas / Paradas') === 2);
 ok('la declaró+0h NO se rotula "Parada · jornada en 0"', !html.includes('Parada · jornada en 0'));
 ok('la declaró+0h se rotula "Jornada finalizada (0 h)"', html.includes('Jornada finalizada (0 h)'));
 ok('la máquina declarada aparece en el reporte', html.includes('RETRO DECLARADA'));
@@ -132,8 +139,12 @@ ok('la parada real aparece en el reporte', html.includes('PALA PARADA'));
 // El bug del 17-ago: día declarado limpio + noche parada → ACTIVA, no averiada.
 ok('día declarado + noche parada aparece en el reporte', html.includes('JUMBO DIANOCHE'));
 ok('la parada de NOCHE se sigue mostrando (en su columna)', /No trabaj/i.test(html));
+// El fix del 18-ago: trabajó y se averió → AVERIADA, pero muestra las horas + la hora de avería.
+ok('trabajó-y-se-averió aparece en el reporte', html.includes('PAYLOADER TRABMORE'));
+ok('trabajó-y-se-averió muestra sus 8 h trabajadas', html.includes('8 h'));
+ok('trabajó-y-se-averió muestra el motivo de avería (GATO)', /GATO/i.test(html));
 
-console.log(`\n  Activas: ${grpCount('✅ Activas')} · Averiadas/Paradas: ${grpCount('🔴 Averiadas / Paradas \\(en 0\\)')}`);
+console.log(`\n  Activas: ${grpCount('✅ Activas')} · Averiadas/Paradas: ${grpCount('🔴 Averiadas / Paradas')}`);
 if (fail) {
   console.log(`\n✗ ${fail} FALLO(S):\n` + failures.map((f) => `  · ${f}`).join('\n'));
   process.exit(1);

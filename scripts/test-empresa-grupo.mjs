@@ -42,11 +42,18 @@ eq('noche trabajó + día off', g(OFF, T(true, false, false), false), 'activa');
 eq('noche declaró limpio + día off', g(OFF, T(false, true, false), false), 'activa');
 eq('ambos trabajaron (full)', g(T(true, false, false), T(true, false, false), false), 'activa');
 
-// ── EL BUG: un turno limpio + el otro parado/averiado → ACTIVA (no averiada) ──
+// ── UN TURNO LIMPIO + el otro parado/averiado → ACTIVA (el turno limpio salva) ──
+// (bug 17-ago: una parada de un turno NO debe arrastrar TODA la máquina a averiadas).
 eq('día declaró limpio + NOCHE parada → activa', g(T(false, true, false), T(false, false, true), true), 'activa');
-eq('día trabajó + NOCHE avería → activa', g(T(true, false, false), T(false, false, true), true), 'activa');
+eq('día trabajó LIMPIO + NOCHE avería → activa', g(T(true, false, false), T(false, false, true), true), 'activa');
 eq('noche declaró limpio + DÍA avería → activa', g(T(false, false, true), T(false, true, false), true), 'activa');
-eq('día trabajó CON avería propia + noche off → activa (trabajó gana)', g(T(true, false, true), OFF, true), 'activa');
+
+// ── LA AVERÍA MANDA SOBRE EL TRABAJO (fix 18-ago-2026): un turno que trabajó y ADEMÁS
+//    tiene avería/parada PROPIA NO es "activo/limpio" — la máquina es AVERIADA (sus horas
+//    se muestran/suman aparte, pero el estado cuadra con Inspecciones/firma). ──────────
+eq('día trabajó CON avería propia + noche off → AVERIA (avería manda)', g(T(true, false, true), OFF, true), 'averia');
+eq('día trabajó CON avería propia + NOCHE trabajó limpio → activa (la noche limpia salva)', g(T(true, false, true), T(true, false, false), true), 'activa');
+eq('ambos turnos trabajaron CON avería propia → averia', g(T(true, false, true), T(true, false, true), true), 'averia');
 
 // ── AVERÍA: ningún turno limpio y hay avería/parada ──────────────────────────
 eq('día avería + noche off (nada limpio)', g(T(false, false, true), OFF, true), 'averia');

@@ -30,8 +30,16 @@ export type TurnoEmpresa = {
   hasFault: boolean;
 };
 
-/** ¿Un turno cuenta como "activo/limpio" (trabajó u declaró sin avería propia)? */
-export const turnoActivo = (t: TurnoEmpresa): boolean => t.worked || (t.declared && !t.hasFault);
+/**
+ * ¿Un turno cuenta como "activo/LIMPIO"? Trabajó u declaró jornada de ESE turno, PERO
+ * SIN avería/parada propia vigente. La avería MANDA sobre el trabajo (misma escalera que
+ * Inspecciones/teléfono `clasificarEstadoTurno`: avería > parada > trabajó): una máquina
+ * que arrancó en la mañana y se averió NO es "activa" — es AVERIADA (sus horas trabajadas
+ * se siguen mostrando/sumando aparte, pero el ESTADO es averiada). Antes `t.worked` ganaba
+ * aunque hubiera avería → el reporte por empresa la marcaba Activa mientras Inspecciones la
+ * marcaba Averiada (descuadre reportado 18-ago-2026).
+ */
+export const turnoActivo = (t: TurnoEmpresa): boolean => (t.worked || t.declared) && !t.hasFault;
 
 export function grupoEmpresaDe(params: {
   dia: TurnoEmpresa;
