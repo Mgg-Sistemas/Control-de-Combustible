@@ -141,6 +141,13 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'zona', label: 'A disposición de (Gobernación, FANB, CVM… o vacío si es propia)', type: 'suggest', table: 'machinery', column: 'zona' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
   { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
+  // LUBRICACIÓN — bloque de la FICHA TÉCNICA que pidió el cliente (18-ago-2026).
+  // No se usa para ningún cálculo: se imprime tal cual en el PDF de servicios
+  // (`machineServiceReport.ts`). Por eso la cantidad admite también una nota libre,
+  // para las máquinas que no se miden en litros.
+  { key: 'oil_type', label: 'Ficha técnica · Tipo de aceite del motor (15W-40…)', type: 'suggest', table: 'machinery', column: 'oil_type' },
+  { key: 'oil_capacity_l', label: 'Ficha técnica · Cantidad de aceite requerida (L)', type: 'number' },
+  { key: 'oil_notes', label: 'Ficha técnica · Nota de lubricación (si no se mide en litros)', type: 'text' },
   { key: 'con_tapa', label: '¿Tiene tapa?', type: 'switch' },
   { key: 'tapa_doble', label: '¿Doble tapa? (si no, es sencilla)', type: 'switch', showIf: (v) => v.con_tapa === 'true' },
 ];
