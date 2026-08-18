@@ -5,6 +5,7 @@ import { Field } from '../components/RecordForm';
 import { Badge } from '../components/ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { machineLabel } from '../lib/machineLabel';
 import { cmpText } from '../lib/text';
 
 const FUEL_OPTIONS = [
@@ -121,15 +122,22 @@ function DailyMachineLiters({ rows }: { rows: Dispatch[] }) {
   const maq = rows.filter((d) => (d as any).asset_kind === 'maquinaria');
   if (maq.length === 0) return null;
   const byDay = new Map<string, number>();
-  const byMachine = new Map<string, number>();
+  // Se agrupa por machinery_id, NO por `code`: el nombre se repite (hay tres máquinas
+  // llamadas "RETROEXCAVADORA") y agrupar por él mezclaba en una sola fila el consumo
+  // de equipos distintos. La etiqueta lleva la placa/serial para poder distinguirlos.
+  const byMachine = new Map<string, { label: string; litros: number }>();
   maq.forEach((d: any) => {
     const day = String(d.dispatch_date).slice(0, 10);
     byDay.set(day, (byDay.get(day) || 0) + (Number(d.liters) || 0));
-    const code = d.machine?.code || '—';
-    byMachine.set(code, (byMachine.get(code) || 0) + (Number(d.liters) || 0));
+    const id = String(d.machinery_id ?? '') || `sin-id:${d.machine?.code ?? '—'}`;
+    const prev = byMachine.get(id) ?? { label: machineLabel(d.machine) || '—', litros: 0 };
+    prev.litros += Number(d.liters) || 0;
+    byMachine.set(id, prev);
   });
   const days = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  const machines = Array.from(byMachine.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
+  const machines = Array.from(byMachine.entries())
+    .map(([id, v]) => [v.label, v.litros, id] as [string, number, string])
+    .sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
   const total = maq.reduce((s, d: any) => s + (Number(d.liters) || 0), 0);
   const box = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md } as const;
   const rowLine = { flexDirection: 'row' as const, justifyContent: 'space-between' as const, paddingVertical: 3, borderTopWidth: 1, borderTopColor: colors.border };
@@ -150,8 +158,8 @@ function DailyMachineLiters({ rows }: { rows: Dispatch[] }) {
       </View>
       <View style={box}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🚜 Litros por máquina</Text>
-        {machines.slice(0, 15).map(([code, l]) => (
-          <View key={code} style={rowLine}>
+        {machines.slice(0, 15).map(([code, l, id]) => (
+          <View key={id} style={rowLine}>
             <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{code}</Text>
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{fmt(l)} L</Text>
           </View>
@@ -202,7 +210,7 @@ export function DispatchesScreen() {
         title="Consumos / Despachos"
         table="dispatches"
         orderBy="dispatch_date"
-        select="*, machine:machinery_id(code)"
+        select="*, machine:machinery_id(code, plate, serial, identifier)"
         editable
         dateField="dispatch_date"
         headerExtra={(shown) => <DailyMachineLiters rows={shown} />}

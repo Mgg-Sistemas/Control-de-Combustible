@@ -15,6 +15,7 @@ import { levelMeets } from '../lib/permissions';
 import { useBcvRate, bsFromUsd, fmtUsd, fmtBs } from '../lib/bcv';
 import { HoseService, HoseInstallStatus, HosePaymentStatus } from '../types/database';
 import { generateHoseServiceReport } from '../lib/hoseServiceReport';
+import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../components/ToastProvider';
@@ -120,7 +121,9 @@ export default function ManguerasScreen() {
   const [machineQuery, setMachineQuery] = useState('');
 
   const machineFilterInfo = machineFilterId ? machineryMap[machineFilterId] : undefined;
-  const machineFilterLabel = machineFilterInfo?.code;
+  // Con placa/serial: hay tres maquinas llamadas "RETROEXCAVADORA" y este label
+  // encabeza el PDF de gasto en mangueras imputado a UNA de ellas.
+  const machineFilterLabel = etiquetaMaquina(machineFilterInfo) || undefined;
 
   const machineOptions = useMemo(() => {
     const q = norm(machineQuery);

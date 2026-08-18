@@ -86,6 +86,37 @@ Cuando una máquina o un vehículo **carga** combustible:
 Es la lista de **todas las máquinas**. Cada una tiene su ficha: nombre, empresa, foto,
 serial y estado.
 
+> **🆔 El nombre NO identifica a una máquina — la placa o el serial sí (18/08/2026):** el
+> nombre **se repite a propósito**. Hoy hay **tres** máquinas llamadas exactamente
+> `RETROEXCAVADORA` (identificadores **008**, **053** y **073**), y el sistema lo permite
+> porque lo que de verdad distingue a un equipo es su **placa** o su **serial** — de hecho son
+> los únicos datos que el sistema obliga a no repetir.
+>
+> **Esto causó una confusión real.** Un inspector sacó dos reportes del mismo día: en uno una
+> RETROEXCAVADORA salía **averiada**, en el otro una RETROEXCAVADORA salía con **9.34 horas
+> trabajadas**. Parecía que el sistema se contradecía. Los dos documentos estaban bien: eran
+> **dos máquinas distintas con el mismo nombre**. La averiada era la 053; la que trabajó, la 008.
+>
+> **Qué cambió:** donde antes se veía solo el nombre, ahora se ve **`NOMBRE · PLACA`** (o el
+> serial, o el identificador, en ese orden — la placa primero porque es lo que se usa para
+> asignar). Aplica en la ficha del trabajador, en la lista de máquinas del operador, en el
+> reporte de trazabilidad, en la asignación de inspectores, en el reporte del inspector y en la
+> bitácora de asignaciones.
+>
+> **Además se corrigieron dos sitios que sumaban mal**, y esto sí eran números equivocados, no
+> solo confusión:
+> - La **ficha del trabajador** agrupaba las horas **por nombre**: las horas de las tres
+>   RETROEXCAVADORAS caían en una sola fila.
+> - La tarjeta de **litros por máquina** agrupaba el combustible **por nombre**: mezclaba el
+>   consumo de equipos distintos.
+>
+> Ahora ambas agrupan por la **máquina real**, no por su nombre.
+>
+> **Y ya se puede buscar por placa o serial**, no solo por nombre — en la pantalla del operador
+> el buscador acepta los tres. Los PDF de trazabilidad también salen con nombre de archivo
+> distinto por máquina; antes tres equipos generaban tres archivos llamados igual y el último
+> pisaba a los anteriores.
+
 Cada máquina puede estar en **uno de cuatro estados**:
 - 🟢 **Operativa** — trabajando normal.
 - 🔴 **No operativa** — dañada o parada.
