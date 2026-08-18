@@ -54,7 +54,9 @@
     "test:reportes": "node scripts/test-reportes-paridad.mjs",
     "test:horas": "node scripts/test-horas-control.mjs",
     "test:empresa": "node scripts/test-empresa-sync.mjs",
-    "test:control": "node scripts/test-control-estado.mjs"
+    "test:empresa-grupo": "node scripts/test-empresa-grupo.mjs",
+    "test:control": "node scripts/test-control-estado.mjs",
+    "test:all": "node scripts/test-clasificacion.mjs && node scripts/test-horas-control.mjs && node scripts/test-reportes-paridad.mjs && node scripts/test-empresa-sync.mjs && node scripts/test-empresa-grupo.mjs && node scripts/test-control-estado.mjs && node scripts/test-cola-offline.mjs"
   },
   "private": true
 }
