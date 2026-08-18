@@ -113,6 +113,8 @@ export default function ManguerasScreen() {
   const [query, setQuery] = useState('');
   const [installFilter, setInstallFilter] = useState<'' | HoseInstallStatus>('');
   const [paymentFilter, setPaymentFilter] = useState<'' | HosePaymentStatus>('');
+  // Origen: '' todas · 'flota' solo máquinas internas · 'externa' solo externas.
+  const [originFilter, setOriginFilter] = useState<'' | 'flota' | 'externa'>('');
   const [machineFilterId, setMachineFilterId] = useState('');
   const [machineOpen, setMachineOpen] = useState(false);
   const [machineQuery, setMachineQuery] = useState('');
@@ -135,8 +137,9 @@ export default function ManguerasScreen() {
       .filter((h) => !q || norm(`${h.code} ${h.description ?? ''} ${h.provider ?? ''} ${h.external_client ?? ''}`).includes(q))
       .filter((h) => !installFilter || h.install_status === installFilter)
       .filter((h) => !paymentFilter || h.payment_status === paymentFilter)
+      .filter((h) => !originFilter || (originFilter === 'externa' ? !!h.is_external : !h.is_external))
       .filter((h) => !machineFilterId || h.machinery_id === machineFilterId);
-  }, [hoses, q, installFilter, paymentFilter, machineFilterId]);
+  }, [hoses, q, installFilter, paymentFilter, originFilter, machineFilterId]);
 
   // ── Totales / inversión (sobre la lista FILTRADA actual) ──────────────────
   const totals = useMemo(() => {
@@ -318,6 +321,20 @@ export default function ManguerasScreen() {
           </Card>
 
           <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar por código, descripción o proveedor…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
+
+          {/* Origen: separa las fabricaciones de la FLOTA de las de máquinas/empresas
+              EXTERNAS. Al elegir "Externas" se quita el filtro por equipo (las externas
+              no tienen máquina de la flota). */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+            {([{ key: '', label: 'Todas' }, { key: 'flota', label: '🚜 Flota' }, { key: 'externa', label: '🏭 Externas' }] as const).map((f) => {
+              const on = originFilter === f.key;
+              return (
+                <TouchableOpacity key={f.key || 'all'} onPress={() => { setOriginFilter(f.key); if (f.key === 'externa') { setMachineFilterId(''); setMachineQuery(''); } }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
             {INSTALL_FILTERS.map((f) => {
