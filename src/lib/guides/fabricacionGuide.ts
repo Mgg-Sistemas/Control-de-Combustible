@@ -70,7 +70,7 @@ export async function generateFabricacionGuide(): Promise<boolean> {
         mockupField('Descripción del trabajo', 'Manguera del brazo hidráulico (varias líneas)', true) +
         mockupField('Fecha', '06/08/2026', true) +
         mockupField('Costo (US$)', '85', true) +
-        mockupField('Proveedor', 'Hidra C.A.', true) +
+        mockupField('Proveedor (a quién se le paga)', 'Hidra C.A. (del catálogo)', true) +
         mockupBtn('Guardar', 'primary')
       )
     )
@@ -83,6 +83,8 @@ export async function generateFabricacionGuide(): Promise<boolean> {
         'Al **buscar la máquina** se muestran su **serial/placa**, la **empresa** y el **encargado** (además del código), y puedes filtrar por cualquiera de esos datos.',
         '🏭 Si la manguera es para una **máquina o empresa EXTERNA** (fuera de la flota), activa el interruptor **"Es para una máquina o empresa externa"**: se oculta el selector de máquina y escribes libremente el nombre de esa máquina/empresa. En la lista y el reporte sale marcada con 🏭 · Externa.',
         'La **Descripción del trabajo** es un campo de **varias líneas** (textarea): puedes escribir el detalle completo del trabajo.',
+        '💵 El **Proveedor** ahora se elige del **catálogo de Proveedores** (puedes crear uno nuevo escribiéndolo) y es **obligatorio**: es a quién se le paga.',
+        '🧾 **Cuenta por pagar automática:** al guardar la manguera, el sistema **crea sola** una cuenta por pagar al proveedor por el costo, visible en **Más → Cuentas (por pagar)**. Queda **sincronizada**: si cambias el costo se actualiza, y cuando la manguera se marca **✅ Pagada**, la cuenta se **salda** sola. Convive con el flujo de aprobación de Chelia (un solo dato, dos vistas).',
         'Con **✏️ Editar** corriges los datos mientras no esté pagada.',
         'El botón **🔧 Marcar instalada** pasa el estado de instalación de 🟡 En proceso a 🟢 Instalada.',
         'El botón **📤 Enviar a autorización** manda el pago de ⏳ Pendiente a 📤 En autorización.',
