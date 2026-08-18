@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
+import { fieldLabel, changesSummary } from '../lib/auditLabels';
 import { useAuth } from '../context/AuthContext';
 import { AuditLog } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -178,6 +179,7 @@ async function resolveTarget(table: string, rowId: string | null): Promise<strin
  * renders (tema / setState), así el memo es efectivo. */
 const AuditRowCard = React.memo(function AuditRowCard({ r, colors, onPress }: { r: AuditLog; colors: any; onPress: (r: AuditLog) => void }) {
   const a = ACTION_META[r.action] ?? { icon: '•', label: r.action.toLowerCase(), color: colors.muted };
+  const resumen = changesSummary(r.action, r.changes, fmtVal);
   return (
     <TouchableOpacity activeOpacity={0.7} onPress={() => onPress(r)}>
       <Card>
@@ -194,6 +196,8 @@ const AuditRowCard = React.memo(function AuditRowCard({ r, colors, onPress }: { 
               {!EVENT_ACTIONS.has(r.action) && (r.row_label || r.detail) ? <Text style={{ color: colors.muted, fontWeight: '700' }}> · {r.row_label || r.detail}</Text> : null}
               {r.action === 'UPDATE' && r.changes ? <Text style={{ color: colors.muted, fontSize: 12 }}> ({Object.keys(r.changes).length} cambio{Object.keys(r.changes).length === 1 ? '' : 's'})</Text> : null}
             </Text>
+            {/* Qué cambió, sin tener que abrir la fila (ej. "En espera: no → sí"). */}
+            {resumen ? <Text style={{ color: colors.text, fontSize: 12 }} numberOfLines={1}>{resumen}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}{r.device ? ` · ${r.device}` : ''}</Text>
           </View>
           <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>
@@ -579,9 +583,9 @@ export default function AuditScreen() {
         if (r.action === 'UPDATE') {
           const de = esc(fmtVal((v as any)?.de));
           const a = esc(fmtVal((v as any)?.a));
-          return `<div class="chg"><b>${esc(k)}</b>: <span class="del">${de}</span> → <span class="new">${a}</span></div>`;
+          return `<div class="chg"><b>${esc(fieldLabel(k))}</b>: <span class="del">${de}</span> → <span class="new">${a}</span></div>`;
         }
-        return `<div class="chg"><b>${esc(k)}</b>: ${esc(fmtVal(v))}</div>`;
+        return `<div class="chg"><b>${esc(fieldLabel(k))}</b>: ${esc(fmtVal(v))}</div>`;
       }).join('');
       const titulo = r.action === 'UPDATE' ? `${entries.length} cambio(s)` : r.action === 'INSERT' ? 'Datos creados' : 'Datos eliminados';
       return `<div class="chgbox"><div class="chgtit">${esc(titulo)}</div>${items}</div>`;
@@ -843,7 +847,7 @@ export default function AuditScreen() {
                       <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
                         {Object.entries(detail.changes).map(([k, v]) => (
                           <View key={k} style={{ marginBottom: 5 }}>
-                            <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{k}</Text>
+                            <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{fieldLabel(k)}</Text>
                             {detail.action === 'UPDATE' ? (
                               <Text style={{ color: colors.text, fontSize: 12 }}>
                                 <Text style={{ color: colors.danger }}>{fmtVal((v as any)?.de)}</Text>
