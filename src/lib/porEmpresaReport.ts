@@ -6,6 +6,7 @@ import { motivoParada } from './paradaMotivo';
 import { horarioNominal, horaFinJornada } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
+import { grupoEmpresaDe, GrupoEmpresa } from './empresaGrupo';
 
 /**
  * Reporte del DÍA por EMPRESA (PDF). Para las empresas elegidas (tipo check) y un
@@ -50,7 +51,7 @@ const horaCaracas = (iso: string | null): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso)); } catch { return '—'; }
 };
 
-type Grupo = 'activa' | 'averia' | 'espera' | 'pendiente';
+type Grupo = GrupoEmpresa;
 type Fila = {
   grupo: Grupo;
   code: string; modelo: string; serialPlaca: string; inspector: string;
@@ -438,14 +439,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     //  · averia    → NINGÚN turno activo/limpio y hay avería/parada.
     //  · espera    → "Esperando instrucciones" (en_espera) sin actividad ni ticket.
     //  · pendiente → sin actividad, sin avería/parada y sin declarar jornada.
-    const diaActiva = dd > 0 || (declaredDay && !diaMotivo);
-    const nocheActiva = nn > 0 || (declaredNight && !nocheMotivo);
-    const esActiva = diaActiva || nocheActiva;
     const enEspera = m?.en_espera === true;
-    const grupo: Grupo = esActiva ? 'activa'
-      : averiaBase ? 'averia'
-      : enEspera ? 'espera'
-      : 'pendiente';
+    // Decisión en la función PURA (src/lib/empresaGrupo.ts), blindada por la matriz de
+    // `npm run test:empresa-grupo` — misma regla por-turno que el teléfono.
+    const grupo: Grupo = grupoEmpresaDe({
+      dia:   { worked: dd > 0, declared: declaredDay,   hasFault: !!diaMotivo },
+      noche: { worked: nn > 0, declared: declaredNight, hasFault: !!nocheMotivo },
+      hasFaultAny: !!averiaBase,
+      enEspera,
+    });
     // Solo las ACTIVAS muestran horario y suman a los totales; las averiadas van en 0.
     const ddAct = grupo === 'activa' ? dd : 0;
     const nnAct = grupo === 'activa' ? nn : 0;
