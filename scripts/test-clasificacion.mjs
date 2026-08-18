@@ -176,6 +176,29 @@ eq('paradaShiftOf 02:00 = night', paradaShiftOf(iso(2)), 'night');
   const ds = run({ shift: 'night', assignments: [assign('N', 'juan', 'night')], maint: [maint('N', [2, 0], null, 1)] });
   eq('noche cruza medianoche averiada', arr(ds.averSet), ['N']);
 }
+// 16) FIX 17-ago: una máquina cubierta por el OTRO turno NO cuenta como pendiente del
+//     inspector. FRANK (día) con P1 trabajada de día y P2 solo con jornada de NOCHE en
+//     curso → P2 no es su pendiente (la cubre la noche) → eficiencia 100%, no 50%.
+{
+  const ds = run({ shift: 'day',
+    assignments: [assign('P1', 'frank', 'day'), assign('P2', 'frank', 'day')],
+    rounds: [round('P1', { day_hours: 8 }), round('P2', { jornada_shift: 'night', jornada_start_at: iso(19) })] });
+  eq('P2 activa en el otro turno (noche)', arr(ds.otroTurnoSet), ['P2']);
+  const c = classifyInspectorMachines({ machineryIds: ['P1', 'P2'], daySets: ds,
+    machInactiveSet: NOINACT, machHardInactiveSet: NOINACT, isVirtual: false });
+  eq('cubierta por otro turno fuera del universo', c.visibleIds.sort(), ['P1']);
+  eq('cubierta por otro turno no pendiente', c.pend.sort(), []);
+  eq('eficiencia 100% (el otro turno no la baja)', c.eficiencia, 100);
+}
+// 17) CONTRA-CASO: si el turno del inspector SÍ actuó (corrido día+noche), se queda.
+{
+  const ds = run({ shift: 'day', assignments: [assign('Q', 'frank', 'day')],
+    rounds: [round('Q', { day_hours: 8, night_hours: 6 })] });
+  const c = classifyInspectorMachines({ machineryIds: ['Q'], daySets: ds,
+    machInactiveSet: NOINACT, machHardInactiveSet: NOINACT, isVirtual: false });
+  eq('corrido: sigue visible e iniciada de día', c.ini.sort(), ['Q']);
+  eq('corrido: eficiencia 100', c.eficiencia, 100);
+}
 
 // ── BLINDAJE sync#3 (11-ago-2026): la ESCALERA ÚNICA `clasificarEstadoTurno` ────────
 // Todas las superficies (tarjetas, teléfono, reporte con firma) delegan aquí. Estos

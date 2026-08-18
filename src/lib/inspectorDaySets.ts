@@ -154,6 +154,9 @@ export type DaySets = {
   pendSet: Set<string>;
   anyOpenSet: Set<string>;
   activeNowSet: Set<string>;
+  /** Máquinas activas HOY en el OTRO turno (jornada abierta o con horas): no cuentan
+   *  como pendiente del inspector de este turno (la máquina está cubierta por el otro). */
+  otroTurnoSet: Set<string>;
 };
 
 /**
@@ -207,6 +210,13 @@ export function buildDaySets(params: {
   const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
   const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
   const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
+  // Máquina ACTIVA HOY en el OTRO turno (jornada abierta o con horas del turno contrario):
+  // la máquina SÍ está en uso hoy, solo que en el turno del OTRO inspector. Para el
+  // inspector de ESTE turno cuya máquina no arrancó (y cuyo turno ya cerró) NO es
+  // "pendiente por iniciar" — la máquina está cubierta por el otro turno (fix 17-ago-2026:
+  // FRANK de DÍA con la PAYLOADER en curso de NOCHE le salía pendiente y le bajaba el %).
+  const otherShift: 'day' | 'night' = shiftArg === 'day' ? 'night' : 'day';
+  const otroTurnoSet = new Set<string>();
   // Hora de inicio de la jornada ABIERTA de ESTE turno (shiftArg) — estrictamente
   // por-turno, A PROPÓSITO: `buildDaySets` es POR-TURNO AISLADO (día independiente de
   // noche) para no mezclar la eficiencia por inspector/turno de Inspecciones. Una
@@ -235,6 +245,7 @@ export function buildDaySets(params: {
   rounds.forEach((r) => {
     if (r.round_date !== selDay) return;
     if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
+    if (workedInShift(r, otherShift)) otroTurnoSet.add(r.machinery_id); // activa en el otro turno hoy
     if (declaredEnTurno(r)) declaredSet.add(r.machinery_id);
     if (r.jornada_start_at) {
       anyOpenSet.add(r.machinery_id);
@@ -347,7 +358,7 @@ export function buildDaySets(params: {
     pendSet.add(id);
   });
 
-  return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet, activeNowSet };
+  return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet, activeNowSet, otroTurnoSet };
 }
 
 export type InspectorClassification = {
@@ -368,7 +379,7 @@ export type InspectorClassification = {
  */
 export function classifyInspectorMachines(params: {
   machineryIds: Iterable<string>; // máquinas asignadas a este inspector en este turno (pueden venir repetidas)
-  daySets: Pick<DaySets, 'startedSet' | 'paradaSet' | 'averSet' | 'anyOpenSet'>;
+  daySets: Pick<DaySets, 'startedSet' | 'paradaSet' | 'averSet' | 'anyOpenSet' | 'otroTurnoSet'>;
   machInactiveSet: Set<string>;
   machHardInactiveSet: Set<string>;
   /** true = usuario de sistema (MAQUINAS FALTANTES / cajón sin inspector real):
@@ -377,8 +388,14 @@ export function classifyInspectorMachines(params: {
 }): InspectorClassification {
   const { daySets, machInactiveSet, machHardInactiveSet, isVirtual } = params;
   const ini: string[] = [], pend: string[] = [], par: string[] = [], ave: string[] = [];
+  // Una máquina cuyo turno de este inspector NO tuvo actividad (no avería/parada/iniciada)
+  // pero SÍ está activa hoy en el OTRO turno queda FUERA del universo del inspector: la
+  // máquina está cubierta (por el otro turno), así que no es su "pendiente por iniciar" ni
+  // le baja el % (fix 17-ago-2026). Si su turno SÍ actuó (avería/parada/iniciada), se queda.
+  const cubiertaPorOtroTurno = (id: string) =>
+    daySets.otroTurnoSet.has(id) && !daySets.averSet.has(id) && !daySets.paradaSet.has(id) && !daySets.startedSet.has(id);
   const visibleIds = Array.from(new Set(params.machineryIds)).filter(
-    (id) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || daySets.anyOpenSet.has(id)),
+    (id) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || daySets.anyOpenSet.has(id)) && !cubiertaPorOtroTurno(id),
   );
   visibleIds.forEach((id) => {
     if (daySets.averSet.has(id)) ave.push(id);

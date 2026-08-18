@@ -1259,7 +1259,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
-    const { startedSet, paradaSet, averSet, closedSet, anyOpenSet } = daySets;
+    const { startedSet, paradaSet, averSet, closedSet, anyOpenSet, otroTurnoSet } = daySets;
     const byName = new Map<string, { name: string; ids: Set<string>; code: Map<string, string> }>();
     assignments.filter((a) => a.shift === shift).forEach((a) => {
       const nm = a.inspector_name || '—';
@@ -1282,7 +1282,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // PENDIENTES sin tocar bajan el %).
       const { visibleIds, ini, pend, par, ave, eficiencia } = classifyInspectorMachines({
         machineryIds: e.ids,
-        daySets: { startedSet, paradaSet, averSet, anyOpenSet },
+        daySets: { startedSet, paradaSet, averSet, anyOpenSet, otroTurnoSet },
         machInactiveSet, machHardInactiveSet, isVirtual: isFaltantes,
       });
       // Ordena por CÓDIGO (los arreglos guardan IDs; el detalle se resuelve en el modal).
