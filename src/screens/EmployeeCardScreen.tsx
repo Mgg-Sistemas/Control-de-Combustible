@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { Screen, Card, Loading, SkeletonList } from '../components/ui';
 import { supabase } from '../lib/supabase';
+import { machineLabel } from '../lib/machineLabel';
 import { Employee } from '../types/database';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } from '../lib/carnet';
@@ -46,7 +47,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   const [refreshing, setRefreshing] = useState(false);
   const [emp, setEmp] = useState<(Employee & { companyName?: string }) | null>(null);
   // Horas trabajadas como operador (de operator_assignments, por cédula), agrupadas por máquina.
-  const [maquinas, setMaquinas] = useState<{ code: string; hours: number; jornadas: number }[]>([]);
+  const [maquinas, setMaquinas] = useState<{ id: string; code: string; hours: number; jornadas: number }[]>([]);
   const [totalHoras, setTotalHoras] = useState(0);
   // Historial de dotación/entregas (uniform_deliveries + inventory_movements de salida), más reciente primero.
   const [historial, setHistorial] = useState<{ id: string; date: string; tipo: string; detalle: string }[]>([]);
@@ -76,19 +77,23 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
 
     // Horas trabajadas: buscar jornadas por la cédula del empleado y agrupar por máquina.
     if (e?.cedula) {
+      // Se agrupa por machinery_id, NO por `code`: el nombre de la máquina se repite
+      // (hay tres llamadas "RETROEXCAVADORA") y agrupar por él sumaba en una sola fila
+      // las horas de máquinas distintas — en una ficha que se entrega. Se piden placa,
+      // serial e identificador para poder distinguirlas al mostrarlas.
       const { data: asg } = await supabase
         .from('operator_assignments')
-        .select('worked_hours, machinery:machinery_id(code)')
+        .select('machinery_id, worked_hours, machinery:machinery_id(code, plate, serial, identifier)')
         .eq('cedula', String(e.cedula).trim());
-      const acc = new Map<string, { code: string; hours: number; jornadas: number }>();
+      const acc = new Map<string, { id: string; code: string; hours: number; jornadas: number }>();
       let total = 0;
       (asg ?? []).forEach((r: any) => {
-        const code = r.machinery?.code ?? '—';
+        const id = String(r.machinery_id ?? '') || `sin-id:${r.machinery?.code ?? '—'}`;
         const h = Number(r.worked_hours) || 0;
         total += h;
-        const g = acc.get(code) ?? { code, hours: 0, jornadas: 0 };
+        const g = acc.get(id) ?? { id, code: machineLabel(r.machinery) || '—', hours: 0, jornadas: 0 };
         g.hours += h; g.jornadas += 1;
-        acc.set(code, g);
+        acc.set(id, g);
       });
       setMaquinas([...acc.values()].sort((a, b) => b.hours - a.hours));
       setTotalHoras(Math.round(total * 100) / 100);
@@ -239,7 +244,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
             <Text style={{ color: FICHA.brand, fontSize: 20, fontWeight: '900' }}>{totalHoras} h</Text>
           </View>
           {maquinas.map((m) => (
-            <View key={m.code} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+            <View key={m.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
               <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700' }}>🚜 {m.code}</Text>
               <Text style={{ color: FICHA.muted, fontSize: 13 }}>{m.jornadas} jornada(s) · <Text style={{ color: FICHA.text, fontWeight: '800' }}>{m.hours} h</Text></Text>
             </View>

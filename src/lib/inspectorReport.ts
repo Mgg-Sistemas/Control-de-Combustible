@@ -1,6 +1,7 @@
 import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf, nowStamp } from './pdf';
 import { cmpText, norm } from './text';
+import { machineLabel as etiquetaMaquina } from './machineLabel';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
@@ -664,7 +665,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       for (let i = 0; i < locs.length - 1; i++) {
         const prev = locs[i];
         const next = locs[i + 1];
-        trs.push(`<tr><td><b>${esc(m.code)}</b></td><td>${esc(prev.label)}</td><td>${esc(next.label)}</td><td class="coord">${esc(dmyHm(next.at))}</td></tr>`);
+        trs.push(`<tr><td><b>${esc(etiquetaMaquina(m))}</b></td><td>${esc(prev.label)}</td><td>${esc(next.label)}</td><td class="coord">${esc(dmyHm(next.at))}</td></tr>`);
       }
       return trs;
     });
@@ -893,7 +894,7 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
     const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo
       ? `<div class="mot">${esc(m.motivo)}</div>` : '';
     return `<div class="row">
-      <div class="rtop"><span class="code">${esc(m.code)}</span><span class="est" style="color:${em.color}">${esc(em.txt)}</span></div>
+      <div class="rtop"><span class="code">${esc(etiquetaMaquina(m))}</span><span class="est" style="color:${em.color}">${esc(em.txt)}</span></div>
       ${motivo}
       <div class="rnums">Trabajó ${shiftH}h · Parada ${r2(m.horasParada)}h · <b>Jornada ${jornada}h</b></div>
     </div>`;

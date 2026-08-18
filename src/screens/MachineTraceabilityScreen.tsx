@@ -9,6 +9,7 @@ import { Screen, Card, SectionTitle, EmptyState } from '../components/ui';
 import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
+import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { norm, cmpText } from '../lib/text';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -62,7 +63,10 @@ export default function MachineTraceabilityScreen({ route }: any) {
   const [machineOpen, setMachineOpen] = useState(false);
   const [machineQuery, setMachineQuery] = useState('');
   const machineInfo = machineId ? machinery.find((m) => m.id === machineId) : undefined;
-  const machineLabel = machineInfo?.code ?? '';
+  // Con la PLACA/SERIAL, no solo el nombre: hay tres maquinas llamadas
+  // "RETROEXCAVADORA" y este es justo el reporte donde el cliente confundio dos
+  // (18-ago-2026). Ademas evita que los tres PDF salgan con el mismo nombre de archivo.
+  const machineLabel = etiquetaMaquina(machineInfo) || '';
 
   const machineOptions = useMemo(() => {
     const q = norm(machineQuery);
