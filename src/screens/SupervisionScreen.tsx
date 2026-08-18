@@ -17,6 +17,7 @@ import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { horometroAlertaDe, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
+import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import InspectionsSummary from './redesign/InspectionsSummary'; // rediseño: dashboard analítico de inspecciones
 import CheckMaquinaModal from '../components/CheckMaquinaModal'; // mismo CHECK MÁQUINA del teléfono, autocontenido
@@ -1297,7 +1298,7 @@ export default function SupervisionScreen({ navigation }: any) {
                 return (
                   <>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
-                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, flex: 1 }} numberOfLines={1}>👮 Asignar inspector · 🚜 {assignFor.code}</Text>
+                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, flex: 1 }} numberOfLines={1}>👮 Asignar inspector · 🚜 {etiquetaMaquina(assignFor) || assignFor.code}</Text>
                       <TouchableOpacity onPress={() => setAssignFor(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                         <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 18 }}>✕</Text>
                       </TouchableOpacity>

@@ -7,6 +7,7 @@ import { DateField } from '../components/DateField';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
+import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { Machinery } from '../types/database';
 import { upsertMachineRound, getMachineRound } from '../lib/machineRounds';
 import { insertMachineDispatch } from '../lib/dispatches';
@@ -66,7 +67,7 @@ export default function OperatorScreen() {
   // Relee solo la LISTA de máquinas (sin tocar `sel` ni el formulario en curso):
   // se reutiliza en la carga inicial y en el refresco en tiempo real.
   const loadMachines = useCallback(async () => {
-    const mach = await selectAllRows('machinery', 'id, code, tipo, referencia, daily_consumption_l, operator_id, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, plate, serial, identifier, tipo, referencia, daily_consumption_l, operator_id, company:company_id(name)');
     const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as (Machinery & { companyName?: string })[];
     list.sort((a, b) => cmpText(a.code || '', b.code || ''));
     setMachines(list);
@@ -171,7 +172,10 @@ export default function OperatorScreen() {
 
   const pickList = machines.filter((m) => {
     const q = norm(pickQuery.trim());
-    return !q || [m.code, m.companyName, (m as any).tipo, (m as any).referencia].some((v) => norm(v).includes(q));
+    // Se busca tambien por PLACA, SERIAL e IDENTIFICADOR: el nombre se repite (hay tres
+    // "RETROEXCAVADORA") y es justo el dato que NO distingue una maquina de otra.
+    return !q || [m.code, (m as any).plate, (m as any).serial, (m as any).identifier,
+                  m.companyName, (m as any).tipo, (m as any).referencia].some((v) => norm(v).includes(q));
   });
 
   return (
@@ -195,7 +199,7 @@ export default function OperatorScreen() {
         <Text style={{ color: colors.muted, fontSize: 12 }}>Mi máquina</Text>
         {sel ? (
           <>
-            <Text style={{ color: colors.text, fontSize: 20, fontWeight: '800' }}>{sel.code}</Text>
+            <Text style={{ color: colors.text, fontSize: 20, fontWeight: '800' }}>{etiquetaMaquina(sel) || sel.code}</Text>
             <Text style={{ color: colors.muted, fontSize: 13 }}>
               {(sel.tipo || 'Sin tipo')}{sel.referencia ? ` · ${sel.referencia}` : ''} · {sel.companyName}
             </Text>
@@ -360,7 +364,7 @@ export default function OperatorScreen() {
             <SectionTitle>Elegir máquina</SectionTitle>
             <TouchableOpacity onPress={() => setPickerOpen(false)}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>Cerrar</Text></TouchableOpacity>
           </View>
-          <TextInput value={pickQuery} onChangeText={setPickQuery} placeholder="🔎 Buscar por código, tipo o empresa…" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={pickQuery} onChangeText={setPickQuery} placeholder="🔎 Buscar por nombre, placa, serial, tipo o empresa…" placeholderTextColor={colors.muted} style={input} />
           {mine.length > 0 ? (
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, fontWeight: '700' }}>Asignada(s) a ti</Text>
           ) : null}
@@ -370,7 +374,7 @@ export default function OperatorScreen() {
               const on = sel?.id === m.id;
               return (
                 <TouchableOpacity key={m.id} onPress={() => { setSel(m); setPickerOpen(false); }} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, marginBottom: spacing.xs }}>
-                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800' }}>{m.code}{assigned ? ' ⭐' : ''}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800' }}>{etiquetaMaquina(m) || m.code}{assigned ? ' ⭐' : ''}</Text>
                   <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName}</Text>
                 </TouchableOpacity>
               );
