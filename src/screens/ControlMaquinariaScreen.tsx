@@ -2769,6 +2769,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   const end = new Date(s.ended_at);
                   const fmtHM = (d: Date) => d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
                   const hoursTxt = `${s.hours > 0 ? '+' : ''}${s.hours} h`;
+                  // Un tramo `parada_*` con horas POSITIVAS es tiempo TRABAJADO que se cerró
+                  // por esa parada/avería (registrarParadaBase banca lo trabajado hasta la
+                  // marca). Etiquetarlo solo "Parada por avería" confunde ("sale 4h pero dice
+                  // parada"); si trabajó, se aclara que TRABAJÓ y LUEGO paró.
+                  const esParada = s.source === 'parada_averia' || s.source === 'parada_no_trabajo';
+                  const srcLabel = esParada && s.hours > 0
+                    ? (s.source === 'parada_averia' ? '🔧 Trabajó · luego paró por avería' : '📍 Trabajó · luego paró (no trabajó)')
+                    : (SEGMENT_SOURCE_LABEL[s.source] ?? s.source);
                   return (
                     <View key={s.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: spacing.sm, gap: 2 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2777,7 +2785,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                         </Text>
                         <Text style={{ color: s.hours < 0 ? colors.danger : colors.success, fontWeight: '800', fontSize: 13 }}>{hoursTxt}</Text>
                       </View>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>{SEGMENT_SOURCE_LABEL[s.source] ?? s.source} · {s.shift === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>{srcLabel} · {s.shift === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
                       {s.notes ? <Text style={{ color: colors.muted, fontSize: 11 }}>{s.notes}</Text> : null}
                     </View>
                   );
