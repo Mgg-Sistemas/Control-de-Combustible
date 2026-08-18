@@ -355,6 +355,14 @@ export function buildDaySets(params: {
     if (estado === 'parada') { paradaSet.add(id); return; }
     if (estado === 'iniciada') { startedSet.add(id); activeNowSet.add(id); return; }
     if (estado === 'cerrada') { startedSet.add(id); closedSet.add(id); return; }
+    // "Pendiente por iniciar" — SALVO que la máquina esté ACTIVA HOY en el OTRO turno
+    // (jornada abierta o con horas del turno contrario). Ahí NO es pendiente de ESTE
+    // inspector: la cubre el otro turno. Si no se excluye acá, la tarjeta KPI
+    // "Pendientes por iniciar" (que lee pendSet.size directo) la sigue contando aunque
+    // `classifyInspectorMachines` ya la saque del listado por inspector (fix 17-ago-2026:
+    // FRANK de DÍA con la PAYLOADER en curso de NOCHE seguía sumando 1 pendiente).
+    // El "corrido" (trabajó día + noche) NO cae acá: llega como iniciada/cerrada arriba.
+    if (otroTurnoSet.has(id)) return;
     pendSet.add(id);
   });
 
