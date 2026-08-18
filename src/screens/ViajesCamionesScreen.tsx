@@ -117,7 +117,13 @@ type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera';
 const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'retirada', 'espera'];
 // Estados "adversos": disparan el aviso no bloqueante al registrar un viaje Y
 // se EXCLUYEN de la alerta de "camión sin viaje" (legítimamente no viajan).
-const ESTADO_ADVERSO: EstadoConteo[] = ['averiada', 'parada', 'retirada'];
+// 'espera' entró el 18-ago-2026: una máquina EN ESPERA DE INSTRUCCIONES está
+// congelada por completo (no se le inicia jornada ni se le surte), así que
+// legítimamente no viaja — reclamarle "sin viaje reciente" a la jefa era ruido.
+// En el registro sirve de red: el listero ya no puede escogerla (ver
+// `trucksSeleccionables`), pero si se congela DESPUÉS de seleccionarla, pide
+// confirmación en vez de registrar el viaje en silencio.
+const ESTADO_ADVERSO: EstadoConteo[] = ['averiada', 'parada', 'retirada', 'espera'];
 
 type Preset = 'hoy' | 'semana' | 'mes' | 'rango' | 'dias';
 
@@ -223,13 +229,35 @@ export default function ViajesCamionesScreen() {
   const [pickEstadoSel, setPickEstadoSel] = useState<Set<EstadoConteo>>(new Set());
   const togglePickEstado = (e: EstadoConteo) =>
     setPickEstadoSel((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
+  // Camiones que se pueden ESCOGER para registrar un viaje (pedido del cliente,
+  // 18-ago-2026: "que no le salgan las retiradas a los listeros, ni las que
+  // están en espera de instrucciones"). Se sacan dos grupos:
+  //
+  //   · RETIRADAS → `operational === false`. Ojo con el nombre: la consulta ya
+  //     trae solo `active = true`, así que las retiradas de verdad ni llegan;
+  //     lo que esta pantalla rotula "retirada" en el chip de estado es la
+  //     máquina NO OPERATIVA (ver `truckEstadoConteo`). Son esas.
+  //   · EN ESPERA → `en_espera === true`. Una máquina en espera está congelada
+  //     por completo: no se le inicia jornada ni se le surte. Mal podría hacer
+  //     viajes, y tenerla en la lista solo se presta a registrar un viaje contra
+  //     el camión equivocado.
+  //
+  // Se filtra acá y no en la consulta a propósito: `allTrucks` lo siguen usando
+  // los paneles de la jefa (resumen, meta, alertas — todo detrás de `canFull`),
+  // que sí necesitan ver la flota completa.
+  const trucksSeleccionables = useMemo(
+    () => allTrucks.filter((t) => t.operational && !t.enEspera),
+    [allTrucks]
+  );
   const pickEstadoOptions = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
-    allTrucks.forEach((t) => { counts[truckEstadoConteo(t)] += 1; });
+    // Cuenta sobre la MISMA lista que se va a mostrar: si contara sobre
+    // `allTrucks` saldría un chip "retirada 3" que al tocarlo no muestra nada.
+    trucksSeleccionables.forEach((t) => { counts[truckEstadoConteo(t)] += 1; });
     return ESTADO_CONTEO_ORDER.map((key) => ({ key, count: counts[key] })).filter((o) => o.count > 0);
-  }, [allTrucks, estadoOf]);
+  }, [trucksSeleccionables, estadoOf]);
   const nqPick = norm(pickQuery.trim());
-  const pickFiltered = allTrucks.filter(
+  const pickFiltered = trucksSeleccionables.filter(
     (t) =>
       (pickEstadoSel.size === 0 || pickEstadoSel.has(truckEstadoConteo(t))) &&
       (!nqPick || [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName].some((f) => f != null && norm(String(f)).includes(nqPick)))
