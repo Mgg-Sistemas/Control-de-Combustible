@@ -252,7 +252,15 @@ update public.machine_rounds r
 
 
 -- ════════════════════════════════════════════════════════════════════════════
--- BLOQUE 6 · RELLENO 2/2 — lo que no tuvo check-in, desde la asignación de hoy
+-- BLOQUE 6 · ⛔ NO CORRER — RELLENO 2/2 desde la asignación de hoy
+--
+-- ⛔ EL 17-ago-2026 SE CORRIÓ POR ERROR Y HUBO QUE DESHACERLO. Escribió ~2.990
+--    nombres de inspectores humanos sobre jornadas PASADAS, tomándolos de la
+--    asignación de HOY. Caso concreto y comprobado: rondas del 16/08 que fueron
+--    de CESAR FLAMES quedaron firmadas por JOSE CARDONA, que recibió esas
+--    máquinas el 17. Justo el daño que este archivo existe para evitar.
+--
+--    Si ya lo corriste, el arreglo está en el BLOQUE 6-DESHACER, más abajo.
 -- ════════════════════════════════════════════════════════════════════════════
 -- ⚠️ ESCRIBE. Esto es lo MEJOR DISPONIBLE, no la verdad: si esa máquina fue
 --    reasignada desde entonces, congelará al inspector equivocado. Por eso va
@@ -274,6 +282,31 @@ update public.machine_rounds r
  where mi.machinery_id = r.machinery_id
    and mi.shift = 'night' and mi.active = true
    and r.inspector_night is null;
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- BLOQUE 6-DESHACER · si el bloque 6 ya se corrió
+-- ════════════════════════════════════════════════════════════════════════════
+-- Borra lo congelado SOLO en días pasados y vuelve a derivarlo de los check-in.
+-- Es seguro: el BLOQUE 5 es determinista y solo lee `supervisor_visits`, que el
+-- bloque 6 nunca tocó, así que reproduce exactamente el estado bueno.
+--
+-- HOY NO SE TOCA a propósito: para el día en curso la asignación actual SÍ es la
+-- verdad, y ahí lo que escribió el bloque 6 está bien.
+--
+-- Paso 1 — limpiar el pasado:
+-- update public.machine_rounds
+--    set inspector_day = null, inspector_night = null
+--  where round_date < current_date;
+--
+-- Paso 2 — volver a correr el BLOQUE 5 completo, tal cual está arriba.
+--
+-- Paso 3 — verificar que la historia volvió (ajusta nombre y fecha):
+-- select count(*) as maquinas, round(sum(coalesce(day_hours,0))::numeric,2) as horas_dia
+-- from public.machine_rounds
+-- where round_date = date '2026-08-16' and inspector_day = 'CESAR FLAMES';
+--
+-- Resultado esperado el 17-ago-2026, ya comprobado: 16 máquinas · 146.72 h.
 
 
 -- ════════════════════════════════════════════════════════════════════════════
