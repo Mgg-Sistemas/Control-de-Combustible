@@ -184,6 +184,9 @@ eq('paradaShiftOf 02:00 = night', paradaShiftOf(iso(2)), 'night');
     assignments: [assign('P1', 'frank', 'day'), assign('P2', 'frank', 'day')],
     rounds: [round('P1', { day_hours: 8 }), round('P2', { jornada_shift: 'night', jornada_start_at: iso(19) })] });
   eq('P2 activa en el otro turno (noche)', arr(ds.otroTurnoSet), ['P2']);
+  // La tarjeta KPI "Pendientes por iniciar" lee pendSet.size DIRECTO: P2 NO debe estar
+  // (era el hueco real — el listado por inspector la sacaba pero el contador la sumaba).
+  eq('KPI: cubierta por otro turno fuera de pendSet', arr(ds.pendSet), []);
   const c = classifyInspectorMachines({ machineryIds: ['P1', 'P2'], daySets: ds,
     machInactiveSet: NOINACT, machHardInactiveSet: NOINACT, isVirtual: false });
   eq('cubierta por otro turno fuera del universo', c.visibleIds.sort(), ['P1']);
