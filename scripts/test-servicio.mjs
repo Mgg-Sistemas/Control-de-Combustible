@@ -162,6 +162,100 @@ console.log('SERVICIO DE MAQUINARIA\n');
   ok('los estados de repuesto son cuatro', ESTADOS_REPUESTO.length === 4, ESTADOS_REPUESTO.join(','));
 }
 
+// ── 8) El PDF: ficha técnica + reparaciones ───────────────────────────────
+{
+  // machineLabel.ts es puro → se carga de verdad, para que la prueba compruebe
+  // que las tres RETROEXCAVADORAS se distinguen también en el papel.
+  const lblMod = { exports: {} };
+  new Function('exports', 'module', transpilar('src/lib/machineLabel.ts'))(lblMod.exports, lblMod);
+
+  // `pdf.ts` arrastra react-native y expo-print, así que se sustituye por lo
+  // mínimo que el reporte usa: el membrete es un envoltorio, no lógica.
+  const fakeRequire = (id) => {
+    if (id.includes('machineLabel')) return lblMod.exports;
+    if (id.includes('machineService')) return mod.exports;
+    if (id.includes('pdf')) return {
+      pdfDocument: (o) => `<html><title>${o.title}</title><style>${o.extraCss || ''}</style>${o.body}</html>`,
+      exportPdf: async () => true,
+    };
+    throw new Error('import inesperado: ' + id);
+  };
+  const repMod = { exports: {} };
+  new Function('exports', 'module', 'require', transpilar('src/lib/machineServiceReport.ts'))(
+    repMod.exports, repMod, fakeRequire);
+  const { buildMachineServiceReportHtml } = repMod.exports;
+
+  const R053 = {
+    code: 'RETROEXCAVADORA', identifier: '053', serial: '5YN02894',
+    plate: 'SLP214TSWE0471955', marca: 'CAT', modelo: '320', tipo: 'Retroexcavadora',
+    photo_url: 'https://x/foto.jpg', companyName: 'Golden Touch 1127 C.A.',
+    oil_type: '15W-40', oil_capacity_l: 18, last_horometro: 1240, horometro_base: 1100,
+  };
+  const SRV = {
+    id: 's1', service_date: '2026-08-18', origen: 'interno', technician: 'José Pérez',
+    intervenciones: ['mecanica', 'mangueras'], problem: 'Manguera reventada',
+    work_done: 'Cambio de manguera y filtro',
+    parts: [{ quantity: 2, description: 'Manguera 3/4"', estado: 'Nuevo' }],
+  };
+
+  // ── Modo A: UNA máquina → lleva ficha técnica ──
+  const unaHtml = buildMachineServiceReportHtml({ maquinas: [{ m: R053, servicios: [SRV] }] });
+  ok('⭐ una máquina → sale la ficha técnica', /FICHA T[ÉE]CNICA/i.test(unaHtml));
+  ok('la ficha muestra la PLACA, que es lo que usan para asignar',
+    unaHtml.includes('SLP214TSWE0471955'));
+  ok('la ficha trae la foto de la máquina', unaHtml.includes('https://x/foto.jpg'));
+  ok('la ficha trae la lubricación del documento del cliente',
+    unaHtml.includes('15W-40') && unaHtml.includes('18 L'));
+  ok('la ficha calcula las horas acumuladas (1240 − 1100)', unaHtml.includes('140 h'));
+  ok('hay salto de página entre la ficha y las reparaciones',
+    /page-break-after\s*:\s*always/.test(unaHtml));
+  ok('el servicio sale con su repuesto', unaHtml.includes('Manguera 3/4&quot;') || unaHtml.includes('Manguera 3/4"'));
+  ok('el servicio dice quién lo hizo', unaHtml.includes('José Pérez'));
+  ok('las intervenciones salen con su nombre de papel', unaHtml.includes('Mangueras / Hidráulica'));
+  ok('hay líneas de firma', /Firma del T[ée]cnico/i.test(unaHtml) && /Firma Supervisor/i.test(unaHtml));
+  ok('⭐ el PDF NO habla de dinero',
+    !/costo|precio|monto|pagar/i.test(unaHtml.replace(/<[^>]+>/g, ' ')));
+
+  // ── Modo B: VARIAS máquinas → sin ficha ──
+  const R008 = { code: 'RETROEXCAVADORA', identifier: '008', serial: '92543.0', plate: null };
+  const variasHtml = buildMachineServiceReportHtml({
+    maquinas: [{ m: R053, servicios: [SRV] }, { m: R008, servicios: [SRV] }],
+  });
+  ok('⭐ varias máquinas → NO sale la ficha técnica', !/FICHA T[ÉE]CNICA/i.test(variasHtml));
+  ok('las dos RETROEXCAVADORAS se distinguen en el PDF',
+    variasHtml.includes('SLP214TSWE0471955') && variasHtml.includes('92543.0'));
+
+  // ── Casos de borde ──
+  ok('máquina sin servicios no rompe',
+    typeof buildMachineServiceReportHtml({ maquinas: [{ m: R053, servicios: [] }] }) === 'string');
+  ok('sin máquinas no rompe', typeof buildMachineServiceReportHtml({ maquinas: [] }) === 'string');
+  const sinFoto = buildMachineServiceReportHtml({
+    maquinas: [{ m: { code: 'VOLTEO', plate: 'A1' }, servicios: [SRV] }],
+  });
+  ok('máquina sin foto no deja un <img> roto', !/<img[^>]*src=["']["']/.test(sinFoto));
+  ok('máquina sin lubricación no imprime "undefined" ni "null"',
+    !/undefined|>null</.test(sinFoto.replace(/<[^>]+>/g, (t) => t)));
+
+  // ── Registros viejos de machinery_repairs ──
+  const viejo = { ...SRV, id: 'v1', esRegistroAnterior: true, parts: [], technician: null };
+  const mixto = buildMachineServiceReportHtml({ maquinas: [{ m: R053, servicios: [SRV, viejo] }] });
+  ok('los registros viejos salen marcados como tales', /registro anterior/i.test(mixto));
+
+  // ── El rango y la avería enlazada ──
+  const conRango = buildMachineServiceReportHtml({
+    maquinas: [{ m: R053, servicios: [{ ...SRV, averia: 'Avería del 16/08 · César Flames' }] }],
+    desde: '2026-08-01', hasta: '2026-08-18',
+  });
+  ok('el rango sale en el documento', conRango.includes('01/08/2026') && conRango.includes('18/08/2026'));
+  ok('la avería enlazada se imprime', conRango.includes('César Flames'));
+
+  // ── Inyección: un nombre con < > no rompe el HTML ──
+  const raro = buildMachineServiceReportHtml({
+    maquinas: [{ m: { code: '<script>x</script>', plate: 'B2' }, servicios: [SRV] }],
+  });
+  ok('el texto del usuario va escapado', !raro.includes('<script>x</script>'));
+}
+
 if (fail) {
   console.log(`✗ ${fail} FALLO(S):\n` + failures.map((f) => `  · ${f}`).join('\n'));
   process.exit(1);
