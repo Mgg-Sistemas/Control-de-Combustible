@@ -67,8 +67,9 @@ const MACHS = [
   { id: 'm2', code: 'PALA PARADA',     serial: 'S2', plate: null, tipo: 'MARCA B', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
   { id: 'm3', code: 'EXCA TRABAJO',    serial: 'S3', plate: null, tipo: 'MARCA C', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
   { id: 'm4', code: 'JUMBO DIANOCHE',  serial: 'S4', plate: null, tipo: 'MARCA D', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
-  // m5: TRABAJÓ 8 h de día y LUEGO se averió (avería del mismo día) → AVERIADA, pero se
-  //     muestran las 8 h y la hora de avería (fix 18-ago-2026). Antes salía Activa.
+  // m5: TRABAJÓ 8 h de día y LUEGO se averió (avería del mismo día) → ACTIVA (regla cliente
+  //     18-ago-2026: si el turno trabajó horas y luego se averió, CUENTA como que trabajó y
+  //     sus horas SUMAN). Se conserva la nota de avería (hora + motivo GATO) en su fila.
   { id: 'm5', code: 'PAYLOADER TRABMORE', serial: 'S5', plate: null, tipo: 'MARCA E', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
   // m6: avería ARRASTRADA de ayer + jornada REABIERTA hoy con jornada_shift NULL. La
   //     reactivación debe inferir el turno por la hora de inicio (8am = día) y SOLTAR la
@@ -140,8 +141,8 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
 const grpCount = (label) => { const m = html.match(new RegExp(`${label} · (\\d+)`)); return m ? Number(m[1]) : null; };
 
 ok('el reporte se generó', html.length > 0);
-ok('ACTIVAS = 4 (declaró+0h + trabajó 12h + día limpio/noche parada + reabierta null-shift)', grpCount('✅ Activas') === 4);
-ok('AVERIADAS/PARADAS = 2 (parada real + trabajó-y-se-averió)', grpCount('🔴 Averiadas / Paradas') === 2);
+ok('ACTIVAS = 5 (declaró+0h + trabajó 12h + día limpio/noche parada + reabierta null-shift + trabajó-y-se-averió)', grpCount('✅ Activas') === 5);
+ok('AVERIADAS/PARADAS = 1 (solo la parada real en 0 h)', grpCount('🔴 Averiadas / Paradas') === 1);
 // El fix del 18-ago: jornada reabierta con jornada_shift NULL infiere el turno y SUELTA la
 // avería arrastrada → ACTIVA. Sin la inferencia, m6 caía en Averiadas/Paradas (Activas=3).
 ok('reabierta null-shift aparece en el reporte', html.includes('RETRO REABIERTA'));
@@ -152,10 +153,14 @@ ok('la parada real aparece en el reporte', html.includes('PALA PARADA'));
 // El bug del 17-ago: día declarado limpio + noche parada → ACTIVA, no averiada.
 ok('día declarado + noche parada aparece en el reporte', html.includes('JUMBO DIANOCHE'));
 ok('la parada de NOCHE se sigue mostrando (en su columna)', /No trabaj/i.test(html));
-// El fix del 18-ago: trabajó y se averió → AVERIADA, pero muestra las horas + la hora de avería.
+// Regla cliente 18-ago: trabajó y LUEGO se averió → ACTIVA (cuenta como que trabajó),
+// pero conserva las horas + la hora de avería + el motivo en su fila.
 ok('trabajó-y-se-averió aparece en el reporte', html.includes('PAYLOADER TRABMORE'));
 ok('trabajó-y-se-averió muestra sus 8 h trabajadas', html.includes('8 h'));
 ok('trabajó-y-se-averió muestra el motivo de avería (GATO)', /GATO/i.test(html));
+// Y sus 8 h SUMAN en el total de horas de día (m3 12h + m5 8h = 20h).
+const dayTotal = (() => { const m = html.match(/Total horas día<\/div><div class="v">([\d.]+) H/); return m ? Number(m[1]) : null; })();
+ok('el total de horas día suma las 8 h de m5 (12+8=20)', dayTotal === 20);
 
 console.log(`\n  Activas: ${grpCount('✅ Activas')} · Averiadas/Paradas: ${grpCount('🔴 Averiadas / Paradas')}`);
 if (fail) {

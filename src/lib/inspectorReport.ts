@@ -60,12 +60,19 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null; cierreMotivo: string; cierreFinBy: string; iniBy: string };
+type IncidenteAveria = { tipo: 'averia' | 'parada'; hora: string; motivo: string };
+type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null; cierreMotivo: string; cierreFinBy: string; iniBy: string; incidenteAveria: IncidenteAveria | null };
 /** Hora (Caracas) "HH:MM am/pm" de un instante (ms). */
 const horaCaracasMs = (ms: number): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); } catch { return '—'; }
 };
 const horasDuracion = (min: number): string => (min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}` : `${min}min`);
+// Texto de la NOTA de incidente para una máquina que TRABAJÓ y LUEGO se averió/paró
+// (regla del cliente en reportes): "🔧 se averió a las HH:MM · motivo". Compartido por
+// el reporte del jefe y el recibo del teléfono para que digan lo mismo.
+type IncidenteAveriaLike = { tipo: 'averia' | 'parada'; hora: string; motivo: string };
+const notaIncidenteTxt = (inc: IncidenteAveriaLike): string =>
+  `${inc.tipo === 'averia' ? '🔧 se averió' : '🟡 se paró'} a las ${inc.hora}${inc.motivo ? ` · ${inc.motivo}` : ''}`;
 type EventoParada = { motivo: string; start: number; end: number | null };
 const ESTADO_META: Record<EstadoKey, { txt: string; color: string }> = {
   averia: { txt: '🔴 Averiada', color: '#B91C1C' },
@@ -376,15 +383,34 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       siempreActivo: false, // SOS se maneja vía los guardas de abajo (no cambia su estado)
       declaro: !siempreActivo && declaredShift,
     });
-    const estado: EstadoKey =
+    const estadoBruto: EstadoKey =
       estadoUnif === 'iniciada' ? 'encurso'
       : estadoUnif === 'cerrada' ? 'finalizada'
       : estadoUnif; // 'averia' | 'parada' | 'pendiente'
+    // Evento de avería/parada VIGENTE de este turno (según el estado BRUTO de la
+    // escalera). Sirve tanto para la nota como para la línea de tiempo / horas parada.
     const evParada: EventoParada | undefined =
-      estado === 'averia' ? (averHoyMot ?? averArrMot)
-      : estado === 'parada' ? (parHoy ?? parArrMot)
+      estadoBruto === 'averia' ? (averHoyMot ?? averArrMot)
+      : estadoBruto === 'parada' ? (parHoy ?? parArrMot)
       : undefined;
     const motivo = evParada?.motivo ?? '';
+    // ── REGLA DEL CLIENTE (SOLO ESTE REPORTE/RECIBO, no las vistas EN VIVO) ──────
+    // Una máquina cuyo turno TRABAJÓ HORAS (>0) y LUEGO se averió/paró debe contar
+    // como TRABAJÓ: sus horas SUMAN en los totales y NO va en el grupo "🔴 Averiadas
+    // / Paradas". El estado pasa a 'encurso' si la jornada de ese turno sigue abierta,
+    // o 'finalizada' si ya cerró. Solo los turnos con 0 horas + avería/parada quedan
+    // averiada/parada. Se conserva el incidente (hora + motivo) en un campo aparte
+    // (`incidenteAveria`) para mostrarlo como NOTA en la fila ("🔧 se averió a las
+    // HH:MM · motivo") aunque el estado sea ahora trabajó. NO se toca la escalera
+    // compartida `clasificarEstadoTurno` (las tarjetas en vivo SÍ deben seguir
+    // mostrando averiada/parada) — este OVERRIDE es local a los reportes.
+    const trabajoYLuegoIncidente = (estadoBruto === 'averia' || estadoBruto === 'parada') && hoursForShift > 0 && evParada != null;
+    const incidenteAveria: IncidenteAveria | null = trabajoYLuegoIncidente
+      ? { tipo: estadoBruto === 'averia' ? 'averia' : 'parada', hora: horaCaracasMs(evParada!.start), motivo: evParada!.motivo }
+      : null;
+    const estado: EstadoKey = trabajoYLuegoIncidente
+      ? (openForShift ? 'encurso' : 'finalizada')
+      : estadoBruto;
     // Línea de tiempo de ESTE turno: tramos trabajados de `machine_work_segments`
     // filtrados por turno (para no mezclar día con noche) + el episodio de
     // parada/avería vigente para este turno (si hay), en orden cronológico.
@@ -446,6 +472,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       cierreMotivo: cierreMotivoByMachine.get(id)?.motivo || '',
       cierreFinBy: nameById[cierreFinByMachine.get(id)?.id || ''] || '',
       iniBy: nameById[(rd as any)?.jornada_marked_by || ''] || '',
+      incidenteAveria,
     });
   };
 
@@ -559,7 +586,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
         : (m.estado === 'finalizada' && m.cierreMotivo)
           ? `<span style="color:#B45309;font-size:10px">📝 ${esc(m.cierreMotivo)}</span>`
           : '';
-      const motivoCell = [motivoBase, firmaCell].filter(Boolean).join('<br/>') || '—';
+      // NOTA del incidente para la máquina que TRABAJÓ y LUEGO se averió/paró: aunque
+      // su estado sea ahora trabajó (en curso/finalizada), se deja visible el marcador.
+      const incidenteNota = m.incidenteAveria
+        ? `<span style="color:${m.incidenteAveria.tipo === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(notaIncidenteTxt(m.incidenteAveria))}</span>`
+        : '';
+      const motivoCell = [motivoBase, incidenteNota, firmaCell].filter(Boolean).join('<br/>') || '—';
       // Horario: solo se muestra si la jornada de este turno inició (en curso) o dejó
       // horas trabajadas (finalizada, o avería/parada con trabajo parcial antes de parar).
       // Una máquina que nunca inició este turno (pendiente, sin horas) muestra "—".
@@ -842,9 +874,13 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
     const em = ESTADO_META[m.estado];
     const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo
       ? `<div class="mot">${esc(m.motivo)}</div>` : '';
+    // NOTA del incidente (trabajó y LUEGO se averió/paró): se conserva aunque el
+    // estado sea ahora trabajó — mismo texto que el reporte del jefe.
+    const incidente = m.incidenteAveria
+      ? `<div class="mot">${esc(notaIncidenteTxt(m.incidenteAveria))}</div>` : '';
     return `<div class="row">
       <div class="rtop"><span class="code">${esc(etiquetaMaquina(m))}</span><span class="est" style="color:${em.color}">${esc(em.txt)}</span></div>
-      ${motivo}
+      ${motivo}${incidente}
       <div class="rnums">Trabajó ${shiftH}h · Parada ${r2(m.horasParada)}h · <b>Jornada ${jornada}h</b></div>
     </div>`;
   }).join('');
