@@ -2237,6 +2237,10 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
      empresa externa. En la lista y en el reporte PDF sale marcada con **🏭 · Externa**.
    - La **Descripción del trabajo** es ahora un campo de **varias líneas**: escribe el detalle
      completo del trabajo (se desplaza si es largo).
+
+> **Filtrar por origen:** encima de los filtros de estado hay una fila **Todas / 🚜 Flota /
+> 🏭 Externas** para separar las mangueras de la flota de las de máquinas/empresas externas. Al
+> elegir **🏭 Externas** se limpia el filtro por equipo (las externas no tienen máquina de la flota).
 3. Deja el **Estado de instalación** en *En proceso* (o *Instalada*, si ya se montó). Guarda: queda
    con estado de pago **⏳ Pendiente por pagar** automáticamente.
 4. Cuando se instale, toca **"🔧 Marcar instalada"** en su tarjeta.

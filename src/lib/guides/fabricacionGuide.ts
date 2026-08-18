@@ -88,6 +88,7 @@ export async function generateFabricacionGuide(): Promise<boolean> {
         'El botón **📤 Enviar a autorización** manda el pago de ⏳ Pendiente a 📤 En autorización.',
         'Solo el nivel 🔓 full ve **✅ Aprobar y marcar pagado** (pasa a ✅ Pagado).',
         'Arriba, la card **🚜 Filtro y consulta por equipo** filtra el historial de mangueras por máquina; hay reporte **📄 Reporte de confección y pago** en PDF.',
+        'El filtro de **origen** (**Todas / 🚜 Flota / 🏭 Externas**) separa las fabricaciones de la flota de las de máquinas/empresas externas. Al elegir 🏭 Externas se limpia el filtro por equipo.',
       ])
     ) +
     qaTable('Instalación', 'Significado', [
