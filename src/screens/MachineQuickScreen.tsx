@@ -438,7 +438,10 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     if (!res.ok) { setNotice('❌ ' + res.error); return; }
     setJornadaActive(true);
     setJornadaStartAt(res.startedAt);
-    setJornadaStartDate(res.workDate);
+    // La fecha de NEGOCIO de la ronda, no la de calendario: al cerrar hay que escribir
+    // en la MISMA ronda que se abrió, o una jornada de noche pasada la medianoche
+    // quedaría partida en dos (se abre en la de ayer y se cerraría en la de hoy).
+    setJornadaStartDate(res.roundDate);
     setAsg(res.assignment);
     setView('home');
     setNotice(`✅ Jornada iniciada · ${first} ${last} · ${caracasClock(new Date(res.startedAt))} (Caracas) · ${res.shift.label} · Horómetro inicial ${hi}.`);

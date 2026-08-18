@@ -1176,6 +1176,32 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 > hay que **sacarla de ese estado** (botón "✅ Ya se decidió" en su detalle, ver 4.4). Cualquiera de
 > los dos caminos saca a la máquina del bloqueo.
 
+> **🟢 Iniciar desde el QR ya deja constancia (18/08/2026):** el cliente reportó una máquina
+> **iniciada a las 11:30 según la Auditoría** que en **Inspecciones seguía saliendo ⏳ pendiente**.
+> Era cierto, y pasaba con **todas** las jornadas arrancadas desde el **QR del operador** o el
+> **carnet del inspector**: ese camino guardaba nombre, cédula y horómetro, pero **no guardaba que
+> la jornada había arrancado**. Como Inspecciones se fija justamente en ese dato, la máquina salía
+> como si nunca hubiera empezado — con el operador trabajando. Desde el 1 de julio le pasó a
+> **1.410 rondas**; la mayoría se tapaba sola cuando el sistema les bancaba las horas al cerrar, y
+> por eso el problema no saltaba a la vista.
+>
+> Ya quedó arreglado, y con una ventaja: **los dos caminos de inicio ahora usan la misma regla**
+> (antes cada uno tenía la suya). Esa regla es la de siempre, sin cambios:
+> - El turno de **día arranca a las 7:00am** y el de **noche a las 7:00pm**. Si se marca **dentro
+>   del margen** (hasta las 9:00am / 9:00pm), la jornada se **ancla al arranque del turno** aunque
+>   se marque un poco más tarde → cuenta el turno completo.
+> - Si se marca **fuera del margen**, conserva la **hora real** y se registra el retraso: no se le
+>   regalan 12 horas a una marca muy tardía.
+> - Una jornada de **noche** iniciada **pasada la medianoche** pertenece a la noche que arrancó
+>   **ayer** a las 7pm, no al día nuevo.
+>
+> **También se corrigió un estado pegado:** una ronda que nace sin horas queda marcada "parada", y
+> al arrancar la jornada nadie la devolvía a **operativa** — quedaban rondas con la jornada abierta
+> y el estado en "parada" al mismo tiempo. Importa porque **Control de Pagos lee ese estado**.
+>
+> **Nada de esto borra ni cambia lo ya registrado:** solo se completan campos que antes quedaban
+> vacíos. Las jornadas viejas conservan sus horas tal cual.
+
 > El inspector marca desde **"Mis máquinas asignadas"** (las que se asignó con **✅ CHECK MÁQUINA**)
 > o escaneando el QR físico. El check-in aparece de inmediato en el módulo **Inspecciones**
 > (Traza por inspector) y **valida la jornada**.
