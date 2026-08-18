@@ -59,18 +59,23 @@ const at = (h) => `${DATE}T${String(h).padStart(2, '0')}:00:00-04:00`;
 // m1: DECLARÓ jornada de día y cerró en 0 h (jornada_start_at null) → FINALIZADA (activa).
 // m2: parada de verdad (ticket MÁQUINA PARADA, 0 h)               → averia.
 // m3: trabajó 12 h                                                → activa.
+// m4: DÍA declarado limpio (0 h) + NOCHE parada → ACTIVA (el día finalizó; la noche
+//     parada se muestra SOLO en su columna). Antes caía en Averiadas (bug 17-ago-2026).
 const MACHS = [
   { id: 'm1', code: 'RETRO DECLARADA', serial: 'S1', plate: null, tipo: 'MARCA A', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
   { id: 'm2', code: 'PALA PARADA',     serial: 'S2', plate: null, tipo: 'MARCA B', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
   { id: 'm3', code: 'EXCA TRABAJO',    serial: 'S3', plate: null, tipo: 'MARCA C', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
+  { id: 'm4', code: 'JUMBO DIANOCHE',  serial: 'S4', plate: null, tipo: 'MARCA D', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
 ];
 const ROUNDS = [
-  { machinery_id: 'm1', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null, jornada_marked_by: null },
-  { machinery_id: 'm2', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: null,  declared_day: null,  declared_night: null, jornada_marked_by: null },
-  { machinery_id: 'm3', day_hours: 12, night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null, jornada_marked_by: null },
+  { machinery_id: 'm1', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
+  { machinery_id: 'm2', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: null,  declared_day: null,  declared_night: null,  jornada_marked_by: null },
+  { machinery_id: 'm3', day_hours: 12, night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
+  { machinery_id: 'm4', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: false, jornada_marked_by: null },
 ];
 const MR = [
-  { machinery_id: 'm2', material: 'MÁQUINA PARADA', notes: 'NO TRABAJÓ · sin operador', created_at: at(9), status: 'pendiente', resolved_at: null },
+  { machinery_id: 'm2', material: 'MÁQUINA PARADA', notes: 'NO TRABAJÓ · sin operador', created_at: at(9),  status: 'pendiente', resolved_at: null },
+  { machinery_id: 'm4', material: 'MÁQUINA PARADA', notes: 'NO TRABAJÓ DE NOCHE',        created_at: at(21), status: 'pendiente', resolved_at: null },
 ];
 
 // supabase: `from(t)` devuelve una cadena thenable (sirve tanto para
@@ -118,12 +123,15 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
 const grpCount = (label) => { const m = html.match(new RegExp(`${label} · (\\d+)`)); return m ? Number(m[1]) : null; };
 
 ok('el reporte se generó', html.length > 0);
-ok('ACTIVAS = 2 (declaró+0h finalizada + trabajó 12h)', grpCount('✅ Activas') === 2);
-ok('AVERIADAS/PARADAS = 1 (solo la parada real)', grpCount('🔴 Averiadas / Paradas \\(en 0\\)') === 1);
+ok('ACTIVAS = 3 (declaró+0h + trabajó 12h + día limpio/noche parada)', grpCount('✅ Activas') === 3);
+ok('AVERIADAS/PARADAS = 1 (solo la parada real de ambos turnos)', grpCount('🔴 Averiadas / Paradas \\(en 0\\)') === 1);
 ok('la declaró+0h NO se rotula "Parada · jornada en 0"', !html.includes('Parada · jornada en 0'));
 ok('la declaró+0h se rotula "Jornada finalizada (0 h)"', html.includes('Jornada finalizada (0 h)'));
 ok('la máquina declarada aparece en el reporte', html.includes('RETRO DECLARADA'));
 ok('la parada real aparece en el reporte', html.includes('PALA PARADA'));
+// El bug del 17-ago: día declarado limpio + noche parada → ACTIVA, no averiada.
+ok('día declarado + noche parada aparece en el reporte', html.includes('JUMBO DIANOCHE'));
+ok('la parada de NOCHE se sigue mostrando (en su columna)', /No trabaj/i.test(html));
 
 console.log(`\n  Activas: ${grpCount('✅ Activas')} · Averiadas/Paradas: ${grpCount('🔴 Averiadas / Paradas \\(en 0\\)')}`);
 if (fail) {
