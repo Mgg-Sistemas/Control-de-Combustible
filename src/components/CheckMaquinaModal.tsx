@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, EmptyState, SkeletonList } from './ui';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { norm, cmpText } from '../lib/text';
 import { Machinery } from '../types/database';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, soloAdminPuedeAsignar } from '../lib/machineInspectors';
@@ -221,7 +222,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
       return;
     }
     await reloadAssigns();
-    if (!same) logAudit('CHECK', 'machinery', m.id, `${m.code} · ${shiftLabel(shift)} → ${target.name}`);
+    if (!same) logAudit('CHECK', 'machinery', m.id, `${etiquetaMaquina(m) || m.code} · ${shiftLabel(shift)} → ${target.name}`);
     setNotice(same
       ? `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado a ${target.name}.`
       : `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} asignada a ${target.name}.`);
@@ -295,7 +296,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
     setAssignBusy(null);
     if (res.error) { setNotice(res.missing ? '❌ Falta activar la asignación: corre supabase/inspector_turno.sql en Supabase.' : '❌ ' + res.error); return; }
     await reloadAssigns();
-    if (insp) logAudit('CHECK', 'machinery', m.id, `${m.code} · ${shiftLabel(shift)} → ${insp.name}`);
+    if (insp) logAudit('CHECK', 'machinery', m.id, `${etiquetaMaquina(m) || m.code} · ${shiftLabel(shift)} → ${insp.name}`);
     setNotice(insp
       ? `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} → ${insp.name}.`
       : `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado.`);
@@ -311,7 +312,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
       const m = machines.find((x) => x.id === mid);
       const res = await assignInspector(mid, insp.id, insp.name, pendBatchShift);
       if (res.error) { fail++; }
-      else { ok++; if (m) logAudit('CHECK', 'machinery', mid, `${m.code} · ${shiftLabel(pendBatchShift)} → ${insp.name} (lote)`); }
+      else { ok++; if (m) logAudit('CHECK', 'machinery', mid, `${etiquetaMaquina(m) || m.code} · ${shiftLabel(pendBatchShift)} → ${insp.name} (lote)`); }
     }
     setPendBatchBusy(false);
     await reloadAssigns();
@@ -375,7 +376,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                                 <View key={sh} style={{ marginTop: spacing.xs }}>
                                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{sh === 'day' ? '☀️ Día' : '🌙 Noche'} ({g[sh].length})</Text>
                                   {g[sh].map((m) => (
-                                    <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {m.code}{m.tipo ? ` · 🏷️ ${m.tipo}` : ''} · {m.companyName}</Text>
+                                    <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {etiquetaMaquina(m) || m.code}{m.tipo ? ` · 🏷️ ${m.tipo}` : ''} · {m.companyName}</Text>
                                   ))}
                                 </View>
                               ) : null
@@ -401,7 +402,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                           const f = faltaEncargadoReal(m);
                           return (
                             <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingVertical: 1 }}>
-                              • {m.code}{m.tipo ? ` · 🏷️ ${m.tipo}` : ''} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
+                              • {etiquetaMaquina(m) || m.code}{m.tipo ? ` · 🏷️ ${m.tipo}` : ''} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
                             </Text>
                           );
                         })}
@@ -500,7 +501,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                           <Text style={{ fontSize: 18 }}>{checked ? '☑' : '☐'}</Text>
                         </TouchableOpacity>
                         <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>🕓 {m.code}</Text>
+                          <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>🕓 {etiquetaMaquina(m) || m.code}</Text>
                           <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{((m as any).tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
                           <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>📍 {edif || 'Sin edificio/referencia'}</Text>
                           {(m as any).encargado ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>👤 Encargado: {(m as any).encargado}</Text> : <View style={{ marginBottom: spacing.xs }} />}

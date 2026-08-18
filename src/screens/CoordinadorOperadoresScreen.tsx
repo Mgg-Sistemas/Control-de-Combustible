@@ -10,6 +10,7 @@ import { captureLocation } from '../lib/location';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
+import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { caracasBusinessToday, caracasNowShift } from '../lib/caracasDay';
@@ -505,7 +506,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{r.code}</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{etiquetaMaquina(r) || r.code}</Text>
             <Text style={{ color: colors.muted, fontSize: 11 }}>{r.companyName}{r.tipo ? ` · ${r.tipo}` : ''}</Text>
             {(r.plate || r.serial) ? (
               <Text style={{ color: colors.muted, fontSize: 10.5 }}>
