@@ -22,7 +22,7 @@ type ShowIf = (values: Record<string, string>) => boolean;
 
 export type Field =
   | { key: string; label: string; type: 'section'; showIf?: ShowIf } // encabezado de sección (no es un campo)
-  | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string }
+  | { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string } // 'textarea' = texto multilínea
   | { key: string; label: string; type: 'switch'; required?: boolean; showIf?: ShowIf; defaultValue?: boolean } // check Sí/No (booleano)
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf; dropdown?: boolean; placeholder?: string }
   | {
@@ -236,7 +236,7 @@ export function RecordForm({
       // parroquia, encargado…). NO se toca serial/placa/código/identificador ni
       // correos/URLs/cuentas (se dañarían); ahí se guarda tal cual.
       const noFix = /serial|plate|placa|code|identif|mail|correo|url|http|account|cuenta|cedula|cédula/i.test(f.key);
-      const esTextoLibre = (f.type === 'text' || f.type === 'suggest') && !noFix;
+      const esTextoLibre = (f.type === 'text' || f.type === 'textarea' || f.type === 'suggest') && !noFix;
       payload[f.key] = f.type === 'number' ? Number(raw) : f.type === 'switch' ? raw === 'true' : esTextoLibre ? corregirTexto(raw) : raw;
     });
 
@@ -399,8 +399,13 @@ export function RecordForm({
                   </TouchableOpacity>
                 ) : (
                   <TextInput
-                    style={styles.input}
+                    style={f.type === 'textarea' ? [styles.input, styles.textarea] : styles.input}
                     value={values[f.key] ?? ''}
+                    // Un 'textarea' es multilínea (varias líneas de texto libre, p. ej.
+                    // la descripción del trabajo); el resto es de una sola línea.
+                    multiline={f.type === 'textarea'}
+                    numberOfLines={f.type === 'textarea' ? 4 : undefined}
+                    textAlignVertical={f.type === 'textarea' ? 'top' : undefined}
                     // Los campos de cédula solo aceptan dígitos; los numéricos (dinero,
                     // horas, litros…) solo un decimal. El resto del texto se guarda en
                     // MAYÚSCULA, salvo correos/URLs que se dañarían si se transforman.
@@ -408,14 +413,14 @@ export function RecordForm({
                       if (/cedula|cédula/i.test(f.key)) { set(f.key, onlyDigits(t)); return; }
                       if (f.type === 'number') { set(f.key, onlyDecimal(t)); return; }
                       // Texto → MAYÚSCULA, salvo correos/URLs y N° de cuenta (se dañarían).
-                      const upper = f.type === 'text' && !/mail|correo|url|http|account|cuenta/i.test(f.key);
+                      const upper = (f.type === 'text' || f.type === 'textarea') && !/mail|correo|url|http|account|cuenta/i.test(f.key);
                       set(f.key, upper ? t.toUpperCase() : t);
                     }}
                     placeholder={('placeholder' in f && f.placeholder) || ''}
                     placeholderTextColor={colors.muted}
                     keyboardType={f.type === 'number' || /cedula|cédula/i.test(f.key) ? 'numeric' : 'default'}
                     inputMode={f.type === 'number' || /cedula|cédula/i.test(f.key) ? 'numeric' : undefined}
-                    autoCapitalize={f.type === 'text' && !/cedula|cédula|mail|correo|url|http|account|cuenta/i.test(f.key) ? 'characters' : 'none'}
+                    autoCapitalize={(f.type === 'text' || f.type === 'textarea') && !/cedula|cédula|mail|correo|url|http|account|cuenta/i.test(f.key) ? 'characters' : 'none'}
                   />
                 )}
               </View>
@@ -827,6 +832,11 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.sm,
     color: colors.text,
+  },
+  // Texto multilínea (type 'textarea'): más alto y el texto empieza arriba.
+  textarea: {
+    minHeight: 96,
+    paddingTop: spacing.sm,
   },
   chip: {
     borderWidth: 1,

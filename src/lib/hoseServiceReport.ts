@@ -81,7 +81,7 @@ export async function generateHoseServiceReport(opts: {
     const aprobadoPor = r.payment_status === 'pagado' && r.approved_by ? (profilesMap[r.approved_by] ?? '—') : '—';
     return `<tr>
       <td>${esc(r.code)}</td>
-      <td>${machineTxt(r.machinery_id)}</td>
+      <td>${r.is_external ? `🏭 ${esc(r.external_client ?? '—')} · Externa` : machineTxt(r.machinery_id)}</td>
       <td>${dmy(r.service_date)}</td>
       <td>${esc(r.description ?? '—')}</td>
       <td>${costTxt(Number(r.cost_usd) || 0)}</td>

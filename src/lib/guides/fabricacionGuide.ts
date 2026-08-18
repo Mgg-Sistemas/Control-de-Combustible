@@ -65,8 +65,9 @@ export async function generateFabricacionGuide(): Promise<boolean> {
     mockupBody(
       mockupCard(
         mockupField('Código de la fabricación', '0014 (automático)', true) +
+        mockupField('🏭 ¿Máquina/empresa externa?', 'No', true) +
         mockupField('Máquina', 'CAMION VOLTEO TORONTO', true) +
-        mockupField('Descripción del trabajo', 'Manguera del brazo hidráulico', true) +
+        mockupField('Descripción del trabajo', 'Manguera del brazo hidráulico (varias líneas)', true) +
         mockupField('Fecha', '06/08/2026', true) +
         mockupField('Costo (US$)', '85', true) +
         mockupField('Proveedor', 'Hidra C.A.', true) +
@@ -80,6 +81,8 @@ export async function generateFabricacionGuide(): Promise<boolean> {
       stepList([
         'Toca **+ Nueva fabricación**. El **código de la fabricación es automático** (correlativo de 4 dígitos: 0001, 0002…, no editable). Llena máquina, descripción, fecha, costo (US$) y proveedor.',
         'Al **buscar la máquina** se muestran su **serial/placa**, la **empresa** y el **encargado** (además del código), y puedes filtrar por cualquiera de esos datos.',
+        '🏭 Si la manguera es para una **máquina o empresa EXTERNA** (fuera de la flota), activa el interruptor **"Es para una máquina o empresa externa"**: se oculta el selector de máquina y escribes libremente el nombre de esa máquina/empresa. En la lista y el reporte sale marcada con 🏭 · Externa.',
+        'La **Descripción del trabajo** es un campo de **varias líneas** (textarea): puedes escribir el detalle completo del trabajo.',
         'Con **✏️ Editar** corriges los datos mientras no esté pagada.',
         'El botón **🔧 Marcar instalada** pasa el estado de instalación de 🟡 En proceso a 🟢 Instalada.',
         'El botón **📤 Enviar a autorización** manda el pago de ⏳ Pendiente a 📤 En autorización.',

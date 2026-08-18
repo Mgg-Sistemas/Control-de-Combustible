@@ -2231,6 +2231,12 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 2. Llena el **Código de la manguera** (la numeración física, ej. "87-AC"), elige la **Máquina**
    (buscador del catálogo de maquinaria existente), la **Descripción del trabajo**, la **Fecha**,
    el **Costo (US$)** y el **Proveedor** (operador del taller que la hizo).
+   - 🏭 **Máquina o empresa externa (fuera de la flota):** si la manguera **no** es para una máquina
+     de la flota, activa el interruptor **"Es para una máquina o empresa externa"**. Se oculta el
+     selector de máquina y aparece un campo para **escribir libremente** el nombre de la máquina o
+     empresa externa. En la lista y en el reporte PDF sale marcada con **🏭 · Externa**.
+   - La **Descripción del trabajo** es ahora un campo de **varias líneas**: escribe el detalle
+     completo del trabajo (se desplaza si es largo).
 3. Deja el **Estado de instalación** en *En proceso* (o *Instalada*, si ya se montó). Guarda: queda
    con estado de pago **⏳ Pendiente por pagar** automáticamente.
 4. Cuando se instale, toca **"🔧 Marcar instalada"** en su tarjeta.
