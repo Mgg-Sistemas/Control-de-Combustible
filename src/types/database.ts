@@ -1033,6 +1033,11 @@ export interface HoseService {
   id: string;
   code: string;
   machinery_id: string | null;
+  /** Fabricación para una máquina/empresa EXTERNA (fuera de la flota). Si true,
+   *  `machinery_id` va vacío y se usa `external_client` (texto libre). */
+  is_external: boolean;
+  /** Nombre de la máquina o empresa externa (solo cuando `is_external`). */
+  external_client: string | null;
   description: string | null;
   service_date: string; // YYYY-MM-DD
   cost_usd: number;

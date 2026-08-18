@@ -132,7 +132,7 @@ export default function ManguerasScreen() {
   const q = norm(query.trim());
   const shown = useMemo(() => {
     return hoses
-      .filter((h) => !q || norm(`${h.code} ${h.description ?? ''} ${h.provider ?? ''}`).includes(q))
+      .filter((h) => !q || norm(`${h.code} ${h.description ?? ''} ${h.provider ?? ''} ${h.external_client ?? ''}`).includes(q))
       .filter((h) => !installFilter || h.install_status === installFilter)
       .filter((h) => !paymentFilter || h.payment_status === paymentFilter)
       .filter((h) => !machineFilterId || h.machinery_id === machineFilterId);
@@ -172,11 +172,17 @@ export default function ManguerasScreen() {
 
   const FIELDS: Field[] = [
     codeField,
+    // Fabricación para una máquina/empresa EXTERNA (fuera de la flota): si se activa,
+    // se oculta el selector de máquina interna y se escribe libremente el nombre de la
+    // máquina o empresa externa. Por defecto OFF (lo normal: máquina de la flota).
+    { key: 'is_external', label: '🏭 Es para una máquina o empresa EXTERNA (fuera de la flota)', type: 'switch', defaultValue: false },
     // `activeCol: 'operational'` marca con "(Inactiva)" las máquinas dadas de baja
     // en la lista, SIN ocultarlas (el historial de mangueras de una máquina inactiva
     // debe seguir siendo consultable/asignable si hiciera falta).
-    { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate', 'encargado'], activeCol: 'operational', dropdown: true, required: true },
-    { key: 'description', label: 'Descripción del trabajo', type: 'text' },
+    { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate', 'encargado'], activeCol: 'operational', dropdown: true, required: true, showIf: (v) => v.is_external !== 'true' },
+    // Solo cuando es externa: nombre libre de la máquina o empresa (no está en la flota).
+    { key: 'external_client', label: 'Máquina / empresa externa', type: 'text', required: true, placeholder: 'Nombre de la máquina o empresa externa', showIf: (v) => v.is_external === 'true' },
+    { key: 'description', label: 'Descripción del trabajo', type: 'textarea', placeholder: 'Detalle del trabajo realizado…' },
     { key: 'service_date', label: 'Fecha', type: 'date', required: true, defaultValue: new Date().toISOString().slice(0, 10) },
     { key: 'cost_usd', label: 'Costo (US$)', type: 'number', required: true },
     { key: 'provider', label: 'Proveedor', type: 'suggest', table: 'hose_services', column: 'provider', dropdown: true },
@@ -356,7 +362,10 @@ export default function ManguerasScreen() {
           ) : (
             shown.map((h) => {
               const mach = h.machinery_id ? machineryMap[h.machinery_id] : undefined;
-              const machLabel = mach ? [mach.code, mach.serial ? `Serial ${mach.serial}` : '', mach.plate ? `Placa ${mach.plate}` : '', mach.companyName ? `🏢 ${mach.companyName}` : '', mach.encargado ? `👤 ${mach.encargado}` : ''].filter(Boolean).join(' · ') : '—';
+              // Externa: se muestra el nombre libre (máquina/empresa fuera de la flota).
+              const machLabel = h.is_external
+                ? `🏭 ${h.external_client || 'Externa'} · Externa (fuera de la flota)`
+                : (mach ? [mach.code, mach.serial ? `Serial ${mach.serial}` : '', mach.plate ? `Placa ${mach.plate}` : '', mach.companyName ? `🏢 ${mach.companyName}` : '', mach.encargado ? `👤 ${mach.encargado}` : ''].filter(Boolean).join(' · ') : '—');
               const installInfo = INSTALL_INFO[h.install_status] ?? INSTALL_INFO.en_proceso;
               const paymentInfo = PAYMENT_INFO[h.payment_status] ?? PAYMENT_INFO.pendiente;
               const registradoPor = h.created_by ? (profilesMap[h.created_by] || 'Usuario') : 'Usuario';
