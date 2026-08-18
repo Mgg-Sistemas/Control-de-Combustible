@@ -89,13 +89,23 @@ select id, name, modules from public.app_roles where name = 'Listero';
 -- ════════════════════════════════════════════════════════════════════════════
 -- Correr SOLO si el bloque 1 devolvió exactamente las tres personas correctas.
 --
--- `role = 'conductor'` es el rol BASE NEUTRO que el sistema le pone a cualquiera
--- con rol personalizado (ver el comentario "rol base neutro (conductor)" en
--- UsersScreen.tsx). No los convierte en choferes: con `app_role_id` puesto, la
--- app entra por el rol personalizado, no por el base.
+-- SOLO se toca `app_role_id`. El rol base ('analista') se deja como está: se
+-- verificó que `pickTree()` no intercepta a 'analista' en ninguna condición
+-- anterior a `esRolViajes`, así que cambiarlo no aporta nada y sí arriesga.
+--
+-- ⚠️ ESTE ES EL CAMBIO QUE DE VERDAD LOS ENCIERRA, y conviene entender por qué.
+-- Hoy los tres tienen `app_role_id = null`. En ese caso `moduleLevel()`
+-- (AuthContext.tsx) cae en `explicit ?? defaultLevel(moduleKey)`, y
+-- `defaultLevel` devuelve **'escritura' para TODO lo que no esté en su lista
+-- negra** — combustible, control de maquinaria, mapa, equipos, reportes,
+-- mantenimiento, jornadas… O sea: hoy tienen escritura en casi todo el sistema.
+--
+-- Al ponerles `app_role_id`, `moduleLevel()` entra por la rama `if (appRole)` y
+-- devuelve SOLO lo que trae el rol. Todo lo demás pasa a 'none' de golpe. Eso,
+-- más `esRolViajes()` que los manda a un stack que contiene únicamente la
+-- pantalla de viajes, es lo que cumple "solo y solo a esa vista".
 update public.profiles p
-   set app_role_id = (select id from public.app_roles where name = 'Listero'),
-       role        = 'conductor'
+   set app_role_id = (select id from public.app_roles where name = 'Listero')
  where (p.full_name ilike '%ugueto%'
      or p.full_name ilike '%echarry%'
      or p.full_name ilike '%arcy%')
@@ -147,13 +157,15 @@ order by p.full_name;
 -- ════════════════════════════════════════════════════════════════════════════
 -- BLOQUE 6 · DESHACER   (solo si hace falta)
 -- ════════════════════════════════════════════════════════════════════════════
--- Devuelve a los tres su rol y su rol base anteriores. Los permisos extra
--- borrados NO se restauran automáticamente: están en la columna
--- `permisos_extra` del respaldo, para volver a ponerlos a mano si hacía falta.
+-- Les devuelve el `app_role_id` que tenían (null), con lo que vuelven a ver todo
+-- lo que veían antes. Los permisos extra borrados NO se restauran solos: están
+-- en la columna `permisos_extra` del respaldo, para reponerlos a mano si hacían
+-- falta (en esta corrida no se borró ninguno: su único permiso explícito ya era
+-- `viajes_camiones`).
 --
 -- update public.profiles p
---    set app_role_id = b.app_role_id, role = b.role
+--    set app_role_id = b.app_role_id
 --   from public.respaldo_listeros_2026_08_18 b
 --  where b.id = p.id;
 --
--- select id, full_name, permisos_extra from public.respaldo_listeros_2026_08_18;
+-- select id, full_name, role, app_role_id, permisos_extra from public.respaldo_listeros_2026_08_18;
