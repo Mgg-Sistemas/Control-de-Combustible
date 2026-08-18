@@ -359,7 +359,14 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     if (!rows.length) return false;
     const r = roundBy.get(id);
     const jStart = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
-    const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day' : null;
+    // Turno de la jornada abierta: si `jornada_shift` viene null se INFIERE por la HORA de
+    // inicio (Caracas 7am–7pm = día), EXACTAMENTE igual que el teléfono/firma
+    // (`clasificarEstadoTurno` infiere con `paradaShiftOf(jornada_start_at)`). Antes esto
+    // exigía `jornada_shift` explícito: una jornada REABIERTA sin turno guardado no se
+    // detectaba como reactivación → esta reactivada seguía saliendo 🔴 averiada aquí
+    // mientras las tarjetas/firma ya la mostraban en curso ("dice INICIO pero sale averiada").
+    const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day'
+      : (jStart != null ? paradaShiftOf(jStart) : null);
     const openStart = (jStart != null && jShift === sh) ? jStart : null; // reactivación de ESE turno
     return rows.some((m: any) => {
       const t = new Date(m.created_at).getTime();

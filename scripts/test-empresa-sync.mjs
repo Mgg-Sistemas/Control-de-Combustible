@@ -55,6 +55,7 @@ function loadTs(abs) {
 // ── Escenario: 3 máquinas de una empresa, cada una en un estado distinto ─────
 const DATE = '2026-08-15';           // día PASADO → sin cálculo EN VIVO (determinista)
 const at = (h) => `${DATE}T${String(h).padStart(2, '0')}:00:00-04:00`;
+const atPrev = (h) => `2026-08-14T${String(h).padStart(2, '0')}:00:00-04:00`; // día ANTERIOR (arrastre)
 
 // m1: DECLARÓ jornada de día y cerró en 0 h (jornada_start_at null) → FINALIZADA (activa).
 // m2: parada de verdad (ticket MÁQUINA PARADA, 0 h)               → averia.
@@ -69,6 +70,11 @@ const MACHS = [
   // m5: TRABAJÓ 8 h de día y LUEGO se averió (avería del mismo día) → AVERIADA, pero se
   //     muestran las 8 h y la hora de avería (fix 18-ago-2026). Antes salía Activa.
   { id: 'm5', code: 'PAYLOADER TRABMORE', serial: 'S5', plate: null, tipo: 'MARCA E', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
+  // m6: avería ARRASTRADA de ayer + jornada REABIERTA hoy con jornada_shift NULL. La
+  //     reactivación debe inferir el turno por la hora de inicio (8am = día) y SOLTAR la
+  //     avería → ACTIVA, igual que las tarjetas/firma. Sin la inferencia salía AVERIADA
+  //     ("dice INICIO pero sale averiada"). Blinda el fix del 18-ago-2026.
+  { id: 'm6', code: 'RETRO REABIERTA', serial: 'S6', plate: null, tipo: 'MARCA F', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
 ];
 const ROUNDS = [
   { machinery_id: 'm1', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
@@ -76,6 +82,8 @@ const ROUNDS = [
   { machinery_id: 'm3', day_hours: 12, night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
   { machinery_id: 'm4', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: false, jornada_marked_by: null },
   { machinery_id: 'm5', day_hours: 8,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
+  // m6: reabrió a las 8am pero la fila NO guardó jornada_shift (null). declared_day=true.
+  { machinery_id: 'm6', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: at(8), jornada_shift: null, declared_day: true, declared_night: null, jornada_marked_by: null },
 ];
 const MR = [
   { machinery_id: 'm2', material: 'MÁQUINA PARADA', notes: 'NO TRABAJÓ · sin operador', created_at: at(9),  status: 'pendiente', resolved_at: null },
@@ -83,6 +91,8 @@ const MR = [
   // m5: trabajó de día y a las 2pm se averió (par MÁQUINA PARADA + avería real, mismo evento).
   { machinery_id: 'm5', material: 'MÁQUINA PARADA', notes: 'GATO HIDRÁULICO',            created_at: at(14), status: 'pendiente', resolved_at: null },
   { machinery_id: 'm5', material: 'GATO HIDRÁULICO', notes: 'GATO HIDRÁULICO',           created_at: at(14), status: 'pendiente', resolved_at: null },
+  // m6: avería REAL de AYER (arrastrada). Al reabrir hoy (8am, turno inferido = día) debe soltarse.
+  { machinery_id: 'm6', material: 'FALLA ELÉCTRICA', notes: 'FALLA ELÉCTRICA',           created_at: atPrev(10), status: 'pendiente', resolved_at: null },
 ];
 
 // supabase: `from(t)` devuelve una cadena thenable (sirve tanto para
@@ -130,8 +140,11 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
 const grpCount = (label) => { const m = html.match(new RegExp(`${label} · (\\d+)`)); return m ? Number(m[1]) : null; };
 
 ok('el reporte se generó', html.length > 0);
-ok('ACTIVAS = 3 (declaró+0h + trabajó 12h + día limpio/noche parada)', grpCount('✅ Activas') === 3);
+ok('ACTIVAS = 4 (declaró+0h + trabajó 12h + día limpio/noche parada + reabierta null-shift)', grpCount('✅ Activas') === 4);
 ok('AVERIADAS/PARADAS = 2 (parada real + trabajó-y-se-averió)', grpCount('🔴 Averiadas / Paradas') === 2);
+// El fix del 18-ago: jornada reabierta con jornada_shift NULL infiere el turno y SUELTA la
+// avería arrastrada → ACTIVA. Sin la inferencia, m6 caía en Averiadas/Paradas (Activas=3).
+ok('reabierta null-shift aparece en el reporte', html.includes('RETRO REABIERTA'));
 ok('la declaró+0h NO se rotula "Parada · jornada en 0"', !html.includes('Parada · jornada en 0'));
 ok('la declaró+0h se rotula "Jornada finalizada (0 h)"', html.includes('Jornada finalizada (0 h)'));
 ok('la máquina declarada aparece en el reporte', html.includes('RETRO DECLARADA'));

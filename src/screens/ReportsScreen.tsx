@@ -499,13 +499,18 @@ export default function ReportsScreen({ route }: any) {
   const rtId = useRef(0);
   if (!rtId.current) rtId.current = nextRtInstanceId();
 
-  // Realtime: si se agrega/edita una jornada (o flete/máquina) mientras el reporte de
-  // jornada está abierto, se regenera solo con los mismos filtros (en vivo, sin tocar nada).
+  // Realtime: si se agrega/edita una jornada (o flete/máquina), o cambia una avería/parada
+  // o un tramo trabajado, mientras el reporte de jornada está abierto, se regenera solo con
+  // los mismos filtros (en vivo, sin tocar nada). Antes el canal solo escuchaba
+  // machine_rounds/fletes/machinery: una máquina que se averiaba/reactivaba (o un tramo
+  // nuevo) NO refrescaba el preview aunque el reporte SÍ lee esas tablas — el estado en vivo
+  // se quedaba viejo. Se agregan machine_work_segments y maintenance_requests para que el
+  // preview cuadre siempre con Inspecciones/firma.
   useEffect(() => {
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(() => liveRef.current?.(), 500); };
     const ch = supabase.channel(`rt-reportes-jornada-${rtId.current}`);
-    ['machine_rounds', 'fletes', 'machinery'].forEach((t) =>
+    ['machine_rounds', 'fletes', 'machinery', 'machine_work_segments', 'maintenance_requests'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();

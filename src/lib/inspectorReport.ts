@@ -9,7 +9,7 @@ import { horarioNominal, horaFinJornada } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { computeMachineVisibilitySets, clasificarEstadoTurno } from './inspectorDaySets';
 import { motivoParada } from './paradaMotivo';
-import { caracasBusinessToday } from './caracasDay';
+import { horasTurnoDelDia } from './hours';
 
 /**
  * Reporte de INSPECTORES (jornadas de inspección) en PDF.
@@ -46,14 +46,6 @@ const addDaysISO = (iso: string, n: number): string => {
 // Mismo criterio que la app: la parada pertenece al TURNO en que se marcó.
 const caracasHour = (iso: string): number => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h; };
 const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasHour(iso); return h >= 7 && h < 19 ? 'day' : 'night'; };
-// Umbral mínimo defensivo (mismo que `MIN_WORKED_HOURS` en inspectorDaySets.ts, ver ese
-// archivo para el detalle): un `round_date` mal calculado por cruce de medianoche del
-// turno NOCHE (BUG 10-ago-2026) puede dejar un residuo mínimo de horas (~0.02h) pegado
-// al round de HOY. Sin este umbral, ese residuo hacía que este PDF marcara la máquina
-// como "✅ Finalizada" (y suprimiera su avería/parada arrastrada como "reactivada") aunque
-// en realidad todavía no hubiera arrancado — mientras la pantalla (ya corregida con este
-// mismo umbral) la mostraba "⏳ Por iniciar", desincronizando otra vez el PDF firmado.
-const MIN_WORKED_HOURS = 0.05;
 const CARACAS_TZ = 'America/Caracas';
 // Fecha+hora (Caracas) legible de un check-in, para la tabla de cambio de ubicación.
 const dmyHm = (iso: string): string => {
@@ -139,7 +131,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // ese día aunque se resolviera un día posterior). Para HOY el borde es futuro → solo pendientes.
   const resolvedHoyFilter = `status.eq.pendiente,resolved_at.gte.${nightEndBound}`;
   // Mismo `select` para la ronda de HOY y la de ANOCHE (jornada de noche que cruza medianoche).
-  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_shift, declared_day, declared_night, recorded_by, jornada_marked_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
+  const roundsSelect = 'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_shift, declared_day, declared_night, recorded_by, jornada_marked_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
   const [
     { data: machFlagsAll },
     { data: profs },
@@ -215,11 +207,6 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const paradaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
   const nowMs = Date.now();
-  // ¿El día pedido es el día de negocio ACTUAL? El cálculo EN VIVO (jornada abierta que
-  // sigue sumando) SOLO tiene sentido hoy; un día pasado debe mostrar únicamente lo que
-  // quedó bancado. Mismo candado que `liveHorasOf` en InspectionsSummary y que
-  // `horasTurnoDelDia` en hours.ts — ver la nota larga donde se usa, más abajo.
-  const esDiaDeHoy = date === caracasBusinessToday();
   ((maint ?? []) as any[]).forEach((m) => {
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
@@ -306,18 +293,16 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     tMap.set(insp, iMap);
     if (iMap.has(id)) return; // una fila por máquina/inspector
     const rd = roundByMachine.get(id);
-    let dayH = Number(rd?.day_hours) || 0;
-    let nightH = Number(rd?.night_hours) || 0;
-    // Umbral mínimo defensivo (mismo criterio que MIN_WORKED_HOURS en inspectorDaySets.ts
-    // y en porEmpresaReport.ts): un round con round_date mal calculado por cruce de
-    // medianoche del turno NOCHE (BUG 10-ago-2026, ver businessRoundDateOf en
-    // caracasDay.ts) podía dejar un residuo mínimo de horas (~0.02h) pegado al round de
-    // HOY. Sin este umbral, ese residuo hacía que ESTE reporte marcara la máquina como
-    // "✅ Finalizada" (con horario/horas visibles) y suprimiera su avería/parada
-    // arrastrada como "reactivada", mientras la pantalla (ya corregida con este mismo
-    // umbral) la mostraba "⏳ Por iniciar" — el PDF firmado volvía a desincronizarse.
-    if (dayH <= MIN_WORKED_HOURS) dayH = 0;
-    if (nightH <= MIN_WORKED_HOURS) nightH = 0;
+    // HORAS por el helper CANÓNICO compartido (src/lib/hours.ts) — el MISMO que usan el
+    // Reporte por Empresa y el módulo de Control. Antes este reporte tenía su propia copia
+    // inline (umbral mínimo defensivo + en vivo anclado a 7am + tope 12h + candado "solo
+    // hoy"): dos implementaciones de lo mismo que se podían desincronizar en silencio.
+    // Ahora firma, empresa y el Informe por jornada calculan las horas del turno con
+    // EXACTAMENTE la misma función (umbral MIN, en-vivo anclado al inicio nominal 7am/7pm,
+    // tope 12h y candado esDiaDeHoy incluidos). Ver scripts/test-reportes-paridad.mjs.
+    const hrsTurno = horasTurnoDelDia(rd, date, Date.now());
+    let dayH = hrsTurno.dia;
+    let nightH = hrsTurno.noche;
     // Estado RELATIVO al turno del inspector: un inspector de noche no está "en curso"
     // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
     const hoursForShift = turno === 'night' ? nightH : dayH;
@@ -435,47 +420,11 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       const pEnd = Math.min(abierto, shiftEndMs);
       horasParada = Math.max(0, r2((pEnd - pStart) / 3600000));
     }
-    // Horas EN VIVO para una jornada que sigue "en curso" (estado === 'encurso'):
-    // day_hours/night_hours en la BD quedan en 0 hasta que la jornada CIERRA (al
-    // finalizar o por el auto-cierre de las 7am/7pm) — antes de eso, este reporte
-    // mostraba 0 en Trabajando/Jornada para cualquier máquina todavía activa, aunque
-    // llevara horas trabajando (bug: "no trae ningún dato" para el inspector con
-    // máquinas en curso). Se suma el tiempo transcurrido desde `jornada_start_at`
-    // hasta ahora, igual que ya hace el panel en vivo de Inspecciones (`liveHorasOf`).
-    // Solo se suma en vivo si el estado FINAL es 'encurso': si hay avería/parada de
-    // HOY, esa gana en la prioridad de arriba aunque la jornada siga técnicamente
-    // abierta (`openForShift`) — antes esto sumaba igual, así que el reporte mostraba
-    // "🔴 Averiada" con las horas de Trabajando/Jornada creciendo solas, como si
-    // operara con normalidad.
-    // Tope por turno: DÍA máx 12h, NOCHE máx 12h (el elapsed en vivo y el total del
-    // turno nunca superan las 12h de duración del turno).
-    // SOLO si el día pedido es HOY (`esDiaDeHoy`, calculado una vez arriba). Sin esa
-    // condición, pedir el reporte de un día PASADO con jornadas que nunca cerraron
-    // devolvía `ahora − jornada_start_at`, que ya pasó de 12 h → 12.00 EXACTAS por
-    // máquina, y para siempre: el mismo PDF daba el mismo número inventado hoy,
-    // mañana y dentro de un mes. Caso real (CESAR FLAMES, 16-ago-2026): el teléfono
-    // dio 137.38 h y el Histórico 35.38 h — 102 h de diferencia, unas 8-10 máquinas
-    // abiertas contadas a 12 h cada una. El mismo candado ya existía en el panel de
-    // Inspecciones (InspectionsSummary `liveHorasOf`) y en `hours.ts`; a este reporte
-    // le faltaba. Ver `scripts/test-reportes-paridad.mjs`.
-    // ANCLA del "en vivo": el turno DÍA cuenta desde su inicio NOMINAL 7am (igual que
-    // hours.ts → Control / Reporte por empresa / Pagos: "aunque la marquen a las 9am,
-    // cuenta el turno completo", regla cliente testeada en test-horas-control). Antes este
-    // reporte contaba desde `jornada_start_at` real → daba MENOS horas que Control/empresa
-    // para una máquina marcada tarde (divergencia #2 de la auditoría 17-ago-2026). La NOCHE
-    // se deja en el inicio REAL porque cruza medianoche (el nominal 7pm del día del reporte
-    // quedaría en el futuro y daría 0/negativo para una jornada que arrancó anoche).
-    const nominalDiaStartMs = new Date(`${date}T07:00:00-04:00`).getTime();
-    const liveElapsedH = esDiaDeHoy && estado === 'encurso' && rd?.jornada_start_at
-      ? (turno === 'day'
-          ? Math.max(0, Math.min(12, (Date.now() - nominalDiaStartMs) / 3600000))
-          : Math.max(0, Math.min(12, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000)))
-      : 0;
-    // MAYOR (no suma) de bancado vs transcurrido: al re-abrir una jornada ya cerrada el
-    // inicio se re-ancla al arranque del turno, así que sumar bancado + transcurrido
-    // contaría DOS VECES el tramo ya bancado (bug 14-ago-2026, ver liveHorasOf).
-    const dayHDisp = turno === 'day' && estado === 'encurso' ? r2(Math.min(12, Math.max(dayH, liveElapsedH))) : r2(Math.min(12, dayH));
-    const nightHDisp = turno === 'night' && estado === 'encurso' ? r2(Math.min(12, Math.max(nightH, liveElapsedH))) : r2(Math.min(12, nightH));
+    // Las horas ya vienen resueltas por `horasTurnoDelDia` (en vivo anclado al inicio
+    // nominal, tope 12h y candado "solo hoy" incluidos) — aquí solo se topan a 12h para
+    // mostrar. Idéntico número que el Reporte por Empresa (que usa el mismo helper).
+    const dayHDisp = r2(Math.min(12, dayH));
+    const nightHDisp = r2(Math.min(12, nightH));
     iMap.set(id, {
       id,
       code: base.code,
