@@ -9,7 +9,7 @@ import { useTable } from '../hooks/useTable';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { captureLocation, warmLocation } from '../lib/location';
-import { pickAndUploadPhoto } from '../lib/photo';
+import { pickAndUploadPhoto, removeMachineryPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
@@ -19,6 +19,8 @@ import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
 import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
+import { useConfirm } from '../components/ConfirmProvider';
+import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
 import { listOperatorAssignments } from '../lib/machineOperators';
@@ -379,6 +381,7 @@ export default function EquiposScreen({ navigation, route }: any) {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
+  const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchText, setBatchText] = useState('');
@@ -614,6 +617,24 @@ export default function EquiposScreen({ navigation, route }: any) {
   const locate = (m: Machinery) => run(m.id + '-loc', () => captureLocation(m.id));
   const photo = (m: Machinery) => run(m.id + '-photo', () => pickAndUploadPhoto(m.id, 'photo_url'));
   const photoSerial = (m: Machinery) => run(m.id + '-photoser', () => pickAndUploadPhoto(m.id, 'photo_serial_url'));
+  // QUITAR la foto sin poner otra (pedido del cliente, 18-ago-2026). Antes solo
+  // se podía reemplazar: una foto equivocada obligaba a subir otra cualquiera
+  // encima. Pide confirmación porque desde el visor es un toque y no hay
+  // deshacer; el archivo queda en Storage para no romper el rastro de auditoría
+  // (ver `removeMachineryPhoto`).
+  const quitarPhoto = async (m: Machinery, column: 'photo_url' | 'photo_serial_url') => {
+    const cual = column === 'photo_serial_url' ? 'del serial / placa' : 'de la maquinaria';
+    const va = await confirm({
+      title: 'Quitar la foto',
+      message: `Se quita la foto ${cual} de "${etiquetaMaquina(m) || m.code}".
+
+La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Auditoría quién la quitó.`,
+      confirmText: 'Quitar', danger: true,
+    });
+    if (!va) return;
+    const bkey = m.id + (column === 'photo_serial_url' ? '-delphotoser' : '-delphoto');
+    await run(bkey, () => removeMachineryPhoto(m.id, column));
+  };
   // Visor de fotos (máquina + serial/placa). Guardamos SOLO el id y releemos de la
   // lista para que, tras subir/cambiar una foto, el visor muestre la versión nueva.
   const [viewerId, setViewerId] = useState<string | null>(null);
@@ -1480,8 +1501,8 @@ export default function EquiposScreen({ navigation, route }: any) {
                 </TouchableOpacity>
               </View>
               {[
-                { url: viewer.photo_url, label: 'MAQUINARIA', onSet: () => photo(viewer), bkey: '-photo' },
-                { url: viewer.photo_serial_url, label: 'SERIAL / PLACA', onSet: () => photoSerial(viewer), bkey: '-photoser' },
+                { url: viewer.photo_url, label: 'MAQUINARIA', onSet: () => photo(viewer), bkey: '-photo', col: 'photo_url' as const, delKey: '-delphoto' },
+                { url: viewer.photo_serial_url, label: 'SERIAL / PLACA', onSet: () => photoSerial(viewer), bkey: '-photoser', col: 'photo_serial_url' as const, delKey: '-delphotoser' },
               ].map((p) => (
                 <View key={p.label} style={{ gap: spacing.xs }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>{p.label}</Text>
@@ -1492,9 +1513,18 @@ export default function EquiposScreen({ navigation, route }: any) {
                       <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Sin foto todavía</Text>
                     </View>
                   )}
-                  <TouchableOpacity onPress={p.onSet} disabled={busy === viewer.id + p.bkey} style={{ alignSelf: 'flex-start', backgroundColor: colors.accent, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === viewer.id + p.bkey ? 0.6 : 1 }}>
-                    <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === viewer.id + p.bkey ? 'Subiendo…' : (p.url ? '🔄 Cambiar foto' : '📷 Agregar foto')}</Text>
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+                    <TouchableOpacity onPress={p.onSet} disabled={busy === viewer.id + p.bkey} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === viewer.id + p.bkey ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === viewer.id + p.bkey ? 'Subiendo…' : (p.url ? '🔄 Cambiar foto' : '📷 Agregar foto')}</Text>
+                    </TouchableOpacity>
+                    {/* QUITAR sin reemplazar (pedido del cliente, 18-ago-2026). Solo sale
+                        si HAY foto: sin foto no hay nada que quitar y el botón estorbaría. */}
+                    {p.url ? (
+                      <TouchableOpacity onPress={() => quitarPhoto(viewer, p.col)} disabled={busy === viewer.id + p.delKey} style={{ borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === viewer.id + p.delKey ? 0.6 : 1 }}>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{busy === viewer.id + p.delKey ? 'Quitando…' : '🗑 Quitar foto'}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                 </View>
               ))}
             </ScrollView>

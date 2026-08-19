@@ -363,3 +363,24 @@ export async function pickAndUploadPhoto(
   if (error) return { ok: false, error: error.message };
   return up;
 }
+
+/**
+ * QUITA la foto de una máquina, sin tener que poner otra en su lugar. Hasta el
+ * 18-ago-2026 solo se podía REEMPLAZAR: si una foto estaba mala o no
+ * correspondía, había que subir otra cualquiera para taparla.
+ *
+ * Solo vacía la columna. El archivo se DEJA en Storage a propósito: la bitácora
+ * de auditoría guarda la URL anterior en `changes`, y si borráramos el archivo
+ * ese rastro quedaría apuntando a un enlace muerto — justo cuando alguien
+ * pregunta "¿qué foto había antes?". Un JPG suelto no pesa nada; perder la
+ * prueba sí cuesta.
+ */
+export async function removeMachineryPhoto(
+  machineryId: string,
+  column: 'photo_url' | 'photo_serial_url' = 'photo_url'
+): Promise<{ ok: boolean; error?: string }> {
+  if (!machineryId) return { ok: false, error: 'Falta la máquina.' };
+  const { error } = await supabase.from('machinery').update({ [column]: null }).eq('id', machineryId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
