@@ -86,6 +86,11 @@ Cuando una máquina o un vehículo **carga** combustible:
 Es la lista de **todas las máquinas**. Cada una tiene su ficha: nombre, empresa, foto,
 serial y estado.
 
+> **📍 Edificio / residencia (19-ago-2026):** en cada máquina se muestra el **edificio o
+> residencia** donde está, con su sector (ej. **"📍 EDIFICIO PUNTA PIEDRA - MACUTO"**). Sale del
+> catálogo de ubicaciones; el sector geográfico (🧭 Este/Oeste) se sigue calculando aparte desde
+> el GPS.
+
 > **🆔 El nombre NO identifica a una máquina — la placa o el serial sí (18/08/2026):** el
 > nombre **se repite a propósito**. Hoy hay **tres** máquinas llamadas exactamente
 > `RETROEXCAVADORA` (identificadores **008**, **053** y **073**), y el sistema lo permite

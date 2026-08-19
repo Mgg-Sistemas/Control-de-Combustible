@@ -1375,6 +1375,11 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
             <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
+            {/* Edificio / residencia donde está la máquina (nombre canónico del catálogo,
+                que ya incluye el sector, ej. "EDIFICIO PUNTA PIEDRA - MACUTO"). */}
+            {edificioLabel((m as any).referencia) !== '—' ? (
+              <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>📍 {edificioLabel((m as any).referencia)}</Text>
+            ) : null}
             {m.latitude != null ? (
               <>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>📍 UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
