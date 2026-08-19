@@ -2429,8 +2429,12 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 > **instalada**) sin salir de Compras. La manguera se sigue **creando** en su módulo; Compras solo la
 > **refleja** para aprobarla más rápido.
 
-> No hay forma de **eliminar** un registro de manguera (ni botón ni permiso de borrado): el
-> historial completo se conserva a propósito.
+> 🗑️ **Eliminar una manguera NO aprobada:** mientras la manguera **no esté aprobada/pagada**
+> (cualquier estado distinto de ✅ Pagado), su tarjeta muestra un botón **"🗑️ Eliminar"** —
+> tanto en el módulo de **Mangueras** como en **Compras → 🔧 Mangueras**. Pide **confirmación** y,
+> al borrar, elimina también la **cuenta pendiente** (por pagar/cobrar) que había generado, para
+> no dejarla colgada sin manguera. Una vez **aprobada/pagada** el botón **desaparece**: ese
+> registro ya **no se puede borrar** y queda como constancia contable.
 
 **Filtrar por máquina (trazabilidad):**
 En la tarjeta **"🚜 Filtro y consulta por equipo"**, busca la máquina por **código, serial o
