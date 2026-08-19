@@ -20,7 +20,7 @@ import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts, calcularInicioJornada } from '../lib/jornada';
-import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf } from '../lib/caracasDay';
+import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf, ultimaJornadaRoundDate } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
@@ -1305,22 +1305,35 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const puedeDescargarCierre = !!fixedShift;
 
   // ── Jornada que se va a imprimir (día de negocio + turno) ────────────────────
-  // Arranca en HOY y en el turno del inspector, que es el caso normal; se puede
-  // mover atrás para reimprimir jornadas anteriores. Hacia adelante no pasa de hoy.
-  const [receiptDay, setReceiptDay] = useState<string>(() => caracasBusinessToday());
+  // Arranca en la ÚLTIMA jornada del turno del inspector, que es el caso normal; se
+  // puede mover atrás para reimprimir jornadas anteriores. Hacia adelante no pasa de
+  // esa última jornada (no existe todavía nada más nuevo que imprimir).
+  //
+  // `null` = automático. NO se guarda el día calculado en el estado inicial: `fixedShift`
+  // llega ASÍNCRONO (se lee del perfil), así que al primer render todavía es null y el
+  // día quedaría congelado con el turno equivocado. Dejándolo en null, el día efectivo
+  // se recalcula solo en cuanto se sabe el turno — y también si el inspector cambia el
+  // selector Día/Noche.
+  const [receiptDay, setReceiptDay] = useState<string | null>(null);
   const [receiptShift, setReceiptShift] = useState<'day' | 'night' | null>(null);
   const receiptShiftEff = receiptShift ?? fixedShift ?? 'day';
-  const hoyNegocio = caracasBusinessToday();
-  const receiptEsHoy = receiptDay === hoyNegocio;
+  // BUG DEL CLIENTE (19-ago-2026): antes esto era `caracasBusinessToday()`, que salta al
+  // día nuevo a las 7:00am — justo cuando el inspector de NOCHE termina y descarga su
+  // reporte. Le salía la noche que TODAVÍA NO EMPIEZA: máquinas "🟡 Parada" con 0 h,
+  // mientras el reporte que firma con el jefe (fecha elegida a mano) salía bien. Ver
+  // `ultimaJornadaRoundDate` en caracasDay.ts.
+  const ultimaJornadaDia = ultimaJornadaRoundDate(receiptShiftEff);
+  const receiptDayEff = receiptDay ?? ultimaJornadaDia;
+  const receiptEsHoy = receiptDayEff === ultimaJornadaDia;
   const shiftReceiptDay = (delta: number) => {
     // setUTCDate (no setDate): la fecha se ancla al mediodía de Caracas, y moverla en
     // UTC la deja siempre al mediodía. Con setDate, que trabaja en la hora LOCAL del
     // teléfono, un equipo con zona horaria lejana podía saltarse o repetir un día.
     // Mismo criterio que `yesterday` más arriba en este archivo.
-    const d = new Date(`${receiptDay}T12:00:00-04:00`);
+    const d = new Date(`${receiptDayEff}T12:00:00-04:00`);
     d.setUTCDate(d.getUTCDate() + delta);
     const iso = caracasParts(d).iso;
-    if (iso > hoyNegocio) return;            // nunca por delante del día de negocio
+    if (iso > ultimaJornadaDia) return;      // nunca por delante de la última jornada
     setReceiptDay(iso);
   };
   const fmtDia = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
@@ -1334,7 +1347,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // después de medianoche, cuando `today` (calendario) ya rodó — pero el round
       // real (y lo que ve computeInspectorData) sigue perteneciendo al día en que
       // arrancó. Sin esto el PDF salía vacío/con el día equivocado.
-      await generateMyShiftReceipt({ date: receiptDay, shift: receiptShiftEff, inspectorName: fullName || 'Inspector' });
+      await generateMyShiftReceipt({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: fullName || 'Inspector' });
     } catch {
       setNotice('❌ No se pudo generar el PDF del reporte.');
     } finally {
@@ -2557,8 +2570,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               <Text style={{ color: colors.text, fontWeight: '800' }}>◀</Text>
             </TouchableOpacity>
             <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fmtDia(receiptDay)}</Text>
-              {receiptEsHoy ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>hoy</Text> : null}
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fmtDia(receiptDayEff)}</Text>
+              {/* "última jornada", NO "hoy": para el turno NOCHE el día de la jornada es
+                  el día en que ARRANCÓ (7pm), así que a las 8am de la mañana siguiente la
+                  última jornada es la de AYER y decir "hoy" ahí engañaba. */}
+              {receiptEsHoy ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>{receiptShiftEff === 'night' ? 'última noche' : 'hoy'}</Text> : null}
             </View>
             <TouchableOpacity onPress={() => shiftReceiptDay(1)} disabled={receiptEsHoy} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, opacity: receiptEsHoy ? 0.35 : 1 }}>
               <Text style={{ color: colors.text, fontWeight: '800' }}>▶</Text>

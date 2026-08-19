@@ -901,15 +901,28 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${r2(tJor)} H</div></div>
     </div>
     <div class="kpi-note">Máquinas: ${list.length} · Jornada = total de horas ACTIVAS (trabajadas).</div>`;
+  // AVISO DE DÍA EQUIVOCADO (19-ago-2026). Tiene máquinas asignadas pero NI UNA hora en
+  // todo el turno: casi siempre significa que se pidió el día que no era. Pasó en serio —
+  // el inspector de noche descargaba a las 7am y le salía la noche que aún no empezaba,
+  // con todas sus máquinas en 🟡 Parada y 0 h. El día por defecto ya está corregido
+  // (`ultimaJornadaRoundDate`), pero el aviso queda: si alguien navega a un día sin
+  // jornada, el PDF lo dice en vez de parecer un turno perdido.
+  const sinNingunaHora = list.length > 0 && tH === 0;
+  const avisoSinHoras = sinNingunaHora
+    ? `<div class="aviso">⚠️ Esta jornada no tiene NINGUNA hora registrada. Revisa que el DÍA y el TURNO sean los correctos:
+       el turno noche pertenece al día en que ARRANCÓ (7:00pm), no al día siguiente.</div>`
+    : '';
   // Antes se descargaba como IMAGEN PNG (exportReceiptImage) y en algunos teléfonos se
   // veía cortada/borrosa. Ahora es un PDF con el mismo formato que el resto del sistema.
   const body = `
     <div class="stamp">Generado ${esc(nowStamp())}</div>
     ${kpis}
+    ${avisoSinHoras}
     <div class="rows">${rows || '<div class="none">Sin máquinas asignadas este turno.</div>'}</div>`;
 
   const extraCss = `
     .stamp{color:#9CA3AF;font-size:10px;margin-bottom:8px}
+    .aviso{max-width:640px;border:1px solid #FECDCA;background:#FEF3F2;color:#B42318;border-radius:10px;padding:9px 12px;font-size:11px;font-weight:700;margin:0 0 12px;page-break-inside:avoid}
     .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 14px;max-width:640px}
     .kpi{flex:1;min-width:132px;border:1px solid #E5E7EB;border-radius:10px;padding:10px 12px;background:#F8FAFC;page-break-inside:avoid}
     .kpi .k{font-size:9.5px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
