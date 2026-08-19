@@ -50,7 +50,7 @@ export default function EmpresasScreen() {
       <ConfigBanner />
       <SectionTitle>Empresas contratistas</SectionTitle>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Toca una empresa para editar su nombre y RIF (se imprimen en los reportes). Las ocultas no aparecen en selectores ni reportes.
+        Toca una empresa para editar su nombre y RIF (se imprimen en los reportes) o eliminarla. Las ocultas no aparecen en selectores ni reportes.
       </Text>
 
       <TouchableOpacity
@@ -102,7 +102,7 @@ export default function EmpresasScreen() {
         table="companies"
         fields={FIELDS}
         record={editing}
-        allowDelete={false}
+        allowDelete={true}
         onClose={() => setFormOpen(false)}
         onSaved={() => { setFormOpen(false); refetch(); }}
       />
