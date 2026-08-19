@@ -42,25 +42,34 @@ returns timestamptz language sql immutable set search_path = public as $$
   end;
 $$;
 
+-- El cron hace DOS cosas (blindaje 18-ago-2026): EXPIRA la parada cuando su
+-- próximo turno del mismo tipo ya arrancó, y RE-ABRE cualquier parada resuelta
+-- ANTES de tiempo. Antes el "re-abrir" era un UPDATE de una sola corrida (no
+-- entraba al cron), así que si la app / una edición / otro proceso resolvía una
+-- parada a mitad de su turno, NADA la volvía a abrir y la máquina caía a ⏳
+-- pendiente dentro de su propio turno (caso LUMINARIA 18-ago: parada de día de
+-- las 8:27am resuelta a las 7:20pm → salía pendiente en vez de 🟡 parada). Ahora
+-- el re-abrir vive DENTRO del cron: una parada dura TODO su turno, pase lo que pase.
 create or replace function public.expire_paradas_no_trabajo() returns void
-language sql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public as $$
+begin
+  -- EXPIRAR: su próximo turno del mismo tipo YA arrancó → vuelve a pendiente por iniciar.
   update public.maintenance_requests mr
      set status = 'realizado', resolved_at = now()
    where mr.material = 'MÁQUINA PARADA'
      and mr.status = 'pendiente'
      and public.parada_no_trabajo_reabre_at(mr.created_at) <= now();
-$$;
 
--- REABRIR las paradas que el cron VIEJO resolvió antes de tiempo: marcador
--- 'MÁQUINA PARADA' ya "realizado" cuyo próximo turno TODAVÍA no arranca. Vuelve a
--- 🟡 Parada por el resto de su turno (las que ya trabajaron/reiniciaron jornada
--- las excluye el clasificador por reactivación, así que no molesta).
-update public.maintenance_requests mr
-   set status = 'pendiente', resolved_at = null
- where mr.material = 'MÁQUINA PARADA'
-   and mr.status = 'realizado'
-   and mr.resolved_at is not null
-   and public.parada_no_trabajo_reabre_at(mr.created_at) > now();
+  -- RE-ABRIR: resuelta ANTES de tiempo (su próximo turno TODAVÍA no arranca) →
+  -- vuelve a 🟡 Parada por el resto de su turno. Las que ya trabajaron/reiniciaron
+  -- jornada las excluye el clasificador por reactivación, así que no molesta.
+  update public.maintenance_requests mr
+     set status = 'pendiente', resolved_at = null
+   where mr.material = 'MÁQUINA PARADA'
+     and mr.status = 'realizado'
+     and mr.resolved_at is not null
+     and public.parada_no_trabajo_reabre_at(mr.created_at) > now();
+end $$;
 
 -- Programa (o reprograma) el cron cada 10 minutos.
 do $$ begin perform cron.unschedule('expire-paradas-no-trabajo'); exception when others then null; end $$;
