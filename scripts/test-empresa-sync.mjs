@@ -76,6 +76,10 @@ const MACHS = [
   //     avería → ACTIVA, igual que las tarjetas/firma. Sin la inferencia salía AVERIADA
   //     ("dice INICIO pero sale averiada"). Blinda el fix del 18-ago-2026.
   { id: 'm6', code: 'RETRO REABIERTA', serial: 'S6', plate: null, tipo: 'MARCA F', encargado: null, active: true, operational: true, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
+  // m7: RETIRADA (operational=false) pero TRABAJÓ 12 h ese día → debe CONTAR y aparecer
+  //     (regla cliente 19-ago-2026: "si trabajó, se factura", para cuadrar con el Informe
+  //     por jornada). Antes se excluía a ciegas por operational=false y descuadraba 12 h.
+  { id: 'm7', code: 'RETIRADA CON HORAS', serial: 'S7', plate: null, tipo: 'MARCA G', encargado: null, active: true, operational: false, en_espera: false, company_id: 'c1', company: { name: 'EMPRESA X' } },
 ];
 const ROUNDS = [
   { machinery_id: 'm1', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
@@ -85,6 +89,7 @@ const ROUNDS = [
   { machinery_id: 'm5', day_hours: 8,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true,  declared_night: null,  jornada_marked_by: null },
   // m6: reabrió a las 8am pero la fila NO guardó jornada_shift (null). declared_day=true.
   { machinery_id: 'm6', day_hours: 0,  night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: at(8), jornada_shift: null, declared_day: true, declared_night: null, jornada_marked_by: null },
+  { machinery_id: 'm7', day_hours: 12, night_hours: 0, hours_stopped: 0, overtime_hours: 0, jornada_start_at: null, jornada_shift: 'day', declared_day: true, declared_night: null, jornada_marked_by: null },
 ];
 const MR = [
   { machinery_id: 'm2', material: 'MÁQUINA PARADA', notes: 'NO TRABAJÓ · sin operador', created_at: at(9),  status: 'pendiente', resolved_at: null },
@@ -141,7 +146,8 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
 const grpCount = (label) => { const m = html.match(new RegExp(`${label} · (\\d+)`)); return m ? Number(m[1]) : null; };
 
 ok('el reporte se generó', html.length > 0);
-ok('ACTIVAS = 5 (declaró+0h + trabajó 12h + día limpio/noche parada + reabierta null-shift + trabajó-y-se-averió)', grpCount('✅ Activas') === 5);
+ok('ACTIVAS = 6 (las 5 de antes + la RETIRADA que trabajó 12h)', grpCount('✅ Activas') === 6);
+ok('la RETIRADA con horas aparece en el reporte (no se excluye porque trabajó)', html.includes('RETIRADA CON HORAS'));
 ok('AVERIADAS/PARADAS = 1 (solo la parada real en 0 h)', grpCount('🔴 Averiadas / Paradas') === 1);
 // El fix del 18-ago: jornada reabierta con jornada_shift NULL infiere el turno y SUELTA la
 // avería arrastrada → ACTIVA. Sin la inferencia, m6 caía en Averiadas/Paradas (Activas=3).
@@ -158,9 +164,9 @@ ok('la parada de NOCHE se sigue mostrando (en su columna)', /No trabaj/i.test(ht
 ok('trabajó-y-se-averió aparece en el reporte', html.includes('PAYLOADER TRABMORE'));
 ok('trabajó-y-se-averió muestra sus 8 h trabajadas', html.includes('8 h'));
 ok('trabajó-y-se-averió muestra el motivo de avería (GATO)', /GATO/i.test(html));
-// Y sus 8 h SUMAN en el total de horas de día (m3 12h + m5 8h = 20h).
+// Y sus 8 h SUMAN en el total (m3 12h + m5 8h + m7 retirada-con-horas 12h = 32h).
 const dayTotal = (() => { const m = html.match(/Total horas día<\/div><div class="v">([\d.]+) H/); return m ? Number(m[1]) : null; })();
-ok('el total de horas día suma las 8 h de m5 (12+8=20)', dayTotal === 20);
+ok('el total de horas día suma m3 12 + m5 8 + m7 retirada 12 = 32', dayTotal === 32);
 
 console.log(`\n  Activas: ${grpCount('✅ Activas')} · Averiadas/Paradas: ${grpCount('🔴 Averiadas / Paradas')}`);
 if (fail) {
