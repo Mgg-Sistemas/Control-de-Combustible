@@ -1439,7 +1439,10 @@ Control de **materiales y herramientas**. El inventario es **GENERAL** (no se se
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
 promedio (PMP)**, que el sistema calcula solo con las entradas. El **SKU** es automático e
 incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salida, Nota de
-traslado, Gastos, Requerimiento, Movimientos y Dotación**.
+traslado, Gastos, Movimientos y Dotación**.
+
+> **El Requerimiento de compras se movió al módulo COMPRAS** (pestaña **"📝 Requerimiento"**). La
+> **recepción del material sigue cargándose al inventario** como siempre.
 
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
@@ -1507,11 +1510,13 @@ quitarlo) y con **"📄 Reporte de gastos (PDF)"** obtienes el resumen por categ
 de cada salida (fecha, producto, cantidad, costo y gasto) con el total. Las **entradas (compras)**
 y los **ajustes NO** cuentan como gasto: el gasto es el material que efectivamente sale.
 
-**📝 Requerimiento (pedir compras al jefe):** en la pestaña **"📝 Requerimiento"** armas una lista
-de productos que hacen falta —**del inventario** (los traes) o **NUEVOS** (los escribes)— con
-cantidad y **precio estimado** (en **$ o Bs** — el sistema convierte a dólares con la tasa del día
-solo para el cálculo interno). Al **📤 Enviar al jefe** queda guardado como **Pendiente**. El **jefe
-(administrador)** lo **✅ Aprueba** o lo **❌ Rechaza**. Si se compra, quien tenga permiso de
+**📝 Requerimiento (pedir compras al jefe):** está en el módulo **COMPRAS**, pestaña
+**"📝 Requerimiento"**. Armas una lista de productos que hacen falta —**del inventario** (los traes)
+o **NUEVOS** (los escribes)— con cantidad y **precio estimado** (en **$ o Bs** — el sistema convierte
+a dólares con la tasa del día solo para el cálculo interno). Al crear puedes elegir, opcionalmente,
+el **PROVEEDOR** (chip "Sin proveedor" o uno del catálogo). Al **📤 Enviar al jefe** queda guardado
+como **Pendiente**. El **jefe (administrador)** lo **✅ Aprueba** o lo **❌ Rechaza**. Si se compra,
+quien tenga permiso de
 **Recibir** (el administrador o alguien con **todos los permisos de Inventario**, desde 04/08/2026)
 toca **"📥 Recibir en inventario"**, confirma la **cantidad y el precio real** de cada producto, y el
 sistema **crea la entrada** en el almacén (los productos nuevos **se crean solos**); el requerimiento
@@ -1521,7 +1526,14 @@ es solo referencial dentro del sistema, no sale en ningún reporte impreso). As�
 trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
 Cada requerimiento tiene además **"✏️ Editar"** (cambia título, nota y productos — no si ya fue
 recibido) y **"🗑️ Eliminar"** (borra todo el requerimiento, con confirmación), para quien tenga
-escritura en Inventario.
+escritura en Compras (o Inventario).
+
+> **Proveedor → orden de compra + cuenta por pagar:** si le asignas un **PROVEEDOR** al
+> requerimiento, al **aprobarlo** se genera automáticamente la **orden de compra** (aprobada) y la
+> **cuenta por pagar** de ese proveedor por el total de los ítems. **Sin proveedor**, la orden queda
+> en **BORRADOR** y no se crea cuenta hasta que le asignes uno (editando el requerimiento). Los
+> proveedores se crean en la pestaña **"🏭 Proveedores"** de Compras. Para **recibir** el material
+> en el almacén se sigue necesitando permiso de **Inventario**.
 
 > **Cambiar estado a mano (04/08/2026):** quien tenga **todos los permisos de Inventario** (o sea
 > administrador) puede tocar el mismo **badge de estado** (arriba a la derecha de cada

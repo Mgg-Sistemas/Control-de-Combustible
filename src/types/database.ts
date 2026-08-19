@@ -691,6 +691,7 @@ export interface InventoryRequirement {
   status: RequirementStatus;
   items: RequirementLine[];
   company_id: string | null;          // empresa para la que se pide (opcional)
+  supplier_id: string | null;         // proveedor (opcional) → orden de compra + cuenta por pagar
   requested_by: string | null;
   requested_by_name: string | null;
   decided_by: string | null;
