@@ -926,6 +926,21 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
     refetch();
   };
 
+  // 🗑️ Eliminar una manguera que AÚN NO fue aprobada/pagada. Borra primero su cuenta
+  // ligada NO pagada (el FK es `on delete set null` → si no, quedaría huérfana).
+  const eliminarManguera = async (h: HoseService) => {
+    if (h.payment_status === 'pagado') { toast.error('No se puede eliminar: ya fue aprobada/pagada.'); return; }
+    const ok = await confirm({ title: 'Eliminar manguera', message: `¿Eliminar la manguera ${h.code}? Se borrará también su cuenta pendiente asociada. No se puede deshacer.`, confirmText: 'Eliminar', danger: true });
+    if (!ok) return;
+    setBusy(h.id + '-del');
+    await supabase.from('cuentas').delete().eq('hose_service_id', h.id).neq('estado', 'pagada');
+    const { error } = await supabase.from('hose_services').delete().eq('id', h.id);
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    toast.success('Manguera eliminada.');
+    refetch();
+  };
+
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
@@ -984,6 +999,12 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
                         <Text style={{ color: colors.muted, fontSize: 11 }}>Debe estar instalada para poder pagar</Text>
                       </View>
                     )}
+                    {/* Eliminar: solo mientras NO haya sido aprobada/pagada. */}
+                    {h.payment_status !== 'pagado' ? (
+                      <TouchableOpacity disabled={busy === h.id + '-del'} onPress={() => eliminarManguera(h)} style={{ flexGrow: 1, backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy === h.id + '-del' ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>🗑️ Eliminar</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 ) : null}
               </>
