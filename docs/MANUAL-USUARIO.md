@@ -947,9 +947,31 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 >
 > **Antes solo aparecía al terminar el turno** (cuando ya no le quedaba ninguna máquina en
 > curso), así que no podía sacar el de ayer ni revisar el de hoy a media jornada. Ahora:
-> - Elige el **día** con **◀ ▶** — hacia atrás lo que necesite; hacia adelante no pasa de hoy.
+> - Elige el **día** con **◀ ▶** — hacia atrás lo que necesite; hacia adelante no pasa de la
+>   última jornada de ese turno.
 > - Elige el **turno** ☀️ Día / 🌙 Noche. Arranca en el suyo; se puede cambiar por si cubrió el otro.
 > - Descarga con **📄 Descargar reporte (PDF)**.
+>
+> **📅 El día ya arranca en la jornada que acabas de cerrar (19/08/2026).** El bloque abre en la
+> **última jornada de tu turno**, no en la fecha del calendario:
+> - **Turno noche:** la noche del **día en que arrancó (7:00pm)**. Si terminas a las 7:00am y
+>   descargas tu reporte, sale la noche que acabas de trabajar — aunque el calendario ya haya
+>   cambiado de día. Debajo de la fecha dice **"última noche"**.
+> - **Turno día:** el día de hoy (antes de las 7:00am todavía es el de ayer).
+>
+> **Qué pasaba antes:** el bloque arrancaba en el día de calendario, que **cambia a las 7:00am
+> en punto** — justo la hora a la que termina el turno de noche. El inspector descargaba su
+> reporte y le salía **la noche que todavía no empieza**: 0 horas, y las máquinas con parada o
+> avería pendiente de la noche anterior en **"🟡 Parada"**. El mismo equipo, en el reporte que
+> se firma con el jefe (donde la fecha se elige a mano), salía **"✅ Finalizada"** con sus
+> horas. **No eran dos cálculos distintos** —los dos documentos salen de la misma cuenta— era
+> el **día** que el teléfono estaba pidiendo. Caso real: STEVEEN CAMACHO, noche del
+> **18/08/2026**, máquina de placa **FF02700X070391**.
+>
+> **⚠️ Aviso impreso en el PDF:** si el día y turno elegidos **no tienen ni una hora
+> registrada**, el reporte lo dice arriba en rojo ("Esta jornada no tiene NINGUNA hora
+> registrada. Revisa que el DÍA y el TURNO sean los correctos"). Así, si alguien navega con
+> **◀ ▶** hasta un día sin jornada, se ve el aviso en vez de parecer un turno perdido.
 >
 > **⏱️ Hoy sí cuenta en vivo; un día pasado, no (17/08/2026).** El reporte de **HOY** suma la
 > jornada que sigue abierta, así que el número va subiendo hasta que el inspector la cierre.

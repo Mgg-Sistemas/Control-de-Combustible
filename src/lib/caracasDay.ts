@@ -68,6 +68,31 @@ export function businessRoundDateOf(d: Date, shift: 'day' | 'night'): string {
 }
 
 /**
+ * `round_date` de la jornada MÁS RECIENTE de un turno — el día que debe salir POR
+ * DEFECTO cuando el inspector pide "mi reporte de jornada" desde el teléfono.
+ *
+ * BUG DEL CLIENTE (19-ago-2026). El recibo del teléfono usaba `caracasBusinessToday()`,
+ * que salta al día nuevo a las 7:00am en punto. El inspector de NOCHE termina JUSTO a
+ * las 7am, así que al descargar su reporte recibía **la noche que todavía NO empieza**:
+ * sus máquinas salían "🟡 Parada" con 0 h —las paradas de la noche anterior siguen
+ * pendientes hasta que el cron las expira— mientras el reporte que firma con el jefe,
+ * donde la fecha se elige a mano, salía correcto. De ahí la queja: "en el que sacan los
+ * inspectores desde el teléfono la máquina sale parada y no le toma las horas que sí
+ * trabajó". No era el cálculo del reporte (es el MISMO para los dos documentos): era el
+ * DÍA que se le pedía.
+ *
+ *  · DÍA   → el día de negocio de hoy (antes de las 7am todavía es ayer).
+ *  · NOCHE → la noche EN CURSO si ya son las 7pm; si no, la que acaba de cerrar (ayer).
+ *
+ * Blindado por `scripts/test-recibo-jornada.mjs` (`npm run test:recibo`).
+ */
+export function ultimaJornadaRoundDate(shift: 'day' | 'night', now: Date = new Date()): string {
+  const { iso, hour } = caracasPartsOf(now);
+  const inicioTurno = shift === 'night' ? 19 : 7;   // 7pm noche · 7am día
+  return hour >= inicioTurno ? iso : isoYesterday(iso);
+}
+
+/**
  * VENTANA DE GRACIA DE LA NOCHE (regla cliente 09-ago-2026; tope movido a 9am el
  * 13-ago-2026): una jornada de NOCHE ya FINALIZADA debe seguir viéndose
  * CERRADA/finalizada hasta las 9am del día siguiente; a las 9am se REINICIA el turno de
