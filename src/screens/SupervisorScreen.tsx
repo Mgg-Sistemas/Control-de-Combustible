@@ -1879,6 +1879,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       source: anticipado ? 'manual_finish_early' : 'manual_finish', recorded_by: uid || null,
       ...(motivo ? { close_reason: motivo } : {}),
     }).then(() => {}, () => {});
+    // Al FINALIZAR con horas, la máquina SÍ trabajó este turno → un ticket "MÁQUINA
+    // PARADA / no trabajó" marcado DURANTE esta jornada (p. ej. "esperando operador" a
+    // las 8am y luego arrancó) queda contradicho por las horas. Se RESUELVE (igual que
+    // "Volver a operativa", líneas 2142-2145) para que el tablero muestre CERRADA y no
+    // PARADA — `segmentoDe` (línea 1104) chequea parada-HOY ANTES que las horas, así que
+    // sin esto la jornada finalizada seguía saliendo 🟡 PARADA (queja 19-ago-2026: "estoy
+    // finalizando jornadas y se marcan como paradas"). Solo el marcador de parada (NO
+    // averías reales de otro material) y solo desde el inicio de ESTA jornada, para no
+    // tocar una parada previa de otro turno. Se espera antes del refresh para que el
+    // tablero cambie de una vez.
+    if (jornadaStart) {
+      await supabase.from('maintenance_requests')
+        .update({ status: 'realizado', resolved_by: uid || null, resolved_at: new Date().toISOString() })
+        .eq('machinery_id', ci.id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente')
+        .gte('created_at', jornadaStart);
+    }
     reloadEstados();
     // TAREA 2: además del total de ESTA sesión, muestra el acumulado del turno en
     // el día (horas ya registradas antes de abrir esta sesión + lo recién cerrado).
