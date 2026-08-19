@@ -24,7 +24,9 @@ create or replace function public.clear_stale_declarations() returns void
 language plpgsql security definer set search_path = public as $$
 declare hoy date := (now() at time zone 'America/Caracas')::date;
 begin
-  -- DÍA: declaró día, 0h día, jornada cerrada y SIN tramo de día hoy → fantasma.
+  -- DÍA: declaró día, 0h día, jornada cerrada, SIN tramo de día hoy Y SIN
+  -- parada/avería pendiente → fantasma. (Una máquina marcada "no trabajó"/parada
+  -- tiene ticket pendiente → NO es fantasma, MANDA la parada: no se toca.)
   update public.machine_rounds r
      set declared_day = false
    where r.round_date = hoy
@@ -33,7 +35,9 @@ begin
      and r.jornada_start_at is null
      and not exists (select 1 from public.machine_work_segments s
                      where s.machinery_id = r.machinery_id
-                       and s.round_date = r.round_date and s.shift = 'day');
+                       and s.round_date = r.round_date and s.shift = 'day')
+     and not exists (select 1 from public.maintenance_requests mr
+                     where mr.machinery_id = r.machinery_id and mr.status = 'pendiente');
 
   -- NOCHE: mismo criterio para el turno de noche.
   update public.machine_rounds r
@@ -44,7 +48,9 @@ begin
      and r.jornada_start_at is null
      and not exists (select 1 from public.machine_work_segments s
                      where s.machinery_id = r.machinery_id
-                       and s.round_date = r.round_date and s.shift = 'night');
+                       and s.round_date = r.round_date and s.shift = 'night')
+     and not exists (select 1 from public.maintenance_requests mr
+                     where mr.machinery_id = r.machinery_id and mr.status = 'pendiente');
 end $$;
 
 -- Programa el cron cada 30 min (se auto-limpia solo).
