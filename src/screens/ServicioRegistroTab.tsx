@@ -36,7 +36,7 @@ import {
 import { generateMachineServiceReport, MaquinaFicha, ServicioImprimible } from '../lib/machineServiceReport';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
-import { spacing, radius } from '../theme';
+import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 const todayISO = () => caracasParts(new Date()).iso;
@@ -67,6 +67,51 @@ type Orden = {
 /** Un renglón del formulario de repuestos (el último siempre va vacío). */
 type Renglon = { quantity: string; description: string; estado: string };
 const RENGLON_VACIO: Renglon = { quantity: '', description: '', estado: ESTADOS_REPUESTO[0] };
+
+/**
+ * ⚠️ `Boton` y `Entrada` viven AQUÍ ARRIBA, FUERA del componente, A PROPÓSITO.
+ * NO los metas adentro para tener `colors` y `busy` a mano sin pasarlos.
+ *
+ * BUG DEL CLIENTE (19-ago-2026): «cada que intento escribir o doy un espacio deja de
+ * escribir». Estaban declarados DENTRO de `ServicioRegistroTab`, así que en CADA render
+ * eran una función NUEVA — y para React, una función distinta es un COMPONENTE distinto.
+ * Al teclear una letra cambiaba el estado, se re-renderizaba la pantalla, React veía
+ * "otro" componente y DESMONTABA el <TextInput> para montar uno nuevo: el campo perdía
+ * el foco y el teclado se cerraba a cada tecla. Declarados a nivel de módulo la
+ * identidad es estable, no hay desmontaje y el campo conserva el foco.
+ *
+ * REGLA GENERAL: un componente declarado dentro de otro NUNCA debe contener un campo de
+ * texto.
+ */
+function Boton({ label, onPress, tone = 'surface', disabled, colors }: {
+  label: string; onPress: () => void; tone?: 'surface' | 'brand'; disabled?: boolean; colors: AppColors;
+}) {
+  return (
+    <TouchableOpacity onPress={onPress} disabled={disabled}
+      style={{ backgroundColor: tone === 'brand' ? colors.brand : colors.surfaceAlt, borderWidth: 1,
+        borderColor: tone === 'brand' ? colors.brand : colors.border, borderRadius: radius.md,
+        paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center', opacity: disabled ? 0.5 : 1 }}>
+      <Text style={{ color: tone === 'brand' ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function Entrada(p: {
+  label: string; value: string; onChange: (s: string) => void;
+  multiline?: boolean; placeholder?: string; colors: AppColors;
+}) {
+  const { colors } = p;
+  return (
+    <View style={{ marginTop: spacing.sm }}>
+      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 3 }}>{p.label}</Text>
+      <TextInput value={p.value} onChangeText={p.onChange} placeholder={p.placeholder}
+        placeholderTextColor={colors.muted} multiline={p.multiline}
+        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+          paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text,
+          minHeight: p.multiline ? 64 : undefined, textAlignVertical: p.multiline ? 'top' : 'center' }} />
+    </View>
+  );
+}
 
 export default function ServicioRegistroTab(
   { machines, reqs, canWrite, uid }: { machines: Mach[]; reqs: Req[]; canWrite: boolean; uid: string | null }
@@ -244,26 +289,6 @@ export default function ServicioRegistroTab(
   const textoAveria = (r?: Req): string | null =>
     r ? `Avería del ${fmtDMY(r.created_at)} · ${r.material}${r.notes ? ` · ${r.notes}` : ''}` : null;
 
-  // ── Piezas de interfaz ────────────────────────────────────────────────────
-  const Boton = ({ label, onPress, tone = 'surface' }: { label: string; onPress: () => void; tone?: 'surface' | 'brand' }) => (
-    <TouchableOpacity onPress={onPress} disabled={busy}
-      style={{ backgroundColor: tone === 'brand' ? colors.brand : colors.surfaceAlt, borderWidth: 1,
-        borderColor: tone === 'brand' ? colors.brand : colors.border, borderRadius: radius.md,
-        paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center', opacity: busy ? 0.5 : 1 }}>
-      <Text style={{ color: tone === 'brand' ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
-    </TouchableOpacity>
-  );
-
-  const Entrada = (p: { label: string; value: string; onChange: (s: string) => void; multiline?: boolean; placeholder?: string }) => (
-    <View style={{ marginTop: spacing.sm }}>
-      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 3 }}>{p.label}</Text>
-      <TextInput value={p.value} onChangeText={p.onChange} placeholder={p.placeholder}
-        placeholderTextColor={colors.muted} multiline={p.multiline}
-        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-          paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text,
-          minHeight: p.multiline ? 64 : undefined, textAlignVertical: p.multiline ? 'top' : 'center' }} />
-    </View>
-  );
 
   if (loading) return <Loading />;
 
@@ -284,9 +309,9 @@ export default function ServicioRegistroTab(
           <View style={{ flex: 1 }}><DateField value={fHasta} onChange={setFHasta} placeholder="Hasta" /></View>
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1 }}><Boton label="📄 Exportar PDF" onPress={exportar} /></View>
+          <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="📄 Exportar PDF" onPress={exportar} /></View>
           {canWrite ? (
-            <View style={{ flex: 1 }}><Boton label="➕ Registrar servicio" tone="brand" onPress={() => { limpiarForm(); setFormOpen(true); }} /></View>
+            <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="➕ Registrar servicio" tone="brand" onPress={() => { limpiarForm(); setFormOpen(true); }} /></View>
           ) : null}
         </View>
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
@@ -377,7 +402,7 @@ export default function ServicioRegistroTab(
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <Boton label="Cerrar" onPress={() => setPickerOpen(false)} />
+            <Boton colors={colors} disabled={busy} label="Cerrar" onPress={() => setPickerOpen(false)} />
           </View>
         </View>
       </Modal>
@@ -411,8 +436,8 @@ export default function ServicioRegistroTab(
                 ))}
               </View>
               {origen === 'interno'
-                ? <Entrada label="Operador / Técnico" value={tecnico} onChange={setTecnico} placeholder="Quién de la empresa lo hizo" />
-                : <Entrada label="Persona o taller externo" value={proveedor} onChange={setProveedor} placeholder="Nombre de quien lo hizo" />}
+                ? <Entrada colors={colors} label="Operador / Técnico" value={tecnico} onChange={setTecnico} placeholder="Quién de la empresa lo hizo" />
+                : <Entrada colors={colors} label="Persona o taller externo" value={proveedor} onChange={setProveedor} placeholder="Nombre de quien lo hizo" />}
 
               {/* 2. TIPO DE INTERVENCIÓN */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>2. TIPO DE INTERVENCIÓN</Text>
@@ -434,7 +459,7 @@ export default function ServicioRegistroTab(
 
               {/* 3. DESCRIPCIÓN DEL PROBLEMA */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>3. DESCRIPCIÓN DEL PROBLEMA</Text>
-              <Entrada label="" value={problema} onChange={setProblema} multiline placeholder="Qué le pasaba a la máquina" />
+              <Entrada colors={colors} label="" value={problema} onChange={setProblema} multiline placeholder="Qué le pasaba a la máquina" />
 
               {averiasDe.length ? (
                 <View style={{ marginTop: spacing.sm }}>
@@ -459,7 +484,7 @@ export default function ServicioRegistroTab(
 
               {/* 4. ACCIONES REALIZADAS */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>4. ACCIONES REALIZADAS</Text>
-              <Entrada label="" value={acciones} onChange={setAcciones} multiline placeholder="Qué se le hizo" />
+              <Entrada colors={colors} label="" value={acciones} onChange={setAcciones} multiline placeholder="Qué se le hizo" />
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs }}>
                 <TouchableOpacity disabled={!maquinaId || busy}
                   onPress={async () => {
@@ -503,8 +528,8 @@ export default function ServicioRegistroTab(
               </TouchableOpacity>
 
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, marginBottom: spacing.md }}>
-                <View style={{ flex: 1 }}><Boton label="Cancelar" onPress={() => setFormOpen(false)} /></View>
-                <View style={{ flex: 1 }}><Boton label={busy ? 'Guardando…' : '💾 Guardar'} tone="brand" onPress={guardar} /></View>
+                <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="Cancelar" onPress={() => setFormOpen(false)} /></View>
+                <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label={busy ? 'Guardando…' : '💾 Guardar'} tone="brand" onPress={guardar} /></View>
               </View>
             </ScrollView>
           </View>
@@ -525,7 +550,7 @@ export default function ServicioRegistroTab(
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <Boton label="Cerrar" onPress={() => setPickMaquinaForm(false)} />
+            <Boton colors={colors} disabled={busy} label="Cerrar" onPress={() => setPickMaquinaForm(false)} />
           </View>
         </View>
       </Modal>
