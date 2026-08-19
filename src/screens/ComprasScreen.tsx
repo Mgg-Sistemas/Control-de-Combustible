@@ -215,9 +215,13 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // Error EN LÍNEA dentro del Modal: el toast queda TAPADO por el Modal a pantalla
+  // completa (web), así el usuario no veía por qué "no deja registrar". Ver la
+  // memoria confirm-dentro-de-modal-web / el mismo arreglo en RequerimientoTab.
+  const [formErr, setFormErr] = useState<string | null>(null);
 
   const abrir = (s: Supplier | null) => {
-    setEditing(s);
+    setEditing(s); setFormErr(null);
     setName(s?.name ?? ''); setRif(s?.rif ?? ''); setPhone(s?.phone ?? ''); setEmail(s?.email ?? ''); setAddress(s?.address ?? '');
     setTags(s?.tags ?? []); setTagInput('');
     setOpen(true);
@@ -229,7 +233,8 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
     setTagInput('');
   };
   const guardar = async () => {
-    if (!name.trim()) return toast.error('El nombre es obligatorio.');
+    setFormErr(null);
+    if (!name.trim()) { setFormErr('El nombre es obligatorio.'); return; }
     setBusy(true);
     const payload = {
       name: name.trim().toUpperCase(), rif: rif.trim() || null, phone: phone.trim() || null,
@@ -239,7 +244,7 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
       ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
       : await supabase.from('suppliers').insert(payload);
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) { setFormErr(error.message); toast.error(error.message); return; }
     setOpen(false); refetch();
   };
   const borrar = async () => {
@@ -351,6 +356,11 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               ) : null}
 
+              {formErr ? (
+                <View style={{ marginTop: spacing.md, backgroundColor: colors.dangerSoftBg, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.danger }}>
+                  <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>⚠️ {formErr}</Text>
+                </View>
+              ) : null}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
                 <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                   <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
