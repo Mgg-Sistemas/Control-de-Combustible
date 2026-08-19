@@ -1135,14 +1135,22 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
     const h = (n: number) => n.toFixed(2);
     if (s.estado === 'averiada' || s.estado === 'parada') {
       const isAveria = s.estado === 'averiada';
-      // Averiada/Parada NO muestra horas "Trabajó/En curso/Total": era contradictorio
-      // ("sale que trabajó pero dice averiado"). El auto-inicio por cron (7am) o tramos
-      // viejos podían dejar horas > 0 aunque la máquina esté averiada/parada. El estado
-      // (🔴 Averiada / 🟡 Parada) + el motivo ya comunican todo; se omiten las horas.
+      // Si la máquina TRABAJÓ horas y LUEGO cayó, se muestran esas horas + desde cuándo
+      // está detenida ("Trabajó X h · averiada/parada desde HH:MM") — sincroniza con el
+      // informe y el panel de Inspecciones (regla del cliente 19-ago-2026). Si NO trabajó
+      // nada (0 h, el "no trabajó" normal), el rótulo simple de siempre — así no se muestra
+      // una hora fantasma de una máquina que de verdad no trabajó.
+      const trabajoHoras = s.trabajadas > 0.05;
+      const desde = trabajoHoras && s.desdeMs
+        ? (() => { try { return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(s.desdeMs as number)); } catch { return null; } })()
+        : null;
+      const label = trabajoHoras
+        ? `${isAveria ? '🔴' : '🟡'} Trabajó ${h(s.trabajadas)}h · ${isAveria ? 'averiada' : 'parada'}${desde ? ` desde ${desde}` : ''}`
+        : (isAveria ? '🔴 Averiada' : '🟡 Parada');
       return (
         <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: isAveria ? '#FEE2E2' : '#FEF3C7', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
           <Text style={{ color: isAveria ? '#B91C1C' : '#B45309', fontWeight: '700', fontSize: 11 }} numberOfLines={2}>
-            {isAveria ? '🔴 Averiada' : '🟡 Parada'}{s.motivo ? ` · ${s.motivo}` : ''}
+            {label}{s.motivo ? ` · ${s.motivo}` : ''}
           </Text>
         </View>
       );
