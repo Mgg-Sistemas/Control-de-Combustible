@@ -2408,6 +2408,24 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
      Director General (Jesús Lozada)** — para enviárselo a autorizar o archivarlo. Mientras no
      esté pagada sale la línea para firmar a mano; una vez pagada, sale la firma escaneada.
 
+> 💰 **Cuenta por COBRAR automática (a quién se le factura):** además del proveedor, cada manguera
+> pide ahora una **Empresa a cobrar**, un **Encargado** (a quién se le cobra — desplegable con opción
+> de **agregar** uno nuevo) y un **Margen de cobro (%)** (por defecto 30 %). Al guardar, el sistema
+> crea sola una **cuenta por cobrar** a esa empresa por **costo + margen**, visible en
+> **Compras → 💰 Por cobrar**. Queda sincronizada con la manguera (si cambia el costo/margen se
+> ajusta el monto). **Excepción CHELI:** si el encargado es **CHELI** (marcado "no cobrar" en el
+> catálogo de encargados), **NO se genera** cuenta por cobrar. Los campos aplican también a las
+> mangueras **externas**.
+> - 🧾 **Recibo de cobro (PDF):** cuando la manguera es cobrable, su tarjeta muestra el botón
+>   **"🧾 Recibo de cobro"**, que descarga un recibo imprimible con la empresa, el encargado, el
+>   costo, el margen y el **monto a cobrar**.
+
+> 🛒 **Aprobación desde Compras:** para que el **gerente** no tenga que entrar al módulo de
+> Mangueras, todas las mangueras **pendientes** aparecen también en **Compras → pestaña 🔧 Mangueras**.
+> Desde ahí puede **enviar a autorización** y **aprobar el pago** (solo si la manguera está
+> **instalada**) sin salir de Compras. La manguera se sigue **creando** en su módulo; Compras solo la
+> **refleja** para aprobarla más rápido.
+
 > No hay forma de **eliminar** un registro de manguera (ni botón ni permiso de borrado): el
 > historial completo se conserva a propósito.
 
