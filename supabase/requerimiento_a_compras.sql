@@ -184,11 +184,20 @@ create policy invreq_write on public.inventory_requirements for all to authentic
   using (public.can_write_module('compras') or public.can_write_module('inventario'))
   with check (public.can_write_module('compras') or public.can_write_module('inventario'));
 
--- Otorgar 'compras' al usuario de almacén (que ya tiene 'inventario' para recibir).
--- Descomentar y poner la(s) cédula/uuid reales:
--- insert into public.module_permissions (user_id, module, level)
--- values ('<uuid-del-usuario-almacen>', 'compras', 'write')
--- on conflict (user_id, module) do update set level = 'write';
+-- Otorgar 'compras' a todo el que hoy escribe en 'inventario' (así puede seguir
+-- viendo/operando el Requerimiento cuando la pestaña quede en Compras). Se le da
+-- el MISMO nivel que ya tiene en inventario. Los niveles válidos son
+-- 'escritura' | 'full' | 'none' (NO 'write'). Idempotente y basado en conjunto.
+insert into public.module_permissions (user_id, module, level)
+select mp.user_id, 'compras', mp.level
+from public.module_permissions mp
+where mp.module = 'inventario'
+  and mp.level in ('escritura', 'full')
+  and not exists (
+    select 1 from public.module_permissions c
+    where c.user_id = mp.user_id and c.module = 'compras'
+  )
+on conflict (user_id, module) do update set level = excluded.level;
 
 
 -- ── 5) BACKFILL opcional: conectar históricos que YA tienen proveedor ───────
