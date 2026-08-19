@@ -202,7 +202,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
       const [{ data: m }, { data: prof }, { data: tk }] = await Promise.all([
-        supabase.from('machinery').select('id, code, serial, tipo, referencia, active, qr_blocked, company_id, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
+        supabase.from('machinery').select('id, code, serial, tipo, referencia, active, operational, qr_blocked, company_id, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
       ]);
@@ -259,7 +259,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const refreshMachineAndTanks = React.useCallback(async () => {
     if (!machineId) return;
     const [{ data: m }, { data: tk }] = await Promise.all([
-      supabase.from('machinery').select('id, code, serial, tipo, referencia, active, qr_blocked, company_id, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
+      supabase.from('machinery').select('id, code, serial, tipo, referencia, active, operational, qr_blocked, company_id, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
       supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
     ]);
     if (m) setMachine((prev) => (prev ? { ...prev, ...(m as any), companyName: (m as any).company?.name ?? prev.companyName } : ({ ...(m as any), companyName: (m as any).company?.name ?? 'Sin empresa' } as any)));
@@ -502,9 +502,11 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   if (loading) return <Screen><Loading /></Screen>;
-  // Máquina ELIMINADA (no existe), INACTIVA (dada de baja, active=false) o con el
-  // QR BLOQUEADO manualmente → QR DESACTIVADO: solo el logo (sin datos ni acciones).
-  if (!machine || (machine as any).active === false || (machine as any).qr_blocked === true) return <QrInactive />;
+  // Máquina ELIMINADA (no existe), INACTIVA (dada de baja, active=false), RETIRADA
+  // (operational=false, fuera de servicio) o con el QR BLOQUEADO manualmente → QR
+  // DESACTIVADO: solo el logo (sin datos ni acciones). El retiro bloquea el QR
+  // automáticamente (regla cliente 19-ago-2026), sin tener que bloquearlo a mano.
+  if (!machine || (machine as any).active === false || (machine as any).operational === false || (machine as any).qr_blocked === true) return <QrInactive />;
   // QR VENCIDO: el QR fue sellado con un serial que ya NO coincide con el actual
   // (se cambió el serial de la máquina). Los QR sin sellar (qrSerial null) siguen
   // funcionando por compatibilidad; solo se vence el sello que dejó de coincidir.
