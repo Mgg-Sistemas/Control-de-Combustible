@@ -9,6 +9,7 @@ import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
+import { RequerimientoTab } from './RequerimientoTab';
 import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
@@ -854,13 +855,14 @@ export default function ComprasScreen() {
   const cuentasWrite = levelMeets(moduleLevel('cuentas'), 'escritura');
 
   const TABS = [
-    { key: 'solicitudes', label: 'Solicitudes', icon: '📝' },
+    { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
+    { key: 'solicitudes', label: 'Solicitudes', icon: '🗒️' },
     { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
     ...(veCuentas ? CUENTAS_TABS : []),
   ];
-  const [active, setActive] = useState('solicitudes');
+  const [active, setActive] = useState('requerimiento');
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -882,7 +884,7 @@ export default function ComprasScreen() {
           // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
           // propio buscador y formulario limpios.
           <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
-        ) : active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : <ProveedoresTab canWrite={canWrite} />}
+        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : <ProveedoresTab canWrite={canWrite} />}
       </View>
     </View>
   );
