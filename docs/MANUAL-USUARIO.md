@@ -243,6 +243,11 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > Lo que ves en Control durante el turno es una **estimación en curso** que va subiendo hasta
 > que el inspector cierre la jornada — igual que el Reporte por Empresa.
 
+> **🚫 Días futuros bloqueados (19-ago-2026):** solo se pueden cargar horas a **días pasados** o
+> al **día en curso**. Un día que **todavía no ha transcurrido** no puede tener horas: sale
+> marcado **"🚫 Día futuro — no se pueden cargar horas"** con los botones (—/6h/12h) y los campos
+> de parada/extra **deshabilitados**. La base de datos también lo blinda.
+
 **Anotar el trabajo de un día:**
 1. Elige la **semana** con las flechas ◀ ▶ o el calendario.
 2. Abre la empresa y luego la máquina.

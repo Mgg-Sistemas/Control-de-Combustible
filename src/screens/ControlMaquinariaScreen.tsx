@@ -469,6 +469,15 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // Guarda/actualiza el registro base (round_no=1) de una máquina en un día concreto,
   // conservando lo demás. Todo el control es por (máquina, fecha).
   const upsertRound = async (m: Machinery, dISO: string, patch: Record<string, any>) => {
+    // CANDADO: no se pueden cargar/editar HORAS en días FUTUROS (solo días pasados o
+    // el día en curso, según la hora de Caracas). El día aún no ha transcurrido, así
+    // que no puede tener horas trabajadas. La BD también lo blinda (trg_no_future_round),
+    // pero acá se avisa claro antes de intentar escribir. Las fechas ISO comparan bien.
+    const tocaHoras = ['day_hours', 'night_hours', 'hours_stopped', 'overtime_hours'].some((k) => k in patch);
+    if (tocaHoras && dISO > todayISO()) {
+      toast.error('No se pueden cargar horas en días futuros. Solo en días pasados o en el día en curso.');
+      return;
+    }
     const key = rkey(m.id, dISO);
     markEdited(key); // protege la edición mientras se escribe (evita que un refetch la pise)
     // ATÓMICO (auditoría sync#3): antes leía la fila (o el estado LOCAL rounds[key]),
@@ -576,6 +585,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   // Fija el turno de DÍA o NOCHE (0 / 6 / 12 h) de una máquina en un día.
   const setShift = async (m: Machinery, dISO: string, which: 'day' | 'night', hoursVal: number) => {
+    // No se cargan horas en días futuros (ver candado en upsertRound). Se corta acá
+    // ANTES para no intentar tampoco el tramo de ajuste en machine_work_segments.
+    if (dISO > todayISO()) { toast.error('No se pueden cargar horas en días futuros. Solo en días pasados o en el día en curso.'); return; }
     const ik = `${m.id}|${dISO}`;
     const ex = rounds[rkey(m.id, dISO)];
     // Analista: SOLO puede cargar horas a máquinas SIN horas ese día. Si la máquina ya
@@ -2052,6 +2064,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   const ot = Number(b?.overtime_hours ?? 0);
                   const worked = hrs.trabajadas;
                   const ik = `${m.id}|${dISO}`;
+                  const esFuturo = dISO > todayISO(); // día aún no transcurrido: no se cargan horas
                   return (
                     <View key={dISO} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -2069,6 +2082,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                         </View>
                         <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{Math.round(worked * 100) / 100} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
                       </View>
+                      {esFuturo ? <Text style={{ color: colors.warning, fontSize: 10.5, fontWeight: '700', marginBottom: 4 }}>🚫 Día futuro — no se pueden cargar horas</Text> : null}
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
                         const lockTurno = analistaMaqConHoras(b); // analista: máquina con horas → bloqueada (no agregar/modificar/borrar)
@@ -2086,8 +2100,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                                   <TouchableOpacity
                                     key={opt.hours}
                                     onPress={() => setShift(m, dISO, which, opt.hours)}
-                                    disabled={lockTurno && !active}
-                                    style={{ flex: 1, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: active ? activeBg : colors.border, backgroundColor: active ? activeBg : colors.surfaceAlt, alignItems: 'center', justifyContent: 'center', opacity: lockTurno && !active ? 0.4 : 1 }}
+                                    disabled={(lockTurno && !active) || esFuturo}
+                                    style={{ flex: 1, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: active ? activeBg : colors.border, backgroundColor: active ? activeBg : colors.surfaceAlt, alignItems: 'center', justifyContent: 'center', opacity: (lockTurno && !active) || esFuturo ? 0.4 : 1 }}
                                   >
                                     <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '700', fontSize: 11, textAlign: 'center' }}>{opt.label}</Text>
                                   </TouchableOpacity>
@@ -2110,24 +2124,24 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                           <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {(analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={hoursInput[ik] !== undefined ? hoursInput[ik] : stopped ? String(stopped) : ''}
-                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(stopped))}
+                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) && !esFuturo}
                             onChangeText={(t) => setHoursInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             onSubmitEditing={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(stopped) || esFuturo) ? 0.5 : 1 }}
                           />
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {(analistaMaqConHoras(b) || bloqueadoAnalista(ot)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={overtimeInput[ik] !== undefined ? overtimeInput[ik] : ot ? String(ot) : ''}
-                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(ot))}
+                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(ot)) && !esFuturo}
                             onChangeText={(t) => setOvertimeInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             onSubmitEditing={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(ot)) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(ot) || esFuturo) ? 0.5 : 1 }}
                           />
                         </View>
                       </View>
