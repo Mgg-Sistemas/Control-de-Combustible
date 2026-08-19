@@ -20,6 +20,7 @@ import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../components/ToastProvider';
+import { useConfirm } from '../components/ConfirmProvider';
 
 type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; tipo: string | null; company_id: string | null; encargado: string | null; operational: boolean };
 type ProfileRow = { id: string; full_name: string | null };
@@ -74,6 +75,7 @@ const fmtFecha = (iso: string | null | undefined) => {
 export default function ManguerasScreen() {
   const { colors } = useTheme();
   const toast = useToast();
+  const confirm = useConfirm();
   const { moduleLevel } = useAuth();
   const level = moduleLevel('mangueras');
 
@@ -262,6 +264,22 @@ export default function ManguerasScreen() {
       approved_at: new Date().toISOString(),
     }).eq('id', h.id);
     setBusy(null);
+    refetch();
+  };
+  // 🗑️ Eliminar una manguera que AÚN NO fue aprobada/pagada (payment_status != 'pagado').
+  // Una vez pagada NO se puede borrar (queda como registro contable). Antes de borrar el
+  // hose_service se elimina su cuenta ligada NO pagada — el FK es `on delete set null`, así
+  // que sin esto la cuenta quedaría huérfana (pendiente por pagar/cobrar sin manguera).
+  const eliminarManguera = async (h: HoseService) => {
+    if (h.payment_status === 'pagado') { toast.error('No se puede eliminar: ya fue aprobada/pagada.'); return; }
+    const ok = await confirm({ title: 'Eliminar manguera', message: `¿Eliminar "${h.code || 'manguera'}"? Se borrará también su cuenta pendiente asociada. No se puede deshacer.`, confirmText: 'Eliminar', danger: true });
+    if (!ok) return;
+    setBusy(h.id + '-del');
+    await supabase.from('cuentas').delete().eq('hose_service_id', h.id).neq('estado', 'pagada');
+    const { error } = await supabase.from('hose_services').delete().eq('id', h.id);
+    setBusy(null);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Manguera eliminada.');
     refetch();
   };
 
@@ -459,6 +477,10 @@ export default function ManguerasScreen() {
                         ) : null}
                         {h.payment_status === 'pendiente' ? (
                           <Btn label="📤 Enviar a autorización" color="#D97706" disabled={busy === h.id + '-auth'} onPress={() => enviarAutorizacion(h)} />
+                        ) : null}
+                        {/* Eliminar: solo mientras NO haya sido aprobada/pagada. */}
+                        {h.payment_status !== 'pagado' ? (
+                          <Btn label="🗑️ Eliminar" color="#B91C1C" disabled={busy === h.id + '-del'} onPress={() => eliminarManguera(h)} />
                         ) : null}
                       </>
                     ) : null}
