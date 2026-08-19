@@ -93,6 +93,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [rows, setRows] = useState<ReqRow[]>([]);
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
+  const [supQ, setSupQ] = useState('');       // búsqueda de proveedor
+  const [supOpen, setSupOpen] = useState(false); // desplegable de proveedor abierto
   const [busy, setBusy] = useState(false);
   const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
   const [previewReq, setPreviewReq] = useState<InventoryRequirement | null>(null); // vista previa del formato
@@ -390,7 +392,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Requerimientos</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setSupOpen(false); setSupQ(''); setRows([]); setFormato(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -661,16 +663,34 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   Sin proveedor la orden queda en BORRADOR. Los proveedores se crean
                   en la pestaña "Proveedores" de Compras. */}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Proveedor (opcional)</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
-                {[{ id: null as string | null, name: 'Sin proveedor' }, ...suppliers].map((s) => {
-                  const on = supplierId === s.id;
-                  return (
-                    <TouchableOpacity key={s.id ?? '__none__'} onPress={() => setSupplierId(s.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{s.name}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+              {/* Selector buscable: muestra el proveedor elegido; al tocarlo abre
+                  un buscador con la lista filtrada (hay muchos proveedores). */}
+              <TouchableOpacity onPress={() => setSupOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: supplierId ? colors.brand : colors.border, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                <Text style={{ color: supplierId ? colors.text : colors.muted, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>
+                  {supplierId ? (suppliers.find((s) => s.id === supplierId)?.name ?? '—') : 'Sin proveedor'}
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>{supOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {supOpen ? (
+                <View style={{ marginTop: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+                  <TextInput value={supQ} onChangeText={setSupQ} placeholder="Buscar proveedor…" placeholderTextColor={colors.muted} style={[inp, { margin: 6 }]} />
+                  <View style={{ maxHeight: 200 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {[{ id: null as string | null, name: 'Sin proveedor' }, ...suppliers.filter((s) => !supQ.trim() || norm(s.name).includes(norm(supQ)))].map((s) => {
+                        const on = supplierId === s.id;
+                        return (
+                          <TouchableOpacity key={s.id ?? '__none__'} onPress={() => { setSupplierId(s.id); setSupOpen(false); setSupQ(''); }} style={{ paddingVertical: 9, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.brand : 'transparent' }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{s.name}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      {suppliers.filter((s) => !supQ.trim() || norm(s.name).includes(norm(supQ))).length === 0 ? (
+                        <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.md }}>Sin coincidencias.</Text>
+                      ) : null}
+                    </ScrollView>
+                  </View>
+                </View>
+              ) : null}
               <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Al asignar proveedor y aprobar, se generan la orden de compra y la cuenta por pagar automáticamente.</Text>
             </Card>
 
