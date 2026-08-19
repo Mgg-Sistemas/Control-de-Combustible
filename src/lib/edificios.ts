@@ -34,6 +34,7 @@ export const EDIFICIOS: string[] = [
   'HOTEL LITORAL SUITES - CATIA LA MAR',
   'COLINAS DE CATIA LA MAR - CATIA LA MAR',
   'EDIFICIO PUNTA PIEDRA - MACUTO',
+  'RESIDENCIA CARIBE - CARABALLEDA',
   'CARIBE CLUB - CARABALLEDA',
   'CORAL GARDEN - CARABALLEDA',
   'RESIDENCIAS MILITARES - MACUTO',
@@ -50,6 +51,9 @@ const REGLAS: [RegExp, string][] = [
   [/colinas/, 'COLINAS DE CATIA LA MAR - CATIA LA MAR'],
   [/eduvig/, 'SANTA EDUVIGIS - URIMARE, CATIA LA MAR'],
   [/militar/, 'RESIDENCIAS MILITARES - MACUTO'],
+  // "RESIDENCIA CARIBE" (Caraballeda). Cubre el typo viejo "residincia" y las variantes
+  // sin sector / con coma que quedaron escritas a mano. Va ANTES de "caribe club".
+  [/resid[ei]ncia\s+caribe/, 'RESIDENCIA CARIBE - CARABALLEDA'],
   [/punta piedra/, 'EDIFICIO PUNTA PIEDRA - MACUTO'],
   [/punta de brisas|brisas/, 'URBANIZACION PUNTA DE BRISAS - MACUTO'],
   [/litoral/, 'HOTEL LITORAL SUITES - CATIA LA MAR'],
