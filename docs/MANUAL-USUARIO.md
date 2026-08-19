@@ -162,6 +162,18 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 Otras cosas que puedes hacer en cada máquina:
 - 📍 **Ubicación** — guarda dónde está (con el GPS).
 - 📷 **Foto** — súbele una foto.
+  - **📷🗑 Quitar la foto sin reemplazarla (18/08/2026):** toca la foto de la máquina para abrir el
+    **visor**. Ahí están la foto de la **MAQUINARIA** y la del **SERIAL / PLACA**, cada una con sus
+    botones. Antes solo se podía **"🔄 Cambiar foto"**, así que para sacar una foto mala o que no
+    correspondía había que subir otra cualquiera encima. Ahora hay también **"🗑 Quitar foto"**
+    —**sale solo cuando hay foto que quitar**— y la máquina queda **sin foto** hasta que alguien
+    suba otra. **Pide confirmación**, porque desde el visor es un solo toque y no hay deshacer; la
+    pregunta dice **de cuál máquina** es la foto (nombre **+ placa o serial**), para que con varias
+    máquinas del mismo nombre no le quites la foto a la equivocada.
+  - **El archivo NO se borra del almacenamiento, a propósito:** la bitácora de 🕵️ **Auditoría**
+    guarda el **enlace de la foto anterior**, y borrarlo dejaría ese rastro apuntando a un enlace
+    muerto justo cuando alguien pregunte **qué foto había antes**. **Quién** la quitó y **cuándo**
+    queda registrado en 🕵️ Auditoría.
 - 🔳 **QR** — genera su código para identificarla rápido. La hoja del QR muestra el **nombre** de la
   máquina y su **serial** (o placa) — **no** la empresa. El QR queda **sellado con el serial** de la máquina: si más adelante **cambias el serial**, el QR impreso con el serial anterior **deja de funcionar** (al escanearlo solo sale el logo). Reimprime el QR para volver a activarlo con el nuevo serial. *Nota:* los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.
   - **🚫 Bloquear QR:** dentro del 🔳 QR hay un botón para **bloquear** ese QR. Al bloquearlo, quien lo escanee **solo verá el logo** (no puede registrar nada). Sirve para **matar un QR viejo o robado** sin tocar el serial. Con **✅ Desbloquear QR** vuelve a funcionar.
