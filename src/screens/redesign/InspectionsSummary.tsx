@@ -1184,9 +1184,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         ? Math.round((dayTotal + nightTotal) * 100) / 100
         : Math.round(Math.min(12, Math.max(bankedShiftH, elapsedH ?? 0)) * 100) / 100;
       const markedAt = sd ? (sd.day.markedAt || sd.night.markedAt) : '';
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, dayTotal, nightTotal, estado: estadoOf(id), inspector, horaIni, horaFin, markedAt, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
+      const est = estadoOf(id);
+      // Hora en que se marcó la avería/parada (ticket más reciente) — para el rótulo
+      // "trabajó X h · parada/averiada desde HH:MM" cuando la máquina TRABAJÓ y LUEGO cayó.
+      const incidenteAt = est === 'averiada' ? (motivoByMachine.aver.get(id)?.t ?? null)
+        : est === 'parada' ? (motivoByMachine.par.get(id)?.t ?? null) : null;
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, dayTotal, nightTotal, estado: est, inspector, horaIni, horaFin, markedAt, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH, incidenteAt };
     });
-  }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds, nowTick]);
+  }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds, nowTick, motivoByMachine]);
   const listShown = useMemo(() => {
     const nq = norm(listQ.trim());
     if (!nq) return listRows;
@@ -2161,11 +2166,24 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{iniByMachine[r.id]}</Text>
                             </Text>
                           ) : null}
+                          {/* Estado parada/averiada. Si la máquina TRABAJÓ horas y LUEGO
+                              cayó, se muestran esas horas + desde cuándo está detenida
+                              ("trabajó X h · parada/averiada desde HH:MM") en vez de
+                              "no trabajó" — regla del cliente 19-ago-2026, sincroniza con
+                              el informe. Si no trabajó nada, el rótulo original. */}
                           {r.estado === 'parada' ? (
-                            <Text style={{ color: colors.warning, fontSize: 11.5, marginTop: 1, fontWeight: '800' }}>🟡 Estuvo parada / no trabajó</Text>
+                            <Text style={{ color: colors.warning, fontSize: 11.5, marginTop: 1, fontWeight: '800' }}>
+                              {r.worked > 0.05
+                                ? `🟡 Trabajó ${r.worked} h · parada desde ${r.incidenteAt ? horaCaracas(r.incidenteAt) : '—'}`
+                                : '🟡 Estuvo parada / no trabajó'}
+                            </Text>
                           ) : null}
                           {r.estado === 'averiada' ? (
-                            <Text style={{ color: colors.danger, fontSize: 11.5, marginTop: 1, fontWeight: '800' }}>🔴 Averiada</Text>
+                            <Text style={{ color: colors.danger, fontSize: 11.5, marginTop: 1, fontWeight: '800' }}>
+                              {r.worked > 0.05
+                                ? `🔴 Trabajó ${r.worked} h · averiada desde ${r.incidenteAt ? horaCaracas(r.incidenteAt) : '—'}`
+                                : '🔴 Averiada'}
+                            </Text>
                           ) : null}
                           {/* Encargado de la máquina (del catálogo: machinery.encargado). */}
                           {info?.encargado ? (

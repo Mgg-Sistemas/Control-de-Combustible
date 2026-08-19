@@ -60,7 +60,7 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type IncidenteAveria = { tipo: 'averia' | 'parada'; hora: string; motivo: string };
+type IncidenteAveria = { tipo: 'averia' | 'parada'; hora: string; motivo: string; trabajoHasta: string | null };
 type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null; cierreMotivo: string; cierreFinBy: string; iniBy: string; incidenteAveria: IncidenteAveria | null };
 /** Hora (Caracas) "HH:MM am/pm" de un instante (ms). */
 const horaCaracasMs = (ms: number): string => {
@@ -68,11 +68,17 @@ const horaCaracasMs = (ms: number): string => {
 };
 const horasDuracion = (min: number): string => (min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}` : `${min}min`);
 // Texto de la NOTA de incidente para una máquina que TRABAJÓ y LUEGO se averió/paró
-// (regla del cliente en reportes): "🔧 se averió a las HH:MM · motivo". Compartido por
-// el reporte del jefe y el recibo del teléfono para que digan lo mismo.
-type IncidenteAveriaLike = { tipo: 'averia' | 'parada'; hora: string; motivo: string };
-const notaIncidenteTxt = (inc: IncidenteAveriaLike): string =>
-  `${inc.tipo === 'averia' ? '🔧 se averió' : '🟡 se paró'} a las ${inc.hora}${inc.motivo ? ` · ${inc.motivo}` : ''}`;
+// (regla del cliente en reportes, 19-ago-2026): "trabajó hasta HH:MM · 🔧 averiada desde
+// HH:MM · motivo" — las horas trabajadas se conservan y se DICE hasta cuándo trabajó y
+// desde cuándo quedó parada/averiada (antes decía solo "se averió a las HH:MM", que se
+// leía como si no hubiera trabajado). Compartido por el reporte del jefe y el recibo del
+// teléfono para que digan lo mismo. `trabajoHasta` = fin del último tramo trabajado.
+type IncidenteAveriaLike = { tipo: 'averia' | 'parada'; hora: string; motivo: string; trabajoHasta: string | null };
+const notaIncidenteTxt = (inc: IncidenteAveriaLike): string => {
+  const cabeza = inc.trabajoHasta ? `trabajó hasta ${inc.trabajoHasta} · ` : '';
+  const estado = inc.tipo === 'averia' ? '🔧 averiada desde' : '🟡 parada desde';
+  return `${cabeza}${estado} ${inc.hora}${inc.motivo ? ` · ${inc.motivo}` : ''}`;
+};
 type EventoParada = { motivo: string; start: number; end: number | null };
 const ESTADO_META: Record<EstadoKey, { txt: string; color: string }> = {
   averia: { txt: '🔴 Averiada', color: '#B91C1C' },
@@ -179,7 +185,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // — el código de abajo asume que la primera fila por máquina/turno es la más reciente.
   (maint as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   (maintAver as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const segsByMachine = new Map<string, { start: number; end: number; shift: Turno }[]>();
+  const segsByMachine = new Map<string, { start: number; end: number; shift: Turno; source: string }[]>();
   // MOTIVO DE CIERRE (cierre manual anticipado): del tramo con close_reason más reciente.
   const cierreMotivoByMachine = new Map<string, { motivo: string; ms: number }>();
   // FINALIZADA POR: usuario que CERRÓ (recorded_by del último tramo de CIERRE manual).
@@ -191,7 +197,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
     if (isNaN(st) || isNaN(en)) return;
     const list = segsByMachine.get(s.machinery_id) ?? [];
-    list.push({ start: st, end: en, shift: s.shift === 'night' ? 'night' : 'day' });
+    list.push({ start: st, end: en, shift: s.shift === 'night' ? 'night' : 'day', source: String(s.source || '') });
     segsByMachine.set(s.machinery_id, list);
     const cr = (s.close_reason || '').trim();
     if (cr) { const prev = cierreMotivoByMachine.get(s.machinery_id); if (!prev || en > prev.ms) cierreMotivoByMachine.set(s.machinery_id, { motivo: cr, ms: en }); }
@@ -405,11 +411,23 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // compartida `clasificarEstadoTurno` (las tarjetas en vivo SÍ deben seguir
     // mostrando averiada/parada) — este OVERRIDE es local a los reportes.
     const trabajoYLuegoIncidente = (estadoBruto === 'averia' || estadoBruto === 'parada') && hoursForShift > 0 && evParada != null;
+    // "trabajó hasta" = fin del ÚLTIMO tramo TRABAJADO de este turno (excluye la corrección
+    // de "no trabajó"). Si no hay tramo con hora de fin, queda null y la nota omite esa parte.
+    const finesTrabajo = (segsByMachine.get(id) || [])
+      .filter((s) => s.shift === turno && s.source !== 'no_trabajo_correction' && Number.isFinite(s.end))
+      .map((s) => s.end);
+    const trabajoHastaMs = finesTrabajo.length ? Math.max(...finesTrabajo) : null;
     const incidenteAveria: IncidenteAveria | null = trabajoYLuegoIncidente
-      ? { tipo: estadoBruto === 'averia' ? 'averia' : 'parada', hora: horaCaracasMs(evParada!.start), motivo: evParada!.motivo }
+      ? { tipo: estadoBruto === 'averia' ? 'averia' : 'parada', hora: horaCaracasMs(evParada!.start), motivo: evParada!.motivo, trabajoHasta: trabajoHastaMs != null ? horaCaracasMs(trabajoHastaMs) : null }
       : null;
+    // Máquina que TRABAJÓ y LUEGO se averió/paró: si la jornada de este turno SIGUE
+    // ABIERTA cuenta como 'encurso' (trabaja ahora); pero si ya CERRÓ, se muestra su
+    // estado REAL (averiada/parada) — NO 'finalizada' — con sus horas trabajadas visibles
+    // y la nota "trabajó hasta X · averiada/parada desde Y" (regla del cliente 19-ago-2026:
+    // "sale finalizada y está averiada"). Las horas suman igual (tWork suma todas). Antes
+    // se forzaba 'finalizada' y el jefe la veía ✅ cuando en realidad estaba caída.
     const estado: EstadoKey = trabajoYLuegoIncidente
-      ? (openForShift ? 'encurso' : 'finalizada')
+      ? (openForShift ? 'encurso' : estadoBruto)
       : estadoBruto;
     // Línea de tiempo de ESTE turno: tramos trabajados de `machine_work_segments`
     // filtrados por turno (para no mezclar día con noche) + el episodio de
@@ -581,7 +599,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       if (m.iniBy) firmaLineas.push(`<span style="color:#059669;font-size:9px">▶️ Inició: ${esc(m.iniBy)}</span>`);
       if (m.cierreFinBy) firmaLineas.push(`<span style="color:#1D4ED8;font-size:9px">🏁 Finalizó: ${esc(m.cierreFinBy)}</span>`);
       const firmaCell = firmaLineas.join('<br/>');
-      const motivoBase = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
+      const motivoBase = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo && !m.incidenteAveria)
         ? `<span style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</span>`
         : (m.estado === 'finalizada' && m.cierreMotivo)
           ? `<span style="color:#B45309;font-size:10px">📝 ${esc(m.cierreMotivo)}</span>`

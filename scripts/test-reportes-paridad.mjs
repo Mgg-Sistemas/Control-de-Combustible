@@ -165,16 +165,17 @@ eq('el recibo del teléfono NO muestra total de horas paradas', tPar, null);
 eq('el jefe conserva la columna Horas parada', /Horas<br>parada/.test(jefe), true);
 eq('el teléfono conserva la parada por máquina', /Parada [\d.]+h/.test(tlf), true);
 
-// REGLA DEL CLIENTE (18-ago-2026): una máquina cuyo turno TRABAJÓ horas y LUEGO se
-// averió/paró cuenta como TRABAJÓ en los reportes — sus horas SUMAN y NO va en el
-// grupo "🔴 Averiadas / Paradas", pero conserva una NOTA del incidente (hora + motivo).
-// m2 (JUMBO 330) trabajó 8.33h y LUEGO paró: debe salir como trabajó (finalizada),
-// NO "🟡 Parada", con su nota "se paró a las ...". m3 (PAYLOADER, 0h) SÍ sigue parada.
+// REGLA DEL CLIENTE (19-ago-2026, ACTUALIZA la de 18-ago): una máquina cuyo turno
+// TRABAJÓ horas y LUEGO se averió/paró muestra su ESTADO REAL (🟡 Parada / 🔴 Averiada)
+// —NO "✅ Finalizada"— con sus horas trabajadas visibles y una NOTA "trabajó hasta X ·
+// parada/averiada desde Y · motivo". Sus horas SIGUEN sumando en los totales. m2
+// (JUMBO 330) trabajó 8.33h y LUEGO paró: sale 🟡 Parada con la nota "parada desde ..."
+// y sus 8.33h suman igual. m3 (PAYLOADER, 0h) sigue parada sin haber trabajado.
 const filaJumbo330 = jefe.split('<b>JUMBO 330</b>')[1]?.split('</tr>')[0] ?? '';
-eq('m2 trabajó-y-paró: NO sale como 🟡 Parada en el jefe', /🟡 Parada/.test(filaJumbo330), false);
-eq('m2 trabajó-y-paró: sale como trabajó (✅ Finalizada) en el jefe', /✅ Finalizada/.test(filaJumbo330), true);
-eq('m2 conserva la nota del incidente en el jefe', /se paró a las/.test(filaJumbo330), true);
-eq('m2 conserva la nota del incidente en el teléfono', /se paró a las/.test(tlf), true);
+eq('m2 trabajó-y-paró: sale con su estado real 🟡 Parada en el jefe', /🟡 Parada/.test(filaJumbo330), true);
+eq('m2 trabajó-y-paró: NO sale como ✅ Finalizada en el jefe', /✅ Finalizada/.test(filaJumbo330), false);
+eq('m2 conserva la nota del incidente en el jefe', /parada desde/.test(filaJumbo330), true);
+eq('m2 conserva la nota del incidente en el teléfono', /parada desde/.test(tlf), true);
 eq('m2 suma sus horas trabajadas pese al incidente', jTrab, TRABAJADAS);
 // m3 (0 horas + parada) SÍ debe seguir figurando como parada (no trabajó nada).
 eq('m3 (0h + parada) sigue como 🟡 Parada en el jefe', /🟡 Parada/.test(jefe), true);

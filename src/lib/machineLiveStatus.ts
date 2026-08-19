@@ -18,7 +18,7 @@ export type JornadaEntry = { dayH: number; nightH: number; openStartDay: number 
 export type AveriaEntry = { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number };
 export type InspByShiftEntry = { day: string | null; night: string | null };
 export type MachineEstado = 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
-export type LiveStatus = { estado: MachineEstado; total: number; enCurso: number; trabajadas: number; motivo: string | null };
+export type LiveStatus = { estado: MachineEstado; total: number; enCurso: number; trabajadas: number; motivo: string | null; desdeMs: number | null };
 
 // ── Fetchers: mismas queries que EquiposScreen (loadAveriaCat/loadJornadaCat/
 // loadInspByShift), extraídas para que cualquier pantalla lea EXACTAMENTE los
@@ -118,7 +118,7 @@ export function makeLiveStatusOf(params: {
   const { jornadaCat, averiaCat, inspByShift, retiredIds, nowTick } = params;
   const round2 = (n: number) => Math.round(n * 100) / 100;
   return (id: string) => {
-    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
+    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null, desdeMs: null as number | null };
     const j = jornadaCat[id];
     const a = averiaCat[id];
     const dayH = j?.dayH ?? 0;
@@ -154,7 +154,9 @@ export function makeLiveStatusOf(params: {
     else if (hasOpen) estado = 'trabajando';
     else if (total > 0) estado = 'trabajo_hoy';
     else estado = 'ninguno';
-    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null };
+    // desdeMs = instante en que se marcó la avería/parada vigente (para el rótulo
+    // "trabajó X h · averiada/parada desde HH:MM" en el Catálogo cuando trabajó y luego cayó).
+    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null, desdeMs: (estado === 'averiada' || estado === 'parada') ? (a?.createdMs ?? null) : null };
   };
 }
 
