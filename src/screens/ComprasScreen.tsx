@@ -10,7 +10,7 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { RequerimientoTab } from './RequerimientoTab';
-import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado } from '../types/database';
+import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -861,11 +861,12 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
   const confirm = useConfirm();
   const toast = useToast();
   const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'created_at', ascending: false, realtimeFrom: 'hose_services' });
-  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  // Empresa a cobrar: LISTA PROPIA de mangueras (hose_empresas), no el catálogo companies.
+  const { data: hoseEmpresas } = useTable<HoseEmpresa>('hose_empresas', { orderBy: 'name' });
   const { data: encargados } = useTable<Encargado>('encargados', { orderBy: 'name' });
   const { data: machinery } = useTable<{ id: string; code: string; serial: string | null; plate: string | null }>('machinery', { select: 'id, code, serial, plate', orderBy: 'code' });
 
-  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? '—' : '—');
+  const empresaName = (id: string | null) => (id ? hoseEmpresas.find((e) => e.id === id)?.name ?? '—' : '—');
   const encargadoName = (id: string | null) => (id ? encargados.find((e) => e.id === id)?.name ?? '—' : '—');
   const machineLabel = (id: string | null) => {
     if (!id) return '—';
@@ -952,7 +953,7 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
             detail={
               <>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Máquina: {h.is_external ? `🏭 ${h.external_client || 'Externa'} (externa)` : machineLabel(h.machinery_id)}</Text>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>Empresa a cobrar: {companyName(h.company_id)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Empresa a cobrar: {empresaName(h.hose_empresa_id)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Encargado: {encargadoName(h.encargado_id)}</Text>
                 {h.description ? <Text style={{ color: colors.muted, fontSize: 13 }}>Trabajo: {h.description}</Text> : null}
                 <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Costo: {usd(h.cost_usd)}</Text>

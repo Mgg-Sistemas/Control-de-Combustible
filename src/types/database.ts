@@ -1086,7 +1086,11 @@ export interface HoseService {
   provider: string | null; // nombre del proveedor (espejo de supplier_id, para lista/reporte)
   /** Proveedor real (catálogo suppliers) al que se le paga; genera la cuenta por pagar. */
   supplier_id: string | null;
-  /** Empresa a la que se le COBRA la manguera (genera la cuenta por cobrar). */
+  /** Empresa a la que se le COBRA la manguera. LISTA PROPIA de mangueras
+   *  (`hose_empresas`), NO el catálogo `companies`. Genera la cuenta por cobrar. */
+  hose_empresa_id: string | null;
+  /** @deprecated Antes la empresa a cobrar salía de `companies`; ahora es
+   *  `hose_empresa_id` (lista propia). Se conserva por compatibilidad de datos. */
   company_id: string | null;
   /** Encargado (catálogo `encargados`) a quien se le cobra. Si el encargado tiene
    *  `cobrar=false` (CHELI), NO se genera cuenta por cobrar. */
@@ -1107,6 +1111,16 @@ export interface Encargado {
   id: string;
   name: string;
   cobrar: boolean;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** Empresa a cobrar de MANGUERAS. Lista PROPIA del módulo (NO el catálogo
+ *  `companies`): agregar una nueva NO ensucia el catálogo del resto del sistema. */
+export interface HoseEmpresa {
+  id: string;
+  name: string;
   active: boolean;
   created_by: string | null;
   created_at: string;
@@ -1570,7 +1584,10 @@ export interface Cuenta {
   id: string;
   tipo: CuentaTipo;
   supplier_id: string | null;   // obligatorio si tipo = 'por_pagar'
-  company_id: string | null;    // obligatorio si tipo = 'por_cobrar'
+  company_id: string | null;    // 'por_cobrar' del catálogo companies (o null si es por nombre)
+  /** Nombre libre de la contraparte cuando NO viene del catálogo (p. ej. empresa
+   *  de mangueras): una 'por_cobrar' vale con company_id O con contraparte. */
+  contraparte: string | null;
   order_id: string | null;        // orden de compra que originó la deuda
   concepto: string;
   documento: string | null;       // Nº de factura / control / recibo

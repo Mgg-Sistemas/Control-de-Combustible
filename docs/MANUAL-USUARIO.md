@@ -2410,7 +2410,10 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 
 > 💰 **Cuenta por COBRAR automática (a quién se le factura):** además del proveedor, cada manguera
 > pide ahora una **Empresa a cobrar**, un **Encargado** (a quién se le cobra — desplegable con opción
-> de **agregar** uno nuevo) y un **Margen de cobro (%)** (por defecto 30 %). Al guardar, el sistema
+> de **agregar** uno nuevo) y un **Margen de cobro (%)** (por defecto 30 %). Tanto la **Empresa a
+> cobrar** como el **Encargado** son **listas PROPIAS de mangueras**: podés agregar una empresa o un
+> encargado nuevo escribiéndolo y **NO se registran en el catálogo** de Empresas ni en el resto del
+> sistema — quedan solo dentro de mangueras. Al guardar, el sistema
 > crea sola una **cuenta por cobrar** a esa empresa por **costo + margen**, visible en
 > **Compras → 💰 Por cobrar**. Queda sincronizada con la manguera (si cambia el costo/margen se
 > ajusta el monto). **Excepción CHELI:** si el encargado es **CHELI** (marcado "no cobrar" en el
