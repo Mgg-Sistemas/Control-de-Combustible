@@ -180,12 +180,14 @@ eq('⭐ PARIDAD turno NOCHE · horas', kpiNoche(bien.jefe), kpiNoche(bien.tlf));
 // La máquina del caso real: trabajó 5.47 h y LUEGO paró pasada la medianoche.
 const filaJefe = bien.jefe.split('<b>CAMION 01</b>')[1]?.split('</tr>')[0] ?? '';
 const filaTlf = bien.tlf.split('CAMION 01')[1]?.split('</div>\n    </div>')[0] ?? '';
-eq('trabajó-y-paró · el jefe NO la pone 🟡 Parada', /🟡 Parada/.test(filaJefe), false);
-eq('trabajó-y-paró · el jefe la pone ✅ Finalizada', /✅ Finalizada/.test(filaJefe), true);
-eq('⭐ trabajó-y-paró · el TELÉFONO tampoco la pone 🟡 Parada', /🟡 Parada/.test(filaTlf), false);
-eq('⭐ trabajó-y-paró · el TELÉFONO la pone ✅ Finalizada', /✅ Finalizada/.test(filaTlf), true);
+// Regla cliente 19-ago-2026: trabajó-y-luego-paró muestra su ESTADO REAL (🟡 Parada),
+// NO "✅ Finalizada", CON sus horas y la nota "trabajó hasta X · parada desde Y".
+eq('trabajó-y-paró · el jefe la pone 🟡 Parada (estado real)', /🟡 Parada/.test(filaJefe), true);
+eq('trabajó-y-paró · el jefe NO la pone ✅ Finalizada', /✅ Finalizada/.test(filaJefe), false);
+eq('⭐ trabajó-y-paró · el TELÉFONO la pone 🟡 Parada', /🟡 Parada/.test(filaTlf), true);
+eq('⭐ trabajó-y-paró · el TELÉFONO NO la pone ✅ Finalizada', /✅ Finalizada/.test(filaTlf), false);
 eq('⭐ trabajó-y-paró · el TELÉFONO sí cuenta sus horas', /Trabajó 5\.47h/.test(filaTlf), true);
-eq('trabajó-y-paró · el teléfono conserva la nota del incidente', /se paró a las/.test(filaTlf), true);
+eq('trabajó-y-paró · el teléfono conserva la nota del incidente', /parada desde/.test(filaTlf), true);
 // La que NO trabajó nada sí sigue parada en los dos.
 eq('0 h + parada · sigue 🟡 Parada en el jefe', /🟡 Parada/.test(bien.jefe), true);
 eq('0 h + parada · sigue 🟡 Parada en el teléfono', /🟡 Parada/.test(bien.tlf), true);

@@ -429,8 +429,12 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // desactivada (active=false). Estas SÍ salen acá (con 🚫 INACTIVA y 0 horas) y en
     // Control — pero NO en la vista de inspectores ni en el reporte por inspector.
     const inactiva = m?.active === false || m?.operational === false;
-    // Las INACTIVAS (fuera de servicio) NO se muestran en este reporte (pedido cliente).
-    if (inactiva) return;
+    // Las INACTIVAS/RETIRADAS (fuera de servicio) NO se muestran en este reporte... SALVO
+    // que hayan TRABAJADO horas ese día. Regla del cliente (19-ago-2026): "si trabajó, se
+    // factura" — así el reporte por empresa CUADRA con el Informe por jornada, que SÍ
+    // cuenta a una retirada con horas (descuadre de 12h que reportó el cliente: una
+    // RETROEXCAVADORA operational=false con 12h que el Informe contaba y este reporte no).
+    // El filtro se aplica MÁS ABAJO, ya con las horas dd/nn calculadas (no acá, a ciegas).
     const r = roundBy.get(id);
     // Horas de turno crudas (día/noche/parada/extra) de la ronda — MISMA fuente que el
     // Informe por jornada. Las horas trabajadas se calculan con `workedFromShifts` (la
@@ -447,6 +451,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const hrs = horasTurnoDelDia(r, date, nowMs);
     let dd = hrs.dia;
     let nn = hrs.noche;
+    // Exclusión de RETIRADAS/inactivas: SOLO si no trabajó nada ese día. Si tiene horas
+    // (dd o nn > 0) se incluye y factura, para cuadrar con el Informe por jornada (regla
+    // cliente 19-ago-2026). Una retirada sin horas sigue sin mostrarse, como antes.
+    if (inactiva && dd <= 0 && nn <= 0) return;
     const sRaw = Number(r?.hours_stopped) || 0;
     const oRaw = Number(r?.overtime_hours) || 0;
     // `jStart`/`jShift`/`jStartHoy` se siguen necesitando más abajo para saber si el
