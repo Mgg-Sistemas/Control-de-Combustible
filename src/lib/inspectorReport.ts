@@ -890,10 +890,15 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
     const jornada = shiftH;                                        // jornada = horas ACTIVAS (trabajadas)
     tH += shiftH; tJor += jornada;
     const em = ESTADO_META[m.estado];
-    const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo
+    // `!m.incidenteAveria`: la nota del incidente YA lleva el motivo dentro
+    // ("🟡 parada desde 12:28 a. m. · NO TRABAJÓ · se paró"), así que sin este
+    // guarda el motivo salía DOS VECES seguidas en la misma tarjeta. Mismo criterio
+    // que el reporte del jefe (`motivoBase` más arriba).
+    const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo && !m.incidenteAveria
       ? `<div class="mot">${esc(m.motivo)}</div>` : '';
-    // NOTA del incidente (trabajó y LUEGO se averió/paró): se conserva aunque el
-    // estado sea ahora trabajó — mismo texto que el reporte del jefe.
+    // NOTA del incidente: la máquina TRABAJÓ horas y LUEGO se averió/paró. Conserva
+    // hasta qué hora trabajó y desde cuándo está detenida — mismo texto que el
+    // reporte del jefe.
     const incidente = m.incidenteAveria
       ? `<div class="mot">${esc(notaIncidenteTxt(m.incidenteAveria))}</div>` : '';
     return `<div class="row">

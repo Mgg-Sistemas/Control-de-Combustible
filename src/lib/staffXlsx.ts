@@ -17,6 +17,12 @@ export type PagoPersonalXlsxRow = {
   cedula: string;
   cargo: string;
   cuenta: string;       // número de cuenta bancaria del trabajador (ficha de perfil)
+  // TITULAR de la cuenta. Va aparte del trabajador A PROPÓSITO: muchas veces la
+  // cuenta es de un familiar, y el banco rechaza la transferencia si el nombre y la
+  // cédula no son los del dueño de la cuenta. Cuando la ficha no los trae, se
+  // asume que el titular es el propio trabajador (misma regla que el recibo PDF).
+  titular: string;
+  cedulaTitular: string;
   dias: number;        // jornadas de DÍA (modo "Por día")
   dias_noche: number;   // jornadas de NOCHE (modo "Por día")
   horas: number;        // modo "Por hora"
@@ -78,15 +84,18 @@ const MONEY_FMT = '#,##0.00';
 const QTY_FMT = '#,##0.##';
 
 const COLS = [
-  'Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta',
+  'Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Titular de la cuenta', 'C.I. del titular',
   'Días', 'Noches', 'Horas', 'Semanas',
   'Devengado (US$)', 'Bonos (US$)', 'Deducciones (US$)', 'Total (US$)', 'Pagado (US$)', 'Saldo (US$)',
 ] as const;
 
-// Columnas de MONTOS en US$.
-const USD_COLS = [8, 9, 10, 11, 12, 13];
-// Columnas de CANTIDAD trabajada.
-const QTY_COLS = [4, 5, 6, 7];
+// ⚠️ Los índices de columna se DEDUCEN de `COLS`, no se escriben a mano. Antes eran
+// listas de números sueltos (`[8,9,10,11,12,13]`) y un `c >= 7` perdido más abajo:
+// agregar una columna obligaba a acordarse de correr cuatro sitios distintos, y si
+// se olvidaba uno la hoja salía con los formatos cambiados de lugar sin avisar.
+// Pasó justo al sumar el titular y su cédula (19-ago-2026).
+const USD_COLS = COLS.map((h, i) => (h.includes('US$') ? i : -1)).filter((i) => i >= 0);
+const QTY_COLS = (['Días', 'Noches', 'Horas', 'Semanas'] as const).map((h) => COLS.indexOf(h));
 
 // Filas fijas del encabezado: 0 = contexto del período, 1 = blanco, 2 = encabezado de columnas.
 const META_ROW = 0;
@@ -111,13 +120,18 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   aoa[HEADER_ROW] = [...COLS];
   rows.forEach((r, i) => {
     aoa[FIRST_DATA_ROW + i] = [
-      r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '',
+      r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.titular || '', r.cedulaTitular || '',
       r.dias || 0, r.dias_noche || 0, r.horas || 0, r.semanas || 0,
       r.devengado || 0, r.bonos || 0, r.deducciones || 0, r.total || 0, r.pagado || 0, r.saldo || 0,
     ];
   });
   const totalRow = FIRST_DATA_ROW + rows.length;
-  aoa[totalRow] = ['TOTAL', `${rows.length} persona(s)`, '', '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  // Se arma DESDE `COLS` para que no se descuadre al agregar columnas (ver nota arriba).
+  aoa[totalRow] = COLS.map((_h, c) =>
+    c === 0 ? 'TOTAL'
+    : c === 1 ? `${rows.length} persona(s)`
+    : (QTY_COLS.includes(c) || USD_COLS.includes(c)) ? 0
+    : '');
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -158,7 +172,7 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
     [...QTY_COLS, ...USD_COLS].forEach((c) => {
       const colLetter = XLSX.utils.encode_col(c);
       const ref = XLSX.utils.encode_cell({ r: totalRow, c });
-      (ws as any)[ref] = { t: 'n', z: c >= 7 ? MONEY_FMT : QTY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+      (ws as any)[ref] = { t: 'n', z: USD_COLS.includes(c) ? MONEY_FMT : QTY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
     });
   }
   for (let c = 0; c < nCols; c++) {
@@ -169,7 +183,7 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   }
 
   ws['!cols'] = [
-    { wch: 26 }, { wch: 14 }, { wch: 20 }, { wch: 18 },
+    { wch: 26 }, { wch: 14 }, { wch: 20 }, { wch: 22 }, { wch: 26 }, { wch: 14 },
     { wch: 8 }, { wch: 8 }, { wch: 9 }, { wch: 9 },
     { wch: 13 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
   ];
@@ -208,13 +222,21 @@ export function exportPersonaHistoricoXlsx(
   rows: PersonaXlsxRow[],
   _bcvRate: number | null,
   cuenta?: string | null,
+  titular?: string | null,
+  cedulaTitular?: string | null,
 ): boolean {
   const wb = XLSX.utils.book_new();
   const nCols = PERSONA_COLS.length;
   const blankRow = (n: number) => new Array(n).fill('');
 
   const aoa: any[][] = [];
-  aoa[PERSONA_META_ROW] = ['Trabajador:', `${nombre}${cedula ? ` · C.I. ${cedula}` : ''}${cuenta ? ` · Cuenta ${cuenta}` : ''}`, ...blankRow(nCols - 2)];
+  // El titular solo se nombra cuando NO es el propio trabajador: repetir su nombre
+  // dos veces en la misma línea no aporta nada y estorba al leer.
+  const otroTitular = !!(titular && titular.trim() && titular.trim().toUpperCase() !== nombre.trim().toUpperCase());
+  const titularTxt = otroTitular
+    ? ` · Titular ${titular!.trim()}${cedulaTitular ? ` (C.I. ${cedulaTitular})` : ''}`
+    : '';
+  aoa[PERSONA_META_ROW] = ['Trabajador:', `${nombre}${cedula ? ` · C.I. ${cedula}` : ''}${cuenta ? ` · Cuenta ${cuenta}` : ''}${titularTxt}`, ...blankRow(nCols - 2)];
   aoa[1] = blankRow(nCols);
   aoa[PERSONA_HEADER_ROW] = [...PERSONA_COLS];
   rows.forEach((r, i) => {
@@ -274,10 +296,15 @@ export type PersonasSeleccionadasXlsxRow = {
   cedula: string;
   cargo: string;
   cuenta: string; // número de cuenta bancaria del trabajador (ficha de perfil)
+  titular: string;        // dueño de la cuenta (puede NO ser el trabajador)
+  cedulaTitular: string;
   total: number; // US$ — total pagado histórico de la persona
 };
 
-const SEL_COLS = ['Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Total pagado (US$)'] as const;
+const SEL_COLS = ['Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Titular de la cuenta', 'C.I. del titular', 'Total pagado (US$)'] as const;
+// Índice de la única columna de dinero, deducido de `SEL_COLS` (antes era un `4`
+// escrito a mano en cuatro sitios: agregar columnas lo dejaba apuntando a otra).
+const SEL_USD_COL = SEL_COLS.indexOf('Total pagado (US$)');
 const SEL_META_ROW = 0;
 const SEL_HEADER_ROW = 2;
 const SEL_FIRST_DATA_ROW = 3;
@@ -299,10 +326,11 @@ export function exportPersonasSeleccionadasXlsx(
   aoa[1] = blankRow(nCols);
   aoa[SEL_HEADER_ROW] = [...SEL_COLS];
   rows.forEach((r, i) => {
-    aoa[SEL_FIRST_DATA_ROW + i] = [r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.total || 0];
+    aoa[SEL_FIRST_DATA_ROW + i] = [r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.titular || '', r.cedulaTitular || '', r.total || 0];
   });
   const totalRow = SEL_FIRST_DATA_ROW + rows.length;
-  aoa[totalRow] = ['TOTAL', `${rows.length} persona(s)`, '', '', 0];
+  aoa[totalRow] = SEL_COLS.map((_h, c) =>
+    c === 0 ? 'TOTAL' : c === 1 ? `${rows.length} persona(s)` : c === SEL_USD_COL ? 0 : '');
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -314,10 +342,10 @@ export function exportPersonasSeleccionadasXlsx(
   const metaLabelRef = XLSX.utils.encode_cell({ r: SEL_META_ROW, c: 0 });
   if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
 
-  // Total US$ (col 4): formato de número.
+  // Total US$: formato de número.
   rows.forEach((_r, i) => {
     const row = SEL_FIRST_DATA_ROW + i;
-    const usdRef = XLSX.utils.encode_cell({ r: row, c: 4 });
+    const usdRef = XLSX.utils.encode_cell({ r: row, c: SEL_USD_COL });
     const usdCell = (ws as any)[usdRef];
     if (usdCell) { usdCell.z = MONEY_FMT; usdCell.t = 'n'; }
   });
@@ -326,8 +354,8 @@ export function exportPersonasSeleccionadasXlsx(
   if (rows.length) {
     const firstExcelRow = SEL_FIRST_DATA_ROW + 1;
     const lastExcelRow = SEL_FIRST_DATA_ROW + rows.length;
-    const colLetter = XLSX.utils.encode_col(4);
-    const ref = XLSX.utils.encode_cell({ r: totalRow, c: 4 });
+    const colLetter = XLSX.utils.encode_col(SEL_USD_COL);
+    const ref = XLSX.utils.encode_cell({ r: totalRow, c: SEL_USD_COL });
     (ws as any)[ref] = { t: 'n', z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
   }
   for (let c = 0; c < nCols; c++) {
@@ -337,7 +365,7 @@ export function exportPersonasSeleccionadasXlsx(
     else (ws as any)[ref] = { t: 's', v: '', s: TOTAL_STYLE };
   }
 
-  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 18 }, { wch: 15 }];
+  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 26 }, { wch: 14 }, { wch: 15 }];
   ws['!rows'] = [{ hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
   ws['!merges'] = [
     { s: { r: SEL_META_ROW, c: 1 }, e: { r: SEL_META_ROW, c: nCols - 1 } },

@@ -487,6 +487,33 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
 Paga al **personal**. Tiene **dos vistas** (se cambian arriba): **👤 Por persona** (la
 principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
 
+> **🏦 Los Excel traen los datos para transferir (19/08/2026).** Antes solo salía el **Nº de
+> cuenta**; ahora sale también el **Titular de la cuenta** y su **C.I. del titular**, que es lo
+> que el banco exige para procesar la transferencia. Importa porque **la cuenta puede ser de
+> otra persona** (la de un familiar, por ejemplo): si el nombre y la cédula no son los del
+> **dueño de la cuenta**, el banco rechaza el pago.
+> - **Si la ficha del empleado no tiene titular declarado**, se asume que **el titular es el
+>   propio trabajador** y se ponen su nombre y su cédula. Es la misma regla que ya usaba el
+>   recibo en PDF, así que los dos documentos dicen lo mismo.
+> - Para que salga un titular distinto, llénalo en **Empleados → ✏️ Editar → 🏦 Datos
+>   bancarios → "Titular (nombre y apellido)" y "Cédula del titular"**.
+> - Aplica a los **tres** Excel: el del **período** (📥 Excel), el de **personas
+>   seleccionadas** y el **histórico de una persona** (ahí va en la línea de arriba, y solo
+>   se nombra al titular cuando **no** es el propio trabajador).
+
+> **🔒 Un período aprobado o pagado no se puede cambiar (19/08/2026).** Cuando el período ya
+> no está en **borrador**, no se pueden **agregar ni quitar personas** ni editar montos: queda
+> congelado a propósito, porque es el respaldo de lo que ya se pagó. Antes los botones
+> simplemente **no aparecían** y no se decía por qué — parecía que estaban rotos. Ahora sale un
+> aviso **"🔒 Período APROBADO/PAGADO: no se puede cambiar"** que te dice qué hacer: tocar
+> **↩ Reabrir**, que lo devuelve a borrador y habilita todo otra vez.
+
+> **⚠️ "✕ Desmarcar todos" NO saca a nadie del período.** Ese botón (antes se llamaba
+> "✕ Quitar selección", y por eso confundía) solo **limpia las casillas ✓** que sirven para
+> exportar a Excel o al PDF **solo a los marcados**. Para **sacar de verdad** a una persona del
+> período: **✎ Editar** en su tarjeta → **🗑️ Quitar del período**. Requiere que el período
+> esté en **borrador**.
+
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
 > ("manual")) junto al botón **"🔄 Actualizar tasa BCV"**, que refresca la tasa oficial desde
