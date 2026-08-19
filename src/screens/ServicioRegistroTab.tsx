@@ -145,6 +145,10 @@ export default function ServicioRegistroTab(
   const [fotos, setFotos] = useState<string[]>([]);
   const [renglones, setRenglones] = useState<Renglon[]>([{ ...RENGLON_VACIO }]);
   const [pickMaquinaForm, setPickMaquinaForm] = useState(false);
+  // Lo que salió mal al guardar, para mostrarlo DENTRO del formulario. Un `toast`
+  // no sirve acá: se dibuja en la pantalla de atrás y la ventana del formulario lo
+  // tapa por completo — el error existía pero nadie lo veía.
+  const [formError, setFormError] = useState<string | null>(null);
 
   const machById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
   const reqById = useMemo(() => new Map(reqs.map((r) => [r.id, r])), [reqs]);
@@ -181,9 +185,11 @@ export default function ServicioRegistroTab(
     setTecnico(''); setProveedor(''); setIntervs([]);
     setProblema(''); setAcciones(''); setAveriaId('');
     setFotos([]); setRenglones([{ ...RENGLON_VACIO }]);
+    setFormError(null);
   };
 
   const guardar = async () => {
+    setFormError(null);
     const inp = {
       machineryId: maquinaId, serviceDate: fecha, origen,
       technician: tecnico, provider: proveedor,
@@ -191,7 +197,11 @@ export default function ServicioRegistroTab(
       photos: fotos, maintenanceRequestId: averiaId || null, createdBy: uid,
     };
     const problemaTxt = validarServicio(inp);
-    if (problemaTxt) return toast.error(problemaTxt);
+    // ⚠️ El error va a un aviso DENTRO del formulario, no a un `toast`. El toast se
+    // dibuja en la pantalla de atrás y CUALQUIER ventana abierta lo tapa, así que
+    // desde acá dentro nunca se vería: el encargado tocaba 💾 Guardar, fallaba y no
+    // pasaba NADA a la vista — «no se guarda» sin decir por qué (19-ago-2026).
+    if (problemaTxt) return setFormError(problemaTxt);
 
     setBusy(true);
     const partes: ServicePartInput[] = renglones.map((r) => ({
@@ -199,7 +209,7 @@ export default function ServicioRegistroTab(
     }));
     const r = await guardarServicio(supabase as any, inp, partes);
     setBusy(false);
-    if (r.error) return toast.error(r.error);
+    if (r.error) return setFormError(r.error);
     // El aviso dice la frontera EN EL MOMENTO en que importa: justo cuando el
     // encargado acaba de registrar y podría suponer que la máquina ya se activó.
     toast.success('Servicio registrado. No cambia el estado de la máquina.');
@@ -489,7 +499,8 @@ export default function ServicioRegistroTab(
                 <TouchableOpacity disabled={!maquinaId || busy}
                   onPress={async () => {
                     const r = await captureAndUploadPhoto(maquinaId, 'servicio');
-                    if (r.ok && r.url) setFotos((p) => [...p, r.url!]); else if (r.error) toast.error(r.error);
+                    // Mismo motivo que en `guardar`: dentro del formulario un toast no se ve.
+                    if (r.ok && r.url) setFotos((p) => [...p, r.url!]); else if (r.error) setFormError(r.error);
                   }}
                   style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md,
                     borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, opacity: maquinaId ? 1 : 0.5 }}>
@@ -526,6 +537,19 @@ export default function ServicioRegistroTab(
               <TouchableOpacity onPress={() => setRenglones((p) => [...p, { ...RENGLON_VACIO }])} style={{ marginTop: spacing.xs }}>
                 <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 12 }}>+ Agregar renglón</Text>
               </TouchableOpacity>
+
+              {/* Lo que salió mal, JUSTO ENCIMA del botón que falló y sin desaparecer
+                  solo: antes iba a un `toast` que la propia ventana tapaba, así que
+                  guardar fallaba en silencio. Se toca para cerrarlo. */}
+              {formError ? (
+                <TouchableOpacity activeOpacity={0.85} onPress={() => setFormError(null)}
+                  style={{ marginTop: spacing.md, backgroundColor: colors.dangerSoftBg, borderWidth: 1,
+                    borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 12.5 }}>⚠️ No se pudo guardar</Text>
+                  <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginTop: 2 }}>{formError}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 4 }}>Toca este aviso para cerrarlo.</Text>
+                </TouchableOpacity>
+              ) : null}
 
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, marginBottom: spacing.md }}>
                 <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="Cancelar" onPress={() => setFormOpen(false)} /></View>
