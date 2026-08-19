@@ -40,7 +40,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   return (
     <ConfirmCtx.Provider value={confirm}>
       {children}
-      <Modal visible={!!opts} transparent animationType="fade" onRequestClose={() => close(false)}>
+      {/* ⚠️ El Modal se monta SOLO cuando hay algo que confirmar, y no con
+          `visible={!!opts}` sobre un Modal siempre montado. NO lo cambies:
+          en web todos los Modal salen con el mismo z-index (9999) y quedan
+          apilados en el orden en que se montaron. Este vive en la raíz de la
+          app, así que si estuviera siempre montado sería SIEMPRE el primero
+          y CUALQUIER otra ventana abierta lo taparía: la pregunta salía
+          detrás y parecía que el botón no hacía nada. Montándolo al vuelo
+          entra de último y queda delante de todo. */}
+      {opts ? (
+      <Modal visible transparent animationType="fade" onRequestClose={() => close(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
             <Text style={[typography.title, { fontSize: 18, marginBottom: spacing.sm }]}>
@@ -68,6 +77,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
           </View>
         </View>
       </Modal>
+      ) : null}
     </ConfirmCtx.Provider>
   );
 }
