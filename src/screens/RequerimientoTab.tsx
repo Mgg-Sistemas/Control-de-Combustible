@@ -96,6 +96,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [supQ, setSupQ] = useState('');       // búsqueda de proveedor
   const [supOpen, setSupOpen] = useState(false); // desplegable de proveedor abierto
   const [busy, setBusy] = useState(false);
+  const [formErr, setFormErr] = useState<string | null>(null);                    // error visible DENTRO del Modal (el toast queda tapado)
   const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
   const [previewReq, setPreviewReq] = useState<InventoryRequirement | null>(null); // vista previa del formato
   // Formato (imagen/PDF) adjuntado AL CREAR/EDITAR el requerimiento (antes de guardar).
@@ -143,11 +144,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const crear = async () => {
+    setFormErr(null);
     const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => ({
       product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
       qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
     }));
-    if (items.length === 0) return toast.error('Agrega al menos un producto (del inventario o nuevo).');
+    if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
     setBusy(true);
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
     if (editId) {
@@ -156,7 +158,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         .update({ title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, items, ...adj })
         .eq('id', editId);
       setBusy(false);
-      if (error) return toast.error(error.message);
+      if (error) { setFormErr(error.message); return toast.error(error.message); }
       setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null);
       refetch();
       toast.success('Requerimiento actualizado.');
@@ -174,7 +176,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
       if (readErr || !codeRows) {
         setBusy(false);
-        return toast.error('No se pudo leer el número de requerimiento (correlativo). Revisa tu conexión e inténtalo de nuevo.');
+        const m = 'No se pudo leer el número de requerimiento (correlativo). Revisa tu conexión e inténtalo de nuevo.';
+        setFormErr(m); return toast.error(m);
       }
       code = nextReqCode(codeRows.map((r: any) => r.code), intento);
       // La BASE reasigna el código con un trigger (correlativo a prueba de fallos);
@@ -187,10 +190,10 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // Código ya usado (índice único): reintenta con el siguiente número.
       if (/duplicate key|already exists|unique|_code_key|23505/i.test(error.message)) continue;
       setBusy(false);
-      return toast.error(error.message);
+      setFormErr(error.message); return toast.error(error.message);
     }
     setBusy(false);
-    if (!saved) return toast.error('No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.');
+    if (!saved) { const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
     setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null);
     refetch();
     toast.success(`Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
@@ -209,6 +212,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
       qty: String(it.qty), price: String(it.est_price ?? 0), currency: (it.currency as 'USD' | 'VES') || 'USD', note: it.note ?? '',
     })));
+    setFormErr(null);
     setCreateOpen(true);
   };
 
@@ -392,7 +396,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Requerimientos</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setSupOpen(false); setSupQ(''); setRows([]); setFormato(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setSupOpen(false); setSupQ(''); setRows([]); setFormato(null); setFormErr(null); setCreateOpen(true); }} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -760,6 +764,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
             </Card>
 
+            {formErr ? (
+              <View style={{ marginTop: spacing.sm, backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.dangerSoftText, fontWeight: '700', fontSize: 13 }}>⚠️ {formErr}</Text>
+              </View>
+            ) : null}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
               <TouchableOpacity onPress={() => { setCreateOpen(false); setEditId(null); setFormato(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 2, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios' : '📤 Enviar al jefe')}</Text></TouchableOpacity>
