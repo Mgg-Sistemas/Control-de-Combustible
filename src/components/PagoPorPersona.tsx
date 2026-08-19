@@ -357,7 +357,12 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       concepto: p.concepto || '',
       monto: Number(p.monto) || 0,
     }));
-    const ok = exportPersonaHistoricoXlsx(fullName(e), e.cedula || '', rows, bcvRate, e.bank_account);
+    // Titular + su cédula, con la MISMA regla de respaldo que el recibo PDF (`datosBanco`):
+    // si la ficha no los declara, el titular es el propio trabajador.
+    const ok = exportPersonaHistoricoXlsx(
+      fullName(e), e.cedula || '', rows, bcvRate,
+      e.bank_account, e.bank_holder || fullName(e), e.bank_cedula || e.cedula,
+    );
     if (!ok) toast.error('No se pudo generar el Excel (la descarga se hace desde el navegador).');
   };
 
@@ -365,7 +370,13 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const rows = employees
       .filter((e) => seleccionados.has(e.id))
       .sort((a, b) => cmpText(fullName(a), fullName(b)))
-      .map((e) => ({ nombre: fullName(e), cedula: e.cedula || '', cargo: e.cargo ? canonicalCargo(e.cargo) : '', cuenta: e.bank_account || '', total: totalOf(e) }));
+      .map((e) => ({
+        nombre: fullName(e), cedula: e.cedula || '', cargo: e.cargo ? canonicalCargo(e.cargo) : '',
+        cuenta: e.bank_account || '',
+        // Sin titular declarado, el titular es el trabajador (igual que el recibo PDF).
+        titular: e.bank_holder || fullName(e), cedulaTitular: e.bank_cedula || e.cedula || '',
+        total: totalOf(e),
+      }));
     if (rows.length === 0) return;
     const ok = exportPersonasSeleccionadasXlsx(rows, bcvRate);
     if (!ok) toast.error('No se pudo generar el Excel (la descarga se hace desde el navegador).');

@@ -178,16 +178,22 @@ eq('el recibo del teléfono trae las horas de la noche', kpiNoche(bien.tlf), HOR
 eq('⭐ PARIDAD turno NOCHE · horas', kpiNoche(bien.jefe), kpiNoche(bien.tlf));
 
 // La máquina del caso real: trabajó 5.47 h y LUEGO paró pasada la medianoche.
+//
+// REGLA VIGENTE (19-ago-2026, tarde — commit `ecfda1fa` de Mgg-Sistemas): la máquina
+// conserva su estado REAL (🟡 Parada / 🔴 Averiada) y ADEMÁS muestra las horas que
+// alcanzó a trabajar y desde cuándo está detenida. Antes de ese cambio se forzaba a
+// "✅ Finalizada" y el jefe la veía en orden estando caída. Lo que NO cambió —y es lo
+// que de verdad cuida esta prueba— es que las horas SIGUEN CONTANDO en los totales.
 const filaJefe = bien.jefe.split('<b>CAMION 01</b>')[1]?.split('</tr>')[0] ?? '';
 const filaTlf = bien.tlf.split('CAMION 01')[1]?.split('</div>\n    </div>')[0] ?? '';
-// Regla cliente 19-ago-2026: trabajó-y-luego-paró muestra su ESTADO REAL (🟡 Parada),
-// NO "✅ Finalizada", CON sus horas y la nota "trabajó hasta X · parada desde Y".
-eq('trabajó-y-paró · el jefe la pone 🟡 Parada (estado real)', /🟡 Parada/.test(filaJefe), true);
-eq('trabajó-y-paró · el jefe NO la pone ✅ Finalizada', /✅ Finalizada/.test(filaJefe), false);
-eq('⭐ trabajó-y-paró · el TELÉFONO la pone 🟡 Parada', /🟡 Parada/.test(filaTlf), true);
-eq('⭐ trabajó-y-paró · el TELÉFONO NO la pone ✅ Finalizada', /✅ Finalizada/.test(filaTlf), false);
+eq('trabajó-y-paró · el jefe muestra el estado REAL 🟡 Parada', /🟡 Parada/.test(filaJefe), true);
+eq('trabajó-y-paró · el jefe dice desde cuándo está detenida', /parada desde/.test(filaJefe), true);
+eq('⭐ trabajó-y-paró · el TELÉFONO dice lo mismo que el jefe', /🟡 Parada/.test(filaTlf), true);
+eq('⭐ trabajó-y-paró · el TELÉFONO dice desde cuándo está detenida', /parada desde/.test(filaTlf), true);
 eq('⭐ trabajó-y-paró · el TELÉFONO sí cuenta sus horas', /Trabajó 5\.47h/.test(filaTlf), true);
-eq('trabajó-y-paró · el teléfono conserva la nota del incidente', /parada desde/.test(filaTlf), true);
+// El motivo va DENTRO de la nota del incidente; repetirlo aparte lo duplicaba en la tarjeta.
+eq('trabajó-y-paró · el motivo no sale dos veces en el teléfono',
+  (filaTlf.match(/NO TRABAJÓ · sin operador/g) || []).length, 1);
 // La que NO trabajó nada sí sigue parada en los dos.
 eq('0 h + parada · sigue 🟡 Parada en el jefe', /🟡 Parada/.test(bien.jefe), true);
 eq('0 h + parada · sigue 🟡 Parada en el teléfono', /🟡 Parada/.test(bien.tlf), true);

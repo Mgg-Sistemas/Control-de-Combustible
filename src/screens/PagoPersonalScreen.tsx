@@ -582,18 +582,39 @@ export default function PagoPersonalScreen() {
     const base = itemSelIds.size
       ? items.filter((it) => itemSelIds.has(it.id))
       : cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
-    // Nº de cuenta bancaria: viene de la ficha de perfil del empleado (employees.bank_account),
-    // no del renglón de nómina — se busca puntual al exportar.
+    // DATOS BANCARIOS: vienen de la ficha de perfil del empleado (employees), no del
+    // renglón de nómina — se buscan puntual al exportar. Van los tres que el banco
+    // pide para transferir: cuenta, TITULAR y CÉDULA DEL TITULAR. El titular puede ser
+    // otra persona (la cuenta de un familiar), y si el nombre/cédula no son los del
+    // dueño de la cuenta el banco rechaza la transferencia — por eso no alcanza con
+    // el número (pedido del cliente 19-ago-2026).
     const empIds = [...new Set(base.map((it) => it.employee_id).filter(Boolean))] as string[];
-    const cuentaById = new Map<string, string>();
+    const bancoById = new Map<string, { cuenta: string; titular: string; cedula: string }>();
     if (empIds.length) {
-      const { data: emps } = await supabase.from('employees').select('id, bank_account').in('id', empIds);
-      (emps ?? []).forEach((e: any) => { if (e.bank_account) cuentaById.set(e.id, e.bank_account); });
+      const { data: emps } = await supabase
+        .from('employees')
+        .select('id, bank_account, bank_holder, bank_cedula')
+        .in('id', empIds);
+      (emps ?? []).forEach((e: any) => bancoById.set(e.id, {
+        cuenta: e.bank_account ?? '', titular: e.bank_holder ?? '', cedula: e.bank_cedula ?? '',
+      }));
     }
+    // Si la ficha no declara titular, el titular ES el trabajador — misma regla que ya
+    // usa el recibo PDF (`datosBanco` en PagoPorPersona.tsx). Sin esto la columna
+    // saldría vacía para casi todos: la carga masiva de datos bancarios solo trajo
+    // banco y número de cuenta.
+    const bancoDe = (it: StaffPayItem) => {
+      const b = (it.employee_id && bancoById.get(it.employee_id)) || { cuenta: '', titular: '', cedula: '' };
+      return {
+        cuenta: b.cuenta,
+        titular: b.titular || it.person_name || '',
+        cedulaTitular: b.cedula || it.cedula || '',
+      };
+    };
     const ok = exportPagoPersonalXlsx(
       base.map((it) => ({
         nombre: it.person_name, cedula: it.cedula ?? '', cargo: it.cargo ?? '',
-        cuenta: (it.employee_id && cuentaById.get(it.employee_id)) || '',
+        ...bancoDe(it),
         dias: Number(it.dias) || 0, dias_noche: Number(it.dias_noche) || 0, horas: Number(it.horas) || 0, semanas: Number(it.semanas) || 0,
         devengado: devengadoOf(it, sel.mode), bonos: sumLines(it.bonos), deducciones: sumLines(it.deducciones),
         total: Number(it.total) || 0, pagado: paidOf(it.id), saldo: saldoOf(it),
@@ -874,6 +895,25 @@ export default function PagoPersonalScreen() {
                 </TouchableOpacity>
               </View>
 
+              {/* PERÍODO CERRADO: por qué no se puede tocar nada. Antes los botones de
+                  editar / agregar / quitar simplemente NO se dibujaban y no se decía por
+                  qué — el cliente creía que estaban rotos («intento quitar una persona y
+                  no me deja», 19-ago-2026). Un período aprobado o pagado está congelado a
+                  propósito: es el respaldo de lo que ya se pagó. */}
+              {sel.status !== 'borrador' ? (
+                <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Text style={{ fontSize: 20 }}>🔒</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>
+                      Período {sel.status === 'pagada' ? 'PAGADO' : 'APROBADO'}: no se puede cambiar
+                    </Text>
+                    <Text style={{ color: colors.warningSoftText, opacity: 0.85, fontSize: 12 }}>
+                      No se pueden agregar ni quitar personas, ni editar montos. Para cambiar algo toca ↩ Reabrir aquí arriba: vuelve a borrador y se habilita todo.
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+
               {/* Aviso "incluir a TODOS": empleados activos que aún no están en este período. */}
               {sel.status === 'borrador' && faltantesCount > 0 ? (
                 <TouchableOpacity onPress={agregarFaltantes} disabled={busy} activeOpacity={0.8} style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -963,8 +1003,12 @@ export default function PagoPersonalScreen() {
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({itemsShown.length})</Text>
                     </TouchableOpacity>
                     {itemSelIds.size > 0 ? (
+                      // "Desmarcar", NO "quitar": esto solo limpia las casillas del Excel y el
+                      // PDF, no saca a nadie del período. Se llamaba "✕ Quitar selección" y el
+                      // cliente lo tocaba creyendo que sacaba gente (19-ago-2026). Para sacar a
+                      // alguien de verdad está "🗑️ Quitar del período" dentro de ✎ Editar.
                       <TouchableOpacity onPress={() => setItemSelIds(new Set())}>
-                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección ({itemSelIds.size})</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Desmarcar todos ({itemSelIds.size})</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
