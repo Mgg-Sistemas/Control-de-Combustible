@@ -739,7 +739,7 @@ const SECTIONS: Sec[] = [
     title: 'Fabricación (MRP)',
     blocks: [
       { t: 'p', text: 'Módulo aparte para el taller de mangueras hidráulicas y manufactura: maestros de producción, centros de trabajo, recetas (BoM), rutas, Órdenes de Fabricación (MO) y de Trabajo (WO), el kiosco de planta y sus propios reportes.' },
-      { t: 'note', text: 'Cuenta por cobrar de mangueras: cada manguera pide Empresa a cobrar + Encargado + Margen % (default 30). Al guardar genera sola una CUENTA POR COBRAR a esa empresa por costo + margen (visible en Compras → 💰 Por cobrar), y un botón "🧾 Recibo de cobro" (PDF). Excepción: si el encargado es CHELI, NO se genera cuenta por cobrar. Aparte, sigue creando la cuenta POR PAGAR al proveedor.' },
+      { t: 'note', text: 'Cuenta por cobrar de mangueras: cada manguera pide Empresa a cobrar + Encargado + Margen % (default 30). Empresa y Encargado son LISTAS PROPIAS de mangueras (agregar una nueva NO la mete en el catálogo de Empresas ni en el resto del sistema). Al guardar genera sola una CUENTA POR COBRAR a esa empresa por costo + margen (visible en Compras → 💰 Por cobrar), y un botón "🧾 Recibo de cobro" (PDF). Excepción: si el encargado es CHELI, NO se genera cuenta por cobrar. Aparte, sigue creando la cuenta POR PAGAR al proveedor.' },
       { t: 'note', text: 'Aprobación desde Compras: todas las mangueras pendientes salen también en Compras → pestaña 🔧 Mangueras, para que el gerente apruebe el pago (si está instalada) sin entrar al módulo de Mangueras.' },
       { t: 'note', text: 'Es un módulo grande e independiente del resto del sistema — descarga su guía propia en "Más → Manual → Guías descargables → 🏭 Fabricación (MRP)" para el paso a paso completo.' },
     ],

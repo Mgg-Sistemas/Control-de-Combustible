@@ -13,7 +13,7 @@ import { norm, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { levelMeets } from '../lib/permissions';
 import { useBcvRate, bsFromUsd, fmtUsd, fmtBs } from '../lib/bcv';
-import { HoseService, HoseInstallStatus, HosePaymentStatus, Encargado } from '../types/database';
+import { HoseService, HoseInstallStatus, HosePaymentStatus, Encargado, HoseEmpresa } from '../types/database';
 import { generateHoseServiceReport, generateHoseAuthorization } from '../lib/hoseServiceReport';
 import { generateReciboCobro } from '../lib/reciboCobro';
 import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
@@ -94,7 +94,15 @@ export default function ManguerasScreen() {
   const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name', realtimeFrom: 'profiles' });
   const { data: companies } = useTable<CompanyRow>('companies', { select: 'id, name', orderBy: 'name' });
   const { data: encargados } = useTable<Encargado>('encargados', { orderBy: 'name' });
+  // Empresas a cobrar: LISTA PROPIA de mangueras (no el catálogo companies).
+  const { data: hoseEmpresas } = useTable<HoseEmpresa>('hose_empresas', { orderBy: 'name' });
   const { rate: bcvRate } = useBcvRate();
+
+  const hoseEmpresasMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    hoseEmpresas.forEach((e) => { if (e.id) m[e.id] = e.name || '—'; });
+    return m;
+  }, [hoseEmpresas]);
 
   const companiesMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -206,7 +214,9 @@ export default function ManguerasScreen() {
     // margen de venta. Aplica a mangueras de flota Y externas (se piden siempre). La
     // BD genera la cuenta 'por_cobrar' (trigger), salvo que el encargado sea CHELI
     // (cobrar=false) o falte empresa/encargado.
-    { key: 'company_id', label: 'Empresa a cobrar', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, required: true },
+    // Empresa a cobrar de la LISTA PROPIA de mangueras (hose_empresas): se puede
+    // agregar una nueva escribiéndola (createColumn) SIN que entre al catálogo companies.
+    { key: 'hose_empresa_id', label: 'Empresa a cobrar', type: 'lookup', table: 'hose_empresas', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
     { key: 'encargado_id', label: 'Encargado (a quién se le cobra)', type: 'lookup', table: 'encargados', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
     { key: 'sale_margin_pct', label: 'Margen de cobro (%)', type: 'number', defaultValue: '30' },
     { key: 'cobro_info', type: 'section', label: 'ℹ️ Monto a cobrar = costo + margen. Si el encargado es CHELI, NO se genera cuenta por cobrar.' },
@@ -473,7 +483,7 @@ export default function ManguerasScreen() {
                         empresa + encargado y el encargado NO es CHELI (cobrar !== false). */}
                     {(() => {
                       const enc = h.encargado_id ? encargadosMap[h.encargado_id] : undefined;
-                      const cobrable = !!h.company_id && !!h.encargado_id && (enc ? enc.cobrar !== false : false);
+                      const cobrable = !!h.hose_empresa_id && !!h.encargado_id && (enc ? enc.cobrar !== false : false);
                       if (!cobrable) return null;
                       return (
                         <Btn label="🧾 Recibo de cobro" color="#7C3AED" disabled={busy === h.id + '-recibo'} onPress={async () => {
@@ -481,7 +491,7 @@ export default function ManguerasScreen() {
                           try {
                             await generateReciboCobro({
                               hose: h,
-                              companyName: (h.company_id ? companiesMap[h.company_id] : '') || '—',
+                              companyName: (h.hose_empresa_id ? hoseEmpresasMap[h.hose_empresa_id] : '') || '—',
                               encargadoName: enc?.name || '—',
                             });
                           } finally { setBusy(null); }

@@ -170,7 +170,16 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
   const nombreDe = useMemo(() => {
     const m = new Map<string, string>();
     maestro.forEach((x) => m.set(x.id, x.name));
-    return (c: Cuenta) => m.get((c.tipo === 'por_pagar' ? c.supplier_id : c.company_id) ?? '') ?? '—';
+    // Fallback al NOMBRE LIBRE (`contraparte`) cuando la cuenta no viene del
+    // catálogo — p. ej. las por_cobrar de mangueras (empresa de lista propia,
+    // company_id null). Así la lista muestra el nombre igual.
+    return (c: Cuenta) => {
+      const id = (c.tipo === 'por_pagar' ? c.supplier_id : c.company_id) ?? '';
+      const nombre = m.get(id);
+      if (nombre) return nombre;
+      const libre = (c.contraparte ?? '').trim();
+      return libre || '—';
+    };
   }, [maestro]);
 
   const [q, setQ] = useState('');
