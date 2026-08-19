@@ -1086,12 +1086,30 @@ export interface HoseService {
   provider: string | null; // nombre del proveedor (espejo de supplier_id, para lista/reporte)
   /** Proveedor real (catálogo suppliers) al que se le paga; genera la cuenta por pagar. */
   supplier_id: string | null;
+  /** Empresa a la que se le COBRA la manguera (genera la cuenta por cobrar). */
+  company_id: string | null;
+  /** Encargado (catálogo `encargados`) a quien se le cobra. Si el encargado tiene
+   *  `cobrar=false` (CHELI), NO se genera cuenta por cobrar. */
+  encargado_id: string | null;
+  /** Margen de cobro (%). Monto por cobrar = cost_usd × (1 + sale_margin_pct/100). */
+  sale_margin_pct: number;
   install_status: HoseInstallStatus;
   payment_status: HosePaymentStatus;
   created_by: string | null;
   created_at: string;
   approved_by: string | null;
   approved_at: string | null;
+}
+
+/** Encargado (persona a la que se le cobra una manguera). `cobrar=false` = no se
+ *  le genera cuenta por cobrar (caso CHELI). Catálogo editable desde la app. */
+export interface Encargado {
+  id: string;
+  name: string;
+  cobrar: boolean;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
 }
 
 // Módulo de Fabricación (MRP) — Fase 2: Centros de trabajo (áreas/máquinas/

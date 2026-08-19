@@ -10,7 +10,7 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { RequerimientoTab } from './RequerimientoTab';
-import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel } from '../types/database';
+import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -840,6 +840,151 @@ function ResumenTab() {
   );
 }
 
+// ── Mangueras por aprobar ────────────────────────────────────────────────────
+// Espejo de aprobación del módulo Mangueras (Taller) DENTRO de Compras: el
+// gerente aprueba aquí los pagos pendientes sin entrar al otro módulo. La
+// manguera se sigue creando en su módulo; acá SOLO se envía a autorización y se
+// aprueba el pago. Réplica del flujo de `ManguerasScreen.tsx`.
+const HOSE_INSTALL: Record<string, { label: string; tone: Tone }> = {
+  en_proceso: { label: '🟡 En proceso', tone: 'warning' },
+  instalada: { label: '🟢 Instalada', tone: 'success' },
+};
+const HOSE_PAYMENT: Record<string, { label: string; tone: Tone }> = {
+  pendiente: { label: '⏳ Pendiente', tone: 'warning' },
+  en_proceso_autorizacion: { label: '📤 Pendiente por autorización', tone: 'info' },
+  pagado: { label: '✅ Pagado', tone: 'success' },
+};
+
+function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
+  const { colors } = useTheme();
+  const { session } = useAuth();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'created_at', ascending: false, realtimeFrom: 'hose_services' });
+  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const { data: encargados } = useTable<Encargado>('encargados', { orderBy: 'name' });
+  const { data: machinery } = useTable<{ id: string; code: string; serial: string | null; plate: string | null }>('machinery', { select: 'id, code, serial, plate', orderBy: 'code' });
+
+  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? '—' : '—');
+  const encargadoName = (id: string | null) => (id ? encargados.find((e) => e.id === id)?.name ?? '—' : '—');
+  const machineLabel = (id: string | null) => {
+    if (!id) return '—';
+    const m = machinery.find((x) => x.id === id);
+    if (!m) return '—';
+    return [m.code, m.serial ? `Serial ${m.serial}` : '', m.plate ? `Placa ${m.plate}` : ''].filter(Boolean).join(' · ');
+  };
+
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const pendientes = useMemo(
+    () => hoses
+      .filter((h) => h.payment_status === 'pendiente' || h.payment_status === 'en_proceso_autorizacion')
+      .sort((a, b) => cmpText(a.code, b.code)),
+    [hoses],
+  );
+
+  const enviarAutorizacion = async (h: HoseService) => {
+    const ok = await confirm({ title: 'Enviar a autorización', message: `¿Enviar la manguera ${h.code} a autorización de pago?`, confirmText: 'Enviar' });
+    if (!ok) return;
+    setBusy(h.id + '-auth');
+    const { error } = await supabase.from('hose_services').update({ payment_status: 'en_proceso_autorizacion' }).eq('id', h.id);
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    toast.success('Enviada a autorización.');
+    refetch();
+  };
+
+  const aprobarPago = async (h: HoseService) => {
+    // No se puede pagar una manguera que aún no está instalada (evita pagar un
+    // trabajo que nunca se llegó a hacer). El botón se deshabilita en ese caso,
+    // pero se valida también aquí por si el estado cambió justo antes de pulsar.
+    if (h.install_status !== 'instalada') {
+      return toast.error('No se puede pagar una manguera que no está instalada.');
+    }
+    const ok = await confirm({ title: 'Aprobar pago', message: `¿Aprobar el pago de la manguera ${h.code} por ${usd(h.cost_usd)}?`, confirmText: 'Aprobar' });
+    if (!ok) return;
+    setBusy(h.id + '-approve');
+    const { error } = await supabase.from('hose_services').update({
+      payment_status: 'pagado',
+      approved_by: session?.user?.id ?? null,
+      approved_at: nowISO(),
+    }).eq('id', h.id);
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    toast.success('Pago aprobado.');
+    refetch();
+  };
+
+  if (loading) return <Screen><Loading /></Screen>;
+
+  return (
+    <Screen onRefresh={refetch} refreshing={loading}>
+      <ConfigBanner />
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <SectionTitle>🔧 Mangueras por aprobar</SectionTitle>
+        <View style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
+          <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>{pendientes.length} pendiente(s)</Text>
+        </View>
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Las mangueras se crean en su módulo (Taller). Aquí el gerente aprueba los pagos pendientes.</Text>
+
+      {pendientes.length === 0 ? (
+        <EmptyState title="Sin mangueras por aprobar" subtitle="No hay pagos de mangueras pendientes de autorización." />
+      ) : pendientes.map((h) => {
+        const inst = HOSE_INSTALL[h.install_status] ?? HOSE_INSTALL.en_proceso;
+        const pay = HOSE_PAYMENT[h.payment_status] ?? HOSE_PAYMENT.pendiente;
+        const puedePagar = h.install_status === 'instalada';
+        return (
+          <ExpandableCard
+            key={h.id}
+            summary={
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>🔧 {h.code}</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{usd(h.cost_usd)}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4, flexWrap: 'wrap' }}>
+                  <Pill label={inst.label} {...toneSoft(colors, inst.tone)} />
+                  <Pill label={pay.label} {...toneSoft(colors, pay.tone)} />
+                </View>
+              </View>
+            }
+            detail={
+              <>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Máquina: {h.is_external ? `🏭 ${h.external_client || 'Externa'} (externa)` : machineLabel(h.machinery_id)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Empresa a cobrar: {companyName(h.company_id)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Encargado: {encargadoName(h.encargado_id)}</Text>
+                {h.description ? <Text style={{ color: colors.muted, fontSize: 13 }}>Trabajo: {h.description}</Text> : null}
+                <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Costo: {usd(h.cost_usd)}</Text>
+                {canWrite ? (
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                    {h.payment_status === 'pendiente' ? (
+                      <TouchableOpacity disabled={busy === h.id + '-auth'} onPress={() => enviarAutorizacion(h)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy === h.id + '-auth' ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>📤 Enviar a autorización</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {puedePagar ? (
+                      <TouchableOpacity disabled={busy === h.id + '-approve'} onPress={() => aprobarPago(h)} style={{ flexGrow: 1, backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy === h.id + '-approve' ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>✅ Aprobar pago</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: 0.6 }}>
+                        <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13 }}>✅ Aprobar pago</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>Debe estar instalada para poder pagar</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : null}
+              </>
+            }
+          />
+        );
+      })}
+      <View style={{ height: spacing.xl }} />
+    </Screen>
+  );
+}
+
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
 export default function ComprasScreen() {
   const { colors } = useTheme();
@@ -860,6 +1005,7 @@ export default function ComprasScreen() {
     { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
+    { key: 'mangueras', label: 'Mangueras', icon: '🔧' },
     ...(veCuentas ? CUENTAS_TABS : []),
   ];
   const [active, setActive] = useState('requerimiento');
@@ -884,7 +1030,7 @@ export default function ComprasScreen() {
           // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
           // propio buscador y formulario limpios.
           <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
-        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : <ProveedoresTab canWrite={canWrite} />}
+        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : active === 'mangueras' ? <ManguerasAprobarTab canWrite={canWrite} /> : <ProveedoresTab canWrite={canWrite} />}
       </View>
     </View>
   );

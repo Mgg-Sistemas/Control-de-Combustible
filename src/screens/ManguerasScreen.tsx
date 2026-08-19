@@ -13,8 +13,9 @@ import { norm, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { levelMeets } from '../lib/permissions';
 import { useBcvRate, bsFromUsd, fmtUsd, fmtBs } from '../lib/bcv';
-import { HoseService, HoseInstallStatus, HosePaymentStatus } from '../types/database';
+import { HoseService, HoseInstallStatus, HosePaymentStatus, Encargado } from '../types/database';
 import { generateHoseServiceReport, generateHoseAuthorization } from '../lib/hoseServiceReport';
+import { generateReciboCobro } from '../lib/reciboCobro';
 import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -92,6 +93,7 @@ export default function ManguerasScreen() {
   const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, tipo, company_id, encargado, operational', orderBy: 'code', realtimeFrom: 'machinery' });
   const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name', realtimeFrom: 'profiles' });
   const { data: companies } = useTable<CompanyRow>('companies', { select: 'id, name', orderBy: 'name' });
+  const { data: encargados } = useTable<Encargado>('encargados', { orderBy: 'name' });
   const { rate: bcvRate } = useBcvRate();
 
   const companiesMap = useMemo(() => {
@@ -109,6 +111,11 @@ export default function ManguerasScreen() {
     profiles.forEach((p) => { m[p.id] = p.full_name || 'Usuario'; });
     return m;
   }, [profiles]);
+  const encargadosMap = useMemo(() => {
+    const m: Record<string, Encargado> = {};
+    encargados.forEach((e) => { if (e.id) m[e.id] = e; });
+    return m;
+  }, [encargados]);
 
   // ── Filtros ─────────────────────────────────────────────────────────────
   const [query, setQuery] = useState('');
@@ -195,6 +202,14 @@ export default function ManguerasScreen() {
     // eso se genera la CUENTA POR PAGAR automática (trigger en BD). Se puede crear
     // uno nuevo escribiéndolo. Obligatorio: cada manguera queda ligada a un proveedor.
     { key: 'supplier_id', label: 'Proveedor (a quién se le paga)', type: 'lookup', table: 'suppliers', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
+    // Cuenta POR COBRAR: empresa + encargado a quien se le cobra la manguera y el
+    // margen de venta. Aplica a mangueras de flota Y externas (se piden siempre). La
+    // BD genera la cuenta 'por_cobrar' (trigger), salvo que el encargado sea CHELI
+    // (cobrar=false) o falte empresa/encargado.
+    { key: 'company_id', label: 'Empresa a cobrar', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, required: true },
+    { key: 'encargado_id', label: 'Encargado (a quién se le cobra)', type: 'lookup', table: 'encargados', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
+    { key: 'sale_margin_pct', label: 'Margen de cobro (%)', type: 'number', defaultValue: '30' },
+    { key: 'cobro_info', type: 'section', label: 'ℹ️ Monto a cobrar = costo + margen. Si el encargado es CHELI, NO se genera cuenta por cobrar.' },
     installStatusField,
   ];
 
@@ -454,6 +469,25 @@ export default function ManguerasScreen() {
                         } finally { setBusy(null); }
                       }} />
                     ) : null}
+                    {/* Recibo de cobro (PDF): solo si la manguera es cobrable — tiene
+                        empresa + encargado y el encargado NO es CHELI (cobrar !== false). */}
+                    {(() => {
+                      const enc = h.encargado_id ? encargadosMap[h.encargado_id] : undefined;
+                      const cobrable = !!h.company_id && !!h.encargado_id && (enc ? enc.cobrar !== false : false);
+                      if (!cobrable) return null;
+                      return (
+                        <Btn label="🧾 Recibo de cobro" color="#7C3AED" disabled={busy === h.id + '-recibo'} onPress={async () => {
+                          setBusy(h.id + '-recibo');
+                          try {
+                            await generateReciboCobro({
+                              hose: h,
+                              companyName: (h.company_id ? companiesMap[h.company_id] : '') || '—',
+                              encargadoName: enc?.name || '—',
+                            });
+                          } finally { setBusy(null); }
+                        }} />
+                      );
+                    })()}
                   </View>
                 </Card>
               );
