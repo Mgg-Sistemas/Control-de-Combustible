@@ -139,6 +139,11 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > o **"✅ Ya se decidió (quitar espera)"** cuando ya se sabe si va Operativa o No operativa. En el
 > **Catálogo** aparece como una **4ta tarjeta** junto a Operativas / Averiadas / Retiradas.
 >
+> **📊 Total de flota disponible (20-ago-2026):** arriba de las tarjetas de estado, el Catálogo
+> muestra un recuadro grande **"TOTAL DE FLOTA DISPONIBLE"** = **Operativas + Averiadas + Esperando
+> instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
+> desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
+>
 > **Al AGREGAR una máquina nueva:** el formulario trae el check **"⏳ Dejar 'Esperando
 > instrucciones' (aún no decidida)"** **activado por defecto** — toda máquina nueva entra
 > directo a este estado, salvo que **destildes** esa casilla al crearla (si ya sabes que va
