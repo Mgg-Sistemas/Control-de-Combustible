@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
+import { pasaFiltroEstado, esDesincorporado } from '../lib/staffPayEstado';
 import { levelMeets } from '../lib/permissions';
 import { caracasParts } from '../lib/jornada';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
@@ -153,6 +154,10 @@ export default function PagoPersonalScreen() {
   // Estado ACTUAL (no el que tenía al momento de incluirlo) de los empleados de este
   // período, para poder marcar en la lista a quien ya fue desincorporado. employee_id → status.
   const [itemEmployeeStatus, setItemEmployeeStatus] = useState<Map<string, string>>(new Map());
+  // ¿Ya llegó el estado de los empleados de este período? Sin esto no se puede
+  // distinguir "todavía no cargó" de "este renglón no tiene estado", que es justo
+  // lo que rompía el filtro de desincorporados (ver `itemsShown`).
+  const [statusLoaded, setStatusLoaded] = useState(false);
   // Selección manual de renglones del período, para exportar SOLO esos al Excel (p. ej.
   // filtrar a "Inactivos/Desincorporados" y seleccionarlos para un Excel aparte). Vacío =
   // exporta todos (respetando el filtro de cargo, como ya hacía antes).
@@ -229,9 +234,10 @@ export default function PagoPersonalScreen() {
       ? await supabase.from('employees').select('id, status').in('id', empIds)
       : { data: [] as { id: string; status: string }[] };
     setItemEmployeeStatus(new Map((empStatus ?? []).map((e: any) => [e.id, e.status])));
+    setStatusLoaded(true);
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setCargoSel(new Set()); setCargoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setStatusLoaded(false); setCargoSel(new Set()); setCargoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
   // El detalle (renglones, abonos y estado de empleados) se carga aparte con
   // supabase.from() directo (no useTable), así que se sincroniza en vivo aquí.
   useRealtimeRefresh(['staff_pay_items', 'staff_pay_payments', 'employees'], () => { if (sel) loadDetail(sel); });
@@ -338,6 +344,54 @@ export default function PagoPersonalScreen() {
     await recomputeTotal(sel.id, (fresh ?? []) as StaffPayItem[], sel.mode);
     setBusy(false);
     if (!rows.length) toast.info(soloOperadoresSi(sel.mode) ? 'No hay operadores activos nuevos para agregar (los períodos "Por día" solo incluyen operadores).' : 'No hay empleados activos nuevos para agregar.');
+  };
+
+  // ── 👤 AGREGAR PERSONA (uno por uno, CON desincorporados) ───────────────────
+  // Por qué existe (20-ago-2026): "＋ Personal faltante" solo trae empleados con
+  // `status = 'activo'`, así que a un DESINCORPORADO (inactivo/suspendido) no había
+  // forma de meterlo en un período — ni siquiera para moverlo de uno a otro, que es
+  // justo lo que hacía falta cuando se le queda un pago pendiente al salir. Este
+  // selector busca en TODOS los empleados, sin importar su estado, y agrega solo al
+  // que se elija (no en bloque, para no meter desincorporados donde no van).
+  const [addOpen, setAddOpen] = useState(false);
+  const [addQuery, setAddQuery] = useState('');
+  const [addRows, setAddRows] = useState<any[]>([]);
+  const [addLoading, setAddLoading] = useState(false);
+  const abrirAgregarPersona = async () => {
+    if (!sel) return;
+    setAddOpen(true); setAddQuery(''); setAddLoading(true);
+    const { data } = await supabase
+      .from('employees')
+      .select(`${EMP_COLS}, status`)
+      .order('first_name');
+    setAddRows((data ?? []) as any[]);
+    setAddLoading(false);
+  };
+  // Candidatos: todos los empleados que NO están ya en el período, con su estado.
+  const addCandidates = useMemo(() => {
+    const have = new Set(items.map((i) => i.employee_id).filter(Boolean));
+    const nq = norm(addQuery);
+    return addRows
+      .filter((e: any) => !have.has(e.id))
+      .filter((e: any) => !nq
+        || norm(`${e.first_name} ${e.last_name}`).includes(nq)
+        || norm(e.cedula ?? '').includes(nq)
+        || norm(e.cargo ?? '').includes(nq));
+  }, [addRows, items, addQuery]);
+  const agregarPersona = async (e: any) => {
+    if (!sel) return;
+    setBusy(true);
+    // Se le calculan sus jornadas del rango igual que a cualquiera: un desincorporado
+    // pudo haber trabajado parte del período antes de salir, y eso SÍ se le paga.
+    const byCed = await buildAuto(sel.date_from, sel.date_to);
+    const row = rowFor(e, sel.id, byCed.get(e.cedula), sel.only_validated, sel.mode);
+    const { error } = await supabase.from('staff_pay_items').insert(row);
+    if (error) { setBusy(false); return toast.error(error.message); }
+    await loadDetail(sel);
+    const { data: fresh } = await supabase.from('staff_pay_items').select('*').eq('period_id', sel.id);
+    await recomputeTotal(sel.id, (fresh ?? []) as StaffPayItem[], sel.mode);
+    setBusy(false);
+    toast.success(`${`${e.first_name} ${e.last_name}`.trim()} agregado al período.`);
   };
 
   // ── Editor de renglón ───────────────────────────────────────────────────────
@@ -658,15 +712,12 @@ export default function PagoPersonalScreen() {
     return items
       .filter((it) => !cargoSel.size || cargoSel.has(cargoOf(it.cargo)))
       .filter((it) => !nq || norm(it.person_name).includes(nq))
-      .filter((it) => {
-        if (estadoSel === 'todos') return true;
-        // Sin dato de estado todavía (carrera de carga de itemEmployeeStatus): no excluir.
-        const st = it.employee_id ? itemEmployeeStatus.get(it.employee_id) : undefined;
-        if (!st) return true;
-        if (estadoSel === 'activos') return st === 'activo';
-        return st === 'inactivo' || st === 'suspendido'; // 'inactivos'
-      });
-  }, [items, cargoSel, personaQuery, estadoSel, itemEmployeeStatus]);
+      // ⚠️ La regla vive en src/lib/staffPayEstado.ts (función pura, con test propio).
+      //    NO la reimplementes aquí: el bug del 20-ago-2026 fue exactamente eso —
+      //    "sin estado" se trataba como "pasa todos los filtros", así que los renglones
+      //    sin ficha salían a la vez en Activos y en Inactivos/Desincorporados.
+      .filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded));
+  }, [items, cargoSel, personaQuery, estadoSel, itemEmployeeStatus, statusLoaded]);
 
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
@@ -872,6 +923,9 @@ export default function PagoPersonalScreen() {
                     <TouchableOpacity onPress={agregarFaltantes} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>＋ Personal faltante</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity onPress={abrirAgregarPersona} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>👤 Agregar persona</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }}>
                       <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
                     </TouchableOpacity>
@@ -1019,7 +1073,7 @@ export default function PagoPersonalScreen() {
                   // el período): si ya fue desincorporado, se avisa con un badge (solo visual,
                   // no afecta el pago ya cargado).
                   const empStatusNow = it.employee_id ? itemEmployeeStatus.get(it.employee_id) : undefined;
-                  const desincorporado = empStatusNow === 'inactivo' || empStatusNow === 'suspendido';
+                  const desincorporado = esDesincorporado(empStatusNow);
                   const itSel = itemSelIds.has(it.id);
                   return (
                     <Card key={it.id}>
@@ -1175,7 +1229,14 @@ export default function PagoPersonalScreen() {
                     </TouchableOpacity>
                   ) : null}
                 </View>
-                {!readOnly && editItem.source === 'manual' ? (
+                {/* ⚠️ SE PUEDE QUITAR CUALQUIER RENGLÓN, no solo los `source === 'manual'`.
+                    NO le vuelvas a poner esa condición (bug 20-ago-2026): `source` NO
+                    significa "lo agregaron a mano" — vale 'auto' cuando la persona TIENE
+                    jornadas en el rango y 'manual' cuando no. Con la condición vieja, a
+                    quien de verdad trabajó no había forma de sacarlo del período, y por eso
+                    no se podía mover a alguien de un período a otro. El período en
+                    BORRADOR ya es el candado; uno aprobado/pagado sigue sin permitirlo. */}
+                {!readOnly ? (
                   <TouchableOpacity onPress={() => { setEditItem(null); eliminarItem(editItem); }} style={{ marginTop: spacing.sm, padding: spacing.sm, alignItems: 'center' }}>
                     <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Quitar del período</Text>
                   </TouchableOpacity>
@@ -1183,6 +1244,58 @@ export default function PagoPersonalScreen() {
                 <View style={{ height: spacing.lg }} />
               </ScrollView>
             ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal: 👤 agregar persona al período (incluye desincorporados) */}
+      <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '85%' }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>👤 Agregar persona al período</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>
+              Busca a cualquiera del registro — también a los <Text style={{ fontWeight: '800' }}>desincorporados</Text>. Se le calculan sus jornadas del rango, por si trabajó parte del período antes de salir.
+            </Text>
+            <TextInput
+              value={addQuery}
+              onChangeText={setAddQuery}
+              placeholder="🔎 Buscar por nombre, cédula o cargo…"
+              placeholderTextColor={colors.muted}
+              style={{ ...input, marginBottom: spacing.sm }}
+            />
+            {addLoading ? (
+              <Loading />
+            ) : addCandidates.length === 0 ? (
+              <Text style={{ color: colors.muted, paddingVertical: spacing.md }}>
+                {addQuery.trim() ? 'Nadie coincide con esa búsqueda.' : 'Todo el personal del registro ya está en este período.'}
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+                {addCandidates.map((e: any) => {
+                  const fuera = e.status === 'inactivo' || e.status === 'suspendido';
+                  return (
+                    <TouchableOpacity
+                      key={e.id}
+                      disabled={busy}
+                      onPress={async () => { setAddOpen(false); await agregarPersona(e); }}
+                      style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800' }} numberOfLines={1}>{`${e.first_name} ${e.last_name}`.trim()}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>
+                          {[e.cedula, e.cargo].filter(Boolean).join(' · ') || '—'}
+                        </Text>
+                      </View>
+                      {fuera ? <Badge label="Desincorporado" tone="danger" /> : null}
+                      <Text style={{ color: colors.accent, fontWeight: '900', fontSize: 18 }}>＋</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <TouchableOpacity onPress={() => setAddOpen(false)} style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
