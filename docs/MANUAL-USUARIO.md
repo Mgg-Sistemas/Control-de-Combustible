@@ -1671,6 +1671,14 @@ escritura en Compras (o Inventario).
 > equivocación, el administrador toca **"↩ Volver a pendiente"**: vuelve a **Pendiente** (se limpia
 > el rechazo) y se **notifica a los administradores** que quedó pendiente otra vez.
 
+> **Anular un requerimiento YA APROBADO (20/08/2026):** el mismo gerente que lo aprobó puede
+> echarlo para atrás con **"⛔ Anular (rechazar)"** en un requerimiento **✅ Aprobado**. Queda
+> **❌ Rechazado** y, si al aprobar se había generado **orden de compra** y **cuenta por pagar**, el
+> sistema las **anula automáticamente**. No revierte stock ya **recibido** (si ya se recibió en
+> inventario, esa entrada se queda). Lo mismo aplica en **Compras**: una **solicitud** ✅ Aprobada
+> trae **"⛔ Anular (rechazar)"** y una **orden** ✅ Aprobada trae **"⛔ Anular"** (que también anula
+> su cuenta por pagar pendiente).
+
 > **Filtrar y descargar varios de una vez (04/08/2026):** encima de la lista hay un buscador
 > "🔎 Buscar" (código, título, nota, solicitante, empresa o producto) y un rango de fechas
 > (**Desde** / **Hasta**), combinables con los chips de estatus (Pendientes/Aprobados/etc.). Cada

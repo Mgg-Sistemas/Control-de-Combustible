@@ -477,7 +477,11 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
                         <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Rechazar</Text></TouchableOpacity>
                       </>
                     ) : r.status === 'aprobada' ? (
-                      <TouchableOpacity onPress={() => generarOrden(r)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>🧾 Generar orden</Text></TouchableOpacity>
+                      <>
+                        <TouchableOpacity onPress={() => generarOrden(r)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>🧾 Generar orden</Text></TouchableOpacity>
+                        {/* El mismo gerente puede anular una solicitud ya aprobada. */}
+                        <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Anular (rechazar)</Text></TouchableOpacity>
+                      </>
                     ) : null}
                   </View>
                 ) : null}
@@ -595,6 +599,31 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
     }
   };
 
+  // ANULAR una orden YA APROBADA: el mismo gerente la deja sin efecto. Si nació de un
+  // Requerimiento, se rechaza el requerimiento y el trigger (req_sync_compra) anula la
+  // orden + la cuenta por pagar dejando todo consistente; si es una orden de solicitud
+  // directa, se anula la orden y su cuenta por pagar pendiente (si existe).
+  const anular = async (o: PurchaseOrder) => {
+    const ok = await confirm({
+      title: 'Anular orden',
+      message: `¿Anular la orden a ${supplierName(o.supplier_id)} por ${usd(o.total)}?\n\nQuedará ANULADA y su cuenta por pagar pendiente (si existe) también. No revierte lo ya recibido.`,
+      confirmText: 'Anular', cancelText: 'Cancelar', danger: true,
+    });
+    if (!ok) return;
+    if (o.inventory_requirement_id) {
+      const { error } = await supabase.from('inventory_requirements')
+        .update({ status: 'rechazado', decided_by: session?.user?.id ?? null, decided_at: nowISO() })
+        .eq('id', o.inventory_requirement_id);
+      if (error) return toast.error(error.message);
+    } else {
+      const { error } = await supabase.from('purchase_orders').update({ status: 'anulada' }).eq('id', o.id);
+      if (error) return toast.error(error.message);
+      await supabase.from('cuentas').update({ estado: 'anulada', updated_at: nowISO() }).eq('order_id', o.id).eq('estado', 'pendiente');
+    }
+    refetch();
+    toast.success('Orden anulada.');
+  };
+
   return (
     <Screen>
       <ConfigBanner />
@@ -626,7 +655,11 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
                         {o.status === 'borrador' ? (
                           <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>✎ Completar / Aprobar</Text></TouchableOpacity>
                         ) : o.status === 'aprobada' ? (
-                          <TouchableOpacity onPress={() => recibir(o)} style={{ flexGrow: 1, backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>📦 Marcar recibida</Text></TouchableOpacity>
+                          <>
+                            <TouchableOpacity onPress={() => recibir(o)} style={{ flexGrow: 1, backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>📦 Marcar recibida</Text></TouchableOpacity>
+                            {/* El mismo gerente puede anular una orden ya aprobada. */}
+                            <TouchableOpacity onPress={() => anular(o)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Anular</Text></TouchableOpacity>
+                          </>
                         ) : (
                           <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>👁 Ver</Text></TouchableOpacity>
                         )}

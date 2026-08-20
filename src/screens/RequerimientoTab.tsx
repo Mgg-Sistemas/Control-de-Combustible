@@ -245,6 +245,21 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (status === 'aprobado' && r.attachment_url) setPreviewReq({ ...r, status });
   };
 
+  // ANULAR un requerimiento YA APROBADO: el mismo gerente lo rechaza. Pasa a
+  // RECHAZADO y el trigger de la BD (req_sync_compra) anula automáticamente la
+  // orden de compra y la cuenta por pagar que se hubieran generado. No revierte
+  // stock ya recibido (para eso está "recibido", que no permite anular acá).
+  const anularAprobado = async (r: InventoryRequirement) => {
+    const ok = await confirm({
+      title: 'Anular requerimiento aprobado',
+      message: `¿Anular (rechazar) el requerimiento ${r.code ?? ''} que ya estaba APROBADO?\n\n` +
+        'Quedará RECHAZADO y, si generó orden de compra y cuenta por pagar, se anulan automáticamente. No revierte stock ya recibido.',
+      confirmText: 'Anular / Rechazar', cancelText: 'Cancelar', danger: true,
+    });
+    if (!ok) return;
+    await decidir(r, 'rechazado');
+  };
+
   // Sube un FORMATO (imagen o PDF) al requerimiento y lo guarda en la fila.
   const subirFormato = async (r: InventoryRequirement) => {
     setSubiendoId(r.id);
@@ -603,6 +618,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   {canReceive && r.status === 'aprobado' ? (
                     <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Anular un requerimiento YA APROBADO: el mismo gerente lo rechaza y la
+                      BD anula la orden de compra + cuenta por pagar generadas. */}
+                  {isAdmin && r.status === 'aprobado' ? (
+                    <TouchableOpacity onPress={() => anularAprobado(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>⛔ Anular (rechazar)</Text>
                     </TouchableOpacity>
                   ) : null}
                   {/* Revertir un rechazo (error de dedo) → vuelve a PENDIENTE y notifica. */}
