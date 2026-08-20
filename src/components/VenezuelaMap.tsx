@@ -20,6 +20,7 @@ export type MapPin = {
   serial?: string | null;        // serial
   identifier?: string | null;    // identificador (muchas máquinas guardan su serial aquí)
   encargado?: string | null;     // encargado responsable de la máquina
+  edificio?: string | null;      // EDIFICIO/referencia (ya resuelto con edificioLabel), como en el catálogo
   utm?: string | null;           // coordenadas en formato UTM (ya formateadas)
   route: [number, number][];
 };
@@ -123,6 +124,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
       + (p.clasificacion ? '<br/>🗃️ Clasificación: '+esc(p.clasificacion) : '')
       + (placaSerial ? '<br/>🔖 '+placaSerial : '')
       + (p.encargado ? '<br/>👤 Encargado: '+esc(p.encargado) : '')
+      + (p.edificio && p.edificio !== '—' ? '<br/>🏢 Edificio: '+esc(p.edificio) : '')
       + '<br/>🗺️ Zona: <b>'+zoneTxt+'</b>'
       + '<br/>📍 UTM '+esc(p.utm || (p.lat+', '+p.lng))
       + '<br/>Activa: '+esc(p.active)
@@ -451,6 +453,7 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
               <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {[p.plate && `Placa: ${p.plate}`, p.serial && `Serial: ${p.serial}`, p.identifier && `ID: ${p.identifier}`].filter(Boolean).join(' · ')}</Text>
             ) : null}
             {p.encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {p.encargado}</Text> : null}
+            {p.edificio && p.edificio !== '—' ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 Edificio: {p.edificio}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 13 }}>{p.lat}, {p.lng} · Activa {p.active}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
               <TouchableOpacity
