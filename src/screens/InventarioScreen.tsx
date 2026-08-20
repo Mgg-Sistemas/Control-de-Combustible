@@ -756,15 +756,23 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               {/* Tipo de producto (libre, con sugerencias): bombona, silla, mecate… */}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Tipo de producto (para filtrar)</Text>
               <TextInput value={tipo} onChangeText={(t) => setTipo(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. BOMBONA, SILLA, MECATE…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-              {tipoOptions.length ? (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-                  {tipoOptions.map(([t]) => (
-                    <TouchableOpacity key={t} onPress={() => setTipo(norm(tipo) === norm(t) ? '' : t)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: norm(tipo) === norm(t) ? colors.brand : colors.border, backgroundColor: norm(tipo) === norm(t) ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: norm(tipo) === norm(t) ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ) : null}
+              {/* Sugerencias BUSCABLES: al escribir arriba se filtran los tipos ya usados
+                  (antes salían TODOS de golpe, una pared de chips). Tope 30 para no saturar. */}
+              {(() => {
+                const sugeridos = tipoOptions
+                  .filter(([t]) => !norm(tipo) || norm(t).includes(norm(tipo)))
+                  .slice(0, 30);
+                if (!sugeridos.length) return null;
+                return (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                    {sugeridos.map(([t]) => (
+                      <TouchableOpacity key={t} onPress={() => setTipo(norm(tipo) === norm(t) ? '' : t)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: norm(tipo) === norm(t) ? colors.brand : colors.border, backgroundColor: norm(tipo) === norm(t) ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: norm(tipo) === norm(t) ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                );
+              })()}
 
               {/* Carga (para bombonas): vacía / en uso / llena. */}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Carga de la bombona (opcional)</Text>
