@@ -638,11 +638,11 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
   // Un supervisor puede ADEMÁS tener un rol dinámico (ej. "Coordinador de
   // Mantenimiento Preventivo") que le da módulos extra (mantenimiento,
   // asistencia_camiones…). Antes esos módulos quedaban sin ninguna pantalla
-  // alcanzable desde el teléfono (SupervisorTabs solo tenía Revisar/Mapa/
-  // Catálogo) — el usuario tenía el permiso pero nunca podía usarlo. 'equipos'
-  // ya se cubre con la pestaña Catálogo y 'coordinador_inspectores' se resuelve
-  // DENTRO de SupervisorScreen (desbloquea "👥 Inspectores"), así que ninguno
-  // de los dos necesita pantalla propia acá.
+  // alcanzable desde el teléfono — el usuario tenía el permiso pero nunca podía
+  // usarlo. 'equipos' se EXCLUYE a propósito: el cliente pidió QUITAR el Catálogo
+  // de la vista del inspector (19-ago-2026), así que ni como pestaña ni en "Más".
+  // 'coordinador_inspectores' se resuelve DENTRO de SupervisorScreen (desbloquea
+  // "👥 Inspectores"), tampoco necesita pantalla propia acá.
   const modulosExtra = React.useMemo(() => {
     const mods = appRole?.modules ?? {};
     return Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none' && k !== 'equipos' && k !== 'coordinador_inspectores');
@@ -662,7 +662,7 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
     >
       <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
-      <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
+      {/* Catálogo (Equipos) QUITADO de la vista del inspector (pedido cliente 19-ago-2026). */}
       <Tab.Screen name="Ubicaciones" component={UbicacionesScreen} options={{ title: 'Ubicaciones', tabBarIcon: tabIcon('📍') }} />
       {modulosExtra.length ? (
         <Tab.Screen
@@ -885,7 +885,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
     Equipos: 'catalogo',
     More: { screens: moreScreens },
   },
-  supervisorTabs: { Revisar: 'revisar', Map: 'mapa', Equipos: 'catalogo', Ubicaciones: 'ubicaciones', More: { screens: moreScreens } },
+  supervisorTabs: { Revisar: 'revisar', Map: 'mapa', Ubicaciones: 'ubicaciones', More: { screens: moreScreens } },
   patio: { PatioHome: 'patio', Camiones: 'camiones', Asistencia: 'asistencia', Manual: 'manual', Ajustes: 'ajustes' },
   coordinador: {
     RoleHome: 'panel',

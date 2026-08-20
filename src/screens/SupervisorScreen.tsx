@@ -16,6 +16,7 @@ import { getCurrentCoords, warmLocation } from '../lib/location';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
 import QrScanner from '../components/QrScanner';
+import QrInactive from '../components/QrInactive';
 import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
@@ -176,6 +177,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [coordQuery, setCoordQuery] = useState('');
   const [coordExpanded, setCoordExpanded] = useState<Set<string>>(new Set());
   const [scanOpen, setScanOpen] = useState(false);
+  // Al escanear una máquina RETIRADA (operational=false) o eliminada: su QR está
+  // desactivado → se muestra SOLO el logo (con botón Volver), no el check-in.
+  const [qrRetiradaOpen, setQrRetiradaOpen] = useState(false);
   // ── CHECK MÁQUINA: asignar/desasignar máquinas al inspector logueado. Cada
   //    inspector solo ve las que tiene asignadas (se casa persona ↔ máquina).
   const [checkOpen, setCheckOpen] = useState(false);
@@ -2821,11 +2825,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             onDetected={(text) => {
               const id = parseMachineId(text);
               const found = id ? machines.find((m) => m.id === id) : null;
-              if (found) openCheckin(found);
-              else { setScanOpen(false); setNotice('❌ El QR no corresponde a una máquina registrada.'); }
+              if (found) {
+                // RETIRADA (operational=false) o eliminada (active=false): QR desactivado
+                // → solo el logo, no se abre el check-in (regla cliente 19-ago-2026).
+                if ((found as any).operational === false || (found as any).active === false) {
+                  setScanOpen(false); setQrRetiradaOpen(true);
+                } else openCheckin(found);
+              } else { setScanOpen(false); setNotice('❌ El QR no corresponde a una máquina registrada.'); }
             }}
           />
         </View>
+      </Modal>
+
+      {/* QR de máquina RETIRADA/eliminada escaneado desde el teléfono: SOLO el logo,
+          con botón "← Volver" para regresar a la vista del inspector. */}
+      <Modal visible={qrRetiradaOpen} animationType="fade" onRequestClose={() => setQrRetiradaOpen(false)}>
+        <QrInactive onBack={() => setQrRetiradaOpen(false)} />
       </Modal>
 
       {/* ✅ CHECK MÁQUINA (SOLO ADMIN): 1) elegir inspector · 2) asignarle máquinas por turno. */}
