@@ -1915,6 +1915,23 @@ completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 >   acciones a la vez, y se suman al buscador de texto y al rango de fechas de arriba.
 > - **📚 Agrupar por:** **Módulo**, **Usuario** o **Día** — en vez de una lista plana, los resultados
 >   salen agrupados con encabezados **plegables** (toca uno para abrir/cerrar ese grupo).
+
+> **🗂️ Agrupar por módulo, a la vista (20-ago-2026).** La fila **"AGRUPAR POR:"** quedó en la
+> pantalla principal, debajo del contador de acciones: **Sin agrupar · 🗂️ Módulo · 👤 Usuario ·
+> 📅 Día**, de un solo toque. Antes había que entrar al menú **🔽 Filtros → Agrupar**, y por eso
+> casi nadie lo encontraba. Es el mismo ajuste, así que los dos lugares quedan sincronizados.
+>
+> Al elegir **🗂️ Módulo** aparece además, arriba de la lista, una fila de **totales por módulo**
+> (`⛽ Combustible · 14`, `👷 Nómina y personal · 7`…): se ve **dónde se movió más** sin tener que
+> abrir cada grupo.
+>
+> **Y ahora agrupa completo.** Había **once tablas auditadas que no estaban asignadas a ningún
+> módulo** y caían todas en **"📁 Otro"** — entre ellas los **viajes de camiones**, los
+> **movimientos de combustible**, los **períodos de nómina**, los **proveedores**, **Obras
+> Públicas** y los **avisos del sistema**. O sea que medio sistema se veía como "Otro". Ya están
+> repartidas, y se agregaron dos módulos nuevos al filtro: **🚛 Viajes de camiones** y
+> **🏗️ Obras Públicas** (más **🔔 Avisos del sistema**). Una prueba automática
+> (`npm run test:auditoria`) verifica que **ninguna tabla con auditoría vuelva a quedarse fuera**.
 > - **⭐ Favoritos:** guarda la combinación **actual** de filtros (texto + módulos + acciones +
 >   usuario + rango + agrupación) con un **nombre**, para volver a aplicarla luego **con un toque**.
 >   Se guarda **en este dispositivo** (no se comparte entre usuarios).
