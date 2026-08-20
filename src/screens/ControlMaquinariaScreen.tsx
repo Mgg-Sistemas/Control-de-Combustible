@@ -76,6 +76,8 @@ export const payUnitsWorked = (dayH: number, nightH: number, stopped: number, ov
 /** Texto del turno según las horas de turno totales (día + noche). Con horas reales
  *  (ya no solo 6/12/18/24) casi siempre cae en el fallback "N h" — se deja el texto
  *  fijo para los bloques exactos clásicos (medio/completo turno) por costumbre. */
+/** Redondea horas a máx. 2 decimales (evita floats como 17.169999999999998). */
+export const h2 = (n: number | null | undefined): number => Math.round((Number(n) || 0) * 100) / 100;
 export function shiftLabel(totalShiftHours: number): string {
   const h = Number(totalShiftHours) || 0;
   if (h <= 0) return 'Sin turno';
@@ -83,7 +85,7 @@ export function shiftLabel(totalShiftHours: number): string {
   if (h === 12) return 'Turno completo';
   if (h === 18) return 'Turno y medio';
   if (h === 24) return 'Dos turnos';
-  return `${h} h`;
+  return `${h2(h)} h`;
 }
 /** Compat: horas trabajadas asumiendo turno completo (para datos viejos sin turnos). */
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
@@ -608,7 +610,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         machinery_id: m.id, round_date: dISO, shift: which,
         started_at: new Date().toISOString(), ended_at: new Date().toISOString(), hours: delta,
         source: 'ajuste_manual', recorded_by: session?.user?.id ?? null,
-        notes: `Ajuste manual: ${curTurno}h → ${hoursVal}h`,
+        notes: `Ajuste manual: ${h2(curTurno)}h → ${h2(hoursVal)}h`,
       }).then(() => {}, () => {});
     }
   };
@@ -818,7 +820,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     load(true);
   };
 
-  const shiftCell = (h?: number) => (h ? `${h} h` : '—');
+  const shiftCell = (h?: number) => (h ? `${h2(h)} h` : '—');
   const opCell = (name?: string, ci?: string) => (name ? `${name}${ci ? `<br/><span style="color:#888">C.I ${ci}</span>` : ''}` : '—');
   const downloadClosurePdf = async (c: ControlClosure) => {
     // Si el cierre se abrió desde una empresa, el PDF sale solo con sus máquinas.
@@ -848,7 +850,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           `<tr><td>${m.date ?? '—'}</td><td>${m.code}${m.serial ? `<br/><span style="color:#888">${m.serial}</span>` : ''}${tipo ? `<br/><span style="color:#888">🏷️ ${tipo}</span>` : ''}</td><td>${m.company || '—'}</td>` +
           `<td style="text-align:center">${shiftCell(m.dayHours)}</td><td>${opCell(m.dayOperator, m.dayCedula)}</td>` +
           `<td style="text-align:center">${shiftCell(m.nightHours)}</td><td>${opCell(m.nightOperator, m.nightCedula)}</td>` +
-          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td>` +
+          `<td style="text-align:center">${m.hoursStopped ? h2(m.hoursStopped).toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? h2(m.overtime).toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${h2(m.worked)} h</td>` +
           `<td style="text-align:right;font-weight:700">${price ? usd(amount) : '—'}</td></tr>`
         );
       })
@@ -886,9 +888,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       .map(([name, g]) =>
         `<tr><td style="font-weight:700">${name}</td>` +
         `<td style="text-align:center">${g.machs.size}</td>` +
-        `<td style="text-align:center">${g.day} h</td>` +
-        `<td style="text-align:center">${g.night} h</td>` +
-        `<td style="text-align:center;font-weight:700">${g.worked} h</td>` +
+        `<td style="text-align:center">${h2(g.day)} h</td>` +
+        `<td style="text-align:center">${h2(g.night)} h</td>` +
+        `<td style="text-align:center;font-weight:700">${h2(g.worked)} h</td>` +
         `<td style="text-align:right;font-weight:700">${usd(g.amount)}</td></tr>`
       )
       .join('');
@@ -898,11 +900,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       <tbody>${companyRows}</tbody></table>`;
     const foot = `<tfoot><tr>
       <td colspan="3" style="text-align:right;font-weight:800">TOTALES</td>
-      <td style="text-align:center;font-weight:800">${tot.day} h</td><td></td>
-      <td style="text-align:center;font-weight:800">${tot.night} h</td><td></td>
-      <td style="text-align:center;font-weight:800">${tot.stopped} h</td>
-      <td style="text-align:center;font-weight:800">${tot.extra} h</td>
-      <td style="text-align:center;font-weight:800">${tot.worked} h</td>
+      <td style="text-align:center;font-weight:800">${h2(tot.day)} h</td><td></td>
+      <td style="text-align:center;font-weight:800">${h2(tot.night)} h</td><td></td>
+      <td style="text-align:center;font-weight:800">${h2(tot.stopped)} h</td>
+      <td style="text-align:center;font-weight:800">${h2(tot.extra)} h</td>
+      <td style="text-align:center;font-weight:800">${h2(tot.worked)} h</td>
       <td style="text-align:right;font-weight:800">${usd(tot.amount)}</td></tr></tfoot>`;
     const html = pdfDocument({
       title: 'Control de maquinaria',
@@ -928,9 +930,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         <th>H. PARADA</th><th>H. EXTRA</th><th>H. TRAB.</th><th>Monto ($)</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="11" style="text-align:center">Sin datos</td></tr>'}</tbody>${foot}</table>
       <div class="totals">
-        <div class="c"><div class="k">Total de horas trabajadas</div><div class="v">${tot.worked} h</div></div>
-        <div class="c"><div class="k">☀️ Total horas de día</div><div class="v">${tot.day} h</div></div>
-        <div class="c"><div class="k">🌙 Total horas de noche</div><div class="v">${tot.night} h</div></div>
+        <div class="c"><div class="k">Total de horas trabajadas</div><div class="v">${h2(tot.worked)} h</div></div>
+        <div class="c"><div class="k">☀️ Total horas de día</div><div class="v">${h2(tot.day)} h</div></div>
+        <div class="c"><div class="k">🌙 Total horas de noche</div><div class="v">${h2(tot.night)} h</div></div>
         <div class="c pay"><div class="k">💵 Total a pagar</div><div class="v">${usd(tot.amount)}</div></div>
       </div>
       ${byCompanyHtml}
@@ -1041,16 +1043,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         const rows = g.rows
           .map((r) =>
             `<tr><td>${r.name}${r.serial ? `<br/><span style="color:#888;font-size:9px">${r.serial}</span>` : ''}${r.tipo ? `<br/><span style="color:#888;font-size:9px">🏷️ ${r.tipo}</span>` : ''}</td>` +
-            `<td style="text-align:center;font-weight:700">${r.worked} h</td>` +
+            `<td style="text-align:center;font-weight:700">${h2(r.worked)} h</td>` +
             `<td style="text-align:right;font-weight:700">${r.amount ? usd(r.amount) : '—'}</td></tr>`
           )
           .join('');
         return `
-        <h3 class="emp">🏢 ${g.company} — ${g.rows.length} máquina(s) · ${g.worked} h · ${usd(g.amount)}${g.viajesUSD ? ` + ${usd(g.viajesUSD)} viajes` : ''}</h3>
+        <h3 class="emp">🏢 ${g.company} — ${g.rows.length} máquina(s) · ${h2(g.worked)} h · ${usd(g.amount)}${g.viajesUSD ? ` + ${usd(g.viajesUSD)} viajes` : ''}</h3>
         <table class="sum"><thead><tr><th>Máquina</th><th>Total horas</th><th>Total $</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL ${g.company} (jornadas)</td>
-          <td style="text-align:center;font-weight:800">${g.worked} h</td>
+          <td style="text-align:center;font-weight:800">${h2(g.worked)} h</td>
           <td style="text-align:right;font-weight:800">${usd(g.amount)}</td></tr></tfoot></table>
         ${renderViajes(g)}`;
       })
@@ -1070,7 +1072,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
       body: `
         ${sections || '<p style="text-align:center;color:#888">Sin máquinas con actividad en la semana.</p>'}
-        <div class="grand">Total general: ${grandH} h · jornadas ${usd(grandUSD)}${grandViajes ? ` + viajes ${usd(grandViajes)} = ${usd(grandUSD + grandViajes)}` : ''}</div>
+        <div class="grand">Total general: ${h2(grandH)} h · jornadas ${usd(grandUSD)}${grandViajes ? ` + viajes ${usd(grandViajes)} = ${usd(grandUSD + grandViajes)}` : ''}</div>
         <p style="color:#666;font-size:11px;margin-top:8px">Horas = (turno día + turno noche) − parada + extras · Total $ = precio por jornada de 12 h × jornadas trabajadas · los viajes/fletes se suman aparte al TOTAL POR PAGAR.</p>`,
     });
     // Nombre del archivo: "Reporte EMPRESA del DD al DD" (con el rango del reporte).
@@ -1205,7 +1207,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // seguir sumando horas ni depender de que alguien la cierre después.
     const fr = await freezeOpenJornadaNow(m.id);
     setNotice(fr.closed
-      ? `🕓 ${m.code} puesta en espera. Su jornada abierta se cerró con ${fr.hours}h ya trabajadas.`
+      ? `🕓 ${m.code} puesta en espera. Su jornada abierta se cerró con ${h2(fr.hours)}h ya trabajadas.`
       : `🕓 ${m.code} puesta en espera (por recepción).`);
   };
 
@@ -2717,9 +2719,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🏢 {g.company || 'Sin empresa'} · {g.days.length} día(s)</Text>
                         <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                          <StatBox k="Total horas" v={`${t.worked} h`} />
-                          <StatBox k="☀️ Día" v={`${t.day} h`} />
-                          <StatBox k="🌙 Noche" v={`${t.night} h`} />
+                          <StatBox k="Total horas" v={`${h2(t.worked)} h`} />
+                          <StatBox k="☀️ Día" v={`${h2(t.day)} h`} />
+                          <StatBox k="🌙 Noche" v={`${h2(t.night)} h`} />
                           <StatBox k="💵 Monto" v={price ? usdFmt(amount) : '—'} accent />
                         </View>
                       </TouchableOpacity>
@@ -2729,13 +2731,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <View key={i} style={{ gap: 2 }}>
                               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{m.date ?? ''}</Text>
                               <Text style={{ color: colors.text, fontSize: 12 }}>
-                                ☀️ Día {m.dayHours ? `${m.dayHours}h` : '—'} · 👷 {m.dayOperator || 'sin operador'}{m.dayCedula ? ` (C.I ${m.dayCedula})` : ''}
+                                ☀️ Día {m.dayHours ? `${h2(m.dayHours)}h` : '—'} · 👷 {m.dayOperator || 'sin operador'}{m.dayCedula ? ` (C.I ${m.dayCedula})` : ''}
                               </Text>
                               <Text style={{ color: colors.text, fontSize: 12 }}>
-                                🌙 Noche {m.nightHours ? `${m.nightHours}h` : '—'} · 👷 {m.nightOperator || 'sin operador'}{m.nightCedula ? ` (C.I ${m.nightCedula})` : ''}
+                                🌙 Noche {m.nightHours ? `${h2(m.nightHours)}h` : '—'} · 👷 {m.nightOperator || 'sin operador'}{m.nightCedula ? ` (C.I ${m.nightCedula})` : ''}
                               </Text>
                               <Text style={{ color: colors.muted, fontSize: 11 }}>
-                                {shiftLabel((m.dayHours || 0) + (m.nightHours || 0))} · Parada {m.hoursStopped} h{m.overtime ? ` · Extras ${m.overtime} h` : ''} · Trabajadas {m.worked} h
+                                {shiftLabel((m.dayHours || 0) + (m.nightHours || 0))} · Parada {h2(m.hoursStopped)} h{m.overtime ? ` · Extras ${h2(m.overtime)} h` : ''} · Trabajadas {h2(m.worked)} h
                               </Text>
                             </View>
                           ))}
@@ -2782,7 +2784,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   const start = new Date(s.started_at);
                   const end = new Date(s.ended_at);
                   const fmtHM = (d: Date) => d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
-                  const hoursTxt = `${s.hours > 0 ? '+' : ''}${s.hours} h`;
+                  const hoursTxt = `${s.hours > 0 ? '+' : ''}${h2(s.hours)} h`;
                   // Un tramo `parada_*` con horas POSITIVAS es tiempo TRABAJADO que se cerró
                   // por esa parada/avería (registrarParadaBase banca lo trabajado hasta la
                   // marca). Etiquetarlo solo "Parada por avería" confunde ("sale 4h pero dice
