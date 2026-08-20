@@ -571,6 +571,9 @@ export interface PurchaseOrder {
   received_at: string | null;
   created_by: string | null;
   created_at: string;
+  /** Requerimiento (inventory_requirements) que originó la orden, si nació de uno
+   *  (migración requerimiento_a_compras.sql). Null en órdenes de solicitud directa. */
+  inventory_requirement_id?: string | null;
 }
 
 // ── Inventario / Almacén ─────────────────────────────────────────────────────
