@@ -16,7 +16,6 @@ import { getCurrentCoords, warmLocation } from '../lib/location';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
 import QrScanner from '../components/QrScanner';
-import QrInactive from '../components/QrInactive';
 import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
@@ -24,7 +23,6 @@ import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts, cal
 import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf, ultimaJornadaRoundDate } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
-import { paradaShiftOf } from '../lib/inspectorDaySets';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { notifyAdmins } from '../lib/notify';
@@ -178,9 +176,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [coordQuery, setCoordQuery] = useState('');
   const [coordExpanded, setCoordExpanded] = useState<Set<string>>(new Set());
   const [scanOpen, setScanOpen] = useState(false);
-  // Al escanear una máquina RETIRADA (operational=false) o eliminada: su QR está
-  // desactivado → se muestra SOLO el logo (con botón Volver), no el check-in.
-  const [qrRetiradaOpen, setQrRetiradaOpen] = useState(false);
   // ── CHECK MÁQUINA: asignar/desasignar máquinas al inspector logueado. Cada
   //    inspector solo ve las que tiene asignadas (se casa persona ↔ máquina).
   const [checkOpen, setCheckOpen] = useState(false);
@@ -2098,46 +2093,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // no había forma de corregir esto desde el teléfono, solo un admin a mano en
     // Control de Maquinaria (caso real 10-ago-2026: 20 máquinas con horas acreditadas
     // que los inspectores corrigieron al día siguiente sin que nada cambiara).
-    if (!jornadaStart) {
-      // ⚠️ EL TURNO SE DECIDE POR LA HORA REAL (`paradaShiftOf`: día 7am–7pm), NO por
-      // `jornadaShift`. NO LO CAMBIES DE VUELTA. `jornadaShift` sale de
-      // `machine_rounds.jornada_shift`, que después de las 7pm SIGUE diciendo 'day'
-      // (lo dejó el turno que acaba de cerrar). Con eso, el inspector de NOCHE que
-      // marcaba "no trabajó" a las 7:40pm le borraba las horas del DÍA a su compañero.
-      //
-      // BUG 19-ago-2026, probado con audit_log + maintenance_requests: esa noche cuatro
-      // máquinas perdieron su día (CHUTO 000 12h, CHUTO Laveglia 10.3h, PAYLOADER APP26
-      // 11.99h, GRÚAS 251619 12h) y en los cuatro casos quien borró fue el
-      // `inspector_night` de esa misma máquina, con motivos que decían "no trabaja de
-      // noche" / "no hay acarreo nocturno". Entre el 10 y el 12-ago (última fecha con
-      // rastro) hubo 101 casos por 1.046 h.
-      //
-      // La regla: "no trabajó" dicho a las 8pm habla de la NOCHE. Un turno que ya cerró
-      // no se toca desde el turno siguiente — para eso está Control de Maquinaria.
-      const ahora = new Date();
-      const turnoAhora = paradaShiftOf(ahora.toISOString());
-      // La noche que arranca a las 7pm y cruza medianoche vive en la ronda del día en
-      // que EMPEZÓ: a las 00:30 hay que corregir la de ayer, no la de hoy.
-      const corrRoundDate = businessRoundDateOf(ahora, turnoAhora);
-      const shiftKey = turnoAhora === 'night' ? 'night_hours' : 'day_hours';
-      // Se RELEE la ronda de la BD en vez de usar `curRoundHours` (la copia que tiene
-      // la pantalla): si el cierre automático de las 7pm bancó horas mientras el
-      // teléfono estaba abierto, la copia local diría 0 y la corrección las borraría
-      // sin que nadie viera cuántas eran.
-      const rondaCorr = await getMachineRound(ci.id, corrRoundDate);
-      const prevHoras = Number((rondaCorr as any)?.[shiftKey] ?? 0);
+    if (!jornadaStart && curRoundDate) {
+      const shiftKey = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
+      const prevHoras = curRoundHours[jornadaShift === 'night' ? 'night' : 'day'];
       if (prevHoras > 0) {
-        const resCorr = await upsertMachineRound(ci.id, corrRoundDate, { [shiftKey]: 0 }, uid || null);
+        const resCorr = await upsertMachineRound(ci.id, curRoundDate, { [shiftKey]: 0 }, uid || null);
         if (!resCorr.error) {
           supabase.from('machine_work_segments').insert({
-            machinery_id: ci.id, round_date: corrRoundDate, shift: turnoAhora,
-            started_at: ahora.toISOString(), ended_at: ahora.toISOString(), hours: -prevHoras,
+            machinery_id: ci.id, round_date: curRoundDate, shift: jornadaShift,
+            started_at: new Date().toISOString(), ended_at: new Date().toISOString(), hours: -prevHoras,
             source: 'no_trabajo_correction', recorded_by: uid || null,
-            notes: `Corrección: ${prevHoras}h ya acreditadas se anulan porque el inspector marcó NO TRABAJÓ (turno ${turnoAhora === 'night' ? 'noche' : 'día'})`,
+            notes: `Corrección: ${prevHoras}h ya acreditadas se anulan porque el inspector marcó NO TRABAJÓ`,
           }).then(() => {}, () => {});
-          if (corrRoundDate === curRoundDate) {
-            setCurRoundHours((h) => ({ ...h, [turnoAhora === 'night' ? 'night' : 'day']: 0 }));
-          }
+          setCurRoundHours((h) => ({ ...h, [jornadaShift === 'night' ? 'night' : 'day']: 0 }));
         }
       }
     }
@@ -2853,22 +2821,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             onDetected={(text) => {
               const id = parseMachineId(text);
               const found = id ? machines.find((m) => m.id === id) : null;
-              if (found) {
-                // RETIRADA (operational=false) o eliminada (active=false): QR desactivado
-                // → solo el logo, no se abre el check-in (regla cliente 19-ago-2026).
-                if ((found as any).operational === false || (found as any).active === false) {
-                  setScanOpen(false); setQrRetiradaOpen(true);
-                } else openCheckin(found);
-              } else { setScanOpen(false); setNotice('❌ El QR no corresponde a una máquina registrada.'); }
+              if (found) openCheckin(found);
+              else { setScanOpen(false); setNotice('❌ El QR no corresponde a una máquina registrada.'); }
             }}
           />
         </View>
-      </Modal>
-
-      {/* QR de máquina RETIRADA/eliminada escaneado desde el teléfono: SOLO el logo,
-          con botón "← Volver" para regresar a la vista del inspector. */}
-      <Modal visible={qrRetiradaOpen} animationType="fade" onRequestClose={() => setQrRetiradaOpen(false)}>
-        <QrInactive onBack={() => setQrRetiradaOpen(false)} />
       </Modal>
 
       {/* ✅ CHECK MÁQUINA (SOLO ADMIN): 1) elegir inspector · 2) asignarle máquinas por turno. */}
