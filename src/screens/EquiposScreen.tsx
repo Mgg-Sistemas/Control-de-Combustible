@@ -2217,6 +2217,9 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                       <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
                       <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
+                      {/* Ver el QR también desde acá (incluye RETIRADAS): al escanear una
+                          retirada solo debe salir el logo — este botón permite verificarlo. */}
+                      <BigBtn label="🔳 Ver QR" onPress={() => openQr(m)} color="#111827" />
                     </View>
                     <TouchableOpacity
                       onPress={() => toggleOp(m)}

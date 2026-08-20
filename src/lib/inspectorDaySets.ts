@@ -67,7 +67,34 @@ export type DaySetRound = {
   declared_night?: boolean | null;
 };
 export type DaySetMaint = { machinery_id: string; material: string | null; created_at: string };
-export type DaySetAssign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night' };
+export type DaySetAssign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night'; assigned_at?: string | null };
+
+/** Fin de la VENTANA DE TRABAJO del turno (no el fin nominal del día): DÍA cierra a
+ *  las 7:00pm de `selDay`; NOCHE a las 7:00am del día siguiente. */
+export function shiftWorkEndMs(selDay: string, shiftArg: 'day' | 'night'): number {
+  if (shiftArg === 'night') {
+    const d = new Date(selDay + 'T12:00:00-04:00'); d.setUTCDate(d.getUTCDate() + 1);
+    return new Date(`${d.toISOString().slice(0, 10)}T07:00:00-04:00`).getTime();
+  }
+  return new Date(selDay + 'T19:00:00-04:00').getTime();
+}
+
+/** ¿La asignación cuenta para ESTE turno/día? Regla cliente (19-ago-2026): una
+ *  máquina ASIGNADA DESPUÉS de que terminó la ventana de trabajo del turno (p. ej.
+ *  se cargó a las 7:30pm, con el DÍA ya cerrado a las 7pm) NO pudo trabajar ese
+ *  turno → no entra como "pendiente por iniciar" ni le baja la eficiencia al
+ *  inspector. Si no hay `assigned_at` (dato viejo), cuenta como antes. Para un turno
+ *  EN CURSO el corte está en el futuro, así que nada se excluye antes de tiempo. */
+export function assignmentCountsForShift(
+  a: { shift: 'day' | 'night'; assigned_at?: string | null },
+  selDay: string, shiftArg: 'day' | 'night',
+): boolean {
+  if (a.shift !== shiftArg) return false;
+  if (!a.assigned_at) return true;
+  const t = new Date(a.assigned_at).getTime();
+  if (isNaN(t)) return true;
+  return t <= shiftWorkEndMs(selDay, shiftArg);
+}
 export type MachineFlags = { id: string; active: boolean | null; operational: boolean | null; en_espera: boolean | null };
 
 /**
@@ -320,7 +347,12 @@ export function buildDaySets(params: {
     if (applies) paradaAll.add(m.machinery_id);
   });
 
-  const assignedShift = new Set(assignments.filter((a) => a.shift === shiftArg).map((a) => a.machinery_id));
+  // Solo cuentan las asignaciones del turno que se hicieron A TIEMPO (antes de que
+  // cerrara la ventana del turno): una máquina asignada tarde (p. ej. 7:30pm con el
+  // DÍA ya cerrado) NO entra al universo → no sale "pendiente" ni baja la eficiencia.
+  const assignedShift = new Set(
+    assignments.filter((a) => assignmentCountsForShift(a, selDay, shiftArg)).map((a) => a.machinery_id),
+  );
   // MISMO criterio que el teléfono (visibleParaInspector): una máquina INACTIVA/
   // averiada solo cuenta si tiene una jornada ABIERTA ahora (anyOpenSet).
   const visibleOk = (id: string) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || anyOpenSet.has(id));

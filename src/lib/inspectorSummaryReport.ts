@@ -10,7 +10,7 @@ import { isoYesterday } from './caracasDay';
 // (roundByMachine + avApplies/parApplies) que se desincronizaba con cada ajuste
 // de reglas de negocio (bug reportado por el cliente 09-ago-2026: mismo día/
 // turno, % de eficiencia y "asignadas" distintos entre pantalla y PDF).
-import { buildDaySets, computeMachineVisibilitySets, type DaySetRound, type DaySetMaint, type DaySets } from './inspectorDaySets';
+import { buildDaySets, computeMachineVisibilitySets, assignmentCountsForShift, type DaySetRound, type DaySetMaint, type DaySets } from './inspectorDaySets';
 
 /**
  * Reporte RESUMEN POR INSPECTOR (PDF), para un día.
@@ -129,7 +129,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   // `assignsAll` (AMBOS turnos, traído arriba) se le pasa completo a `buildDaySets` (la
   // regla "SIEMPRE ACTIVO" no filtra por turno, igual que en la pantalla); `assigns`
   // (filtrado si se pidió un turno) es lo que efectivamente se imprime.
-  const assigns = shift ? assignsAll.filter((a) => a.shift === shift) : assignsAll;
+  // Asignación tardía (después de cerrar la ventana de su turno) NO se imprime ni
+  // baja la eficiencia — MISMO criterio que `buildDaySets`/pantalla (sync).
+  const assigns = (shift ? assignsAll.filter((a) => a.shift === shift) : assignsAll)
+    .filter((a) => assignmentCountsForShift(a, date, a.shift === 'night' ? 'night' : 'day'));
 
   // 4) Modelo/tipo de máquina + flags de catálogo (active/operational/en_espera,
   //    para la MISMA visibilidad dura/blanda que la pantalla — ver

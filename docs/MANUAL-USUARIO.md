@@ -1169,6 +1169,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > (ver arriba) se calcula por horas trabajadas, una máquina **averiada o parada** todo el turno
 > también le baja el % al inspector — no solo las que dejó **sin tocar** (pendientes).
 >
+> **⏱️ Asignación tardía NO baja la eficiencia (19-ago-2026):** una máquina **asignada DESPUÉS
+> de que cerró el turno** (p. ej. se cargó a las **7:30pm**, con el **DÍA** ya cerrado a las 7pm)
+> **no cuenta** como ⏳ pendiente de ese turno ni le baja el % al inspector — no pudo trabajarlo.
+> Para el **turno en curso** (aún abierto) todo lo asignado sí cuenta normal. La misma máquina sí
+> entra al turno siguiente (la del 7:30pm cuenta para la **NOCHE**). Aplica igual en el **tablero**,
+> el **reporte de eficiencia** y los **conteos** (misma regla en todos).
+>
 > **🟡 Parada "NO TRABAJÓ" = solo por su turno (13-ago-2026):** a diferencia de la avería, una
 > parada marcada por el camino **"📍 Parada / No trabajó"** vale **solo para el turno en que se
 > marcó**. Al **cerrar el turno** (día 7pm / noche 7am) esa parada **se resuelve sola** y la
