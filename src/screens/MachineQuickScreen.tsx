@@ -502,15 +502,21 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   if (loading) return <Screen><Loading /></Screen>;
+  // Botón "Volver" del QR desactivado: si el inspector lo escaneó desde el teléfono
+  // (ScanQrScreen → replace a MachineQuick), hay pila para regresar a su vista; si es
+  // un QR público sin pila, queda solo el logo (sin botón), como antes.
+  const volverQr: (() => void) | undefined =
+    props.onExit ? props.onExit
+    : (props.navigation?.canGoBack?.() ? () => props.navigation.goBack() : undefined);
   // Máquina ELIMINADA (no existe), INACTIVA (dada de baja, active=false), RETIRADA
   // (operational=false, fuera de servicio) o con el QR BLOQUEADO manualmente → QR
   // DESACTIVADO: solo el logo (sin datos ni acciones). El retiro bloquea el QR
   // automáticamente (regla cliente 19-ago-2026), sin tener que bloquearlo a mano.
-  if (!machine || (machine as any).active === false || (machine as any).operational === false || (machine as any).qr_blocked === true) return <QrInactive />;
+  if (!machine || (machine as any).active === false || (machine as any).operational === false || (machine as any).qr_blocked === true) return <QrInactive onBack={volverQr} />;
   // QR VENCIDO: el QR fue sellado con un serial que ya NO coincide con el actual
   // (se cambió el serial de la máquina). Los QR sin sellar (qrSerial null) siguen
   // funcionando por compatibilidad; solo se vence el sello que dejó de coincidir.
-  if (qrSerial && normSerial(qrSerial) !== normSerial((machine as any).serial)) return <QrInactive />;
+  if (qrSerial && normSerial(qrSerial) !== normSerial((machine as any).serial)) return <QrInactive onBack={volverQr} />;
 
   const big = (bg: string, icon: string, label: string, onPress: () => void) => (
     <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={{ backgroundColor: bg, borderRadius: radius.lg, paddingVertical: spacing.xl, alignItems: 'center', marginBottom: spacing.md }}>
