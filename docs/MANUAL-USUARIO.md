@@ -2456,7 +2456,8 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 > catálogo de encargados), **NO se genera** cuenta por cobrar. Los campos aplican también a las
 > mangueras **externas**.
 > - 🧾 **Recibo de cobro (PDF):** cuando la manguera es cobrable, su tarjeta muestra el botón
->   **"🧾 Recibo de cobro"**, que descarga un recibo imprimible con la empresa, el encargado, el
+>   **"🧾 Recibo de cobro"**, que descarga un recibo imprimible con la **máquina** a la que se le
+>   hizo el cambio de manguera (código + serial, o el cliente externo), la empresa, el encargado, el
 >   costo, el margen y el **monto a cobrar**.
 
 > 🛒 **Aprobación desde Compras:** para que el **gerente** no tenga que entrar al módulo de

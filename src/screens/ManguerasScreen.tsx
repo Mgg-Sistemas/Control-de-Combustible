@@ -515,6 +515,9 @@ export default function ManguerasScreen() {
                               hose: h,
                               companyName: (h.hose_empresa_id ? hoseEmpresasMap[h.hose_empresa_id] : '') || '—',
                               encargadoName: enc?.name || '—',
+                              machineLabel: h.is_external
+                                ? `${h.external_client || 'Externa'} (externa, fuera de la flota)`
+                                : (mach ? [mach.code, mach.serial ? `Serial ${mach.serial}` : ''].filter(Boolean).join(' · ') : '—'),
                             });
                           } finally { setBusy(null); }
                         }} />

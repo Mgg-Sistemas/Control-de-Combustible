@@ -30,8 +30,11 @@ export async function generateReciboCobro(opts: {
   hose: HoseService;
   companyName: string;
   encargadoName: string;
+  /** Máquina a la que se le hizo el cambio de manguera (código + serial), o el
+   *  cliente externo si es externa. Sale en el recibo para identificar el equipo. */
+  machineLabel?: string;
 }): Promise<boolean> {
-  const { hose: h, companyName, encargadoName } = opts;
+  const { hose: h, companyName, encargadoName, machineLabel } = opts;
 
   const costo = Number(h.cost_usd) || 0;
   const margen = Number(h.sale_margin_pct) || 0;
@@ -39,6 +42,7 @@ export async function generateReciboCobro(opts: {
 
   const filas: [string, string][] = [
     ['Código de la fabricación', esc(h.code)],
+    ['Máquina (cambio de manguera)', esc(machineLabel || '—')],
     ['Fecha del servicio', dmy(h.service_date)],
     ['Descripción del trabajo', esc(h.description ?? '—')],
     ['Empresa (a cobrar)', esc(companyName || '—')],
