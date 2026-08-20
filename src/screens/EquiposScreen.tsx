@@ -1572,9 +1572,9 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
         return (
           <View style={{ marginBottom: spacing.sm }}>
             {/* Encabezado: TOTAL DE FLOTA DISPONIBLE */}
-            <View style={{ backgroundColor: colors.brand, borderRadius: radius.lg, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, marginBottom: spacing.sm }}>
-              <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '800', letterSpacing: 1, opacity: 0.9 }}>TOTAL DE FLOTA DISPONIBLE</Text>
-              <Text style={{ color: colors.brandContrast, fontSize: 44, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 50 }}>
+            <View style={{ backgroundColor: colors.brand, borderRadius: radius.lg, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, marginBottom: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '800', letterSpacing: 1, opacity: 0.9, textAlign: 'center' }}>TOTAL DE FLOTA DISPONIBLE</Text>
+              <Text style={{ color: colors.brandContrast, fontSize: 44, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 50, textAlign: 'center' }}>
                 {machinery.loading ? '…' : disponible}
               </Text>
             </View>
@@ -1583,25 +1583,25 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               {estados.slice(0, 3).map((e) => (
                 <TouchableOpacity key={e.key} activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus(e.key)}>
-                  <Card style={{ borderLeftWidth: 4, borderLeftColor: e.color }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Card style={{ borderLeftWidth: 4, borderLeftColor: e.color, alignItems: 'center' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: e.color }} />
-                      <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>{e.label}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>{e.label}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
                     </View>
-                    <Text style={{ fontSize: 24, fontWeight: '800', color: e.color, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : e.n}</Text>
+                    <Text style={{ fontSize: 24, fontWeight: '800', color: e.color, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : e.n}</Text>
                   </Card>
                 </TouchableOpacity>
               ))}
             </View>
             <TouchableOpacity activeOpacity={0.7} style={{ marginTop: spacing.sm }} onPress={() => setDetailStatus('retirada')}>
-              <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                   <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
-                  <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>Retiradas</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Retiradas</Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
                 </View>
-                <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : nRet}</Text>
+                <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nRet}</Text>
               </Card>
             </TouchableOpacity>
           </View>
