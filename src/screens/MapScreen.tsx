@@ -13,6 +13,7 @@ import { cmpText, norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
+import { edificioLabel } from '../lib/edificios';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -106,7 +107,7 @@ export default function MapScreen({ navigation, route }: any) {
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
       .from('machinery')
-      .select('id, code, tipo, clasificacion, plate, serial, identifier, encargado, latitude, longitude, location_at, operational, en_espera, company:company_id(name)')
+      .select('id, code, tipo, clasificacion, plate, serial, identifier, encargado, referencia, latitude, longitude, location_at, operational, en_espera, company:company_id(name)')
       .not('latitude', 'is', null);
     const { data: history } = await supabase
       .from('machinery_locations')
@@ -136,6 +137,7 @@ export default function MapScreen({ navigation, route }: any) {
       serial: m.serial ?? null,
       identifier: m.identifier ?? null,
       encargado: m.encargado ?? null,
+      edificio: edificioLabel(m.referencia), // EDIFICIO/referencia, igual que el catálogo
       utm: formatUTM(Number(m.latitude), Number(m.longitude)),
       route: routes.get(m.id) ?? [],
     }));
