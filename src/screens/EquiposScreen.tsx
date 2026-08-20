@@ -1822,7 +1822,9 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
               <Text style={{ color: colors.muted, marginVertical: spacing.lg }}>Generando…</Text>
             )}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center' }}>
-              {(qrFor as any)?.qr_blocked === true
+              {(qrFor as any)?.operational === false
+                ? '🔴 RETIRADA: al escanearla solo se muestra el logo (QR desactivado automáticamente). Si la reactivas a Operativa, el QR vuelve a funcionar.'
+                : (qrFor as any)?.qr_blocked === true
                 ? '🚫 QR BLOQUEADO: al escanearlo solo se muestra el logo. Nadie puede registrar con él.'
                 : 'Al escanearlo se abre el sistema con las acciones de esta máquina (combustible, mapa y avería).'}
             </Text>
