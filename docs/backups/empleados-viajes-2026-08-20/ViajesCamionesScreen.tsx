@@ -38,7 +38,6 @@ import {
   InspByShiftEntry,
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
-import { resumirViajes, SIN_EMPRESA } from '../lib/viajesResumen';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
@@ -565,16 +564,8 @@ export default function ViajesCamionesScreen() {
   const [diasPickOpen, setDiasPickOpen] = useState(false);
   const [filterListeroSel, setFilterListeroSel] = useState<Set<string>>(new Set());
   const [filterTruckSel, setFilterTruckSel] = useState<Set<string>>(new Set());
-  // Filtro por EMPRESA y modo del reporte (pedido del cliente 20-ago-2026). La
-  // empresa NO viaja en `camion_viajes`: se resuelve por el camión (`truckById`),
-  // que ya trae `companyId`/`companyName` desde `machinery`.
-  const [filterCompanySel, setFilterCompanySel] = useState<Set<string>>(new Set());
-  // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
-  // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje.
-  const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen'>('detallado');
   const toggleFilterListero = (id: string) => setFilterListeroSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleFilterTruck = (id: string) => setFilterTruckSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleFilterCompany = (id: string) => setFilterCompanySel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleDia = (iso: string) => setDiasSel((prev) => { const n = new Set(prev); n.has(iso) ? n.delete(iso) : n.add(iso); return n; });
 
   const todayISO = caracasToday();
@@ -632,47 +623,14 @@ export default function ViajesCamionesScreen() {
     return Array.from(m.values()).sort((a, b) => cmpText(a.code, b.code));
   }, [dateScopedRows]);
 
-  // Empresa de un viaje: la del camión que lo hizo. Los camiones sin empresa
-  // asignada caen en una sola cubeta, para que no desaparezcan del filtro.
-  const companyOfRow = (r: CamionViajeRow) => {
-    const t = truckById.get(r.machineryId);
-    return { key: t?.companyId ?? SIN_EMPRESA, name: t?.companyName || 'Sin empresa' };
-  };
-  const companyOptions = useMemo(() => {
-    const m = new Map<string, { id: string; name: string; count: number }>();
-    dateScopedRows.forEach((r) => {
-      const c = companyOfRow(r);
-      const e = m.get(c.key) ?? { id: c.key, name: c.name, count: 0 };
-      e.count += 1;
-      m.set(c.key, e);
-    });
-    return Array.from(m.values()).sort((a, b) => cmpText(a.name, b.name));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateScopedRows, truckById]);
-
   const filteredRangeRows = useMemo(
     () =>
       dateScopedRows.filter(
         (r) =>
           (filterListeroSel.size === 0 || filterListeroSel.has(r.listeroId)) &&
-          (filterTruckSel.size === 0 || filterTruckSel.has(r.machineryId)) &&
-          (filterCompanySel.size === 0 || filterCompanySel.has(companyOfRow(r).key))
+          (filterTruckSel.size === 0 || filterTruckSel.has(r.machineryId))
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dateScopedRows, filterListeroSel, filterTruckSel, filterCompanySel, truckById]
-  );
-
-  /**
-   * VIAJES GLOBALIZADOS: cuántos viajes hizo cada camión, agrupados por empresa,
-   * en vez de una línea por viaje. Es lo que pide el cliente para el reporte
-   * "no desglosado": camión X → N viajes; y si se filtra por empresa, salen
-   * TODOS sus camiones con el total de la empresa y su desglose.
-   * Respeta exactamente los mismos filtros que la lista detallada.
-   * La cuenta vive en `src/lib/viajesResumen.ts` (función pura, con test propio).
-   */
-  const resumenViajes = useMemo(
-    () => resumirViajes(filteredRangeRows, (id) => truckById.get(id)),
-    [filteredRangeRows, truckById]
+    [dateScopedRows, filterListeroSel, filterTruckSel]
   );
 
   // Metas por camión (editable).
@@ -694,59 +652,28 @@ export default function ViajesCamionesScreen() {
     setShareBusy(true);
     try {
       const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const placaDe = (id: string) => { const t = truckById.get(id); return t?.plate || t?.serial || '—'; };
-
-      // Un encabezado común que deja constancia de con qué filtros se sacó, para
-      // que el reporte se pueda auditar después sin adivinar.
-      const filtros = [
-        filterCompanySel.size ? `Empresas: ${companyOptions.filter((c) => filterCompanySel.has(c.id)).map((c) => c.name).join(', ')}` : null,
-        filterTruckSel.size ? `Camiones: ${truckOptions.filter((t) => filterTruckSel.has(t.id)).map((t) => t.code).join(', ')}` : null,
-        filterListeroSel.size ? `Listeros: ${listeroOptions.filter((l) => filterListeroSel.has(l.id)).map((l) => l.name).join(', ')}` : null,
-      ].filter(Boolean).join(' · ');
-
-      // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
-      //    empresa, con el total de cada empresa y el total general. Sin una
-      //    línea por viaje — es justo lo contrario del detallado.
-      const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.empresas.reduce((s, e) => s + e.camiones.length, 0)} camión(es) · ${resumenViajes.empresas.length} empresa(s)</p>
-        ${resumenViajes.empresas.map((e) => `
-          <h3>${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es)</h3>
-          <table>
-            <thead><tr><th>Camión</th><th>Placa / Serial</th><th style="text-align:right">Viajes</th></tr></thead>
-            <tbody>
-              ${e.camiones.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.placa)}</td><td style="text-align:right"><b>${c.viajes}</b></td></tr>`).join('')}
-            </tbody>
-            <tfoot><tr><td colspan="2"><b>Total ${esc(e.name)}</b></td><td style="text-align:right"><b>${e.total}</b></td></tr></tfoot>
-          </table>`).join('')}`;
-
-      // ── DETALLADO: como siempre, pero ahora CON empresa y placa en cada línea.
-      const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)</p>
+      const body = `
         <table>
-          <thead><tr><th>Fecha</th><th>Hora</th><th>Empresa</th><th>Camión</th><th>Placa / Serial</th><th>Chofer</th><th>Listero</th><th>Turno</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Hora</th><th>Camión</th><th>Chofer</th><th>Listero</th><th>Turno</th><th>Estado</th></tr></thead>
           <tbody>
             ${filteredRangeRows
               .map(
                 (r) =>
-                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(companyOfRow(r).name)}</td><td>${esc(r.machineCode)}</td><td>${esc(placaDe(r.machineryId))}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(r.shift === 'night' ? 'Noche' : r.shift === 'day' ? 'Día' : '—')}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
+                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(r.machineCode)}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(r.shift === 'night' ? 'Noche' : r.shift === 'day' ? 'Día' : '—')}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
               )
               .join('')}
           </tbody>
-          <tfoot><tr><td colspan="9">Total: ${filteredRangeRows.length} viajes</td></tr></tfoot>
+          <tfoot><tr><td colspan="7">Total: ${filteredRangeRows.length} viajes</td></tr></tfoot>
         </table>`;
-
       const html = pdfDocument({
-        title: reporteModo === 'resumen' ? 'Viajes de camiones · resumen por camión' : 'Viajes de camiones',
-        subtitle: `${dmy(rangeBounds.desde)} al ${dmy(rangeBounds.hasta)}${filtros ? ` · ${filtros}` : ''}`,
+        title: 'Viajes de camiones',
+        subtitle: `${dmy(rangeBounds.desde)} al ${dmy(rangeBounds.hasta)}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
-          tr:nth-child(even) td{background:#f4f7fb}
-          tfoot td{background:#e8eef6;font-weight:700}
-          h3{margin:14px 0 4px;font-size:13px;color:#16324F;border-bottom:2px solid #16324F;padding-bottom:2px}
-          .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}`,
-        body: reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
+          tr:nth-child(even) td{background:#f4f7fb}`,
+        body,
       });
-      await exportPdf(html, `Viajes de camiones ${reporteModo === 'resumen' ? 'resumen ' : ''}${todayISO}`);
+      await exportPdf(html, `Viajes de camiones ${todayISO}`);
     } finally {
       setShareBusy(false);
     }
@@ -1171,29 +1098,6 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {companyOptions.length > 1 ? (
-              <View style={{ marginTop: spacing.sm }}>
-                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
-                  EMPRESA{filterCompanySel.size > 0 ? ` (${filterCompanySel.size})` : ' (todas)'}
-                </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                  {companyOptions.map((o) => {
-                    const on = filterCompanySel.has(o.id);
-                    return (
-                      <TouchableOpacity
-                        key={o.id}
-                        onPress={() => toggleFilterCompany(o.id)}
-                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                      >
-                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏢 {o.name}</Text>
-                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : null}
-
             {truckOptions.length > 1 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
@@ -1217,30 +1121,11 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0) ? (
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Set()); setFilterTruckSel(new Set()); setFilterCompanySel(new Set()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0) ? (
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Set()); setFilterTruckSel(new Set()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
-
-            {/* Modo del reporte: viaje por viaje, o globalizado por camión. */}
-            <View style={{ marginTop: spacing.sm }}>
-              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>VISTA Y REPORTE</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                {([['detallado', '📋 Detallado (viaje por viaje)'], ['resumen', '📊 Resumido (viajes por camión)']] as const).map(([key, label]) => {
-                  const on = reporteModo === key;
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      onPress={() => setReporteModo(key)}
-                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
-                    >
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
 
             <View style={{ marginTop: spacing.sm }}>
               {rangeLoading ? (
@@ -1249,28 +1134,6 @@ export default function ViajesCamionesScreen() {
                 <Text style={{ color: colors.muted }}>Aún no se configuró esta función en la base de datos.</Text>
               ) : filteredRangeRows.length === 0 ? (
                 <Text style={{ color: colors.muted }}>Sin viajes en el rango seleccionado.</Text>
-              ) : reporteModo === 'resumen' ? (
-                // Lo mismo que va a salir en el PDF, en pantalla: total general,
-                // total por empresa y el desglose de sus camiones.
-                <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
-                  <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
-                    TOTAL: {resumenViajes.total} viaje(s) · {resumenViajes.empresas.reduce((s, e) => s + e.camiones.length, 0)} camión(es)
-                  </Text>
-                  {resumenViajes.empresas.map((e) => (
-                    <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>🏢 {e.name}</Text>
-                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{e.total} viaje(s)</Text>
-                      </View>
-                      {e.camiones.map((c, i) => (
-                        <View key={`${e.key}-${i}`} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3, paddingLeft: spacing.sm }}>
-                          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>🚜 {c.code} · {c.placa}</Text>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{c.viajes}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ))}
-                </ScrollView>
               ) : (
                 <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
                   {filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}

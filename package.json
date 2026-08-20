@@ -63,7 +63,8 @@
     "test:dialogos": "node scripts/test-dialogos.mjs",
     "test:recibo": "node scripts/test-recibo-jornada.mjs",
     "test:parada": "node scripts/test-parada-no-trabajo.mjs",
-    "test:all": "node scripts/test-clasificacion.mjs && node scripts/test-horas-control.mjs && node scripts/test-reportes-paridad.mjs && node scripts/test-empresa-sync.mjs && node scripts/test-empresa-grupo.mjs && node scripts/test-control-estado.mjs && node scripts/test-cola-offline.mjs && node scripts/test-auditoria-labels.mjs && node scripts/test-inicio-jornada.mjs && node scripts/test-machine-label.mjs && node scripts/test-servicio.mjs && node scripts/test-dialogos.mjs && node scripts/test-recibo-jornada.mjs && node scripts/test-parada-no-trabajo.mjs"
+    "test:viajes": "node scripts/test-viajes-resumen.mjs",
+    "test:all": "node scripts/test-clasificacion.mjs && node scripts/test-horas-control.mjs && node scripts/test-reportes-paridad.mjs && node scripts/test-empresa-sync.mjs && node scripts/test-empresa-grupo.mjs && node scripts/test-control-estado.mjs && node scripts/test-cola-offline.mjs && node scripts/test-auditoria-labels.mjs && node scripts/test-inicio-jornada.mjs && node scripts/test-machine-label.mjs && node scripts/test-servicio.mjs && node scripts/test-dialogos.mjs && node scripts/test-recibo-jornada.mjs && node scripts/test-parada-no-trabajo.mjs && node scripts/test-viajes-resumen.mjs"
   },
   "private": true
 }
