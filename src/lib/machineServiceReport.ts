@@ -54,7 +54,10 @@ export type ServicioImprimible = {
   esRegistroAnterior?: boolean;
 };
 
-const CSS = `
+/** Estilos de LA FICHA sola. Se exportan aparte porque otros documentos la
+ *  embeben (el Recibo de cobro de mangueras) y necesitan su CSS sin arrastrar
+ *  el del resto del reporte de servicios. */
+export const FICHA_CSS = `
   .sv-head{display:flex;gap:18px;align-items:center;margin:6px 0 4px}
   .sv-photo{width:150px;height:120px;object-fit:cover;border:3px solid #1E3A5F;border-radius:10px;background:#EEF2F7}
   .sv-name{font-size:22px;font-weight:800;color:#1E3A5F;line-height:1.1}
@@ -64,6 +67,9 @@ const CSS = `
   table.ft td{border:1px solid #D7E3F4;padding:5px 9px;vertical-align:top}
   table.ft td.k{background:#EAF1FB;color:#374151;width:42%;font-weight:700}
   .corte{page-break-after:always}
+`;
+
+const CSS = FICHA_CSS + `
   .srv{border:1px solid #D7E3F4;border-radius:8px;padding:10px 12px;margin-bottom:10px;page-break-inside:avoid}
   .srv .top{display:flex;justify-content:space-between;gap:10px;font-size:12px;font-weight:800;color:#1E3A5F}
   .srv .tags span{display:inline-block;background:#EAF1FB;border:1px solid #D7E3F4;border-radius:10px;padding:1px 8px;font-size:10px;margin-left:4px}
@@ -86,25 +92,31 @@ function filas(pairs: [string, any][]): string {
     .join('');
 }
 
-/** Página 1: la ficha técnica de la máquina, como el documento del cliente. */
-export function fichaTecnicaHtml(m: MaquinaFicha): string {
-  const horas = m.last_horometro != null && m.horometro_base != null
-    ? Math.max(0, Number(m.last_horometro) - Number(m.horometro_base))
-    : null;
+/** Opciones de la ficha cuando se EMBEBE en otro documento (recibo de cobro). */
+export type FichaOpts = {
+  /** ¿Corta la página después de la ficha? En el reporte de servicios sí (la ficha
+   *  es la página 1); embebida en otro documento, no. Por defecto `true`. */
+  corte?: boolean;
+  /** Encabezado de la sección. Por defecto "FICHA TÉCNICA DE MAQUINARIA". */
+  titulo?: string;
+};
+
+/**
+ * Página 1: la ficha técnica de la máquina, como el documento del cliente.
+ *
+ * ⚠️ SIN LUBRICACIÓN NI HORÓMETRO (20-ago-2026, pedido del cliente sobre el PDF
+ * real): en la flota esos dos bloques salían casi siempre vacíos ("SIN DATOS DE
+ * LUBRICACIÓN — ") o con lecturas que no son del taller, y ocupaban media página
+ * antes de las reparaciones, que es lo que se viene a leer. Los campos siguen
+ * viviendo en la máquina y se siguen editando en Control de Maquinaria; lo único
+ * que cambió es que ya no se IMPRIMEN acá.
+ */
+export function fichaTecnicaHtml(m: MaquinaFicha, opts: FichaOpts = {}): string {
+  const { corte = true, titulo = 'FICHA TÉCNICA DE MAQUINARIA' } = opts;
   const foto = m.photo_url ? `<img class="sv-photo" src="${esc(m.photo_url)}"/>` : '';
-  const lubricacion = filas([
-    ['Tipo de aceite recomendado (motor)', m.oil_type],
-    ['Cantidad requerida (motor)', m.oil_capacity_l != null ? `${m.oil_capacity_l} L` : null],
-    ['Nota', m.oil_notes],
-  ]);
-  const horometro = filas([
-    ['Última lectura', m.last_horometro != null ? `${m.last_horometro} h` : null],
-    ['Lectura del último mantenimiento', m.horometro_base != null ? `${m.horometro_base} h` : null],
-    ['Horas acumuladas desde entonces', horas != null ? `${horas} h` : null],
-  ]);
   const vacio = (k: string) => `<tr><td class="k">${k}</td><td>—</td></tr>`;
-  return `<div class="corte">
-    <h3 class="sec">FICHA TÉCNICA DE MAQUINARIA</h3>
+  return `<div${corte ? ' class="corte"' : ''}>
+    <h3 class="sec">${esc(titulo)}</h3>
     <div class="sv-head">${foto}
       <div><div class="sv-name">${esc(machineLabel(m))}</div>
         <div class="sv-sub">${esc(m.companyName ?? '')}</div></div>
@@ -115,10 +127,6 @@ export function fichaTecnicaHtml(m: MaquinaFicha): string {
       ['Número de serial', m.serial], ['Placa', m.plate], ['Identificador', m.identifier],
       ['Empresa', m.companyName], ['Encargado', m.encargado],
     ]) || vacio('Sin datos')}</tbody></table>
-    <h3 class="sec">🛢️ Información de lubricación</h3>
-    <table class="ft"><tbody>${lubricacion || vacio('Sin datos de lubricación')}</tbody></table>
-    <h3 class="sec">⏱️ Horómetro</h3>
-    <table class="ft"><tbody>${horometro || vacio('Sin lecturas')}</tbody></table>
   </div>`;
 }
 

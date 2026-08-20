@@ -16,6 +16,7 @@ import { useBcvRate, bsFromUsd, fmtUsd, fmtBs } from '../lib/bcv';
 import { HoseService, HoseInstallStatus, HosePaymentStatus, Encargado, HoseEmpresa } from '../types/database';
 import { generateHoseServiceReport, generateHoseAuthorization } from '../lib/hoseServiceReport';
 import { generateReciboCobro } from '../lib/reciboCobro';
+import { MaquinaFicha } from '../lib/machineServiceReport';
 import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -511,8 +512,22 @@ export default function ManguerasScreen() {
                         <Btn label="🧾 Recibo de cobro" color="#7C3AED" disabled={busy === h.id + '-recibo'} onPress={async () => {
                           setBusy(h.id + '-recibo');
                           try {
+                            // La ficha con foto se pide SOLO acá, al tocar el botón:
+                            // la lista trae decenas de mangueras y no puede pedir la
+                            // ficha de cada una. Si la consulta falla, el recibo sale
+                            // igual (sin ficha): nadie se queda sin su recibo por red.
+                            let maquina: MaquinaFicha | null = null;
+                            if (!h.is_external && h.machinery_id) {
+                              try {
+                                const { data } = await supabase.from('machinery')
+                                  .select('id, code, plate, serial, identifier, tipo, marca, modelo, photo_url, encargado, company:company_id(name)')
+                                  .eq('id', h.machinery_id).maybeSingle();
+                                if (data) maquina = { ...(data as any), companyName: (data as any).company?.name ?? null };
+                              } catch (e) { maquina = null; }
+                            }
                             await generateReciboCobro({
                               hose: h,
+                              maquina,
                               companyName: (h.hose_empresa_id ? hoseEmpresasMap[h.hose_empresa_id] : '') || '—',
                               encargadoName: enc?.name || '—',
                               machineLabel: h.is_external
