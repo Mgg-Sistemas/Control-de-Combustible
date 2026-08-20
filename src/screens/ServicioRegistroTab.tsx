@@ -30,8 +30,9 @@ import { captureAndUploadPhoto } from '../lib/photo';
 import { caracasParts } from '../lib/jornada';
 import { machineLabel as etiquetaMaquina, machineMatches } from '../lib/machineLabel';
 import {
-  guardarServicio, validarServicio, INTERVENCION_LABEL, ESTADOS_REPUESTO,
-  quienLoHizo, Intervencion, ServiceOrigen, ServicePartInput,
+  guardarServicio, validarServicio, ESTADOS_REPUESTO,
+  quienLoHizo, ServiceOrigen, ServicePartInput,
+  resolverIntervenciones, etiquetaIntervencion, validarTipoIntervencion, claveDesdeTexto,
 } from '../lib/machineService';
 import { generateMachineServiceReport, MaquinaFicha, ServicioImprimible } from '../lib/machineServiceReport';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -63,6 +64,11 @@ type Orden = {
   photos: string[] | null; notes: string | null; created_at: string;
   parts?: { id: string; quantity: number | null; description: string; estado: string | null; position: number }[];
 };
+
+/** Una fila del catálogo `service_intervention_types` (ver
+ *  `supabase/servicio_tipos_intervencion.sql`). Mientras ese SQL no se corra a
+ *  mano, esta tabla NO EXISTE y la pantalla trabaja con los cuatro de siempre. */
+type FilaTipo = { id: string; key: string; label: string; sort_order: number | null; active: boolean };
 
 /** Un renglón del formulario de repuestos (el último siempre va vacío). */
 type Renglon = { quantity: string; description: string; estado: string };
@@ -138,7 +144,7 @@ export default function ServicioRegistroTab(
   const [origen, setOrigen] = useState<ServiceOrigen>('interno');
   const [tecnico, setTecnico] = useState('');
   const [proveedor, setProveedor] = useState('');
-  const [intervs, setIntervs] = useState<Intervencion[]>([]);
+  const [intervs, setIntervs] = useState<string[]>([]);
   const [problema, setProblema] = useState('');
   const [acciones, setAcciones] = useState('');
   const [averiaId, setAveriaId] = useState('');
@@ -150,8 +156,63 @@ export default function ServicioRegistroTab(
   // tapa por completo — el error existía pero nadie lo veía.
   const [formError, setFormError] = useState<string | null>(null);
 
+  // ── Tipos de intervención (catálogo administrable) ────────────────────────
+  // `null` = no se pudo leer el catálogo (lo normal mientras no se corra el SQL).
+  const [filasTipos, setFilasTipos] = useState<FilaTipo[] | null>(null);
+  const [faltaTablaTipos, setFaltaTablaTipos] = useState(false);
+  const [tiposOpen, setTiposOpen] = useState(false);
+  const [tiposError, setTiposError] = useState<string | null>(null);
+  const [tiposOk, setTiposOk] = useState<string | null>(null);
+  const [nuevoNombre, setNuevoNombre] = useState('');
+  const [nuevaClave, setNuevaClave] = useState('');
+  // Lo que se está escribiendo en cada renglón del catálogo, sin tocar la base
+  // hasta que se toque 💾. Clave = id del tipo.
+  const [borradores, setBorradores] = useState<Record<string, { label: string; orden: string }>>({});
+
   const machById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
   const reqById = useMemo(() => new Map(reqs.map((r) => [r.id, r])), [reqs]);
+
+  // Las casillas del formulario: solo los ACTIVOS, en su orden. Sin catálogo,
+  // los cuatro de siempre — la decisión la toma la función pura, no la pantalla.
+  const tipos = useMemo(() => resolverIntervenciones(filasTipos), [filasTipos]);
+  // Para PONERLE NOMBRE a lo que ya está guardado se usan TODOS los tipos,
+  // incluidos los desactivados: un servicio viejo que marcó «Soldadura» tiene
+  // que seguir diciendo «Soldadura», no `soldadura`.
+  const tiposParaEtiquetar = useMemo(
+    () => resolverIntervenciones((filasTipos ?? []).map((f) => ({ ...f, active: true }))),
+    [filasTipos]
+  );
+  // El catálogo como se administra: activos primero, y dentro, por orden.
+  const listaTipos = useMemo(() => (filasTipos ?? []).slice().sort((a, b) =>
+    Number(!a.active) - Number(!b.active)
+    || (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0)
+    || String(a.label).localeCompare(String(b.label), 'es')
+  ), [filasTipos]);
+
+  /**
+   * Trae el catálogo de tipos de intervención.
+   *
+   * ⚠️ TOLERANTE A PROPÓSITO — NO LE PONGAS UN `toast.error` NI UN `console.error`.
+   *    La tabla `service_intervention_types` nace de correr A MANO
+   *    `supabase/servicio_tipos_intervencion.sql`. Mientras nadie lo corra, esta
+   *    consulta responde `42P01 · relation does not exist`, y eso NO es una falla
+   *    que el encargado del taller pueda arreglar ni tenga por qué ver: la
+   *    pantalla cae sin ruido a los cuatro tipos de siempre y funciona igual que
+   *    antes. Lo único que avisa es el modal de administración, donde sí importa.
+   */
+  const cargarTipos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('service_intervention_types')
+        .select('id, key, label, sort_order, active')
+        .order('sort_order', { ascending: true });
+      if (error) { setFilasTipos(null); setFaltaTablaTipos(true); return; }
+      setFilasTipos((data ?? []) as FilaTipo[]);
+      setFaltaTablaTipos(false);
+    } catch {
+      setFilasTipos(null); setFaltaTablaTipos(true);
+    }
+  };
 
   const cargar = async () => {
     setLoading(true);
@@ -163,7 +224,7 @@ export default function ServicioRegistroTab(
     setOrdenes((data ?? []) as Orden[]);
     setLoading(false);
   };
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); cargarTipos(); }, []);
 
   // ── Lo que se ve, después de los filtros ──────────────────────────────────
   const visibles = useMemo(() => ordenes.filter((o) => {
@@ -230,6 +291,83 @@ export default function ServicioRegistroTab(
     cargar();
   };
 
+  // ── Administrar los tipos de intervención ─────────────────────────────────
+  // ⚠️ Los avisos de este modal van DENTRO del modal (`tiposError` / `tiposOk`),
+  //    no a un `toast`: el toast se dibuja en la pantalla de atrás y cualquier
+  //    ventana abierta lo tapa. Mismo motivo que `formError`.
+  const abrirTipos = () => {
+    setTiposError(null); setTiposOk(null); setBorradores({});
+    setNuevoNombre(''); setNuevaClave('');
+    setTiposOpen(true);
+    cargarTipos();
+  };
+
+  const borradorDe = (t: FilaTipo) =>
+    borradores[t.id] ?? { label: t.label, orden: String(t.sort_order ?? 100) };
+
+  const crearTipo = async () => {
+    setTiposError(null); setTiposOk(null);
+    const problema = validarTipoIntervencion({ key: nuevaClave, label: nuevoNombre }, filasTipos ?? []);
+    if (problema) return setTiposError(problema);
+    const key = claveDesdeTexto(nuevaClave || nuevoNombre);
+    // Va de último: quien lo agrega decide después si lo sube de puesto.
+    const orden = Math.max(0, ...(filasTipos ?? []).map((f) => Number(f.sort_order) || 0)) + 10;
+
+    setBusy(true);
+    const { error } = await supabase
+      .from('service_intervention_types')
+      .insert({ key, label: nuevoNombre.trim(), sort_order: orden });
+    setBusy(false);
+    if (error) return setTiposError(error.message);
+    setNuevoNombre(''); setNuevaClave('');
+    setTiposOk('Tipo agregado. Ya sale en el formulario de servicios.');
+    cargarTipos();
+  };
+
+  const guardarTipo = async (t: FilaTipo) => {
+    setTiposError(null); setTiposOk(null);
+    const b = borradorDe(t);
+    const label = b.label.trim();
+    if (!label) return setTiposError('Escribe el nombre del tipo de intervención.');
+    const orden = Number(b.orden);
+
+    setBusy(true);
+    const { error } = await supabase
+      .from('service_intervention_types')
+      // La CLAVE no se toca nunca: es lo que quedó guardado dentro de cada
+      // servicio. Cambiarla dejaría a los registros viejos apuntando al vacío.
+      .update({ label, sort_order: isFinite(orden) ? Math.trunc(orden) : 100 })
+      .eq('id', t.id);
+    setBusy(false);
+    if (error) return setTiposError(error.message);
+    setBorradores((p) => { const q = { ...p }; delete q[t.id]; return q; });
+    setTiposOk(`Guardado: ${label}.`);
+    cargarTipos();
+  };
+
+  const cambiarActivo = async (t: FilaTipo) => {
+    setTiposError(null); setTiposOk(null);
+    if (t.active) {
+      const va = await confirm({
+        title: 'Desactivar este tipo',
+        message: `«${t.label}» deja de salir en el formulario: nadie lo podrá marcar en un servicio nuevo.\n\nLos servicios YA registrados que lo usan lo SIGUEN mostrando con su nombre — por eso no se borra de verdad. Puedes reactivarlo cuando quieras.`,
+        confirmText: 'Desactivar', danger: true,
+      });
+      if (!va) return;
+    }
+    setBusy(true);
+    const { error } = await supabase
+      .from('service_intervention_types')
+      .update({ active: !t.active })
+      .eq('id', t.id);
+    setBusy(false);
+    if (error) return setTiposError(error.message);
+    setTiposOk(t.active
+      ? `«${t.label}» quedó desactivado. Los servicios viejos lo siguen mostrando.`
+      : `«${t.label}» volvió al formulario.`);
+    cargarTipos();
+  };
+
   // ── El PDF ────────────────────────────────────────────────────────────────
   const exportar = async () => {
     if (!visibles.length) return toast.error('No hay servicios en el filtro para exportar.');
@@ -269,7 +407,12 @@ export default function ServicioRegistroTab(
           .map((o) => ({
             id: o.id, service_date: o.service_date, origen: o.origen,
             technician: o.technician, provider: o.provider,
-            intervenciones: o.intervenciones ?? [], problem: o.problem, work_done: o.work_done,
+            // Al PDF se le mandan los NOMBRES ya resueltos, no las claves: el
+            // reporte solo conoce los cuatro de siempre, así que un tipo nuevo
+            // («Soldadura») saldría crudo. Resuelto acá, sale bien sin tocar
+            // `machineServiceReport.ts` (que ya hace `LABEL[k] ?? k`).
+            intervenciones: (o.intervenciones ?? []).map((k) => etiquetaIntervencion(k, tiposParaEtiquetar)),
+            problem: o.problem, work_done: o.work_done,
             parts: (o.parts ?? []).slice().sort((a, b) => a.position - b.position)
               .map((p) => ({ quantity: p.quantity, description: p.description, estado: p.estado })),
             averia: o.maintenance_request_id
@@ -324,6 +467,11 @@ export default function ServicioRegistroTab(
             <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="➕ Registrar servicio" tone="brand" onPress={() => { limpiarForm(); setFormOpen(true); }} /></View>
           ) : null}
         </View>
+        {canWrite ? (
+          <View style={{ marginTop: spacing.sm }}>
+            <Boton colors={colors} disabled={busy} label="⚙️ Tipos de intervención" onPress={abrirTipos} />
+          </View>
+        ) : null}
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
           ℹ️ Este módulo lleva el registro del trabajo. No cambia el estado de las máquinas ni cierra averías —
           para eso, Control de Maquinaria o el panel QR del coordinador.
@@ -348,7 +496,7 @@ export default function ServicioRegistroTab(
 
             {(o.intervenciones ?? []).length ? (
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 3 }}>
-                {(o.intervenciones ?? []).map((k) => INTERVENCION_LABEL[k as Intervencion] ?? k).join(' · ')}
+                {(o.intervenciones ?? []).map((k) => etiquetaIntervencion(k, tiposParaEtiquetar)).join(' · ')}
               </Text>
             ) : null}
             {o.problem ? <Text style={{ color: colors.text, fontSize: 12, marginTop: 4 }}>⚠️ {o.problem}</Text> : null}
@@ -452,20 +600,27 @@ export default function ServicioRegistroTab(
               {/* 2. TIPO DE INTERVENCIÓN */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>2. TIPO DE INTERVENCIÓN</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-                {(Object.keys(INTERVENCION_LABEL) as Intervencion[]).map((k) => {
-                  const on = intervs.includes(k);
+                {tipos.map((t) => {
+                  const on = intervs.includes(t.key);
                   return (
-                    <TouchableOpacity key={k}
-                      onPress={() => setIntervs((prev) => on ? prev.filter((x) => x !== k) : [...prev, k])}
+                    <TouchableOpacity key={t.key}
+                      onPress={() => setIntervs((prev) => on ? prev.filter((x) => x !== t.key) : [...prev, t.key])}
                       style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1,
                         borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
                       <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
-                        {on ? '☑ ' : '☐ '}{INTERVENCION_LABEL[k]}
+                        {on ? '☑ ' : '☐ '}{t.label}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
+              {canWrite ? (
+                // El formulario NO se cierra: lo escrito se conserva y el catálogo
+                // se abre ENCIMA (en web gana el último modal montado).
+                <TouchableOpacity onPress={abrirTipos} style={{ marginTop: spacing.xs }}>
+                  <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 11.5 }}>⚙️ Administrar los tipos…</Text>
+                </TouchableOpacity>
+              ) : null}
 
               {/* 3. DESCRIPCIÓN DEL PROBLEMA */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>3. DESCRIPCIÓN DEL PROBLEMA</Text>
@@ -575,6 +730,132 @@ export default function ServicioRegistroTab(
               ))}
             </ScrollView>
             <Boton colors={colors} disabled={busy} label="Cerrar" onPress={() => setPickMaquinaForm(false)} />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── ⚙️ Tipos de intervención (crear · renombrar · desactivar) ──
+          Va DE ÚLTIMO en el archivo a propósito: en web todos los Modal salen
+          con el mismo z-index y se apilan en el orden en que se montan, así que
+          este entra encima del formulario si se abre desde ahí. */}
+      <Modal visible={tiposOpen} transparent animationType="slide" onRequestClose={() => setTiposOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'flex-end', zIndex: 9999 }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.md, maxHeight: '92%' }}>
+            <ScrollView>
+              <SectionTitle>⚙️ Tipos de intervención</SectionTitle>
+              <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }}>
+                Son las casillas de «2. TIPO DE INTERVENCIÓN» del formulario de servicios.
+                Lo que cambies aquí se ve de una vez en el formulario, en la lista y en el PDF.
+              </Text>
+
+              {faltaTablaTipos ? (
+                /* La tabla nace de correr el SQL a mano. Mientras tanto la pantalla
+                   trabaja igual con los cuatro de siempre — pero aquí sí hay que
+                   decirlo, porque este es el sitio donde la gente viene a cambiarlos. */
+                <View style={{ marginTop: spacing.md, backgroundColor: colors.warningSoftBg, borderWidth: 1,
+                  borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12.5 }}>
+                    ⏳ Todavía no está creada la tabla de tipos de intervención
+                  </Text>
+                  <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 4 }}>
+                    Pídele al administrador que corra `supabase/servicio_tipos_intervencion.sql`
+                    en Supabase (SQL Editor). Es una sola vez.
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                    Mientras tanto no se pierde nada: el formulario sigue trabajando con los cuatro
+                    tipos de siempre ({tipos.map((t) => t.label).join(' · ')}).
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {!listaTipos.length ? (
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.md }}>
+                      El catálogo está vacío, así que el formulario está mostrando los cuatro tipos de
+                      siempre ({tipos.map((t) => t.label).join(' · ')}). Agrégalos aquí abajo si quieres
+                      administrarlos desde la app.
+                    </Text>
+                  ) : null}
+
+                  {/* El catálogo, uno por renglón. Activos primero. */}
+                  {listaTipos.map((t) => {
+                    const b = borradorDe(t);
+                    return (
+                      <View key={t.id} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border,
+                        borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface, opacity: t.active ? 1 : 0.62 }}>
+                        <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+                          <TextInput value={b.orden} keyboardType="numeric" placeholder="Nº"
+                            placeholderTextColor={colors.muted}
+                            onChangeText={(v) => setBorradores((p) => ({ ...p, [t.id]: { ...b, orden: v } }))}
+                            style={{ width: 52, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border,
+                              borderRadius: radius.md, padding: spacing.sm, color: colors.text, textAlign: 'center' }} />
+                          <TextInput value={b.label} placeholder="Nombre del tipo"
+                            placeholderTextColor={colors.muted}
+                            onChangeText={(v) => setBorradores((p) => ({ ...p, [t.id]: { ...b, label: v } }))}
+                            style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border,
+                              borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 4 }}>
+                          clave: {t.key}{t.active ? '' : ' · 🚫 desactivado, no sale en el formulario'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                          <View style={{ flex: 1 }}>
+                            <Boton colors={colors} disabled={busy} label="💾 Guardar" onPress={() => guardarTipo(t)} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Boton colors={colors} disabled={busy}
+                              label={t.active ? '🚫 Desactivar' : '↩️ Reactivar'}
+                              onPress={() => cambiarActivo(t)} />
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  {/* Agregar uno nuevo */}
+                  <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>➕ AGREGAR UN TIPO</Text>
+                  <Entrada colors={colors} label="Nombre" value={nuevoNombre} onChange={setNuevoNombre}
+                    placeholder="Ej.: Soldadura, Aire acondicionado…" />
+                  <Entrada colors={colors} label="Clave (opcional)" value={nuevaClave} onChange={setNuevaClave}
+                    placeholder={claveDesdeTexto(nuevoNombre) || 'se arma sola con el nombre'} />
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 3 }}>
+                    Se guardará con la clave «{claveDesdeTexto(nuevaClave || nuevoNombre) || '—'}». La clave no se puede
+                    cambiar después: es lo que queda escrito dentro de cada servicio. El nombre sí, cuando quieras.
+                  </Text>
+                  <View style={{ marginTop: spacing.sm }}>
+                    <Boton colors={colors} disabled={busy} tone="brand"
+                      label={busy ? 'Guardando…' : '➕ Agregar tipo'} onPress={crearTipo} />
+                  </View>
+
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: spacing.sm }}>
+                    ℹ️ Aquí no se borra nada de verdad: desactivar quita el tipo del formulario pero los servicios
+                    que ya lo usaron lo siguen mostrando con su nombre. Si se borrara, esos registros quedarían
+                    sin nombre.
+                  </Text>
+                </>
+              )}
+
+              {/* Los avisos van DENTRO del modal: un toast lo taparía esta misma ventana. */}
+              {tiposError ? (
+                <TouchableOpacity activeOpacity={0.85} onPress={() => setTiposError(null)}
+                  style={{ marginTop: spacing.md, backgroundColor: colors.dangerSoftBg, borderWidth: 1,
+                    borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 12.5 }}>⚠️ No se pudo</Text>
+                  <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginTop: 2 }}>{tiposError}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 4 }}>Toca este aviso para cerrarlo.</Text>
+                </TouchableOpacity>
+              ) : null}
+              {tiposOk ? (
+                <TouchableOpacity activeOpacity={0.85} onPress={() => setTiposOk(null)}
+                  style={{ marginTop: spacing.sm, backgroundColor: colors.successSoftBg, borderWidth: 1,
+                    borderColor: colors.successSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.successSoftText, fontSize: 12, fontWeight: '700' }}>✅ {tiposOk}</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <View style={{ marginTop: spacing.lg, marginBottom: spacing.md }}>
+                <Boton colors={colors} label="Cerrar" onPress={() => setTiposOpen(false)} />
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>

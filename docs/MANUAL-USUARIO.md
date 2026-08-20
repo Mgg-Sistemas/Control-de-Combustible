@@ -929,6 +929,34 @@ mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — 
 Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 **⏳ Averías · 🔧 En reparación · ✓ Historial · 📊 Reporte**.
 
+> **✂️ El PDF ya no imprime lubricación ni horómetro (20-ago-2026):** el cliente revisó el documento
+> real y pidió quitar los dos bloques. En la flota salían casi siempre vacíos
+> (*«SIN DATOS DE LUBRICACIÓN — »*) y empujaban media página antes de las **reparaciones**, que es lo
+> que se viene a leer. La ficha del reporte quedó en: **foto + Información general** (tipo, marca,
+> modelo, serial, placa, identificador, empresa, encargado) y de ahí directo a las reparaciones.
+>
+> **Los datos NO se borraron.** El tipo de aceite, la cantidad y el horómetro siguen en la máquina y
+> se siguen editando en **🚜 Equipos / Control de Maquinaria**; lo único que cambió es que dejaron de
+> **imprimirse** en este PDF.
+
+> **⚙️ Tipos de intervención administrables (20-ago-2026):** en **🧾 Servicios**, los tipos de la
+> parte **«2. TIPO DE INTERVENCIÓN»** ya **no están fijos en el programa**. Quien tenga **permiso de
+> escritura** ve el botón **"⚙️ Tipos de intervención"** (y el atajo **"⚙️ Administrar los tipos…"**
+> debajo de las casillas del formulario), desde donde puede **crear** tipos nuevos —Soldadura, Aire
+> acondicionado, lo que el taller necesite—, **renombrarlos** y cambiarles el **orden** en que salen.
+>
+> - **"Borrar" un tipo en realidad lo DESACTIVA, y es a propósito.** Deja de salir en el formulario
+>   (nadie lo puede marcar en un servicio nuevo), pero los servicios **ya registrados** que lo usaban
+>   lo **siguen mostrando con su nombre**, tanto en la lista como en el PDF. Si se borrara de verdad,
+>   esos registros viejos se quedarían **sin nombre**. Se puede **reactivar** cuando se quiera.
+> - El **nombre** se cambia cuando haga falta; la **clave interna no**, porque es lo que quedó escrito
+>   dentro de cada servicio ya guardado.
+> - **Para habilitarlo hay que correr UNA SOLA VEZ** el archivo
+>   `supabase/servicio_tipos_intervencion.sql` en **Supabase → SQL Editor**. Mientras nadie lo corra
+>   **no se rompe nada**: el formulario sigue trabajando normal con los **cuatro de siempre**
+>   (**Mecánica · Electricidad · Mangueras / Hidráulica · Servicio**) y el modal de administración
+>   avisa que falta correrlo.
+
 > **✅ Arreglos del 17-ago-2026:**
 > - **El Historial ahora muestra las averías resueltas.** Antes, al marcar una avería como
 >   **✓ Realizado**, desaparecía de la pantalla y **no quedaba en ninguna parte**: salía de
@@ -1863,6 +1891,45 @@ que antes no quedaban:
 Se filtra por **día**, por **usuario** y por **tipo**. Tocando un renglón se ve el detalle
 completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 
+> **🚜 «¿Quién puso esta máquina retirada?» — filtro propio (20/08/2026):** debajo del contador de
+> acciones hay una casilla nueva: **«🚜 Estados de máquina — quién la retiró, reactivó o puso en
+> espera»**. Al marcarla la bitácora deja **solo** las acciones que cambiaron el estado de una
+> máquina, y cada una sale con su etiqueta de color y en criollo:
+>
+> | Etiqueta | Qué pasó | Columna real |
+> |---|---|---|
+> | ⬛ **RETIRADA** (fuera de servicio) | la sacaron de servicio | `operational` sí → no |
+> | ✅ **REACTIVADA** (vuelve a servicio) | volvió a trabajar | `operational` no → sí |
+> | ⏳ **EN ESPERA** por recepción | quedó esperando que control la reciba | `en_espera` no → sí |
+> | 📥 **RECIBIDA** en control | salió de espera | `en_espera` sí → no |
+> | 🗑️ **ELIMINADA** del catálogo | dejó de existir para el sistema | `active` sí → no |
+> | ♻️ **RESTAURADA** al catálogo | volvió al catálogo | `active` no → sí |
+> | 🔒 **QR BLOQUEADO** | al escanearla solo sale el logo | `qr_blocked` no → sí |
+> | 💥 **BORRADA de la base de datos** | se borró la fila completa | — |
+>
+> **El dato ya estaba, pero enterrado.** Una máquina retirada aparecía como *«Fulano modificó
+> Máquina · CARGADOR 01 (6 cambios)»* y había que abrir el renglón y leer columna por columna para
+> dar con el `Operativa: sí → no` escondido entre los otros cinco. Con cien acciones por día, nadie
+> lo encontraba. Arriba sale además el **conteo** (⬛ Retiradas · 4, ✅ Reactivadas · 1), y todo
+> esto sale igual en el **PDF**.
+>
+> **🕘 Sin adivinar la fecha.** Con el filtro marcado se habilita *«🕘 Buscar en TODO el historial»*
+> **aunque no escribas nada** en el buscador — nadie se acuerda del día en que retiraron una
+> máquina, que es justamente lo que se viene a preguntar. Se puede porque con ese filtro la
+> consulta se acota a máquinas y vehículos: la pantalla le pide **menos** a la base de datos, no más.
+>
+> **📋 Toda la información, al tocar el renglón.** El detalle de una acción sobre una máquina trae
+> ahora, además del antes/después campo por campo, **la ficha de la máquina como está ahora mismo**:
+> máquina con su placa/serial, identificador, clase y marca, empresa, encargado, zona/referencia,
+> estado actual, si el QR está bloqueado, horómetro, y **«Retirada por / Retirada el»** y
+> **«Reactivada por / Reactivada el»**. Esos dos últimos los guarda la **propia ficha de la
+> máquina**, aparte de la bitácora: sirven aunque el retiro sea **anterior** a que se encendiera el
+> seguimiento (18/08/2026).
+>
+> **⚠️ «Averiada» y «parada» no salen acá, a propósito.** Esos dos no son un campo de la máquina:
+> se deducen en vivo de las averías y de las jornadas. Quién marcó una avería se ve en el módulo de
+> **Mantenimiento / Averías**.
+
 > **🚜 Retiros y "en espera" — ahora sí quedan registrados (18/08/2026):** el cliente reportó que
 > no veía **quién retiraba una máquina** ni **quién la ponía o la sacaba de "en espera"**. Era
 > cierto, y por dos motivos distintos:
@@ -2522,6 +2589,13 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 >   **"🧾 Recibo de cobro"**, que descarga un recibo imprimible con la **máquina** a la que se le
 >   hizo el cambio de manguera (código + serial, o el cliente externo), la empresa, el encargado, el
 >   costo, el margen y el **monto a cobrar**.
+>   - 🚜 **Ficha de la máquina en el recibo:** si la manguera está **enlazada a una máquina de la
+>     flota**, debajo del monto a cobrar sale la **ficha de la máquina con su FOTO** — la misma que
+>     ves en **Servicio de maquinaria**: tipo, marca, modelo, serial, placa, identificador, empresa y
+>     encargado. Así quien recibe el cobro ve de una vez a qué equipo se le hizo el trabajo. La ficha
+>     va **en la misma hoja** (el recibo sigue siendo de una página). Las mangueras **externas** (y las
+>     de una máquina que no se pudo cargar en ese momento) salen **igual que siempre**, sin ficha: el
+>     recibo nunca se deja de generar por eso.
 
 > 🛒 **Aprobación desde Compras:** para que el **gerente** no tenga que entrar al módulo de
 > Mangueras, todas las mangueras **pendientes** aparecen también en **Compras → pestaña 🔧 Mangueras**.
