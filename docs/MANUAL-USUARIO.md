@@ -516,6 +516,28 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > período: **✎ Editar** en su tarjeta → **🗑️ Quitar del período**. Requiere que el período
 > esté en **borrador**.
 
+> **🧑‍🦰 Desincorporados: mover a alguien de un período a otro (20-ago-2026).** Tres cosas que
+> antes no dejaban hacerlo, ya corregidas:
+>
+> - **👤 Agregar persona** (botón nuevo, junto a "＋ Personal faltante"): busca por nombre,
+>   cédula o cargo en **TODO el registro, incluidos los desincorporados** — que salen marcados
+>   con su etiqueta roja — y agrega **solo al que elijas**. Antes la única forma de sumar gente
+>   era "＋ Personal faltante", que trae **únicamente empleados activos**: a un desincorporado
+>   no había manera de meterlo, ni siquiera para moverlo de un período a otro cuando se le queda
+>   un pago pendiente al salir. Al agregarlo **se le calculan sus jornadas del rango**, porque
+>   pudo haber trabajado parte del período antes de irse, y eso sí se le paga.
+> - **🗑️ Quitar del período** ahora aparece en **cualquier** persona con el período en borrador.
+>   Antes solo salía en algunas: estaba amarrado a una marca interna que **no** significa "lo
+>   agregaron a mano" sino "no tiene jornadas en el rango" — así que justamente a quien **sí
+>   trabajó** no había forma de sacarlo.
+> - **El filtro "Inactivos/Desincorporados"** ya no mezcla. Antes, una persona **sin ficha
+>   resuelta** (cargada suelta, o cuyo empleado se borró del registro) aparecía **a la vez** en
+>   "Activos" y en "Inactivos/Desincorporados", y por eso el filtro "no los reconocía". Ahora
+>   **sin ficha ≠ desincorporado**: si está cobrando en el período cuenta como activo, y
+>   desincorporado es **solo** quien está inactivo o suspendido. Los de estado **"Otro"** no
+>   salen en ninguno de los dos filtros, solo en **"Todos"**. Fijado con prueba automática
+>   (`npm run test:pagos`).
+
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
 > ("manual")) junto al botón **"🔄 Actualizar tasa BCV"**, que refresca la tasa oficial desde
