@@ -97,15 +97,22 @@ const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
 // Cubre exactamente las tablas que el trigger audit_row() vigila (supabase/audit.sql);
 // si un día se agrega una tabla ahí, agregarla también aquí (si no, cae en "Otro").
 type ModuleDef = { key: string; label: string; icon: string; tables: string[] };
+// ⚠️ SI SE AUDITA UNA TABLA NUEVA, AGRÉGALA ACÁ. Lo que no esté en esta lista cae en
+//    "📁 Otro" y el agrupado por módulo deja de servir. `scripts/test-auditoria-labels.mjs`
+//    verifica que ninguna tabla con trigger de auditoría se quede fuera (20-ago-2026:
+//    faltaban 11 y por eso medio sistema salía como "Otro").
 const MODULES: ModuleDef[] = [
-  { key: 'combustible', label: 'Combustible', icon: '⛽', tables: ['tanks', 'fuel_intakes', 'dispatches', 'transfers', 'authorizations', 'price_tariffs', 'company_price_tariffs'] },
-  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs'] },
-  { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments', 'machine_operators', 'machine_inspectors'] },
-  { key: 'nomina', label: 'Nómina y personal', icon: '👷', tables: ['employees', 'attendance', 'uniform_deliveries', 'staff_pay_payments', 'aliados'] },
+  { key: 'combustible', label: 'Combustible', icon: '⛽', tables: ['tanks', 'fuel_intakes', 'dispatches', 'transfers', 'authorizations', 'price_tariffs', 'company_price_tariffs', 'stock_movements'] },
+  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs', 'machine_guards'] },
+  { key: 'viajes', label: 'Viajes de camiones', icon: '🚛', tables: ['camion_viajes'] },
+  { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments', 'machine_operators', 'machine_inspectors', 'machine_inspections'] },
+  { key: 'nomina', label: 'Nómina y personal', icon: '👷', tables: ['employees', 'attendance', 'uniform_deliveries', 'staff_pay_payments', 'staff_pay_periods', 'payroll_periods', 'aliados'] },
   { key: 'empresas', label: 'Empresas y facturación', icon: '🏢', tables: ['companies', 'company_payments'] },
-  { key: 'inventario', label: 'Inventario y compras', icon: '📦', tables: ['inventory_items', 'inventory_movements', 'inventory_transfers', 'purchase_orders', 'purchase_requests'] },
+  { key: 'inventario', label: 'Inventario y compras', icon: '📦', tables: ['inventory_items', 'inventory_movements', 'inventory_transfers', 'purchase_orders', 'purchase_requests', 'suppliers'] },
   { key: 'alimentacion', label: 'Alimentación', icon: '🍽️', tables: ['food_distributions', 'food_company_meals'] },
+  { key: 'obras', label: 'Obras Públicas', icon: '🏗️', tables: ['op_edificio_base', 'op_edificio_removidos'] },
   { key: 'usuarios', label: 'Usuarios y permisos', icon: '🔑', tables: ['profiles', 'app_roles', 'module_permissions'] },
+  { key: 'avisos', label: 'Avisos del sistema', icon: '🔔', tables: ['notifications', 'notification_reads'] },
 ];
 const TABLE_TO_MODULE = new Map<string, ModuleDef>();
 MODULES.forEach((mod) => mod.tables.forEach((t) => TABLE_TO_MODULE.set(t, mod)));
@@ -706,6 +713,37 @@ export default function AuditScreen() {
             <Text style={{ color: shown.length === 0 ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
           </TouchableOpacity>
         </View>
+        {/* AGRUPAR POR — a la vista, no enterrado en el menú (pedido del cliente
+            20-ago-2026: "poder agrupar por módulo en el que hicieron cambios").
+            Es el mismo `groupBy` del menú ▾, así que los dos quedan sincronizados. */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR:</Text>
+          {([['none', 'Sin agrupar'], ['modulo', '🗂️ Módulo'], ['usuario', '👤 Usuario'], ['dia', '📅 Día']] as const).map(([k, label]) => {
+            const on = groupBy === k;
+            return (
+              <TouchableOpacity
+                key={k}
+                onPress={() => setGroupBy(k)}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
+              >
+                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Con "Agrupar por módulo" activo: totales por módulo de un vistazo, antes de
+            entrar a cada grupo. Es lo primero que se quiere ver — dónde se movió más. */}
+        {groupBy === 'modulo' && (groupedSections?.length ?? 0) > 0 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+            {(groupedSections ?? []).map((s) => (
+              <View key={s.title} style={{ borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11.5 }}>{s.title} · <Text style={{ fontWeight: '900' }}>{s.data.length}</Text></Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {/* Resumen rápido por categoría, sin tener que generar el PDF. */}
         {shown.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>

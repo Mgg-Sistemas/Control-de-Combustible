@@ -521,6 +521,28 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > período: **✎ Editar** en su tarjeta → **🗑️ Quitar del período**. Requiere que el período
 > esté en **borrador**.
 
+> **🧑‍🦰 Desincorporados: mover a alguien de un período a otro (20-ago-2026).** Tres cosas que
+> antes no dejaban hacerlo, ya corregidas:
+>
+> - **👤 Agregar persona** (botón nuevo, junto a "＋ Personal faltante"): busca por nombre,
+>   cédula o cargo en **TODO el registro, incluidos los desincorporados** — que salen marcados
+>   con su etiqueta roja — y agrega **solo al que elijas**. Antes la única forma de sumar gente
+>   era "＋ Personal faltante", que trae **únicamente empleados activos**: a un desincorporado
+>   no había manera de meterlo, ni siquiera para moverlo de un período a otro cuando se le queda
+>   un pago pendiente al salir. Al agregarlo **se le calculan sus jornadas del rango**, porque
+>   pudo haber trabajado parte del período antes de irse, y eso sí se le paga.
+> - **🗑️ Quitar del período** ahora aparece en **cualquier** persona con el período en borrador.
+>   Antes solo salía en algunas: estaba amarrado a una marca interna que **no** significa "lo
+>   agregaron a mano" sino "no tiene jornadas en el rango" — así que justamente a quien **sí
+>   trabajó** no había forma de sacarlo.
+> - **El filtro "Inactivos/Desincorporados"** ya no mezcla. Antes, una persona **sin ficha
+>   resuelta** (cargada suelta, o cuyo empleado se borró del registro) aparecía **a la vez** en
+>   "Activos" y en "Inactivos/Desincorporados", y por eso el filtro "no los reconocía". Ahora
+>   **sin ficha ≠ desincorporado**: si está cobrando en el período cuenta como activo, y
+>   desincorporado es **solo** quien está inactivo o suspendido. Los de estado **"Otro"** no
+>   salen en ninguno de los dos filtros, solo en **"Todos"**. Fijado con prueba automática
+>   (`npm run test:pagos`).
+
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
 > ("manual")) junto al botón **"🔄 Actualizar tasa BCV"**, que refresca la tasa oficial desde
@@ -794,7 +816,14 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 4. Toca **"📊 Reporte"**: genera un **PDF** con el **listado de las personas seleccionadas**
    (nombre, cédula, ficha, cargo, empresa, estado, teléfono) y un **resumen por cargo** con el total.
 
-> El reporte respeta TODO lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.
+> El reporte respeta TODO lo que estás viendo (estado + empresa + cargos marcados + búsqueda): imprime exactamente esa selección.
+
+> **🏢 Filtrar por empresa (20-ago-2026):** debajo de los chips de **Estado** hay una línea
+> **"Empresa: 🏢 Todas · N"**. Tócala y se despliega la lista de empresas **con su cantidad de
+> personas**, con buscador; **marca una o varias**. El personal **sin contratista asignado**
+> aparece como **SOS LA GUAIRA** (el empleador), siempre de primero. La **✕** al lado limpia la
+> selección de un toque. Se combina con Estado, Cargo y la búsqueda, y **los conteos por cargo se
+> recalculan** con la empresa elegida.
 
 > El Excel con tarifas por empleado que existía antes en esta pantalla se retiró: no correspondía
 > aquí (exportaba tarifas del empleado). El Excel de nómina ahora vive en **Nómina → Control de
@@ -1891,6 +1920,23 @@ completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 >   acciones a la vez, y se suman al buscador de texto y al rango de fechas de arriba.
 > - **📚 Agrupar por:** **Módulo**, **Usuario** o **Día** — en vez de una lista plana, los resultados
 >   salen agrupados con encabezados **plegables** (toca uno para abrir/cerrar ese grupo).
+
+> **🗂️ Agrupar por módulo, a la vista (20-ago-2026).** La fila **"AGRUPAR POR:"** quedó en la
+> pantalla principal, debajo del contador de acciones: **Sin agrupar · 🗂️ Módulo · 👤 Usuario ·
+> 📅 Día**, de un solo toque. Antes había que entrar al menú **🔽 Filtros → Agrupar**, y por eso
+> casi nadie lo encontraba. Es el mismo ajuste, así que los dos lugares quedan sincronizados.
+>
+> Al elegir **🗂️ Módulo** aparece además, arriba de la lista, una fila de **totales por módulo**
+> (`⛽ Combustible · 14`, `👷 Nómina y personal · 7`…): se ve **dónde se movió más** sin tener que
+> abrir cada grupo.
+>
+> **Y ahora agrupa completo.** Había **once tablas auditadas que no estaban asignadas a ningún
+> módulo** y caían todas en **"📁 Otro"** — entre ellas los **viajes de camiones**, los
+> **movimientos de combustible**, los **períodos de nómina**, los **proveedores**, **Obras
+> Públicas** y los **avisos del sistema**. O sea que medio sistema se veía como "Otro". Ya están
+> repartidas, y se agregaron dos módulos nuevos al filtro: **🚛 Viajes de camiones** y
+> **🏗️ Obras Públicas** (más **🔔 Avisos del sistema**). Una prueba automática
+> (`npm run test:auditoria`) verifica que **ninguna tabla con auditoría vuelva a quedarse fuera**.
 > - **⭐ Favoritos:** guarda la combinación **actual** de filtros (texto + módulos + acciones +
 >   usuario + rango + agrupación) con un **nombre**, para volver a aplicarla luego **con un toque**.
 >   Se guarda **en este dispositivo** (no se comparte entre usuarios).
@@ -2826,13 +2872,42 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   un camión lleva más del **umbral configurado** (arranca en 6 horas, se ajusta en
   "Configuración") sin registrar viaje — no incluye camiones averiados, parados o retirados, que
   legítimamente no viajan.
-- **Lista completa:** todos los viajes de todos los listeros, filtrable por **listero**, por
-  **camión** y por rango de fecha (Hoy / Esta semana / Este mes / Rango libre / Días específicos).
-  Desde ahí puede **corregir la hora o borrar cualquier viaje** — el borrado queda igual en la
-  auditoría (ver 4.13b), no se pierde el rastro.
+- **Lista completa:** todos los viajes de todos los listeros, filtrable por **empresa**, por
+  **listero**, por **camión** y por rango de fecha (Hoy / Esta semana / Este mes / Rango libre /
+  Días específicos). Desde ahí puede **corregir la hora o borrar cualquier viaje** — el borrado
+  queda igual en la auditoría (ver 4.13b), no se pierde el rastro.
 - **Configuración:** el **umbral de alerta** (horas) y la **meta de viajes diarios** de cada
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
+
+### 🏢 Filtrar por empresa y reporte GLOBALIZADO (20-ago-2026)
+
+**Filtro por empresa.** Arriba de los filtros de camión y listero hay una fila **EMPRESA** con un
+chip por cada empresa que tenga viajes en el rango, **con su cantidad**. Marca una o varias. La
+empresa sale del **camión** (la que tiene en el catálogo de maquinaria), así que no hay que
+cargarla en cada viaje. Los camiones sin empresa asignada se agrupan en **"Sin empresa"**.
+**✕ Limpiar filtros** borra empresa, camión y listero de un toque.
+
+**Dos formas de ver y de imprimir.** En **VISTA Y REPORTE** eliges:
+
+- **📋 Detallado (viaje por viaje)** — como siempre: una línea por cada viaje. El PDF ahora trae
+  además **Empresa** y **Placa / Serial** en cada línea.
+- **📊 Resumido (viajes por camión)** — **no desglosa viaje por viaje**. Muestra, y luego imprime:
+  - el **TOTAL GENERAL** de viajes y cuántos camiones lo hicieron;
+  - por cada **empresa**, su **total de viajes** y cuántos camiones tiene;
+  - dentro de cada empresa, el **desglose por camión**: código, placa/serial y **cuántos viajes**
+    hizo, de mayor a menor.
+
+> Sirve para las tres cosas que se piden a diario: **un camión** (márcalo y te dice cuántos viajes
+> hizo), **varios camiones** (marca los que quieras y cada uno sale con su cantidad), o **una
+> empresa completa** (márcala y salen todos sus camiones, el número global de la empresa y el
+> desglose de cada uno).
+
+> El modo elegido manda tanto en lo que ves en pantalla como en el PDF, y el reporte **imprime en
+> su encabezado los filtros con los que se sacó** (empresas, camiones, listeros), para que después
+> se pueda auditar sin adivinar. El total de cada empresa **siempre** cuadra con la suma de su
+> desglose y con el total general — eso está fijado con una prueba automática
+> (`npm run test:viajes`).
 
 > De paso, el Catálogo y Control de Maquinaria ahora muestran el **operador planeado** por el
 > Coordinador de Operadores (antes solo se veía dentro de ese módulo) — mismo tratamiento que ya
