@@ -1566,7 +1566,7 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
         const estados: { key: 'active' | 'averiada' | 'espera' | 'retirada'; label: string; n: number; color: string }[] = [
           { key: 'active', label: 'Operativas', n: nOp, color: colors.success },
           { key: 'averiada', label: 'Averiadas', n: nAv, color: colors.warning },
-          { key: 'espera', label: 'Esperando instrucciones', n: nEsp, color: colors.brand },
+          { key: 'espera', label: 'Esperando instrucciones', n: nEsp, color: '#8B5CF6' },
           { key: 'retirada', label: 'Retiradas', n: nRet, color: colors.danger },
         ];
         return (
