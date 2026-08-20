@@ -266,14 +266,9 @@ export default function DashboardScreen({ navigation }: any) {
         {/* TOTAL DE FLOTA DISPONIBLE = operativas + averiadas + esperando (las retiradas NO cuentan). */}
         <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
           <Text style={{ color: colors.brandContrast, fontSize: 11, fontWeight: '800', letterSpacing: 1, opacity: 0.9 }}>TOTAL DE FLOTA DISPONIBLE</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.brandContrast, fontSize: 34, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 38 }}>
-              {states ? (states.op + states.ave + states.esp) : '…'}
-            </Text>
-            <Text style={{ color: colors.brandContrast, fontSize: 10, opacity: 0.85, textAlign: 'right', paddingBottom: 4 }}>
-              Operativas + averiadas + esperando{'\n'}(las retiradas no cuentan)
-            </Text>
-          </View>
+          <Text style={{ color: colors.brandContrast, fontSize: 34, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 38 }}>
+            {states ? (states.op + states.ave + states.esp) : '…'}
+          </Text>
         </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Estado de las máquinas · toca uno para ver las máquinas</Text>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
