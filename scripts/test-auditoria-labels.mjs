@@ -103,6 +103,42 @@ console.log('AUDITORÍA — etiquetas legibles y resumen de cambios\n');
   ok('un evento de app (SCAN) no genera resumen', changesSummary('SCAN', { a: 1 }, fmt) === null);
 }
 
+// ── 7) AGRUPAR POR MÓDULO: ninguna tabla auditada puede caer en "📁 Otro" ────
+// El agrupado por módulo de Auditoría reparte las acciones según la tabla que se tocó.
+// Si una tabla tiene trigger de auditoría pero NO está en MODULES, sus acciones salen
+// bajo "📁 Otro" y el agrupado deja de servir. El 20-ago-2026 había ONCE tablas así
+// (camion_viajes, stock_movements, suppliers, staff_pay_periods, notifications…): medio
+// sistema se veía como "Otro". Esto lo impide de aquí en adelante.
+{
+  const sqlDir = path.join(ROOT, 'supabase');
+  const auditadas = new Set();
+  for (const f of fs.readdirSync(sqlDir).filter((x) => x.endsWith('.sql'))) {
+    const txt = fs.readFileSync(path.join(sqlDir, f), 'utf8');
+    const arr = /foreach t in array array\[([\s\S]*?)\]/.exec(txt);
+    if (arr) for (const m of arr[1].matchAll(/'([a-z_]+)'/g)) auditadas.add(m[1]);
+    for (const m of txt.matchAll(/create trigger trg_audit\w*\s+[\s\S]{0,80}?on public\.([a-z_]+)/g)) auditadas.add(m[1]);
+  }
+  auditadas.delete('audit_row'); // es el nombre de la función, no una tabla
+
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/AuditScreen.tsx'), 'utf8');
+  const bloqueMod = /const MODULES: ModuleDef\[\] = \[([\s\S]*?)\n\];/.exec(scr);
+  ok('AuditScreen declara la lista de MÓDULOS', !!bloqueMod);
+  const enModulos = new Set();
+  if (bloqueMod) {
+    for (const linea of bloqueMod[1].split('\n')) {
+      const tablas = /tables:\s*\[([^\]]*)\]/.exec(linea);
+      if (tablas) for (const m of tablas[1].matchAll(/'([a-z_]+)'/g)) enModulos.add(m[1]);
+    }
+  }
+  ok('se detectaron las tablas auditadas', auditadas.size > 20, `detectadas ${auditadas.size}`);
+  const huerfanas = [...auditadas].filter((t) => !enModulos.has(t)).sort();
+  ok(
+    `ninguna tabla auditada cae en "Otro" (${auditadas.size} auditadas)`,
+    huerfanas.length === 0,
+    huerfanas.length ? `sin módulo: ${huerfanas.join(', ')}` : ''
+  );
+}
+
 if (fail) {
   console.log(`\n✗ ${fail} FALLO(S):\n` + failures.map((f) => `  · ${f}`).join('\n'));
   process.exit(1);
