@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments, assignInspector, sinInspectorReal, soloAdminPuedeAsignar } from '../../lib/machineInspectors';
-import { computeMachineVisibilitySets, buildDaySets as buildDaySetsCore, classifyInspectorMachines, paradaShiftOf } from '../../lib/inspectorDaySets';
+import { computeMachineVisibilitySets, buildDaySets as buildDaySetsCore, classifyInspectorMachines, assignmentCountsForShift, paradaShiftOf } from '../../lib/inspectorDaySets';
 import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
@@ -100,7 +100,7 @@ type Round = {
   horometro_inicial: number | null; horometro_final: number | null; machine?: { code?: string } | null;
 };
 type Maint = { machinery_id: string; material: string | null; notes: string | null; created_at: string; machine?: { code?: string } | null };
-type Assign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night'; code: string };
+type Assign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night'; code: string; assigned_at?: string | null };
 // Ficha del catálogo (machinery) por máquina — para el detalle del modal.
 type MachRow = {
   id: string; code: string | null; plate: string | null; serial: string | null; identifier: string | null;
@@ -365,7 +365,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setIniByMachine(iniBy);
     setRounds((roundsRows ?? []) as any);
     setMaint((maintRows ?? []) as any);
-    setAssignments(((asg?.rows ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift, code: a.code ?? '—' })));
+    setAssignments(((asg?.rows ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift, code: a.code ?? '—', assigned_at: a.assigned_at ?? null })));
     setMachList((machRows ?? []) as any);
     setAllHoursByMachine(allHoursMap);
     // Litros surtidos por máquina en el día elegido (misma fuente que SupervisionScreen).
@@ -1266,7 +1266,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const perInspector = useMemo(() => {
     const { startedSet, paradaSet, averSet, closedSet, anyOpenSet, otroTurnoSet } = daySets;
     const byName = new Map<string, { name: string; ids: Set<string>; code: Map<string, string> }>();
-    assignments.filter((a) => a.shift === shift).forEach((a) => {
+    // Asignación tardía (después de cerrar la ventana del turno) NO cuenta para la
+    // eficiencia del inspector — mismo criterio que `buildDaySets` (sync).
+    assignments.filter((a) => assignmentCountsForShift(a, selDay, shift)).forEach((a) => {
       const nm = a.inspector_name || '—';
       const e = byName.get(nm) ?? { name: nm, ids: new Set<string>(), code: new Map<string, string>() };
       e.ids.add(a.machinery_id); e.code.set(a.machinery_id, a.code || '—');

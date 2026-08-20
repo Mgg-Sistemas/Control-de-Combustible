@@ -258,6 +258,30 @@ eq('ladder trabajo gana a declaro', E({ trabajo: true, abierta: false, declaro: 
     rounds: [round('T', { jornada_shift: 'day', day_hours: 0 })] });
   eq('fallback jornada_shift dia cerrada', arr(dd.closedSet), ['T']);
 }
+// 22) ASIGNACIÓN TARDÍA (regla cliente 19-ago-2026): una máquina asignada DESPUÉS de
+//     que cerró la ventana del turno NO cuenta como pendiente ni baja la eficiencia.
+//     DÍA cierra a las 7pm; asignar a las 7:30pm no le afecta al día.
+const assignAt = (id, name, shift, at) => ({ machinery_id: id, inspector_name: name, shift, assigned_at: at });
+{
+  // Asignada 7:30pm, sin actividad → NO pendiente de DÍA (día ya cerró a las 7pm).
+  const dd = run({ shift: 'day', assignments: [assignAt('LT', 'juan', 'day', iso(19, 30))] });
+  eq('asignación tardía 7:30pm NO pendiente de día', arr(dd.pendSet), []);
+}
+{
+  // Contraste: asignada 10am (a tiempo), sin actividad → SÍ pendiente de día.
+  const dd = run({ shift: 'day', assignments: [assignAt('OT', 'juan', 'day', iso(10))] });
+  eq('asignación a tiempo 10am SÍ pendiente de día', arr(dd.pendSet), ['OT']);
+}
+{
+  // Esa misma asignación de las 7:30pm SÍ cuenta para la NOCHE (ventana hasta 7am).
+  const nn = run({ shift: 'night', assignments: [assignAt('LT', 'juan', 'night', iso(19, 30))] });
+  eq('asignación 7:30pm SÍ pendiente de noche', arr(nn.pendSet), ['LT']);
+}
+{
+  // Sin assigned_at (fila vieja) → cuenta como antes (no rompe datos previos).
+  const dd = run({ shift: 'day', assignments: [assign('OLD', 'juan', 'day')] });
+  eq('asignación sin assigned_at cuenta (compat)', arr(dd.pendSet), ['OLD']);
+}
 
 console.log(`\n${'='.repeat(60)}`);
 if (fail === 0) console.log(`✓ CLASIFICACIÓN OK — ${pass} aserciones`);
