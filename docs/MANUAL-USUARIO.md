@@ -1177,6 +1177,23 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > jornada**. La **parada POR AVERÍA** sí sigue arrastrándose (por su ticket de avería real) hasta
 > que se resuelva. Aplica a **ambos turnos**. (Automático vía cron
 > `expira_paradas_no_trabajo_al_cerrar_turno.sql`.)
+>
+> **🟡 "NO TRABAJÓ" anula horas SOLO de tu propio turno (19-ago-2026):** si marcas
+> **"📍 Parada / No trabajó"** sobre una máquina que **ya tenía horas acreditadas en tu
+> turno** (porque la finalizaste antes o porque la cerró el automático), esas horas se
+> **ponen en 0** — es la forma de corregir desde el teléfono cuando la máquina en
+> realidad no trabajó. El turno que se anula es **el que está corriendo en ese momento
+> por el reloj** (día 7am–7pm, noche 7pm–7am): **nunca el turno del compañero**.
+> Marcar "no trabajó" a las 8pm anula **la noche**, jamás el día que ya cerró a las 7pm.
+> Si lo que hay que corregir es un turno ya cerrado, eso se hace desde **Control de
+> Maquinaria**, no desde el teléfono. Cada anulación deja un **tramo negativo** en la
+> línea de tiempo con quién y cuántas horas eran.
+>
+> *Antes del 19-ago-2026 el turno se tomaba de lo último guardado en la ronda, que
+> después de las 7pm seguía diciendo "día": el inspector de **noche** que marcaba "no
+> trabajó" le borraba las horas del **día** a su compañero. Esa noche cuatro máquinas
+> perdieron su jornada completa, y entre el 10 y el 12-ago se fueron **1.046 horas** en
+> 101 casos. Corregido, con prueba automática (`npm run test:parada`).*
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
