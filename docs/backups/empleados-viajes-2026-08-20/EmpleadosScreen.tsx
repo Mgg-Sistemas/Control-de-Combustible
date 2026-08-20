@@ -70,9 +70,6 @@ const FIELDS: Field[] = [
   { key: 'notes', label: 'Notas', type: 'text' },
 ];
 
-/** Clave de los empleados SIN contratista asignado: son de SOS LA GUAIRA. */
-const SIN_EMPRESA = '__none__';
-
 export default function EmpleadosScreen({ navigation }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
@@ -85,11 +82,6 @@ export default function EmpleadosScreen({ navigation }: any) {
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
   const [cargoQ, setCargoQ] = useState(''); // buscador dentro de la lista de cargos
-  // Filtro por EMPRESA (pedido del cliente 20-ago-2026). La clave es el `company_id`;
-  // los que no tienen contratista van bajo SIN_EMPRESA = SOS LA GUAIRA (el empleador).
-  const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set()); // vacío = todas
-  const [empresasOpen, setEmpresasOpen] = useState(false);
-  const [empresaQ, setEmpresaQ] = useState(''); // buscador dentro de la lista de empresas
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -113,15 +105,8 @@ export default function EmpleadosScreen({ navigation }: any) {
     : statusFilter === 'activo' ? esActivo(e)
     : statusFilter === 'otro' ? esOtro(e)
     : (!esActivo(e) && !esOtro(e)); // inactivo
-  // Clave de empresa de un empleado: su `company_id`, o SIN_EMPRESA si no tiene
-  // contratista asignado (esos son de SOS LA GUAIRA, ver `companyName`).
-  const empresaKey = (e: Employee) => e.company_id ?? SIN_EMPRESA;
-
-  // Empleados que pasan la BÚSQUEDA de texto + FILTRO de estado. Es la base para
-  // contar por EMPRESA: los conteos se calculan ANTES de aplicar el filtro de
-  // empresa, si no, al marcar una empresa las demás mostrarían 0 y no se podrían
-  // sumar a la selección.
-  const estadoFiltered = useMemo(
+  // Empleados que pasan la BÚSQUEDA de texto + FILTRO de estado (base para contar por cargo).
+  const baseFiltered = useMemo(
     () => employees.filter((e) =>
       pasaEstado(e) &&
       (!q ||
@@ -132,26 +117,6 @@ export default function EmpleadosScreen({ navigation }: any) {
         norm(companyName(e.company_id)).includes(q))
     ),
     [employees, q, statusFilter, companies]
-  );
-
-  // Conteo por empresa (para los chips-filtro): [clave, nombre, cantidad].
-  const empresaCounts = useMemo(() => {
-    const map = new Map<string, { key: string; name: string; n: number }>();
-    estadoFiltered.forEach((e) => {
-      const k = empresaKey(e);
-      const g = map.get(k) ?? { key: k, name: companyName(e.company_id), n: 0 };
-      g.n += 1;
-      map.set(k, g);
-    });
-    // SOS LA GUAIRA (el empleador) siempre de primera; el resto alfabético.
-    return Array.from(map.values()).sort((a, b) =>
-      a.key === SIN_EMPRESA ? -1 : b.key === SIN_EMPRESA ? 1 : cmpText(a.name, b.name));
-  }, [estadoFiltered, companies]);
-
-  // Base final para el listado y el reporte por cargo: ya con la empresa aplicada.
-  const baseFiltered = useMemo(
-    () => estadoFiltered.filter((e) => empresaSel.size === 0 || empresaSel.has(empresaKey(e))),
-    [estadoFiltered, empresaSel]
   );
 
   // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
@@ -359,66 +324,6 @@ export default function EmpleadosScreen({ navigation }: any) {
           );
         })}
       </View>
-
-      {/* Filtro por EMPRESA (pedido del cliente 20-ago-2026). Va plegado y ocupa una
-          línea, para no empujar el listado hacia abajo; se despliega al tocarlo.
-          Mismo patrón que el filtro de CARGO de abajo (buscador + selección múltiple),
-          porque la lista de contratistas es larga y no cabe en chips sueltos. */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
-        <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Empresa:</Text>
-        <TouchableOpacity
-          onPress={() => setEmpresasOpen((v) => !v)}
-          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: empresaSel.size ? colors.brand : colors.border, backgroundColor: colors.surface }}
-        >
-          <Text style={{ color: empresaSel.size ? colors.brandText : colors.text, fontWeight: '800', fontSize: 12, flex: 1 }} numberOfLines={1}>
-            🏢 {empresaSel.size === 0
-              ? `Todas · ${estadoFiltered.length}`
-              : empresaCounts.filter((c) => empresaSel.has(c.key)).map((c) => c.name).join(', ')}
-          </Text>
-          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{empresasOpen ? '▲' : '▼'}</Text>
-        </TouchableOpacity>
-        {empresaSel.size > 0 ? (
-          <TouchableOpacity onPress={() => setEmpresaSel(new Set())} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-      {empresasOpen ? (
-        <Card>
-          <TextInput
-            value={empresaQ}
-            onChangeText={setEmpresaQ}
-            placeholder="🔎 Buscar empresa…"
-            placeholderTextColor={colors.muted}
-            style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
-          />
-          <ScrollView style={{ maxHeight: 240 }} keyboardShouldPersistTaps="handled">
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              <TouchableOpacity
-                onPress={() => setEmpresaSel(new Set())}
-                style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: empresaSel.size === 0 ? colors.brand : colors.border, backgroundColor: empresaSel.size === 0 ? colors.brand : colors.surface }}
-              >
-                <Text style={{ color: empresaSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todas · {estadoFiltered.length}</Text>
-              </TouchableOpacity>
-              {empresaCounts.filter((c) => !empresaQ.trim() || norm(c.name).includes(norm(empresaQ))).map((c) => {
-                const on = empresaSel.has(c.key);
-                return (
-                  <TouchableOpacity
-                    key={c.key}
-                    onPress={() => setEmpresaSel((prev) => { const s = new Set(prev); if (s.has(c.key)) s.delete(c.key); else s.add(c.key); return s; })}
-                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
-                  >
-                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{c.name} · {c.n}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </ScrollView>
-          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
-            Marca una o varias empresas. El filtro se combina con el estado y el cargo, y el 📊 Reporte sale con lo seleccionado.
-          </Text>
-        </Card>
-      ) : null}
 
       {/* Orden alfabético por nombre */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
