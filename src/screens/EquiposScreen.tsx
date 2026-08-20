@@ -1574,14 +1574,9 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
             {/* Encabezado: TOTAL DE FLOTA DISPONIBLE */}
             <View style={{ backgroundColor: colors.brand, borderRadius: radius.lg, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, marginBottom: spacing.sm }}>
               <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '800', letterSpacing: 1, opacity: 0.9 }}>TOTAL DE FLOTA DISPONIBLE</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.brandContrast, fontSize: 44, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 50 }}>
-                  {machinery.loading ? '…' : disponible}
-                </Text>
-                <Text style={{ color: colors.brandContrast, fontSize: 11, opacity: 0.85, textAlign: 'right', maxWidth: '55%', paddingBottom: 6 }}>
-                  Operativas + averiadas + esperando{'\n'}(las retiradas no se cuentan)
-                </Text>
-              </View>
+              <Text style={{ color: colors.brandContrast, fontSize: 44, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 50 }}>
+                {machinery.loading ? '…' : disponible}
+              </Text>
             </View>
             {/* Desglose por estado (clickeable → detalle) */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
