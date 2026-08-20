@@ -1556,45 +1556,51 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
         </TouchableOpacity>
       ) : null}
 
-      {/* Tarjetas de estado: operativas / averiadas / retiradas / esperando instrucciones (clickeables → detalle) */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm }}>
-        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('active')}>
-          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.success }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Operativas</Text>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+      {/* TOTAL DE FLOTA DISPONIBLE = operativas + averiadas + esperando instrucciones.
+          Las RETIRADAS (fuera de servicio) NO se cuentan. Debajo, el desglose por estado
+          (clickeable → detalle). */}
+      {(() => {
+        const nOp = activeMachines.length, nAv = averiadaMachines.length;
+        const nEsp = esperaMachines.length, nRet = retiradaMachines.length;
+        const disponible = nOp + nAv + nEsp;
+        const estados: { key: 'active' | 'averiada' | 'espera' | 'retirada'; label: string; n: number; color: string }[] = [
+          { key: 'active', label: 'Operativas', n: nOp, color: colors.success },
+          { key: 'averiada', label: 'Averiadas', n: nAv, color: colors.warning },
+          { key: 'espera', label: 'Esperando instrucciones', n: nEsp, color: colors.brand },
+          { key: 'retirada', label: 'Retiradas', n: nRet, color: colors.danger },
+        ];
+        return (
+          <View style={{ marginBottom: spacing.sm }}>
+            {/* Encabezado: TOTAL DE FLOTA DISPONIBLE */}
+            <View style={{ backgroundColor: colors.brand, borderRadius: radius.lg, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '800', letterSpacing: 1, opacity: 0.9 }}>TOTAL DE FLOTA DISPONIBLE</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.brandContrast, fontSize: 44, fontWeight: '900', fontVariant: ['tabular-nums'] as any, lineHeight: 50 }}>
+                  {machinery.loading ? '…' : disponible}
+                </Text>
+                <Text style={{ color: colors.brandContrast, fontSize: 11, opacity: 0.85, textAlign: 'right', maxWidth: '55%', paddingBottom: 6 }}>
+                  Operativas + averiadas + esperando{'\n'}(las retiradas no se cuentan)
+                </Text>
+              </View>
             </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.success, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : activeMachines.length}</Text>
-          </Card>
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('averiada')}>
-          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.warning }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Averiadas</Text>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+            {/* Desglose por estado (clickeable → detalle) */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+              {estados.map((e) => (
+                <TouchableOpacity key={e.key} activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus(e.key)}>
+                  <Card style={{ borderLeftWidth: 4, borderLeftColor: e.color }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: e.color }} />
+                      <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>{e.label}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                    </View>
+                    <Text style={{ fontSize: 24, fontWeight: '800', color: e.color, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : e.n}</Text>
+                  </Card>
+                </TouchableOpacity>
+              ))}
             </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.warning, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : averiadaMachines.length}</Text>
-          </Card>
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('retirada')}>
-          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Retiradas</Text>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
-            </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : retiradaMachines.length}</Text>
-          </Card>
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('espera')}>
-          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.brand }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Esperando instrucciones</Text>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
-            </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.brandText, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : esperaMachines.length}</Text>
-          </Card>
-        </TouchableOpacity>
-      </View>
+          </View>
+        );
+      })()}
 
       {/* Alta unificada: + Agregar (elige vehículo o maquinaria) y Obras Públicas */}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
