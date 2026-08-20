@@ -297,36 +297,6 @@ export default function DashboardScreen({ navigation }: any) {
         </View>
       </Card>
 
-      <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <StatCard
-          label="Máquinas activas (rondas)"
-          value={activeMachines === null ? '…' : activeMachines}
-          color={activeMachines ? colors.success : colors.text}
-          onPress={() => setShowActive(true)}
-        />
-        <StatCard
-          label="Ubicaciones activas"
-          value={activeLocations === null ? '…' : activeLocations}
-          color={activeLocations ? colors.primary : colors.text}
-          onPress={() => navigation?.navigate('Map')}
-        />
-      </View>
-
-      <View style={{ flexDirection: 'row', gap: spacing.md }}>
-        <StatCard
-          label="Existencia total"
-          value={`${totalCurrent.toLocaleString()} L`}
-          color={colors.text}
-          onPress={() => navigation?.navigate('More', { screen: 'Combustible' })}
-        />
-        <StatCard
-          label="Maquinaria/Vehículos activos"
-          value={activeAssets === null ? '…' : activeAssets}
-          color={activeAssets ? colors.primary : colors.text}
-          onPress={() => navigation?.navigate('Equipos')}
-        />
-      </View>
-
       <StatCard
         label="Tanques con stock bajo"
         value={`${lowTanks} / ${tanks.length}`}
