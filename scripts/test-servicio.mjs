@@ -204,9 +204,15 @@ console.log('SERVICIO DE MAQUINARIA\n');
   ok('la ficha muestra la PLACA, que es lo que usan para asignar',
     unaHtml.includes('SLP214TSWE0471955'));
   ok('la ficha trae la foto de la máquina', unaHtml.includes('https://x/foto.jpg'));
-  ok('la ficha trae la lubricación del documento del cliente',
-    unaHtml.includes('15W-40') && unaHtml.includes('18 L'));
-  ok('la ficha calcula las horas acumuladas (1240 − 1100)', unaHtml.includes('140 h'));
+  // 20-ago-2026 — el cliente pidió QUITAR estos dos bloques del PDF: en la flota
+  // salían casi siempre vacíos ("SIN DATOS DE LUBRICACIÓN — ") y empujaban media
+  // página antes de las reparaciones, que es lo que se viene a leer. Los campos
+  // siguen en la máquina y se siguen editando en Control de Maquinaria; lo único
+  // que cambió es que ya NO se imprimen acá. No los devuelvas sin que lo pida.
+  ok('⭐ la ficha YA NO imprime la lubricación',
+    !/LUBRICACI/i.test(unaHtml) && !unaHtml.includes('15W-40') && !unaHtml.includes('18 L'));
+  ok('⭐ la ficha YA NO imprime el horómetro',
+    !/HOR[ÓO]METRO/i.test(unaHtml) && !unaHtml.includes('1240 h') && !unaHtml.includes('140 h'));
   ok('hay salto de página entre la ficha y las reparaciones',
     /page-break-after\s*:\s*always/.test(unaHtml));
   ok('el servicio sale con su repuesto', unaHtml.includes('Manguera 3/4&quot;') || unaHtml.includes('Manguera 3/4"'));
@@ -233,7 +239,7 @@ console.log('SERVICIO DE MAQUINARIA\n');
     maquinas: [{ m: { code: 'VOLTEO', plate: 'A1' }, servicios: [SRV] }],
   });
   ok('máquina sin foto no deja un <img> roto', !/<img[^>]*src=["']["']/.test(sinFoto));
-  ok('máquina sin lubricación no imprime "undefined" ni "null"',
+  ok('máquina a medio llenar no imprime "undefined" ni "null"',
     !/undefined|>null</.test(sinFoto.replace(/<[^>]+>/g, (t) => t)));
 
   // ── Registros viejos de machinery_repairs ──
