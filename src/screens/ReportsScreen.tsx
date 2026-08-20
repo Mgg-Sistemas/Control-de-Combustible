@@ -90,6 +90,7 @@ type FleetItem = {
   company: string;
   worked: number;      // horas trabajadas REALES en el rango (activa si > 0)
   averiada: boolean;   // tiene avería pendiente (se incluye aunque no haya trabajado)
+  enEspera: boolean;   // esperando instrucciones (stand by) — se incluye aunque no haya trabajado
 };
 
 // Período de las jornadas que resume el reporte de flota (horas trabajadas).
@@ -1057,11 +1058,12 @@ export default function ReportsScreen({ route }: any) {
     // abierto — mismo patrón que generateRounds/generateConteo (ver liveRef arriba).
     liveRef.current = generateFleet;
     setLoading(true);
-    // SOLO MAQUINARIA (sin vehículos). Se incluyen las ACTIVAS (trabajaron en el rango) y
-    // las AVERIADAS (con avería pendiente), SIN IMPORTAR EL ESTATUS operativo. Reporte de
+    // SOLO MAQUINARIA (sin vehículos). Se incluyen las ACTIVAS (trabajaron en el rango),
+    // las AVERIADAS (con avería pendiente) y las que están ESPERANDO INSTRUCCIONES
+    // (en_espera / stand by), SIN IMPORTAR EL ESTATUS operativo. Reporte de
     // IDENTIDAD/catálogo: nombre, marca, modelo, placa, serial, clasificación.
     const [{ data: mach }, rnds, pend] = await Promise.all([
-      supabase.from('machinery').select('id, code, marca, modelo, plate, serial, clasificacion, company:company_id(name)'),
+      supabase.from('machinery').select('id, code, marca, modelo, plate, serial, clasificacion, en_espera, company:company_id(name)'),
       // Horas trabajadas REALES dentro del rango del reporte (día + noche − parada + extras).
       // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas.
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
@@ -1091,10 +1093,11 @@ export default function ReportsScreen({ route }: any) {
       company: m.company?.name || 'Sin empresa',
       worked: mHours.get(m.id) ?? 0,
       averiada: averiaSet.has(m.id),
+      enEspera: m.en_espera === true,
     }));
     const filtered = items.filter(
       (it) =>
-        (it.worked > 0 || it.averiada) && // activas (trabajaron) o averiadas, sin importar el estatus
+        (it.worked > 0 || it.averiada || it.enEspera) && // activas (trabajaron), averiadas o esperando instrucciones
         (repCompanies.length === 0 || repCompanies.includes(it.company)) &&
         (fleetTypes.length === 0 || fleetTypes.includes(it.tipo))
     );
@@ -1992,7 +1995,7 @@ export default function ReportsScreen({ route }: any) {
       .join('');
 
     const body = `<style>.emp{font-size:14px;color:#1E3A5F;font-weight:800;margin:16px 0 4px}</style>
-      <div class="muted">${esc(alcance)} · Maquinaria activa y averiada · del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
+      <div class="muted">${esc(alcance)} · Maquinaria activa, averiada y esperando instrucciones · del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary">
         <div><span class="k">Máquinas</span><b>${fleetItems.length}</b></div>
         <div><span class="k">Empresas</span><b>${groups.size}</b></div>
@@ -3334,7 +3337,7 @@ export default function ReportsScreen({ route }: any) {
           </TouchableOpacity>
 
           {fleetItems.length === 0 ? (
-            <Card><Text style={{ color: colors.muted }}>Ninguna máquina activa o averiada en el rango de fechas.</Text></Card>
+            <Card><Text style={{ color: colors.muted }}>Ninguna máquina activa, averiada o esperando instrucciones en el rango de fechas.</Text></Card>
           ) : (
             // Agrupado POR EMPRESA: cada empresa es un bloque con su título arriba (no columna).
             Array.from(
@@ -3344,7 +3347,7 @@ export default function ReportsScreen({ route }: any) {
               .map(([company, machines]) => (
                 <Card key={company}>
                   <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🏢 {company}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{machines.length} máquina(s) activas o averiadas.</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{machines.length} máquina(s) activas, averiadas o esperando instrucciones.</Text>
                   {machines
                     .slice()
                     .sort((a, b) => cmpText(a.name, b.name))
