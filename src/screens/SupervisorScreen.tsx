@@ -1570,11 +1570,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     }
     const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
     if (error) { setSavingMachLoc(false); setNotice('❌ ' + error.message); return; }
-    // EDIFICIO SINCRONIZADO CON EL GPS: si las coordenadas que se guardan caen en un
-    // sector conocido, se guarda ese sector como referencia (así el edificio SIEMPRE
-    // cuadra con la ubicación). Si cae fuera de zona, se respeta lo escrito a mano.
-    const det = edificioTextOf(lat as number, lng as number, ciRef.trim());
-    const nuevaRef = det && det !== 'Sin zona' ? det : (ciRef.trim() || null);
+    // Se guarda EXACTAMENTE el edificio que quedó en el desplegable: puede venir
+    // AUTO-DETECTADO del GPS (al abrir/re-tomar) o CAMBIADO A MANO por el inspector —
+    // en ambos casos manda lo que se ve. Al escribir en machinery.referencia, el Mapa
+    // (que escucha realtime de `machinery`) refleja el nuevo edificio de una vez.
+    const nuevaRef = ciRef.trim() || null;
     const { error: refErr } = await supabase.from('machinery').update({ referencia: nuevaRef }).eq('id', ci.id);
     setSavingMachLoc(false);
     if (refErr) { setNotice('❌ ' + refErr.message); return; }
