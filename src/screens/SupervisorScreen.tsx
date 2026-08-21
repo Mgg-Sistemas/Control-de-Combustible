@@ -1557,33 +1557,48 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
   };
 
-  // Guarda TU posición actual como la UBICACIÓN de la máquina (queda en el mapa y
-  // en el monitoreo con tu nombre). Estás en la máquina, así que sirve para ubicarla.
+  // Guarda la UBICACIÓN de la máquina (tu posición GPS) + el EDIFICIO.
+  // GPS PRIMARIO: si hay señal, actualiza las coordenadas (queda en el mapa) y el
+  // edificio queda sincronizado con el sector. RESPALDO SIN GPS: si el GPS no
+  // funciona, igual se puede guardar SOLO el edificio elegido de la lista (la
+  // ubicación queda como estaba) — así el inspector nunca se queda sin registrar.
   const guardarUbicacionMaquina = async () => {
     if (!ci) return;
     setSavingMachLoc(true);
     let lat = gps?.lat ?? null, lng = gps?.lng ?? null;
     if (lat == null || lng == null) {
-      const r = await getCurrentCoords();
-      if (!r.ok || r.lat == null || r.lng == null) { setSavingMachLoc(false); setNotice('❌ ' + (r.error ?? 'No se pudo obtener tu ubicación.')); return; }
-      lat = r.lat; lng = r.lng; setGps({ lat, lng });
+      const r = await getCurrentCoords({ fresh: true });
+      if (r.ok && r.lat != null && r.lng != null) { lat = r.lat; lng = r.lng; setGps({ lat, lng }); }
     }
-    const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
-    if (error) { setSavingMachLoc(false); setNotice('❌ ' + error.message); return; }
-    // Se guarda EXACTAMENTE el edificio que quedó en el desplegable: puede venir
-    // AUTO-DETECTADO del GPS (al abrir/re-tomar) o CAMBIADO A MANO por el inspector —
-    // en ambos casos manda lo que se ve. Al escribir en machinery.referencia, el Mapa
-    // (que escucha realtime de `machinery`) refleja el nuevo edificio de una vez.
-    const nuevaRef = ciRef.trim() || null;
+    const gpsOk = lat != null && lng != null;
+    // EDIFICIO: con GPS manda el SECTOR del mapa (se sincroniza con la ubicación); si
+    // el GPS cae fuera de zona o NO hay señal, vale lo elegido en la lista (respaldo).
+    const manual = ciRef.trim();
+    const det = gpsOk ? edificioTextOf(lat as number, lng as number, manual) : '';
+    const nuevaRef = gpsOk && det && det !== 'Sin zona' ? det : (manual || null);
+    // Sin GPS y sin edificio elegido: no hay nada que guardar (no se pisa lo actual).
+    if (!gpsOk && !nuevaRef) {
+      setSavingMachLoc(false);
+      setNotice('⚠️ Sin señal GPS. Elige un edificio de la lista para poder guardarlo.');
+      return;
+    }
+    if (gpsOk) {
+      const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
+      if (error) { setSavingMachLoc(false); setNotice('❌ ' + error.message); return; }
+    }
+    // Al escribir en machinery.referencia, el Mapa (que escucha realtime de
+    // `machinery`) refleja el nuevo edificio de una vez.
     const { error: refErr } = await supabase.from('machinery').update({ referencia: nuevaRef }).eq('id', ci.id);
     setSavingMachLoc(false);
     if (refErr) { setNotice('❌ ' + refErr.message); return; }
-    // Si la residencia/edificio escrito NO estaba en el catálogo, lo registra al
-    // vuelo (idempotente) para que quede en la lista compartida la próxima vez.
+    // Si el edificio escrito NO estaba en el catálogo, lo registra al vuelo
+    // (idempotente) para que quede en la lista compartida la próxima vez.
     if (nuevaRef) addEdificio(nuevaRef).catch(() => {});
     setCiRef(nuevaRef ?? '');
-    setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number, referencia: nuevaRef } as Mach : c));
-    setNotice(nuevaRef ? '✅ Ubicación y referencia guardadas.' : '✅ Ubicación de la máquina guardada.');
+    setCi((c) => (c ? { ...c, ...(gpsOk ? { latitude: lat as number, longitude: lng as number } : {}), referencia: nuevaRef } as Mach : c));
+    setNotice(gpsOk
+      ? (nuevaRef ? '✅ Ubicación GPS y edificio guardados.' : '✅ Ubicación GPS guardada.')
+      : '✅ Edificio guardado (sin GPS · la ubicación quedó igual).');
     load();
   };
 
@@ -3419,13 +3434,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>↻ Volver a tomar ubicación</Text>
                 </TouchableOpacity>
                 {/* Edificio del catálogo COMPARTIDO (public.edificios): desplegable con
-                    buscar + ➕ agregar si no existe. Se guarda con la ubicación y sale
-                    en el reporte "Máquinas por sector" del Mapa. Campo único EDIFICIO. */}
+                    buscar + ➕ agregar si no existe. Con GPS se AUTO-DETECTA del sector;
+                    si el GPS NO funciona, se elige AQUÍ de la lista (respaldo) y se guarda
+                    igual. Sale en el reporte "Máquinas por sector" del Mapa. */}
                 <EdificioPicker value={ciRef} onChange={setCiRef} />
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                  🛰️ Con GPS el edificio se sincroniza con el sector. ¿Sin señal? Elige el edificio de la lista y guarda igual.
+                </Text>
                 {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa) + el edificio. */}
                 <TouchableOpacity onPress={guardarUbicacionMaquina} disabled={savingMachLoc || gpsBusy} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (savingMachLoc || gpsBusy) ? 0.6 : 1 }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
-                    {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación + referencia' : '📍 Guardar ubicación + referencia')}
+                    {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación GPS + edificio' : '📍 Guardar ubicación GPS + edificio')}
                   </Text>
                 </TouchableOpacity>
               </View>
