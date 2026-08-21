@@ -868,6 +868,27 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > aparece como **SOS LA GUAIRA** (el empleador), siempre de primero. La **✕** al lado limpia la
 > selección de un toque. Se combina con Estado, Cargo y la búsqueda, y **los conteos por cargo se
 > recalculan** con la empresa elegida.
+>
+> **🏢 EMPRESA FILTRO NÓMINA — lista propia, aparte de todo (21-ago-2026).** Ese filtro ya **no**
+> usa el catálogo general de empresas: usa una lista **que solo existe en Nómina**. En la ficha del
+> empleado hay un campo **"🏢 Empresa filtro nómina"**; ahí puedes **escribir un nombre nuevo y se
+> crea al vuelo**, sin salir del formulario.
+>
+> **Esa empresa NO aparece en ningún otro lado**: ni en Catálogo, ni en Maquinaria, ni en Reportes,
+> ni en Compras, ni en Inventario, ni en Acarreo, ni en Comidas. Es **referencial**: sirve para
+> agrupar y filtrar gente en Empleados y para la columna del reporte, y nada más. Antes, crear una
+> empresa desde aquí la metía en todos esos selectores.
+>
+> ⚠️ **El empleado queda con DOS empresas y hay que saberlo:**
+> - **"Empresa"** — la de siempre, del catálogo general. **No se tocó** y sigue mandando en los
+>   **períodos de nómina**, la pantalla de **Comidas**, el **carnet** y la **constancia**.
+> - **"Empresa filtro nómina"** — la nueva. Manda en los **chips de filtro**, en los **títulos por
+>   empresa** de la lista y en la **columna del reporte** de Empleados.
+>
+> Al correr `supabase/nomina_empresa_filtro.sql` la lista nueva **arranca copiada** de la que ya
+> tenías, así que el filtro se ve igual que siempre desde el primer día. De ahí en adelante las dos
+> viven separadas: renombrar o crear en Nómina **no** toca el catálogo general, y al revés tampoco.
+> Si a alguien no le pones la empresa de filtro, sale agrupado bajo **"Sin empresa de filtro"**.
 
 > El Excel con tarifas por empleado que existía antes en esta pantalla se retiró: no correspondía
 > aquí (exportaba tarifas del empleado). El Excel de nómina ahora vive en **Nómina → Control de
