@@ -1158,6 +1158,16 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > (botón **"Ver resultados (N)"**) para no volcar de golpe las ~200 máquinas; se despliega al tocarlo
 > y respeta el chip que tengas elegido.
 >
+> **🔤/👤 ORGANIZAR POR (21-ago-2026):** debajo del buscador hay dos pastillas, **"🔤 Máquina"** y
+> **"👤 Encargado"**. La primera es la de siempre: las máquinas en orden alfabético por su nombre.
+> La segunda las **agrupa por encargado**, con el nombre de cada uno de título y la cantidad al
+> lado — así puedes asignarle a un inspector todas las máquinas de un mismo encargado de una sola
+> pasada, en vez de irlas buscando sueltas. **No filtra ni esconde nada:** salen exactamente las
+> mismas máquinas en los dos modos, solo cambia el orden. El mismo encargado escrito de formas
+> distintas (*"bruno"*, *"BRUNO "*) cae en **un solo** grupo, y las máquinas **sin encargado**
+> cargado quedan juntas al final, bajo **"SIN ENCARGADO"** (esa es tu lista de pendientes por
+> corregir en el Catálogo).
+>
 > **👥 Coordinador de Inspectores (rol nuevo):** además del administrador, cualquier usuario con el
 > permiso de módulo **"Coordinador de inspectores"** (se activa desde **Usuarios**, igual que
 > cualquier otro permiso) puede coordinar/asignar inspectores — es un permiso ADICIONAL, no le quita
