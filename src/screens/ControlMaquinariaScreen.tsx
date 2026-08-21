@@ -226,7 +226,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [fleteDelConfirm, setFleteDelConfirm] = useState<string | null>(null); // id del flete pendiente de confirmar borrado
 
   // Marcar equipo AVERIADO desde el control: empresa → máquina (serial/placa) → motivo.
-  // Deja la máquina No operativa y abre una traza de reparación para Mantenimiento.
+  // Registra la AVERÍA y abre una traza de reparación para Mantenimiento. NO retira la
+  // máquina de la flota (ver la advertencia grande sobre `marcarAveriada`).
   const [averiaOpen, setAveriaOpen] = useState(false);
   const [averiaCompany, setAveriaCompany] = useState<string | null>(null); // company_id | '__none__' | null
   const [averiaCompanyOpen, setAveriaCompanyOpen] = useState(false);
@@ -1271,8 +1272,35 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   };
 
   // ── Marcar equipo AVERIADO (desde el control) ───────────────────────────────
-  // Abre el flujo empresa → máquina → motivo. Al confirmar deja la máquina No
-  // operativa y crea la traza de reparación (correctivo) que Mantenimiento gestiona.
+  // Abre el flujo empresa → máquina → motivo. Al confirmar registra la AVERÍA y crea
+  // la traza de reparación (correctivo) que Mantenimiento gestiona.
+  //
+  // ⚠️ AVERIADA NO ES RETIRADA. NO LE VUELVAS A PONER `operational: false`.
+  // ---------------------------------------------------------------------------
+  // Hasta el 20-ago-2026 este botón hacía dos cosas mal, y entre las dos rompían
+  // los reportes (lo reportó el cliente con el corte de FERRECONSTRUCCIONES):
+  //
+  //  1. Ponía `machinery.operational = false`. Esa columna significa RETIRADA —
+  //     "la máquina ya no está, queda el registro" (palabras del cliente). Una
+  //     máquina dañada SIGUE siendo de la flota. Y como retirada:
+  //       · el Reporte del día por empresa la SALTABA si tenía 0 horas
+  //         (`porEmpresaReport.ts`: `if (inactiva && dd <= 0 && nn <= 0) return;`),
+  //       · pero el Informe por jornada SÍ la mostraba
+  //     → los dos documentos del mismo día daban distinto.
+  //     Encima, el trigger `close_jornada_on_retiro` (supabase/cerrar_jornada_al_retirar.sql)
+  //     nula `jornada_start_at` SIN bancar lo trabajado: marcar averiada BORRABA
+  //     las horas del turno en curso.
+  //
+  //  2. Solo guardaba el marcador genérico `MÁQUINA PARADA`. Todo el sistema define
+  //     avería REAL como `material != 'MÁQUINA PARADA'` (machineLiveStatus.ts:31,
+  //     controlEstado.ts:15), así que la máquina salía como PARADA en todos lados —
+  //     nunca como averiada — y el motivo real quedaba en `machinery_repairs`, tabla
+  //     que ningún reporte lee.
+  //
+  // Ahora hace lo MISMO que el teléfono del inspector (SupervisorScreen ~2047):
+  // dos renglones en `maintenance_requests` —la avería real + el marcador genérico—
+  // y NO toca el estado operativo. Para sacar una máquina de la flota está el botón
+  // "⛔ Inactiva" del Catálogo, que es el que sí debe poner `operational = false`.
   const openAveria = () => {
     setAveriaCompany(companyFilter !== '__all__' ? companyFilter : null);
     setAveriaCompanyOpen(companyFilter === '__all__');
@@ -1289,17 +1317,29 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     setAveriaBusy(true);
     const m = averiaMachine;
     const nota = averiaNota.trim();
-    // 1) Estado del sistema: No operativa (averiada). Esto es lo esencial.
-    const { error: eOp } = await supabase.from('machinery').update({ operational: false }).eq('id', m.id);
-    if (eOp) { setAveriaBusy(false); setNotice(`❌ No se pudo marcar averiada: ${eOp.message}`); return; }
+    // 1) LA AVERÍA REAL. `material` distinto de 'MÁQUINA PARADA' es lo que hace que
+    //    el sistema entero la lea como AVERIADA y no como parada. Se usa 'otro' con el
+    //    motivo escrito, igual que el "✏️ Otro" del teléfono. Si ya había una avería
+    //    pendiente se le actualiza el motivo en vez de apilar otra.
+    const { data: avUpd, error: eAvUpd } = await supabase.from('maintenance_requests')
+      .update({ notes: nota })
+      .eq('machinery_id', m.id).neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente')
+      .select('id');
+    const eAv = eAvUpd || (!avUpd?.length
+      ? (await supabase.from('maintenance_requests').insert({
+          machinery_id: m.id, material: 'otro', notes: nota, status: 'pendiente', requested_by: session?.user?.id ?? null,
+        })).error
+      : null);
+    if (eAv) { setAveriaBusy(false); setNotice(`❌ No se pudo registrar la avería: ${eAv.message}`); return; }
     // 2) Traza de reparación para que Mantenimiento la gestione (retorno operativo).
     const { error: eRep } = await supabase.from('machinery_repairs').insert({
       machinery_id: m.id, tipo: 'correctivo', out_at: todayISO(),
       estimated_note: nota, status: 'en_reparacion', created_by: session?.user?.id ?? null,
     });
-    // 3) Marcador "MÁQUINA PARADA" (igual que el inspector desde el teléfono): sin
-    // esto la máquina queda No operativa pero invisible en Inspecciones, que solo
-    // lee maintenance_requests — el motivo escrito aquí no se veía ahí. Si YA había un
+    // 3) Marcador "MÁQUINA PARADA", el SEGUNDO renglón (igual que el teléfono del
+    // inspector, SupervisorScreen ~2053): es lo que mantiene la máquina visible como
+    // detenida en Inspecciones y en Control, que solo leen maintenance_requests. La
+    // avería del paso 1 manda sobre este marcador en toda clasificación. Si YA había un
     // marcador pendiente (el inspector ya la había marcado parada), se ACTUALIZA su
     // motivo en vez de insertar otro — evita duplicar y contar dos veces las horas
     // paradas en los reportes por empresa.
@@ -1313,11 +1353,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         })).error
       : null);
     setAveriaBusy(false);
-    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, operational: false } as Machinery) : x)));
     closeAveria();
+    // Se recarga para que el estado salga del mismo cálculo que el resto del sistema
+    // (`controlEstado.ts`), no de un parche local: acá ya no se toca `operational`.
+    load(true);
     setNotice(
-      `⚠️ ${m.code} quedó marcada como AVERIADA (No operativa).` +
-      (eRep || eMr ? ' Algo no se pudo registrar completo, pero el equipo ya salió del control.' : ' Gestiona su reparación en Servicio de Maquinaria.')
+      `🔴 ${m.code} quedó marcada como AVERIADA. Sigue siendo de la flota — para sacarla de servicio está "⛔ Inactiva" en el Catálogo.` +
+      (eRep || eMr ? ' ⚠️ Algo no se pudo registrar completo.' : ' Gestiona su reparación en Servicio de Maquinaria.')
     );
   };
 
@@ -1604,7 +1646,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Marcar un equipo AVERIADO: empresa → máquina (serial/placa) → queda No operativa. */}
+      {/* Marcar un equipo AVERIADO: empresa → máquina (serial/placa) → queda AVERIADA (sigue en la flota). */}
       <TouchableOpacity
         onPress={openAveria}
         style={{ paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }}
