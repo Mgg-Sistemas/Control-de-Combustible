@@ -267,12 +267,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // El mismo selector de empresas sirve para dos reportes: 'dia' (del día por
   // empresa) y 'mant' (horas trabajadas totales · próximas a mantenimiento).
   const [reportMode, setReportMode] = useState<'dia' | 'mant'>('dia');
+  // CÓMO SE PARTE el PDF en secciones. Es distinto del filtro de encargado de
+  // arriba y se combinan: FILTRAR deja fuera máquinas, AGRUPAR solo cambia el
+  // orden de las mismas. Por defecto 'empresa', que es como salía siempre.
+  // Pedido del cliente (21-ago-2026): «que los reportes que saco por empresa y
+  // por jornada, haya una opción para también sacarlo por encargado».
+  const [reportGroupBy, setReportGroupBy] = useState<'empresa' | 'encargado'>('empresa');
   const makeEmpresaReport = async () => {
     if (empresaSel.size === 0) return;
     setEmpresaPickerOpen(false);
     setPdfBusy(EMPRESA_KEY);
     try {
-      await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel], encargados: selectedEncargadoRaws() });
+      await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel], encargados: selectedEncargadoRaws(), groupBy: reportGroupBy });
     } finally {
       setPdfBusy(null);
     }
@@ -284,7 +290,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setEmpresaPickerOpen(false);
     setPdfBusy(HORAS_KEY);
     try {
-      await generateMachineHoursReport({ companyIds: [...empresaSel], encargados: selectedEncargadoRaws() });
+      await generateMachineHoursReport({ companyIds: [...empresaSel], encargados: selectedEncargadoRaws(), groupBy: reportGroupBy });
     } finally {
       setPdfBusy(null);
     }
@@ -1608,6 +1614,33 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Sin selección = todos los encargados de las empresas elegidas.</Text>
                   </View>
                 ) : null}
+
+                {/* AGRUPAR POR — cómo se PARTE el PDF en secciones. Ojo: es distinto
+                    del filtro de arriba y se combinan. Filtrar deja máquinas FUERA;
+                    agrupar no saca ninguna, solo cambia cómo se ordenan y titulan.
+                    Va SIEMPRE visible (no depende de que haya encargados listados)
+                    porque es la opción que el cliente vino buscando. */}
+                <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, marginBottom: spacing.xs }}>Agrupar por</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    {([{ v: 'empresa', label: '🏢 Empresa' }, { v: 'encargado', label: '🧑‍🔧 Encargado' }] as const).map((g) => {
+                      const on = reportGroupBy === g.v;
+                      return (
+                        <TouchableOpacity
+                          key={g.v}
+                          onPress={() => setReportGroupBy(g.v)}
+                          activeOpacity={0.85}
+                          style={{ flex: 1, paddingVertical: 10, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12.5 }}>{g.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                    No saca ninguna máquina: solo cambia si el PDF viene partido por empresa o por responsable.
+                  </Text>
+                </View>
 
                 {reportMode === 'mant' ? (
                   <>

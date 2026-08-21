@@ -13,6 +13,7 @@ import { useToast } from '../components/ToastProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml, constanciaTrabajoHtml } from '../lib/constancia';
+import { amonestacionHtml, GRADO_LABEL, GradoAmonestacion } from '../lib/amonestacion';
 import { montoQuincenal, montoQuincenalTexto } from '../lib/montoQuincenal';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
@@ -88,7 +89,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   // Lista PROPIA de Nómina. Si todavía no se corrió supabase/nomina_empresa_filtro.sql
   // la consulta falla y `data` queda vacío: los chips caen a "Sin empresa de filtro"
   // y nada se rompe.
-  const { data: payrollCompanies } = useTable<{ id: string; name: string }>('payroll_companies', { orderBy: 'name' });
+  const { data: payrollCompanies, refetch: refetchPayroll } = useTable<{ id: string; name: string }>('payroll_companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
   const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo' | 'otro'>('todos'); // estado del empleado
@@ -163,7 +164,13 @@ export default function EmpleadosScreen({ navigation }: any) {
       g.n += 1;
       map.set(k, g);
     });
-    // SOS LA GUAIRA (el empleador) siempre de primera; el resto alfabético.
+    // Y TAMBIÉN las empresas de nómina que todavía no tienen a nadie asignado.
+    // Antes la lista se armaba SOLO con los empleados, así que una empresa recién
+    // creada no aparecía por ningún lado hasta tener su primer empleado: se creaba
+    // bien pero parecía que no se había creado. Salen con "· 0" para que se vea
+    // que existen y que les falta gente.
+    payrollCompanies.forEach((c) => { if (!map.has(c.id)) map.set(c.id, { key: c.id, name: c.name, n: 0 }); });
+    // "Sin empresa de filtro" siempre de primera; el resto alfabético.
     return Array.from(map.values()).sort((a, b) =>
       a.key === SIN_EMPRESA ? -1 : b.key === SIN_EMPRESA ? 1 : cmpText(a.name, b.name));
   }, [estadoFiltered, companies, payrollCompanies]);
@@ -197,18 +204,6 @@ export default function EmpleadosScreen({ navigation }: any) {
       }),
     [baseFiltered, cargoSel, sortDir]
   );
-
-  // Agrupa por empresa (acordeón).
-  const byCompany = useMemo(() => {
-    const map = new Map<string, { key: string; name: string; items: Employee[] }>();
-    shown.forEach((e) => {
-      const k: string = (e as any).payroll_company_id ?? '__none__';
-      const g = map.get(k) ?? { key: k, name: nominaName((e as any).payroll_company_id), items: [] as Employee[] };
-      g.items.push(e);
-      map.set(k, g);
-    });
-    return Array.from(map.values()).sort((a, b) => a.name === 'SOS LA GUAIRA' ? -1 : b.name === 'SOS LA GUAIRA' ? 1 : cmpText(a.name, b.name));
-  }, [shown, companies, payrollCompanies]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (e: Employee) => { setEditing(e); setFormOpen(true); };
@@ -280,6 +275,57 @@ export default function EmpleadosScreen({ navigation }: any) {
     await exportPdf(html, `Constancia de trabajo - ${fullName(e)}`);
     setBusy(null);
     setConstanciaFor(null);
+  };
+
+  // AMONESTACIÓN ESCRITA (llamado de atención). Igual que las constancias, el
+  // documento SOLO SE IMPRIME: no se guarda historial. Ver `src/lib/amonestacion.ts`.
+  // Todos los campos son OPCIONALES a propósito: si se generan en blanco, el PDF
+  // sale como PLANILLA con renglones para llenar a mano, que es como se usa cuando
+  // hay que amonestar a alguien en el sitio y no hay computadora cerca.
+  const [amonestFor, setAmonestFor] = useState<Employee | null>(null);
+  const [amFalta, setAmFalta] = useState('');
+  const [amFecha, setAmFecha] = useState('');
+  const [amHora, setAmHora] = useState('');
+  const [amDesc, setAmDesc] = useState('');
+  const [amGrado, setAmGrado] = useState<GradoAmonestacion | null>(null);
+  const [amTestigo, setAmTestigo] = useState('');
+
+  // Estilos del cuadro de la amonestación. Van acá y no en un StyleSheet porque
+  // dependen del tema (claro/oscuro) y este archivo no usa StyleSheet en ningún lado.
+  const amLbl = { color: colors.muted, fontSize: 12, fontWeight: '700' as const, marginTop: spacing.sm, marginBottom: 2 };
+  const amInput = {
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+    paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text, fontSize: 14,
+  };
+
+  const abrirAmonestacion = (e: Employee) => {
+    // Se limpia SIEMPRE al abrir: si no, la falta del trabajador anterior queda
+    // escrita en el cuadro del siguiente, y eso en un papel disciplinario es grave.
+    setAmFalta(''); setAmFecha(''); setAmHora(''); setAmDesc(''); setAmGrado(null); setAmTestigo('');
+    setAmonestFor(e);
+  };
+
+  const imprimirAmonestacion = async (e: Employee) => {
+    setBusy(e.id + '-amonest');
+    const html = amonestacionHtml({
+      fullName: fullName(e),
+      cedula: e.cedula,
+      cargo: e.cargo ? canonicalCargo(e.cargo) : null,
+      department: e.department,
+      fichaNumber: e.ficha_number,
+      hireDate: e.hire_date,
+      city: e.city,
+      state: e.state,
+      tipoFalta: amFalta,
+      fechaHecho: amFecha,
+      horaHecho: amHora,
+      descripcion: amDesc,
+      grado: amGrado,
+      testigoNombre: amTestigo,
+    });
+    await exportPdf(html, `Amonestacion - ${fullName(e)}`);
+    setBusy(null);
+    setAmonestFor(null);
   };
 
   // Reporte PDF de LO SELECCIONADO: lista las personas del filtro actual (estado +
@@ -394,7 +440,9 @@ export default function EmpleadosScreen({ navigation }: any) {
           Mismo patrón que el filtro de CARGO de abajo (buscador + selección múltiple),
           porque la lista de contratistas es larga y no cabe en chips sueltos. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
-        <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Empresa:</Text>
+        {/* Dice "Empresa nómina", no "Empresa" a secas: la ficha del empleado tiene
+            DOS empresas y con el rótulo genérico no se sabía cuál filtra esta línea. */}
+        <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Empresa nómina:</Text>
         <TouchableOpacity
           onPress={() => setEmpresasOpen((v) => !v)}
           style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: empresaSel.size ? colors.brand : colors.border, backgroundColor: colors.surface }}
@@ -445,6 +493,9 @@ export default function EmpleadosScreen({ navigation }: any) {
           </ScrollView>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
             Marca una o varias empresas. El filtro se combina con el estado y el cargo, y el 📊 Reporte sale con lo seleccionado.
+            {'\n\n'}Esta lista es SOLO de Nómina y no toca el catálogo general: no aparece en Catálogo, Maquinaria, Compras ni Comidas.
+            {'\n'}Para crear una empresa nueva: ✎ Editar un empleado → campo «🏢 Empresa filtro nómina» → escribe el nombre y toca «➕ Agregar». Queda disponible aquí de una vez.
+            {'\n'}Las que salen con «· 0» ya existen pero todavía no tienen a nadie asignado.
           </Text>
         </Card>
       ) : null}
@@ -539,6 +590,10 @@ export default function EmpleadosScreen({ navigation }: any) {
                           <Badge label={e.status} tone={employeeStatusTone(e.status)} />
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cargo ? canonicalCargo(e.cargo) : '', e.ficha_number ? `Ficha ${e.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
+                        {/* La EMPRESA FILTRO NÓMINA, a la vista en cada tarjeta. Antes solo
+                            se veía abriendo el filtro o sacando el PDF, así que asignarla
+                            se sentía como que no había pasado nada. */}
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>🏢 {nominaName((e as any).payroll_company_id)}</Text>
                       </View>
                     </View>
                   }
@@ -557,6 +612,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
                         <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
+                        <Btn label="⚠️ Amonestación" color="#B45309" onPress={() => abrirAmonestacion(e)} />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.success} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
                           <Btn label="🗑️ Quitar foto" color={colors.danger} disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
@@ -578,7 +634,14 @@ export default function EmpleadosScreen({ navigation }: any) {
         uniqueField={{ key: 'cedula', labelCol: 'cedula', labelName: 'cédula' }}
         allowDelete
         onClose={() => setFormOpen(false)}
-        onSaved={refetch}
+        // ⚠️ HAY QUE REFRESCAR LAS DOS TABLAS, no solo `employees`. Al crear una
+        // empresa nueva desde el campo "Empresa filtro nómina", `RecordForm` la
+        // inserta en `payroll_companies` y solo actualiza su lista INTERNA. Si acá
+        // no se relee, `nominaName` no encuentra el id y el chip sale rotulado
+        // "Empresa" en vez del nombre que la persona acababa de escribir — y solo
+        // se arreglaba recargando la app entera. (Reporte del cliente 21-ago-2026:
+        // «ni me muestra el nombre de la empresa que creé».)
+        onSaved={() => { refetch(); refetchPayroll(); }}
       />
 
       {/* CONSTANCIA DE TRABAJO — ¿lleva el sueldo o no?
@@ -642,6 +705,94 @@ export default function EmpleadosScreen({ navigation }: any) {
                 </>
               );
             })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* AMONESTACIÓN ESCRITA. Todo es opcional: en blanco sale como planilla con
+          renglones para llenar a mano. Ver `src/lib/amonestacion.ts` para las tres
+          decisiones del documento (sin firma escaneada, con descargos y con la
+          casilla "se negó a firmar"). */}
+      <Modal visible={!!amonestFor} transparent animationType="fade" onRequestClose={() => setAmonestFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, maxHeight: '90%' }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>⚠️ Amonestación escrita</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{amonestFor ? fullName(amonestFor) : ''}</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs, marginBottom: spacing.sm }}>
+              Puedes dejar todo en blanco: sale la planilla con renglones para llenarla a mano.
+            </Text>
+
+            <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+              <Text style={amLbl}>Tipo de falta</Text>
+              <TextInput
+                value={amFalta} onChangeText={setAmFalta} placeholder="Inasistencia injustificada, retardo reiterado…"
+                placeholderTextColor={colors.muted} style={amInput}
+              />
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={amLbl}>Fecha del hecho</Text>
+                  <TextInput
+                    value={amFecha} onChangeText={setAmFecha} placeholder="AAAA-MM-DD"
+                    placeholderTextColor={colors.muted} style={amInput}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={amLbl}>Hora (opcional)</Text>
+                  <TextInput
+                    value={amHora} onChangeText={setAmHora} placeholder="7:30 a. m."
+                    placeholderTextColor={colors.muted} style={amInput}
+                  />
+                </View>
+              </View>
+
+              <Text style={amLbl}>Qué pasó</Text>
+              <TextInput
+                value={amDesc} onChangeText={setAmDesc} multiline numberOfLines={4}
+                placeholder="Cuenta el hecho con detalle: dónde, a qué hora, qué consecuencia tuvo…"
+                placeholderTextColor={colors.muted}
+                style={[amInput, { height: 92, textAlignVertical: 'top' }]}
+              />
+
+              <Text style={amLbl}>Grado (opcional)</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                {([null, 'primera', 'segunda', 'tercera'] as const).map((g) => {
+                  const on = amGrado === g;
+                  return (
+                    <TouchableOpacity
+                      key={String(g)} onPress={() => setAmGrado(g as GradoAmonestacion | null)}
+                      style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? '#B45309' : colors.border, backgroundColor: on ? '#B45309' : colors.surface }}
+                    >
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                        {g ? GRADO_LABEL[g] : 'No indicar'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={amLbl}>Testigo (opcional)</Text>
+              <TextInput
+                value={amTestigo} onChangeText={setAmTestigo} placeholder="Nombre de quien da fe"
+                placeholderTextColor={colors.muted} style={amInput}
+              />
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                El testigo importa sobre todo si el trabajador se niega a firmar — el documento trae esa casilla.
+              </Text>
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+              <TouchableOpacity onPress={() => setAmonestFor(null)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={!!busy}
+                onPress={() => amonestFor && imprimirAmonestacion(amonestFor)}
+                style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: '#B45309', opacity: busy ? 0.6 : 1 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '⚠️ Generar amonestación'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

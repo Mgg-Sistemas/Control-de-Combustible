@@ -7,6 +7,7 @@ import { horarioNominal, horaFinJornada } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 import { grupoEmpresaDe, GrupoEmpresa } from './empresaGrupo';
+import { ordenarMaquinas, agruparMaquinas } from './ordenMaquinas';
 // TURNO de una avería/parada (día 7am–7pm · noche el resto). Se IMPORTA la única
 // implementación buena (src/lib/inspectorDaySets.ts) — NO se copia: ya hubo un bug
 // grave en este proyecto por tener tres copias de esta función con umbrales distintos.
@@ -75,6 +76,9 @@ type Fila = {
   tipoDia: TipoFalla;
   tipoNoche: TipoFalla;
   code: string; modelo: string; serialPlaca: string; inspector: string;
+  // Responsable de la máquina (`machinery.encargado`). No se pinta en la tabla:
+  // sirve para PARTIR el reporte por encargado en vez de por empresa.
+  encargado: string;
   // Horario por turno: DÍA (7am→7pm) y NOCHE (7pm→7am). "—" si no trabajó ese turno.
   diaIni: string; diaFin: string; nocheIni: string; nocheFin: string;
   // EN CURSO = la jornada de ese turno sigue abierta (aún no finaliza) → FIN en verde.
@@ -104,11 +108,16 @@ type Fila = {
  * @param date día ISO "AAAA-MM-DD".
  * @param companyIds IDs de las empresas seleccionadas.
  * @param encargados (opcional) nombres de ENCARGADO por los que filtrar. Vacío = todos.
+ * @param groupBy (opcional) cómo se PARTE el reporte en secciones. 'empresa' es lo
+ *        de siempre y el valor por defecto; 'encargado' arma las mismas secciones
+ *        pero una por responsable (pedido del cliente 21-ago-2026). Ojo: FILTRAR
+ *        por encargado y AGRUPAR por encargado son cosas distintas y se combinan.
  * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
  */
-export async function generateEmpresaDiaReport(opts: { date: string; companyIds: string[]; encargados?: string[] }): Promise<boolean> {
+export async function generateEmpresaDiaReport(opts: { date: string; companyIds: string[]; encargados?: string[]; groupBy?: 'empresa' | 'encargado' }): Promise<boolean> {
   const { date, companyIds } = opts;
   const encargados = opts.encargados ?? [];
+  const groupBy = opts.groupBy ?? 'empresa';
   const fecha = dmy(date);
   if (!companyIds.length) return false;
 
@@ -587,6 +596,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       modelo: (m?.tipo && String(m.tipo).trim()) || '—',
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
+      encargado: String(m?.encargado ?? ''),
       // Horario DÍA (7am→7pm) y NOCHE (7pm→7am). Si la jornada de ese turno sigue ABIERTA
       // hoy, el FIN muestra la hora actual (en curso); si ya cerró, el fin del turno.
       // FIN REAL = inicio nominal + horas trabajadas del turno: día completo (12h) da
@@ -635,7 +645,17 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     porEmpresa.get(empresa)!.push(fila);
   });
 
-  const empresas = Array.from(porEmpresa.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  // Las SECCIONES del reporte: por empresa (lo de siempre) o por encargado.
+  // Cambia SOLO cómo se parte y cómo se titula; el contenido de cada sección
+  // (Activas / Averiadas / Paradas / Espera / Pendientes) y los totales de abajo
+  // son exactamente los mismos. Agrupar no puede esconder ni una máquina.
+  // El agrupado por encargado se delega en `ordenMaquinas.ts`, que es la única
+  // verdad sobre cuándo dos grafías son el mismo responsable (ver allá el porqué).
+  const empresas: [string, Fila[]][] = groupBy === 'encargado'
+    ? agruparMaquinas(ordenarMaquinas(Array.from(porEmpresa.values()).flat(), 'encargado'), 'encargado')
+        .map((g) => [g.label, g.items] as [string, Fila[]])
+    : Array.from(porEmpresa.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  const icoGrupo = groupBy === 'encargado' ? '👤' : '🏢';
 
   // Tabla de un GRUPO con columnas: Nº · Máquina · Modelo/Marca · Serial/Placa ·
   // Inspector · Horario DÍA (inicio arriba / fin abajo) · Horario NOCHE (idem).
@@ -719,7 +739,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const paradas = filas.filter((f) => f.grupo === 'averia' && f.tipoFalla !== 'averia');
     const esperas = filas.filter((f) => f.grupo === 'espera');
     const pendientes = filas.filter((f) => f.grupo === 'pendiente');
-    let out = `<h3>🏢 ${esc(name)} · ${filas.length} máquina(s)</h3>`;
+    let out = `<h3>${icoGrupo} ${esc(name)} · ${filas.length} máquina(s)</h3>`;
     out += `<div class="grp grp-ok">✅ Activas · ${activas.length}</div>`;
     out += activas.length ? tabla(activas) : '<p class="vacio">Sin máquinas activas este día.</p>';
     if (averiadas.length) {
@@ -813,13 +833,18 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     return [...vistos.values()];
   })();
   const filtroEnc = encargadosUnicos.length ? ` · 👤 ${encargadosUnicos.length} encargado(s): ${encargadosUnicos.join(', ')}` : '';
-  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s)${filtroEnc} · ☀️ ${n2(totDayH)} h día · 🌙 ${n2(totNightH)} h noche · ✅ ${n2(totWorkedH)} h facturable`;
+  // El subtítulo tiene que decir POR QUÉ está partido así: si se agrupó por
+  // encargado, contar "empresa(s)" mentiría sobre lo que se está viendo.
+  const cuentaGrupo = groupBy === 'encargado' ? `${empresas.length} encargado(s)` : `${empresas.length} empresa(s)`;
+  const subtitle = `${fecha} · ${cuentaGrupo} · ${totMach} máquina(s)${filtroEnc} · ☀️ ${n2(totDayH)} h día · 🌙 ${n2(totNightH)} h noche · ✅ ${n2(totWorkedH)} h facturable`;
 
+  // El TÍTULO y el NOMBRE DEL ARCHIVO también cambian: dos PDF del mismo día
+  // partidos distinto no se pueden llamar igual, o al guardarlos uno pisa al otro.
   const html = pdfDocument({
-    title: 'REPORTE DEL DÍA POR EMPRESA',
+    title: groupBy === 'encargado' ? 'REPORTE DEL DÍA POR ENCARGADO' : 'REPORTE DEL DÍA POR EMPRESA',
     subtitle,
     body: empresas.length ? (fechaBanner + kpis + secciones) : (fechaBanner + '<p>Sin actividad para las empresas elegidas en este día.</p>'),
     extraCss,
   });
-  return await exportPdf(html, `Reporte del dia por empresa ${fecha}`);
+  return await exportPdf(html, `Reporte del dia por ${groupBy === 'encargado' ? 'encargado' : 'empresa'} ${fecha}`);
 }

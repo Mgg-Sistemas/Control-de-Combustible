@@ -1,6 +1,7 @@
 import { selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText, norm } from './text';
+import { ordenarMaquinas, agruparMaquinas } from './ordenMaquinas';
 
 /**
  * Reporte HORAS DEL HORÓMETRO · PRÓXIMAS A MANTENIMIENTO (PDF), filtrable por empresa.
@@ -50,9 +51,12 @@ type Fila = {
   nivel: Nivel;
 };
 
-export async function generateMachineHoursReport(opts: { companyIds?: string[]; encargados?: string[] }): Promise<boolean> {
+export async function generateMachineHoursReport(opts: { companyIds?: string[]; encargados?: string[]; groupBy?: 'empresa' | 'encargado' }): Promise<boolean> {
   const companyIds = opts.companyIds ?? [];
   const encargados = opts.encargados ?? [];
+  // Cómo se parte el detalle en secciones. 'empresa' es lo de siempre; 'encargado'
+  // arma las mismas tablas pero una por responsable (pedido del cliente 21-ago-2026).
+  const groupBy = opts.groupBy ?? 'empresa';
 
   // 1) Máquinas (todas o de las empresas/encargados elegidos), con su horómetro vivo y
   //    base. `tipo` = MODELO de la máquina (CAT 320, Komatsu PC200…).
@@ -118,15 +122,22 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[]; 
        <table class="ir">${encabezado(true)}<tbody>${proximas.map((f, i) => filaHtml(f, i, true)).join('')}</tbody></table>`
     : `<h3 class="ok">✅ Ninguna máquina alcanza el umbral de alerta (${ALERTA} h) por ahora.</h3>`;
 
-  // 4b) Detalle por EMPRESA (todas las máquinas), orden por horas desc.
+  // 4b) Detalle por EMPRESA (o por ENCARGADO), orden por horas desc dentro de cada
+  //     sección. El bloque "próximas a mantenimiento" de arriba NO se toca: ese es
+  //     una lista de urgencias y se lee entera, no por grupos.
+  //     El agrupado por encargado se delega en `ordenMaquinas.ts`, que es la única
+  //     verdad sobre cuándo dos grafías son el mismo responsable.
   const porEmpresa = new Map<string, Fila[]>();
   filas.forEach((f) => { if (!porEmpresa.has(f.empresa)) porEmpresa.set(f.empresa, []); porEmpresa.get(f.empresa)!.push(f); });
-  const empresas = Array.from(porEmpresa.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  const empresas: [string, Fila[]][] = groupBy === 'encargado'
+    ? agruparMaquinas(ordenarMaquinas(filas, 'encargado'), 'encargado').map((g) => [g.label, g.items] as [string, Fila[]])
+    : Array.from(porEmpresa.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  const icoGrupo = groupBy === 'encargado' ? '👤' : '🏢';
   const secciones = empresas.map(([name, fs]) => {
     const ordenadas = fs.slice().sort((a, b) => (b.horas ?? -1) - (a.horas ?? -1) || cmpText(a.code, b.code));
     const tHoras = n1(fs.reduce((s, f) => s + (f.horas ?? 0), 0));
     const foot = `<tfoot><tr><td colspan="5">Total · ${fs.length} equipo(s)</td><td class="r b">${tHoras}</td><td colspan="2"></td></tr></tfoot>`;
-    return `<h3>🏢 ${esc(name)} · ${fs.length} máquina(s)</h3>
+    return `<h3>${icoGrupo} ${esc(name)} · ${fs.length} máquina(s)</h3>
       <table class="ir">${encabezado(false)}<tbody>${ordenadas.map((f, i) => filaHtml(f, i, false)).join('')}</tbody>${foot}</table>`;
   }).join('');
 
@@ -157,7 +168,9 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[]; 
     return [...vistos.values()];
   })();
   const filtroEnc = encargadosUnicos.length ? ` · 👤 ${encargadosUnicos.length} encargado(s): ${encargadosUnicos.join(', ')}` : '';
-  const subtitle = `${empresas.length} empresa(s) · ${filas.length} máquina(s)${filtroEnc} · `
+  // Si se agrupó por encargado, contar "empresa(s)" mentiría sobre lo que se ve.
+  const cuentaGrupo = groupBy === 'encargado' ? `${empresas.length} encargado(s)` : `${empresas.length} empresa(s)`;
+  const subtitle = `${cuentaGrupo} · ${filas.length} máquina(s)${filtroEnc} · `
     + `🔴 ${cnt.limite} límite · 🟠 ${cnt.media} media · 🟡 ${cnt.alerta} alerta · 🟢 ${cnt.ok} ok`
     + (cnt.sin ? ` · — ${cnt.sin} sin horómetro` : '')
     + ` · ⏱️ ${totHoras} h horómetro en total`;
@@ -168,6 +181,10 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[]; 
     body: leyenda + bloqueProximas + secciones,
     extraCss,
   });
-  const nombreEmp = companyIds.length ? `${empresas.length} empresa` : 'todas las empresas';
+  // El nombre del archivo dice cómo quedó partido: dos PDF del mismo día con
+  // cortes distintos no se pueden llamar igual o uno pisa al otro al guardarlos.
+  const nombreEmp = groupBy === 'encargado'
+    ? 'por encargado'
+    : (companyIds.length ? `${empresas.length} empresa` : 'todas las empresas');
   return await exportPdf(html, `Horas horometro maquinaria ${nombreEmp}`);
 }
