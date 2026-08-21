@@ -385,6 +385,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [ntMotivo, setNtMotivo] = useState(''); // motivo que ESCRIBE el inspector para "no trabajó" (opcional)
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
+  // ¿El inspector ELIGIÓ el edificio a mano de la lista? Si sí, manda su elección (aunque
+  // haya GPS). Si no, el GPS sincroniza el edificio con el sector. Lo pone el GPS/auto en
+  // false; el onChange del desplegable en true. (Respaldo sin GPS + respetar el catálogo.)
+  const [ciRefManual, setCiRefManual] = useState(false);
   // Avería de maquinaria (igual que el operador) → maintenance_requests.
   const [avOpen, setAvOpen] = useState(false);
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
@@ -431,15 +435,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [opBusy, setOpBusy] = useState(false);
 
   useEffect(() => { warmLocation(); }, []);
-  // Al abrir el check-in de una máquina, precarga el EDIFICIO. Se AUTO-DETECTA del
-  // GPS: si las coordenadas guardadas de la máquina caen en un sector conocido, se
-  // usa ese sector; si no, la referencia escrita a mano (decisión cliente 20-ago-2026:
-  // el edificio se sincroniza con la ubicación).
+  // Al abrir el check-in, precarga el EDIFICIO GUARDADO de la máquina (lo que está en
+  // el catálogo). Si el inspector toma/re-toma GPS, se sincroniza con el sector; si lo
+  // elige de la lista, manda su elección. Arranca como NO-manual (aún no tocó la lista).
   useEffect(() => {
     const m: any = ci;
-    if (!m) { setCiRef(''); return; }
-    const det = (m.latitude != null && m.longitude != null) ? edificioTextOf(m.latitude, m.longitude, m.referencia ?? '') : '';
-    setCiRef(det && det !== 'Sin zona' ? det : ((m.referencia ?? '') as string));
+    setCiRef(m ? ((m.referencia ?? '') as string) : '');
+    setCiRefManual(false);
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
@@ -1549,9 +1551,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (r.ok && r.lat != null && r.lng != null) {
         setGps({ lat: r.lat, lng: r.lng });
         // AUTO-DETECTAR el EDIFICIO del nuevo GPS: si cae en un sector conocido, se
-        // autocompleta el desplegable (el inspector aún puede cambiarlo antes de guardar).
+        // autocompleta el desplegable (marca NO-manual: el GPS mandó). El inspector
+        // aún puede elegir otro de la lista antes de guardar.
         const det = edificioTextOf(r.lat, r.lng, ciRef.trim());
-        if (det && det !== 'Sin zona') setCiRef(det);
+        if (det && det !== 'Sin zona') { setCiRef(det); setCiRefManual(false); }
         setNotice(det && det !== 'Sin zona' ? `📍 Ubicación actualizada · 🏢 ${det}` : '📍 Ubicación actualizada.');
       } else setGpsErr(r.error ?? 'Sin ubicación.');
     });
@@ -1571,11 +1574,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (r.ok && r.lat != null && r.lng != null) { lat = r.lat; lng = r.lng; setGps({ lat, lng }); }
     }
     const gpsOk = lat != null && lng != null;
-    // EDIFICIO: con GPS manda el SECTOR del mapa (se sincroniza con la ubicación); si
-    // el GPS cae fuera de zona o NO hay señal, vale lo elegido en la lista (respaldo).
+    // EDIFICIO:
+    //  · Si el inspector lo ELIGIÓ de la lista (ciRefManual) → manda SU elección del
+    //    catálogo, aunque haya GPS (respaldo sin señal + respetar el catálogo).
+    //  · Si NO lo tocó y hay GPS en zona → se sincroniza con el SECTOR del mapa.
+    //  · Fuera de zona / sin señal → vale lo que quede en el desplegable.
     const manual = ciRef.trim();
-    const det = gpsOk ? edificioTextOf(lat as number, lng as number, manual) : '';
-    const nuevaRef = gpsOk && det && det !== 'Sin zona' ? det : (manual || null);
+    const det = gpsOk && !ciRefManual ? edificioTextOf(lat as number, lng as number, manual) : '';
+    const nuevaRef = (!ciRefManual && gpsOk && det && det !== 'Sin zona') ? det : (manual || null);
     // Sin GPS y sin edificio elegido: no hay nada que guardar (no se pisa lo actual).
     if (!gpsOk && !nuevaRef) {
       setSavingMachLoc(false);
@@ -3437,7 +3443,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     buscar + ➕ agregar si no existe. Con GPS se AUTO-DETECTA del sector;
                     si el GPS NO funciona, se elige AQUÍ de la lista (respaldo) y se guarda
                     igual. Sale en el reporte "Máquinas por sector" del Mapa. */}
-                <EdificioPicker value={ciRef} onChange={setCiRef} />
+                <EdificioPicker value={ciRef} onChange={(v) => { setCiRef(v); setCiRefManual(true); }} />
                 <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
                   🛰️ Con GPS el edificio se sincroniza con el sector. ¿Sin señal? Elige el edificio de la lista y guarda igual.
                 </Text>
