@@ -1947,8 +1947,17 @@ de *"Editar"* una por una.
 > lo baja** — la pantalla te lo avisa antes de guardar. A un admin se le cambia el **rol**, no el
 > permiso. Es a propósito: así nadie se deja fuera del sistema por error.
 >
-> 🗄️ **Para que valga también en la base de datos** hay que correr una vez
-> `supabase/permiso_le_gana_al_rol.sql`. Sin eso, un **inspector** o un **operador** puesto en
+> 🗄️ **Para que valga también en la base de datos** hay que correr `supabase/permiso_le_gana_al_rol.sql`
+> y **enseguida `supabase/permiso_catalogo_corregido.sql`** (el segundo corrige al primero: sin él se
+> bloquea de más — ver abajo).
+>
+> ⚠️ **El permiso de Catálogo manda sobre el CATÁLOGO, no sobre toda la máquina.** Sin permiso de
+> escritura en Catálogo no se puede **crear** ni **borrar** una máquina, ni cambiar los datos de su
+> **ficha** (código, marca, modelo, serial, placa, empresa, clasificación, encargado, precio, fotos,
+> QR bloqueado). Lo que **sí** se sigue pudiendo, si el permiso del módulo correspondiente lo
+> permite, es **operarla**: jornadas, cambiar el estado desde Control de Maquinaria, horómetro de
+> Mantenimiento, ubicación. Es a propósito: la tabla de maquinaria la escriben varios módulos y
+> cerrarla entera dejaba a la gente sin poder trabajar. Sin eso, un **inspector** o un **operador** puesto en
 > "Lectura" en el Catálogo deja de ver el módulo en el menú, pero la base todavía lo dejaría
 > registrar máquinas si llega por otra vía (un enlace directo, el QR). Con el SQL corrido, la
 > puerta queda cerrada de verdad.
