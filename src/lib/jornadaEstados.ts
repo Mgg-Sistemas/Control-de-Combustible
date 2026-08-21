@@ -46,6 +46,7 @@ export type FichaMaquina = {
   clasificacion?: string | null;
   serial?: string | null;
   plate?: string | null;
+  encargado?: string | null;
   company?: { name?: string | null } | null;
 } | null;
 
@@ -66,6 +67,7 @@ export type MaquinaEspera = {
   clasificacion?: string | null;
   serial?: string | null;
   plate?: string | null;
+  encargado?: string | null;
   en_espera?: boolean | null;
   company?: { name?: string | null } | null;
 };
@@ -82,6 +84,10 @@ export type MaquinaNoTrabajo = {
   clasificacion: string;
   serial: string | null;
   plate: string | null;
+  // Responsable de la máquina. Sirve para PARTIR el informe por encargado en vez
+  // de por empresa; sin esto, una máquina que NO trabajó desaparecería de ese
+  // corte y el reporte mentiría por omisión.
+  encargado: string;
   estado: EstadoNoTrabajo;
   motivo: string;        // motivo de la marca que MANDA (o "Esperando instrucciones")
   dia: MarcaTurno | null;    // qué pasó en el turno de DÍA (7am–7pm)
@@ -183,6 +189,7 @@ export function clasificarNoTrabajaron(params: {
       clasificacion: txt(mm.clasificacion) || 'Sin clasificación',
       serial: mm.serial ?? null,
       plate: mm.plate ?? null,
+      encargado: txt(mm.encargado),
       estado: manda.estado,
       motivo: manda.motivo,
       dia,
@@ -211,6 +218,7 @@ export function clasificarNoTrabajaron(params: {
       clasificacion: txt(m.clasificacion) || 'Sin clasificación',
       serial: m.serial ?? null,
       plate: m.plate ?? null,
+      encargado: txt(m.encargado),
       estado: 'espera',
       motivo: 'Esperando instrucciones',
       dia: null,

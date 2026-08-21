@@ -49,7 +49,7 @@ const loadTs = (srcPath) => {
   return m.exports;
 };
 
-const { ordenarMaquinas, agruparMaquinas, encargadoDe, SIN_ENCARGADO } =
+const { ordenarMaquinas, agruparMaquinas, encargadoDe, claveEncargado, SIN_ENCARGADO, SIN_ENCARGADO_KEY } =
   loadTs(path.join(ROOT, 'src/lib/ordenMaquinas.ts'));
 
 let pass = 0, fail = 0;
@@ -155,6 +155,77 @@ const codes = (arr) => arr.map((x) => x.code);
   eq('máquinas sin código no revientan', ordenarMaquinas(rara, 'maquina').length, 2);
   eq('ni agrupadas', agruparMaquinas(ordenarMaquinas(rara, 'encargado'), 'encargado')[0].label, SIN_ENCARGADO);
   eq('una sola máquina', agruparMaquinas(ordenarMaquinas([m('A', 'ANA')], 'encargado'), 'encargado').length, 1);
+}
+
+// ── 8) ⭐ TILDES: el mismo encargado escrito con y sin tilde es UNO ────────
+// Hasta el 21-ago-2026 acá se agrupaba con tildes mientras Control de Maquinaria,
+// Inspecciones y el reporte de inspectores agrupaban sin ellas: el MISMO día, el
+// MISMO encargado salía como 2 personas en un reporte y 1 en otro. Ahora la clave
+// es `norm()` en los cuatro.
+{
+  eq('la tilde no hace dos claves', claveEncargado({ encargado: 'JOSÉ PÉREZ' }), claveEncargado({ encargado: 'JOSE PEREZ' }));
+  eq('mayúscula/minúscula tampoco', claveEncargado({ encargado: 'josé pérez' }), claveEncargado({ encargado: 'JOSE PEREZ' }));
+  eq('ni los espacios de más', claveEncargado({ encargado: '  JOSE   PEREZ ' }), claveEncargado({ encargado: 'JOSE PEREZ' }));
+  // ⭐ La Ñ NO es una tilde: PEÑA y PENA son apellidos distintos y no se juntan.
+  ok('la Ñ se respeta', claveEncargado({ encargado: 'PEÑA' }) !== claveEncargado({ encargado: 'PENA' }));
+  // Sin encargado usa un centinela, no el texto: alguien llamado literalmente
+  // "Sin Encargado" NO cae en el cubo de los que no tienen.
+  eq('vacío va al centinela', claveEncargado({ encargado: '  ' }), SIN_ENCARGADO_KEY);
+  ok('un nombre así no cae en el centinela', claveEncargado({ encargado: 'Sin Encargado' }) !== SIN_ENCARGADO_KEY);
+
+  // Y en la práctica: dos máquinas del mismo encargado escrito distinto → UN grupo.
+  const lista = [m('B2', 'JOSÉ PÉREZ'), m('A1', 'JOSE PEREZ')];
+  const g = agruparMaquinas(ordenarMaquinas(lista, 'encargado'), 'encargado');
+  eq('⭐ un solo grupo, no dos', g.length, 1);
+  eq('con las dos máquinas dentro', g[0].items.length, 2);
+  // Y quedan ordenadas por código dentro del grupo (antes no: al comparar el
+  // nombre CON tildes las dos variantes no empataban y no se desempataba).
+  eq('⭐ ordenadas por código dentro del grupo', g[0].items.map((x) => x.code), ['A1', 'B2']);
+}
+
+// ── 9) EL TÍTULO ES LA GRAFÍA MÁS USADA ───────────────────────────────────
+{
+  // Dos escriben "JOSÉ PÉREZ" y uno "JOSE PEREZ": es UN grupo y el título es el
+  // que usa la mayoría. Si no, el título sería el de la primera fila que llegó.
+  const lista = [m('A1', 'JOSÉ PÉREZ'), m('A2', 'JOSÉ PÉREZ'), m('A3', 'JOSE PEREZ')];
+  const g = agruparMaquinas(ordenarMaquinas(lista, 'encargado'), 'encargado');
+  eq('un solo grupo', g.length, 1);
+  eq('⭐ gana la grafía más repetida', g[0].label, 'JOSÉ PÉREZ');
+  // Empate → siempre el mismo, para que el reporte de hoy y el de mañana digan
+  // lo mismo con los mismos datos. `cmpText` ignora tildes y empata, así que el
+  // desempate final es una comparación cruda.
+  const empate = [m('A1', 'JOSÉ PÉREZ'), m('A2', 'JOSE PEREZ')];
+  const g2 = agruparMaquinas(ordenarMaquinas(empate, 'encargado'), 'encargado');
+  eq('con empate el título es estable', g2[0].label, 'JOSE PEREZ');
+  eq('y no depende del orden de llegada',
+     agruparMaquinas(ordenarMaquinas([m('A2', 'JOSE PEREZ'), m('A1', 'JOSÉ PÉREZ')], 'encargado'), 'encargado')[0].label,
+     'JOSE PEREZ');
+  eq('el título nunca queda vacío', agruparMaquinas(ordenarMaquinas([m('A1', 'ANA')], 'encargado'), 'encargado')[0].label, 'ANA');
+}
+
+// ── 9b) ⚠️ LO QUE NO PUEDE ARREGLAR NINGUNA NORMALIZACIÓN ─────────────────
+// "C. NUÑEZ" y "CARLOS NUÑEZ" son textos distintos y NO hay forma de saber que
+// son la misma persona. Salen como DOS encargados, y así debe ser: adivinarlo
+// sería inventar. Se arregla escribiéndolo igual en el Catálogo, no acá.
+{
+  const lista = [m('A1', 'CARLOS NUÑEZ'), m('A2', 'C. NUÑEZ')];
+  const g = agruparMaquinas(ordenarMaquinas(lista, 'encargado'), 'encargado');
+  eq('las abreviaturas quedan separadas, a sabiendas', g.length, 2);
+}
+
+// ── 10) SIRVE PARA FILAS DE REPORTE, NO SOLO PARA MÁQUINAS ────────────────
+// Los reportes agrupan filas ya sumadas por rango de fechas, que no cargan `id`.
+{
+  const filas = [
+    { code: 'B2', encargado: 'BRUNO', horas: 10 },
+    { code: 'A1', encargado: 'bruno', horas: 5 },
+    { code: 'C3', encargado: null, horas: 1 },
+  ];
+  const g = agruparMaquinas(ordenarMaquinas(filas, 'encargado'), 'encargado');
+  eq('agrupa filas sin id', g.length, 2);
+  eq('junta las dos grafías', g[0].items.length, 2);
+  eq('las horas siguen ahí', g[0].items.reduce((s, x) => s + x.horas, 0), 15);
+  eq('sin encargado va de último', g[1].label, SIN_ENCARGADO);
 }
 
 // ── Resultado ─────────────────────────────────────────────────────────────

@@ -890,13 +890,37 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > ⚠️ **El empleado queda con DOS empresas y hay que saberlo:**
 > - **"Empresa"** — la de siempre, del catálogo general. **No se tocó** y sigue mandando en los
 >   **períodos de nómina**, la pantalla de **Comidas**, el **carnet** y la **constancia**.
-> - **"Empresa filtro nómina"** — la nueva. Manda en los **chips de filtro**, en los **títulos por
->   empresa** de la lista y en la **columna del reporte** de Empleados.
+> - **"Empresa filtro nómina"** — la nueva. Manda en los **chips de filtro**, en la **tarjeta de
+>   cada empleado** (el renglón 🏢) y en la **columna del reporte** de Empleados.
 >
 > Al correr `supabase/nomina_empresa_filtro.sql` la lista nueva **arranca copiada** de la que ya
 > tenías, así que el filtro se ve igual que siempre desde el primer día. De ahí en adelante las dos
 > viven separadas: renombrar o crear en Nómina **no** toca el catálogo general, y al revés tampoco.
 > Si a alguien no le pones la empresa de filtro, sale agrupado bajo **"Sin empresa de filtro"**.
+
+> **📍 DÓNDE ESTÁ EL FILTRO — y por qué no aparece en "Nómina".** Vive en **Nómina → 🪪 Empleados**,
+> no en la pantalla de nómina/períodos. Es la línea **"Empresa nómina: 🏢 Todas · N"** justo debajo
+> de los chips de Estado: **tócala** y se despliega la lista con buscador.
+>
+> Los **períodos de nómina** siguen armándose con la empresa **de siempre** (`company_id`), y eso es
+> a propósito: la empresa de filtro es referencial y no debía afectar el pago (fue la condición del
+> pedido — «que no afecte más nada»).
+
+> **➕ CÓMO CREAR UNA EMPRESA DE NÓMINA.** ✎ Editar cualquier empleado → campo
+> **"🏢 Empresa filtro nómina"** → escribe el nombre → **"➕ Agregar"**. Queda disponible en el
+> filtro de una vez, sin recargar. Las que salen con **"· 0"** ya existen pero todavía no tienen a
+> nadie asignado: recién creada, es lo normal.
+
+> **🐞 ARREGLADO 21/08/2026.** Al crear una empresa nueva, el chip salía rotulado **"Empresa"** en
+> vez del nombre escrito, y solo se corregía recargando la app entera: la pantalla releía los
+> empleados pero **no** la lista de empresas de nómina. Ahora relee las dos. Además:
+> - la empresa se ve en la **tarjeta de cada empleado** — antes solo se veía abriendo el filtro o
+>   sacando el PDF, así que asignarla se sentía como que no había pasado nada;
+> - las empresas **sin gente asignada** ya aparecen en el filtro con **"· 0"** — antes no salían por
+>   ningún lado y parecía que no se habían creado.
+>
+> Y hay un SQL opcional, `supabase/nomina_empresa_filtro_realtime.sql`, que hace que la lista se
+> actualice sola también cuando la empresa la crea **otra persona desde otro dispositivo**.
 
 > El Excel con tarifas por empleado que existía antes en esta pantalla se retiró: no correspondía
 > aquí (exportaba tarifas del empleado). El Excel de nómina ahora vive en **Nómina → Control de
@@ -919,6 +943,34 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > interesar"*: hace constar que la persona **presta servicios en SOS La Guaira**, con su **cédula,
 > cargo y fecha de ingreso**. Al pie lleva una **firma centrada para la Jefa de Administración**.
 > Sale en **PDF** listo para imprimir o guardar.
+>
+> **⚠️ AMONESTACIÓN ESCRITA (21-ago-2026).** Hay un tercer botón, **⚠️ Amonestación**, que saca el
+> **llamado de atención formal** en PDF, con el mismo membrete de las constancias. Al tocarlo se abre
+> un cuadro donde puedes poner **tipo de falta**, **fecha y hora del hecho**, **qué pasó** (el relato
+> con detalle), **grado** (primera, segunda o tercera amonestación — o *"No indicar"* si no llevas esa
+> escala) y **testigo**.
+>
+> **Puedes dejarlo todo en blanco:** entonces sale como **planilla** con renglones para llenarla a
+> mano, que es como se usa cuando hay que amonestar a alguien en el sitio y no hay computadora cerca.
+>
+> ⚠️ **Ojo con la fecha del hecho: no es la de hoy.** Si no la pones, el papel deja una **raya** para
+> escribirla. El sistema **no la rellena** con la fecha de hoy — un dato inventado en un papel
+> disciplinario es peor que no tener papel.
+>
+> **Lo que trae SIEMPRE, y por qué:**
+> - Un recuadro de **descargos del trabajador**, aunque nadie lo llene: una sanción sin espacio para
+>   que la persona dé su versión es **mucho más fácil de tumbar**, porque el derecho a ser oído es
+>   parte del debido proceso.
+> - La casilla **"se negó a firmar"** junto a la raya del trabajador. Es el caso que más problemas da
+>   en la práctica, y así queda asentado en el mismo papel, con el testigo al lado.
+> - **Tres firmas en blanco** — trabajador, quien la emite y testigo. **No lleva firma escaneada**
+>   aunque el sistema tenga dos guardadas: una amonestación que sale ya firmada se puede emitir sin
+>   que el jefe se entere, y pierde fuerza justo cuando más falta hace.
+> - **No cita artículos de ninguna ley.** Los pone la empresa; el sistema no se los inventa.
+>
+> La amonestación **solo se imprime**, igual que las constancias: **no se guarda historial**, el papel
+> firmado va al expediente físico. Se expide en **dos ejemplares** — uno para el expediente y otro que
+> se le entrega al trabajador en el acto.
 >
 > **💵 Con o sin el monto quincenal (21-ago-2026).** Al tocar **📃 Constancia de trabajo** se abre un
 > cuadro con una casilla: **"Incluir el monto quincenal"**. Arranca **desmarcada**, así que la
@@ -1932,6 +1984,41 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 > datos** (empresas, máquinas, días, horas día/noche/total, y las 🔴 averiadas / 🟡 paradas /
 > ⏳ esperando con su motivo) **pero sin ningún precio ni monto** — para entregar las horas sin
 > mostrar dinero. El archivo sale marcado *"- solo horas"*.
+
+> **🧑‍🔧 SACAR LOS REPORTES POR ENCARGADO (21-ago-2026).** Tres reportes que salían solo por
+> empresa ahora se pueden partir por **responsable de la máquina**:
+>
+> | Reporte | Dónde está el selector |
+> |---|---|
+> | **Informe por jornada** | Reportes → pestaña **🛠️ Jornada** → *"Agrupar por"*, encima de la lista de empresas |
+> | **Reporte del día** | Inspecciones → modal de empresas → *"Agrupar por"* |
+> | **Horas de horómetro** | Inspecciones → modal de empresas → *"Agrupar por"* |
+>
+> Por defecto **siguen saliendo por empresa**, exactamente igual que siempre.
+
+> **⚠️ Agrupar NO es filtrar.** **Filtrar** (los checks de empresa o de encargado) deja máquinas
+> **fuera** del reporte. **Agrupar** no saca ninguna: son las mismas máquinas, partidas distinto.
+> Se combinan sin problema — puedes filtrar dos empresas *y* agrupar por encargado.
+>
+> Y en el Informe por jornada, **la plata sigue saliendo por empresa**: fletes, abonos,
+> *"TOTAL POR PAGAR"*, *"SALDO POR PAGAR"* y la tabla *"Totales por empresa"* **no cambian**.
+> Un flete se le cobra a la empresa, no a la persona que cuida la máquina — y un mismo encargado
+> puede tener máquinas de dos empresas distintas.
+
+> **👤 Cómo se juntan los nombres del encargado.** El campo se escribe a mano en el Catálogo, así
+> que `juan perez`, `Juan Pérez` y `JUAN PEREZ ` son la misma persona y salen en **un solo grupo**:
+> no importan mayúsculas, tildes ni espacios de más. La **Ñ sí se respeta** (PEÑA y PENA son
+> apellidos distintos). El **título del grupo es la grafía más usada**.
+>
+> Lo que **no** se puede adivinar son las abreviaturas: `C. NUÑEZ` y `CARLOS NUÑEZ` salen como
+> **dos** encargados. Eso se arregla escribiéndolo igual en el Catálogo, no en el reporte.
+> Las máquinas sin encargado van todas juntas al final, bajo **"SIN ENCARGADO"**.
+
+> **🐞 Arreglado 21-ago-2026 junto con lo anterior.** El **Check de máquinas** juntaba los
+> encargados **ignorando las tildes de forma distinta** a como lo hacían Control de Maquinaria,
+> Inspecciones y el reporte de inspectores: `JOSÉ PÉREZ` salía como **dos** personas en una
+> pantalla y como **una** en las otras, y dos reportes del mismo día no cuadraban. Ahora los
+> cuatro cuentan igual.
 
 > **🔴 Averiadas · 🟡 Paradas · ⏳ Esperando instrucciones (Informe por jornada, 19-ago-2026):**
 > debajo de las máquinas que **trabajaron**, cada empresa trae hasta **tres renglones separados**

@@ -30,6 +30,7 @@ import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { clasificarNoTrabajaron, MaquinaNoTrabajo, MarcaTurno, EstadoNoTrabajo } from '../lib/jornadaEstados';
+import { ordenarMaquinas, agruparMaquinas } from '../lib/ordenMaquinas';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -50,6 +51,8 @@ type RoundMachine = {
   totalUSD: number;     // total $ = totalH / 12 × precio por jornada
   cierreMotivo: string; // motivo de cierre manual anticipado (close_reason), si hubo
   cierreFinBy: string;  // quién FINALIZÓ la jornada (nombre del último cierre manual)
+  encargado: string;    // responsable de la máquina (para partir el informe por encargado)
+  company: string;      // empresa de la máquina (se necesita al agrupar por encargado)
 };
 // Viaje registrado en una máquina (solo Golden Touch): nº de viajes y precio unitario.
 type ViajeItem = { code: string; clasificacion: string; viajes: number; precio: number };
@@ -531,6 +534,14 @@ export default function ReportsScreen({ route }: any) {
   const [camPreview, setCamPreview] = useState(false);
   const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[]; escompanies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[] } | null>(null);
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
+  // LA MISMA información partida por ENCARGADO. Se calcula SIEMPRE, junto con la de
+  // empresa, y se elige al imprimir: así cambiar el agrupador no obliga a volver a
+  // consultar la base ni puede dar números distintos por haberse consultado en otro
+  // momento. `roundGroups` (por empresa) sigue siendo la ÚNICA fuente de la plata:
+  // fletes, abonos y "Totales por empresa" salen de ahí pase lo que pase, porque un
+  // flete se le cobra a la empresa y no a la persona que cuida la máquina.
+  const [roundGroupsEnc, setRoundGroupsEnc] = useState<RoundCompany[]>([]);
+  const [roundsGroupBy, setRoundsGroupBy] = useState<'empresa' | 'encargado'>('empresa');
   const [roundsPreview, setRoundsPreview] = useState(false);
   // Modo del Informe por jornada al IMPRIMIR: 'completo' (el de siempre, con precios y
   // montos) o 'solo_horas' (todos los datos MENOS el dinero — precio/hora, totales $,
@@ -693,7 +704,7 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, plate, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, plate, tipo, clasificacion, entry_date, price_per_hour, encargado, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     const nowMs = Date.now();
@@ -726,7 +737,7 @@ export default function ReportsScreen({ route }: any) {
     // Cada fecha guarda el precio EFECTIVO de esa ronda: si la ronda está cerrada trae
     // frozen_price (precio congelado del corte); si no, el precio actual de la máquina.
     // Así un corte cerrado se reporta con SUS precios aunque después cambien.
-    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; plate: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null; js: number | null; jsh: string | null }> };
+    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; plate: string | null; entry: string | null; company: string; encargado: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null; js: number | null; jsh: string | null }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -739,6 +750,7 @@ export default function ReportsScreen({ route }: any) {
         plate: mm.plate ?? null,
         entry: mm.entry_date ?? null,
         company: mm.company?.name ?? 'Sin empresa',
+        encargado: String(mm.encargado ?? ''),
         price: mm.price_per_hour != null ? Number(mm.price_per_hour) : null,
         byDate: new Map(),
       };
@@ -786,7 +798,7 @@ export default function ReportsScreen({ route }: any) {
       });
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
       workedIds.add(key);
-      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD, cierreMotivo: cierreMotivoById.get(key)?.motivo || '', cierreFinBy: nameById[cierreFinById.get(key)?.id || ''] || '' };
+      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD, cierreMotivo: cierreMotivoById.get(key)?.motivo || '', cierreFinBy: nameById[cierreFinById.get(key)?.id || ''] || '', encargado: a.encargado, company: a.company };
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [], paradas: [], espera: [] };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
@@ -834,7 +846,7 @@ export default function ReportsScreen({ route }: any) {
     // fecha), perdiendo justo las averías/paradas más antiguas y arrastradas.
     const mrPend = await selectAllRows(
       'maintenance_requests',
-      'machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, plate, active, company:company_id(name))',
+      'machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, plate, encargado, active, company:company_id(name))',
       (q) => q.eq('status', 'pendiente').lte('created_at', toEndBound)
     );
     // Catálogo COMPLETO de maquinaria: sirve para el bloque ⏳ ESPERANDO INSTRUCCIONES
@@ -842,7 +854,7 @@ export default function ReportsScreen({ route }: any) {
     // la flota". Paginado con selectAllRows: con >1000 máquinas se truncaba en 1000.
     const machAll = await selectAllRows(
       'machinery',
-      'id, code, tipo, clasificacion, serial, plate, active, en_espera, company:company_id(name)'
+      'id, code, tipo, clasificacion, serial, plate, encargado, active, en_espera, company:company_id(name)'
     );
     // Reparto en los TRES bloques (avería real / parada / espera) con la función pura
     // `clasificarNoTrabajaron`: avería > parada > espera, turno por `paradaShiftOf`, y
@@ -899,7 +911,43 @@ export default function ReportsScreen({ route }: any) {
       totalFlota: inScope.length,
     });
 
+    // ── LA MISMA INFORMACIÓN, PARTIDA POR ENCARGADO ───────────────────────────
+    // Se arma DESDE `list`, o sea desde lo ya calculado: no se vuelve a consultar
+    // nada y no puede dar totales distintos. Entran las máquinas que trabajaron Y
+    // las que no (averiadas, paradas y en espera): si estas últimas se quedaran
+    // fuera, el corte por encargado escondería justamente las máquinas que tiene
+    // detenidas, que es lo primero que uno quiere ver.
+    // Quién es "el mismo encargado" lo decide `ordenMaquinas.ts` — la única verdad
+    // sobre eso en todo el sistema.
+    type WrapEnc = { code: string; encargado: string; kind: 'm' | 'averia' | 'parada' | 'espera'; m?: RoundMachine; a?: RoundAveria };
+    const todosEnc: WrapEnc[] = [];
+    list.forEach((g) => {
+      g.machines.forEach((m) => todosEnc.push({ code: m.machine, encargado: m.encargado, kind: 'm', m }));
+      g.averias.forEach((a) => todosEnc.push({ code: a.machine, encargado: a.encargado, kind: 'averia', a }));
+      g.paradas.forEach((a) => todosEnc.push({ code: a.machine, encargado: a.encargado, kind: 'parada', a }));
+      g.espera.forEach((a) => todosEnc.push({ code: a.machine, encargado: a.encargado, kind: 'espera', a }));
+    });
+    const listEnc: RoundCompany[] = agruparMaquinas(ordenarMaquinas(todosEnc, 'encargado'), 'encargado').map((grp) => {
+      // `viajes`/`viajesUSD`/`abonado` quedan VACÍOS a propósito: los fletes y los
+      // abonos son de la empresa. Como el bloque de plata solo se pinta cuando hay
+      // fletes, en este corte sencillamente no aparece — y así no puede salir un
+      // "SALDO POR PAGAR" que nadie debe.
+      const gg: RoundCompany = { company: grp.label, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [], paradas: [], espera: [], abonado: 0 };
+      grp.items.forEach((w) => {
+        if (w.kind === 'm' && w.m) {
+          gg.machines.push(w.m);
+          gg.days += w.m.days; gg.dayH += w.m.dayH; gg.nightH += w.m.nightH; gg.totalH += w.m.totalH; gg.totalUSD += w.m.totalUSD;
+        } else if (w.a) {
+          if (w.kind === 'averia') gg.averias.push(w.a);
+          else if (w.kind === 'parada') gg.paradas.push(w.a);
+          else gg.espera.push(w.a);
+        }
+      });
+      return gg;
+    });
+
     setRoundsCompany(cos ? (cos.length === 1 ? cos[0] : `${cos.length} empresas`) : null);
+    setRoundGroupsEnc(listEnc);
     setRoundGroups(list);
     setLoading(false);
     setRoundsPreview(true);
@@ -993,7 +1041,13 @@ export default function ReportsScreen({ route }: any) {
     // Etiqueta del encabezado de empresa: los TRES números por separado.
     const tagNT = (n: number, estado: EstadoNoTrabajo): string =>
       n ? ` <span style="color:${ESTILO_NT[estado].color};font-weight:400">· ${ESTILO_NT[estado].emoji} ${n} ${ESTILO_NT[estado].titulo}</span>` : '';
-    const sections = roundGroups
+    // Las SECCIONES salen del corte elegido (empresa o encargado). Todo lo demás
+    // —fletes, abonos, "Totales por empresa" y el gran total— sigue saliendo de
+    // `roundGroups`, o sea SIEMPRE por empresa: el reporte funciona igual que
+    // siempre y el agrupador solo cambia cómo se presentan las máquinas.
+    const gruposVista = roundsGroupBy === 'encargado' ? roundGroupsEnc : roundGroups;
+    const icoVista = roundsGroupBy === 'encargado' ? '👤' : '🏢';
+    const sections = gruposVista
       .map((g) => {
         const rows = g.machines
           .map(
@@ -1019,7 +1073,12 @@ export default function ReportsScreen({ route }: any) {
         // pasó en cada turno.
         const bloquesNT = bloqueNT(g.averias, 'averia') + bloqueNT(g.paradas, 'parada') + bloqueNT(g.espera, 'espera');
         const estadoTag = tagNT(g.averias.length, 'averia') + tagNT(g.paradas.length, 'parada') + tagNT(g.espera.length, 'espera');
-        return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${estadoTag}</h2>
+        // El RIF solo tiene sentido cuando el título ES una empresa. Agrupado por
+        // encargado, `g.company` es el nombre de una PERSONA y ponerle un RIF al
+        // lado sería un dato falso.
+        const rifTag = roundsGroupBy === 'empresa' && companyRif[g.company]
+          ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : '';
+        return `<h2>${icoVista} ${esc(g.company)}${rifTag} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${estadoTag}</h2>
           <table><thead>${head}</thead><tbody>${rows}${bloquesNT}</tbody>
           <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${money && g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
@@ -1099,9 +1158,18 @@ export default function ReportsScreen({ route }: any) {
     // Nombre del archivo: "Reporte EMPRESA del DD al DD". Si es de una sola empresa lleva su
     // nombre; siempre incluye el rango de fechas.
     const rng = dateRangeLabel(from, to);
+    // DOS cortes independientes que se COMBINAN, y los dos tienen que verse en el
+    // subtítulo y en el nombre del archivo: cómo está agrupado (empresa/encargado)
+    // y si lleva precios o es "solo horas". Dos PDF del mismo rango partidos
+    // distinto no se pueden llamar igual, o al guardarlos uno pisa al otro.
     const sufijo = money ? '' : ' - solo horas';
-    const jornadaFile = (roundsCompany ? `Reporte ${roundsCompany} ${rng}` : `Reporte por jornada ${rng}`) + sufijo;
-    await exportPdf(pdfShell('INFORME POR JORNADA', money ? 'Por empresa y maquinaria' : 'Por empresa y maquinaria · SOLO HORAS (sin precios)', content), jornadaFile);
+    const porEnc = roundsGroupBy === 'encargado';
+    const jornadaFile = (porEnc
+      ? `Reporte por jornada por encargado ${rng}`
+      : (roundsCompany ? `Reporte ${roundsCompany} ${rng}` : `Reporte por jornada ${rng}`)) + sufijo;
+    const sub = (porEnc ? 'Por encargado y maquinaria' : 'Por empresa y maquinaria')
+      + (money ? '' : ' · SOLO HORAS (sin precios)');
+    await exportPdf(pdfShell('INFORME POR JORNADA', sub, content), jornadaFile);
   };
 
   const generateFleet = async () => {
@@ -2443,6 +2511,36 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </>
         )}
+        {/* AGRUPAR POR — solo en el Informe por jornada. Cambia cómo se PARTE el PDF,
+            no qué máquinas entran: el filtro de empresas de aquí abajo se sigue
+            aplicando igual. La plata (fletes, abonos, "Totales por empresa") sale
+            SIEMPRE por empresa, porque un flete se le cobra a la empresa y no a la
+            persona que cuida la máquina. Pedido del cliente (21-ago-2026): «que el
+            reporte funcione como viene funcionando, pero que se pueda agrupar por
+            encargado». */}
+        {mode === 'rounds' ? (
+          <>
+            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Agrupar por</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {([{ v: 'empresa', label: '🏢 Empresa' }, { v: 'encargado', label: '🧑‍🔧 Encargado' }] as const).map((g) => {
+                const on = roundsGroupBy === g.v;
+                return (
+                  <TouchableOpacity
+                    key={g.v}
+                    onPress={() => setRoundsGroupBy(g.v)}
+                    activeOpacity={0.85}
+                    style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{g.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              No cambia los números ni saca máquinas: solo si el informe viene partido por empresa o por responsable. Los fletes, los abonos y el saldo por pagar salen siempre por empresa.
+            </Text>
+          </>
+        ) : null}
         {/* Filtro por empresa (multi-selección con checks) — aplica a TODOS los reportes. */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas (marca una o varias)</Text>
@@ -3289,10 +3387,13 @@ export default function ReportsScreen({ route }: any) {
           {roundGroups.length === 0 ? (
             <EmptyState title="Sin datos" subtitle="No hay rondas en el rango seleccionado." />
           ) : (
-            roundGroups.map((g) => (
+            /* La vista previa se parte igual que el PDF, para que lo que se ve en
+               pantalla sea lo que sale impreso. El RIF solo cuando el título es una
+               empresa: al lado del nombre de una persona sería un dato falso. */
+            (roundsGroupBy === 'encargado' ? roundGroupsEnc : roundGroups).map((g) => (
               <View key={g.company} style={{ marginBottom: spacing.sm }}>
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
-                  🏢 {g.company}{companyRif[g.company] ? ` · RIF ${companyRif[g.company]}` : ''} ({g.machines.length})
+                  {roundsGroupBy === 'encargado' ? '👤' : '🏢'} {g.company}{roundsGroupBy === 'empresa' && companyRif[g.company] ? ` · RIF ${companyRif[g.company]}` : ''} ({g.machines.length})
                 </Text>
                 {/* Las que NO trabajaron, separadas por estado (igual que en el PDF): el
                     detalle por turno (día/noche) y su motivo salen al imprimir. */}
