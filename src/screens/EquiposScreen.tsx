@@ -81,17 +81,21 @@ const VEHICLE_FIELDS: Field[] = [
 // nuevas (clasificacion, identifier, serial, company_id, grupo). El ENCARGADO se agrega
 // aparte (VEHICLE_ENCARGADO_FIELD) porque depende de su propio probe. La FOTO se sube
 // desde la tarjeta/ficha (igual que las máquinas), no como campo del formulario.
+// Mismo ORDEN que MACHINERY_FIELDS (marca → modelo → clasificación → identificador →
+// serial → empresa → grupo) para que el formulario del vehículo se vea IGUAL que el de
+// maquinaria. El ENCARGADO se inserta arriba (después de "Esperando") al componer los
+// campos, y "Tipo" (propio del vehículo) va al final.
 const VEHICLE_FIELDS_FULL: Field[] = [
   { key: 'plate', label: 'Placa', type: 'text', required: true },
   { key: 'en_espera', label: '⏳ Dejar "Esperando instrucciones" (aún no decidido)', type: 'switch', defaultValue: true },
   { key: 'brand', label: 'Marca — Toyota, Ford, Bera...', type: 'suggest', table: 'vehicles', column: 'brand', dropdown: true },
   { key: 'model', label: 'Modelo — Hilux, BR200...', type: 'suggest', table: 'vehicles', column: 'model', dropdown: true },
   { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'vehicles', column: 'clasificacion' },
-  { key: 'vehicle_type', label: 'Tipo', type: 'text' },
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
   { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
+  { key: 'vehicle_type', label: 'Tipo', type: 'text' },
   { key: 'tank_capacity_l', label: 'Capacidad tanque (L)', type: 'number' },
   { key: 'expected_kml', label: 'Rendimiento (km/L)', type: 'number' },
 ];
