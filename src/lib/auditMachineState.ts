@@ -54,7 +54,7 @@ export type CampoEstado = (typeof CAMPOS_ESTADO)[number];
  * de auditoría estuviera encendido (`machinery` estuvo sin rastro hasta el 18-ago-2026).
  */
 export const CAMPOS_ACOMPANANTES = [
-  'inactivated_at', 'inactivated_by', 'reactivated_at', 'reactivated_by',
+  'inactivated_at', 'inactivated_by', 'inactivated_reason', 'reactivated_at', 'reactivated_by',
 ] as const;
 
 export type CambioEstadoMaquina = {

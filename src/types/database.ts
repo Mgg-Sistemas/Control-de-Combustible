@@ -156,6 +156,7 @@ export interface Machinery {
   inactivated_at?: string | null; // fecha en que se marcó NO OPERATIVA (inactivó)
   reactivated_at?: string | null; // fecha en que se volvió a marcar OPERATIVA (reactivó)
   inactivated_by?: string | null; // profiles.id de quién la inactivó
+  inactivated_reason?: string | null; // MOTIVO obligatorio al retirar (sacar de servicio)
   reactivated_by?: string | null; // profiles.id de quién la reactivó
   inactivated_by_profile?: { full_name: string | null } | null; // embebido (join) para mostrar el nombre sin query aparte
   reactivated_by_profile?: { full_name: string | null } | null;
