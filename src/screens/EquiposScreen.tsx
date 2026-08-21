@@ -788,7 +788,7 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
       <body>
         <div class="name">${qrFor.code}</div>
         <div class="sub">${qrFor.serial ? 'Serial: ' + qrFor.serial : qrFor.plate ? 'Placa: ' + qrFor.plate : ''}</div>
-        <div class="sub">${(qrFor.tipo || '')}${qrFor.referencia ? ' · ' + qrFor.referencia : ''}</div>
+        <div class="sub">${(qrFor.tipo || '')}</div>
         <div class="qr">${qrStr}</div>
         <div class="hint">Escanea este código para registrar <b>combustible</b>, <b>ubicación</b> o <b>avería</b> de la máquina.</div>
         <div class="u">${url}</div>
