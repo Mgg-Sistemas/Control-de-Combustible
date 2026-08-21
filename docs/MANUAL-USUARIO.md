@@ -144,6 +144,14 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
 > desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
 >
+> **👤 Encargado OBLIGATORIO al crear (20-ago-2026):** al agregar una **máquina o un vehículo
+> NUEVO** hay que decir quién es el **encargado**; sin eso **no deja guardar** (*"Coloca el
+> ENCARGADO de la máquina (obligatorio)"*). **Solo se exige al CREAR:** al **editar** un equipo
+> que ya existe se puede guardar sin llenarlo, para no trancar la ficha de los equipos viejos que
+> nunca lo tuvieron — esos se van completando a medida que alguien los edite. En los **vehículos**
+> el campo es nuevo: aparece únicamente **después de correr `supabase/vehiculos_encargado.sql`**;
+> mientras tanto el formulario de vehículos sale como siempre y no lo pide.
+>
 > **🏢 Empresa en la ficha de cada máquina (20-ago-2026):** la tarjeta de cada equipo del Catálogo
 > ahora dice **a qué empresa pertenece**, debajo de la clasificación. Es **solo informativo**: no
 > cambia nada de la máquina ni de los reportes. Antes había que fijarse bajo qué empresa estaba
