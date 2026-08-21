@@ -4,6 +4,7 @@ import { Screen, EmptyState, SkeletonList } from './ui';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { machineLabel as etiquetaMaquina } from '../lib/machineLabel';
 import { norm, cmpText } from '../lib/text';
+import { ordenarMaquinas, agruparMaquinas, OrdenMaquinas } from '../lib/ordenMaquinas';
 import { Machinery } from '../types/database';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
@@ -71,6 +72,11 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
   // ── PASO 2: asignar máquinas al inspector elegido ──────────────────────
   const [checkQuery, setCheckQuery] = useState('');
   const [checkFilter, setCheckFilter] = useState<CheckFilterMode>('mine');
+  // Cómo se organiza la lista del CHECK. Arranca en 'maquina' (A→Z por código),
+  // que es como salía hasta ahora: quien no toque nada ve lo de siempre.
+  // 'encargado' agrupa las mismas máquinas bajo el nombre de su encargado — no
+  // filtra ni esconde ninguna (pedido del cliente 21-ago-2026).
+  const [checkOrden, setCheckOrden] = useState<OrdenMaquinas>('maquina');
   const [selIds, setSelIds] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [assignBusy, setAssignBusy] = useState<string | null>(null);
@@ -557,7 +563,10 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                   if (checkFilter === 'mine') { const s = assignMap[m.id] || {}; return s.day?.id === checkInspector.id || s.night?.id === checkInspector.id; }
                   return true;
                 });
-                const shown = filtered.slice(0, 300);
+                // Se ORDENA todo primero y se recorta después, para que el tope de 300
+                // no dependa del orden en que venían y los títulos cuadren con lo visible.
+                const shown = ordenarMaquinas(filtered, checkOrden).slice(0, 300);
+                const grupos = agruparMaquinas(shown, checkOrden);
                 const allSel = shown.length > 0 && shown.every((m) => selIds.has(m.id));
                 return (
                   <>
@@ -578,6 +587,19 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                       })}
                     </View>
                     <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, tipo, empresa, encargado, inspector…" placeholderTextColor={colors.muted} style={input} />
+                    {/* ORGANIZAR POR: no filtra nada, solo cambia el orden y los títulos.
+                        Salen las MISMAS máquinas en los dos modos. */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>Organizar por:</Text>
+                      {([['🔤 Máquina', 'maquina'], ['👤 Encargado', 'encargado']] as const).map(([lbl, v]) => {
+                        const on = checkOrden === v;
+                        return (
+                          <TouchableOpacity key={v} onPress={() => setCheckOrden(v)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{lbl}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
                       <TouchableOpacity onPress={() => setSelIds(allSel ? new Set() : new Set(shown.map((m) => m.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.primary : colors.border, backgroundColor: allSel ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
@@ -603,7 +625,17 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                       </>
                     ) : null}
                     <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
-                      {shown.map((m) => {
+                      {grupos.map((g) => (
+                      <View key={g.key}>
+                      {/* Título del encargado. En modo "por máquina" el grupo viene sin
+                          título y la lista se ve exactamente igual que antes. */}
+                      {g.label ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm, marginBottom: spacing.xs, paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 13, flex: 1 }} numberOfLines={1}>👤 {g.label}</Text>
+                          <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 11 }}>{g.items.length}</Text>
+                        </View>
+                      ) : null}
+                      {g.items.map((m) => {
                         const slots = assignMap[m.id] || {};
                         const on = slots.day?.id === checkInspector.id || slots.night?.id === checkInspector.id;
                         const sel = selIds.has(m.id);
@@ -652,6 +684,8 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                           </View>
                         );
                       })}
+                      </View>
+                      ))}
                       {filtered.length === 0 ? (
                         <EmptyState
                           title="Sin resultados"
