@@ -144,6 +144,15 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
 > desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
 >
+> **🏢 Empresa en la ficha de cada máquina (20-ago-2026):** la tarjeta de cada equipo del Catálogo
+> ahora dice **a qué empresa pertenece**, debajo de la clasificación. Es **solo informativo**: no
+> cambia nada de la máquina ni de los reportes. Antes había que fijarse bajo qué empresa estaba
+> agrupada, y al **buscar** (o al llegar desde el **QR** o desde el **Inicio**) la tarjeta se ve
+> suelta, fuera de su grupo, así que no había forma de saberlo. Si la máquina **no tiene empresa
+> asignada**, lo dice: **"Sin empresa"** — eso sí hay que corregirlo en su ficha. Sale igual en las
+> listas que se abren al tocar las tarjetas de estado (Operativas / Averiadas / Retiradas /
+> Esperando instrucciones).
+>
 > **Al AGREGAR una máquina nueva:** el formulario trae el check **"⏳ Dejar 'Esperando
 > instrucciones' (aún no decidida)"** **activado por defecto** — toda máquina nueva entra
 > directo a este estado, salvo que **destildes** esa casilla al crearla (si ya sabes que va
