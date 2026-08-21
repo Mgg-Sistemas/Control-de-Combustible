@@ -147,6 +147,17 @@ export function RecordForm({
     return o;
   }, [fields]);
 
+  // Firma ESTABLE del conjunto de campos que cargan opciones (lookup/suggest). Sirve
+  // para saber cuándo hay que RECARGAR las opciones: si el formulario cambia de campos
+  // en caliente —p. ej. un vehículo pasa de básico a ficha completa cuando resuelve el
+  // probe `vehFicha`, apareciendo "Empresa supervisora"— la firma cambia y el efecto de
+  // abajo vuelve a consultar. Antes las opciones solo se cargaban al abrir (deps
+  // [visible, record]) y esos campos nuevos quedaban con el desplegable VACÍO.
+  const optionsSig = fields
+    .filter((f) => f.type === 'lookup' || f.type === 'suggest')
+    .map((f: any) => `${f.type}:${f.key}:${f.table}:${f.column ?? f.labelCol ?? ''}:${JSON.stringify(f.filter ?? '')}`)
+    .join('|');
+
   useEffect(() => {
     if (!visible) return;
     if (record) {
@@ -162,7 +173,13 @@ export function RecordForm({
     }
     setError(null);
     setAskDelete(false);
-    // Cargar opciones de los campos lookup y las sugerencias de los campos "suggest".
+  }, [visible, record]);
+
+  // Carga las opciones de los campos lookup y las sugerencias de los "suggest". En su
+  // propio efecto y con `optionsSig` en las deps para que se RECARGUE cuando cambia el
+  // conjunto de campos (ficha básica → completa), no solo al abrir el formulario.
+  useEffect(() => {
+    if (!visible) return;
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
         // Columnas extra para DISTINGUIR opciones con el mismo nombre (p. ej. dos tanques
@@ -200,7 +217,8 @@ export function RecordForm({
         setLookups((prev) => ({ ...prev, [f.key]: opts }));
       }
     });
-  }, [visible, record]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, optionsSig]);
 
   const set = (k: string, v: string) => setValues((p) => ({ ...p, [k]: v }));
 
