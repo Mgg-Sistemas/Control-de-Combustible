@@ -125,13 +125,24 @@ export type ConstanciaTrabajoData = {
   hireDate?: string | null;   // fecha de ingreso ISO "AAAA-MM-DD"
   city?: string | null;
   state?: string | null;
+  /** Monto QUINCENAL ya formateado ("$150,00"), o null/undefined para NO
+   *  mencionar el sueldo. Lo decide quien emite la constancia con la casilla
+   *  "💵 Incluir el monto quincenal" (ver `montoQuincenal.ts`). */
+  montoQuincenal?: string | null;
 };
 
 /**
  * CONSTANCIA DE TRABAJO (formato estándar) lista para imprimir. Dirigida "A quien
  * pueda interesar"; hace constar que la persona presta servicios en la empresa,
- * con su cédula, cargo y fecha de ingreso. NO incluye el sueldo (decisión del
- * cliente). Al pie lleva una firma CENTRADA para la Jefa de Administración.
+ * con su cédula, cargo y fecha de ingreso. Al pie lleva una firma CENTRADA para
+ * la Jefa de Administración.
+ *
+ * EL SUELDO ES OPCIONAL y por defecto NO sale (era la decisión vieja del
+ * cliente). Solo aparece si se pasa `montoQuincenal`, porque los trámites de
+ * banco, crédito o alquiler la piden con el monto (pedido 21-ago-2026). El
+ * documento NO dice de dónde salió el número —si estaba cargado o si se
+ * convirtió del sueldo semanal o mensual—: para quien lo recibe es el sueldo
+ * quincenal y punto. Esa explicación se ve en pantalla, antes de generarlo.
  */
 export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
   const linea = '________________________';
@@ -143,6 +154,12 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
   const lugar = esc([d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
   const fecha = esc(hoyLargo());
   const impreso = esc(selloImpresion());
+  // Renglón del sueldo. Va como párrafo aparte y SOLO si se pidió: así la
+  // constancia sin monto queda IDÉNTICA a la de siempre, sin un hueco ni un "—".
+  const monto = String(d.montoQuincenal ?? '').trim();
+  const parrafoSueldo = monto
+    ? `\n    <p>Asimismo, se hace constar que devenga una remuneración <b>quincenal</b> de <span class="fill">${esc(monto)}</span>.</p>`
+    : '';
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
@@ -176,7 +193,7 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
     <h1>Constancia de Trabajo</h1>
     <div class="dirigida">A quien pueda interesar</div>
 
-    <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${empresa}</span>, institución <b>sin fines de lucro</b>, desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>
+    <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${empresa}</span>, institución <b>sin fines de lucro</b>, desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>${parrafoSueldo}
 
     <p class="cierre">Constancia que se expide a solicitud de la parte interesada, en ${lugar}, a la fecha ${fecha}.</p>
 

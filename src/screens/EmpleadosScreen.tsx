@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Image, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, Modal } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
@@ -13,6 +13,7 @@ import { useToast } from '../components/ToastProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml, constanciaTrabajoHtml } from '../lib/constancia';
+import { montoQuincenal, montoQuincenalTexto } from '../lib/montoQuincenal';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
 import { spacing, radius } from '../theme';
@@ -239,7 +240,12 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   // CONSTANCIA DE TRABAJO (formato estándar, "A quien pueda interesar"): hace constar
   // cargo y fecha de ingreso; firma centrada de la Jefa de Administración.
-  const imprimirConstanciaTrabajo = async (e: Employee) => {
+  // A quién se le está haciendo la constancia (abre el cuadro con la casilla del
+  // sueldo). null = cerrado. `conMonto` recuerda la casilla mientras está abierto.
+  const [constanciaFor, setConstanciaFor] = useState<Employee | null>(null);
+  const [constanciaConMonto, setConstanciaConMonto] = useState(false);
+
+  const imprimirConstanciaTrabajo = async (e: Employee, conMonto: boolean) => {
     setBusy(e.id + '-const-trab');
     const html = constanciaTrabajoHtml({
       fullName: fullName(e),
@@ -248,9 +254,13 @@ export default function EmpleadosScreen({ navigation }: any) {
       hireDate: e.hire_date,
       city: e.city,
       state: e.state,
+      // Sin la casilla marcada va `null` y la constancia sale IDÉNTICA a la de
+      // siempre, sin mencionar sueldo.
+      montoQuincenal: conMonto ? montoQuincenalTexto(e as any) : null,
     });
     await exportPdf(html, `Constancia de trabajo - ${fullName(e)}`);
     setBusy(null);
+    setConstanciaFor(null);
   };
 
   // Reporte PDF de LO SELECCIONADO: lista las personas del filtro actual (estado +
@@ -527,7 +537,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
-                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => imprimirConstanciaTrabajo(e)} />
+                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.success} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
                           <Btn label="🗑️ Quitar foto" color={colors.danger} disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
@@ -551,6 +561,71 @@ export default function EmpleadosScreen({ navigation }: any) {
         onClose={() => setFormOpen(false)}
         onSaved={refetch}
       />
+
+      {/* CONSTANCIA DE TRABAJO — ¿lleva el sueldo o no?
+          Arranca SIN marcar: la constancia por defecto sigue siendo la de
+          siempre, sin mencionar el monto. Se marca cuando el trámite lo pide
+          (banco, crédito, alquiler). Ver `src/lib/montoQuincenal.ts`. */}
+      <Modal visible={!!constanciaFor} transparent animationType="fade" onRequestClose={() => setConstanciaFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>📃 Constancia de trabajo</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2, marginBottom: spacing.md }}>
+              {constanciaFor ? fullName(constanciaFor) : ''}
+            </Text>
+
+            {(() => {
+              const m = constanciaFor ? montoQuincenal(constanciaFor as any) : null;
+              const hay = !!m;
+              return (
+                <>
+                  <TouchableOpacity
+                    onPress={() => hay && setConstanciaConMonto((v) => !v)}
+                    activeOpacity={hay ? 0.7 : 1}
+                    style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, opacity: hay ? 1 : 0.55 }}
+                  >
+                    <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: constanciaConMonto && hay ? colors.primary : colors.border, backgroundColor: constanciaConMonto && hay ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                      {constanciaConMonto && hay ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 14 }}>✓</Text> : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>💵 Incluir el monto quincenal</Text>
+                      {hay ? (
+                        <>
+                          <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 18, marginTop: 2 }}>
+                            {montoQuincenalTexto(constanciaFor as any)}
+                          </Text>
+                          {/* De dónde salió el número. Va SOLO en pantalla: el PDF
+                              dice "remuneración quincenal" y nada más. */}
+                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{m!.detalle}</Text>
+                        </>
+                      ) : (
+                        <Text style={{ color: colors.danger, fontSize: 12, marginTop: 2, fontWeight: '700' }}>
+                          Esta persona no tiene sueldo cargado (ni quincenal, ni semanal, ni mensual), así que no hay monto que poner. Cárgaselo en su ficha y vuelve a intentarlo.
+                        </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                    <TouchableOpacity onPress={() => setConstanciaFor(null)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={!!busy}
+                      onPress={() => constanciaFor && imprimirConstanciaTrabajo(constanciaFor, constanciaConMonto && hay)}
+                      style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: '#1E3A5F', opacity: busy ? 0.6 : 1 }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '800' }}>
+                        {busy ? 'Generando…' : constanciaConMonto && hay ? '📄 Generar CON monto' : '📄 Generar sin monto'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

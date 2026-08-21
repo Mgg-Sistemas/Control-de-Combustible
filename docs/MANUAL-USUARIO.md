@@ -888,8 +888,24 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > **📄 Const. carnet** es la constancia de **entrega de carnet** (trabajo a destajo; la firma el
 > colaborador). **📃 Constancia de trabajo** es el **formato estándar** dirigido *"A quien pueda
 > interesar"*: hace constar que la persona **presta servicios en SOS La Guaira**, con su **cédula,
-> cargo y fecha de ingreso** (**no incluye el sueldo**). Al pie lleva una **firma centrada para la
-> Jefa de Administración**. Sale en **PDF** listo para imprimir o guardar.
+> cargo y fecha de ingreso**. Al pie lleva una **firma centrada para la Jefa de Administración**.
+> Sale en **PDF** listo para imprimir o guardar.
+>
+> **💵 Con o sin el monto quincenal (21-ago-2026).** Al tocar **📃 Constancia de trabajo** se abre un
+> cuadro con una casilla: **"Incluir el monto quincenal"**. Arranca **desmarcada**, así que la
+> constancia de siempre —sin sueldo— sigue saliendo igual. Se marca cuando el trámite lo pide
+> (banco, crédito, alquiler) y el documento agrega un renglón: *"devenga una remuneración quincenal
+> de $X"*.
+>
+> **De dónde sale el monto**, en este orden: **1)** el **quincenal** de su ficha, si está cargado;
+> **2)** si no, el **semanal × 2**; **3)** si no, el **mensual ÷ 2**. Antes de generar, el cuadro te
+> muestra el monto y **te dice de cuál de los tres salió** — pero el PDF solo dice *"remuneración
+> quincenal"*, sin explicar la conversión.
+>
+> Si la persona **no tiene ningún sueldo cargado** (ni quincenal, ni semanal, ni mensual), la casilla
+> queda **deshabilitada** y te avisa: no se inventa una cifra. Cárgale el sueldo en su ficha y vuelve
+> a intentarlo. Ojo: **"Salario base" no cuenta** para esto, porque esa casilla no dice si es
+> semanal, quincenal o mensual, y convertirla sería adivinar.
 
 ### 4.6e. Distribución de Guardias (rotación de descanso de inspectores)
 Arma el **calendario de descanso** de los inspectores dentro de un ciclo de fechas (por defecto,
