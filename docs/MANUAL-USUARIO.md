@@ -944,6 +944,29 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > cargo y fecha de ingreso**. Al pie lleva una **firma centrada para la Jefa de Administración**.
 > Sale en **PDF** listo para imprimir o guardar.
 >
+> **🔎 El buscador ahora busca por TODA la ficha (21-ago-2026).** Antes solo miraba **nombre,
+> cédula, ficha, cargo y empresa**. Si buscabas por **teléfono** no encontraba a nadie, y por eso
+> parecía que el buscador *"solo servía para empresas"*. Ahora busca además por **departamento,
+> grupo/zona, teléfono, correo, titular de la cuenta y N.° de cuenta**.
+>
+> Y lo más útil: **las palabras van en cualquier orden.** `PEREZ JUAN` encuentra a JUAN PEREZ (antes
+> no), y puedes **cruzar datos**: `OBRERO 0207` busca al que sea obrero **y** tenga la ficha 0207.
+> Tienen que estar **todas** las palabras que escribas; si una no aparece en la ficha, esa persona no
+> sale. No importan mayúsculas ni tildes (`josé` encuentra a JOSE), pero **la Ñ sí se respeta**:
+> `PEÑA` no encuentra a `PENA`, porque son apellidos distintos.
+>
+> **🗑️ Quitar una empresa de filtro nómina (21-ago-2026).** Si creaste una empresa por error o con el
+> nombre mal escrito: abre el filtro **Empresa nómina** y abajo, bajo *"Sin nadie asignado"*, salen en
+> rojo las que **no tienen a ninguna persona**. Tócalas y se quitan.
+>
+> **Solo se ofrecen las que tienen CERO personas.** Para sacar una que sí tiene gente, primero
+> cámbiale la empresa a esas personas en su ficha — si no, quedarían agrupadas bajo una empresa que ya
+> no se puede elegir.
+>
+> La empresa **no se borra**, se **desactiva**: deja de aparecer en el filtro y ya no se puede elegir
+> en fichas nuevas, pero si algún día tuvo gente, ese historial no se pierde. Por eso esa tabla ni
+> siquiera tiene permiso de borrado.
+>
 > **⚠️ AMONESTACIÓN ESCRITA (21-ago-2026).** Hay un tercer botón, **⚠️ Amonestación**, que saca el
 > **llamado de atención formal** en PDF, con el mismo membrete de las constancias. Al tocarlo se abre
 > un cuadro donde puedes poner **tipo de falta**, **fecha y hora del hecho**, **qué pasó** (el relato
