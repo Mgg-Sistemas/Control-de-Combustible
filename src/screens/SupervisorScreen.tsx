@@ -1588,15 +1588,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       setNotice('⚠️ Sin señal GPS. Elige un edificio de la lista para poder guardarlo.');
       return;
     }
-    if (gpsOk) {
-      const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
-      if (error) { setSavingMachLoc(false); setNotice('❌ ' + error.message); return; }
-    }
-    // Al escribir en machinery.referencia, el Mapa (que escucha realtime de
-    // `machinery`) refleja el nuevo edificio de una vez.
-    const { error: refErr } = await supabase.from('machinery').update({ referencia: nuevaRef }).eq('id', ci.id);
+    // TODO en UNA sola llamada al RPC `update_machine_location` (SECURITY DEFINER):
+    // guarda coordenadas Y referencia esquivando RLS. Antes la referencia se escribía
+    // con un UPDATE directo a `machinery`, que RLS BLOQUEA en silencio (0 filas, sin
+    // error) para el inspector → el edificio "no se guardaba" (bug 20-ago-2026). El
+    // RPC ya acepta p_referencia. SIN GPS se reenvían las coordenadas ACTUALES de la
+    // máquina (no las borra) y solo cambia el edificio.
+    const pLat = gpsOk ? lat : ((ci as any).latitude ?? null);
+    const pLng = gpsOk ? lng : ((ci as any).longitude ?? null);
+    const { error } = await supabase.rpc('update_machine_location', {
+      p_id: ci.id, p_lat: pLat, p_lng: pLng, p_referencia: nuevaRef,
+    });
     setSavingMachLoc(false);
-    if (refErr) { setNotice('❌ ' + refErr.message); return; }
+    if (error) { setNotice('❌ ' + error.message); return; }
     // Si el edificio escrito NO estaba en el catálogo, lo registra al vuelo
     // (idempotente) para que quede en la lista compartida la próxima vez.
     if (nuevaRef) addEdificio(nuevaRef).catch(() => {});
