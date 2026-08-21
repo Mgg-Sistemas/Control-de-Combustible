@@ -355,11 +355,15 @@ export default function PagoPersonalScreen() {
   // que se elija (no en bloque, para no meter desincorporados donde no van).
   const [addOpen, setAddOpen] = useState(false);
   const [addQuery, setAddQuery] = useState('');
+  // Filtro por ESTADO dentro del buscador. Existe porque desde la lista del período
+  // se llega hasta acá con un estado ya elegido ("Inactivos/Desincorporados"): sin
+  // esto había que volver a buscarlos a ojo entre los ~286 del registro.
+  const [addEstado, setAddEstado] = useState<'todos' | 'activos' | 'inactivos'>('todos');
   const [addRows, setAddRows] = useState<any[]>([]);
   const [addLoading, setAddLoading] = useState(false);
-  const abrirAgregarPersona = async () => {
+  const abrirAgregarPersona = async (preEstado: 'todos' | 'activos' | 'inactivos' = 'todos') => {
     if (!sel) return;
-    setAddOpen(true); setAddQuery(''); setAddLoading(true);
+    setAddOpen(true); setAddQuery(''); setAddEstado(preEstado); setAddLoading(true);
     const { data } = await supabase
       .from('employees')
       .select(`${EMP_COLS}, status`)
@@ -373,11 +377,16 @@ export default function PagoPersonalScreen() {
     const nq = norm(addQuery);
     return addRows
       .filter((e: any) => !have.has(e.id))
+      // Mismo criterio que la lista del período: desincorporado = inactivo o
+      // suspendido (ver `esDesincorporado` en src/lib/staffPayEstado.ts). Se importa,
+      // NO se reescribe: el bug del 20-ago-2026 salió de tener dos versiones.
+      .filter((e: any) => addEstado === 'todos'
+        || (addEstado === 'inactivos' ? esDesincorporado(e.status) : !esDesincorporado(e.status)))
       .filter((e: any) => !nq
         || norm(`${e.first_name} ${e.last_name}`).includes(nq)
         || norm(e.cedula ?? '').includes(nq)
         || norm(e.cargo ?? '').includes(nq));
-  }, [addRows, items, addQuery]);
+  }, [addRows, items, addQuery, addEstado]);
   const agregarPersona = async (e: any) => {
     if (!sel) return;
     setBusy(true);
@@ -923,7 +932,7 @@ export default function PagoPersonalScreen() {
                     <TouchableOpacity onPress={agregarFaltantes} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>＋ Personal faltante</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={abrirAgregarPersona} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                    <TouchableOpacity onPress={() => abrirAgregarPersona('todos')} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>👤 Agregar persona</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }}>
@@ -1040,7 +1049,29 @@ export default function PagoPersonalScreen() {
               ) : items.length === 0 ? (
                 <EmptyState title="Sin personal" subtitle="No hay empleados activos en esta empresa. Agrégalos en Empleados y usa “Personal faltante”." />
               ) : itemsShown.length === 0 ? (
-                <EmptyState title="Sin resultados" subtitle="Ningún empleado del período coincide con el cargo, la búsqueda o el estado filtrados." />
+                // Antes esto era un CALLEJÓN SIN SALIDA: al filtrar por
+                // "Inactivos/Desincorporados" en un período donde nadie lo está, salía
+                // "Sin resultados" y ahí se acababa — sin forma de llegar a la gente que
+                // NO está en este período, que es justo a quien se busca cuando a alguien
+                // se le quedó un pago pendiente al salir (cliente 21-ago-2026).
+                <View style={{ paddingVertical: spacing.md }}>
+                  <EmptyState
+                    title="Sin resultados en ESTE período"
+                    subtitle={estadoSel === 'inactivos'
+                      ? 'Nadie de los que están en este período figura como inactivo o desincorporado. Si buscas a alguien que NO está en el período, tráelo desde el registro completo.'
+                      : 'Ningún empleado del período coincide con el cargo, la búsqueda o el estado filtrados.'}
+                  />
+                  {!readOnly ? (
+                    <TouchableOpacity
+                      onPress={() => abrirAgregarPersona(estadoSel === 'inactivos' ? 'inactivos' : estadoSel === 'activos' ? 'activos' : 'todos')}
+                      style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: colors.primary }}
+                    >
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>
+                        {estadoSel === 'inactivos' ? '👤 Buscar entre inactivos y desincorporados' : '👤 Buscar en todo el registro'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               ) : (
                 <>
                   {/* Selección manual (checkbox por persona) para exportar SOLO esos al
@@ -1263,11 +1294,26 @@ export default function PagoPersonalScreen() {
               placeholderTextColor={colors.muted}
               style={{ ...input, marginBottom: spacing.sm }}
             />
+            {/* Estado. Viene preseleccionado con el que traías en la lista del período,
+                para no tener que buscar a ojo entre todo el registro. */}
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+              {([['Todos', 'todos'], ['Activos', 'activos'], ['Inactivos/Desincorporados', 'inactivos']] as const).map(([t, k]) => (
+                <TouchableOpacity key={k} onPress={() => setAddEstado(k)} style={chip(addEstado === k)}>
+                  <Text style={chipTxt(addEstado === k)}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             {addLoading ? (
               <Loading />
             ) : addCandidates.length === 0 ? (
               <Text style={{ color: colors.muted, paddingVertical: spacing.md }}>
-                {addQuery.trim() ? 'Nadie coincide con esa búsqueda.' : 'Todo el personal del registro ya está en este período.'}
+                {addQuery.trim()
+                  ? 'Nadie coincide con esa búsqueda.'
+                  : addEstado === 'inactivos'
+                    ? 'No hay inactivos ni desincorporados fuera de este período. Toca "Todos" para ver al resto.'
+                    : addEstado === 'activos'
+                      ? 'No hay activos fuera de este período. Toca "Todos" para ver también a los desincorporados.'
+                      : 'Todo el personal del registro ya está en este período.'}
               </Text>
             ) : (
               <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">

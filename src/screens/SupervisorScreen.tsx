@@ -17,7 +17,6 @@ import { captureAndUploadPhoto } from '../lib/photo';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
 import QrScanner from '../components/QrScanner';
 import QrInactive from '../components/QrInactive';
-import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts, calcularInicioJornada } from '../lib/jornada';
@@ -345,7 +344,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //    pantalla. Al finalizar, las horas = (fin − inicio) van a Control (día/noche).
   const [jornadaStart, setJornadaStart] = useState<string | null>(null);
   const [jornadaShift, setJornadaShift] = useState<'day' | 'night'>('day');
-  const [showHist, setShowHist] = useState(false); // modal Histórico por inspector (tlf)
   const [jornadaBusy, setJornadaBusy] = useState(false);
   const [finConfirm, setFinConfirm] = useState(false); // aviso de confirmación antes de finalizar
   const [motivoCierre, setMotivoCierre] = useState(''); // motivo OBLIGATORIO si se cierra antes de la hora de fin
@@ -2697,19 +2695,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </View>
       ) : null}
 
-      {/* 📚 HISTÓRICO por inspector (jornadas finalizadas) — también desde el teléfono. */}
-      <TouchableOpacity onPress={() => setShowHist(true)} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}>
-        <Text style={{ fontSize: 16 }}>📚</Text>
-        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14 }}>Histórico por inspector</Text>
-      </TouchableOpacity>
-      <Modal visible={showHist} animationType="slide" onRequestClose={() => setShowHist(false)}>
-        <View style={{ flex: 1, backgroundColor: colors.background }}>
-          <TouchableOpacity onPress={() => setShowHist(false)} style={{ alignSelf: 'flex-end', paddingHorizontal: spacing.md, paddingTop: spacing.md }}>
-            <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16 }}>✕ Cerrar</Text>
-          </TouchableOpacity>
-          <HistoricoJornadasScreen />
-        </View>
-      </Modal>
+      {/* El botón "📚 Histórico por inspector" se QUITÓ de la vista del teléfono
+          (pedido del cliente 21-ago-2026). El reporte no desaparece: sigue en
+          Inspecciones (SupervisionScreen) y en 📄 Reportes → "Histórico por
+          inspector", que es desde donde se usa de verdad. Acá solo estorbaba
+          entre el reporte de la jornada y el buscador de máquinas. */}
 
       {notice ? (
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>

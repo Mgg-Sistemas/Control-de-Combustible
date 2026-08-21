@@ -267,6 +267,14 @@ export interface Employee {
   emergency_contact_relation: string | null;
   hire_date: string | null;      // fecha de ingreso
   status: 'activo' | 'inactivo' | 'suspendido';
+  /** EMPRESA FILTRO NÓMINA: lista propia de Nómina (tabla `payroll_companies`),
+   *  aparte del catálogo general. Es REFERENCIAL — solo agrupa y filtra en la
+   *  pantalla de Empleados; NO la lee maquinaria, ni reportes, ni compras, ni
+   *  comidas: esas ni conocen la tabla.
+   *  La empresa REAL del empleado sigue siendo `company_id`, que usan los períodos
+   *  de nómina, la pantalla de comidas y el carnet.
+   *  La columna la agrega `supabase/nomina_empresa_filtro.sql`. */
+  payroll_company_id?: string | null;
   base_salary: number | null;
   salary_currency: string | null;
   bank_name: string | null;      // banco (datos bancarios)

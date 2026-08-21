@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Image, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Image, ScrollView, Modal } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
@@ -13,6 +13,7 @@ import { useToast } from '../components/ToastProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml, constanciaTrabajoHtml } from '../lib/constancia';
+import { montoQuincenal, montoQuincenalTexto } from '../lib/montoQuincenal';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
 import { spacing, radius } from '../theme';
@@ -42,6 +43,11 @@ const FIELDS: Field[] = [
   { key: 'last_name', label: 'Apellido', type: 'text', required: true },
   { key: 'cedula', label: 'Cédula', type: 'text' },
   { key: 'company_id', label: 'Empresa', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
+  // EMPRESA FILTRO NÓMINA — lista PROPIA de Nómina (`payroll_companies`), aparte del
+  // catálogo general. `createColumn` deja escribir una empresa nueva sin salir del
+  // formulario, y esa empresa NO aparece en maquinaria, reportes, compras ni comidas:
+  // el resto del sistema ni conoce esa tabla. Ver supabase/nomina_empresa_filtro.sql.
+  { key: 'payroll_company_id', label: '🏢 Empresa filtro nómina (solo agrupa acá — escribe para crear una nueva)', type: 'lookup', table: 'payroll_companies', labelCol: 'name', createColumn: 'name', dropdown: true },
   { key: 'cargo', label: 'Cargo', type: 'suggest', table: 'employees', column: 'cargo', dropdown: true, placeholder: 'Elegir cargo…' },
   { key: 'department', label: 'Departamento', type: 'suggest', table: 'employees', column: 'department' },
   { key: 'grupo', label: 'Grupo / zona', type: 'suggest', table: 'employees', column: 'grupo' },
@@ -79,6 +85,10 @@ export default function EmpleadosScreen({ navigation }: any) {
   const toast = useToast();
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  // Lista PROPIA de Nómina. Si todavía no se corrió supabase/nomina_empresa_filtro.sql
+  // la consulta falla y `data` queda vacío: los chips caen a "Sin empresa de filtro"
+  // y nada se rompe.
+  const { data: payrollCompanies } = useTable<{ id: string; name: string }>('payroll_companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
   const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo' | 'otro'>('todos'); // estado del empleado
@@ -99,6 +109,12 @@ export default function EmpleadosScreen({ navigation }: any) {
   // (company_id null) = SOS LA GUAIRA (el empleador). Si a alguien se le asigna un
   // contratista, se muestra ese, pero por defecto todos son SOS LA GUAIRA.
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'SOS LA GUAIRA');
+  // Nombre de la EMPRESA FILTRO NÓMINA. Sin asignar se muestra aparte, para que se
+  // vea a quién le falta: después de correr el SQL de arranque no debería quedar
+  // nadie ahí. NO se le pone "SOS LA GUAIRA" por descarte como en `companyName`,
+  // porque entonces se mezclaría con la empresa de filtro que SÍ se llama así y
+  // saldrían dos grupos iguales partiendo a la plantilla en dos.
+  const nominaName = (id: string | null) => (id ? payrollCompanies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa de filtro');
   // Etiqueta del cargo UNIFICADA y en MAYÚSCULA (junta variantes: plurales, typos…).
   const cargoLabel = (e: Employee) => canonicalCargo(e.cargo);
 
@@ -115,7 +131,10 @@ export default function EmpleadosScreen({ navigation }: any) {
     : (!esActivo(e) && !esOtro(e)); // inactivo
   // Clave de empresa de un empleado: su `company_id`, o SIN_EMPRESA si no tiene
   // contratista asignado (esos son de SOS LA GUAIRA, ver `companyName`).
-  const empresaKey = (e: Employee) => e.company_id ?? SIN_EMPRESA;
+  // Agrupa por la EMPRESA FILTRO NÓMINA, no por la empresa real: es exactamente el
+  // punto del campo nuevo. La empresa real (`company_id`) sigue intacta y la usan
+  // los períodos de nómina, comidas y el carnet.
+  const empresaKey = (e: Employee) => (e as any).payroll_company_id ?? SIN_EMPRESA;
 
   // Empleados que pasan la BÚSQUEDA de texto + FILTRO de estado. Es la base para
   // contar por EMPRESA: los conteos se calculan ANTES de aplicar el filtro de
@@ -129,9 +148,10 @@ export default function EmpleadosScreen({ navigation }: any) {
         norm(e.cedula).includes(q) ||
         norm(e.ficha_number).includes(q) ||
         norm(e.cargo).includes(q) ||
-        norm(companyName(e.company_id)).includes(q))
+        norm(companyName(e.company_id)).includes(q) ||
+        norm(nominaName((e as any).payroll_company_id)).includes(q))
     ),
-    [employees, q, statusFilter, companies]
+    [employees, q, statusFilter, companies, payrollCompanies]
   );
 
   // Conteo por empresa (para los chips-filtro): [clave, nombre, cantidad].
@@ -139,14 +159,14 @@ export default function EmpleadosScreen({ navigation }: any) {
     const map = new Map<string, { key: string; name: string; n: number }>();
     estadoFiltered.forEach((e) => {
       const k = empresaKey(e);
-      const g = map.get(k) ?? { key: k, name: companyName(e.company_id), n: 0 };
+      const g = map.get(k) ?? { key: k, name: nominaName((e as any).payroll_company_id), n: 0 };
       g.n += 1;
       map.set(k, g);
     });
     // SOS LA GUAIRA (el empleador) siempre de primera; el resto alfabético.
     return Array.from(map.values()).sort((a, b) =>
       a.key === SIN_EMPRESA ? -1 : b.key === SIN_EMPRESA ? 1 : cmpText(a.name, b.name));
-  }, [estadoFiltered, companies]);
+  }, [estadoFiltered, companies, payrollCompanies]);
 
   // Base final para el listado y el reporte por cargo: ya con la empresa aplicada.
   const baseFiltered = useMemo(
@@ -182,13 +202,13 @@ export default function EmpleadosScreen({ navigation }: any) {
   const byCompany = useMemo(() => {
     const map = new Map<string, { key: string; name: string; items: Employee[] }>();
     shown.forEach((e) => {
-      const k = e.company_id ?? '__none__';
-      const g = map.get(k) ?? { key: k, name: companyName(e.company_id), items: [] };
+      const k: string = (e as any).payroll_company_id ?? '__none__';
+      const g = map.get(k) ?? { key: k, name: nominaName((e as any).payroll_company_id), items: [] as Employee[] };
       g.items.push(e);
       map.set(k, g);
     });
     return Array.from(map.values()).sort((a, b) => a.name === 'SOS LA GUAIRA' ? -1 : b.name === 'SOS LA GUAIRA' ? 1 : cmpText(a.name, b.name));
-  }, [shown, companies]);
+  }, [shown, companies, payrollCompanies]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (e: Employee) => { setEditing(e); setFormOpen(true); };
@@ -239,7 +259,12 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   // CONSTANCIA DE TRABAJO (formato estándar, "A quien pueda interesar"): hace constar
   // cargo y fecha de ingreso; firma centrada de la Jefa de Administración.
-  const imprimirConstanciaTrabajo = async (e: Employee) => {
+  // A quién se le está haciendo la constancia (abre el cuadro con la casilla del
+  // sueldo). null = cerrado. `conMonto` recuerda la casilla mientras está abierto.
+  const [constanciaFor, setConstanciaFor] = useState<Employee | null>(null);
+  const [constanciaConMonto, setConstanciaConMonto] = useState(false);
+
+  const imprimirConstanciaTrabajo = async (e: Employee, conMonto: boolean) => {
     setBusy(e.id + '-const-trab');
     const html = constanciaTrabajoHtml({
       fullName: fullName(e),
@@ -248,9 +273,13 @@ export default function EmpleadosScreen({ navigation }: any) {
       hireDate: e.hire_date,
       city: e.city,
       state: e.state,
+      // Sin la casilla marcada va `null` y la constancia sale IDÉNTICA a la de
+      // siempre, sin mencionar sueldo.
+      montoQuincenal: conMonto ? montoQuincenalTexto(e as any) : null,
     });
     await exportPdf(html, `Constancia de trabajo - ${fullName(e)}`);
     setBusy(null);
+    setConstanciaFor(null);
   };
 
   // Reporte PDF de LO SELECCIONADO: lista las personas del filtro actual (estado +
@@ -277,7 +306,7 @@ export default function EmpleadosScreen({ navigation }: any) {
         <td class="c">${esc(e.cedula ?? '—')}</td>
         <td class="c">${esc(e.ficha_number ?? '—')}</td>
         <td>${esc(e.cargo ? canonicalCargo(e.cargo) : '—')}</td>
-        <td>${esc(companyName(e.company_id))}</td>
+        <td>${esc(nominaName((e as any).payroll_company_id))}</td>
         <td class="c">${esc(e.status ?? '—')}</td>
         <td>${esc(e.phone ?? '—')}</td>
       </tr>`).join('');
@@ -294,7 +323,7 @@ export default function EmpleadosScreen({ navigation }: any) {
       <table>
         <thead><tr>
           <th class="c" style="width:26px">#</th><th>Empleado</th><th class="c">Cédula</th><th class="c">Ficha</th>
-          <th>Cargo</th><th>Empresa</th><th class="c">Estado</th><th>Teléfono</th>
+          <th>Cargo</th><th>Empresa filtro nómina</th><th class="c">Estado</th><th>Teléfono</th>
         </tr></thead>
         <tbody>${rowsList || '<tr><td colspan="8">Sin empleados</td></tr>'}</tbody>
       </table>`;
@@ -527,7 +556,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
-                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => imprimirConstanciaTrabajo(e)} />
+                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => { setConstanciaFor(e); setConstanciaConMonto(false); }} />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.success} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
                           <Btn label="🗑️ Quitar foto" color={colors.danger} disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
@@ -551,6 +580,71 @@ export default function EmpleadosScreen({ navigation }: any) {
         onClose={() => setFormOpen(false)}
         onSaved={refetch}
       />
+
+      {/* CONSTANCIA DE TRABAJO — ¿lleva el sueldo o no?
+          Arranca SIN marcar: la constancia por defecto sigue siendo la de
+          siempre, sin mencionar el monto. Se marca cuando el trámite lo pide
+          (banco, crédito, alquiler). Ver `src/lib/montoQuincenal.ts`. */}
+      <Modal visible={!!constanciaFor} transparent animationType="fade" onRequestClose={() => setConstanciaFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>📃 Constancia de trabajo</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2, marginBottom: spacing.md }}>
+              {constanciaFor ? fullName(constanciaFor) : ''}
+            </Text>
+
+            {(() => {
+              const m = constanciaFor ? montoQuincenal(constanciaFor as any) : null;
+              const hay = !!m;
+              return (
+                <>
+                  <TouchableOpacity
+                    onPress={() => hay && setConstanciaConMonto((v) => !v)}
+                    activeOpacity={hay ? 0.7 : 1}
+                    style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, opacity: hay ? 1 : 0.55 }}
+                  >
+                    <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: constanciaConMonto && hay ? colors.primary : colors.border, backgroundColor: constanciaConMonto && hay ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                      {constanciaConMonto && hay ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 14 }}>✓</Text> : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>💵 Incluir el monto quincenal</Text>
+                      {hay ? (
+                        <>
+                          <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 18, marginTop: 2 }}>
+                            {montoQuincenalTexto(constanciaFor as any)}
+                          </Text>
+                          {/* De dónde salió el número. Va SOLO en pantalla: el PDF
+                              dice "remuneración quincenal" y nada más. */}
+                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{m!.detalle}</Text>
+                        </>
+                      ) : (
+                        <Text style={{ color: colors.danger, fontSize: 12, marginTop: 2, fontWeight: '700' }}>
+                          Esta persona no tiene sueldo cargado (ni quincenal, ni semanal, ni mensual), así que no hay monto que poner. Cárgaselo en su ficha y vuelve a intentarlo.
+                        </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                    <TouchableOpacity onPress={() => setConstanciaFor(null)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={!!busy}
+                      onPress={() => constanciaFor && imprimirConstanciaTrabajo(constanciaFor, constanciaConMonto && hay)}
+                      style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: '#1E3A5F', opacity: busy ? 0.6 : 1 }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '800' }}>
+                        {busy ? 'Generando…' : constanciaConMonto && hay ? '📄 Generar CON monto' : '📄 Generar sin monto'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
