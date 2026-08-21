@@ -385,6 +385,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [ntMotivo, setNtMotivo] = useState(''); // motivo que ESCRIBE el inspector para "no trabajó" (opcional)
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
+  // ¿El inspector ELIGIÓ el edificio a mano de la lista? Si sí, manda su elección (aunque
+  // haya GPS). Si no, el GPS sincroniza el edificio con el sector. Lo pone el GPS/auto en
+  // false; el onChange del desplegable en true. (Respaldo sin GPS + respetar el catálogo.)
+  const [ciRefManual, setCiRefManual] = useState(false);
   // Avería de maquinaria (igual que el operador) → maintenance_requests.
   const [avOpen, setAvOpen] = useState(false);
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
@@ -431,15 +435,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [opBusy, setOpBusy] = useState(false);
 
   useEffect(() => { warmLocation(); }, []);
-  // Al abrir el check-in de una máquina, precarga el EDIFICIO. Se AUTO-DETECTA del
-  // GPS: si las coordenadas guardadas de la máquina caen en un sector conocido, se
-  // usa ese sector; si no, la referencia escrita a mano (decisión cliente 20-ago-2026:
-  // el edificio se sincroniza con la ubicación).
+  // Al abrir el check-in, precarga el EDIFICIO GUARDADO de la máquina (lo que está en
+  // el catálogo). Si el inspector toma/re-toma GPS, se sincroniza con el sector; si lo
+  // elige de la lista, manda su elección. Arranca como NO-manual (aún no tocó la lista).
   useEffect(() => {
     const m: any = ci;
-    if (!m) { setCiRef(''); return; }
-    const det = (m.latitude != null && m.longitude != null) ? edificioTextOf(m.latitude, m.longitude, m.referencia ?? '') : '';
-    setCiRef(det && det !== 'Sin zona' ? det : ((m.referencia ?? '') as string));
+    setCiRef(m ? ((m.referencia ?? '') as string) : '');
+    setCiRefManual(false);
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
@@ -1549,41 +1551,64 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (r.ok && r.lat != null && r.lng != null) {
         setGps({ lat: r.lat, lng: r.lng });
         // AUTO-DETECTAR el EDIFICIO del nuevo GPS: si cae en un sector conocido, se
-        // autocompleta el desplegable (el inspector aún puede cambiarlo antes de guardar).
+        // autocompleta el desplegable (marca NO-manual: el GPS mandó). El inspector
+        // aún puede elegir otro de la lista antes de guardar.
         const det = edificioTextOf(r.lat, r.lng, ciRef.trim());
-        if (det && det !== 'Sin zona') setCiRef(det);
+        if (det && det !== 'Sin zona') { setCiRef(det); setCiRefManual(false); }
         setNotice(det && det !== 'Sin zona' ? `📍 Ubicación actualizada · 🏢 ${det}` : '📍 Ubicación actualizada.');
       } else setGpsErr(r.error ?? 'Sin ubicación.');
     });
   };
 
-  // Guarda TU posición actual como la UBICACIÓN de la máquina (queda en el mapa y
-  // en el monitoreo con tu nombre). Estás en la máquina, así que sirve para ubicarla.
+  // Guarda la UBICACIÓN de la máquina (tu posición GPS) + el EDIFICIO.
+  // GPS PRIMARIO: si hay señal, actualiza las coordenadas (queda en el mapa) y el
+  // edificio queda sincronizado con el sector. RESPALDO SIN GPS: si el GPS no
+  // funciona, igual se puede guardar SOLO el edificio elegido de la lista (la
+  // ubicación queda como estaba) — así el inspector nunca se queda sin registrar.
   const guardarUbicacionMaquina = async () => {
     if (!ci) return;
     setSavingMachLoc(true);
     let lat = gps?.lat ?? null, lng = gps?.lng ?? null;
     if (lat == null || lng == null) {
-      const r = await getCurrentCoords();
-      if (!r.ok || r.lat == null || r.lng == null) { setSavingMachLoc(false); setNotice('❌ ' + (r.error ?? 'No se pudo obtener tu ubicación.')); return; }
-      lat = r.lat; lng = r.lng; setGps({ lat, lng });
+      const r = await getCurrentCoords({ fresh: true });
+      if (r.ok && r.lat != null && r.lng != null) { lat = r.lat; lng = r.lng; setGps({ lat, lng }); }
     }
-    const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
-    if (error) { setSavingMachLoc(false); setNotice('❌ ' + error.message); return; }
-    // EDIFICIO SINCRONIZADO CON EL GPS: si las coordenadas que se guardan caen en un
-    // sector conocido, se guarda ese sector como referencia (así el edificio SIEMPRE
-    // cuadra con la ubicación). Si cae fuera de zona, se respeta lo escrito a mano.
-    const det = edificioTextOf(lat as number, lng as number, ciRef.trim());
-    const nuevaRef = det && det !== 'Sin zona' ? det : (ciRef.trim() || null);
-    const { error: refErr } = await supabase.from('machinery').update({ referencia: nuevaRef }).eq('id', ci.id);
+    const gpsOk = lat != null && lng != null;
+    // EDIFICIO:
+    //  · Si el inspector lo ELIGIÓ de la lista (ciRefManual) → manda SU elección del
+    //    catálogo, aunque haya GPS (respaldo sin señal + respetar el catálogo).
+    //  · Si NO lo tocó y hay GPS en zona → se sincroniza con el SECTOR del mapa.
+    //  · Fuera de zona / sin señal → vale lo que quede en el desplegable.
+    const manual = ciRef.trim();
+    const det = gpsOk && !ciRefManual ? edificioTextOf(lat as number, lng as number, manual) : '';
+    const nuevaRef = (!ciRefManual && gpsOk && det && det !== 'Sin zona') ? det : (manual || null);
+    // Sin GPS y sin edificio elegido: no hay nada que guardar (no se pisa lo actual).
+    if (!gpsOk && !nuevaRef) {
+      setSavingMachLoc(false);
+      setNotice('⚠️ Sin señal GPS. Elige un edificio de la lista para poder guardarlo.');
+      return;
+    }
+    // TODO en UNA sola llamada al RPC `update_machine_location` (SECURITY DEFINER):
+    // guarda coordenadas Y referencia esquivando RLS. Antes la referencia se escribía
+    // con un UPDATE directo a `machinery`, que RLS BLOQUEA en silencio (0 filas, sin
+    // error) para el inspector → el edificio "no se guardaba" (bug 20-ago-2026). El
+    // RPC ya acepta p_referencia. SIN GPS se reenvían las coordenadas ACTUALES de la
+    // máquina (no las borra) y solo cambia el edificio.
+    const pLat = gpsOk ? lat : ((ci as any).latitude ?? null);
+    const pLng = gpsOk ? lng : ((ci as any).longitude ?? null);
+    const { error } = await supabase.rpc('update_machine_location', {
+      p_id: ci.id, p_lat: pLat, p_lng: pLng, p_referencia: nuevaRef,
+    });
     setSavingMachLoc(false);
-    if (refErr) { setNotice('❌ ' + refErr.message); return; }
-    // Si la residencia/edificio escrito NO estaba en el catálogo, lo registra al
-    // vuelo (idempotente) para que quede en la lista compartida la próxima vez.
+    if (error) { setNotice('❌ ' + error.message); return; }
+    // Si el edificio escrito NO estaba en el catálogo, lo registra al vuelo
+    // (idempotente) para que quede en la lista compartida la próxima vez.
     if (nuevaRef) addEdificio(nuevaRef).catch(() => {});
     setCiRef(nuevaRef ?? '');
-    setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number, referencia: nuevaRef } as Mach : c));
-    setNotice(nuevaRef ? '✅ Ubicación y referencia guardadas.' : '✅ Ubicación de la máquina guardada.');
+    setCi((c) => (c ? { ...c, ...(gpsOk ? { latitude: lat as number, longitude: lng as number } : {}), referencia: nuevaRef } as Mach : c));
+    setNotice(gpsOk
+      ? (nuevaRef ? '✅ Ubicación GPS y edificio guardados.' : '✅ Ubicación GPS guardada.')
+      : '✅ Edificio guardado (sin GPS · la ubicación quedó igual).');
     load();
   };
 
@@ -3419,13 +3444,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>↻ Volver a tomar ubicación</Text>
                 </TouchableOpacity>
                 {/* Edificio del catálogo COMPARTIDO (public.edificios): desplegable con
-                    buscar + ➕ agregar si no existe. Se guarda con la ubicación y sale
-                    en el reporte "Máquinas por sector" del Mapa. Campo único EDIFICIO. */}
-                <EdificioPicker value={ciRef} onChange={setCiRef} />
+                    buscar + ➕ agregar si no existe. Con GPS se AUTO-DETECTA del sector;
+                    si el GPS NO funciona, se elige AQUÍ de la lista (respaldo) y se guarda
+                    igual. Sale en el reporte "Máquinas por sector" del Mapa. */}
+                <EdificioPicker value={ciRef} onChange={(v) => { setCiRef(v); setCiRefManual(true); }} />
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                  🛰️ Con GPS el edificio se sincroniza con el sector. ¿Sin señal? Elige el edificio de la lista y guarda igual.
+                </Text>
                 {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa) + el edificio. */}
                 <TouchableOpacity onPress={guardarUbicacionMaquina} disabled={savingMachLoc || gpsBusy} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (savingMachLoc || gpsBusy) ? 0.6 : 1 }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
-                    {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación + referencia' : '📍 Guardar ubicación + referencia')}
+                    {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación GPS + edificio' : '📍 Guardar ubicación GPS + edificio')}
                   </Text>
                 </TouchableOpacity>
               </View>

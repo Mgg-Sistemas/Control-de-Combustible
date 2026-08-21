@@ -1443,13 +1443,14 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 > de la lista para que **todos escriban igual**; si el sitio no está, se usa **"✏️ Otro (escribir a
 > mano)"**. Ese edificio sale en el reporte **Mapa → 📄 Máquinas por sector**.
 
-> **🛰️ Edificio auto-detectado del GPS + "↻ Volver a tomar ubicación" (20-ago-2026):** al abrir el
-> check-in, tomar de nuevo la ubicación o **Actualizar ubicación + referencia**, el **Edificio** se
-> **autocompleta con el SECTOR donde cae el GPS** (ej. "Este · Camurí Chico") — así el edificio
-> **siempre cuadra con la ubicación real**. Igual puedes cambiarlo a mano antes de guardar; si el GPS
-> cae fuera de zona, se respeta lo que escribas. **"↻ Volver a tomar ubicación"** ahora **fuerza una
-> lectura NUEVA del GPS** (antes repetía la de hasta 2 min y parecía no hacer nada) y te muestra el
-> edificio detectado.
+> **🛰️ Edificio sincronizado con el GPS + respaldo por lista (20-ago-2026):** al abrir el check-in,
+> tomar de nuevo la ubicación o **Actualizar ubicación GPS + edificio**, el **Edificio** se
+> **sincroniza con el SECTOR donde cae el GPS** (ej. "Este · Camurí Chico") — así el edificio
+> **siempre cuadra con la ubicación real** y ese cambio se refleja **al instante en el Mapa**. **¿El
+> GPS no funciona?** Se puede **elegir el edificio de la lista** (desplegable) y **guardar igual** —
+> en ese caso la ubicación queda como estaba y solo se actualiza el edificio. **"↻ Volver a tomar
+> ubicación"** ahora **fuerza una lectura NUEVA del GPS** (antes repetía la de hasta 2 min y parecía
+> no hacer nada) y te muestra el sector detectado.
 
 > La cercanía es **amplia a propósito** (unos 300 m): si la máquina está trabajando y no se
 > puede interrumpir, basta con estar "más o menos cerca". Si está lejos, igual se guarda pero
