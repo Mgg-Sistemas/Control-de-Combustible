@@ -180,6 +180,13 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > reporta un inspector desde el teléfono (ver más abajo) — este lo mueve el **administrador** a
 > mano con el botón de estado.
 
+> **📝 Motivo obligatorio al RETIRAR:** al tocar **"⬛ Retirar"** (sacar de servicio) el sistema
+> pide **por qué**. Se abre una ventana con motivos comunes — **Vendida · Siniestro/accidente ·
+> Fin de contrato · Reparación mayor · Chatarra/fin de vida útil · Otro** — que rellenan un campo
+> **editable**: puedes elegir uno y ajustarlo, o escribir el tuyo. Sin motivo el botón **"⬛ Retirar
+> de servicio"** queda **deshabilitado**. El motivo se ve en la ficha del catálogo (**"📝 Motivo: …"**)
+> junto a *Inactivada el / por*, y queda en **Auditoría**. **Reactivar (✅ Operativa) no pide motivo.**
+
 > **🕘 Última parada/avería resuelta:** si una máquina tuvo una parada o avería reportada por un
 > inspector y **ya se resolvió** (alguien tocó "🟢 Volver a OPERATIVA"), su ficha muestra un
 > resumen: **"Inactivo desde [fecha/hora] hasta [fecha/hora] — Total: Xd Yh"**. Solo se ve cuando

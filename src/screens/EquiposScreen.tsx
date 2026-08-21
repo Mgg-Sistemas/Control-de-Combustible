@@ -664,7 +664,9 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
   // lista para que, tras subir/cambiar una foto, el visor muestre la versión nueva.
   const [viewerId, setViewerId] = useState<string | null>(null);
   const viewer = viewerId ? (machinery.data.find((x) => x.id === viewerId) ?? null) : null;
-  const toggleOp = (m: Machinery) =>
+  // `reason` SOLO aplica al RETIRAR (obligatorio, capturado en el modal de retiro). Al
+  // reactivar no se pide y se ignora. Ver `pedirRetiro`/modal de motivo más abajo.
+  const toggleOp = (m: Machinery, reason?: string) =>
     run(m.id + '-op', async () => {
       const activando = !m.operational; // pasa a OPERATIVA (true)
       // Guardamos la FECHA del cambio: al inactivar → inactivated_at; al reactivar →
@@ -674,10 +676,11 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
       const actorId = session?.user?.id ?? null;
       // Guardamos también QUIÉN hizo el cambio (no solo la fecha): se muestra en
       // EstadoFechaLine ("🟢 Reactivada el DD/MM por Fulano") y queda además en
-      // audit_log con el antes/después vía el trigger de auditoría.
+      // audit_log con el antes/después vía el trigger de auditoría. Al RETIRAR se guarda
+      // el MOTIVO obligatorio (`inactivated_reason`) que el admin escribió en el modal.
       const stamp = activando
         ? { reactivated_at: nowIso, reactivated_by: actorId }
-        : { inactivated_at: nowIso, reactivated_at: null, inactivated_by: actorId };
+        : { inactivated_at: nowIso, reactivated_at: null, inactivated_by: actorId, inactivated_reason: (reason ?? '').trim() || null };
       const { error } = await supabase.from('machinery').update({ operational: !m.operational, ...stamp }).eq('id', m.id);
       if (error) return { ok: false, error: error.message };
       // Al ACTIVAR (volver operativa) se limpia la etiqueta de avería/parada: se resuelven
@@ -695,6 +698,28 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
       }
       return { ok: true };
     });
+
+  // ── RETIRO CON MOTIVO OBLIGATORIO ────────────────────────────────────────────
+  // Retirar una máquina (sacarla de servicio) exige escribir POR QUÉ. Reactivar NO
+  // pide nada (va directo por `toggleOp`). El motivo se guarda en machinery.inactivated_reason
+  // (correr supabase/motivo_retiro_maquina.sql), se ve en el catálogo y en Auditoría.
+  const MOTIVOS_RETIRO = ['Vendida', 'Siniestro / accidente', 'Fin de contrato', 'Reparación mayor', 'Chatarra / fin de vida útil', 'Otro'];
+  const [retireFor, setRetireFor] = useState<Machinery | null>(null);
+  const [retireReason, setRetireReason] = useState('');
+  // Punto de entrada de los botones "⬛ Retirar / ✅ Activar": si va a RETIRAR abre el
+  // modal de motivo; si va a REACTIVAR ejecuta directo (sin motivo).
+  const onToggleOp = (m: Machinery) => {
+    if (m.operational) { setRetireReason(''); setRetireFor(m); }
+    else toggleOp(m);
+  };
+  const confirmarRetiro = async () => {
+    const m = retireFor;
+    const motivo = retireReason.trim();
+    if (!m || !motivo) return;      // motivo OBLIGATORIO
+    setRetireFor(null);
+    await toggleOp(m, motivo);
+  };
+
   // 3er estado: "En espera por recepción" (independiente de Operativa / No operativa).
   const toggleEspera = (m: Machinery) =>
     run(m.id + '-esp', async () => {
@@ -1146,7 +1171,14 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
     if (!m.operational) {
       const f = fmtEstadoFecha(m.inactivated_at);
       const who = m.inactivated_by_profile?.full_name;
-      return f ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🔴 Inactivada el {f}{who ? ` por ${who}` : ''}</Text> : null;
+      const motivo = (m.inactivated_reason || '').trim();
+      if (!f && !motivo) return null;
+      return (
+        <View>
+          {f ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🔴 Inactivada el {f}{who ? ` por ${who}` : ''}</Text> : null}
+          {motivo ? <Text style={{ color: colors.danger, fontSize: 11 }}>📝 Motivo: {motivo}</Text> : null}
+        </View>
+      );
     }
     const f = fmtEstadoFecha(m.reactivated_at);
     const who = m.reactivated_by_profile?.full_name;
@@ -1488,7 +1520,7 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
         <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
-        <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
+        <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
         {/* Esperando instrucciones: máquina cargada en el sistema pero SIN decidir aún si
             va a Operativa o a Parada. No factura, no le sale a los inspectores (mismo
             criterio ya usado en todo el flujo de inspección/reportes). Solo aplica a
@@ -1849,6 +1881,52 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
           ) : null}
         </>
       )}
+
+      {/* RETIRAR MÁQUINA — motivo OBLIGATORIO. Chips de motivos comunes que rellenan un
+          campo editable; sin motivo el botón de confirmar queda deshabilitado. */}
+      <Modal visible={!!retireFor} transparent animationType="fade" onRequestClose={() => setRetireFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>⬛ Retirar máquina</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
+                {retireFor ? `${etiquetaMaquina(retireFor) || retireFor.code} — sale de servicio (se bloquea su QR y se cierra su jornada).` : ''}
+              </Text>
+
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: spacing.xs }}>Motivo del retiro *</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+                {MOTIVOS_RETIRO.map((mot) => {
+                  const on = retireReason.trim() === mot;
+                  return (
+                    <TouchableOpacity
+                      key={mot} onPress={() => setRetireReason(mot === 'Otro' ? '' : mot)}
+                      style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: on ? colors.danger : colors.border, backgroundColor: on ? colors.danger : colors.surfaceAlt }}
+                    >
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>{mot}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={retireReason} onChangeText={setRetireReason}
+                placeholder="Escribe el motivo (o elige uno arriba y edítalo)" placeholderTextColor={colors.muted}
+                multiline
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, minHeight: 64, textAlignVertical: 'top', marginBottom: spacing.md }}
+              />
+
+              <TouchableOpacity
+                onPress={confirmarRetiro} disabled={!retireReason.trim()}
+                style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.danger, opacity: retireReason.trim() ? 1 : 0.5 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>⬛ Retirar de servicio</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setRetireFor(null)} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* QR de la máquina */}
       <Modal visible={!!qrFor} transparent animationType="fade" onRequestClose={() => setQrFor(null)}>
@@ -2273,7 +2351,7 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
                       <BigBtn label="🔳 Ver QR" onPress={() => openQr(m)} color="#111827" />
                     </View>
                     <TouchableOpacity
-                      onPress={() => toggleOp(m)}
+                      onPress={() => onToggleOp(m)}
                       disabled={busy === m.id + '-op'}
                       style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: m.operational ? colors.danger : colors.success, opacity: busy === m.id + '-op' ? 0.6 : 1 }}
                     >

@@ -13,7 +13,7 @@ export const FIELD_LABEL: Record<string, string> = {
   // Estado de la máquina — lo más consultado: quién la retiró o la puso en espera.
   active: 'Activa', en_espera: 'En espera', operational: 'Operativa', qr_blocked: 'QR bloqueado',
   entry_date: 'Fecha de ingreso', exit_date: 'Fecha de salida', entry_at: 'Ingresó el',
-  inactivated_at: 'Retirada el', inactivated_by: 'Retirada por',
+  inactivated_at: 'Retirada el', inactivated_by: 'Retirada por', inactivated_reason: 'Motivo de retiro',
   reactivated_at: 'Reactivada el', reactivated_by: 'Reactivada por',
   // Identidad y ficha de la máquina / vehículo.
   code: 'Código', identifier: 'Identificador', serial: 'Serial', plate: 'Placa',
