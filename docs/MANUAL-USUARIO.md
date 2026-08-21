@@ -144,6 +144,23 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
 > desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
 >
+> **👤 Encargado OBLIGATORIO al crear (20-ago-2026):** al agregar una **máquina o un vehículo
+> NUEVO** hay que decir quién es el **encargado**; sin eso **no deja guardar** (*"Coloca el
+> ENCARGADO de la máquina (obligatorio)"*). **Solo se exige al CREAR:** al **editar** un equipo
+> que ya existe se puede guardar sin llenarlo, para no trancar la ficha de los equipos viejos que
+> nunca lo tuvieron — esos se van completando a medida que alguien los edite. En los **vehículos**
+> el campo es nuevo: aparece únicamente **después de correr `supabase/vehiculos_encargado.sql`**;
+> mientras tanto el formulario de vehículos sale como siempre y no lo pide.
+>
+> **🏢 Empresa en la ficha de cada máquina (20-ago-2026):** la tarjeta de cada equipo del Catálogo
+> ahora dice **a qué empresa pertenece**, debajo de la clasificación. Es **solo informativo**: no
+> cambia nada de la máquina ni de los reportes. Antes había que fijarse bajo qué empresa estaba
+> agrupada, y al **buscar** (o al llegar desde el **QR** o desde el **Inicio**) la tarjeta se ve
+> suelta, fuera de su grupo, así que no había forma de saberlo. Si la máquina **no tiene empresa
+> asignada**, lo dice: **"Sin empresa"** — eso sí hay que corregirlo en su ficha. Sale igual en las
+> listas que se abren al tocar las tarjetas de estado (Operativas / Averiadas / Retiradas /
+> Esperando instrucciones).
+>
 > **Al AGREGAR una máquina nueva:** el formulario trae el check **"⏳ Dejar 'Esperando
 > instrucciones' (aún no decidida)"** **activado por defecto** — toda máquina nueva entra
 > directo a este estado, salvo que **destildes** esa casilla al crearla (si ya sabes que va
@@ -1910,6 +1927,47 @@ de noche otro; al final de cada uno va su línea de firma.
 
 ### 4.13. Usuarios (solo administrador)
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
+
+**✏️ Edición masiva (21-ago-2026):** en Usuarios, toca **"✏️ Edición masiva → Abrir"** para
+cambiarle el permiso de un módulo a **muchas personas de una sola vez**, en vez de entrar y salir
+de *"Editar"* una por una.
+- **Agrupar por rol:** arriba hay una pastilla por cada rol que **tenga gente**, con su cantidad
+  (los roles vacíos no salen). Marca uno o varios. Sin marcar nada = todos los roles.
+- **Buscar por cualquier dato:** nombre, apellido, usuario, cédula, rol, o el estado escribiendo
+  **"bloqueado"**. No distingue mayúsculas ni acentos (*"martinez"* encuentra a *"MARTÍNEZ"*).
+- **Marcar:** toca a cada quien, o **"☑️ Marcar los N"** para marcar todos los que estén a la
+  vista. Marcar **suma** a lo ya marcado, así que puedes buscar *"inspector"*, marcarlos todos,
+  luego buscar *"operador"* y marcarlos también.
+- **Aplicar:** abajo eliges el **módulo** (lista con buscador) y el **nivel** (Sin acceso /
+  Lectura / Escritura / Full control), y le das al botón. Pide confirmación antes de guardar.
+
+> ⭐ **El permiso de la persona le gana al rol** (21-ago-2026). Si le quitas el permiso a alguien,
+> se lo quitaste — **no importa qué rol tenga**. Antes se tomaba el *mayor* entre el rol y el
+> permiso, así que ponerle "Lectura" a alguien cuyo rol daba "Escritura" no le quitaba nada, y para
+> bajar a una sola persona había que bajarle el módulo a **todo el rol** (y con eso se lo quitabas
+> también a los demás que tienen ese mismo rol).
+>
+> Lo que ya funcionaba sigue igual: un permiso **mayor** que el rol también se aplica (rol sin ese
+> módulo + "Full control" = full). Lo único nuevo es que ahora **también puede bajar**.
+>
+> ⚠️ **La única excepción: los administradores.** Siempre tienen full control y **ningún permiso se
+> lo baja** — la pantalla te lo avisa antes de guardar. A un admin se le cambia el **rol**, no el
+> permiso. Es a propósito: así nadie se deja fuera del sistema por error.
+>
+> 🗄️ **Para que valga también en la base de datos** hay que correr `supabase/permiso_le_gana_al_rol.sql`
+> y **enseguida `supabase/permiso_catalogo_corregido.sql`** (el segundo corrige al primero: sin él se
+> bloquea de más — ver abajo).
+>
+> ⚠️ **El permiso de Catálogo manda sobre el CATÁLOGO, no sobre toda la máquina.** Sin permiso de
+> escritura en Catálogo no se puede **crear** ni **borrar** una máquina, ni cambiar los datos de su
+> **ficha** (código, marca, modelo, serial, placa, empresa, clasificación, encargado, precio, fotos,
+> QR bloqueado). Lo que **sí** se sigue pudiendo, si el permiso del módulo correspondiente lo
+> permite, es **operarla**: jornadas, cambiar el estado desde Control de Maquinaria, horómetro de
+> Mantenimiento, ubicación. Es a propósito: la tabla de maquinaria la escriben varios módulos y
+> cerrarla entera dejaba a la gente sin poder trabajar. Sin eso, un **inspector** o un **operador** puesto en
+> "Lectura" en el Catálogo deja de ver el módulo en el menú, pero la base todavía lo dejaría
+> registrar máquinas si llega por otra vía (un enlace directo, el QR). Con el SQL corrido, la
+> puerta queda cerrada de verdad.
 
 **🏷️ Roles del sistema (roles FIJOS):** en Usuarios, toca **"🏷️ Roles del sistema →
 Administrar"**. Ahí puedes:

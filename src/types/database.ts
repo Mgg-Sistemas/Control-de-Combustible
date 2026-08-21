@@ -134,6 +134,10 @@ export interface Vehicle {
   vehicle_type: string | null;
   tank_capacity_l: number | null;
   expected_kml: number | null;
+  /** Responsable del vehículo. Obligatorio AL CREAR (lo exige la app, no la BD:
+   *  un `not null` trancaría los vehículos viejos que nunca lo tuvieron).
+   *  La columna la agrega `supabase/vehiculos_encargado.sql`. */
+  encargado?: string | null;
   active: boolean;
   created_at: string;
 }

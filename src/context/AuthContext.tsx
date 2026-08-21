@@ -430,13 +430,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // división no le regale ni le quite el acceso a nadie.
     const padre = MODULE_HEREDA_DE[moduleKey];
     if (padre && !explicit && !appRole?.modules?.[moduleKey]) return moduleLevel(padre);
-    // Rol personalizado (FIJO): ve los módulos de su rol, PERO si además tiene un
-    // permiso explícito por módulo, se respeta el MAYOR de los dos. Así el "Full a
-    // todo"/Escritura extra que el admin le dio en Editar usuario SÍ surte efecto
-    // (antes se ignoraba y el módulo no aparecía aunque tuviera full control).
+    // Rol personalizado: ve los módulos de su rol, PERO el permiso EXPLÍCITO que el
+    // admin le puso a esa persona MANDA sobre el rol — para arriba y para abajo.
+    //
+    // Antes se tomaba el MAYOR de los dos (`maxLevel`), así que un permiso explícito
+    // solo servía para SUBIR: si el admin le ponía "Lectura" a alguien cuyo rol daba
+    // "Escritura", no pasaba nada y el usuario seguía escribiendo. Quitarle el
+    // permiso a una persona era imposible sin cambiarle el módulo a TODO el rol (y
+    // con eso se lo quitabas también a los demás que tienen ese mismo rol).
+    // Pedido del cliente (21-ago-2026): «si yo le quito los permisos a alguien, no
+    // importa el rol, se los pueda quitar y ya».
+    //
+    // Se conserva lo que buscaba el `maxLevel`: un explícito MAYOR sigue subiendo
+    // (rol sin el módulo + explícito "full" = full). Lo único nuevo es que ahora
+    // también puede bajar. Sin fila explícita, el rol manda como siempre.
     if (appRole) {
       const roleLvl = (appRole.modules?.[moduleKey] as PermLevel) ?? 'none';
-      return explicit ? maxLevel(roleLvl, explicit) : roleLvl;
+      return explicit ?? roleLvl;
     }
     // El rol FIJO 'analista' tiene acceso mínimo de escritura a Control de
     // Asistencia aunque no tenga una fila explícita en module_permissions

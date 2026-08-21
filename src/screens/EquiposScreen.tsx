@@ -55,6 +55,13 @@ const KINDS: { value: Kind; label: string; icon: string }[] = [
   { value: 'maquinaria', label: 'Maquinaria', icon: '🚜' },
 ];
 
+// Campo ENCARGADO de los vehículos. Va aparte porque la columna `vehicles.encargado`
+// es nueva (`supabase/vehiculos_encargado.sql`): solo se agrega al formulario si la
+// BD ya la tiene. Si el SQL todavía no se corrió, el campo no aparece y guardar un
+// vehículo sigue funcionando igual que siempre — en vez de reventar con
+// "column encargado does not exist" cada vez que alguien agrega uno.
+const VEHICLE_ENCARGADO_FIELD: Field = { key: 'encargado', label: 'Encargado — obligatorio al crear', type: 'text' };
+
 const VEHICLE_FIELDS: Field[] = [
   { key: 'plate', label: 'Placa', type: 'text', required: true },
   // Mismo criterio que en maquinaria: un vehículo recién agregado queda "Esperando
@@ -139,7 +146,10 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'serial', label: 'Serial', type: 'text' },
   { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
-  { key: 'encargado', label: 'Encargado', type: 'text' },
+  // OBLIGATORIO al crear (la validación real está en `validate`, más abajo: acá no se
+  // puede usar `required` porque eso lo exigiría también al EDITAR, y trancaría la
+  // ficha de las máquinas viejas que nunca tuvieron encargado).
+  { key: 'encargado', label: 'Encargado — obligatorio al crear', type: 'text' },
   { key: 'zona', label: 'A disposición de (Gobernación, FANB, CVM… o vacío si es propia)', type: 'suggest', table: 'machinery', column: 'zona' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
   { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
@@ -262,6 +272,21 @@ export default function EquiposScreen({ navigation, route }: any) {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
   }, [companies.data]);
+
+  // ¿La tabla `vehicles` YA tiene la columna `encargado`? Se pregunta una sola vez al
+  // entrar. Mientras no se corra `supabase/vehiculos_encargado.sql` esto queda en
+  // false: el campo no se muestra ni se exige, y agregar vehículos sigue funcionando
+  // como siempre. Sin esta comprobación, publicar el campo antes que el SQL rompería
+  // el alta de TODOS los vehículos ("column encargado does not exist").
+  const [vehEncargado, setVehEncargado] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { error } = await supabase.from('vehicles').select('encargado').limit(1);
+      if (alive) setVehEncargado(!error);
+    })().catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // Pre-calienta el GPS al entrar para que "Marcar ubicación" sea instantáneo.
   useEffect(() => { warmLocation(); }, []);
@@ -1408,6 +1433,14 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
               </>
             ) : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
+            {/* EMPRESA a la que pertenece el equipo. El catálogo agrupa por empresa en
+                acordeón, pero al buscar (o al llegar desde el QR o el dashboard) la
+                tarjeta se ve suelta y no había forma de saber de quién era la máquina.
+                Se muestra SIEMPRE, incluso sin empresa: "Sin empresa" es un dato, no un
+                vacío — es lo que hay que corregir en la ficha. */}
+            <Text style={{ color: colors.muted, fontSize: 12 }}>
+              🏢 Empresa: {m.company_id ? companyName(m.company_id) || '—' : 'Sin empresa'}
+            </Text>
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}{inspectors[m.id].date ? ` · ${fmtDMY(inspectors[m.id].date)}` : ''}</Text> : null}
             {plannedOperatorNow(m.id) ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>👷 Operador planeado: {plannedOperatorNow(m.id)}</Text> : null}
@@ -2293,7 +2326,11 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
                 {String(m.modelo ?? '').trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.modelo}</Text> : null}
               </>
             ) : null}
-                          {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
+                          {/* Misma redacción que la tarjeta del catálogo (ver renderMachineCard):
+                              antes acá salía solo "🏢 NOMBRE" y allá nada. */}
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>
+                            🏢 Empresa: {m.company_id ? companyName(m.company_id) || '—' : 'Sin empresa'}
+                          </Text>
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                           {/* Retirada: sin inspector — aunque ya no haya fila en machine_inspectors,
                               `latestInspectorByMachine()` cae al último check-in histórico en
@@ -2649,7 +2686,9 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
         visible={formOpen}
         title={editing ? `Editar ${kindMeta.label.toLowerCase()}` : `Nuevo: ${kindMeta.label}`}
         table={isVehicle ? 'vehicles' : 'machinery'}
-        fields={isVehicle ? VEHICLE_FIELDS : [...MACHINERY_FIELDS, ...VIAJES_FIELDS]}
+        fields={isVehicle
+          ? (vehEncargado ? [...VEHICLE_FIELDS, VEHICLE_ENCARGADO_FIELD] : VEHICLE_FIELDS)
+          : [...MACHINERY_FIELDS, ...VIAJES_FIELDS]}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
         uniqueField={isVehicle ? undefined : [
           { key: 'serial', labelCol: 'code', labelName: 'serial' },
@@ -2666,10 +2705,21 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
           const modelo = String(payload.modelo ?? '').trim();
           payload.tipo = [marca, modelo].filter(Boolean).join(' ') || null;
         }}
-        validate={isVehicle ? undefined : (v) => {
+        validate={isVehicle ? (v) => {
+          // ENCARGADO obligatorio AL CREAR un vehículo (igual que en maquinaria).
+          // Solo se exige si la columna existe en la BD (ver `vehEncargado`): mientras
+          // no se corra `supabase/vehiculos_encargado.sql`, el campo ni se muestra.
+          if (!editing && vehEncargado && !String(v.encargado ?? '').trim()) return 'Coloca el ENCARGADO del vehículo (obligatorio).';
+          return null;
+        } : (v) => {
           // Catálogo: al menos UNO de placa/serial, y al menos UNO de marca/modelo.
           if (!String(v.plate ?? '').trim() && !String(v.serial ?? '').trim()) return 'Coloca la PLACA o el SERIAL (al menos uno).';
           if (!String(v.marca ?? '').trim() && !String(v.modelo ?? '').trim()) return 'Coloca la MARCA o el MODELO (al menos uno).';
+          // ENCARGADO obligatorio AL CREAR (pedido cliente 20-ago-2026). Solo al CREAR:
+          // exigirlo también al editar trancaría la ficha de las máquinas viejas que
+          // nunca lo tuvieron, y quien entra a corregir otra cosa no siempre sabe quién
+          // es el encargado. Las viejas se van completando a medida que se editan.
+          if (!editing && !String(v.encargado ?? '').trim()) return 'Coloca el ENCARGADO de la máquina (obligatorio).';
           return null;
         }}
         onClose={() => setFormOpen(false)}
