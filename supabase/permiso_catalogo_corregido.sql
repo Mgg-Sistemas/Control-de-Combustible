@@ -223,14 +223,20 @@ from (
 
 
 -- ¿QUIÉNES pueden registrar máquinas? Revisa que sea la lista que quieres.
-select coalesce(p.full_name, '(sin nombre)') as persona,
-       p.role as rol_base,
-       coalesce(mp.level, '— sin fila —') as permiso_catalogo,
+-- Se muestra el rol REAL: el PERSONALIZADO si lo tiene, y si no el base — igual
+-- que la pantalla de Usuarios. Mirar solo `profiles.role` engañaba: a los
+-- supervisores externos de Obras Públicas los etiquetaba "conductor", que es su
+-- rol base, y parecían gente sin relación con las máquinas.
+select coalesce(p.full_name, '(sin nombre)')                   as persona,
+       coalesce(ar.name, p.role::text)                         as rol_real,
+       case when ar.id is not null then 'personalizado' else 'rol base' end as tipo_de_rol,
+       coalesce(mp.level, '— sin fila —')                      as permiso_catalogo,
        case when p.role = 'admin' then 'admin: siempre puede' else 'por su permiso' end as motivo
   from public.profiles p
+  left join public.app_roles ar on ar.id = p.app_role_id
   left join public.module_permissions mp on mp.user_id = p.id and mp.module = 'equipos'
  where p.role = 'admin' or mp.level in ('escritura', 'full')
- order by p.role = 'admin' desc, p.full_name;
+ order by (p.role = 'admin') desc, coalesce(ar.name, p.role::text), p.full_name;
 
 
 -- ============================================================================
