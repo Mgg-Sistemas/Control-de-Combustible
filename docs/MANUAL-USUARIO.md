@@ -1921,6 +1921,29 @@ de noche otro; al final de cada uno va su línea de firma.
 ### 4.13. Usuarios (solo administrador)
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
+**✏️ Edición masiva (21-ago-2026):** en Usuarios, toca **"✏️ Edición masiva → Abrir"** para
+cambiarle el permiso de un módulo a **muchas personas de una sola vez**, en vez de entrar y salir
+de *"Editar"* una por una.
+- **Agrupar por rol:** arriba hay una pastilla por cada rol que **tenga gente**, con su cantidad
+  (los roles vacíos no salen). Marca uno o varios. Sin marcar nada = todos los roles.
+- **Buscar por cualquier dato:** nombre, apellido, usuario, cédula, rol, o el estado escribiendo
+  **"bloqueado"**. No distingue mayúsculas ni acentos (*"martinez"* encuentra a *"MARTÍNEZ"*).
+- **Marcar:** toca a cada quien, o **"☑️ Marcar los N"** para marcar todos los que estén a la
+  vista. Marcar **suma** a lo ya marcado, así que puedes buscar *"inspector"*, marcarlos todos,
+  luego buscar *"operador"* y marcarlos también.
+- **Aplicar:** abajo eliges el **módulo** (lista con buscador) y el **nivel** (Sin acceso /
+  Lectura / Escritura / Full control), y le das al botón. Pide confirmación antes de guardar.
+
+> ⚠️ **A quién NO le va a quedar el nivel que elijas.** La pantalla te lo avisa **antes** de
+> guardar, en el renglón de esa persona y en el resumen de abajo. Pasa en dos casos:
+> - Es **administrador**: siempre tiene full control y **ningún permiso se lo baja**. A un admin se
+>   le cambia el **rol**, no el permiso.
+> - Su **rol personalizado ya le da más** en ese módulo: manda el **mayor** entre lo que da el rol
+>   y lo que le pongas. Para bajarle eso hay que cambiarle el módulo **AL ROL**, en 🏷️ Roles del
+>   sistema — o cambiarle el rol a esa persona.
+>
+> Sin ese aviso uno cree que "ya se lo quitó a todos" y en realidad media plantilla lo conserva.
+
 **🏷️ Roles del sistema (roles FIJOS):** en Usuarios, toca **"🏷️ Roles del sistema →
 Administrar"**. Ahí puedes:
 - **Crear un rol** (ej. *Coordinador de Operadores*): le pones un **nombre** y eliges **qué módulos
