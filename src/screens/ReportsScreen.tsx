@@ -532,6 +532,10 @@ export default function ReportsScreen({ route }: any) {
   const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[]; escompanies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[] } | null>(null);
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
+  // Modo del Informe por jornada al IMPRIMIR: 'completo' (el de siempre, con precios y
+  // montos) o 'solo_horas' (todos los datos MENOS el dinero — precio/hora, totales $,
+  // abonos, fletes). Pedido del cliente 21-ago-2026. Solo afecta el PDF, no el cálculo.
+  const [jornadaSoloHoras, setJornadaSoloHoras] = useState(false);
   // Al cerrar la vista previa del reporte de jornada, se apaga la actualización en vivo.
   useEffect(() => { if (!roundsPreview) liveRef.current = null; }, [roundsPreview]);
   // Igual para el conteo: al cerrarlo se apaga la sincronización en vivo.
@@ -905,9 +909,16 @@ export default function ReportsScreen({ route }: any) {
   const nH = (n: number) => `${Number(n.toFixed(2)).toLocaleString()} h`;
   const downloadRoundsPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // MODO "SOLO HORAS": todos los datos MENOS el dinero. Cuando `money` es false se
+    // omiten las columnas Precio/hora y Total $, los totales/abonos/saldos, el bloque de
+    // fletes (que es puramente monetario) y las tarjetas de dinero del resumen.
+    const money = !jornadaSoloHoras;
+    // Nº de columnas de la tabla por máquina (para los colspan de los títulos de estado).
+    const NCOLS = money ? 9 : 7;
     // Bloque de VIAJES por empresa: agrupa por precio unitario y detalla las máquinas.
     // Se suma al subtotal para dar el "TOTAL POR PAGAR" (ej.: Golden Touch).
     const renderViajes = (g: RoundCompany): string => {
+      if (!money) return '';           // Solo horas: los fletes son 100% dinero → se omiten
       if (!g.viajes.length) return '';
       const byPrice = new Map<number, ViajeItem[]>();
       g.viajes.forEach((v) => { const a = byPrice.get(v.precio) ?? []; a.push(v); byPrice.set(v.precio, a); });
@@ -936,7 +947,7 @@ export default function ReportsScreen({ route }: any) {
         ${abonoRows}
       </tbody></table>`;
     };
-    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
+    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th>${money ? '<th>Precio/hora</th><th>Total $</th>' : ''}</tr>`;
     // ── LAS QUE NO TRABAJARON: un renglón-título por ESTADO ────────────────────────
     // 🔴 AVERIADAS (avería real) · 🟡 PARADAS (marcador "MÁQUINA PARADA") · ⏳ ESPERANDO
     // INSTRUCCIONES (en_espera). Antes iban las tres primeras englobadas en un solo
@@ -961,7 +972,7 @@ export default function ReportsScreen({ route }: any) {
     const bloqueNT = (items: RoundAveria[], estado: EstadoNoTrabajo): string => {
       if (!items.length) return '';
       const st = ESTILO_NT[estado];
-      const titulo = `<tr><td colspan="9" style="background:${st.fondo};color:${st.color};font-weight:800;letter-spacing:.3px;padding:4px 8px">${st.emoji} ${st.titulo} (${items.length})</td></tr>`;
+      const titulo = `<tr><td colspan="${NCOLS}" style="background:${st.fondo};color:${st.color};font-weight:800;letter-spacing:.3px;padding:4px 8px">${st.emoji} ${st.titulo} (${items.length})</td></tr>`;
       const filas = items
         .map(
           (a) =>
@@ -973,8 +984,8 @@ export default function ReportsScreen({ route }: any) {
             celdaTurno(a.dia, estado) +
             celdaTurno(a.noche, estado) +
             `<td style="text-align:center;font-weight:700">${nH(0)}</td>` +
-            `<td style="text-align:right">—</td>` +
-            `<td style="text-align:right">—</td></tr>`
+            (money ? `<td style="text-align:right">—</td><td style="text-align:right">—</td>` : '') +
+            `</tr>`
         )
         .join('');
       return titulo + filas;
@@ -994,8 +1005,11 @@ export default function ReportsScreen({ route }: any) {
               `<td style="text-align:center">${nH(m.dayH)}</td>` +
               `<td style="text-align:center">${nH(m.nightH)}</td>` +
               `<td style="text-align:center;font-weight:700">${nH(m.totalH)}</td>` +
-              `<td style="text-align:right">${m.priceJornada != null ? usd(m.priceJornada / 12) : '—'}</td>` +
-              `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td></tr>`
+              (money
+                ? `<td style="text-align:right">${m.priceJornada != null ? usd(m.priceJornada / 12) : '—'}</td>` +
+                  `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td>`
+                : '') +
+              `</tr>`
           )
           .join('');
         // Bloque de VIAJES (extra al subtotal). Agrupa las máquinas por precio unitario.
@@ -1007,11 +1021,11 @@ export default function ReportsScreen({ route }: any) {
         const estadoTag = tagNT(g.averias.length, 'averia') + tagNT(g.paradas.length, 'parada') + tagNT(g.espera.length, 'espera');
         return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${estadoTag}</h2>
           <table><thead>${head}</thead><tbody>${rows}${bloquesNT}</tbody>
-          <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
+          <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${money && g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
-            <td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td></tr></tfoot></table>${viajesBlock}`;
+            ${money ? `<td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td>` : ''}</tr></tfoot></table>${viajesBlock}`;
       })
       .join('');
     const grandViajes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
@@ -1039,47 +1053,55 @@ export default function ReportsScreen({ route }: any) {
     const genEquipos = grandMachines;
     const clasRows = [...clasAgg.entries()]
       .sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])))
-      .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${nH(a.worked)}</td><td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td></tr>`)
+      .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${nH(a.worked)}</td>${money ? `<td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td>` : ''}</tr>`)
       .join('');
     // Por empresa: equipos + FLETES = total a pagar (los fletes del rango se suman aquí).
     const empRows = roundGroups
-      .map((g) => `<tr><td>${esc(g.company)}</td><td style="text-align:right;font-weight:700">${g.machines.length}</td><td style="text-align:right">${nH(g.totalH)}</td><td style="text-align:right">${usd(g.totalUSD)}</td><td style="text-align:right">${g.viajesUSD > 0 ? usd(g.viajesUSD) : '—'}</td><td style="text-align:right;font-weight:800">${usd(g.totalUSD + g.viajesUSD)}</td></tr>`)
+      .map((g) => `<tr><td>${esc(g.company)}</td><td style="text-align:right;font-weight:700">${g.machines.length}</td><td style="text-align:right">${nH(g.totalH)}</td>${money ? `<td style="text-align:right">${usd(g.totalUSD)}</td><td style="text-align:right">${g.viajesUSD > 0 ? usd(g.viajesUSD) : '—'}</td><td style="text-align:right;font-weight:800">${usd(g.totalUSD + g.viajesUSD)}</td>` : ''}</tr>`)
       .join('');
     const generalBlockJ = `
       <h2 style="margin-top:20px">Reporte general</h2>
       <h3 style="margin:12px 0 2px">Total por clasificación</h3>
-      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
-      <tbody>${clasRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td></tr></tfoot></table>
-      <h3 style="margin:12px 0 2px">Totales por empresa (equipos + fletes)</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th><th style="text-align:right">Equipos $</th><th style="text-align:right">Fletes $</th><th style="text-align:right">Total a pagar</th></tr></thead>
-      <tbody>${empRows || '<tr><td colspan="6" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td><td style="text-align:right">${genFletes > 0 ? usd(genFletes) : '—'}</td><td style="text-align:right;font-weight:800">${usd(genAmount + genFletes)}</td></tr></tfoot></table>
-      <p class="muted" style="margin-top:6px">El "Total a pagar" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos (un flete no pertenece a una clasificación).</p>`;
+      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${money ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th>' : ''}</tr></thead>
+      <tbody>${clasRows || `<tr><td colspan="${money ? 5 : 3}" style="text-align:center">Sin datos</td></tr>`}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td>${money ? `<td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td>` : ''}</tr></tfoot></table>
+      <h3 style="margin:12px 0 2px">Totales por empresa${money ? ' (equipos + fletes)' : ''}</h3>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th>${money ? '<th style="text-align:right">Equipos $</th><th style="text-align:right">Fletes $</th><th style="text-align:right">Total a pagar</th>' : ''}</tr></thead>
+      <tbody>${empRows || `<tr><td colspan="${money ? 6 : 3}" style="text-align:center">Sin datos</td></tr>`}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td>${money ? `<td style="text-align:right">${usd(genAmount)}</td><td style="text-align:right">${genFletes > 0 ? usd(genFletes) : '—'}</td><td style="text-align:right;font-weight:800">${usd(genAmount + genFletes)}</td>` : ''}</tr></tfoot></table>
+      ${money ? '<p class="muted" style="margin-top:6px">El "Total a pagar" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos (un flete no pertenece a una clasificación).</p>' : ''}`;
     // Resumen del CORTE (arriba de todo): horas, total $, abonado y pendiente.
     const resumenCard = (label: string, value: string, color: string, bg: string) =>
       `<td style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;background:${bg};vertical-align:top;width:25%">
         <div style="font-size:10px;color:#555;text-transform:uppercase;font-weight:700;letter-spacing:.3px">${label}</div>
         <div style="font-size:19px;font-weight:800;color:${color};margin-top:3px">${value}</div>
       </td>`;
-    const resumenTop = `
+    // Solo horas: una sola tarjeta grande (equipos + horas). Completo: horas + dinero.
+    const resumenTop = money
+      ? `
       <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
         ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#F3F6FB')}
         ${resumenCard('Total $', usd(grandUSD), '#1E3A5F', '#EEF3FB')}
         ${resumenCard('Total abonado', usd(grandAbonado), '#15803D', '#EAF6EE')}
         ${resumenCard('TOTAL PENDIENTE', usd(grandPendiente), '#B91C1C', '#FBEEEE')}
+      </tr></tbody></table>`
+      : `
+      <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
+        ${resumenCard('Total de equipos', `${grandMachines}`, '#1E3A5F', '#F3F6FB')}
+        ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#EEF3FB')}
       </tr></tbody></table>`;
     const content = `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${resumenTop}
       ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>`;
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)}${money ? ` · ${usd(grandUSD)}` : ''}</div>`;
     // Nombre del archivo: "Reporte EMPRESA del DD al DD". Si es de una sola empresa lleva su
     // nombre; siempre incluye el rango de fechas.
     const rng = dateRangeLabel(from, to);
-    const jornadaFile = roundsCompany ? `Reporte ${roundsCompany} ${rng}` : `Reporte por jornada ${rng}`;
-    await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content), jornadaFile);
+    const sufijo = money ? '' : ' - solo horas';
+    const jornadaFile = (roundsCompany ? `Reporte ${roundsCompany} ${rng}` : `Reporte por jornada ${rng}`) + sufijo;
+    await exportPdf(pdfShell('INFORME POR JORNADA', money ? 'Por empresa y maquinaria' : 'Por empresa y maquinaria · SOLO HORAS (sin precios)', content), jornadaFile);
   };
 
   const generateFleet = async () => {
@@ -2487,6 +2509,24 @@ export default function ReportsScreen({ route }: any) {
         ) : null}
         </>
         )}
+        {/* Informe por jornada: switch CONTENIDO — Completo (con precios) / Solo horas
+            (todos los datos sin precio). Solo afecta el PDF impreso. */}
+        {mode === 'rounds' ? (
+          <View style={{ marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>Contenido del reporte</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              {[{ v: false, label: '📋 Completo', desc: 'con precios y montos' }, { v: true, label: '🕒 Solo horas', desc: 'todos los datos, sin precios' }].map((o) => {
+                const on = jornadaSoloHoras === o.v;
+                return (
+                  <TouchableOpacity key={String(o.v)} onPress={() => setJornadaSoloHoras(o.v)} style={{ flex: 1, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{o.label}</Text>
+                    <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10, marginTop: 1 }}>{o.desc}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>
@@ -3175,8 +3215,21 @@ export default function ReportsScreen({ route }: any) {
             })}
           </View>
 
+          {/* Contenido del PDF: Completo (con precios) / Solo horas (sin precios). */}
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>Contenido del PDF</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+            {[{ v: false, label: '📋 Completo', desc: 'con precios y montos' }, { v: true, label: '🕒 Solo horas', desc: 'todos los datos, sin precios' }].map((o) => {
+              const on = jornadaSoloHoras === o.v;
+              return (
+                <TouchableOpacity key={String(o.v)} onPress={() => setJornadaSoloHoras(o.v)} style={{ flex: 1, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{o.label}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10, marginTop: 1 }}>{o.desc}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
-            <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+            <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF{jornadaSoloHoras ? ' (solo horas)' : ''}</Text>
           </TouchableOpacity>
 
           {/* Reporte general (arriba): por clasificación + por empresa (igual al de maquinaria). */}
