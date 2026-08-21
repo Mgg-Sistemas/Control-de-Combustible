@@ -1486,6 +1486,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     return map;
   }, [rounds, weekDays, machines]);
   const enControl = (m: Machinery) => esActiva(m) || conHorasEstaSemana.has(m.id);
+  // "Esperando instrucciones" que YA trabajó en este corte se queda EN el control (igual
+  // que una retirada/inactiva con horas): sus horas y su pago siguen contando y no se
+  // pierden del corte. Solo las que están en espera SIN horas de esta semana van a la
+  // sección aparte "En espera". Antes `!m.en_espera` las sacaba a TODAS, así que una
+  // máquina puesta en espera tras trabajar (sus horas ya bancadas por freezeOpenJornadaNow)
+  // desaparecía del corte y su total no cuadraba con el cierre/reportes.
+  const enEsperaSinHoras = (m: Machinery) => m.en_espera === true && !conHorasEstaSemana.has(m.id);
   // Al BUSCAR se ignora el filtro de empresa: así encuentras un equipo por código/serial/
   // placa aunque esté en otra empresa (p. ej. uno recién agregado). Sin búsqueda, aplica
   // el filtro de empresa normal.
@@ -1497,11 +1504,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // lo que leen los predicados: machines (código/estado/empresa/encargado), el Set de horas,
   // el texto de búsqueda `q`, el filtro de empresa, la selección de encargados y `companies`.
   const shown = useMemo(
-    () => machines.filter((m) => enControl(m) && !m.en_espera && matchCompanyOrSearch(m) && matchEncargado(m) && matchText(m)),
+    () => machines.filter((m) => enControl(m) && !enEsperaSinHoras(m) && matchCompanyOrSearch(m) && matchEncargado(m) && matchText(m)),
     [machines, conHorasEstaSemana, q, companyFilter, encargadoSel, companies],
   );
-  // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
-  const enEspera = machines.filter((m) => esActiva(m) && m.en_espera && matchCompanyOrSearch(m) && matchText(m));
+  // Máquinas EN ESPERA por recepción (por recibir) SIN horas de esta semana, agrupadas por
+  // empresa. Las que están en espera pero YA trabajaron se quedan en el control (arriba), no
+  // acá, para no perder sus horas ni contarlas dos veces.
+  const enEspera = machines.filter((m) => esActiva(m) && enEsperaSinHoras(m) && matchCompanyOrSearch(m) && matchText(m));
   const enEsperaByCompany = (() => {
     const map = new Map<string, { key: string; name: string; items: Machinery[] }>();
     enEspera.forEach((it) => {
@@ -1519,7 +1528,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // Opciones de empresa (con conteo) para el filtro desplegable. Cuenta las máquinas
   // que están en el control esta semana: operativas + inactivas que ya trabajaron.
   // RENDIMIENTO: base del control (operativas + inactivas con horas), memoizada.
-  const activasControl = useMemo(() => machines.filter((m) => enControl(m) && !m.en_espera), [machines, conHorasEstaSemana]);
+  const activasControl = useMemo(() => machines.filter((m) => enControl(m) && !enEsperaSinHoras(m)), [machines, conHorasEstaSemana]);
   // RENDIMIENTO: antes, por CADA empresa se hacía un `.filter` sobre todas las máquinas
   // (O(empresas×máquinas)). Ahora se cuenta en UN solo pase agrupando por company_id.
   const companyOptions = useMemo(() => {
@@ -1980,6 +1989,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   {m.operational === false ? (
                     <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: 2 }}>
                       ⛔ Inactiva · se mantiene en este corte por sus horas trabajadas
+                    </Text>
+                  ) : null}
+                  {m.en_espera ? (
+                    <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: 2 }}>
+                      ⏳ Esperando instrucciones · se mantiene en este corte por sus horas trabajadas
                     </Text>
                   ) : null}
                   <Text style={{ color: m.company_id ? colors.brandText : colors.muted, fontSize: 13, fontWeight: '600' }}>
