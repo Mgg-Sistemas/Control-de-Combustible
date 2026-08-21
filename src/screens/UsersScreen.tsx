@@ -19,6 +19,7 @@ import { MODULES, PermLevel, defaultLevel, maxLevel, roleLabel } from '../lib/pe
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { BulkPermissionsModal } from '../components/BulkPermissionsModal';
 import { useToast } from '../components/ToastProvider';
 import {
   CompanyScopeRow,
@@ -154,6 +155,7 @@ export default function UsersScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [delError, setDelError] = useState<string | null>(null);
   const [rolesOpen, setRolesOpen] = useState(false);      // gestor de roles
+  const [bulkOpen, setBulkOpen] = useState(false);        // edición masiva de permisos
   const roleName = (id?: string | null) => appRoles.find((r) => r.id === id)?.name ?? null;
   // Cuántos usuarios tiene vinculado cada rol dinámico (para bloquear su borrado).
   const roleUserCounts = useMemo(() => {
@@ -228,6 +230,20 @@ export default function UsersScreen() {
               <Text style={{ color: colors.muted, fontSize: 12 }}>{appRoles.length} rol(es). Crea roles (coordinadores…), elige qué módulos ve cada uno y quítalos.</Text>
             </View>
             <Text style={{ color: colors.primary, fontWeight: '800' }}>Administrar ›</Text>
+          </View>
+        </Card>
+      </TouchableOpacity>
+
+      {/* EDICIÓN MASIVA: cambiarle el permiso de un módulo a muchos de una vez,
+          en vez de entrar y salir de "Editar" uno por uno. */}
+      <TouchableOpacity onPress={() => setBulkOpen(true)}>
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>✏️ Edición masiva</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Agrupa por rol o busca por cualquier dato, marca a varios y cámbiales el permiso de un módulo de un solo golpe.</Text>
+            </View>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>Abrir ›</Text>
           </View>
         </Card>
       </TouchableOpacity>
@@ -325,6 +341,13 @@ export default function UsersScreen() {
         onSaved={refetch}
       />
       <RolesManagerModal visible={rolesOpen} roles={appRoles} userCounts={roleUserCounts} onClose={() => setRolesOpen(false)} onChanged={refetchRoles} />
+      <BulkPermissionsModal
+        visible={bulkOpen}
+        users={users}
+        roles={appRoles}
+        onClose={() => setBulkOpen(false)}
+        onSaved={refetch}
+      />
     </Screen>
   );
 }
