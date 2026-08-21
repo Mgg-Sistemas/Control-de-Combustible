@@ -673,6 +673,15 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Foto del VEHÍCULO (misma acción que las máquinas, tabla 'vehicles'). Refresca la
   // lista de vehículos al terminar para que la miniatura aparezca de una vez.
   const photoVeh = (v: Vehicle) => run(v.id + '-vphoto', () => pickAndUploadPhoto(v.id, 'photo_url', 'vehicles').then((r) => { if (r.ok) vehicles.refetch(); return r; }));
+  const photoVehSerial = (v: Vehicle) => run(v.id + '-vphotoser', () => pickAndUploadPhoto(v.id, 'photo_serial_url', 'vehicles').then((r) => { if (r.ok) vehicles.refetch(); return r; }));
+  // "Esperando instrucciones" del vehículo (mismo botón que las máquinas). Solo toca
+  // `en_espera` de la tabla `vehicles` (los vehículos no tienen jornada que congelar).
+  const toggleEsperaVeh = (v: Vehicle) => run(v.id + '-vesp', async () => {
+    const { error } = await supabase.from('vehicles').update({ en_espera: !v.en_espera }).eq('id', v.id);
+    if (error) return { ok: false, error: error.message };
+    vehicles.refetch();
+    return { ok: true };
+  });
   // QUITAR la foto sin poner otra (pedido del cliente, 18-ago-2026). Antes solo
   // se podía reemplazar: una foto equivocada obligaba a subir otra cualquiera
   // encima. Pide confirmación porque desde el visor es un toque y no hay
@@ -1570,6 +1579,64 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
     );
   };
 
+  // Tarjeta del VEHÍCULO con el MISMO formato y botones que la de maquinaria
+  // (renderMachineCard), pero con datos/acciones de vehículo. Los vehículos NO tienen
+  // jornada/inspector/QR/ubicación de máquina, así que esas piezas no aplican; se
+  // muestran las que sí: foto máquina, foto serial/placa y "esperando instrucciones".
+  const renderVehicleCard = (v: Vehicle) => (
+    <Card key={v.id}>
+      <TouchableOpacity onPress={() => { setKind('vehiculo'); openEdit(v); }} activeOpacity={0.7}>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          <View style={{ width: 64, height: 64 }}>
+            {v.photo_url ? (
+              <Thumb uri={v.photo_url} size={64} radius={radius.md} />
+            ) : (
+              <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 28 }}>🚗</Text>
+              </View>
+            )}
+            {v.photo_serial_url ? (
+              <View style={{ position: 'absolute', right: -4, bottom: -4, backgroundColor: colors.brand, borderRadius: radius.pill, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface }}>
+                <Text style={{ fontSize: 11 }}>🔖</Text>
+              </View>
+            ) : null}
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
+              {v.en_espera
+                ? <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text>
+                : <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>● Disponible</Text>}
+            </View>
+            {v.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {v.identifier}</Text> : null}
+            {v.brand ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca: {v.brand}</Text> : null}
+            {v.model ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {v.model}</Text> : null}
+            {v.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {v.clasificacion}</Text> : null}
+            <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 Empresa: {v.company_id ? companyName(v.company_id) || '—' : 'Sin empresa'}</Text>
+            {v.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {v.encargado}</Text> : null}
+            {v.vehicle_type ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo: {v.vehicle_type}</Text> : null}
+            {v.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {v.grupo}</Text> : null}
+            {v.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {v.serial}</Text> : null}
+            {v.tank_capacity_l != null ? <Text style={{ color: colors.muted, fontSize: 12 }}>⛽ Tanque: {v.tank_capacity_l} L</Text> : null}
+            {v.expected_kml != null ? <Text style={{ color: colors.muted, fontSize: 12 }}>🛣️ Rendimiento: {v.expected_kml} km/L</Text> : null}
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+        <BigBtn label={busy === v.id + '-vphoto' ? 'Subiendo…' : '📷 Foto vehículo'} onPress={() => photoVeh(v)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === v.id + '-vphoto'} />
+        <BigBtn label={busy === v.id + '-vphotoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoVehSerial(v)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === v.id + '-vphotoser'} />
+        <BigBtn
+          label={v.en_espera ? '✅ Ya se decidió (quitar espera)' : '⏳ Esperando instrucciones'}
+          onPress={() => toggleEsperaVeh(v)}
+          color={v.en_espera ? colors.success : colors.brand}
+          textColor={colors.brandContrast}
+          disabled={busy === v.id + '-vesp'}
+        />
+      </View>
+    </Card>
+  );
+
   const BigBtn = ({ label, onPress, color, disabled, textColor = '#fff' }: any) => (
     <TouchableOpacity
       onPress={onPress}
@@ -1889,35 +1956,7 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
                   </TouchableOpacity>
                   {open ? (
                     <View style={{ marginTop: spacing.sm }}>
-                      {vehicleList.map((v) => (
-                        <TouchableOpacity key={v.id} onPress={() => { setKind('vehiculo'); openEdit(v); }} activeOpacity={0.7}>
-                          <Card>
-                            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                              {v.photo_url ? <Thumb uri={v.photo_url} size={56} radius={radius.md} /> : null}
-                              <View style={{ flex: 1 }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
-                                  {v.en_espera ? <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text> : null}
-                                </View>
-                                {v.brand || v.model ? (
-                                  <Text style={{ color: colors.muted, fontSize: 13 }}>{`${v.brand ?? ''} ${v.model ?? ''}`.trim()}</Text>
-                                ) : null}
-                                {v.vehicle_type ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo: {v.vehicle_type}</Text> : null}
-                                {v.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>Clasificación: {v.clasificacion}</Text> : null}
-                                {v.company_id ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '600' }}>🏢 {companyName(v.company_id) || 'Empresa'}</Text> : null}
-                                {v.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {v.serial}</Text> : null}
-                                {v.encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {v.encargado}</Text> : null}
-                              </View>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
-                              {vehFicha ? (
-                                <BigBtn label={busy === v.id + '-vphoto' ? 'Subiendo…' : (v.photo_url ? '📷 Cambiar foto' : '📷 Agregar foto')} onPress={() => photoVeh(v)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === v.id + '-vphoto'} />
-                              ) : null}
-                              <Text style={{ color: colors.muted, fontSize: 12 }}>Toca la tarjeta para editar</Text>
-                            </View>
-                          </Card>
-                        </TouchableOpacity>
-                      ))}
+                      {vehicleList.map((v) => renderVehicleCard(v))}
                     </View>
                   ) : null}
                 </View>
