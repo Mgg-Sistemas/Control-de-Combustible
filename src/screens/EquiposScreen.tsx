@@ -75,6 +75,27 @@ const VEHICLE_FIELDS: Field[] = [
   { key: 'expected_kml', label: 'Rendimiento (km/L)', type: 'number' },
 ];
 
+// FICHA COMPLETA del vehículo (se muestra IGUAL que maquinaria) — solo si ya corrió
+// `supabase/vehiculos_ficha_maquinaria.sql` (probe `vehFicha`). Reusa las columnas
+// existentes del vehículo (brand/model/vehicle_type/tank_capacity_l/expected_kml) y las
+// nuevas (clasificacion, identifier, serial, company_id, grupo). El ENCARGADO se agrega
+// aparte (VEHICLE_ENCARGADO_FIELD) porque depende de su propio probe. La FOTO se sube
+// desde la tarjeta/ficha (igual que las máquinas), no como campo del formulario.
+const VEHICLE_FIELDS_FULL: Field[] = [
+  { key: 'plate', label: 'Placa', type: 'text', required: true },
+  { key: 'en_espera', label: '⏳ Dejar "Esperando instrucciones" (aún no decidido)', type: 'switch', defaultValue: true },
+  { key: 'brand', label: 'Marca — Toyota, Ford, Bera...', type: 'suggest', table: 'vehicles', column: 'brand', dropdown: true },
+  { key: 'model', label: 'Modelo — Hilux, BR200...', type: 'suggest', table: 'vehicles', column: 'model', dropdown: true },
+  { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'vehicles', column: 'clasificacion' },
+  { key: 'vehicle_type', label: 'Tipo', type: 'text' },
+  { key: 'identifier', label: 'Identificador', type: 'text' },
+  { key: 'serial', label: 'Serial', type: 'text' },
+  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
+  { key: 'grupo', label: 'Grupo', type: 'text' },
+  { key: 'tank_capacity_l', label: 'Capacidad tanque (L)', type: 'number' },
+  { key: 'expected_kml', label: 'Rendimiento (km/L)', type: 'number' },
+];
+
 /** Tipo canónico: MAYÚSCULA, sin espacios extra y sin la "S" final, para que
  *  "Retroexcavadora", "retroexcavadoras", "RETROEXCAVADORAS" sean el MISMO tipo
  *  (el usuario puede escribir con o sin S). Vacío si no hay tipo. */
@@ -279,11 +300,18 @@ export default function EquiposScreen({ navigation, route }: any) {
   // como siempre. Sin esta comprobación, publicar el campo antes que el SQL rompería
   // el alta de TODOS los vehículos ("column encargado does not exist").
   const [vehEncargado, setVehEncargado] = useState(false);
+  // Igual para la FICHA COMPLETA del vehículo (clasificación, empresa, serial, grupo,
+  // foto…): solo se muestran esos campos si `supabase/vehiculos_ficha_maquinaria.sql`
+  // ya corrió. Si no, el formulario de vehículo sigue como el básico de siempre (para
+  // no romper el alta con "column ... does not exist").
+  const [vehFicha, setVehFicha] = useState(false);
   useEffect(() => {
     let alive = true;
     (async () => {
       const { error } = await supabase.from('vehicles').select('encargado').limit(1);
       if (alive) setVehEncargado(!error);
+      const { error: e2 } = await supabase.from('vehicles').select('clasificacion, company_id, photo_url').limit(1);
+      if (alive) setVehFicha(!e2);
     })().catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -642,6 +670,9 @@ export default function EquiposScreen({ navigation, route }: any) {
   const locate = (m: Machinery) => run(m.id + '-loc', () => captureLocation(m.id));
   const photo = (m: Machinery) => run(m.id + '-photo', () => pickAndUploadPhoto(m.id, 'photo_url'));
   const photoSerial = (m: Machinery) => run(m.id + '-photoser', () => pickAndUploadPhoto(m.id, 'photo_serial_url'));
+  // Foto del VEHÍCULO (misma acción que las máquinas, tabla 'vehicles'). Refresca la
+  // lista de vehículos al terminar para que la miniatura aparezca de una vez.
+  const photoVeh = (v: Vehicle) => run(v.id + '-vphoto', () => pickAndUploadPhoto(v.id, 'photo_url', 'vehicles').then((r) => { if (r.ok) vehicles.refetch(); return r; }));
   // QUITAR la foto sin poner otra (pedido del cliente, 18-ago-2026). Antes solo
   // se podía reemplazar: una foto equivocada obligaba a subir otra cualquiera
   // encima. Pide confirmación porque desde el visor es un toque y no hay
@@ -1861,15 +1892,29 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
                       {vehicleList.map((v) => (
                         <TouchableOpacity key={v.id} onPress={() => { setKind('vehiculo'); openEdit(v); }} activeOpacity={0.7}>
                           <Card>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
-                              {(v as any).en_espera ? <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text> : null}
+                            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                              {v.photo_url ? <Thumb uri={v.photo_url} size={56} radius={radius.md} /> : null}
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
+                                  {v.en_espera ? <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text> : null}
+                                </View>
+                                {v.brand || v.model ? (
+                                  <Text style={{ color: colors.muted, fontSize: 13 }}>{`${v.brand ?? ''} ${v.model ?? ''}`.trim()}</Text>
+                                ) : null}
+                                {v.vehicle_type ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo: {v.vehicle_type}</Text> : null}
+                                {v.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>Clasificación: {v.clasificacion}</Text> : null}
+                                {v.company_id ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '600' }}>🏢 {companyName(v.company_id) || 'Empresa'}</Text> : null}
+                                {v.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {v.serial}</Text> : null}
+                                {v.encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {v.encargado}</Text> : null}
+                              </View>
                             </View>
-                            {v.brand || v.model ? (
-                              <Text style={{ color: colors.muted, fontSize: 13 }}>{`${v.brand ?? ''} ${v.model ?? ''}`.trim()}</Text>
-                            ) : null}
-                            {v.vehicle_type ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo: {v.vehicle_type}</Text> : null}
-                            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Toca para editar</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+                              {vehFicha ? (
+                                <BigBtn label={busy === v.id + '-vphoto' ? 'Subiendo…' : (v.photo_url ? '📷 Cambiar foto' : '📷 Agregar foto')} onPress={() => photoVeh(v)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === v.id + '-vphoto'} />
+                              ) : null}
+                              <Text style={{ color: colors.muted, fontSize: 12 }}>Toca la tarjeta para editar</Text>
+                            </View>
                           </Card>
                         </TouchableOpacity>
                       ))}
@@ -2687,7 +2732,9 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
         title={editing ? `Editar ${kindMeta.label.toLowerCase()}` : `Nuevo: ${kindMeta.label}`}
         table={isVehicle ? 'vehicles' : 'machinery'}
         fields={isVehicle
-          ? (vehEncargado ? [...VEHICLE_FIELDS, VEHICLE_ENCARGADO_FIELD] : VEHICLE_FIELDS)
+          ? (vehFicha
+              ? (vehEncargado ? [...VEHICLE_FIELDS_FULL, VEHICLE_ENCARGADO_FIELD] : VEHICLE_FIELDS_FULL)
+              : (vehEncargado ? [...VEHICLE_FIELDS, VEHICLE_ENCARGADO_FIELD] : VEHICLE_FIELDS))
           : [...MACHINERY_FIELDS, ...VIAJES_FIELDS]}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
         uniqueField={isVehicle ? undefined : [
@@ -2695,7 +2742,7 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
           { key: 'plate', labelCol: 'code', labelName: 'placa' },
         ]}
         record={editing}
-        headerImageUrl={isVehicle ? undefined : editing?.photo_url}
+        headerImageUrl={(editing as any)?.photo_url ?? undefined}
         allowDelete
         beforeSave={isVehicle ? undefined : (payload) => {
           // Mantener `tipo` (columna histórica combinada) = marca + modelo, para que
