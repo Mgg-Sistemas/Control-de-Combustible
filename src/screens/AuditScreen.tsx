@@ -9,6 +9,11 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
 import { fieldLabel, changesSummary } from '../lib/auditLabels';
+import {
+  cambiosEstadoMaquina, esCambioDeEstadoMaquina, conteoPorEstado, acompanantes,
+  TABLAS_CON_ESTADO, CambioEstadoMaquina,
+} from '../lib/auditMachineState';
+import { machineLabel } from '../lib/machineLabel';
 import { useAuth } from '../context/AuthContext';
 import { AuditLog } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -20,15 +25,25 @@ function caracasToday(): string {
     .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
   return `${p.year}-${p.month}-${p.day}`;
 }
+// ⚠️ `Intl.DateTimeFormat.format()` LANZA "Invalid time value" con una fecha que no
+// se puede leer. La bitácora tiene años de filas escritas por versiones viejas del
+// sistema: bastaba UNA con la hora mal para que la pantalla completa se cayera al
+// pintar la lista (y con ella el PDF y el agrupado). Se devuelve el texto crudo
+// antes que reventar — es feo, pero se sigue viendo todo lo demás.
 function caracasDT(iso: string): string {
-  return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
+  try {
+    return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
+  } catch { return String(iso ?? '—'); }
 }
 // Fecha (YYYY-MM-DD) en huso Caracas de un timestamp, para agrupar "por día" sin que
-// una acción de madrugada UTC caiga en el día equivocado.
+// una acción de madrugada UTC caiga en el día equivocado. Mismo blindaje que arriba:
+// si revienta acá, se cae el agrupado "por día" de toda la bitácora.
 function caracasDateISO(iso: string): string {
-  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date(iso)).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
-  return `${p.year}-${p.month}-${p.day}`;
+  try {
+    const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(new Date(iso)).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+    return `${p.year}-${p.month}-${p.day}`;
+  } catch { return String(iso ?? '').slice(0, 10) || '—'; }
 }
 // Lunes de la semana (Caracas) de una fecha ISO — para el filtro rápido "Esta semana".
 function weekStartISO(iso: string): string {
@@ -65,6 +80,11 @@ function fmtVal(x: any): string {
 const LIMIT_BASE = 2000;
 const LIMIT_SEARCH = 5000;
 const LIMIT_FULL_HISTORY = 8000;
+// "🚜 Estados de máquina" sobre TODO el historial (sin texto de búsqueda). El tope
+// es MÁS BAJO que el de una búsqueda porque acá no hay rango de fechas que acote:
+// la consulta ya va limitada a `machinery`/`vehicles` (índice), así que a la base
+// no le cuesta — lo que hay que cuidar es el teléfono que tiene que pintar la lista.
+const LIMIT_ESTADOS_HISTORY = 3000;
 // Con 1 letra suelta, casi cualquier tabla/máquina/persona "coincide" — degenera en
 // una consulta prácticamente sin filtro (y con "todo el historial" activo, sin
 // límite de fecha). Se pide un mínimo antes de resolver nada contra la BD.
@@ -89,6 +109,7 @@ const TABLE_LABEL: Record<string, string> = {
   operator_assignments: 'Jornada de operador', module_permissions: 'Permiso', purchase_orders: 'Compra',
   purchase_requests: 'Requisición', staff_pay_payments: 'Pago a personal', vehicles: 'Vehículo', fletes: 'Flete',
   machine_operators: 'Operador asignado a máquina', machine_inspectors: 'Inspector asignado a máquina',
+  service_intervention_types: 'Tipo de intervención (taller)',
 };
 const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
 
@@ -103,7 +124,7 @@ type ModuleDef = { key: string; label: string; icon: string; tables: string[] };
 //    faltaban 11 y por eso medio sistema salía como "Otro").
 const MODULES: ModuleDef[] = [
   { key: 'combustible', label: 'Combustible', icon: '⛽', tables: ['tanks', 'fuel_intakes', 'dispatches', 'transfers', 'authorizations', 'price_tariffs', 'company_price_tariffs', 'stock_movements'] },
-  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs', 'machine_guards'] },
+  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs', 'machine_guards', 'service_intervention_types'] },
   { key: 'viajes', label: 'Viajes de camiones', icon: '🚛', tables: ['camion_viajes'] },
   { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments', 'machine_operators', 'machine_inspectors', 'machine_inspections'] },
   { key: 'nomina', label: 'Nómina y personal', icon: '👷', tables: ['employees', 'attendance', 'uniform_deliveries', 'staff_pay_payments', 'staff_pay_periods', 'payroll_periods', 'aliados'] },
@@ -138,6 +159,10 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
 // Eventos de la app: el "objeto" de la acción es el detalle (código de máquina),
 // no el nombre de la tabla; y no llevan preposición ("creó Máquina" vs "escaneó CARGADOR 01").
 const EVENT_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SCAN', 'CHECK', 'JORNADA_INICIO', 'JORNADA_FIN', 'PARADA']);
+// Las tres acciones que escribe un TRIGGER sobre una tabla (las únicas que traen
+// `changes`, o sea las únicas donde puede haber un cambio de estado). Todo lo demás
+// son eventos de la app. Ver el comentario de `acotar` más abajo.
+const ACCIONES_DE_TABLA = ['INSERT', 'UPDATE', 'DELETE'];
 // "Cajón" de tipo de acción para el filtro (agrupa los 7 eventos de app en uno solo:
 // a un dueño de negocio no le sirve elegir entre LOGIN/SCAN/PARADA por separado aquí).
 const actionBucket = (r: AuditLog): string => (EVENT_ACTIONS.has(r.action) ? 'EVENTOS' : r.action);
@@ -158,6 +183,8 @@ type AuditFavorite = {
   userFilter: string; tableFilter: string;
   moduleFilter: string[]; actionFilter: string[]; moneyOnly: boolean;
   groupBy: string;
+  /** Opcional: los favoritos guardados ANTES del 20-ago-2026 no lo traen. */
+  estadoMaqOnly?: boolean;
 };
 const FAVORITES_KEY = 'audit_favorites_v1';
 
@@ -167,16 +194,31 @@ const FAVORITES_KEY = 'audit_favorites_v1';
 // si un día se agrega una columna ahí, agregarla también aquí para no desalinear
 // el "en vivo" (filas viejas sin row_label) del que ya quedó guardado en la bitácora.
 const NAME_COLS = ['full_name', 'name', 'code', 'title', 'descripcion', 'sku', 'plate', 'company_name'];
-async function resolveTarget(table: string, rowId: string | null): Promise<string | null> {
-  if (!rowId) return null;
+/** Lo que se pudo averiguar del registro afectado: su nombre y la FILA COMPLETA
+ *  (para la ficha de "toda la información" cuando es una máquina). UNA sola fila,
+ *  y solo al abrir el detalle — nunca por cada renglón de la lista. */
+type TargetInfo = { nombre: string | null; row: any | null; empresa: string | null };
+async function resolveTarget(table: string, rowId: string | null): Promise<TargetInfo> {
+  const vacio: TargetInfo = { nombre: null, row: null, empresa: null };
+  if (!rowId) return vacio;
   try {
     const { data } = await supabase.from(table).select('*').eq('id', rowId).maybeSingle();
-    if (!data) return null;
+    if (!data) return vacio;
     const d: any = data;
-    if (d.first_name || d.last_name) return [d.first_name, d.last_name].filter(Boolean).join(' ');
-    for (const c of NAME_COLS) { if (d[c]) return String(d[c]); }
-    return null;
-  } catch { return null; }
+    let nombre: string | null = null;
+    if (d.first_name || d.last_name) nombre = [d.first_name, d.last_name].filter(Boolean).join(' ');
+    else for (const c of NAME_COLS) { if (d[c]) { nombre = String(d[c]); break; } }
+    // Empresa de la máquina: una fila más, solo al abrir el detalle. Va en su propio
+    // try/catch para que un fallo acá no borre la ficha que ya se consiguió.
+    let empresa: string | null = null;
+    if (d.company_id) {
+      try {
+        const { data: c } = await supabase.from('companies').select('name').eq('id', d.company_id).maybeSingle();
+        empresa = (c as any)?.name ?? null;
+      } catch { empresa = null; }
+    }
+    return { nombre, row: d, empresa };
+  } catch { return vacio; }
 }
 
 /**
@@ -185,8 +227,11 @@ async function resolveTarget(table: string, rowId: string | null): Promise<strin
  * re-render de las filas que no cambian. `colors` y `onPress` son estables entre
  * renders (tema / setState), así el memo es efectivo. */
 const AuditRowCard = React.memo(function AuditRowCard({ r, colors, onPress }: { r: AuditLog; colors: any; onPress: (r: AuditLog) => void }) {
-  const a = ACTION_META[r.action] ?? { icon: '•', label: r.action.toLowerCase(), color: colors.muted };
+  const a = ACTION_META[r.action] ?? { icon: '•', label: String(r.action ?? '·').toLowerCase(), color: colors.muted };
   const resumen = changesSummary(r.action, r.changes, fmtVal);
+  // Cambio de ESTADO de la máquina (retirada / en espera / eliminada / QR): sale con
+  // su propio color y en criollo, en vez de quedar escondido dentro de "(6 cambios)".
+  const estados = cambiosEstadoMaquina(r);
   return (
     <TouchableOpacity activeOpacity={0.7} onPress={() => onPress(r)}>
       <Card>
@@ -203,6 +248,16 @@ const AuditRowCard = React.memo(function AuditRowCard({ r, colors, onPress }: { 
               {!EVENT_ACTIONS.has(r.action) && (r.row_label || r.detail) ? <Text style={{ color: colors.muted, fontWeight: '700' }}> · {r.row_label || r.detail}</Text> : null}
               {r.action === 'UPDATE' && r.changes ? <Text style={{ color: colors.muted, fontSize: 12 }}> ({Object.keys(r.changes).length} cambio{Object.keys(r.changes).length === 1 ? '' : 's'})</Text> : null}
             </Text>
+            {/* Estado de la máquina, en grande: es lo que se viene a buscar acá. */}
+            {estados.length ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+                {estados.map((c) => (
+                  <View key={c.key} style={{ backgroundColor: c.hex, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10.5 }}>{c.icon} {c.label}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             {/* Qué cambió, sin tener que abrir la fila (ej. "En espera: no → sí"). */}
             {resumen ? <Text style={{ color: colors.text, fontSize: 12 }} numberOfLines={1}>{resumen}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}{r.device ? ` · ${r.device}` : ''}</Text>
@@ -239,9 +294,12 @@ export default function AuditScreen() {
   // sin filtro alguno sobre toda la bitácora, que sí puede ser enorme).
   const [fullHistory, setFullHistory] = useState(false);
   const [truncated, setTruncated] = useState(false); // se alcanzó el tope de filas
+  const [loadError, setLoadError] = useState<string | null>(null); // la consulta falló (≠ "no hay nada")
   const [detail, setDetail] = useState<AuditLog | null>(null);   // fila abierta en detalle
-  const [targetName, setTargetName] = useState<string | null>(null);
+  const [target, setTarget] = useState<TargetInfo>({ nombre: null, row: null, empresa: null });
   const [targetLoading, setTargetLoading] = useState(false);
+  const targetName = target.nombre;
+  const [pdfBusy, setPdfBusy] = useState(false); // generando el PDF (puede tardar con miles de filas)
   const [rtNonce, setRtNonce] = useState(0); // se incrementa al llegar un cambio en tiempo real, para forzar la recarga de abajo
 
   // Mapa id → nombre del usuario. RESUELVE quién hizo cada acción cuando el trigger
@@ -268,6 +326,12 @@ export default function AuditScreen() {
   const [moduleFilter, setModuleFilter] = useState<Set<string>>(new Set()); // vacío = todos los módulos
   const [actionFilter, setActionFilter] = useState<Set<string>>(new Set()); // vacío = todos los tipos
   const [moneyOnly, setMoneyOnly] = useState(false); // filtro rápido "solo cambios de dinero"
+  // Filtro rápido "🚜 Estados de máquina": deja SOLO las acciones que retiraron,
+  // reactivaron, pusieron en espera, eliminaron o bloquearon una máquina. Además de
+  // filtrar en pantalla, ACOTA LA CONSULTA a `machinery`/`vehicles` (columna
+  // indexada): así traer un mes entero de estados cuesta menos que un día completo
+  // de bitácora, en vez de más.
+  const [estadoMaqOnly, setEstadoMaqOnly] = useState(false);
   const [groupBy, setGroupBy] = useState<'none' | 'modulo' | 'usuario' | 'dia'>('none');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [favorites, setFavorites] = useState<AuditFavorite[]>([]);
@@ -292,7 +356,7 @@ export default function AuditScreen() {
     const fav: AuditFavorite = {
       id: `${Date.now()}`, name, from, to, fullHistory, q,
       userFilter, tableFilter, moduleFilter: Array.from(moduleFilter),
-      actionFilter: Array.from(actionFilter), moneyOnly, groupBy,
+      actionFilter: Array.from(actionFilter), moneyOnly, groupBy, estadoMaqOnly,
     };
     persistFavorites([fav, ...favorites]);
     setFavName('');
@@ -302,6 +366,7 @@ export default function AuditScreen() {
     setUserFilter(fav.userFilter); setTableFilter(fav.tableFilter);
     setModuleFilter(new Set(fav.moduleFilter)); setActionFilter(new Set(fav.actionFilter));
     setMoneyOnly(fav.moneyOnly); setGroupBy((fav.groupBy as any) ?? 'none');
+    setEstadoMaqOnly(!!fav.estadoMaqOnly);
     setMenuOpen(false);
   };
   const deleteFavorite = (id: string) => persistFavorites(favorites.filter((f) => f.id !== id));
@@ -330,12 +395,12 @@ export default function AuditScreen() {
   };
 
   useEffect(() => {
-    if (!detail) { setTargetName(null); return; }
+    if (!detail) { setTarget({ nombre: null, row: null, empresa: null }); return; }
     let alive = true;
     setTargetLoading(true);
-    resolveTarget(detail.table_name, detail.row_id).then((n) => {
+    resolveTarget(detail.table_name, detail.row_id).then((info) => {
       if (!alive) return; // se cambió de fila antes de que llegara esta respuesta
-      setTargetName(n); setTargetLoading(false);
+      setTarget(info); setTargetLoading(false);
     });
     return () => { alive = false; };
   }, [detail]);
@@ -358,9 +423,19 @@ export default function AuditScreen() {
       // para encontrar TODO lo que le pasó a una máquina/inspector/usuario puntual sin
       // tener que adivinar en qué fecha ocurrió. Sin texto de búsqueda no aplica (evita
       // traer la bitácora completa sin ningún filtro).
-      const searchAllTime = fullHistory && hasQuery;
+      // Con "🚜 Estados de máquina" también se permite ignorar el rango SIN escribir
+      // nada: nadie se acuerda del día en que retiraron una máquina — esa es
+      // justamente la pregunta. Y acá sí se puede: la consulta va acotada a
+      // `machinery`/`vehicles` (índice `audit_log_table_name_idx`), que en toda la
+      // historia son unos pocos miles de filas, no la bitácora completa.
+      const searchAllTime = fullHistory && (hasQuery || estadoMaqOnly);
 
-      const limit = searchAllTime ? LIMIT_FULL_HISTORY : hasQuery ? LIMIT_SEARCH : LIMIT_BASE;
+      // Con "🚜 Estados de máquina" el tope es SIEMPRE el suyo: escribir una palabra
+      // no puede SUBIR de 3000 a 8000 filas justo en el modo que menos las necesita
+      // (la consulta ya viene acotada a máquinas + acciones de tabla).
+      const limit = estadoMaqOnly
+        ? (searchAllTime ? LIMIT_ESTADOS_HISTORY : LIMIT_BASE)
+        : searchAllTime ? LIMIT_FULL_HISTORY : hasQuery ? LIMIT_SEARCH : LIMIT_BASE;
       // Tipos cuyo NOMBRE legible coincide con el texto (ej. "máquina" → machinery).
       const matchTables = hasQuery ? Object.entries(TABLE_LABEL).filter(([, label]) => norm(label).includes(nq)).map(([t]) => t) : [];
       // Acciones cuyo verbo coincide (ej. "modificó" → UPDATE).
@@ -414,11 +489,30 @@ export default function AuditScreen() {
       if (matchActions.length) structuredOrs.push(`action.in.(${matchActions.join(',')})`);
       if (matchRowIds.length) structuredOrs.push(`row_id.in.(${matchRowIds.join(',')})`);
       if (matchUserIds.length) structuredOrs.push(`user_id.in.(${matchUserIds.join(',')})`);
+      // "🚜 Estados de máquina" ACOTA la consulta a las tablas que tienen estado.
+      // `table_name` está indexado (supabase/audit_perf_indexes.sql) y esto entra
+      // en AND con todo lo demás: la consulta siempre queda MÁS chica, nunca más
+      // grande. Por eso este filtro no puede tumbar la base aunque se pida un mes.
+      //
+      // ⚠️ EL `action.in` NO ES OPCIONAL — NO LO QUITES. `table_name = 'machinery'`
+      //    NO significa "edición de una máquina": los EVENTOS de la app (SCAN,
+      //    CHECK, JORNADA_INICIO/FIN, PARADA) también se guardan con esa tabla, vía
+      //    `logAudit(..., 'machinery', ...)` desde ~25 sitios (SupervisorScreen,
+      //    CheckMaquinaModal, InspectionsSummary, PatioScreen, offlineQueue…). Con
+      //    ~173 máquinas × 2 turnos son del orden de MIL filas al día que NO son
+      //    cambios de estado. Sin este filtro se comían el tope de la consulta y la
+      //    pantalla llegaba a decir "ninguna máquina cambió de estado en todo el
+      //    historial" con una retirada real fuera de la ventana — justo la pregunta
+      //    que este filtro vino a contestar. Los eventos nunca traen `changes`, así
+      //    que descartarlos no pierde ni un solo cambio de estado.
+      const acotar = (query: any) => (estadoMaqOnly
+        ? query.in('table_name', TABLAS_CON_ESTADO as unknown as string[]).in('action', ACCIONES_DE_TABLA)
+        : query);
       const buildStructured = () => {
         let query = supabase.from('audit_log').select('*');
         if (!searchAllTime) query = query.gte('at', fromTs).lte('at', toTs);
         query = query.or(structuredOrs.join(','));
-        return query.order('at', { ascending: false }).limit(limit);
+        return acotar(query).order('at', { ascending: false }).limit(limit);
       };
       // NIVEL 2 (lento, escanea filas): busca por quien hizo la acción (nombre) o
       // por la etiqueta de la fila (row_label) — ej. una palabra suelta que no
@@ -433,7 +527,7 @@ export default function AuditScreen() {
         const ors = [`user_name.ilike.%${safe}%`];
         if (withRowLabel) ors.push(`row_label.ilike.%${safe}%`);
         query = query.or(ors.join(','));
-        return query.order('at', { ascending: false }).limit(limit);
+        return acotar(query).order('at', { ascending: false }).limit(limit);
       };
       let data: any[] | null = null;
       let error: any = null;
@@ -457,17 +551,24 @@ export default function AuditScreen() {
           }
         }
       } else {
-        ({ data, error } = await supabase.from('audit_log').select('*').gte('at', fromTs).lte('at', toTs).order('at', { ascending: false }).limit(limit));
+        let base = supabase.from('audit_log').select('*');
+        if (!searchAllTime) base = base.gte('at', fromTs).lte('at', toTs);
+        ({ data, error } = await acotar(base).order('at', { ascending: false }).limit(limit));
       }
       if (!alive) return;
       const list = (data as AuditLog[]) ?? [];
       setRows(list);
       setTruncated(list.length >= limit);
+      // Un error de la consulta NO puede seguir viéndose como "Sin actividad": para
+      // quien está buscando, "no hay nada" y "no respondió" son la misma pantalla en
+      // blanco, y la conclusión equivocada ("nadie tocó esa máquina") es justo lo que
+      // esta pantalla existe para evitar.
+      setLoadError(error ? (error.message || 'La consulta no respondió.') : null);
       setLoading(false);
     };
     const t = setTimeout(run, q ? 350 : 0);
     return () => { alive = false; clearTimeout(t); };
-  }, [from, to, q, fullHistory, rtNonce]);
+  }, [from, to, q, fullHistory, rtNonce, estadoMaqOnly]);
 
   // Bitácora en vivo: si otro usuario/dispositivo genera una acción, se refresca sola.
   // `audit_log` recibe una fila por CADA escritura en ~30 tablas de TODA la app (no
@@ -478,7 +579,12 @@ export default function AuditScreen() {
   // que aquí se estira bastante más: se nota igual de "en vivo" para quien la está
   // usando, pero no dispara una consulta por cada acción que pasa en cualquier
   // rincón del sistema.
-  useRealtimeRefresh(['audit_log'], () => setRtNonce((n) => n + 1), { debounceMs: 4000, maxWaitMs: 20000 });
+  // 20-ago-2026: el `maxWaitMs` de 20 s no servía de tope, servía de RELOJ. Con
+  // 15-20 mil inserts al día la ráfaga no para nunca, así que el debounce jamás
+  // llegaba a cumplirse y la pantalla abierta y quieta reconsultaba CADA 20
+  // SEGUNDOS — hasta 8000 filas, más las 3 consultas de resolución si había
+  // búsqueda. Para una bitácora, dos minutos se siente igual de "en vivo".
+  useRealtimeRefresh(['audit_log'], () => setRtNonce((n) => n + 1), { debounceMs: 8000, maxWaitMs: 120000 });
 
   // Filas con el usuario RESUELTO: si el trigger no guardó el nombre pero sí el
   // user_id, se completa desde `nameById` (perfiles). Todo lo de abajo (lista,
@@ -513,14 +619,26 @@ export default function AuditScreen() {
     }
     if (actionFilter.size > 0 && !actionFilter.has(actionBucket(r))) return false;
     if (moneyOnly && !MONEY_TABLES.has(r.table_name)) return false;
+    // La consulta ya vino acotada a `machinery`/`vehicles`; acá se descartan los
+    // cambios que NO tocaron el estado (foto, precio, encargado…).
+    if (estadoMaqOnly && !esCambioDeEstadoMaquina(r)) return false;
     return true;
-  }), [resolvedRows, userFilter, tableFilter, moduleFilter, actionFilter, moneyOnly]);
+  }), [resolvedRows, userFilter, tableFilter, moduleFilter, actionFilter, moneyOnly, estadoMaqOnly]);
+
+  // Conteo por tipo de cambio de estado (⬛ Retiradas 4 · ✅ Reactivadas 1) sobre lo
+  // que está visible. Solo se calcula con el filtro activo: recorrer miles de filas
+  // en cada render para un resumen que nadie pidió es justo lo que hace lenta la
+  // pantalla.
+  const conteoEstados = useMemo(
+    () => (estadoMaqOnly ? conteoPorEstado(shown) : []),
+    [shown, estadoMaqOnly],
+  );
   const rangoTxt = from === to ? dmy(from) : `${dmy(from)} → ${dmy(to)}`;
-  const searchAllTimeActive = fullHistory && norm(q.trim()).length >= MIN_SEARCH_LEN;
+  const searchAllTimeActive = fullHistory && (norm(q.trim()).length >= MIN_SEARCH_LEN || estadoMaqOnly);
   const rangoLabel = searchAllTimeActive ? 'todo el historial' : rangoTxt;
   // Cuántos filtros del menú ▾ están activos (además de búsqueda/usuario/tipo/rango),
   // para el "badge" del botón "Filtros ▾".
-  const extraFilterCount = moduleFilter.size + actionFilter.size + (moneyOnly ? 1 : 0);
+  const extraFilterCount = moduleFilter.size + actionFilter.size + (moneyOnly ? 1 : 0) + (estadoMaqOnly ? 1 : 0);
 
   // Resultados agrupados (Agrupar por: módulo / usuario / día), sobre lo YA filtrado.
   // Un Map preserva el orden de inserción: como `shown` viene ordenado por fecha
@@ -565,8 +683,26 @@ export default function AuditScreen() {
   // campo por campo de qué cambió (lo mismo que ves al tocar una fila en pantalla,
   // que antes solo estaba ahí y no salía en el PDF).
   const generarPdf = async () => {
-    if (shown.length === 0) return;
+    if (shown.length === 0 || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      await generarPdfInterno();
+    } catch (e: any) {
+      // Sin esto, cualquier fallo dejaba el botón sin hacer nada y sin decir por qué.
+      setLoadError(`No se pudo generar el PDF: ${e?.message || e}`);
+    } finally { setPdfBusy(false); }
+  };
+
+  const generarPdfInterno = async () => {
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // ⚠️ TOPE DE FILAS DEL PDF. En un INSERT/DELETE la bitácora guarda LA FILA
+    // ENTERA en `changes`, y el desglose las imprime todas: con miles de acciones
+    // el HTML llega a decenas de MB y eso es lo que cuelga (o mata) la app — en web
+    // se mete en un iframe y en el teléfono pasa por Print. Se corta y se AVISA en
+    // el propio documento: un PDF recortado en silencio es peor que uno corto.
+    const MAX_PDF_FILAS = 1500;
+    const filasPdf = shown.slice(0, MAX_PDF_FILAS);
+    const recortado = shown.length - filasPdf.length;
     const filtro = [
       q.trim() ? `Búsqueda: "${q.trim()}"` : '',
       userFilter !== '__all__' ? `Usuario: ${userFilter}` : '',
@@ -574,6 +710,7 @@ export default function AuditScreen() {
       moduleFilter.size ? `Módulos: ${MODULES.filter((m) => moduleFilter.has(m.key)).map((m) => m.label).join(', ')}` : '',
       actionFilter.size ? `Acciones: ${ACTION_BUCKETS.filter((b) => actionFilter.has(b.key)).map((b) => b.label.replace(/^\S+\s/, '')).join(', ')}` : '',
       moneyOnly ? 'Solo cambios de dinero' : '',
+      estadoMaqOnly ? 'Solo estados de máquina (retirada / reactivada / en espera…)' : '',
       groupBy !== 'none' ? `Agrupado por ${groupBy === 'modulo' ? 'módulo' : groupBy === 'usuario' ? 'usuario' : 'día'}` : '',
     ].filter(Boolean).join(' · ');
 
@@ -581,6 +718,17 @@ export default function AuditScreen() {
     // el detalle, si no un ID corto como último recurso (sin consultar la BD por fila:
     // con miles de filas sería demasiado lento para un PDF).
     const targetTxt = (r: AuditLog) => r.row_label || r.detail || (r.row_id ? `ID ${r.row_id.slice(0, 8)}…` : '—');
+
+    // Cambio de ESTADO de la máquina, con su color: en el papel es lo primero que se
+    // busca ("¿quién la retiró?"), así que va ANTES del desglose campo por campo.
+    const estadoHtml = (r: AuditLog): string => {
+      const cs = cambiosEstadoMaquina(r);
+      if (!cs.length) return '';
+      const si = (b: boolean | null) => (b === null ? '—' : b ? 'sí' : 'no');
+      return `<div class="ests">${cs.map((c) =>
+        `<span class="est" style="background:${c.hex}">${esc(c.icon)} ${esc(c.label)}${
+          c.campo ? ` · ${esc(fieldLabel(c.campo))}: ${si(c.de)} → ${si(c.a)}` : ''}</span>`).join('')}</div>`;
+    };
 
     // Desglose de CAMBIOS de una fila, en HTML compacto (campo: antes → después).
     const changesHtml = (r: AuditLog): string => {
@@ -598,13 +746,13 @@ export default function AuditScreen() {
       return `<div class="chgbox"><div class="chgtit">${esc(titulo)}</div>${items}</div>`;
     };
 
-    const filas = shown.map((r) => {
+    const filas = filasPdf.map((r) => {
       const a = ACTION_META[r.action] ?? { label: r.action.toLowerCase() };
       const ev = EVENT_ACTIONS.has(r.action);
       const accion = ev ? a.label : `${a.label} ${tableLabel(r.table_name)}`;
       const detalle = ev
         ? esc(r.detail ?? '—')
-        : `<b>${esc(targetTxt(r))}</b>${r.detail && r.detail !== r.row_label ? `<div class="sub">${esc(r.detail)}</div>` : ''}${changesHtml(r)}`;
+        : `<b>${esc(targetTxt(r))}</b>${r.detail && r.detail !== r.row_label ? `<div class="sub">${esc(r.detail)}</div>` : ''}${estadoHtml(r)}${changesHtml(r)}`;
       return `<tr>
         <td class="nowrap">${esc(caracasDT(r.at))}</td>
         <td>${esc(r.user_name || 'Sin usuario (registro antiguo)')}</td>
@@ -623,11 +771,13 @@ export default function AuditScreen() {
         <div class="sumitem"><span class="sumn">${resumen.eventos}</span><span class="suml">📋 Eventos de app</span></div>
       </div>
       ${resumen.topUsuarios.length ? `<div class="topusers"><b>Más actividad:</b> ${resumen.topUsuarios.map(([u, n]) => `${esc(u)} (${n})`).join(' · ')}</div>` : ''}
+      ${conteoEstados.length ? `<div class="ests" style="margin:2px 0 8px">${conteoEstados.map((c) =>
+        `<span class="est" style="background:${c.hex};font-size:10.5px;padding:3px 8px">${esc(c.icon)} ${esc(c.label)} · ${c.n}</span>`).join('')}</div>` : ''}
     `;
 
     const html = pdfDocument({
       title: 'Auditoría · Bitácora',
-      subtitle: `${rangoLabel} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}${truncated ? ` · ⚠️ tope de ${rows.length} filas alcanzado` : ''}`,
+      subtitle: `${rangoLabel} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}${truncated ? ` · ⚠️ tope de ${rows.length} filas alcanzado` : ''}${recortado > 0 ? ` · ⚠️ EL PDF TRAE SOLO LAS ${filasPdf.length} MÁS RECIENTES (quedaron ${recortado} fuera)` : ''}`,
       extraCss: `
         .sumbox{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
         .sumitem{flex:1;min-width:110px;background:#f4f7fb;border:1px solid #c9d2dc;border-radius:6px;padding:8px 10px;text-align:center}
@@ -641,6 +791,8 @@ export default function AuditScreen() {
         .nowrap{white-space:nowrap}
         .tag{color:#fff;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;white-space:nowrap;display:inline-block}
         .sub{color:#555;font-size:10px;margin-top:1px}
+        .ests{margin-top:3px;display:flex;flex-wrap:wrap;gap:3px}
+        .est{color:#fff;border-radius:4px;padding:2px 6px;font-size:9.5px;font-weight:700;display:inline-block}
         .chgbox{margin-top:4px;padding-top:4px;border-top:1px dashed #c9d2dc}
         .chgtit{font-size:9.5px;color:#16324F;font-weight:800;margin-bottom:2px}
         .chg{font-size:10px;color:#333;line-height:1.5}
@@ -648,7 +800,14 @@ export default function AuditScreen() {
         .chg .new{color:#15803D;font-weight:700}`,
       body: `${resumenHtml}<table><thead><tr><th style="width:110px">Fecha y hora</th><th style="width:100px">Usuario</th><th style="width:130px">Acción</th><th>Registro afectado / cambios</th><th style="width:70px">Dispositivo</th></tr></thead><tbody>${filas}</tbody></table>`,
     });
-    await exportPdf(html, searchAllTimeActive ? `Auditoria - historial completo (${q.trim()})` : `Auditoria ${from}_${to}`);
+    // El nombre del archivo dice de qué es: sin esto, "historial completo ()" con el
+    // paréntesis vacío cuando se pide todo el historial de estados sin escribir nada.
+    const nombreArchivo = searchAllTimeActive
+      ? (q.trim() ? `Auditoria - historial completo (${q.trim()})`
+        : estadoMaqOnly ? 'Auditoria - estados de maquina (historial completo)'
+        : 'Auditoria - historial completo')
+      : `Auditoria${estadoMaqOnly ? ' - estados de maquina' : ''} ${from}_${to}`;
+    await exportPdf(html, nombreArchivo);
   };
 
   if (!canAudit) {
@@ -672,6 +831,16 @@ export default function AuditScreen() {
     <View style={{ gap: spacing.md }}>
       <ConfigBanner />
       <SectionTitle>🕵️ Auditoría — quién hace qué</SectionTitle>
+
+      {/* La consulta falló: se avisa. Sin esto se veía igual que "no hay nada". */}
+      {loadError ? (
+        <View style={{ backgroundColor: '#7F1D1D', borderRadius: radius.md, padding: spacing.sm }}>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⚠️ La bitácora no respondió</Text>
+          <Text style={{ color: '#FECACA', fontSize: 11, marginTop: 2 }}>
+            {loadError} · Lo que ves abajo puede estar incompleto. Prueba con un rango más corto o afina la búsqueda.
+          </Text>
+        </View>
+      ) : null}
 
       {/* Rango de fechas (Desde–Hasta) + atajos */}
       <Card>
@@ -709,10 +878,48 @@ export default function AuditScreen() {
               🔽 Filtros{extraFilterCount > 0 ? ` (${extraFilterCount})` : ''}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={generarPdf} disabled={shown.length === 0} style={{ backgroundColor: shown.length === 0 ? colors.surfaceAlt : colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: shown.length === 0 ? 0.5 : 1 }}>
-            <Text style={{ color: shown.length === 0 ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
+          <TouchableOpacity onPress={generarPdf} disabled={shown.length === 0 || pdfBusy} style={{ backgroundColor: shown.length === 0 || pdfBusy ? colors.surfaceAlt : colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: shown.length === 0 || pdfBusy ? 0.5 : 1 }}>
+            <Text style={{ color: shown.length === 0 || pdfBusy ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{pdfBusy ? 'Generando…' : '📄 PDF'}</Text>
           </TouchableOpacity>
         </View>
+        {/* 🚜 ESTADOS DE MÁQUINA — a la vista (pedido del cliente 20-ago-2026:
+            "necesito que me diga quién colocó la maquinaria retirada o todos esos
+            estados"). Deja SOLO las acciones que cambiaron el estado de una máquina y
+            ACOTA la consulta a `machinery`/`vehicles`: con el filtro puesto la
+            pantalla le pide MENOS a la base, no más. */}
+        <TouchableOpacity
+          onPress={() => setEstadoMaqOnly((v) => !v)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm, alignSelf: 'flex-start', backgroundColor: estadoMaqOnly ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: estadoMaqOnly ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}
+        >
+          <Text style={{ fontSize: 13 }}>{estadoMaqOnly ? '☑️' : '⬜'}</Text>
+          <Text style={{ color: estadoMaqOnly ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+            🚜 Estados de máquina — quién la retiró, reactivó o puso en espera
+          </Text>
+        </TouchableOpacity>
+
+        {estadoMaqOnly ? (
+          conteoEstados.length ? (
+            <>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                {conteoEstados.map((c) => (
+                  <View key={c.key} style={{ backgroundColor: c.hex, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11 }}>{c.icon} {c.label} · {c.n}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: spacing.xs }}>
+                Toca cualquier fila para ver la ficha completa de la máquina y quién la dejó así.
+              </Text>
+            </>
+          ) : (
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+              Ninguna máquina cambió de estado en {rangoLabel}. Marca abajo "🕘 Buscar en TODO el
+              historial" y salen todos los cambios de estado desde siempre, sin tener que adivinar la
+              fecha. Si el retiro es viejo, la ficha de la máquina igual guarda quién la retiró y cuándo.
+            </Text>
+          )
+        ) : null}
+
         {/* AGRUPAR POR — a la vista, no enterrado en el menú (pedido del cliente
             20-ago-2026: "poder agrupar por módulo en el que hicieron cambios").
             Es el mismo `groupBy` del menú ▾, así que los dos quedan sincronizados. */}
@@ -768,7 +975,7 @@ export default function AuditScreen() {
       {/* Historial completo de UNA entidad (máquina/inspector/usuario/cualquier cosa):
           con texto de búsqueda, este switch ignora el rango Desde–Hasta y trae TODO lo
           que le haya pasado a esa cosa desde siempre, sin tener que adivinar la fecha. */}
-      {q.trim() ? (
+      {q.trim() || estadoMaqOnly ? (
         <TouchableOpacity
           onPress={() => setFullHistory((v) => !v)}
           style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs, alignSelf: 'flex-start', backgroundColor: fullHistory ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: fullHistory ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}
@@ -876,6 +1083,72 @@ export default function AuditScreen() {
                   {detail.device ? <Row k="Dispositivo" v={detail.device} /> : null}
                   {detail.row_id ? <Row k="ID interno" v={detail.row_id} /> : null}
 
+                  {/* CAMBIO DE ESTADO — lo primero que se viene a buscar acá. Sale con
+                      su color antes que el desglose campo por campo. */}
+                  {(() => {
+                    const estados: CambioEstadoMaquina[] = cambiosEstadoMaquina(detail);
+                    if (!estados.length) return null;
+                    const acomp = acompanantes(detail);
+                    const si = (b: boolean | null) => (b === null ? '—' : b ? 'sí' : 'no');
+                    return (
+                      <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: 4 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>Cambio de estado de la máquina</Text>
+                        {estados.map((c) => (
+                          <View key={c.key} style={{ backgroundColor: c.hex, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12.5 }}>{c.icon} {c.label}</Text>
+                            {c.campo ? (
+                              <Text style={{ color: '#fff', fontSize: 11, opacity: 0.9 }}>{fieldLabel(c.campo)}: {si(c.de)} → {si(c.a)}</Text>
+                            ) : null}
+                          </View>
+                        ))}
+                        {acomp.length ? (
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>La ficha también anotó: {acomp.map(fieldLabel).join(' · ')}</Text>
+                        ) : null}
+                      </View>
+                    );
+                  })()}
+
+                  {/* FICHA COMPLETA de la máquina, tal como está AHORA ("toda la
+                      información posible"). Responde "¿quién la dejó así?" incluso para
+                      retiros viejos: `inactivated_by`/`reactivated_by` los guarda la
+                      propia ficha, aparte de la bitácora. */}
+                  {detail.table_name === 'machinery' && target.row ? (() => {
+                    const m: any = target.row;
+                    const estadoActual = m.active === false ? '🗑️ Eliminada del catálogo'
+                      : m.operational === false ? '⬛ Retirada (fuera de servicio)'
+                      : m.en_espera ? '⏳ En espera por recepción'
+                      : '✅ Operativa';
+                    const quien = (id: any) => (id ? (nameById.get(String(id)) || `ID ${String(id).slice(0, 8)}…`) : null);
+                    const fichaRows: [string, string | null][] = [
+                      ['Máquina', machineLabel(m) || m.code || null],
+                      ['Identificador', m.identifier || null],
+                      ['Clase / marca', [m.clasificacion, m.marca, m.modelo].filter(Boolean).join(' · ') || m.tipo || null],
+                      ['Empresa', target.empresa],
+                      ['Encargado', m.encargado || null],
+                      ['Zona / ref.', [m.zona, m.referencia].filter(Boolean).join(' · ') || null],
+                      ['Estado AHORA', estadoActual],
+                      ['QR', m.qr_blocked ? '🔒 Bloqueado' : '🔓 Normal'],
+                      ['Retirada por', quien(m.inactivated_by)],
+                      ['Retirada el', m.inactivated_at ? caracasDT(m.inactivated_at) : null],
+                      ['Reactivada por', quien(m.reactivated_by)],
+                      ['Reactivada el', m.reactivated_at ? caracasDT(m.reactivated_at) : null],
+                      ['Horómetro', m.last_horometro != null ? `${m.last_horometro} h` : null],
+                    ];
+                    const visibles = fichaRows.filter(([, v]) => v != null && String(v).trim() !== '');
+                    return (
+                      <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: spacing.xs }}>Ficha de la máquina (como está ahora)</Text>
+                        {visibles.map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}
+                        {m.inactivated_by || m.inactivated_at ? (
+                          <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 4 }}>
+                            ℹ️ "Retirada por / el" los guarda la propia ficha de la máquina, aparte de la
+                            bitácora: sirven aunque el retiro sea anterior a que se encendiera el seguimiento.
+                          </Text>
+                        ) : null}
+                      </View>
+                    );
+                  })() : null}
+
                   {/* CAMBIOS: UPDATE muestra campo + (de → a); INSERT/DELETE muestra la fila. */}
                   {detail.changes && Object.keys(detail.changes).length > 0 ? (
                     <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
@@ -947,7 +1220,13 @@ export default function AuditScreen() {
                       <Chip label="🗑️ Solo eliminaciones" on={actionFilter.size === 1 && actionFilter.has('DELETE')}
                         onPress={() => setActionFilter((prev) => (prev.size === 1 && prev.has('DELETE') ? new Set() : new Set(['DELETE'])))} />
                       <Chip label="💰 Solo cambios de dinero" on={moneyOnly} onPress={() => setMoneyOnly((v) => !v)} />
+                      <Chip label="🚜 Estados de máquina" on={estadoMaqOnly} onPress={() => setEstadoMaqOnly((v) => !v)} />
                     </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                      🚜 «Estados de máquina» = retirada, reactivada, en espera, recibida, eliminada del
+                      catálogo y QR bloqueado. «Averiada» y «parada» no salen acá: esas no se guardan en la
+                      ficha de la máquina, se deducen de las averías y las jornadas.
+                    </Text>
                   </View>
 
                   {/* Filtros personalizados: se pueden combinar varios módulos/acciones a la vez. */}
@@ -969,8 +1248,8 @@ export default function AuditScreen() {
                     ℹ️ El usuario específico se elige con los chips de "Usuario" debajo de la búsqueda; también queda guardado si armas un favorito.
                   </Text>
 
-                  {(moduleFilter.size > 0 || actionFilter.size > 0 || moneyOnly) ? (
-                    <TouchableOpacity onPress={() => { setModuleFilter(new Set()); setActionFilter(new Set()); setMoneyOnly(false); }} style={{ alignSelf: 'flex-start' }}>
+                  {(moduleFilter.size > 0 || actionFilter.size > 0 || moneyOnly || estadoMaqOnly) ? (
+                    <TouchableOpacity onPress={() => { setModuleFilter(new Set()); setActionFilter(new Set()); setMoneyOnly(false); setEstadoMaqOnly(false); }} style={{ alignSelf: 'flex-start' }}>
                       <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros de este menú</Text>
                     </TouchableOpacity>
                   ) : null}
