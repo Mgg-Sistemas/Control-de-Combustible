@@ -68,7 +68,8 @@
     "test:empresa-estados": "node scripts/test-por-empresa-estados.mjs",
     "test:jornada-estados": "node scripts/test-jornada-estados.mjs",
     "test:usuarios-bulk": "node scripts/test-usuarios-bulk.mjs",
-    "test:all": "node scripts/test-clasificacion.mjs && node scripts/test-horas-control.mjs && node scripts/test-reportes-paridad.mjs && node scripts/test-empresa-sync.mjs && node scripts/test-empresa-grupo.mjs && node scripts/test-control-estado.mjs && node scripts/test-cola-offline.mjs && node scripts/test-auditoria-labels.mjs && node scripts/test-inicio-jornada.mjs && node scripts/test-machine-label.mjs && node scripts/test-servicio.mjs && node scripts/test-dialogos.mjs && node scripts/test-recibo-jornada.mjs && node scripts/test-parada-no-trabajo.mjs && node scripts/test-staff-pay-estado.mjs && node scripts/test-viajes-resumen.mjs && node scripts/test-recibo-cobro.mjs && node scripts/test-tipos-intervencion.mjs && node scripts/test-auditoria-estado-maquina.mjs && node scripts/test-por-empresa-estados.mjs && node scripts/test-jornada-estados.mjs && node scripts/test-usuarios-bulk.mjs && node scripts/test-orden-maquinas.mjs && node scripts/test-monto-quincenal.mjs",
+    "test:all": "node scripts/test-all.mjs",
+    "test:orden-maquinas": "node scripts/test-orden-maquinas.mjs",
     "test:monto-quincenal": "node scripts/test-monto-quincenal.mjs"
   },
   "private": true

@@ -9,6 +9,21 @@ ingresos, consumos, tanques, autorizaciones, vehículos/maquinaria y traslados.
 - `npm run web` — ejecutar en navegador (pruebas rápidas en local)
 - `npx expo start -c` — iniciar limpiando caché (tras cambiar `.env`)
 - `npx tsc --noEmit` — typecheck
+- `npm run test:all` — corre TODAS las pruebas
+
+## Pruebas
+No hay framework: cada suite es un `.mjs` que transpila los `.ts` en memoria con
+el `typescript` ya instalado. La lógica que se quiera probar va en un `src/lib/*.ts`
+puro (sin React ni Supabase) y la suite lo carga desde ahí.
+
+**Para agregar una prueba, crea `scripts/test-<lo-que-sea>.mjs` y ya.**
+`npm run test:all` las descubre solas (`scripts/test-all.mjs`) — **NO** hay que
+anotarla en `package.json`. Esa lista antes se escribía a mano en una sola línea
+y chocaba en cada merge; peor aún, al resolver el conflicto quedándose con "una
+de las dos versiones" se perdía en silencio la suite del otro.
+
+La suite debe salir con código `1` si algo falla (`process.exit(1)`), que es lo
+que mira el corredor.
 
 ## Arquitectura
 - Entrada: `App.tsx` → `AuthProvider` → `src/navigation` (tabs + stack "Más").
