@@ -558,6 +558,11 @@ export default function ReportsScreen({ route }: any) {
   const [fleetTypes, setFleetTypes] = useState<string[]>([]); // tipos marcados (vacío = todos)
   // Empresas marcadas para filtrar CUALQUIER reporte (vacío = todas / general).
   const [repCompanies, setRepCompanies] = useState<string[]>([]);
+  // Informe por jornada · AGRUPAR POR ENCARGADO: lista de encargados por empresa (para
+  // que al elegir "Encargado" salgan SOLO los responsables de la(s) empresa(s) marcada(s))
+  // y los encargados seleccionados para filtrar el informe (vacío = todos).
+  const [encByCompany, setEncByCompany] = useState<Record<string, string[]>>({});
+  const [repEncargados, setRepEncargados] = useState<string[]>([]);
   // Lista dinámica de inspectores del reporte de INSPECTORES: se recalcula cada vez que
   // cambia el día, el turno o las empresas marcadas, con la MISMA agregación que el PDF
   // (`listInspectorNames`), para que el selector siempre calce con lo que saldría impreso.
@@ -698,6 +703,10 @@ export default function ReportsScreen({ route }: any) {
 
   const generateRounds = async (fromArg: string = from, toArg: string = to, companiesArg?: string[] | null, silent = false) => {
     const cos = companiesArg && companiesArg.length ? companiesArg : null;
+    // Filtro por ENCARGADO: solo cuando el informe se agrupa por encargado y hay
+    // responsables marcados. Vacío = todos. No afecta el modo "empresa".
+    const encSel = (roundsGroupBy === 'encargado' && repEncargados.length) ? new Set(repEncargados.map((e) => e.trim())) : null;
+    const encOk = (enc: any) => !encSel || encSel.has(String(enc ?? '').trim());
     // Recordar los parámetros para la actualización EN VIVO (realtime) del reporte abierto.
     liveRef.current = () => generateRounds(fromArg, toArg, companiesArg, true);
     if (!silent) setLoading(true);
@@ -775,6 +784,7 @@ export default function ReportsScreen({ route }: any) {
     const workedIds = new Set<string>(); // ids de máquinas que SÍ trabajaron (para no duplicarlas como averiadas)
     accs.forEach((a, key) => {
       if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
+      if (!encOk(a.encargado)) return;             // filtro por encargado (solo modo encargado)
       let dayH = 0, nightH = 0, totalH = 0, days = 0, totalUSD = 0, repPrice: number | null = null;
       a.byDate.forEach(({ d, n, s, o, price, js, jsh }, dateKey) => {
         // Si hay jornada EN CURSO, sumamos el tiempo transcurrido (cap 12h) al turno
@@ -871,6 +881,7 @@ export default function ReportsScreen({ route }: any) {
     const pushNoTrabajo = (items: RoundAveria[], bucket: 'averias' | 'paradas' | 'espera') => {
       items.forEach((it) => {
         if (cos && !cos.includes(it.company)) return;   // fuera del alcance
+        if (!encOk(it.encargado)) return;               // filtro por encargado (solo modo encargado)
         const g = groups.get(it.company) ?? { company: it.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [], paradas: [], espera: [] };
         g[bucket].push(it);
         groups.set(it.company, g);
@@ -2192,6 +2203,45 @@ export default function ReportsScreen({ route }: any) {
     });
   }, []);
 
+  // Encargados por empresa (para el picker de "Agrupar por → Encargado" del Informe por
+  // jornada). Se lee una vez el catálogo (solo encargado + empresa) y se agrupa; así al
+  // marcar una empresa salen SOLO sus responsables.
+  useEffect(() => {
+    (async () => {
+      const rows = await selectAllRows('machinery', 'encargado, company:company_id(name)');
+      const map: Record<string, Set<string>> = {};
+      ((rows ?? []) as any[]).forEach((m) => {
+        const enc = String(m.encargado ?? '').trim();
+        if (!enc) return;
+        const co = m.company?.name ?? 'Sin empresa';
+        (map[co] ||= new Set<string>()).add(enc);
+      });
+      const out: Record<string, string[]> = {};
+      Object.entries(map).forEach(([co, s]) => { out[co] = Array.from(s).sort((a, b) => cmpText(a, b)); });
+      setEncByCompany(out);
+    })().catch(() => {});
+  }, []);
+
+  // Encargados que se muestran en el picker: los de la(s) empresa(s) marcada(s); si no hay
+  // ninguna marcada (= Todas), salen todos los encargados.
+  const encargadosScoped = useMemo(() => {
+    const set = new Set<string>();
+    const cos = repCompanies.length ? new Set(repCompanies) : null;
+    Object.entries(encByCompany).forEach(([company, encs]) => {
+      if (cos && !cos.has(company)) return;
+      encs.forEach((e) => set.add(e));
+    });
+    return Array.from(set).sort((a, b) => cmpText(a, b));
+  }, [encByCompany, repCompanies]);
+  // Si cambia la empresa marcada, quita los encargados seleccionados que ya no están en
+  // el alcance (evita filtrar por un responsable que no pertenece a la empresa elegida).
+  useEffect(() => {
+    setRepEncargados((prev) => {
+      const next = prev.filter((e) => encargadosScoped.includes(e));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [encargadosScoped]);
+
   // Lista de CLASIFICACIONES para el filtro del reporte de maquinaria. Se carga DIFERIDO
   // (solo al entrar a ese reporte), no al abrir el módulo: paginar TODAS las máquinas al
   // abrir hacía lento el arranque de Reportes.
@@ -2576,6 +2626,45 @@ export default function ReportsScreen({ route }: any) {
             );
           })}
         </View>
+
+        {/* AGRUPAR POR ENCARGADO → lista de encargados de la(s) empresa(s) marcada(s).
+            Al elegir uno o varios, el informe sale SOLO con esos responsables (agrupado
+            por encargado). Vacío = todos los encargados de la(s) empresa(s). */}
+        {mode === 'rounds' && roundsGroupBy === 'encargado' ? (
+          <>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>
+                Encargados{repCompanies.length ? ` de ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ' (todas las empresas)'}
+              </Text>
+              {repEncargados.length > 0 ? (
+                <TouchableOpacity onPress={() => setRepEncargados([])}>
+                  <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Limpiar ({repEncargados.length})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {encargadosScoped.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
+                {Object.keys(encByCompany).length === 0 ? 'Cargando encargados…' : 'No hay encargados para esta empresa.'}
+              </Text>
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                {encargadosScoped.map((e) => {
+                  const on = repEncargados.includes(e);
+                  return (
+                    <TouchableOpacity
+                      key={e}
+                      onPress={() => setRepEncargados((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]))}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>👤 {e}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        ) : null}
 
         {/* Filtro por TIPO de maquinaria (checks) — solo en Maquinaria/Vehículo */}
         {mode === 'fleet' && typeList.length > 0 ? (
