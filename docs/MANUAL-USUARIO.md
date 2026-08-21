@@ -1918,6 +1918,13 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 > (lo ya pagado en el rango) y el **TOTAL PENDIENTE** (*total $ − abonado*). El detalle por
 > empresa/máquina y el total general siguen igual, más abajo.
 
+> **Switch 📋 Completo / 🕒 Solo horas (Informe por jornada):** antes de generar —y también en la
+> vista previa, junto a *Descargar PDF*— eliges el **contenido** del PDF. **Completo** es el reporte
+> de siempre (precio/hora, totales `$`, abonos, saldos y fletes). **Solo horas** imprime **todos los
+> datos** (empresas, máquinas, días, horas día/noche/total, y las 🔴 averiadas / 🟡 paradas /
+> ⏳ esperando con su motivo) **pero sin ningún precio ni monto** — para entregar las horas sin
+> mostrar dinero. El archivo sale marcado *"- solo horas"*.
+
 > **🔴 Averiadas · 🟡 Paradas · ⏳ Esperando instrucciones (Informe por jornada, 19-ago-2026):**
 > debajo de las máquinas que **trabajaron**, cada empresa trae hasta **tres renglones separados**
 > con las que **no trabajaron** — en **0 horas** y **sin sumar** a horas ni a $. Antes iban todas
