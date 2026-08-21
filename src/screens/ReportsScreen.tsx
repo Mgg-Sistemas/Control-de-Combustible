@@ -1074,9 +1074,7 @@ export default function ReportsScreen({ route }: any) {
       ${resumenTop}
       ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
-      <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>
-      <p class="muted" style="margin-top:4px">Debajo de cada empresa, las que NO trabajaron van en renglones aparte y en 0 horas (no suman a horas ni a $): <b style="color:#B42318">🔴 AVERIADAS</b> (avería real pendiente), <b style="color:#C2410C">🟡 PARADAS</b> (parada sin avería) y <b style="color:#B45309">⏳ ESPERANDO INSTRUCCIONES</b> (equipos en espera). Las columnas ☀️ y 🌙 indican si la máquina se averió o se paró en el turno de DÍA (7am–7pm), en el de NOCHE o en los dos, con su motivo. Cada máquina sale en un solo renglón.</p>`;
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>`;
     // Nombre del archivo: "Reporte EMPRESA del DD al DD". Si es de una sola empresa lleva su
     // nombre; siempre incluye el rango de fechas.
     const rng = dateRangeLabel(from, to);
