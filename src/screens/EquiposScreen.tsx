@@ -1376,6 +1376,14 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
               </>
             ) : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
+            {/* EMPRESA a la que pertenece el equipo. El catálogo agrupa por empresa en
+                acordeón, pero al buscar (o al llegar desde el QR o el dashboard) la
+                tarjeta se ve suelta y no había forma de saber de quién era la máquina.
+                Se muestra SIEMPRE, incluso sin empresa: "Sin empresa" es un dato, no un
+                vacío — es lo que hay que corregir en la ficha. */}
+            <Text style={{ color: colors.muted, fontSize: 12 }}>
+              🏢 Empresa: {m.company_id ? companyName(m.company_id) || '—' : 'Sin empresa'}
+            </Text>
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}{inspectors[m.id].date ? ` · ${fmtDMY(inspectors[m.id].date)}` : ''}</Text> : null}
             {plannedOperatorNow(m.id) ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>👷 Operador planeado: {plannedOperatorNow(m.id)}</Text> : null}
@@ -2215,7 +2223,11 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
                 {String(m.modelo ?? '').trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.modelo}</Text> : null}
               </>
             ) : null}
-                          {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
+                          {/* Misma redacción que la tarjeta del catálogo (ver renderMachineCard):
+                              antes acá salía solo "🏢 NOMBRE" y allá nada. */}
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>
+                            🏢 Empresa: {m.company_id ? companyName(m.company_id) || '—' : 'Sin empresa'}
+                          </Text>
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                           {/* Retirada: sin inspector — aunque ya no haya fila en machine_inspectors,
                               `latestInspectorByMachine()` cae al último check-in histórico en
