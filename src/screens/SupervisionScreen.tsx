@@ -954,22 +954,23 @@ export default function SupervisionScreen({ navigation }: any) {
         {/* (El navegador de fecha, los resúmenes Día/Noche y el reporte de estado del
             día viven ahora en el dashboard "RESUMEN DE INSPECCIONES" de arriba. Los
             reportes con firma son solo INDIVIDUALES, por inspector). */}
-        {/* 📚 Histórico + 📱 Vista de inspector: DOS botones a media pantalla (fila). */}
-        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-          <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector</Text>
-          </TouchableOpacity>
-          {puedeCoordinar ? (
+        {/* 📱 Vista de inspector + 📍 Ubicaciones. Para el coordinador van a media
+            pantalla (fila); si no puede coordinar, solo queda Ubicaciones a lo ancho.
+            El botón 📚 Histórico se movió a la sección 📋 Reportes (Histórico por inspector). */}
+        {puedeCoordinar ? (
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             <TouchableOpacity onPress={() => navigation?.navigate?.('InspectorTlf')} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📱 Ver vista de inspector</Text>
             </TouchableOpacity>
-          ) : null}
-        </View>
-        {/* 📍 Catálogo de UBICACIONES (edificios): agregar / editar / eliminar la lista
-            que usan los inspectores en el desplegable de EDIFICIO. */}
-        <TouchableOpacity onPress={() => navigation?.navigate?.('Ubicaciones')} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📍 Ubicaciones (catálogo de edificios)</Text>
-        </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation?.navigate?.('Ubicaciones')} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📍 Ubicaciones (catálogo de edificios)</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity onPress={() => navigation?.navigate?.('Ubicaciones')} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📍 Ubicaciones (catálogo de edificios)</Text>
+          </TouchableOpacity>
+        )}
         {puedeCoordinar ? (
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
         ) : null}
