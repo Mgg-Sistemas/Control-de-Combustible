@@ -1934,15 +1934,24 @@ de *"Editar"* una por una.
 - **Aplicar:** abajo eliges el **módulo** (lista con buscador) y el **nivel** (Sin acceso /
   Lectura / Escritura / Full control), y le das al botón. Pide confirmación antes de guardar.
 
-> ⚠️ **A quién NO le va a quedar el nivel que elijas.** La pantalla te lo avisa **antes** de
-> guardar, en el renglón de esa persona y en el resumen de abajo. Pasa en dos casos:
-> - Es **administrador**: siempre tiene full control y **ningún permiso se lo baja**. A un admin se
->   le cambia el **rol**, no el permiso.
-> - Su **rol personalizado ya le da más** en ese módulo: manda el **mayor** entre lo que da el rol
->   y lo que le pongas. Para bajarle eso hay que cambiarle el módulo **AL ROL**, en 🏷️ Roles del
->   sistema — o cambiarle el rol a esa persona.
+> ⭐ **El permiso de la persona le gana al rol** (21-ago-2026). Si le quitas el permiso a alguien,
+> se lo quitaste — **no importa qué rol tenga**. Antes se tomaba el *mayor* entre el rol y el
+> permiso, así que ponerle "Lectura" a alguien cuyo rol daba "Escritura" no le quitaba nada, y para
+> bajar a una sola persona había que bajarle el módulo a **todo el rol** (y con eso se lo quitabas
+> también a los demás que tienen ese mismo rol).
 >
-> Sin ese aviso uno cree que "ya se lo quitó a todos" y en realidad media plantilla lo conserva.
+> Lo que ya funcionaba sigue igual: un permiso **mayor** que el rol también se aplica (rol sin ese
+> módulo + "Full control" = full). Lo único nuevo es que ahora **también puede bajar**.
+>
+> ⚠️ **La única excepción: los administradores.** Siempre tienen full control y **ningún permiso se
+> lo baja** — la pantalla te lo avisa antes de guardar. A un admin se le cambia el **rol**, no el
+> permiso. Es a propósito: así nadie se deja fuera del sistema por error.
+>
+> 🗄️ **Para que valga también en la base de datos** hay que correr una vez
+> `supabase/permiso_le_gana_al_rol.sql`. Sin eso, un **inspector** o un **operador** puesto en
+> "Lectura" en el Catálogo deja de ver el módulo en el menú, pero la base todavía lo dejaría
+> registrar máquinas si llega por otra vía (un enlace directo, el QR). Con el SQL corrido, la
+> puerta queda cerrada de verdad.
 
 **🏷️ Roles del sistema (roles FIJOS):** en Usuarios, toca **"🏷️ Roles del sistema →
 Administrar"**. Ahí puedes:

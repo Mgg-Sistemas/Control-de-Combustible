@@ -135,23 +135,26 @@ const ids = (arr) => arr.map((x) => x.id).sort();
   eq('varios grupos a la vez', ids(filtrarUsuarios(TODOS, { roles: dos, appRoles: ROLES })), ['a1', 'p1']);
 }
 
-// ── 4) ⚠️ EL NIVEL QUE QUEDA DE VERDAD ─────────────────────────────────────
+// ── 4) ⭐ EL PERMISO EXPLÍCITO LE GANA AL ROL ──────────────────────────────
+// «si yo le quito los permisos a alguien, no importa el rol, se los pueda quitar»
 {
-  // Un ADMIN no baja por un permiso explícito: eso se cambia por ROL, no por permiso.
+  // Un ADMIN no baja por un permiso explícito: eso se cambia por ROL, no por
+  // permiso. Es la ÚNICA excepción que queda.
   eq('al admin no se le baja con un permiso', nivelEfectivo(ADMIN, 'equipos', 'lectura', ROLES), 'full');
   ok('y se avisa el motivo', /ADMIN/.test(motivoNoAplica(ADMIN, 'equipos', 'lectura', ROLES) ?? ''));
 
-  // Rol personalizado que YA da escritura: ponerle "lectura" NO le quita nada.
-  eq('el rol personalizado gana si da más', nivelEfectivo(PATIO, 'equipos', 'lectura', ROLES), 'escritura');
-  ok('y se explica cuál rol es', /Coordinador de patio/.test(motivoNoAplica(PATIO, 'equipos', 'lectura', ROLES) ?? ''));
+  // ⭐ EL CAMBIO: el rol personalizado da "escritura" en equipos, pero al ponerle
+  // "lectura" a ESTA persona, queda en lectura. Antes se tomaba el mayor de los
+  // dos y seguía escribiendo — quitarle el permiso a uno era imposible sin
+  // bajárselo a TODOS los que tienen ese rol.
+  eq('⭐ el permiso explícito le gana al rol (baja)', nivelEfectivo(PATIO, 'equipos', 'lectura', ROLES), 'lectura');
+  eq('y por eso ya no hay nada que avisar', motivoNoAplica(PATIO, 'equipos', 'lectura', ROLES), null);
+  eq('quitarlo del todo también funciona', nivelEfectivo(PATIO, 'equipos', 'none', ROLES), 'none');
 
-  // Si el rol da MENOS, manda lo explícito.
-  eq('lo explícito gana si da más', nivelEfectivo(ANALI, 'equipos', 'escritura', ROLES), 'escritura');
-  eq('sin aviso cuando sí aplica', motivoNoAplica(ANALI, 'equipos', 'escritura', ROLES), null);
-
-  // Rol que no menciona el módulo: cuenta como 'none', manda lo explícito.
-  eq('rol sin ese módulo → manda lo explícito', nivelEfectivo(TALLE, 'equipos', 'lectura', ROLES), 'lectura');
-  eq('y no avisa nada', motivoNoAplica(TALLE, 'equipos', 'lectura', ROLES), null);
+  // Lo que ya funcionaba SIGUE funcionando: un explícito mayor sube igual.
+  eq('el permiso explícito también sube', nivelEfectivo(ANALI, 'equipos', 'escritura', ROLES), 'escritura');
+  eq('sin aviso', motivoNoAplica(ANALI, 'equipos', 'escritura', ROLES), null);
+  eq('rol sin ese módulo + explícito full = full', nivelEfectivo(TALLE, 'equipos', 'full', ROLES), 'full');
 
   // Usuario común, sin rol personalizado: queda exactamente lo que se puso.
   eq('usuario común queda con lo elegido', nivelEfectivo(INSP1, 'equipos', 'lectura', ROLES), 'lectura');
@@ -167,12 +170,15 @@ const ids = (arr) => arr.map((x) => x.id).sort();
   eq('se editan todos menos admin y Dorianne', ids(aEditar), ['i1', 'i2', 'n1', 'p1', 't1']);
 
   const { aplican, noAplican } = repartirPorEfecto(aEditar, 'equipos', 'lectura', ROLES);
-  eq('a estos sí les queda lectura', ids(aplican), ['i1', 'i2', 'n1', 't1']);
-  // Bruno NO queda en lectura: su rol "Coordinador de patio" le da escritura.
-  // Es EXACTAMENTE el engaño que hay que avisar antes de guardar.
-  eq('⭐ avisa quién NO queda en lectura', ids(noAplican.map((x) => x.u)), ['p1']);
-  ok('con su motivo', /Coordinador de patio/.test(noAplican[0].motivo));
+  // ⭐ TODOS quedan en lectura, incluido Bruno, cuyo rol "Coordinador de patio"
+  // da escritura en equipos: el permiso de la persona le gana al rol.
+  eq('⭐ a TODOS les queda lectura, sin importar el rol', ids(aplican), ['i1', 'i2', 'n1', 'p1', 't1']);
+  eq('no queda nadie por fuera', noAplican, []);
   eq('nadie se pierde en el reparto', aplican.length + noAplican.length, aEditar.length);
+
+  // Y si se cuela un admin en la selección, ESE sí se avisa aparte.
+  const conAdmin = repartirPorEfecto([...aEditar, ADMIN], 'equipos', 'lectura', ROLES);
+  eq('el admin sí sale avisado', ids(conAdmin.noAplican.map((x) => x.u)), ['a1']);
 
   // Y los exceptuados conservan lo suyo.
   eq('el admin sigue en full', nivelEfectivo(ADMIN, 'equipos', 'lectura', ROLES), 'full');
