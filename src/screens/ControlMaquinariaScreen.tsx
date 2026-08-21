@@ -2004,6 +2004,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       🔖 {m.plate ? `Placa: ${m.plate}` : ''}{m.plate && m.serial ? ' · ' : ''}{m.serial ? `Serial: ${m.serial}` : ''}
                     </Text>
                   ) : null}
+                  {m.encargado && String(m.encargado).trim() ? (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {String(m.encargado).trim()}</Text>
+                  ) : null}
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h${puedeEditarPrecio ? ' · toca para editar' : ''}` : (puedeEditarPrecio ? 'Sin precio · toca el nombre para fijarlo' : 'Sin precio')}
                   </Text>
