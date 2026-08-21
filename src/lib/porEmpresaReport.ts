@@ -410,7 +410,13 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // Totales GLOBALES por turno (solo de las máquinas ACTIVAS que trabajaron). Día = dd,
   // noche = nn (horas reales, con anclaje de inicio de turno). Las averiadas/paradas van
   // en su propio grupo marcadas en 0 y NO suman a estos totales.
-  let totDayH = 0, totNightH = 0;
+  // `totDayH`/`totNightH` = horas BRUTAS de turno (el horario 7am-7pm que se ve por fila).
+  // `totWorkedH` = horas FACTURABLES (netas): día+noche − paradas + extras, la MISMA
+  // fórmula del Informe por jornada y de Pagos (workedFromShifts, vía hrs.trabajadas).
+  // Antes el reporte sumaba solo las brutas → su "Total de jornada" salía inflado por las
+  // paradas y NO cuadraba con el Informe (queja FERRECONSTRUCCIONES 20-ago-2026: 385,19 H
+  // bruto vs 380,94 H facturable = 4,25 H de parada que aquí no se restaban).
+  let totDayH = 0, totNightH = 0, totWorkedH = 0;
   const HORA_DIA_INI = horarioNominal('day').ini;    // el FIN se calcula por fila (inicio + horas)
   const HORA_NOCHE_INI = horarioNominal('night').ini;
   const nowHora = horaCaracas(new Date(nowMs).toISOString());
@@ -520,6 +526,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const dayOpen = isToday && jShift === 'day' && jStart != null && jStartHoy;
     const nightOpen = isToday && jShift === 'night' && jStart != null && jStartHoy;
     totDayH = n2(totDayH + ddAct); totNightH = n2(totNightH + nnAct);
+    // Facturable (neto): mismas horas que cobra el Informe/Pagos para esta máquina.
+    totWorkedH = n2(totWorkedH + trab);
     const fila: Fila = {
       grupo,
       code: m?.code || '—',
@@ -660,12 +668,18 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // membrete. Tamaño similar al título; la fecha completa en texto es más legible.
   const fechaBanner = `<div class="fecha-dia">📅 ${esc(fechaLarga(date))}</div>`;
 
-  // Tarjetas de TOTALES arriba: TOTAL HORAS DÍA · TOTAL HORAS NOCHE · TOTAL DE JORNADA.
+  // Tarjetas de TOTALES arriba: TOTAL HORAS DÍA (bruto) · NOCHE (bruto) · PARADAS
+  // (descontadas) · TOTAL DE JORNADA FACTURABLE (neto = el que cobra el Informe/Pagos).
+  // La aritmética CIERRA a la vista: día + noche − paradas = facturable, así el cliente
+  // ve POR QUÉ el total facturable es menor que la suma de los horarios (las horas paradas
+  // no se cobran). El facturable CUADRA exacto con el Informe por jornada del mismo día.
+  const totParadasH = n2(totDayH + totNightH - totWorkedH); // horas de turno que NO se facturan
   const kpis = `
     <div class="kpis">
       <div class="kpi"><div class="k">Total horas día</div><div class="v">${n2(totDayH)} H</div></div>
       <div class="kpi"><div class="k">Total horas noche</div><div class="v">${n2(totNightH)} H</div></div>
-      <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${n2(totDayH + totNightH)} H</div></div>
+      ${totParadasH > 0.01 ? `<div class="kpi par"><div class="k">− Paradas (no facturables)</div><div class="v">${totParadasH} H</div></div>` : ''}
+      <div class="kpi ok"><div class="k">Total de jornada (facturable)</div><div class="v">${n2(totWorkedH)} H</div></div>
     </div>`;
 
   const extraCss = `
@@ -700,6 +714,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     .kpi .k{font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
     .kpi .v{font-size:20px;font-weight:800;color:#1E3A5F;margin-top:2px}
     .kpi.ok{background:#ECFDF3;border-color:#ABEFC6} .kpi.ok .v{color:#067647}
+    .kpi.par{background:#FEF3F2;border-color:#FECDCA} .kpi.par .v{color:#B42318}
     /* FECHA DEL REPORTE EN GRANDE (banner bajo el membrete). */
     .fecha-dia{font-size:23px;font-weight:800;color:#1E3A5F;letter-spacing:.6px;text-align:center;
       margin:2px 0 12px;padding:9px 14px;border:2px solid #1E3A5F;border-radius:10px;background:#F1F5F9}
@@ -714,7 +729,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     return [...vistos.values()];
   })();
   const filtroEnc = encargadosUnicos.length ? ` · 👤 ${encargadosUnicos.length} encargado(s): ${encargadosUnicos.join(', ')}` : '';
-  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s)${filtroEnc} · ☀️ ${n2(totDayH)} h día · 🌙 ${n2(totNightH)} h noche`;
+  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s)${filtroEnc} · ☀️ ${n2(totDayH)} h día · 🌙 ${n2(totNightH)} h noche · ✅ ${n2(totWorkedH)} h facturable`;
 
   const html = pdfDocument({
     title: 'REPORTE DEL DÍA POR EMPRESA',
