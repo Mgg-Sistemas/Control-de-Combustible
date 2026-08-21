@@ -103,37 +103,33 @@ const idx = (l: string | null | undefined) => {
 };
 
 /**
- * ⚠️ EL NIVEL QUE LE QUEDA DE VERDAD a un usuario en un módulo, después de
- * guardarle un permiso explícito. NO siempre es el que se acaba de poner:
+ * EL NIVEL QUE LE QUEDA DE VERDAD a un usuario en un módulo, después de guardarle
+ * un permiso explícito. Es el mismo cálculo que hace `AuthContext.moduleLevel`.
  *
- *  · ADMIN: siempre 'full'. No hay permiso explícito que se lo baje — si hay que
- *    quitarle algo a un admin, se le cambia el ROL, no el permiso.
- *  · Con ROL PERSONALIZADO: manda el MAYOR entre lo que da el rol y lo explícito
- *    (así lo resuelve `AuthContext.moduleLevel`). O sea que ponerle "Lectura" a
- *    alguien cuyo rol ya da "Escritura" NO le quita nada: hay que bajarle el
- *    módulo AL ROL, en 🏷️ Roles del sistema.
- *  · El resto: queda exactamente el nivel explícito.
+ *  · ADMIN: siempre 'full'. Es la ÚNICA excepción que queda — un admin no se
+ *    limita con un permiso, se le cambia el ROL. Así nadie se deja fuera del
+ *    sistema por error quitándose a sí mismo el módulo de Usuarios.
+ *  · Todos los demás, con rol personalizado o sin él: queda EXACTAMENTE el nivel
+ *    explícito que se acaba de poner.
  *
- * Esto es lo que evita el engaño de "ya se lo quité a todos" cuando en realidad
- * media plantilla lo conserva por su rol.
+ * Hasta el 21-ago-2026 el rol personalizado le ganaba al permiso (se tomaba el
+ * MAYOR de los dos), así que ponerle "Lectura" a alguien cuyo rol daba "Escritura"
+ * no le quitaba nada. Pedido del cliente: «si yo le quito los permisos a alguien,
+ * no importa el rol, se los pueda quitar y ya».
  */
 export function nivelEfectivo(
   u: UsuarioBulk,
-  modulo: string,
+  _modulo: string,
   nivelExplicito: PermLevel,
-  roles: RolApp[] | null | undefined
+  _roles: RolApp[] | null | undefined
 ): PermLevel {
   if (String(u.role ?? '') === 'admin') return 'full';
-  if (u.app_role_id) {
-    const rol = (roles ?? []).find((r) => r.id === u.app_role_id);
-    const delRol = (rol?.modules?.[modulo] as PermLevel) ?? 'none';
-    return idx(delRol) >= idx(nivelExplicito) ? delRol : nivelExplicito;
-  }
   return nivelExplicito;
 }
 
 /** Motivo por el que a un usuario NO le va a quedar el nivel que se eligió.
- *  null = sí le queda. Se muestra tal cual en la pantalla, antes de guardar. */
+ *  null = sí le queda. Se muestra tal cual en la pantalla, antes de guardar.
+ *  Hoy solo puede pasar con los ADMIN. */
 export function motivoNoAplica(
   u: UsuarioBulk,
   modulo: string,
@@ -142,9 +138,7 @@ export function motivoNoAplica(
 ): string | null {
   const real = nivelEfectivo(u, modulo, nivel, roles);
   if (real === nivel) return null;
-  if (String(u.role ?? '') === 'admin') return 'es ADMIN: siempre tiene full control';
-  const rol = (roles ?? []).find((r) => r.id === u.app_role_id);
-  return `su rol "${rol?.name ?? 'personalizado'}" ya le da ${real} en este módulo`;
+  return 'es ADMIN: siempre tiene full control (cámbiale el rol, no el permiso)';
 }
 
 /** Reparte los seleccionados en los que SÍ quedan con el nivel elegido y los que

@@ -10,8 +10,9 @@
 // Cómo se usa: se filtra (chips de rol + buscador), se marcan los usuarios, se
 // elige MÓDULO + NIVEL y se aplica de un golpe. Antes de guardar dice a cuántos
 // les va a quedar de verdad y a cuántos no — ver `nivelEfectivo` en
-// `src/lib/usuariosBulk.ts`: un admin nunca baja por un permiso explícito, y
-// quien tiene rol personalizado se queda con el MAYOR entre su rol y esto.
+// `src/lib/usuariosBulk.ts`. El permiso de la persona LE GANA al rol (para
+// arriba y para abajo); la única excepción son los ADMIN, que siempre quedan en
+// full control.
 //
 // La lógica (agrupar, buscar, nivel real) vive en `src/lib/usuariosBulk.ts` y la
 // amarra `scripts/test-usuarios-bulk.mjs`. Acá solo está la pantalla.
@@ -101,7 +102,7 @@ export function BulkPermissionsModal({
     toast.show(
       noAplican.length === 0
         ? `✅ Listo: ${aplican.length} usuario(s) con "${nivelLabel}" en ${moduloLabel}.`
-        : `✅ Guardado en ${sel.size}. A ${noAplican.length} le queda un nivel mayor por su rol.`
+        : `✅ Guardado en ${aplican.length}. A ${noAplican.length} no le aplica por ser admin.`
     );
     setSel(new Set());
     onSaved();
@@ -241,7 +242,7 @@ export function BulkPermissionsModal({
 
           {sel.size > 0 && noAplican.length > 0 ? (
             <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700' }}>
-              ⚠️ A {noAplican.length} de los {sel.size} marcados NO le va a quedar «{nivelLabel}»: es admin o su rol ya le da más. Para esos hay que cambiar el ROL, no el permiso.
+              ⚠️ {noAplican.length} de los {sel.size} marcados son ADMIN: siempre quedan en full control y «{nivelLabel}» no les aplica. A un admin se le cambia el ROL, no el permiso.
             </Text>
           ) : null}
 
