@@ -345,7 +345,10 @@ export async function removePhoto(table: string, id: string, column: string = 'p
  */
 export async function pickAndUploadPhoto(
   machineryId: string,
-  column: 'photo_url' | 'photo_serial_url' = 'photo_url'
+  column: 'photo_url' | 'photo_serial_url' = 'photo_url',
+  // Tabla destino: 'machinery' (por defecto) o 'vehicles'. Los vehículos ahora también
+  // tienen foto (mismo bucket de Storage 'machinery' — solo cambia la fila que se actualiza).
+  table: 'machinery' | 'vehicles' = 'machinery'
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return { ok: false, error: 'Permiso de galería denegado.' };
@@ -359,7 +362,7 @@ export async function pickAndUploadPhoto(
   const path = `${machineryId}/${folder}${Date.now()}.jpg`;
   const up = await uploadToMachinery(path, body);
   if (!up.ok) return up;
-  const { error } = await supabase.from('machinery').update({ [column]: up.url }).eq('id', machineryId);
+  const { error } = await supabase.from(table).update({ [column]: up.url }).eq('id', machineryId);
   if (error) return { ok: false, error: error.message };
   return up;
 }
@@ -377,10 +380,11 @@ export async function pickAndUploadPhoto(
  */
 export async function removeMachineryPhoto(
   machineryId: string,
-  column: 'photo_url' | 'photo_serial_url' = 'photo_url'
+  column: 'photo_url' | 'photo_serial_url' = 'photo_url',
+  table: 'machinery' | 'vehicles' = 'machinery'
 ): Promise<{ ok: boolean; error?: string }> {
   if (!machineryId) return { ok: false, error: 'Falta la máquina.' };
-  const { error } = await supabase.from('machinery').update({ [column]: null }).eq('id', machineryId);
+  const { error } = await supabase.from(table).update({ [column]: null }).eq('id', machineryId);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }

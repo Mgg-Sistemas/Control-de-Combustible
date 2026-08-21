@@ -138,6 +138,15 @@ export interface Vehicle {
    *  un `not null` trancaría los vehículos viejos que nunca lo tuvieron).
    *  La columna la agrega `supabase/vehiculos_encargado.sql`. */
   encargado?: string | null;
+  en_espera?: boolean | null; // 3er estado "Esperando instrucciones" (vehiculos_en_espera.sql)
+  // Ficha completa (como maquinaria) — columnas de `supabase/vehiculos_ficha_maquinaria.sql`.
+  clasificacion?: string | null;
+  identifier?: string | null;
+  serial?: string | null;
+  grupo?: string | null;
+  company_id?: string | null;
+  photo_url?: string | null;          // foto del vehículo
+  photo_serial_url?: string | null;   // foto del serial / placa
   active: boolean;
   created_at: string;
 }

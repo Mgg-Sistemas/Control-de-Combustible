@@ -187,6 +187,14 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > de servicio"** queda **deshabilitado**. El motivo se ve en la ficha del catálogo (**"📝 Motivo: …"**)
 > junto a *Inactivada el / por*, y queda en **Auditoría**. **Reactivar (✅ Operativa) no pide motivo.**
 
+> **🚗 Vehículos con ficha completa + FOTO:** al cargar un **vehículo** el formulario se ve **igual
+> que el de maquinaria** — marca, modelo, clasificación, tipo, identificador, serial, empresa
+> supervisora, grupo y encargado — y se le puede subir una **foto** desde su tarjeta
+> (**"📷 Agregar / Cambiar foto"**). Los vehículos **siguen siendo aparte** de la maquinaria: **no**
+> entran a Control, Inspecciones ni pagos por jornada; son solo para **combustible** y
+> **autorizaciones**. *(Requiere correr `supabase/vehiculos_ficha_maquinaria.sql`; si no, el
+> formulario de vehículo sigue en su versión básica.)*
+
 > **🕘 Última parada/avería resuelta:** si una máquina tuvo una parada o avería reportada por un
 > inspector y **ya se resolvió** (alguien tocó "🟢 Volver a OPERATIVA"), su ficha muestra un
 > resumen: **"Inactivo desde [fecha/hora] hasta [fecha/hora] — Total: Xd Yh"**. Solo se ve cuando
