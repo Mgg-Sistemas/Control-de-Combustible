@@ -148,7 +148,13 @@ const grpCount = (label) => { const m = html.match(new RegExp(`${label} · (\\d+
 ok('el reporte se generó', html.length > 0);
 ok('ACTIVAS = 6 (las 5 de antes + la RETIRADA que trabajó 12h)', grpCount('✅ Activas') === 6);
 ok('la RETIRADA con horas aparece en el reporte (no se excluye porque trabajó)', html.includes('RETIRADA CON HORAS'));
-ok('AVERIADAS/PARADAS = 1 (solo la parada real en 0 h)', grpCount('🔴 Averiadas / Paradas') === 1);
+// 20-ago-2026: el bloque rojo único «🔴 Averiadas / Paradas» se DIVIDIÓ en dos por pedido
+// del cliente (🔴 Averiadas = avería real · 🟡 Paradas = solo el marcador MÁQUINA PARADA,
+// ver scripts/test-por-empresa-estados.mjs). m2 tiene SOLO el marcador → cae en Paradas.
+// La regla de negocio que blinda este test no cambió: sigue siendo UNA sola máquina la que
+// no está activa (la parada real en 0 h); lo que cambió es en cuál renglón se imprime.
+ok('PARADAS = 1 (solo la parada real en 0 h)', grpCount('🟡 Paradas') === 1);
+ok('AVERIADAS = 0 (ninguna con avería real vigente en 0 h)', grpCount('🔴 Averiadas') === null);
 // El fix del 18-ago: jornada reabierta con jornada_shift NULL infiere el turno y SUELTA la
 // avería arrastrada → ACTIVA. Sin la inferencia, m6 caía en Averiadas/Paradas (Activas=3).
 ok('reabierta null-shift aparece en el reporte', html.includes('RETRO REABIERTA'));
@@ -168,7 +174,7 @@ ok('trabajó-y-se-averió muestra el motivo de avería (GATO)', /GATO/i.test(htm
 const dayTotal = (() => { const m = html.match(/Total horas día<\/div><div class="v">([\d.]+) H/); return m ? Number(m[1]) : null; })();
 ok('el total de horas día suma m3 12 + m5 8 + m7 retirada 12 = 32', dayTotal === 32);
 
-console.log(`\n  Activas: ${grpCount('✅ Activas')} · Averiadas/Paradas: ${grpCount('🔴 Averiadas / Paradas')}`);
+console.log(`\n  Activas: ${grpCount('✅ Activas')} · Averiadas: ${grpCount('🔴 Averiadas') ?? 0} · Paradas: ${grpCount('🟡 Paradas') ?? 0}`);
 if (fail) {
   console.log(`\n✗ ${fail} FALLO(S):\n` + failures.map((f) => `  · ${f}`).join('\n'));
   process.exit(1);
