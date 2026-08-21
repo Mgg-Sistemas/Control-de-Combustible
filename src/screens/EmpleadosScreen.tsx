@@ -6,6 +6,7 @@ import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
+import { coincideEmpleado } from '../lib/empleadosBuscar';
 import { canonicalCargo } from '../lib/cargos';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -48,7 +49,9 @@ const FIELDS: Field[] = [
   // catálogo general. `createColumn` deja escribir una empresa nueva sin salir del
   // formulario, y esa empresa NO aparece en maquinaria, reportes, compras ni comidas:
   // el resto del sistema ni conoce esa tabla. Ver supabase/nomina_empresa_filtro.sql.
-  { key: 'payroll_company_id', label: '🏢 Empresa filtro nómina (solo agrupa acá — escribe para crear una nueva)', type: 'lookup', table: 'payroll_companies', labelCol: 'name', createColumn: 'name', dropdown: true },
+  // `filter: { active: true }` = las empresas QUITADAS de la lista ya no se pueden
+  // elegir para gente nueva. La fila NO se borra (ver más abajo `quitarEmpresaNomina`).
+  { key: 'payroll_company_id', label: '🏢 Empresa filtro nómina (solo agrupa acá — escribe para crear una nueva)', type: 'lookup', table: 'payroll_companies', labelCol: 'name', createColumn: 'name', dropdown: true, filter: { active: true } },
   { key: 'cargo', label: 'Cargo', type: 'suggest', table: 'employees', column: 'cargo', dropdown: true, placeholder: 'Elegir cargo…' },
   { key: 'department', label: 'Departamento', type: 'suggest', table: 'employees', column: 'department' },
   { key: 'grupo', label: 'Grupo / zona', type: 'suggest', table: 'employees', column: 'grupo' },
@@ -89,7 +92,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   // Lista PROPIA de Nómina. Si todavía no se corrió supabase/nomina_empresa_filtro.sql
   // la consulta falla y `data` queda vacío: los chips caen a "Sin empresa de filtro"
   // y nada se rompe.
-  const { data: payrollCompanies, refetch: refetchPayroll } = useTable<{ id: string; name: string }>('payroll_companies', { orderBy: 'name' });
+  const { data: payrollCompanies, refetch: refetchPayroll } = useTable<{ id: string; name: string; active?: boolean }>('payroll_companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
   const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo' | 'otro'>('todos'); // estado del empleado
@@ -144,13 +147,9 @@ export default function EmpleadosScreen({ navigation }: any) {
   const estadoFiltered = useMemo(
     () => employees.filter((e) =>
       pasaEstado(e) &&
-      (!q ||
-        norm(fullName(e)).includes(q) ||
-        norm(e.cedula).includes(q) ||
-        norm(e.ficha_number).includes(q) ||
-        norm(e.cargo).includes(q) ||
-        norm(companyName(e.company_id)).includes(q) ||
-        norm(nominaName((e as any).payroll_company_id)).includes(q))
+      // La regla vive en `src/lib/empleadosBuscar.ts` para poder probarla; acá
+      // solo se le pasan los dos nombres de empresa ya resueltos.
+      coincideEmpleado(e as any, query, [companyName(e.company_id), nominaName((e as any).payroll_company_id)])
     ),
     [employees, q, statusFilter, companies, payrollCompanies]
   );
@@ -169,7 +168,11 @@ export default function EmpleadosScreen({ navigation }: any) {
     // creada no aparecía por ningún lado hasta tener su primer empleado: se creaba
     // bien pero parecía que no se había creado. Salen con "· 0" para que se vea
     // que existen y que les falta gente.
-    payrollCompanies.forEach((c) => { if (!map.has(c.id)) map.set(c.id, { key: c.id, name: c.name, n: 0 }); });
+    // Las DESACTIVADAS (quitadas de la lista) no se re-agregan acá: si tienen 0
+    // personas desaparecen, que es justo lo que se busca al quitar una empresa
+    // creada por error. Si todavía tuvieran gente, el `forEach` de arriba ya las
+    // metió y siguen viéndose — hay que poder filtrar a esa gente.
+    payrollCompanies.forEach((c) => { if (c.active !== false && !map.has(c.id)) map.set(c.id, { key: c.id, name: c.name, n: 0 }); });
     // "Sin empresa de filtro" siempre de primera; el resto alfabético.
     return Array.from(map.values()).sort((a, b) =>
       a.key === SIN_EMPRESA ? -1 : b.key === SIN_EMPRESA ? 1 : cmpText(a.name, b.name));
@@ -298,6 +301,35 @@ export default function EmpleadosScreen({ navigation }: any) {
     paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text, fontSize: 14,
   };
 
+  // QUITAR una empresa de la lista de filtro de nómina.
+  //
+  // NO la borra: la marca `active = false`. Es a propósito y la tabla ni siquiera
+  // tiene permiso de DELETE. Si se borrara de verdad, los empleados que la tuvieran
+  // quedarían con la casilla vacía y sin forma de saber a cuál pertenecían.
+  //
+  // Solo se ofrece para las que tienen CERO personas, que es el caso real: una
+  // empresa creada por error o con el nombre mal escrito. Para sacar una que sí
+  // tiene gente, primero hay que reasignar a esa gente — si no, quedarían
+  // agrupados bajo una empresa que ya no se puede elegir.
+  const quitarEmpresaNomina = async (id: string, name: string) => {
+    const ok = await confirm({
+      title: `¿Quitar "${name}" de la lista?`,
+      message: 'No tiene a nadie asignado, así que no se pierde información. Deja de aparecer en el filtro y ya no se podrá elegir en la ficha de un empleado. No se borra de la base de datos.',
+      confirmText: 'Quitar',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy('quitar-emp-' + id);
+    const { error } = await supabase.from('payroll_companies').update({ active: false }).eq('id', id);
+    setBusy(null);
+    if (error) { toast.error(`No se pudo quitar: ${error.message}`); return; }
+    // Se quita también de la selección: si estaba marcada, el filtro quedaría
+    // apuntando a una empresa que ya no se ve y la lista saldría vacía sin motivo.
+    setEmpresaSel((prev) => { const s = new Set(prev); s.delete(id); return s; });
+    await refetchPayroll();
+    toast.success(`"${name}" ya no aparece en el filtro`);
+  };
+
   const abrirAmonestacion = (e: Employee) => {
     // Se limpia SIEMPRE al abrir: si no, la falta del trabajador anterior queda
     // escrita en el cuadro del siguiente, y eso en un papel disciplinario es grave.
@@ -393,9 +425,29 @@ export default function EmpleadosScreen({ navigation }: any) {
     setBusy(null);
   };
 
+  // Botón de acción de la tarjeta del empleado.
+  //
+  // RESPONSIVO: `flexBasis` fija el ancho al que ASPIRA cada botón y `flexGrow`
+  // reparte lo que sobre, así que en el teléfono caen de dos en dos y en pantalla
+  // ancha se acomodan en una o dos filas parejas. Las tres piezas que importan:
+  //  · `maxWidth` — sin él, el último botón de una fila se estira solo y queda
+  //    desproporcionado al lado de los demás.
+  //  · `minHeight` + `justifyContent` — todos con la MISMA altura aunque a uno le
+  //    entre una palabra más. Antes "Constancia de trabajo" partía en dos líneas y
+  //    dejaba toda la fila despareja (se ve en la captura del cliente 21-ago-2026).
+  //  · `numberOfLines={1}` — el texto no parte NUNCA; si no cabe, se recorta.
   const Btn = ({ label, onPress, color, disabled }: { label: string; onPress: () => void; color: string; disabled?: boolean }) => (
-    <TouchableOpacity onPress={onPress} disabled={disabled} style={{ flexGrow: 1, flexBasis: 90, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: color, opacity: disabled ? 0.6 : 1 }}>
-      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{label}</Text>
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      style={{
+        flexGrow: 1, flexBasis: 128, minWidth: 104, maxWidth: 210, minHeight: 40,
+        paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md,
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: color, opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '700', fontSize: 12, textAlign: 'center' }}>{label}</Text>
     </TouchableOpacity>
   );
 
@@ -412,7 +464,7 @@ export default function EmpleadosScreen({ navigation }: any) {
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔎 Buscar por nombre, cédula, ficha, cargo o empresa…"
+        placeholder="🔎 Nombre, cédula, ficha, cargo, teléfono, empresa…"
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
@@ -493,6 +545,31 @@ export default function EmpleadosScreen({ navigation }: any) {
           </ScrollView>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
             Marca una o varias empresas. El filtro se combina con el estado y el cargo, y el 📊 Reporte sale con lo seleccionado.
+          </Text>
+          {/* QUITAR una empresa creada por error. Solo salen las que tienen CERO
+              personas: si tiene gente, primero hay que reasignarla (si no, quedaría
+              agrupada bajo una empresa que ya no se puede elegir). */}
+          {empresaCounts.some((c) => c.n === 0) ? (
+            <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                Sin nadie asignado — tócalas para quitarlas de la lista:
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {empresaCounts.filter((c) => c.n === 0).map((c) => (
+                  <TouchableOpacity
+                    key={'del-' + c.key}
+                    disabled={busy === 'quitar-emp-' + c.key}
+                    onPress={() => quitarEmpresaNomina(c.key, c.name)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger, opacity: busy === 'quitar-emp-' + c.key ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ {c.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+            Para quitar una empresa que SÍ tiene gente, primero cámbiale la empresa a esas personas en su ficha.
             {'\n\n'}Esta lista es SOLO de Nómina y no toca el catálogo general: no aparece en Catálogo, Maquinaria, Compras ni Comidas.
             {'\n'}Para crear una empresa nueva: ✎ Editar un empleado → campo «🏢 Empresa filtro nómina» → escribe el nombre y toca «➕ Agregar». Queda disponible aquí de una vez.
             {'\n'}Las que salen con «· 0» ya existen pero todavía no tienen a nadie asignado.
