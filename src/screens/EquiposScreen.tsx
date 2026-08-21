@@ -704,6 +704,25 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
   // lista para que, tras subir/cambiar una foto, el visor muestre la versión nueva.
   const [viewerId, setViewerId] = useState<string | null>(null);
   const viewer = viewerId ? (machinery.data.find((x) => x.id === viewerId) ?? null) : null;
+  // Visor de fotos del VEHÍCULO (mismo visor ampliado que las máquinas: foto grande +
+  // Cambiar/Quitar). Se abre tocando la miniatura de la tarjeta del vehículo.
+  const [vehViewerId, setVehViewerId] = useState<string | null>(null);
+  const vehViewer = vehViewerId ? (vehicles.data.find((x) => x.id === vehViewerId) ?? null) : null;
+  // QUITAR la foto del vehículo (igual que en maquinaria). `run` refresca maquinaria,
+  // así que aquí refrescamos vehículos a mano para que el visor muestre el cambio.
+  const quitarPhotoVeh = async (v: Vehicle, column: 'photo_url' | 'photo_serial_url') => {
+    const cual = column === 'photo_serial_url' ? 'del serial / placa' : 'del vehículo';
+    const va = await confirm({
+      title: 'Quitar la foto',
+      message: `Se quita la foto ${cual} de "${v.plate}".
+
+El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Auditoría quién la quitó.`,
+      confirmText: 'Quitar', danger: true,
+    });
+    if (!va) return;
+    const bkey = v.id + (column === 'photo_serial_url' ? '-vdelphotoser' : '-vdelphoto');
+    await run(bkey, () => removeMachineryPhoto(v.id, column, 'vehicles').then((r) => { if (r.ok) vehicles.refetch(); return r; }));
+  };
   // `reason` SOLO aplica al RETIRAR (obligatorio, capturado en el modal de retiro). Al
   // reactivar no se pide y se ignora. Ver `pedirRetiro`/modal de motivo más abajo.
   const toggleOp = (m: Machinery, reason?: string) =>
@@ -1587,7 +1606,8 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
     <Card key={v.id}>
       <TouchableOpacity onPress={() => { setKind('vehiculo'); openEdit(v); }} activeOpacity={0.7}>
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ width: 64, height: 64 }}>
+          {/* Miniatura → abre el visor ampliado (foto vehículo + serial/placa), igual que las máquinas. */}
+          <TouchableOpacity onPress={() => setVehViewerId(v.id)} activeOpacity={0.7} style={{ width: 64, height: 64 }}>
             {v.photo_url ? (
               <Thumb uri={v.photo_url} size={64} radius={radius.md} />
             ) : (
@@ -1600,7 +1620,7 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
                 <Text style={{ fontSize: 11 }}>🔖</Text>
               </View>
             ) : null}
-          </View>
+          </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
@@ -1658,55 +1678,78 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
     </TouchableOpacity>
   );
 
+  // Visor de fotos REUTILIZABLE (máquina o vehículo): foto ampliada + Cambiar/Quitar.
+  // `panels` = una o dos fotos (principal + serial/placa). Se usa igual para ambos.
+  // Es una FUNCIÓN que se llama (no un <Componente/>) para que el Modal no se
+  // remonte en cada render (evita el parpadeo mientras se sube/quita una foto).
+  const renderPhotoViewer = ({ id, title, panels, onClose }: {
+    id: string;
+    title: string;
+    panels: { url?: string | null; label: string; onSet: () => void; bkey: string; onDel: () => void; delKey: string }[];
+    onClose: () => void;
+  }) => (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)' }}>
+        <ScrollView contentContainerStyle={{ padding: spacing.md, paddingTop: spacing.xl, paddingBottom: spacing.xl, gap: spacing.lg }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>{title}</Text>
+            <TouchableOpacity onPress={onClose} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.15)' }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>✕ Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+          {panels.map((p) => (
+            <View key={p.label} style={{ gap: spacing.xs }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>{p.label}</Text>
+              {p.url ? (
+                <BigPhoto uri={p.url} />
+              ) : (
+                <View style={{ height: 160, borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Sin foto todavía</Text>
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+                <TouchableOpacity onPress={p.onSet} disabled={busy === id + p.bkey} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === id + p.bkey ? 0.6 : 1 }}>
+                  <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === id + p.bkey ? 'Subiendo…' : (p.url ? '🔄 Cambiar foto' : '📷 Agregar foto')}</Text>
+                </TouchableOpacity>
+                {/* QUITAR sin reemplazar. Solo sale si HAY foto (sin foto no hay nada que quitar). */}
+                {p.url ? (
+                  <TouchableOpacity onPress={p.onDel} disabled={busy === id + p.delKey} style={{ borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === id + p.delKey ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{busy === id + p.delKey ? 'Quitando…' : '🗑 Quitar foto'}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+
   return (
     <Screen>
       <ConfigBanner />
 
       {/* Visor de fotos: MAQUINARIA + SERIAL/PLACA, ampliadas y con su etiqueta.
-          Desde aquí también se puede agregar/cambiar cada una. */}
-      {viewer ? (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setViewerId(null)}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)' }}>
-            <ScrollView contentContainerStyle={{ padding: spacing.md, paddingTop: spacing.xl, paddingBottom: spacing.xl, gap: spacing.lg }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
-                  {viewer.code}{viewer.plate ? ` · Placa ${viewer.plate}` : ''}{viewer.serial ? ` · Serial ${viewer.serial}` : ''}
-                </Text>
-                <TouchableOpacity onPress={() => setViewerId(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.15)' }}>
-                  <Text style={{ color: '#fff', fontWeight: '800' }}>✕ Cerrar</Text>
-                </TouchableOpacity>
-              </View>
-              {[
-                { url: viewer.photo_url, label: 'MAQUINARIA', onSet: () => photo(viewer), bkey: '-photo', col: 'photo_url' as const, delKey: '-delphoto' },
-                { url: viewer.photo_serial_url, label: 'SERIAL / PLACA', onSet: () => photoSerial(viewer), bkey: '-photoser', col: 'photo_serial_url' as const, delKey: '-delphotoser' },
-              ].map((p) => (
-                <View key={p.label} style={{ gap: spacing.xs }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>{p.label}</Text>
-                  {p.url ? (
-                    <BigPhoto uri={p.url} />
-                  ) : (
-                    <View style={{ height: 160, borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Sin foto todavía</Text>
-                    </View>
-                  )}
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-                    <TouchableOpacity onPress={p.onSet} disabled={busy === viewer.id + p.bkey} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === viewer.id + p.bkey ? 0.6 : 1 }}>
-                      <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === viewer.id + p.bkey ? 'Subiendo…' : (p.url ? '🔄 Cambiar foto' : '📷 Agregar foto')}</Text>
-                    </TouchableOpacity>
-                    {/* QUITAR sin reemplazar (pedido del cliente, 18-ago-2026). Solo sale
-                        si HAY foto: sin foto no hay nada que quitar y el botón estorbaría. */}
-                    {p.url ? (
-                      <TouchableOpacity onPress={() => quitarPhoto(viewer, p.col)} disabled={busy === viewer.id + p.delKey} style={{ borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === viewer.id + p.delKey ? 0.6 : 1 }}>
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{busy === viewer.id + p.delKey ? 'Quitando…' : '🗑 Quitar foto'}</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        </Modal>
-      ) : null}
+          Desde aquí también se puede agregar/cambiar/quitar cada una. */}
+      {viewer ? renderPhotoViewer({
+        id: viewer.id,
+        title: `${viewer.code}${viewer.plate ? ` · Placa ${viewer.plate}` : ''}${viewer.serial ? ` · Serial ${viewer.serial}` : ''}`,
+        panels: [
+          { url: viewer.photo_url, label: 'MAQUINARIA', onSet: () => photo(viewer), bkey: '-photo', onDel: () => quitarPhoto(viewer, 'photo_url'), delKey: '-delphoto' },
+          { url: viewer.photo_serial_url, label: 'SERIAL / PLACA', onSet: () => photoSerial(viewer), bkey: '-photoser', onDel: () => quitarPhoto(viewer, 'photo_serial_url'), delKey: '-delphotoser' },
+        ],
+        onClose: () => setViewerId(null),
+      }) : null}
+      {/* Mismo visor para el VEHÍCULO (foto vehículo + serial/placa). */}
+      {vehViewer ? renderPhotoViewer({
+        id: vehViewer.id,
+        title: `🚗 ${vehViewer.plate}${vehViewer.serial ? ` · Serial ${vehViewer.serial}` : ''}`,
+        panels: [
+          { url: vehViewer.photo_url, label: 'VEHÍCULO', onSet: () => photoVeh(vehViewer), bkey: '-vphoto', onDel: () => quitarPhotoVeh(vehViewer, 'photo_url'), delKey: '-vdelphoto' },
+          { url: vehViewer.photo_serial_url, label: 'SERIAL / PLACA', onSet: () => photoVehSerial(vehViewer), bkey: '-vphotoser', onDel: () => quitarPhotoVeh(vehViewer, 'photo_serial_url'), delKey: '-vdelphotoser' },
+        ],
+        onClose: () => setVehViewerId(null),
+      }) : null}
 
       <SectionTitle>Catálogo maquinaria/vehículos</SectionTitle>
 
@@ -2771,9 +2814,13 @@ La máquina queda sin foto hasta que alguien suba otra. Queda registrado en Audi
         title={editing ? `Editar ${kindMeta.label.toLowerCase()}` : `Nuevo: ${kindMeta.label}`}
         table={isVehicle ? 'vehicles' : 'machinery'}
         fields={isVehicle
-          ? (vehFicha
-              ? (vehEncargado ? [...VEHICLE_FIELDS_FULL, VEHICLE_ENCARGADO_FIELD] : VEHICLE_FIELDS_FULL)
-              : (vehEncargado ? [...VEHICLE_FIELDS, VEHICLE_ENCARGADO_FIELD] : VEHICLE_FIELDS))
+          ? (() => {
+              const base = vehFicha ? VEHICLE_FIELDS_FULL : VEHICLE_FIELDS;
+              // El ENCARGADO (nombre) va JUSTO después de "Esperando instrucciones" — antes
+              // se agregaba al final y quedaba escondido bajo todo el formulario, y el
+              // usuario "no encontraba dónde poner el nombre". base[0]=placa, base[1]=espera.
+              return vehEncargado ? [base[0], base[1], VEHICLE_ENCARGADO_FIELD, ...base.slice(2)] : base;
+            })()
           : [...MACHINERY_FIELDS, ...VIAJES_FIELDS]}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
         uniqueField={isVehicle ? undefined : [
