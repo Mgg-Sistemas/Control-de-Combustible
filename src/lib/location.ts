@@ -49,8 +49,10 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
-/** WEB: navigator.geolocation aceptando un fix reciente en caché (instantáneo). */
-function getPositionWeb(): Promise<Pos | null> {
+/** WEB: navigator.geolocation aceptando un fix reciente en caché (instantáneo).
+ *  Con `fresh` fuerza una lectura NUEVA (maximumAge 0 + alta precisión) — para el
+ *  botón "Volver a tomar ubicación", que debe re-leer el GPS, no repetir la caché. */
+function getPositionWeb(fresh = false): Promise<Pos | null> {
   const geo = (globalThis as any)?.navigator?.geolocation;
   if (!geo) return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -60,21 +62,27 @@ function getPositionWeb(): Promise<Pos | null> {
       geo.getCurrentPosition(
         (p: any) => finish(p),
         () => finish(null),
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: FRESH_MS }
+        { enableHighAccuracy: fresh, timeout: fresh ? 15000 : 8000, maximumAge: fresh ? 0 : FRESH_MS }
       );
     } catch { finish(null); }
   });
 }
 
-/** NATIVO: última posición conocida (instantánea) o una lectura con tope de tiempo. */
-async function getPositionNative(): Promise<{ pos: Pos | null; denied?: boolean }> {
+/** NATIVO: última posición conocida (instantánea) o una lectura con tope de tiempo.
+ *  Con `fresh` salta la última conocida y pide un fix NUEVO de alta precisión. */
+async function getPositionNative(fresh = false): Promise<{ pos: Pos | null; denied?: boolean }> {
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== 'granted') return { pos: null, denied: true };
-  try {
-    const last = await Location.getLastKnownPositionAsync({ maxAge: FRESH_MS, requiredAccuracy: 300 });
-    if (last) return { pos: last as any };
-  } catch {}
-  const cur = await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }) as any, 8000);
+  if (!fresh) {
+    try {
+      const last = await Location.getLastKnownPositionAsync({ maxAge: FRESH_MS, requiredAccuracy: 300 });
+      if (last) return { pos: last as any };
+    } catch {}
+  }
+  const cur = await withTimeout(
+    Location.getCurrentPositionAsync({ accuracy: fresh ? Location.Accuracy.High : Location.Accuracy.Low }) as any,
+    fresh ? 15000 : 8000,
+  );
   return { pos: cur as any };
 }
 
@@ -84,19 +92,23 @@ async function getPositionNative(): Promise<{ pos: Pos | null; denied?: boolean 
  * check-in (y medir su distancia a la máquina) sin tocar la ubicación de la
  * máquina. Usa la posición pre-calentada si está vigente; si no, pide una nueva.
  */
-export async function getCurrentCoords(): Promise<{ ok: boolean; error?: string; lat?: number; lng?: number }> {
+export async function getCurrentCoords(opts?: { fresh?: boolean }): Promise<{ ok: boolean; error?: string; lat?: number; lng?: number }> {
+  const fresh = !!opts?.fresh;
   warmLocation();
-  let pos: Pos | null = cached && Date.now() - cached.at < FRESH_MS ? cached.pos : null;
+  // Con `fresh` se ignora la caché a propósito (el usuario pidió re-tomar el GPS).
+  let pos: Pos | null = !fresh && cached && Date.now() - cached.at < FRESH_MS ? cached.pos : null;
   if (!pos) {
     if (Platform.OS === 'web') {
-      pos = await getPositionWeb();
+      pos = await getPositionWeb(fresh);
       if (!pos) return { ok: false, error: 'No se pudo obtener la ubicación. Permite el acceso al GPS del navegador e inténtalo de nuevo.' };
     } else {
-      const r = await getPositionNative();
+      const r = await getPositionNative(fresh);
       if (r.denied) return { ok: false, error: 'Permiso de ubicación denegado.' };
       pos = r.pos;
       if (!pos) return { ok: false, error: 'El GPS tardó demasiado. Inténtalo de nuevo (mejor al aire libre).' };
     }
+    // Un fix nuevo actualiza la caché para las próximas lecturas instantáneas.
+    if (fresh && pos) cached = { pos, at: Date.now() };
   }
   return { ok: true, lat: Number(pos.coords.latitude.toFixed(6)), lng: Number(pos.coords.longitude.toFixed(6)) };
 }

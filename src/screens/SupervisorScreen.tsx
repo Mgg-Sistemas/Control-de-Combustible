@@ -431,10 +431,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [opBusy, setOpBusy] = useState(false);
 
   useEffect(() => { warmLocation(); }, []);
-  // Al abrir el check-in de una máquina, precarga su referencia actual (si tiene).
+  // Al abrir el check-in de una máquina, precarga el EDIFICIO. Se AUTO-DETECTA del
+  // GPS: si las coordenadas guardadas de la máquina caen en un sector conocido, se
+  // usa ese sector; si no, la referencia escrita a mano (decisión cliente 20-ago-2026:
+  // el edificio se sincroniza con la ubicación).
   useEffect(() => {
-    const r = (ci as any)?.referencia ?? '';
-    setCiRef(r);
+    const m: any = ci;
+    if (!m) { setCiRef(''); return; }
+    const det = (m.latitude != null && m.longitude != null) ? edificioTextOf(m.latitude, m.longitude, m.referencia ?? '') : '';
+    setCiRef(det && det !== 'Sin zona' ? det : ((m.referencia ?? '') as string));
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
@@ -1535,12 +1540,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     onConsumed?.();
   }, [initialMachineId, machines]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // "Volver a tomar ubicación": FUERZA un fix nuevo del GPS (ignora la caché de 2
+  // min), si no re-tomar devolvía siempre la misma posición y parecía no hacer nada.
   const recapture = () => {
     setGpsBusy(true); setGpsErr(null);
-    getCurrentCoords().then((r) => {
+    getCurrentCoords({ fresh: true }).then((r) => {
       setGpsBusy(false);
-      if (r.ok && r.lat != null && r.lng != null) setGps({ lat: r.lat, lng: r.lng });
-      else setGpsErr(r.error ?? 'Sin ubicación.');
+      if (r.ok && r.lat != null && r.lng != null) {
+        setGps({ lat: r.lat, lng: r.lng });
+        // AUTO-DETECTAR el EDIFICIO del nuevo GPS: si cae en un sector conocido, se
+        // autocompleta el desplegable (el inspector aún puede cambiarlo antes de guardar).
+        const det = edificioTextOf(r.lat, r.lng, ciRef.trim());
+        if (det && det !== 'Sin zona') setCiRef(det);
+        setNotice(det && det !== 'Sin zona' ? `📍 Ubicación actualizada · 🏢 ${det}` : '📍 Ubicación actualizada.');
+      } else setGpsErr(r.error ?? 'Sin ubicación.');
     });
   };
 
@@ -1557,15 +1570,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     }
     const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
     if (error) { setSavingMachLoc(false); setNotice('❌ ' + error.message); return; }
-    // Guarda la REFERENCIA (edificio/parque/plaza/calle) junto con la ubicación.
-    // El inspector tiene permiso de escritura sobre machinery (is_staff).
-    const nuevaRef = ciRef.trim() || null;
+    // EDIFICIO SINCRONIZADO CON EL GPS: si las coordenadas que se guardan caen en un
+    // sector conocido, se guarda ese sector como referencia (así el edificio SIEMPRE
+    // cuadra con la ubicación). Si cae fuera de zona, se respeta lo escrito a mano.
+    const det = edificioTextOf(lat as number, lng as number, ciRef.trim());
+    const nuevaRef = det && det !== 'Sin zona' ? det : (ciRef.trim() || null);
     const { error: refErr } = await supabase.from('machinery').update({ referencia: nuevaRef }).eq('id', ci.id);
     setSavingMachLoc(false);
     if (refErr) { setNotice('❌ ' + refErr.message); return; }
     // Si la residencia/edificio escrito NO estaba en el catálogo, lo registra al
     // vuelo (idempotente) para que quede en la lista compartida la próxima vez.
     if (nuevaRef) addEdificio(nuevaRef).catch(() => {});
+    setCiRef(nuevaRef ?? '');
     setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number, referencia: nuevaRef } as Mach : c));
     setNotice(nuevaRef ? '✅ Ubicación y referencia guardadas.' : '✅ Ubicación de la máquina guardada.');
     load();
