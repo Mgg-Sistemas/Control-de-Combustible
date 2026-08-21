@@ -29,6 +29,7 @@ import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones'
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
+import { clasificarNoTrabajaron, MaquinaNoTrabajo, MarcaTurno, EstadoNoTrabajo } from '../lib/jornadaEstados';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -52,15 +53,20 @@ type RoundMachine = {
 };
 // Viaje registrado en una máquina (solo Golden Touch): nº de viajes y precio unitario.
 type ViajeItem = { code: string; clasificacion: string; viajes: number; precio: number };
-// Máquina AVERIADA/PARADA (pendiente) que no trabajó — se lista en 0 y en ROJO.
-type RoundAveria = { machine: string; tipo: string; clasificacion: string; serial: string | null; plate: string | null; motivo: string };
+// Máquina que NO trabajó (0 horas, no suma a horas ni a $): 🔴 averiada, 🟡 parada o
+// ⏳ esperando instrucciones. La CLASIFICACIÓN (avería real vs parada vs espera, y el
+// turno de cada marca) vive en la función pura `clasificarNoTrabajaron`
+// (src/lib/jornadaEstados.ts), blindada por `npm run test:jornada-estados`.
+type RoundAveria = MaquinaNoTrabajo;
 type RoundCompany = {
   company: string;
   machines: RoundMachine[];
   days: number; dayH: number; nightH: number; totalH: number; totalUSD: number;
   viajes: ViajeItem[];      // viajes por máquina (Golden)
   viajesUSD: number;        // total $ de viajes
-  averias: RoundAveria[];   // averiadas/paradas (0 horas, en rojo) — no suman a totales
+  averias: RoundAveria[];   // 🔴 avería REAL pendiente (0 horas) — no suman a totales
+  paradas: RoundAveria[];   // 🟡 parada sin avería (marcador "MÁQUINA PARADA") — no suman
+  espera: RoundAveria[];    // ⏳ esperando instrucciones (en_espera) — no suman
   abonado?: number;         // abonos (pagos) de la empresa dentro del rango del reporte
 };
 
@@ -776,7 +782,7 @@ export default function ReportsScreen({ route }: any) {
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
       workedIds.add(key);
       const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD, cierreMotivo: cierreMotivoById.get(key)?.motivo || '', cierreFinBy: nameById[cierreFinById.get(key)?.id || ''] || '' };
-      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [] };
+      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [], paradas: [], espera: [] };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
       groups.set(a.company, g);
@@ -809,8 +815,10 @@ export default function ReportsScreen({ route }: any) {
       abonoByCompany.set(co, (abonoByCompany.get(co) ?? 0) + (Number(p.amount) || 0));
     });
 
-    // AVERIADAS/PARADAS: máquinas con avería/parada PENDIENTE (a la fecha de corte) que
-    // NO trabajaron en el rango — se agregan en 0 y en ROJO (no suman a horas ni $).
+    // AVERIADAS · PARADAS · ESPERANDO INSTRUCCIONES: máquinas que NO trabajaron en el
+    // rango. Se agregan en 0 horas, en TRES renglones separados (no suman a horas ni $).
+    // Antes iban todas englobadas en un solo bloque rojo "PARADAS/AVERIADAS" y el bloque
+    // de espera no existía — pedido del cliente 19-ago-2026 (ver jornadaEstados.ts).
     const toEndBound = `${toArg}T23:59:59-04:00`;
     // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca cuentan como avería/parada
     // — mismo criterio que Catálogo/Inspecciones/Totales por Empresa (antes solo se
@@ -824,47 +832,36 @@ export default function ReportsScreen({ route }: any) {
       'machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, plate, active, company:company_id(name))',
       (q) => q.eq('status', 'pendiente').lte('created_at', toEndBound)
     );
-    // selectAllRows pagina ordenando por id (para no saltar/duplicar filas), no por fecha
-    // — se reordena acá por created_at DESC, que es lo que asume el forEach de abajo.
-    (mrPend as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    const averiaByMachine = new Map<string, RoundAveria & { company: string }>();
-    // Con varias filas pendientes por máquina, ids cuya entrada actual YA es una avería
-    // REAL (no "MÁQUINA PARADA"): protege esa entrada de otra avería más vieja que llegue
-    // después (viene ordenado por created_at DESC, así que la primera avería que se
-    // procesa por máquina ya es la más reciente) — antes solo se protegía de que una
-    // PARADA pisara una avería, pero una segunda avería más antigua sí la pisaba.
-    const averiaRealSet = new Set<string>();
-    ((mrPend ?? []) as any[]).forEach((r) => {
-      const mm = r.machinery;
-      if (!mm) return;                                 // sin ficha, fuera
-      // Se INCLUYEN las inactivas (pedido cliente 12-ago-2026: "todas las máquinas,
-      // estén o no activas"). Salen como averiadas/paradas en 0h con su placa/serial.
-      const mid = r.machinery_id as string;
-      if (siempreActivoSetRounds.has(mid)) return;      // placeholder SOS LA GUAIRA: nunca averiada/parada
-      if (workedIds.has(mid)) return;                  // ya trabajó → está en el informe
-      const co = mm.company?.name ?? 'Sin empresa';
-      if (cos && !cos.includes(co)) return;            // fuera del alcance
-      const esParada = r.material === 'MÁQUINA PARADA';
-      const existing = averiaByMachine.get(mid);
-      if (existing && (esParada || averiaRealSet.has(mid))) return; // prefiere el motivo REAL más reciente
-      const notes = (r.notes && String(r.notes).trim()) || '';
-      const motivo = esParada ? (notes || 'Parada') : (notes || String(r.material || 'Avería'));
-      averiaByMachine.set(mid, {
-        company: co,
-        machine: mm.code || '—',
-        tipo: (mm.tipo && String(mm.tipo).trim()) || '—',
-        clasificacion: (mm.clasificacion && String(mm.clasificacion).trim()) || 'Sin clasificación',
-        serial: mm.serial ?? null,
-        plate: mm.plate ?? null,
-        motivo,
+    // Catálogo COMPLETO de maquinaria: sirve para el bloque ⏳ ESPERANDO INSTRUCCIONES
+    // (en_espera = true, que este informe NO consultaba) y, más abajo, para el "Estado de
+    // la flota". Paginado con selectAllRows: con >1000 máquinas se truncaba en 1000.
+    const machAll = await selectAllRows(
+      'machinery',
+      'id, code, tipo, clasificacion, serial, plate, active, en_espera, company:company_id(name)'
+    );
+    // Reparto en los TRES bloques (avería real / parada / espera) con la función pura
+    // `clasificarNoTrabajaron`: avería > parada > espera, turno por `paradaShiftOf`, y
+    // ninguna máquina en dos bloques. Se EXCLUYEN las que ya trabajaron (van donde
+    // trabajaron) y las de inspector SIEMPRE ACTIVO (SOS LA GUAIRA, intocable).
+    // Nota: entran también las INACTIVAS (pedido cliente 12-ago-2026: "todas las
+    // máquinas, estén o no activas"), en 0 h y con su placa/serial.
+    const noTrabajaron = clasificarNoTrabajaron({
+      tickets: mrPend as any[],
+      espera: machAll as any[],
+      excluir: (mid) => siempreActivoSetRounds.has(mid) || workedIds.has(mid),
+    });
+    // El alcance por empresa se aplica acá (todas las filas de una máquina traen la misma).
+    const pushNoTrabajo = (items: RoundAveria[], bucket: 'averias' | 'paradas' | 'espera') => {
+      items.forEach((it) => {
+        if (cos && !cos.includes(it.company)) return;   // fuera del alcance
+        const g = groups.get(it.company) ?? { company: it.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [], paradas: [], espera: [] };
+        g[bucket].push(it);
+        groups.set(it.company, g);
       });
-      if (esParada) averiaRealSet.delete(mid); else averiaRealSet.add(mid);
-    });
-    averiaByMachine.forEach((a) => {
-      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [] };
-      g.averias.push({ machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, motivo: a.motivo });
-      groups.set(a.company, g);
-    });
+    };
+    pushNoTrabajo(noTrabajaron.averiadas, 'averias');
+    pushNoTrabajo(noTrabajaron.paradas, 'paradas');
+    pushNoTrabajo(noTrabajaron.espera, 'espera');
 
     const list = Array.from(groups.values()).sort((x, y) =>
       x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : cmpText(x.company, y.company)
@@ -872,14 +869,17 @@ export default function ReportsScreen({ route }: any) {
     // Alfabético por NOMBRE de máquina (acentos/mayúsculas indiferentes), luego serial.
     list.forEach((g) => {
       g.machines.sort((x, y) => cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial));
-      g.averias.sort((x, y) => cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial));
+      const porNombre = (x: RoundAveria, y: RoundAveria) => cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial);
+      g.averias.sort(porNombre);
+      g.paradas.sort(porNombre);
+      g.espera.sort(porNombre);
       g.abonado = abonoByCompany.get(g.company) ?? 0;
     });
 
     // Estado de la flota: total de activos, en producción (trabajaron), en tránsito
     // (activas que aún no trabajaron = pendientes de incorporación), inactivas y
     // el total de la flota (activas + inactivas), según el alcance del informe.
-    const machAll = await selectAllRows('machinery', 'active, company:company_id(name)');
+    // `machAll` ya se trajo arriba (mismo catálogo que alimenta el bloque de espera).
     const inScope = (machAll ?? []).filter((m: any) =>
       !cos || cos.includes(m.company?.name ?? 'Sin empresa')
     );
@@ -936,6 +936,51 @@ export default function ReportsScreen({ route }: any) {
       </tbody></table>`;
     };
     const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
+    // ── LAS QUE NO TRABAJARON: un renglón-título por ESTADO ────────────────────────
+    // 🔴 AVERIADAS (avería real) · 🟡 PARADAS (marcador "MÁQUINA PARADA") · ⏳ ESPERANDO
+    // INSTRUCCIONES (en_espera). Antes iban las tres primeras englobadas en un solo
+    // bloque rojo y la espera no salía — pedido del cliente 19-ago-2026. Cada máquina
+    // sale en UN solo bloque (lo garantiza `clasificarNoTrabajaron`) y ninguna suma a
+    // los totales de horas ni de dinero.
+    const ESTILO_NT: Record<EstadoNoTrabajo, { emoji: string; titulo: string; color: string; fondo: string; tenue: string }> = {
+      averia: { emoji: '🔴', titulo: 'AVERIADAS', color: '#B42318', fondo: '#FBEAEA', tenue: '#C98F8A' },
+      parada: { emoji: '🟡', titulo: 'PARADAS', color: '#C2410C', fondo: '#FFF1E3', tenue: '#D6A184' },
+      espera: { emoji: '⏳', titulo: 'ESPERANDO INSTRUCCIONES', color: '#B45309', fondo: '#FFFBEB', tenue: '#D6B378' },
+    };
+    // Celda del turno (☀️ día / 🌙 noche): dice si en ESE turno la máquina estaba
+    // AVERIADA o PARADA y por qué, o "—" si en ese turno no tuvo marca. El turno de
+    // cada avería/parada sale de `paradaShiftOf` (día 7am–7pm), la misma de Inspecciones.
+    const celdaTurno = (m: MarcaTurno | null, estado: EstadoNoTrabajo): string => {
+      if (estado === 'espera') return `<td style="text-align:center;font-weight:700">⏳ ESPERA</td>`;
+      if (!m) return `<td style="text-align:center;color:#9CA3AF">—</td>`;
+      const st = ESTILO_NT[m.estado];
+      return `<td style="text-align:center;color:${st.color};font-weight:700">${st.emoji} ${m.estado === 'averia' ? 'AVERÍA' : 'PARADA'}` +
+        `${m.motivo ? `<br/><span style="font-weight:400;font-size:8.5px">${esc(m.motivo)}</span>` : ''}</td>`;
+    };
+    const bloqueNT = (items: RoundAveria[], estado: EstadoNoTrabajo): string => {
+      if (!items.length) return '';
+      const st = ESTILO_NT[estado];
+      const titulo = `<tr><td colspan="9" style="background:${st.fondo};color:${st.color};font-weight:800;letter-spacing:.3px;padding:4px 8px">${st.emoji} ${st.titulo} (${items.length})</td></tr>`;
+      const filas = items
+        .map(
+          (a) =>
+            `<tr style="color:${st.color}">` +
+            `<td>${esc(a.machine)}${[a.plate, a.serial].filter(Boolean).length ? `<br/><span style="color:${st.tenue}">${esc([a.plate, a.serial].filter(Boolean).join(' · '))}</span>` : ''}</td>` +
+            `<td>${esc(a.tipo)}</td>` +
+            `<td>${st.emoji} ${esc(a.clasificacion)}${a.motivo ? ` · ${esc(a.motivo)}` : ''}${a.sinTurno ? `<br/><span style="font-size:8.5px">🕓 Sin hora de registro (no se pudo ubicar el turno)</span>` : ''}</td>` +
+            `<td style="text-align:center">0</td>` +
+            celdaTurno(a.dia, estado) +
+            celdaTurno(a.noche, estado) +
+            `<td style="text-align:center;font-weight:700">${nH(0)}</td>` +
+            `<td style="text-align:right">—</td>` +
+            `<td style="text-align:right">—</td></tr>`
+        )
+        .join('');
+      return titulo + filas;
+    };
+    // Etiqueta del encabezado de empresa: los TRES números por separado.
+    const tagNT = (n: number, estado: EstadoNoTrabajo): string =>
+      n ? ` <span style="color:${ESTILO_NT[estado].color};font-weight:400">· ${ESTILO_NT[estado].emoji} ${n} ${ESTILO_NT[estado].titulo}</span>` : '';
     const sections = roundGroups
       .map((g) => {
         const rows = g.machines
@@ -952,31 +997,15 @@ export default function ReportsScreen({ route }: any) {
               `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td></tr>`
           )
           .join('');
-        // Filas de AVERIADAS/PARADAS: en 0 y en ROJO, con su motivo. No suman a totales.
-        const averiaRows = g.averias
-          .map(
-            (a) =>
-              `<tr style="color:#B42318">` +
-              `<td>${esc(a.machine)}${[a.plate, a.serial].filter(Boolean).length ? `<br/><span style="color:#c99">${esc([a.plate, a.serial].filter(Boolean).join(' · '))}</span>` : ''}</td>` +
-              `<td>${esc(a.tipo)}</td>` +
-              `<td>🔴 ${esc(a.clasificacion)}${a.motivo ? ` · ${esc(a.motivo)}` : ''}</td>` +
-              `<td style="text-align:center">0</td>` +
-              `<td style="text-align:center">${nH(0)}</td>` +
-              `<td style="text-align:center">${nH(0)}</td>` +
-              `<td style="text-align:center;font-weight:700">${nH(0)}</td>` +
-              `<td style="text-align:right">—</td>` +
-              `<td style="text-align:right">—</td></tr>`
-          )
-          .join('');
         // Bloque de VIAJES (extra al subtotal). Agrupa las máquinas por precio unitario.
         const viajesBlock = renderViajes(g);
-        // Fila-título que separa las PARADAS/AVERIADAS de las que trabajaron (solo si hay).
-        const averiaHeader = g.averias.length
-          ? `<tr><td colspan="9" style="background:#FBEAEA;color:#B42318;font-weight:800;letter-spacing:.3px;padding:4px 8px">🔴 PARADAS/AVERIADAS (${g.averias.length})</td></tr>`
-          : '';
-        const averiaTag = g.averias.length ? ` <span style="color:#B42318;font-weight:400">· 🔴 ${g.averias.length} PARADAS/AVERIADAS</span>` : '';
-        return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${averiaTag}</h2>
-          <table><thead>${head}</thead><tbody>${rows}${averiaHeader}${averiaRows}</tbody>
+        // Renglones-título que separan de las que trabajaron: 🔴 averiadas, 🟡 paradas y
+        // ⏳ esperando instrucciones (cada uno solo si hay). Las columnas ☀️/🌙 dicen qué
+        // pasó en cada turno.
+        const bloquesNT = bloqueNT(g.averias, 'averia') + bloqueNT(g.paradas, 'parada') + bloqueNT(g.espera, 'espera');
+        const estadoTag = tagNT(g.averias.length, 'averia') + tagNT(g.paradas.length, 'parada') + tagNT(g.espera.length, 'espera');
+        return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${estadoTag}</h2>
+          <table><thead>${head}</thead><tbody>${rows}${bloquesNT}</tbody>
           <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
@@ -1045,7 +1074,8 @@ export default function ReportsScreen({ route }: any) {
       ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
-      <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
+      <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>
+      <p class="muted" style="margin-top:4px">Debajo de cada empresa, las que NO trabajaron van en renglones aparte y en 0 horas (no suman a horas ni a $): <b style="color:#B42318">🔴 AVERIADAS</b> (avería real pendiente), <b style="color:#C2410C">🟡 PARADAS</b> (parada sin avería) y <b style="color:#B45309">⏳ ESPERANDO INSTRUCCIONES</b> (equipos en espera). Las columnas ☀️ y 🌙 indican si la máquina se averió o se paró en el turno de DÍA (7am–7pm), en el de NOCHE o en los dos, con su motivo. Cada máquina sale en un solo renglón.</p>`;
     // Nombre del archivo: "Reporte EMPRESA del DD al DD". Si es de una sola empresa lleva su
     // nombre; siempre incluye el rango de fechas.
     const rng = dateRangeLabel(from, to);
@@ -3210,6 +3240,17 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
                   🏢 {g.company}{companyRif[g.company] ? ` · RIF ${companyRif[g.company]}` : ''} ({g.machines.length})
                 </Text>
+                {/* Las que NO trabajaron, separadas por estado (igual que en el PDF): el
+                    detalle por turno (día/noche) y su motivo salen al imprimir. */}
+                {g.averias.length + g.paradas.length + g.espera.length > 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                    {[
+                      g.averias.length ? `🔴 ${g.averias.length} averiada(s)` : '',
+                      g.paradas.length ? `🟡 ${g.paradas.length} parada(s)` : '',
+                      g.espera.length ? `⏳ ${g.espera.length} esperando instrucciones` : '',
+                    ].filter(Boolean).join('  ·  ')}
+                  </Text>
+                ) : null}
                 {g.machines.map((m, i) => (
                   <Card key={i}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

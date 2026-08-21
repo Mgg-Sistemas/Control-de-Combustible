@@ -319,6 +319,26 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > agrupadas por estado: **✅ Activas** (trabajaron), **🔴 Averiadas / Paradas**, **⏳ Esperando
 > instrucciones** y **⏳ Pendientes por iniciar**. Antes solo salían las que tuvieron actividad
 > (trabajaron, avería o parada) y se omitían las de 0 actividad y las en espera.
+>
+> **🔴 Averiadas y 🟡 Paradas ahora van SEPARADAS (20-ago-2026):** el bloque rojo que englobaba
+> las dos cosas se dividió en **dos renglones distintos**, porque no es lo mismo una máquina
+> dañada que una que simplemente no trabajó:
+>
+> - **🔴 Averiadas** — la máquina tiene una **avería de verdad** pendiente (falla eléctrica,
+>   mecánica, hidráulica…). Salen en **rojo**.
+> - **🟡 Paradas** — la máquina **no trabajó pero no está dañada** (sin operador, sin material,
+>   esperando…). Salen en **ámbar**.
+>
+> Si el inspector reporta una avería, el sistema guarda **los dos renglones** (la avería y la
+> marca de "máquina parada"): en ese caso **manda la avería** y la máquina sale **una sola vez**,
+> en **🔴 Averiadas**. Los bloques **✅ Activas**, **⏳ Esperando instrucciones** y **⏳ Pendientes
+> por iniciar** siguen igual, y la **suma de todos** sigue dando el total de máquinas de la empresa.
+>
+> **☀️ Día y 🌙 noche por separado:** en las columnas **HORARIO DÍA** y **HORARIO NOCHE** cada turno
+> dice **qué fue lo que pasó en ESE turno**: **🔴 AVERÍA · \<motivo\>** o **🟡 PARADA · \<motivo\>**.
+> Si la máquina trabajó y **después** cayó, la columna muestra las **horas trabajadas** y la **hora**
+> en que se averió o se paró (**🔴 AVERÍA 2:15pm** / **🟡 PARADA 2:15pm**). Así se ve de un vistazo si
+> se **averió de día y se paró de noche** (o al revés): cada columna lleva **lo suyo**, no se mezclan.
 
 **Sección "En espera" (recibir máquinas):**
 - Arriba aparece **🕓 En espera** con las máquinas que **aún no se han recibido**.
@@ -1825,6 +1845,32 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 > cuatro recuadros con el **Total de horas por corte**, el **Total $**, el **Total abonado**
 > (lo ya pagado en el rango) y el **TOTAL PENDIENTE** (*total $ − abonado*). El detalle por
 > empresa/máquina y el total general siguen igual, más abajo.
+
+> **🔴 Averiadas · 🟡 Paradas · ⏳ Esperando instrucciones (Informe por jornada, 19-ago-2026):**
+> debajo de las máquinas que **trabajaron**, cada empresa trae hasta **tres renglones separados**
+> con las que **no trabajaron** — en **0 horas** y **sin sumar** a horas ni a $. Antes iban todas
+> englobadas en un solo renglón rojo *"PARADAS/AVERIADAS"* y el bloque de espera no existía.
+> Ahora se separan como corresponde:
+>
+> - **🔴 AVERIADAS** — tiene una **avería REAL** pendiente (el repuesto o la falla que reportó
+>   el mecánico).
+> - **🟡 PARADAS** — está parada **sin avería**: solo el marcador *"MÁQUINA PARADA"* del teléfono
+>   (sin operador, sin gasoil, lluvia…).
+> - **⏳ ESPERANDO INSTRUCCIONES** — las que están **en espera** en el catálogo (`en_espera`),
+>   igual que el renglón del **Reporte del día por empresa**.
+>
+> El encabezado de cada empresa muestra **los tres números por separado**.
+>
+> **☀️ Día y 🌙 Noche en esos renglones:** las columnas de horas dicen **qué pasó en cada turno**:
+> sale **🔴 AVERÍA** o **🟡 PARADA** con su **motivo** en la columna del turno donde se marcó
+> (**día 7am–7pm**, **noche** el resto) y **"—"** en el turno que quedó limpio. Así se ve de una si
+> la máquina **se averió de día y se paró de noche**, o si fue en los dos turnos.
+>
+> *Ojo con las reglas que no cambian:* si una máquina tiene **los dos renglones a la vez**
+> (parada + avería, como los guarda el teléfono), **manda la avería** y sale **una sola vez** —
+> ninguna máquina aparece en dos bloques. Las del inspector **SOS LA GUAIRA** siguen sin salir
+> como averiadas ni paradas, y la que **trabajó** va donde trabajó aunque esté en espera. Quién
+> entra al informe y los totales de horas/$ **no cambiaron**: solo cómo se agrupa y se muestra.
 
 **👷 Reporte de INSPECTORES (jornadas de inspección):** dentro de Reportes, elige el tipo
 **"👷 Inspectores"**. Muestra, agrupado **por inspector**, sus máquinas asignadas con estado
