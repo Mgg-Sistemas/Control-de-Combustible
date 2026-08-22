@@ -1692,7 +1692,7 @@ export default function ReportsScreen({ route }: any) {
     const inspectores = byCargo(/inspector/i);
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
     // REAL: estado según catálogo. FICTICIO: TODAS como OPERATIVAS (ACTIVAS).
-    const estadoOf = (m: any) => (ficticio ? 'Operativo' : m.en_espera === true ? 'En espera / Mantenimiento' : (m.operational === false || m.active === false) ? 'Inoperativo' : 'Operativo');
+    const estadoOf = (m: any) => (ficticio ? 'Operativo' : m.en_espera === true ? 'En espera por instrucciones' : (m.operational === false || m.active === false) ? 'Inoperativo' : 'Operativo');
     // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
     const enteOf = (m: any) => { const z = (m.zona && String(m.zona).trim()) || ''; return !z || /^propias?$/i.test(z) ? 'SOS La Guaira' : z; };
     const ubicOf = (m: any) => {
