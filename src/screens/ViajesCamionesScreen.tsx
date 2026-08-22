@@ -22,7 +22,7 @@ import { spacing, radius, AppColors } from '../theme';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { levelMeets } from '../lib/permissions';
 import { norm, cmpText } from '../lib/text';
 import { caracasParts } from '../lib/jornada';
@@ -39,6 +39,7 @@ import {
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { resumirViajes, SIN_EMPRESA, claveCamion, type EjeResumen } from '../lib/viajesResumen';
+import { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros } from '../lib/viajesFiltros';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
@@ -198,16 +199,25 @@ export default function ViajesCamionesScreen() {
 
   const loadTrucks = async () => {
     setTrucksLoading(true);
-    const [{ data, error }, aCat, jCat, iShift] = await Promise.all([
-      supabase
-        .from('machinery')
-        .select('id, code, plate, serial, clasificacion, marca, modelo, company_id, operational, en_espera, company:company_id(name)')
-        .eq('active', true)
-        .order('code'),
+    // ⚠️ `selectAllRows` y no un `.select()` pelado: PostgREST corta la
+    //    respuesta en su tope de filas y lo hace SIN AVISAR — no llega un error,
+    //    llega una página. Un catálogo que pase ese tope dejaría camiones reales
+    //    fuera de la lista del listero y fuera de la alerta de «camión sin
+    //    viajes», que es justo lo contrario de lo que la alerta promete. El
+    //    resto de las pantallas que leen `machinery` ya lo hacen así
+    //    (ReportsScreen, InspectionsSummary, HistoricoJornadas…). El orden por
+    //    código se hace acá abajo con `cmpText`, porque `selectAllRows` pagina
+    //    por id y no admite un `.order()` propio.
+    const [cat, aCat, jCat, iShift] = await Promise.all([
+      selectAllRows('machinery', 'id, code, plate, serial, clasificacion, marca, modelo, company_id, operational, en_espera, company:company_id(name)', (q: any) => q.eq('active', true))
+        .then((rows: any[]) => ({ rows, error: null as string | null }))
+        .catch((e: any) => ({ rows: [] as any[], error: String(e?.message ?? e) })),
       fetchAveriaCat(),
       fetchJornadaCat(),
       fetchInspByShift(),
     ]);
+    const data = cat.rows;
+    const error = cat.error ? { message: cat.error } : null;
     setTrucksLoading(false);
     if (error) { toast.error(error.message); return; }
     setAveriaCat(aCat);
@@ -237,7 +247,7 @@ export default function ViajesCamionesScreen() {
       operational: m.operational !== false,
       enEspera: !!m.en_espera,
     })) as TruckRow[];
-    setCatalogoTrucks(catalogo);
+    setCatalogoTrucks([...catalogo].sort((a, b) => cmpText(a.code, b.code)));
     setAllTrucks(
       ((data ?? []) as any[])
         .filter((m) => isVolteoVolqueta(m.code || ''))
@@ -816,12 +826,16 @@ export default function ViajesCamionesScreen() {
   const [rangeTo, setRangeTo] = useState(caracasBusinessToday());
   const [diasSel, setDiasSel] = useState<Set<string>>(new Set([caracasBusinessToday()]));
   const [diasPickOpen, setDiasPickOpen] = useState(false);
-  const [filterListeroSel, setFilterListeroSel] = useState<Set<string>>(new Set());
-  const [filterTruckSel, setFilterTruckSel] = useState<Set<string>>(new Set());
+  // ⚠️ Map id→ETIQUETA, no Set: hace falta el nombre para poder dibujar el chip
+  //    de un filtro que quedó marcado y que en el rango de HOY ya no aparece en
+  //    ningún viaje. Con un Set ese chip desaparecía, la lista salía vacía y no
+  //    había cómo saber qué la estaba tapando (ver src/lib/viajesFiltros.ts).
+  const [filterListeroSel, setFilterListeroSel] = useState<Map<string, string>>(new Map());
+  const [filterTruckSel, setFilterTruckSel] = useState<Map<string, string>>(new Map());
   // Filtro por EMPRESA y modo del reporte (pedido del cliente 20-ago-2026). La
   // empresa NO viaja en `camion_viajes`: se resuelve por el camión (`truckById`),
   // que ya trae `companyId`/`companyName` desde `machinery`.
-  const [filterCompanySel, setFilterCompanySel] = useState<Set<string>>(new Set());
+  const [filterCompanySel, setFilterCompanySel] = useState<Map<string, string>>(new Map());
   // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
   // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje.
   const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen'>('detallado');
@@ -833,9 +847,11 @@ export default function ViajesCamionesScreen() {
   // "Agrupar por" del informe por jornada en ReportsScreen.
   const [resumenEje, setResumenEje] = useState<EjeResumen>('empresa');
   const porListero = resumenEje === 'listero';
-  const toggleFilterListero = (id: string) => setFilterListeroSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleFilterTruck = (id: string) => setFilterTruckSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleFilterCompany = (id: string) => setFilterCompanySel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleEn = (set: React.Dispatch<React.SetStateAction<Map<string, string>>>) =>
+    (id: string, label: string) => set((prev) => { const n = new Map(prev); n.has(id) ? n.delete(id) : n.set(id, label); return n; });
+  const toggleFilterListero = toggleEn(setFilterListeroSel);
+  const toggleFilterTruck = toggleEn(setFilterTruckSel);
+  const toggleFilterCompany = toggleEn(setFilterCompanySel);
   const toggleDia = (iso: string) => setDiasSel((prev) => { const n = new Set(prev); n.has(iso) ? n.delete(iso) : n.add(iso); return n; });
 
   // ⚠️ De NEGOCIO, no de calendario: a las 3 de la mañana la jornada en curso
@@ -854,12 +870,33 @@ export default function ViajesCamionesScreen() {
   //    siguiente al último. Semiabierto, para que no quede el hueco de
   //    milisegundos que dejaba un tope de 23:59:59.
   const { desdeISO, hastaExclusivoISO } = jornadaWindowISO(rangeBounds.desde, rangeBounds.hasta);
+  // ⭐ Un rango AL REVÉS (DESDE después de HASTA) no falla: devuelve CERO viajes.
+  //    En web el campo de fecha deja escribir cualquier valor —el min/max del
+  //    navegador marca el campo como inválido pero NO impide el valor, y además
+  //    se puede borrar el HASTA y elegir un DESDE futuro—, así que se llegaba
+  //    acá con desde > hasta y la pantalla decía «Sin viajes en el rango
+  //    seleccionado». Es mentira: el rango no existe, y con ese vacío se podía
+  //    exportar un PDF que decía «Total: 0 viajes».
+  const rangoInvalido = rangeBounds.desde > rangeBounds.hasta;
+  // Ningún día marcado en «días específicos». Antes caía al rango de HOY por
+  // defecto y mostraba la jornada de hoy sin decirlo: se leía como si esos
+  // fueran los viajes de los días elegidos, sin que hubiera ninguno elegido.
+  const sinDiasMarcados = preset === 'dias' && diasSel.size === 0;
+  // Cómo se nombra el rango en pantalla y en el encabezado del PDF. La regla
+  // (y el porqué de no decir «del 5 al 22») vive en src/lib/viajesFiltros.ts,
+  // con sus casos en scripts/test-viajes-filtros.mjs.
+  const etiquetaRango = useMemo(
+    () => etiquetaRangoViajes(preset === 'dias', rangeBounds.desde, rangeBounds.hasta, diasSel, dmy),
+    [preset, rangeBounds.desde, rangeBounds.hasta, diasSel]
+  );
 
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeMissing, setRangeMissing] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const loadRangeRows = async () => {
-    if (!canFull) return;
+    // Un rango al revés no se le pregunta a la base: no hay respuesta correcta
+    // que dar. La pantalla lo explica en vez de mostrar cero viajes.
+    if (!canFull || rangoInvalido) return;
     setRangeLoading((prev) => prev || rangeRows.length === 0);
     const { rows, missing, error } = await listTodosLosViajes({ desdeISO, hastaExclusivoISO });
     setRangeLoading(false);
@@ -873,38 +910,20 @@ export default function ViajesCamionesScreen() {
   useEffect(() => {
     if (canFull) loadRangeRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFull, desdeISO, hastaExclusivoISO]);
+  }, [canFull, desdeISO, hastaExclusivoISO, rangoInvalido]);
 
   const dateScopedRows = useMemo(() => {
-    if (preset === 'dias' && diasSel.size > 0) {
+    // Sin ningún día marcado no hay nada que mostrar. Devolver el rango entero
+    // (que por defecto es HOY) haría pasar la jornada de hoy por «los días que
+    // elegiste», y de ahí a un reporte con la fecha equivocada hay un paso.
+    if (sinDiasMarcados || rangoInvalido) return [];
+    if (preset === 'dias') {
       // Por JORNADA: un viaje de la madrugada pertenece a la jornada de la noche
       // anterior, así que marcar un día trae también su madrugada.
       return rangeRows.filter((r) => diasSel.has(jornadaDeFecha(new Date(r.registeredAt))));
     }
     return rangeRows;
-  }, [rangeRows, preset, diasSel]);
-
-  const listeroOptions = useMemo(() => {
-    const m = new Map<string, { id: string; name: string; count: number }>();
-    dateScopedRows.forEach((r) => {
-      const e = m.get(r.listeroId) ?? { id: r.listeroId, name: r.listeroName, count: 0 };
-      e.count += 1;
-      m.set(r.listeroId, e);
-    });
-    return Array.from(m.values()).sort((a, b) => cmpText(a.name, b.name));
-  }, [dateScopedRows]);
-  const truckOptions = useMemo(() => {
-    const m = new Map<string, { id: string; code: string; count: number }>();
-    dateScopedRows.forEach((r) => {
-      // Por CLAVE, no por id: los fuera de catálogo no tienen id y se fundirían
-      // todos en una sola opción del filtro (ver `claveCamion`).
-      const k = claveCamion(r);
-      const e = m.get(k) ?? { id: k, code: r.fueraCatalogo ? `${r.machineCode} (fuera de catálogo)` : r.machineCode, count: 0 };
-      e.count += 1;
-      m.set(k, e);
-    });
-    return Array.from(m.values()).sort((a, b) => cmpText(a.code, b.code));
-  }, [dateScopedRows]);
+  }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido]);
 
   // Empresa de un viaje: la del camión que lo hizo. Los camiones sin empresa
   // asignada caen en una sola cubeta, para que no desaparezcan del filtro.
@@ -914,28 +933,51 @@ export default function ViajesCamionesScreen() {
     const t = r.machineryId ? truckById.get(r.machineryId) : undefined;
     return { key: t?.companyId ?? SIN_EMPRESA, name: t?.companyName || 'Sin empresa' };
   };
-  const companyOptions = useMemo(() => {
-    const m = new Map<string, { id: string; name: string; count: number }>();
-    dateScopedRows.forEach((r) => {
-      const c = companyOfRow(r);
-      const e = m.get(c.key) ?? { id: c.key, name: c.name, count: 0 };
-      e.count += 1;
-      m.set(c.key, e);
-    });
-    return Array.from(m.values()).sort((a, b) => cmpText(a.name, b.name));
+
+  // ⭐ LOS TRES FILTROS. La cuenta de cada chip sale sobre los viajes que YA
+  //    pasan los OTROS dos filtros — antes se contaba sobre el rango entero, así
+  //    que con un listero marcado los chips de empresa seguían mostrando el
+  //    total de TODOS los listeros y no cuadraban ni con la lista de abajo ni
+  //    con el PDF. La regla, el porqué y sus casos: src/lib/viajesFiltros.ts.
+  // Por CLAVE y no por id en el camión: los fuera de catálogo no tienen id y se
+  // fundirían todos en una sola opción del filtro (ver `claveCamion`).
+  const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
+    listero: r.listeroId,
+    empresa: companyOfRow(r).key,
+    camion: claveCamion(r),
+  });
+  const seleccion: SeleccionFiltros = useMemo(
+    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel }),
+    [filterListeroSel, filterCompanySel, filterTruckSel]
+  );
+  const listeroOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'listero', clavesDe, (r) => ({ id: r.listeroId, label: r.listeroName }), seleccion, cmpText),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateScopedRows, truckById]);
+    [dateScopedRows, seleccion, truckById]
+  );
+  const companyOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'empresa', clavesDe, (r) => ({ id: companyOfRow(r).key, label: companyOfRow(r).name }), seleccion, cmpText),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById]
+  );
+  const truckOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'camion', clavesDe,
+      (r) => ({ id: claveCamion(r), label: r.fueraCatalogo ? r.machineCode + ' (fuera de catálogo)' : r.machineCode }), seleccion, cmpText),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById]
+  );
 
   const filteredRangeRows = useMemo(
-    () =>
-      dateScopedRows.filter(
-        (r) =>
-          (filterListeroSel.size === 0 || filterListeroSel.has(r.listeroId)) &&
-          (filterTruckSel.size === 0 || filterTruckSel.has(claveCamion(r))) &&
-          (filterCompanySel.size === 0 || filterCompanySel.has(companyOfRow(r).key))
-      ),
+    () => dateScopedRows.filter((r) => pasaFiltros(clavesDe(r), seleccion)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dateScopedRows, filterListeroSel, filterTruckSel, filterCompanySel, truckById]
+    [dateScopedRows, seleccion, truckById]
+  );
+  // Filtros marcados que no le tocan a NINGÚN viaje del rango — casi siempre uno
+  // que quedó puesto de otro día. Es la explicación concreta de una lista vacía.
+  const filtrosSobrantes = useMemo(
+    () => marcadosFueraDelRango(dateScopedRows, clavesDe, seleccion),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById]
   );
 
   /**
@@ -973,6 +1015,16 @@ export default function ViajesCamionesScreen() {
       toast.error(`No se pueden exportar los viajes ahora (${motivoLegible(rangeError)}). El reporte saldría incompleto.`);
       return;
     }
+    // Mismo criterio: un reporte que sale en 0 porque el filtro está mal puesto
+    // parece un reporte de un día flojo. Mejor no emitirlo y decir qué corregir.
+    if (rangoInvalido) {
+      toast.error(`El rango está al revés: DESDE (${dmy(rangeBounds.desde)}) es posterior a HASTA (${dmy(rangeBounds.hasta)}). Corrige las fechas.`);
+      return;
+    }
+    if (sinDiasMarcados) {
+      toast.error('No hay ningún día marcado. Agrega al menos uno con «+ agregar día».');
+      return;
+    }
     setShareBusy(true);
     try {
       const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -987,10 +1039,13 @@ export default function ViajesCamionesScreen() {
 
       // Un encabezado común que deja constancia de con qué filtros se sacó, para
       // que el reporte se pueda auditar después sin adivinar.
+      // Los nombres salen de lo MARCADO, no de las opciones visibles: si un
+      // filtro quedó puesto sobre algo que este rango no tiene, igual hay que
+      // decirlo en el encabezado — es la explicación de por qué salió corto.
       const filtros = [
-        filterCompanySel.size ? `Empresas: ${companyOptions.filter((c) => filterCompanySel.has(c.id)).map((c) => c.name).join(', ')}` : null,
-        filterTruckSel.size ? `Camiones: ${truckOptions.filter((t) => filterTruckSel.has(t.id)).map((t) => t.code).join(', ')}` : null,
-        filterListeroSel.size ? `Listeros: ${listeroOptions.filter((l) => filterListeroSel.has(l.id)).map((l) => l.name).join(', ')}` : null,
+        filterCompanySel.size ? `Empresas: ${Array.from(filterCompanySel.values()).join(', ')}` : null,
+        filterTruckSel.size ? `Camiones: ${Array.from(filterTruckSel.values()).join(', ')}` : null,
+        filterListeroSel.size ? `Listeros: ${Array.from(filterListeroSel.values()).join(', ')}` : null,
       ].filter(Boolean).join(' · ');
 
       // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
@@ -1038,7 +1093,7 @@ export default function ViajesCamionesScreen() {
         title: reporteModo === 'resumen'
           ? (porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
           : 'Viajes de camiones',
-        subtitle: `${dmy(rangeBounds.desde)} al ${dmy(rangeBounds.hasta)} · ${corte}${filtros ? ` · ${filtros}` : ''}`,
+        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
@@ -1493,6 +1548,12 @@ export default function ViajesCamionesScreen() {
               })}
             </View>
 
+            {/* Qué se está mirando, dicho en una línea. Sin esto, «días
+                específicos» sin ningún día marcado se veía igual que «hoy». */}
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              📅 {etiquetaRango}{rangoInvalido || sinDiasMarcados ? '' : ` · ${filteredRangeRows.length} viaje(s)`}
+            </Text>
+
             {preset === 'rango' ? (
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}>
@@ -1533,7 +1594,7 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {listeroOptions.length > 1 ? (
+            {listeroOptions.length > 1 || filterListeroSel.size > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   LISTERO{filterListeroSel.size > 0 ? ` (${filterListeroSel.size})` : ' (todos)'}
@@ -1544,10 +1605,10 @@ export default function ViajesCamionesScreen() {
                     return (
                       <TouchableOpacity
                         key={o.id}
-                        onPress={() => toggleFilterListero(o.id)}
+                        onPress={() => toggleFilterListero(o.id, o.label)}
                         style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
                       >
-                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>👤 {o.name}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>👤 {o.label}</Text>
                         <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
                       </TouchableOpacity>
                     );
@@ -1556,7 +1617,7 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {companyOptions.length > 1 ? (
+            {companyOptions.length > 1 || filterCompanySel.size > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   EMPRESA{filterCompanySel.size > 0 ? ` (${filterCompanySel.size})` : ' (todas)'}
@@ -1567,10 +1628,10 @@ export default function ViajesCamionesScreen() {
                     return (
                       <TouchableOpacity
                         key={o.id}
-                        onPress={() => toggleFilterCompany(o.id)}
+                        onPress={() => toggleFilterCompany(o.id, o.label)}
                         style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
                       >
-                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏢 {o.name}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏢 {o.label}</Text>
                         <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
                       </TouchableOpacity>
                     );
@@ -1579,7 +1640,7 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {truckOptions.length > 1 ? (
+            {truckOptions.length > 1 || filterTruckSel.size > 0 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   CAMIÓN{filterTruckSel.size > 0 ? ` (${filterTruckSel.size})` : ' (todos)'}
@@ -1590,10 +1651,10 @@ export default function ViajesCamionesScreen() {
                     return (
                       <TouchableOpacity
                         key={o.id}
-                        onPress={() => toggleFilterTruck(o.id)}
+                        onPress={() => toggleFilterTruck(o.id, o.label)}
                         style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
                       >
-                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🚜 {o.code}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🚜 {o.label}</Text>
                         <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
                       </TouchableOpacity>
                     );
@@ -1603,7 +1664,7 @@ export default function ViajesCamionesScreen() {
             ) : null}
 
             {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0) ? (
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Set()); setFilterTruckSel(new Set()); setFilterCompanySel(new Set()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -1658,7 +1719,22 @@ export default function ViajesCamionesScreen() {
               ) : rangeMissing ? (
                 <Text style={{ color: colors.muted }}>Aún no se configuró esta función en la base de datos.</Text>
               ) : filteredRangeRows.length === 0 ? (
-                <Text style={{ color: rangeError ? colors.danger : colors.muted, fontWeight: rangeError ? '700' : '400' }}>{rangeError ? `⚠️ No se pudieron cargar los viajes (${motivoLegible(rangeError)}). NO exportes el reporte hasta resolverlo: saldría incompleto.` : 'Sin viajes en el rango seleccionado.'}</Text>
+                // Una lista vacía tiene varias causas MUY distintas y hasta ahora
+                // todas decían lo mismo. Cada una se nombra con lo que hay que
+                // hacer para arreglarla; si no, se lee como «ese día no se trabajó».
+                <Text style={{ color: rangoInvalido || rangeError ? colors.danger : colors.muted, fontWeight: rangoInvalido || rangeError || filtrosSobrantes.length > 0 ? '700' : '400' }}>
+                  {rangeError
+                    ? `⚠️ No se pudieron cargar los viajes (${motivoLegible(rangeError)}). NO exportes el reporte hasta resolverlo: saldría incompleto.`
+                    : rangoInvalido
+                      ? `⚠️ El rango está al revés: DESDE (${dmy(rangeBounds.desde)}) es posterior a HASTA (${dmy(rangeBounds.hasta)}). No se consultó nada — corrige las fechas.`
+                      : sinDiasMarcados
+                        ? 'No hay ningún día marcado. Toca «+ agregar día» y elige al menos uno.'
+                        : filtrosSobrantes.length > 0
+                          ? `Sin viajes: hay filtros marcados que no aparecen en este rango (${filtrosSobrantes.join(', ')}). Toca «✕ Limpiar filtros» o desmárcalos.`
+                          : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size > 0
+                            ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
+                            : 'Sin viajes en el rango seleccionado.'}
+                </Text>
               ) : reporteModo === 'resumen' ? (
                 // Lo mismo que va a salir en el PDF, en pantalla: total general,
                 // total por empresa y el desglose de sus camiones.
