@@ -38,7 +38,7 @@ import {
   InspByShiftEntry,
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
-import { resumirViajes, SIN_EMPRESA, claveCamion } from '../lib/viajesResumen';
+import { resumirViajes, SIN_EMPRESA, claveCamion, type EjeResumen } from '../lib/viajesResumen';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
@@ -695,6 +695,14 @@ export default function ViajesCamionesScreen() {
   // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
   // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje.
   const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen'>('detallado');
+  // Por cuál eje se parte el resumen (pedido del cliente 22-ago-2026: poder
+  // sacarlo también por listero). Va APARTE del modo a propósito: "detallado vs
+  // resumido" y "por empresa vs por listero" son dos preguntas distintas, y
+  // meterlas en un solo selector de tres opciones obligaría a repetir el eje en
+  // cada modo. Solo se muestra cuando el modo es 'resumen', igual que el
+  // "Agrupar por" del informe por jornada en ReportsScreen.
+  const [resumenEje, setResumenEje] = useState<EjeResumen>('empresa');
+  const porListero = resumenEje === 'listero';
   const toggleFilterListero = (id: string) => setFilterListeroSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleFilterTruck = (id: string) => setFilterTruckSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleFilterCompany = (id: string) => setFilterCompanySel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -799,8 +807,8 @@ export default function ViajesCamionesScreen() {
    * La cuenta vive en `src/lib/viajesResumen.ts` (función pura, con test propio).
    */
   const resumenViajes = useMemo(
-    () => resumirViajes(filteredRangeRows, (id) => truckById.get(id)),
-    [filteredRangeRows, truckById]
+    () => resumirViajes(filteredRangeRows, (id) => truckById.get(id), resumenEje),
+    [filteredRangeRows, truckById, resumenEje]
   );
 
   // Metas por camión (editable).
@@ -840,12 +848,18 @@ export default function ViajesCamionesScreen() {
       ].filter(Boolean).join(' · ');
 
       // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
-      //    empresa, con el total de cada empresa y el total general. Sin una
-      //    línea por viaje — es justo lo contrario del detallado.
+      //    empresa O POR LISTERO, con el total de cada grupo y el total general.
+      //    Sin una línea por viaje — es justo lo contrario del detallado.
+      //
+      //    El HTML es UNO SOLO para los dos ejes: lo único que cambia son los
+      //    rótulos. Si se partiera en dos plantillas, cualquier arreglo futuro
+      //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
+      const icoGrupo = porListero ? '👤' : '🏢';
+      const palabraGrupo = porListero ? 'listero(s)' : 'empresa(s)';
       const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.empresas.reduce((s, e) => s + e.camiones.length, 0)} camión(es) · ${resumenViajes.empresas.length} empresa(s)</p>
+        <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}</p>
         ${resumenViajes.empresas.map((e) => `
-          <h3>${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es)</h3>
+          <h3>${icoGrupo} ${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es)</h3>
           <table>
             <thead><tr><th>Camión</th><th>Placa / Serial</th><th style="text-align:right">Viajes</th></tr></thead>
             <tbody>
@@ -870,9 +884,16 @@ export default function ViajesCamionesScreen() {
           <tfoot><tr><td colspan="9">Total: ${filteredRangeRows.length} viajes</td></tr></tfoot>
         </table>`;
 
+      // El corte del rango es por DÍA DE CALENDARIO (medianoche a medianoche),
+      // no por jornada. Se dice en el subtítulo a propósito: una jornada de
+      // noche va de 7pm a 7am, así que sus viajes salen repartidos en dos días
+      // y quien lea el reporte tiene que saberlo antes de reclamar un faltante.
+      const corte = 'días completos (00:00 a 23:59), no por jornada';
       const html = pdfDocument({
-        title: reporteModo === 'resumen' ? 'Viajes de camiones · resumen por camión' : 'Viajes de camiones',
-        subtitle: `${dmy(rangeBounds.desde)} al ${dmy(rangeBounds.hasta)}${filtros ? ` · ${filtros}` : ''}`,
+        title: reporteModo === 'resumen'
+          ? (porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
+          : 'Viajes de camiones',
+        subtitle: `${dmy(rangeBounds.desde)} al ${dmy(rangeBounds.hasta)} · ${corte}${filtros ? ` · ${filtros}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
@@ -881,7 +902,11 @@ export default function ViajesCamionesScreen() {
           .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}`,
         body: reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
       });
-      await exportPdf(html, `Viajes de camiones ${reporteModo === 'resumen' ? 'resumen ' : ''}${todayISO}`);
+      // ⚠️ El nombre TIENE que decir por dónde se partió: dos PDF del mismo día
+      //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
+      //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
+      const sufijo = reporteModo === 'resumen' ? (porListero ? 'resumen por listero ' : 'resumen por camion ') : '';
+      await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
     } finally {
       setShareBusy(false);
     }
@@ -1423,6 +1448,31 @@ export default function ViajesCamionesScreen() {
                   );
                 })}
               </View>
+
+              {/* Eje del resumen. Solo tiene sentido en modo resumido: el
+                  detallado ya trae una columna "Listero" en cada línea. */}
+              {reporteModo === 'resumen' ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero']] as const).map(([key, label]) => {
+                      const on = resumenEje === key;
+                      return (
+                        <TouchableOpacity
+                          key={key}
+                          onPress={() => setResumenEje(key)}
+                          style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                    No saca ni agrega ningún viaje: solo cambia si el reporte viene partido por empresa o por quien registró. El total general es el mismo en los dos.
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={{ marginTop: spacing.sm }}>
@@ -1437,12 +1487,12 @@ export default function ViajesCamionesScreen() {
                 // total por empresa y el desglose de sus camiones.
                 <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
-                    TOTAL: {resumenViajes.total} viaje(s) · {resumenViajes.empresas.reduce((s, e) => s + e.camiones.length, 0)} camión(es)
+                    TOTAL: {resumenViajes.total} viaje(s) · {resumenViajes.totalCamiones} camión(es)
                   </Text>
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>🏢 {e.name}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porListero ? '👤' : '🏢'} {e.name}</Text>
                         <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{e.total} viaje(s)</Text>
                       </View>
                       {e.camiones.map((c, i) => (
