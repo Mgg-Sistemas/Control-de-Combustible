@@ -18,8 +18,8 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { InventoryRequirement, RequirementLine, InventoryLevel, Company, Supplier } from '../types/database';
-import { exportPdf } from '../lib/pdf';
-import { pickAndUploadRequirementFile } from '../lib/photo';
+import { exportPdf, urlToDataUri } from '../lib/pdf';
+import { pickAndUploadRequirementFile, captureAndUploadPhoto } from '../lib/photo';
 import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { spacing, radius } from '../theme';
@@ -38,7 +38,7 @@ function Pill({ label, color }: { label: string; color: string }) {
   );
 }
 
-type ReqRow = { key: string; product_id: string | null; name: string; unit: string; qty: string; price: string; currency: 'USD' | 'VES'; note: string };
+type ReqRow = { key: string; product_id: string | null; name: string; unit: string; qty: string; price: string; currency: 'USD' | 'VES'; note: string; image_url: string };
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
   pendiente: { label: '⏳ Pendiente por aprobación del Gerente General', color: '#D97706', short: 'Pendiente' },
   aprobado: { label: '✅ Aprobado', color: '#2563EB', short: 'Aprobado' },
@@ -102,6 +102,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // Formato (imagen/PDF) adjuntado AL CREAR/EDITAR el requerimiento (antes de guardar).
   const [formato, setFormato] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
   const [subiendoNuevo, setSubiendoNuevo] = useState(false);
+  const [subiendoImgKey, setSubiendoImgKey] = useState<string | null>(null); // imagen de producto subiéndose
 
   // Recibir en inventario
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
@@ -112,13 +113,27 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   let seq = 0;
   const newKey = () => `${Date.now()}-${seq++}-${rows.length}`;
-  const addBlank = () => setRows((r) => [...r, { key: newKey(), product_id: null, name: '', unit: '', qty: '1', price: '0', currency: 'USD', note: '' }]);
+  const addBlank = () => setRows((r) => [...r, { key: newKey(), product_id: null, name: '', unit: '', qty: '1', price: '0', currency: 'USD', note: '', image_url: '' }]);
   const addFromProduct = (it: InventoryLevel) => {
-    setRows((r) => [...r, { key: newKey(), product_id: it.id, name: it.name, unit: it.unit || '', qty: '1', price: String(Number(it.avg_cost) || 0), currency: 'USD', note: '' }]);
+    setRows((r) => [...r, { key: newKey(), product_id: it.id, name: it.name, unit: it.unit || '', qty: '1', price: String(Number(it.avg_cost) || 0), currency: 'USD', note: '', image_url: '' }]);
     setPickOpen(false); setQ('');
   };
   const upd = (key: string, field: keyof ReqRow, val: string) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
+
+  // Sube una IMAGEN de referencia de un producto (toma foto o elige de galería) y la
+  // deja en esa fila. Se guarda dentro del ítem (JSON) al enviar el requerimiento y
+  // sale en el PDF junto a la descripción del producto.
+  const subirImagenProducto = async (key: string) => {
+    setSubiendoImgKey(key);
+    try {
+      const res = await captureAndUploadPhoto('requerimientos', 'productos');
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      upd(key, 'image_url', res.url!);
+    } finally {
+      setSubiendoImgKey(null);
+    }
+  };
 
   const nq = norm(q);
   const productos = levels.filter((it) => !nq || norm(it.name).includes(nq) || norm(it.sku ?? '').includes(nq)).slice(0, 25);
@@ -148,6 +163,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => ({
       product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
       qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
+      image_url: x.image_url || null,
     }));
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
     setBusy(true);
@@ -211,6 +227,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setRows(r.items.map((it) => ({
       key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
       qty: String(it.qty), price: String(it.est_price ?? 0), currency: (it.currency as 'USD' | 'VES') || 'USD', note: it.note ?? '',
+      image_url: it.image_url ?? '',
     })));
     setFormErr(null);
     setCreateOpen(true);
@@ -390,13 +407,23 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const totalUsdDe = (r: InventoryRequirement) => r.items.reduce((s, it) => s + (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0), 0);
 
+  // Convierte los ítems al formato del PDF, incrustando la imagen de cada producto
+  // como data-URI (para que salga SÍ o SÍ en el PDF, sin depender de CORS ni de que
+  // la imagen cargue a tiempo al imprimir). En nativo urlToDataUri devuelve null →
+  // se usa la URL directa (expo-print sí carga imágenes remotas).
+  const itemsToPdf = (r: InventoryRequirement) => Promise.all(r.items.map(async (it) => ({
+    name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency,
+    isNew: !it.product_id, note: it.note,
+    image: it.image_url ? ((await urlToDataUri(it.image_url)) || it.image_url) : null,
+  })));
+
   const pdf = async (r: InventoryRequirement) => {
     try {
       await exportPdf(requerimientoHtml({
         code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
         company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
         approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
-        items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
+        items: await itemsToPdf(r),
       }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
     } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
   };
@@ -478,24 +505,24 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           });
         const allSel = filteredReqs.length > 0 && filteredReqs.every((r) => reqSelIds.has(r.id));
         const selectedOrFiltered = () => reqSelIds.size ? filteredReqs.filter((r) => reqSelIds.has(r.id)) : filteredReqs;
-        const toReqPdfData = (r: (typeof filteredReqs)[number]): ReqPdfData => ({
+        const toReqPdfData = async (r: (typeof filteredReqs)[number]): Promise<ReqPdfData> => ({
           code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
           company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
           approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
-          items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
+          items: await itemsToPdf(r),
         });
         const pdfMultiple = async () => {
           const base = selectedOrFiltered();
           if (base.length === 0) return;
           try {
-            await exportPdf(requerimientosBulkHtml(base.map(toReqPdfData)), `Requerimientos ${dmyOf(new Date().toISOString())}`);
+            await exportPdf(requerimientosBulkHtml(await Promise.all(base.map(toReqPdfData))), `Requerimientos ${dmyOf(new Date().toISOString())}`);
           } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
         };
         const pdfResumen = async () => {
           const base = selectedOrFiltered();
           if (base.length === 0) return;
           try {
-            await exportPdf(requerimientosResumenHtml(base.map(toReqPdfData)), `Resumen requerimientos ${dmyOf(new Date().toISOString())}`);
+            await exportPdf(requerimientosResumenHtml(await Promise.all(base.map(toReqPdfData))), `Resumen requerimientos ${dmyOf(new Date().toISOString())}`);
           } catch (e: any) { toast.error('No se pudo generar el resumen: ' + (e?.message ?? e)); }
         };
         return filteredReqs.length === 0 ? (
@@ -573,11 +600,12 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             detail={
               <View>
                 {r.items.map((it, i) => (
-                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 3, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.name} {it.product_id ? '' : <Text style={{ color: colors.success, fontSize: 11 }}>· NUEVO</Text>}</Text>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>{qtyFmt(it.qty)} {it.unit || ''} · {it.currency === 'USD' ? usd(it.est_price) : fmtBs(it.est_price)} c/u</Text>
                     </View>
+                    {it.image_url ? <Image source={{ uri: it.image_url }} style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} /> : null}
                   </View>
                 ))}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
@@ -759,6 +787,22 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   </View>
                   {parseNum(x.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
+                  {/* Imagen de referencia del producto: sale en el PDF junto a su descripción. */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+                    {x.image_url ? (
+                      <Image source={{ uri: x.image_url }} style={{ width: 52, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} />
+                    ) : (
+                      <View style={{ width: 52, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 22 }}>📷</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity onPress={() => subirImagenProducto(x.key)} disabled={subiendoImgKey === x.key} style={{ flex: 1, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoImgKey === x.key ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>{subiendoImgKey === x.key ? '⏳ Subiendo…' : x.image_url ? '🖼️ Cambiar imagen' : '🖼️ Imagen del producto'}</Text>
+                    </TouchableOpacity>
+                    {x.image_url ? (
+                      <TouchableOpacity onPress={() => upd(x.key, 'image_url', '')}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
+                    ) : null}
+                  </View>
                 </Card>
               );
             })}
