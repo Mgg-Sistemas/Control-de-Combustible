@@ -465,9 +465,8 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   las demás empresas), cada una con su **ubicación real** (referencia + sector Este/Oeste y subzona
   por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado** (Operativo / Inoperativo / En espera). Las
   máquinas **sin ubicación cargada** salen como **"Desplegadas por todo el territorio de La Guaira"**.
-  **Arriba** trae la cantidad de maquinaria por empresa y los **equipos por zona** (cuántos en el
-  **ESTE** y cuántos en el **OESTE**, solo totales). Incluye una sección con las **camionetas pick-up**
-  del módulo de **Vehículos** a disposición de SOS La Guaira, y deja **campos en blanco para llenar a mano**.
+  **Arriba** trae la cantidad de maquinaria por empresa; cierra con un **conteo por clasificación**.
+  El reporte va **100% por empresa** (ya **no** trae los resúmenes por zona Este/Oeste).
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
   **SOS La Guaira** (no en los de CVM / Gobernación / FANB): a cada máquina le asigna **2 operadores**
