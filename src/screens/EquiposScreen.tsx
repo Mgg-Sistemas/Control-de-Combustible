@@ -1378,14 +1378,23 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     // "separar por empresa" (pedido del cliente 17-ago-2026): antes este resumen era
     // siempre global, así que al entregarle su hoja a cada empresa el conteo por tipo
     // que veía era el de TODAS mezcladas.
+    // Zona del equipo: ubicación de despliegue (campo `sector`: "oeste"→Oeste, cualquier
+    // otra base→Este); si no hay, el GPS; y si tampoco, por defecto ESTE (todas las bases
+    // son del Este salvo "Oeste"). Así NINGUNA queda "sin ubicar": todas cuentan en Este u
+    // Oeste. Mismo criterio que el reporte de Ubicaciones tácticas.
+    const macroConteo = (m: any): 'ESTE' | 'OESTE' => {
+      const s = ((m as any).sector && String((m as any).sector).trim().toLowerCase()) || '';
+      if (s === 'oeste') return 'OESTE';
+      if (s) return 'ESTE';
+      return sectorMacro(sectorOf((m as any).latitude, (m as any).longitude)) ?? 'ESTE';
+    };
     const tipoStats = (items: Machinery[]) => {
       const porTipo = new Map<string, { total: number; este: number; oeste: number; su: number }>();
       items.forEach((m) => {
         const k = repTipoLabel(m);
         const e = porTipo.get(k) ?? { total: 0, este: 0, oeste: 0, su: 0 };
         e.total += 1;
-        const macro = sectorMacro(sectorOf((m as any).latitude, (m as any).longitude));
-        if (macro === 'OESTE') e.oeste += 1; else if (macro === 'ESTE') e.este += 1; else e.su += 1;
+        if (macroConteo(m) === 'OESTE') e.oeste += 1; else e.este += 1;
         porTipo.set(k, e);
       });
       const tot = { este: 0, oeste: 0, su: 0 };
