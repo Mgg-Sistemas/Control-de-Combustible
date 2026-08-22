@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Factura Proforma — Minería Carabobo</title>
+<style>
+  :root{
+    --tinta:#111;
+    --gris:#555;
+    --linea:#c99a63;
+    --naranja:#F6A623;        /* encabezado NARANJA de la tabla */
+    --naranja-borde:#D98A15;
+    --naranja-oscuro:#B45309; /* acentos: título, totales */
+    --naranja-suave:#FDEFD8;  /* filas alternas y fondo de etiquetas de total */
+    --rojo:#b42318;
+    --papel:#fff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#525659;color:var(--tinta);
+    font-family:Arial,Helvetica,"Segoe UI",sans-serif;font-size:13px;line-height:1.35}
+
+  /* Barra de acciones (NO se imprime) */
+  .toolbar{position:sticky;top:0;z-index:10;background:#9A3412;color:#fff;
+    display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 16px;
+    box-shadow:0 2px 8px rgba(0,0,0,.3)}
+  .toolbar b{font-size:14px;margin-right:6px}
+  .toolbar .hint{color:#fde3c8;font-size:12px}
+  .btn{cursor:pointer;border:0;border-radius:8px;font-weight:800;font-size:13px;
+    padding:8px 14px}
+  .btn.print{background:#fff;color:#9A3412}
+  .btn.add{background:#EA580C;color:#fff}
+  .btn.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6)}
+
+  /* Hoja A4 */
+  .hoja{background:var(--papel);width:21cm;min-height:29.7cm;margin:18px auto;
+    padding:1.6cm 1.7cm;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+
+  /* Editable: un leve resaltado al pasar el mouse para saber qué se puede tocar */
+  [contenteditable]{outline:none;border-radius:3px}
+  [contenteditable]:hover{background:#fdf6d8}
+  [contenteditable]:focus{background:#fff7c2;box-shadow:0 0 0 1px #e3c93b}
+
+  /* Encabezado */
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .marca{display:flex;gap:14px;align-items:center}
+  .logo{width:84px;height:84px;border-radius:50%;flex:0 0 auto;
+    border:2px solid var(--naranja-borde);overflow:hidden;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 35%, #fff3e0, #fff);position:relative}
+  .logo svg{width:100%;height:100%}
+  .logo img{width:100%;height:100%;object-fit:contain}
+  .marca .rif{font-size:10px;color:var(--gris);letter-spacing:.5px}
+  .fecha{font-size:13px;text-align:right;white-space:nowrap;margin-top:8px}
+
+  .dest{margin-top:20px}
+  .dest .lbl{color:var(--gris)}
+  h1.tit{text-align:center;font-size:16px;letter-spacing:.5px;margin:14px 0 12px;
+    text-decoration:underline;color:var(--naranja-oscuro)}
+  .cuerpo{text-align:justify;margin:0 0 12px}
+  .cuerpo b{font-weight:700}
+
+  /* Tabla */
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px}
+  th,td{border:1px solid var(--linea);padding:6px 8px;vertical-align:middle}
+  thead th{background:var(--naranja);border-color:var(--naranja-borde);
+    color:#5a2e00;font-weight:800;text-align:center;font-size:11.5px;letter-spacing:.3px}
+  td.maq{width:52%}
+  td.c{text-align:center}
+  td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.monto{font-weight:700}
+  tbody tr:nth-child(even) td{background:var(--naranja-suave)}
+  .tot-lbl{text-align:left;font-weight:800;background:var(--naranja-suave)}
+  .tot-val{text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+  tr.total-fila .tot-lbl{background:var(--naranja);color:#5a2e00}
+  tr.total-fila .tot-val{color:var(--naranja-oscuro);font-size:13px}
+  .del{color:var(--rojo);cursor:pointer;font-weight:900;user-select:none;
+    display:inline-block;width:18px;text-align:center}
+
+  /* Cierre + firma */
+  .cierre{margin-top:16px}
+  .firma{margin-top:34px;text-align:center}
+  .firma .linea{display:inline-block;border-top:1px solid #222;padding-top:4px;min-width:260px;
+    font-weight:800}
+  .firma .cargo{font-size:12px}
+  .pie{margin-top:26px;text-align:center;font-size:11px;color:#222;font-weight:700}
+
+  @media print{
+    html,body{background:#fff}
+    .toolbar{display:none !important}
+    .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+    [contenteditable]:hover,[contenteditable]:focus{background:transparent;box-shadow:none}
+    .del{display:none !important}
+    @page{size:A4;margin:1.4cm}
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <b>Factura Proforma</b>
+    <button class="btn print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+    <button class="btn add" onclick="addRow()">➕ Agregar máquina</button>
+    <button class="btn ghost" onclick="recalc()">🔄 Recalcular</button>
+    <span class="hint">Toca cualquier texto para editarlo. El Monto, Subtotal, IVA y Total se calculan solos (Monto = Horas × Tabulador). Horas en formato H:MM:SS.</span>
+  </div>
+
+  <div class="hoja">
+    <!-- ── Encabezado ─────────────────────────────────────────────── -->
+    <div class="top">
+      <div class="marca">
+        <div class="logo" title="El logo sale de docs/logo.png (o .jpg/.jpeg/.svg/.webp)">
+          <!-- LOGO AUTOMÁTICO: deja tu archivo en docs/ con el nombre logo.png (o
+               logo.jpg / logo.jpeg / logo.svg / logo.webp) y aparece aquí solo.
+               Si no hay archivo, se muestra el emblema de respaldo de abajo. -->
+          <img id="logoImg" alt="Logo" style="display:none"/>
+          <svg id="logoFallback" viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="48" fill="#fff" stroke="#D98A15" stroke-width="2"/>
+            <polygon points="50,30 70,66 30,66" fill="#EA580C"/>
+            <polygon points="50,42 62,66 38,66" fill="#F6A623"/>
+            <text x="50" y="86" text-anchor="middle" font-size="9" font-weight="bold" fill="#9A3412">MINERÍA CARABOBO</text>
+          </svg>
+        </div>
+        <div>
+          <div style="font-weight:800;font-size:15px" contenteditable>MINERÍA CARABOBO, C.A</div>
+          <div class="rif" contenteditable>RIF: J-500152833</div>
+        </div>
+      </div>
+      <div class="fecha" contenteditable>Puerto Ordaz, 01 de Julio del año 2026</div>
+    </div>
+
+    <!-- ── Destinatario ───────────────────────────────────────────── -->
+    <div class="dest">
+      <div><span class="lbl">Señores:</span> <b contenteditable>Corporación Venezolana de Minería S.A (C.V.M)</b></div>
+      <div contenteditable>PARQUE INDUSTRIAL MINERO III "CHOCÓ - ISIDORA"</div>
+      <div contenteditable>División de administración y finanzas · Coordinación de Compras</div>
+      <div contenteditable>Su Despacho</div>
+    </div>
+
+    <h1 class="tit" contenteditable>FACTURA PROFORMA</h1>
+
+    <p class="cuerpo">
+      Quien suscribe, <b contenteditable>Sr. RONNY GEOVANNY JOSE IZAGUIRRE GITTINS</b>, Cédula de Identidad
+      <b contenteditable>V-15.371.976</b>, mayor de edad y de este domicilio, actuando en mi condición de Director y
+      Accionista de la empresa <b contenteditable>MINERÍA CARABOBO C.A RIF J-500152833</b>, Registro Mercantil
+      Primero del Estado Bolívar <b contenteditable>Tomo: 2-A Número: 254 de Fecha: 20 de Febrero de 2020</b>.
+      Debidamente autorizado acudo ante usted en la oportunidad de consignar la <b>Factura Proforma</b>
+      <b contenteditable>mes de JUNIO del año 2026</b> por concepto de arrendamiento de equipos según detalle:
+    </p>
+
+    <!-- ── Tabla de máquinas ──────────────────────────────────────── -->
+    <table id="tabla">
+      <thead>
+        <tr>
+          <th>MÁQUINAS ACARREO</th>
+          <th style="width:15%">TOTAL HORAS</th>
+          <th style="width:15%">TABULADOR HORA</th>
+          <th style="width:18%">TOTAL MONTO</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"><!-- filas generadas por JS desde DATA --></tbody>
+      <tfoot>
+        <tr>
+          <td class="r tot-lbl" colspan="3">SUB TOTAL</td>
+          <td class="tot-val" id="sub">$0,00</td>
+        </tr>
+        <tr>
+          <td class="r tot-lbl" colspan="3">IVA 16%</td>
+          <td class="tot-val" id="iva">$0,00</td>
+        </tr>
+        <tr class="total-fila">
+          <td class="r tot-lbl" colspan="3">TOTAL FACT</td>
+          <td class="tot-val" id="tot">$0,00</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <!-- ── Cierre + firma ─────────────────────────────────────────── -->
+    <p class="cierre" contenteditable>
+      Me despido muy respetuosamente y esperando que la información cumpla con las
+      ordenanzas dispuestas para tal fin.
+    </p>
+
+    <div class="firma">
+      <div class="linea" contenteditable>Ronny Izaguirre Gittins</div>
+      <div class="cargo" contenteditable>Director</div>
+      <div class="cargo" contenteditable>Email: mineriacarabobo@gmail.com</div>
+    </div>
+
+    <div class="pie" contenteditable>
+      Dirección Fiscal: Av. Principal C.C Villa Alianza Nivel II Local 67, Puerto Ordaz, Estado
+      Bolívar, Zona Postal 8050 · Tel +58 4148724776
+    </div>
+  </div>
+
+<script>
+  // Datos iniciales tomados del PDF (docs/Fact0153_MineraCbbo.pdf). Edita, agrega o
+  // borra filas a gusto: el Monto = Horas × Tabulador, y Subtotal / IVA / Total se
+  // recalculan solos. Las horas van en formato H:MM:SS (también acepta decimal, ej. 470.08).
+  var DATA = [
+    ["CAMION ROQUERO ARTICULADO CATERPILLAR / 730 #8 AC03", "470:05:00", "75,00"],
+    ["CAMION ROQUERO ARTICULADO CATERPILLAR / 735 #3 AC04", "431:37:00", "75,00"],
+    ["EXCAVADORA CATERPILLAR / 345BL AC12", "157:44:00", "100,00"],
+    ["CAMION ROQUERO ARTICULADO CATERPILLAR / 735 #3 AC05", "315:20:00", "75,00"],
+    ["CAMION ROQUERO ARTICULADO CATERPILLAR / 730 #7 AC02", "398:21:00", "75,00"],
+    ["EXCAVADORA CATERPILLAR / 345 AC11", "81:28:00", "100,00"],
+    ["EXCAVADORA CATERPILLAR / 330 #2 AC08", "104:00:00", "87,50"],
+    ["CAMION ROQUERO ARTICULADO CATERPILLAR / 730 #10 AC01", "383:20:00", "75,00"],
+    ["EXCAVADOR CATERPILLAR / 336D AC09", "123:10:00", "100,00"],
+    ["CAMION ROQUERO ARTICULADO CATERPILLAR / D 300 AC07", "13:10:00", "75,00"],
+    ["PAYLODER CATERPILLAR / 980G AC14", "186:45:00", "83,33"]
+  ];
+
+  var IVA = 0.16;
+
+  // "470:05:00" -> 470.0833 ; "470,08" o "470.08" -> 470.08
+  function parseHoras(txt){
+    txt = String(txt || "").trim();
+    if(txt.indexOf(":") >= 0){
+      var p = txt.split(":");
+      var h = parseFloat(p[0]) || 0;
+      var m = parseFloat(p[1]) || 0;
+      var s = parseFloat(p[2]) || 0;
+      return h + m/60 + s/3600;
+    }
+    return parseFloat(txt.replace(/\./g,"").replace(",",".")) || 0;
+  }
+  // "75,00" / "1.234,56" / "75" -> número
+  function parseNum(txt){
+    txt = String(txt || "").replace(/\s/g,"");
+    if(txt.indexOf(",") >= 0) txt = txt.replace(/\./g,"").replace(",",".");
+    return parseFloat(txt) || 0;
+  }
+  function fmt(n){
+    return (Math.round((Number(n)||0)*100)/100).toLocaleString("es-VE",
+      {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  function rowHtml(maq, horas, tab){
+    return '<tr>' +
+      '<td class="maq"><span class="del" title="Quitar fila" onclick="delRow(this)">✕</span> ' +
+        '<span contenteditable>' + maq + '</span></td>' +
+      '<td class="c horas" contenteditable>' + horas + '</td>' +
+      '<td class="r tab" contenteditable>' + tab + '</td>' +
+      '<td class="r monto">$0,00</td>' +
+    '</tr>';
+  }
+
+  function render(){
+    document.getElementById("tbody").innerHTML = DATA.map(function(d){
+      return rowHtml(d[0], d[1], d[2]);
+    }).join("");
+    recalc();
+  }
+
+  function recalc(){
+    var sub = 0;
+    document.querySelectorAll("#tbody tr").forEach(function(tr){
+      var h = parseHoras(tr.querySelector(".horas").textContent);
+      var t = parseNum(tr.querySelector(".tab").textContent);
+      var monto = h * t;
+      tr.querySelector(".monto").textContent = "$" + fmt(monto);
+      sub += monto;
+    });
+    var iva = sub * IVA;
+    document.getElementById("sub").textContent = "$" + fmt(sub);
+    document.getElementById("iva").textContent = "$" + fmt(iva);
+    document.getElementById("tot").textContent = "$" + fmt(sub + iva);
+  }
+
+  function addRow(){
+    var tb = document.getElementById("tbody");
+    tb.insertAdjacentHTML("beforeend", rowHtml("NUEVA MÁQUINA / EQUIPO", "0:00:00", "0,00"));
+    recalc();
+  }
+  function delRow(el){
+    var tr = el.closest("tr");
+    if(tr) tr.remove();
+    recalc();
+  }
+
+  // Recalcular en vivo mientras se edita Horas o Tabulador.
+  document.addEventListener("input", function(e){
+    if(e.target.closest && e.target.closest("#tbody")) recalc();
+  });
+
+  // LOGO automático: prueba logo.png, .jpg, .jpeg, .svg, .webp en la MISMA carpeta.
+  // El primero que exista se muestra; si ninguno existe, queda el emblema de respaldo.
+  (function cargarLogo(){
+    var cands = ["logo.jpg","logo.png","logo.jpeg","logo.svg","logo.webp","LOGO.jpg","LOGO.png"];
+    var img = document.getElementById("logoImg");
+    var fb = document.getElementById("logoFallback");
+    var i = 0;
+    function siguiente(){
+      if(i >= cands.length){ img.style.display="none"; fb.style.display=""; return; }
+      img.onload = function(){ img.style.display=""; fb.style.display="none"; };
+      img.onerror = function(){ i++; siguiente(); };
+      img.src = cands[i];
+    }
+    siguiente();
+  })();
+
+  render();
+</script>
+</body>
+</html>
