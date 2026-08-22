@@ -1,0 +1,13 @@
+-- Sincronización EN VIVO de roles dinámicos (app_roles).
+--
+-- Síntoma: al editar los módulos de un rol en "Roles del sistema" (p. ej. agregarle
+-- acceso a un módulo al rol "Almacenista"), el cambio NO llegaba a los usuarios que
+-- tenían ese rol hasta cerrar sesión y volver a entrar.
+--
+-- Causa: `AuthContext` se suscribe por realtime a `app_roles` (filtro id=eq.<rol>),
+-- pero la tabla NO estaba en la publicación `supabase_realtime`, así que el evento
+-- de UPDATE nunca se emitía. (`module_permissions` y `profiles` sí estaban.)
+--
+-- Arreglo: agregar `app_roles` a la publicación. La RLS de SELECT ya es USING (true),
+-- por lo que el usuario afectado recibe el evento; la escritura sigue solo para admin.
+alter publication supabase_realtime add table public.app_roles;

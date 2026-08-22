@@ -1,0 +1,2704 @@
+-- ============================================================================
+-- Control de Combustible — Esquema de base de datos (Supabase / PostgreSQL)
+-- ----------------------------------------------------------------------------
+-- Ejecutar en: Supabase Studio > SQL Editor (o `supabase db push`).
+-- Incluye: enums, tablas de dominio, ledger de movimientos de stock,
+-- vista de niveles de tanque, triggers de stock y políticas RLS por rol.
+--
+-- NO incluye el módulo de Fabricación (MRP): sus tablas viven en archivos SQL
+-- aparte dentro de `supabase/`, que se ejecutan por separado (además de este
+-- schema.sql), en orden — ver cada archivo:
+--   - fabricacion_maestros.sql      (centros de trabajo, recetas/BoM, rutas)
+--   - hose_services.sql             (mangueras hidráulicas, Fase 1)
+--   - fabricacion_ordenes.sql       (órdenes de fabricación y de trabajo)
+--   - fabricacion_calidad_oee.sql   (control de calidad, OEE y costeo)
+-- Para reconstruir la base desde cero hay que correr TODOS estos archivos,
+-- no solo este schema.sql.
+-- ============================================================================
+
+-- ---------- Extensiones ----------
+create extension if not exists "uuid-ossp";
+
+-- ============================================================================
+-- ENUMS
+-- ============================================================================
+do $$ begin
+  create type user_role as enum ('admin', 'supervisor', 'analista', 'operador', 'conductor');
+exception when duplicate_object then null; end $$;
+-- 'analista' y 'cocina' se agregaron después: por si el enum ya existía.
+alter type user_role add value if not exists 'analista';
+alter type user_role add value if not exists 'cocina';
+
+do $$ begin
+  create type fuel_type as enum ('gasolina', 'diesel');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type authorization_status as enum ('pendiente', 'aprobado', 'rechazado');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type asset_kind as enum ('vehiculo', 'maquinaria');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type movement_type as enum ('ingreso', 'consumo', 'traslado_salida', 'traslado_entrada', 'ajuste');
+exception when duplicate_object then null; end $$;
+
+-- ============================================================================
+-- PERFILES Y ROLES  (1:1 con auth.users)
+-- ============================================================================
+create table if not exists public.profiles (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  full_name   text,
+  role        user_role not null default 'conductor',
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+-- Helper: rol del usuario autenticado
+create or replace function public.current_role()
+returns user_role
+language sql stable security definer set search_path = public as $$
+  select role from public.profiles where id = auth.uid()
+$$;
+
+create or replace function public.is_staff()
+returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.current_role() in ('admin','supervisor','operador'), false)
+$$;
+
+create or replace function public.is_admin()
+returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.current_role() = 'admin', false)
+$$;
+
+-- ¿el usuario actual puede ESCRIBIR en el módulo dado? Alinea la seguridad de la
+-- BD con los permisos por módulo de la UI: admin siempre; si el usuario tiene una
+-- fila de permiso, su nivel debe ser 'escritura'/'full'; sin fila = permitido
+-- (igual que la UI, cuyo nivel por defecto de los módulos operativos es 'escritura').
+-- Así un usuario con FULL CONTROL puede operar aunque su rol no sea staff.
+-- plpgsql (no sql) para que la referencia a module_permissions se resuelva en
+-- tiempo de ejecución: así el esquema se instala desde cero aunque esa tabla se
+-- cree más abajo.
+create or replace function public.can_write_module(mod text)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare lvl text;
+begin
+  if public.is_anon() then return false; end if; -- anónimos nunca escriben por módulos
+  if public.is_admin() then return true; end if;
+  select mp.level into lvl from public.module_permissions mp
+    where mp.user_id = auth.uid() and mp.module = mod limit 1;
+  if lvl is null then return true; end if; -- sin fila = por defecto escritura (usuarios logueados)
+  return lvl in ('escritura','full');
+end;
+$$;
+
+-- Crear perfil automáticamente al registrarse
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- No crear perfil para usuarios ANÓNIMOS (los que solo escanean el QR). El
+  -- perfil del operador se crea al iniciar jornada (set_self_operator).
+  if coalesce(new.is_anonymous, false) then
+    return new;
+  end if;
+  insert into public.profiles (id, full_name)
+  values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.email))
+  on conflict (id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- ============================================================================
+-- TANQUES
+-- ============================================================================
+create table if not exists public.tanks (
+  id          uuid primary key default uuid_generate_v4(),
+  name        text not null,
+  location    text,
+  fuel        fuel_type not null,
+  capacity_l  numeric(12,2) not null check (capacity_l > 0),
+  is_mobile   boolean not null default false,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+-- ============================================================================
+-- VEHÍCULOS
+-- ============================================================================
+create table if not exists public.vehicles (
+  id            uuid primary key default uuid_generate_v4(),
+  plate         text not null unique,
+  brand         text,
+  model         text,
+  vehicle_type  text,
+  tank_capacity_l numeric(10,2),
+  expected_kml  numeric(10,2),         -- rendimiento esperado km/L
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+
+-- ============================================================================
+-- MAQUINARIA
+-- ============================================================================
+create table if not exists public.machinery (
+  id            uuid primary key default uuid_generate_v4(),
+  code          text not null, -- el NOMBRE puede repetirse (varias "Volteos"); la unicidad va por serial/placa
+  description   text,
+  machinery_type text,
+  expected_lph  numeric(10,2),         -- rendimiento esperado L/h
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+
+-- ============================================================================
+-- AUTORIZACIONES
+-- ============================================================================
+create table if not exists public.authorizations (
+  id             uuid primary key default uuid_generate_v4(),
+  requested_by   uuid references public.profiles(id),
+  asset_kind     asset_kind not null,
+  vehicle_id     uuid references public.vehicles(id),
+  machinery_id   uuid references public.machinery(id),
+  tank_id        uuid references public.tanks(id),
+  liters         numeric(12,2) not null check (liters > 0),
+  reason         text,
+  status         authorization_status not null default 'pendiente',
+  approved_by    uuid references public.profiles(id),
+  resolved_at    timestamptz,
+  created_at     timestamptz not null default now(),
+  check ( (asset_kind = 'vehiculo' and vehicle_id is not null)
+       or (asset_kind = 'maquinaria' and machinery_id is not null) )
+);
+
+-- ============================================================================
+-- INGRESOS DE COMBUSTIBLE (recepción / compra)
+-- ============================================================================
+create table if not exists public.fuel_intakes (
+  id            uuid primary key default uuid_generate_v4(),
+  intake_date   date not null default current_date,
+  supplier      text,
+  fuel          fuel_type not null,
+  liters        numeric(12,2) not null check (liters > 0),
+  unit_cost     numeric(12,4),
+  total_cost    numeric(14,2),
+  tank_id       uuid not null references public.tanks(id),
+  invoice_no    text,
+  created_by    uuid references public.profiles(id),
+  created_at    timestamptz not null default now()
+);
+
+-- ============================================================================
+-- CONSUMOS / DESPACHOS
+-- ============================================================================
+create table if not exists public.dispatches (
+  id               uuid primary key default uuid_generate_v4(),
+  dispatch_date    date not null default current_date,
+  asset_kind       asset_kind not null,
+  vehicle_id       uuid references public.vehicles(id),
+  machinery_id     uuid references public.machinery(id),
+  liters           numeric(12,2) not null check (liters > 0),
+  odometer_km      numeric(12,2),
+  hourmeter_h      numeric(12,2),
+  driver_operator  text,
+  -- Tanque OPCIONAL: si es null, es carga DIRECTA de la bomba (solo litros, no descuenta stock).
+  tank_id          uuid references public.tanks(id),
+  authorization_id uuid references public.authorizations(id),
+  created_by       uuid references public.profiles(id),
+  created_at       timestamptz not null default now(),
+  check ( (asset_kind = 'vehiculo' and vehicle_id is not null)
+       or (asset_kind = 'maquinaria' and machinery_id is not null) )
+);
+
+-- ============================================================================
+-- TRASLADOS DE COMBUSTIBLE (tanque origen -> tanque destino)
+-- ============================================================================
+create table if not exists public.transfers (
+  id              uuid primary key default uuid_generate_v4(),
+  transfer_date   date not null default current_date,
+  from_tank_id    uuid not null references public.tanks(id),
+  to_tank_id      uuid not null references public.tanks(id),
+  liters          numeric(12,2) not null check (liters > 0),
+  notes           text,
+  created_by      uuid references public.profiles(id),
+  created_at      timestamptz not null default now(),
+  check (from_tank_id <> to_tank_id)
+);
+
+-- ============================================================================
+-- LEDGER DE MOVIMIENTOS DE STOCK  (fuente de verdad del nivel de tanque)
+-- ============================================================================
+create table if not exists public.stock_movements (
+  id             uuid primary key default uuid_generate_v4(),
+  tank_id        uuid not null references public.tanks(id),
+  movement       movement_type not null,
+  liters         numeric(12,2) not null,   -- +entra / -sale
+  source_table   text not null,
+  source_id      uuid not null,
+  created_at     timestamptz not null default now()
+);
+create index if not exists idx_stock_movements_tank on public.stock_movements(tank_id);
+
+-- Nivel actual por tanque (derivado)
+create or replace view public.tank_levels as
+select
+  t.id,
+  t.name,
+  t.fuel,
+  t.capacity_l,
+  coalesce(sum(m.liters), 0)::numeric(12,2)                    as current_l,
+  round(coalesce(sum(m.liters),0) / nullif(t.capacity_l,0) * 100, 1) as pct
+from public.tanks t
+left join public.stock_movements m on m.tank_id = t.id
+group by t.id;
+
+-- ---------- Triggers que alimentan el ledger ----------
+-- Manejan INSERT/UPDATE/DELETE: al editar o borrar un movimiento se
+-- recalculan los stock_movements para mantener el stock sincronizado.
+create or replace function public.mv_intake() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='fuel_intakes' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+    values (NEW.tank_id, 'ingreso', NEW.liters, 'fuel_intakes', NEW.id);
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_mv_intake on public.fuel_intakes;
+create trigger trg_mv_intake after insert or update or delete on public.fuel_intakes
+  for each row execute function public.mv_intake();
+
+create or replace function public.mv_dispatch() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare available numeric;
+begin
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='dispatches' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    -- Solo descuenta stock si el surtido viene de un TANQUE. Si tank_id es null, es
+    -- carga DIRECTA de bomba: solo se registran los litros, no se toca ningún tanque.
+    if NEW.tank_id is not null then
+      select current_l into available from tank_levels where id = NEW.tank_id;
+      if coalesce(available,0) < NEW.liters then
+        raise exception 'Stock insuficiente en el tanque (disponible %, solicitado %)', available, NEW.liters;
+      end if;
+      insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+      values (NEW.tank_id, 'consumo', -NEW.liters, 'dispatches', NEW.id);
+    end if;
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_mv_dispatch on public.dispatches;
+create trigger trg_mv_dispatch after insert or update or delete on public.dispatches
+  for each row execute function public.mv_dispatch();
+
+create or replace function public.mv_transfer() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare available numeric;
+begin
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='transfers' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    select current_l into available from tank_levels where id = NEW.from_tank_id;
+    if coalesce(available,0) < NEW.liters then
+      raise exception 'Stock insuficiente en el tanque origen (disponible %, solicitado %)', available, NEW.liters;
+    end if;
+    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+    values (NEW.from_tank_id, 'traslado_salida', -NEW.liters, 'transfers', NEW.id),
+           (NEW.to_tank_id,   'traslado_entrada', NEW.liters, 'transfers', NEW.id);
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_mv_transfer on public.transfers;
+create trigger trg_mv_transfer after insert or update or delete on public.transfers
+  for each row execute function public.mv_transfer();
+
+-- ============================================================================
+-- ROW LEVEL SECURITY
+-- ----------------------------------------------------------------------------
+-- Lectura: cualquier usuario autenticado. Escritura: según rol.
+--  - admin: todo
+--  - supervisor/operador: operaciones diarias (ingresos, consumos, traslados, catálogos)
+--  - conductor: solo lectura (y crear solicitudes de autorización)
+-- ============================================================================
+alter table public.profiles        enable row level security;
+alter table public.tanks           enable row level security;
+alter table public.vehicles        enable row level security;
+alter table public.machinery       enable row level security;
+alter table public.authorizations  enable row level security;
+alter table public.fuel_intakes    enable row level security;
+alter table public.dispatches      enable row level security;
+alter table public.transfers       enable row level security;
+alter table public.stock_movements enable row level security;
+
+-- profiles
+drop policy if exists profiles_select on public.profiles;
+create policy profiles_select on public.profiles for select to authenticated using (true);
+drop policy if exists profiles_self_update on public.profiles;
+create policy profiles_self_update on public.profiles for update to authenticated
+  using (id = auth.uid() or public.is_admin()) with check (id = auth.uid() or public.is_admin());
+drop policy if exists profiles_admin_all on public.profiles;
+create policy profiles_admin_all on public.profiles for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- Blindaje: un usuario puede editar su propio perfil (nombre) pero NO su rol.
+-- Solo un admin autenticado puede cambiar roles. auth.uid() null = contexto de
+-- servicio / Management API (permitido para administración interna).
+create or replace function public.guard_role_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.role is distinct from old.role and auth.uid() is not null and not public.is_admin() then
+    raise exception 'No autorizado para cambiar el rol de usuario';
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_guard_role on public.profiles;
+create trigger trg_guard_role before update on public.profiles
+  for each row execute function public.guard_role_change();
+
+-- Catálogos (tanks, vehicles, machinery): lectura todos; escritura staff
+do $$
+declare tbl text;
+begin
+  foreach tbl in array array['tanks','vehicles','machinery'] loop
+    execute format('drop policy if exists %I_select on public.%I;', tbl, tbl);
+    execute format('create policy %I_select on public.%I for select to authenticated using (true);', tbl, tbl);
+    execute format('drop policy if exists %I_write on public.%I;', tbl, tbl);
+    execute format('create policy %I_write on public.%I for all to authenticated using (public.is_staff()) with check (public.is_staff());', tbl, tbl);
+  end loop;
+end $$;
+
+-- Operaciones (fuel_intakes, dispatches, transfers): lectura todos; escritura staff
+do $$
+declare tbl text;
+begin
+  foreach tbl in array array['fuel_intakes','dispatches','transfers'] loop
+    execute format('drop policy if exists %I_select on public.%I;', tbl, tbl);
+    execute format('create policy %I_select on public.%I for select to authenticated using (true);', tbl, tbl);
+    execute format('drop policy if exists %I_write on public.%I;', tbl, tbl);
+    execute format('create policy %I_write on public.%I for all to authenticated using (public.is_staff()) with check (public.is_staff());', tbl, tbl);
+  end loop;
+end $$;
+
+-- authorizations: lectura todos; cualquier autenticado crea solicitud; supervisor/admin resuelven
+drop policy if exists auth_select on public.authorizations;
+create policy auth_select on public.authorizations for select to authenticated using (true);
+drop policy if exists auth_insert on public.authorizations;
+create policy auth_insert on public.authorizations for insert to authenticated with check (auth.uid() = requested_by);
+drop policy if exists auth_resolve on public.authorizations;
+create policy auth_resolve on public.authorizations for update to authenticated
+  using (public.current_role() in ('admin','supervisor'))
+  with check (public.current_role() in ('admin','supervisor'));
+
+-- stock_movements: solo lectura desde el cliente (lo escriben los triggers)
+drop policy if exists mov_select on public.stock_movements;
+create policy mov_select on public.stock_movements for select to authenticated using (true);
+
+-- ============================================================================
+-- Nº DE FACTURA INCREMENTAL E INMUTABLE (fuel_intakes.invoice_no)
+-- ============================================================================
+create sequence if not exists public.fuel_invoice_seq;
+
+create or replace function public.set_invoice_no() returns trigger
+language plpgsql as $$
+begin
+  if new.invoice_no is null or btrim(new.invoice_no) = '' then
+    new.invoice_no := 'F-' || lpad(nextval('public.fuel_invoice_seq')::text, 5, '0');
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_invoice_no on public.fuel_intakes;
+create trigger trg_invoice_no before insert on public.fuel_intakes
+  for each row execute function public.set_invoice_no();
+
+create or replace function public.lock_invoice_no() returns trigger
+language plpgsql as $$
+begin
+  if new.invoice_no is distinct from old.invoice_no then
+    raise exception 'El número de factura no se puede modificar';
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_lock_invoice on public.fuel_intakes;
+create trigger trg_lock_invoice before update on public.fuel_intakes
+  for each row execute function public.lock_invoice_no();
+
+-- ============================================================================
+-- FLUJO DE AUTORIZACIONES (aprobar/rechazar) — solo admin/supervisor.
+-- Aprobar crea el despacho (descuenta stock vía trigger) de forma atómica.
+-- ============================================================================
+create or replace function public.approve_authorization(p_auth_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare a public.authorizations%rowtype; en_espera_mach boolean;
+begin
+  if public.current_role() not in ('admin','supervisor') then
+    raise exception 'Solo un administrador o supervisor puede autorizar';
+  end if;
+  select * into a from public.authorizations where id = p_auth_id for update;
+  if not found then raise exception 'Autorización no encontrada'; end if;
+  if a.status <> 'pendiente' then raise exception 'La autorización ya fue resuelta'; end if;
+  if a.tank_id is null then raise exception 'La solicitud no tiene tanque de origen'; end if;
+
+  -- "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): si la
+  -- maquinaria de esta solicitud quedó en_espera DESPUÉS de crearse (o se coló por
+  -- algún otro camino), no se aprueba el despacho.
+  if a.machinery_id is not null then
+    select en_espera into en_espera_mach from public.machinery where id = a.machinery_id;
+    if en_espera_mach then
+      raise exception 'Esa maquinaria está EN ESPERA DE INSTRUCCIONES: no se le puede aprobar combustible.';
+    end if;
+  end if;
+
+  insert into public.dispatches (asset_kind, vehicle_id, machinery_id, liters, tank_id, authorization_id, created_by)
+  values (a.asset_kind, a.vehicle_id, a.machinery_id, a.liters, a.tank_id, a.id, auth.uid());
+
+  update public.authorizations
+    set status = 'aprobado', approved_by = auth.uid(), resolved_at = now()
+    where id = a.id;
+end $$;
+
+create or replace function public.reject_authorization(p_auth_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if public.current_role() not in ('admin','supervisor') then
+    raise exception 'Solo un administrador o supervisor puede rechazar';
+  end if;
+  update public.authorizations
+    set status = 'rechazado', approved_by = auth.uid(), resolved_at = now()
+    where id = p_auth_id and status = 'pendiente';
+end $$;
+
+-- ============================================================================
+-- MAQUINARIA AVANZADA: empresas supervisoras, foto/placa/serial, estado
+-- operativo, ubicación/ruta (historial) y regla de 1 carga por día.
+-- ============================================================================
+create table if not exists public.companies (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+-- Visibilidad de la empresa:
+--   hidden:    inactiva en TODO el sistema (incluido comidas).
+--   food_only: aparece SOLO en la distribución de comidas; se oculta del resto
+--              del sistema (selectores, listas, leyendas, reportes).
+alter table public.companies add column if not exists hidden boolean not null default false;
+alter table public.companies add column if not exists food_only boolean not null default false;
+
+-- Tabulador maestro de precios por jornada (clasificación + modelo).
+-- Editable desde Control de pagos. "Sincronizar" lo aplica a
+-- machinery.price_per_hour (precios ACTUALES). Los cierres viejos quedan
+-- congelados; los cierres nuevos congelan estos precios al cerrar.
+create table if not exists public.price_tariffs (
+  id uuid primary key default gen_random_uuid(),
+  clasificacion text not null,
+  modelo text not null unique,
+  price_jornada numeric not null default 0,
+  sort_order int not null default 0,
+  updated_at timestamptz not null default now()
+);
+alter table public.price_tariffs enable row level security;
+drop policy if exists price_tariffs_read on public.price_tariffs;
+create policy price_tariffs_read on public.price_tariffs for select to authenticated using (not public.is_anon());
+drop policy if exists price_tariffs_write on public.price_tariffs;
+create policy price_tariffs_write on public.price_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+
+-- Catálogo ÚNICO de EDIFICIOS (ubicación de las máquinas). Reemplaza el par
+-- "referencia + edificio": ahora todo el sistema usa un solo campo EDIFICIO, que
+-- se elige de este catálogo (desplegable en el teléfono del inspector y de
+-- combustible) y se puede AGREGAR si no existe. `machinery.referencia` guarda el
+-- nombre elegido. Ver src/lib/edificios.ts y src/components/EdificioPicker.tsx.
+create table if not exists public.edificios (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.edificios enable row level security;
+drop policy if exists edificios_select on public.edificios;
+create policy edificios_select on public.edificios for select to authenticated using (true);
+drop policy if exists edificios_write on public.edificios;
+create policy edificios_write on public.edificios for all to authenticated using (public.is_staff()) with check (public.is_staff());
+
+-- Tabulador POR EMPRESA: sobrescribe el precio general de un modelo para una
+-- empresa puntual (no todas cobran igual). Al sincronizar, cada máquina usa el
+-- precio de su empresa si existe; si no, cae al tabulador general (price_tariffs).
+create table if not exists public.company_price_tariffs (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  modelo text not null,
+  price_jornada numeric not null default 0,
+  updated_at timestamptz not null default now(),
+  unique(company_id, modelo)
+);
+alter table public.company_price_tariffs enable row level security;
+drop policy if exists cpt_read on public.company_price_tariffs;
+create policy cpt_read on public.company_price_tariffs for select to authenticated using (not public.is_anon());
+drop policy if exists cpt_write on public.company_price_tariffs;
+create policy cpt_write on public.company_price_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+
+-- Fletes/viajes CON FECHA: cada flete pertenece a una empresa (y opcionalmente a una
+-- máquina) y tiene su fecha, para que en los reportes aparezca SOLO en la semana en que
+-- ocurrió (a diferencia de un campo fijo por máquina). Los reportes suman los fletes
+-- cuyo flete_date cae dentro del rango, y los añaden al TOTAL POR PAGAR de la empresa.
+create table if not exists public.fletes (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  machinery_id uuid references public.machinery(id) on delete set null,
+  code text,
+  flete_date date not null,
+  viajes int not null default 1,
+  precio numeric not null default 0,
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table public.fletes enable row level security;
+drop policy if exists fletes_read on public.fletes;
+create policy fletes_read on public.fletes for select using (true);
+drop policy if exists fletes_write on public.fletes;
+create policy fletes_write on public.fletes for all to authenticated using (true) with check (true);
+
+alter table public.machinery add column if not exists plate       text;
+alter table public.machinery add column if not exists serial      text;
+alter table public.machinery add column if not exists photo_url        text;  -- foto de la MAQUINARIA
+alter table public.machinery add column if not exists photo_serial_url text;  -- foto del SERIAL / PLACA
+alter table public.machinery add column if not exists company_id  uuid references public.companies(id);
+alter table public.machinery add column if not exists operational boolean not null default true;
+-- 3er estado de la máquina: "En espera por recepción" (aún no recibida en el control activo).
+alter table public.machinery add column if not exists en_espera   boolean not null default false;
+-- QR BLOQUEADO: al escanear el QR de esta máquina solo se muestra el logo (sin datos ni
+-- acciones). Bloqueo manual e independiente del sello por serial (ver machineQrUrl).
+alter table public.machinery add column if not exists qr_blocked  boolean not null default false;
+alter table public.machinery add column if not exists latitude    numeric(9,6);
+alter table public.machinery add column if not exists longitude   numeric(9,6);
+alter table public.machinery add column if not exists location_at timestamptz;
+
+-- No permitir dos máquinas con el mismo SERIAL o la misma PLACA (sin distinguir
+-- mayúsculas ni espacios). Se ignoran los vacíos/nulos (varias máquinas pueden no
+-- tener serial/placa). Índice ÚNICO parcial: es el candado real a nivel de BD.
+-- OJO: si ya existen duplicados, la creación del índice FALLA hasta limpiarlos.
+create unique index if not exists machinery_serial_uniq
+  on public.machinery (lower(btrim(serial)))
+  where serial is not null and btrim(serial) <> '';
+create unique index if not exists machinery_plate_uniq
+  on public.machinery (lower(btrim(plate)))
+  where plate is not null and btrim(plate) <> '';
+
+create table if not exists public.machinery_locations (
+  id uuid primary key default uuid_generate_v4(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  latitude    numeric(9,6),
+  longitude   numeric(9,6),
+  note        text,
+  recorded_at timestamptz not null default now()
+);
+create index if not exists idx_ml_machinery on public.machinery_locations(machinery_id, recorded_at);
+-- Trazabilidad: coordenadas opcionales y nota (p. ej. "Ubicación eliminada manualmente").
+alter table public.machinery_locations alter column latitude drop not null;
+alter table public.machinery_locations alter column longitude drop not null;
+alter table public.machinery_locations add column if not exists note text;
+
+-- MONITOREO: quién colocó la ubicación. Un trigger rellena recorded_by con el
+-- usuario que hace la inserción (auth.uid()), sirva vía RPC (SECURITY DEFINER),
+-- inserción directa o el flujo anónimo del QR. Así el admin ve quién ubica.
+alter table public.machinery_locations add column if not exists recorded_by uuid references auth.users(id);
+create index if not exists idx_ml_recorded_by on public.machinery_locations(recorded_by);
+create or replace function public.ml_set_recorded_by() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if NEW.recorded_by is null then NEW.recorded_by := auth.uid(); end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_ml_recorded_by on public.machinery_locations;
+create trigger trg_ml_recorded_by before insert on public.machinery_locations
+  for each row execute function public.ml_set_recorded_by();
+
+-- Guarda la ubicación (lat/lng) de una máquina y, opcionalmente, su
+-- edificio/referencia, en una sola llamada. SECURITY DEFINER a propósito:
+-- bypassa RLS de 'machinery' (machinery_write exige is_staff(), pero esto lo
+-- usan también operadores anónimos por QR y roles fuera de is_staff() como
+-- Coordinador de Operadores) — no valida rol adentro porque solo toca
+-- ubicación/referencia, nunca precio ni identidad de la máquina.
+-- p_referencia null (default) = no toca la referencia existente.
+create or replace function public.update_machine_location(p_id uuid, p_lat numeric, p_lng numeric, p_referencia text default null)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  update public.machinery
+    set latitude = p_lat, longitude = p_lng, location_at = now(),
+        referencia = case when p_referencia is not null then p_referencia else referencia end
+    where id = p_id;
+  insert into public.machinery_locations(machinery_id, latitude, longitude) values (p_id, p_lat, p_lng);
+end
+$$;
+
+alter table public.companies           enable row level security;
+alter table public.machinery_locations enable row level security;
+drop policy if exists companies_select on public.companies;
+create policy companies_select on public.companies for select to authenticated using (true);
+drop policy if exists companies_write on public.companies;
+create policy companies_write on public.companies for all to authenticated using (public.is_staff()) with check (public.is_staff());
+drop policy if exists ml_select on public.machinery_locations;
+create policy ml_select on public.machinery_locations for select to authenticated using (true);
+drop policy if exists ml_write on public.machinery_locations;
+create policy ml_write on public.machinery_locations for all to authenticated using (public.is_staff()) with check (public.is_staff());
+
+-- Una carga de combustible por máquina por día (aunque sea de otra cisterna).
+create or replace function public.one_fuel_per_machine_per_day() returns trigger
+language plpgsql as $$
+declare prev numeric;
+begin
+  if NEW.asset_kind = 'maquinaria' and NEW.machinery_id is not null then
+    select coalesce(sum(liters),0) into prev from public.dispatches
+      where machinery_id = NEW.machinery_id and dispatch_date = NEW.dispatch_date;
+    if prev > 0 then
+      raise exception 'Esta máquina ya cargó % L hoy y no puede cargar de nuevo (aunque sea de otra cisterna).', prev;
+    end if;
+  end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_one_fuel_per_day on public.dispatches;
+create trigger trg_one_fuel_per_day before insert on public.dispatches
+  for each row execute function public.one_fuel_per_machine_per_day();
+
+-- Nota: crear un bucket público de Storage llamado 'machinery' para las fotos.
+
+-- ============================================================================
+-- CONTROL DE MAQUINARIA POR RONDAS (turnos)
+-- 1ª 07:00 · 2ª 11:00 · 3ª 15:00 · 4ª 19:00 · + horas de parada
+-- ============================================================================
+create table if not exists public.machine_rounds (
+  id            uuid primary key default gen_random_uuid(),
+  machinery_id  uuid not null references public.machinery(id) on delete cascade,
+  round_date    date not null,
+  round_no      smallint not null check (round_no between 1 and 4),
+  status        text not null default 'operativa' check (status in ('operativa', 'parada')),
+  hours_stopped numeric(6,2) not null default 0 check (hours_stopped >= 0),
+  overtime_hours numeric(6,2) default 0 check (overtime_hours >= 0),
+  notes         text,
+  recorded_by   uuid references auth.users(id),
+  created_at    timestamptz default now(),
+  unique (machinery_id, round_date, round_no)
+);
+create index if not exists idx_mr_date on public.machine_rounds(round_date, machinery_id);
+
+alter table public.machine_rounds enable row level security;
+drop policy if exists mr_select on public.machine_rounds;
+create policy mr_select on public.machine_rounds for select to authenticated using (true);
+drop policy if exists mr_write on public.machine_rounds;
+create policy mr_write on public.machine_rounds for all to authenticated using (true) with check (true);
+
+-- ============================================================================
+-- Columnas extra de maquinaria: identificador, ubicación (texto), entrada/salida
+-- + serial único (case-insensitive) para no duplicar máquinas.
+-- ============================================================================
+alter table public.machinery add column if not exists identifier text;
+alter table public.machinery add column if not exists location text;
+alter table public.machinery add column if not exists entry_date date;
+alter table public.machinery add column if not exists exit_date date;
+-- La identidad ÚNICA de la máquina es el SERIAL o la PLACA (no el nombre/código):
+-- puede haber varias máquinas llamadas "Volteos" con distinto serial/placa.
+alter table public.machinery drop constraint if exists machinery_code_key;
+create unique index if not exists uq_machinery_serial
+  on public.machinery (lower(trim(serial))) where serial is not null and trim(serial) <> '';
+create unique index if not exists uq_machinery_plate
+  on public.machinery (lower(trim(plate))) where plate is not null and trim(plate) <> '';
+
+-- ============================================================================
+-- MATRIZ DE PERMISOS POR USUARIO Y MÓDULO
+-- Niveles: none · lectura · escritura · full. Solo un admin puede editarla.
+-- ============================================================================
+create table if not exists public.module_permissions (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  module  text not null,
+  level   text not null default 'none' check (level in ('none','lectura','escritura','full')),
+  primary key (user_id, module)
+);
+alter table public.module_permissions enable row level security;
+drop policy if exists mp_select on public.module_permissions;
+create policy mp_select on public.module_permissions for select to authenticated using (true);
+drop policy if exists mp_write on public.module_permissions;
+create policy mp_write on public.module_permissions for all to authenticated
+  using (public.current_role() = 'admin') with check (public.current_role() = 'admin');
+
+-- ============================================================================
+-- CONTROL DE PAGOS: precio por hora de la maquinaria + histórico de pagos
+-- El total por empresa/semana = Σ (horas trabajadas × precio_por_hora).
+-- ============================================================================
+alter table public.machinery add column if not exists price_per_hour numeric(12,2);
+
+-- Grupo y encargado de la maquinaria (se muestran en el catálogo).
+alter table public.machinery add column if not exists grupo text;
+alter table public.machinery add column if not exists encargado text;
+-- ZONA / a disposición de (Gobernación, FANB, CVM, Zona Este…) — filtro del Conteo de equipos.
+alter table public.machinery add column if not exists zona text;
+
+-- MARCA-MODELO combinado (histórico: CAT 320, Komatsu PC200...) — agrupa reportes.
+-- (La columna se llama `tipo` por historia.) Desde 2026-08-11 el catálogo separa marca y
+-- modelo en columnas propias; `tipo` SE MANTIENE SINCRONIZADA = marca+modelo al guardar
+-- (ver machinery_marca_modelo) para no romper los reportes/tarjetas que ya la leen.
+alter table public.machinery add column if not exists tipo   text;
+alter table public.machinery add column if not exists marca  text; -- MARCA (CAT, Komatsu, Kodiak...)
+alter table public.machinery add column if not exists modelo text; -- MODELO (320, PC200, D6...)
+
+-- CLASIFICACIÓN de la máquina (Manejo de cargas, Remoción y excavación...) — agrupa reportes por clasificación.
+alter table public.machinery add column if not exists clasificacion text;
+
+-- Referencia / UBICACIÓN de la máquina — se muestra en los reportes.
+alter table public.machinery add column if not exists referencia text;
+-- PARROQUIA y SECTOR (texto, editables) — complementan la referencia/edificio y el
+-- sector geográfico del GPS. Se muestran en Catálogo, check-in del inspector y reportes.
+alter table public.machinery add column if not exists parroquia text;
+alter table public.machinery add column if not exists sector text;
+
+-- Horas extras por máquina/día (se suman a las horas trabajadas y al total a pagar).
+alter table public.machine_rounds add column if not exists overtime_hours numeric(6,2) default 0;
+
+-- Momento exacto (fecha + hora) de entrada/salida de la máquina: desde la entrada
+-- se cuenta que empieza a trabajar.
+alter table public.machinery add column if not exists entry_at timestamptz;
+alter table public.machinery add column if not exists exit_at timestamptz;
+
+-- "Cerrar control" archiva el día en el histórico y marca sus rondas/operadores como
+-- cerrados (closed=true): dejan de verse en el control activo pero siguen contando
+-- para pagos y reportes. Cambiar de fecha NO borra nada.
+alter table public.machine_rounds add column if not exists closed boolean not null default false;
+-- Precio por jornada CONGELADO al cerrar el corte. Los reportes usan este precio para las
+-- rondas cerradas (así un corte cerrado suma con SUS precios aunque después cambien); las
+-- rondas abiertas usan el precio actual de la máquina.
+alter table public.machine_rounds add column if not exists frozen_price numeric;
+alter table public.machine_day_operators add column if not exists closed boolean not null default false;
+
+-- Control por TURNOS (en vez de 4 rondas): turno de día y de noche, cada uno medio
+-- (6h) o completo (12h). Se guardan en el registro base (round_no=1). Trabajadas =
+-- (día + noche) − parada + extras. medio=6h, completo=12h, 1½=18h, 2 turnos=24h.
+alter table public.machine_rounds add column if not exists day_hours numeric(6,2) not null default 0;
+alter table public.machine_rounds add column if not exists night_hours numeric(6,2) not null default 0;
+-- Operador por turno (día/noche): cada jornada puede tener un operador distinto.
+alter table public.machine_rounds add column if not exists day_operator text;
+alter table public.machine_rounds add column if not exists day_operator_ci text;
+alter table public.machine_rounds add column if not exists night_operator text;
+
+-- EL PRECIO SE CONGELA SOLO AL CERRAR EL CORTE (ver "cerrar control"), NO al cargar
+-- cada jornada. Regla:
+--   • Semana ABIERTA  → los reportes usan el precio ACTUAL de la máquina (así, si
+--     cambias el precio de la semana en curso, se refleja de inmediato).
+--   • Semana CERRADA  → queda con su frozen_price (inmutable aunque cambie el precio).
+-- Un trigger anterior congelaba en cada jornada (freeze_round_price); se ELIMINA porque
+-- impedía sincronizar el precio de la semana en curso. Las rondas ABIERTAS se
+-- descongelan para que vuelvan a tomar el precio actual.
+drop trigger if exists trg_freeze_round_price on public.machine_rounds;
+drop function if exists public.freeze_round_price();
+update public.machine_rounds set frozen_price = null where closed is not true;
+alter table public.machine_rounds add column if not exists night_operator_ci text;
+
+create table if not exists public.company_payments (
+  id           uuid primary key default gen_random_uuid(),
+  company_id   uuid references public.companies(id) on delete set null,
+  company_name text not null,
+  period_start date not null,
+  period_end   date not null,
+  amount       numeric(14,2) not null default 0,
+  currency     text not null default 'USD',
+  detail       jsonb,                    -- snapshot: máquinas, horas, precio, total
+  paid_at      timestamptz not null default now(),
+  created_by   uuid references auth.users(id),
+  created_at   timestamptz default now()
+);
+create index if not exists idx_cp_company on public.company_payments(company_name, period_start);
+alter table public.company_payments enable row level security;
+drop policy if exists cp_select on public.company_payments;
+create policy cp_select on public.company_payments for select to authenticated using (true);
+drop policy if exists cp_write on public.company_payments;
+create policy cp_write on public.company_payments for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+
+-- ============================================================================
+-- OPERADOR por máquina y día + CIERRES DE CONTROL (histórico de maquinaria)
+-- ============================================================================
+create table if not exists public.machine_day_operators (
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  round_date   date not null,
+  first_name   text,
+  last_name    text,
+  cedula       text,
+  updated_at   timestamptz default now(),
+  primary key (machinery_id, round_date)
+);
+alter table public.machine_day_operators enable row level security;
+drop policy if exists mdo_select on public.machine_day_operators;
+create policy mdo_select on public.machine_day_operators for select to authenticated using (true);
+drop policy if exists mdo_write on public.machine_day_operators;
+create policy mdo_write on public.machine_day_operators for all to authenticated using (true) with check (true);
+
+create table if not exists public.control_closures (
+  id           uuid primary key default gen_random_uuid(),
+  closure_date date not null,
+  closed_by    uuid references auth.users(id),
+  detail       jsonb,                 -- snapshot del día: máquinas, rondas, operador, horas
+  created_at   timestamptz default now()
+);
+create index if not exists idx_cc_date on public.control_closures(closure_date desc);
+alter table public.control_closures enable row level security;
+drop policy if exists cc_select on public.control_closures;
+create policy cc_select on public.control_closures for select to authenticated using (true);
+drop policy if exists cc_write on public.control_closures;
+create policy cc_write on public.control_closures for all to authenticated using (true) with check (true);
+
+-- ============================================================================
+-- MARGEN DE GANANCIA: costo inicial y valor útil de cada maquinaria.
+-- % de ganancia = (valor_útil − costo_inicial) ÷ costo_inicial × 100.
+-- ============================================================================
+alter table public.machinery add column if not exists initial_cost numeric(14,2);
+alter table public.machinery add column if not exists useful_value numeric(14,2);
+
+-- ============================================================================
+-- RECORRIDO / RUTA por surtido de maquinaria: km ida/vuelta y combustible
+-- inicial/final para calcular el rendimiento de la ruta = km ÷ (inicial−final).
+-- Límite de surtido: no se puede despachar más de 2× el consumo diario.
+-- ============================================================================
+alter table public.dispatches add column if not exists km_ida numeric(12,2);
+alter table public.dispatches add column if not exists km_vuelta numeric(12,2);
+alter table public.dispatches add column if not exists fuel_start numeric(12,2);
+alter table public.dispatches add column if not exists fuel_end numeric(12,2);
+alter table public.machinery add column if not exists daily_consumption_l numeric(12,2);
+
+-- ============================================================================
+-- VISTA DE OPERADOR: operador asignado por defecto a cada máquina.
+-- El usuario con rol 'operador' entra a su propia pantalla y ve/gestiona la
+-- máquina cuyo operator_id es su perfil (puede cambiar a otra si hace falta).
+-- ============================================================================
+alter table public.machinery add column if not exists operator_id uuid references public.profiles(id) on delete set null;
+comment on column public.machinery.operator_id is 'Operador asignado por defecto (rol operador). El operador ve/gestiona esta máquina en su vista.';
+
+-- ============================================================================
+-- MANTENIMIENTO DE MAQUINARIA: el operador (al escanear el QR de la máquina)
+-- solicita el cambio de un material (caucho, aceite, filtro, repuesto) con la
+-- cantidad necesaria. El supervisor lo marca como realizado desde el sistema.
+-- ============================================================================
+create table if not exists public.maintenance_requests (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  material text not null,               -- 'caucho' | 'aceite' | 'filtro' | 'repuesto'
+  quantity numeric(12,2),               -- cantidad del material a cambiar
+  notes text,
+  status text not null default 'pendiente', -- 'pendiente' | 'realizado'
+  requested_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  resolved_by uuid references public.profiles(id) on delete set null,
+  resolved_at timestamptz
+);
+-- Foto de referencia de la avería (opcional; se ve en el detalle de Mantenimiento).
+alter table public.maintenance_requests add column if not exists photo_url text;
+alter table public.maintenance_requests enable row level security;
+create policy mr_maint_read on public.maintenance_requests for select to authenticated using (true);
+create policy mr_maint_insert on public.maintenance_requests for insert to authenticated with check (true);
+create policy mr_maint_update on public.maintenance_requests for update to authenticated using (true) with check (true);
+create index if not exists idx_maint_machine on public.maintenance_requests(machinery_id);
+create index if not exists idx_maint_status on public.maintenance_requests(status);
+
+-- REPARACIONES de maquinaria: el coordinador de mantenimiento envía la máquina a
+-- reparación (salida, tiempo estimado, qué se cambió) y registra su retorno operativo.
+-- Al enviar se marca la máquina 'No operativa'; al volver, 'Operativa' (lo hace la app).
+create table if not exists public.machinery_repairs (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  tipo text not null default 'correctivo',       -- 'preventivo' | 'correctivo'
+  out_at date not null default current_date,      -- fecha de salida a reparación
+  estimated_days numeric(6,1),                    -- por cuánto tiempo (días)
+  estimated_note text,                            -- detalle del tiempo (texto libre)
+  work_done text,                                 -- qué se le cambió / trabajo realizado
+  back_at date,                                   -- cuándo volvió operativa (null = en reparación)
+  status text not null default 'en_reparacion',   -- 'en_reparacion' | 'operativa'
+  created_by uuid references public.profiles(id) on delete set null,
+  closed_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.machinery_repairs enable row level security;
+create policy mrep_read on public.machinery_repairs for select to authenticated using (true);
+create policy mrep_insert on public.machinery_repairs for insert to authenticated with check (not public.is_anon());
+create policy mrep_update on public.machinery_repairs for update to authenticated using (not public.is_anon()) with check (not public.is_anon());
+create index if not exists idx_mrep_machine on public.machinery_repairs(machinery_id);
+create index if not exists idx_mrep_status on public.machinery_repairs(status);
+
+-- ROLES DINÁMICOS: roles creados desde Usuarios. Cada rol define qué módulos ve
+-- (mapa module_key → nivel). Un usuario con app_role_id ve SOLO esos módulos.
+create table if not exists public.app_roles (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  modules jsonb not null default '{}'::jsonb,      -- { "mantenimiento": "full", ... }
+  created_at timestamptz not null default now()
+);
+-- Tipo de panel del rol: 'modulos' (lista de módulos) o 'coordinador_qr' (panel con
+-- escáner QR: surtir gasoil, avería y marcar máquina lista).
+alter table public.app_roles add column if not exists panel_type text not null default 'modulos';
+alter table public.app_roles enable row level security;
+create policy app_roles_read on public.app_roles for select to authenticated using (true);
+create policy app_roles_write on public.app_roles for all to authenticated using (public.current_role() = 'admin') with check (public.current_role() = 'admin');
+alter table public.profiles add column if not exists app_role_id uuid references public.app_roles(id) on delete set null;
+
+-- ============================================================================
+-- NÓMINA por empresa: monto que se descuenta de la cuenta general de la empresa
+-- en Control de Pagos (total neto = facturado − abonos − nómina).
+-- ============================================================================
+create table if not exists public.payrolls (
+  id uuid primary key default gen_random_uuid(),
+  company_name text not null,
+  amount numeric(14,2) not null,
+  note text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.payrolls enable row level security;
+create policy pr_read on public.payrolls for select to authenticated using (true);
+create policy pr_insert on public.payrolls for insert to authenticated with check (not public.is_anon());
+create policy pr_delete on public.payrolls for delete to authenticated using (not public.is_anon());
+create index if not exists idx_payroll_company on public.payrolls(company_name);
+
+-- ============================================================================
+-- GUARDIA / MILITAR ENCARGADO por máquina (historial ACUMULABLE).
+-- Se asigna desde las rondas (Control de maquinaria). Al cambiar de militar,
+-- el registro activo se cierra (ended_at + active=false) y se abre uno nuevo,
+-- así queda la traza de todos los que custodiaron la máquina.
+-- ============================================================================
+create table if not exists public.machine_guards (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  guard_name text not null,             -- nombre del militar/guardia
+  rank text,                            -- grado / rango (opcional)
+  note text,
+  assigned_at timestamptz not null default now(),
+  ended_at timestamptz,                 -- null = período de custodia actual
+  active boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.machine_guards enable row level security;
+create policy mg_read on public.machine_guards for select to authenticated using (true);
+create policy mg_insert on public.machine_guards for insert to authenticated with check (true);
+create policy mg_update on public.machine_guards for update to authenticated using (true) with check (true);
+create index if not exists idx_guard_machine on public.machine_guards(machinery_id);
+create index if not exists idx_guard_active on public.machine_guards(active);
+
+-- ============================================================================
+-- HORÓMETRO por jornada: se captura al iniciar (inicial + foto) y al finalizar
+-- (final). Horas de la jornada = HF − HI. El HF se arrastra como próximo HI
+-- (machinery.last_horometro). Sirve para el consumo por horómetro (litros/horas).
+-- ============================================================================
+alter table public.machinery       add column if not exists last_horometro   numeric(12,2);
+alter table public.machine_rounds  add column if not exists horometro_inicial numeric(12,2);
+alter table public.machine_rounds  add column if not exists horometro_final   numeric(12,2);
+alter table public.machine_rounds  add column if not exists horometro_photo   text;
+
+-- ============================================================================
+-- OPERADORES: asignación de una máquina a un operador en un día. Al iniciar
+-- jornada (vista QR) se pide nombre/apellido/cédula (sin login). Regla: 1
+-- máquina por operador por día (único cédula+fecha); en una semana sí puede
+-- tener varias máquinas, pero no el mismo día. Guarda empresa y horómetro.
+-- ============================================================================
+create table if not exists public.operator_assignments (
+  id uuid primary key default gen_random_uuid(),
+  first_name text not null,
+  last_name text not null,
+  cedula text not null,
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  company_name text,
+  work_date date not null,
+  shift text,                            -- 'day' | 'night'
+  started_at timestamptz not null default now(),
+  ended_at timestamptz,
+  worked_hours numeric(6,2),
+  horometro_inicial numeric(12,2),
+  horometro_final numeric(12,2),
+  horometro_photo text,
+  -- Ubicación GPS del operador al INICIAR y al FINALIZAR la jornada (traza en tiempo real).
+  start_lat double precision,
+  start_lng double precision,
+  end_lat double precision,
+  end_lng double precision,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.operator_assignments add column if not exists start_lat double precision;
+alter table public.operator_assignments add column if not exists start_lng double precision;
+alter table public.operator_assignments add column if not exists end_lat   double precision;
+alter table public.operator_assignments add column if not exists end_lng   double precision;
+create unique index if not exists uq_operator_day on public.operator_assignments(cedula, work_date);
+create index if not exists idx_opasg_machine on public.operator_assignments(machinery_id);
+create index if not exists idx_opasg_date on public.operator_assignments(work_date);
+alter table public.operator_assignments enable row level security;
+create policy oa_read on public.operator_assignments for select to authenticated using (true);
+create policy oa_insert on public.operator_assignments for insert to authenticated with check (true);
+create policy oa_update on public.operator_assignments for update to authenticated using (true) with check (true);
+
+-- ===================== F3 COMPRAS =====================
+-- Proveedores, solicitudes de pedido y órdenes de compra. Escritura por permiso
+-- de módulo 'compras' (can_write_module). Los renglones van en JSONB.
+create table if not exists public.suppliers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  rif text, phone text, email text, address text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.suppliers enable row level security;
+drop policy if exists suppliers_select on public.suppliers;
+create policy suppliers_select on public.suppliers for select to authenticated using (true);
+drop policy if exists suppliers_write on public.suppliers;
+create policy suppliers_write on public.suppliers for all to authenticated
+  using (public.can_write_module('compras')) with check (public.can_write_module('compras'));
+
+create table if not exists public.purchase_requests (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id),
+  requested_by uuid references auth.users(id),
+  needed_for text,
+  category text,                                 -- repuestos|oficina|limpieza|herramientas|servicios|otros
+  note text,
+  items jsonb not null default '[]'::jsonb,     -- [{description, qty, unit, price}]
+  estimated_total numeric not null default 0,
+  status text not null default 'solicitada',    -- solicitada|aprobada|rechazada|ordenada
+  approved_by uuid references auth.users(id),
+  approved_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table public.purchase_requests enable row level security;
+drop policy if exists preq_select on public.purchase_requests;
+create policy preq_select on public.purchase_requests for select to authenticated using (true);
+drop policy if exists preq_write on public.purchase_requests;
+create policy preq_write on public.purchase_requests for all to authenticated
+  using (public.can_write_module('compras')) with check (public.can_write_module('compras'));
+
+create table if not exists public.purchase_orders (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid references public.purchase_requests(id) on delete set null,
+  supplier_id uuid references public.suppliers(id),
+  company_id uuid references public.companies(id),
+  category text,                                 -- heredada de la solicitud
+  note text,
+  items jsonb not null default '[]'::jsonb,     -- [{description, qty, unit, price}]
+  total numeric not null default 0,
+  status text not null default 'borrador',       -- borrador|aprobada|recibida|anulada
+  approved_by uuid references auth.users(id),
+  approved_at timestamptz,
+  received_at timestamptz,
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+alter table public.purchase_orders enable row level security;
+drop policy if exists pord_select on public.purchase_orders;
+create policy pord_select on public.purchase_orders for select to authenticated using (true);
+drop policy if exists pord_write on public.purchase_orders;
+create policy pord_write on public.purchase_orders for all to authenticated
+  using (public.can_write_module('compras')) with check (public.can_write_module('compras'));
+
+create index if not exists idx_preq_status on public.purchase_requests(status);
+create index if not exists idx_pord_status on public.purchase_orders(status);
+
+-- ============================================================
+-- F4 · Inventario / Almacén
+-- Existencias DERIVADAS de inventory_movements (patrón igual a tank_levels).
+-- ============================================================
+create table if not exists public.inventory_items (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  category text,                               -- misma taxonomía que compras
+  unit text,                                   -- UND, LT, KG…
+  sku text,
+  min_stock numeric not null default 0,        -- alerta de stock mínimo
+  avg_cost numeric not null default 0,          -- Precio Medio Ponderado (PMP), recalculado en cada entrada
+  company_id uuid references public.companies(id),
+  machinery_id uuid references public.machinery(id) on delete set null, -- equipo al que pertenece el material (el inventario se vincula por EQUIPO, no por empresa)
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.inventory_items add column if not exists machinery_id uuid references public.machinery(id) on delete set null;
+alter table public.inventory_items enable row level security;
+drop policy if exists inv_items_select on public.inventory_items;
+create policy inv_items_select on public.inventory_items for select to authenticated using (true);
+drop policy if exists inv_items_write on public.inventory_items;
+create policy inv_items_write on public.inventory_items for all to authenticated
+  using (public.can_write_module('inventario')) with check (public.can_write_module('inventario'));
+
+create table if not exists public.inventory_movements (
+  id uuid primary key default gen_random_uuid(),
+  item_id uuid not null references public.inventory_items(id) on delete cascade,
+  kind text not null default 'entrada',        -- entrada|salida|consumo|ajuste
+  qty numeric not null default 0,              -- entrada/salida/consumo: positivo · ajuste: puede ser negativo
+  unit_cost numeric,                            -- costo unitario (valorización)
+  reason text,                                  -- motivo/destino
+  order_id uuid references public.purchase_orders(id) on delete set null,  -- trazabilidad con la compra
+  company_id uuid references public.companies(id),
+  note text,
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+alter table public.inventory_movements enable row level security;
+drop policy if exists inv_mov_select on public.inventory_movements;
+create policy inv_mov_select on public.inventory_movements for select to authenticated using (true);
+drop policy if exists inv_mov_write on public.inventory_movements;
+create policy inv_mov_write on public.inventory_movements for all to authenticated
+  using (public.can_write_module('inventario')) with check (public.can_write_module('inventario'));
+
+create index if not exists idx_inv_mov_item on public.inventory_movements(item_id);
+create index if not exists idx_inv_mov_order on public.inventory_movements(order_id);
+
+-- Estado FÍSICO del material (Nuevo/Bueno/Regular/Dañado) — para el reporte de inventario.
+alter table public.inventory_items add column if not exists estado text;
+-- Tipo de producto (libre, con sugerencias): bombona, silla, mecate… — para FILTRAR.
+alter table public.inventory_items add column if not exists tipo text;
+-- CARGA de la bombona: vacía / en uso / llena — para tildar, filtrar y reportar.
+alter table public.inventory_items add column if not exists carga text;
+
+-- Existencias actuales por producto (stock derivado de los movimientos).
+create or replace view public.inventory_levels as
+select
+  i.id, i.name, i.category, i.unit, i.sku, i.min_stock, i.avg_cost, i.company_id, i.active, i.created_at,
+  coalesce(sum(case when m.kind='entrada' then m.qty when m.kind in ('salida','consumo') then -m.qty when m.kind='ajuste' then m.qty else 0 end), 0)::numeric(14,2) as stock,
+  i.machinery_id, i.estado, i.tipo, i.carga
+from public.inventory_items i
+left join public.inventory_movements m on m.item_id = i.id
+group by i.id;
+
+-- PMP: al insertar una ENTRADA con costo, recalcula el precio medio ponderado del producto.
+create or replace function public.inv_recalc_avg() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare prev_stock numeric; prev_avg numeric;
+begin
+  if (NEW.kind = 'entrada' and NEW.unit_cost is not null and NEW.qty > 0) then
+    select coalesce(sum(case when kind='entrada' then qty when kind in ('salida','consumo') then -qty when kind='ajuste' then qty else 0 end), 0)
+      into prev_stock from public.inventory_movements where item_id = NEW.item_id and id <> NEW.id;
+    select coalesce(avg_cost, 0) into prev_avg from public.inventory_items where id = NEW.item_id;
+    if prev_stock <= 0 then
+      update public.inventory_items set avg_cost = NEW.unit_cost where id = NEW.item_id;
+    else
+      update public.inventory_items
+        set avg_cost = round((prev_stock * prev_avg + NEW.qty * NEW.unit_cost) / (prev_stock + NEW.qty), 4)
+        where id = NEW.item_id;
+    end if;
+  end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_inv_recalc_avg on public.inventory_movements;
+create trigger trg_inv_recalc_avg after insert on public.inventory_movements
+  for each row execute function public.inv_recalc_avg();
+
+-- ============================================================================
+-- NOTA DE TRASLADO DE INVENTARIO: traslada materiales de UNA máquina/empleado
+-- (origen) a OTRA máquina/empleado (destino). Al confirmar, descuenta del stock
+-- (registra 'salida' en inventory_movements) y guarda este encabezado con los
+-- renglones (items) en JSONB, casado con la máquina y el empleado de cada lado.
+-- ============================================================================
+create table if not exists public.inventory_transfers (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  from_machinery_id uuid references public.machinery(id) on delete set null,
+  from_machinery_label text,
+  from_employee_id uuid references public.employees(id) on delete set null,
+  from_employee_name text,
+  to_machinery_id uuid references public.machinery(id) on delete set null,
+  to_machinery_label text,
+  to_employee_id uuid references public.employees(id) on delete set null,
+  to_employee_name text,
+  motivo text,
+  items jsonb not null default '[]'::jsonb,   -- [{item_id, name, qty, unit}]
+  descontado boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_invtr_from_mach on public.inventory_transfers(from_machinery_id);
+create index if not exists idx_invtr_to_mach on public.inventory_transfers(to_machinery_id);
+create index if not exists idx_invtr_created on public.inventory_transfers(created_at);
+alter table public.inventory_transfers enable row level security;
+drop policy if exists invtr_all on public.inventory_transfers;
+create policy invtr_all on public.inventory_transfers for all to authenticated using (true) with check (true);
+
+-- Traslado: lugar/estado del material y RETORNO al inventario.
+alter table public.inventory_transfers add column if not exists lugar text;            -- lugar/obra a donde se hizo el traslado
+alter table public.inventory_transfers add column if not exists estado text;           -- condición al trasladar: usado|lleno|dañado
+alter table public.inventory_transfers add column if not exists returned boolean not null default false;
+alter table public.inventory_transfers add column if not exists returned_at timestamptz;
+alter table public.inventory_transfers add column if not exists return_note text;       -- resumen del retorno (estado + cantidades)
+alter table public.inventory_transfers add column if not exists to_company_name text;   -- empresa destino NO registrada (texto libre; no entra en nómina)
+
+-- ============================================================================
+-- TASA BCV (Bs/US$): una fila por día (compartida), con histórico. Se baja del
+-- BCV automáticamente (o se fija a mano). Sirve para mostrar los precios del
+-- inventario en $ y en Bs al cambio del día.
+-- ============================================================================
+create table if not exists public.bcv_rates (
+  rate_date  date primary key,
+  rate       numeric not null,               -- Bs por 1 US$
+  source     text default 'BCV',             -- 'BCV' (automática) | 'manual'
+  created_at timestamptz not null default now()
+);
+alter table public.bcv_rates enable row level security;
+drop policy if exists bcv_select on public.bcv_rates;
+create policy bcv_select on public.bcv_rates for select to authenticated using (true);
+drop policy if exists bcv_write on public.bcv_rates;
+create policy bcv_write on public.bcv_rates for all to authenticated using (true) with check (true);
+
+-- ============================================================================
+-- REQUERIMIENTOS DE COMPRA: lista de productos (del inventario o NUEVOS) que se
+-- pasa al jefe para que APRUEBE o RECHACE la compra. Si se compra, se RECIBE en
+-- el inventario (genera entradas con el precio real). Estados:
+--   pendiente → aprobado | rechazado ; aprobado → recibido
+-- Los ítems van en JSONB: [{product_id, name, unit, qty, est_price, currency, note, received}]
+-- ============================================================================
+create table if not exists public.inventory_requirements (
+  id            uuid primary key default gen_random_uuid(),
+  code          text,                          -- REQ-#### (correlativo, se arma en la app)
+  title         text,
+  note          text,
+  status        text not null default 'pendiente', -- pendiente|aprobado|rechazado|recibido
+  items         jsonb not null default '[]'::jsonb,
+  requested_by  uuid references public.profiles(id) on delete set null,
+  requested_by_name text,
+  decided_by    uuid references public.profiles(id) on delete set null,
+  decided_by_name text,
+  decided_at    timestamptz,
+  decision_note text,
+  received_at   timestamptz,
+  created_at    timestamptz not null default now()
+);
+-- Empresa para la que se hace el requerimiento (opcional).
+alter table public.inventory_requirements add column if not exists company_id uuid references public.companies(id) on delete set null;
+-- Formato adjunto (imagen o PDF) del requerimiento — ver supabase/requerimientos_adjunto.sql.
+alter table public.inventory_requirements add column if not exists attachment_url  text;
+alter table public.inventory_requirements add column if not exists attachment_type text;
+alter table public.inventory_requirements add column if not exists attachment_name text;
+create index if not exists idx_invreq_status on public.inventory_requirements(status);
+create index if not exists idx_invreq_created on public.inventory_requirements(created_at);
+-- El correlativo REQ-#### debe ser ÚNICO: evita que una lectura fallida del máximo
+-- reinicie a REQ-0001 y duplique el código. (Corrido en la BD el 2026-07-28.)
+create unique index if not exists inventory_requirements_code_key on public.inventory_requirements (code);
+alter table public.inventory_requirements enable row level security;
+-- Cualquiera con escritura en inventario puede crear/editar sus requerimientos;
+-- la APROBACIÓN (solo admins) se controla en la app.
+drop policy if exists invreq_select on public.inventory_requirements;
+create policy invreq_select on public.inventory_requirements for select to authenticated using (true);
+drop policy if exists invreq_write on public.inventory_requirements;
+create policy invreq_write on public.inventory_requirements for all to authenticated
+  using (public.can_write_module('inventario')) with check (public.can_write_module('inventario'));
+
+-- Al escanear el QR se entra SIN login (sesión anónima). Los operadores NO tienen
+-- usuario: solo quedan registrados aquí (operator_assignments). Se dan permisos
+-- QUIRÚRGICOS a la sesión anónima para lo que hace el operador desde el QR.
+-- (Requiere habilitar "Anonymous sign-ins" en Auth del proyecto.)
+create or replace function public.is_anon()
+returns boolean language sql stable set search_path = public as $$
+  select coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false)
+$$;
+
+-- Operador anónimo: marcar jornada (entrada/salida/horómetro en machinery),
+-- ubicación (machinery_locations) y combustible (dispatches).
+drop policy if exists machinery_anon_update on public.machinery;
+create policy machinery_anon_update on public.machinery for update to authenticated
+  using (public.is_anon()) with check (public.is_anon());
+-- El anónimo puede actualizar ubicación/estado, pero NO precio ni identidad de la
+-- máquina (RLS es por fila, no por columna → este trigger bloquea esas columnas).
+create or replace function public.machinery_guard_anon()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_anon() then
+    if (new.price_per_hour is distinct from old.price_per_hour)
+       or (new.code is distinct from old.code)
+       or (new.serial is distinct from old.serial)
+       or (new.clasificacion is distinct from old.clasificacion)
+       or (new.company_id is distinct from old.company_id) then
+      raise exception 'No autorizado: sesion anonima no puede modificar datos sensibles de la maquina';
+    end if;
+  end if;
+  -- La ANALISTA puede cargar/editar/eliminar jornadas, pero NO modificar el PRECIO.
+  if public.current_role() = 'analista'
+     and (new.price_per_hour is distinct from old.price_per_hour) then
+    raise exception 'No autorizado: el rol analista no puede modificar el precio de la maquina';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists trg_machinery_guard_anon on public.machinery;
+create trigger trg_machinery_guard_anon before update on public.machinery
+  for each row execute function public.machinery_guard_anon();
+drop policy if exists ml_anon_insert on public.machinery_locations;
+create policy ml_anon_insert on public.machinery_locations for insert to authenticated
+  with check (public.is_anon());
+drop policy if exists dispatches_anon_insert on public.dispatches;
+create policy dispatches_anon_insert on public.dispatches for insert to authenticated
+  with check (public.is_anon());
+-- machine_rounds, maintenance_requests y operator_assignments ya permiten a
+-- cualquier autenticado (incluye la sesión anónima).
+
+-- ============================================================================
+-- EMPLEADOS / RRHH (Fase 1) — ficha del trabajador + carnet con QR
+-- ============================================================================
+create table if not exists public.employees (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  ficha_number text,                       -- número de ficha (carnet)
+  first_name text not null,
+  last_name text not null,
+  cedula text,                             -- número de cédula
+  cargo text,
+  department text,
+  grupo text,
+  photo_url text,
+  birth_date date,                         -- la edad se deriva
+  gender text,
+  blood_type text,                         -- grupo sanguíneo
+  nationality text default 'Venezolana',
+  marital_status text,
+  phone text,
+  email text,
+  address text,                            -- dónde vive
+  city text,
+  state text,
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  emergency_contact_relation text,
+  hire_date date,                          -- fecha de ingreso
+  status text not null default 'activo',   -- activo | inactivo | suspendido
+  base_salary numeric(14,2),
+  salary_currency text default 'USD',
+  bank_name text,                          -- banco (datos bancarios)
+  bank_account text,                       -- número de cuenta
+  bank_holder text,                        -- nombre y apellido del titular de la cuenta
+  bank_cedula text,                        -- cédula del titular de la cuenta
+  talla_camisa text,                       -- talla de camisa (uniforme)
+  talla_pantalon text,                     -- talla de pantalón (uniforme)
+  talla_zapatos text,                      -- talla de zapatos (uniforme)
+  notes text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+-- Tallas de uniforme (para tablas ya creadas): Distribución de uniformes en Nómina.
+alter table public.employees add column if not exists talla_camisa text;
+alter table public.employees add column if not exists talla_pantalon text;
+alter table public.employees add column if not exists talla_zapatos text;
+-- Pago a personal: precios por trabajador (por hora / día / semana).
+alter table public.employees add column if not exists precio_hora numeric;
+alter table public.employees add column if not exists precio_dia numeric;   -- precio por jornada de DÍA
+alter table public.employees add column if not exists precio_noche numeric; -- precio por jornada de NOCHE
+alter table public.employees add column if not exists precio_semana numeric;
+-- Cédula y número de ficha únicos (cuando no están vacíos).
+create unique index if not exists uq_employees_cedula on public.employees (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
+create unique index if not exists uq_employees_ficha  on public.employees (lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';
+alter table public.employees enable row level security;
+-- Lectura pública (el QR de la ficha se abre con sesión anónima, igual que el de máquinas).
+drop policy if exists employees_read on public.employees;
+create policy employees_read on public.employees for select using (true);
+drop policy if exists employees_write on public.employees;
+create policy employees_write on public.employees for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+-- N° de ficha AUTOMÁTICO: correlativo de 4 dígitos (0001, 0002, …) asignado al crear
+-- cuando no se envía uno manual.
+create sequence if not exists public.employees_ficha_seq;
+create or replace function public.set_employee_ficha() returns trigger language plpgsql as $fn$
+begin
+  if new.ficha_number is null or btrim(new.ficha_number) = '' then
+    new.ficha_number := lpad(nextval('public.employees_ficha_seq')::text, 4, '0');
+  end if;
+  return new;
+end $fn$;
+drop trigger if exists trg_employee_ficha on public.employees;
+create trigger trg_employee_ficha before insert on public.employees
+  for each row execute function public.set_employee_ficha();
+
+-- ============================================================================
+-- ALIADOS — colaboradores externos con ficha y carnet propios (QR con sus datos)
+-- ============================================================================
+create table if not exists public.aliados (
+  id uuid primary key default gen_random_uuid(),
+  ficha_number text,                       -- 4 dígitos ALEATORIO único (no repetible)
+  first_name text not null,
+  last_name text not null,
+  cedula text,
+  organizacion text,                       -- empresa/institución del aliado
+  rol text,                                -- rol o cargo del aliado
+  photo_url text,
+  blood_type text,
+  phone text,
+  email text,
+  address text,
+  city text,
+  state text,
+  status text not null default 'activo',
+  notes text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists uq_aliados_cedula on public.aliados (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
+create unique index if not exists uq_aliados_ficha  on public.aliados (lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';
+alter table public.aliados enable row level security;
+-- Lectura pública (el QR de la ficha se abre con sesión anónima, igual que empleados).
+drop policy if exists aliados_read on public.aliados;
+create policy aliados_read on public.aliados for select using (true);
+drop policy if exists aliados_write on public.aliados;
+create policy aliados_write on public.aliados for all to authenticated using (true) with check (true);
+-- N° de ficha ALEATORIO de 4 dígitos, ÚNICO (no repetible), asignado al crear.
+create or replace function public.set_aliado_ficha() returns trigger language plpgsql as $fn$
+declare cand text; tries int := 0;
+begin
+  if new.ficha_number is null or btrim(new.ficha_number) = '' then
+    loop
+      cand := lpad((floor(random()*10000))::int::text, 4, '0');
+      exit when not exists (select 1 from public.aliados where ficha_number = cand);
+      tries := tries + 1;
+      if tries > 300 then
+        select lpad(g::text,4,'0') into cand from generate_series(0,9999) g
+          where not exists (select 1 from public.aliados a where a.ficha_number = lpad(g::text,4,'0'))
+          order by g limit 1;
+        exit;
+      end if;
+    end loop;
+    new.ficha_number := cand;
+  end if;
+  return new;
+end $fn$;
+drop trigger if exists trg_aliado_ficha on public.aliados;
+create trigger trg_aliado_ficha before insert on public.aliados
+  for each row execute function public.set_aliado_ficha();
+
+-- ============================================================================
+-- NÓMINA (Fase 2) — períodos y renglones por empleado
+-- Datos sensibles: lectura SOLO para usuarios autenticados (no anónimos).
+-- ============================================================================
+create table if not exists public.payroll_periods (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  name text not null,
+  period_start date,
+  period_end date,
+  status text not null default 'borrador',   -- borrador | aprobada | pagada
+  total_amount numeric(14,2) not null default 0,
+  currency text default 'USD',
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.payroll_items (
+  id uuid primary key default gen_random_uuid(),
+  period_id uuid not null references public.payroll_periods(id) on delete cascade,
+  employee_id uuid references public.employees(id) on delete set null,
+  employee_name text,
+  cargo text,
+  ficha_number text,
+  cedula text,
+  hire_date date,                                 -- fecha de ingreso (copiada del empleado)
+  base_amount numeric(14,2) not null default 0,
+  additions jsonb not null default '[]'::jsonb,   -- [{label, amount}]
+  deductions jsonb not null default '[]'::jsonb,
+  net_amount numeric(14,2) not null default 0,
+  note text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_pi_period on public.payroll_items(period_id);
+create index if not exists idx_pp_company on public.payroll_periods(company_id);
+alter table public.payroll_periods enable row level security;
+alter table public.payroll_items enable row level security;
+drop policy if exists pp_read on public.payroll_periods;
+create policy pp_read on public.payroll_periods for select to authenticated using (true);
+drop policy if exists pp_write on public.payroll_periods;
+create policy pp_write on public.payroll_periods for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists pi_read on public.payroll_items;
+create policy pi_read on public.payroll_items for select to authenticated using (true);
+drop policy if exists pi_write on public.payroll_items;
+create policy pi_write on public.payroll_items for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+
+-- ============================================================================
+-- ÍNDICES DE RENDIMIENTO (filtros/joins más frecuentes)
+-- ============================================================================
+create index if not exists idx_machinery_company    on public.machinery(company_id);
+create index if not exists idx_mr_machinery          on public.machine_rounds(machinery_id);
+-- Parcial: el control activo consulta round_date con closed = false.
+create index if not exists idx_mr_open               on public.machine_rounds(round_date) where closed = false;
+create index if not exists idx_dispatches_machinery  on public.dispatches(machinery_id);
+create index if not exists idx_dispatches_date       on public.dispatches(dispatch_date);
+create index if not exists idx_employees_company     on public.employees(company_id);
+
+-- ============================================================================
+-- SUPERVISIÓN: ronda de supervisores. Cada visita (check-in) a una máquina con
+-- hora + GPS + estado (trabajando/parada/no está). VALIDA la jornada: si en un
+-- día una máquina con horas registradas NO tiene visita de supervisor, esa
+-- máquina-día queda "sin validar" (regla de negocio: el operador no cobra).
+-- El supervisor entra con su usuario (rol supervisor) a su propia vista.
+-- ============================================================================
+create table if not exists public.supervisor_visits (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  supervisor_id uuid references public.profiles(id),
+  supervisor_name text not null,
+  visit_date date not null,                 -- día (ISO Caracas) de la visita
+  visited_at timestamptz not null default now(),
+  status text not null default 'trabajando' -- 'trabajando' | 'parada' | 'no_esta'
+    check (status in ('trabajando','parada','no_esta')),
+  lat double precision,
+  lng double precision,
+  distance_m numeric,                       -- metros hasta la ubicación conocida de la máquina
+  near boolean,                             -- ¿dentro de la tolerancia? (más o menos cerca)
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table public.supervisor_visits enable row level security;
+drop policy if exists sv_select on public.supervisor_visits;
+create policy sv_select on public.supervisor_visits for select to authenticated using (true);
+drop policy if exists sv_write on public.supervisor_visits;
+create policy sv_write on public.supervisor_visits for all to authenticated using (true) with check (true);
+create index if not exists supervisor_visits_machine_date_idx on public.supervisor_visits(machinery_id, visit_date);
+create index if not exists supervisor_visits_date_idx on public.supervisor_visits(visit_date);
+create index if not exists supervisor_visits_sup_idx on public.supervisor_visits(supervisor_id, visit_date);
+
+-- ============================================================================
+-- DISTRIBUCIÓN DE COMIDA: cada entrega a una persona (identificada por su
+-- carnet/QR) con la cantidad de comidas y la hora de entrega. La registra un
+-- usuario con rol 'cocina' (con sesión iniciada). El módulo "Distribución de
+-- comida" agrupa por persona y día.
+-- ============================================================================
+create table if not exists public.food_distributions (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid references public.employees(id) on delete set null,
+  employee_name text not null,
+  cedula text,
+  meals integer not null default 1 check (meals > 0),
+  delivered_at timestamptz not null default now(),   -- hora de entrega
+  distribution_date date not null,                   -- día (ISO Caracas)
+  note text,
+  created_by uuid references public.profiles(id),    -- usuario Cocina que repartió
+  created_by_name text,
+  created_at timestamptz not null default now()
+);
+alter table public.food_distributions enable row level security;
+drop policy if exists fd_select on public.food_distributions;
+create policy fd_select on public.food_distributions for select to authenticated using (true);
+drop policy if exists fd_write on public.food_distributions;
+create policy fd_write on public.food_distributions for all to authenticated using (true) with check (true);
+create index if not exists food_dist_date_idx on public.food_distributions(distribution_date);
+create index if not exists food_dist_emp_idx on public.food_distributions(employee_id, distribution_date);
+-- Tipo de comida por persona (desayuno/almuerzo/cena), 1 vez por día por persona.
+alter table public.food_distributions add column if not exists meal_type text;
+create unique index if not exists food_dist_person_meal_day
+  on public.food_distributions (employee_id, meal_type, distribution_date)
+  where meal_type is not null and employee_id is not null;
+
+-- Distribución de comida POR EMPRESA: al escanear el QR de una empresa, la cocina
+-- registra por comida (desayuno/almuerzo/cena) cuántas entregó ese día. Sugerido =
+-- (máquinas de la empresa × 2) + 15. Una sola vez por (empresa, comida, día).
+create table if not exists public.food_company_meals (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  company_name text not null,
+  meal_type text not null check (meal_type in ('desayuno','almuerzo','cena')),
+  meal_date date not null,
+  machines integer not null default 0,
+  suggested integer not null default 0,
+  delivered integer not null default 0 check (delivered >= 0),
+  delivered_at timestamptz not null default now(),
+  note text,
+  created_by uuid references public.profiles(id),
+  created_by_name text,
+  created_by_cargo text,
+  created_at timestamptz not null default now(),
+  unique (company_id, meal_type, meal_date)
+);
+alter table public.food_company_meals enable row level security;
+drop policy if exists fcm_select on public.food_company_meals;
+create policy fcm_select on public.food_company_meals for select to authenticated using (true);
+drop policy if exists fcm_write on public.food_company_meals;
+create policy fcm_write on public.food_company_meals for all to authenticated using (true) with check (true);
+create index if not exists fcm_date_idx on public.food_company_meals(meal_date);
+create index if not exists fcm_company_idx on public.food_company_meals(company_id, meal_date);
+
+-- ============================================================================
+-- LOGIN BLINDADO POR CÉDULA
+-- ============================================================================
+-- El inicio de sesión es por CÉDULA + contraseña. Supabase Auth usa email, así que
+-- esta función SEGURA (security definer) traduce la cédula al correo interno del
+-- usuario. Devuelve NULL si la cédula no está registrada (o no tiene cédula), y en
+-- ese caso el login muestra: "Pídele al administrador de sistemas que agregue la
+-- CÉDULA para poder ingresar". No expone datos sensibles (el correo es sintético).
+create or replace function public.login_email_for_cedula(p_cedula text)
+  returns text
+  language sql
+  security definer
+  set search_path = public, auth
+as $fn$
+  select au.email::text
+  from auth.users au
+  join public.profiles p on p.id = au.id
+  where p.cedula = btrim(p_cedula)
+    and coalesce(au.is_anonymous, false) = false
+  limit 1
+$fn$;
+revoke all on function public.login_email_for_cedula(text) from public;
+grant execute on function public.login_email_for_cedula(text) to anon, authenticated;
+
+-- ── Blindaje del login: bloqueo por intentos fallidos ────────────────────────
+-- Se cuenta cada contraseña incorrecta; al 3er intento el usuario queda BLOQUEADO
+-- y solo un administrador puede desbloquearlo (desde la pantalla de Usuarios).
+alter table public.profiles
+  add column if not exists failed_attempts int not null default 0,
+  add column if not exists locked boolean not null default false,
+  add column if not exists locked_at timestamptz;
+
+-- Estado de login por cédula: correo interno + si está bloqueado.
+create or replace function public.login_status_for_cedula(p_cedula text)
+  returns table(email text, locked boolean)
+  language sql security definer set search_path = public, auth
+as $fn$
+  select au.email::text, coalesce(p.locked, false)
+  from auth.users au
+  join public.profiles p on p.id = au.id
+  where p.cedula = btrim(p_cedula) and coalesce(au.is_anonymous, false) = false
+  limit 1
+$fn$;
+
+-- Registra un intento fallido; bloquea al llegar a 3. Devuelve intentos + estado.
+create or replace function public.register_failed_login(p_cedula text)
+  returns table(attempts int, locked boolean)
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles
+  set failed_attempts = coalesce(failed_attempts, 0) + 1,
+      locked = (coalesce(failed_attempts, 0) + 1) >= 3,
+      locked_at = case when (coalesce(failed_attempts, 0) + 1) >= 3 then now() else locked_at end
+  where btrim(cedula) = btrim(p_cedula)
+  returning failed_attempts, locked
+$fn$;
+
+-- Limpia el contador al iniciar sesión correctamente.
+create or replace function public.reset_failed_login(p_cedula text)
+  returns void
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles set failed_attempts = 0, locked = false, locked_at = null
+  where btrim(cedula) = btrim(p_cedula)
+$fn$;
+
+revoke all on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) from public;
+grant execute on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) to anon, authenticated;
+
+-- ── LOGIN POR USUARIO ────────────────────────────────────────────────────────
+-- Ahora el inicio de sesión es por USUARIO (máx. 10 caracteres) + contraseña. El
+-- usuario es único (sin distinguir mayúsculas). Mismo blindaje de bloqueo por
+-- intentos fallidos que la cédula (al 3er intento se bloquea; solo admin desbloquea).
+alter table public.profiles add column if not exists username text;
+create unique index if not exists profiles_username_key on public.profiles (lower(username)) where username is not null;
+
+-- Estado de login por usuario: correo interno + si está bloqueado.
+create or replace function public.login_status_for_username(p_username text)
+  returns table(email text, locked boolean)
+  language sql security definer set search_path = public, auth
+as $fn$
+  select au.email::text, coalesce(p.locked, false)
+  from auth.users au
+  join public.profiles p on p.id = au.id
+  where lower(btrim(p.username)) = lower(btrim(p_username)) and coalesce(au.is_anonymous, false) = false
+  limit 1
+$fn$;
+
+-- Registra un intento fallido por usuario; bloquea al llegar a 3.
+create or replace function public.register_failed_login_username(p_username text)
+  returns table(attempts int, locked boolean)
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles
+  set failed_attempts = coalesce(failed_attempts, 0) + 1,
+      locked = (coalesce(failed_attempts, 0) + 1) >= 3,
+      locked_at = case when (coalesce(failed_attempts, 0) + 1) >= 3 then now() else locked_at end
+  where lower(btrim(username)) = lower(btrim(p_username))
+  returning failed_attempts, locked
+$fn$;
+
+-- Limpia el contador al iniciar sesión correctamente.
+create or replace function public.reset_failed_login_username(p_username text)
+  returns void
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles set failed_attempts = 0, locked = false, locked_at = null
+  where lower(btrim(username)) = lower(btrim(p_username))
+$fn$;
+
+revoke all on function public.login_status_for_username(text), public.register_failed_login_username(text), public.reset_failed_login_username(text) from public;
+grant execute on function public.login_status_for_username(text), public.register_failed_login_username(text), public.reset_failed_login_username(text) to anon, authenticated;
+
+-- ── DESFASE DE SECTORES EN EL MAPA (reubicación por admin) ───────────────────
+-- Los sectores (polígonos KMZ) pueden quedar un poco desfasados sobre el satélite.
+-- El admin los arrastra en el mapa y aquí se guarda el desfase (lat/lng) por sector.
+-- Se aplica al dibujarlos para todos. Solo los administradores pueden escribir.
+create table if not exists public.map_zone_offsets (
+  zone_name text primary key,
+  d_lat double precision not null default 0,
+  d_lng double precision not null default 0,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references public.profiles(id) on delete set null
+);
+alter table public.map_zone_offsets enable row level security;
+drop policy if exists "zone_off_read" on public.map_zone_offsets;
+create policy "zone_off_read"  on public.map_zone_offsets for select using (auth.role() = 'authenticated');
+drop policy if exists "zone_off_write" on public.map_zone_offsets;
+create policy "zone_off_write" on public.map_zone_offsets for all using (public.is_admin()) with check (public.is_admin());
+
+-- ============================================================================
+-- CONTROL DE PAGO A PERSONAL (dentro de Nómina)
+-- Paga por PRECIO por hora / día / semana, definido POR TRABAJADOR (employees:
+-- precio_hora/precio_dia/precio_semana). El período elige el modo (hora/dia/semana)
+-- y el devengado = precio_del_modo × cantidad (horas / días / semanas trabajadas).
+-- Los operadores se cargan AUTOMÁTICO desde operator_assignments (por cédula, dentro
+-- del rango) y el resto del personal a mano. Con only_validated, una jornada solo
+-- suma si tiene visita del supervisor (supervisor_visits, misma máquina y fecha,
+-- status 'trabajando'). Bonos, deducciones y abonos con saldo (staff_pay_payments).
+-- ============================================================================
+create table if not exists public.staff_pay_periods (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  name text not null,
+  period_type text not null default 'semana' check (period_type in ('dia','semana','quincena')),
+  date_from date not null,
+  date_to date not null,
+  mode text not null default 'dia' check (mode in ('hora','dia','semana')),
+  only_validated boolean not null default true,
+  status text not null default 'borrador' check (status in ('borrador','aprobada','pagada')),
+  total_amount numeric(14,2) not null default 0,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_spp_company on public.staff_pay_periods(company_id);
+create index if not exists idx_spp_status on public.staff_pay_periods(status);
+
+create table if not exists public.staff_pay_items (
+  id uuid primary key default gen_random_uuid(),
+  period_id uuid not null references public.staff_pay_periods(id) on delete cascade,
+  employee_id uuid references public.employees(id) on delete set null,
+  cedula text,
+  person_name text not null,
+  cargo text,
+  source text not null default 'manual' check (source in ('auto','manual')),
+  precio_hora numeric(14,2) not null default 0,
+  precio_dia numeric(14,2) not null default 0,
+  precio_semana numeric(14,2) not null default 0,
+  dias numeric(8,2) not null default 0,
+  horas numeric(10,2) not null default 0,
+  semanas numeric(8,2) not null default 0,
+  jornadas_validadas int not null default 0,
+  jornadas_pendientes int not null default 0,
+  overridden boolean not null default false,
+  devengado numeric(14,2) not null default 0,
+  bonos jsonb not null default '[]'::jsonb,
+  deducciones jsonb not null default '[]'::jsonb,
+  total numeric(14,2) not null default 0,
+  nota text,
+  created_at timestamptz not null default now()
+);
+-- Migración de columnas para tablas ya creadas.
+alter table public.staff_pay_items add column if not exists precio_hora numeric(14,2) not null default 0;
+alter table public.staff_pay_items add column if not exists precio_dia numeric(14,2) not null default 0;   -- precio jornada DÍA
+alter table public.staff_pay_items add column if not exists precio_noche numeric(14,2) not null default 0; -- precio jornada NOCHE
+alter table public.staff_pay_items add column if not exists dias_noche numeric(8,2) not null default 0;    -- jornadas de NOCHE
+alter table public.staff_pay_items add column if not exists precio_semana numeric(14,2) not null default 0;
+alter table public.staff_pay_items add column if not exists semanas numeric(8,2) not null default 0;
+create index if not exists idx_spi_period on public.staff_pay_items(period_id);
+create index if not exists idx_spi_cedula on public.staff_pay_items(cedula);
+
+create table if not exists public.staff_pay_payments (
+  id uuid primary key default gen_random_uuid(),
+  item_id uuid not null references public.staff_pay_items(id) on delete cascade,
+  monto numeric(14,2) not null,
+  metodo text not null default 'efectivo',
+  fecha date not null default (now() at time zone 'America/Caracas')::date,
+  nota text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_spp2_item on public.staff_pay_payments(item_id);
+
+alter table public.staff_pay_config   enable row level security;
+alter table public.staff_pay_periods  enable row level security;
+alter table public.staff_pay_items    enable row level security;
+alter table public.staff_pay_payments enable row level security;
+drop policy if exists spc_all on public.staff_pay_config;
+create policy spc_all on public.staff_pay_config for all to authenticated using (true) with check (true);
+drop policy if exists spp_all on public.staff_pay_periods;
+create policy spp_all on public.staff_pay_periods for all to authenticated using (true) with check (true);
+drop policy if exists spi_all on public.staff_pay_items;
+create policy spi_all on public.staff_pay_items for all to authenticated using (true) with check (true);
+drop policy if exists spp2_all on public.staff_pay_payments;
+create policy spp2_all on public.staff_pay_payments for all to authenticated using (true) with check (true);
+
+-- Tabulador de sueldos por CARGO: se define el precio por cargo y se SINCRONIZA a
+-- todos los empleados con ese cargo (así el sueldo no se pone uno por uno).
+create table if not exists public.staff_cargo_tariffs (
+  id uuid primary key default gen_random_uuid(),
+  cargo text not null,
+  departamento text,
+  precio_hora numeric(14,2) not null default 0,
+  precio_dia numeric(14,2) not null default 0,     -- jornada de DÍA (operadores)
+  precio_noche numeric(14,2) not null default 0,   -- jornada de NOCHE (operadores)
+  precio_semana numeric(14,2) not null default 0,  -- sueldo semanal (resto del personal)
+  updated_at timestamptz not null default now(),
+  unique (cargo)
+);
+alter table public.staff_cargo_tariffs enable row level security;
+drop policy if exists sct_all on public.staff_cargo_tariffs;
+create policy sct_all on public.staff_cargo_tariffs for all to authenticated using (true) with check (true);
+-- Quincena y mes (sueldo propio por cargo, no derivado del semanal).
+alter table public.staff_cargo_tariffs add column if not exists precio_quincena numeric(14,2) not null default 0;
+alter table public.staff_cargo_tariffs add column if not exists precio_mes numeric(14,2) not null default 0;
+
+-- ============================================================================
+-- PAGO A PERSONAL — MOVIMIENTOS POR PERSONA (ledger independiente de períodos)
+-- Cada fila es un pago hecho a un empleado (diario día/noche, semanal, quincenal
+-- o mensual) con su recibo, historial, edición y borrado.
+-- ----------------------------------------------------------------------------
+create table if not exists public.staff_payments (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid references public.employees(id) on delete set null,
+  cedula text,
+  person_name text not null,
+  cargo text,
+  fecha date not null default current_date,
+  frecuencia text not null default 'diario',  -- 'diario' | 'semanal' | 'quincenal' | 'mensual'
+  jornada text,                               -- 'dia' | 'noche' | null (solo diario)
+  cantidad numeric(8,2) not null default 1,
+  precio_unit numeric(14,2) not null default 0,
+  monto numeric(14,2) not null default 0,
+  metodo text,
+  banco text,
+  cuenta text,
+  concepto text,
+  nota text,
+  created_by uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_sp_employee on public.staff_payments(employee_id);
+create index if not exists idx_sp_cedula on public.staff_payments(cedula);
+create index if not exists idx_sp_fecha on public.staff_payments(fecha);
+alter table public.staff_payments enable row level security;
+drop policy if exists sp_all on public.staff_payments;
+create policy sp_all on public.staff_payments for all to authenticated using (true) with check (true);
+-- "Diario": día y noche JUNTOS en un mismo pago (cantidades y precios por separado).
+alter table public.staff_payments add column if not exists cantidad_dia   numeric(8,2)  not null default 0;
+alter table public.staff_payments add column if not exists cantidad_noche numeric(8,2)  not null default 0;
+alter table public.staff_payments add column if not exists precio_dia     numeric(14,2) not null default 0;
+alter table public.staff_payments add column if not exists precio_noche   numeric(14,2) not null default 0;
+-- Rango de fechas que cubre el pago (fecha = desde; fecha_hasta = hasta).
+alter table public.staff_payments add column if not exists fecha_hasta date;
+-- Empleados: sueldo quincenal/mensual propio.
+alter table public.employees add column if not exists precio_quincena numeric;
+alter table public.employees add column if not exists precio_mes numeric;
+
+-- ============================================================================
+-- TIEMPO REAL (Realtime): tablas cuyas pantallas se refrescan solas al cambiar.
+-- Sin estar en la publicación `supabase_realtime`, el cliente se suscribe pero la
+-- BD nunca envía los cambios (la pantalla no se actualiza hasta refrescar a mano).
+-- `add table` falla si la tabla ya está publicada; por eso se ignora el error.
+-- ============================================================================
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'employees', 'food_distributions', 'food_company_meals', 'supervisor_visits',
+    'operator_assignments', 'inventory_movements', 'inventory_items',
+    -- Control de maquinaria, reportes y pagos: para que el alta/edición de una
+    -- máquina, jornada, flete, etc. se vea al instante sin refrescar a mano.
+    'machinery', 'machine_rounds', 'fletes', 'companies', 'machine_guards',
+    'company_payments', 'control_closures', 'maintenance_requests',
+    -- Asignaciones inspector↔máquina (CHECK): sin esto, al asignar/reasignar en un
+    -- dispositivo el resumen de Inspecciones de la PC no se refresca en tiempo real.
+    'machine_inspectors',
+    -- Asistencia: para que las marcas (entrada/salida) se vean al instante en el
+    -- calendario de otro dispositivo sin refrescar a mano.
+    'attendance'
+  ] loop
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    exception when duplicate_object then null; when others then null;
+    end;
+  end loop;
+end $$;
+
+-- ============================================================================
+-- Poder ELIMINAR usuarios sin bloqueos por claves foráneas.
+-- Varias tablas referenciaban public.profiles(id) con NO ACTION, lo que impedía
+-- borrar a un usuario que tuviera cualquier registro relacionado (el borrado
+-- fallaba con "Edge Function returned a non-2xx status code"). Se ajustan:
+--  · supervisor_visits.supervisor_id → ON DELETE CASCADE (sus visitas se van con él).
+--  · columnas de auditoría (created_by / requested_by / approved_by) → SET NULL
+--    (se conserva el registro de negocio, solo se pierde quién lo creó).
+-- Bloque idempotente: recrea cada FK con la regla correcta.
+-- ============================================================================
+do $$
+begin
+  alter table public.supervisor_visits drop constraint if exists supervisor_visits_supervisor_id_fkey;
+  alter table public.supervisor_visits add constraint supervisor_visits_supervisor_id_fkey
+    foreign key (supervisor_id) references public.profiles(id) on delete cascade;
+
+  alter table public.authorizations drop constraint if exists authorizations_approved_by_fkey;
+  alter table public.authorizations add constraint authorizations_approved_by_fkey
+    foreign key (approved_by) references public.profiles(id) on delete set null;
+  alter table public.authorizations drop constraint if exists authorizations_requested_by_fkey;
+  alter table public.authorizations add constraint authorizations_requested_by_fkey
+    foreign key (requested_by) references public.profiles(id) on delete set null;
+
+  alter table public.dispatches drop constraint if exists dispatches_created_by_fkey;
+  alter table public.dispatches add constraint dispatches_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.food_company_meals drop constraint if exists food_company_meals_created_by_fkey;
+  alter table public.food_company_meals add constraint food_company_meals_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.food_distributions drop constraint if exists food_distributions_created_by_fkey;
+  alter table public.food_distributions add constraint food_distributions_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.fuel_intakes drop constraint if exists fuel_intakes_created_by_fkey;
+  alter table public.fuel_intakes add constraint fuel_intakes_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.transfers drop constraint if exists transfers_created_by_fkey;
+  alter table public.transfers add constraint transfers_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+end $$;
+
+-- ============================================================================
+-- CONTROL DE ASISTENCIA (módulo Nómina): marcas de ENTRADA/SALIDA por carnet.
+-- Un registro por marca (bitácora). El día (work_date) y la hora se calculan en
+-- zona Caracas desde la app. Se permiten VARIOS pares por día (almuerzo, etc.).
+-- Solo usuarios con el módulo 'asistencia' (p. ej. rol ALMACENISTA) pueden marcar.
+-- ============================================================================
+create table if not exists public.attendance (
+  id           uuid primary key default gen_random_uuid(),
+  employee_id  uuid not null references public.employees(id) on delete cascade,
+  ts           timestamptz not null default now(),   -- momento exacto de la marca
+  work_date    date not null,                         -- fecha (Caracas) para agrupar por día
+  kind         text not null check (kind in ('entrada','salida')),
+  recorded_by  uuid references public.profiles(id) on delete set null, -- quién marcó
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_attendance_date on public.attendance(work_date, employee_id);
+create index if not exists idx_attendance_emp  on public.attendance(employee_id, ts);
+alter table public.attendance enable row level security;
+drop policy if exists attendance_select on public.attendance;
+create policy attendance_select on public.attendance for select to authenticated using (true);
+drop policy if exists attendance_write on public.attendance;
+create policy attendance_write on public.attendance for all to authenticated using (true) with check (true);
+
+-- ============================================================================
+-- DISTRIBUCIÓN DE UNIFORMES: ENTREGAS (cuántas camisas/pantalones/zapatos se le
+-- han entregado a cada trabajador, con fecha y hora). Una fila por entrega; se
+-- acumulan varias por persona. Las TALLAS siguen en la ficha del empleado.
+-- ============================================================================
+create table if not exists public.uniform_deliveries (
+  id           uuid primary key default gen_random_uuid(),
+  employee_id  uuid not null references public.employees(id) on delete cascade,
+  camisas      integer not null default 0 check (camisas >= 0),
+  pantalones   integer not null default 0 check (pantalones >= 0),
+  zapatos      integer not null default 0 check (zapatos >= 0),
+  delivered_at timestamptz not null default now(),   -- momento exacto de la entrega
+  work_date    date not null,                         -- fecha (Caracas) para agrupar
+  note         text,
+  recorded_by  uuid references public.profiles(id) on delete set null,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_unifdel_emp  on public.uniform_deliveries(employee_id, delivered_at);
+create index if not exists idx_unifdel_date on public.uniform_deliveries(work_date);
+alter table public.uniform_deliveries enable row level security;
+drop policy if exists unifdel_select on public.uniform_deliveries;
+create policy unifdel_select on public.uniform_deliveries for select to authenticated using (true);
+drop policy if exists unifdel_write on public.uniform_deliveries;
+create policy unifdel_write on public.uniform_deliveries for all to authenticated using (true) with check (true);
+
+-- ============================================================================
+-- FIN DEL ESQUEMA
+-- ============================================================================
+
+-- ============================================================================
+-- MÓDULO DE ACARREO / TRANSPORTE  (traslado de maquinaria en chutos + bateas)
+-- Independiente de `transfers` (traslado de COMBUSTIBLE tanque->tanque).
+-- Escritura gateada por can_write_module('acarreo').
+-- ============================================================================
+do $$ begin
+  create type haul_status as enum
+    ('programado','en_carga','en_transito','en_descarga','completado','cancelado');
+exception when duplicate_object then null; end $$;
+
+alter table public.machinery add column if not exists weight_ton numeric(10,2);
+alter table public.machinery add column if not exists length_m   numeric(8,2);
+alter table public.machinery add column if not exists width_m    numeric(8,2);
+alter table public.machinery add column if not exists height_m   numeric(8,2);
+alter table public.machinery add column if not exists transport_status text
+  check (transport_status is null or transport_status in ('operativa','para_reparacion','chatarra'));
+
+create sequence if not exists public.haul_order_folio_seq;
+
+create table if not exists public.haul_clients (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  kind       text not null default 'externo' check (kind in ('interno','externo')),
+  tax_id     text,
+  contact    text,
+  phone      text,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.haul_locations (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  type       text check (type is null or type in ('obra','almacen','taller','mina','pozo','otro')),
+  client_id  uuid references public.haul_clients(id) on delete set null,
+  latitude   double precision,
+  longitude  double precision,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.haul_trucks (
+  id                uuid primary key default gen_random_uuid(),
+  plate             text not null unique,
+  brand             text,
+  model             text,
+  max_tow_ton       numeric(10,2),
+  odometer_km       numeric(12,2) not null default 0,
+  maint_interval_km numeric(12,2),
+  status            text not null default 'operativo' check (status in ('operativo','taller','inactivo')),
+  active            boolean not null default true,
+  created_at        timestamptz not null default now()
+);
+
+create table if not exists public.haul_trailers (
+  id           uuid primary key default gen_random_uuid(),
+  plate        text not null unique,
+  kind         text not null default 'batea' check (kind in ('batea','lowboy','remolque')),
+  axles        integer,
+  max_load_ton numeric(10,2),
+  deck_len_m   numeric(8,2),
+  deck_width_m numeric(8,2),
+  deck_height_m numeric(8,2),
+  status       text not null default 'operativo' check (status in ('operativo','taller','inactivo')),
+  active       boolean not null default true,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.haul_drivers (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid references public.profiles(id) on delete set null,
+  full_name         text not null,
+  phone             text,
+  license_number    text,
+  license_class     text,
+  license_expires_at date,
+  hazmat_expires_at date,
+  availability      text not null default 'disponible'
+                    check (availability in ('disponible','en_ruta','reposo','suspendido')),
+  active            boolean not null default true,
+  created_at        timestamptz not null default now()
+);
+
+create table if not exists public.haul_documents (
+  id         uuid primary key default gen_random_uuid(),
+  owner_type text not null check (owner_type in ('truck','trailer','driver')),
+  owner_id   uuid not null,
+  doc_type   text not null check (doc_type in
+             ('permiso_carga_pesada','poliza','revision_tecnica','licencia','otro')),
+  number     text,
+  issued_at  date,
+  expires_at date,
+  file_url   text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_haul_docs_owner   on public.haul_documents(owner_type, owner_id);
+create index if not exists idx_haul_docs_expires on public.haul_documents(expires_at);
+
+create table if not exists public.haul_orders (
+  id                   uuid primary key default gen_random_uuid(),
+  folio                text not null unique
+                       default ('AC-' || lpad(nextval('public.haul_order_folio_seq')::text, 5, '0')),
+  status               haul_status not null default 'programado',
+  client_from_id       uuid references public.haul_clients(id)   on delete set null,
+  client_to_id         uuid references public.haul_clients(id)   on delete set null,
+  origin_location_id   uuid references public.haul_locations(id) on delete set null,
+  dest_location_id     uuid references public.haul_locations(id) on delete set null,
+  requested_departure_at timestamptz,
+  required_arrival_at  timestamptz,
+  departed_at          timestamptz,
+  arrived_at           timestamptz,
+  -- CHUTO = máquina del CATÁLOGO (machinery, clasificación TRANSPORTE DE ESCOMBROS),
+  -- no la tabla haul_trucks (fuente única de verdad; ver haul_orders_truck_from_catalog).
+  truck_id             uuid references public.machinery(id)     on delete set null,
+  -- batea/remolque = máquina del catálogo (código/modelo con "batea" o "lowboy"),
+  -- no la tabla haul_trailers (fuente única de verdad; ver haul_orders_trailer_from_catalog).
+  trailer_id           uuid references public.machinery(id)     on delete set null,
+  driver_id            uuid references public.haul_drivers(id)  on delete set null,
+  route_km_est         numeric(10,2),
+  tolls_est            numeric(12,2),
+  per_diem_advanced    numeric(12,2),
+  tariff_mode          text check (tariff_mode is null or tariff_mode in ('km','ton','hora','plana')),
+  billed_amount        numeric(14,2),
+  cancel_reason        text,
+  notes                text,
+  created_by           uuid references public.profiles(id) on delete set null,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+create index if not exists idx_haul_orders_status  on public.haul_orders(status);
+create index if not exists idx_haul_orders_driver  on public.haul_orders(driver_id, requested_departure_at);
+create index if not exists idx_haul_orders_truck   on public.haul_orders(truck_id, requested_departure_at);
+create index if not exists idx_haul_orders_trailer on public.haul_orders(trailer_id, requested_departure_at);
+create index if not exists idx_haul_orders_created on public.haul_orders(created_at);
+
+create table if not exists public.haul_order_items (
+  id             uuid primary key default gen_random_uuid(),
+  order_id       uuid not null references public.haul_orders(id) on delete cascade,
+  machinery_id   uuid not null references public.machinery(id)  on delete restrict,
+  weight_ton_snap numeric(10,2),
+  horometro_ini  numeric(12,2),
+  horometro_fin  numeric(12,2),
+  km_ini         numeric(12,2),
+  km_fin         numeric(12,2)
+);
+create index if not exists idx_haul_items_order on public.haul_order_items(order_id);
+create index if not exists idx_haul_items_mach  on public.haul_order_items(machinery_id);
+
+create table if not exists public.haul_status_events (
+  id          uuid primary key default gen_random_uuid(),
+  order_id    uuid not null references public.haul_orders(id) on delete cascade,
+  from_status text,
+  to_status   text not null,
+  at          timestamptz not null default now(),
+  by          uuid references public.profiles(id) on delete set null,
+  notes       text
+);
+create index if not exists idx_haul_events_order on public.haul_status_events(order_id, at);
+
+create table if not exists public.haul_checks (
+  id             uuid primary key default gen_random_uuid(),
+  order_id       uuid not null references public.haul_orders(id) on delete cascade,
+  kind           text not null check (kind in ('salida','recepcion')),
+  fuel_level     text,
+  tires_ok       boolean,
+  straps_ok      boolean,
+  checklist      jsonb,
+  signed_by_name text,
+  signature_url  text,
+  at             timestamptz not null default now(),
+  by             uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_checks_order on public.haul_checks(order_id);
+
+create table if not exists public.haul_photos (
+  id       uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.haul_orders(id) on delete cascade,
+  check_id uuid references public.haul_checks(id) on delete set null,
+  tag      text check (tag is null or tag in ('antes','despues','amarre','incidencia','otro')),
+  url      text not null,
+  at       timestamptz not null default now(),
+  by       uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_photos_order on public.haul_photos(order_id);
+
+create table if not exists public.haul_incidents (
+  id          uuid primary key default gen_random_uuid(),
+  order_id    uuid not null references public.haul_orders(id) on delete cascade,
+  type        text not null check (type in ('mecanica','clima','permiso','alcabala','otro')),
+  description text,
+  photo_url   text,
+  at          timestamptz not null default now(),
+  by          uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_incidents_order on public.haul_incidents(order_id);
+
+create table if not exists public.haul_expenses (
+  id         uuid primary key default gen_random_uuid(),
+  order_id   uuid not null references public.haul_orders(id) on delete cascade,
+  kind       text not null check (kind in
+             ('combustible','viatico_comida','viatico_hospedaje','peaje','otro')),
+  amount     numeric(14,2) not null default 0,
+  currency   text not null default 'USD',
+  liters     numeric(12,2),
+  receipt_url text,
+  note       text,
+  approved   boolean not null default false,
+  at         timestamptz not null default now(),
+  by         uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_expenses_order on public.haul_expenses(order_id);
+
+create table if not exists public.haul_tariffs (
+  id           uuid primary key default gen_random_uuid(),
+  mode         text not null check (mode in ('km','ton','hora','plana')),
+  unit_price   numeric(14,4) not null,
+  client_id    uuid references public.haul_clients(id)   on delete cascade,
+  route_from_id uuid references public.haul_locations(id) on delete set null,
+  route_to_id  uuid references public.haul_locations(id) on delete set null,
+  active       boolean not null default true,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_haul_tariffs_client on public.haul_tariffs(client_id);
+
+create or replace function public.haul_touch_updated()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists trg_haul_orders_touch on public.haul_orders;
+create trigger trg_haul_orders_touch
+  before update on public.haul_orders
+  for each row execute function public.haul_touch_updated();
+
+create or replace function public.haul_log_status()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.haul_status_events(order_id, from_status, to_status, by)
+      values (new.id, null, new.status::text, auth.uid());
+  elsif tg_op = 'UPDATE' and new.status is distinct from old.status then
+    insert into public.haul_status_events(order_id, from_status, to_status, by)
+      values (new.id, old.status::text, new.status::text, auth.uid());
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_haul_orders_log_ins on public.haul_orders;
+create trigger trg_haul_orders_log_ins
+  after insert on public.haul_orders
+  for each row execute function public.haul_log_status();
+drop trigger if exists trg_haul_orders_log_upd on public.haul_orders;
+create trigger trg_haul_orders_log_upd
+  after update on public.haul_orders
+  for each row execute function public.haul_log_status();
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'haul_clients','haul_locations','haul_trucks','haul_trailers','haul_drivers',
+    'haul_documents','haul_orders','haul_order_items','haul_status_events',
+    'haul_checks','haul_photos','haul_incidents','haul_expenses','haul_tariffs'
+  ] loop
+    execute format('alter table public.%I enable row level security;', t);
+    execute format('drop policy if exists %I_select on public.%I;', t, t);
+    execute format('create policy %I_select on public.%I for select to authenticated using (true);', t, t);
+    execute format('drop policy if exists %I_write on public.%I;', t, t);
+    execute format('create policy %I_write on public.%I for all to authenticated using (public.can_write_module(''acarreo'')) with check (public.can_write_module(''acarreo''));', t, t);
+  end loop;
+end $$;
+
+-- ============================================================================
+-- MANTENIMIENTO POR HORÓMETRO PEGAJOSO (arrastre): una máquina que llega a
+-- >= 250 h acumuladas queda "requiere mantenimiento" hasta CONFIRMAR el
+-- mantenimiento (reparada + reiniciar horómetro). Ver MantenimientoMaquinariaScreen.
+-- ============================================================================
+alter table public.machinery
+  add column if not exists horometro_maint_pending boolean not null default false;
+
+create or replace function public.horometro_flag_pending()
+returns trigger language plpgsql as $$
+begin
+  if new.last_horometro is not null and new.horometro_base is not null
+     and (new.last_horometro - new.horometro_base) >= 250 then
+    new.horometro_maint_pending := true;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_horometro_flag_pending on public.machinery;
+create trigger trg_horometro_flag_pending
+  before insert or update of last_horometro, horometro_base on public.machinery
+  for each row execute function public.horometro_flag_pending();
+
+-- ############################################################################
+-- ############################################################################
+-- ##  ENDURECIMIENTO CONSOLIDADO — FUENTE DE VERDAD DE SEGURIDAD (RLS + fns) ##
+-- ##  (auditoría, backend#2 — 11-ago-2026)                                   ##
+-- ############################################################################
+-- Todo lo de ARRIBA es el esquema histórico; algunas de sus políticas RLS eran
+-- inseguras (using(true) legible por la sesión ANÓNIMA del QR) y varias funciones
+-- eran versiones viejas. Antes, reconstruir un entorno solo con schema.sql dejaba
+-- ese estado inseguro y había que acordarse de correr los parches sueltos.
+--
+-- Esta sección DEBE quedar SIEMPRE al FINAL del archivo: re-declara (create or
+-- replace / drop+create policy) las versiones ENDURECIDAS, sobreescribiendo las
+-- definiciones inseguras de arriba. Es 100% idempotente y ADITIVA. Con esto,
+-- correr schema.sql SOLO ya deja el entorno en el estado seguro de producción.
+--
+-- Fold de: fix_rls_anon_nomina.sql, fix_rls_anon_nomina_v2.sql,
+--          fix_stock_race_condition.sql, mejoras_seguridad_rendimiento.sql,
+--          security_hardening_2026-08-11.sql (esos archivos se conservan como
+--          historial/detalle; su contenido de seguridad vive ahora también acá).
+-- NOTA: la pertenencia a la publicación de realtime (supabase_realtime) NO es
+--       seguridad y es específica del entorno — ver fix_realtime_publication*.sql.
+
+-- ── Índice del ledger de combustible (acelera DELETE por origen) ────────────
+create index if not exists idx_stock_movements_source
+  on public.stock_movements(source_table, source_id);
+
+-- ── NÓMINA / PAGOS: cerrar lectura a sesiones NO anónimas (fix_rls_anon_nomina + v2)
+drop policy if exists cp_select on public.company_payments;
+create policy cp_select on public.company_payments for select to authenticated using (not public.is_anon());
+drop policy if exists pr_read on public.payrolls;
+create policy pr_read on public.payrolls for select to authenticated using (not public.is_anon());
+drop policy if exists spi_all on public.staff_pay_items;
+create policy spi_all on public.staff_pay_items for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists sp_all on public.staff_payments;
+create policy sp_all on public.staff_payments for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists pp_read on public.payroll_periods;
+create policy pp_read on public.payroll_periods for select to authenticated using (not public.is_anon());
+drop policy if exists pi_read on public.payroll_items;
+create policy pi_read on public.payroll_items for select to authenticated using (not public.is_anon());
+drop policy if exists spp_all on public.staff_pay_periods;
+create policy spp_all on public.staff_pay_periods for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists spp2_all on public.staff_pay_payments;
+create policy spp2_all on public.staff_pay_payments for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists sct_all on public.staff_cargo_tariffs;
+create policy sct_all on public.staff_cargo_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists spc_all on public.staff_pay_config;
+create policy spc_all on public.staff_pay_config for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
+
+-- employees: lectura directa solo NO anónima + RPC pública con columnas NO sensibles
+-- (sin sueldo/banco/precios/notas). OJO: las 3 pantallas anónimas (jornada.ts,
+-- MachineQuickScreen, EmployeeCardScreen) ya usan employee_public_lookup (desplegado).
+create or replace function public.employee_public_lookup(p_id uuid default null, p_cedula text default null)
+returns table (id uuid, company_id uuid, company_name text, ficha_number text, first_name text, last_name text,
+  cedula text, cargo text, department text, grupo text, photo_url text, birth_date date, gender text, blood_type text,
+  nationality text, marital_status text, phone text, email text, address text, city text, state text,
+  emergency_contact_name text, emergency_contact_phone text, emergency_contact_relation text, hire_date date,
+  status text, talla_camisa text, talla_pantalon text, talla_zapatos text)
+language sql stable security definer set search_path = public as $$
+  select e.id, e.company_id, c.name as company_name, e.ficha_number, e.first_name, e.last_name,
+    e.cedula, e.cargo, e.department, e.grupo, e.photo_url, e.birth_date, e.gender, e.blood_type,
+    e.nationality, e.marital_status, e.phone, e.email, e.address, e.city, e.state,
+    e.emergency_contact_name, e.emergency_contact_phone, e.emergency_contact_relation,
+    e.hire_date, e.status, e.talla_camisa, e.talla_pantalon, e.talla_zapatos
+  from public.employees e left join public.companies c on c.id = e.company_id
+  where (p_id is not null and e.id = p_id) or (p_cedula is not null and btrim(p_cedula) <> '' and e.cedula = btrim(p_cedula))
+  limit 1
+$$;
+grant execute on function public.employee_public_lookup(uuid, text) to anon, authenticated;
+drop policy if exists employees_read on public.employees;
+create policy employees_read on public.employees for select to authenticated using (not public.is_anon());
+
+-- ── TABLAS SENSIBLES: cerrar escritura a la sesión anónima / restringir por rol
+--    (mejoras_seguridad_rendimiento + security_hardening_2026-08-11)
+drop policy if exists attendance_write on public.attendance;
+create policy attendance_write on public.attendance for all to authenticated
+  using (public.can_write_module('asistencia')) with check (public.can_write_module('asistencia'));
+drop policy if exists uniform_deliveries_write on public.uniform_deliveries;
+create policy uniform_deliveries_write on public.uniform_deliveries for all to authenticated
+  using (public.can_write_module('asistencia')) with check (public.can_write_module('asistencia'));
+drop policy if exists sv_write on public.supervisor_visits;
+create policy sv_write on public.supervisor_visits for all to authenticated
+  using (public.current_role() in ('admin','supervisor')) with check (public.current_role() in ('admin','supervisor'));
+drop policy if exists cc_write on public.control_closures;
+create policy cc_write on public.control_closures for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mr_write on public.machine_rounds;
+create policy mr_write on public.machine_rounds for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mdo_write on public.machine_day_operators;
+create policy mdo_write on public.machine_day_operators for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mr_maint_update on public.maintenance_requests;
+create policy mr_maint_update on public.maintenance_requests for update using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists bcv_write on public.bcv_rates;
+create policy bcv_write on public.bcv_rates for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists fletes_write on public.fletes;
+create policy fletes_write on public.fletes for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists fcm_write on public.food_company_meals;
+create policy fcm_write on public.food_company_meals for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists fd_write on public.food_distributions;
+create policy fd_write on public.food_distributions for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists gim_write on public.guard_inspector_meta;
+create policy gim_write on public.guard_inspector_meta for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists gs_write on public.guard_shifts;
+create policy gs_write on public.guard_shifts for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mws_write on public.machine_work_segments;
+create policy mws_write on public.machine_work_segments for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists mo_write on public.machine_operators;
+create policy mo_write on public.machine_operators for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists truck_att_write on public.truck_attendance;
+create policy truck_att_write on public.truck_attendance for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists invtr_all on public.inventory_transfers;
+create policy invtr_all on public.inventory_transfers for all using (not public.is_anon()) with check (not public.is_anon());
+drop policy if exists aliados_write on public.aliados;
+create policy aliados_write on public.aliados for all using (not public.is_anon()) with check (not public.is_anon());
+
+-- ── FUNCIONES ENDURECIDAS ───────────────────────────────────────────────────
+-- security#1: un no-admin no puede autoconcederse rol / auditoría / rol dinámico.
+create or replace function public.guard_role_change()
+returns trigger language plpgsql security definer set search_path to 'public' as $function$
+begin
+  if auth.uid() is not null and not public.is_admin() then
+    if new.role is distinct from old.role then raise exception 'No autorizado para cambiar el rol de usuario'; end if;
+    if new.can_audit is distinct from old.can_audit then raise exception 'No autorizado para cambiar el acceso a auditoría'; end if;
+    if new.app_role_id is distinct from old.app_role_id then raise exception 'No autorizado para cambiar el rol asignado'; end if;
+  end if;
+  return new;
+end $function$;
+
+-- backend#4: can_write_module() fail-closed alineado con defaultLevel() de la UI.
+create or replace function public.can_write_module(mod text)
+returns boolean language plpgsql stable security definer set search_path to 'public' as $function$
+declare lvl text;
+begin
+  if public.is_anon() then return false; end if;
+  if public.is_admin() then return true; end if;
+  select mp.level into lvl from public.module_permissions mp where mp.user_id = auth.uid() and mp.module = mod limit 1;
+  if lvl is null then
+    return mod not in (
+      'control_pagos','margen_ganancia','usuarios','empleados','aliados','nomina',
+      'uniformes','compras','inventario','supervision','comida','asistencia',
+      'asistencia_camiones','inspecciones_maq','coordinador_inspectores',
+      'coordinacion_operadores','mangueras','fabricacion_planta','acarreo','geodesta');
+  end if;
+  return lvl in ('escritura','full');
+end; $function$;
+
+-- backend#5: EXECUTE explícito para update_machine_location (antes PUBLIC implícito).
+revoke all on function public.update_machine_location(uuid,numeric,numeric,text) from public;
+grant execute on function public.update_machine_location(uuid,numeric,numeric,text) to anon, authenticated;
+
+-- sync#1: mv_dispatch/mv_transfer con `for update` sobre el tanque (anti-sobregiro).
+create or replace function public.mv_dispatch() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare available numeric;
+begin
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='dispatches' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    if NEW.tank_id is not null then
+      perform 1 from public.tanks where id = NEW.tank_id for update;
+      select current_l into available from tank_levels where id = NEW.tank_id;
+      if coalesce(available,0) < NEW.liters then
+        raise exception 'Stock insuficiente en el tanque (disponible %, solicitado %)', available, NEW.liters;
+      end if;
+      insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+      values (NEW.tank_id, 'consumo', -NEW.liters, 'dispatches', NEW.id);
+    end if;
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
+end $$;
+
+create or replace function public.mv_transfer() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare available numeric;
+begin
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='transfers' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    perform 1 from public.tanks where id = NEW.from_tank_id for update;
+    select current_l into available from tank_levels where id = NEW.from_tank_id;
+    if coalesce(available,0) < NEW.liters then
+      raise exception 'Stock insuficiente en el tanque origen (disponible %, solicitado %)', available, NEW.liters;
+    end if;
+    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+    values (NEW.from_tank_id, 'traslado_salida', -NEW.liters, 'transfers', NEW.id),
+           (NEW.to_tank_id,   'traslado_entrada', NEW.liters, 'transfers', NEW.id);
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
+end $$;
+
+-- sync#1: one_fuel_per_machine_per_day con advisory lock por (máquina, fecha).
+create or replace function public.one_fuel_per_machine_per_day() returns trigger
+language plpgsql set search_path to 'public' as $function$
+declare prev numeric;
+begin
+  if NEW.asset_kind = 'maquinaria' and NEW.machinery_id is not null then
+    perform pg_advisory_xact_lock(hashtext(NEW.machinery_id::text || ':' || NEW.dispatch_date::text));
+    select coalesce(sum(liters),0) into prev from public.dispatches
+      where machinery_id = NEW.machinery_id and dispatch_date = NEW.dispatch_date;
+    if prev > 0 then
+      raise exception 'Esta máquina ya cargó % L hoy y no puede cargar de nuevo (aunque sea de otra cisterna).', prev;
+    end if;
+  end if;
+  return NEW;
+end $function$;
+
+-- security#4: bloqueo de login con AUTO-DESBLOQUEO 15 min (anti-DoS de cuentas ajenas).
+create or replace function public.register_failed_login(p_cedula text)
+returns table(attempts integer, locked boolean)
+language plpgsql security definer set search_path to 'public' as $function$
+declare r public.profiles%rowtype; v_att int; v_lock boolean; v_at timestamptz;
+begin
+  select * into r from public.profiles where btrim(cedula) = btrim(p_cedula) limit 1 for update;
+  if not found then return query select 0, false; return; end if;
+  v_att := coalesce(r.failed_attempts, 0); v_lock := coalesce(r.locked, false); v_at := r.locked_at;
+  if v_lock and v_at is not null and v_at <= now() - interval '15 minutes' then v_att := 0; v_lock := false; v_at := null; end if;
+  if v_lock then return query select v_att, true; return; end if;
+  v_att := v_att + 1;
+  if v_att >= 3 then v_lock := true; v_at := now(); end if;
+  update public.profiles set failed_attempts = v_att, locked = v_lock, locked_at = v_at where id = r.id;
+  return query select v_att, v_lock;
+end $function$;
+
+create or replace function public.register_failed_login_username(p_username text)
+returns table(attempts integer, locked boolean)
+language plpgsql security definer set search_path to 'public' as $function$
+declare r public.profiles%rowtype; v_att int; v_lock boolean; v_at timestamptz;
+begin
+  select * into r from public.profiles where lower(btrim(username)) = lower(btrim(p_username)) limit 1 for update;
+  if not found then return query select 0, false; return; end if;
+  v_att := coalesce(r.failed_attempts, 0); v_lock := coalesce(r.locked, false); v_at := r.locked_at;
+  if v_lock and v_at is not null and v_at <= now() - interval '15 minutes' then v_att := 0; v_lock := false; v_at := null; end if;
+  if v_lock then return query select v_att, true; return; end if;
+  v_att := v_att + 1;
+  if v_att >= 3 then v_lock := true; v_at := now(); end if;
+  update public.profiles set failed_attempts = v_att, locked = v_lock, locked_at = v_at where id = r.id;
+  return query select v_att, v_lock;
+end $function$;
+
+create or replace function public.login_status_for_cedula(p_cedula text)
+returns table(email text, locked boolean)
+language plpgsql security definer set search_path to 'public', 'auth' as $function$
+begin
+  update public.profiles p set failed_attempts = 0, locked = false, locked_at = null
+   where btrim(p.cedula) = btrim(p_cedula) and p.locked = true
+     and p.locked_at is not null and p.locked_at <= now() - interval '15 minutes';
+  return query select au.email::text, coalesce(pr.locked, false)
+    from auth.users au join public.profiles pr on pr.id = au.id
+    where pr.cedula = btrim(p_cedula) and coalesce(au.is_anonymous, false) = false limit 1;
+end $function$;
+
+create or replace function public.login_status_for_username(p_username text)
+returns table(email text, locked boolean)
+language plpgsql security definer set search_path to 'public', 'auth' as $function$
+begin
+  update public.profiles p set failed_attempts = 0, locked = false, locked_at = null
+   where lower(btrim(p.username)) = lower(btrim(p_username)) and p.locked = true
+     and p.locked_at is not null and p.locked_at <= now() - interval '15 minutes';
+  return query select au.email::text, coalesce(pr.locked, false)
+    from auth.users au join public.profiles pr on pr.id = au.id
+    where lower(btrim(pr.username)) = lower(btrim(p_username)) and coalesce(au.is_anonymous, false) = false limit 1;
+end $function$;
+
+-- sync#4: máx 2 operadores por (máquina, fecha, turno) atómico (advisory lock).
+create or replace function public.enforce_max_operators_per_shift()
+returns trigger language plpgsql security definer set search_path to 'public' as $function$
+declare v_ci text; v_others int;
+begin
+  if new.shift is null then return new; end if;
+  if tg_op = 'UPDATE'
+     and new.machinery_id = old.machinery_id and new.work_date = old.work_date
+     and new.shift is not distinct from old.shift
+     and regexp_replace(coalesce(new.cedula,''),'\D','','g') = regexp_replace(coalesce(old.cedula,''),'\D','','g')
+  then return new; end if;
+  v_ci := regexp_replace(coalesce(new.cedula,''),'\D','','g');
+  perform pg_advisory_xact_lock(hashtext(new.machinery_id::text || ':' || new.work_date::text || ':' || new.shift));
+  select count(distinct regexp_replace(coalesce(cedula,''),'\D','','g')) into v_others
+  from public.operator_assignments
+  where machinery_id = new.machinery_id and work_date = new.work_date and shift = new.shift
+    and id <> new.id and regexp_replace(coalesce(cedula,''),'\D','','g') <> v_ci;
+  if v_others >= 2 then
+    raise exception 'El turno de % de esta máquina ya tiene 2 operadores (máximo por turno).',
+      case when new.shift = 'day' then 'DÍA' else 'NOCHE' end using errcode = 'check_violation';
+  end if;
+  return new;
+end $function$;
+drop trigger if exists trg_max_ops_per_shift on public.operator_assignments;
+create trigger trg_max_ops_per_shift
+before insert or update on public.operator_assignments
+for each row execute function public.enforce_max_operators_per_shift();
+
+-- jornada_marked_at: hora REAL en que el inspector marcó la jornada (≠ inicio declarado).
+alter table public.machine_rounds add column if not exists jornada_marked_at timestamptz;
+
+-- declared_day/declared_night: "declaró jornada" DURABLE POR TURNO (blindaje 14-ago-2026,
+-- ver supabase/declared_por_turno_blindaje.sql). `jornada_shift` es UNA sola columna por
+-- round_date y día+noche del mismo día comparten el round → al iniciar la noche se pisaba
+-- el "declaró día". Estas dos NUNCA se pisan entre turnos; el RPC las deriva (OR-in) al
+-- abrir jornada de un turno o bancarle horas. El clasificador las usa en vez de jornada_shift.
+alter table public.machine_rounds add column if not exists declared_day   boolean not null default false;
+alter table public.machine_rounds add column if not exists declared_night boolean not null default false;
+
+-- sync#3: upsert ATÓMICO de la jornada (round_no=1) — escribe solo las columnas
+-- presentes en el patch jsonb (clave presente, aun null, gana; ausente conserva
+-- lo de la BD) y deriva `status`. Elimina el lost-update de upsertMachineRound /
+-- ControlMaquinariaScreen.upsertRound (leer-fusionar-reescribir toda la fila).
+-- SECURITY INVOKER (respeta mr_write = not is_anon()); los editores reales son
+-- autenticados. El cliente llama supabase.rpc('upsert_machine_round', {...}).
+create or replace function public.upsert_machine_round(
+  p_machinery_id uuid, p_round_date date, p_patch jsonb, p_recorded_by uuid default null
+) returns public.machine_rounds
+language plpgsql set search_path to 'public' as $function$
+declare
+  j jsonb := coalesce(p_patch, '{}'::jsonb);
+  row_out public.machine_rounds;
+  ins_day numeric := coalesce((j->>'day_hours')::numeric, 0);
+  ins_night numeric := coalesce((j->>'night_hours')::numeric, 0);
+  -- ¿este patch ABRE jornada? (jornada_start_at presente y no nulo) y ¿DECLARA día/noche?
+  v_shift text := coalesce(j->>'jornada_shift', '');  -- coalesce: evita NULL en comparaciones
+  v_open boolean := (j ? 'jornada_start_at') and nullif(j->>'jornada_start_at', '') is not null;
+  ins_decl_day   boolean := (ins_day   > 0) or (v_open and v_shift = 'day');
+  ins_decl_night boolean := (ins_night > 0) or (v_open and v_shift = 'night');
+begin
+  insert into public.machine_rounds as mr (
+    machinery_id, round_date, round_no, day_hours, night_hours, hours_stopped, overtime_hours,
+    day_operator, day_operator_ci, night_operator, night_operator_ci,
+    horometro_inicial, horometro_final, horometro_photo, jornada_start_at, jornada_shift,
+    jornada_marked_at, jornada_marked_by, declared_day, declared_night, recorded_by, status
+  ) values (
+    p_machinery_id, p_round_date, 1, ins_day, ins_night,
+    coalesce((j->>'hours_stopped')::numeric, 0), coalesce((j->>'overtime_hours')::numeric, 0),
+    j->>'day_operator', j->>'day_operator_ci', j->>'night_operator', j->>'night_operator_ci',
+    (j->>'horometro_inicial')::numeric, (j->>'horometro_final')::numeric, j->>'horometro_photo',
+    (j->>'jornada_start_at')::timestamptz, j->>'jornada_shift', (j->>'jornada_marked_at')::timestamptz,
+    (j->>'jornada_marked_by')::uuid, ins_decl_day, ins_decl_night, p_recorded_by,
+    case when ins_day + ins_night > 0 then 'operativa' else 'parada' end
+  )
+  on conflict (machinery_id, round_date, round_no) do update set
+    day_hours      = case when j ? 'day_hours'      then coalesce((j->>'day_hours')::numeric,0)      else mr.day_hours end,
+    night_hours    = case when j ? 'night_hours'    then coalesce((j->>'night_hours')::numeric,0)    else mr.night_hours end,
+    hours_stopped  = case when j ? 'hours_stopped'  then coalesce((j->>'hours_stopped')::numeric,0)  else mr.hours_stopped end,
+    overtime_hours = case when j ? 'overtime_hours' then coalesce((j->>'overtime_hours')::numeric,0) else mr.overtime_hours end,
+    day_operator      = case when j ? 'day_operator'      then j->>'day_operator'      else mr.day_operator end,
+    day_operator_ci   = case when j ? 'day_operator_ci'   then j->>'day_operator_ci'   else mr.day_operator_ci end,
+    night_operator    = case when j ? 'night_operator'    then j->>'night_operator'    else mr.night_operator end,
+    night_operator_ci = case when j ? 'night_operator_ci' then j->>'night_operator_ci' else mr.night_operator_ci end,
+    horometro_inicial = case when j ? 'horometro_inicial' then (j->>'horometro_inicial')::numeric else mr.horometro_inicial end,
+    horometro_final   = case when j ? 'horometro_final'   then (j->>'horometro_final')::numeric   else mr.horometro_final end,
+    horometro_photo   = case when j ? 'horometro_photo'   then j->>'horometro_photo'   else mr.horometro_photo end,
+    jornada_start_at  = case when j ? 'jornada_start_at'  then (j->>'jornada_start_at')::timestamptz else mr.jornada_start_at end,
+    jornada_shift     = case when j ? 'jornada_shift'     then j->>'jornada_shift'     else mr.jornada_shift end,
+    jornada_marked_at = case when j ? 'jornada_marked_at' then (j->>'jornada_marked_at')::timestamptz else mr.jornada_marked_at end,
+    jornada_marked_by = case when j ? 'jornada_marked_by' then (j->>'jornada_marked_by')::uuid else mr.jornada_marked_by end,
+    -- DECLARADO por-turno DURABLE (OR-in): true si ya lo era, o si este patch abre/banca
+    -- ese turno, o si el turno queda con horas > 0 tras el merge. Nunca se pisa entre turnos.
+    declared_day = mr.declared_day or ins_decl_day
+      or (case when j ? 'day_hours'   then coalesce((j->>'day_hours')::numeric,0)   else mr.day_hours   end) > 0,
+    declared_night = mr.declared_night or ins_decl_night
+      or (case when j ? 'night_hours' then coalesce((j->>'night_hours')::numeric,0) else mr.night_hours end) > 0,
+    status = case when (
+        (case when j ? 'day_hours'   then coalesce((j->>'day_hours')::numeric,0)   else mr.day_hours end)
+      + (case when j ? 'night_hours' then coalesce((j->>'night_hours')::numeric,0) else mr.night_hours end)
+      ) > 0 then 'operativa' else 'parada' end
+  returning * into row_out;
+  return row_out;
+end $function$;
+grant execute on function public.upsert_machine_round(uuid, date, jsonb, uuid) to authenticated;
+
+-- sync#5: clave de idempotencia opcional para los replays de la cola offline
+-- (offlineQueue.ts). Evita tickets de avería/parada DUPLICADOS cuando el servidor
+-- ya insertó pero se perdió la respuesta y el ítem se reintenta. Nullable + índice
+-- PARCIAL → los inserts online (sin clave) no se ven afectados.
+alter table public.maintenance_requests add column if not exists client_action_id text;
+create unique index if not exists uq_maintenance_client_action
+  on public.maintenance_requests(client_action_id) where client_action_id is not null;
+-- ############################################################################
+-- ##  FIN — ENDURECIMIENTO CONSOLIDADO                                       ##
+-- ############################################################################

@@ -1,0 +1,941 @@
+import React, { useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput } from 'react-native';
+import { Screen, Card, SectionTitle } from '../components/ui';
+import { norm } from '../lib/text';
+import { spacing, radius } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
+import { generateInspectorGuide } from '../lib/guides/inspectorGuide';
+import { generateOperadorGuide } from '../lib/guides/operadorGuide';
+import { generateCoordinadorOperadoresGuide } from '../lib/guides/coordinadorOperadoresGuide';
+import { generateCocinaGuide } from '../lib/guides/cocinaGuide';
+import { generatePatioGuide } from '../lib/guides/patioGuide';
+import { generateChoferCombustibleGuide } from '../lib/guides/choferCombustibleGuide';
+import { generateCoordinadorQrGuide } from '../lib/guides/coordinadorQrGuide';
+import { generateAnalistaGuide } from '../lib/guides/analistaGuide';
+import { generateFabricacionGuide } from '../lib/guides/fabricacionGuide';
+import { generateListeroViajesGuide } from '../lib/guides/listeroViajesGuide';
+import { generateObrasPublicasGuide } from '../lib/guides/obrasPublicasGuide';
+
+// ── Guías rápidas descargables (PDF), una por rol — ver src/lib/guides/. ──────
+// Sin la de Administrador a propósito (pedido del cliente): no aporta como hoja
+// de referencia de campo, el admin ya tiene acceso a todo el manual completo.
+const ROLE_GUIDES: { key: string; label: string; desc: string; icon: string; run: () => Promise<boolean> }[] = [
+  { key: 'inspector', label: 'Inspector', desc: 'Iniciar sesión, escanear la máquina y llevar la jornada', icon: '🪖', run: generateInspectorGuide },
+  { key: 'operador', label: 'Operador', desc: 'Registrar tu jornada y el combustible desde el teléfono', icon: '👷', run: generateOperadorGuide },
+  { key: 'coordoperadores', label: 'Coordinador de Operadores', desc: 'Asignar operadores a máquinas, asistencia y novedades', icon: '👷‍♂️', run: generateCoordinadorOperadoresGuide },
+  { key: 'cocina', label: 'Cocina', desc: 'Verificarte y entregar comidas por carnet', icon: '🍽️', run: generateCocinaGuide },
+  { key: 'patio', label: 'Coordinador de Patio', desc: 'Jornada de camiones, entrada/salida, gasoil y averías', icon: '🚚', run: generatePatioGuide },
+  { key: 'chofer', label: 'Chofer de Combustible', desc: 'Surtir combustible a las máquinas', icon: '⛽', run: generateChoferCombustibleGuide },
+  { key: 'coordqr', label: 'Coordinador QR', desc: 'Surtir gasoil, reportar avería y marcar máquina lista', icon: '📷', run: generateCoordinadorQrGuide },
+  { key: 'analista', label: 'Analista', desc: 'Marcar asistencia del personal', icon: '📊', run: generateAnalistaGuide },
+  { key: 'fabricacion', label: 'Fabricación (MRP)', desc: 'Mangueras, maestros, órdenes y kiosco de planta — módulo completo', icon: '🏭', run: generateFabricacionGuide },
+  { key: 'listeroviajes', label: 'Listero (Viajes de camiones)', desc: 'Registrar cada viaje del camión con un solo toque', icon: '🚛', run: generateListeroViajesGuide },
+  { key: 'obraspublicas', label: 'Obras Públicas', desc: 'Máquinas, jornada, parada/avería y m³ por edificio con reporte a WhatsApp', icon: '🏛️', run: generateObrasPublicasGuide },
+];
+
+// ── Contenido del manual (lenguaje simple, paso a paso) ───────────────────────
+// Bloques que puede tener una sección: párrafo, pasos numerados, viñetas o nota.
+type Block =
+  | { t: 'p'; text: string }
+  | { t: 'steps'; items: string[] }
+  | { t: 'bullets'; items: string[] }
+  | { t: 'note'; text: string };
+type Sec = { icon: string; title: string; blocks: Block[] };
+
+const SECTIONS: Sec[] = [
+  {
+    icon: '👋',
+    title: '¿Qué es este sistema?',
+    blocks: [
+      { t: 'p', text: 'Es una aplicación para llevar el control de la operación: el combustible, las máquinas, las horas que trabajan, los pagos y más. Reemplaza los cuadernos y el papel.' },
+      { t: 'p', text: 'Puedes usarlo de dos formas, las dos funcionan igual:' },
+      { t: 'bullets', items: ['En el teléfono (aplicación).', 'En la computadora, abriendo la página web.'] },
+    ],
+  },
+  {
+    icon: '🔑',
+    title: 'Cómo entrar',
+    blocks: [
+      { t: 'steps', items: [
+        'Abre la aplicación (o la página web).',
+        'Escribe tu USUARIO y tu contraseña. (El usuario lo crea el administrador; tiene máximo 10 caracteres. Ya no se entra con la cédula.)',
+        'Si quieres revisar que la clave esté bien escrita, toca el ícono de ojo 👁️ dentro del campo de contraseña para mostrarla u ocultarla.',
+        'Toca el botón Entrar.',
+        'Si el teléfono te lo pide, la próxima vez puedes entrar con tu huella o tu cara.',
+      ] },
+      { t: 'note', text: 'Cuidado con los intentos: si te equivocas de contraseña 3 veces, el usuario se BLOQUEA por seguridad. Solo un administrador puede desbloquearlo (en "Más" → Usuarios).' },
+      { t: 'note', text: 'Iniciar sesión con huella (TODOS los usuarios): actívalo con el interruptor "🔐 Iniciar sesión con huella". El administrador lo tiene en "Más" → Seguridad; los demás roles lo ven en su propio panel, en la sección Seguridad. Una vez activo, la app te pide tu huella o tu cara al abrirla.' },
+      { t: 'note', text: '¿Olvidaste la contraseña? Toca "¿Olvidaste tu contraseña?" y sigue lo que llega a tu correo.' },
+      { t: 'note', text: 'Cambiar tu contraseña (todos los usuarios): ya dentro del sistema puedes cambiar tu clave cuando quieras. Administrador: en "Más" → sección Seguridad → "🔑 Cambiar mi contraseña". Operador, Inspector y Cocina: el botón "🔑 Contraseña" arriba, junto a "Salir". Escribe la nueva clave (mínimo 6 caracteres), repítela y guarda. La próxima vez entras con la nueva.' },
+    ],
+  },
+  {
+    icon: '🧭',
+    title: 'Cómo moverte por el sistema',
+    blocks: [
+      { t: 'p', text: 'Abajo hay unos botones (pestañas). Cada uno te lleva a una sección. El último se llama "Más": ahí están todas las demás secciones.' },
+      { t: 'bullets', items: [
+        'Para abrir una sección: tócala una vez.',
+        'Para volver atrás: usa la flecha ← de arriba a la izquierda.',
+        'Para buscar: escribe en la barra que dice 🔎 Buscar.',
+      ] },
+      { t: 'note', text: 'Casi todo se abre tocando y se guarda solo o con un botón azul o verde.' },
+    ],
+  },
+  {
+    icon: '🛢️',
+    title: 'Tanques (dónde se guarda el combustible)',
+    blocks: [
+      { t: 'p', text: 'Aquí ves cada tanque y cuánto combustible le queda. El nivel se calcula solo: no se escribe a mano.' },
+      { t: 'steps', items: [
+        'Para agregar un tanque: toca + Agregar.',
+        'Escribe el nombre y la capacidad.',
+        'Toca Guardar.',
+      ] },
+    ],
+  },
+  {
+    icon: '⬇️',
+    title: 'Ingresos (cuando llega combustible)',
+    blocks: [
+      { t: 'steps', items: [
+        'Toca + Agregar.',
+        'Elige la fecha, el tanque y cuántos litros llegaron.',
+        'Toca Guardar. El tanque sube solo.',
+      ] },
+    ],
+  },
+  {
+    icon: '⛽',
+    title: 'Consumos (cuando se usa combustible)',
+    blocks: [
+      { t: 'steps', items: [
+        'Toca + Agregar.',
+        'Elige si es vehículo o maquinaria y cuál.',
+        'Escribe los litros y de qué tanque salió.',
+        'Toca Guardar. El tanque baja solo.',
+      ] },
+      { t: 'note', text: 'El sistema no deja sacar más litros de los que hay. Si te avisa, revisa el tanque.' },
+    ],
+  },
+  {
+    icon: '🚜',
+    title: 'Equipos (catálogo de máquinas)',
+    blocks: [
+      { t: 'p', text: 'Es la lista de todas las máquinas. Cada una tiene su ficha: nombre, empresa, foto, serial y estado.' },
+      { t: 'p', text: 'Cada máquina puede estar en uno de cuatro estados:' },
+      { t: 'bullets', items: [
+        '🟢 Operativa — trabajando normal.',
+        '🔴 No operativa — dañada o parada.',
+        '🕓 En espera — llegó pero todavía no se ha recibido en el control.',
+        '⏳ Esperando instrucciones — se cargó en el sistema pero todavía no se decidió si va a Operativa o a Parada.',
+      ] },
+      { t: 'note', text: '⏳ Esperando instrucciones: mientras una máquina está en este estado NO le sale a los inspectores para chequeo ni le piden jornada, y NO genera horas ni consumo — queda en pausa hasta que alguien decida qué hacer con ella. Se activa/desactiva con un botón en el DETALLE de la máquina: "⏳ Esperando instrucciones" para ponerla en espera, o "✅ Ya se decidió (quitar espera)" cuando ya se sabe si va Operativa o No operativa. Aparece como una 4ta tarjeta en el Catálogo, junto a Operativas / Averiadas / Retiradas. AL AGREGAR una máquina nueva, el formulario trae el check "⏳ Dejar \'Esperando instrucciones\' (aún no decidida)" ACTIVADO por defecto: toda máquina nueva entra directo a este estado, salvo que lo destildes al crearla (si ya sabes que va operativa de una vez).' },
+      { t: 'p', text: 'En cada máquina también puedes: 📍 guardar su ubicación, 📷 subirle una foto y 🔳 generar su código QR.' },
+      { t: 'note', text: '🛡️ Tapa: al crear/editar una máquina marcas con un check si "¿Tiene tapa?"; si la tiene, aparece un 2º check "¿Doble tapa?" (si no lo marcas, es sencilla). En la ficha se muestra "🛡️ Tapa: Sin tapa / Tapa sencilla / Doble tapa", y arriba del catálogo hay un filtro de tapa (Tapa sencilla · Doble tapa · Sin tapa) — también puedes escribir "doble tapa" o "sencilla" en el buscador. El filtro de tapa cuenta SOLO los equipos de la clasificación "Transporte de escombros" (son los únicos que llevan/no llevan tapa), así que su total cuadra con ese chip de clasificación.' },
+      { t: 'note', text: 'La hoja del QR muestra el NOMBRE de la máquina y su SERIAL (o placa) — no la empresa.' },
+      { t: 'note', text: 'QR sellado con el serial: el QR queda amarrado al serial de la máquina. Si cambias el serial, el QR impreso con el serial anterior DEJA DE FUNCIONAR (al escanearlo solo sale el logo). Reimprime el QR para activarlo con el nuevo serial. Los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.' },
+      { t: 'note', text: 'Bloquear QR: dentro del 🔳 QR de cada máquina hay un botón "🚫 Bloquear QR". Al bloquearlo, cualquiera que escanee ese QR solo verá el logo (no puede registrar nada). Sirve para matar un QR viejo o robado sin tocar el serial. Con "✅ Desbloquear QR" vuelve a funcionar.' },
+      { t: 'note', text: 'Restricción por empresa: un operador SOLO puede usar equipos de SU empresa. Si un operador escanea el QR de una máquina de otra empresa e intenta identificarse, el sistema lo bloquea con un aviso ("Este equipo es de X, solo puedes usar equipos de tu empresa") y no lo deja iniciar jornada ni registrar nada. El supervisor NO tiene esta restricción: puede escanear cualquier máquina y marcarla Operativa/No (check-in de supervisión).' },
+      { t: 'note', text: 'Al escanear el QR de la máquina: sale una pantalla con el logo y DOS botones — 👥 Usuarios y 🚜 Operadores. "Usuarios" lleva al LOGIN (usuario y contraseña) y CUALQUIER rol cae en la VISTA DE INSPECTORES de esa máquina: ve nombre de la maquinaria, empresa y serial/placa, y los botones del inspector (marcar estado/ubicación, iniciar la jornada del operador escaneando su carnet —opcional—, reportar avería, surtir gasoil). "Operadores" abre la vista de operador que exige escanear el carnet para poder registrar. El login NORMAL (sin escanear) sigue viendo la app como siempre.' },
+      { t: 'note', text: 'Máquina PARADA: en el check-in, al marcar 🟡 Parada se eligen 2 caminos — "Por avería" (material + falla, crea la solicitud en Servicio de Maquinaria) o "Parada / No trabajó" (motivo fijo + ubicación GPS, no toca Servicio). En Control de maquinaria esa máquina sale marcada como "🔴 MÁQUINA PARADA (avería)". El inspector asignado (último check-in) también sale en Control (🪖 Inspector). Al finalizar la jornada, las horas activas (horómetro final − inicial) pasan solas a Control de maquinaria en su turno (día/noche).' },
+      { t: 'p', text: '🪖 Supervisor: cada máquina tiene un botón para asignar quién la custodia (Supervisor Obras Públicas o Militar). Al escribir el nombre aparece una lista con los ya usados para elegirlo rápido. Cambiar de supervisor deja el anterior en el historial.' },
+      { t: 'note', text: 'Editar o borrar supervisores: en ese mismo botón toca "⚙️ Editar / borrar supervisores". Ahí puedes ✎ renombrar un supervisor (se corrige en TODOS sus registros) o 🗑 borrarlo por completo (las máquinas que custodiaba quedan sin supervisor).' },
+      { t: 'note', text: 'Desde el Inicio (dashboard), en "Estado de las máquinas" puedes tocar Operativas, En espera o No operativa: te lleva a Equipos y te muestra esa lista de máquinas.' },
+      { t: 'note', text: '📄 Reporte de CONTEO de equipos (desde el Catálogo): es solo conteo + detalle, SIN horas ni precios. Muestra: (1) el TOTAL GENERAL de equipos, (2) la cantidad POR EMPRESA, y (3) el DETALLE por empresa donde cada equipo sale como Equipo (tipo) · Serial · Estado. Eliges el ALCANCE (General o una empresa). El filtro por tipo es una LISTA DESPLEGABLE con buscador y CASILLAS: ábrela, escribe (ej. "volteo toronto") y tilda uno o varios tipos para ver solo esos. Botón ⬇️ Descargar PDF (conteo).' },
+      { t: 'note', text: '🏢 Varias empresas a la vez (Catálogo · reporte de conteo): el alcance ya no es una sola empresa. Las pastillas de empresa son CASILLAS y se pueden marcar VARIAS (ej. GOLDEN + LICCIONE): el PDF sale con las dos, agrupadas por empresa. "General (todas)" no es una empresa más — al tocarla LIMPIA la selección y el reporte vuelve a salir completo. Arriba se ve cuántas llevas marcadas y hay un enlace "✕ Quitar la selección (volver a general)". El título se adapta: con una o dos las nombra ("Conteo de equipos — GOLDEN + LICCIONE") y de tres en adelante resume ("Conteo de equipos — 3 empresas"). Los filtros de estado y clasificación se aplican encima de lo marcado.' },
+      { t: 'note', text: '☑️ Incluir el inspector asignado (Catálogo · reporte de conteo): encima del botón de descarga hay una casilla que decide si el PDF trae las columnas Inspector ☀️ Día e Inspector 🌙 Noche. Viene TILDADA (es como salía el reporte hasta ahora, así que quien no la toque baja el mismo documento de siempre). Al destildarla el PDF sale SOLO con el conteo —equipo, clasificación, serial, placa, sector, edificio y estado— y el botón cambia a "⬇️ Descargar PDF (solo conteo)". Útil cuando el reporte es para alguien que solo necesita cuántos equipos hay y dónde están.' },
+      { t: 'note', text: 'Máquinas INACTIVAS (No operativa): al marcar una máquina como No operativa (⛔), SALE del catálogo y de la lista semanal de Control de maquinaria; solo aparece en la tarjeta "🔴 Maquinaria inactiva". Sus horas ya trabajadas NO se borran (siguen en los reportes). Al volverla ✅ Operativa, regresa al catálogo y al control. Los detalles de "inactiva" y "en espera" salen agrupados por empresa, desplegables y colapsables. La lista de INACTIVAS arranca COLAPSADA (se abre al tocar la empresa) y cada máquina muestra su placa y su serial.' },
+      { t: 'note', text: 'Fecha de inactivación/reactivación: cada vez que una máquina pasa a No operativa o vuelve a Operativa, su tarjeta muestra "🔴 Inactivada el DD/MM/AAAA" o "🟢 Reactivada el DD/MM/AAAA". Es un dato aparte de las averías/paradas que reporta un inspector desde el teléfono — este lo mueve el administrador a mano con el botón de estado.' },
+      { t: 'note', text: 'Última parada/avería resuelta: si una máquina tuvo una parada o avería reportada por un inspector y ya se resolvió ("🟢 Volver a OPERATIVA"), su ficha muestra "Inactivo desde [fecha/hora] hasta [fecha/hora] — Total: Xd Yh". Solo se ve cuando la máquina NO está parada/averiada en este momento.' },
+    ],
+  },
+  {
+    icon: '🏛️',
+    title: 'Obras Públicas',
+    blocks: [
+      { t: 'p', text: 'Módulo AISLADO para los supervisores externos de Obras Públicas: manejan las jornadas, averías/paradas, visitas y ubicación de SUS máquinas asignadas, sin afectar el módulo de inspectores. Lo único que se comparte con el resto del sistema es la UBICACIÓN (se ve en el mapa y el catálogo).' },
+      { t: 'p', text: 'Asignar máquinas a un supervisor: desde el Catálogo, botón "🏛️ Obras Públicas" — eliges el supervisor (de la lista de usuarios con ese rol) y le asignas máquinas por lote o una por una. La máquina asignada le aparece a ese supervisor en su teléfono ("🏛️ Mis máquinas").' },
+      { t: 'note', text: 'En la asignación de Obras Públicas SOLO aparecen las máquinas de las empresas GOLDEN y LICCIONE (son las que operan en este módulo). Las de otras empresas no salen en el listado.' },
+      { t: 'p', text: 'Vista del supervisor (teléfono): arriba tiene una fila de tarjetas resumen (m³ removidos hoy, edificios de hoy, máquinas asignadas, trabajando, averiadas, m³ totales); al tocar "Trabajando" o "Averiadas" se filtra la lista, y al tocar "m³ removidos hoy" / "Edificios hoy" / "m³ totales" se abre el módulo de m³ por edificio. Por cada máquina puede registrar visita (GPS), iniciar/finalizar jornada, marcar avería o parada y actualizar la ubicación.' },
+      { t: 'p', text: 'Registrar m³ removidos (por EDIFICIO, ya NO por máquina): con el botón "⛰️ Removidos hoy · por edificio" se abre un módulo aparte. Elige el edificio (la lista está agrupada por sub-sector: El Palmar, Los Corales…) y escribe los "m³ removidos hoy" de ese edificio. La PRIMERA vez de cada edificio se teclea además el "m³ acumulados (base)"; a partir de ahí el acumulado crece solo con los removidos de los días siguientes. Puedes editar (✎) o borrar (🗑) lo del día. Arriba se ven los totales: m³ removidos hoy y m³ acumulados.' },
+      { t: 'p', text: 'Detalle por edificio (reporte diario): en cada edificio hay un "▾ Detalle" que despliega los campos del reporte diario — acarreo por vehículo (viajes), maquinaria en uso / inoperativa, cuerpos (supervivientes / fallecidos), actividades del día y un interruptor "✅ Frente entregado". En "maquinaria por requerimiento" se marca con check (multi-selección) de la lista de máquinas asignadas a ese supervisor. Es opcional y se guarda con el mismo botón Guardar (un edificio se guarda aunque no tenga m³ si le pusiste detalle).' },
+      { t: 'note', text: 'ACARREO por VIAJES (nuevo): el m³ acarreado ya NO se teclea a mano — se ingresan los VIAJES por tipo de vehículo y el sistema calcula los m³ solo: 🚛 Camión Volteo Toronto = 18 m³/viaje · 🚚 Chuto con Volqueta = 25 m³/viaje. Ej.: 4 viajes con Toronto = 72 m³. Abajo se ve "🧮 M³ acarreados" calculado y el total de viajes. Así el acarreo va SIEMPRE atado a una cantidad de viajes.' },
+      { t: 'note', text: 'Tarjeta "🚚 m³ acarreados totales": tanto en el teléfono como en el panel de PC hay una tarjeta que va sumando TODOS los m³ acarreados de la operación (Toronto + Volqueta). Se sincroniza con los reportes y el módulo.' },
+      { t: 'note', text: 'Al marcar "✅ Frente entregado", los m³ ACARREADOS del frente deben CUADRAR con los m³ REMOVIDOS. Si no coinciden, al guardar sale un aviso con la diferencia para que ajustes los viajes o los m³ removidos antes de cerrar el frente.' },
+      { t: 'p', text: 'Enviar por WhatsApp (📤): el botón "Enviar reporte por WhatsApp" arma el texto del reporte del día por edificio (agrupado por sub-sector, solo con las líneas que tienen dato, y los totales del día al final) y abre WhatsApp con el mensaje listo. Usa lo YA guardado, así que guarda primero.' },
+      { t: 'p', text: 'Reporte del día (botón "📋 Reporte del día"): es SOLO LECTURA — no se ingresa nada ahí, TRAE lo que ya cargaste hoy por edificio en "⛰️ Removidos hoy". Muestra los totales del día (removidos, acumulado, acarreados, viajes, edificios, cuerpos) y el detalle por edificio (m³, maquinaria en uso/inoperativa/requerimiento, cuerpos, actividades, entregado). Abajo tiene "📤 Enviar reporte por WhatsApp".' },
+      { t: 'p', text: 'Panel de Obras Públicas (Más → 🏛️ Obras Públicas): panel de admin/coordinador que AGREGA todo el módulo (todos los supervisores). Muestra KPIs (máquinas asignadas, trabajando ahora, averiadas/paradas, m³ del día, edificios de hoy), el Reporte de Actividades consolidado del día con los acumulados desde el inicio, la lista de "m³ removidos hoy por edificio" (con su acumulado, sincronizada con el teléfono), gráficos (distribución por estado 7/30), el estado de la flota en campo y la tabla de registros de acarreo. El gráfico de "Acarreo Total" es interactivo: al tocar un día muestra el detalle de ese día (máquinas con actividad, con serial · placa · empresa y horas). La tabla "Registros de acarreo" muestra cada máquina con su serial · placa · empresa. Puedes filtrar por supervisor con los chips de arriba, y tocar un KPI para filtrar la flota. El admin ajusta la base acumulada del reporte con "⚙️ Editar base".' },
+      { t: 'note', text: '🗺️ Sub-sector de los edificios: cada edificio del catálogo (Más → Ubicaciones) puede llevar un sub-sector (El Palmar / Los Corales…). Eso agrupa la lista al registrar los m³ por edificio. Se edita en Ubicaciones con "✎ Editar".' },
+      { t: 'note', text: 'Las horas y estados de Obras Públicas NO tocan los reportes ni los pagos del módulo de inspectores — son datos aparte (tablas op_*). Solo la ubicación se sincroniza con el mapa/catálogo.' },
+    ],
+  },
+  {
+    icon: '🚿',
+    title: 'Lavado de maquinaria',
+    blocks: [
+      { t: 'p', text: 'Módulo AISLADO para el personal de LAVADO: registra qué máquinas se lavan y lleva la cuenta de cuántas veces al mes se lavó cada una. No toca inspecciones ni ningún otro módulo — solo usa el catálogo de máquinas.' },
+      { t: 'p', text: 'Acceso: se le da al usuario el rol "Lavado de maquinaria" (o el permiso del módulo en Usuarios). El lavador escanea el QR de inicio, se loguea con su usuario y cae DIRECTO en su vista de lavado en el teléfono.' },
+      { t: 'p', text: 'Vista del lavador (teléfono): un tablero por estado — 🚿 Por lavar / ✅ Lavadas — con un selector de periodo arriba (Hoy · Semana · Mes; por defecto Hoy). "Por lavar" son las máquinas activas que todavía NO se han lavado en ese periodo; al registrar el lavado pasan a "Lavadas".' },
+      { t: 'p', text: 'Registrar un lavado: se puede de DOS formas — (1) buscando la máquina en la lista y tocándola, o (2) con el botón "📷 Escanear QR de máquina" (el mismo QR que ya trae cada máquina). Se abre la ventana "Registrar lavado": eliges el TIPO de lavado (Exterior / Motor / Completo, y puedes AGREGAR tipos nuevos con "+ Agregar"), escribes una observación (opcional) y adjuntas una foto (opcional). Al tocar "✅ Marcar como lavada" queda registrado con la hora y tu nombre.' },
+      { t: 'p', text: 'Panel de PC (Más → 🚿 Lavado de maquinaria) — "Máquinas lavadas": muestra, por MES (con flechas ◀ ▶ para cambiar de mes), cuántas veces se lavó cada máquina, más dos totales arriba (lavados del mes · máquinas lavadas). Al tocar una máquina se abre el DETALLE con cada lavado de ese mes: fecha, tipo, quién lo hizo, observación y foto.' },
+      { t: 'note', text: 'Los datos de lavado viven en tablas aparte (lm_*) y no afectan horas, pagos ni reportes de ningún otro módulo. La foto de cada lavado se guarda como evidencia.' },
+    ],
+  },
+  {
+    icon: '🛠️',
+    title: 'Control de maquinaria (las horas que trabaja)',
+    blocks: [
+      { t: 'p', text: 'Es la parte del día a día. Aquí anotas cuántas horas trabajó cada máquina.' },
+      { t: 'steps', items: [
+        'Elige la semana con las flechas ◀ ▶ o el calendario.',
+        'Abre la empresa y luego la máquina.',
+        'Por cada día verás ☀️ Día y 🌙 Noche. Toca: — (no trabajó), Medio · 6h, o Completo · 12h.',
+        'Si te lo pide, escribe el operador de ese turno.',
+        'Todo se guarda solo.',
+      ] },
+      { t: 'note', text: '⚠️ Marcar equipo averiado (rápido, desde el control): arriba toca ⚠️ Marcar equipo averiado, elige de la lista desplegable la 🏢 empresa y luego el 🚜 equipo (se muestra con su serial / placa; puedes buscarlo). Escribe el motivo (opcional) y confirma. El equipo queda No operativa, sale del control y pasa a "En reparación" en Servicio de Maquinaria, donde se registra su retorno operativo cuando quede lista.' },
+      { t: 'note', text: '🟢 Inspector SOS LA GUAIRA — máquinas siempre trabajando: las máquinas asignadas al inspector SOS LA GUAIRA nunca se muestran como parada ni averiada; siempre cuentan como trabajando y sus horas paradas se cuentan como trabajadas (en el catálogo, el panel de Inspecciones, el teléfono y todos los reportes). Si se les reporta una avería, el ticket sí queda en Servicio de Maquinaria para el mecánico, pero no cambia su estado de trabajando.' },
+      { t: 'p', text: 'Sección "🕓 En espera" (recibir máquinas): arriba salen las máquinas que aún no se han recibido. Para recibir una, elige su fecha de entrada y toca 📥 Recibir. Cada máquina puede tener su propia fecha.' },
+      { t: 'p', text: 'Flete / viaje: dentro de cada máquina toca ➕ Flete / viaje para confirmar los viajes que hizo. Escribe la fecha, el nº de viajes y el precio por viaje; el sistema calcula el total. Ese monto se suma al TOTAL POR PAGAR de la empresa en la semana de esa fecha (aparece en el reporte). Puedes registrar varios y borrar los que no van con 🗑.' },
+      { t: 'note', text: '📊 Total del rango (empresa): justo debajo del botón "🚚 Flete general de <empresa>" sale el TOTAL DE HORAS y el TOTAL EN $ de TODA la empresa en el rango de fechas seleccionado (suma de sus máquinas).' },
+      { t: 'note', text: '📊 Total del rango por máquina: debajo del botón de flete de cada máquina (y en su resumen compacto cuando la tarjeta está cerrada) sale su TOTAL DE HORAS y su TOTAL EN $ del rango (horas × precio/hora). Si la máquina no tiene precio, dice "sin precio".' },
+      { t: 'note', text: 'Flete GENERAL (sin máquina): en la cabecera de cada empresa (al abrir su grupo) toca 🚚 "Flete general de <empresa>" para cargar viajes que NO son de una máquina específica. Se registra igual (fecha, nº de viajes, precio) y se suma al TOTAL POR PAGAR de la empresa. Úsalo cuando el flete es de la empresa en general; usa el ➕ Flete / viaje de la máquina cuando es de un equipo puntual.' },
+      { t: 'p', text: 'Cerrar el control: cuando termines, toca 🔒 Cerrar control. Se guarda todo en el Histórico y se congela el precio. Lo cerrado no se borra.' },
+      { t: 'note', text: 'Rol ANALISTA: solo puede INGRESAR horas nuevas (día/noche, parada y extra), NO modificar las ya cargadas. Cuando un valor ya está cargado le sale un 🔒 y no lo puede cambiar; si hay que corregirlo, lo hace un administrador. Tampoco puede cambiar precios.' },
+      { t: 'note', text: 'Lo cerrado SIGUE viéndose en el Control al navegar por semanas (marcado con 🔒 cerrado) y se puede seguir editando (por ejemplo, agregar días que faltaron). Ya no desaparece de la pantalla al cerrar.' },
+      { t: 'note', text: 'Si editas una jornada que ya está CERRADA (🔒) desde el Control, el cambio se SINCRONIZA solo con el histórico: el reporte cerrado y el Histórico se actualizan en el acto (sin tener que reabrir el cierre). Si dejas la jornada en 0, esa fila sale del cierre.' },
+      { t: 'note', text: 'El Informe por jornada (Reportes) es EN VIVO: mientras lo tienes abierto, si alguien agrega o edita una jornada (o un flete), el informe se actualiza solo con los mismos filtros —sin tener que volver a generarlo—. Lo indica un punto verde "En vivo".' },
+      { t: 'note', text: 'Resumen del corte ARRIBA del Informe por jornada: en la parte superior del PDF salen cuatro recuadros con el TOTAL DE HORAS por corte, el TOTAL $, el TOTAL ABONADO (lo ya pagado en el rango) y el TOTAL PENDIENTE (total $ − abonado). Así ves de un vistazo cuánto se debe. El detalle por empresa/máquina y el total general siguen igual, abajo.' },
+      { t: 'note', text: 'Si necesitas corregir un cierre ya guardado: abre el 🗂️ Histórico, entra al cierre y toca "♻️ Reabrir cierre". Sus registros vuelven al control activo (semana de ese cierre) para editarlos y el cierre sale del histórico. Cuando termines de corregir, vuelve a cerrar el control (se congela el precio de nuevo).' },
+      { t: 'note', text: 'Al cerrar un corte, el sistema CONGELA el precio de cada máquina de ese corte. Si ya fijaste un precio por RANGO de fechas para ese corte, el cierre lo respeta (no lo pisa); a las jornadas sin precio propio les pone el precio actual de la máquina. Así, aunque después cambie el precio, el corte cerrado sigue mostrando su total original (en el reporte y en el Histórico).' },
+      { t: 'note', text: 'Para ver un reporte: toca 📊 Ver reporte, elige el rango de fechas y la empresa. Se abre una ventana con la vista previa del documento y dos botones: 🖨️ Imprimir y Cancelar. Toca Imprimir para mandarlo a la impresora o guardarlo como PDF.' },
+      { t: 'note', text: 'El PDF de una empresa se guarda con su nombre y el rango, por ejemplo "Reporte Ferreconstrucciones del 06 al 12". Si al guardar/imprimir el encabezado azul se ve gris, activa la opción "Gráficos de fondo" (Background graphics) en el diálogo de impresión.' },
+      { t: 'note', text: 'Reporte 🚚 Maquinaria/Vehículo (YA NO muestra montos en $): vive en Reportes, con los mismos filtros de rango de fechas y empresas. Tiene 3 bloques: Totales Generales (equipos, trabajando, parados, averiados, horas), Totales por Empresa (mismo desglose agrupado) y Trazabilidad de Maquinaria (una fila por equipo con botón "Ver detalle" para su historial completo). Ver la sección "Reportes" más abajo.' },
+      { t: 'note', text: '🔎 Buscar por tipo de equipo (en 📊 Conteo de equipos): dentro de la vista previa del reporte "Conteo de equipos" hay un buscador CON CASILLAS. Puedes acotar el alcance con los botones Todas / 🟢 Solo activas / 🔴 Solo inactivas. Escribe el tipo (por ejemplo "volqueta toronto") para filtrar la lista y TILDA uno o varios tipos; abajo aparece un NÚMERO grande con el TOTAL y un LISTADO agrupado por empresa (nombre de la máquina, serial/placa y encargado). Botón "⬇️ PDF de este conteo" para imprimir ese listado por empresa (respeta el alcance activas/inactivas).' },
+      { t: 'note', text: 'Conteo de equipos: en Reportes, la pestaña 📊 Conteo equipos. Cuenta TODAS las máquinas activas (el total es como siempre) por clasificación y por tipo. Aparte, INDICA las zonas: en el reporte TODOS los equipos quedan ubicados en solo dos grupos, "Este" y "Oeste". Los que marcan GPS toman su lado real; los que AÚN no marcan GPS se reparten 50/50 entre Este y Oeste (solo en el reporte, SIN tocar el mapa). Al tocar Este u Oeste, las tablas se recalculan con ese lado. "A disposición de" indica cuántas están a disposición de Gobernación/FANB/CVM… (cuenta todas, con o sin ubicación) y en qué sector (Este/Oeste) las ubicadas. "Por tipo y zona" muestra, para cada tipo, cuántas hay en cada zona (Este/Oeste). El botón "🗺️ Ver en mapa" abre el mapa de calles con las zonas y los puntos: OJO, el mapa solo muestra los ubicados por GPS de verdad (el reparto 50/50 es solo del reporte, no del mapa). Las tarjetas de arriba muestran el estado de la flota. Se actualiza solo al cambiar una máquina y se descarga en PDF. La "A disposición de" se asigna en el catálogo de Equipos.' },
+      { t: 'note', text: '📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos): genera el "Reporte Diario de Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira" en PDF. Arriba trae la cantidad de maquinaria por empresa y los EQUIPOS POR ZONA (cuántos en el ESTE y cuántos en el OESTE, solo totales). Trae las máquinas REALES agrupadas por QUIÉN LAS TIENE A CARGO (CVM / Gobernación / FANB / SOS La Guaira, según el campo "a disposición de" del equipo), cada una con su empresa, ubicación real (referencia + sector Este/Oeste y subzona por GPS: Macuto, Caraballeda, Aeropuerto…) y estado (Operativo / Inoperativo / En espera). Incluye una sección con las camionetas PICK-UP del módulo de Vehículos a disposición de SOS La Guaira, y deja campos en blanco para llenar a mano.' },
+      { t: 'note', text: '👷 Ubicaciones tácticas CON PERSONAL: al lado del botón hay un SWITCH "Solo ubicaciones / Con personal". Actívalo antes de descargar y el reporte reparte la nómina en los equipos de SOS La Guaira (NO en los de CVM / Gobernación / FANB): a cada máquina le asigna 2 OPERADORES (uno de turno DÍA y uno de turno NOCHE), en rotación por la lista de operadores; agrega una sección con TODO el personal por departamento (solo totales); y otra con los COORDINADORES e INSPECTORES repartidos por zona (ESTE / OESTE). Los cargos se toman del campo "cargo" del empleado.' },
+      { t: 'note', text: '🔍 Inspección de equipos (Reportes → pestaña 🔍 Inspección equipos): reporte DIARIO. Eliges el DÍA y sale un PDF agrupado por INSPECTOR (el del último check-in de cada máquina), con Máquina · Serial/Placa · Sector · Edificio · Día · Noche · Nº Horas (las horas salen de Control de maquinaria de ese día). Las máquinas SIN inspector asignado se agrupan como "⚠️ FALTA INSPECTOR" y muestran su ENCARGADO del catálogo. NO incluye equipos de CVM / Gobernación / FANB. Se regenera cada vez, así que refleja las ubicaciones e inspectores al día.' },
+      { t: 'note', text: '👥 Personal por departamento (botón en 📊 Conteo de equipos): genera el "Reporte de Personal" con TODA la nómina activa (del administrativo a los ayudantes de cocina). Arriba lleva un mensaje de agradecimiento y el TOTAL de personal; luego la cantidad por DEPARTAMENTO y por CARGO; y al final el listado por departamento con nombre, cargo y cédula. Los departamentos salen UNIFICADOS (p. ej. "administrativo"/"adminitrativo" y "operaciones de máquinas"/"…maquinarias" cuentan como uno solo) y a quien no tenga departamento se le asigna el que corresponde según su cargo (un encargado de cocina sin departamento → COCINA). Para que la nómina en la base quede igual, corre supabase/nomina_departamentos.sql.' },
+    ],
+  },
+  {
+    icon: '💰',
+    title: 'Control de pagos',
+    blocks: [
+      { t: 'p', text: 'Aquí se ve cuánto hay que pagar por las horas trabajadas, según los precios. El corte es semanal.' },
+      { t: 'note', text: 'La vista arranca VACÍA: escribe el nombre de la empresa en el buscador para ver su cuenta (no se listan todas de golpe).' },
+      { t: 'note', text: 'El facturado cuadra con el Informe por jornada: Control de Pagos usa el MISMO precio del reporte (el del rango/actual, no el precio congelado "del cierre") y no cobra rondas ni fletes anteriores al inicio del período. Así el saldo = Facturado − Abonado da igual que el reporte real.' },
+      { t: 'note', text: 'Cotejo automático: cada empresa muestra "📊 Reporte de jornada $X" con ✓ cuadra (verde) o ⚠️ difiere (naranja con la diferencia). El monto del reporte se recalcula solo (mismo cálculo del Informe por jornada) para verificar que Control de Pagos coincide. Si algún día sale ⚠️, es que una máquina tuvo precios distintos en la misma semana o quedó un precio "del cierre" viejo.' },
+      { t: 'note', text: 'Ver por qué da ese saldo: al abrir una empresa aparece "🔍 Abonos contados" con TODOS los abonos que se le cuentan (fecha, monto, método, semana) y la cuenta explícita Facturado − Abonado = Saldo. Ahí puedes borrar un abono duplicado o mal cargado con 🗑️.' },
+      { t: 'bullets', items: [
+        'El Tabulador de precios es la lista maestra de precios por tipo de máquina. Se puede modificar y sincronizar.',
+        'Tiene dos modos: General (aplica a todas las empresas) y por empresa. Arriba eliges "💲 General" o la empresa. Si a una empresa le pones un precio propio, ese manda; si lo dejas vacío, usa el General.',
+        'Al sincronizar, cada máquina toma el precio de SU empresa (o el General si no tiene propio).',
+      ] },
+      { t: 'note', text: 'PRECIO POR RANGO DE FECHAS: en el Control toca el nombre de una máquina para abrir su precio. Ahí eliges el RANGO de fechas (desde/hasta; por defecto el corte que estás viendo) y ese precio queda fijo SOLO en ese rango. Cambiar el precio de un rango NO afecta los reportes de otros cortes. Ejemplo: un camión puede valer 500 del 6 al 12 y 750 del 26 al 05, y cada corte muestra su propio número.' },
+      { t: 'note', text: 'Switch 🔒 "Blindar precio a estas fechas" (viene activado): CLAVA el precio en esas fechas. Si el precio SUBE en otra semana, esta NO cambia; y si lo modificas, SOLO afecta esa semana. Todos los reportes (Informe por jornada, Maquinaria/Vehículo y Control de Pagos) usan ese mismo precio blindado. Si lo apagas, solo cambias el precio por defecto de la máquina (para fechas que aún no tienen precio fijo).' },
+      { t: 'note', text: 'Si NO cambias el precio, se mantiene el de la semana anterior (arrastre automático): una jornada sin precio propio hereda el último precio que pusiste en una fecha anterior de esa misma máquina. Solo tienes que tocar el precio cuando CAMBIA.' },
+      { t: 'note', text: 'Para corregir un corte que salió con precio equivocado: ve a esa semana en el Control, toca la máquina, pon el precio correcto con el rango de esas fechas y Guarda. El reporte de ese corte se actualiza al instante y los demás cortes no se tocan. Funciona esté el corte abierto o cerrado.' },
+      { t: 'note', text: 'Sobrepago que se abona a la siguiente: si una empresa debe 50.000 y pagas 100.000, el sistema cubre esa semana y ABONA el resto a las siguientes semanas pendientes de la misma empresa (la más vieja primero). Si aún sobra, queda como saldo a favor. Al registrar el pago te muestra un resumen de cómo se repartió.' },
+      { t: 'note', text: 'Los FLETES cuentan: el total a cobrar de cada empresa/semana ahora INCLUYE los fletes/viajes registrados en el Control para esa semana (no solo las horas de máquina).' },
+      { t: 'note', text: 'Método de pago del abono: al "＋ Registrar abono" eliges cómo se pagó — 💵 Efectivo ($) · ₮ USDT · 🇻🇪 Bs (al cambio). Si es en Bs, escribes el MONTO EN Bs y la TASA del día (Bs por $) y el sistema calcula el equivalente en $ (el saldo siempre se lleva en $). Cada abono muestra su método y, si fue en Bs, el monto en Bs y la tasa usada.' },
+      { t: 'note', text: 'Excedente que pasa a la otra semana (cascada): si pagas MÁS de lo que debe una semana (ej. debe $10 y pagas $15), el sobrante ($5) se aplica solo a las otras semanas con deuda de la misma empresa (de la más antigua a la más nueva). Si no queda ninguna semana pendiente, el sobrante se guarda como 💚 saldo a favor (prepago). Al final te dice cómo se distribuyó el pago.' },
+      { t: 'note', text: 'Revertir pagos (corregir errores): en 🗂️ Histórico puedes filtrar por empresa y usar "🗑️ Revertir TODOS los abonos de <empresa>" (te muestra cuántos y el total, y pide confirmar) para borrarlos todos de una. El saldo de cada semana vuelve a incluir esos montos. También puedes borrar un abono suelto desde el detalle de la semana.' },
+      { t: 'note', text: '📄 Reportes (botón 📄 arriba): elige una o varias empresas (o todas) y un rango de fechas, y saca dos PDFs. "⬇️ Reporte detallado" trae el desglose por semana con máquinas, horas y abonos. "🧾 Estado de cuenta" es un reporte enfocado en la cuenta: por cada empresa, sus SEMANAS FACTURADAS (facturado / abonado / saldo / estado) y aparte TODOS los pagos realizados con su FECHA DE REGISTRO (monto, método, semana que cubre), más el SALDO PENDIENTE de la empresa y los totales al final.' },
+    ],
+  },
+  {
+    icon: '🧑‍💼',
+    title: 'Empleados — filtrar por cargo y reporte',
+    blocks: [
+      { t: 'p', text: 'En Empleados puedes filtrar la lista por tipo de cargo y sacar un reporte de lo que elijas.' },
+      { t: 'steps', items: [
+        'En el recuadro 🏷️ Cargo, toca para desplegar los cargos (cada uno con su cantidad).',
+        'Marca uno o varios cargos (ej. OPERADOR, OBRERO…). Se pueden combinar; "Todos" limpia la selección.',
+        'La lista de abajo muestra solo esos cargos (se combina también con el Estado y la búsqueda).',
+        'Toca "📊 Reporte": genera un PDF con el LISTADO de las personas seleccionadas (nombre, cédula, ficha, cargo, empresa, estado, teléfono) y un RESUMEN por cargo con el total.',
+      ] },
+      { t: 'note', text: 'El reporte respeta todo lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.' },
+      { t: 'note', text: 'Estado del empleado "Otro": además de Activo / Inactivo / Suspendido, un empleado puede quedar en estado "Otro". Los que están en "Otro" NO entran al control de pago: no se precargan al crear una nómina/período y no aparecen en Pago a personal → Por persona (ni en "Todos"). Úsalo para gente que no debe pagarse por este sistema.' },
+      { t: 'note', text: 'Ficha del trabajador (toca 🪪 Ficha en un empleado, o escanea su carnet): abajo hay dos botones. 📄 Ficha completa (PDF) descarga TODOS los datos por secciones (identificación, datos laborales, contacto, emergencia, banco y tallas). 🖼️ Carnet (imagen) descarga el carnet 54×86 mm. Lo mismo aplica a los Aliados (su PDF es la ficha completa; la imagen es el carnet).' },
+      { t: 'note', text: 'Constancias por empleado: en cada persona hay dos botones. 📄 Const. carnet es la constancia de entrega de carnet (trabajo a destajo, la firma el colaborador). 📃 Constancia de trabajo es el formato estándar "A quien pueda interesar": hace constar que la persona presta servicios en SOS La Guaira, con su cédula, cargo y fecha de ingreso (no incluye el sueldo); al pie lleva una firma centrada para la Jefa de Administración. Se genera en PDF listo para imprimir/guardar.' },
+    ],
+  },
+  {
+    icon: '🗂️',
+    title: 'Organigrama (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Muestra la estructura de la empresa POR CARGOS (no por nombres), con diseño corporativo en dos columnas: azul = Administración, servicios y soporte; naranja = Operaciones y mantenimiento de maquinaria. Arriba van Director General y Coordinador General. La estructura es FIJA y cubre todos los cargos. Está dentro de Nómina: abre 🗂️ Organigrama.' },
+      { t: 'steps', items: [
+        'Toca "👁️ Vista previa" para ver el organigrama con el logo de la empresa; desde ahí lo guardas o imprimes como PDF.',
+        'Toca "🖼️ Descargar imagen (PNG)" para bajarlo como imagen.',
+      ] },
+      { t: 'p', text: '📋 Manual de cargos (en el mismo panel): descarga las FUNCIONES de cada cargo, de quién depende (reporta a) y qué personal tiene a su cargo (subordinados).' },
+      { t: 'steps', items: [
+        'Toca "PDF general — todos los cargos" para un solo documento con todos los cargos, agrupados por área.',
+        'O toca un cargo de la lista para descargar solo SU ficha (funciones + jefe + subordinados).',
+      ] },
+    ],
+  },
+  {
+    icon: '👕',
+    title: 'Distribución de uniformes (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Sirve para llevar las tallas de uniforme de cada empleado e imprimir el listado para la entrega. Está dentro de Nómina: abre 👕 Distribución de uniformes.' },
+      { t: 'steps', items: [
+        'Verás el listado de empleados agrupado por empresa (con "Activos" o "Todos", y un buscador por nombre, cédula o cargo).',
+        'Toca un empleado: se abre para cargar su 👕 talla de camisa, 👖 talla de pantalón, 👟 talla de zapatos, 🦺 talla de braga y 🧥 talla de chaqueta. Guarda.',
+        'Las tallas quedan en la ficha del empleado (se ven como etiquetas en cada tarjeta).',
+        'En ese mismo empleado, sección 📦 Registrar entrega: escribe cuántas 👕 camisas, 👖 pantalones, 👟 zapatos, 🦺 bragas y 🧥 chaquetas le entregas AHORA y toca "📦 Registrar entrega". La fecha y la hora se guardan solas. Puedes registrar varias entregas: se acumulan y ves el total entregado y el historial (con fecha y hora de cada una).',
+        'Cada tarjeta muestra un badge 📦 Entregado con el total de prendas que ha recibido esa persona.',
+        'Toca "⬇️ Listado (tallas)": genera un PDF con todos los empleados mostrados, sus tallas y una columna de FIRMA (Recibido / Entregado) para firmar al recibir el uniforme.',
+        'Toca "📦 Reporte de entregas": genera un PDF por persona con CADA entrega (su fecha y hora) y el total de camisas, pantalones, zapatos, bragas y chaquetas entregados.',
+        'Al final del listado de tallas (en pantalla y en el PDF) sale un 📊 Resumen por tallas: cuántas camisas de cada talla (M, S, L…), y lo mismo para pantalones, botas de seguridad, bragas y chaquetas. Sirve para saber cuántas piezas de cada talla pedir.',
+      ] },
+      { t: 'note', text: 'Los PDF respetan el filtro y la búsqueda: incluyen exactamente los empleados que estás viendo. Las TALLAS son el número de talla de cada prenda; las ENTREGAS son cuántas piezas se le han dado (con su fecha y hora).' },
+    ],
+  },
+  {
+    icon: '💵',
+    title: 'Control de pago a personal (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Sirve para pagarle al personal. Tiene dos vistas (cambias arriba): 👤 Por persona (la principal) y 📅 Por período. Está dentro de Nómina: abre 💵 Control de pago a personal.' },
+      { t: 'note', text: '👤 POR PERSONA (vista principal): es un listado de empleados. Busca a alguien y ábrelo: verás sus datos personales, sus datos bancarios y sus tarifas. Con "➕ Generar pago" registras un pago por frecuencia — Diario, Semanal, Quincenal o Mensual. Indicas el PERÍODO que cubre con un rango Desde/Hasta (ej. del 11 al 17); el "Hasta" se sugiere solo según la frecuencia y lo puedes cambiar. En DIARIO puedes cargar jornadas de ☀️ día y 🌙 noche JUNTAS en el mismo pago (cada una con su cantidad y su precio); el monto se sugiere = (días × precio día) + (noches × precio noche) y es editable. Las jornadas (días + noches) NO pueden pasar de los días que abarca el rango Desde→Hasta (si el rango es de 7 días, el máximo es 7 jornadas en total). Esas cantidades de día/noche quedan GUARDADAS y se precargan en el próximo pago de esa persona. De cada pago sacas su 📄 Recibo. Abajo tienes el HISTORIAL con el total, lo puedes 🖨️ Imprimir (histórico por persona) y cada movimiento se puede ✏️ Editar o 🗑️ Borrar.' },
+      { t: 'note', text: 'Las tarifas Quincena y Mes se definen (igual que día/noche/semana) en el 🏷️ Tabulador por cargo y se sincronizan a los empleados.' },
+      { t: 'p', text: '📅 POR PERÍODO (nóminas, lo de antes):' },
+      { t: 'note', text: 'El personal se paga SIEMPRE por la organización (SOS LA GUAIRA), no por contratista. Al crear un período NO se elige empresa: se carga a TODO el personal activo y todo queda bajo SOS LA GUAIRA. Así siempre hay a quién ponerle su precio.' },
+      { t: 'note', text: 'TABULADOR POR CARGO (🏷️ Tabulador, arriba): en vez de poner el sueldo uno por uno, defines el sueldo POR CARGO. Es una lista desplegable: toca un cargo y se abre su detalle (sueldo semana, ☀️ precio día, 🌙 precio noche, precio hora) — es editable. Con "+ Cargo" añades cargos nuevos y también aparecen los cargos de empleados que aún no tienen tabulador (toca para crearlo). Al tocar "🔄 Sincronizar" el sueldo de ese cargo se copia a TODOS los empleados que tengan ese cargo. Con "🔄 Sincronizar TODO (por lote)" (botón de arriba) se aplica el tabulador a los empleados de TODOS los cargos de una sola vez. Después, al crear el período, cada quien ya trae su sueldo.' },
+      { t: 'p', text: 'Cómo se calcula:' },
+      { t: 'bullets', items: [
+        'Cada trabajador tiene su Precio por hora, ☀️ Precio por día, 🌙 Precio por noche y Precio por semana (los cargas/editas en el renglón de la persona y quedan guardados en su ficha para el próximo período).',
+        'Cada período elige "Pago por": Por hora, Por día o Por semana. El devengado = precio del modo × cantidad. En "Por día" el pago separa las jornadas de DÍA y de NOCHE: devengado = (jornadas ☀️ día × precio día) + (jornadas 🌙 noche × precio noche). El sistema cuenta solas las jornadas de día/noche del operador según el turno de cada una.',
+        'Cualquier modo (incluido "Por día") precarga a TODO el personal activo. Los operadores traen sus jornadas de día/noche solas (por el QR); al resto se le ajusta la cantidad a mano.',
+        'El Período (rango de fechas) puede ser Día, Semana (dom→sáb) o Quincena (1–15 / 16–fin de mes). Las fechas se ajustan solas y también se editan a mano.',
+        'Total a pagar = devengado + bonos − deducciones.',
+      ] },
+      { t: 'p', text: 'De dónde salen las cantidades (horas / días / semanas):' },
+      { t: 'bullets', items: [
+        'Operadores: se cargan SOLOS desde sus jornadas (las que registran al escanear el QR), cruzando por cédula dentro del rango del período. Las semanas = cuántas semanas distintas trabajaron.',
+        'Resto del personal: se ajusta a mano. También puedes editar lo automático; si cambias la cantidad, queda marcado como ajuste manual.',
+        'Con "Solo jornadas validadas por el supervisor" activado (por defecto), una jornada solo cuenta si el supervisor visitó esa máquina ese día y la marcó 🟢 Trabajando. Las que no tienen visita quedan pendientes y NO suman (avisa con ⚠️).',
+      ] },
+      { t: 'bullets', items: [
+        'Bonos y Deducciones: por persona, agregas líneas de concepto y monto (ej. Bono producción, Adelanto, Préstamo).',
+        'Abonos: cuando el período está aprobado, con 💵 Abonar registras pagos parciales o totales (efectivo, pago móvil, transferencia…). Se ve el Pagado y el Saldo pendiente.',
+        'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF. El recibo muestra el Total y el "Saldo cancelado".',
+        '💼 Filtrar por cargo: dentro del período hay una lista desplegable con casillas ("💼 Filtrar por cargo"). Tildas uno o varios cargos y la lista de personas y el ⬇️ Reporte PDF salen solo de esos, agrupados por cargo con su subtotal. Sin tildar nada = todos.',
+        '➕ Incluir a todos: si hay empleados activos que no están en el período (ej. registrados después de crearlo), sale un aviso con cuántos faltan; tócalo y se agregan todos (entran con 0 jornadas, luego ajustas). El nº del 🏷️ Tabulador cuenta empleados activos (mismo universo) para que coincida con el pago.',
+      ] },
+      { t: 'note', text: 'Estados del período: Borrador → ✅ Aprobar → 💵 Marcar pagada (y ↩ Reabrir). En el encabezado del período se muestra "Pagada $X" (lo ya abonado); el saldo queda pequeño y solo si falta por pagar. Si Aprobar/Marcar pagada no cambia el estado, ahora SÍ te avisa el motivo (antes fallaba en silencio).' },
+      { t: 'note', text: 'Las analistas pueden cargar cantidades, bonos y deducciones, pero NO pueden cambiar los precios (hora/día/semana) del trabajador.' },
+    ],
+  },
+  {
+    icon: '🕒',
+    title: 'Control de asistencia (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Sirve para registrar la ENTRADA y la SALIDA del personal escaneando su carnet. Guarda la fecha y la hora automáticamente. Se abre desde el botón grande 🕒 ASISTENCIA EMPLEADOS que aparece en la pantalla de inicio de todos los usuarios (excepto el admin, que la tiene en el menú Más → 🕒 Control de asistencia).' },
+      { t: 'steps', items: [
+        'Toca "📷 Escanear carnet" y apunta al QR del carnet del trabajador (si el carnet no escanea, búscalo por nombre o cédula).',
+        'Aparece la persona (foto, nombre, cargo) y sus marcas de hoy.',
+        'Toca el botón grande: si aún no ha entrado dice "➡️ Marcar ENTRADA"; si ya entró dice "⬅️ Marcar SALIDA". La hora y la fecha se ponen solas.',
+        'HORA MANUAL (si no dio tiempo de escanear): con la persona abierta, toca "⏱️ Marcar con hora manual", elige la fecha, escribe la hora real en formato 24 h (ej. 07:30 o 19:45), elige ENTRADA o SALIDA y toca "💾 Registrar marca manual". Sirve para cargar después la jornada con su hora verdadera.',
+        'Cada marca queda etiquetada como ☀️ Día (6:00 a 17:59) o 🌙 Noche (resto), según la hora.',
+        'Al registrar una SALIDA, el sistema PIDE CONFIRMACIÓN ("¿Seguro que quieres registrar la salida?") y te recuerda a qué hora fue su última entrada. Si la entrada fue hace MENOS DE 2 MINUTOS, avisa "¿Doble escaneo?" (casi seguro escanearon el carnet dos veces por error) para que no se marque una salida sin querer.',
+        'Se permiten VARIAS marcas al día (por ejemplo, sale a almorzar y vuelve): el sistema alterna entrada/salida y suma las horas presentes de todos los pares.',
+        'Abajo tienes un CALENDARIO DEL MES con toda la asistencia (no solo la de hoy): usa ◀ ▶ para cambiar de mes; los días con marcas se resaltan y muestran un globo con el número de personas.',
+        'Toca un día: se abre en ☀️ Día y 🌙 Noche (con cuántas personas hay en cada turno). Toca un turno y ves el detalle por persona: entrada → salida y horas de cada par.',
+        'Cada día tiene su propio "📊 Reporte del día" (PDF), además del reporte por rango.',
+      ] },
+      { t: 'p', text: 'Reporte: toca 📊 Reporte, elige el rango de fechas y genera el PDF (o usa 📊 Reporte del día dentro del calendario). Sale por persona: cada jornada con su fecha, ☀️/🌙 turno, hora de entrada y salida y las horas; con subtotales de día y de noche. Una entrada sin salida sale como "abierta". Las jornadas de noche que cruzan la medianoche se emparejan bien.' },
+      { t: 'note', text: 'Las marcas se SINCRONIZAN en tiempo real: si otra persona marca desde otro dispositivo, el calendario se actualiza solo. Cualquier usuario del sistema puede marcar la asistencia con el botón 🕒 ASISTENCIA EMPLEADOS (así el portero/vigilante puede registrar al personal sin darle acceso al resto del sistema).' },
+    ],
+  },
+  {
+    icon: '🪖',
+    title: 'Inspecciones (rondas de inspectores)',
+    blocks: [
+      { t: 'p', text: 'Sirve para saber si los inspectores SÍ están yendo a las máquinas a revisar que estén trabajando. El inspector entra al sistema (rol inspector) y su pantalla principal es 🪖 Revisar (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.' },
+      { t: 'note', text: '📄 Mi reporte de jornada (teléfono del inspector, 15/08/2026): bloque con el que el inspector se descarga el PDF del resumen de SUS máquinas — estado, horas trabajadas, horas de parada y total de la jornada (el mismo dato que ve el jefe). ANTES solo aparecía al terminar el turno, cuando ya no le quedaba ninguna máquina en curso; ahora se puede pedir CUANDO SEA: elige el día con ◀ ▶ (hacia adelante no pasa de hoy) y el turno ☀️ Día / 🌙 Noche (arranca en el suyo, se puede cambiar si cubrió el otro) y toca 📄 Descargar reporte (PDF). Si lo pide a media jornada sale el aviso "⚠️ Todavía tienes máquinas en curso: el reporte sale con lo que hay hasta ahora". El día que manda es el DÍA DE NEGOCIO: el turno de noche pertenece al día en que arrancó, así que un reporte de noche pedido a la 1:00 am sigue siendo el del día anterior. Solo lee: no cambia nada en el sistema y se puede pedir las veces que haga falta.' },
+      { t: 'note', text: '📱 Teléfono vs 💻 PC: desde un TELÉFONO, al iniciar sesión TODOS los usuarios caen en el módulo de Inspectores (esta pantalla). Desde una PC cada quien ve la app normal según su rol y la sesión se mantiene iniciada. El coordinador de patio en teléfono ve su propia pantalla (jornada de camiones). SOLO el administrador ve arriba un botón 🗂️ SISTEMA que lo lleva a la app completa desde el teléfono (para volver a Inspectores, recarga la página).' },
+      { t: 'note', text: '✅ CHECK MÁQUINA (SOLO ADMINISTRADOR): solo el administrador asigna las máquinas a los inspectores; los inspectores NO se asignan solos (solo ven las que el admin les puso). El admin toca ✅ CHECK MÁQUINA, 1) elige el INSPECTOR de una lista buscable, y 2) busca la máquina y toca el TURNO (☀️ Día / 🌙 Noche) para asignársela (o de nuevo para quitársela). Cada máquina tiene DOS inspectores (día y noche). Queda en la Auditoría (✅ se asignó · Día/Noche → nombre). El admin tiene además "Ver todas".' },
+      { t: 'note', text: '🔵 Círculo de estado en cada máquina asignada: 🟢 VERDE = jornada en curso (trabajando) · 🟡 AMARILLO = parada (avería) · 🔴 ROJO = jornada finalizada. Además cada máquina muestra su 📍 edificio y su serial/placa.' },
+      { t: 'note', text: '▶️ Iniciada por / 🏁 Finalizada por: cada jornada muestra el NOMBRE Y APELLIDO de quién la inició y de quién la finalizó. Se ve sincronizado en TODAS las tarjetas del panel de Inspecciones (la lista de máquinas al abrir cualquier categoría y su detalle) y en los tres informes: por firma, por empresa y por jornada. El "finalizada por" es el supervisor que tocó 🏁 Finalizar; el cierre automático de las 7pm/7am no lleva persona (lo hace el sistema).' },
+      { t: 'note', text: '📊 REPORTE DEL DÍA POR EMPRESA — todas las máquinas (15-ago-2026): el PDF lista TODAS las máquinas de cada empresa MENOS las retiradas/eliminadas, agrupadas por estado: ✅ Activas (trabajaron), 🔴 Averiadas / Paradas, ⏳ Esperando instrucciones y ⏳ Pendientes por iniciar. Antes solo salían las que tuvieron actividad (trabajaron, avería o parada) y se omitían las de 0 actividad y las en espera.' },
+      { t: 'note', text: '👥 COORDINADOR DE INSPECTORES (rol): es un inspector con superpoderes. Además de SUS propias máquinas (arriba, con su ronda normal), tiene un conmutador "🚜 Máquinas / 👥 Inspectores". En 👥 Inspectores ve a CADA inspector como una lista desplegable y buscable con sus máquinas repartidas por estado (🟢 iniciadas · ⏳ pendientes por iniciar · 🟡 paradas · 🔴 averiadas). Al TOCAR una máquina se abre el mismo check-in: puede INICIAR/FINALIZAR jornada, marcar 🟡 PARADA o 🔴 AVERÍA (con foto) y 📍 actualizar ubicación EN NOMBRE de ese inspector. La jornada/estado se le marca al INSPECTOR dueño de la máquina (porque la máquina es suya), y queda la nota "registrado por [coordinador]" para saber quién lo hizo. Para crearlo: en Usuarios se le asigna el rol "coordinador de inspectores"; sus máquinas propias se le asignan con ✅ CHECK MÁQUINA como a cualquier inspector.' },
+      { t: 'note', text: '🏢 EDIFICIO (ubicación): ahora es UN SOLO campo en todo el sistema, elegido de un catálogo COMPARTIDO. Al hacer el CHECK de una máquina (y al surtir combustible) aparece un desplegable: busca el edificio y, si no existe, escríbelo y toca “➕ Agregar” — queda disponible para todos al instante. Ya no hay un campo “referencia” aparte.' },
+      { t: 'p', text: 'Cómo marca el inspector una máquina:' },
+      { t: 'steps', items: [
+        'Entra con su usuario y contraseña (desde teléfono, cualquiera cae aquí). Ve "Mis máquinas asignadas" (las que le puso el administrador).',
+        'Si la lista está vacía, el ADMINISTRADOR debe asignarle máquinas con ✅ CHECK MÁQUINA. El inspector también puede escanear el QR directo con el botón 📷.',
+        'DESDE LA LISTA: toca la máquina y se abre su ficha (nombre, empresa, serial/placa).',
+        'ESCANEANDO EL QR con la cámara: sale una pantalla con el logo y el botón 🔓 INICIAR SESIÓN; entra con su usuario y cae DIRECTO en la ficha de esa máquina.',
+        'El sistema toma su ubicación GPS y calcula qué tan cerca está de la máquina.',
+      ] },
+      { t: 'p', text: 'Botones de la ficha de la máquina:' },
+      { t: 'steps', items: [
+        '🟢 INICIAR JORNADA: campo "Ingresar horómetro" (viene precargado con el horómetro final de la jornada anterior) y un botón 📷 Foto del horómetro (toma con la cámara o carga una imagen). El horómetro y la foto NO son obligatorios: si los dejas en blanco la jornada inicia igual. Guarda la hora de inicio y marca la máquina en Inspecciones. El botón cambia a 🏁 FINALIZAR JORNADA con un contador del tiempo trabajado.',
+        '🏁 FINALIZAR JORNADA: pide CONFIRMAR mostrando el total de horas, con el campo "Ingresar horómetro" y su botón 📷 Foto del horómetro (también sin obligación). Al aceptar, esas horas (fin − inicio) se suman a Control de maquinaria en el turno ☀️ día / 🌙 noche. REGLA: ese horómetro final será el inicial de la próxima jornada. La lectura y la foto se ven en Mantenimiento de Maquinaria · ⏱️ Horómetros.',
+        '🟡 PARADA (marcar máquina parada): tiene 2 caminos. "🔧 Por avería" — elige el material (caucho/aceite/filtro/repuesto/otro) y describe la falla: crea la solicitud en Servicio de Maquinaria Y marca la visita en Inspecciones. "📍 Parada / No trabajó" — el texto "NO TRABAJÓ" queda FIJO; opcionalmente escribes el motivo (sin combustible, sin operador, lluvia…) que aparece al lado ("NO TRABAJÓ · <motivo>"). Guarda tu ubicación GPS y el edificio de la máquina; NO crea nada en Servicio de Maquinaria, solo se refleja en Inspecciones. En ambos casos, en Control sale 🔴 MÁQUINA PARADA.',
+        '🟢 VOLVER A OPERATIVA: si la máquina está PARADA o AVERIADA, en su ficha NO sale "INICIAR JORNADA" — en su lugar sale "🟢 Volver a OPERATIVA", que cierra la avería en Servicio de Maquinaria y quita el "MÁQUINA PARADA/AVERIADA" de Control. FLUJO (13-ago-2026): averiada → Volver operativa → recién ahí aparece INICIAR JORNADA. Antes se podía iniciar jornada directo sobre una averiada, pero la avería quedaba pendiente y se arrastraba: la máquina reaparecía 🔴 averiada al día siguiente. Con este flujo ya no reaparece.',
+      ] },
+      { t: 'note', text: '📍 Ubicación: dentro del check-in el inspector guarda la ubicación GPS de la máquina con "📍 Guardar/Actualizar ubicación". Esa ubicación alimenta el reporte "📄 Máquinas por sector (Este / Oeste)" del Mapa, que agrupa las máquinas ubicadas por su sector geográfico (y lista aparte las que faltan por ubicar).' },
+      { t: 'note', text: '👷 Iniciar la jornada del operador (si no tiene teléfono): dentro del mismo check-in de la máquina, el inspector toca "📷 Escanear carnet del operador", lee el QR del carnet, elige el TURNO con los botones ☀️ Día / 🌙 Noche, COTEJA la cédula (debe coincidir con el carnet) e ingresa el horómetro inicial, y toca "🟢 Iniciar jornada del operador". Arranca la jornada en esa máquina con las mismas reglas (1 máquina por operador al día, máximo 2 por turno) y queda la marca de que la registró el inspector. La ubicación del inspector queda como punto de inicio.' },
+      { t: 'note', text: '🔒 No se puede iniciar jornada en una máquina averiada, parada o "Esperando instrucciones": el bloqueo aplica IGUAL si el operador escanea desde su propio teléfono que si lo hace el inspector con el carnet. Si hay una avería/parada PENDIENTE, avisa que primero hay que resolverla (marcarla ✅ Operativa); si está en ⏳ Esperando instrucciones, avisa que primero hay que sacarla de ese estado (botón "✅ Ya se decidió" en su detalle del Catálogo).' },
+      { t: 'note', text: '☀️/🌙 Turno de la jornada: al escanear el carnet, el sistema sugiere el turno según la hora (día 6:00–17:59, noche el resto), pero el inspector puede cambiarlo tocando el sol (Día) o la luna (Noche). El turno elegido es el que queda guardado (define si la jornada cuenta como de día o de noche para el pago).' },
+      { t: 'note', text: 'El inspector marca desde "Mis máquinas asignadas" (las que se asignó con ✅ CHECK MÁQUINA) o escaneando el QR físico. El check-in aparece de inmediato en el módulo Inspecciones (Traza por inspector), valida la jornada y muestra al inspector asignado en el Catálogo y en Control de maquinaria.' },
+      { t: 'note', text: '🕒 Cierre de jornada: el DÍA cierra automático a las 7:00pm y la NOCHE a la 1:00am (la máquina que quede abierta la cierra el sistema). Excepción LUMINARIA: las luminarias (torres/equipos de iluminación) trabajan toda la noche (7pm→7am), así que su jornada de NOCHE cierra a las 7:00am (12h); igual pueden cerrarse a mano antes. El único equipo que NO se cierra (trabaja 24h) es el COMPRESOR CON MARTILLO (serial 79669). Se puede FINALIZAR manualmente antes; si se hace ANTES de la hora de fin del turno (día <7pm / noche <7am) el sistema PIDE OBLIGATORIO el MOTIVO del cierre. REGLA 15-ago-2026: el motivo se pide en TODO cierre anticipado, SIN excepción — incluye las máquinas "SOS LA GUAIRA" (siempre activas) y los camiones cerrados desde Patio, Asistencia de camiones o el escaneo de QR. Antes esos cierres no pedían motivo y la lista de "🏁 Cerradas / finalizadas" salía en blanco.' },
+      { t: 'note', text: 'La cercanía es amplia a propósito (unos 300 m): si la máquina está trabajando y no se puede interrumpir, basta con estar "más o menos cerca". Si el supervisor está lejos, igual se guarda pero queda marcado "lejos ⚠️".' },
+      { t: 'note', text: 'Vista de operador (al escanear el QR de la máquina): arriba se muestra un MAPA con tu ubicación en tiempo real (punto azul) y la máquina, con la DISTANCIA a la que estás (verde si estás en sitio) — así ves qué tan cerca la tienes. Botón "📷 Escanear carnet (operador)": al escanear el carnet, se muestran los datos del operador y se autocompleta el inicio de jornada (también puedes escribir la cédula). Al iniciar y al finalizar la jornada se guarda tu ubicación GPS.' },
+      { t: 'note', text: 'Al FINALIZAR la jornada queda registrada en tres lugares: Operadores, Control de maquinaria e Inspecciones (módulo "🚜 Jornadas de operadores": operador, máquina, empresa, hora de inicio/fin, horas y un enlace 📍 a la ubicación donde estaba).' },
+      { t: 'note', text: 'Seguridad: el inicio de sesión es por CÉDULA + CONTRASEÑA. Solo pueden entrar personas registradas por el administrador y que tengan su CÉDULA asignada; si alguien no tiene cédula, el sistema le dice "Pídele al administrador de sistemas que agregue la CÉDULA para poder ingresar". Al escanear un QR, la vista queda AISLADA (operador o control de cocina) y NO se puede entrar al resto del sistema; su única salida es "Salir" (cierra sesión).' },
+      { t: 'note', text: 'REGLA IMPORTANTE: si el inspector NO marca una máquina que trabajó ese día, esa jornada queda "sin validar" y el operador no cobra.' },
+      { t: 'p', text: 'Módulo "Inspecciones" (para el jefe, en Más): muestra por día quién marcó cada máquina, a qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de "⛔ Jornadas sin validar" (máquinas que trabajaron pero que ningún inspector marcó). Usa las flechas ◀ ▶ para cambiar de día.' },
+      { t: 'note', text: 'El inspector ASIGNADO a cada máquina se muestra en el Catálogo y en Control de maquinaria (🪖 Inspector: nombre). PRIORIDAD: si el inspector se asignó la máquina con el botón ✅ CHECK MÁQUINA (teléfono), ese es el asignado; si no, se usa el del último check-in (visita).' },
+      { t: 'note', text: '📋 Reportes (hub): dentro de Inspecciones/Supervisión hay un hub de reportes en tarjetas: Máquinas asignadas por inspector → Reporte por inspector y Entrada y salida de camiones. Los reportes de Camiones (asistencia), Jornadas de operadores y la Traza por inspector se ven en sus propios módulos. La Distribución de guardias es una sección aparte (independiente, fuera de Reportes).' },
+      { t: 'note', text: '🗓️ Distribución de guardias (dentro de Inspecciones): arma la rotación de inspectores por rango de fechas. Agregas inspectores (trae su cédula del perfil; editas teléfono, sector, cargo=Coordinador/Nocturno/Inspector y grupo A/B/C), defines sus DESCANSOS por rango a mano, o tocas ⚙️ Autogenerar 14x7 para ARMAR LOS GRUPOS A MANO: se abre una ventana donde asignas cada inspector a un grupo (A = semana 1, B = semana 2, C = semana 3), con un botón "✨ Sugerir automático" que reparte los cargos para que no descansen juntos dos coordinadores ni dos nocturnos; ajustas lo que quieras y tocas "Generar rotación 14x7" (crea los descansos y reemplaza las guardias actuales). Ves el calendario inspector×día (T en turno / D en descanso, coloreado por grupo) con la fila "En descanso", te avisa si dos coordinadores coinciden en descanso, y con 📄 Generar PDF sale el documento del ciclo (calendario + conformación de grupos + cobertura).' },
+      { t: 'note', text: '🔎 Búsqueda en Trazabilidad de ubicaciones (Mapa): arriba de la trazabilidad hay un buscador por máquina, placa, serial, empresa, encargado, referencia/edificio y quién registró (inspector/operador).' },
+      { t: 'note', text: 'Avería de maquinaria desde el check-in: en la ventana "✅ Revisé la máquina", el inspector puede abrir "🛠️ Avería de maquinaria", elegir el material (caucho/aceite/filtro/repuesto) con su cantidad y nota, o tocar ✏️ Otro para describir a mano una falla distinta (ej. no arranca, fuga de aceite), y "Registrar avería". Es la misma función que el operador y cae en el módulo de Servicio de Maquinaria como solicitud pendiente.' },
+      { t: 'note', text: 'En "Traza por inspector" puedes TOCAR cualquier máquina de la lista y te lleva a su ficha en el Catálogo (con todos sus datos y acciones). El › al final de cada renglón indica que es clickeable.' },
+      { t: 'note', text: '📊 Reporte por inspector (día o rango): dentro de Inspecciones hay un reporte con filtro por 📅 un día o 📆 rango de fechas y un filtro de inspectores TIPO CHECK (marcas uno o varios; vacío = todos). Muestra, por inspector, la hora de inicio, la máquina, el serial/placa, el sector y la empresa, y se puede descargar en PDF.' },
+      { t: 'p', text: 'Cada supervisor trae un RESUMEN de cercanía (así sabes qué tan confiables fueron sus rondas): ✓ cuántas marcó EN SITIO (estuvo cerca, dentro de ~300 m), ⚠️ cuántas de LEJOS (marcó sin estar al lado) y • cuántas SIN GPS (no se pudo verificar). El botón "📄 Reporte de supervisión (PDF)" genera el informe del día con ese resumen por supervisor, el detalle de cada visita (hora, máquina, empresa, estado y ubicación) y las jornadas sin validar.' },
+      { t: 'note', text: '⚡ Eficiencia por inspector: es por HORAS TRABAJADAS, NO por cuántas máquinas tocó/marcó. En "👷 POR INSPECTOR" cada barra trae su % de eficiencia del turno: se suma el tiempo real que trabajaron sus máquinas asignadas (incluye lo que llevan corriendo AHORA MISMO, en vivo) y se divide entre las horas que ya pasaron desde que arrancó el turno. Por eso, si el turno recién empezó, el % arranca bajo y va subiendo solo — no es que "se dañó". Una máquina averiada o parada todo el turno también le baja el % a su inspector. El botón "📄 Reporte de eficiencia" (arriba de las barras) genera el PDF con la MISMA fórmula que la gráfica.' },
+    ],
+  },
+  {
+    icon: '🍽️',
+    title: 'Distribución de comida',
+    blocks: [
+      { t: 'p', text: 'Sirve para llevar el control de cuántas comidas se le reparten a cada persona. Quien reparte es un usuario con rol Cocina (entra con su nombre y contraseña).' },
+      { t: 'steps', items: [
+        'La persona de Cocina inicia sesión (rol Cocina).',
+        'Se VERIFICA escaneando su propio carnet (o por cédula). Solo pasa si su cargo en nómina es de cocina/alimentación (ayudante de cocina, alimentación, cocinero, cocina); si no, no puede registrar.',
+        'Escanea el carnet de nómina de la persona (el mismo del empleado) o lo busca por cédula.',
+        'Ve los datos de la persona (foto, cargo, cédula).',
+        'Marca Desayuno, Almuerzo o Cena: cada botón se marca 1 sola vez por día por persona.',
+        'Queda guardado con la hora. Debajo se ve lo ya marcado hoy a esa persona.',
+      ] },
+      { t: 'note', text: 'Debajo se ve lo que ya se le entregó a esa persona hoy y el total. Si te equivocaste, puedes borrar una entrega con 🗑.' },
+      { t: 'note', text: 'Si escaneas el carnet pegado (sticker) con la cámara del teléfono: estando con sesión de Cocina abre directo el registro de esa persona; si no has entrado, toca "🍽️ ¿Eres de cocina? Inicia sesión" y al entrar cae en el registro de esa misma persona.' },
+      { t: 'p', text: 'Módulo "Distribución de comida" (en Más, para el jefe): por día muestra las comidas repartidas POR EMPRESA (desayuno/almuerzo/cena) y también por persona, con sus totales. Usa las flechas ◀ ▶ para cambiar de día.' },
+      { t: 'p', text: 'Comida POR EMPRESA (con QR): además de repartir por persona, se puede registrar por empresa con un QR propio de cada empresa.' },
+      { t: 'steps', items: [
+        'En "Distribución de comida" (jefe), toca "🖼️ QR por empresa (imágenes)" y descarga el QR de cada empresa como IMAGEN individual (logo + QR + nombre). Las empresas desactivadas no aparecen.',
+        'La cocina escanea el QR de la empresa (con la cámara del teléfono O desde el botón "Escanear carnet" dentro de su propia pantalla de Cocina): se abre la pantalla de comidas del día de esa empresa.',
+        'Se verifica con su carnet/cédula (solo cargo de cocina/alimentación).',
+        'Toca uno de los 3 botones grandes: Desayuno, Almuerzo o Cena (cada uno 1 sola vez por día por empresa).',
+        'El sistema sugiere el total = máquinas de la empresa × 2 + 15; el cocinero escribe cuántas comidas entregó realmente y registra.',
+      ] },
+      { t: 'note', text: 'Cada comida (desayuno/almuerzo/cena) se puede marcar UNA sola vez por día por empresa. Queda guardado con la empresa, la cantidad, la hora y quién la registró. Ese registro ES el control de asistencia/entrega de la empresa.' },
+      { t: 'note', text: 'Empresa "solo comidas": en Empresas (admin) puedes marcar una empresa como "🍽️ Solo comidas". Esa empresa aparecerá ÚNICAMENTE en la distribución de comidas y NO saldrá en ningún otro selector, lista ni reporte del sistema (p. ej. PNB Canica). Distinto de "🚫 Ocultar", que la desactiva en todo (incluida la comida).' },
+      { t: 'p', text: 'Control por empresa (asistencia/entrega): en "Distribución de comida" (jefe) toca la pestaña "📊 Control por empresa". Elige un rango de fechas (o los atajos Hoy / 7 días / 30 días) y verás:' },
+      { t: 'steps', items: [
+        'Totales del rango: total entregado y cuánto por desayuno, almuerzo y cena.',
+        'Resumen por empresa: cuánto entregó cada empresa por tiempo de comida y en cuántos días.',
+        'Al elegir UNA empresa (filtro de arriba): su historial día por día, con lo entregado en cada comida, la hora y quién lo registró.',
+        'Botón "📄 Descargar reporte PDF" para imprimir/llevar el control por empresa del rango elegido.',
+      ] },
+    ],
+  },
+  {
+    icon: '📦',
+    title: 'Inventario (materiales, requerimiento y traslados)',
+    blocks: [
+      { t: 'p', text: 'Es el control de materiales y herramientas. El inventario es GENERAL (no se separa por empresa ni por máquina al crearlo). Cada material tiene su existencia (cuánto hay) y su costo promedio (PMP), que el sistema calcula solo con las entradas.' },
+      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salida, Nota de traslado, Gastos, Requerimiento y Movimientos.' },
+      { t: 'note', text: 'Movimientos (traza): además de filtrar por tipo (Entradas / Salidas / Consumo / Ajustes), tienes 🔎 búsqueda libre (por producto o motivo) y filtro por RANGO DE FECHAS (Desde / Hasta). "✕ Limpiar" quita los filtros.' },
+      { t: 'note', text: 'Revertir una salida: abre una SALIDA en Movimientos y toca "↩️ Revertir al inventario". Pide confirmación, devuelve la cantidad al stock y elimina esa salida. El stock se recalcula solo (no toca el costo/PMP). Úsalo para corregir salidas hechas por error o materiales que se devolvieron.' },
+      { t: 'p', text: 'Precios en $ y en Bs (tasa BCV): en Existencias, arriba, se muestra la tasa del BCV del día (Bs por US$). El sistema la baja automáticamente cada día; con 🔄 Actualizar la refrescas y los administradores pueden fijarla a mano (por si el servicio falla). Cada producto muestra su PMP y su valor en stock en $ y en Bs. Al cargar un costo puedes escribirlo en $ o en Bs (botón $↔Bs): el precio se guarda en US$ y se muestra el equivalente.' },
+      { t: 'p', text: 'Salida — es el documento (nota de salida) que se hace cuando salen materiales:' },
+      { t: 'steps', items: [
+        'Ve a la pestaña "📤 Salida".',
+        'Busca cada producto y agrégalo; indica la cantidad de cada uno.',
+        'Elige la 🚜 máquina (lista desplegable y filtrable) y los 👷 empleados que reciben (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.',
+        'Elige la 🏢 EMPRESA registrada a la que se carga la salida (lista desplegable y filtrable): se guarda en el movimiento y sale en la nota. (Sigue estando el campo de empresa NO registrada, texto libre, para casos fuera del sistema.)',
+        'Toca "🧾 Generar nota de salida (PDF)": se abre la VISTA PREVIA con logo, fecha, productos y la línea de firma autorizado.',
+        'Toca 🖨️ Imprimir para guardar/imprimir. RECIÉN AHÍ se descuenta del inventario.',
+      ] },
+      { t: 'note', text: 'IMPORTANTE: la salida se descuenta del inventario SOLO cuando confirmas (Imprimir/Guardar). Si le das Cancelar en la vista previa, NO se descuenta nada y NO se pierde lo que ya habías elegido: los productos, cantidades, máquina y empleados quedan tal cual para seguir editándolos o corregirlos.' },
+      { t: 'p', text: 'Nota de traslado (entre máquinas) — traslada materiales de una máquina/empleado a otra:' },
+      { t: 'steps', items: [
+        'Ve a la pestaña "🔁 Nota de traslado".',
+        'Agrega los materiales con stock e indica la cantidad de cada uno.',
+        'Define el ORIGEN (🚜 máquina + 👷 responsable de dónde SALE) y el DESTINO (🚜 máquina + 👷 responsable a dónde VA). Indica el 📍 lugar/obra a donde va y el ESTADO del material (usado / lleno / dañado). Escribe el motivo si quiere.',
+        'Toca "🔁 Generar traslado (PDF)": se abre la vista previa con el bloque Origen → Destino y dos firmas (entrega y recibe).',
+        'Al confirmar (Imprimir/Guardar) se descuenta del inventario y queda guardado el traslado, casado con la máquina y el empleado de cada lado.',
+      ] },
+      { t: 'p', text: 'Retornar al inventario: en la pestaña 🔁 Nota de traslado, toca "📋 Realizados" para ver los traslados hechos. En cada uno tocas "↩️ Retornar al inventario": indicas el estado con que vuelve (usado/dañado/lleno) y cuánto queda disponible, y esa cantidad REINGRESA al almacén (queda como entrada, sin cambiar el costo promedio).' },
+      { t: 'note', text: 'Filtro de traslados: en "📋 Realizados" hay chips para filtrar y saber si RETORNA o no al inventario: Todos · 📦 Sin retornar (aún en destino) · ↩️ Retornados. Así ves rápido cuáles faltan por reingresar.' },
+      { t: 'note', text: 'Igual que la nota de entrega: si cancelas la vista previa NO se descuenta nada. La diferencia es que el traslado registra un ORIGEN y un DESTINO (de qué máquina/empleado sale y a cuál llega).' },
+      { t: 'p', text: 'Gastos — cada material que SALE del almacén es un gasto. En la pestaña "💸 Gastos" ves el TOTAL GASTADO:' },
+      { t: 'steps', items: [
+        'Cuenta todo lo que sale del almacén: salidas y consumos manuales, notas de entrega y traslados. Cada gasto se valoriza al PMP (costo promedio) que tenía el material al momento de salir.',
+        'Elige el período: Hoy, Esta semana, Este mes o Todo. El total se recalcula solo.',
+        'Ves el desglose "Por categoría" (repuestos, herramientas, etc.). Toca una categoría para filtrar solo esos gastos; tócala de nuevo para quitar el filtro.',
+        'Toca "📄 Reporte de gastos (PDF)": genera un PDF con el resumen por categoría y el detalle de cada salida (fecha, producto, cantidad, costo y gasto) con el total gastado.',
+      ] },
+      { t: 'note', text: 'Las entradas (compras) y los ajustes NO cuentan como gasto: el gasto es el material que efectivamente sale del almacén.' },
+      { t: 'p', text: 'Requerimiento (pedir compras al jefe): en la pestaña "📝 Requerimiento" armas una lista de productos que hacen falta — del inventario o NUEVOS — con cantidad y precio estimado (en $ o Bs):' },
+      { t: 'steps', items: [
+        'Toca ➕ Nuevo, escribe el título/nota, elige la EMPRESA para la que se pide (chip "Sin empresa" o una empresa), y agrega productos (📦 Del inventario o ＋ Producto nuevo) con su cantidad y precio estimado. Con el botón $/Bs eliges la moneda del precio.',
+        'Toca "📤 Enviar al jefe": queda guardado como Pendiente.',
+        'El jefe (administrador) lo ✅ Aprueba o ❌ Rechaza.',
+        'Si se compra, el administrador toca "📥 Recibir en inventario", confirma la cantidad y el PRECIO REAL de cada producto, y el sistema crea la ENTRADA (los productos nuevos se crean solos). El requerimiento queda como Recibido.',
+        'Con 🧾 PDF imprimes el requerimiento para pasárselo al jefe.',
+      ] },
+      { t: 'note', text: 'Solo los ADMINISTRADORES aprueban, rechazan y reciben requerimientos. Cualquiera con acceso a Inventario puede crearlos.' },
+      { t: 'note', text: 'Adjuntar un FORMATO (imagen o PDF): se puede AL CREAR el requerimiento —en el formulario "Nuevo requerimiento" hay una tarjeta "📎 Formato (opcional)" con el botón "📎 Adjuntar imagen o PDF" (sirve tanto para "Del inventario" como para "＋ Producto nuevo"); el archivo se sube y se guarda junto al requerimiento al enviarlo. También se puede DESPUÉS: en cada requerimiento ya creado toca "📎 Subir formato". Queda guardado (📎 Formato adjunto). Con "👁️ Ver formato" se abre la vista previa con botón "⬇️ Descargar / Abrir". Al APROBAR un requerimiento que trae formato, la vista previa se abre sola para revisarlo y descargarlo.' },
+      { t: 'note', text: 'Revertir un rechazo (error de dedo): si un requerimiento quedó ❌ Rechazado por equivocación, el administrador toca "↩ Volver a pendiente": vuelve a estado Pendiente (se limpia el rechazo) y se NOTIFICA a los administradores que quedó pendiente otra vez.' },
+      { t: 'note', text: 'Editar / eliminar un requerimiento: en cada requerimiento hay botones "✏️ Editar" (cambia título, nota y productos — no si ya fue recibido en inventario) y "🗑️ Eliminar" (borra TODO el requerimiento, con confirmación). Disponible para quien tenga escritura en Inventario.' },
+      { t: 'p', text: 'Tipo de producto y filtro: al crear/editar un producto puedes ponerle un TIPO (bombona, silla, mecate…). Escríbelo o tócalo de las sugerencias. Arriba de la lista aparece "Filtrar por tipo" con un chip por cada tipo (y su cantidad): toca uno para ver solo esos productos. El tipo también sale en el reporte de productos.' },
+      { t: 'p', text: 'Bombonas — carga (vacía / en uso / llena): en los productos tipo "bombona" aparecen botones para tildar su carga (🔴 vacía, 🟡 en uso, 🟢 llena) directo en la tarjeta (o en el editor). Vuelve a tocar el mismo para quitarlo. Arriba tienes "Filtrar por carga" para ver solo las llenas, en uso o vacías, y el botón "🛢️ Reporte de bombonas por carga" genera un PDF con cuántas hay en cada estado. IMPORTANTE: si una bombona sale en "Sin definir" es porque aún no le has tildado la carga (por eso los contadores 🟢🟡🔴 dan 0). Cada bombona registrada cuenta como 1 aunque su existencia esté en 0; si tiene cantidad mayor, se suma esa cantidad.' },
+      { t: 'p', text: 'Eliminar un producto: entra a ✏️ Editar producto y abajo toca "🗑 Eliminar producto". Pide confirmación y borra el producto y TODO su historial de movimientos (no se puede deshacer).' },
+      { t: 'note', text: 'El SKU de cada material es automático e incremental (INV-0001, INV-0002…).' },
+      { t: 'p', text: 'Reporte de productos y estado — en la pestaña Existencias:' },
+      { t: 'steps', items: [
+        'Cada producto muestra CÓMO SE ENCUENTRA con su color: 🔵 Nuevo, 🟢 Bueno, 🟡 Regular, 🔴 Dañado (o ⚪ Sin estado si no lo has definido). Lo tildas rápido abriendo el producto (chips "¿Cómo se encuentra?") sin entrar al editor, y se sincroniza en vivo con los demás equipos.',
+        'Además muestra su DISPONIBILIDAD automática: Disponible, Bajo mínimo o Agotado (según la cantidad vs el stock mínimo).',
+        'Toca "📄 Reporte de productos (cantidad y estado)": genera un PDF con TODOS los productos, su cantidad, disponibilidad y estado.',
+        'Al editar un producto (✏️ Editar producto) puedes cambiar la CANTIDAD (existencia): el sistema registra la diferencia como un AJUSTE DE INVENTARIO en Movimientos.',
+      ] },
+    ],
+  },
+  {
+    icon: '🔍',
+    title: 'Inspecciones de Maquinaria (control por equipo)',
+    blocks: [
+      { t: 'p', text: 'Módulo para inspeccionar cada equipo: qué herramientas/accesorios tiene y en qué estado, con su REPORTE DE INSPECCIÓN en PDF.' },
+      { t: 'steps', items: [
+        'Entra a "Más → 🔍 Inspecciones de Maquinaria".',
+        'Busca el equipo por PLACA, SERIAL o nombre en el buscador, y tócalo.',
+        'Se abre su detalle (placa, serial, empresa) y el HISTORIAL de inspecciones anteriores (toca una para reimprimir su PDF).',
+        'Toca "📋 REPORTE DE INSPECCIÓN (nueva)" para hacer una inspección nueva.',
+        'Pon la FECHA y HORA, agrega los ÍTEMS (descripción, cantidad, serial/especificación y su ESTADO con color 🟢 Bien / 🟠 Regular / 🔴 Falla), las observaciones y, si quieres, el inspector y el chofer/operador (para las firmas).',
+        'Toca "💾 Guardar y generar REPORTE DE INSPECCIÓN": se guarda en el historial y se abre el PDF (nombre "REPORTE DE INSPECCION - <equipo>").',
+      ] },
+      { t: 'note', text: 'Los equipos que aparecen son los mismos del CATÁLOGO (todas las máquinas), en orden A→Z natural.' },
+      { t: 'note', text: 'Editar / eliminar una inspección: en cada inspección del historial hay botones "📄 PDF" (reimprimir), "✏️ Editar" (reabre el formulario con todos sus datos para corregir y volver a generar el PDF) y "🗑️ Eliminar" (con confirmación). Disponible para quien tenga escritura en el módulo.' },
+      { t: 'note', text: 'Control por equipo: al hacer una NUEVA inspección se PRECARGAN los ítems de la última inspección de ese equipo, así solo ajustas cantidades y estados sin reteclear todo.' },
+      { t: 'note', text: 'Carga masiva por Excel (versión web): arriba, junto al buscador, hay dos botones. "⬇️ Plantilla Excel" descarga una plantilla con los encabezados y una hoja "Máquinas (referencia)" con los códigos/serial válidos. En la plantilla, 1 FILA = 1 ÍTEM del inventario; escribe en cada fila el CÓDIGO o SERIAL de la máquina y su ítem (descripción, cantidad, unidad, serial, estado y nivel: bien/regular/falla). Varias filas con la misma máquina se agrupan en UNA sola inspección; la fecha, hora, inspector, operador y condición general se toman de la primera fila de esa máquina.' },
+      { t: 'note', text: 'Al tocar "⬆️ Carga masiva" y elegir el Excel, el sistema muestra una VISTA PREVIA por máquina con su TIPO y el inventario detectado (nº de ítems y semáforo), marcando ✓ lista o ✕ error (por ejemplo, si el código no existe o la máquina no trae ítems). Solo se cargan las que están ✓ listas; las que tienen error se omiten (corrige la plantilla y vuelve a subirla). Toca "💾 Cargar N inspección(es)" para guardarlas todas de una vez.' },
+    ],
+  },
+  {
+    icon: '📐',
+    title: 'Geodesta (topografía)',
+    blocks: [
+      { t: 'p', text: 'Módulo de topografía: levanta terreno, genera curvas de nivel, calcula volúmenes de corte/relleno, inspecciona en campo con GPS y foto, y exporta a CAD/GIS — todo ligado a las obras/edificios del sistema. Coordenadas de trabajo: UTM SIRGAS-REGVEN 19N (EPSG:2202).' },
+      { t: 'steps', items: [
+        'Entra a "Más → 📐 Geodesta" y toca "＋ Nuevo levantamiento".',
+        'Escribe el NOMBRE, elige la OBRA/EDIFICIO (catálogo de Ubicaciones) y la TOLERANCIA GPS en metros; toca "Crear levantamiento".',
+        'Toca el levantamiento para abrir sus PUNTOS, MAPA, SUPERFICIE, VOLUMEN y SALIDAS.',
+      ] },
+      { t: 'note', text: '📋 Puntos: captura por GPS (rechaza tomas menos precisas que la tolerancia), entrada manual (N/E/Z o lat/lon) o importación de CSV/TXT (P,N,E,Z,desc — autodetecta encabezados). Cada punto tiene capa/código, se puede marcar como punto de control (GCP) o excluir (outlier). Exporta el CSV de vuelta.' },
+      { t: 'note', text: '⛰️ Superficie: genera el modelo del terreno (TIN) y sus CURVAS DE NIVEL al intervalo que elijas (0.5/1/2/5 m). Guarda versiones para comparar en el tiempo; se dibujan sobre el mapa.' },
+      { t: 'note', text: '📦 Volumen: cubicación de corte/relleno comparando dos superficies (avance entre fechas) o una superficie contra una cota de diseño. Da corte, relleno y neto en m³, con mapa de diferencias (🟥 corte, 🟦 relleno) y reporte PDF.' },
+      { t: 'note', text: '🧭 Inspecciones: desde el detalle del levantamiento, inspección de terreno con GPS, checklist configurable, hallazgos, fotos, firma y estado (pendiente/observado/aprobado), con acta PDF y mapa por estado.' },
+      { t: 'note', text: '📤 Salidas: perfil longitudinal entre dos puntos, y exportación a DXF (AutoCAD), KML (Google Earth), GeoJSON (QGIS/ArcGIS → Shapefile/GeoPackage) y LandXML (proyectista y guiado de maquinaria). Reporte técnico PDF consolidado.' },
+      { t: 'note', text: '📵 Campo sin señal: si capturas puntos sin conexión, quedan guardados en el teléfono y se SINCRONIZAN solos al volver la señal (aparece un aviso con botón "Sincronizar"). Las nubes densas se agrupan (clusters) en el mapa.' },
+      { t: 'note', text: 'Herramientas avanzadas: 🌡️ mapa de calor de PENDIENTES y 🧊 visor 3D del terreno (en Superficie); ✂️ SECCIONES transversales (en Salidas); 📐 LÍNEAS DE ROTURA para que el terreno no cruce bordes de talud/vías; 🛰️ ORTOFOTO propia (capa base por URL de tiles) en el mapa; ✏️ dibujar sobre las fotos de inspección; y 🌊 GEOIDE N para que la cota del GPS sea ortométrica (sobre el nivel del mar).' },
+      { t: 'note', text: 'Acceso por permiso: módulo "Geodesta" en Lectura (solo ver), Escritura (crear/capturar) o Full control (eliminar). También existe el rol "Geodesta" para asignarlo directo a un usuario.' },
+    ],
+  },
+  {
+    icon: '🧰',
+    title: 'Mantenimiento de Maquinaria (preventivo · horómetros)',
+    blocks: [
+      { t: 'p', text: 'El taller quedó dividido en DOS secciones, cada una con su propia pantalla en "Más": 🧰 Mantenimiento de Maquinaria es lo PROGRAMADO por horómetro (el servicio que le toca a la máquina), y 🔧 Servicio de Maquinaria es lo que se DAÑÓ (las averías y las reparaciones). Antes todo estaba junto en una sola pantalla; ahora cada cosa se trabaja en su sitio y no se mezclan.' },
+      { t: 'p', text: 'Mantenimiento abre directo en la pestaña ⏱️ Horómetros y tiene TRES pestañas: ⏱️ Horómetros, 🧰 En mantenimiento (N) y ✓ Historial. Aquí NO hay pestaña de averías, ni botón de escanear, ni reporte de gasto — todo eso está en 🔧 Servicio de Maquinaria.' },
+      { t: 'note', text: '⏱️ Horómetros: pestaña dedicada al control de horómetros de TODAS las máquinas. Por cada una muestra el horómetro actual, las horas acumuladas desde el último mantenimiento y lo que FALTA para el próximo (objetivo 250 h) con barra de progreso y nivel (🟡 200 h · 🟠 220 h · 🔴 250 h/vencido). Cada tarjeta trae Máquina, Serial/Placa, Empresa, Encargado, Inspector asignado (☀️ día / 🌙 noche), Ubicación (GPS) y Referencia/Edificio, y arriba un resumen (máquinas, próximas ≥200 h, vencidas ≥250 h). Se ordena de la más cercana al mantenimiento primero y el buscador filtra por TODAS las características (máquina, serial, placa, empresa, encargado, ubicación/referencia, tipo). Está vinculada con la FOTO del horómetro que coloca el inspector/operador y con los datos que ingresa (lectura inicial → final, fecha de la jornada y quién la registró): toca la miniatura para ampliar. También puedes ✓ Confirmar mantenimiento (reinicia el conteo de horas).' },
+      { t: 'note', text: '🔔 Aviso de máquinas que ya les toca: arriba de todo sale un banner con las máquinas que llegaron al horómetro de mantenimiento (🟡 200 h · 🟠 220 h · 🔴 250 h/vencido). Tócalo para desplegarlas y cada una trae el botón "✓ Confirmar mantenimiento y reiniciar horómetro" (pone el contador en cero y arranca el conteo hacia las próximas 250 h). Este banner SOLO sale en Mantenimiento — en Servicio de Maquinaria no aparece.' },
+      { t: 'steps', items: [
+        'Enviar a mantenimiento: toca "🧰 Enviar a mantenimiento", elige la máquina (puedes buscarla por nombre o empresa) y llena la FECHA DE ENTRADA al taller, el MOTIVO (obligatorio, ej. "servicio de 250 h, cambio de aceite y filtros"), los DÍAS ESTIMADOS y qué se le va a cambiar. La máquina queda NO OPERATIVA en todo el sistema mientras esté en el taller.',
+        'Registrar retorno: cuando vuelve, toca "✓ Registrar retorno operativo", pon qué se le cambió y la fecha. La máquina vuelve a OPERATIVA automáticamente. (Funciona igual en las dos secciones.)',
+      ] },
+      { t: 'note', text: '🧰 En mantenimiento (N) y ✓ Historial: muestran SOLO los expedientes PREVENTIVOS, o sea las máquinas que entraron al taller por su servicio programado. Las que se dañaron no salen acá — esas se ven en 🔧 Servicio de Maquinaria.' },
+      { t: 'note', text: 'Ya NO se elige el tipo: antes, al enviar una máquina al taller, había que escoger a mano si era correctivo o preventivo. Ahora lo fija la sección donde estás: lo que envías desde 🧰 Mantenimiento queda PREVENTIVO y lo que envías desde 🔧 Servicio queda CORRECTIVO. Un solo botón, sin selector que equivocar.' },
+      { t: 'note', text: '🔐 Permisos: "Servicio de maquinaria (averías)" es un módulo NUEVO en Usuarios → Permisos por módulo, con su propia fila. Mientras un administrador no le ponga un nivel propio, HEREDA el permiso de "Mantenimiento de maquinaria": quien entraba antes al taller sigue entrando a las dos secciones — nadie perdió ni ganó acceso con la división. Si quieres que alguien vea solo una de las dos, dale el nivel que quieras en la fila de Servicio y quítale (o bájale) el de Mantenimiento.' },
+    ],
+  },
+  {
+    icon: '🔧',
+    title: 'Servicio de Maquinaria (averías · taller · reporte)',
+    blocks: [
+      { t: 'p', text: 'La otra mitad del taller: lo que se DAÑÓ. Aquí caen las averías que reportan por QR (operador, inspector, coordinador de patio o coordinador QR), se envían las máquinas a reparación y se lleva el reporte de gasto. Lo programado por horómetro está en 🧰 Mantenimiento de Maquinaria.' },
+      { t: 'p', text: 'Abre directo en la pestaña ⏳ Averías y tiene CUATRO pestañas: ⏳ Averías (N) (lo reportado, por empresa → máquina), 🔧 En reparación (N), ✓ Historial y 📊 Reporte.' },
+      { t: 'note', text: '🔴 Paradas viejas sin resolver: arriba sale un banner rojo con las máquinas que llevan más de 4 horas marcadas como MÁQUINA PARADA sin que nadie las resuelva. Tócalo para desplegarlas (trae máquina, empresa y el motivo) y cada una tiene el botón "✓ Ya está operativa (resolver)" para cerrarla de una vez. Este banner SOLO sale en Servicio — una parada es una máquina caída, no un mantenimiento programado.' },
+      { t: 'note', text: '🔧 En reparación (N) y ✓ Historial: muestran SOLO los expedientes CORRECTIVOS, o sea las máquinas que entraron al taller porque se dañaron. Los servicios programados se ven en 🧰 Mantenimiento de Maquinaria.' },
+      { t: 'note', text: 'Averías colapsables + buscables: cada empresa se muestra CERRADA (toca su encabezado para abrir/cerrar sus máquinas; el encabezado indica cuántas máquinas y cuántas averías lleva). Arriba puedes buscar por empresa o máquina; al buscar se abren todas para no ocultar resultados.' },
+      { t: 'note', text: '📷 Escanear · reportar avería: botón arriba del módulo. Escanea el QR de la máquina y registra la avería directo (material o ✏️ Otro, cantidad, nota y foto), igual que el operador pero desde la vista del administrador.' },
+      { t: 'note', text: '📊 Reporte (dashboard de averías): cuarta pestaña. Ranking en gráfico de barras de qué equipo genera más averías, con su total de averías y el gasto en $. Agrupa por 🚜 Equipo · 🏢 Empresa · 🏷️ Tipo de maquinaria y filtra por tipo. Arriba salen los totales. En modo Equipo, toca una máquina para ver su detalle: empresa, placa/serial, total de averías, desglose por tipo (cuántos cauchos/filtros/aceites/repuestos/otros) y cada avería con su fecha. Botón 📄 Exportar reporte (PDF).' },
+      { t: 'note', text: '💰 De dónde sale el gasto: el dinero que genera cada equipo se toma del almacén — los materiales que SALIERON del inventario para ese equipo (cantidad × su costo). Por eso al dar una salida en Inventario conviene elegir el 🚜 equipo destino: así el gasto queda bien atribuido en el reporte.' },
+      { t: 'note', text: '🔍 Inspección + avería: el detalle de cada equipo CRUZA con Inspección de Maquinaria: muestra su última inspección (fecha, inspector, condición general) y los puntos observados (🔴/🟠) que detectó, junto a las averías reportadas. En el ranking por equipo aparece un 🔍 N obs. cuando la última inspección tiene puntos observados.' },
+      { t: 'note', text: 'Los 3 casos (con filtro y conteo): 🔧🔍 Avería + inspección (tiene averías y fue inspeccionado), 🔧 Avería sin inspección (tiene averías pero nunca se inspeccionó) e 🔍 Inspección sin avería (fue inspeccionado —a veces con puntos observados— pero aún sin averías). Cada equipo trae su etiqueta de caso y el PDF incluye una columna Caso con los totales.' },
+      { t: 'steps', items: [
+        'Ver el detalle de una avería: TOCA la avería (donde dice el material y la fecha) y se abre una ficha con los DATOS de la máquina (empresa, tipo, placa, serial, último horómetro) y LA FALLA (qué necesita, nota y la FOTO de referencia si la subieron).',
+        'Enviar a reparación: toca "🔧 Enviar a reparación" (o el botón en la tarjeta de la avería). Llena la FECHA DE SALIDA, el MOTIVO de la avería (obligatorio, ej. "falla hidráulica, sin arranque, espera de repuesto"), los DÍAS ESTIMADOS y qué se le va a cambiar. Ya NO se pide el tipo: por estar en Servicio queda registrada como reparación CORRECTIVA. La máquina queda NO OPERATIVA en todo el sistema.',
+        'Registrar retorno: cuando vuelve, toca "✓ Registrar retorno operativo", pon qué se le cambió y la fecha. La máquina vuelve a OPERATIVA automáticamente. (Funciona igual en las dos secciones.)',
+      ] },
+      { t: 'note', text: 'Foto en las averías: al reportar una avería (operador, inspector, coordinador de patio o coordinador) hay un botón "📷 Foto de referencia (opcional)". La foto se ve luego en el detalle de la avería, aquí en Servicio de Maquinaria.' },
+    ],
+  },
+  {
+    icon: '⛽',
+    title: 'Surtir gasoil (por QR)',
+    blocks: [
+      { t: 'p', text: 'Se puede registrar el surtido de gasoil escaneando el QR de la máquina, desde: el Inspector (en su check-in), el Coordinador de Patio y los Coordinadores QR.' },
+      { t: 'steps', items: [
+        'Toca "⛽ Surtir gasoil" y escanea el QR de la máquina (o, en el inspector, ya estando en el check-in de esa máquina).',
+        'Escribe el HORÓMETRO actual y los LITROS surtidos.',
+        'Toca "Registrar surtido".',
+      ] },
+      { t: 'note', text: 'La pantalla te muestra el SURTIDO TOTAL (litros que se le han echado) y el CONSUMIDO estimado (las horas desde el último surtido × el rendimiento L/h de la máquina), para comparar de un vistazo.' },
+    ],
+  },
+  {
+    icon: '🚧',
+    title: 'Coordinador de Patio',
+    blocks: [
+      { t: 'p', text: 'Rol para controlar la JORNADA y la entrada/salida de los camiones al patio, y reportar averías, todo por QR.' },
+      { t: 'steps', items: [
+        '🕒 Jornada de camión: escanea el QR del camión para INICIAR su jornada; al escanearlo DE NUEVO la FINALIZA (pide confirmar mostrando el total de horas). Las horas van a Control de maquinaria y la jornada aparece en Inspecciones.',
+        '📷 Entrada / Salida: escanea el QR del camión y elige ENTRADA o SALIDA. Queda registrado con la hora.',
+        '⛽ Surtir gasoil: escanea y registra horómetro + litros (igual que arriba).',
+        '🛠️ Avería de maquinaria: escanea y reporta la falla (va a Servicio de Maquinaria).',
+        '🚚 Entrada y salida de camiones: abre un CALENDARIO; cada día muestra cuántos camiones entraron (↓) y salieron (↑). Toca un día para ver el detalle. (El administrador también lo ve dentro de Inspecciones.)',
+      ] },
+      { t: 'note', text: 'Debajo del botón de jornada se ve la lista de 🟢 Camiones en jornada (asistencia) con el tiempo transcurrido de cada uno y un botón 🏁 Finalizar.' },
+    ],
+  },
+  {
+    icon: '🔄',
+    title: 'Traslados, Autorizaciones, Mapa',
+    blocks: [
+      { t: 'bullets', items: [
+        'Traslados: mover combustible de un tanque a otro (se descuenta de uno y se suma al otro).',
+        'Autorizaciones: cuando algo necesita permiso, se pide aquí y la persona autorizada lo aprueba o rechaza.',
+        'Mapa: muestra dónde está cada máquina según su última ubicación GPS. Con el panel "🗺️ Sectores (zonas)" puedes ver u ocultar las zonas de La Guaira (Sector Oeste y Este), cada una con su color y sus límites.',
+        'Mapa · Tu ubicación y máquinas cercanas: el mapa muestra tu ubicación (punto azul, si le das permiso de GPS al navegador). El botón 📍 dentro del mapa te centra en ella y lista las máquinas más cercanas (≤20 km) con su distancia. Además, al TOCAR cualquier punto del mapa aparece un globo con las máquinas cercanas a ese punto.',
+        'Mapa · Rutas (🧭 Mostrar / Ocultar): las rutas (recorrido de cada máquina) vienen OCULTAS por defecto. Con el botón "🧭 Mostrar rutas" arriba del mapa las prendes y las apagas cuando quieras.',
+        'Mapa · Capas: con el panel "🗂️ Capas" prendes y apagas los puntos por TIPO de equipo (igual que el Conteo: payloaders, jumbos, tractores, cisternas…). Cada tipo muestra cuántas están UBICADAS del total (ej. 📍 22/25 · faltan 3), y arriba el total ubicadas/total del sistema, para saber cuántas quedan por ubicar. Usa "Mostrar todas" / "Ocultar todas" o toca un tipo para ver sus máquinas y elegir una por una.',
+        'Mapa · Ver detalle por tipo: al tocar un tipo se despliega la lista. Las UBICADAS salen con su 🔖 placa/serial y su empresa. Debajo, en ROJO, aparece "⛔ Faltan por ubicar" con las que aún no tienen ubicación, también con su placa/serial y empresa, para saber exactamente cuáles buscar.',
+        'Mapa · Click para ver o ubicar: toca una máquina UBICADA (su nombre / 🗺️ Ver en el mapa) y el mapa se enfoca SOLO en ella; usa "← Ver todas las ubicaciones" para volver. La casilla ✅/⬜ a la izquierda sigue sirviendo para mostrar/ocultar su pin. En "⛔ Faltan por ubicar", tócala y (si eres administrador) el mapa entra en modo ubicar — toca el punto donde está y queda ubicada al instante. Si no eres admin, avisa que solo un administrador puede ubicarlas.',
+        'Mapa · Camionetas pick-up: no llevan pin fijo porque están en constante movimiento (abarcan TODAS las zonas). En el tipo "🚙 CAMIONETA PICK-UP" se listan como ASIGNADAS, cada una con su ENCARGADO (el del catálogo), placa/serial y empresa. No cuentan como "faltan por ubicar". En el Conteo de equipos también aparecen contadas y con su encargado.',
+        'Mapa · Ubicar manualmente (solo administradores): en el panel "📍 Ubicar manualmente (admin)" elige una máquina (las que faltan por ubicar salen primero; cada una muestra su placa/serial y su empresa para no confundirlas) y toca el mapa en el punto donde está; queda ubicada al instante. Al elegirla, el panel muestra la placa/serial y la empresa de la máquina seleccionada. Solo los administradores pueden reubicar máquinas y eliminar ubicaciones del mapa.',
+        'Mapa · Reporte "📄 Máquinas por sector (Este / Oeste)": agrupa las máquinas UBICADAS por su SECTOR geográfico (macro 🟢 Este / 🟠 Oeste y su sub-sector, según el GPS de la máquina), con su placa/serial, el EDIFICIO/REFERENCIA que puso el inspector al ubicarla, el inspector asignado y la empresa. Las que NO están en el mapa salen aparte como "⛔ SIN UBICACIÓN (faltan por ubicar)" con su placa/serial.',
+        'Mapa · Buscador: la lupa de búsqueda del mapa está LIMITADA a La Guaira (solo encuentra calles, sectores y lugares de la franja costera de La Guaira; lo de otros estados no aparece).',
+        'Mapa · Mover sectores (solo administradores): en el panel "🗺️ Sectores (zonas)" prende los sectores que quieras mover; luego, en "🗺️ Mover sectores (admin)" toca Activar. Cada sector muestra un marcador ✋ con su nombre en el centro: arrástralo hasta su lugar y se guarda solo (para todos). Funciona igual en pantalla completa.',
+        'Mapa · Zonas: el nombre de cada zona aparece al PASAR EL CURSOR por encima (en computadora) o al TOCAR la zona (en el teléfono); ya no salen todos los nombres a la vez.',
+        'Mapa · Monitoreo (solo administradores): el panel "🕵️ Monitoreo · quién ubica" (colapsable, igual que Sectores) muestra QUIÉN colocó cada ubicación, con su fecha y hora. Toca una fila para ver esa máquina en el mapa. Sirve para vigilar quién está haciendo las ubicaciones.',
+      ] },
+    ],
+  },
+  {
+    icon: '📄',
+    title: 'Reportes',
+    blocks: [
+      { t: 'p', text: 'Genera documentos PDF para imprimir o compartir, eligiendo el rango de fechas y la empresa. Al generarlos se abre una vista previa con los botones 🖨️ Imprimir y Cancelar.' },
+      { t: 'bullets', items: [
+        '👷 Inspectores: agrupado por inspector, sus máquinas asignadas con estado, horas de día/noche/total y las ubicaciones donde cambiaron de sitio.',
+        '📊 Conteo equipos: total de equipos por clasificación/tipo y por empresa, con el reporte "📍 Despliegue de maquinaria" (antes "Ubicaciones tácticas") y el detalle por zona Este/Oeste. Incluye "📍 Despliegue por sector y edificio": agrupa por sector/localidad (Este/Oeste, ej. Caraballeda) con su ref/edificio y cuántos equipos de cada tipo hay en cada sitio (ej. "3 JUMBO"). Las máquinas sin GPS (que no salen en el mapa) van a un grupo "SIN UBICACIÓN" listando su placa/serial. Refleja la ubicación real al momento de generarlo.',
+        '🚚 Maquinaria/Vehículo: YA NO muestra montos en $. Tiene 3 bloques — Totales Generales (equipos, trabajando, parados, averiados, horas), Totales por Empresa (mismo desglose por empresa) y Trazabilidad de Maquinaria (una fila por equipo, con botón "Ver detalle").',
+      ] },
+      { t: 'note', text: '🧭 Trazabilidad e Historial por Equipo: se abre desde "Ver detalle" en la Trazabilidad de Maquinaria (o eligiendo la máquina a mano). Elige la máquina y un rango de fechas y toca "🔎 Consultar historial": muestra un resumen (días trabajados, horas totales, averías, paradas, tiempo inactivo), la lista de paradas/averías (inicio, fin o "vigente", y su duración) y los días trabajados con sus horas. "📄 Exportar PDF" descarga ese historial. Nota: por ahora esta trazabilidad solo existe para MAQUINARIA — en las filas de VEHÍCULOS del mismo reporte no aparece el botón "Ver detalle".' },
+      { t: 'note', text: '🗺️ Zona real por GPS — igual al Mapa (botón en 📊 Conteo de equipos): a diferencia del conteo normal por zona (que reparte 50/50 las máquinas sin GPS para que el total cuadre), este botón genera un PDF que solo cuenta Este/Oeste con la ubicación GPS real de cada máquina (el mismo cálculo que usa la pantalla del Mapa), y lista aparte las máquinas sin GPS en vez de adivinar de qué lado están.' },
+    ],
+  },
+  {
+    icon: '👤',
+    title: 'Usuarios y roles (solo administrador)',
+    blocks: [
+      { t: 'p', text: 'Para crear a las personas que usan el sistema y decidir qué puede ver/hacer cada una.' },
+      { t: 'bullets', items: [
+        'Cada usuario tiene UN rol (Administrador, Supervisor, Operador, Conductor, o uno de los roles personalizados creados en 🏷️ Roles del sistema).',
+        'Si te equivocas 3 veces la contraseña, el usuario se BLOQUEA — solo un administrador lo desbloquea desde aquí.',
+        'Permisos por módulo: además del rol, a un usuario le puedes dar acceso EXTRA a un módulo puntual (Lectura / Escritura / Full control) desde su ficha, sin cambiarle el rol.',
+      ] },
+      { t: 'note', text: 'CATÁLOGO DE ROLES (Usuarios → 🏷️ Roles del sistema): el administrador crea, EDITA (✏️) y borra roles FIJOS. Al crear/editar eliges el TIPO: "📋 Módulos" (un rol fijo que navega por la app normal —pestañas + Más— mostrando SOLO los módulos que le marques) o "📷 Coordinador QR" (panel con escáner). No se puede borrar un rol si tiene usuarios vinculados (te avisa).' },
+      { t: 'note', text: 'Roles "📋 Módulos": el usuario ve las pestañas de abajo Inicio y Más SIEMPRE; las pestañas Control, Mapa y Catálogo aparecen solo si su rol tiene ese módulo. En "Más" salen únicamente los módulos permitidos. Así, con solo darle permiso a un módulo (ej. Inspecciones de Maquinaria) ya le aparece —sin configurar nada más.' },
+      { t: 'note', text: 'ROL UNIFICADO: cada usuario tiene UN solo rol. En su tarjeta se ve "Rol asignado: X". Al CREAR el usuario eliges el rol en una lista desplegable con TODOS los roles (los del sistema + los personalizados). Al EDITAR, toca "Rol asignado → Cambiar ▾" para cambiarlo. No puedes cambiar tu propio rol.' },
+      { t: 'note', text: 'PERMISOS EXTRA POR USUARIO: aunque el usuario tenga un rol, en Editar usuario → "Permisos por módulo" puedes darle acceso ADICIONAL a módulos que su rol no incluye (Lectura / Escritura / Full control, o el atajo "✅ Full a todo"). El sistema toma el MAYOR entre lo que da su rol y lo que le marcas aquí, así ese permiso extra SÍ se aplica y el módulo le aparece. (Antes se ignoraba: podías darle full control y no le salía.)' },
+      { t: 'note', text: '🧰🔧 Fila nueva "Servicio de maquinaria (averías)": al dividirse el taller en dos secciones, en Permisos por módulo aparece esta fila aparte de "Mantenimiento de maquinaria". Mientras no le pongas un nivel propio, HEREDA el que tenga el usuario en Mantenimiento, así que nadie perdió ni ganó acceso con la división. Pon un nivel distinto solo si quieres que alguien vea una sección y la otra no.' },
+      { t: 'note', text: 'Roles tipo COORDINADOR QR (ej. preventivo, correctivo, almacén): al entrar ven un panel con botones grandes para escanear el QR de la máquina y: ⛽ Surtir gasoil, 🛠️ Registrar avería, ✅ Marcar máquina lista (esto cierra las averías pendientes de esa máquina y la vuelve Operativa). El panel también trae Cambiar contraseña, Huella y Salir.' },
+    ],
+  },
+  {
+    icon: '📜',
+    title: 'Auditoría (bitácora — quién hace qué)',
+    blocks: [
+      { t: 'p', text: 'Registra quién hizo cada acción importante en el sistema (asignar una máquina, cerrar un control, editar un pago, reactivar/inactivar un equipo…), con fecha, hora y quién fue.' },
+      { t: 'note', text: 'Sirve para resolver dudas tipo "¿quién cambió esto?" sin tener que preguntarle a cada persona — el registro no se puede borrar ni editar.' },
+      { t: 'note', text: 'Historial COMPLETO de una máquina, inspector o usuario: escribe en el buscador el código de la máquina, el nombre de la persona o lo que necesites, y activa "🕘 Buscar en TODO el historial (ignora el rango de fechas)" debajo. Trae todo lo que le haya pasado desde siempre, sin tener que adivinar la fecha.' },
+      { t: 'note', text: 'Buscar por cualquier característica: placa, serial, cédula, encargado, modelo o clasificación — no hace falta que el nombre exacto esté escrito en la bitácora.' },
+      { t: 'note', text: 'Más contexto en "a qué se le hizo": ahora también reconoce por nombre (no solo por ID) los pagos de empresa, los ingresos de combustible (proveedor), los traslados por vehículo/placa y los movimientos de tanque. Las fechas dentro del detalle de "qué cambió" (antes → después) se muestran legibles y con hora, no en formato crudo. El cierre de sesión (🚪 cerró sesión) también queda registrado ahora — antes no.' },
+      { t: 'note', text: '🔽 Filtros avanzados: junto al buscador hay un botón "🔽 Filtros" con 3 pestañas. FILTRAR: accesos rápidos (Hoy, Esta semana, Solo eliminaciones, Solo cambios de dinero) más selección múltiple de MÓDULO (Combustible, Maquinaria y flota, Inspecciones y jornadas, Nómina y personal, Empresas y facturación, Inventario y compras, Alimentación, Usuarios y permisos) y tipo de acción. AGRUPAR POR: Módulo / Usuario / Día, con encabezados plegables. FAVORITOS: guarda la combinación actual de filtros con un nombre para reaplicarla luego con un toque (queda guardada en este dispositivo, no se comparte entre usuarios). El PDF de auditoría ahora también indica qué filtros estaban activos cuando se generó.' },
+      { t: 'note', text: 'PDF con toda la información: trae un resumen (creaciones/modificaciones/eliminaciones/eventos) y, en cada acción, el detalle completo — si fue una modificación, cada campo que cambió (antes → después).' },
+    ],
+  },
+  {
+    icon: '🏢',
+    title: 'Empresas',
+    blocks: [
+      { t: 'p', text: 'Lista de las empresas/contratistas que usan el sistema (dueñas de máquinas, personal, etc.).' },
+      { t: 'bullets', items: [
+        '🚫 Ocultar: desactiva la empresa en TODO el sistema (no sale en ningún selector, lista ni reporte).',
+        '🍽️ Solo comidas: la empresa aparece ÚNICAMENTE en Distribución de comida y en ningún otro lado.',
+      ] },
+    ],
+  },
+  {
+    icon: '🏭',
+    title: 'Fabricación (MRP)',
+    blocks: [
+      { t: 'p', text: 'Módulo aparte para el taller de mangueras hidráulicas y manufactura: maestros de producción, centros de trabajo, recetas (BoM), rutas, Órdenes de Fabricación (MO) y de Trabajo (WO), el kiosco de planta y sus propios reportes.' },
+      { t: 'note', text: 'Es un módulo grande e independiente del resto del sistema — descarga su guía propia en "Más → Manual → Guías descargables → 🏭 Fabricación (MRP)" para el paso a paso completo.' },
+    ],
+  },
+  {
+    icon: '🚛',
+    title: 'Acarreo / Transporte',
+    blocks: [
+      { t: 'p', text: 'Módulo para trasladar maquinaria en chutos y bateas/lowboys: desde el registro de la flota y los choferes hasta la orden de acarreo, la ejecución del viaje (check-in/out con fotos y firma) y el control de costos. Se entra por Más → Acarreo / Transporte.' },
+      { t: 'p', text: 'Datos maestros (lo primero que se carga):' },
+      { t: 'bullets', items: [
+        '🚛 Chutos: los camiones de arrastre — placa, capacidad de arrastre, kilometraje y estado. Avisa cuántos km faltan para el mantenimiento.',
+        '🛻 Bateas / lowboys: los remolques — tipo, ejes, capacidad de carga (toneladas) y dimensiones útiles.',
+        '👷 Choferes: nombre, teléfono, licencia con su vigencia y disponibilidad (disponible, en ruta, de reposo, suspendido). Avisa si la licencia está vencida.',
+        '🚜 Equipos a trasladar: se toma la máquina del Catálogo y se le carga su peso y dimensiones (sirven para validar que no supere la carga del remolque).',
+        '🏢 Clientes y proyectos: emisor y receptor. Los EXTERNOS (a los que se factura) usan tarifario; los internos solo controlan costos.',
+        '📍 Ubicaciones: obras, almacenes, talleres, minas y pozos de origen/destino.',
+        '📄 Documentos y vencimientos: permisos de carga pesada, pólizas, revisiones técnicas y licencias — con su fecha de vencimiento (dispara alertas).',
+      ] },
+      { t: 'p', text: '📋 Órdenes de acarreo: cada viaje. Eliges origen y destino, el chuto + remolque + chofer y los equipos a trasladar. Al guardar, el sistema VALIDA solo:' },
+      { t: 'bullets', items: [
+        'Peso: si la suma del peso de los equipos supera la capacidad del remolque (o el arrastre del chuto), avisa (muestra el total vs. la capacidad en vivo).',
+        'Vencimientos: si la licencia del chofer o algún documento del chuto/remolque están vencidos.',
+        'Solapamiento: si el chofer, el chuto o el remolque ya tienen otro viaje en esa misma ventana de fechas.',
+      ] },
+      { t: 'note', text: 'Las alertas son bloqueo SUAVE: avisan y, si de verdad hace falta, un administrador puede "forzar" el guardado. Los avisos amarillos (vencimientos/solapamiento) no bloquean.' },
+      { t: 'p', text: 'Estados del viaje: Programado → En carga → En tránsito → En descarga → Completado (o Cancelado con motivo). Desde el detalle de la orden se avanza el estado y todo queda en la bitácora.' },
+      { t: 'p', text: '🚚 Ejecución del viaje (desde el detalle de la orden, según el estado):' },
+      { t: 'bullets', items: [
+        '📦 En carga → Check-in de salida: nivel de combustible, cauchos y fajas de amarre OK, observaciones y fotos "antes"/"amarre". Al guardar, pasa a EN TRÁNSITO.',
+        '🚚 En tránsito: registrar incidencias en ruta (mecánica, clima, permiso, alcabala). Botón "Llegó" → EN DESCARGA.',
+        '📥 En descarga → Check-out de recepción: estado a la llegada, fotos "después" y FIRMA (nombre de quien recibe + foto). Al confirmar, la orden queda COMPLETADA.',
+      ] },
+      { t: 'p', text: '💵 Costos del viaje (en el detalle de la orden): registra gastos de combustible (con litros → rendimiento km/L), viáticos de comida/hospedaje (con foto del comprobante), peajes y otros. Muestra el total, los viáticos otorgados vs. comprobados y el rendimiento. 🧾 Tarifario (Acarreo → Financiero): precios por km, tonelada, hora o tarifa plana (general o por cliente/ruta); para los clientes EXTERNOS, la orden calcula sola la valorización sugerida y la puedes guardar.' },
+      { t: 'p', text: '📄 Documentos PDF (en el detalle de la orden): Guía de traslado (para el chofer), Acta de recepción (con fotos y firma) y Liquidación del viaje (resumen financiero). Desde la lista de órdenes, el botón "📄 Consolidado" descarga el resumen de los acarreos según el filtro elegido. 📊 Panel (Acarreo → Operación): KPIs (acarreos, tiempo promedio de tránsito, % a tiempo, costo por km) y ALERTAS de documentos/licencias vencidos o por vencer, mantenimiento de unidades por km y viajes retrasados en ruta.' },
+      { t: 'note', text: 'El acceso es por usuario: un administrador lo habilita en Usuarios (módulo "Acarreo / Transporte"). Todo se busca por sus características y las listas salen en orden natural A→Z.' },
+    ],
+  },
+  {
+    icon: '⚙️',
+    title: 'Ajustes',
+    blocks: [
+      { t: 'p', text: 'Se llega desde Más → Ajustes. La apariencia (modo oscuro/claro) y la seguridad (contraseña, huella/Face ID) viven en la tuerca ⚙️ del encabezado, no aquí.' },
+      { t: 'p', text: 'En la tuerca ⚙️, arriba a la derecha, se muestra CON QUÉ CUENTA estás dentro: tu nombre y, debajo, tu 👤 usuario de inicio de sesión. Sirve para saber de un vistazo con quién quedó abierta la sesión, sobre todo en las computadoras o teléfonos que usan varias personas.' },
+      { t: 'bullets', items: [
+        'Cerrar sesión.',
+        '⬇️ Descargar backup (solo administradores puntuales, en computadora): descarga un archivo con TODOS los datos del sistema, por si hace falta un respaldo manual. Acceso restringido a las cuentas designadas.',
+      ] },
+    ],
+  },
+  {
+    icon: '🔔',
+    title: 'Notificaciones (la campana)',
+    blocks: [
+      { t: 'p', text: 'Arriba a la derecha, junto a la fecha y hora, aparece una campana 🔔 (solo para el administrador). Avisa de lo que va pasando en el sistema sin tener que estar revisando cada módulo.' },
+      { t: 'bullets', items: [
+        '📝 Inventario: cuando alguien monta un requerimiento, te llega el aviso.',
+        '🛒 Compras: cuando se crea una solicitud de compra.',
+        '🛠️ Control: cuando se guarda un cierre de control (con el rango de fechas y cuántas máquinas).',
+        'El número rojo sobre la campana es la cantidad SIN leer. Toca la campana para ver la lista.',
+        'Toca un aviso para marcarlo leído e ir directo al módulo. También hay "Marcar todo leído".',
+        'Cada quien tiene sus propios "leídos": que un admin lo lea no lo marca leído para otro.',
+        'Se actualiza sola en línea: no hace falta refrescar.',
+      ] },
+    ],
+  },
+  {
+    icon: '🧩',
+    title: 'Cosas que sirven en TODAS las secciones',
+    blocks: [
+      { t: 'bullets', items: [
+        '🔎 Buscar: escribe parte del nombre, serial o empresa.',
+        '🏢 Filtrar por empresa: toca el selector para ver solo esa.',
+        '📅 Rango de fechas: en los reportes, elige "desde" y "hasta".',
+        'Guardar: el botón verde o azul confirma. El rojo detiene o cancela.',
+        'Volver: la flecha ← de arriba.',
+        '🔢 Números: los campos de cédula, dinero, horas, litros y kilómetros solo aceptan números (no dejan escribir letras).',
+        '🖨️ Imprimir: los reportes se abren en una ventana con vista previa y los botones Imprimir y Cancelar.',
+        '🚛 Camiones E/S: incluye TODO lo de transporte (camión, chuto, volteo, toronto, volqueta y cisternas de agua o combustible). Se actualiza en línea: si agregas o cambias una máquina, la lista se refresca sola.',
+        '🔄 Actualizaciones: cuando se publica una versión nueva del sistema, aparece abajo una barra azul que dice "Sistema en proceso de actualización". Toca el botón ACTUALIZAR y la página se refresca con la versión nueva. Ya no hace falta refrescar a mano.',
+      ] },
+    ],
+  },
+  {
+    icon: '❓',
+    title: 'Preguntas frecuentes',
+    blocks: [
+      { t: 'bullets', items: [
+        'No veo una sección → tu usuario no tiene permiso; pídeselo al administrador.',
+        'Me equivoqué en las horas → vuelve a tocar la opción correcta; se corrige solo.',
+        '¿El nivel del tanque se escribe a mano? → No, se calcula solo.',
+        'Cerré el control sin querer → queda guardado en el Histórico; sigue con la semana siguiente.',
+        'Se ve distinto en teléfono y computadora → es normal; funciona igual en ambos.',
+      ] },
+    ],
+  },
+];
+
+// ── Render de un bloque ───────────────────────────────────────────────────────
+function BlockView({ b }: { b: Block }) {
+  const { colors } = useTheme();
+  if (b.t === 'p') return <Text style={{ color: colors.text, fontSize: 14, lineHeight: 21, marginBottom: spacing.sm }}>{b.text}</Text>;
+  if (b.t === 'note')
+    return (
+      <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.sm, padding: spacing.sm, marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.text, fontSize: 13, lineHeight: 20 }}>💡 {b.text}</Text>
+      </View>
+    );
+  if (b.t === 'steps')
+    return (
+      <View style={{ marginBottom: spacing.sm, gap: 6 }}>
+        {b.items.map((s, i) => (
+          <View key={i} style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{i + 1}</Text>
+            </View>
+            <Text style={{ color: colors.text, fontSize: 14, lineHeight: 21, flex: 1 }}>{s}</Text>
+          </View>
+        ))}
+      </View>
+    );
+  // bullets
+  return (
+    <View style={{ marginBottom: spacing.sm, gap: 5 }}>
+      {b.items.map((s, i) => (
+        <View key={i} style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+          <Text style={{ color: colors.primary, fontSize: 15, marginTop: 1 }}>•</Text>
+          <Text style={{ color: colors.text, fontSize: 14, lineHeight: 21, flex: 1 }}>{s}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+export default function ManualScreen() {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState<Record<number, boolean>>({ 0: true });
+  const [query, setQuery] = useState('');
+  const [guideBusy, setGuideBusy] = useState<string | null>(null);
+  const [guidesOpen, setGuidesOpen] = useState(false);
+
+  const downloadGuide = async (g: (typeof ROLE_GUIDES)[number]) => {
+    if (guideBusy) return;
+    setGuideBusy(g.key);
+    try { await g.run(); } finally { setGuideBusy(null); }
+  };
+
+  const q = norm(query.trim());
+  // Filtra por texto de título o de cualquier bloque (para encontrar rápido un tema).
+  const shown = useMemo(() => {
+    if (!q) return SECTIONS.map((s, i) => ({ s, i }));
+    return SECTIONS.map((s, i) => ({ s, i })).filter(({ s }) => {
+      if (norm(s.title).includes(q)) return true;
+      return s.blocks.some((b) =>
+        b.t === 'p' || b.t === 'note' ? norm(b.text).includes(q) : b.items.some((x) => norm(x).includes(q))
+      );
+    });
+  }, [q]);
+
+  return (
+    <Screen>
+      <SectionTitle>Manual / Ayuda</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
+        Guía paso a paso. Toca un tema para abrirlo. Si algo no aparece en tu pantalla, es porque tu usuario no tiene permiso para esa parte.
+      </Text>
+
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="🔎 Buscar un tema…"
+        placeholderTextColor={colors.muted}
+        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
+      />
+
+      {/* Guías rápidas descargables (PDF): una por rol, con mockups de pantalla,
+          para imprimir/enviar a quien trabaja desde el teléfono. */}
+      <Card>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setGuidesOpen((v) => !v)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
+        >
+          <Text style={{ fontSize: 20 }}>📄</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>Guías descargables</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Un PDF corto por rol, con los pasos exactos de la aplicación</Text>
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 16 }}>{guidesOpen ? '▾' : '▸'}</Text>
+        </TouchableOpacity>
+        {guidesOpen ? (
+          <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.xs }}>
+            {ROLE_GUIDES.map((g) => {
+              const busy = guideBusy === g.key;
+              return (
+                <TouchableOpacity
+                  key={g.key}
+                  onPress={() => downloadGuide(g)}
+                  disabled={busy}
+                  activeOpacity={0.7}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, opacity: busy ? 0.6 : 1 }}
+                >
+                  <Text style={{ fontSize: 20 }}>{g.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13.5 }}>{g.label}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>{g.desc}</Text>
+                  </View>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{busy ? 'Generando…' : '📄 Descargar'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : null}
+      </Card>
+
+      {shown.length === 0 ? (
+        <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginTop: spacing.lg }}>
+          No se encontró ese tema. Prueba con otra palabra.
+        </Text>
+      ) : (
+        shown.map(({ s, i }) => {
+          const isOpen = q ? true : !!open[i];
+          return (
+            <Card key={i}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setOpen((p) => ({ ...p, [i]: !p[i] }))}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
+              >
+                <Text style={{ fontSize: 22 }}>{s.icon}</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{s.title}</Text>
+                <Text style={{ color: colors.muted, fontSize: 16 }}>{isOpen ? '▾' : '▸'}</Text>
+              </TouchableOpacity>
+              {isOpen ? (
+                <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  {s.blocks.map((b, j) => (
+                    <BlockView key={j} b={b} />
+                  ))}
+                </View>
+              ) : null}
+            </Card>
+          );
+        })
+      )}
+      <View style={{ height: spacing.lg }} />
+    </Screen>
+  );
+}

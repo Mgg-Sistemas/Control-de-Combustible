@@ -1,0 +1,323 @@
+import React, { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, Image } from 'react-native';
+import { Screen, Card, Loading, SkeletonList } from '../components/ui';
+import { supabase } from '../lib/supabase';
+import { Employee } from '../types/database';
+import { qrSvg, employeeQrUrl } from '../lib/qr';
+import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } from '../lib/carnet';
+import { fichaEmpleadoHtml } from '../lib/ficha';
+import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
+import { logAudit } from '../lib/audit';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
+import { useTheme } from '../theme/ThemeContext';
+import { spacing, radius } from '../theme';
+import QrInactive from '../components/QrInactive';
+
+const LOGO = require('../../assets/logo.png');
+const FICHA_BG = require('../../assets/ficha-bg.jpg');
+
+// Paleta fija de la ficha (estilo documento/carnet): fondo azulito como el logo,
+// tarjetas blancas y texto oscuro, sin importar el tema claro/oscuro de la app.
+const FICHA = {
+  bg: '#EAF1FB',
+  card: '#FFFFFF',
+  brand: '#1E3A5F',
+  text: '#1F2937',
+  muted: '#6B7280',
+  border: '#D7E3F4',
+};
+
+const STATUS: Record<string, { label: string; color: string }> = {
+  activo: { label: '● Activo', color: '#16A34A' },
+  inactivo: { label: '● Inactivo', color: '#DC2626' },
+  suspendido: { label: '● Suspendido', color: '#F59E0B' },
+};
+
+/**
+ * Ficha del trabajador. Se abre al escanear su QR (deep-link ?empleado=<id>) o
+ * desde el módulo Empleados. Muestra TODOS los datos + botón para imprimir el carnet.
+ */
+export default function EmployeeCardScreen(props: { employeeId?: string; onExit?: () => void; onCocinaLogin?: () => void; scanned?: boolean; route?: any; navigation?: any }) {
+  const { colors } = useTheme();
+  const employeeId: string = props.employeeId ?? props.route?.params?.employeeId ?? '';
+  const onCocinaLogin = props.onCocinaLogin;
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [emp, setEmp] = useState<(Employee & { companyName?: string }) | null>(null);
+  // Horas trabajadas como operador (de operator_assignments, por cédula), agrupadas por máquina.
+  const [maquinas, setMaquinas] = useState<{ code: string; hours: number; jornadas: number }[]>([]);
+  const [totalHoras, setTotalHoras] = useState(0);
+  // Historial de dotación/entregas (uniform_deliveries + inventory_movements de salida), más reciente primero.
+  const [historial, setHistorial] = useState<{ id: string; date: string; tipo: string; detalle: string }[]>([]);
+
+  // isRefresh=true (pull-to-refresh) no vuelve a registrar el escaneo en la
+  // bitácora: ese registro es solo para la apertura inicial por QR.
+  const load = async (isRefresh = false) => {
+    // Si se abrió por QR sin sesión, iniciar una anónima para poder leer la ficha.
+    const { data: s } = await supabase.auth.getSession();
+    if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
+    const anon = !s.session || !!(s.session as any)?.user?.is_anonymous;
+    // Sesión anónima (QR público del carnet): solo datos públicos, vía RPC —
+    // NUNCA sueldo/banco. Sesión real (módulo Empleados): fila completa.
+    const { data } = anon
+      ? await supabase.rpc('employee_public_lookup', { p_id: employeeId }).then((r) => ({ data: (r.data as any)?.[0] ?? null }))
+      : await supabase.from('employees').select('*, company:company_id(name)').eq('id', employeeId).maybeSingle();
+    const companyName = anon ? (data as any)?.company_name : (data as any)?.company?.name;
+    const e = data ? ({ ...(data as any), companyName: companyName ?? 'Sin empresa' }) : null;
+    setEmp(e);
+
+    // Bitácora: registrar el ESCANEO del carnet (solo cuando se abrió por QR, no
+    // desde el módulo Empleados, ni en un refresh). Así en Auditoría se ve cuándo y a quién se escaneó.
+    if (!isRefresh && props.scanned && e) {
+      const nombre = fullName(e) || [e.first_name, e.last_name].filter(Boolean).join(' ') || String(e.cedula ?? '');
+      logAudit('SCAN', 'employees', e.id, `Carnet · ${nombre}${e.cedula ? ` · C.I ${e.cedula}` : ''}`);
+    }
+
+    // Horas trabajadas: buscar jornadas por la cédula del empleado y agrupar por máquina.
+    if (e?.cedula) {
+      const { data: asg } = await supabase
+        .from('operator_assignments')
+        .select('worked_hours, machinery:machinery_id(code)')
+        .eq('cedula', String(e.cedula).trim());
+      const acc = new Map<string, { code: string; hours: number; jornadas: number }>();
+      let total = 0;
+      (asg ?? []).forEach((r: any) => {
+        const code = r.machinery?.code ?? '—';
+        const h = Number(r.worked_hours) || 0;
+        total += h;
+        const g = acc.get(code) ?? { code, hours: 0, jornadas: 0 };
+        g.hours += h; g.jornadas += 1;
+        acc.set(code, g);
+      });
+      setMaquinas([...acc.values()].sort((a, b) => b.hours - a.hours));
+      setTotalHoras(Math.round(total * 100) / 100);
+    }
+
+    // Historial de dotación y entregas: combina uniform_deliveries (franelas/pantalones/calzado)
+    // con inventory_movements de salida (herramientas/equipos/otros artículos) de este empleado.
+    if (e?.id) {
+      const items: { id: string; date: string; tipo: string; detalle: string }[] = [];
+
+      const { data: dotacion } = await supabase
+        .from('uniform_deliveries')
+        .select('id, camisas, pantalones, zapatos, delivered_at, work_date, note, created_at')
+        .eq('employee_id', e.id);
+      (dotacion ?? []).forEach((row: any) => {
+        const detalle = [
+          row.camisas ? `${row.camisas} franela(s)` : null,
+          row.pantalones ? `${row.pantalones} pantalón(es)` : null,
+          row.zapatos ? `${row.zapatos} par(es) de calzado` : null,
+        ].filter(Boolean).join(' · ') || (row.note ?? '—');
+        items.push({
+          id: `u-${row.id}`,
+          date: row.delivered_at || row.work_date || row.created_at,
+          tipo: '🦺 Dotación básica',
+          detalle,
+        });
+      });
+
+      // employee_ids es una columna uuid[] agregada por una migración reciente; si aún no
+      // corrió en producción, la consulta falla por columna inexistente y simplemente se ignora.
+      try {
+        const { data: movs, error: movErr } = await supabase
+          .from('inventory_movements')
+          .select('id, item_id, qty, created_at')
+          .eq('kind', 'salida')
+          .contains('employee_ids', [e.id]);
+        if (!movErr && movs && movs.length) {
+          const itemIds = [...new Set(movs.map((m: any) => m.item_id).filter(Boolean))];
+          let itemById = new Map<string, { name: string; unit?: string; category?: string }>();
+          if (itemIds.length) {
+            const { data: invItems } = await supabase
+              .from('inventory_items')
+              .select('id, name, unit, category')
+              .in('id', itemIds);
+            (invItems ?? []).forEach((it: any) => itemById.set(it.id, it));
+          }
+          movs.forEach((m: any) => {
+            const it = itemById.get(m.item_id);
+            items.push({
+              id: `m-${m.id}`,
+              date: m.created_at,
+              tipo: '📦 ' + (it?.category || 'Herramienta/Equipo'),
+              detalle: `${it?.name ?? 'Artículo'} · ${m.qty} ${it?.unit ?? ''}`.trim(),
+            });
+          });
+        }
+      } catch {}
+
+      items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setHistorial(items.slice(0, 100));
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [employeeId]);
+  // isRefresh=true: no vuelve a registrar el escaneo en la bitácora al recargar por realtime.
+  useRealtimeRefresh(['employees', 'operator_assignments', 'uniform_deliveries', 'inventory_movements', 'inventory_items'], () => { load(true); });
+
+  const onRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
+
+  // PDF = FICHA COMPLETA (todos los datos por secciones), no el carnet.
+  const fichaPdf = async () => {
+    if (!emp) return;
+    const photoData = await urlToDataUri(emp.photo_url);
+    const html = fichaEmpleadoHtml(emp, { companyName: emp.companyName, photoDataUri: photoData ?? undefined });
+    await exportPdf(html, `Ficha - ${fullName(emp)}`);
+  };
+
+  const carnetImagen = async () => {
+    if (!emp) return;
+    let svg = '';
+    try { svg = await qrSvg(employeeQrUrl(emp.id), 220); } catch {}
+    // Incrusta la foto como data-URI para que la imagen se genere sin bloqueos.
+    const photoData = await urlToDataUri(emp.photo_url);
+    const card = carnetCard(emp, { companyName: emp.companyName, qrSvg: svg, photoOverride: photoData ?? undefined });
+    await exportCardImage({
+      styles: carnetStyles, card, mmW: CARNET_MM.w, mmH: CARNET_MM.h, dpi: 300,
+      fileName: `Carnet - ${fullName(emp)}`,
+      htmlForFallback: carnetHtml(emp, { companyName: emp.companyName, qrSvg: svg }),
+    });
+  };
+
+  if (loading) return <Screen><SkeletonList /></Screen>;
+  // Empleado eliminado → QR DESACTIVADO: solo el logo de la empresa (sin datos).
+  if (!emp) return <QrInactive />;
+
+  const st = STATUS[emp.status] ?? STATUS.activo;
+  const age = ageFrom(emp.birth_date);
+
+  const Row = ({ k, v }: { k: string; v?: string | null }) =>
+    v ? (
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+        <Text style={{ color: FICHA.muted, fontSize: 13 }}>{k}</Text>
+        <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700', flex: 1, textAlign: 'right' }}>{v}</Text>
+      </View>
+    ) : null;
+
+  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <Card style={{ backgroundColor: FICHA.card, borderColor: FICHA.border }}>
+      <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>{title}</Text>
+      {children}
+    </Card>
+  );
+
+  return (
+    <Screen bg={FICHA.bg} bgImage={FICHA_BG} bgImageOpacity={0.08} onRefresh={onRefresh} refreshing={refreshing}>
+      {/* Encabezado con logo */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Image source={LOGO} style={{ width: 34, height: 34 }} resizeMode="contain" />
+          <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 15 }}>Ficha del trabajador</Text>
+        </View>
+      </View>
+
+      {/* Foto + nombre + cargo + estado */}
+      <Card style={{ backgroundColor: FICHA.card, borderColor: FICHA.border }}>
+        <View style={{ alignItems: 'center' }}>
+          {emp.photo_url ? (
+            <View style={{ width: 130, height: 150, borderRadius: 12, borderWidth: 3, borderColor: FICHA.brand, backgroundColor: '#EEF2F7', overflow: 'hidden' }}>
+              <Image source={{ uri: emp.photo_url }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            </View>
+          ) : (
+            <View style={{ width: 130, height: 150, borderRadius: 12, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: FICHA.brand }}>
+              <Text style={{ fontSize: 56 }}>👤</Text>
+            </View>
+          )}
+          <Text style={{ color: FICHA.text, fontSize: 22, fontWeight: '900', marginTop: spacing.sm, textAlign: 'center' }}>{fullName(emp)}</Text>
+          <Text style={{ color: FICHA.muted, fontSize: 14, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>{emp.cargo || 'Trabajador'}</Text>
+          <View style={{ marginTop: spacing.xs, backgroundColor: '#EEF2F7', borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 3 }}>
+            <Text style={{ color: st.color, fontWeight: '800', fontSize: 12 }}>{st.label}</Text>
+          </View>
+        </View>
+      </Card>
+
+      {maquinas.length > 0 ? (
+        <Section title="⏱️ Horas trabajadas">
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+            <Text style={{ color: FICHA.muted, fontSize: 13, fontWeight: '700' }}>TOTAL</Text>
+            <Text style={{ color: FICHA.brand, fontSize: 20, fontWeight: '900' }}>{totalHoras} h</Text>
+          </View>
+          {maquinas.map((m) => (
+            <View key={m.code} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+              <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700' }}>🚜 {m.code}</Text>
+              <Text style={{ color: FICHA.muted, fontSize: 13 }}>{m.jornadas} jornada(s) · <Text style={{ color: FICHA.text, fontWeight: '800' }}>{m.hours} h</Text></Text>
+            </View>
+          ))}
+        </Section>
+      ) : null}
+
+      {historial.length > 0 ? (
+        <Section title="📦 Historial de dotación y entregas">
+          {historial.map((h) => (
+            <View key={h.id} style={{ paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700' }}>{h.tipo}</Text>
+                <Text style={{ color: FICHA.muted, fontSize: 12 }}>{h.date ? new Date(h.date).toLocaleDateString('es-VE') : '—'}</Text>
+              </View>
+              <Text style={{ color: FICHA.muted, fontSize: 13 }}>{h.detalle}</Text>
+            </View>
+          ))}
+        </Section>
+      ) : null}
+
+      <Section title="🪪 Identificación">
+        <Row k="N° de ficha" v={emp.ficha_number} />
+        <Row k="Cédula" v={emp.cedula} />
+        <Row k="Grupo sanguíneo" v={emp.blood_type} />
+        <Row k="Fecha de nacimiento" v={emp.birth_date} />
+        <Row k="Edad" v={age != null ? `${age} años` : null} />
+        <Row k="Género" v={emp.gender} />
+        <Row k="Nacionalidad" v={emp.nationality} />
+        <Row k="Estado civil" v={emp.marital_status} />
+      </Section>
+
+      <Section title="📞 Contacto">
+        <Row k="Teléfono" v={emp.phone} />
+        <Row k="Correo" v={emp.email} />
+        <Row k="Dirección" v={emp.address} />
+        <Row k="Ciudad" v={emp.city} />
+        <Row k="Estado" v={emp.state} />
+      </Section>
+
+      {(emp.emergency_contact_name || emp.emergency_contact_phone) ? (
+        <Section title="🚑 Contacto de emergencia">
+          <Row k="Nombre" v={emp.emergency_contact_name} />
+          <Row k="Teléfono" v={emp.emergency_contact_phone} />
+          <Row k="Parentesco" v={emp.emergency_contact_relation} />
+        </Section>
+      ) : null}
+
+      <Section title="💼 Datos laborales">
+        <Row k="Cargo" v={emp.cargo} />
+        <Row k="Departamento" v={emp.department} />
+        <Row k="Grupo / zona" v={emp.grupo} />
+        <Row k="Fecha de ingreso" v={emp.hire_date} />
+      </Section>
+
+      {emp.notes ? (
+        <Section title="📝 Notas">
+          <Text style={{ color: FICHA.text, fontSize: 13 }}>{emp.notes}</Text>
+        </Section>
+      ) : null}
+
+      {/* Cocina: entrar con su nombre para registrar la comida de esta persona. */}
+      {onCocinaLogin ? (
+        <TouchableOpacity onPress={onCocinaLogin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E9E4A' }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🍽️ ¿Eres de cocina? Inicia sesión para registrar comida</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.sm, textAlign: 'center' }}>PDF = ficha completa (todos los datos) · Imagen = carnet (54 × 86 mm)</Text>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+        <TouchableOpacity onPress={fichaPdf} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>📄 Ficha completa (PDF)</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={carnetImagen} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#059669' }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Carnet (imagen)</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={{ height: spacing.lg }} />
+    </Screen>
+  );
+}
