@@ -188,14 +188,17 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > junto a *Inactivada el / por*, y queda en **Auditoría**. **Reactivar (✅ Operativa) no pide motivo.**
 
 > **🚗 Vehículos con ficha completa + FOTO:** al cargar un **vehículo** el formulario se ve **igual
-> que el de maquinaria** — marca, modelo, clasificación, tipo, identificador, serial, empresa
-> supervisora, grupo y **encargado** (el nombre va **justo debajo de "Esperando instrucciones"**,
-> ya no escondido al final). La **foto** se ve como en las máquinas: toca la **miniatura** de la
+> que el de maquinaria** — **nombre del vehículo** (arriba, como el "Código/Nombre" de la maquinaria;
+> opcional, la placa sigue siendo el identificador), marca, modelo, clasificación, tipo, identificador,
+> serial, empresa supervisora, grupo y **encargado** (el encargado va **justo debajo de "Esperando
+> instrucciones"**, ya no escondido al final). En la tarjeta, si el vehículo tiene nombre se muestra
+> como título y la placa debajo. La **foto** se ve como en las máquinas: toca la **miniatura** de la
 > tarjeta y se abre el **visor ampliado** con la foto del vehículo y la del serial/placa, cada una
 > con **"🔄 Cambiar foto"** y **"🗑 Quitar foto"**. Los vehículos **siguen siendo aparte** de la
 > maquinaria: **no** entran a Control, Inspecciones ni pagos por jornada; son solo para
-> **combustible** y **autorizaciones**. *(Requiere correr `supabase/vehiculos_ficha_maquinaria.sql`
-> y `supabase/vehiculos_encargado.sql`; si no, el formulario de vehículo sigue en su versión básica.)*
+> **combustible** y **autorizaciones**. *(Requiere correr `supabase/vehiculos_ficha_maquinaria.sql`,
+> `supabase/vehiculos_encargado.sql` y `supabase/vehiculos_nombre.sql`; si no, esos campos no se
+> muestran y el formulario de vehículo sigue en su versión básica.)*
 
 > **🕘 Última parada/avería resuelta:** si una máquina tuvo una parada o avería reportada por un
 > inspector y **ya se resolvió** (alguien tocó "🟢 Volver a OPERATIVA"), su ficha muestra un
