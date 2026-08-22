@@ -1,0 +1,476 @@
+import React, { useEffect, useRef } from 'react';
+import { Platform, View, Text, TouchableOpacity, Linking } from 'react-native';
+import { Card } from './ui';
+import { useTheme } from '../theme/ThemeContext';
+import { spacing, radius } from '../theme';
+import { SUBSECTORS } from '../lib/mapZones';
+
+export type MapPin = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  active: string;        // "tiempo activa" ya formateado
+  operational: boolean;
+  enEspera?: boolean;    // "esperando instrucciones" — congelada, no cuenta como Operativa
+  company: string;       // empresa (para colorear el pin y la leyenda)
+  tipo?: string | null;          // modelo
+  clasificacion?: string | null; // clasificación
+  plate?: string | null;         // placa
+  serial?: string | null;        // serial
+  identifier?: string | null;    // identificador (muchas máquinas guardan su serial aquí)
+  encargado?: string | null;     // encargado responsable de la máquina
+  utm?: string | null;           // coordenadas en formato UTM (ya formateadas)
+  route: [number, number][];
+};
+
+// Paleta de colores por EMPRESA (misma que usa el mapa para los pines/leyenda).
+export const MAP_PALETTE = ['#2563EB','#DC2626','#16A34A','#D97706','#7C3AED','#DB2777','#0891B2','#65A30D','#EA580C','#0D9488','#9333EA','#CA8A04','#4F46E5','#BE123C','#15803D','#B45309'];
+
+/** Leyenda por empresa (color + conteo), en orden de aparición (igual que el mapa). */
+export function companyLegend(pins: MapPin[]): { rows: { company: string; color: string; count: number }[]; total: number } {
+  const color: Record<string, string> = {};
+  const count: Record<string, number> = {};
+  const order: string[] = [];
+  pins.forEach((p) => {
+    const co = p.company || 'Sin empresa';
+    if (!(co in color)) { color[co] = MAP_PALETTE[order.length % MAP_PALETTE.length]; order.push(co); }
+    count[co] = (count[co] || 0) + 1;
+  });
+  return { rows: order.map((co) => ({ company: co, color: color[co], count: count[co] })), total: pins.length };
+}
+
+// Las zonas (SUBSECTORS) ahora vienen de los KMZ oficiales, con polígonos REALES de
+// La Guaira → ver src/lib/mapZones.ts. El ORDEN define el índice para prender/apagar.
+/** Zonas (nombre + color) para pintar el panel FUERA del mapa. El índice = orden. */
+export const MAP_ZONES = SUBSECTORS.map((s) => ({ n: s.n as string, color: s.color as string }));
+
+function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
+  const data = JSON.stringify(pins);
+  const zonesData = JSON.stringify(SUBSECTORS);
+  const firstLayer = streets ? 'calles' : 'sat';
+  const canEditJs = JSON.stringify(!!canEdit);
+  return `<!doctype html><html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css"/>
+<script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
+<style>html,body,#map{height:100%;margin:0}.leaflet-control-geocoder-expanded{min-width:260px}.leaflet-control-geocoder-form input{width:230px}
+.zoneLbl{background:rgba(17,24,39,.72);color:#fff;border:0;border-radius:4px;font-weight:700;font-size:11px;padding:2px 6px;box-shadow:none;white-space:nowrap}
+.zoneLbl:before{display:none}</style></head>
+<body><div id="map"></div><script>
+  var pins = ${data};
+  var SUBSECTORS = ${zonesData};
+  var CAN_EDIT = ${canEditJs}; // solo admin puede eliminar/reubicar
+  var ZONE_OFF = {};           // desfase por sector (llega por mensaje, no recarga el mapa)
+  var locateMode = false;      // modo "tocar el mapa para ubicar" (admin)
+  var zoneEditMode = false;    // modo "arrastrar sectores" (admin)
+  var map = L.map('map').setView([6.42, -66.58], 6); // Venezuela
+  var sat = L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri' }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
+  ]);
+  var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+  (${JSON.stringify(firstLayer)} === 'calles' ? calles : sat).addTo(map);
+  L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: true, position: 'topleft' }).addTo(map);
+
+  if (L.Control && L.Control.Geocoder) {
+    // Búsqueda LIMITADA a La Guaira (franja costera Catia La Mar → Naiguatá).
+    // viewbox = lon_oeste,lat_norte,lon_este,lat_sur ; bounded:1 descarta lo de afuera.
+    var LG_VIEWBOX = '-67.15,10.70,-66.72,10.52';
+    var geocoder = L.Control.Geocoder.nominatim({ geocodingQueryParams: { countrycodes: 've', 'accept-language': 'es', addressdetails: 1, limit: 8, viewbox: LG_VIEWBOX, bounded: 1 } });
+    L.Control.geocoder({ geocoder: geocoder, defaultMarkGeocode: true, collapsed: true, position: 'topleft', placeholder: 'Buscar en La Guaira (calle, sector, plaza…)', errorMessage: 'No se encontró el lugar en La Guaira' }).addTo(map);
+  }
+  function pin(color){return L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-26],
+    html:'<svg width="28" height="28" viewBox="0 0 24 24"><path fill="'+color+'" stroke="white" stroke-width="1.2" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/><circle cx="12" cy="9" r="2.6" fill="white"/></svg>'});}
+  var PALETTE = ${JSON.stringify(MAP_PALETTE)};
+  var companyColor = {}; var companyOrder = [];
+  pins.forEach(function(p){ var co = p.company || 'Sin empresa'; if (!(co in companyColor)) { companyColor[co] = PALETTE[companyOrder.length % PALETTE.length]; companyOrder.push(co); } });
+
+  // ── ¿En qué SECTOR/zona cae cada máquina? (punto-en-polígono) ──
+  function offOf(name){ var o = ZONE_OFF[name] || {}; return [Number(o.d_lat) || 0, Number(o.d_lng) || 0]; }
+  function basePolyOf(s){ if (s.pts && s.pts.length >= 3) return s.pts; var D = 0.007; return [[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]]; }
+  function centroidOf(pts){ var la = 0, ln = 0; for (var i = 0; i < pts.length; i++){ la += pts[i][0]; ln += pts[i][1]; } return [la / pts.length, ln / pts.length]; }
+  // Polígono con el desfase guardado aplicado (para dibujar y para detectar zona).
+  function polyOf(s){ var base = basePolyOf(s); var o = offOf(s.n); if (o[0] === 0 && o[1] === 0) return base; return base.map(function(p){ return [p[0] + o[0], p[1] + o[1]]; }); }
+  function pointInPoly(lat, lng, poly){ var inside = false; for (var i = 0, j = poly.length - 1; i < poly.length; j = i++){ var yi = poly[i][0], xi = poly[i][1], yj = poly[j][0], xj = poly[j][1]; if (((yi > lat) != (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside; } return inside; }
+  function zoneOf(lat, lng){
+    for (var i = 0; i < SUBSECTORS.length; i++){ if (pointInPoly(lat, lng, polyOf(SUBSECTORS[i]))) return { name: SUBSECTORS[i].n, near: false }; }
+    var best = null, bd = Infinity;
+    for (var i = 0; i < SUBSECTORS.length; i++){ var pl = polyOf(SUBSECTORS[i]); for (var k = 0; k < pl.length; k++){ var dy = pl[k][0] - lat, dx = pl[k][1] - lng, d = dy*dy + dx*dx; if (d < bd){ bd = d; best = SUBSECTORS[i].n; } } }
+    if (best && bd <= 0.0009) return { name: best, near: true };
+    return null;
+  }
+
+  var routeGroup = L.layerGroup();
+  var allMarkers = [];
+  var allRoutes = [];
+  pins.forEach(function(p){
+    var co = p.company || 'Sin empresa';
+    var color = companyColor[co];
+    if (p.route && p.route.length > 1){ allRoutes.push({ layer: L.polyline(p.route, {color:color, weight:3, opacity:0.7}), company: co }); }
+    var mk = L.marker([p.lat, p.lng], {icon: pin(color)});
+    var esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    // Placa / Serial / ID: muchas máquinas guardan su serial en "identifier", así que
+    // incluimos los tres (el que falte se omite) para que SIEMPRE salga el identificador.
+    var placaSerial = [p.plate ? 'Placa: '+esc(p.plate) : '', p.serial ? 'Serial: '+esc(p.serial) : '', p.identifier ? 'ID: '+esc(p.identifier) : ''].filter(Boolean).join(' · ');
+    var z = zoneOf(p.lat, p.lng);
+    var zoneTxt = z ? (esc(z.name) + (z.near ? ' (cercana)' : '')) : 'Fuera de sectores';
+    var div = document.createElement('div');
+    div.innerHTML = '<b>'+esc(p.name)+'</b><br/>🏢 '+esc(co)
+      + (p.tipo ? '<br/>🏷️ Marca - Modelo: '+esc(p.tipo) : '')
+      + (p.clasificacion ? '<br/>🗃️ Clasificación: '+esc(p.clasificacion) : '')
+      + (placaSerial ? '<br/>🔖 '+placaSerial : '')
+      + (p.encargado ? '<br/>👤 Encargado: '+esc(p.encargado) : '')
+      + '<br/>🗺️ Zona: <b>'+zoneTxt+'</b>'
+      + '<br/>📍 UTM '+esc(p.utm || (p.lat+', '+p.lng))
+      + '<br/>Activa: '+esc(p.active)
+      + '<br/>Estado: '+(p.enEspera?'⏳ Esperando instrucciones':(p.operational?'Operativa':'No operativa'));
+    // El botón "Eliminar ubicación" (reubicar) solo para administradores.
+    if (CAN_EDIT) {
+      var btn = document.createElement('button');
+      btn.textContent = '🗑️ Eliminar ubicación';
+      btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
+      btn.onclick = function(){ try { parent.postMessage({type:'map-delete-pin', id: p.id, name: p.name}, '*'); } catch(e){} };
+      div.appendChild(document.createElement('br'));
+      div.appendChild(btn);
+    }
+    mk.bindPopup(div);
+    allMarkers.push({ marker: mk, company: co, latlng: [p.lat, p.lng] });
+  });
+
+  var currentCompany = null;
+  var routesOn = false; // las RUTAS vienen OCULTAS por defecto (se prenden desde fuera del mapa).
+  function refresh(){
+    var bounds = [];
+    allMarkers.forEach(function(o){
+      if (currentCompany === null || o.company === currentCompany){ o.marker.addTo(map); bounds.push(o.latlng); }
+      else { map.removeLayer(o.marker); }
+    });
+    routeGroup.clearLayers();
+    allRoutes.forEach(function(o){ if (currentCompany === null || o.company === currentCompany){ o.layer.addTo(routeGroup); } });
+    if (routesOn){ routeGroup.addTo(map); } else { map.removeLayer(routeGroup); }
+    if (bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:13});
+  }
+
+  // Las RUTAS se prenden/apagan desde FUERA del mapa (botón en la app), no con un
+  // control dentro del mapa. Por defecto vienen ocultas (routesOn = false).
+
+  // ── Ubicación del USUARIO logueado (se muestra CADA VEZ que se abre el mapa) ──
+  var userMarker = null, userCircle = null;
+  function userIcon(){ return L.divIcon({ className:'', iconSize:[18,18], iconAnchor:[9,9],
+    html:'<div style="width:14px;height:14px;border-radius:50%;background:#2563EB;border:3px solid #fff;box-shadow:0 0 0 2px rgba(37,99,235,.6)"></div>' }); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  function distM(aLat,aLng,bLat,bLng){ var R=6371000, tr=function(d){return d*Math.PI/180;};
+    var dLat=tr(bLat-aLat), dLng=tr(bLng-aLng);
+    var s=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(tr(aLat))*Math.cos(tr(bLat))*Math.sin(dLng/2)*Math.sin(dLng/2);
+    return 2*R*Math.asin(Math.sqrt(s)); }
+  function fmtD(m){ return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km'; }
+  // Popup de MI ubicación: lista las máquinas más cercanas (≤20 km) con su distancia.
+  function nearbyHtml(lat,lng,title){
+    var t = title || '📍 Tu ubicación';
+    if(!pins.length) return '<b>'+t+'</b><br/><span style="color:#777">No hay máquinas en el mapa.</span>';
+    var arr = pins.map(function(p){ return { p:p, d:distM(lat,lng,p.lat,p.lng) }; }).sort(function(a,b){ return a.d-b.d; });
+    var near = arr.filter(function(x){ return x.d<=20000; }).slice(0,8);
+    var h = '<b>'+t+'</b><br/><span style="color:#555;font-size:12px">Máquinas cercanas (≤20 km):</span>';
+    if(!near.length){ var c=arr[0]; return h + '<br/><span style="color:#777;font-size:12px">Ninguna a menos de 20 km. La más cercana: <b>'+esc(c.p.name)+'</b> a '+fmtD(c.d)+'.</span>'; }
+    h += '<div style="margin-top:4px;max-height:170px;overflow:auto">';
+    near.forEach(function(x){
+      var dot = x.p.enEspera ? '#2563EB' : (x.p.operational===false ? '#DC2626' : '#16A34A');
+      h += '<div style="padding:3px 0;border-top:1px solid #eee;font-size:12px">'
+        + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+dot+';margin-right:5px"></span>'
+        + '<b>'+esc(x.p.name)+'</b> · <span style="color:#2563EB;font-weight:700">'+fmtD(x.d)+'</span>'
+        + '<br/><span style="color:#777">'+esc(x.p.company||'')+'</span></div>';
+    });
+    h += '</div>';
+    return h;
+  }
+  var firstFix = true, pendingCenter = false;
+  // Coloca/actualiza el punto azul del usuario. Centra la vista la primera vez que
+  // llega una ubicación (para que "salga su ubicación") o cuando se pidió centrar.
+  function placeUser(lat, lng, accuracy, doCenter){
+    var ll = L.latLng(lat, lng);
+    var html = nearbyHtml(lat, lng);
+    if (userMarker){ userMarker.setLatLng(ll); userMarker.setPopupContent(html); } else { userMarker = L.marker(ll, { icon:userIcon(), zIndexOffset:1000 }).addTo(map).bindPopup(html, { maxWidth:260 }); }
+    if (accuracy){ if (userCircle){ userCircle.setLatLng(ll).setRadius(accuracy); } else { userCircle = L.circle(ll, { radius:accuracy, color:'#2563EB', weight:1, fillColor:'#2563EB', fillOpacity:0.12 }).addTo(map); } }
+    if (firstFix){ firstFix = false; map.setView(ll, 14); }
+    else if (doCenter || pendingCenter){ pendingCenter = false; map.setView(ll, 16); userMarker.openPopup(); }
+  }
+  // Geolocalización DESDE EL IFRAME: funciona en desktop. En MÓVIL el iframe srcdoc
+  // tiene origen opaco y el navegador bloquea la geolocalización → también se la
+  // pedimos al PADRE (origen real soslaguaira.com) por postMessage.
+  map.on('locationfound', function(e){ placeUser(e.latlng.lat, e.latlng.lng, e.accuracy, false); });
+  map.on('locationerror', function(){ /* sin permiso o no disponible: se ignora en silencio */ });
+  map.locate({ watch:true, enableHighAccuracy:true, maximumAge:10000, timeout:15000 });
+  function requestParentLocation(watch){ try { parent.postMessage({ type:'request-location', watch: !!watch }, '*'); } catch(e){} }
+  requestParentLocation(true); // el padre vigila y envía 'user-location' con las coords
+  // Botón "centrar en MI ubicación".
+  var LocateBtn = L.Control.extend({ options:{ position:'topleft' }, onAdd:function(){
+    var c=L.DomUtil.create('div','leaflet-bar'); var a=L.DomUtil.create('a','',c);
+    a.href='#'; a.title='Mi ubicación'; a.textContent='📍';
+    a.style.cssText='width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff;font-size:18px;text-decoration:none';
+    L.DomEvent.on(a,'click',function(ev){ L.DomEvent.stop(ev);
+      if(userMarker){ map.setView(userMarker.getLatLng(), 16); userMarker.openPopup(); }
+      else { pendingCenter = true; map.locate({ enableHighAccuracy:true }); requestParentLocation(false); }
+    });
+    return c; }});
+  map.addControl(new LocateBtn());
+
+  // Botón PANTALLA COMPLETA (usa la API de pantalla completa del navegador).
+  var FsBtn = L.Control.extend({ options:{ position:'topright' }, onAdd:function(){
+    var c=L.DomUtil.create('div','leaflet-bar'); var a=L.DomUtil.create('a','',c);
+    a.href='#'; a.title='Pantalla completa'; a.textContent='⛶';
+    a.style.cssText='width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff;font-size:18px;text-decoration:none';
+    // Usamos SIEMPRE el modo pantalla completa de la app (Modal RN), no el fullscreen
+    // del documento interno del iframe: ese aísla la geolocalización y el botón
+    // "📍 Mi ubicación" deja de funcionar. En el Modal el iframe conserva
+    // allow="geolocation", así que ubicar sí funciona en pantalla completa.
+    L.DomEvent.on(a,'click',function(ev){ L.DomEvent.stop(ev);
+      try { parent.postMessage({ type:'map-fullscreen' }, '*'); } catch(e){}
+    });
+    return c; }});
+  map.addControl(new FsBtn());
+
+  // Botón GRANDE "Salir de pantalla completa": aparece SOLO cuando el mapa está en
+  // pantalla completa del navegador, para que siempre se pueda quitar fácilmente.
+  var exitFsBtn = document.createElement('button');
+  exitFsBtn.textContent = '✕ Salir de pantalla completa';
+  exitFsBtn.style.cssText = 'position:fixed;top:10px;right:10px;z-index:100000;display:none;background:#DC2626;color:#fff;border:none;border-radius:10px;padding:11px 15px;font-size:14px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);cursor:pointer';
+  exitFsBtn.onclick = function(){ try { (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document); } catch(e){} };
+  document.body.appendChild(exitFsBtn);
+  function onFsChange(){
+    var fs = document.fullscreenElement || document.webkitFullscreenElement;
+    exitFsBtn.style.display = fs ? 'block' : 'none';
+    setTimeout(function(){ map.invalidateSize(); }, 200);
+  }
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  // Polígonos de zonas (prender/apagar desde FUERA del mapa por postMessage).
+  var sectorLayers = {};
+  var zonesOn = {};
+  // El nombre de la zona NO se muestra permanente (saturaba el mapa): aparece al
+  // PASAR EL CURSOR (desktop, tooltip que sigue al mouse) y al TOCAR la zona (móvil).
+  function bindZoneName(layer, name){
+    layer.bindTooltip(name, { sticky: true, direction: 'top', className: 'zoneLbl', opacity: 1 });
+    layer.on('click', function(ev){ this.openTooltip(ev.latlng); }); // móvil: al tocar
+  }
+  var zonePolys = {};   // i -> polígono (para moverlo en vivo al arrastrar)
+  var zoneMarkers = {}; // i -> marcador arrastrable (solo en modo edición)
+  SUBSECTORS.forEach(function(s, i){
+    var pg = L.polygon(polyOf(s), { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
+    bindZoneName(pg, s.n);
+    zonePolys[i] = pg;
+    sectorLayers[i] = L.layerGroup([pg]);
+  });
+
+  // ── Modo ADMIN "mover sectores": marcador arrastrable en el centro de cada zona.
+  // Al arrastrar, el polígono se mueve en vivo; al soltar, se guarda el desfase.
+  function makeZoneMarker(i){
+    var s = SUBSECTORS[i];
+    var m = L.marker(centroidOf(polyOf(s)), { draggable: true, title: s.n });
+    m.bindTooltip('✋ ' + s.n, { permanent: true, direction: 'top', className: 'zoneLbl', opacity: 1 });
+    var apply = function(np){ var base = basePolyOf(s); var bc = centroidOf(base); var dLat = np.lat - bc[0], dLng = np.lng - bc[1]; zonePolys[i].setLatLngs(base.map(function(p){ return [p[0] + dLat, p[1] + dLng]; })); return [dLat, dLng]; };
+    m.on('drag', function(e){ apply(e.target.getLatLng()); });
+    m.on('dragend', function(e){ var d = apply(e.target.getLatLng()); ZONE_OFF[s.n] = { d_lat: d[0], d_lng: d[1] }; try { parent.postMessage({ type:'map-zone-moved', name: s.n, d_lat: d[0], d_lng: d[1] }, '*'); } catch(err){} });
+    return m;
+  }
+  function setZoneEdit(on){
+    zoneEditMode = !!on && CAN_EDIT;
+    SUBSECTORS.forEach(function(s, i){
+      if (zoneMarkers[i]){ map.removeLayer(zoneMarkers[i]); delete zoneMarkers[i]; }
+      if (zoneEditMode && zonesOn[i]){ zoneMarkers[i] = makeZoneMarker(i).addTo(map); }
+    });
+  }
+  function setZone(i, on){
+    zonesOn[i] = on;
+    if (on){ sectorLayers[i].addTo(map); if (zoneEditMode && !zoneMarkers[i]){ zoneMarkers[i] = makeZoneMarker(i).addTo(map); } }
+    else { map.removeLayer(sectorLayers[i]); if (zoneMarkers[i]){ map.removeLayer(zoneMarkers[i]); delete zoneMarkers[i]; } }
+  }
+  // Aplica los desfases guardados (llegan por mensaje, sin recargar el mapa): redibuja
+  // cada polígono y reubica su marcador de edición si está visible.
+  function applyOffsets(){
+    SUBSECTORS.forEach(function(s, i){
+      if (zonePolys[i]) zonePolys[i].setLatLngs(polyOf(s));
+      if (zoneMarkers[i]) zoneMarkers[i].setLatLng(centroidOf(polyOf(s)));
+    });
+  }
+
+  // ── Mensajes desde la app (leyendas y filtros van FUERA del mapa) ──
+  window.addEventListener('message', function(e){
+    var d = (e && e.data) || {};
+    if (d.type === 'map-filter-company'){ currentCompany = d.company || null; refresh(); }
+    else if (d.type === 'map-routes'){ routesOn = !!d.on; refresh(); }
+    else if (d.type === 'map-zones'){
+      var on = d.on || [];
+      SUBSECTORS.forEach(function(_, i){ setZone(i, on.indexOf(i) >= 0); });
+      if (d.fit && on.length){
+        var bb = []; on.forEach(function(i){ var s = SUBSECTORS[i]; if (!s) return; if (s.pts){ s.pts.forEach(function(p){ bb.push(p); }); } else { bb.push([s.a.lat, s.a.lng]); bb.push([s.b.lat, s.b.lng]); } });
+        if (bb.length) map.fitBounds(bb, { padding:[40,40], maxZoom:15 });
+      }
+    }
+    else if (d.type === 'map-locate-mode'){
+      locateMode = CAN_EDIT && !!d.on; // solo admin
+      try { map.getContainer().style.cursor = locateMode ? 'crosshair' : ''; } catch(e){}
+    }
+    else if (d.type === 'map-zone-edit'){ setZoneEdit(!!d.on); }
+    else if (d.type === 'map-zone-offsets'){ ZONE_OFF = d.offsets || {}; applyOffsets(); }
+    else if (d.type === 'user-location'){ if (isFinite(d.lat) && isFinite(d.lng)) placeUser(Number(d.lat), Number(d.lng), Number(d.accuracy) || 0, !!d.center); }
+  });
+
+  // Al TOCAR el mapa:
+  //  · en modo ubicar (admin): avisa el punto para reubicar la máquina.
+  //  · normal: muestra un popup con las MÁQUINAS CERCANAS a ese punto (≤20 km).
+  map.on('click', function(e){
+    if (locateMode){ try { parent.postMessage({ type:'map-picked', lat: e.latlng.lat, lng: e.latlng.lng }, '*'); } catch(err){} return; }
+    if (zoneEditMode) return;
+    L.popup({ maxWidth: 260 }).setLatLng(e.latlng).setContent(nearbyHtml(e.latlng.lat, e.latlng.lng, '📍 Aquí')).openOn(map);
+  });
+
+  refresh();
+  // Avisa al padre que el mapa ya está listo, para que reenvíe el estado actual
+  // (empresa, sectores prendidos, modo ubicar/editar). Evita que en pantalla
+  // completa aparezca sin los sectores por una condición de carrera al cargar.
+  try { parent.postMessage({ type: 'map-ready' }, '*'); } catch(e){}
+</script></body></html>`;
+}
+
+export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false, zoneOffsets, zoneEdit = false, showRoutes = false }: {
+  pins: MapPin[];
+  onDelete?: (id: string, name?: string) => void;
+  selectedCompany?: string | null;
+  zones?: Set<number>;
+  height?: number;
+  streets?: boolean; // arrancar en vista de CALLES (por defecto: satélite)
+  canEdit?: boolean;   // solo admin: muestra "Eliminar ubicación" y permite ubicar
+  locateMode?: boolean; // admin en modo "tocar el mapa para ubicar"
+  zoneOffsets?: Record<string, { d_lat: number; d_lng: number }>; // desfase guardado por sector
+  zoneEdit?: boolean;  // admin en modo "arrastrar sectores"
+  showRoutes?: boolean; // mostrar las rutas (por defecto ocultas), se controla desde fuera
+}) {
+  const { colors } = useTheme();
+  const iframeRef = useRef<any>(null);
+  const post = (msg: any) => { try { iframeRef.current?.contentWindow?.postMessage(msg, '*'); } catch {} };
+
+  // Al cambiar el filtro de empresa o las zonas, avisamos al mapa (sin recargarlo).
+  useEffect(() => { post({ type: 'map-filter-company', company: selectedCompany ?? null }); }, [selectedCompany]);
+  useEffect(() => { post({ type: 'map-zones', on: zones ? Array.from(zones) : [] }); }, [zones]);
+  useEffect(() => { post({ type: 'map-locate-mode', on: locateMode }); }, [locateMode]);
+  useEffect(() => { post({ type: 'map-zone-edit', on: zoneEdit }); }, [zoneEdit]);
+  useEffect(() => { post({ type: 'map-routes', on: showRoutes }); }, [showRoutes]);
+  // Los desfases de sectores van por mensaje (NO incrustados en el HTML): así al
+  // guardar uno no se recarga el mapa (antes el sector "se quitaba" al soltarlo).
+  useEffect(() => { post({ type: 'map-zone-offsets', offsets: zoneOffsets ?? {} }); }, [zoneOffsets]);
+  // Reaplica todo el estado actual: al recargarse el iframe (onLoad) y cuando el
+  // mapa avisa que ya está listo (map-ready) — evita que en pantalla completa
+  // aparezca sin los sectores por una condición de carrera.
+  const pushState = () => {
+    post({ type: 'map-filter-company', company: selectedCompany ?? null });
+    post({ type: 'map-zone-offsets', offsets: zoneOffsets ?? {} });
+    post({ type: 'map-zones', on: zones ? Array.from(zones) : [] });
+    post({ type: 'map-locate-mode', on: locateMode });
+    post({ type: 'map-zone-edit', on: zoneEdit });
+    post({ type: 'map-routes', on: showRoutes });
+  };
+  const onLoad = () => pushState();
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const onMsg = (e: any) => {
+      if (e?.data?.type === 'map-ready' && e.source && e.source === iframeRef.current?.contentWindow) pushState();
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  });
+  // Geolocalización del usuario: el iframe (srcdoc = origen opaco) NO puede pedirla en
+  // móvil. La pedimos aquí (origen real) con navigator.geolocation y le mandamos las
+  // coords al iframe por postMessage para que dibuje y centre el punto azul.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    let watchId: number | null = null;
+    const sendLoc = (pos: any, center: boolean) => {
+      try {
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: 'user-location', lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, center },
+          '*',
+        );
+      } catch {}
+    };
+    const onMsg = (e: any) => {
+      if (e?.data?.type !== 'request-location') return;
+      const geo = (typeof navigator !== 'undefined' && navigator.geolocation) || null;
+      if (!geo) return;
+      // Lectura inmediata (si el usuario tocó 📍, se centra al llegar).
+      geo.getCurrentPosition((pos) => sendLoc(pos, !e.data.watch), () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
+      // Vigilancia continua, una sola vez.
+      if (e.data.watch && watchId == null) {
+        watchId = geo.watchPosition((pos) => sendLoc(pos, false), () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => {
+      window.removeEventListener('message', onMsg);
+      if (watchId != null && typeof navigator !== 'undefined' && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
+
+  if (Platform.OS === 'web') {
+    return React.createElement('iframe' as any, {
+      ref: iframeRef,
+      srcDoc: buildHtml(pins, streets, canEdit),
+      onLoad,
+      // Permite mostrar la ubicación del usuario y el modo pantalla completa.
+      allow: 'geolocation; fullscreen',
+      style: {
+        width: '100%',
+        height: height ?? 340,
+        border: `1px solid ${colors.border}`,
+        borderRadius: radius.md,
+      },
+    } as any);
+  }
+
+  // Fallback nativo: lista con enlace a Google Maps.
+  return (
+    <View style={{ gap: spacing.sm }}>
+      {pins.length === 0 ? (
+        <Card><Text style={{ color: colors.muted }}>Sin máquinas con ubicación.</Text></Card>
+      ) : (
+        pins.map((p) => (
+          <Card key={p.id}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontWeight: '700', color: colors.text }}>📍 {p.name}</Text>
+              <Text style={{ color: p.enEspera ? colors.brand : p.operational ? colors.success : colors.danger, fontWeight: '700' }}>
+                {p.enEspera ? '⏳ Esperando instrucciones' : p.operational ? 'Operativa' : 'No operativa'}
+              </Text>
+            </View>
+            <Text style={{ color: colors.primary, fontSize: 12 }}>🏢 {p.company}</Text>
+            {p.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {p.tipo}</Text> : null}
+            {p.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {p.clasificacion}</Text> : null}
+            {p.plate || p.serial || p.identifier ? (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {[p.plate && `Placa: ${p.plate}`, p.serial && `Serial: ${p.serial}`, p.identifier && `ID: ${p.identifier}`].filter(Boolean).join(' · ')}</Text>
+            ) : null}
+            {p.encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {p.encargado}</Text> : null}
+            <Text style={{ color: colors.muted, fontSize: 13 }}>{p.lat}, {p.lng} · Activa {p.active}</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => Linking.openURL(`https://www.google.com/maps?q=${p.lat},${p.lng}`)}
+                style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Google Maps</Text>
+              </TouchableOpacity>
+              {onDelete ? (
+                <TouchableOpacity
+                  onPress={() => onDelete(p.id, p.name)}
+                  style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>🗑️ Eliminar ubicación</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </Card>
+        ))
+      )}
+    </View>
+  );
+}

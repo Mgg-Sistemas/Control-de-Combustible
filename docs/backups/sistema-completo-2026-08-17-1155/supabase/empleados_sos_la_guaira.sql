@@ -1,0 +1,12 @@
+-- ============================================================================
+-- TODO el personal pasa a SOS LA GUAIRA (el empleador dueño), sin empresa-contratista.
+-- ----------------------------------------------------------------------------
+-- Al quitarles la empresa-contratista (company_id = null), en la app se muestran
+-- como "SOS LA GUAIRA" y el operador puede trabajar CUALQUIER equipo: la restricción
+-- de empresa en la jornada solo aplica cuando el empleado tiene company_id, y ahora
+-- ninguno lo tiene. Las MÁQUINAS conservan su empresa (Liccione, Golden Touch, etc.)
+-- para los reportes/facturación por contratista. No cambia el flujo de escaneo/jornada.
+--
+-- Correr UNA VEZ en el SQL Editor de Supabase.
+-- ============================================================================
+update public.employees set company_id = null where company_id is not null;

@@ -1,0 +1,1167 @@
+<title>Plan de mejoras · Control de Combustible</title>
+<style>
+  :root{
+    --bg:#f6f5f2; --surface:#ffffff; --ink:#1c1a17; --muted:#6b655c;
+    --line:#e4e0d8; --accent:#c8791b; --accent-soft:#f4e6d2;
+    --alta:#c0392b; --media:#c8791b; --baja:#4b7a3f;
+    --done:#2f7d4f; --done-soft:#e2f1e8;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 6px 20px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#16140f; --surface:#211d17; --ink:#f0ece4; --muted:#a29a8c;
+      --line:#332e26; --accent:#e6a63d; --accent-soft:#3a2d16;
+      --alta:#ef6a5c; --media:#e6a63d; --baja:#7bbf6a;
+      --done:#6cc38c; --done-soft:#1e3327;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f5f2; --surface:#ffffff; --ink:#1c1a17; --muted:#6b655c; --line:#e4e0d8;
+    --accent:#c8791b; --accent-soft:#f4e6d2; --alta:#c0392b; --media:#c8791b; --baja:#4b7a3f;
+    --done:#2f7d4f; --done-soft:#e2f1e8; --shadow:0 1px 2px rgba(0,0,0,.04),0 6px 20px rgba(0,0,0,.05);
+  }
+  :root[data-theme="dark"]{
+    --bg:#16140f; --surface:#211d17; --ink:#f0ece4; --muted:#a29a8c; --line:#332e26;
+    --accent:#e6a63d; --accent-soft:#3a2d16; --alta:#ef6a5c; --media:#e6a63d; --baja:#7bbf6a;
+    --done:#6cc38c; --done-soft:#1e3327; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+  header.top{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:8px}
+  .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{font-size:clamp(26px,5vw,38px);margin:.15em 0 .1em;letter-spacing:-.02em;text-wrap:balance}
+  .sub{color:var(--muted);font-size:15px;max-width:60ch}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.02em;
+    border:1px solid var(--line);white-space:nowrap}
+  .p-alta{color:#fff;background:var(--alta);border-color:transparent}
+  .p-media{color:#3a2d0a;background:var(--media);border-color:transparent}
+  .p-baja{color:#fff;background:var(--baja);border-color:transparent}
+  .eff{color:var(--muted);background:transparent}
+  h2{font-size:20px;margin:38px 0 4px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  h2 .n{font-size:13px;color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums}
+  .sec-note{color:var(--muted);font-size:13px;margin:0 0 14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .card.feat{border-color:var(--accent);border-width:1.5px}
+  .card h3{margin:0 0 2px;font-size:16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .card .meta{display:flex;gap:6px;margin-left:auto}
+  .card p{margin:6px 0;font-size:14px}
+  .card p.why{color:var(--muted)}
+  .card p.fix{color:var(--ink)}
+  .card .fix b{color:var(--accent)}
+  code{background:var(--accent-soft);color:var(--ink);padding:1px 6px;border-radius:6px;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  .flow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  @media(max-width:560px){.flow{grid-template-columns:1fr}}
+  .branch{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--bg)}
+  .branch h4{margin:0 0 6px;font-size:14px}
+  .branch.averia h4{color:var(--alta)} .branch.notrab h4{color:var(--baja)}
+  .branch ul{margin:6px 0 0;padding-left:18px} .branch li{font-size:13px;margin:3px 0}
+  .done{background:var(--done-soft);border:1px solid transparent;border-radius:14px;padding:16px 18px;margin:8px 0 4px}
+  .done h3{margin:0 0 6px;font-size:15px;color:var(--done)}
+  .done ul{margin:0;padding-left:18px} .done li{font-size:13.5px;margin:3px 0}
+  ol.order{counter-reset:s;list-style:none;padding:0;margin:14px 0 0}
+  ol.order li{position:relative;padding:10px 0 10px 42px;border-top:1px solid var(--line);font-size:14px}
+  ol.order li:before{counter-increment:s;content:counter(s);position:absolute;left:0;top:8px;
+    width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-weight:800;
+    font-size:13px;display:flex;align-items:center;justify-content:center}
+  footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+  .day-group{margin-top:40px}
+  .day-group + .day-group{margin-top:64px;padding-top:36px;border-top:1px dashed var(--line)}
+  .day-heading{font-size:clamp(20px,3.4vw,26px);font-weight:800;letter-spacing:-.01em;
+    color:var(--ink);display:flex;align-items:center;gap:10px;
+    margin:0 0 8px;padding-bottom:14px;border-bottom:2px solid var(--ink)}
+
+  /* Barra de filtros */
+  .filterbar{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;margin:18px 0 10px;box-shadow:var(--shadow)}
+  .filter-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+  .filter-row:last-child{margin-bottom:0}
+  .filter-label{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.08em;margin-right:2px;white-space:nowrap}
+  .filter-chip{font:inherit;font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;
+    cursor:pointer;letter-spacing:.02em;white-space:nowrap;border:1px solid var(--line);
+    transition:opacity .15s,background .15s,color .15s,box-shadow .15s}
+  .filter-chip.chip-neutral{background:var(--bg);color:var(--ink)}
+  .filter-chip.chip{opacity:.5;border-color:transparent}
+  .filter-chip.chip.active{opacity:1;box-shadow:0 0 0 2px var(--ink) inset}
+  .filter-chip.chip-neutral.active{background:var(--accent);color:#fff;border-color:transparent}
+  .filter-select{font:inherit;font-size:12.5px;padding:6px 10px;border-radius:10px;
+    border:1px solid var(--line);background:var(--bg);color:var(--ink);max-width:100%}
+  .filter-row-actions{justify-content:space-between}
+  .filter-toggle{font:inherit;font-size:12px;font-weight:700;padding:7px 14px;border-radius:10px;
+    border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);cursor:pointer;
+    white-space:nowrap}
+  .filter-toggle[aria-pressed="true"]{background:var(--accent);color:#fff}
+  .filter-count{font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap}
+  @media(max-width:560px){
+    .filterbar{padding:14px}
+    .filter-row-actions{flex-direction:column;align-items:stretch;gap:10px}
+    .filter-select{width:100%}
+    .filter-toggle{width:100%}
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Auditoría de código · backend + frontend</div>
+    <h1>Plan de mejoras — Control de Combustible</h1>
+    <p class="sub">Revisión de <code>supabase/</code> (schema, triggers, RLS, cron) y de la app Expo (theme, componentes, pantallas de inspecciones, pagos, inventario). Lo ordené por impacto y esfuerzo, con el nuevo rediseño de <b>máquina parada</b> de primero.</p>
+    <div class="legend">
+      <span class="chip p-alta">Alta prioridad</span>
+      <span class="chip p-media">Media</span>
+      <span class="chip p-baja">Baja</span>
+      <span class="chip eff">◷ esfuerzo estimado</span>
+    </div>
+  </header>
+
+  <div class="filterbar" id="filterbar">
+    <div class="filter-row" id="filter-row-priority">
+      <span class="filter-label">Prioridad</span>
+      <button type="button" class="filter-chip chip-neutral active" data-filter="priority" data-value="todas">Todas</button>
+      <button type="button" class="filter-chip chip p-alta" data-filter="priority" data-value="alta">Alta</button>
+      <button type="button" class="filter-chip chip p-media" data-filter="priority" data-value="media">Media</button>
+      <button type="button" class="filter-chip chip p-baja" data-filter="priority" data-value="baja">Baja</button>
+    </div>
+    <div class="filter-row" id="filter-row-status">
+      <span class="filter-label">Estado</span>
+      <button type="button" class="filter-chip chip-neutral active" data-filter="status" data-value="todas">Todas</button>
+      <button type="button" class="filter-chip chip-neutral" data-filter="status" data-value="hecho">✓ Hecho</button>
+      <button type="button" class="filter-chip chip-neutral" data-filter="status" data-value="planificado">◔ Planificado</button>
+      <button type="button" class="filter-chip chip-neutral" data-filter="status" data-value="pendiente">Pendiente</button>
+    </div>
+    <div class="filter-row">
+      <label class="filter-label" for="filter-section">Actividad / sección</label>
+      <select class="filter-select" id="filter-section">
+        <option value="">Todas las actividades</option>
+      </select>
+    </div>
+    <div class="filter-row filter-row-actions">
+      <button type="button" class="filter-toggle" id="order-toggle" aria-pressed="false">↕ Ordenar pendientes por prioridad</button>
+      <span class="filter-count" id="filter-count">Mostrando… de …</span>
+    </div>
+  </div>
+
+  <section class="day-group" id="day-2026-08-07">
+    <h2 class="day-heading">📅 07/08/2026</h2>
+
+  <h2><span class="n">00</span> Rediseño del inspector (header/hero/KPIs/buscador) — pasa de preview a producción</h2>
+  <p class="sec-note">Pedido: "corrige esas vistas, revisa bien todas las vistas y funcionalidades... despliega múltiples agentes". El rediseño ya existía en el código desde antes, pero detrás de un parámetro <code>?ui=v2</code> que solo se activaba en <b>web</b> — en el teléfono real nadie lo veía nunca, así que el problema reportado (header con "SALIR"/"CERRAR SESIÓN" encimados, KPIs en cápsulas chicas) en realidad era la vista VIEJA, no la nueva.</p>
+
+  <div class="card feat">
+    <h3>uiV2 pasa a ser el default (header limpio, hero con QR grande, KPIs 2×2, buscador + pestañas) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">2 agentes en paralelo confirmaron: <code>InspectorHeaderBar</code>, <code>InspectorHeroCard</code> (CTA "ESCANEAR QR" + grid 2 columnas) y <code>InspectorKpiGrid</code> (2×2, mismos disparadores de filtro de siempre) ya estaban construidos y conectados en <code>SupervisorScreen.tsx</code> — solo bloqueados por <code>Platform.OS==='web' && ?ui=v2</code>. De paso encontraron un botón "Cerrar sesión" duplicado (el header nativo de toda la app ya trae uno) y una campana 🔔 de notificaciones sin acción asignada, siempre atenuada/inactiva.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>uiV2</code> ahora es <code>true</code> siempre (nativo y web, sin parámetro). Se quitó el "Cerrar sesión" repetido del menú del avatar (queda solo el del header). <code>InspectorHeaderBar</code> ya no pinta la campana si no recibe una acción real (antes se veía siempre, apagada, como un botón roto). La rama vieja se deja intacta en el archivo como respaldo instantáneo (revertir es una sola línea) — pendiente quitarla del todo en una limpieza aparte una vez confirmado en producción por unos días.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Carga inicial del inspector: 3 consultas independientes en paralelo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Auditoría de rendimiento: <code>load()</code> encadenaba <code>reloadAssigns()</code>, <code>myVisitsToday()</code> y <code>reloadEstados()</code> una detrás de otra aunque ninguna depende del resultado de la anterior — 3 idas y vueltas de red en serie en cada apertura/refresco de la pantalla.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> las 3 corren con <code>Promise.all</code>. Mismo resultado final, carga inicial más rápida. <b>Sin tocar</b> (riesgo/beneficio no lo justificaba hoy): el doble fetch de datos de máquina entre <code>listInspectorAssignments()</code> y el <code>selectAllRows('machinery')</code> de <code>load()</code> — tiene 8 consumidores más que revisar antes de tocarlo; y la re-evaluación de <code>segmentoDe()</code> en 5 <code>useMemo</code> distintos — es la función de clasificación más delicada del sistema (ya causó varios bugs reales esta sesión), no se toca sin motivo concreto.</p>
+  </div>
+
+  <h2><span class="n">01</span> Auditoría de Surtir combustible / Asistencia de camiones (rol conductor)</h2>
+  <p class="sec-note">3 agentes en paralelo, uno por pantalla + uno comparando contra la guía/manual del Chofer de Combustible.</p>
+
+  <div class="card feat">
+    <h3>5 hallazgos corregidos <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> (1) la sección "Reportar avería" en <code>FuelDriverScreen.tsx</code> no se limpiaba al cambiar de máquina — podía mandar fotos/notas de una máquina pegadas a otra. (2) Litros/monto no se limpiaban al cambiar entre Combustible/Aceite/Aire. (3) El mismo chofer tenía el tope de "2× consumo diario" activo en "Asistencia → Gasoil" pero desactivado en "Surtir" — mismo rol, misma acción real, resultado distinto; ahora <code>SurtidoGasoilModal</code> acepta <code>skipDailyCap</code> y se activa solo para <code>role==='conductor'</code> (los demás roles que usan ese modal no cambian). (4) <code>finalizarJornada</code> de un camión en Asistencia no validaba horómetro final ≥ inicial (un typo se guardaba y se arrastraba al día siguiente). (5) Guía PDF del Chofer de Combustible actualizada — describía solo el flujo viejo, sin el selector Combustible/Aceite/Aire ni el reporte de avería.</p>
+  </div>
+
+  <h2><span class="n">02</span> Combustible: además de surtir, ahora se puede registrar Aceite y Aire</h2>
+  <div class="card feat">
+    <h3>Selector "¿Qué vas a surtir?" en el teléfono del chofer <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> tabla nueva <code>machine_services</code> (aparte de <code>dispatches</code>, que tiene el tope de "1 carga de combustible por máquina/día" y descuenta un tanque — ni Aceite ni Aire deben chocar con eso). Aceite pide litros + monto opcional; Aire no lleva cantidad, solo una nota libre.</p>
+  </div>
+
+  <h2><span class="n">03</span> Panel "Gestionar iniciada/pendiente" (Inspecciones, admin): una sola fuente de verdad</h2>
+  <div class="card feat">
+    <h3>El panel tenía su propio cálculo de estado, desincronizado del dashboard <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">El panel mostraba estados que no coincidían con las tarjetas ✅ Activas ahora / 🏁 Cerradas / ⏳ Pendientes / 🟡 Paradas / 🔴 Averiadas de arriba: no veía averías arrastradas de días anteriores, nunca detectaba "Cerrada" (su propio "iniciada" ya contaba también las cerradas-con-horas), y una parada arrastrada no respetaba el turno en que se marcó.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se extrajo el cálculo del dashboard (<code>daySets</code>) a <code>buildDaySets(turno)</code> reusable para día y noche a la vez (<code>daySetsByShift</code>); el panel Gestionar ahora lee literalmente esa misma fuente — ya no puede haber drift porque no hay dos cálculos. Verificado con 2 agentes (auditoría del refactor + trazado manual de 5 escenarios reales). De paso: buscador propio por máquina/inspector dentro del panel, y 3 acciones nuevas (Cerrar/Finalizar, Parada, Avería en bloque) además de Activar/Pendiente — cubre los 5 estados reales.</p>
+  </div>
+
+  <h2><span class="n">04</span> Catálogo de edificios actualizado a la lista real + mejoras en Catálogo (Equipos)</h2>
+  <div class="card feat">
+    <h3>Nombres reales de los 21 edificios/puntos + avería visible + fotos en inactivas <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>public.edificios</code> actualizado (SQL corrido en producción) con la lista confirmada por el cliente — nombres corregidos (Santa Eduviges, Litoral Palace, Las Palmas, Rita Mar, Club Caribe, Residencia Tachiti, OPP en mayúsculas) y 8 nuevos agregados; las reglas de <code>edificioCanonico()</code> siguen aceptando la ortografía vieja para no perder texto histórico. En el Catálogo: insignia 🔴 Averiada / 🟡 Parada visible por máquina (antes solo en Inspecciones), miniatura tocable + botones de foto en máquinas <b>inactivas</b> (antes solo en activas), y la lista del CHECK MÁQUINA ya no muestra inactivas.</p>
+  </div>
+
+  <h2><span class="n">05</span> Reporte de inspectores: imagen descargable de cierre de jornada</h2>
+  <div class="card feat">
+    <h3>Cada inspector puede descargar su propio respaldo al terminar el turno <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> botón "📄 Descargar mi reporte de cierre" que aparece cuando el inspector ya no tiene ninguna máquina de su turno con jornada abierta; genera una imagen PNG con sus máquinas/horas/estado, usando <b>la misma función de cálculo</b> que el reporte oficial que imprime el jefe (para que nunca se desincronicen). También: Distribución de Uniformes ahora permite seleccionar varios empleados y sacar UNA nota de entrega consolidada con firma por persona (pedido del coordinador logístico).</p>
+  </div>
+
+  <h2><span class="n">06</span> Optimización integral del sistema (front + back + móvil) — auditoría con ~20 agentes</h2>
+  <p class="sec-note">Pedido explícito: "optimización completa del sistema, todo — despliega múltiples agentes". Se auditó cada pantalla de <code>src/screens/</code> (una por una, agentes en paralelo), el backend/SQL completo, y código muerto/CSS duplicado. Los hallazgos de riesgo real y bajo esfuerzo se corrigieron ya; los que cambian reglas de negocio o cálculos financieros quedaron documentados para decisión del cliente, sin tocarlos (regla del pedido: "cero destrucción de lógica").</p>
+
+  <div class="card feat">
+    <h3>3 bugs de dinero corregidos (nómina/pagos) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">En <code>NominaScreen.tsx</code> y <code>PagoPersonalScreen.tsx</code>, la función que convierte el texto tecleado a número borraba TODOS los puntos antes de leerlos (pensado para separador de miles) — si alguien escribía el sueldo/bono con punto decimal (p. ej. "450.50"), quedaba guardado como 45050: el monto quedaba 100 veces inflado. En <code>ControlPagosScreen.tsx</code>, dejar vacío el campo de precio general del tabulador y guardar lo interpretaba como "cambió a $0" para ese modelo de máquina completo.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la conversión ahora solo cambia coma→punto (no borra puntos), igual que ya hacían otras pantallas del sistema; el campo de tabulador general vacío ahora se ignora en vez de guardarse como 0.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Crash real evitado + 5 canales de tiempo real con nombre fijo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why"><code>WorkCentersScreen.tsx</code> cortaba con un <code>return</code> antes de llamar a todos sus hooks de React cuando el permiso todavía no cargaba (justo después de iniciar sesión) — viola las Rules of Hooks y React puede romper la pantalla con "Rendered more hooks than during the previous render". Aparte, 5 pantallas (Control de Maquinaria, Control de Pagos, Dashboard, Mapa, Reportes ×2) abrían su canal de Supabase Realtime con un nombre fijo en vez de uno único por instancia — si la pantalla llegaba a montarse dos veces a la vez, Supabase rompe con "cannot add postgres_changes after subscribe()".</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el chequeo de permiso se movió después de los hooks. Los 5 canales ahora usan un id único de instancia (mismo patrón que ya usaba <code>useRealtimeRefresh</code>), vía un helper nuevo <code>nextRtInstanceId()</code>.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Compras → Proveedores: un usuario de solo lectura podía crear/editar/borrar <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la pestaña Proveedores ignoraba el permiso de escritura del módulo (a diferencia de Solicitudes/Órdenes, que sí lo respetan). Ahora usa el mismo <code>canWrite</code>.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Vista de Asistencia de camiones (chofer): 4 ajustes visuales <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> placeholder del buscador acortado (se cortaba a media palabra); el ícono junto a la placa ya no se confunde con el de avería/mantenimiento; "Avería" pasa de un ámbar casi idéntico al de "Jornada" a un azul distinto (Jornada/Avería/Gasoil ahora se distinguen a simple vista); el nombre de la empresa se separó a su propia línea (antes se cortaba compartiendo espacio con el código del camión).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>"Máquinas sin ubicación" del reporte de Conteo, que siempre daba 0 <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> restaba contra el campo equivocado (uno diseñado para dar siempre el total, no el conteo real por GPS) — ahora resta contra <code>ubicadosGps</code>, el campo correcto que ya existía.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Limpieza: 9 archivos huérfanos eliminados (~1430 líneas muertas) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> verificados con grep/tsc que no los importa nadie: pantallas viejas ya reemplazadas (<code>LoginScreen.tsx</code>, <code>MachineryScreen.tsx</code>, <code>TanksPilot.tsx</code>) y 6 generadores de reporte de una versión anterior, ya sustituidos por los actuales.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Mecanismo "inspector maquinas faltantes" desactivado (pedido explícito) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Automatización confirmada el 04/08/2026: cada 15 min asignaba las máquinas sin inspector humano a un usuario virtual y le cargaba horas automáticas (12-24h/día) que entraban en nómina. El cliente pidió revertirlo: "que las máquinas sin asignar salgan sin asignar y ya".</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL corrido por el cliente):</b> <code>supabase/desactivar_maquinas_faltantes.sql</code> — respalda y quita las asignaciones activas de ese usuario (las máquinas pasan a verse como "Sin inspector / por asignar", igual que el resto de la UI ya maneja) y apaga los 3 cron jobs. No se tocó el usuario/perfil en sí, ni el historial de horas ya generado (integridad de nómina de días pasados intacta).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Backend: índices + RLS más estricto (SQL preparado, pendiente de correr) <span class="meta"><span class="chip" style="background:var(--accent);color:#fff;border-color:transparent">⏳ Pendiente</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Auditoría de Supabase: <code>attendance</code> y <code>uniform_deliveries</code> eran escribibles por cualquier usuario autenticado (no solo por quien tiene el módulo de asistencia, pese a que el propio esquema documentaba esa restricción); <code>supervisor_visits</code> (valida jornadas para el pago) y <code>control_closures</code> (dispara el cierre/pago semanal) también, sin exigir rol admin/supervisor. <code>stock_movements</code> no tenía índice para el borrado que hacen los triggers de combustible en cada edición.</p>
+    <p class="fix"><b>Preparado, no ejecutado:</b> <code>supabase/mejoras_seguridad_rendimiento.sql</code> — 100% aditivo (ningún DELETE de datos), pero endurece políticas RLS, así que se deja para que el cliente lo corra con respaldo previo, no se aplica solo.</p>
+  </div>
+
+  </section>
+
+  <section class="day-group" id="day-2026-08-06">
+    <h2 class="day-heading">📅 06/08/2026</h2>
+
+  <h2><span class="n">00</span> Vista de inspectores: "Todas las máquinas" ya no vuelca ~200 filas de una vez</h2>
+  <p class="sec-note">Pedido directo: "quiero que ese apartado sea expandible o retraible, y que funcione con los filtros esos que estan ahi, para que no me muestre todo de una sola vez".</p>
+
+  <div class="card feat">
+    <h3>Lista de "Todas las máquinas" (admin/coordinador) ahora es colapsable <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">En <code>SupervisorScreen.tsx</code>, al tocar "Ver todas" (admin/coordinador), la lista pintaba de una sola vez hasta 100 máquinas (de ~198 en total) debajo del buscador y los chips de segmento (Todas/Pendientes/Iniciadas/Paradas/Por avería) — esos chips ya filtraban bien, pero no había forma de ocultar el resultado hasta elegir uno.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó un botón <b>"Ver resultados / Ocultar resultados"</b> (con el contador de cuántas hay) entre los chips y la lista; la lista arranca <b>colapsada</b> y no pinta ninguna fila hasta que se despliega. El buscador y los chips de segmento siguen funcionando exactamente igual (filtran <code>searchList</code>, que ya alimentaba tanto el contador del botón como las filas) — así, si el usuario elige un chip como "Paradas (58)" antes de desplegar, al abrir ve solo esas 58, no las ~198 de golpe. La sección "Mis máquinas asignadas" (vista normal del inspector) ya tenía este mismo comportamiento por estado desde el 05/08/2026 y no se tocó.</p>
+  </div>
+
+  <h2><span class="n">01</span> Módulo de Fabricación (MRP) — Fase 1: Mangueras hidráulicas</h2>
+  <p class="sec-note">Primera fase de un módulo de Fabricación (MRP) más amplio, para atender la lógica explicada por el equipo de administración y planta: llevar el control y la confección de mangueras hidráulicas del taller, con su costeo y autorización de pago.</p>
+
+  <div class="card feat">
+    <h3>Registro de mangueras por máquina, con estatus de instalación <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">No existía forma de llevar el control de cada manguera hidráulica confeccionada/reparada en el taller — código, máquina, material, costo, quién la hizo — quedaba disperso, sin trazabilidad ni forma de saber qué equipos generan más gasto recurrente en mangueras.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción):</b> nuevo módulo restringido por defecto ("Sin acceso", clave <code>'mangueras'</code> en la matriz de permisos, igual que Compras/Uniformes) — un administrador debe otorgar el acceso explícitamente desde <b>Usuarios → permisos por módulo</b>. Entrada propia <b>"🔧 Mangueras hidráulicas"</b> en el menú "Más". Nueva tabla <code>supabase/hose_services.sql</code> (código/numeración de la manguera, máquina asociada elegida del catálogo de maquinaria, descripción del trabajo, fecha, costo en US$, proveedor/operador del taller) y pantalla <code>src/screens/ManguerasScreen.tsx</code> con botón "+ Nueva manguera". Cada registro nace con estatus de instalación <b>🟡 En proceso</b> y se marca <b>🔧 Marcar instalada</b> cuando corresponde. No hay botón ni política de <code>DELETE</code> en la base de datos — el historial se conserva completo a propósito.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Pago/aprobación ("Chelia"), trazabilidad por máquina y reporte PDF <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Además de confeccionar la manguera hace falta controlar quién autoriza y paga cada una, y poder detectar de un vistazo qué máquina está generando más gasto por fallas recurrentes de mangueras.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> cada manguera tiene un estatus de pago independiente del de instalación — ⏳ Pendiente por pagar → 📤 En proceso de autorización → ✅ Pagado. Cualquiera con permiso de escritura en el módulo puede registrar la manguera y tocar "📤 Enviar a autorización"; solo quien tenga <b>Full control</b> en el módulo <code>mangueras</code> (otorgado puntualmente, ej. a Chelia, desde Usuarios → permisos, igual que antes con Diana para Uniformes) ve el botón "✅ Aprobar y marcar pagado" — queda guardado quién aprobó y cuándo (<code>approved_by</code>/<code>approved_at</code>). El buscador "🚜 Filtro y consulta por equipo" (por código/serial/placa) filtra todo el historial a una sola máquina y muestra el total invertido en US$ y su equivalente en Bs (tasa BCV del día); sin filtrar por máquina, ese mismo total respeta cualquier combinación de filtros activos (estado de instalación, estado de pago, búsqueda de texto). Botón <b>"📄 Reporte de confección y pago"</b> (<code>src/lib/hoseServiceReport.ts</code>) exporta el listado filtrado en PDF con el resumen, el detalle por manguera y quién la registró/aprobó.</p>
+  </div>
+
+  <h2><span class="n">02</span> Manual de Ayuda → "📄 Guías descargables" (una hoja de referencia PDF por rol)</h2>
+  <p class="sec-note">Pedido directo, a partir de una guía de muestra ("Guía del Inspector") que ya traía el cliente: hacer el mismo tipo de PDF — pasos numerados + mockups de pantalla + tabla resumen — pero para cada rol, y ponerlas descargables dentro del Manual de Ayuda.</p>
+
+  <div class="card feat">
+    <h3>Kit visual compartido + 8 guías por rol, descargables desde el Manual <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">La guía de muestra del cliente ("Guía del Inspector") tiene un estilo propio muy elaborado (portada con pastilla de marca, pasos numerados en círculo azul, mockups de pantalla de teléfono, recuadros de aviso azules/amarillos, tabla "Botón → Qué hace" y una tabla resumen final "Situación → Qué hacer") — muy distinto a los reportes de datos que ya existían en el sistema. Además cada rol tiene un flujo de trabajo real distinto (inspector, operador, cocina, coordinador de patio, chofer de combustible, coordinador QR, analista, administrador) y no hay forma de adivinar los pasos correctos sin leer el código de cada pantalla — inventar el contenido habría dado una guía incorrecta.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se creó un kit visual reutilizable (<code>src/lib/guides/guideBuilder.ts</code>) con todas las piezas de la guía de muestra (portada, pasos numerados, mockups de pantalla de teléfono armables por piezas — campos, botones, tarjetas, listas —, recuadros de info/aviso, tablas) para que las 8 guías se vean visualmente iguales entre sí. Antes de escribir cada una se auditó el código real de la pantalla de ese rol (<code>OperatorScreen.tsx</code>, <code>MachineQuickScreen.tsx</code>, <code>CocinaScreen.tsx</code>, <code>PatioScreen.tsx</code>, <code>FuelDriverScreen.tsx</code>, <code>CoordinadorQrPanel.tsx</code>, <code>AuthContext.tsx</code> para el permiso fijo del analista, y el enrutamiento del administrador en <code>RootNavigator</code>) para que los botones, campos y reglas citados en cada PDF sean EXACTAMENTE los que existen hoy en la app, con sus mismos textos y emojis. Las 8 guías (<code>src/lib/guides/*Guide.ts</code>: Inspector, Operador, Cocina, Coordinador de Patio, Chofer de Combustible, Coordinador QR, Analista, Administrador) se exportan como PDF reutilizando el mismo mecanismo de descarga/impresión que el resto de reportes de la app (<code>exportPdf</code> de <code>src/lib/pdf.ts</code>). Nueva sección "📄 Guías descargables" en <code>ManualScreen.tsx</code> (Más → Manual / Ayuda), visible para todos, con un botón "📄 Descargar" por rol.</p>
+  </div>
+
+  <div class="card">
+    <h3>Ajuste: tarjeta plegable + se quitó la guía de Administrador <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la tarjeta "📄 Guías descargables" ahora es <b>plegable</b> (arranca cerrada; se toca el encabezado para desplegar la lista de 7 botones), igual que el resto de tarjetas del manual. Se retiró la guía del Administrador de la lista (y su archivo <code>src/lib/guides/adminGuide.ts</code>, que quedó huérfano) a pedido del cliente — quedan 7 guías: Inspector, Operador, Cocina, Coordinador de Patio, Chofer de Combustible, Coordinador QR y Analista.</p>
+  </div>
+
+  <h2><span class="n">03</span> Resumen de Inspecciones: el cajón "MAQUINAS FALTANTES" ya no muestra un % de eficiencia falso</h2>
+  <p class="sec-note">Pedido directo: "esas maquinas faltantes no les asignes ese porcentaje, si no que haya una lista desplegable... de máquinas por asignar para poder asignarlas".</p>
+
+  <div class="card feat">
+    <h3>Sin % de eficiencia para el cajón del sistema + desplegable para asignarlas a un inspector real <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">En "👷 POR INSPECTOR" (<code>InspectionsSummary.tsx</code>), la barra "MAQUINAS FALTANTES" (el usuario de sistema que cubre automáticamente los turnos sin inspector humano, ver <code>PLACEHOLDER_INSPECTOR_ID</code>) se calculaba EXACTAMENTE igual que cualquier inspector real, incluyendo un % de "eficiencia" — un número sin sentido, porque no es una persona chequeando nada.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se reutilizó el mismo criterio que ya usaba esta pantalla para detectar el cajón del sistema (<code>sinInspectorReal()</code>, por nombre) y ahora esa barra muestra "—" en vez de un %. En su lugar, debajo de las barras aparece una tarjeta plegable <b>"🧩 Máquinas por asignar (N)"</b> (arranca cerrada) con la lista completa de esas máquinas; cada una tiene un botón <b>"Asignar ▾"</b> que despliega los inspectores reales disponibles (mismos roles que puede elegir el CHECK MÁQUINA del teléfono: supervisor/coordinador de patio) — al tocar un nombre, la máquina se le asigna de inmediato para ese turno (mismo mecanismo que el CHECK MÁQUINA, <code>assignInspector()</code>), queda en la Auditoría, y la lista se actualiza sola.</p>
+  </div>
+
+  <div class="card">
+    <h3>Ajuste: se quitó la barra "MAQUINAS FALTANTES" del gráfico <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> con la tarjeta "🧩 Máquinas por asignar (N)" ya cubriendo ese cajón (punto anterior), mostrarlo TAMBIÉN como una barra vacía sin eficiencia real en "👷 POR INSPECTOR" era redundante — se quitó "MAQUINAS FALTANTES" de <code>inspShown</code> (la lista que alimenta las barras) en <code>InspectionsSummary.tsx</code>. El desplegable de asignación no se tocó.</p>
+  </div>
+
+  <div class="card">
+    <h3>Corrección posterior (mismo día): el filtro "solo cuenta como avería si es de HOY" era la regla incorrecta <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Corrección — ver punto 07 más abajo:</b> este trabajo sobre <code>InspectionsSummary.tsx</code> traía un criterio de "SOLO cuenta como avería la que se reportó ESE mismo día" (para alinear el panel admin con lo que hacía el teléfono en ese momento). Más tarde, hoy mismo, se determinó que esa regla era la incorrecta: una avería real pendiente debe seguir contando como avería TODOS los días hasta resolverse, no solo el día que se reportó — igual que ya pasaba con "parada". Se corrigió en ambas pantallas (teléfono y admin); detalle completo en el punto <b>07</b> de este mismo día. Esta entrada se deja tal cual como registro histórico.</p>
+  </div>
+
+  <h2><span class="n">04</span> Botón "atrás" del navegador y URL de inicio por rol</h2>
+  <p class="sec-note">Reporte: el botón "atrás" del navegador podía dejar la app trabada/en blanco. Se investigó la causa de raíz en el sistema de enlaces (<code>linking</code>) de React Navigation.</p>
+
+  <div class="card feat">
+    <h3>Corregido: <code>linking</code> por árbol de navegación + URL de inicio por rol al iniciar sesión <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">En <code>src/navigation/index.tsx</code> había UN solo objeto <code>linking</code> global con las pantallas de TODOS los árboles de rol (Tabs/"Más", SupervisorTabs, PatioStack, CoordinadorStack, FuelDriverStack, CombustibleStack) mezcladas como si fueran hermanas de un mismo navegador. Eso era estructuralmente incorrecto: pantallas como "Asistencia"/"Manual"/"Camiones" estaban declaradas SOLO anidadas bajo "Más" en la config, pero para roles como coordinador de patio o el rol dinámico "coordinador" esas mismas pantallas son de nivel superior en su propio stack (sin "Más" de por medio). Ese descalce entre la forma de la config y la forma real del navegador montado rompía <code>getPathFromState</code>/<code>getStateFromPath</code> de React Navigation — la causa más probable de que el botón "atrás" pudiera aterrizar en una URL que no resolvía a ninguna pantalla real, dejando la app trabada/en blanco. De paso, la pantalla "Mangueras hidráulicas" (agregada hoy, ver punto 01) había quedado fuera del <code>linking</code> por completo — un descuido de cuando se sumó el módulo.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>linking</code> ahora se arma POR árbol de navegación (unión <code>TreeKey</code>: <code>'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'operador' | 'cocina'</code>), vía un mapa <code>TREE_LINKING</code> donde cada entrada refleja EXACTAMENTE las pantallas del Stack/Tab real de ese árbol (se extrajo <code>pickTree()</code>, que decide qué árbol/pantalla renderizar y además devuelve su <code>key</code> para elegir el <code>linking</code> correcto). La prop <code>linking</code> del <code>NavigationContainer</code> es ahora un <code>useMemo</code> según el árbol resuelto, en vez de un único objeto superset estático. Se agregó "Mangueras" (ruta "mangueras") al <code>linking</code>. Además, al iniciar sesión, si no hay un deep link en la URL (el navegador está en "/"), la app reescribe la URL (<code>history.replaceState</code>, sin recargar) a la ruta "home" de ese rol: admin/rol genérico → <code>/inicio</code>, supervisor → <code>/revisar</code>, coordinador de patio → <code>/patio</code>, rol dinámico "coordinador" → <code>/panel</code>, chofer de combustible → <code>/surtir</code>, rol solo-combustible en teléfono → <code>/combustible-directo</code>. Así la barra de direcciones y el historial arrancan siempre desde una URL que sí resuelve a una pantalla real, y el botón "atrás" tiene a dónde volver. No se tocó el comportamiento de "tocar Más = ver el menú" (listener <code>tabPress</code> ya existente), que sigue funcionando igual.</p>
+  </div>
+
+  <h2><span class="n">05</span> Módulo de Fabricación (MRP) — Fase 2: Maestros (Centros de trabajo · Recetas/BoM · Rutas)</h2>
+  <p class="sec-note">Extiende el módulo de Fabricación (Fase 1: mangueras hidráulicas) hacia un MRP completo, a pedido del cliente. Fase 2 son los datos maestros sobre los que corre todo lo demás: 100% aditivo, ninguna tabla ni pantalla existente se modificó de forma destructiva.</p>
+
+  <div class="card feat">
+    <h3>Centros de trabajo, Recetas (BoM) y Rutas de producción <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">Para planificar y costear una orden de fabricación hacen falta tres maestros que no existían: dónde se produce (centros de trabajo: máquinas/áreas/cuadrillas, con su costo por hora), qué lleva cada producto (receta/BoM: componentes, cantidad, merma, sustitutos) y en qué secuencia se hace (ruta de producción: pasos por centro de trabajo, con puntos de control de calidad opcionales).</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_maestros.sql</code>):</b> nueva columna <code>inventory_items.item_kind</code> (general/materia prima/componente/producto terminado — default <code>'general'</code>, no toca ni una fila existente) y tres tablas nuevas: <code>work_centers</code>, <code>bom_versions</code> (con índice único parcial: solo UNA receta "activa" por producto, lo garantiza la base de datos) y <code>production_routes</code> (mismo candado: solo UNA ruta activa por producto). Tres pantallas nuevas — <code>WorkCentersScreen.tsx</code>, <code>BomScreen.tsx</code> (+ <code>BomLinesEditor.tsx</code> para los renglones de componentes) y <code>RoutesScreen.tsx</code> (pasos reordenables, con control de calidad 📷 Foto / 📏 Medición / ✅ Aprobación por paso) — reutilizan el mismo permiso de módulo <code>'mangueras'</code> que ya gobierna Fabricación, sin crear una clave nueva. Se agregó <code>FabricacionHubScreen.tsx</code> como panel de entrada del módulo (Mangueras + Centros de trabajo + Recetas + Rutas en un solo lugar); la entrada "Fabricación" del menú "Más" ahora abre este panel en vez de ir directo a Mangueras. <code>ManguerasScreen.tsx</code> y su tabla <code>hose_services</code> no se tocaron — mangueras sigue funcionando exactamente igual que hoy.</p>
+  </div>
+
+  <div class="card">
+    <h3>Fases siguientes (planificadas, no construidas todavía) <span class="meta"><span class="chip" style="background:var(--warn);color:#fff;border-color:transparent">◔ Planificado</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XL</span></span></h3>
+    <p class="fix">Fase 3 — Órdenes de Fabricación/Trabajo, reserva de insumos con semáforo 🟢🟡🔴 e integración con Compras (reutilizando el flujo de "Requerimientos" que ya existe en Inventario, sin tabla nueva). Fase 4 — vista Kiosco de planta (tablet, botones grandes: iniciar/pausar/registrar cantidad/reportar falla/finalizar, escaneo QR de operario). Fase 5 — puntos de control de calidad como candado real, mantenimiento del taller (reutilizando <code>maintenance_requests</code>) y OEE. Fase 6 — trazabilidad por lote/serie. Cada fase es independiente y no requiere tocar las anteriores.</p>
+  </div>
+
+  <h2><span class="n">06</span> Control de Maquinaria: el analista ya puede poner y quitar horas (el precio sigue bloqueado)</h2>
+  <p class="sec-note">Trabajo de la compañera de equipo. Ajuste de permisos sobre el candado que traía el rol ANALISTA en Control de Maquinaria.</p>
+
+  <div class="card feat">
+    <h3>El analista edita libremente día/noche/parada/extra; el precio sigue solo para administrador <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Antes, en <code>ControlMaquinariaScreen.tsx</code>, el rol ANALISTA solo podía <b>INGRESAR horas nuevas</b> (campo vacío/0) — en cuanto un valor de día/noche/parada/extra ya estaba cargado, quedaba bloqueado con un 🔒 (<code>bloqueadoAnalista</code>) y solo un administrador podía corregirlo o quitarlo. Eso generaba fricción para algo tan simple como corregir un dato mal tipeado.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>bloqueadoAnalista</code> ahora siempre devuelve <code>false</code> — el analista puede <b>poner y quitar</b> horas de día/noche/parada/extra sin restricción, incluidas las que ya estaban cargadas. El único candado que se mantiene es el <b>PRECIO</b> de la jornada (<code>puedeEditarPrecio = !esAnalista</code>), que sigue exclusivo del administrador. Los cambios de horas del analista siguen quedando con su rastro como <code>ajuste_manual</code> en <code>machine_work_segments</code>, visible en "🕒 Ver tramos".</p>
+  </div>
+
+  <h2><span class="n">07</span> Avería PENDIENTE = averiada hasta resolver (arrastre) + sincroniza teléfono y resumen admin</h2>
+  <p class="sec-note">Trabajo de la compañera de equipo. Corrige el criterio de fecha que se había introducido hoy mismo en el punto 03 de este día (ver la nota de corrección agregada ahí) — la regla correcta para una avería real pendiente es que se arrastre día a día, no que decaiga al día siguiente.</p>
+
+  <div class="card feat">
+    <h3>Se quitó el filtro "solo cuenta si es de HOY" en ambas pantallas + misma prioridad de estados <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">El teléfono (<code>SupervisorScreen.tsx</code>) solo marcaba 🔴 avería el <b>mismo día</b> del reporte (filtraba por <code>created_at &gt;= hoy</code>); al día siguiente la máquina bajaba sola a "parada" (o a "pendiente" si era una avería pura), como si ya no hubiera falla. El resumen admin (<code>InspectionsSummary.tsx</code>) tenía el mismo criterio de "solo HOY" — agregado hoy mismo en el punto 03 de este día para alinearlo con el teléfono — pero ambos rompían el arrastre esperado: una avería real sin resolver debería seguir contando como avería, igual que ya pasa con "parada". Además, el resumen admin priorizaba "iniciada" por encima de avería/parada, mientras el teléfono priorizaba avería/parada por encima de iniciada — dos criterios distintos que desalineaban las cuentas por inspector entre ambas pantallas.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se quitó el filtro de fecha en ambas pantallas — en <code>SupervisorScreen.tsx</code>, la consulta de averías reales pendientes ya no lleva <code>.gte('created_at', hoy)</code>; en <code>InspectionsSummary.tsx</code> solo se conserva la cota <b>superior</b> (<code>&lt;= dayEndMs</code>, para no contar en un día pasado averías reportadas después). Con esto, una avería real pendiente mantiene la máquina <b>🔴 AVERIADA día tras día</b> hasta que alguien la marque operativa (🟢 Volver a OPERATIVA) — se arrastra, igual que "parada". También se igualó la prioridad de estados del resumen admin a la del teléfono: <b>avería &gt; parada &gt; iniciada &gt; pendiente</b> (antes era iniciada &gt; avería &gt; parada), tanto en <code>estadoOf()</code> como en el desglose por inspector. La <b>eficiencia no cambia</b> — sigue dependiendo solo de las máquinas dejadas pendientes/sin tocar. "No trabajó" (🟡 solo "MÁQUINA PARADA", sin avería real) sigue igual y también se arrastra, como ya lo hacía.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Corrección: "POR INSPECTOR" contaba máquinas inactivas que el teléfono jamás muestra <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Reporte del cliente con capturas: para Remberto Rojas, el teléfono mostraba 1 averiada + 6 paradas, pero el panel admin llegó a mostrar 21 averiadas con las MISMAS máquinas asignadas. Causa real: <code>SupervisorScreen.tsx</code> OCULTA a propósito del listado del inspector cualquier máquina inactiva o marcada no-operativa en el catálogo (<code>active=false</code> / <code>operational=false</code>), salvo que tenga jornada iniciada hoy (<code>visibleParaInspector()</code>, "TAREA 4" — para que el inspector no pierda tiempo con equipo ya retirado). <code>InspectionsSummary.tsx</code> no aplicaba ese mismo filtro: contaba TODAS las máquinas asignadas, incluyendo equipo inactivo con tickets de avería viejos jamás cerrados en Mantenimiento — máquinas que el inspector nunca ve ni puede tocar desde su teléfono.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó <code>machinery.active</code> al fetch de <code>InspectionsSummary.tsx</code> (ya traía <code>operational</code>) y se aplicó el MISMO criterio de visibilidad al armar cada inspector en el desglose "POR INSPECTOR": una máquina inactiva/no-operativa sin jornada de hoy queda excluida — del total ("N asignada(s)"), de la eficiencia y de las 4 categorías — exactamente igual que en el teléfono.</p>
+  </div>
+
+  <h2><span class="n">08</span> Módulo de Fabricación (MRP) — Fase 3: Órdenes de Fabricación (MO) y de Trabajo (WO)</h2>
+  <p class="sec-note">Tercera fase del MRP: convierte los maestros de la Fase 2 (centros de trabajo, recetas, rutas) en producción real — planifica, reserva insumos, ejecuta por centro de trabajo y cierra actualizando Inventario. 100% aditivo.</p>
+
+  <div class="card feat">
+    <h3>Órdenes de Fabricación: disponibilidad de insumos, "Solicitar faltantes" y cierre con movimiento de inventario <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">Con solo los maestros (Fase 2) no se podía planificar una producción real: faltaba saber si hay insumos suficientes, pedirlos si no los hay, ejecutar la orden y — al terminar — que el producto fabricado entrara al inventario y los componentes usados salieran, sin tocar el stock a mano.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_ordenes.sql</code>):</b> nueva tabla <code>manufacturing_orders</code> con código correlativo <b>MO-####</b> asignado por un trigger en la base (mismo mecanismo real que ya usa <code>REQ-####</code> en Requerimientos, con <code>pg_advisory_xact_lock</code> para no duplicarse en creaciones simultáneas). Pantalla <code>ManufacturingOrdersScreen.tsx</code>: al crear una orden se elige el producto, la app toma su receta y ruta <b>activas</b> y calcula un <code>components_snapshot</code> (cantidad de cada insumo × lo planificado, con la merma de la receta ya aplicada) que queda fijo aunque la receta cambie después. En el detalle, cada insumo muestra semáforo 🟢🟡🔴 contra el stock real de Inventario; si falta algo, <b>"📤 Solicitar faltantes"</b> crea un requerimiento en el mismo módulo de Compras que ya existe (sin tabla nueva). <b>"▶️ Iniciar producción"</b> genera las Órdenes de Trabajo (una por paso de la ruta). <b>"🔒 Cerrar orden"</b> registra en <code>inventory_movements</code> el consumo de cada insumo y la entrada del producto terminado (con su costo), y el PMP de Inventario se recalcula solo (el trigger existente no se tocó).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Órdenes de Trabajo: operario, tiempo, avance de cantidad, fallas y control de calidad <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">Cada paso de una orden de fabricación necesita gestionarse por separado: quién lo hace, cuánto lleva avanzado, si hubo una falla, y si ese paso es un punto de control de calidad, que no se pueda dar por completado sin aprobarlo.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> pantalla <code>WorkOrdersScreen.tsx</code> (vista de gestión de oficina, no la de planta — esa es la Fase 4): asignar operario, transicionar estado (iniciar/pausar/reanudar/completar/cancelar), registrar avance de cantidad, reportar falla (pausa la orden con el motivo) y aprobar/rechazar el punto de control de calidad cuando aplica (bloquea "Completar" hasta resolverlo). Cada acción queda en una bitácora inmutable (<code>wo_time_logs</code>, sin política de editar ni borrar) con quién y cuándo.</p>
+  </div>
+
+  <div class="card">
+    <h3>Fase 6 (planificada, no construida todavía) <span class="meta"><span class="chip" style="background:var(--warn);color:#fff;border-color:transparent">◔ Planificado</span><span class="chip p-media">Media</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="fix">Trazabilidad por lote/serie: desde la recepción del proveedor hasta la salida en el producto terminado.</p>
+  </div>
+
+  <h2><span class="n">09</span> Módulo de Fabricación (MRP) — Fase 4: Kiosco de planta</h2>
+  <p class="sec-note">Pantalla táctil, pensada para tablets de piso de planta, para que un operario trabaje una orden de trabajo sin navegar la vista de gestión de oficina.</p>
+
+  <div class="card feat">
+    <h3>Kiosco: identificación por carnet, iniciar/pausar/registrar/reportar falla/finalizar <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">La vista de oficina (<code>WorkOrdersScreen.tsx</code>) es correcta pero no es apta para un operario en el taller: mucho texto, botones pequeños, y exige tener una cuenta con login individual.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>PlantaKioskScreen.tsx</code> — botones grandes de un solo toque (mínimo 56px), flujo de 3 pasos: elegir centro de trabajo → elegir orden de trabajo → pantalla de acción. Antes de <b>"▶️ INICIAR"</b> pide identificar al operario escaneando su carnet (mismo escáner QR que ya usa la vista rápida de máquina) o escribiendo su cédula — no requiere una cuenta individual, queda guardado como texto (<code>operator_name</code>/<code>operator_cedula</code>) y enlazado a su perfil si tiene uno. <b>"🔢 REGISTRAR CANTIDAD"</b>, <b>"⚠️ REPORTAR FALLA/PARADA"</b> (con motivos preestablecidos) y <b>"✅ FINALIZAR"</b> reutilizan las mismas acciones/columnas que la vista de oficina — es la MISMA data, dos interfaces distintas. Si el paso es un punto de control de calidad pendiente, el kiosco NO deja finalizar (ni con trucos): muestra el aviso y exige que se apruebe desde oficina. Nuevo permiso de módulo <code>'fabricacion_planta'</code> (restringido por defecto), independiente del resto de Fabricación — un operario de planta no necesariamente debe ver costos/aprobaciones.</p>
+  </div>
+
+  <h2><span class="n">10</span> Módulo de Fabricación (MRP) — Fase 5: Candado real de calidad, mantenimiento del taller y OEE</h2>
+  <p class="sec-note">Blinda a nivel de base de datos lo que hasta ahora solo impedía la interfaz, y agrega mantenimiento preventivo + reportes de efectividad para los centros de trabajo.</p>
+
+  <div class="card feat">
+    <h3>Candado de calidad en la base de datos + horas acumuladas y alerta de mantenimiento del taller <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Hasta ahora, que una orden de trabajo con control de calidad pendiente no se pudiera "Completar" solo lo impedían las pantallas — nada bloqueaba un cambio directo a la tabla. Tampoco existía forma de saber cuándo un centro de trabajo necesita mantenimiento preventivo, como sí existe para la maquinaria (horómetro).</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_calidad_oee.sql</code>):</b> un trigger en <code>work_orders</code> rechaza cualquier intento de dejarla "completada" mientras sea un checkpoint de calidad con resultado pendiente — la única forma de pasar es aprobar/rechazar primero, exactamente el flujo que ya hacían las pantallas. <code>work_centers</code> ahora acumula horas reales (derivadas de la bitácora de eventos, sin sensor físico) y, al cruzar el umbral, genera una notificación para admin — mismo mecanismo que la alerta de horómetro de maquinaria. Mantenimiento del taller reutiliza <code>maintenance_requests</code> (sin tabla nueva): se relajó <code>machinery_id</code> a opcional y se agregó <code>work_center_id</code>, con un respaldo hecho antes de correr el cambio.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Reportes de Fabricación: OEE y costeo por orden (con PDF) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>ManufacturingReportsScreen.tsx</code> lee la vista <code>wo_oee</code> (insumos crudos por orden de trabajo — tiempo en proceso vs. pausada/falla, cantidad completada/planificada/scrap) y calcula del lado de la app <b>Disponibilidad × Rendimiento × Calidad = OEE</b>, con banda de color (🟢≥85% · 🟡60-84% · 🔴&lt;60%), filtrable por rango de fecha y centro de trabajo. Junto al OEE, un costeo por orden de fabricación (estimado vs. real, con la variación resaltada) con edición rápida del costo real para órdenes ya cerradas. Botón de exportar PDF con el mismo mecanismo que el resto de reportes de la app.</p>
+  </div>
+
+  <h2><span class="n">11</span> Resumen de Inspecciones: horas por máquina individual, con buscador y filtros</h2>
+  <p class="sec-note">Pedido directo: "al lado izquierdo dame las horas reales pero del día... quiero también que si yo las presiono, uno u otro, pueda ver la información completa por equipo de manera individual, equipo a equipo sus horas de uso y poder filtrar o poder buscar".</p>
+
+  <div class="card feat">
+    <h3>Tarjeta "Horas reales totales" (histórico completo) junto a "Horas reales" (del día) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">En el panel de detalle por inspector de <code>InspectionsSummary.tsx</code> solo existía "Horas reales", que en realidad ya estaba acotada al día seleccionado — no había ninguna cifra de horas acumuladas de TODO el historial.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó "Horas reales totales" al lado, calculada con una consulta liviana y paginada (<code>selectAllRows</code>) sobre <code>machine_rounds</code> sin filtro de fecha, sumada por máquina y luego por las máquinas del inspector seleccionado.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Al tocar cualquiera de las dos tarjetas: desglose máquina por máquina, con buscador y filtros de estado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Las dos tarjetas de horas eran solo un total agregado — para saber cuánto trabajó CADA máquina había que ir a otra pantalla y cruzar los datos a mano.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> tocar "Horas reales" o "Horas reales totales" abre una hoja inferior con TODAS las máquinas del inspector seleccionado, cada una con su código/placa/serial, su estado (🟢 iniciada / 🟡 parada / 🔴 avería / ⏳ pendiente, mismo criterio que ya usa el resto de la pantalla) y sus horas de HOY y TOTALES lado a lado — ordenadas por defecto según cuál tarjeta se tocó (día o total). Incluye un buscador (código/placa/serial) y chips de filtro por estado (Todas/Iniciadas/Paradas/Averiadas/Pendientes), con el mismo estilo visual que el resto de la pantalla.</p>
+  </div>
+
+  <h2><span class="n">12</span> Enrutamiento por rol: acceso directo a Inventario + el administrador ya no arranca en la vista de Supervisor</h2>
+  <p class="sec-note">Pedido directo: "inicié desde el teléfono con el usuario combustible y no me llevó directo a la vista de combustible... revisa las rutas para las vistas tanto desde la PC como del teléfono" y "el administrador o administradores no necesitan iniciar con la vista de supervisor".</p>
+
+  <div class="card feat">
+    <h3>Nuevo panel dedicado para un rol cuyo único módulo activo es Inventario <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Ya existía este mismo mecanismo para roles 100% de Combustible o 100% de Asistencia (entran directo a su módulo, sin pasar por "Más") — pero un rol dinámico 100% de Inventario todavía caía en el menú "Más" en vez de ir directo a Inventario.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó el mismo patrón (<code>esRolInventario</code> + panel dedicado) que ya usaban Combustible y Asistencia — un rol cuyos módulos activos son únicamente "Inventario" entra directo a esa pantalla al iniciar sesión, en teléfono y en PC.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>El administrador ya no arranca en la vista de Supervisor en el teléfono <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">En el teléfono, el administrador arrancaba siempre en la vista de Inspector ("Revisar") y tenía que tocar un botón "SISTEMA" para llegar a la app completa — una excepción puntual pensada originalmente para un usuario concreto que hace de inspector y de administrador a la vez, pero que terminó aplicándose también a cualquier administrador.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el administrador ahora arranca siempre en la app completa (Inicio) en el teléfono, sin pasar por "Revisar" ni por el botón SISTEMA. La excepción puntual de la persona que sí prefiere arrancar como inspector se mantuvo intacta, sin cambios en su comportamiento.</p>
+  </div>
+
+  <h2><span class="n">13</span> Este mismo documento: filtros por prioridad/actividad/estado + orden de pendientes por prioridad</h2>
+  <p class="sec-note">Pedido directo: "coloca las cosas por mejorar o pendientes en orden de prioridades y que pueda filtrar también por prioridad por actividad".</p>
+
+  <div class="card feat">
+    <h3>Barra de filtros (prioridad / actividad-sección / estado) + orden de pendientes por prioridad <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Este documento ya reunía todo el historial de mejoras, pero era un texto corrido sin forma de aislar solo lo de Alta prioridad, solo lo pendiente, o solo una sección/actividad puntual.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva barra de filtros arriba del historial (Prioridad, Estado, Actividad/sección — esta última generada sola a partir de las secciones reales del documento) con contador de resultados, y un botón para ordenar lo pendiente/planificado de mayor a menor prioridad dentro de cada sección (sin mezclar secciones ni días distintos, para no perder el contexto de cada una).</p>
+  </div>
+
+  <h2><span class="n">14</span> Módulo de Fabricación (MRP): auditoría completa con 5 agentes + corrección de los bugs críticos</h2>
+  <p class="sec-note">Pedido directo: "completa las actividades para el modulo de fabricacion, haz una revision completa de ese modulo... asigna multiples agentes para revisar todo del modulo, bugs y mejoras". Se auditaron en paralelo las 5 fases ya en producción (Mangueras, Maestros, Órdenes MO/WO, Kiosco de planta, y lo transversal de permisos/navegación/manual) y se corrigieron los hallazgos críticos/altos con 6 agentes más, cada uno en archivos distintos.</p>
+
+  <div class="card feat">
+    <h3>Mangueras: candado real de pago (no solo en la pantalla) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Se podía aprobar el pago de una manguera sin estar instalada, y el candado de "solo Full control aprueba" solo vivía en la pantalla — cualquier sesión autenticada podía marcarla pagada llamando directo a la base de datos, sin pasar por la app.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_fix_mangueras.sql</code>):</b> el botón de aprobar pago ahora exige que esté instalada primero, y la base de datos rechaza marcar "pagado" a cualquiera que no tenga nivel Full en el módulo (política RLS nueva), sin afectar quién puede registrar la manguera o "enviar a autorización" (eso se mantiene en nivel escritura, como ya funcionaba). También: el estatus de instalación queda bloqueado una vez pagada, costo no puede ser negativo, código de manguera no se puede repetir, y las máquinas dadas de baja se marcan "⛔ Inactiva" en los selectores/filtros sin ocultarse del historial.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Maestros: ya se puede versionar una receta (antes quedaba trabada) + no se puede editar en caliente una versión activa <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">No existía botón para desactivar una receta activa (solo Rutas lo tenía) — si se necesitaba una v2, el sistema rechazaba activarla ("desactívala primero") sin ninguna forma de hacerlo desde la pantalla. Además, tanto en Recetas como en Rutas se podía sobrescribir en caliente los componentes/pasos de una versión YA activa en producción, sin quedar versionado el cambio.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nuevo botón "⚪ Marcar obsoleta" en Recetas (igual al que ya tenía Rutas). Ahora solo se puede editar el contenido de una receta/ruta mientras esté en "borrador" — activa u obsoleta quedan de solo lectura, con aviso de que hay que crear una nueva versión. Activar una receta ahora pide confirmación (antes no la pedía). De regalo: se corrigió un bug de la misma familia en <code>RecordForm.tsx</code> (el formulario genérico que usan varias pantallas) que dejaba huérfano un campo oculto al cambiar de tipo — beneficia también a Autorizaciones y Despachos, que comparten el mismo formulario.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Órdenes de Fabricación: el cierre ahora usa lo REALMENTE producido, con candado contra doble cierre y stock negativo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">Al "Cerrar orden" el sistema siempre daba por producida la cantidad PLANIFICADA (nunca la real avanzada en las Órdenes de Trabajo), porque ese campo nunca se sincronizaba — podía cerrar con 30% de avance real y mover el 100% del inventario. Tampoco había candado contra cerrar dos veces la misma orden (doble movimiento de inventario), ni contra dejar el stock en negativo si faltaban insumos.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_fix_ordenes.sql</code>):</b> el cierre ahora suma en vivo el avance real de las Órdenes de Trabajo y avisa explícitamente si es muy inferior a lo planificado antes de proceder. Dos triggers nuevos en la base de datos: uno rechaza cerrar una orden que ya estaba cerrada, otro impide cualquier movimiento de inventario que deje el stock en negativo (mismo patrón que ya protege a combustible). Además: nuevo botón "❌ Cancelar orden", barra de % de avance visible, mensaje claro (no error técnico) si falta permiso de escritura en Inventario, y aviso si "Solicitar faltantes" se toca dos veces sin haber recibido nada.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Órdenes de Trabajo: el tiempo detenido por avería ya no infla las horas trabajadas + ya se puede registrar scrap <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">"Reportar falla" pausaba la orden pero no quedaba registrada como pausa para el cálculo de horas — el tiempo parado por avería se contaba como si la máquina hubiera seguido trabajando, inflando las horas reales en los reportes de OEE. Tampoco existía forma de registrar material de scrap/merma, así que el % de calidad del OEE siempre daba 100%.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> reportar una falla ahora también queda registrada como pausa real (se descuenta del tiempo trabajado). Nuevo campo para registrar scrap/merma junto al de cantidad completada. El mensaje de "esto requiere aprobación de calidad" quedó más claro tanto si lo detecta la pantalla como si lo rechaza la base de datos.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Kiosco de planta: identificación por sesión, validación de cargo/empresa, y las fallas ya generan mantenimiento <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">El kiosco solo pedía identificarse (carnet/cédula) al tocar "Iniciar" — el resto de acciones (pausar, registrar, reportar falla, finalizar) podía hacerlas cualquiera sin volver a identificarse, así que la bitácora podía quedar firmada por quien inició aunque otra persona hiciera el resto. Tampoco validaba el cargo del empleado ni que su empresa coincidiera (a diferencia del escaneo QR de máquina, que sí lo hace). Reportar una falla no generaba ninguna solicitud en Mantenimiento — la tabla ya estaba preparada para eso pero ninguna pantalla la usaba.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_fix_kiosco.sql</code>):</b> ahora se identifica una vez por sesión de uso del kiosco y esa identidad queda registrada en cada acción de esa sesión, no solo en el inicio. Valida cargo operativo y empresa, igual que el escaneo QR de máquina. Reportar una falla ahora crea automáticamente una solicitud en Mantenimiento. La alerta de mantenimiento preventivo del centro de trabajo ahora también le llega al supervisor (antes solo a admin). Se agregó candado contra que dos tablets pisen el avance de la misma orden a la vez.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>El Kiosco de planta ya es alcanzable por su propio permiso (antes quedaba invisible en el menú) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">El permiso <code>fabricacion_planta</code> existe pensado para un usuario "solo kiosco" en el taller, pero el menú "Más" solo tenía una entrada "Fabricación" gobernada por el permiso <code>mangueras</code>, y el panel de entrada ocultaba TODAS las tarjetas (incluida la del kiosco) si no se tenía ese permiso. Alguien con SOLO el permiso del kiosco no tenía ninguna forma de llegar a él desde el menú.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva entrada propia "🖥️ Kiosco de planta" en el menú "Más", independiente de "Fabricación". Además, un rol dinámico cuyo único módulo activo sea el kiosco ahora entra DIRECTO a él al iniciar sesión (mismo patrón ya usado para Combustible/Asistencia/Inventario).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Manual: nueva guía descargable "Guía de Fabricación (MRP)" <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">De las 7 guías descargables del Manual/Ayuda, ninguna cubría Fabricación — era el único módulo grande del sistema sin hoja de referencia.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva guía completa de punta a punta (maestros → órdenes → kiosco → reportes), con el mismo formato visual que las otras 7, descargable desde Manual/Ayuda.</p>
+  </div>
+
+  <h2><span class="n">15</span> Módulo de Fabricación: hallazgos de la auditoría que quedan pendientes (priorizados)</h2>
+  <p class="sec-note">Lo que la auditoría de hoy encontró pero se decidió NO tocar en esta pasada — por alcance, por necesitar una decisión de negocio, o por depender de otra pantalla. Usa la barra de filtros de arriba (Actividad = una de las secciones de Fabricación) para verlos junto con lo ya hecho.</p>
+
+  <div class="card">
+    <h3>Checkpoints de calidad (foto/medición/spec) no llegan del maestro de Ruta a la Orden de Trabajo <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">Un paso de Ruta puede marcarse "requiere foto" o "requiere medición X" con su spec, pero al generar las Órdenes de Trabajo esos datos no se copian — ni oficina ni el kiosco pueden mostrarle al operario QUÉ debe verificar exactamente en un checkpoint de calidad, solo que "hay uno". Requiere tocar 3 archivos a la vez (generación de WO, `WorkOrdersScreen.tsx`, `PlantaKioskScreen.tsx`) — quedó fuera de esta pasada por cruzar los grupos de arreglo en paralelo.</p>
+  </div>
+
+  <div class="card">
+    <h3>Las horas acumuladas de un Centro de trabajo no se ven en ninguna pantalla <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix">La alerta de mantenimiento preventivo del centro de trabajo corre en la base de datos, pero no hay ninguna pantalla que muestre sus horas acumuladas ni un botón para "confirmar mantenimiento y reiniciar" (como sí existe para el horómetro de maquinaria). La notificación llega a la campana pero no tiene a dónde navegar. Agregar esto a <code>WorkCentersScreen.tsx</code>, con el mismo patrón que ya usa Mantenimiento de Maquinaria.</p>
+  </div>
+
+  <div class="card">
+    <h3>No se puede clonar/versionar una receta o ruta existente <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">Crear una v2 siempre arranca en blanco (sin componentes/pasos) — para un producto con una receta larga, hay que reescribirla entera. Un botón "Clonar de la versión anterior" ahorraría el re-tipeo.</p>
+  </div>
+
+  <div class="card">
+    <h3>Costo por hora del Centro de trabajo no alimenta ningún costeo real <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix">Se captura costo de mano de obra y de máquina por hora al dar de alta un centro de trabajo, pero Reportes de Fabricación pide el costo real de cada orden a mano en vez de derivarlo de costo/hora × tiempo. El dato maestro existe pero no se usa.</p>
+  </div>
+
+  <div class="card">
+    <h3>Sin priorización ni documento imprimible para las Órdenes de Fabricación <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">No hay forma de marcar una orden como urgente frente a otras (siempre se listan por fecha de creación), y no existe un "viajero" imprimible con la lista de insumos para mandar a planta (los Requerimientos sí tienen su PDF, las Órdenes de Fabricación no).</p>
+  </div>
+
+  <div class="card">
+    <h3>Sin historial de cambios de estatus en Mangueras, ni forma de revertir el flujo de pago <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">No queda registrado quién/cuándo movió una manguera a "en autorización", y una vez ahí (o en "pagado") no hay forma de devolverla un paso atrás desde la app — solo editando la base directamente. Tampoco existe un estado "anulado" para un registro creado por error.</p>
+  </div>
+
+  <div class="card">
+    <h3>Reportes de Fabricación no muestra el equivalente en bolívares <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix">A diferencia de Mangueras (que sí muestra US$ + Bs con la tasa BCV del día), el costeo de Reportes de Fabricación solo muestra US$ — inconsistente con el resto de la app.</p>
+  </div>
+
+  <div class="card">
+    <h3>Permisos de Fabricación siguen gruesos (un solo nivel para 6+ pantallas) <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="fix">El mismo permiso <code>mangueras</code> gobierna desde cotizar/pagar mangueras hasta ver Reportes de OEE — hoy no se puede dar acceso solo a reportes sin exponer también costos y pagos. No es un bug (mismo patrón que el resto de la app), pero si en el futuro alguien de gerencia necesita ver solo OEE, requeriría separar el permiso en varias claves más finas.</p>
+  </div>
+
+  <div class="card">
+    <h3>Trazabilidad por lote/serie (Fase 6) — se recomienda seguir sin construir <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ XL</span></span></h3>
+    <p class="fix">Evaluado explícitamente en la auditoría de hoy: dado que este taller confecciona mangueras a la medida, unidad por unidad, para su propia flota (no manufactura masiva con clientes externos exigiendo cadena de custodia), construir trazabilidad de lote/serie ahora sería resolver un problema que el negocio no tiene. El código físico único de cada manguera + el filtro por máquina ya responden la pregunta real de negocio ("¿qué máquina generó más gasto?"). Queda en el backlog para si algún día aparece un caso concreto (ej. un lote de materia prima defectuoso).</p>
+  </div>
+
+  </section>
+
+  <section class="day-group" id="day-2026-08-05">
+    <h2 class="day-heading">📅 05/08/2026</h2>
+
+  <h2><span class="n">00</span> Almacén / Inventario: trazabilidad de dotación por empleado</h2>
+  <p class="sec-note">Pedido directo del cliente: poder consultar qué equipos, herramientas, calzado, franelas y demás artículos se le entregaron a cada trabajador, y que los reportes/PDF de salida de almacén muestren siempre el empleado que recibió (nombre, cédula y cargo), no solo su nombre suelto.</p>
+
+  <div class="card feat">
+    <h3>Las salidas de inventario ahora quedan vinculadas al empleado (antes solo era texto) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">En "Nota de salida" ya se podía elegir el/los empleado(s) que reciben, pero ese dato NUNCA se guardaba de forma consultable: solo se pegaba como texto suelto dentro del campo "motivo" del movimiento y en el PDF. No había forma de preguntarle a la base de datos "¿qué le entregamos a Fulano?" ni de mostrar su cédula/cargo en el comprobante.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ya ejecutado en producción):</b> se agregaron dos columnas nuevas a <code>inventory_movements</code> (<code>supabase/inventory_movements_employee.sql</code>): <code>employee_ids uuid[]</code> (uno o varios empleados que reciben) y <code>employees_detail jsonb</code> (nombre/cédula/cargo "fotografiados" al momento de la salida, para que el historial no cambie si luego el empleado cambia de cargo). "Nota de salida" y "Nota de traslado" (<code>InventarioScreen.tsx</code>) ya guardan estos datos al confirmar.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Nueva pestaña "👷 Dotación": historial filtrable por empleado, fecha, tipo y origen <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva sub-pestaña en el módulo Inventario que junta en un solo listado las salidas de inventario con empleado asignado (herramientas, equipos, artículos) Y las entregas de dotación básica (franelas/pantalones/calzado, tabla <code>uniform_deliveries</code>) — una entrega grupal a varios trabajadores aparece como una fila por cada uno, para que el filtro por empleado funcione bien. Filtros: empleado (buscador), rango de fecha, tipo/categoría del producto (o "Uniforme"), y origen (Inventario / Dotación-Uniforme, en lugar de "estatus" — estas salidas ya quedan confirmadas al generarse, no existe un estado pendiente/aprobado como en los requerimientos de compra). Incluye botón de reporte PDF (Fecha · Empleado · Cédula · Cargo · Tipo · Detalle) respetando los filtros activos.</p>
+  </div>
+
+  <div class="card">
+    <h3>Historial de dotación también en la ficha del trabajador <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la ficha del trabajador (<code>EmployeeCardScreen.tsx</code>, se abre desde Empleados o escaneando su carnet/QR) ahora tiene una sección "📦 Historial de dotación y entregas" con lo mismo pero ya filtrado a esa persona — no hace falta ir al módulo de Inventario para revisar qué se le ha entregado a alguien puntual.</p>
+  </div>
+
+  <div class="card">
+    <h3>PDFs de "Nota de salida" y "Nota de traslado" ahora muestran cédula y cargo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el comprobante de "Nota de salida" (<code>src/lib/notaEntrega.ts</code>) muestra ahora una tabla "Recibe" con Nombre · Cédula · Cargo para cada empleado registrado (las personas NO registradas, texto libre, se siguen mostrando solo por nombre, tal como antes — no son empleados así que no hay cédula/cargo que mostrar). "Nota de traslado" (<code>src/lib/notaTraslado.ts</code>) agrega la línea de C.I./Cargo debajo del responsable de Origen y de Destino cuando aplica. Con esto se cumple el pedido de que TODOS los reportes de salida identifiquen al empleado con nombre completo, cédula y cargo.</p>
+  </div>
+
+  <h2><span class="n">01</span> Vista de inspectores (teléfono y PC): segmentación, jornada y parada/avería</h2>
+  <p class="sec-note">Pedido directo del cliente sobre <code>SupervisorScreen.tsx</code> (la pantalla de check-in del inspector; es responsive, se usa igual en teléfono y PC).</p>
+
+  <div class="card feat">
+    <h3>Segmentación visual por estatus (chips: Pendientes / Iniciadas / Paradas / Por avería) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">La lista de "Mi ronda de hoy" era plana, solo con buscador de texto — no había forma de ver de un vistazo cuántas máquinas faltan por iniciar, cuántas están trabajando, cuántas paradas y cuántas con avería real reportada.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregaron chips de filtro con contador — <b>Todas · ⏳ Pendientes por iniciar · 🟢 Iniciadas · 🟡 Paradas · 🔧 Por avería</b> — combinables con el buscador de texto existente. Para distinguir "Parada" (operativa) de "Por avería" (falla mecánica real, hoy ambas dejaban la misma marca "MÁQUINA PARADA") se agregó una consulta de <b>solo lectura</b> adicional a <code>maintenance_requests</code> (material distinto de "MÁQUINA PARADA", pendiente, de hoy). No se tocó ninguna escritura ni el registro histórico.</p>
+  </div>
+
+  <div class="card">
+    <h3>Total de horas al cerrar jornada, reforzado con el acumulado del turno <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el cierre de jornada YA mostraba el total de la sesión (antes de confirmar y en el aviso final) — se verificó y se le agregó, sin quitar nada, el <b>acumulado del turno en el día</b> ("Acumulado del turno: X h" = horas ya registradas antes de esta sesión + la que se está cerrando), tanto en el modal de confirmación como en el aviso posterior. Aplica igual en teléfono y PC (mismo componente).</p>
+  </div>
+
+  <div class="card">
+    <h3>PARADA vs AVERÍA: separación visual más clara <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Ya eran 2 caminos técnicamente distintos (🟡 PARADA con sub-pestaña "por avería", y una sección aparte "🛠️ Avería de maquinaria" que reporta sin detener la máquina) pero visualmente se prestaban a confusión.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (solo UI, sin tocar la lógica de guardado):</b> se agregaron encabezados y textos aclaratorios — "⛔ Detener la máquina" sobre el botón PARADA (con nota bajo cada sub-pestaña explicando qué implica) y "📋 Reportar sin detener la máquina" sobre la sección de Avería de maquinaria, dejando explícito que esta última NO marca la máquina como parada.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Máquinas inactivas ocultas de la lista operativa <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> las máquinas con <code>active=false</code> o <code>operational=false</code> ya no aparecen en "Mi ronda de hoy" ni en "Todas" (vista operativa) — <b>excepto</b> si tienen una jornada abierta ahora mismo, para que el inspector siempre pueda cerrarla. Al reactivar la máquina (marcarla operativa de nuevo desde Equipos), reaparece sola en el próximo refresh — no hace falta ningún paso extra de "sincronización", ya lo cubre el realtime existente. El modal CHECK (asignar/quitar máquinas a un inspector, uso de admin/coordinador) sigue viendo el catálogo completo a propósito, para poder reactivar desde ahí.</p>
+  </div>
+
+  <h2><span class="n">02</span> Continuidad de turnos y fecha operativa — verificado, ya estaba corregido</h2>
+  <div class="card">
+    <h3>El turno noche YA no cierra a medianoche (verificado contra el código real) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Ya corregido — verificado</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ —</span></span></h3>
+    <p class="why">El cliente pidió modelar los turnos con campos <code>tipo</code>/<code>fecha_operativa</code>/<code>fecha_apertura</code>/<code>fecha_cierre</code>/<code>estado</code> y corregir el cierre a medianoche. Esos nombres de columna NO existen en el esquema — se auditó el código real para no reescribir el modelo de datos sin necesidad (riesgo de romper histórico) y confirmar si el comportamiento pedido ya está o no.</p>
+    <p class="fix" style="color:var(--done)"><b>Verificado, YA implementado (corregido desde el 03/08/2026):</b> el equivalente real de esos campos en <code>machine_rounds</code> es <code>jornada_shift</code> ('day'/'night' = <code>tipo</code>), <code>round_date</code> (= <code>fecha_operativa</code>, la fecha en que ARRANCÓ el turno), <code>jornada_start_at</code> (no nulo = <code>estado</code> ABIERTO; nulo = CERRADO), y <code>day_hours</code>/<code>night_hours</code> acumuladas. El cron <code>supabase/auto_close_jornadas.sql</code> cierra el turno DÍA a las 19:00 del <code>round_date</code> y el turno NOCHE a las <b>07:00 del día siguiente</b>, con un candado explícito que solo permite cerrar si la hora calculada es exactamente 7 o 19 (Caracas) — nunca a medianoche. El <code>round_date</code> nunca se reescribe: se queda fijo en la fecha de apertura durante todo el ciclo (ej. abre 05/08 19:00 → cierra 06/08 07:00, con <code>round_date='2026-08-05'</code> todo el tiempo), confirmado también en <code>finalizarJornada()</code> de <code>SupervisorScreen.tsx</code> (cierre manual, mismo criterio) y en el rescate de "jornada de noche de ayer" que ya usan <code>SupervisorScreen.tsx</code> e <code>InspectionsSummary.tsx</code> para no perder de vista una jornada nocturna después de medianoche. No se tocó el esquema ni se crearon columnas nuevas: hacerlo solo por nomenclatura habría sido un cambio de alto riesgo sin ninguna ganancia funcional real.</p>
+  </div>
+  <div class="card">
+    <h3>Esquemas 12x6 y 12x12 — ya diferenciados donde corresponde <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Ya implementado — verificado</span><span class="chip eff">◷ —</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>Verificado:</b> cualquier inspector/supervisor HUMANO real siempre trabaja con horas reales sin tope, sin importar el tipo de máquina (turno día 12h, turno noche real hasta las 7am). El patrón 12x6 (12h día + 6h noche) y 12x12 (12h día + 12h noche, para camiones bolqueta/toronto detectados por código) SOLO aplica a la maquinaria que queda SIN inspector asignado, cargada automáticamente por el usuario virtual "MAQUINAS FALTANTES" (<code>supabase/maquinas_faltantes.sql</code>, función <code>auto_full_shift_placeholder()</code>) con un tope duro vía trigger (<code>supabase/cap_truck_hours.sql</code>) que deja de aplicar en cuanto un inspector real toma esa máquina. Coincide con lo pedido; no se modificó nada.</p>
+  </div>
+
+  <h2><span class="n">03</span> Módulo de Distribución de Uniformes: permisos + "Otras entregas / herramientas"</h2>
+
+  <div class="card feat">
+    <h3>Nuevo módulo de permiso "Distribución de uniformes" (para dar acceso explícito, ej. a Diana) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Hoy no existía forma de otorgarle a alguien acceso SOLO a Uniformes: la pantalla no tenía ningún control de permisos por dentro (cualquiera que llegara ahí podía editar) y el único camino para llegar era navegando desde Nómina completa — mucho más amplio de lo necesario para una persona que solo debe manejar dotación.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó la clave <code>'uniformes'</code> a la matriz de módulos (<code>src/lib/permissions.ts</code>), restringida por defecto (como sus módulos hermanos de RRHH: nómina/empleados/asistencia) para que quede en "Sin acceso" hasta que un administrador la otorgue explícitamente desde <b>Usuarios → permisos por módulo</b> (o dentro de un rol dinámico) — ahí es donde se le da el acceso a <b>Diana</b> puntualmente. Se agregó además una entrada propia "🦺 Distribución de uniformes" en el menú "Más" (antes solo se llegaba desde dentro de Nómina), y la pantalla ahora bloquea el acceso con el mismo aviso "Sin acceso" que usan otros módulos si el nivel es "none". <b>Admin sigue teniendo acceso total siempre</b>, sin cambios.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Nueva pestaña "🧰 Otras entregas / herramientas", alimentada sola desde Almacén <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la pantalla de Uniformes ahora tiene 2 pestañas — "🧥 Dotación básica" (la pantalla de siempre, sin cambios funcionales, solo con el gating de permisos de arriba) y la nueva "🧰 Otras entregas / herramientas": historial de <b>solo lectura</b>, sin formulario propio, que se arma solo combinando las <b>Salidas de Almacén</b> con empleado asignado (<code>inventory_movements</code>) y los <b>Traslados de Inventario</b> dirigidos a un empleado (<code>inventory_transfers.to_employee_id</code> — esto no se consultaba en ningún lado antes de hoy). Filtrable por empleado y rango de fecha, con reporte PDF (Fecha · Empleado · Cédula · Cargo · Detalle · Origen). No duplica la pestaña "👷 Dotación" de Inventario (esa junta salidas + uniformes; esta junta salidas + traslados, y vive dentro del módulo de Uniformes).</p>
+  </div>
+
+  <h2><span class="n">04</span> Eficiencia de inspectores y datos de ubicación en el Catálogo</h2>
+  <p class="sec-note">Pedido directo del jefe/jefa: identificar de un vistazo qué inspector cumplió el 100% de su chequeo diario ("le damos 1 oportunidad y si no puede realizar el chequeo con eficiencia probamos con otra persona"), y que el Catálogo muestre edificio/referencia/sector de cada máquina.</p>
+
+  <div class="card feat">
+    <h3>Eficiencia por inspector (vista en vivo + reporte PDF) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">"Eficiencia" se definió como: de las máquinas que un inspector tiene ASIGNADAS ese turno, qué % terminó CHEQUEANDO de alguna forma (inició jornada, la marcó parada, o reportó avería — cualquiera de esas 3 cuenta como que sí fue a verificarla). 100% = ninguna quedó sin tocar. Se descubrió además que ya existía un generador de este reporte (<code>src/lib/inspectorSummaryReport.ts</code>) construido en una sesión anterior, pero **nunca se conectó a ningún botón** — el manual lo documentaba como si funcionara, pero estaba huérfano en el código.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> en el dashboard "RESUMEN DE INSPECCIONES" (<code>InspectionsSummary.tsx</code>, sección "👷 POR INSPECTOR"), cada barra de inspector ahora muestra su <b>% de eficiencia</b> (verde 100% · ámbar 50-99% · rojo &lt;50%), con una 5ª tarjeta de eficiencia en el detalle al tocar un inspector. Se conectó por primera vez el botón <b>"📄 Reporte de eficiencia (todos los inspectores)"</b>, que genera el PDF con una tabla-resumen al inicio ordenada de MENOR a MAYOR eficiencia (los que necesitan atención, primero) más el detalle de cada uno. Misma fórmula en la vista en vivo y en el PDF.</p>
+  </div>
+
+  <div class="card">
+    <h3>Catálogo: edificio, referencia y sector visibles en cada máquina <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la tarjeta de cada máquina en el Catálogo (<code>EquiposScreen.tsx</code>) ya mostraba el sector, pero no el edificio ni la referencia cruda. Ahora agrega una línea con el <b>edificio</b> (derivado automáticamente de la referencia con el mismo catálogo oficial que usa el check-in del inspector, <code>edificioCanonico()</code>) y la <b>referencia</b> tal como está escrita, en las 2 vistas de tarjeta del Catálogo. No existe una columna "edificio" separada en la base de datos — es un valor calculado a partir de <code>machinery.referencia</code>, así que no hizo falta ningún cambio de esquema.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Catálogo → "Reporte de conteo" ahora es un reporte REAL, con filtro por clasificación <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">El pedido explícito: "que ese reporte se vuelva real, me traiga todos los datos reales... edificio o referencias si tienen uno u otro y el inspector y si tiene inspector de noche, que los filtros sean por clasificación, porque también quieren ver equipos de remoción y/o excavación". El reporte de conteo era literalmente eso — solo conteo (Equipo · Serial · Estado) — sin ubicación ni inspector, y el filtro agrupaba por CÓDIGO de la máquina (ej. "CAMIÓN VOLTEO TORONTO"), no por su clasificación real.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el filtro "Filtrar por tipo de equipo" se reemplazó por <b>"Filtrar por clasificación"</b> (usa <code>machinery.clasificacion</code>: Excavadora, Volteo, Retro… — incluye "SIN CLASIFICACIÓN" como bucket propio para no esconder equipos sin ese dato), así se puede pedir de una sola vez "solo equipos de remoción y/o excavación". El detalle por empresa (en el PDF y en la vista previa en pantalla) ahora trae, por cada equipo: Clasificación, Serial, Placa, Sector, <b>Edificio o Referencia</b> (edificio derivado del catálogo oficial si matchea; si no, la referencia cruda tal como está escrita — nunca los dos a la vez), <b>Inspector ☀️ Día</b> e <b>Inspector 🌙 Noche</b> (de <code>machine_inspectors</code>, el mismo CHECK MÁQUINA del teléfono — se ven por separado porque una máquina puede tener un inspector distinto en cada turno), y Estado. Sin cambios de esquema: todo sale de columnas/relaciones que ya existían.</p>
+  </div>
+
+  <h2><span class="n">05</span> Enrutamiento por rol en el teléfono: cada quien entra a SU vista</h2>
+  <p class="sec-note">Reporte directo: "las personas cuando inician desde el teléfono no entran en su respectiva vista... actualmente entran todos con la vista inspector, y deberían entrar con su vista, ejemplo los de combustible deberían entrar a combustible directo".</p>
+
+  <div class="card feat">
+    <h3>Corregido: en teléfono, TODOS caían en la vista de Inspectores salvo 3 casos <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Mapeo completo de <code>src/navigation/index.tsx</code> (<code>RootNavigator</code>): el enrutamiento tenía DOS árboles de decisión separados — uno para teléfono y otro para PC — y el de teléfono era casi un "catch-all": <b>cualquier</b> rol que no fuera Chofer de combustible (rol dinámico), Coordinador de patio o admin/Jesús Lozada con el botón "SISTEMA" caía directo en <code>SupervisorTabs</code> (la vista de Inspectores). Eso incluía: inspector real (correcto, coincide), pero también <b>operador</b>, <b>cocina</b>, <b>analista</b>, roles dinámicos "Coordinador QR", y cualquier rol personalizado por módulos (ej. uno armado solo con Tanques/Ingresos/Consumos para alguien de combustible) — todos terminaban en la pantalla de check-in de máquinas, sin relación con su trabajo real.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se unificó el enrutamiento en una sola cadena de condiciones (ya no hay un árbol "teléfono" separado del de "PC"): cada rol —<b>en cualquier dispositivo</b>— llega a la MISMA pantalla que ya tenía correctamente asignada en PC. Se mantienen sin tocar los 3 casos que sí son específicos del teléfono (Chofer de combustible, Coordinador de patio con su panel QR, y admin/Jesús Lozada que ven Inspectores + botón "SISTEMA" para saltar a la app completa). Con esto, <b>operador</b> → su vista (<code>OperatorScreen</code>), <b>cocina</b> → su vista (<code>CocinaScreen</code>), rol dinámico "Coordinador QR" → su panel (<code>CoordinadorStack</code>), y cualquier rol personalizado por módulos → la app normal filtrada por sus permisos (<code>Tabs</code> + "Más"), todo también desde el teléfono. <b>Inspector (rol <code>supervisor</code>)</b> sigue entrando exactamente igual que siempre — no se tocó su flujo.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Nuevo: roles solo-combustible entran DIRECTO al módulo Combustible en el teléfono <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> cuando un rol dinámico (creado desde Usuarios → rol personalizado) tiene acceso ÚNICAMENTE a módulos de combustible (Tanques / Ingresos / Consumos / Traslados / Solicitudes, sin ningún otro módulo activo) y entra desde el teléfono, ya no pasa por Inicio ni por el menú "Más": abre directo en <code>CombustibleScreen</code> (con sus mismas sub-pestañas Tanques/Ingresos/Consumos/Solicitudes, cada una filtrada por su permiso real). Si ese rol tiene además otros módulos mezclados (ej. combustible + inventario), sigue viendo la app normal con pestañas — la entrada directa es solo para el caso 100% combustible, que es el que se reportó. No aplica al rol fijo "Chofer de combustible" (ese ya tenía su propio panel de surtido, sin tocar).</p>
+  </div>
+
+  <h2><span class="n">06</span> Documentación</h2>
+
+  <div class="card">
+    <h3>Manual de usuario actualizado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se documentó en <code>docs/MANUAL-USUARIO.md</code> cómo consultar la pestaña "Dotación" de Inventario, el historial en la ficha del empleado, y que los reportes de salida/traslado ahora traen cédula y cargo. Ampliado con la vista de inspectores segmentada, la aclaración de continuidad de turnos, el nuevo módulo de Uniformes (permiso + "Otras entregas/herramientas"), la eficiencia por inspector, los datos de ubicación en el Catálogo, el reporte de conteo de equipos con filtro por clasificación, y el enrutamiento por rol en el teléfono.</p>
+  </div>
+
+  </section>
+
+  <section class="day-group" id="day-2026-08-04">
+    <h2 class="day-heading">📅 04/08/2026</h2>
+
+  <h2><span class="n">00</span> Rediseño: marcar máquina parada</h2>
+  <p class="sec-note">Lo que acabas de pedir. Hoy “parada” es un solo motivo libre en <code>maintenance_requests</code> (SupervisorScreen ~700). Propuesta: dividir en dos caminos.</p>
+
+  <div class="card feat">
+    <h3>Dos opciones al marcar parada <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <div class="flow">
+      <div class="branch averia">
+        <h4>🔧 Por avería</h4>
+        <ul>
+          <li>Describir la falla (texto).</li>
+          <li>Elegir material que necesita: caucho, aceite, filtro, batería… (lista + “otro”).</li>
+          <li>Se crea/actualiza en <b>Mantenimiento de Maquinaria</b> con el material requerido → aparece en su módulo.</li>
+          <li>Sigue mostrándose como 🟡 parada en Inspecciones.</li>
+        </ul>
+      </div>
+      <div class="branch notrab">
+        <h4>🚧 Parada / No trabajó</h4>
+        <ul>
+          <li>Motivo fijo: <code>NO TRABAJÓ LA MÁQUINA</code>.</li>
+          <li>Se toma la ubicación (GPS) y la dirección: <b>edificio · referencia · sector</b>, y se guarda dentro del texto.</li>
+          <li><b>Solo</b> se muestra en el módulo de Inspecciones (no va a Mantenimiento).</li>
+        </ul>
+      </div>
+    </div>
+    <p class="fix"><b>Cómo:</b> selector de tipo en el modal de parada; avería → material + <code>machinery_repairs</code>/mantenimiento; no-trabajó → dirección + coords en <code>notes</code> y marca que lo excluye del módulo de mantenimiento. Requiere confirmar contigo la lista de materiales y cómo se vincula exactamente al módulo de mantenimiento antes de codificar.</p>
+  </div>
+
+  <div class="done" style="border:1.5px solid var(--done)">
+    <h3>✓ Implementado en sesión multi-agente — 03/08/2026</h3>
+    <ul>
+      <li><b>00 Marcar máquina parada</b>: los 2 caminos de arriba ya están codificados (Por avería con selector de material + foto → crea solicitud en Mantenimiento; Parada/No trabajó con GPS + edificio/referencia → solo se ve en Inspecciones). <i>Pendiente: revisión visual tuya en el navegador.</i></li>
+      <li><b>Reportes › Inspectores</b>: filtro por checkboxes de inspector (según turno Día/Noche/Ambos) — el PDF sale solo con los marcados; la lista plana de "cambio de ubicación" se reemplazó por una tabla (Máquina · Ubicación anterior · Ubicación nueva · Hora/Fecha).</li>
+      <li><b>Inspecciones › Jornadas de máquina</b>: nuevo botón "📄 Reporte resumen por inspector" (iniciadas / averiadas-paradas / por iniciar, con detalle de Edificio, Modelo, Serial/Placa, Sector, Referencia y Empresa de las que faltaron por iniciar). <i>Actualización 04/08/2026: el cliente pidió quitar este botón de la barra (ver sección 05) — el reporte en sí (<code>inspectorSummaryReport.ts</code>) sigue en el código, solo perdió su acceso directo.</i></li>
+      <li><b>Sincronización en vivo</b>: <code>machine_inspectors</code> y <code>truck_yard_logs</code> (03/08/2026), y el resto de tablas operativas vía <code>fix_realtime_publication_v2.sql</code> (04/08/2026) — ya ejecutado en producción, ver sección 03.</li>
+      <li><b>RBAC</b>: el usuario Jesús Lozada tiene un botón "🗂️ SISTEMA" en su Vista de Inspector para saltar al módulo administrativo general, sin cambiar su punto de entrada habitual (match por <code>profiles.full_name</code>, a confirmar si se prefiere por cédula).</li>
+      <li><b>Horómetro</b>: alertas por umbral 200h (baja) / 220h (media) / 250h (alta) con banner en Mantenimiento e Inspecciones + notificación por campana (dedup diario) + botón "Confirmar mantenimiento y reiniciar horómetro". SQL ejecutado en producción el 03/08/2026.</li>
+      <li><b>Colores de estado</b>: "POR INICIAR" pasó de ámbar a azul en Jornadas de máquina, para no confundirse con "PARADA" (ámbar) ni "EN CURSO" (verde).</li>
+      <li><b>Nómina / Pago a Personal</b>: equivalentes en Bs (tasa BCV del día) en Por persona, Por período y Abonar, con switch $↔Bs; botón "🔄 Actualizar tasa BCV" (conecta a la tasa oficial vía <code>ve.dolarapi.com</code>, con histórico diario en <code>bcv_rates</code>). El Excel se movió de Empleados a "Por período" y ahora exporta lo trabajado/devengado/bonos/deducciones/total/pagado/saldo por persona (ya NO exporta tarifas del empleado).</li>
+      <li><b>Selector "lookup"</b> (Cisterna del catálogo y cualquier otro campo de búsqueda con catálogo): rediseñado como carrusel horizontal en vez de la pared de botones pegados.</li>
+      <li><b>Zona horaria</b>: 12 pantallas que calculaban "hoy" con la hora del dispositivo (incluida la app móvil que usan operadores/inspectores en su teléfono) ahora usan consistentemente la hora de Caracas.</li>
+    </ul>
+    <p class="why" style="margin-top:10px"><b>Pendiente de esta sesión:</b> probar visualmente en el navegador (<code>npm run web</code>) los flujos nuevos; confirmar si Jesús Lozada debe matchearse por nombre o por cédula/ID de perfil; versionar en un <code>.sql</code> del repo la definición de <code>truck_yard_logs</code> (hoy solo existe en producción); si cambian los umbrales de horómetro hay que editar <code>supabase/horometro_alertas.sql</code> y <code>src/lib/horometroAlertas.ts</code> juntos.</p>
+  </div>
+
+  <h2><span class="n">01</span> Efecto visual / UX</h2>
+  <p class="sec-note">El theme (<code>src/theme</code>) está bien hecho pero las pantallas lo ignoran: ~750 colores fijos, sin pull-to-refresh, feedback roto en web.</p>
+
+  <div class="card">
+    <h3>Modo oscuro roto en varios paneles <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Fondos claros fijos con texto oscuro (<code>SupervisorScreen 1317–1425</code>: <code>#FDECEC</code>, <code>#E8F5EC</code>, <code>#12356B</code>) quedan ilegibles en oscuro.</p>
+    <p class="fix"><b>Fix:</b> usar <code>colors.success/danger</code> + alpha para el fondo y <code>colors.text</code> para el texto.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> en <code>SupervisorScreen.tsx</code> los banners de jornada de máquina (dueño de otro inspector, jornada en curso, finalizar jornada, jornada cerrada, máquina parada) y las tarjetas de turno "mío" pasaron de hex fijos a los tonos "soft" del tema. <code>EquiposScreen.tsx</code>/<code>ControlPagosScreen.tsx</code> migraron sus banners de error/aviso a <code>dangerSoftBg/Text</code> y <code>warningSoftBg/Text</code> (el banner "⏰ Recordatorio de pagos" de <code>ControlPagosScreen</code> tenía texto blanco fijo sobre <code>colors.warning</code> — en oscuro daba ~2.1:1 de contraste, prácticamente ilegible). <b>Cierre 04/08/2026 (auditoría completa):</b> se revisaron sistemáticamente los ~45 archivos con hex fijo del diagnóstico original (4 lotes en paralelo). Se corrigieron además: <code>AsistenciaScreen.tsx</code> (texto "abierta" de un turno), <code>ControlMaquinariaScreen.tsx</code> (alerta de consumo de combustible) y <code>MantenimientoMaquinariaScreen.tsx</code> (botón "Enviar a reparación" + badge "Avería + inspección") — los 3 con el mismo patrón: <code>#B45309</code> fijo (coincide con <code>colors.warning</code> en claro) sobre una tarjeta que sí cambia a fondo oscuro.</p>
+    <p class="why" style="margin-top:6px"><b>Con criterio, no se tocó:</b> colores de PINES/ZONAS de mapa, esquemas categóricos con más de 3-4 valores (p. ej. <code>ACTION_META</code> de Auditoría, 9 colores por tipo de acción), botones sólidos con texto blanco (legibles en cualquier tema), y todo lo que se usa solo para exportar PDF/HTML (no corre bajo el tema de la app). <code>STATUS_META</code>/<code>STATUS_OPTS</code> (estado de visita) se unificaron en <code>src/lib/statusMeta.ts</code> — ver la tarjeta de "Estados sin sistema" más abajo.</p>
+  </div>
+  <div class="card">
+    <h3>Feedback invisible en web (174 <code>Alert.alert</code>) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Los avisos de éxito/error usan <code>Alert.alert</code>, que no funciona en web (lo dice el propio <code>ConfirmProvider</code>). Las confirmaciones ya migraron a <code>useConfirm</code>; los avisos no.</p>
+    <p class="fix"><b>Fix:</b> un <code>ToastProvider</code> (como ConfirmProvider) y enrutar todo éxito/error por ahí.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> se creó <code>ToastProvider</code>/<code>useToast</code> (mismo patrón que <code>ConfirmProvider</code>) y se migraron los <code>Alert.alert</code> de un solo botón de prácticamente toda la app en más de 20 pantallas: Supervisor, Nómina/Pago a Personal, RRHH (Empleados/Aliados/Asistencia), Inventario (6 sub-vistas), Control Maquinaria/Equipos/ControlPagos, Mantenimiento/Maquinaria/Uniformes/Usuarios, Compras, Authorizations/Inspecciones/Map/MargenGanancia/More/Empresas/BiometricToggle/GuardButton. Ahora se ven como toast flotante (verde = éxito, rojo = error) tanto en web como en nativo. Los pocos <code>Alert.alert</code> de 2+ botones (confirmar SALIDA/doble escaneo en asistencia, borrar/retirar supervisor en <code>GuardButton</code>) se migraron a <code>useConfirm()</code>, el mismo diálogo de confirmación que ya usaba el resto de la app.</p>
+  </div>
+  <div class="card">
+    <h3>Spinner que “blanquea” la pantalla + sin pull-to-refresh <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">~15 pantallas hacen <code>if(loading) return &lt;Loading/&gt;</code> borrando todo; y no existe <code>RefreshControl</code> en toda la app.</p>
+    <p class="fix"><b>Fix:</b> skeletons de <code>Card</code> conservando la cabecera + prop <code>onRefresh</code> en <code>Screen</code>.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> se agregó pull-to-refresh a la gran mayoría de pantallas de lista (Supervisor, Supervision, las 6 sub-vistas de Inventario, Compras, fichas/QR). <b>Cierre 04/08/2026:</b> nuevos componentes <code>SkeletonBlock</code>/<code>SkeletonCard</code>/<code>SkeletonList</code> en <code>src/components/ui.tsx</code> (barras con "pulso" animado, forma de tarjeta de lista) reemplazando <code>&lt;Loading/&gt;</code> en los 11 guards de pantalla completa que antes blanqueaban todo: AliadoCard, AliadoInfo, AsistenciaCamiones, Cocina, Comida, Compras, EmployeeCard, FoodCompany, las 6 sub-vistas de Inventario, Supervision y Supervisor.</p>
+    <p class="why" style="margin-top:6px"><b>Con criterio, no se tocó:</b> los spinners "inline" dentro de una pantalla que YA muestra su cabecera/filtros (ahí no se blanquea nada, solo la lista de abajo — cambiarlos a skeleton es cosmético, no el bug real). <code>MachineQuickScreen.tsx</code> y <code>OperatorScreen.tsx</code> se dejaron sin pull-to-refresh/skeleton a propósito: su carga inicial resetea el estado de jornada/formulario en pantalla, y un refresh accidental perdería datos a medio llenar.</p>
+  </div>
+  <div class="card">
+    <h3>Estados sin sistema: badges y colores duplicados <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why"><code>#1E9E4A/#D9A200/#D22B2B</code> redefinidos en 6+ pantallas; el componente <code>Badge</code> casi no se usa; fuentes de 10–11px por todos lados.</p>
+    <p class="fix"><b>Fix:</b> helper único <code>statusColor()</code> + <code>&lt;StatusBadge&gt;</code> tonal; subir metadatos a 12–13px.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> el componente <code>&lt;Badge&gt;</code> ahora es el estándar para mostrar estado: activo/inactivo/suspendido de Empleados/Aliados/Asistencia, Borrador/Aprobada/Pagada en Nómina y Pago a Personal, y "Desincorporado" en los renglones de un período. Todo centralizado en <code>src/lib/statusMeta.ts</code>. <b>Cierre 04/08/2026:</b> <code>STATUS_OPTS</code> (<code>SupervisorScreen</code>) y <code>STATUS_META</code> (<code>SupervisionScreen</code>) — el estado de VISITA a la máquina (trabajando/parada/no está), que eran 2 copias independientes con los mismos 3 valores hex — se unificaron en <code>VISIT_STATUS_META</code> dentro de <code>statusMeta.ts</code>; ambas pantallas ahora leen del mismo mapa (con su <code>tone</code> ya listo para <code>&lt;Badge&gt;</code> si se quiere pintar así en el futuro; hoy conserva el color hex también, porque <code>SupervisionScreen</code> lo necesita tal cual para el PDF).</p>
+    <p class="why" style="margin-top:6px"><b>Decisión consciente, no pendiente:</b> se reusó el <code>&lt;Badge&gt;</code> ya existente en vez de crear un <code>&lt;StatusBadge&gt;</code>/<code>statusColor()</code> nuevos (mismo resultado visual, menos código). El aumento de fuente de metadatos de 10–11px a 12–13px del diagnóstico original NO se hizo — es un cambio de layout transversal a toda la app, de alto riesgo de romper diseños ajustados y sin forma de verificarlo visualmente en esta sesión (sin acceso a navegador); se deja fuera hasta poder revisarlo con QA visual real.</p>
+  </div>
+
+  <h2><span class="n">02</span> Funcionalidad</h2>
+  <p class="sec-note">Huecos de negocio y casos borde detectados en jornadas, reportes y notificaciones.</p>
+
+  <div class="card">
+    <h3>Jornada de noche cruzando medianoche cierra en el día equivocado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">El cierre manual usa <code>caracasToday()</code> (SupervisorScreen ~676): si inicia 22:00 y finaliza 01:00, suma horas al día siguiente y el round original queda “en curso”, luego el cron descuadra.</p>
+    <p class="fix"><b>Fix:</b> finalizar contra el <code>round_date</code> en que se inició (como ya hace el cron), no contra hoy.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>finalizarJornada</code> en <code>SupervisorScreen.tsx</code> ahora calcula <code>round_date</code> desde la hora Caracas del INICIO de la jornada, igual que el auto-cierre del servidor.</p>
+  </div>
+  <div class="card">
+    <h3>Horómetro final sin validar ≥ inicial <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Acepta un final menor al inicial y lo arrastra como inicial de la próxima jornada → dato basura que se propaga.</p>
+    <p class="fix"><b>Fix:</b> avisar/validar <code>final ≥ inicial</code> al iniciar y cerrar; marcar la anomalía en Histórico.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> mismo mensaje/validación que ya usaba <code>MachineQuickScreen.tsx</code>, replicado en el cierre manual de <code>SupervisorScreen.tsx</code> (solo bloquea si el inspector sí escribió un horómetro final menor al inicial; dejarlo vacío sigue permitiendo cerrar).</p>
+  </div>
+  <div class="card">
+    <h3>Reporte “Estado de máquinas” sin firma ni totales <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why"><code>inspectorEstadoReport.ts</code> no lleva firma ni total consolidado (el reporte por inspector sí).</p>
+    <p class="fix"><b>Fix:</b> totales por sección + total del día + bloque de firma del responsable.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> agregada tabla de totales (Iniciadas/Pendientes/Averiadas/Finalizadas + total general) y bloque de firma del responsable, mismo patrón visual que <code>inspectorReport.ts</code>.</p>
+  </div>
+  <div class="card">
+    <h3>Notificaciones solo in-app · exportar Excel casi ausente <span class="meta"><span class="chip" style="background:var(--media);color:#3a2d0a;border-color:transparent">🟡 Parcial</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">No hay push (<code>expo-notifications</code>); averías/paradas/deudas no llegan con la app cerrada. Excel solo existe en Inventario; Pagos/Nómina exportan solo PDF.</p>
+    <p class="fix"><b>Fix:</b> push tokens + envío desde cron/edge; reusar <code>buildXlsx</code> en Pagos y Nómina.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> Pago a Personal ya exporta a Excel (no PDF-only) en dos vistas — "Por período" (<code>src/lib/staffXlsx.ts</code>, <code>exportPagoPersonalXlsx</code>) y "Por persona" (<code>exportPersonaHistoricoXlsx</code>), ambas con la tasa BCV como celda editable y fórmulas reales en Bs.</p>
+    <p class="why" style="margin-top:6px"><b>Sigue sin hacer:</b> notificaciones push (<code>expo-notifications</code>) — nada de esto se tocó, sigue siendo solo in-app (campana 🔔).</p>
+  </div>
+
+  <h2><span class="n">03</span> Backend · seguridad · datos</h2>
+  <p class="sec-note">Lo más delicado. La sesión anónima del QR es rol <code>authenticated</code>, y varias políticas usan <code>using(true)</code>.</p>
+
+  <div class="card">
+    <h3>⚠️ Sueldos y datos bancarios visibles para la sesión anónima <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why"><code>employees_read</code>, <code>staff_pay_items/payments</code>, <code>staff_payments</code>, <code>company_payments</code> usan <code>using(true)</code> → quien escanea un QR (anónimo) puede leer <code>base_salary</code>, <code>bank_account</code>, montos.</p>
+    <p class="fix"><b>Fix:</b> cambiar esas políticas a <code>using (not public.is_anon())</code>, como ya hace <code>payrolls</code>.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>supabase/fix_rls_anon_nomina.sql</code> ya ejecutado en producción (cierra <code>employees</code>, <code>staff_pay_items</code>, <code>staff_payments</code>, <code>company_payments</code>, y <code>payrolls</code> — esta última en realidad seguía abierta pese a lo que decía esta auditoría). Se creó la función pública <code>employee_public_lookup()</code> y se migró el código de <code>jornada.ts</code>/<code>MachineQuickScreen.tsx</code>/<code>EmployeeCardScreen.tsx</code> para usarla en vez de leer <code>employees</code> directo — el hallazgo más grave (PDF de "Ficha completa" con datos bancarios descargable por QR anónimo) ya está cerrado. <code>supabase/fix_rls_anon_nomina_v2.sql</code> (nuevo) cierra las 6 tablas restantes que quedaron como follow-up (<code>staff_pay_periods</code>, <code>staff_pay_payments</code>, <code>staff_cargo_tariffs</code>, <code>staff_pay_config</code>, <code>payroll_periods</code>, <code>payroll_items</code>) — pendiente de ejecutar.</p>
+  </div>
+  <div class="card">
+    <h3>⚠️ <code>schema.sql</code> no instala en limpio (<code>staff_pay_config</code> falta) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Se le hace <code>alter/enable RLS</code> pero nunca se crea la tabla → el script aborta. Además hay deriva: <code>profiles.cedula</code>, <code>machinery.viajes</code>, <code>truck_yard_logs</code> existen solo en la BD real, no en el repo.</p>
+    <p class="fix"><b>Fix:</b> crear la tabla y regenerar el schema/tipos con <code>supabase db pull</code> + <code>gen types</code> para que el repo reproduzca la BD.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>supabase/staff_pay_config.sql</code> (nuevo) crea la tabla (inferida de <code>docs/superpowers/specs/2026-07-17-control-pago-personal-design.md</code> §10.1, nadie en <code>src/</code> la usaba todavía). <code>supabase/schema_drift.sql</code> (nuevo) documenta <code>profiles.cedula</code> y <code>machinery.viajes</code>/<code>precio_viaje</code> (ya estaban en <code>src/types/database.ts</code>, solo faltaba el <code>.sql</code>); <code>truck_yard_logs</code> ya se versionó antes en <code>supabase/truck_yard_logs.sql</code>. <b>Ojo:</b> <code>staff_pay_config.sql</code> debe ejecutarse ANTES que <code>schema.sql</code> (o después, pero re-ejecutando la policy correcta) porque la línea 1770 de <code>schema.sql</code> todavía recrea <code>spc_all</code> con <code>using(true)</code> — no se tocó <code>schema.sql</code> directamente por estar fuera de alcance, queda como decisión pendiente.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ <code>schema_drift.sql</code> EJECUTADO en producción (04/08/2026).</b> <code>staff_pay_config.sql</code> sigue sin correr — es opcional/baja prioridad (la tabla probablemente ya existe en la BD real con otras columnas de una migración manual previa, y el hallazgo de seguridad real de esta auditoría, RLS anónima, ya se cerró sin depender de este script).</p>
+  </div>
+  <div class="card" id="realtime-incompleto">
+    <h3>Realtime incompleto → pantallas que no se refrescan solas <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Fuera de la publicación: <code>dispatches</code>, <code>fuel_intakes</code>, <code>transfers</code>, <code>stock_movements</code>, compras, nómina… y <code>attendance</code> falla al publicarse en instalación limpia (orden de creación).</p>
+    <p class="fix"><b>Fix:</b> mover el bloque de publicación al final del schema y añadir las tablas operativas que usan <code>useTable</code>.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho y EJECUTADO en producción (04/08/2026):</b> <code>machine_inspectors</code> y <code>truck_yard_logs</code> agregadas en <code>supabase/fix_realtime_publication.sql</code> (03/08/2026). <code>supabase/fix_realtime_publication_v2.sql</code> agrega el resto: <code>dispatches</code>, <code>fuel_intakes</code>, <code>transfers</code>, <code>stock_movements</code>, <code>tanks</code>, <code>purchase_requests</code>, <code>purchase_orders</code>, <code>suppliers</code>, <code>payroll_periods</code>, <code>staff_pay_periods</code> — y re-agrega <code>attendance</code> de forma idempotente (el bug de orden en instalación limpia sigue ahí porque no se reordenó <code>schema.sql</code>, ver nota en el archivo).</p>
+    <p class="why" style="margin-top:6px"><b>Sigue pendiente:</b> <code>ReportsScreen.tsx</code> (Reportes) no tiene suscripción en vivo general — cada reporte se genera bajo demanda al tocar el botón (siempre trae datos frescos EN ESE MOMENTO, pero no se auto-actualiza si la pantalla queda abierta).</p>
+  </div>
+  <div class="card">
+    <h3><code>useTable</code> no pagina → se corta en 1000 filas <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">PostgREST corta en ~1000; en <code>machine_rounds</code>, <code>attendance</code>, <code>staff_payments</code> las listas y totales salen por debajo de lo real, en silencio.</p>
+    <p class="fix"><b>Fix:</b> paginar dentro de <code>useTable</code> (o usar <code>selectAllRows</code>) para tablas que crecen.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>src/hooks/useTable.ts</code> ahora encadena páginas de 1000 filas con <code>.range()</code> hasta traer todo (tope de seguridad 20.000 filas), sin cambiar la forma en que las pantallas ya llaman al hook.</p>
+  </div>
+  <div class="card">
+    <h3>Stock: condición de carrera en despacho/traslado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Dos despachos concurrentes pueden pasar ambos la validación de stock y dejar el tanque negativo; falta índice <code>(source_table, source_id)</code> en <code>stock_movements</code>.</p>
+    <p class="fix"><b>Fix:</b> <code>select … for update</code> del tanque en el trigger + índice.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>supabase/fix_stock_race_condition.sql</code> (nuevo) reemplaza <code>mv_dispatch()</code> y <code>mv_transfer()</code> agregando <code>select ... for update</code> sobre el tanque antes de validar stock, misma lógica de negocio intacta. Agrega el índice <code>(source_table, source_id)</code> en <code>stock_movements</code>. <b>Recomendado probar con dos despachos concurrentes en un entorno de prueba antes de confiar en producción</b> — toca integridad de datos de combustible.</p>
+  </div>
+
+  <div class="done">
+    <h3>✓ Ya hecho hoy</h3>
+    <ul>
+      <li>“● En curso” en <b>verde</b> en el módulo de Inspecciones.</li>
+      <li>Auto-cierre nocturno: <b>todas</b> las máquinas cierran a las 7am (incluidos camiones); de día siguen exentos.</li>
+      <li>Lista <b>🕓 Pendientes por asignar</b> en el CHECK (buscable + reasignar a cualquiera).</li>
+      <li>Usuario <b>ENDER MEJIA</b> eliminado; sus máquinas cayeron a pendientes.</li>
+      <li>Nota BD: los FK de borrado de usuario ya están en <code>SET NULL/CASCADE</code> en el schema del repo (falta aplicarlo a la BD real: hoy hubo que liberar <code>machinery_locations</code> a mano).</li>
+    </ul>
+  </div>
+
+  <h2><span class="n">04</span> Orden sugerido</h2>
+  <ol class="order">
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Máquina parada — avería vs no trabajó</b></span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Seguridad BD</b>: cerrar PII a la sesión anónima + arreglar <code>staff_pay_config</code></span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Cierre de jornada nocturna</b> contra su <code>round_date</code></span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>ToastProvider</b> + arreglar modo oscuro de los paneles fijos</span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 04/08/2026</span></li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Realtime</b> completo + <code>useTable</code> paginado</span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Pulido</b>: StatusBadge, skeletons, pull-to-refresh, Excel en Pagos/Nómina</span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 04/08/2026</span> <i>(único punto de toda la sección 01 que sigue sin hacer: push notifications — sección 02, requiere alcance/credenciales propias, ver esa tarjeta)</i></li>
+  </ol>
+
+  <h2><span class="n">05</span> Nuevas asignaciones (04/08/2026)</h2>
+  <p class="sec-note">Pedido directo del cliente: ajustes de jornadas/asignación de máquina, paridad de nómina, RBAC de analistas/coordinadores, y filtros/PDFs por lote en Requerimientos.</p>
+
+  <div class="card">
+    <h3>Jornadas de máquina: quitar Expandir/Colapsar/Reporte, filtro DÍA/NOCHE <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">La barra de "Jornadas de máquina" (Inspecciones) tenía 3 botones (Expandir todo / Colapsar todo / Reporte resumen por inspector) que el cliente pidió quitar, a cambio de un filtro por turno.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> en <code>SupervisionScreen.tsx</code> se quitaron los 3 botones (y el import de <code>generateSummaryReport</code>, que quedó sin uso) y en su lugar hay un filtro ☀️ Día / 🌙 Noche de selección única. Arranca autodetectando el turno actual según la hora de Caracas (mismo criterio ya usado en el archivo: día 07:00–18:59, noche 19:00–06:59) y filtra las jornadas por el turno de la asignación, combinándose con la búsqueda libre que ya existía. Expandir/colapsar cada inspector individual (tocando su tarjeta) sigue igual.</p>
+    <p class="why" style="margin-top:6px"><b>Nota:</b> el PDF "Reporte resumen por inspector" quedó sin botón de acceso (se pidió quitarlo); si se necesita en el futuro, requiere un nuevo lugar en la UI — <code>src/lib/inspectorSummaryReport.ts</code> no se tocó ni se borró.</p>
+  </div>
+  <div class="card">
+    <h3>Coordinador de Inspectores (móvil): mostrar solo las máquinas del inspector elegido <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Al elegir un inspector en "✅ CHECK máquina → Asignar" (paso 2), la lista mostraba TODAS las máquinas del sistema (o todas las pendientes) en vez de arrancar mostrando solo las suyas.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> en <code>SupervisorScreen.tsx</code> el filtro pasó de 2 a 3 modos — <b>👤 Suyas</b> (nuevo, por defecto), <b>Todas</b>, <b>Pendientes</b>. Al elegir un inspector siempre arranca en "Suyas" (filtrado estricto por <code>inspector_id</code>, no por nombre). La función de reasignación (☀️/🌙 por máquina y por lote) sigue disponible sin cambios en los 3 modos — para agregarle una máquina nueva o reasignar una de otro inspector, se toca "Todas" y se busca.</p>
+  </div>
+  <div class="card">
+    <h3>Máquinas sin inspector → usuario virtual "MAQUINAS FALTANTES" + 18h automáticas <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Quedó pendiente en la sección 03 (<a href="#realtime-incompleto">ver nota</a>): <code>supabase/auto_full_shift_no_asignada.sql</code> se construyó pero NUNCA se activó porque faltaba confirmar la definición de negocio de "máquina no asignada". El cliente la confirmó el 04/08/2026: toda máquina sin inspector humano se asigna por defecto al usuario virtual <b>MAQUINAS FALTANTES</b> y acumula 18h/día (12 día + 6 noche) mientras siga así, salvo que un inspector/supervisor la reasigne a una persona real.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho y EJECUTADO en producción (04/08/2026):</b> <code>supabase/maquinas_faltantes.sql</code> (nuevo, sustituye al script viejo) crea el usuario virtual (cuenta de sistema, no puede iniciar sesión) y programa 2 cron jobs, ya activos: <code>assign_missing_to_placeholder()</code> cada 15 min (asigna a MAQUINAS FALTANTES cualquier turno día/noche que quede sin inspector — así aparece igual que cualquier inspector en Resumen/Jornadas y se puede reasignar desde la UI normal) y <code>auto_full_shift_placeholder()</code> 1 vez al día a las 00:15 Caracas (genera 12h si el turno día es del virtual, 6h si el turno noche lo es, sin pisar nunca un <code>round_date</code> que ya tenga datos).</p>
+    <p class="fix" style="color:var(--done)"><b>Ampliado y EJECUTADO en producción (04/08/2026, mismo día):</b> el cliente pidió que la bolqueta/toronto (camión) sin asignar trabaje <b>12x12</b> (12h día + 12h noche = 24h), no 18h como el resto de la maquinaria — y que la bolqueta/toronto con supervisor REAL deje de tener el trato especial que la forzaba a cerrar a la 1:00am con horas fijas, trabajando en cambio con total normalidad (horas reales, mismo flujo que cualquier máquina). Los 4 scripts ya se ejecutaron en producción, en este orden: <code>supabase/backup_antes_12x12_camiones.sql</code> (respaldo previo de <code>machine_rounds</code>/<code>machine_work_segments</code>) → <code>supabase/cap_truck_hours.sql</code> (tope de horas ahora 12/12 mientras el turno sea del virtual MAQUINAS FALTANTES) → <code>supabase/auto_close_jornadas.sql</code> (se quitó el cierre especial de camión a la 1am) → <code>supabase/maquinas_faltantes.sql</code> (12x12 solo para volqueta/toronto sin inspector). Confirmado por el cliente.</p>
+  </div>
+  <div class="card">
+    <h3>Requerimientos: buscador + rango de fechas + PDF por lote + botón Resumen <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">En Inventario → Requerimientos solo existía el filtro por estatus y la descarga de un PDF a la vez (uno por requerimiento); revisar o descargar varios de un período era manual, uno por uno.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> buscador libre (código, título, nota, solicitante, empresa, producto) + rango de fecha (Desde/Hasta), combinables con el filtro de estatus que ya existía. Cada requerimiento tiene checkbox + "Seleccionar todos" (marca los visibles según el filtro activo). El botón "📥 PDF" descarga en un solo documento (una página por requerimiento, con su propia tabla/total/firma) a los marcados; si no hay ninguno marcado, descarga todos los filtrados (<code>requerimientosBulkHtml()</code> en <code>src/lib/requerimiento.ts</code>, reusa el mismo cuerpo del PDF individual que sigue disponible sin cambios).</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Ampliado (04/08/2026, mismo día):</b> botón "📄 Resumen" junto al de PDF por lote (mismos marcados/filtrados): arma un solo documento con la misma tabla de cada requerimiento pero SIN bloque de firma y agrupados uno debajo del otro (no una página por cada uno) — para una vista rápida de todo lo filtrado sin gastar una página completa por requerimiento.</p>
+  </div>
+  <div class="card">
+    <h3>RBAC: analistas en Asistencia + permiso "Coordinador de Inspectores" + asignación por lotes <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Pedido del cliente: que el rol <b>analista</b> pueda escribir en Asistencia sin configuración manual, un permiso nuevo para coordinar inspectores sin ser admin, poder asignar varias máquinas de una vez (en vez de una por una), y una auditoría de los 8 cargos pedidos contra los roles/pantallas ya existentes.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> el rol <code>analista</code> ya tiene acceso de escritura al módulo <code>asistencia</code> por defecto (sin fila manual en <code>module_permissions</code>), con feedback visual del estatus (activo/inactivo/suspendido) al escanear el carnet. Nuevo permiso de módulo <code>coordinador_inspectores</code> (aditivo, se activa desde Usuarios) extiende el gate de CHECK MÁQUINA en <code>SupervisorScreen.tsx</code> — el admin sigue coordinando igual que siempre. En "🕓 Pendientes por asignar" ahora hay checkboxes + botón "📋 Asignar N seleccionadas…" que asigna turno/inspector a varias máquinas a la vez, mostrando cuántas quedaron bien y cuántas fallaron. <code>supabase/fix_user_role_enum_drift.sql</code> (nuevo, agrega <code>'coordinador_patio'</code> al enum <code>user_role</code> de forma idempotente) — 🟡 opcional, se sospecha que el valor ya existía en producción agregado a mano; el script no falla si ya está.</p>
+    <p class="why" style="margin-top:6px"><b>Auditoría RBAC (8 cargos pedidos):</b> Inspectores, Personal de Cocina, Chofer de Camión de Combustible, Coordinador de Patio y Administradores ya estaban resueltos con roles fijos existentes. Coordinadores Preventivos/Correctivos, Almacenistas y Coordinador de Operadores requieren que un admin cree un rol dinámico en Usuarios con los módulos correspondientes marcados (sin código nuevo) — pero en el <b>teléfono</b> esos roles dinámicos hoy caen en la vista de Inspector genérica, no en un panel propio (a diferencia de <code>coordinador_patio</code>/<code>chofer_combustible</code>, que sí tienen su propia vista); avisar si alguno necesita trabajar principalmente desde el teléfono.</p>
+    <p class="why" style="margin-top:6px"><b>Bug reportado (04/08/2026):</b> el cliente vio máquinas en "🕓 Pendientes por asignar" que no debían pedir inspector (equipos como "CHUTO CON LOWBOY"). Causa: la consulta de <code>SupervisorScreen.tsx</code> no traía <code>active</code>/<code>en_espera</code> de <code>machinery</code>, así que la lista contaba TODAS las máquinas sin inspector, incluidas inactivas/averiadas/en espera de recepción — que ni el propio cron de MAQUINAS FALTANTES asigna.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> se agregó <code>active</code>/<code>en_espera</code> a la consulta y <code>faltaTurno()</code> ahora exige que la máquina esté activa, operativa y no en espera (mismo criterio que <code>assign_missing_to_placeholder()</code>) antes de contarla como pendiente — una máquina fuera de servicio ya no aparece pidiendo inspector.</p>
+    <p class="why" style="margin-top:6px"><b>Ampliado (04/08/2026, mismo día):</b> el cliente trajo un reporte externo con 76 máquinas "pendientes por asignar" que el CHECK ya no mostraba (0). Causa: una vez que el cron <code>assign_missing_to_placeholder()</code> cubre un turno con el usuario de sistema MAQUINAS FALTANTES, la máquina deja de contar como "sin inspector" — aunque nadie real la esté inspeccionando. El cliente necesitaba distinguir eso.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> en "🕓 Pendientes por asignar" ahora hay dos botones — <b>"Sin encargado real"</b> (por defecto: incluye las que no tienen a nadie Y las que solo tiene MAQUINAS FALTANTES, reproduce el reporte externo) y <b>"Sin nadie (estricto)"</b> (el comportamiento anterior). Cada tarjeta muestra el <code>encargado</code> del catálogo y distingue con color si el turno lo tiene una persona real, nadie, o solo el sistema. Nueva constante compartida <code>PLACEHOLDER_INSPECTOR_ID</code> en <code>src/lib/machineInspectors.ts</code>.</p>
+    <p class="why" style="margin-top:6px"><b>Relleno retroactivo pedido (04/08/2026, mismo día):</b> como <code>auto_full_shift_placeholder()</code> solo carga "ayer", las máquinas sin inspector desde ANTES de hoy se quedaron sin horas esos días. El cliente pidió que cuenten 12h día/6h noche (12x12 para camiones) desde el 01/08/2026.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>supabase/backfill_maquinas_faltantes_agosto.sql</code> (nuevo) respalda <code>machine_rounds</code>/<code>machine_work_segments</code> desde el 01/08, y corre <code>backfill_full_shift_placeholder(desde, hasta)</code> una vez — mismo criterio y blindaje que el cron diario (nunca pisa un día con datos reales), pero recorriendo el rango 01/08 → ayer en vez de solo "ayer". Pendiente de ejecutar en Supabase SQL Editor.</p>
+    <p class="why" style="margin-top:6px"><b>Ampliado (04/08/2026, mismo día):</b> el cliente pidió que el turno DÍA de MAQUINAS FALTANTES se vea "iniciado a las 7am" (como un inspector real), no que las 12h aparezcan de la nada horas después.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>supabase/auto_start_dia_maquinas_faltantes.sql</code> (nuevo) agrega <code>auto_start_placeholder_day()</code> (cron 7:05am Caracas + corrida inmediata para hoy): pone <code>jornada_start_at</code> = 7am a las máquinas con turno día en MAQUINAS FALTANTES, y el cierre lo hace solo el cron ya existente <code>auto_close_jornadas()</code> a las 7pm con horas reales (12h exactas). <code>auto_full_shift_placeholder()</code> se ajustó para no chocar: ahora solo rellena <code>day_hours</code>/<code>night_hours</code> si esa columna sigue en 0, en vez de asumir que la fila no existe. La noche sigue igual (fija, sin vivirse en tiempo real).</p>
+    <p class="why" style="margin-top:6px"><b>⚠️ Corrección importante (04/08/2026, misma tarde):</b> todo esto se había construido apuntando a un usuario "MAQUINAS FALTANTES" NUEVO con un UUID inventado. Se descubrió (gracias a un script de la compañera de equipo) que en producción YA EXISTÍA el usuario real para esto — "inspector maquinas faltantes", id <code>3b996dc0-…</code>, con 143 asignaciones históricas — el que de verdad se ve en el Resumen/dashboard.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> los 4 scripts (<code>maquinas_faltantes.sql</code>, <code>cap_truck_hours.sql</code>, <code>auto_start_dia_maquinas_faltantes.sql</code>, <code>backfill_maquinas_faltantes_agosto.sql</code>) se corrigieron para usar el UUID real. Nuevo <code>supabase/migrar_a_inspector_faltantes_real.sql</code> mueve (con respaldo previo) cualquier fila que haya quedado bajo el UUID inventado hacia el real — seguro por el índice único (machinery_id, shift), no duplica ni pisa nada. El usuario inventado no se borra, solo queda sin uso.</p>
+  </div>
+  <div class="card">
+    <h3>Nómina "Por período": mismo aviso de desincorporados que "Por persona" <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">"Por persona" (<code>PagoPorPersona.tsx</code>) ya tenía un filtro Activos/Todos/Inactivos-Desincorporados; "Por período" (<code>PagoPersonalScreen.tsx</code>) no distinguía si alguien de la lista había sido desincorporado después de incluirlo.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> el detalle de un período ahora consulta el estado ACTUAL de cada empleado incluido y muestra un <code>&lt;Badge label="Desincorporado"&gt;</code> junto a su nombre si hoy está inactivo/suspendido (solo visual, no toca el monto ya cargado). <code>crearPeriodo</code>/<code>agregarFaltantes</code> siguen tomando solo activos, sin cambios (agregar a alguien ya desincorporado como "faltante" no aplica).</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Ampliado (04/08/2026, mismo día):</b> el cliente pidió, además del badge, poder FILTRAR esa misma lista del período — se agregó un buscador "🔎 Buscar por nombre…" y los mismos 3 chips de <code>PagoPorPersona.tsx</code> (Activos / Todos / Inactivos-Desincorporados, por defecto "Todos") justo encima del filtro por cargo que ya existía; los 3 filtros (cargo + nombre + estado) se combinan entre sí. Solo afecta qué se MUESTRA, no qué se cobra ni el PDF/Excel del período.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Ampliado otra vez (04/08/2026):</b> ahora cada persona del período tiene un checkbox (☑) y un botón "Seleccionar todos" que marca a los que están VISIBLES según el filtro activo (p. ej. filtrar a "Inactivos/Desincorporados" y tocar "Seleccionar todos" marca solo esos). El botón <b>📥 Excel</b> exporta ÚNICAMENTE a los seleccionados si hay alguno marcado (mostrando el conteo en el botón); si no hay ninguno seleccionado, exporta todos (respetando el filtro de cargo, como siempre hizo).</p>
+  </div>
+  <div class="card">
+    <h3>Bug reportado: la sesión se cerraba sola y botaba al usuario de su pantalla <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Reporte del cliente: a los administradores se les cerraba la sesión sola y, al pasar (aparentemente al sincronizar algún cambio de la base de datos), la app los sacaba de la vista en la que estaban. Causa real: en el <b>teléfono</b>, Supabase solo renueva el token de sesión mientras la app está en primer plano — <code>AuthContext.tsx</code> nunca le avisaba a Supabase cuándo la app pasaba a segundo plano/primer plano (<code>AppState</code> de React Native), así que tras dejar la app en segundo plano varias horas (cambiar de app, apagar pantalla) el token vencía sin renovarse. Al volver, la sesión ya no era válida → se cerraba sola y la pantalla principal mostraba el login, perdiendo en qué vista estaba el usuario (no era la base de datos la causa directa, sino la sesión vencida).</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> <code>src/context/AuthContext.tsx</code> ahora escucha <code>AppState</code> (solo en nativo, no aplica a web) y llama a <code>supabase.auth.startAutoRefresh()</code>/<code>stopAutoRefresh()</code> al entrar/salir de primer plano — el fix oficial que documenta Supabase para React Native. La sesión ahora se renueva apenas la app vuelve a primer plano, antes de que vaya a vencer.</p>
+    <p class="why" style="margin-top:6px"><b>Si sigue pasando en la web (PC/navegador)</b>, la causa más probable es otra: varias pestañas abiertas con la misma cuenta (cada renovación de token invalida la anterior; si dos pestañas renuevan casi al mismo tiempo, una de las dos queda con un token inválido y se cierra sola) — avisar si se puede confirmar que pasa en PC para atacar esa causa específica.</p>
+  </div>
+  <div class="card">
+    <h3>Bug reportado: al refrescar la pestaña del navegador en el teléfono, siempre volvía a "Revisar" <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Reporte del cliente: "cada que refresco la pestaña desde el navegador me saca de la vista en la que estoy". Ya existía un mecanismo de persistencia de navegación (<code>src/navigation/index.tsx</code>, desde el 30/07) que guarda en <code>localStorage</code> la pantalla/pestaña activa y la restaura al recargar — pero tenía un <code>if (... || phone) return;</code> que lo desactivaba POR COMPLETO en teléfono ("en teléfono no aplica, la vista la fija el rol"). Confirmado con pruebas en el navegador (emulando móvil): navegar a otra pestaña de Inspectores y recargar siempre volvía a "Revisar", nunca se guardaba nada.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho y PROBADO en navegador (04/08/2026):</b> se quitó la exclusión de teléfono — ahora también persiste en móvil, con una clave de <code>localStorage</code> DISTINTA a la de PC (<code>NAV_STATE_V1_PHONE</code> vs <code>NAV_STATE_V1</code>) porque el árbol de pantallas es diferente entre PC (Tabs) y teléfono (SupervisorTabs/PatioStack según el rol) — así nunca se intenta aplicar a un navegador el estado guardado del otro. Probado en vivo con Chrome DevTools emulando un Android: navegar a "Catálogo" en Inspectores + recargar ahora sí se queda en "Catálogo".</p>
+  </div>
+
+  <h2><span class="n">06</span> Rediseño visual (04/08/2026) — trabajo de la compañera de equipo</h2>
+  <p class="sec-note">Todo lo de esta sección lo hizo la compañera de equipo (rama <code>feature/rediseno-tanques</code> y commits <code>feat(rediseño): …</code> directos a <code>dev</code>), en paralelo a la auditoría técnica de arriba. No cambia lógica de negocio ni triggers — reusa los mismos hooks/RPCs (<code>useAuth</code>, <code>useTable</code>, <code>RecordForm</code>, <code>approve/reject_authorization</code>) con look nuevo. Ya está commiteado a <code>dev</code> y las pantallas restilizadas reemplazan a las originales en la navegación real (no son mockups aparte que haya que activar).</p>
+
+  <div class="card">
+    <h3>Fundamentos del rediseño: azul de marca + kit de componentes <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> el azul de marca del tema (<code>src/theme/index.ts</code>) se ajustó al azul EXACTO del logo (<code>#1D3D60</code>). Se agregó <code>src/components/redesign/RList.tsx</code>: lista genérica restilizada (encabezado navy, botón "+ Nuevo" en ámbar, filtro por fecha, tarjetas, estados de vacío/carga) que reusa <code>useTable</code> (lectura) y <code>RecordForm</code> (crear/editar/borrar) — no se tocaron <code>ui.tsx</code>/<code>ListScreen.tsx</code>/<code>RecordForm.tsx</code> (compartidos del equipo).</p>
+  </div>
+  <div class="card">
+    <h3>Módulo Combustible (Tanques, Ingresos, Consumos, Solicitudes) con el lenguaje visual nuevo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> Tanques fue el piloto (<code>TanksPilot.tsx</code>: navy + ámbar, medidor con marca de umbral, chips de estado, filtros Todos/Diésel/Gasolina/Bajos; nivel sigue siendo DERIVADO de <code>tank_levels</code>, no editable) y luego pasó a un "showcase" de plantilla (<code>TanksShowcase.tsx</code>) con tipografía de marca real (Barlow/Barlow Condensed/IBM Plex Mono, cargada bajo demanda con <code>expo-font</code> solo al abrir la pestaña), banda de KPIs (tanques / bajo umbral / litros) y tarjetas con franja de estado. Ingresos, Consumos y Solicitudes se restilizaron igual (<code>IntakesPilot.tsx</code>, <code>DispatchesPilot.tsx</code>, <code>AuthorizationsPilot.tsx</code> en <code>src/screens/redesign/</code>) sobre el kit RList — Solicitudes reusa el mismo RPC <code>approve/reject_authorization</code> y su PDF. <code>CombustibleScreen.tsx</code> ya usa las 4 pantallas restilizadas en sus pestañas.</p>
+  </div>
+  <div class="card">
+    <h3>Consumos: gráficas, buscador y "consumido hoy" por defecto <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> la pestaña Consumos (<code>DispatchesPilot.tsx</code>) agregó gráficas y buscador, con texto azul que se adapta al tema. Por defecto solo muestra lo "consumido hoy"; al filtrar por fecha aparecen las gráficas del rango elegido.</p>
+  </div>
+  <div class="card">
+    <h3>Traslados con el lenguaje visual nuevo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> <code>src/screens/redesign/TransfersPilot.tsx</code> sobre el kit RList — mismo comportamiento que la pantalla original (crea/edita en <code>transfers</code>, el trigger mueve stock y valida disponibilidad; solo cambia el look). Ya reemplaza a <code>TransfersScreen</code> en la pantalla "Transfers" del stack "Más".</p>
+  </div>
+  <div class="card">
+    <h3>Menú "Más": de lista simple a sidebar con pastillas de marca <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> <code>MoreScreen.tsx</code> pasó por varias iteraciones el mismo día: íconos dentro de una pastilla de marca (ámbar tenue) → estilo sidebar (filas ícono+nombre, chevron, ítem activo destacado) → colapsable → finalmente fijo, junto con el nuevo dashboard analítico de Inspecciones (ver abajo).</p>
+  </div>
+  <div class="card">
+    <h3>Sesión (login), Inicio (Dashboard), Reportes y Usuarios con el lenguaje visual nuevo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> <code>src/screens/redesign/LoginPilot.tsx</code> (mismo login, mismos hooks <code>useAuth</code> — <code>signInWithUsername</code>/<code>biometricLogin</code> — solo cambia el look: badge navy, tarjeta, botón "Entrar" en ámbar, huella en navy); ya reemplaza a <code>LoginScreen</code> en los 4 puntos donde se renderiza, con el original intacto en <code>src/screens/LoginScreen.tsx</code>. <code>DashboardScreen.tsx</code> (Inicio), <code>ReportsScreen.tsx</code> y <code>UsersScreen.tsx</code> recibieron el retoque visual del lenguaje nuevo directamente en el archivo original (in situ, sin pantalla piloto aparte).</p>
+  </div>
+  <div class="card">
+    <h3>Nuevo: dashboard analítico de Inspecciones <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> <code>src/screens/redesign/InspectionsSummary.tsx</code> (nuevo), enganchado desde <code>SupervisionScreen.tsx</code>.</p>
+  </div>
+  <div class="card">
+    <h3>Panel para gestionar Iniciada/Pendiente por supervisor (Inspecciones) + control en Ajustes <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> en <code>InspectionsSummary.tsx</code>, debajo del botón "Reporte de máquinas por asignar / por iniciar", hay un panel que lista las máquinas agrupadas por inspector con checkbox individual/por grupo/todas, y 2 botones para pasarlas en bloque entre <b>✅ Iniciada</b> y <b>⏳ Pendiente por iniciar</b> (el mismo estado de las tarjetas KPI de arriba) — <b>NO</b> es el catálogo "Operativa/Inactiva" de Equipos (versión anterior de este panel; se corrigió porque no era lo que hacía falta). "Iniciar" arranca <code>jornada_start_at</code> ahora mismo (igual que si un inspector tocara "Iniciar jornada", sin pedir horómetro); "Pendiente" borra las horas de ese turno y cierra la jornada abierta si es de ese mismo turno. Solo funciona para el día de HOY (no días pasados, para no tocar cortes ya cerrados). Tiene sus PROPIOS filtros de turno (Todos/☀️Día/🌙Noche) y estado (Todas/Iniciadas/Pendientes), independientes del switch del resto del dashboard, y cada fila muestra su turno con su propia casilla (una máquina con inspector de día Y de noche sale 2 veces, cada una independiente). Al marcar "Pendiente" una máquina que ya tenía horas trabajadas hoy, esas horas NO se pierden: quedan registradas en <code>machine_work_segments</code> (source <code>ajuste_manual</code>, igual que cualquier otro cierre) y en la bitácora de Auditoría (<code>JORNADA_INICIO</code>/<code>JORNADA_FIN</code>, con el detalle de qué se hizo y desde el panel), como cualquier otra acción de jornada de la app. Pedido a mano por el cliente para 2 cuentas puntuales (Angélica y Anthony). El acceso ya no está solo fijo en el código: <code>supabase/feature_toggles.sql</code> (tabla genérica <code>key/enabled/extra_user_ids</code>, RLS solo-admin-escribe) permite, desde <b>Ajustes → Herramientas avanzadas</b> (solo rol admin), prender/apagar el panel entero y sumar/quitar personas con acceso extra sin tocar código.</p>
+  </div>
+  <div class="card">
+    <h3>Sin tasa BCV/Bs en NINGÚN reporte, solo montos en US$ <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> el cliente amplió el pedido de Nómina (hecho antes) a TODO el sistema: "en ningún reporte uses la tasa BCV, eso es solo referencial a nivel de sistema, que solo salga el monto en dólares". Barrido completo de reportes/PDFs/Excel exportables: <code>src/lib/requerimiento.ts</code> (PDF de Requerimiento de compra — quitado "· Bs ..." del total, la línea "Tasa referencial" y el precio unitario ahora siempre en US$), <code>src/lib/staffXlsx.ts</code> (los 3 Excel de Nómina — listado del período, historial "Por persona", personas seleccionadas — tenían una fila de tasa BCV editable + 6 columnas en Bs con fórmulas en vivo que no se habían tocado en la pasada anterior; se quitaron por completo, dejando solo columnas US$), <code>src/screens/ControlPagosScreen.tsx</code> (el PDF "Estado de cuenta por empresa" mostraba "· Bs monto" en pagos con método "bs"; quitado). La tasa BCV sigue funcionando igual que siempre en las pantallas normales de trabajo (cargar un precio en bolívares, convertir a US$ internamente) — el cambio es solo en los documentos finales impresos/exportados.</p>
+  </div>
+  <div class="card">
+    <h3>Menú "Más": Combustible ya no se ve resaltado/presionado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> <code>MoreScreen.tsx</code> tenía a Combustible con un estilo "destacado" fijo (fondo, borde y barra lateral color ámbar) que el cliente percibía como si el botón estuviera siempre presionado. Se quitó ese trato especial — ahora se ve igual que el resto de los módulos del menú.</p>
+  </div>
+  <div class="card">
+    <h3>Inventario: permiso FULL también puede marcar "Recibido" <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> en Inventario → Requerimiento, el botón "📥 Recibir en inventario" (que ya dejaba el estado en <b>Recibido</b> automáticamente al usarlo — eso ya funcionaba) estaba visible SOLO para <code>role==='admin'</code>. El cliente pidió que "los que tienen todos los permisos de inventario" también puedan cambiar ese estado — las políticas RLS de <code>inventory_requirements</code>/<code>inventory_movements</code> ya lo permitían (<code>can_write_module('inventario')</code>, sin restringir a admin), así que solo hacía falta habilitar el botón en la pantalla para el permiso <b>full</b> del módulo Inventario, además de admin. Además, el mismo badge de estado (arriba a la derecha de cada requerimiento, ej. "APROBADO") ahora es tocable para quien tenga ese permiso: al tocarlo despliega debajo "Cambiar a: Pendiente/Aprobado/Rechazado/Recibido" para corregirlo A MANO sin rehacer el flujo completo — con aviso de que NO crea ni revierte entradas de stock, solo la etiqueta del documento (para eso sigue estando "Recibir en inventario"). Corregido 04/08/2026 (misma tarde): la primera versión agregaba un botón nuevo aparte en la fila de acciones; el cliente pidió que el cambio saliera del propio badge de estado, sin mover ni tapar el aviso "❗ Pendiente por cargar precio".</p>
+  </div>
+  <div class="card">
+    <h3>Persistencia al recargar: pantallas DENTRO de "Más" seguían sin restaurar <span class="meta"><span class="chip" style="background:var(--accent);color:#fff;border-color:transparent">🟡 Corregido, sin verificar en vivo</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">El cliente reportó (04/08/2026, misma tarde) que el fix de persistencia de navegación de esta mañana no alcanzaba: al pararse en una pantalla DENTRO de "Más" (ej. Inspecciones) y recargar, seguía cayendo en el menú de "Más" en vez de quedarse en esa pantalla — el mismo síntoma que el fix con <code>resetRoot</code> debía haber resuelto.</p>
+    <p class="fix" style="color:var(--done)"><b>Corregido (04/08/2026):</b> causa raíz más probable, confirmada por el propio comentario del código: React Navigation NO monta el contenido de una pestaña hasta que se activa (<code>lazy</code> por defecto en <code>bottom-tabs</code>). Al recargar, el stack anidado de "Más" no existe todavía en el primer render, así que ni <code>initialState</code> ni <code>resetRoot</code> (en <code>onReady</code>) tienen dónde aplicar la pantalla guardada — solo la pestaña se restaura, no lo de adentro. Se agregó <code>lazy: false</code> en <code>screenOptions</code> del <code>Tab.Navigator</code> principal (<code>src/navigation/index.tsx</code>, función <code>Tabs()</code>): así TODAS las pestañas (y sus stacks anidados) existen desde el primer render, sin importar cuál esté activa. <b>Sin verificar en vivo</b> (las herramientas de navegador MCP no están disponibles en esta sesión) — pendiente de que el cliente confirme tras recargar en Más → Inspecciones (y similares) que ya se queda en la pantalla correcta.</p>
+  </div>
+  <div class="card">
+    <h3>Plan de mejoras reorganizado por día <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> este documento pasó de estar organizado solo por tema (secciones 00-06) a tener también una agrupación por DÍA (<code>&lt;section class="day-group" id="day-YYYY-MM-DD"&gt;</code>), con el 04/08/2026 como el primer día completo. Las secciones por tema se conservan igual DENTRO de cada día. Preparado para que futuros días de trabajo se agreguen como nuevos bloques, el más reciente arriba.</p>
+  </div>
+
+  <footer>
+    Generado tras auditar backend (schema/RLS/cron/realtime), UI/UX (theme/componentes/pantallas) y funcionalidad (jornadas/reportes/notificaciones).
+    <br>Última actualización: 04/08/2026 (cierre del día) — la sección 01 (Efecto visual/UX) quedó CERRADA por completo salvo push notifications (única tarjeta que sigue en 🟡, sección 02, fuera de alcance por tamaño/riesgo — necesita credenciales de push y no se puede probar sin QA visual real). Modo oscuro, feedback (toast), skeletons/pull-to-refresh y badges de estado tuvieron su cierre final el 04/08/2026, con auditoría sistemática de los ~45 archivos con color fijo (4 lotes en paralelo) y consolidación de <code>STATUS_OPTS</code>/<code>STATUS_META</code> en <code>VISIT_STATUS_META</code>. La sección 05 (mismo día) cierra los pedidos directos del cliente sobre jornadas/asignación de inspectores (incluida la jornada 12x12 de bolqueta/toronto, cuyos 4 scripts SQL el cliente ya confirmó que corrió en producción), paridad de nómina (ampliada el mismo día con buscador, filtro de estado y selección por checkbox para exportar solo lo marcado en "Por período"), RBAC de analistas/Coordinador de Inspectores + asignación por lotes, y filtros/PDFs por lote (más botón Resumen) en Requerimientos. También se corrigió un bug de sesión: en el teléfono, la app no renovaba el token mientras estaba en segundo plano, así que tras varias horas la sesión vencía sola y botaba al usuario de la pantalla en la que estaba de vuelta al login (si el cierre de sesión sigue pasando en PC, la causa más probable es otra — varias pestañas con la misma cuenta — pendiente de confirmar). Se agregó además la sección 06 con el <b>rediseño visual</b> que hizo la compañera de equipo el mismo día (Sesión, Inicio, módulo Combustible completo, Traslados, menú "Más" y el nuevo dashboard analítico de Inspecciones) — ya commiteado a <code>dev</code>, con las pantallas restilizadas reemplazando a las originales en la navegación real.
+    <br><b>✓ Ejecutados en producción (04/08/2026):</b> <code>supabase/fix_realtime_publication_v2.sql</code>, <code>supabase/schema_drift.sql</code>, <code>supabase/maquinas_faltantes.sql</code> (los 2 cron jobs de MAQUINAS FALTANTES ya están activos), y — confirmados por el cliente en esta ronda — los 4 scripts de la jornada 12x12 de bolqueta/toronto, en orden: <code>supabase/backup_antes_12x12_camiones.sql</code> → <code>supabase/cap_truck_hours.sql</code> → <code>supabase/auto_close_jornadas.sql</code> → <code>supabase/maquinas_faltantes.sql</code> (variante 12x12).
+    <br><b>✓ Ejecutado en producción (05/08/2026):</b> <code>supabase/inventory_movements_employee.sql</code> (columnas <code>employee_ids</code>/<code>employees_detail</code> en <code>inventory_movements</code>) — confirmado por el cliente. El historial de dotación por empleado y la cédula/cargo en los PDF de salida/traslado ya guardan y muestran el vínculo real, sin depender del reintento defensivo.
+    <br><b>✓ Ejecutado en producción (06/08/2026):</b> <code>supabase/hose_services.sql</code> (tabla <code>hose_services</code> del nuevo módulo de Fabricación/Mangueras hidráulicas — Fase 1) — confirmado por el cliente. El módulo "🔧 Mangueras hidráulicas" ya queda 100% operativo en el menú "Más" para quien reciba el permiso.
+    <br><b>✓ Ejecutados en producción (06/08/2026, MRP):</b> <code>supabase/fabricacion_maestros.sql</code> (Fase 2: centros de trabajo, recetas/BoM, rutas), <code>supabase/fabricacion_ordenes.sql</code> (Fase 3: <code>manufacturing_orders</code>, <code>work_orders</code>, <code>wo_time_logs</code>) y <code>supabase/fabricacion_calidad_oee.sql</code> (Fase 5: candado de calidad, horómetro de centros de trabajo, OEE) — confirmados por el cliente. Las 5 fases del MRP quedan con su SQL corrido en producción.
+    <br><b>SQL pendientes de ejecutar en producción</b> (Supabase SQL Editor, EN ESTE ORDEN — todos con UUID corregido al usuario real "inspector maquinas faltantes"): <code>supabase/maquinas_faltantes.sql</code> → <code>supabase/cap_truck_hours.sql</code> → <code>supabase/auto_close_jornadas.sql</code> → <code>supabase/auto_start_dia_maquinas_faltantes.sql</code> → <code>supabase/backfill_maquinas_faltantes_agosto.sql</code> → <code>supabase/migrar_a_inspector_faltantes_real.sql</code> (mueve lo que haya quedado mal asignado si ya corriste alguna versión vieja hoy) → <code>supabase/asignar_faltantes_a_inspector_faltantes.sql</code> (de la compañera: asigna al cajón real las máquinas que sigan sin ningún inspector, día y noche). Todos con respaldo previo incluido. También pendiente: <code>supabase/feature_toggles.sql</code> (tabla del switch "Panel de activar/desactivar máquinas por supervisor" en Ajustes — hasta correrlo el panel funciona igual que antes, solo con la whitelist fija de 2 cuentas). Además: <code>supabase/fix_rls_anon_nomina_v2.sql</code>, y <code>supabase/fix_stock_race_condition.sql</code> (probar con despachos concurrentes antes de confiar en producción). <code>supabase/staff_pay_config.sql</code> y <code>supabase/fix_user_role_enum_drift.sql</code> son <b>opcionales/baja prioridad</b> — ambos se sospecha que ya están aplicados en producción de forma manual/histórica (el hallazgo de seguridad real de <code>staff_pay_config</code> ya se cerró por otra vía, ver sección 03; <code>fix_user_role_enum_drift</code> solo agrega <code>'coordinador_patio'</code> al enum <code>user_role</code> si no existe, de forma idempotente — no falla si ya está). Ejecutarlos igual si no se está seguro de que ya corrieron. Si <code>staff_pay_config.sql</code> da <code>syntax error at or near "-"</code> al pegarlo, es que el copiado convirtió el <code>--</code> del comentario en un solo guion (típico al pasar por un editor de texto enriquecido); cópialo directo del archivo/Raw de GitHub.
+  </footer>
+  </section>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var PRIORITY_RANK = { alta: 0, media: 1, baja: 2, ninguna: 3 };
+
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  var sections = []; // { key, label, dayId, h2, note, cards:[] }
+
+  // ---- 1) Anotar cada tarjeta con data-priority / data-status / data-original-index ----
+  cards.forEach(function(card, i){
+    card.setAttribute('data-original-index', String(i));
+
+    var priority = 'ninguna';
+    if (card.querySelector('.chip.p-alta')) priority = 'alta';
+    else if (card.querySelector('.chip.p-media')) priority = 'media';
+    else if (card.querySelector('.chip.p-baja')) priority = 'baja';
+    card.setAttribute('data-priority', priority);
+
+    var status = 'pendiente';
+    var metaChips = card.querySelectorAll('h3 .meta .chip');
+    for (var j = 0; j < metaChips.length; j++){
+      var chip = metaChips[j];
+      if (chip.classList.contains('p-alta') || chip.classList.contains('p-media') ||
+          chip.classList.contains('p-baja') || chip.classList.contains('eff')) continue;
+      var txt = (chip.textContent || '').trim();
+      if (txt.indexOf('✓') === 0){ status = 'hecho'; break; }
+      if (txt.indexOf('◔') === 0){ status = 'planificado'; break; }
+      // otros chips de estado (ej. "🟡 Parcial", "🟡 Corregido, sin verificar en vivo")
+      // quedan como "pendiente": son trabajo que todavía necesita atención.
+    }
+    card.setAttribute('data-status', status);
+  });
+
+  // ---- 2) Detectar secciones (h2 numerados) por día y asignar data-section a cada tarjeta ----
+  var dayGroups = Array.prototype.slice.call(document.querySelectorAll('.day-group'));
+  dayGroups.forEach(function(dayGroup){
+    var dayId = dayGroup.id || '';
+    var dayLabel = dayId;
+    var children = Array.prototype.slice.call(dayGroup.children);
+
+    for (var c = 0; c < children.length; c++){
+      if (children[c].tagName === 'H2' && children[c].classList.contains('day-heading')){
+        dayLabel = children[c].textContent.trim();
+        break;
+      }
+    }
+
+    var daySections = [];
+    var currentSection = null;
+    children.forEach(function(el){
+      if (el.tagName === 'H2' && !el.classList.contains('day-heading')){
+        var nSpan = el.querySelector('.n');
+        var num = nSpan ? nSpan.textContent.trim() : '';
+        var fullText = el.textContent.trim();
+        var title = num && fullText.indexOf(num) === 0 ? fullText.slice(num.length).trim() : fullText;
+        var key = dayId + '__' + (num || sections.length);
+        currentSection = { key: key, dayId: dayId, dayLabel: dayLabel, num: num, title: title, h2: el, note: null, cards: [], boundary: null };
+        daySections.push(currentSection);
+        sections.push(currentSection);
+      } else if (currentSection && el.classList && el.classList.contains('sec-note') && !currentSection.note){
+        currentSection.note = el;
+      } else if (el.classList && el.classList.contains('card')){
+        if (currentSection){
+          el.setAttribute('data-section', currentSection.key);
+          currentSection.cards.push(el);
+        } else {
+          el.setAttribute('data-section', '');
+        }
+      }
+    });
+
+    // "boundary" = elemento estable (nunca una .card) que sigue al bloque de tarjetas de
+    // cada sección — se usa como referencia fija para reordenar sin desplazar contenido
+    // de otra sección. Es el siguiente elemento que NO es tarjeta ni la nota propia de
+    // la sección (el próximo <h2>, un bloque <div class="done">, el <footer>, etc.).
+    daySections.forEach(function(sec){
+      var h2Index = children.indexOf(sec.h2);
+      var boundary = null;
+      for (var k = h2Index + 1; k < children.length; k++){
+        var cand = children[k];
+        if (cand === sec.note) continue;
+        if (cand.classList && cand.classList.contains('card')) continue;
+        boundary = cand;
+        break;
+      }
+      sec.boundary = boundary;
+    });
+  });
+
+  // ---- 3) Poblar el <select> de actividad/sección, agrupado por día ----
+  var sectionSelect = document.getElementById('filter-section');
+  var currentOptgroupDay = null;
+  var optgroup = null;
+  sections.forEach(function(sec){
+    if (sec.dayId !== currentOptgroupDay){
+      currentOptgroupDay = sec.dayId;
+      optgroup = document.createElement('optgroup');
+      optgroup.label = sec.dayLabel;
+      sectionSelect.appendChild(optgroup);
+    }
+    var opt = document.createElement('option');
+    opt.value = sec.key;
+    opt.textContent = (sec.num ? sec.num + ' — ' : '') + sec.title;
+    optgroup.appendChild(opt);
+  });
+
+  // ---- 4) Filtrado combinado (prioridad Y estado Y sección) ----
+  var state = { priority: 'todas', status: 'todas', section: '' };
+  var counterEl = document.getElementById('filter-count');
+
+  function applyFilters(){
+    var visibleCount = 0;
+    cards.forEach(function(card){
+      var matchPriority = state.priority === 'todas' || card.getAttribute('data-priority') === state.priority;
+      var matchStatus = state.status === 'todas' || card.getAttribute('data-status') === state.status;
+      var matchSection = !state.section || card.getAttribute('data-section') === state.section;
+      var visible = matchPriority && matchStatus && matchSection;
+      card.style.display = visible ? '' : 'none';
+      if (visible) visibleCount++;
+    });
+
+    sections.forEach(function(sec){
+      var anyVisible = sec.cards.some(function(c){ return c.style.display !== 'none'; });
+      sec.h2.style.display = anyVisible ? '' : 'none';
+      if (sec.note) sec.note.style.display = anyVisible ? '' : 'none';
+    });
+
+    // Si un día completo queda sin secciones visibles, ocultar también su encabezado de día.
+    dayGroups.forEach(function(dayGroup){
+      var daySections = sections.filter(function(s){ return s.dayId === dayGroup.id; });
+      var dayHasVisible = daySections.some(function(s){ return s.h2.style.display !== 'none'; });
+      var heading = dayGroup.querySelector('h2.day-heading');
+      if (heading) heading.style.display = dayHasVisible ? '' : 'none';
+    });
+
+    counterEl.textContent = 'Mostrando ' + visibleCount + ' de ' + cards.length;
+  }
+
+  function setActiveChip(filterName, value){
+    var chips = document.querySelectorAll('.filter-chip[data-filter="' + filterName + '"]');
+    chips.forEach(function(chip){
+      if (chip.getAttribute('data-value') === value) chip.classList.add('active');
+      else chip.classList.remove('active');
+    });
+  }
+
+  document.getElementById('filterbar').addEventListener('click', function(ev){
+    var btn = ev.target.closest ? ev.target.closest('.filter-chip') : null;
+    if (!btn) return;
+    var filterName = btn.getAttribute('data-filter');
+    var value = btn.getAttribute('data-value');
+    if (filterName === 'priority' || filterName === 'status'){
+      state[filterName] = value;
+      setActiveChip(filterName, value);
+      applyFilters();
+    }
+  });
+
+  sectionSelect.addEventListener('change', function(){
+    state.section = sectionSelect.value;
+    applyFilters();
+  });
+
+  // ---- 5) Orden por prioridad de lo pendiente (reordena DOM, respeta impresión/scroll) ----
+  var orderActive = false;
+  var orderToggleBtn = document.getElementById('order-toggle');
+
+  function computeSortedOrder(sec){
+    var original = sec.cards;
+    var result = original.slice();
+    var pending = [];
+    original.forEach(function(card){
+      if (card.getAttribute('data-status') !== 'hecho') pending.push(card);
+    });
+    pending.sort(function(a, b){
+      var ra = PRIORITY_RANK[a.getAttribute('data-priority')];
+      var rb = PRIORITY_RANK[b.getAttribute('data-priority')];
+      if (ra !== rb) return ra - rb;
+      return (+a.getAttribute('data-original-index')) - (+b.getAttribute('data-original-index'));
+    });
+    var ptr = 0;
+    for (var i = 0; i < result.length; i++){
+      if (result[i].getAttribute('data-status') !== 'hecho'){
+        result[i] = pending[ptr++];
+      }
+    }
+    return result;
+  }
+
+  function layoutSection(sec, order){
+    // sec.boundary es un elemento fijo que nunca se mueve (no es .card), así que sirve
+    // de referencia estable para insertBefore aunque las propias tarjetas cambien de lugar
+    // entre llamadas (evita insertar una tarjeta "antes de sí misma" a mitad de secuencia).
+    var parent = sec.h2.parentNode;
+    var ref = sec.boundary;
+    order.forEach(function(card){
+      parent.insertBefore(card, ref);
+    });
+  }
+
+  function updateOrdering(){
+    sections.forEach(function(sec){
+      var order = orderActive ? computeSortedOrder(sec) : sec.cards;
+      layoutSection(sec, order);
+    });
+  }
+
+  orderToggleBtn.addEventListener('click', function(){
+    orderActive = !orderActive;
+    orderToggleBtn.setAttribute('aria-pressed', orderActive ? 'true' : 'false');
+    orderToggleBtn.textContent = orderActive
+      ? '↕ Orden original'
+      : '↕ Ordenar pendientes por prioridad';
+    updateOrdering();
+  });
+
+  // ---- 6) Estado inicial ----
+  applyFilters();
+})();
+</script>

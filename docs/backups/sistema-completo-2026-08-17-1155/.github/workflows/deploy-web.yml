@@ -1,0 +1,97 @@
+# Robot de despliegue: al subir código a `main`, compila la web EN LA NUBE y
+# deja la carpeta `dist` lista. DigitalOcean la publica al instante (su Build
+# Command está en None). Así el deploy es 100% automático y rápido, sin que nadie
+# tenga que compilar en su PC.
+#
+# Requiere 2 secretos del repo (Settings → Secrets and variables → Actions):
+#   EXPO_PUBLIC_SUPABASE_URL
+#   EXPO_PUBLIC_SUPABASE_ANON_KEY
+name: Compilar web (DigitalOcean)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'dist/**'          # ignora el commit que hace el propio robot (evita bucle)
+  workflow_dispatch: {}     # permite lanzarlo a mano desde la pestaña Actions
+
+permissions:
+  contents: write           # para poder commitear la dist compilada
+
+concurrency:
+  group: build-web
+  cancel-in-progress: false     # NO cancelar el build en curso: cuando somos 2 subiendo
+                                 # cambios seguidos, cancelarlo hacía que ninguno terminara
+                                 # nunca (cada push cancelaba al anterior). Ahora se ENCOLAN
+                                 # y corren uno tras otro sin perderse ninguno.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar la web
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          # Versión del build = SHA corto. El bundle la lleva incrustada y se
+          # compara contra dist/version.json para avisar de actualizaciones.
+          EXPO_PUBLIC_BUILD_ID: ${{ github.sha }}
+        run: npx expo export -p web
+
+      - name: Publicar version.json (para el aviso de actualización)
+        run: |
+          mkdir -p dist
+          printf '{"v":"%s"}' "${{ github.sha }}" > dist/version.json
+          echo "version.json → $(cat dist/version.json)"
+
+      - name: Inyectar íconos de alta resolución en index.html (splash del acceso directo)
+        run: |
+          # apple-touch-icon (iOS) + icon 512 (Android) desde el logo 1024² → el
+          # ícono/splash de "Agregar a pantalla de inicio" deja de verse borroso.
+          sed -i 's|</head>|<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png"/><link rel="manifest" href="/manifest.json"/><meta name="theme-color" content="#1E3A5F"/></head>|' dist/index.html
+          echo "Íconos + manifest inyectados en dist/index.html"
+
+      - name: Publicar dist (commit a main)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist
+          if git diff --cached --quiet; then
+            echo "Sin cambios en dist; nada que publicar."
+            exit 0
+          fi
+          git commit -m "build(web): dist automática [skip ci]"
+          # A veces alguien despliega a mano (npm run deploy) mientras este build
+          # corre, y `main` avanza antes de que este paso pueda subir su propio
+          # commit de dist. Antes eso hacía fallar el `git push` (non-fast-forward)
+          # y todo el job quedaba en rojo aunque la compilación hubiera salido
+          # bien — así se veían las alertas persistentes de Actions. Reintenta
+          # con rebase unas cuantas veces; si al final alguien más YA dejó a
+          # `main` con una dist más nueva, se descarta el commit propio y se
+          # sale en verde (no hace falta pelear por subir el mismo resultado).
+          for i in 1 2 3 4 5; do
+            if git push; then
+              echo "Publicado en el intento $i."
+              exit 0
+            fi
+            echo "Push rechazado (intento $i) — main avanzó mientras compilábamos. Reintentando…"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              echo "Rebase con conflicto — main ya tiene una dist más nueva. Se descarta este commit."
+              git rebase --abort
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "No se pudo publicar tras varios intentos; main sigue avanzando muy rápido. Revisar manualmente."
+          exit 1

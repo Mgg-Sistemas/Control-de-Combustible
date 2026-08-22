@@ -25,8 +25,15 @@ function isMissingTable(msg: string): boolean {
 
 export type CamionViajeRow = {
   id: string;
-  machineryId: string;
+  /** null SOLO cuando `fueraCatalogo` es true: ese camión no existe en `machinery`. */
+  machineryId: string | null;
   machineCode: string;
+  /** El listero anotó un camión que NO está en el catálogo. Vive solo en esta fila:
+   *  no se crea nada en `machinery` ni en ningún otro módulo. Ver
+   *  `supabase/viajes_camion_fuera_catalogo.sql`. */
+  fueraCatalogo: boolean;
+  /** Referencia libre del camión de fuera (placa, empresa, seña). Nota de campo. */
+  camionRef: string | null;
   listeroId: string;
   listeroName: string;
   choferName: string | null;
@@ -39,8 +46,13 @@ export type CamionViajeRow = {
 function mapRow(r: any): CamionViajeRow {
   return {
     id: r.id as string,
-    machineryId: r.machinery_id as string,
+    machineryId: (r.machinery_id ?? null) as string | null,
     machineCode: (r.machine_code ?? '—') as string,
+    // `?? false` y no `as boolean`: si todavía no se corrió
+    // supabase/viajes_camion_fuera_catalogo.sql la columna no existe y llega
+    // `undefined`. Todo lo viejo es del catálogo, así que false es lo correcto.
+    fueraCatalogo: r.fuera_catalogo === true,
+    camionRef: (r.camion_ref ?? null) as string | null,
     listeroId: r.listero_id as string,
     listeroName: (r.listero_name ?? '—') as string,
     choferName: (r.chofer_name ?? null) as string | null,
@@ -51,15 +63,19 @@ function mapRow(r: any): CamionViajeRow {
   };
 }
 
-const SELECT_COLS = 'id, machinery_id, machine_code, listero_id, listero_name, chofer_name, shift, estado_maquina, note, registered_at';
+const SELECT_COLS = 'id, machinery_id, machine_code, fuera_catalogo, camion_ref, listero_id, listero_name, chofer_name, shift, estado_maquina, note, registered_at';
 
 /** Registra un viaje. `registeredAt` ya viene calculado por quien llama (la hora
  *  REAL del toque en el teléfono) — se inserta TAL CUAL, nunca `now()` del
  *  servidor (necesario para que un viaje registrado sin señal conserve su hora
  *  exacta al sincronizarse después, ver `src/lib/viajesOfflineQueue.ts`). */
 export async function registrarViaje(params: {
-  machineryId: string;
+  /** null SOLO si `fueraCatalogo` es true. */
+  machineryId: string | null;
   machineCode: string;
+  /** Camión anotado a mano por el listero, que NO está en el catálogo. */
+  fueraCatalogo?: boolean;
+  camionRef?: string | null;
   listeroId: string;
   listeroName: string;
   choferName: string | null;
@@ -69,9 +85,15 @@ export async function registrarViaje(params: {
   registeredAt: string; // ISO
   clientActionId?: string;
 }): Promise<{ error?: string; missing?: boolean }> {
+  // Las dos clases de viaje son EXCLUYENTES y la BD lo exige con un CHECK
+  // (`cv_fuera_catalogo_coherente`). Se normaliza acá para que un error de quien
+  // llama no llegue a la base como una violación de constraint sin explicación.
+  const fuera = params.fueraCatalogo === true;
   const { error } = await supabase.from('camion_viajes').insert({
-    machinery_id: params.machineryId,
+    machinery_id: fuera ? null : params.machineryId,
     machine_code: params.machineCode,
+    fuera_catalogo: fuera,
+    camion_ref: fuera ? (params.camionRef ?? null) : null,
     listero_id: params.listeroId,
     listero_name: params.listeroName,
     chofer_name: params.choferName,

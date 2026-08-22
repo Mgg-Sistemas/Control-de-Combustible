@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<!-- saved from url=(0253)https://2d4366d0-b6bc-485e-ad72-01e70023d708.frame.claudeusercontent.com/_f/1786298301-3d46/?__frame_t=TvXNfKpIdm4s7y-T34UaCazB.7ec5cfe3-701e-4805-9395-72ed63b6dd22.baa8c8ec-13a2-435d-9eb4-737265196776.1786301905&__frame_v=manifest.64ed3bc4b5729c2c.json -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><!-- frame-runtime --><!--<base href="/_f/1786298301-3d46/">--><base href="."><script>window.__FRAME_PREAMBLE={"capabilities":{"assets":"assets.hcOK0ALv.js","comments":"comments.D1Mkjxge.js","db":"db.CeV_J5G-.js","downloads":"downloads.BXsoAvg9.js","mcp":"mcp.CYSdpjo0.js","permissions":"permissions.DdITF2Mk.js","sample":"sample.DpdXn9di.js","self":"self.BN4be5De.js","user":"user.Cr_h1ETf.js"},"transforms":"_transforms.VaITkagF.js","comments":"_comments.CNSvmFji.js","translate":"_translate.BOzFH2D9.js"}</script><script>(function(){"use strict";var ne=["light","dark","system"];function oe(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_init;return t!==null&&typeof t=="object"}function W(e){return e!==null&&typeof e=="object"&&e.__frame_size_poke===!0}function se(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_theme;if(t===null||typeof t!="object")return!1;const n=t.theme;return typeof n=="string"&&ne.includes(n)}function ie(e){try{typeof reportError=="function"?reportError(e):setTimeout(()=>{throw e},0)}catch{}}var Y=Object.freeze(Object.assign(Object.create(null),{user:Object.freeze(Object.assign(Object.create(null),{id:null,isOwner:!1,canEdit:!1,name:null,avatarUrl:null,email:null}))})),ae={sample:"sample"};function x(){const e=new Uint8Array(20);try{crypto.getRandomValues(e)}catch{for(let n=0;n<e.length;n++)e[n]=Math.floor(Math.random()*256)}let t="";for(const n of e)t+=(n%36).toString(36);return t}function ce(e,t){const n=r=>{const o={path:r},i=r.split("/");return{id:i[i.length-1],path:r,get:()=>t("get",[o]),set:g=>t("set",[o,g]),update:g=>t("update",[o,g]),delete:()=>t("delete",[o]),acquire:g=>t("acquire",[o,g]),onSnapshot:(g,y)=>t("subscribe",[o,g,y]),collection:g=>a(r+"/"+String(g))}},u=r=>({where:(o,i,g)=>u({...r,where:[...r.where??[],{f:String(o),op:String(i),v:g}]}),orderBy:(o,i)=>u({...r,orderBy:{f:String(o),dir:i===void 0?"asc":String(i)}}),limit:o=>u({...r,limit:Number(o)}),get:()=>t("query",[r]),onSnapshot:(o,i)=>t("subscribe",[r,o,i])}),a=r=>({...u({collection:r}),path:r,doc:o=>n(r+"/"+(o===void 0?x():String(o))),add:o=>{const i=n(r+"/"+x());return Promise.resolve(i.set(o)).then(()=>i)}});e.doc=r=>n(String(r)),e.collection=r=>a(String(r))}function J(e){if(window===top||e.type==="auxclick"&&e.button!==1)return;const t=e.composedPath?e.composedPath():[e.target];let n=null;for(let o=0;o<t.length;o++){const i=t[o];if(i&&i.matches&&i.matches("a[href],area[href]")){n=i;break}}if(!n&&e.target&&e.target.closest&&(n=e.target.closest("a[href],area[href]")),!n)return;const u=n.getAttribute("href");if(!u)return;let a,r;try{a=new URL(u,document.baseURI),r=new URL(document.baseURI).origin}catch{return}if((a.protocol==="http:"||a.protocol==="https:")&&a.origin!==r){e.preventDefault();const o=(n.getAttribute("target")??document.querySelector("base[target]")?.getAttribute("target")??"").toLowerCase(),i=e.type==="auxclick"||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||!["","_self","_top","_parent"].includes(o);parent.postMessage({__frame_nav:!0,url:a.href,newTab:i},"*")}}var G={};function I(e){if(window===top)return;const t=Date.now();t-(G[e]||0)<500||(G[e]=t,parent.postMessage({__frame_engaged:!0,kind:e},"*"))}var le=2e3,V=["wheel","touchstart","touchmove","keydown","pointerdown"],X=0;function ue(e){e.isTrusted&&(X=Date.now())}function fe(){addEventListener("click",J,!0),addEventListener("auxclick",J,!0)}function de(){for(let e=0;e<V.length;e++)addEventListener(V[e],ue,{capture:!0,passive:!0});addEventListener("scroll",e=>{e.isTrusted&&Date.now()-X<le&&I("scroll")},{capture:!0,passive:!0}),addEventListener("pointermove",e=>{e.isTrusted&&I("pointer")},{capture:!0,passive:!0}),addEventListener("click",e=>{e.isTrusted&&I("click")},{capture:!0,passive:!0})}var q="__frame_scroll",me=150,pe=310,ge=160,he=3e4;function ve(){let e=0,t=!1,n=!1,u=!1,a=0,r=null;const o=d=>{try{sessionStorage.setItem(q,JSON.stringify({y:d}))}catch{}},i=()=>{if(clearTimeout(e),r===null)return;const d=r;r=null,o(d)},g=()=>{if(t){t=!1;return}n=!0,r=scrollY,clearTimeout(e),e=setTimeout(i,me)};try{addEventListener("scroll",g,{passive:!0}),addEventListener("pagehide",i)}catch{}const y=()=>{let d;try{d=sessionStorage.getItem(q)}catch{return null}if(d===null)return null;let l;try{l=JSON.parse(d)}catch{l=null}const p=l?.y;if(!(typeof p=="number"&&Number.isFinite(p)&&p>=0)){try{sessionStorage.removeItem(q)}catch{}return null}return p};let c=!1;const f=d=>{try{const l=scrollY;scrollTo({top:d,left:0,behavior:"instant"}),a=d,u=!0,clearTimeout(e),r=null,o(d);const p=scrollY;p!==l&&(t=!0),p!==d&&!c&&(c=!0,addEventListener("load",()=>{try{if(scrollY===p){const v=y();f(v!==null?v:a)}}catch{}},{once:!0}))}catch{}},m=()=>{try{return!!location.hash}catch{return!0}};let h=!1;const _=()=>{try{if(h||innerWidth>pe||innerHeight>ge)return;h=!0;const d=Date.now(),l=()=>{try{removeEventListener("resize",l)}catch{}if(Date.now()-d>he||n||m())return;const p=y();f(p!==null?p:a)};addEventListener("resize",l)}catch{}};let w=!1,S=!1;return{restore(){if(w||(w=!0,m()))return;const d=y();d!==null&&(f(d),_())},promoted(){if(S||(S=!0,m()))return;const d=y();d!==null?(f(d),_()):u&&f(a)}}}function _e(e,t,n){const u=[...t.values()].filter(a=>a.targets.some(r=>r.startsWith(e+".")));return{wrap(a,r){const o=`${e}.${a}`,i=u.filter(g=>g.targets.includes(o));return i.length===0?(...g)=>{try{return r(...g)}catch(y){return Promise.reject(y)}}:(...g)=>{let y=g;for(const f of i){const m=f.module.parameters;if(m)try{y=m(y)}catch{return Promise.reject({code:"transform_error",id:f.id,scope:e,message:"parameters transform failed"})}}let c;try{c=r(...y)}catch(f){c=Promise.reject(f)}return c.then(f=>{for(let m=i.length-1;m>=0;m--){const h=i[m],_=h.module.returns;if(_)try{f=_(f)}catch{return n({id:h.id,scope:e,leg:"returns"}),f}}return f},f=>{for(let m=i.length-1;m>=0;m--){const h=i[m],_=h.module.throws;if(_)try{f=_(f)}catch{return n({id:h.id,scope:e,leg:"throws"}),Promise.reject(f)}}return Promise.reject(f)})}}}}function ye(e,t,n,u=()=>{}){const a=new Set(e.changes??[]),r=new Map;for(const o of a){const i=t[o];i&&r.set(o,i)}return{contract:e.contract,changes:a,flags:new Set(e.flags??[]),capabilities:e.capabilities??{},capBudgets:e.capBudgets??{},transforms:r,shellOrigin:n.shellOrigin,mount:n.mount,pipe:o=>_e(o,r,u)}}var Ae="modulepreload",Re=function(e){return"/"+e},je={},be=function(t,n,u){let a=Promise.resolve();function r(o){const i=new Event("vite:preloadError",{cancelable:!0});if(i.payload=o,window.dispatchEvent(i),!i.defaultPrevented)throw o}return a.then(o=>{for(const i of o||[])i.status==="rejected"&&r(i.reason);return t().catch(r)})};(function(){const e=Object.defineProperty,t=globalThis,n=["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate","RTCSessionDescription","RTCRtpSender","RTCRtpReceiver"];let u=0;for(let a=0;a<n.length;a++){const r=n[a];try{e(t,r,{value:void 0,writable:!1,configurable:!1})}catch{try{delete t[r]}catch{}try{e(t,r,{value:void 0,writable:!1,configurable:!0})}catch{}}typeof t[r]=="function"&&u++}if(u&&window!==top)try{parent.postMessage({__frame_rtc_lockdown_failed:u},"*")}catch{}})();var Ee=1e4,we=Object.freeze([...window.__FRAME_PREAMBLE?.origins??["https://claude.ai","https://preview.claude.ai"]]);function Q(e){for(const t of we)if(t.endsWith(":*"))try{const n=new URL(e);if(`${n.protocol}//${n.hostname}:*`===t)return!0}catch{}else if(e===t)return!0;return!1}var k=Object.freeze({...window.__FRAME_PREAMBLE?.capabilities}),D=window.__FRAME_PREAMBLE?.transforms,z=window.__FRAME_PREAMBLE?.comments,B=window.__FRAME_PREAMBLE?.translate,C=/^[\w.-]+\.js$/,Se=/^[a-z][a-z0-9_-]{0,63}$/,Z=null,M=null;function $(e,t,n){try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!1,enumerable:!0})}catch{try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!0,enumerable:!0})}catch{}}}var F=!1;function ee(e){const t=document.documentElement;e==="light"||e==="dark"?(t.dataset.theme=e,t.style.colorScheme=e,F=!0):F&&(delete t.dataset.theme,t.style.colorScheme="",F=!1)}var te=256,P=Object.assign(Object.create(null),{mcp:Object.assign(Object.create(null),{watchTool:{handlerArg:3}}),db:Object.assign(Object.create(null),{subscribe:{handlerArg:1,errArg:2}})}),L=new Map;function re(e,t){const n=L.get(e);if(!n)return;const u=Object.assign(Object.create(null),t);Object.assign(n.impl,u),n.impl.__settled=()=>Promise.reject({code:"capability_removed",message:`${e}: method not in this runtime`});const a=n.queue;n.queue=[];for(const r of a){const o=u[r.method];if(o)if(P[e]?.[r.method])try{r.resolve(o(...r.args))}catch{T(r,P[e][r.method],{code:"transform_error",message:`${e}.${r.method} rejected its arguments`})}else o(...r.args).then(r.resolve,r.reject);else{const i={code:"capability_removed",message:`${e}.${r.method} is not in this runtime`},g=P[e]?.[r.method];if(g){T(r,g,i);continue}r.reject(i)}}}function Oe(e,t){const n=L.get(e);if(!n)return;n.impl.__settled=()=>Promise.reject(t);const u=n.queue;n.queue=[];for(const a of u){const r=P[e]?.[a.method];if(r){T(a,r,t);continue}a.reject(t)}}function N(e,t){const n=Y[e];if(!n){Oe(e,t);return}re(e,Object.fromEntries(Object.entries(n).map(([u,a])=>[u,()=>Promise.resolve(a)])))}function T(e,t,n){if(e.syncState?.dead)return;const u=t.errArg===void 0?void 0:e.args[t.errArg],a=t.errArg===void 0?e.args[t.handlerArg]:u;typeof a=="function"&&queueMicrotask(()=>{if(!e.syncState?.dead)try{a(t.errArg===void 0?{type:"error",error:n}:n)}catch(r){ie(r)}})}var H=Object.getOwnPropertyDescriptor(window,"claude");if(window!==top&&!(H&&H.writable===!1)){fe(),de();let e=null;try{e=ve()}catch{}const t=H?.value??{};$(window,"claude",t);const n=c=>{const f={impl:Object.create(null),queue:[]};L.set(c,f);const m=f.impl,h=d=>({code:"queue_overflow",message:`${c}.${d}: pre-init call queue is full`}),_=(d,l)=>{if(f.queue.length>=te){const p=Y[c];return p&&d in p?Promise.resolve(p[d]):Promise.reject(h(d))}return new Promise((p,v)=>{f.queue.push({method:d,args:l,resolve:p,reject:v})})},w=ae[c],S=new Proxy(w===void 0?m:(()=>{}),{apply:(d,l,p)=>{const v=w,E=m[v]??m.__settled;return E?E(...p):_(v,p)},get:(d,l)=>{if(typeof l!="string"||l==="then"||l==="toJSON"||l==="valueOf")return;if(l==="toString")return Object.prototype.toString;if(w!==void 0&&(l==="call"||l==="apply"||l==="bind"))return Function.prototype[l];const p=P[c]?.[l];return p?(...v)=>{if(typeof v[p.handlerArg]!="function")throw new TypeError(`${c}.${l} requires a handler function`);const E=m[l];if(E)return E(...v);if(m.__settled){const b={dead:!1},U={args:[...v],syncState:b};return m.__settled().catch(s=>T(U,p,s)),()=>{b.dead=!0}}if(f.queue.length>=te){const b={dead:!1};return T({args:[...v],syncState:b},p,h(l)),()=>{b.dead=!0}}let A=null;const R={dead:!1};return f.queue.push({method:l,args:v,resolve:b=>{A=typeof b=="function"?b:null,R.dead&&A?.()},reject:()=>{},syncState:R}),()=>{R.dead=!0,A?.()}}:(...v)=>{const E=m[l]??m.__settled;return E?E(...v):_(l,v)}},set:()=>!1});c==="db"&&ce(m,(d,l)=>S[d](...l)),$(t,c,S)};for(const c of Object.keys(k)){if(t[c]!==void 0){$(t,c,t[c]);continue}n(c)}let u=null,a=null,r=0;const o=c=>{c.source!==parent||!Q(c.origin)||oe(c.data)&&(u=c.data.__frame_init,M=c.origin,removeEventListener("message",o),clearTimeout(r),a?.())};addEventListener("message",o),parent.postMessage({__frame_connect:!0},"*");const i=new Promise(c=>{a=c,r=setTimeout(()=>{removeEventListener("message",o),c()},Ee)}),g=document.readyState==="loading"?new Promise(c=>document.addEventListener("DOMContentLoaded",()=>c(),{once:!0})):Promise.resolve();g.then(()=>{try{e?.restore()}catch{}});const y=c=>{if(!(c.source!==parent||!Q(c.origin))&&W(c.data)){removeEventListener("message",y);try{e?.promoted()}catch{}}};addEventListener("message",y),i.then(async()=>{if(!u||!M){for(const s of L.keys())N(s,{code:"not_granted",message:"frame initialization did not arrive - capability unavailable"});return}ee(u.theme);const c=M;let f=!1,m=!1;addEventListener("message",s=>{if(s.source!==parent||s.origin!==c)return;se(s.data)&&ee(s.data.__frame_theme.theme);const O=s.data?.__fc_mode;O&&typeof O=="object"&&!f&&z&&C.test(z)&&(f=!0,h(z).then(K=>K.install?.(c,O.on===!0)).catch(()=>{}));const j=s.data?.__ft_cmd;j&&typeof j=="object"&&!m&&B&&C.test(B)&&(m=!0,h(B).then(K=>K.install?.(c,j)).catch(()=>{}))});const h=s=>be(()=>import("/_runtime/"+s),void 0),_=Object.keys(u.capabilities??{});for(const s of _)Object.hasOwn(k,s)||Se.test(s)&&t[s]===void 0&&(n(s),N(s,{code:"capability_disabled",message:"capability not in this runtime generation"}));const w=_.filter(s=>Object.hasOwn(k,s)).map(s=>[s,k[s]]).filter(s=>typeof s[1]=="string"&&C.test(s[1])),[S,...d]=await Promise.allSettled([D&&C.test(D)?h(D):Promise.resolve({}),...w.map(([,s])=>h(s))]),l=M;Z=ye(u,S.status==="fulfilled"&&S.value?.TRANSFORMS||{},{shellOrigin:l,mount:re},s=>parent.postMessage({__frame_cap_telemetry:s},l));const p=s=>parent.postMessage({__frame_cap_telemetry:{kind:"cap-load-error",cap:s}},l),v=Z;d.forEach((s,O)=>{const j=w[O][0];if(s.status!=="fulfilled"){p(j);return}try{s.value?.install?.(v)}catch{p(j)}});for(const[s,O]of L)if(!(O.queue.length===0&&Object.keys(O.impl).length>0)){if(_.includes(s)){N(s,{code:"capability_disabled",message:"capability not available in this session"});continue}N(s,{code:"not_granted",message:"capability not available in this session"})}await g,parent.postMessage({__frame_ready:!0},M);let E=-1,A=0;const R=()=>{A=0;const s=Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0);s!==E&&(E=s,parent.postMessage({__frame_size:!0,h:s},l))},b=()=>{A||(A=setTimeout(R,200))},U=new ResizeObserver(b);U.observe(document.documentElement),document.body&&U.observe(document.body),document.addEventListener("load",b,!0),document.fonts?.ready.then(b,()=>{}),addEventListener("beforeprint",()=>{E=-1,R()}),b(),addEventListener("message",s=>{if(!(s.source!==parent||s.origin!==l)&&W(s.data)){try{e?.promoted()}catch{}E=-1,b()}})})}})();</script><!-- /frame-runtime --><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<style>
+  :root{
+    --bg:#f4f7f4; --panel:#ffffff; --panel2:#f0f4f0; --ink:#16201c; --muted:#5c6b63;
+    --line:#e0e7e0; --line2:#eef2ee; --accent:#0e7c66; --accent-soft:#dcefe9;
+    --amber:#b5791a; --amber-soft:#f6ecd6; --ink-soft:#3a463f;
+    --shadow:0 1px 2px rgba(16,32,24,.05),0 4px 16px rgba(16,32,24,.05);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1512; --panel:#161d19; --panel2:#1b241f; --ink:#e7ece8; --muted:#94a49a;
+      --line:#25302a; --line2:#1e2823; --accent:#3fb99b; --accent-soft:#12261f;
+      --amber:#e0a94a; --amber-soft:#2a2314; --ink-soft:#c3ccc6;
+      --shadow:none;
+    }
+  }
+  :root[data-theme="dark"]{
+      --bg:#0f1512; --panel:#161d19; --panel2:#1b241f; --ink:#e7ece8; --muted:#94a49a;
+      --line:#25302a; --line2:#1e2823; --accent:#3fb99b; --accent-soft:#12261f;
+      --amber:#e0a94a; --amber-soft:#2a2314; --ink-soft:#c3ccc6; --shadow:none;
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f7f4; --panel:#ffffff; --panel2:#f0f4f0; --ink:#16201c; --muted:#5c6b63;
+    --line:#e0e7e0; --line2:#eef2ee; --accent:#0e7c66; --accent-soft:#dcefe9;
+    --amber:#b5791a; --amber-soft:#f6ecd6; --ink-soft:#3a463f;
+    --shadow:0 1px 2px rgba(16,32,24,.05),0 4px 16px rgba(16,32,24,.05);
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:860px;margin:0 auto;padding:0 22px}
+
+  /* HERO */
+  .hero{position:relative;overflow:hidden;background:var(--panel);border-bottom:1px solid var(--line)}
+  .hero .contours{position:absolute;inset:0;width:100%;height:100%;opacity:.5;pointer-events:none}
+  .hero .inner{position:relative;padding:56px 0 40px}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--accent);
+    background:var(--accent-soft);padding:6px 12px;border-radius:99px}
+  h1{font-size:clamp(30px,6vw,46px);line-height:1.05;letter-spacing:-.02em;margin:18px 0 10px;
+    font-weight:800;text-wrap:balance}
+  .lede{font-size:18px;color:var(--ink-soft);max-width:640px;margin:0}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+  .meta span{font-size:12.5px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);
+    padding:5px 11px;border-radius:8px}
+
+  /* SECTIONS */
+  section{padding:44px 0}
+  section + section{border-top:1px solid var(--line2)}
+  .kicker{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+  h2{font-size:24px;letter-spacing:-.01em;margin:0 0 18px;font-weight:750}
+  p{margin:0 0 14px}
+
+  /* CARDS (supuestos) */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 6px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .card p{margin:0;font-size:14px;color:var(--ink-soft)}
+  .dot{width:9px;height:9px;border-radius:99px;background:var(--accent);flex:none}
+
+  /* TIMELINE */
+  .timeline{position:relative;margin-top:8px}
+  .timeline::before{content:"";position:absolute;left:19px;top:8px;bottom:8px;width:2px;background:var(--line)}
+  .phase{position:relative;padding:0 0 26px 56px}
+  .node{position:absolute;left:0;top:0;width:40px;height:40px;border-radius:12px;
+    background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:15px;box-shadow:var(--shadow);z-index:1}
+  :root[data-theme="dark"] .node, :root:not([data-theme="light"]) .node{color:#08130f}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .node{color:#08130f}}
+  .phase.zero .node{background:var(--amber)}
+  .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 18px;box-shadow:var(--shadow)}
+  .phead{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px}
+  .phead h3{margin:0;font-size:17px;font-weight:700;letter-spacing:-.01em}
+  .dur{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--amber);
+    background:var(--amber-soft);border-radius:99px;padding:4px 11px;white-space:nowrap}
+  .obj{font-size:14.5px;color:var(--ink-soft);margin:0 0 10px}
+  .obj b{color:var(--ink)}
+  ul.tasks{margin:0 0 12px;padding:0;list-style:none}
+  ul.tasks li{position:relative;padding:3px 0 3px 20px;font-size:14.5px}
+  ul.tasks li::before{content:"";position:absolute;left:2px;top:12px;width:6px;height:6px;border-radius:99px;background:var(--accent)}
+  .entrega{font-size:13.5px;background:var(--accent-soft);color:var(--ink);border-radius:9px;padding:9px 12px;border-left:3px solid var(--accent)}
+  .entrega b{color:var(--accent)}
+
+  /* TABLE */
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;min-width:520px;font-size:14.5px;font-variant-numeric:tabular-nums}
+  thead th{text-align:left;padding:12px 14px;background:var(--panel2);border-bottom:1px solid var(--line);
+    font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  tbody td{padding:11px 14px;border-bottom:1px solid var(--line2)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr.total td{font-weight:800;background:var(--panel2)}
+  .bar{height:8px;border-radius:99px;background:var(--accent);min-width:6px}
+  .bar.amber{background:var(--amber)}
+  .barcell{min-width:120px}
+  .hint{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+  .hint .card{flex:1 1 240px}
+  .hint b{color:var(--accent)}
+
+  /* RIESGOS */
+  ol.risks{margin:0;padding-left:0;list-style:none;counter-reset:r}
+  ol.risks li{counter-increment:r;position:relative;padding:12px 14px 12px 46px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;margin-bottom:10px;font-size:14.5px;box-shadow:var(--shadow)}
+  ol.risks li::before{content:counter(r);position:absolute;left:12px;top:12px;width:24px;height:24px;
+    border-radius:7px;background:var(--amber-soft);color:var(--amber);font-weight:800;font-size:13px;
+    display:flex;align-items:center;justify-content:center}
+  footer{padding:32px 0 56px;color:var(--muted);font-size:13.5px;text-align:center}
+</style>
+
+<header class="hero">
+  <svg class="contours" viewBox="0 0 860 320" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <g fill="none" stroke="var(--accent)" stroke-width="1.2" opacity="0.28">
+      <path d="M-40,300 C120,240 200,300 340,250 C480,200 560,260 700,210 C800,175 900,210 960,180"></path>
+      <path d="M-40,260 C120,200 210,260 350,210 C490,160 570,220 710,170 C810,135 900,170 960,140"></path>
+      <path d="M-40,220 C130,165 220,220 360,175 C500,130 580,185 720,140 C820,108 900,140 960,110"></path>
+      <path d="M-40,180 C140,130 230,180 370,140 C510,100 590,150 730,110 C830,82 900,112 960,84"></path>
+      <path d="M-40,140 C150,96 240,142 380,108 C520,74 600,118 740,84 C840,60 900,86 960,60"></path>
+      <path d="M-40,100 C160,64 250,104 390,78 C530,52 610,88 750,60 C850,42 900,62 960,40"></path>
+    </g>
+  </svg>
+  <div class="wrap inner">
+    <span class="eyebrow">📐 Nuevo módulo · SOS La Guaira</span>
+    <h1>Módulo de Geodesta</h1>
+    <p class="lede">Levantamiento topográfico, curvas de nivel, modelado del terreno, cubicaciones de corte/relleno e inspección de terreno georreferenciada — integrado a las obras y roles del sistema.</p>
+    <div class="meta">
+      <span>Stack: Expo v56 · React Native · Supabase</span>
+      <span>Web: soslaguaira.com</span>
+      <span>Duración total: ~9–10 semanas</span>
+      <span>MVP usable: ~5 semanas</span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Objetivo general</p>
+    <h2>Qué resuelve</h2>
+    <p>Dotar al sistema de un módulo para <b>levantar terreno, generar curvas de nivel y el modelo digital del terreno (MDT), calcular volúmenes de movimiento de tierra (corte/relleno) y realizar inspecciones de campo con GPS y foto</b>, todo ligado a las obras/edificios existentes y protegido por los roles del sistema.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Antes de arrancar</p>
+    <h2>Supuestos y decisiones clave</h2>
+    <div class="cards">
+      <div class="card"><h3><span class="dot"></span>Captura de datos</h3><p>Dos vías: GPS del teléfono (~3–10 m, para reconocimiento/inspección) e <b>importación de equipo profesional</b> (GPS RTK / estación total / dron) por archivo. La precisión topográfica real viene de la importación.</p></div>
+      <div class="card"><h3><span class="dot"></span>Mapa multiplataforma</h3><p>En celular <code>react-native-maps</code>; en web una capa MapLibre/Leaflet. Es la decisión técnica de mayor riesgo → se aborda temprano.</p></div>
+      <div class="card"><h3><span class="dot"></span>Cálculo geométrico</h3><p><code>d3-delaunay</code> (TIN), <code>d3-contour</code> (curvas), <code>turf.js</code> (geometría) y volúmenes por rejilla/prismoidal.</p></div>
+      <div class="card"><h3><span class="dot"></span>Base de datos</h3><p>Activar <b>PostGIS</b> en Supabase para almacenar y consultar geometría; fotos en Supabase Storage.</p></div>
+      <div class="card"><h3><span class="dot"></span>Rol nuevo</h3><p>Rol <code>geodesta</code> con acceso por usuario vía <code>module_permissions</code>, como el resto del sistema.</p></div>
+      <div class="card"><h3><span class="dot"></span>Coordenadas</h3><p>Definir sistema de referencia: geográficas (lat/lon) vs <b>UTM local</b> (SIRGAS-REGVEN, huso 19N).</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Ejecución</p>
+    <h2>Fases y objetivos</h2>
+    <div class="timeline">
+
+      <div class="phase zero">
+        <div class="node">0</div>
+        <div class="pcard">
+          <div class="phead"><h3>Descubrimiento y cimientos</h3><span class="dur">3–4 días</span></div>
+          <p class="obj"><b>Objetivo:</b> dejar listo el terreno técnico antes de construir.</p>
+          <ul class="tasks">
+            <li>Confirmar equipos de captura y formatos de importación reales (CSV <code>P,N,E,Z,desc</code>, DXF, LandXML, KML).</li>
+            <li>Definir sistema de coordenadas del proyecto.</li>
+            <li>Crear rol <code>geodesta</code>, permisos y entrada de navegación.</li>
+            <li>Diseñar y migrar el esquema de datos + activar PostGIS.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> rol, navegación y esquema aprobados y migrados.</div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="node">1</div>
+        <div class="pcard">
+          <div class="phead"><h3>Captura y gestión de puntos</h3><span class="dur">1.5 semanas</span></div>
+          <p class="obj"><b>Objetivo:</b> registrar e importar los puntos de un levantamiento y verlos en mapa.</p>
+          <ul class="tasks">
+            <li>Proyecto de levantamiento ligado a obra/edificio.</li>
+            <li>Captura por GPS: coordenada, cota, precisión, descripción y foto.</li>
+            <li>Entrada manual de coordenadas (N/E/Z o lat/lon).</li>
+            <li>Importar CSV/TXT de estación total / RTK y exportar CSV.</li>
+            <li>Listado con búsqueda/edición y mapa de puntos por capas.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> nube de puntos por obra, lista para trabajar. <i>Ya hay valor real.</i></div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="node">2</div>
+        <div class="pcard">
+          <div class="phead"><h3>Superficie (MDT/TIN) y curvas de nivel</h3><span class="dur">1.5 semanas</span></div>
+          <p class="obj"><b>Objetivo:</b> generar automáticamente el terreno y sus curvas de nivel.</p>
+          <ul class="tasks">
+            <li>Triangulación Delaunay → TIN a partir de los puntos.</li>
+            <li>Curvas de nivel a intervalo configurable (0.5 / 1 / 5 m) con etiqueta de cota.</li>
+            <li>Render en mapa con capas on/off y versiones de superficie guardadas.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> curvas de nivel automáticas desde el levantamiento. <i>Hito clave.</i></div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="node">3</div>
+        <div class="pcard">
+          <div class="phead"><h3>Cálculo de volúmenes (corte / relleno)</h3><span class="dur">1.5 semanas</span></div>
+          <p class="obj"><b>Objetivo:</b> cubicar movimiento de tierra — directamente útil para excavación y escombros.</p>
+          <ul class="tasks">
+            <li>Comparar superficies: terreno natural vs proyecto, o dos fechas (avance).</li>
+            <li>Método de rejilla/prismoidal → volumen de corte, relleno y neto.</li>
+            <li>Mapa de diferencias (zonas de corte vs relleno) y reporte PDF de cubicación.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> cubicaciones por obra listas para operación y facturación.</div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="node">4</div>
+        <div class="pcard">
+          <div class="phead"><h3>Inspección de terreno georreferenciada</h3><span class="dur">1.5 semanas</span></div>
+          <p class="obj"><b>Objetivo:</b> inspecciones de campo formales, con foto y ubicación.</p>
+          <ul class="tasks">
+            <li>Formulario con GPS, fotos, checklist configurable, hallazgos y firma.</li>
+            <li>Ligado a obra/edificio y a los puntos del levantamiento.</li>
+            <li>Estados (pendiente / observado / aprobado), historial y mapa de inspecciones.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> módulo de inspección de terreno completo e integrado.</div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="node">5</div>
+        <div class="pcard">
+          <div class="phead"><h3>Perfiles, secciones y exportación</h3><span class="dur">1 semana</span></div>
+          <p class="obj"><b>Objetivo:</b> salidas técnicas para ingeniería y clientes.</p>
+          <ul class="tasks">
+            <li>Perfil longitudinal y secciones transversales.</li>
+            <li>Exportar DXF (AutoCAD), KML/KMZ (Google Earth) y LandXML (opcional).</li>
+            <li>Reporte técnico PDF consolidado del proyecto.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> interoperabilidad con las herramientas del proyectista.</div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="node">6</div>
+        <div class="pcard">
+          <div class="phead"><h3>Modo campo offline + sincronización</h3><span class="dur">1 semana</span></div>
+          <p class="obj"><b>Objetivo:</b> que funcione sin señal, lo normal en terreno.</p>
+          <ul class="tasks">
+            <li>Captura de puntos/inspecciones sin conexión (cola local) y sync al reconectar.</li>
+            <li>Mapa base cacheado / modo "sin mapa" con coordenadas.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> uso confiable en campo sin cobertura.</div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="node">7</div>
+        <div class="pcard">
+          <div class="phead"><h3>Blindaje, permisos, manual y despliegue</h3><span class="dur">1 semana</span></div>
+          <p class="obj"><b>Objetivo:</b> dejarlo estable y en producción.</p>
+          <ul class="tasks">
+            <li>RLS por rol afinada, pruebas con datos reales y rendimiento.</li>
+            <li>Manual actualizado (ManualScreen + <code>docs/MANUAL-USUARIO.md</code>).</li>
+            <li>Deploy a ambas ramas (dev → main) y verificación con QR.</li>
+          </ul>
+          <div class="entrega"><b>Entregable:</b> módulo en producción, documentado y estable.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Cronograma</p>
+    <h2>Resumen de tiempos</h2>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Fase</th><th>Foco</th><th>Duración</th><th class="barcell">Acumulado</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>0</td><td>Cimientos (rol, esquema, PostGIS)</td><td>3–4 días</td><td class="barcell"><div class="bar amber" style="width:7%">&nbsp;</div>~0.7 sem</td></tr>
+          <tr><td>1</td><td>Captura / importación de puntos</td><td>1.5 sem</td><td class="barcell"><div class="bar" style="width:23%">&nbsp;</div>~2.2 sem</td></tr>
+          <tr><td>2</td><td>MDT/TIN + curvas de nivel</td><td>1.5 sem</td><td class="barcell"><div class="bar" style="width:38%">&nbsp;</div>~3.7 sem</td></tr>
+          <tr><td>3</td><td>Volúmenes corte/relleno</td><td>1.5 sem</td><td class="barcell"><div class="bar" style="width:54%">&nbsp;</div>~5.2 sem</td></tr>
+          <tr><td>4</td><td>Inspección de terreno</td><td>1.5 sem</td><td class="barcell"><div class="bar" style="width:69%">&nbsp;</div>~6.7 sem</td></tr>
+          <tr><td>5</td><td>Perfiles / secciones + export</td><td>1 sem</td><td class="barcell"><div class="bar" style="width:79%">&nbsp;</div>~7.7 sem</td></tr>
+          <tr><td>6</td><td>Offline + sync</td><td>1 sem</td><td class="barcell"><div class="bar" style="width:90%">&nbsp;</div>~8.7 sem</td></tr>
+          <tr><td>7</td><td>Blindaje + manual + deploy</td><td>1 sem</td><td class="barcell"><div class="bar" style="width:100%">&nbsp;</div>~9.7 sem</td></tr>
+          <tr class="total"><td colspan="2">Total del módulo completo</td><td colspan="2">~9–10 semanas de desarrollo</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="hint">
+      <div class="card"><p><b>MVP usable</b> al terminar la Fase 3 (~5 semanas): puntos → curvas → volúmenes.</p></div>
+      <div class="card"><p><b>Módulo completo</b> a las ~9–10 semanas, con inspección, exportación, offline y manual.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">A vigilar</p>
+    <h2>Riesgos principales</h2>
+    <ol class="risks">
+      <li><b>Mapa web ≠ nativo.</b> Es el mayor esfuerzo de integración → mitigado abordándolo desde la Fase 1.</li>
+      <li><b>Precisión del GPS del teléfono</b> no es topográfica → se cubre con la vía de importación de RTK / estación total.</li>
+      <li><b>Volumen de datos y rendimiento</b> en nubes de puntos grandes → PostGIS + cálculo por versión/caché.</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">Plan preliminar · SOS La Guaira 2026 · sujeto a ajuste según equipos de captura, sistema de coordenadas y necesidad de modo offline.</div>
+</footer>
+
+</body></html>

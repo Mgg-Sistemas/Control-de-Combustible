@@ -38,7 +38,7 @@ import {
   InspByShiftEntry,
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
-import { resumirViajes, SIN_EMPRESA } from '../lib/viajesResumen';
+import { resumirViajes, SIN_EMPRESA, claveCamion } from '../lib/viajesResumen';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
@@ -134,6 +134,11 @@ type Preset = 'hoy' | 'semana' | 'mes' | 'rango' | 'dias';
 //            alguien actúe, ver `src/lib/colaOfflinePolicy.ts`.
 type DisplayViaje = CamionViajeRow & { queued?: boolean; stuck?: boolean; stuckError?: string };
 
+/** Id CENTINELA del camión que el listero anota a mano por no estar en el
+ *  catálogo. No es un uuid ni existe en `machinery`: solo sirve para que el
+ *  flujo de la pantalla sea el mismo. Al guardar se manda `machinery_id = null`. */
+const FUERA_CATALOGO_ID = '__fuera_catalogo__';
+
 export default function ViajesCamionesScreen() {
   const { colors } = useTheme();
   const { session, fullName, moduleLevel } = useAuth();
@@ -162,6 +167,13 @@ export default function ViajesCamionesScreen() {
   //    src/lib/machineLiveStatus.ts — no se reimplementa la clasificación. ──
   const [trucksLoading, setTrucksLoading] = useState(true);
   const [allTrucks, setAllTrucks] = useState<TruckRow[]>([]);
+  // Catálogo COMPLETO (todas las máquinas activas), no solo las que el código
+  // delata como camión. Sirve para que el listero pueda encontrar un camión que
+  // SÍ existe en el catálogo pero no entró a su lista. Ver `loadTrucks`.
+  const [catalogoTrucks, setCatalogoTrucks] = useState<TruckRow[]>([]);
+  // Máquinas del catálogo que el listero SUMÓ A SU LISTA desde el buscador.
+  // Solo viven en esta pantalla: no se escribe nada en `machinery`.
+  const [extraTruckIds, setExtraTruckIds] = useState<Set<string>>(new Set());
   const [averiaCat, setAveriaCat] = useState<Record<string, AveriaEntry>>({});
   const [jornadaCat, setJornadaCat] = useState<Record<string, JornadaEntry>>({});
   const [inspByShift, setInspByShift] = useState<Record<string, InspByShiftEntry>>({});
@@ -200,6 +212,31 @@ export default function ViajesCamionesScreen() {
     setAveriaCat(aCat);
     setJornadaCat(jCat);
     setInspByShift(iShift);
+    // ⭐ SE GUARDA EL CATÁLOGO COMPLETO, no solo lo que parece camión.
+    //
+    // La lista del listero se arma con `isVolteoVolqueta(code)`, o sea mirando si
+    // el CÓDIGO dice "volteo", "volqueta" o "toronto". Eso deja fuera a cualquier
+    // camión real cuyo código no tenga esas palabras, y el listero no tiene manera
+    // de encontrarlo aunque esté cargado en el catálogo. Es la causa del pedido
+    // del cliente (21-ago-2026): «si una de las máquinas que registra no la tiene
+    // en la lista pero SÍ existe en el catálogo, que se agregue a la lista».
+    //
+    // Se conserva el catálogo entero para poder ofrecérselo en el buscador; la
+    // lista de siempre NO cambia (ver `trucksSeleccionables` y `pickExtras`).
+    const catalogo = ((data ?? []) as any[]).map((m) => ({
+      id: m.id as string,
+      code: m.code ?? '—',
+      plate: m.plate ?? null,
+      serial: m.serial ?? null,
+      clasificacion: m.clasificacion ?? null,
+      marca: m.marca ?? null,
+      modelo: m.modelo ?? null,
+      companyId: m.company_id ?? null,
+      companyName: m.company?.name ?? 'Sin empresa',
+      operational: m.operational !== false,
+      enEspera: !!m.en_espera,
+    })) as TruckRow[];
+    setCatalogoTrucks(catalogo);
     setAllTrucks(
       ((data ?? []) as any[])
         .filter((m) => isVolteoVolqueta(m.code || ''))
@@ -234,10 +271,12 @@ export default function ViajesCamionesScreen() {
   // 18-ago-2026: "que no le salgan las retiradas a los listeros, ni las que
   // están en espera de instrucciones"). Se sacan dos grupos:
   //
-  //   · RETIRADAS → `operational === false`. Ojo con el nombre: la consulta ya
-  //     trae solo `active = true`, así que las retiradas de verdad ni llegan;
-  //     lo que esta pantalla rotula "retirada" en el chip de estado es la
-  //     máquina NO OPERATIVA (ver `truckEstadoConteo`). Son esas.
+  //   · RETIRADAS → `operational === false`. En este sistema RETIRADA (fuera de
+  //     servicio) ES `operational = false`; `active = false` es otra cosa:
+  //     ELIMINADA del catálogo, y esa la consulta ya no la trae. No hay un tercer
+  //     nivel de retiro. (Antes acá había un comentario que decía lo contrario y
+  //     confundía; ver `supabase/averiadas_mal_retiradas.sql` y
+  //     `src/lib/auditMachineState.ts`, que son la verdad sobre estos nombres.)
   //   · EN ESPERA → `en_espera === true`. Una máquina en espera está congelada
   //     por completo: no se le inicia jornada ni se le surte. Mal podría hacer
   //     viajes, y tenerla en la lista solo se presta a registrar un viaje contra
@@ -246,10 +285,20 @@ export default function ViajesCamionesScreen() {
   // Se filtra acá y no en la consulta a propósito: `allTrucks` lo siguen usando
   // los paneles de la jefa (resumen, meta, alertas — todo detrás de `canFull`),
   // que sí necesitan ver la flota completa.
-  const trucksSeleccionables = useMemo(
-    () => allTrucks.filter((t) => t.operational && !t.enEspera),
-    [allTrucks]
-  );
+  //
+  // A la lista de siempre se le suman las máquinas que el listero AGREGÓ desde el
+  // buscador (`extraTruckIds`): existen en el catálogo pero su código no dice
+  // "volteo"/"volqueta"/"toronto", así que nunca habrían entrado. Agregarlas NO
+  // escribe nada en `machinery` — es una lista de esta pantalla y nada más.
+  const trucksSeleccionables = useMemo(() => {
+    const base = allTrucks.filter((t) => t.operational && !t.enEspera);
+    if (extraTruckIds.size === 0) return base;
+    const yaEstan = new Set(base.map((t) => t.id));
+    const sumadas = catalogoTrucks.filter(
+      (t) => extraTruckIds.has(t.id) && !yaEstan.has(t.id) && t.operational && !t.enEspera
+    );
+    return [...base, ...sumadas].sort((a, b) => cmpText(a.code, b.code));
+  }, [allTrucks, catalogoTrucks, extraTruckIds]);
   const pickEstadoOptions = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
     // Cuenta sobre la MISMA lista que se va a mostrar: si contara sobre
@@ -263,6 +312,28 @@ export default function ViajesCamionesScreen() {
       (pickEstadoSel.size === 0 || pickEstadoSel.has(truckEstadoConteo(t))) &&
       (!nqPick || [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName].some((f) => f != null && norm(String(f)).includes(nqPick)))
   );
+
+  // ⭐ SEGUNDO GRUPO del buscador: máquinas que SÍ están en el catálogo pero NO
+  // en la lista del listero (su código no dice volteo/volqueta/toronto). Solo
+  // salen cuando se escribe algo — si salieran siempre, la lista se llenaría de
+  // excavadoras y payloaders y el listero no encontraría sus camiones.
+  //
+  // Las retiradas y las que están en espera quedan fuera acá también: el pedido
+  // de no mostrárselas al listero vale igual por esta vía.
+  const pickExtras = useMemo(() => {
+    if (!nqPick) return [] as TruckRow[];
+    const yaOfrecidas = new Set(trucksSeleccionables.map((t) => t.id));
+    return catalogoTrucks
+      .filter(
+        (t) =>
+          !yaOfrecidas.has(t.id) &&
+          t.operational && !t.enEspera &&
+          [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName]
+            .some((f) => f != null && norm(String(f)).includes(nqPick))
+      )
+      .sort((a, b) => cmpText(a.code, b.code))
+      .slice(0, 30);
+  }, [nqPick, catalogoTrucks, trucksSeleccionables]);
 
   const [selectedTruck, setSelectedTruck] = useState<TruckRow | null>(null);
   const [selectedShift, setSelectedShift] = useState<'day' | 'night'>('day');
@@ -281,10 +352,46 @@ export default function ViajesCamionesScreen() {
     setSelectedChofer(null);
     const shift = caracasNowShift();
     setSelectedShift(shift);
+    // Un camión fuera de catálogo no tiene ficha ni chofer asignado que consultar:
+    // `machine_operators` va contra un `machinery_id` que no existe.
+    if (t.id === FUERA_CATALOGO_ID) return;
     setChoferLoading(true);
     const chofer = await resolveChoferActual(t.id, shift);
     setChoferLoading(false);
     setSelectedChofer(chofer);
+  };
+
+  // ── CAMIÓN QUE NO ESTÁ EN EL CATÁLOGO ───────────────────────────────────
+  // El listero lo anota a mano y queda SOLO en la fila de este viaje. No se crea
+  // nada en `machinery`, así que no aparece en Control de Maquinaria, ni en
+  // Mantenimiento, ni en los reportes de flota, ni le llega a los inspectores.
+  // Pedido del cliente (21-ago-2026). Ver supabase/viajes_camion_fuera_catalogo.sql.
+  const [fcOpen, setFcOpen] = useState(false);
+  const [fcCode, setFcCode] = useState('');
+  const [fcRef, setFcRef] = useState('');
+  const abrirFueraCatalogo = (semilla: string) => {
+    // Lo que ya escribió en el buscador se aprovecha como nombre: si tecleó
+    // "VOLTEO 88" y no salió nada, no tiene por qué escribirlo dos veces.
+    setFcCode(semilla);
+    setFcRef('');
+    setFcOpen(true);
+  };
+  const confirmarFueraCatalogo = () => {
+    const code = fcCode.trim().toUpperCase();
+    if (!code) { toast.error('Escribe al menos cómo identificar el camión.'); return; }
+    setFcOpen(false);
+    // Se arma un camión "de mentira" con el id centinela para que el resto de la
+    // pantalla (el resumen de arriba, el botón de registrar) funcione igual sin
+    // tener que duplicar el flujo. Al guardar, `machineryId` se manda en null.
+    setSelectedTruck({
+      id: FUERA_CATALOGO_ID,
+      code,
+      plate: null, serial: null, clasificacion: null, marca: null, modelo: null,
+      companyId: null, companyName: 'Fuera de catálogo',
+      operational: true, enEspera: false,
+    });
+    setSelectedChofer(null);
+    setSelectedShift(caracasNowShift());
   };
 
   // ── Mis viajes de hoy ────────────────────────────────────────────────────
@@ -346,6 +453,8 @@ export default function ViajesCamionesScreen() {
       id: `queued-${q.id}`,
       machineryId: q.payload.machineryId,
       machineCode: q.payload.machineCode,
+      fueraCatalogo: q.payload.fueraCatalogo === true,
+      camionRef: q.payload.camionRef ?? null,
       listeroId: q.payload.listeroId,
       listeroName: q.payload.listeroName,
       choferName: q.payload.choferName,
@@ -361,6 +470,8 @@ export default function ViajesCamionesScreen() {
       id: `stuck-${q.id}`,
       machineryId: q.payload.machineryId,
       machineCode: q.payload.machineCode,
+      fueraCatalogo: q.payload.fueraCatalogo === true,
+      camionRef: q.payload.camionRef ?? null,
       listeroId: q.payload.listeroId,
       listeroName: q.payload.listeroName,
       choferName: q.payload.choferName,
@@ -387,11 +498,17 @@ export default function ViajesCamionesScreen() {
     setRegistering(true);
     const registeredAt = new Date().toISOString(); // capturado AHORA, en el teléfono (necesario offline)
     const shift = caracasNowShift();
+    const esFuera = selectedTruck.id === FUERA_CATALOGO_ID;
     let chofer = selectedChofer;
-    if (shift !== selectedShift) chofer = await resolveChoferActual(selectedTruck.id, shift);
+    if (!esFuera && shift !== selectedShift) chofer = await resolveChoferActual(selectedTruck.id, shift);
     const payload = {
-      machineryId: selectedTruck.id,
+      // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
+      // existe únicamente como texto en esta fila. La BD lo exige con el CHECK
+      // `cv_fuera_catalogo_coherente`.
+      machineryId: esFuera ? null : selectedTruck.id,
       machineCode: selectedTruck.code,
+      fueraCatalogo: esFuera,
+      camionRef: esFuera ? (fcRef.trim() || null) : null,
       listeroId: uid,
       listeroName,
       choferName: chofer,
@@ -489,10 +606,13 @@ export default function ViajesCamionesScreen() {
   const resumenPorCamion = useMemo(() => {
     const infoOf = new Map<string, { code: string; plate: string | null; serial: string | null }>();
     allTrucks.forEach((t) => infoOf.set(t.id, { code: t.code, plate: t.plate, serial: t.serial }));
-    resumenRows.forEach((r) => { if (!infoOf.has(r.machineryId)) infoOf.set(r.machineryId, { code: r.machineCode, plate: null, serial: null }); });
+    // Se cuenta por CLAVE, no por id: los camiones fuera de catálogo no tienen id
+    // y si se agruparan por `null` saldrían todos sumados como uno solo
+    // (ver `claveCamion` en src/lib/viajesResumen.ts, que es la única verdad).
+    resumenRows.forEach((r) => { const k = claveCamion(r); if (!infoOf.has(k)) infoOf.set(k, { code: r.machineCode, plate: r.fueraCatalogo ? 'FUERA DE CATÁLOGO' : null, serial: null }); });
     const counts = new Map<string, number>();
-    resumenRows.forEach((r) => counts.set(r.machineryId, (counts.get(r.machineryId) ?? 0) + 1));
-    const ids = new Set<string>([...allTrucks.map((t) => t.id), ...resumenRows.map((r) => r.machineryId)]);
+    resumenRows.forEach((r) => { const k = claveCamion(r); counts.set(k, (counts.get(k) ?? 0) + 1); });
+    const ids = new Set<string>([...allTrucks.map((t) => t.id), ...resumenRows.map((r) => claveCamion(r))]);
     const arr = Array.from(ids).map((id) => {
       const info = infoOf.get(id) ?? { code: '—', plate: null, serial: null };
       return { id, ...info, count: counts.get(id) ?? 0, meta: metasByTruck[id] ?? null };
@@ -530,7 +650,10 @@ export default function ViajesCamionesScreen() {
     const last: Record<string, string> = {};
     // `rows` ya viene ordenado registered_at desc: la primera aparición de cada
     // camión es su viaje MÁS RECIENTE.
-    rows.forEach((r) => { if (!last[r.machineryId]) last[r.machineryId] = r.registeredAt; });
+    // Los fuera de catálogo NO entran a esta alerta: es "camiones de la flota sin
+    // viaje reciente", y un camión prestado que se anotó una vez no está parado,
+    // simplemente ya no está. Meterlo daría una alarma que nadie puede atender.
+    rows.forEach((r) => { if (r.machineryId && !last[r.machineryId]) last[r.machineryId] = r.registeredAt; });
     setLastTripByTruck(last);
   };
   const alertList = useMemo(() => {
@@ -625,9 +748,12 @@ export default function ViajesCamionesScreen() {
   const truckOptions = useMemo(() => {
     const m = new Map<string, { id: string; code: string; count: number }>();
     dateScopedRows.forEach((r) => {
-      const e = m.get(r.machineryId) ?? { id: r.machineryId, code: r.machineCode, count: 0 };
+      // Por CLAVE, no por id: los fuera de catálogo no tienen id y se fundirían
+      // todos en una sola opción del filtro (ver `claveCamion`).
+      const k = claveCamion(r);
+      const e = m.get(k) ?? { id: k, code: r.fueraCatalogo ? `${r.machineCode} (fuera de catálogo)` : r.machineCode, count: 0 };
       e.count += 1;
-      m.set(r.machineryId, e);
+      m.set(k, e);
     });
     return Array.from(m.values()).sort((a, b) => cmpText(a.code, b.code));
   }, [dateScopedRows]);
@@ -635,7 +761,9 @@ export default function ViajesCamionesScreen() {
   // Empresa de un viaje: la del camión que lo hizo. Los camiones sin empresa
   // asignada caen en una sola cubeta, para que no desaparezcan del filtro.
   const companyOfRow = (r: CamionViajeRow) => {
-    const t = truckById.get(r.machineryId);
+    // Un camión fuera de catálogo no tiene ficha que consultar: no se le inventa
+    // empresa, cae en la misma cubeta que los que no la tienen asignada.
+    const t = r.machineryId ? truckById.get(r.machineryId) : undefined;
     return { key: t?.companyId ?? SIN_EMPRESA, name: t?.companyName || 'Sin empresa' };
   };
   const companyOptions = useMemo(() => {
@@ -655,7 +783,7 @@ export default function ViajesCamionesScreen() {
       dateScopedRows.filter(
         (r) =>
           (filterListeroSel.size === 0 || filterListeroSel.has(r.listeroId)) &&
-          (filterTruckSel.size === 0 || filterTruckSel.has(r.machineryId)) &&
+          (filterTruckSel.size === 0 || filterTruckSel.has(claveCamion(r))) &&
           (filterCompanySel.size === 0 || filterCompanySel.has(companyOfRow(r).key))
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -694,7 +822,14 @@ export default function ViajesCamionesScreen() {
     setShareBusy(true);
     try {
       const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const placaDe = (id: string) => { const t = truckById.get(id); return t?.plate || t?.serial || '—'; };
+      // Un camión fuera de catálogo no tiene ficha: se imprime la seña que anotó
+      // el listero (placa dicha, empresa, "el rojo de Pérez") y se marca como tal,
+      // para que quien lea el reporte NO lo confunda con un camión de la flota.
+      const placaDe = (r: CamionViajeRow) => {
+        if (r.fueraCatalogo) return `⚠️ FUERA DE CATÁLOGO${r.camionRef ? ` · ${r.camionRef}` : ''}`;
+        const t = r.machineryId ? truckById.get(r.machineryId) : undefined;
+        return t?.plate || t?.serial || '—';
+      };
 
       // Un encabezado común que deja constancia de con qué filtros se sacó, para
       // que el reporte se pueda auditar después sin adivinar.
@@ -728,7 +863,7 @@ export default function ViajesCamionesScreen() {
             ${filteredRangeRows
               .map(
                 (r) =>
-                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(companyOfRow(r).name)}</td><td>${esc(r.machineCode)}</td><td>${esc(placaDe(r.machineryId))}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(r.shift === 'night' ? 'Noche' : r.shift === 'day' ? 'Día' : '—')}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
+                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(companyOfRow(r).name)}</td><td>${esc(r.machineCode)}</td><td>${esc(placaDe(r))}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(r.shift === 'night' ? 'Noche' : r.shift === 'day' ? 'Día' : '—')}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
               )
               .join('')}
           </tbody>
@@ -799,14 +934,22 @@ export default function ViajesCamionesScreen() {
   // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
   const renderRow = (row: DisplayViaje, opts: { canEdit: boolean; canDelete: boolean; showListero?: boolean }) => {
     const isEditing = editing?.id === row.id;
-    const truck = truckById.get(row.machineryId);
-    const placaSerial = [truck?.plate ? `Placa ${truck.plate}` : null, truck?.serial ? `Serial ${truck.serial}` : null].filter(Boolean).join(' · ');
+    const truck = row.machineryId ? truckById.get(row.machineryId) : undefined;
+    // Del camión de fuera no hay placa ni serial que buscar: se muestra la seña
+    // que escribió el listero, que es lo único que permite identificarlo.
+    const placaSerial = row.fueraCatalogo
+      ? (row.camionRef ? `Anotado a mano · ${row.camionRef}` : 'Anotado a mano por el listero')
+      : [truck?.plate ? `Placa ${truck.plate}` : null, truck?.serial ? `Serial ${truck.serial}` : null].filter(Boolean).join(' · ');
     return (
       <View key={row.id} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }}>
-            🚜 {row.machineCode}{opts.showListero ? ` · ${row.listeroName}` : ''}
+            {row.fueraCatalogo ? '🚚' : '🚜'} {row.machineCode}{opts.showListero ? ` · ${row.listeroName}` : ''}
           </Text>
+          {/* La marca de "fuera de catálogo" va SIEMPRE, para el listero y para
+              quien supervisa: un viaje contra un camión anotado a mano no se
+              puede confundir con uno de la flota al revisar o al cobrar. */}
+          {row.fueraCatalogo ? <Badge label="🚚 fuera de catálogo" tone="warning" /> : null}
           {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
         </View>
         {row.stuck && row.stuckError ? (
@@ -1015,7 +1158,47 @@ export default function ViajesCamionesScreen() {
                     <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {t.companyName}</Text>
                   </TouchableOpacity>
                 ))}
-                {pickFiltered.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin coincidencias.</Text> : null}
+                {pickFiltered.length === 0 && pickExtras.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin coincidencias.</Text> : null}
+
+                {/* ⭐ ESTÁ EN EL CATÁLOGO PERO NO EN TU LISTA. Al tocarla se suma a
+                    la lista (solo en esta pantalla: no se escribe en el catálogo). */}
+                {pickExtras.length ? (
+                  <View style={{ marginTop: spacing.md }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', marginBottom: spacing.xs }}>
+                      No están en tu lista, pero sí en el catálogo · {pickExtras.length}
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                      Tócala y se agrega a tu lista para poder registrarle viajes. No cambia nada en el catálogo.
+                    </Text>
+                    {pickExtras.map((t) => (
+                      <TouchableOpacity
+                        key={'extra-' + t.id}
+                        onPress={() => { setExtraTruckIds((prev) => new Set(prev).add(t.id)); onSelectTruck(t); }}
+                        style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.brand, marginBottom: spacing.xs, backgroundColor: colors.surface }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', flexShrink: 1 }}>
+                          ➕ {t.code}{(t.marca || t.modelo) ? ` · ${[t.marca, t.modelo].filter(Boolean).join(' ')}` : ''}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          {[t.clasificacion, t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null].filter(Boolean).join(' · ') || 'Sin categoría/placa/serial'}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {t.companyName}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+
+                {/* ⭐ NO ESTÁ EN NINGÚN LADO. Se anota a mano SOLO para este viaje:
+                    no se crea nada en el catálogo ni en ningún otro módulo. */}
+                <TouchableOpacity
+                  onPress={() => { setPickOpen(false); abrirFueraCatalogo(pickQuery.trim()); }}
+                  style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.warning, backgroundColor: colors.surface }}
+                >
+                  <Text style={{ color: colors.warning, fontWeight: '800' }}>🚚 El camión no está en la lista</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                    Anótalo a mano para este viaje. No se guarda en el catálogo ni afecta nada más del sistema.
+                  </Text>
+                </TouchableOpacity>
               </ScrollView>
             )}
             <TouchableOpacity onPress={() => setPickOpen(false)} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
@@ -1332,6 +1515,52 @@ export default function ViajesCamionesScreen() {
           </Card>
         </>
       ) : null}
+
+      {/* CAMIÓN QUE NO ESTÁ EN EL CATÁLOGO — se anota a mano SOLO para este viaje.
+          No crea nada en `machinery`: no aparece en Control de Maquinaria, ni en
+          Mantenimiento, ni en los reportes de flota, ni le llega a los inspectores. */}
+      <Modal visible={fcOpen} transparent animationType="fade" onRequestClose={() => setFcOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>🚚 Camión que no está en la lista</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4, marginBottom: spacing.md }}>
+              Se guarda <Text style={{ fontWeight: '800' }}>solo para este viaje</Text>. No se agrega al catálogo ni cambia nada más del sistema.
+            </Text>
+
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Cómo se identifica *</Text>
+            <TextInput
+              value={fcCode}
+              onChangeText={setFcCode}
+              autoCapitalize="characters"
+              placeholder="VOLTEO 88, CAMIÓN DE PÉREZ…"
+              placeholderTextColor={colors.muted}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+            />
+
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 2 }}>Placa, empresa o seña (opcional)</Text>
+            <TextInput
+              value={fcRef}
+              onChangeText={setFcRef}
+              autoCapitalize="characters"
+              placeholder="A12BC3D · Transporte X · el rojo"
+              placeholderTextColor={colors.muted}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+            />
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+              Mientras más datos pongas, más fácil le va a ser identificarlo a quien revisa los viajes.
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+              <TouchableOpacity onPress={() => setFcOpen(false)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmarFueraCatalogo} style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: colors.warning }}>
+                <Text style={{ color: '#fff', fontWeight: '800' }}>Usar este camión</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

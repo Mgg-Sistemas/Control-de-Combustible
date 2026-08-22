@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Guía rápida — Taller de Maquinaria</title>
+<style>
+  @page { size: A4; margin: 15mm 13mm 16mm 13mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10.2pt; line-height: 1.45; color: #1f2937; margin: 0;
+  }
+  h1, h2, h3, h4 { color: #1E3A5F; margin: 0 0 6px; line-height: 1.25; }
+  h2 { font-size: 15pt; border-bottom: 2px solid #1E3A5F; padding-bottom: 5px; margin: 20px 0 12px; page-break-after: avoid; }
+  h4 { font-size: 10.6pt; margin: 12px 0 4px; color: #2c5282; page-break-after: avoid; }
+  p { margin: 0 0 8px; }
+  ul, ol { margin: 0 0 9px; padding-left: 19px; }
+  li { margin-bottom: 3px; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 9.3pt; page-break-inside: avoid; }
+  th { background: #1E3A5F; color: #fff; text-align: left; padding: 6px 8px; font-weight: 600; }
+  td { border-bottom: 1px solid #dde3ea; padding: 5px 8px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6f8fb; }
+  .ui { background: #eef2f7; border: 1px solid #c8d3e0; border-radius: 4px; padding: 1px 6px; font-weight: 600; color: #1E3A5F; white-space: nowrap; }
+  .nota, .aviso, .ojo { border-left: 4px solid; border-radius: 4px; padding: 8px 11px; margin: 9px 0; page-break-inside: avoid; }
+  .nota  { border-color: #1E3A5F; background: #eef2f7; }
+  .aviso { border-color: #B45309; background: #fdf6ec; }
+  .ojo   { border-color: #B91C1C; background: #fdeeee; }
+  /* SOLO el primer <b> es el título del recuadro. Sin `:first-child` la regla
+     alcanza a cualquier negrita del cuerpo y la parte en una línea aparte y en
+     mayúsculas, rompiendo la frase en tres pedazos. */
+  .nota > b:first-child, .aviso > b:first-child, .ojo > b:first-child {
+    display: block; margin-bottom: 3px; text-transform: uppercase; font-size: 8.5pt; letter-spacing: .5px;
+  }
+  .nota > b:first-child { color: #1E3A5F; }
+  .aviso > b:first-child { color: #B45309; }
+  .ojo > b:first-child { color: #B91C1C; }
+
+  .portada { height: 248mm; display: flex; flex-direction: column; justify-content: center; text-align: center; page-break-after: always; }
+  .portada .marca { font-size: 11pt; letter-spacing: 4px; color: #64748b; text-transform: uppercase; margin-bottom: 18px; }
+  .portada h1 { font-size: 29pt; margin-bottom: 6px; }
+  .portada .sub { font-size: 14pt; color: #475569; margin-bottom: 10px; }
+  .portada .sub2 { font-size: 11.5pt; color: #64748b; margin-bottom: 30px; }
+  .portada .linea { width: 90px; height: 4px; background: #1E3A5F; margin: 0 auto 30px; }
+  .portada .pie { font-size: 10pt; color: #64748b; }
+
+  .chip { display: inline-block; background: #1E3A5F; color: #fff; border-radius: 10px; padding: 1px 9px; font-size: 8.8pt; margin-right: 4px; }
+  .chip-s { background: #B45309; }
+  .chip-d { background: #475569; }
+
+  /* ── Ficha de procedimiento ───────────────────────────────────────────── */
+  .proc { border: 1px solid #c8d3e0; border-radius: 6px; margin: 0 0 15px; page-break-inside: avoid; overflow: hidden; }
+  .proc > .tit { background: #1E3A5F; color: #fff; margin: 0; padding: 7px 12px; font-size: 11.4pt; font-weight: 700; }
+  .proc.serv > .tit { background: #8a4a08; }
+  .proc > .donde { background: #f6f8fb; border-bottom: 1px solid #dde3ea; padding: 6px 12px; font-size: 9.4pt; color: #334155; }
+  .proc > .donde b { color: #1E3A5F; text-transform: uppercase; font-size: 8.4pt; letter-spacing: .5px; }
+  .proc > .cuerpo { padding: 9px 12px 2px; }
+  .proc ol { padding-left: 18px; margin-bottom: 8px; }
+  .proc .result { background: #eef6ef; border-left: 3px solid #2f7a4d; padding: 6px 10px; margin: 0 12px 10px; font-size: 9.5pt; }
+  .proc .result b { color: #2f7a4d; text-transform: uppercase; font-size: 8.4pt; letter-spacing: .5px; display: block; margin-bottom: 2px; }
+  .proc .ojo, .proc .aviso, .proc .nota { margin: 0 12px 10px; }
+  .ruta { font-family: inherit; font-weight: 600; color: #1E3A5F; }
+
+  .indice { page-break-after: always; }
+  .indice .parte { font-size: 9pt; letter-spacing: 1.5px; text-transform: uppercase; color: #64748b; margin: 14px 0 4px; font-weight: 700; }
+  .indice ol { font-size: 10.6pt; }
+  .indice li { margin-bottom: 5px; }
+  .seccion { page-break-before: always; }
+  code { background: #eef2f7; padding: 1px 4px; border-radius: 3px; font-size: 9pt; }
+  .grande td { font-size: 9.8pt; }
+</style>
+</head>
+<body>
+
+<div class="portada">
+  <div class="marca">SOS La Guaira · Sistema de Control</div>
+  <h1>Taller de Maquinaria</h1>
+  <div class="sub">Guía rápida de procedimientos</div>
+  <div class="sub2">Qué hacer · cómo hacerlo · dónde hacerlo</div>
+  <div class="linea"></div>
+  <div class="pie">
+    🧰 Mantenimiento &nbsp;·&nbsp; 🔧 Servicio<br>
+    Versión del 14 de agosto de 2026
+  </div>
+</div>
+
+<div class="indice">
+  <h2>Contenido</h2>
+  <p style="font-size:10pt;color:#475569">
+    Cada procedimiento dice <b>dónde</b> se hace, <b>qué</b> se toca paso a paso y <b>qué pasa</b> al terminar.
+    Si solo necesitas saber a dónde ir, la tabla de la página siguiente lo resuelve.
+  </p>
+
+  <div class="parte">Empieza aquí</div>
+  <ol>
+    <li>La tabla de decisión: me pasó esto, ¿a dónde voy?</li>
+    <li>Cómo entrar a cada sección</li>
+  </ol>
+
+  <div class="parte">🧰 Sección Mantenimiento</div>
+  <ol start="3">
+    <li>Ver a qué máquina le toca servicio</li>
+    <li>Confirmar un mantenimiento ya hecho (sin taller)</li>
+    <li>Enviar una máquina a mantenimiento</li>
+    <li>Consultar lo que está en el taller y lo ya cerrado</li>
+  </ol>
+
+  <div class="parte">🔧 Sección Servicio</div>
+  <ol start="7">
+    <li>Ver y buscar las averías pendientes</li>
+    <li>Reportar una avería escaneando el QR</li>
+    <li>Marcar una avería como atendida</li>
+    <li>Enviar una máquina a reparación</li>
+    <li>Resolver una máquina que sigue saliendo parada</li>
+    <li>Sacar el reporte de gasto y su PDF</li>
+  </ol>
+
+  <div class="parte">Vale para las dos</div>
+  <ol start="13">
+    <li>Registrar el retorno operativo (la máquina volvió)</li>
+    <li>Dar o quitar acceso al taller</li>
+  </ol>
+
+  <div class="parte">Para consultar</div>
+  <ol start="15">
+    <li>Si te equivocaste: qué se puede deshacer y qué no</li>
+    <li>Chuleta: los estados de una máquina</li>
+  </ol>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2>1. La tabla de decisión: me pasó esto, ¿a dónde voy?</h2>
+
+<p>Busca tu caso en la primera columna. La última columna dice el número del procedimiento.</p>
+
+<table class="grande">
+  <tr><th style="width:38%">Lo que pasó</th><th style="width:22%">Sección</th><th style="width:28%">Dónde exactamente</th><th style="width:12%">Ficha</th></tr>
+
+  <tr><td>Una máquina llegó a sus horas y hay que revisarle el servicio</td><td>🧰 Mantenimiento</td><td>Pestaña ⏱️ Horómetros</td><td><b>3</b></td></tr>
+  <tr><td>Ya le hicieron el servicio y hay que dejarlo asentado</td><td>🧰 Mantenimiento</td><td>Botón ✓ Confirmar mantenimiento</td><td><b>4</b></td></tr>
+  <tr><td>La máquina se queda varios días en el taller por su servicio programado</td><td>🧰 Mantenimiento</td><td>Botón 🧰 Enviar a mantenimiento</td><td><b>5</b></td></tr>
+
+  <tr><td>Un operador o inspector reportó una falla</td><td>🔧 Servicio</td><td>Pestaña ⏳ Averías</td><td><b>7</b></td></tr>
+  <tr><td>Yo mismo vi la falla y quiero reportarla</td><td>🔧 Servicio</td><td>Botón 📷 Escanear · reportar avería</td><td><b>8</b></td></tr>
+  <tr><td>Ya se atendió esa falla puntual</td><td>🔧 Servicio</td><td>Botón ✓ Realizado de la avería</td><td><b>9</b></td></tr>
+  <tr><td>La máquina se dañó y no puede trabajar</td><td>🔧 Servicio</td><td>Botón 🔧 Enviar a reparación</td><td><b>10</b></td></tr>
+  <tr><td>Sale 🟡 parada pero ya está trabajando bien</td><td>🔧 Servicio</td><td>Aviso rojo de arriba</td><td><b>11</b></td></tr>
+  <tr><td>Quiero saber qué equipo está costando más</td><td>🔧 Servicio</td><td>Pestaña 📊 Reporte</td><td><b>12</b></td></tr>
+
+  <tr><td><b>La máquina volvió del taller</b></td><td>La misma por donde salió</td><td>Botón ✓ Registrar retorno operativo</td><td><b>13</b></td></tr>
+  <tr><td>Hay que darle o quitarle el taller a alguien</td><td>Usuarios</td><td>Permisos por módulo</td><td><b>14</b></td></tr>
+</table>
+
+<div class="nota">
+  <b>La regla que resuelve el 90 % de las dudas</b>
+  Si lo pidió <b>el reloj de la máquina</b> (las horas) → 🧰 <b>Mantenimiento</b>.<br>
+  Si lo pidió <b>una persona</b> porque algo se dañó → 🔧 <b>Servicio</b>.
+</div>
+
+<div class="aviso">
+  <b>Si no sabes por dónde salió una máquina que volvió</b>
+  Búscala en las dos: si no está en 🧰 <span class="ui">En mantenimiento</span>, está en 🔧 <span class="ui">En reparación</span>.
+  El botón para cerrarla es el mismo en las dos y hace exactamente lo mismo.
+</div>
+
+<h2 class="seccion">2. Cómo entrar a cada sección</h2>
+
+<table class="grande">
+  <tr><th style="width:20%">Sección</th><th style="width:50%">Fila que hay que tocar en el menú <span class="ui">Más</span></th><th style="width:30%">Dirección en la computadora</th></tr>
+  <tr>
+    <td>🧰 <b>Mantenimiento</b></td>
+    <td><span class="ui">🧰 Mantenimiento de Maquinaria</span><br><i style="color:#64748b">"Mantenimiento preventivo: horómetros, horas acumuladas y máquinas próximas a su servicio"</i></td>
+    <td>termina en <code>/mantenimiento</code></td>
+  </tr>
+  <tr>
+    <td>🔧 <b>Servicio</b></td>
+    <td><span class="ui">🔧 Servicio de Maquinaria</span><br><i style="color:#64748b">"Averías reportadas, enviar a reparación (salida, tiempo, cambios), retorno operativo y reporte de gasto"</i></td>
+    <td>termina en <code>/servicio</code></td>
+  </tr>
+</table>
+
+<h4>Cómo saber que entraste a la correcta</h4>
+<p>Debajo del título hay una línea gris que te lo confirma y te dice dónde está lo otro:</p>
+<table>
+  <tr><th style="width:22%">Si arriba dice…</th><th style="width:78%">Debajo lees…</th></tr>
+  <tr><td>🧰 <b>Mantenimiento<br>de Maquinaria</b></td><td><i>"Lo programado por horómetro: cada máquina y cuánto le falta para su próximo servicio. Las averías están en Servicio."</i></td></tr>
+  <tr><td>🔧 <b>Servicio<br>de Maquinaria</b></td><td><i>"Lo que se dañó: averías reportadas, taller y gasto. El mantenimiento programado está en su propia sección."</i></td></tr>
+</table>
+
+<ul>
+  <li>La fila <b>solo aparece si tu usuario tiene ese módulo</b>. Si no la ves, es permiso (ficha 14).</li>
+  <li>Con panel de coordinador, entras por las tarjetas del inicio, no por el menú Más.</li>
+  <li>🧰 Mantenimiento siempre abre en <span class="ui">⏱️ Horómetros</span>. 🔧 Servicio siempre abre en <span class="ui">⏳ Averías</span>.</li>
+  <li>Las dos se actualizan solas: <b>no hace falta recargar</b> si alguien registró algo desde otro equipo.</li>
+</ul>
+
+<!-- ═══════════════════ MANTENIMIENTO ═══════════════════ -->
+<h2 class="seccion"><span class="chip">🧰</span> Sección Mantenimiento</h2>
+
+<div class="proc">
+  <div class="tit">3 · Ver a qué máquina le toca servicio</div>
+  <div class="donde"><b>Dónde:</b> 🧰 Mantenimiento de Maquinaria → pestaña <span class="ui">⏱️ Horómetros</span> (abre ahí sola)</div>
+  <div class="cuerpo">
+    <ol>
+      <li>Mira el <b>panel azul de arriba</b>. Tiene cinco cifras y <b>cada una es un botón</b>.</li>
+      <li>Toca <span class="ui">Vencidas (≥250 h)</span> para ver solo las que ya pasaron el objetivo, o <span class="ui">Próximas (≥200 h)</span> para las que van a llegar.</li>
+      <li>Toca la misma cifra otra vez para quitar el filtro.</li>
+      <li>La lista viene ordenada con <b>la más cerca del servicio arriba</b>. No se puede cambiar ese orden.</li>
+    </ol>
+    <p style="font-size:9.5pt;color:#475569">El buscador de arriba también sirve aquí: máquina, serial, placa, empresa, encargado, inspector o ubicación.</p>
+  </div>
+  <div class="result"><b>Qué ves</b> Por cada máquina: horómetro actual, horas acumuladas desde su último servicio, y cuánto le falta para las 250 h.</div>
+  <div class="aviso">
+    <b>No sumes "Próximas" y "Vencidas"</b>
+    Se solapan: una máquina vencida también cuenta como próxima. Si las sumas, cuentas doble.
+  </div>
+</div>
+
+<div class="proc">
+  <div class="tit">4 · Confirmar un mantenimiento ya hecho (sin taller)</div>
+  <div class="donde"><b>Dónde:</b> 🧰 Mantenimiento → pestaña <span class="ui">⏱️ Horómetros</span>, o el <b>aviso de arriba</b> de máquinas próximas</div>
+  <div class="cuerpo">
+    <p style="margin-bottom:6px"><b>Úsalo cuando:</b> el servicio ya se le hizo a la máquina y solo falta dejarlo asentado en el sistema. La máquina <b>no</b> se queda en el taller.</p>
+    <ol>
+      <li>Busca la máquina en la lista (o despliega el aviso de arriba tocándolo).</li>
+      <li>Toca el botón de confirmar. <b>Dice distinto según desde dónde entres</b>, pero hace exactamente lo mismo:
+        <ul style="margin-top:3px">
+          <li>Desde la lista: <span class="ui">✓ Confirmar mantenimiento · reiniciar horómetro</span></li>
+          <li>Desde el aviso de arriba: <span class="ui">✓ Confirmar mantenimiento y reiniciar horómetro</span></li>
+        </ul>
+      </li>
+      <li>Sale la pregunta <i>"¿Confirmas que a [código] ya se le hizo el mantenimiento? Se reinicia el conteo de horas acumuladas"</i>. Toca <span class="ui">Sí, confirmar y reiniciar</span>.</li>
+    </ol>
+  </div>
+  <div class="result"><b>Qué pasa</b> Las horas acumuladas vuelven a <b>0 h</b>, faltan otra vez 250 h, la barra queda verde y la alerta desaparece. Sale el aviso verde <i>"✅ Mantenimiento confirmado en [código] · horómetro reiniciado."</i></div>
+  <div class="nota">
+    <b>No se toca el horómetro de la máquina</b>
+    "Reiniciar el horómetro" aquí significa <b>poner en cero el contador del mantenimiento</b>. El contador real del equipo sigue avanzando normal. Lo único que cambia es desde qué punto el sistema empieza a contar de nuevo.
+  </div>
+  <div class="ojo">
+    <b>Este es el único botón que saca a una vencida</b>
+    Una máquina que llegó a 250 h queda marcada y <b>no sale de ahí sola</b>, ni aunque una lectura posterior baje el número. Si el botón está apagado es porque la máquina todavía no tiene ninguna lectura de horómetro cargada.
+  </div>
+</div>
+
+<div class="proc">
+  <div class="tit">5 · Enviar una máquina a mantenimiento</div>
+  <div class="donde"><b>Dónde:</b> 🧰 Mantenimiento → botón grande <span class="ui">🧰 Enviar a mantenimiento</span></div>
+  <div class="cuerpo">
+    <p style="margin-bottom:6px"><b>Úsalo cuando:</b> la máquina se va a quedar en el taller por su servicio programado.</p>
+    <ol>
+      <li>Toca <span class="ui">🧰 Enviar a mantenimiento</span>. Se abre el selector.</li>
+      <li>Busca la máquina. <b>Solo se puede buscar por código y empresa</b> — no por placa ni serial.</li>
+      <li>Llena el formulario:
+        <ul style="margin-top:3px">
+          <li><b>Tipo</b> — no se escoge. Sale fija la etiqueta <span class="ui">🧰 Preventivo</span>.</li>
+          <li><b>Fecha de entrada</b> — ya viene la de hoy; se puede cambiar.</li>
+          <li><b>Motivo del mantenimiento</b> — <b>obligatorio</b>. Ej. <i>servicio de 250 h, cambio de aceite y filtros</i>.</li>
+          <li><b>Días estimados</b> — opcional.</li>
+          <li><b>Qué se le va a cambiar</b> — opcional, se puede llenar al volver.</li>
+        </ul>
+      </li>
+      <li>Toca <span class="ui">🧰 Enviar a mantenimiento</span> abajo.</li>
+    </ol>
+  </div>
+  <div class="result"><b>Qué pasa</b> Se abre el expediente con tu nombre · la máquina queda <b>No operativa</b> en todo el sistema · se deja una marca de parada para que también se vea en Inspecciones. La pantalla salta sola a <span class="ui">🧰 En mantenimiento</span>.</div>
+  <div class="aviso">
+    <b>Las que ya están en el taller no se pueden elegir</b>
+    Salen marcadas <span class="ui">· ya está en el taller</span>. Da igual por cuál de las dos secciones hayan salido: si está en una reparación correctiva, tampoco se puede mandar a mantenimiento hasta que vuelva operativa.
+  </div>
+</div>
+
+<div class="proc">
+  <div class="tit">6 · Consultar lo que está en el taller y lo ya cerrado</div>
+  <div class="donde"><b>Dónde:</b> 🧰 Mantenimiento → pestañas <span class="ui">🧰 En mantenimiento (N)</span> y <span class="ui">✓ Historial</span></div>
+  <div class="cuerpo">
+    <ul>
+      <li><span class="ui">🧰 En mantenimiento (N)</span> — lo que está en el taller <b>ahora</b>. El número es cuántas hay. La más reciente arriba. Cada tarjeta tiene el botón <span class="ui">✓ Registrar retorno operativo</span> (ficha 13).</li>
+      <li><span class="ui">✓ Historial</span> — los servicios ya cerrados. <b>Solo consulta</b>, no tiene botones. Muestra el recorrido: entrada → retorno, quién la envió, quién la reactivó y qué se le cambió.</li>
+    </ul>
+    <p style="font-size:9.5pt;color:#475569">Las dos pestañas muestran <b>solo expedientes preventivos</b>. Lo correctivo está en la otra sección.</p>
+  </div>
+  <div class="ojo">
+    <b>Si no encuentras un expediente, búscalo en Servicio</b>
+    Todas las reparaciones <b>anteriores a la división</b> del módulo quedaron en 🔧 Servicio con la etiqueta <span class="ui">🔧 Correctivo</span>, aunque hayan sido un mantenimiento programado. El formulario viejo venía con "correctivo" preseleccionado y así se guardaron.
+  </div>
+</div>
+
+<!-- ═══════════════════ SERVICIO ═══════════════════ -->
+<h2 class="seccion"><span class="chip chip-s">🔧</span> Sección Servicio</h2>
+
+<div class="proc serv">
+  <div class="tit">7 · Ver y buscar las averías pendientes</div>
+  <div class="donde"><b>Dónde:</b> 🔧 Servicio de Maquinaria → pestaña <span class="ui">⏳ Averías (N)</span> (abre ahí sola)</div>
+  <div class="cuerpo">
+    <ol>
+      <li>Las averías salen agrupadas por <b>empresa → máquina</b>, y las empresas arrancan <b>cerradas</b>. Toca el nombre de la empresa para abrirla.</li>
+      <li>Si escribes en el buscador, <b>se abren todas solas</b> para no esconderte resultados.</li>
+      <li>Toca <span class="ui">· ver detalle ›</span> en una avería para ver la ficha completa y ampliar la foto.</li>
+    </ol>
+    <p style="font-size:9.5pt;color:#475569">El número de la pestaña es el total de averías pendientes en <b>todo el sistema</b>, no solo las de la empresa que tengas abierta.</p>
+  </div>
+  <div class="result"><b>Qué ves por máquina</b> Placa/serial, ubicación GPS, referencia y edificio. Y por cada avería: el material (🛞 caucho · 🛢 aceite · 🧴 filtro · 🔩 repuesto · ✏️ otro), la cantidad, la nota, quién la reportó y la fecha.</div>
+</div>
+
+<div class="proc serv">
+  <div class="tit">8 · Reportar una avería escaneando el QR</div>
+  <div class="donde"><b>Dónde:</b> 🔧 Servicio → botón grande <span class="ui">📷 Escanear · reportar avería</span></div>
+  <div class="cuerpo">
+    <ol>
+      <li>Toca el botón y <b>escanea el QR</b> pegado en la máquina.</li>
+      <li>Bajo el rótulo <span class="ui">¿Qué necesita?</span> elige uno: 🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto · ✏️ Otro. <b>Hasta que elijas uno no aparece nada más.</b></li>
+      <li>Según lo que elegiste:
+        <ul style="margin-top:3px">
+          <li><b>✏️ Otro</b> → sale <span class="ui">¿Qué falla presenta? (describe la avería)</span>. <b>No pide cantidad.</b></li>
+          <li><b>Cualquier otro</b> → <span class="ui">Cantidad (opcional)</span> y <span class="ui">Nota (obligatoria)</span>.</li>
+        </ul>
+      </li>
+      <li>Si quieres, toca <span class="ui">📷 Foto de referencia (opcional)</span>. Cuando ya está, el botón cambia a <i>"✓ Foto de referencia adjunta"</i>.</li>
+      <li>Toca <span class="ui">Registrar avería</span>. Está apagado mientras falte el material o la nota.</li>
+    </ol>
+  </div>
+  <div class="result"><b>Qué pasa</b> La avería queda <b>pendiente</b> con tu nombre y la pantalla salta sola a <span class="ui">⏳ Averías</span>.</div>
+  <div class="ojo">
+    <b>Reportar NO detiene la máquina</b>
+    Esto solo deja el reporte para el mecánico: la máquina <b>sigue operativa y sigue contando horas</b>. Si además hay que sacarla de circulación, tienes que enviarla a reparación (ficha 10).
+  </div>
+</div>
+
+<div class="proc serv">
+  <div class="tit">9 · Marcar una avería como atendida</div>
+  <div class="donde"><b>Dónde:</b> 🔧 Servicio → pestaña <span class="ui">⏳ Averías</span> → botón <span class="ui">✓ Realizado</span> de esa avería</div>
+  <div class="cuerpo">
+    <ol>
+      <li>Abre la empresa y ubica la máquina.</li>
+      <li>Toca <span class="ui">✓ Realizado</span> en el renglón de la avería atendida.</li>
+      <li>Confirma: <i>"¿Marcar como REALIZADO el [material] de [código]?"</i> → <span class="ui">Sí, realizado</span>.</li>
+    </ol>
+    <div class="nota" style="margin:0 0 8px">
+      <b>No te confundas con el título de la ventana</b>
+      El cuadro de confirmación se titula <b>"Mantenimiento realizado"</b> aunque estés en Servicio cerrando una avería. Es el mismo cuadro para todo el taller: se refiere a la avería que tocaste, no a un mantenimiento preventivo.
+    </div>
+  </div>
+  <div class="result"><b>Qué pasa</b> Se cierra <b>ese renglón</b> y desaparece de la lista.</div>
+  <div class="ojo">
+    <b>Esto NO reactiva la máquina</b>
+    La máquina sigue exactamente como estaba. Si venía de una <b>parada por avería</b>, puede seguir saliendo 🟡 <b>parada</b> en Control aunque cierres la avería aquí, porque el marcador de parada es un registro aparte.<br><br>
+    Para cerrar <b>las dos cosas de golpe</b>: usa <span class="ui">✓ Ya está operativa (resolver)</span> del aviso rojo (ficha 11), o deja que el inspector toque <span class="ui">🟢 Volver a OPERATIVA</span> desde su teléfono.
+  </div>
+</div>
+
+<div class="proc serv">
+  <div class="tit">10 · Enviar una máquina a reparación</div>
+  <div class="donde"><b>Dónde:</b> 🔧 Servicio → botón grande <span class="ui">🔧 Enviar a reparación</span>, o el mismo botón dentro de la tarjeta de la máquina en <span class="ui">⏳ Averías</span></div>
+  <div class="cuerpo">
+    <p style="margin-bottom:6px"><b>Úsalo cuando:</b> la máquina se dañó y hay que sacarla de circulación.</p>
+    <ol>
+      <li>Desde el botón grande te pide elegir la máquina (<b>solo se busca por código y empresa</b>). Desde la tarjeta de una avería ya viene elegida.</li>
+      <li>Llena el formulario:
+        <ul style="margin-top:3px">
+          <li><b>Tipo</b> — no se escoge. Sale fija la etiqueta <span class="ui">🔧 Correctivo</span>.</li>
+          <li><b>Fecha de salida</b> — ya viene la de hoy.</li>
+          <li><b>Motivo de la avería</b> — <b>obligatorio</b>. Ej. <i>falla hidráulica, sin arranque, espera de repuesto</i>.</li>
+          <li><b>Días estimados</b> y <b>qué se le va a cambiar</b> — opcionales.</li>
+        </ul>
+      </li>
+      <li>Toca <span class="ui">🔧 Enviar a reparación</span> abajo.</li>
+    </ol>
+  </div>
+  <div class="result"><b>Qué pasa</b> Se abre el expediente con tu nombre · la máquina queda <b>No operativa</b> en todo el sistema · se deja la marca de parada para Inspecciones. La pantalla salta a <span class="ui">🔧 En reparación</span>.</div>
+  <div class="aviso">
+    <b>Si te equivocaste de sección no se puede mover</b>
+    El tipo se fija al enviarlo y <b>no se cambia después</b>. Si mandaste por Servicio algo que era el servicio programado, hay que registrarle el retorno y abrirlo de nuevo desde 🧰 Mantenimiento.
+  </div>
+</div>
+
+<div class="proc serv">
+  <div class="tit">11 · Resolver una máquina que sigue saliendo parada</div>
+  <div class="donde"><b>Dónde:</b> 🔧 Servicio → <b>aviso rojo</b> de arriba (solo aparece si hay paradas de más de 4 horas)</div>
+  <div class="cuerpo">
+    <p style="margin-bottom:6px"><b>Úsalo cuando:</b> la máquina ya está trabajando bien pero el sistema la sigue mostrando 🟡 parada.</p>
+    <ol>
+      <li>Toca el aviso rojo para desplegarlo. Lista cada máquina con su nota, su empresa y <b>desde cuándo</b> está parada.</li>
+      <li>Ubica la máquina y toca <span class="ui">✓ Ya está operativa (resolver)</span>.</li>
+      <li>Confirma.</li>
+    </ol>
+  </div>
+  <div class="result"><b>Qué pasa</b> Se cierran de una sola vez <b>la parada y todas las averías pendientes</b> de esa máquina.</div>
+  <div class="nota">
+    <b>Por qué existe este aviso</b>
+    Evita que una máquina quede "parada" para siempre porque nadie cerró el ticket. Una parada vieja sin resolver <b>arrastra</b>: sigue apareciendo día tras día y ensucia los reportes de inspectores.
+  </div>
+  <div class="aviso">
+    <b>Si el aviso no aparece</b>
+    Es que no hay ninguna parada de más de 4 horas sin resolver. Si aun así ves una máquina amarilla, revisa si tiene una <b>avería real</b> pendiente en <span class="ui">⏳ Averías</span> — esa la tiene que cerrar una persona.
+  </div>
+</div>
+
+<div class="proc serv">
+  <div class="tit">12 · Sacar el reporte de gasto y su PDF</div>
+  <div class="donde"><b>Dónde:</b> 🔧 Servicio → pestaña <span class="ui">📊 Reporte</span> (🧰 Mantenimiento no tiene reporte)</div>
+  <div class="cuerpo">
+    <ol>
+      <li>Elige cómo agrupar: <span class="ui">🚜 Equipo</span> · <span class="ui">🏢 Empresa</span> · <span class="ui">🏷️ Tipo</span>. <b>Solo agrupando por Equipo</b> se puede tocar una fila para ver el detalle.</li>
+      <li>Filtra por caso con las pastillas: <span class="ui">Todos</span> · <span class="ui">🔧🔍 Avería + insp.</span> · <span class="ui">🔧 Avería sin insp.</span> (la señal de alarma) · <span class="ui">🔍 Insp. sin avería</span>.</li>
+      <li>Para el documento, toca <span class="ui">📄 Exportar reporte (PDF)</span>.</li>
+    </ol>
+  </div>
+  <div class="result"><b>Qué ves</b> El ranking por número de averías, y en empate por mayor gasto. Tocando un equipo: total de averías, gasto, desglose por material y sus puntos de inspección observados.</div>
+  <div class="ojo">
+    <b>Dos cosas que sorprenden en esta pestaña</b>
+    <b>1.</b> El buscador de arriba <b>no funciona aquí</b>, aunque se siga viendo. Se filtra con las pastillas de la propia pestaña.<br>
+    <b>2.</b> El PDF <b>ignora los filtros de pantalla</b>: siempre exporta todo, agrupado por empresa. Si necesitas solo una parte, hay que recortarlo después.
+  </div>
+  <div class="aviso">
+    <b>Los números no cuadran con la pestaña Averías, y está bien</b>
+    Aquí el conteo es <b>histórico</b> (pendientes + ya realizadas). En <span class="ui">⏳ Averías</span> solo se ven las pendientes.
+  </div>
+</div>
+
+<!-- ═══════════════════ LAS DOS ═══════════════════ -->
+<h2 class="seccion"><span class="chip">🧰</span><span class="chip chip-s">🔧</span> Vale para las dos secciones</h2>
+
+<div class="proc">
+  <div class="tit">13 · Registrar el retorno operativo (la máquina volvió)</div>
+  <div class="donde"><b>Dónde:</b> la sección <b>por donde salió</b> → <span class="ui">🧰 En mantenimiento</span> o <span class="ui">🔧 En reparación</span> → botón <span class="ui">✓ Registrar retorno operativo</span></div>
+  <div class="cuerpo">
+    <ol>
+      <li>Ubica la máquina en su pestaña. También sale el botón en el recuadro naranja de <span class="ui">⏳ Averías</span> si la máquina está en el taller.</li>
+      <li>Se abre la ventana <span class="ui">✓ Retorno operativo</span>, que recuerda el código y desde cuándo salió.</li>
+      <li>Llena:
+        <ul style="margin-top:3px">
+          <li><b>¿Cuándo volvió operativa?</b> — ya viene la fecha de hoy.</li>
+          <li><b>¿Qué se le cambió / reparó?</b> — <b>obligatorio</b>. Viene precargado con lo que se escribió al enviarla.</li>
+        </ul>
+      </li>
+      <li>Toca <span class="ui">✓ Marcar operativa</span>.</li>
+    </ol>
+  </div>
+  <div class="result"><b>Qué pasa (cuatro cosas a la vez)</b> Se cierra el expediente con tu nombre · la máquina vuelve a <b>Operativa</b> en todo el sistema · se cierra la marca de parada · se cierran <b>todas</b> las averías pendientes de esa máquina. El expediente pasa al <span class="ui">✓ Historial</span> de su sección.</div>
+  <div class="aviso">
+    <b>Un preventivo también limpia las averías</b>
+    Aunque la máquina haya entrado al taller solo por su servicio de 250 h, al registrar el retorno <b>se cierran igual todas sus averías pendientes</b>. Si algo quedó pendiente de verdad, hay que reportarlo de nuevo desde 🔧 Servicio.
+  </div>
+</div>
+
+<div class="proc">
+  <div class="tit">14 · Dar o quitar acceso al taller</div>
+  <div class="donde"><b>Dónde:</b> Menú <span class="ui">Usuarios</span> → <span class="ui">Permisos por módulo</span></div>
+  <div class="cuerpo">
+    <p style="margin-bottom:6px">Hay <b>dos filas</b>, una por sección:</p>
+    <ul>
+      <li><span class="ui">Mantenimiento maquinaria</span> → abre 🧰 Mantenimiento (horómetros y preventivos).</li>
+      <li><span class="ui">Servicio de maquinaria (averías)</span> → abre 🔧 Servicio (averías, taller correctivo y reporte).</li>
+    </ul>
+    <p style="margin-bottom:6px">Cada una tiene cuatro niveles: <b>Sin acceso</b>, <b>Lectura</b>, <b>Escritura</b> y <b>Full control</b>.</p>
+  </div>
+  <div class="result"><b>Si no le tocas nada a Servicio</b> Cada persona ve Servicio con <b>el mismo nivel que ya tenía en Mantenimiento</b>. Por eso la división no le cambió el acceso a nadie. En cuanto le pongas un nivel propio, ese manda.</div>
+  <div class="ojo">
+    <b>"Lectura" NO impide escribir en estos módulos</b>
+    Quien tiene <b>Lectura</b> ve todos los botones habilitados y <b>sus acciones se guardan igual</b>: puede marcar averías realizadas, enviar máquinas al taller y confirmar mantenimientos.<br><br>
+    Lo único que bloquea de verdad es <b>Sin acceso</b>. Si alguien no debe modificar nada aquí, ponle <b>Sin acceso</b> — y hazlo en <b>las dos filas</b> si la idea es cerrarle el taller completo.
+  </div>
+</div>
+
+<!-- ═══════════════════ REFERENCIAS ═══════════════════ -->
+<h2 class="seccion">15. Si te equivocaste: qué se puede deshacer y qué no</h2>
+
+<table class="grande">
+  <tr><th style="width:42%">Lo que hiciste</th><th style="width:20%">¿Se deshace?</th><th style="width:38%">Qué hacer</th></tr>
+
+  <tr><td>Marcaste <span class="ui">✓ Realizado</span> una avería que no era</td><td><b>No</b></td><td>Reportarla de nuevo con 📷 Escanear · reportar avería (ficha 8).</td></tr>
+  <tr><td>Mandaste la máquina al taller por la sección equivocada</td><td><b>No se mueve</b></td><td>Registrarle el retorno (ficha 13) y abrirla de nuevo donde corresponde.</td></tr>
+  <tr><td>Cerraste un expediente antes de tiempo</td><td><b>No se reabre</b></td><td>Registrar una entrada nueva.</td></tr>
+  <tr><td>Confirmaste un mantenimiento que no se hizo</td><td><b>No directamente</b></td><td>El conteo quedó en cero. Vuelve a subir solo cuando la máquina acumule horas otra vez.</td></tr>
+  <tr><td>Escribiste mal el motivo o la nota</td><td><b>No</b></td><td>No se puede editar ni borrar lo ya registrado. Queda como está.</td></tr>
+  <tr><td>Resolviste una parada que seguía parada</td><td><b>Sí, a mano</b></td><td>El inspector la vuelve a marcar desde su teléfono, o repórtala como avería.</td></tr>
+</table>
+
+<div class="ojo">
+  <b>La regla general de este módulo</b>
+  <b>Nada de lo registrado se edita ni se borra.</b> No hay filtro de fecha, empresa ni estado en las listas del taller — el único filtro es el buscador de texto, y en Horómetros los cinco totales de arriba. Por eso conviene escribir bien el motivo la primera vez.
+</div>
+
+<h2>16. Chuleta: los estados de una máquina</h2>
+
+<table class="grande">
+  <tr><th style="width:16%">Se ve</th><th style="width:44%">Qué significa</th><th style="width:40%">Cómo se quita</th></tr>
+  <tr><td>🔴 <b>Averiada</b></td><td>Tiene una avería real pendiente (caucho, aceite, filtro, repuesto u otro).</td><td><b>La cierra una persona.</b> Se arrastra día tras día hasta que alguien la resuelva.</td></tr>
+  <tr><td>🟡 <b>Parada</b></td><td>Marcador de parada. No es una falla y nunca sale en la lista de averías.</td><td><b>La cierra el reloj</b> al terminar su turno: la de día a las 7:00 pm, la de noche a las 7:00 am.</td></tr>
+  <tr><td>⏳ <b>Pendiente</b></td><td>Le toca jornada y todavía nadie la ha iniciado.</td><td>Se quita al iniciarle la jornada.</td></tr>
+  <tr><td>🟢 <b>Operativa</b></td><td>Trabajando normal.</td><td>—</td></tr>
+  <tr><td>⛔ <b>No operativa</b></td><td>Está en el taller, o un administrador la marcó inactiva.</td><td><span class="ui">✓ Registrar retorno operativo</span> (ficha 13).</td></tr>
+</table>
+
+<div class="nota">
+  <b>El orden que hay que respetar siempre</b>
+  <div style="text-align:center;font-size:11.5pt;margin:6px 0"><b>🔴 AVERIADA → 🟢 VOLVER A OPERATIVA → 🟢 INICIAR JORNADA</b></div>
+  Mientras una máquina tenga cualquier avería pendiente, <b>el sistema no deja iniciarle jornada</b>, ni desde el teléfono ni desde el QR. El mensaje es: <i>"Esta máquina está marcada como AVERIADA — primero debe resolverse (marcarla Operativa) antes de iniciar jornada."</i>
+</div>
+
+<div class="aviso">
+  <b>El "maquillaje" de la reactivación</b>
+  Si una máquina averiada <b>inicia una jornada nueva</b>, las listas dejan de pintarla de rojo — pero <b>el ticket sigue abierto</b> en 🔧 Servicio. Es solo un cambio visual. Si ves una máquina trabajando normal y su avería sigue en la lista, no es un error: hay que cerrarla igual.
+</div>
+
+</body>
+</html>
