@@ -1557,6 +1557,9 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             {m.latitude != null ? (
               <>
                 <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>📍 {sectorLabel(sectorOf(m.latitude, m.longitude))}</Text>
+                {edificioLabel((m as any).referencia) !== '—' ? (
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>🏗️ {edificioLabel((m as any).referencia)}</Text>
+                ) : null}
                 <Text style={{ color: colors.muted, fontSize: 12 }}>🛰️ UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
               </>
             ) : edificioLabel((m as any).referencia) !== '—' ? (

@@ -1820,9 +1820,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     const em = estadoMeta(r.estado);
                     const motivo = r.estado === 'averiada' ? (motivoByMachine.aver.get(r.id)?.m || '') : r.estado === 'parada' ? (motivoByMachine.par.get(r.id)?.m || '') : '';
                     const info = r.info;
-                    // Ubicación = SECTOR del GPS (nombre del polígono, igual que Mapa/Catálogo);
-                    // sin GPS cae al edificio/referencia escrito a mano.
-                    const ubic = info?.sectorGps || info?.referencia || info?.location || info?.sector || null;
+                    // Ubicación = SECTOR del GPS (nombre del polígono, igual que Mapa/Catálogo) +
+                    // el EDIFICIO/lugar escrito a mano. Sin GPS queda solo el edificio.
+                    const ubicEdi = info?.referencia || info?.location || info?.sector || null;
+                    const ubic = info?.sectorGps
+                      ? [info.sectorGps, ubicEdi ? `🏗️ ${ubicEdi}` : null].filter(Boolean).join(' · ')
+                      : ubicEdi;
                     return (
                       <View key={r.id} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, padding: spacing.sm, gap: 2 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
@@ -2089,7 +2092,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   const open = listExpanded === r.id;
                   const lph = r.fuel ? lphOf(r.fuel.liters, r.worked) : null;
                   const litros = r.fuel && r.fuel.liters > 0 ? `${litersLabel(r.fuel.liters)} L` : '—';
-                  const ubic = info?.referencia || info?.location || info?.sector || null;
+                  // Ubicación = SECTOR del GPS + EDIFICIO/lugar escrito a mano (sin GPS, solo el edificio).
+                  const ubicEdi = info?.referencia || info?.location || info?.sector || null;
+                  const ubic = info?.sectorGps
+                    ? [info.sectorGps, ubicEdi ? `🏗️ ${ubicEdi}` : null].filter(Boolean).join(' · ')
+                    : ubicEdi;
                   const turnoLbl = r.rd ? (r.rd.shift === 'night' ? '🌙 Noche' : '☀️ Día') : '—';
                   const inspLbl = sinInspectorReal(r.inspector) ? '⚠️ Sin inspector (por asignar)' : `👮 ${r.inspector}`;
                   return (

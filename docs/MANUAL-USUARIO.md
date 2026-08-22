@@ -92,10 +92,11 @@ serial y estado.
 > **en vivo** desde el GPS igual que el Mapa. Así **nunca** se contradice con el mapa ni queda
 > pegado un edificio viejo escrito a mano. Si el punto no cae dentro de ningún polígono, toma el
 > sector **más cercano** (siempre hay uno; no hay que crear nada — un polígono nuevo solo lo dibuja
-> un admin en el Mapa con **"🗺️ Mover sectores"**). Solo cuando la máquina **no** tiene GPS se
-> muestra el **edificio/residencia** escrito a mano (respaldo). *(Antes el Catálogo mostraba el
-> edificio escrito a mano como ubicación principal y podía quedar desactualizado — decía un lugar
-> mientras el mapa mostraba otro.)*
+> un admin en el Mapa con **"🗺️ Mover sectores"**). **Debajo** del sector se muestra **también** el
+> **🏗️ edificio/lugar** escrito a mano (la referencia), para tener las dos cosas: el sector real
+> (GPS) y el edificio. Sin GPS se muestra solo el edificio. *(Antes el Catálogo mostraba SOLO el
+> edificio escrito a mano y podía quedar desactualizado — decía un lugar mientras el mapa mostraba
+> otro; ahora el sector sale del GPS y no se desactualiza.)*
 
 > **🆔 El nombre NO identifica a una máquina — la placa o el serial sí (18/08/2026):** el
 > nombre **se repite a propósito**. Hoy hay **tres** máquinas llamadas exactamente
