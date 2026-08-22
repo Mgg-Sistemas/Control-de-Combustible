@@ -29,6 +29,8 @@ import { levelMeets } from '../lib/permissions';
 import { Cuenta, CuentaAbono, CuentaTipo, Supplier, Company, PurchaseOrder } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { pickAndUploadDocFile } from '../lib/photo';
+import { exportPdf } from '../lib/pdf';
+import { reciboCuentaHtml } from '../lib/reciboCuenta';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { matchNorm, norm, cmpText } from '../lib/text';
@@ -329,6 +331,39 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
     toast.success('La cuenta volvió a pendiente.');
   };
 
+  // Genera el RECIBO (PDF) de la cuenta: por_cobrar → "Recibo de cobro", por_pagar →
+  // "Recibo de pago". Es solo lectura (no cambia la cuenta), por eso está disponible
+  // aunque el usuario no tenga permiso de escritura.
+  const generarRecibo = async (c: CuentaCalc) => {
+    try {
+      const abs = abonos
+        .filter((a) => a.cuenta_id === c.id)
+        .map((a) => ({ fecha: fmtFecha(a.fecha), monto: Number(a.monto) || 0, metodo: a.metodo, referencia: a.referencia }));
+      await exportPdf(
+        reciboCuentaHtml({
+          tipo,
+          numero: c.documento || ('CTA-' + String(c.id).slice(0, 8).toUpperCase()),
+          fecha: fmtFecha(hoy),
+          contraparte: c.contraparte,
+          concepto: c.concepto,
+          documento: c.documento,
+          moneda: (c.moneda as string) || 'USD',
+          monto: Number(c.monto) || 0,
+          abonado: c.abonado,
+          saldo: c.saldo,
+          situacionLabel: SIT_INFO[c.situacion].label,
+          fechaEmision: c.fecha_emision ? fmtFecha(c.fecha_emision) : null,
+          fechaVencimiento: c.fecha_vencimiento ? fmtFecha(c.fecha_vencimiento) : null,
+          nota: c.nota,
+          abonos: abs,
+        }),
+        `${tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'} ${c.contraparte} ${fmtFecha(hoy)}`,
+      );
+    } catch (e: any) {
+      toast.error('No se pudo generar el recibo: ' + (e?.message ?? e));
+    }
+  };
+
   const abrirAbono = (c: CuentaCalc) => { setAbonoDe(c); setAbMonto(String(c.saldo || '')); setAbFecha(hoy); setAbMetodo(''); setAbRef(''); };
 
   const guardarAbono = async () => {
@@ -503,6 +538,13 @@ export function CuentasTab({ tipo, canWrite }: { tipo: CuentaTipo; canWrite: boo
                     ))}
                   </View>
                 ) : null}
+
+                {/* Recibo (PDF) — disponible siempre (solo lectura), con o sin permiso de escritura. */}
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                  <TouchableOpacity onPress={() => generarRecibo(c)} style={{ flexGrow: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 {tipo === 'por_cobrar' ? 'Recibo de cobro' : 'Recibo de pago'}</Text>
+                  </TouchableOpacity>
+                </View>
 
                 {canWrite ? (
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
