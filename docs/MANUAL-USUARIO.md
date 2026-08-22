@@ -3350,6 +3350,47 @@ empresa sale del **camión** (la que tiene en el catálogo de maquinaria), así 
 cargarla en cada viaje. Los camiones sin empresa asignada se agrupan en **"Sin empresa"**.
 **✕ Limpiar filtros** borra empresa, camión y listero de un toque.
 
+### 🔎 Los filtros de la lista completa, revisados (22-ago-2026)
+
+> **El número del chip ya no miente.** La cantidad entre paréntesis de cada empresa, listero y
+> camión se cuenta ahora sobre los viajes que **ya pasan los otros filtros marcados**. Antes se
+> contaba sobre el rango entero: con un listero marcado, los chips de empresa seguían mostrando el
+> total de **todos** los listeros y no cuadraban ni con la lista de abajo ni con el PDF.
+>
+> El chip de un eje **no se filtra a sí mismo** — si lo hiciera, al marcar un listero todos los
+> demás caerían a (0) y no habría cómo comparar ni cómo agregar un segundo.
+
+> **Un filtro marcado ya no se esconde.** Si cambias de día y el listero que tenías marcado no
+> trabajó ese día, su chip **sigue ahí, en (0)**. Antes desaparecía de la fila: la lista salía
+> vacía y no había manera de saber qué la estaba tapando ni dónde desmarcarla.
+
+**La lista vacía ahora dice por qué.** Ya no todo es *"Sin viajes en el rango seleccionado"*.
+Distingue cinco causas, y cada una nombra lo que hay que hacer:
+
+| Lo que ves | Qué pasó |
+|---|---|
+| *Sin viajes en el rango seleccionado* | de verdad no hubo viajes |
+| *hay filtros marcados que no aparecen en este rango (…)* | quedó un filtro puesto de otro día |
+| *Sin viajes con esa combinación de filtros* | cada filtro por separado sí tiene viajes, juntos no |
+| *No hay ningún día marcado* | estás en **Días específicos** sin elegir ninguno |
+| *El rango está al revés* | el **DESDE** quedó después del **HASTA** |
+
+> **📅 Días específicos sin ningún día marcado.** Antes caía al rango de **hoy** por su cuenta y
+> mostraba la jornada de hoy **sin decirlo**, lo cual se leía como si esos fueran los viajes de los
+> días elegidos. Ahora no muestra nada y lo dice. Arriba de los filtros hay **siempre** una línea
+> **📅** con el rango que está en efecto y cuántos viajes trae.
+
+> **⚠️ El rango al revés.** En **Rango libre**, si el **DESDE** queda después del **HASTA** (en la
+> web el campo de fecha deja escribir cualquier valor, y además se puede borrar el HASTA), antes
+> salían **cero viajes sin decir por qué** — y ese cero se podía exportar en PDF como si fuera un
+> día flojo. Ahora no se consulta nada, se explica en rojo y **el botón de exportar se niega**.
+
+> **📄 El encabezado del PDF en "Días específicos".** Ya **no** dice *"del 5 al 22"*: los días
+> marcados no tienen por qué ser seguidos, y ese texto hacía leer **18 jornadas donde había 2**.
+> Ahora dice cuántas **jornadas sueltas** son y cuáles. Si son más de ocho, dice la cantidad y
+> entre qué extremos están.
+
+
 **Dos formas de ver y de imprimir.** En **VISTA Y REPORTE** eliges:
 
 - **📋 Detallado (viaje por viaje)** — como siempre: una línea por cada viaje. El PDF ahora trae
