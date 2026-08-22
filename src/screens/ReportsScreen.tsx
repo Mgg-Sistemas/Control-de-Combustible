@@ -1719,7 +1719,7 @@ export default function ReportsScreen({ route }: any) {
     // supervisora; cualquier otra (o sin empresa) cae en Golden Touch.
     const grupoEmpresaDe = (m: any) => (/liccion/i.test(companyOf(m)) ? 'LICCIONE' : 'GOLDEN TOUCH');
     const groups = new Map<string, any[]>();
-    maqList.forEach((m) => { const e = grupoEmpresaDe(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); });
+    list.forEach((m) => { const e = grupoEmpresaDe(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); }); // TODA la maquinaria (= Catálogo)
     const enteNames = ['LICCIONE', 'GOLDEN TOUCH'].filter((g) => groups.has(g)); // Liccione primero; Golden Touch (el resto) después
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
     const sortMaq = (a: any, b: any) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? '');
@@ -1730,7 +1730,7 @@ export default function ReportsScreen({ route }: any) {
     if (conPersonal && operadores.length) {
       // Los operadores de la nómina son de SOS La Guaira: se asignan a SUS máquinas
       // (2 por máquina, día y noche), sin importar en qué grupo de empresa aparezcan.
-      maqList.filter((m) => enteOf(m) === 'SOS La Guaira').slice().sort(sortMaq).forEach((m, i) => {
+      list.filter((m) => enteOf(m) === 'SOS La Guaira').slice().sort(sortMaq).forEach((m, i) => {
         opAssign.set(m, { dia: operadores[(2 * i) % operadores.length], noche: operadores[(2 * i + 1) % operadores.length] });
       });
     }
@@ -1937,7 +1937,9 @@ export default function ReportsScreen({ route }: any) {
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       ${resumenTipoZonaHtml}
-      ${despliegueSectorHtml}
+      ${resumenCoHtml}
+      <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
+      ${maquinariaHtml}
       ${resumenClasifHtml}
       ${resumenZonaHtml}
       ${resumenUbicacionHtml}
