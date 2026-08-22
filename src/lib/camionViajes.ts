@@ -275,7 +275,13 @@ export async function resolveChoferActual(machineryId: string, shift: 'day' | 'n
     .eq('shift', shift)
     .eq('active', true)
     .maybeSingle();
-  if (error || !data) return null;
+  // Se devuelve `null` en los dos casos —falla la consulta o no hay nadie
+  // asignado— porque el viaje NO se puede bloquear por esto. Pero el fallo se
+  // deja anotado: sin el aviso, un viaje guardado sin chofer por un problema de
+  // red se ve idéntico a uno de un camión que de verdad no tiene chofer
+  // asignado, y ese dato ya no se recupera (queda congelado en la fila).
+  if (error) { console.warn('[camionViajes] no se pudo leer el chofer del turno:', error.message); return null; }
+  if (!data) return null;
   const employeeId = (data as any).employee_id as string | null;
   const operatorName = (data as any).operator_name as string | null;
   if (employeeId) {

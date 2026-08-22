@@ -53,7 +53,7 @@ import {
   setAlertaHoras,
   resolveChoferActual,
 } from '../lib/camionViajes';
-import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes, nuevoClientActionId } from '../lib/viajesOfflineQueue';
+import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes, nuevoClientActionId, falloDeGuardadoLocal } from '../lib/viajesOfflineQueue';
 import { accionTrasFalloConSenal, motivoLegible } from '../lib/colaOfflinePolicy';
 
 // ── Fecha/hora en Caracas (mismas utilidades locales que otras pantallas de
@@ -432,9 +432,14 @@ export default function ViajesCamionesScreen() {
   // que un viaje roto no siga contando como "se sube solo" cuando no es cierto.
   const [stuckItems, setStuckItems] = useState<QuarantinedViaje[]>([]);
   const [retrying, setRetrying] = useState(false);
+  const [falloGuardado, setFalloGuardado] = useState<string | null>(null);
   useEffect(() => {
     if (!canWrite) return;
-    const unsub = subscribeViajesQueue((items) => setQueuedItems(items));
+    // El aviso de "no se pudo guardar en el teléfono" tiene que quedarse EN
+    // PANTALLA: un toast se va a los 3 segundos y el listero no puede saber que
+    // no debe cerrar la app. Se revisa en cada cambio de la cola, que es cuando
+    // puede haber fallado una escritura.
+    const unsub = subscribeViajesQueue((items) => { setQueuedItems(items); setFalloGuardado(falloDeGuardadoLocal()); });
     const unsubQ = subscribeViajesQuarantine((items) => setStuckItems(items));
     const tryFlush = () => {
       flushViajesQueue()
@@ -1186,6 +1191,15 @@ export default function ViajesCamionesScreen() {
       <SectionTitle>🚛 Viajes de camiones</SectionTitle>
 
       {/* ── Vista LISTERO ─────────────────────────────────────────────── */}
+      {falloGuardado ? (
+        <View style={{ backgroundColor: '#FEF3F2', borderRadius: radius.md, borderWidth: 1, borderColor: '#F97066', padding: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ color: '#B42318', fontSize: 12.5, fontWeight: '800' }}>
+            ⚠️ El teléfono no está pudiendo guardar los viajes en su memoria. Se ven en pantalla y se están subiendo, pero NO CIERRES LA APLICACIÓN hasta que no quede ninguno pendiente.
+          </Text>
+          <Text style={{ color: '#B42318', fontSize: 11, marginTop: 4 }}>{falloGuardado}</Text>
+        </View>
+      ) : null}
+
       {pendientesVisibles > 0 ? (
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontSize: 16 }}>📶</Text>
