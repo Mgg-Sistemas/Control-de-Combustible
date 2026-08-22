@@ -64,7 +64,7 @@ const VEHICLE_ENCARGADO_FIELD: Field = { key: 'encargado', label: 'Encargado —
 // NOMBRE del vehículo (como el "Código / Nombre" de la maquinaria). Va aparte porque la
 // columna `vehicles.name` es nueva (`supabase/vehiculos_nombre.sql`): solo se muestra si
 // la BD ya la tiene (probe `vehNombre`). Opcional (la placa sigue siendo el identificador).
-const VEHICLE_NOMBRE_FIELD: Field = { key: 'name', label: 'Nombre del vehículo (opcional)', type: 'text' };
+const VEHICLE_NOMBRE_FIELD: Field = { key: 'name', label: 'Nombre del vehículo — obligatorio al crear', type: 'text' };
 
 const VEHICLE_FIELDS: Field[] = [
   { key: 'plate', label: 'Placa', type: 'text', required: true },
@@ -511,7 +511,9 @@ export default function EquiposScreen({ navigation, route }: any) {
     return entries;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machinery.data, companyFilter, catDim]);
-  const vehicleList = vehicles.data.filter((v) => matchQ([v.name, v.plate, v.brand, v.model, v.vehicle_type, v.identifier, v.serial, v.encargado]));
+  // Los vehículos se muestran DENTRO del catálogo, agrupados por empresa igual que las
+  // máquinas (no en una caja aparte). Respetan el filtro de empresa y la búsqueda.
+  const vehicleList = vehicles.data.filter((v) => matchCompany(v as any) && matchQ([v.name, v.plate, v.brand, v.model, v.vehicle_type, v.identifier, v.serial, v.encargado]));
   const totalResults = machineryList.length + vehicleList.length;
   const loading = machinery.loading || vehicles.loading;
   const refetchAll = () => { machinery.refetch(); vehicles.refetch(); };
@@ -1115,6 +1117,34 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     return Array.from(m.values()).sort((a, b) => a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name));
   };
   const machineryByCompany = useMemo(() => groupByCompany(machineryList), [machineryList, companyName]);
+
+  // Catálogo integrado: cada acordeón de empresa lista sus máquinas Y sus vehículos
+  // (ya no hay una caja "🚗 Vehículos" aparte). Los vehículos solo se mezclan cuando NO
+  // hay filtro de clasificación/tapa activo (esos filtros son propios de la maquinaria);
+  // con esos filtros puestos, el catálogo muestra solo máquinas.
+  const showVehiculosEnGrupos = typeFilter === '__all__' && tapaFilter === '__all__';
+  const catalogGroups = useMemo(() => {
+    const vehByKey = new Map<string, Vehicle[]>();
+    if (showVehiculosEnGrupos) {
+      vehicleList.forEach((v) => {
+        const k = v.company_id ?? '__none__';
+        const arr = vehByKey.get(k) ?? [];
+        arr.push(v);
+        vehByKey.set(k, arr);
+      });
+    }
+    const groups: { key: string; name: string; items: Machinery[]; vehicles: Vehicle[] }[] =
+      machineryByCompany.map((g) => ({ ...g, vehicles: vehByKey.get(g.key) ?? [] }));
+    const seen = new Set(groups.map((g) => g.key));
+    // Empresas que SOLO tienen vehículos (sin máquinas) también salen como acordeón.
+    vehByKey.forEach((vs, k) => {
+      if (!seen.has(k)) {
+        const name = k === '__none__' ? 'Sin empresa' : (companyName(k) || 'Empresa');
+        groups.push({ key: k, name, items: [], vehicles: vs });
+      }
+    });
+    return groups.sort((a, b) => (a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name)));
+  }, [machineryByCompany, vehicleList, showVehiculosEnGrupos, companyName]);
 
   // Datos del reporte: total GENERAL, conteo POR EMPRESA y DETALLE por empresa (cada
   // equipo con sus datos reales). Aplica el filtro de CLASIFICACIÓN tildada (vacío = todas)
@@ -1967,11 +1997,13 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <EmptyState title={q ? 'Sin resultados' : 'Sin equipos'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
       ) : (
         <>
-          {/* Maquinaria dividida por EMPRESA (acordeón). */}
-          {machineryByCompany.map((g) => {
+          {/* Catálogo por EMPRESA (acordeón): cada empresa lista sus MÁQUINAS y sus VEHÍCULOS
+              juntos (ya no hay caja de vehículos aparte). */}
+          {catalogGroups.map((g) => {
             // Al buscar, las empresas quedan COMPACTADAS por defecto (el usuario despliega la que
             // le interese). Solo se auto-abren si se filtró una empresa o una clasificación.
             const open = expanded[g.key] ?? (companyFilter !== '__all__' || typeFilter !== '__all__');
+            const total = g.items.length + g.vehicles.length;
             return (
               <View key={g.key} style={{ marginBottom: spacing.xs }}>
                 <TouchableOpacity
@@ -1984,42 +2016,18 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                     <Text style={{ color: open ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
                   </View>
                   <View style={{ backgroundColor: open ? colors.brandContrast : colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                    <Text style={{ color: open ? colors.brand : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                    <Text style={{ color: open ? colors.brand : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{total}</Text>
                   </View>
                 </TouchableOpacity>
-                {open ? <View style={{ marginTop: spacing.sm }}>{g.items.map(renderMachineCard)}</View> : null}
+                {open ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    {g.items.map(renderMachineCard)}
+                    {g.vehicles.map((v) => renderVehicleCard(v))}
+                  </View>
+                ) : null}
               </View>
             );
           })}
-
-          {/* Vehículos (acordeón aparte, dentro del mismo catálogo). */}
-          {vehicleList.length > 0 ? (
-            (() => {
-              const open = expanded['__vehicles__'] ?? false;
-              return (
-                <View style={{ marginBottom: spacing.xs }}>
-                  <TouchableOpacity
-                    onPress={() => setExpanded((p) => ({ ...p, __vehicles__: !open }))}
-                    activeOpacity={0.7}
-                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-                      <Text style={{ color: open ? colors.brandContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                      <Text style={{ color: open ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🚗 Vehículos</Text>
-                    </View>
-                    <View style={{ backgroundColor: open ? colors.brandContrast : colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                      <Text style={{ color: open ? colors.brand : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{vehicleList.length}</Text>
-                    </View>
-                  </TouchableOpacity>
-                  {open ? (
-                    <View style={{ marginTop: spacing.sm }}>
-                      {vehicleList.map((v) => renderVehicleCard(v))}
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })()
-          ) : null}
         </>
       )}
 
@@ -2858,6 +2866,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
           // ENCARGADO obligatorio AL CREAR un vehículo (igual que en maquinaria).
           // Solo se exige si la columna existe en la BD (ver `vehEncargado`): mientras
           // no se corra `supabase/vehiculos_encargado.sql`, el campo ni se muestra.
+          if (!editing && vehNombre && !String(v.name ?? '').trim()) return 'Coloca el NOMBRE del vehículo (obligatorio).';
           if (!editing && vehEncargado && !String(v.encargado ?? '').trim()) return 'Coloca el ENCARGADO del vehículo (obligatorio).';
           return null;
         } : (v) => {
