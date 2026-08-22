@@ -459,14 +459,15 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   total cuadre siempre con la cantidad de equipos.
 
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"Reporte Diario de
-  Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira"** en PDF. Trae las máquinas
-  **reales agrupadas por quién las tiene a cargo** (**CVM / Gobernación / FANB / SOS La Guaira**,
-  según el campo *"a disposición de"* del equipo), cada una con su **empresa**, **ubicación real**
-  (referencia + sector Este/Oeste y subzona por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado**
-  (Operativo / Inoperativo / En espera). **Arriba** trae la cantidad de maquinaria por empresa y los
-  **equipos por zona** (cuántos en el **ESTE** y cuántos en el **OESTE**, solo totales). Incluye una
-  sección con las **camionetas pick-up** del módulo de **Vehículos** a disposición de SOS La Guaira,
-  y deja **campos en blanco para llenar a mano**.
+  Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira"** en PDF. Cuenta el **mismo
+  universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
+  por EMPRESA en dos grupos**: **LICCIONE** (sus máquinas) y **GOLDEN TOUCH** (las de Golden + TODAS
+  las demás empresas), cada una con su **ubicación real** (referencia + sector Este/Oeste y subzona
+  por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado** (Operativo / Inoperativo / En espera). Las
+  máquinas **sin ubicación cargada** salen como **"Desplegadas por todo el territorio de La Guaira"**.
+  **Arriba** trae la cantidad de maquinaria por empresa y los **equipos por zona** (cuántos en el
+  **ESTE** y cuántos en el **OESTE**, solo totales). Incluye una sección con las **camionetas pick-up**
+  del módulo de **Vehículos** a disposición de SOS La Guaira, y deja **campos en blanco para llenar a mano**.
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
   **SOS La Guaira** (no en los de CVM / Gobernación / FANB): a cada máquina le asigna **2 operadores**
