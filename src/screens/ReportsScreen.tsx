@@ -1764,35 +1764,33 @@ export default function ReportsScreen({ route }: any) {
           .join('')}</tbody></table>`
       : `<p class="muted">No hay camionetas pick-up registradas.</p>`;
     const linea = (n = 1) => Array.from({ length: n }).map(() => '<div class="fill"></div>').join('');
-    // Resumen ARRIBA: cantidad de maquinaria por empresa (incluye pick-ups). Mismos DOS
-    // grupos que la lista: LICCIONE y GOLDEN TOUCH (el resto), en ese orden.
-    const countByCo = new Map<string, number>();
-    list.forEach((m) => { const c = grupoEmpresaDe(m); countByCo.set(c, (countByCo.get(c) ?? 0) + 1); });
-    const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
-      <table class="tac"><thead><tr><th>Empresa</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
-      <tbody>${['LICCIONE', 'GOLDEN TOUCH'].filter((g) => countByCo.has(g)).map((co) => `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${countByCo.get(co)}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
-    // Resumen ARRIBA: cuántos equipos hay en el ESTE y cuántos en el OESTE (solo totales).
-    // REAL: por GPS (puede haber "sin ubicación"). FICTICIO: según el sector al azar.
-    // Macro ESTE/OESTE de una máquina: primero por GPS (sectorOf); si NO tiene GPS,
-    // se respalda con la UBICACIÓN DE DESPLIEGUE (campo texto sector) — así el conteo
-    // por zona cuadra con el total aunque falten coordenadas. Todas las bases de
-    // despliegue son del ESTE salvo la propia "Oeste".
-    const zonaMacroDe = (m: any): 'ESTE' | 'OESTE' | null => {
-      // FICTICIO: usa el sector aleatorio (reparto simulado).
-      if (ficticio) return sectorMacro(randSectorById.get(m.id) ?? null);
-      // REAL: la fuente de verdad es la UBICACIÓN DE DESPLIEGUE (campo texto que cura el
-      // admin). Todas las bases (Este/CDT/CDF/Santa Eduviges/Escuela Naval) son del lado
-      // ESTE; solo "Oeste" es del oeste. Si la máquina no tiene ubicación asignada, se
-      // respalda con el GPS (sectorOf).
+    // Macro ESTE/OESTE de una máquina: ubicación de despliegue (campo `sector`: "oeste"→
+    // Oeste, cualquier otra base→Este); si no hay, el GPS; y si tampoco, por defecto ESTE
+    // (todas las bases son del ESTE salvo "Oeste"). Así NINGUNA queda "sin ubicación".
+    // FICTICIO: usa el sector aleatorio (reparto simulado).
+    const zonaMacroDe = (m: any): 'ESTE' | 'OESTE' => {
+      if (ficticio) return sectorMacro(randSectorById.get(m.id) ?? null) ?? 'ESTE';
       const s = (m.sector && String(m.sector).trim().toLowerCase()) || '';
       if (s === 'oeste') return 'OESTE';
       if (s) return 'ESTE';
-      // Sin ubicación de despliegue: se usa el GPS y, si tampoco hay, por defecto ESTE
-      // (todas las bases son del ESTE salvo "Oeste"). Así NINGUNA queda "sin ubicación"
-      // en los totales por zona: todas cuentan en Este u Oeste.
       return sectorMacro(sectorOf(m.latitude, m.longitude)) ?? 'ESTE';
     };
+    // Resumen ARRIBA: cantidad de maquinaria por empresa (incluye pick-ups), con el total
+    // en ESTE y en OESTE. Mismos DOS grupos que la lista: LICCIONE y GOLDEN TOUCH.
+    const countByCo = new Map<string, { total: number; este: number; oeste: number }>();
+    list.forEach((m) => {
+      const c = grupoEmpresaDe(m);
+      const e = countByCo.get(c) ?? { total: 0, este: 0, oeste: 0 };
+      e.total += 1;
+      if (zonaMacroDe(m) === 'OESTE') e.oeste += 1; else e.este += 1;
+      countByCo.set(c, e);
+    });
+    const coTot = { este: 0, oeste: 0 };
+    countByCo.forEach((v) => { coTot.este += v.este; coTot.oeste += v.oeste; });
+    const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
+      <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th><th style="width:90px;text-align:right">🟢 Este</th><th style="width:90px;text-align:right">🟠 Oeste</th></tr></thead>
+      <tbody>${['LICCIONE', 'GOLDEN TOUCH'].filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${coTot.este}</td><td style="text-align:right;font-weight:800">${coTot.oeste}</td></tr></tfoot></table>`;
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
       const mac = zonaMacroDe(m);
