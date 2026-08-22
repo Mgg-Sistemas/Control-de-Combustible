@@ -3382,11 +3382,24 @@ Cuando eliges **📊 Resumido**, aparece debajo una segunda fila, **AGRUPAR POR*
 > aunque se llame igual — y está bien que así sea: el sistema no puede adivinar que dos cuentas
 > son la misma persona. Si ves a alguien duplicado, es eso.
 
-> **El corte es por día de calendario, no por jornada.** El reporte va de medianoche a medianoche,
-> y ahora **lo dice en el encabezado del PDF**. Una jornada de **noche** va de 7pm a 7am, así que
-> sus viajes salen repartidos **en dos días**: los de antes de las 12 en un día y los de la
-> madrugada en el siguiente. Un listero de noche que registró 7 viajes puede ver "4" si se mira
-> un solo día. **No falta nada: hay que sumar los dos días.**
+> **El corte es por JORNADA, no por día de calendario (22-ago-2026).** En este módulo el «día»
+> va de las **7 de la mañana a las 7 de la mañana** del día siguiente: turno de día (7am–7pm)
+> más turno de noche (7pm–7am). Los dos juntos son **un** día de trabajo, que es como se cuenta
+> y se paga.
+>
+> Antes cortaba a medianoche y eso **partía la noche en dos fechas**: un listero que trabajó una
+> sola noche veía 4 viajes en un día y 3 en el siguiente, y creía que le faltaban. **Ese era el
+> reclamo de «registré 7 y el sistema muestra 4».** Ahora marcas un día y salen los 7.
+>
+> Vale para todo el módulo: «Mis viajes de hoy», el «Resumen de hoy» de la jefa, los filtros de
+> día y el PDF, que además **lo dice en su encabezado** para que nadie compare estas cifras
+> contra un conteo hecho por calendario.
+>
+> ⚠️ De madrugada, «hoy» sigue siendo la jornada que arrancó **ayer** a las 7am. Es lo correcto:
+> a las 3 de la mañana el listero está en medio de su turno, no en uno nuevo.
+>
+> ⚠️ Corregir la hora de un viaje puede **moverlo de jornada** si cruza las 7am. El sistema
+> avisa antes de guardar y te deja decidir.
 
 **El nombre del listero.** Es el que tenía cuando registró el viaje, no el de hoy. Si a alguien le
 corrigen el nombre en su ficha, los viajes viejos conservan el anterior; el reporte los junta
