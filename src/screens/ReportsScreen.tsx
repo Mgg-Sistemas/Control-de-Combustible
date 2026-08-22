@@ -1624,7 +1624,7 @@ export default function ReportsScreen({ route }: any) {
       // A cargo de (zona): se EXCLUYEN CVM / Gobernación / FANB.
       const esInstitucion = (m: any) => /cvm|gobernaci|fanb/i.test(String(m.zona ?? ''));
       const list = ((mach ?? []) as any[]).filter((m) => m.active !== false && !esInstitucion(m));
-      const sectorOfM = (m: any) => { const s = sectorOf(m.latitude, m.longitude); return s ? sectorLabel(s) : 'Sin ubicación'; };
+      const sectorOfM = (m: any) => { const s = sectorOf(m.latitude, m.longitude); return s ? sectorLabel(s) : 'Desplegadas en todo el territorio de La Guaira'; };
       const edificioOf = (m: any) => { const r = (m.referencia && String(m.referencia).trim()) || ''; return r && !/^[\d.,\s\/-]+$/.test(r) ? r : '—'; };
       const FALTA = 'FALTA INSPECTOR';
       const groups = new Map<string, any[]>();
@@ -1707,7 +1707,7 @@ export default function ReportsScreen({ route }: any) {
       if (macro) parts.push(macro);
       if (sub) parts.push(sub);
       if (ref) parts.push(ref);
-      return parts.length ? parts.join(' · ') : 'Desplegadas por el territorio la Guaira';
+      return parts.length ? parts.join(' · ') : 'Desplegadas en todo el territorio de La Guaira';
     };
     // Las camionetas PICK-UP no van en la lista de maquinaria: van en su propia sección
     // (a disposición de los encargados de SOS La Guaira).
@@ -1793,7 +1793,7 @@ export default function ReportsScreen({ route }: any) {
       <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody><tr><td>ESTE</td><td style="text-align:right;font-weight:700">${este}</td></tr>
       <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr>${sinUbic > 0 ? `
-      <tr><td>Desplegadas por el territorio la Guaira</td><td style="text-align:right;font-weight:700">${sinUbic}</td></tr>` : ''}</tbody>
+      <tr><td>Desplegadas en todo el territorio de La Guaira</td><td style="text-align:right;font-weight:700">${sinUbic}</td></tr>` : ''}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen: equipos por UBICACIÓN DE DESPLIEGUE (base donde están/pernoctan): Este,
     // Oeste, CDT, CDF, Santa Eduviges, Escuela Naval. Es un campo de TEXTO (machinery.sector),
@@ -1810,7 +1810,7 @@ export default function ReportsScreen({ route }: any) {
       'CDF': 'CDF · Centro de Distribución Final',
     };
     const ubiRows = UBIS.map((u) => `<tr><td>${esc(UBI_LABEL[u] || u)}</td><td style="text-align:right;font-weight:700">${ubiCount.get(u) || 0}</td></tr>`).join('')
-      + (ubiSin > 0 ? `<tr><td>Desplegadas por el territorio la Guaira</td><td style="text-align:right;font-weight:700">${ubiSin}</td></tr>` : '');
+      + (ubiSin > 0 ? `<tr><td>Desplegadas en todo el territorio de La Guaira</td><td style="text-align:right;font-weight:700">${ubiSin}</td></tr>` : '');
     const resumenUbicacionHtml = `<div class="sect">📍 Equipos por ubicación de despliegue</div>
       <table class="tac"><thead><tr><th>Ubicación</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody>${ubiRows}</tbody>
