@@ -1671,19 +1671,12 @@ export default function ReportsScreen({ route }: any) {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, tipo, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
-    // Torontos y volquetas INACTIVOS (inoperativos, en espera o dados de baja) NO se
-    // toman en cuenta en NINGÚN conteo del reporte (real ni ficticio).
-    const esTorontoOVolqueta = (m: any) => /toronto|volqueta/i.test(`${m.code ?? ''} ${m.clasificacion ?? ''}`);
-    const inactivaM = (m: any) => m.operational === false || m.en_espera === true || m.active === false;
-    const all = ((mach ?? []) as any[]).filter((m) => !(esTorontoOVolqueta(m) && inactivaM(m)));
-    // SIMULADO (ficticio): MISMO universo que el Catálogo → TODAS menos las RETIRADAS
-    // (operational=false). Incluye las "en espera" y las que no están activas, porque el
-    // simulado las presenta a todas como OPERATIVAS (es para presentaciones) y su conteo
-    // tiene que cuadrar con la cantidad que muestra el Catálogo.
-    // REAL: solo equipos activos y operativos (no cuenta inactivas ni en espera).
-    const list = ficticio
-      ? ((mach ?? []) as any[]).filter((m) => m.operational !== false)
-      : all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
+    // Los DOS reportes (REAL y SIMULADO) cuentan el MISMO universo que el Catálogo:
+    // TODAS las máquinas menos las RETIRADAS (operational=false). Así el TOTAL del
+    // reporte siempre cuadra con la cantidad que se ve en el Catálogo. La diferencia
+    // REAL vs SIMULADO es solo el ESTADO (real vs todo operativo) y el reparto de zona
+    // (GPS real vs Este/Oeste al azar).
+    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1699,7 +1692,7 @@ export default function ReportsScreen({ route }: any) {
     const inspectores = byCargo(/inspector/i);
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
     // REAL: estado según catálogo. FICTICIO: TODAS como OPERATIVAS (ACTIVAS).
-    const estadoOf = (m: any) => (ficticio ? 'Operativo' : m.en_espera === true ? 'En espera / Mantenimiento' : m.operational === false ? 'Inoperativo' : 'Operativo');
+    const estadoOf = (m: any) => (ficticio ? 'Operativo' : m.en_espera === true ? 'En espera / Mantenimiento' : (m.operational === false || m.active === false) ? 'Inoperativo' : 'Operativo');
     // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
     const enteOf = (m: any) => { const z = (m.zona && String(m.zona).trim()) || ''; return !z || /^propias?$/i.test(z) ? 'SOS La Guaira' : z; };
     const ubicOf = (m: any) => {
@@ -1714,7 +1707,7 @@ export default function ReportsScreen({ route }: any) {
       if (macro) parts.push(macro);
       if (sub) parts.push(sub);
       if (ref) parts.push(ref);
-      return parts.length ? parts.join(' · ') : 'Sin ubicación';
+      return parts.length ? parts.join(' · ') : 'Desplegadas por el territorio la Guaira';
     };
     // Las camionetas PICK-UP no van en la lista de maquinaria: van en su propia sección
     // (a disposición de los encargados de SOS La Guaira).
@@ -1799,7 +1792,8 @@ export default function ReportsScreen({ route }: any) {
     const resumenZonaHtml = `<div class="sect">🧭 Equipos por zona</div>
       <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody><tr><td>ESTE</td><td style="text-align:right;font-weight:700">${este}</td></tr>
-      <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr></tbody>
+      <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr>${sinUbic > 0 ? `
+      <tr><td>Desplegadas por el territorio la Guaira</td><td style="text-align:right;font-weight:700">${sinUbic}</td></tr>` : ''}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen: equipos por UBICACIÓN DE DESPLIEGUE (base donde están/pernoctan): Este,
     // Oeste, CDT, CDF, Santa Eduviges, Escuela Naval. Es un campo de TEXTO (machinery.sector),
@@ -1816,7 +1810,7 @@ export default function ReportsScreen({ route }: any) {
       'CDF': 'CDF · Centro de Distribución Final',
     };
     const ubiRows = UBIS.map((u) => `<tr><td>${esc(UBI_LABEL[u] || u)}</td><td style="text-align:right;font-weight:700">${ubiCount.get(u) || 0}</td></tr>`).join('')
-      + (ubiSin > 0 ? `<tr><td>Sin ubicación</td><td style="text-align:right;font-weight:700">${ubiSin}</td></tr>` : '');
+      + (ubiSin > 0 ? `<tr><td>Desplegadas por el territorio la Guaira</td><td style="text-align:right;font-weight:700">${ubiSin}</td></tr>` : '');
     const resumenUbicacionHtml = `<div class="sect">📍 Equipos por ubicación de despliegue</div>
       <table class="tac"><thead><tr><th>Ubicación</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody>${ubiRows}</tbody>
