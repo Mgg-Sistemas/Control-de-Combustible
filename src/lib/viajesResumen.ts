@@ -71,16 +71,14 @@ export function claveCamion(v: ViajeMin): string {
 export type CamionMin = { companyId: string | null; companyName: string; plate: string | null; serial: string | null };
 
 export type CamionResumen = { code: string; placa: string; viajes: number };
-export type EmpresaResumen = { key: string; name: string; total: number; camiones: CamionResumen[] };
-
 /**
- * Alias honesto: cuando se agrupa por listero, cada `EmpresaResumen` es un
- * LISTERO, no una empresa. El campo NO se renombra a propósito — renombrarlo
- * obligaría a tocar la pantalla, el HTML del PDF y el test para no ganar nada.
- * Es exactamente el mismo truco que hace barato el `groupBy` de los otros dos
- * reportes: la forma del resultado no cambia, solo cambia por dónde se parte.
+ * Un GRUPO del resumen. Se llama `EmpresaResumen` por historia: cuando se
+ * agrupa por listero, cada uno de estos es un LISTERO y no una empresa. El
+ * nombre NO se cambia a propósito — renombrarlo obligaría a tocar la pantalla,
+ * el HTML del PDF y el test sin ganar nada. Es justo lo que hace barato el
+ * `groupBy`: la FORMA del resultado no cambia, solo por dónde se parte.
  */
-export type GrupoResumen = EmpresaResumen;
+export type EmpresaResumen = { key: string; name: string; total: number; camiones: CamionResumen[] };
 
 export type ResumenViajes = {
   empresas: EmpresaResumen[];
