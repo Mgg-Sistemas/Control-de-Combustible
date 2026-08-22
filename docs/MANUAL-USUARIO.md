@@ -86,10 +86,16 @@ Cuando una máquina o un vehículo **carga** combustible:
 Es la lista de **todas las máquinas**. Cada una tiene su ficha: nombre, empresa, foto,
 serial y estado.
 
-> **📍 Edificio / residencia (19-ago-2026):** en cada máquina se muestra el **edificio o
-> residencia** donde está, con su sector (ej. **"📍 EDIFICIO PUNTA PIEDRA - MACUTO"**). Sale del
-> catálogo de ubicaciones; el sector geográfico (🧭 Este/Oeste) se sigue calculando aparte desde
-> el GPS.
+> **📍 Ubicación vinculada al SECTOR del GPS (22-ago-2026):** en el **Catálogo** y en
+> **Inspecciones**, la ubicación de una máquina **con GPS** es el **sector real** donde cae — el
+> nombre del **polígono** que la contiene en el mapa (ej. **"📍 Este · Caraballeda"**), calculado
+> **en vivo** desde el GPS igual que el Mapa. Así **nunca** se contradice con el mapa ni queda
+> pegado un edificio viejo escrito a mano. Si el punto no cae dentro de ningún polígono, toma el
+> sector **más cercano** (siempre hay uno; no hay que crear nada — un polígono nuevo solo lo dibuja
+> un admin en el Mapa con **"🗺️ Mover sectores"**). Solo cuando la máquina **no** tiene GPS se
+> muestra el **edificio/residencia** escrito a mano (respaldo). *(Antes el Catálogo mostraba el
+> edificio escrito a mano como ubicación principal y podía quedar desactualizado — decía un lugar
+> mientras el mapa mostraba otro.)*
 
 > **🆔 El nombre NO identifica a una máquina — la placa o el serial sí (18/08/2026):** el
 > nombre **se repite a propósito**. Hoy hay **tres** máquinas llamadas exactamente
