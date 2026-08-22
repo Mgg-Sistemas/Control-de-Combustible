@@ -61,6 +61,10 @@ const KINDS: { value: Kind; label: string; icon: string }[] = [
 // vehículo sigue funcionando igual que siempre — en vez de reventar con
 // "column encargado does not exist" cada vez que alguien agrega uno.
 const VEHICLE_ENCARGADO_FIELD: Field = { key: 'encargado', label: 'Encargado — obligatorio al crear', type: 'text' };
+// NOMBRE del vehículo (como el "Código / Nombre" de la maquinaria). Va aparte porque la
+// columna `vehicles.name` es nueva (`supabase/vehiculos_nombre.sql`): solo se muestra si
+// la BD ya la tiene (probe `vehNombre`). Opcional (la placa sigue siendo el identificador).
+const VEHICLE_NOMBRE_FIELD: Field = { key: 'name', label: 'Nombre del vehículo (opcional)', type: 'text' };
 
 const VEHICLE_FIELDS: Field[] = [
   { key: 'plate', label: 'Placa', type: 'text', required: true },
@@ -309,6 +313,9 @@ export default function EquiposScreen({ navigation, route }: any) {
   // ya corrió. Si no, el formulario de vehículo sigue como el básico de siempre (para
   // no romper el alta con "column ... does not exist").
   const [vehFicha, setVehFicha] = useState(false);
+  // ¿Existe ya `vehicles.name`? (`supabase/vehiculos_nombre.sql`). Igual que los otros:
+  // solo se muestra el campo NOMBRE del vehículo si la columna ya está en la BD.
+  const [vehNombre, setVehNombre] = useState(false);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -316,6 +323,8 @@ export default function EquiposScreen({ navigation, route }: any) {
       if (alive) setVehEncargado(!error);
       const { error: e2 } = await supabase.from('vehicles').select('clasificacion, company_id, photo_url').limit(1);
       if (alive) setVehFicha(!e2);
+      const { error: e3 } = await supabase.from('vehicles').select('name').limit(1);
+      if (alive) setVehNombre(!e3);
     })().catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -502,7 +511,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     return entries;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machinery.data, companyFilter, catDim]);
-  const vehicleList = vehicles.data.filter((v) => matchQ([v.plate, v.brand, v.model, v.vehicle_type]));
+  const vehicleList = vehicles.data.filter((v) => matchQ([v.name, v.plate, v.brand, v.model, v.vehicle_type, v.identifier, v.serial, v.encargado]));
   const totalResults = machineryList.length + vehicleList.length;
   const loading = machinery.loading || vehicles.loading;
   const refetchAll = () => { machinery.refetch(); vehicles.refetch(); };
@@ -1627,11 +1636,12 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
+              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.name && String(v.name).trim() ? v.name : v.plate}</Text>
               {v.en_espera
                 ? <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text>
                 : <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>● Disponible</Text>}
             </View>
+            {v.name && String(v.name).trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🚗 Placa: {v.plate}</Text> : null}
             {v.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {v.identifier}</Text> : null}
             {v.brand ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca: {v.brand}</Text> : null}
             {v.model ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {v.model}</Text> : null}
@@ -2820,10 +2830,12 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         fields={isVehicle
           ? (() => {
               const base = vehFicha ? VEHICLE_FIELDS_FULL : VEHICLE_FIELDS;
-              // El ENCARGADO (nombre) va JUSTO después de "Esperando instrucciones" — antes
-              // se agregaba al final y quedaba escondido bajo todo el formulario, y el
-              // usuario "no encontraba dónde poner el nombre". base[0]=placa, base[1]=espera.
-              return vehEncargado ? [base[0], base[1], VEHICLE_ENCARGADO_FIELD, ...base.slice(2)] : base;
+              // El ENCARGADO va JUSTO después de "Esperando instrucciones" — antes se
+              // agregaba al final y quedaba escondido. base[0]=placa, base[1]=espera.
+              let f = vehEncargado ? [base[0], base[1], VEHICLE_ENCARGADO_FIELD, ...base.slice(2)] : [...base];
+              // El NOMBRE del vehículo va PRIMERO (como el "Código/Nombre" de la maquinaria).
+              if (vehNombre) f = [VEHICLE_NOMBRE_FIELD, ...f];
+              return f;
             })()
           : [...MACHINERY_FIELDS, ...VIAJES_FIELDS]}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}

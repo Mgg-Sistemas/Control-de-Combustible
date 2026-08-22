@@ -129,6 +129,7 @@ export interface TankLevel {
 export interface Vehicle {
   id: string;
   plate: string;
+  name?: string | null;               // nombre del vehículo (como "Código/Nombre" de maquinaria); columna `supabase/vehiculos_nombre.sql`
   brand: string | null;
   model: string | null;
   vehicle_type: string | null;
