@@ -3347,6 +3347,39 @@ cargarla en cada viaje. Los camiones sin empresa asignada se agrupan en **"Sin e
 > Coordinador de Operadores (antes solo se veía dentro de ese módulo) — mismo tratamiento que ya
 > tenía el Inspector, para que una reasignación se note en toda la app, no solo ahí.
 
+### 👤 El mismo reporte, agrupado POR LISTERO (22-ago-2026)
+
+Cuando eliges **📊 Resumido**, aparece debajo una segunda fila, **AGRUPAR POR**, con dos opciones:
+
+- **🏢 Empresa** — como venía funcionando: cada empresa con sus camiones.
+- **👤 Listero** — cada **listero** con los camiones que **él** registró: *"Junior Cardona — 11
+  viajes · 2 camiones"*, y debajo el desglose de cada camión.
+
+> **Agrupar no filtra.** Cambiar el eje **no saca ni agrega ni un solo viaje**: el TOTAL GENERAL
+> es idéntico en los dos modos. Es lo único que garantiza que dos reportes del mismo día cuadren
+> entre sí, y está fijado con prueba automática (`npm run test:viajes`).
+
+> **El total de camiones cuenta camiones DISTINTOS.** Si un mismo camión lo trabajaron dos
+> listeros, aparece en los dos grupos pero se cuenta **una sola vez** en el encabezado. Sumar los
+> grupos daría de más.
+
+**Dos detalles que conviene saber para no reclamar de balde:**
+
+> **Dos cuentas de usuario = dos listeros.** El reporte agrupa por la **cuenta**, no por el
+> nombre. Si una misma persona tiene un usuario viejo y uno nuevo, sale en **dos renglones**
+> aunque se llame igual — y está bien que así sea: el sistema no puede adivinar que dos cuentas
+> son la misma persona. Si ves a alguien duplicado, es eso.
+
+> **El corte es por día de calendario, no por jornada.** El reporte va de medianoche a medianoche,
+> y ahora **lo dice en el encabezado del PDF**. Una jornada de **noche** va de 7pm a 7am, así que
+> sus viajes salen repartidos **en dos días**: los de antes de las 12 en un día y los de la
+> madrugada en el siguiente. Un listero de noche que registró 7 viajes puede ver "4" si se mira
+> un solo día. **No falta nada: hay que sumar los dos días.**
+
+**El nombre del listero.** Es el que tenía cuando registró el viaje, no el de hoy. Si a alguien le
+corrigen el nombre en su ficha, los viajes viejos conservan el anterior; el reporte los junta
+igual (agrupa por cuenta) y rotula el grupo con la forma **más usada**.
+
 ---
 
 ## 4.32. Cuentas por pagar y por cobrar 🧾
