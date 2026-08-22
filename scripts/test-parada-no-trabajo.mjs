@@ -55,6 +55,14 @@ const cargar = (rel, stubs = {}) => {
   return m.exports;
 };
 
+/**
+ * Lee un fuente del repo NORMALIZANDO fin de línea a `\n`. En Windows los archivos
+ * se sacan con CRLF (`\r\n`) y varias guardas de abajo parten por `\n` o anclan con
+ * `(.+)$`: el `\r` colgando rompía la detección y hacía fallar el test aunque el
+ * código estuviera bien. Con esto el test da igual en Windows que en Linux/CI.
+ */
+const leerFuente = (p) => fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+
 const { paradaShiftOf } = cargar('src/lib/inspectorDaySets.ts', {
   './machineInspectors': { inspectorSiempreActivo: () => false },
 });
@@ -144,7 +152,7 @@ eq('07:30 del 20 → ya es el día del 20',
 // ─────────────────────────────────────────────────────────────────────────────
 // 4) EL CÓDIGO NO PUEDE VOLVER ATRÁS  (guardas sobre el fuente)
 // ─────────────────────────────────────────────────────────────────────────────
-const sup = fs.readFileSync(path.join(ROOT, 'src/screens/SupervisorScreen.tsx'), 'utf8');
+const sup = leerFuente(path.join(ROOT, 'src/screens/SupervisorScreen.tsx'));
 // Aísla el bloque de corrección para no confundirlo con los OTROS usos legítimos de
 // `jornadaShift` (bancar una jornada ABIERTA sí debe usar el turno de esa jornada).
 const iCorr = sup.indexOf('const turnoAhora = paradaShiftOf(');
@@ -176,7 +184,7 @@ ok('sigue existiendo un solo sitio que pone un turno en 0 desde el teléfono',
 // adelante: TODO `source` que la app escriba tiene que estar permitido ahí.
 const canonicoPath = path.join(ROOT, 'supabase/machine_segments_source_check.sql');
 ok('existe la migración canónica del CHECK de source', fs.existsSync(canonicoPath));
-const canonico = fs.existsSync(canonicoPath) ? fs.readFileSync(canonicoPath, 'utf8') : '';
+const canonico = fs.existsSync(canonicoPath) ? leerFuente(canonicoPath) : '';
 ok('la canónica crea el constraint',
   /add\s+constraint\s+machine_work_segments_source_check/i.test(canonico));
 
@@ -188,7 +196,7 @@ const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =
   return e.isDirectory() ? walk(p) : (/\.tsx?$/.test(e.name) ? [p] : []);
 });
 for (const f of walk(path.join(ROOT, 'src'))) {
-  const txt = fs.readFileSync(f, 'utf8');
+  const txt = leerFuente(f);
   if (!txt.includes('machine_work_segments')) continue;
   for (const ln of txt.split('\n')) {
     // `source: 'x'`, el ternario `source: cond ? 'a' : 'b'`, o el tipo del parámetro
