@@ -26,7 +26,7 @@ import { supabase } from '../lib/supabase';
 import { levelMeets } from '../lib/permissions';
 import { norm, cmpText } from '../lib/text';
 import { caracasParts } from '../lib/jornada';
-import { caracasToday, caracasNowShift, caracasBusinessToday } from '../lib/caracasDay';
+import { caracasNowShift, caracasBusinessToday, jornadaWindowISO, jornadaDeFecha } from '../lib/caracasDay';
 import { isVolteoVolqueta } from '../lib/equipos';
 import {
   fetchAveriaCat,
@@ -412,11 +412,11 @@ export default function ViajesCamionesScreen() {
     // blanco en cada uno hacía desaparecer la lista (y las casillas de edición,
     // si estaba corrigiendo una hora) cada pocos segundos.
     setMisViajesLoading((prev) => prev || misViajes.length === 0);
-    const today = caracasToday();
-    // Rango SEMIABIERTO [hoy 00:00, mañana 00:00): con `23:59:59` un viaje entre
-    // .001 y .999 de ese segundo no caía en NINGÚN día.
-    const { rows, missing, error } = await listMisViajesHoy(
-      uid, `${today}T00:00:00-04:00`, `${addDaysISO(today, 1)}T00:00:00-04:00`);
+    // ⭐ La JORNADA en curso (7am→7am), NO el día de calendario. Cortar a
+    //    medianoche partía la noche del listero en dos fechas y le hacía creer
+    //    que le faltaban viajes. Ver `jornadaWindowISO`.
+    const { desdeISO, hastaExclusivoISO } = jornadaWindowISO(caracasBusinessToday());
+    const { rows, missing, error } = await listMisViajesHoy(uid, desdeISO, hastaExclusivoISO);
     setMisViajesLoading(false);
     setMisViajesMissing(missing);
     setMisViajesError(error ?? null);
@@ -538,7 +538,7 @@ export default function ViajesCamionesScreen() {
   // anteanoche sería peor (el listero lo daría por perdido). Pero entonces el
   // rótulo "de hoy" mentiría, así que se avisa en el propio título.
   const hayDeOtrosDias = useMemo(
-    () => { const hoy = caracasToday(); return misViajesDisplay.some((r) => caracasParts(new Date(r.registeredAt)).iso !== hoy); },
+    () => { const hoy = caracasBusinessToday(); return misViajesDisplay.some((r) => jornadaDeFecha(new Date(r.registeredAt)) !== hoy); },
     [misViajesDisplay]);
 
   /**
@@ -661,6 +661,16 @@ export default function ViajesCamionesScreen() {
     const mm = Math.min(59, Math.max(0, parseInt(editing.mm, 10) || 0));
     const dateIso = caracasParts(new Date(row.registeredAt)).iso;
     const newIso = `${dateIso}T${pad2(hh)}:${pad2(mm)}:00-04:00`;
+    // ⚠️ Ahora que todo se filtra por JORNADA, cambiar la hora puede mudar el
+    //    viaje de una jornada a otra (cruzar las 7am), y entonces desaparece del
+    //    día que se está mirando. No se bloquea —a veces es justo lo que se
+    //    quiere corregir— pero se pregunta antes.
+    const jornadaAntes = jornadaDeFecha(new Date(row.registeredAt));
+    const jornadaDespues = jornadaDeFecha(new Date(newIso));
+    if (jornadaAntes !== jornadaDespues) {
+      const ok = await confirm(`Con esa hora el viaje pasa de la jornada del ${jornadaAntes} a la del ${jornadaDespues}, así que va a salir en otro día. ¿Lo dejas así?`);
+      if (!ok) return;
+    }
     const { error } = await editarHoraViaje(editing.id, newIso);
     if (error) { toast.error(error); return; }
     setEditing(null);
@@ -693,11 +703,7 @@ export default function ViajesCamionesScreen() {
   const [alertaError, setAlertaError] = useState<string | null>(null);
   const loadResumen = async () => {
     if (!canFull) return;
-    const today = caracasToday();
-    const { rows, error } = await listTodosLosViajes({
-      desdeISO: `${today}T00:00:00-04:00`,
-      hastaExclusivoISO: `${addDaysISO(today, 1)}T00:00:00-04:00`,
-    });
+    const { rows, error } = await listTodosLosViajes(jornadaWindowISO(caracasBusinessToday()));
     setResumenError(error ?? null);
     // Si falló, se conserva lo último bueno: un resumen en ceros hacía concluir
     // que los listeros no trabajaron hoy.
@@ -801,9 +807,9 @@ export default function ViajesCamionesScreen() {
 
   // Lista completa filtrable.
   const [preset, setPreset] = useState<Preset>('hoy');
-  const [rangeFrom, setRangeFrom] = useState(caracasToday());
-  const [rangeTo, setRangeTo] = useState(caracasToday());
-  const [diasSel, setDiasSel] = useState<Set<string>>(new Set([caracasToday()]));
+  const [rangeFrom, setRangeFrom] = useState(caracasBusinessToday());
+  const [rangeTo, setRangeTo] = useState(caracasBusinessToday());
+  const [diasSel, setDiasSel] = useState<Set<string>>(new Set([caracasBusinessToday()]));
   const [diasPickOpen, setDiasPickOpen] = useState(false);
   const [filterListeroSel, setFilterListeroSel] = useState<Set<string>>(new Set());
   const [filterTruckSel, setFilterTruckSel] = useState<Set<string>>(new Set());
@@ -827,7 +833,9 @@ export default function ViajesCamionesScreen() {
   const toggleFilterCompany = (id: string) => setFilterCompanySel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleDia = (iso: string) => setDiasSel((prev) => { const n = new Set(prev); n.has(iso) ? n.delete(iso) : n.add(iso); return n; });
 
-  const todayISO = caracasToday();
+  // ⚠️ De NEGOCIO, no de calendario: a las 3 de la mañana la jornada en curso
+  //    sigue siendo la que arrancó ayer a las 7am.
+  const todayISO = caracasBusinessToday();
   const rangeBounds = useMemo(() => {
     if (preset === 'hoy') return { desde: todayISO, hasta: todayISO };
     if (preset === 'semana') return { desde: weekStartISO(todayISO), hasta: todayISO };
@@ -837,10 +845,10 @@ export default function ViajesCamionesScreen() {
     return arr.length ? { desde: arr[0], hasta: arr[arr.length - 1] } : { desde: todayISO, hasta: todayISO };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, rangeFrom, rangeTo, diasSel, todayISO]);
-  const desdeISO = `${rangeBounds.desde}T00:00:00-04:00`;
-  // Rango SEMIABIERTO [desde, hasta+1): con `23:59:59` los viajes de ese último
-  // segundo no caían en ningún día. Mismo patrón que HistoricoJornadasScreen.
-  const hastaExclusivoISO = `${addDaysISO(rangeBounds.hasta, 1)}T00:00:00-04:00`;
+  // ⭐ El rango son JORNADAS COMPLETAS: de las 7am del primer día a las 7am del
+  //    siguiente al último. Semiabierto, para que no quede el hueco de
+  //    milisegundos que dejaba un tope de 23:59:59.
+  const { desdeISO, hastaExclusivoISO } = jornadaWindowISO(rangeBounds.desde, rangeBounds.hasta);
 
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeMissing, setRangeMissing] = useState(false);
@@ -864,7 +872,9 @@ export default function ViajesCamionesScreen() {
 
   const dateScopedRows = useMemo(() => {
     if (preset === 'dias' && diasSel.size > 0) {
-      return rangeRows.filter((r) => diasSel.has(caracasParts(new Date(r.registeredAt)).iso));
+      // Por JORNADA: un viaje de la madrugada pertenece a la jornada de la noche
+      // anterior, así que marcar un día trae también su madrugada.
+      return rangeRows.filter((r) => diasSel.has(jornadaDeFecha(new Date(r.registeredAt))));
     }
     return rangeRows;
   }, [rangeRows, preset, diasSel]);
@@ -1015,11 +1025,10 @@ export default function ViajesCamionesScreen() {
           <tfoot><tr><td colspan="9">Total: ${filteredRangeRows.length} viajes</td></tr></tfoot>
         </table>`;
 
-      // El corte del rango es por DÍA DE CALENDARIO (medianoche a medianoche),
-      // no por jornada. Se dice en el subtítulo a propósito: una jornada de
-      // noche va de 7pm a 7am, así que sus viajes salen repartidos en dos días
-      // y quien lea el reporte tiene que saberlo antes de reclamar un faltante.
-      const corte = 'días completos (00:00 a 23:59), no por jornada';
+      // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
+      // de día 7am–7pm más turno de noche 7pm–7am. Se dice en el subtítulo para
+      // que nadie compare estas cifras contra un conteo hecho por calendario.
+      const corte = 'por jornada (7am a 7am), no por día de calendario';
       const html = pdfDocument({
         title: reporteModo === 'resumen'
           ? (porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')

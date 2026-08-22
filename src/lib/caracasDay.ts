@@ -161,3 +161,50 @@ export function shiftElapsedHours(dateISO: string, shift: 'day' | 'night'): numb
   const elapsedH = (Date.now() - start) / 3600000;
   return Math.min(12, Math.max(0, elapsedH));
 }
+
+/** Fecha ISO de MAÑANA relativa a una fecha ISO dada (espejo de `isoYesterday`). */
+export function isoTomorrow(iso: string): string {
+  const d = new Date(iso + 'T12:00:00-04:00'); d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * ¿A qué JORNADA pertenece un instante cualquiera?
+ *
+ * A diferencia de `businessRoundDateOf`, NO necesita saber el turno: se deduce
+ * de la hora. Todo lo que ocurre antes de las 7am pertenece a la jornada que
+ * arrancó el día anterior, porque el turno de noche va de 7pm a 7am.
+ *
+ * Sirve para agrupar registros ya guardados por "día" de verdad — el día de
+ * trabajo, no el de calendario. Ver la nota de `jornadaWindowISO`.
+ */
+export function jornadaDeFecha(d: Date): string {
+  const { iso, hour } = caracasPartsOf(d);
+  return hour < 7 ? isoYesterday(iso) : iso;
+}
+
+/**
+ * Ventana [inicio, fin) de una o varias JORNADAS COMPLETAS, en ISO con el
+ * desfase de Caracas, lista para pasarla a un `.gte()` / `.lt()` de PostgREST.
+ *
+ * ⚠️ ESTE ES EL CORTE QUE USA EL NEGOCIO. El "día" acá va de las **7am a las
+ * 7am** del día siguiente: turno de día (7am–7pm) + turno de noche (7pm–7am).
+ * Cortar a medianoche PARTE LA JORNADA DE NOCHE EN DOS, y entonces un listero
+ * que trabajó una sola noche ve su trabajo repartido en dos fechas y cree que
+ * le faltan viajes.
+ *
+ * El rango es SEMIABIERTO a propósito: con un tope de `23:59:59` los registros
+ * de ese último segundo no caen en ningún día.
+ *
+ * @param desdeRoundDate primera jornada (su fecha de arranque, la del turno de día)
+ * @param hastaRoundDate última jornada incluida; si se omite, solo la primera
+ */
+export function jornadaWindowISO(
+  desdeRoundDate: string,
+  hastaRoundDate?: string,
+): { desdeISO: string; hastaExclusivoISO: string } {
+  return {
+    desdeISO: `${desdeRoundDate}T07:00:00-04:00`,
+    hastaExclusivoISO: `${isoTomorrow(hastaRoundDate || desdeRoundDate)}T07:00:00-04:00`,
+  };
+}
