@@ -161,7 +161,10 @@ eq('cuenta 2 retiradas y 1 reactivación',
 eq('lista vacía → sin conteo', conteoPorEstado([]), []);
 
 // ── 10) GUARDAS SOBRE LA PANTALLA ──────────────────────────────────────────
-const scr = fs.readFileSync(path.join(ROOT, 'src/screens/AuditScreen.tsx'), 'utf8');
+// Se normaliza CRLF→\n: en Windows el archivo sale con `\r\n` y varias guardas de
+// abajo cuentan distancias con `[\s\S]{0,120}` o anclan con `$`; el `\r` extra las
+// rompía y hacía fallar el test aunque la pantalla estuviera bien. Igual en Win y CI.
+const scr = fs.readFileSync(path.join(ROOT, 'src/screens/AuditScreen.tsx'), 'utf8').replace(/\r\n/g, '\n');
 
 ok('AuditScreen usa la función pura, no una copia',
   /from '\.\.\/lib\/auditMachineState'/.test(scr) && /cambiosEstadoMaquina\(/.test(scr));
