@@ -1880,6 +1880,13 @@ escritura en Compras (o Inventario).
 > **"⬇️ Descargar / Abrir"**. Al **aprobar** un requerimiento que trae formato, la vista previa
 > **se abre sola** para revisarlo y descargarlo.
 
+> **🖼️ Imagen por producto (nuevo):** además del formato general, **cada producto** puede llevar su
+> **propia imagen** de referencia. En el formulario, dentro de la tarjeta de cada producto, toca
+> **"🖼️ Imagen del producto"** (toma foto o elige de la galería); queda una miniatura y puedes
+> **cambiarla** o **quitarla**. Al imprimir con **🧾 PDF**, la tabla muestra una columna **"Imagen"**
+> con la foto de cada producto junto a su descripción (si ningún producto tiene imagen, la columna no
+> aparece). Aplica también al **PDF por lote** y al **Resumen**.
+
 > **Revertir un rechazo (error de dedo):** si un requerimiento quedó **❌ Rechazado** por
 > equivocación, el administrador toca **"↩ Volver a pendiente"**: vuelve a **Pendiente** (se limpia
 > el rechazo) y se **notifica a los administradores** que quedó pendiente otra vez.

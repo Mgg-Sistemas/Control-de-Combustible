@@ -702,6 +702,7 @@ export interface RequirementLine {
   est_price: number;                // precio estimado unitario (en la moneda indicada)
   currency: 'USD' | 'VES';          // moneda del precio estimado
   note?: string | null;
+  image_url?: string | null;        // foto/imagen de referencia del producto (Storage)
   received?: boolean;               // ya se recibió en inventario
 }
 

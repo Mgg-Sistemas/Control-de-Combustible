@@ -5,7 +5,7 @@
 import { pdfDocument } from './pdf';
 import { FIRMA_DATA_URI, FIRMA2_DATA_URI } from './firmaData';
 
-export type ReqPdfItem = { name: string; unit?: string | null; qty: number; est_price: number; currency: 'USD' | 'VES'; isNew?: boolean };
+export type ReqPdfItem = { name: string; unit?: string | null; qty: number; est_price: number; currency: 'USD' | 'VES'; isNew?: boolean; note?: string | null; image?: string | null };
 export type ReqPdfData = {
   code?: string | null;
   fecha: string;              // ya formateada (dd/mm/aaaa)
@@ -40,6 +40,9 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
       td.c{text-align:center} td.r{text-align:right} td.b{font-weight:800}
       tr:nth-child(even) td{background:#f4f7fb}
       .new{background:#0F766E;color:#fff;font-size:9px;padding:1px 5px;border-radius:6px;font-weight:800}
+      /* Imagen de referencia del producto dentro de su celda. */
+      .pimg{max-width:88px;max-height:66px;border-radius:4px;display:block;margin:0 auto;object-fit:contain}
+      .pdesc{color:#555;font-size:10px;margin-top:2px;text-transform:none;font-weight:400}
       .tot{margin-top:12px;text-align:right;font-size:13px;font-weight:800;color:#16324F}
       .note{margin-top:10px;font-size:11px}
       .reqhead{font-size:13px;font-weight:800;color:#16324F;margin-bottom:2px}
@@ -60,27 +63,39 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
  *  el PDF con firma y el resumen sin firma). El precio unitario se muestra
  *  siempre en US$ (si el ítem se cargó en Bs, se convierte con la tasa del
  *  día solo para este cálculo; el documento no muestra Bs ni la tasa). */
-function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number } {
+function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number; hasImg: boolean } {
+  // La columna "Imagen" solo sale si ALGÚN producto trae imagen (así los
+  // requerimientos viejos sin fotos se ven igual que siempre).
+  const hasImg = d.items.some((it) => !!it.image);
   let totalUsd = 0;
   const rows = d.items.map((it, i) => {
     const uUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
     const lineUsd = uUsd * (Number(it.qty) || 0);
     totalUsd += lineUsd;
+    const imgCell = hasImg ? `<td class="c">${it.image ? `<img class="pimg" src="${it.image}"/>` : ''}</td>` : '';
+    const desc = it.note ? `<div class="pdesc">${esc(it.note)}</div>` : '';
     return `<tr>
       <td class="c">${i + 1}</td>
-      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}</td>
+      <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}${desc}</td>
+      ${imgCell}
       <td class="c">${money(it.qty)} ${esc(it.unit || '')}</td>
       <td class="r">$${money(uUsd)}</td>
       <td class="r b">$${money(lineUsd)}</td>
     </tr>`;
   }).join('');
-  return { rows, totalUsd };
+  return { rows, totalUsd, hasImg };
+}
+
+/** Encabezado de la tabla (con o sin la columna "Imagen"). */
+function reqTheadHtml(hasImg: boolean): string {
+  return `<thead><tr><th style="width:26px" class="c">#</th><th>Producto</th>${hasImg ? '<th class="c" style="width:104px">Imagen</th>' : ''}<th class="c">Cantidad</th>` +
+    `<th class="r">Precio est. (unit.)</th><th class="r">Subtotal (US$)</th></tr></thead>`;
 }
 
 /** El cuerpo (tabla + total + firma) de UN requerimiento, sin envolver en `pdfDocument`
  *  — así lo puede usar tanto el PDF individual como el de varios requerimientos juntos. */
 function reqBodyHtml(d: ReqPdfData, heading?: string): string {
-  const { rows, totalUsd } = reqTableHtml(d);
+  const { rows, totalUsd, hasImg } = reqTableHtml(d);
 
   // Bloque de firma: si está APROBADO por un firmante conocido, va su firma escaneada
   // y su cargo. Si no, queda la línea "Aprobado por (jefe)" para firmar a mano.
@@ -96,9 +111,8 @@ function reqBodyHtml(d: ReqPdfData, heading?: string): string {
           ${heading ? `<div class="reqhead">${heading}</div>` : ''}
           ${d.title ? `<div class="note"><b>${esc(d.title)}</b></div>` : ''}
           <table>
-            <thead><tr><th style="width:26px" class="c">#</th><th>Producto</th><th class="c">Cantidad</th>
-              <th class="r">Precio est. (unit.)</th><th class="r">Subtotal (US$)</th></tr></thead>
-            <tbody>${rows || '<tr><td colspan="5" class="c">Sin ítems</td></tr>'}</tbody>
+            ${reqTheadHtml(hasImg)}
+            <tbody>${rows || `<tr><td colspan="${hasImg ? 6 : 5}" class="c">Sin ítems</td></tr>`}</tbody>
           </table>
           <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
           ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
@@ -143,15 +157,14 @@ export function requerimientosBulkHtml(list: ReqPdfData[]): string {
 /** Bloque de UN requerimiento para el RESUMEN: tabla + total, SIN firma y sin
  *  forzar salto de página — se apila debajo del anterior en el mismo documento. */
 function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
-  const { rows, totalUsd } = reqTableHtml(d);
+  const { rows, totalUsd, hasImg } = reqTableHtml(d);
   return `
       <div class="reqsum">
         <div class="reqhead">${heading}</div>
         ${d.title ? `<div class="note"><b>${esc(d.title)}</b></div>` : ''}
         <table>
-          <thead><tr><th style="width:26px" class="c">#</th><th>Producto</th><th class="c">Cantidad</th>
-            <th class="r">Precio est. (unit.)</th><th class="r">Subtotal (US$)</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="5" class="c">Sin ítems</td></tr>'}</tbody>
+          ${reqTheadHtml(hasImg)}
+          <tbody>${rows || `<tr><td colspan="${hasImg ? 6 : 5}" class="c">Sin ítems</td></tr>`}</tbody>
         </table>
         <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
         ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
