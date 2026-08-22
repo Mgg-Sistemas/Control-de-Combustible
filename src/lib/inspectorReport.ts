@@ -106,7 +106,7 @@ function locLabel(lat: number | null, lng: number | null, ref: string | null): {
   if (meaningfulRef) parts.push(meaningfulRef);
   if (secTxt) parts.push(secTxt);
   if (lat != null && lng != null) parts.push(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-  const label = parts.length ? parts.join(' · ') : 'Sin ubicación';
+  const label = parts.length ? parts.join(' · ') : 'Desplegadas en todo el territorio de La Guaira';
   // Clave: coordenadas redondeadas (≈11 m) o, si no hay GPS, el edificio/referencia.
   const key = lat != null && lng != null ? `${lat.toFixed(4)},${lng.toFixed(4)}` : (meaningfulRef.toLowerCase() || 'sin');
   return { key, label };

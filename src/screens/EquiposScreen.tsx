@@ -1565,7 +1565,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             ) : edificioLabel((m as any).referencia) !== '—' ? (
               <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>📍 {edificioLabel((m as any).referencia)}</Text>
             ) : (
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Sin ubicación</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>📍 Desplegadas en todo el territorio de La Guaira</Text>
             )}
           </View>
         </View>
