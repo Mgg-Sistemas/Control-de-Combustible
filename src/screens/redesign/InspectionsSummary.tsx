@@ -4,6 +4,7 @@ import { supabase, selectAllRows } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
+import { sectorOf, sectorLabel } from '../../lib/mapZones';
 import { motivoParada, stripUbicEdif } from '../../lib/paradaMotivo';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
@@ -106,6 +107,7 @@ type MachRow = {
   id: string; code: string | null; plate: string | null; serial: string | null; identifier: string | null;
   encargado: string | null; location: string | null; referencia: string | null; sector: string | null;
   zona: string | null; tipo: string | null; clasificacion: string | null; machinery_type: string | null;
+  latitude: number | null; longitude: number | null;
   last_horometro: number | null; operational: boolean | null; active: boolean | null; en_espera: boolean | null; company?: { name?: string } | null;
 };
 type MInfo = {
@@ -113,6 +115,8 @@ type MInfo = {
   company: string | null; encargado: string | null; location: string | null; referencia: string | null;
   sector: string | null; zona: string | null; tipo: string | null; clasificacion: string | null;
   machinery_type: string | null; lastHoro: number | null;
+  // Sector EN VIVO (nombre del polígono donde cae el GPS), igual que el Mapa y el Catálogo.
+  sectorGps: string | null;
 };
 type Estado = 'iniciada' | 'cerrada' | 'pendiente' | 'parada' | 'averiada';
 
@@ -351,7 +355,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at, machine:machinery_id(code)', (q) => q.or(`status.eq.pendiente,resolved_at.gte.${nightEndBound}`)),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
-      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, latitude, longitude, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
       // Horas totales (histórico completo) por máquina, agregadas EN EL SERVIDOR
       // (RPC machine_total_hours, ver supabase/machine_total_hours.sql). Evita bajar
       // toda machine_rounds. Si el RPC no existe aún, cae al escaneo completo.
@@ -954,6 +958,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         clasificacion: m.clasificacion ?? null,
         machinery_type: m.machinery_type ?? null,
         lastHoro: m.last_horometro != null ? Number(m.last_horometro) : null,
+        // Sector EN VIVO = nombre del polígono donde cae el GPS (igual que Mapa/Catálogo).
+        // Si no hay GPS queda null y se cae al edificio/referencia como respaldo.
+        sectorGps: m.latitude != null && m.longitude != null ? sectorLabel(sectorOf(m.latitude, m.longitude)) : null,
       });
     });
     return map;
@@ -1813,7 +1820,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     const em = estadoMeta(r.estado);
                     const motivo = r.estado === 'averiada' ? (motivoByMachine.aver.get(r.id)?.m || '') : r.estado === 'parada' ? (motivoByMachine.par.get(r.id)?.m || '') : '';
                     const info = r.info;
-                    const ubic = info?.referencia || info?.location || info?.sector || null;
+                    // Ubicación = SECTOR del GPS (nombre del polígono, igual que Mapa/Catálogo);
+                    // sin GPS cae al edificio/referencia escrito a mano.
+                    const ubic = info?.sectorGps || info?.referencia || info?.location || info?.sector || null;
                     return (
                       <View key={r.id} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, padding: spacing.sm, gap: 2 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
@@ -2245,7 +2254,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {detailRow('Identificador', info?.identifier || '—')}
                           {detailRow('Ubicación / referencia', info?.referencia || '—')}
                           {detailRow('Zona', info?.location || '—')}
-                          {detailRow('Sector', info?.sector || '—')}
+                          {detailRow('Sector', info?.sectorGps || info?.sector || '—')}
                           {detailRow('A disposición de', info?.zona || '—')}
                           {detailRow('Encargado / operador', info?.encargado || '—')}
                           {detailRow('Marca - Modelo', info?.tipo || '—')}

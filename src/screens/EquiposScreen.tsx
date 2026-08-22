@@ -1550,19 +1550,17 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
-            {/* Edificio / residencia donde está la máquina (nombre canónico del catálogo,
-                que ya incluye el sector, ej. "EDIFICIO PUNTA PIEDRA - MACUTO"). */}
-            {edificioLabel((m as any).referencia) !== '—' ? (
-              <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>📍 {edificioLabel((m as any).referencia)}</Text>
-            ) : null}
+            {/* UBICACIÓN vinculada al SECTOR del GPS: si la máquina tiene GPS, la ubicación
+                es el SECTOR calculado EN VIVO desde latitude/longitude (igual que el Mapa),
+                así nunca contradice al mapa ni queda pegado un edificio viejo. Solo si NO
+                hay GPS se cae al edificio escrito a mano (referencia) como respaldo. */}
             {m.latitude != null ? (
               <>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>📍 UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
-                {/* Sector SIEMPRE calculado en vivo desde latitude/longitude (igual que el
-                    Mapa) — no es un campo guardado, así que nunca queda desactualizado:
-                    en cuanto cambia la ubicación GPS de la máquina, el sector cambia solo. */}
-                <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🧭 {sectorLabel(sectorOf(m.latitude, m.longitude))}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>📍 {sectorLabel(sectorOf(m.latitude, m.longitude))}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🛰️ UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
               </>
+            ) : edificioLabel((m as any).referencia) !== '—' ? (
+              <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>📍 {edificioLabel((m as any).referencia)}</Text>
             ) : (
               <Text style={{ color: colors.muted, fontSize: 12 }}>Sin ubicación</Text>
             )}
