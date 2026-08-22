@@ -3288,6 +3288,18 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 - **Sin señal:** el viaje se guarda igual en el teléfono y se sube solo en cuanto vuelva la
   conexión — se ve una insignia **ámbar "📤 pendiente"** mientras tanto. Por muchos días que
   pase el listero sin cobertura, nunca se pierde ni se descarta nada.
+- **Con señal a medias (22-ago-2026):** ahora **tampoco**. Si el teléfono cree que hay conexión
+  pero el envío falla —el wifi del patio da señal sin internet, la sesión venció, el servidor
+  tardó de más— el viaje **ya no se descarta**: se guarda en el teléfono igual que si no hubiera
+  señal, y se reintenta solo. **Antes ese viaje se perdía** con un aviso rojo que desaparecía a
+  los tres segundos, y esa es la causa más probable de los faltantes que se venían reclamando.
+- **El aviso ahora dice la verdad.** Si el teléfono no pudo ni siquiera guardar el viaje en su
+  propia memoria, sale un aviso rojo pidiendo **no cerrar la aplicación**. Antes decía "quedó
+  guardado en el teléfono" sin comprobarlo.
+- **Contador en «Mis viajes de hoy»:** el título trae el número — `Mis viajes de hoy · 7`, y si
+  alguno sigue sin subir, `7 (2 sin subir)`. La lista ya **no se corta**: se ven todos.
+  Antes la caja solo mostraba unos cuatro renglones y no tenía número, así que el listero
+  contaba lo que veía y reclamaba viajes que sí estaban registrados.
 - **⚠️ Viajes que no pudieron subirse:** si un viaje falla por algo que **no** es la señal (el
   camión se borró del catálogo, un dato quedó inválido), el sistema lo reintenta 3 veces y
   después lo **aparta** — pero **la cola sigue subiendo los demás**. El viaje apartado no se
