@@ -1695,7 +1695,21 @@ export default function ReportsScreen({ route }: any) {
     const estadoOf = (m: any) => (ficticio ? 'Operativo' : m.en_espera === true ? 'En espera por instrucciones' : (m.operational === false || m.active === false) ? 'Inoperativo' : 'Operativo');
     // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
     const enteOf = (m: any) => { const z = (m.zona && String(m.zona).trim()) || ''; return !z || /^propias?$/i.test(z) ? 'SOS La Guaira' : z; };
+    // Equipos de apoyo que se mueven por toda la operación (no tienen una base fija):
+    // cualquier máquina con CLASIFICACIÓN de servicio o transporte (cisternas de agua,
+    // tanques de combustible, camión de servicio…) y las camionetas PICK-UP. Su ubicación
+    // en el reporte dice "Desplegadas por los sectores estratégicos".
+    const esSectoresEstrategicos = (m: any) => {
+      const clas = String(m.clasificacion ?? '').toLowerCase();
+      const tipo = String(equipCategory(m.code) ?? '').toLowerCase();
+      return /servicio|transporte/.test(clas)
+        || /cisterna|combustible|servicio/.test(tipo)
+        || /pick|camioneta/i.test(tipo) || /pick|camioneta/i.test(clas);
+    };
     const ubicOf = (m: any) => {
+      // Los equipos de apoyo (servicio/transporte + pick-ups) van por los sectores
+      // estratégicos según la necesidad, no tienen una ubicación fija.
+      if (esSectoresEstrategicos(m)) return 'Desplegadas por los sectores estratégicos';
       const rawRef = (m.referencia && String(m.referencia).trim()) || (m.location && String(m.location).trim()) || '';
       // Ignora referencias que son SOLO números (ej. "46564.0"): mejor mostrar el sector.
       const ref = /^[\d.,\s-]+$/.test(rawRef) ? '' : rawRef;
