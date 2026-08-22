@@ -189,10 +189,13 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 
 > **🚗 Vehículos con ficha completa + FOTO:** al cargar un **vehículo** el formulario se ve **igual
 > que el de maquinaria** — **nombre del vehículo** (arriba, como el "Código/Nombre" de la maquinaria;
-> opcional, la placa sigue siendo el identificador), marca, modelo, clasificación, tipo, identificador,
-> serial, empresa supervisora, grupo y **encargado** (el encargado va **justo debajo de "Esperando
-> instrucciones"**, ya no escondido al final). En la tarjeta, si el vehículo tiene nombre se muestra
-> como título y la placa debajo. La **foto** se ve como en las máquinas: toca la **miniatura** de la
+> **obligatorio al crear**; la placa sigue siendo el identificador único), marca, modelo, clasificación,
+> tipo, identificador, serial, empresa supervisora, grupo y **encargado** (también obligatorio al crear,
+> va **justo debajo de "Esperando instrucciones"**). En la tarjeta, si el vehículo tiene nombre se
+> muestra como título y la placa debajo. En el **Catálogo** los vehículos ya **no** salen en una caja
+> aparte: aparecen dentro del acordeón de **su empresa**, mezclados con las máquinas (el contador de la
+> empresa suma máquinas + vehículos). Si filtras por **clasificación** o **tapa**, el catálogo muestra
+> solo máquinas. La **foto** se ve como en las máquinas: toca la **miniatura** de la
 > tarjeta y se abre el **visor ampliado** con la foto del vehículo y la del serial/placa, cada una
 > con **"🔄 Cambiar foto"** y **"🗑 Quitar foto"**. Los vehículos **siguen siendo aparte** de la
 > maquinaria: **no** entran a Control, Inspecciones ni pagos por jornada; son solo para
