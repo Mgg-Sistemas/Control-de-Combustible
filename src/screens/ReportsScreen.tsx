@@ -1788,7 +1788,10 @@ export default function ReportsScreen({ route }: any) {
       const s = (m.sector && String(m.sector).trim().toLowerCase()) || '';
       if (s === 'oeste') return 'OESTE';
       if (s) return 'ESTE';
-      return sectorMacro(sectorOf(m.latitude, m.longitude));
+      // Sin ubicación de despliegue: se usa el GPS y, si tampoco hay, por defecto ESTE
+      // (todas las bases son del ESTE salvo "Oeste"). Así NINGUNA queda "sin ubicación"
+      // en los totales por zona: todas cuentan en Este u Oeste.
+      return sectorMacro(sectorOf(m.latitude, m.longitude)) ?? 'ESTE';
     };
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
@@ -1939,6 +1942,7 @@ export default function ReportsScreen({ route }: any) {
       ${resumenCoHtml}
       <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
       ${maquinariaHtml}
+      ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
