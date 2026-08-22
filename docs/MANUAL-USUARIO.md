@@ -3356,6 +3356,12 @@ historial de abonos. Ahí abajo están los botones:
 - **⛔ Anular** — para lo que se registró por error. **No se borra**: deja de sumar en los totales
   pero queda en el historial como anulada.
 - **↩ Volver a pendiente** — en las pagadas o anuladas, por si fue un error.
+- **🧾 Recibo de cobro / de pago** — genera un **PDF** de esa cuenta con el membrete: contraparte,
+  concepto, Nº de factura/control, monto original, abonado y **saldo** (con el total **en letras**,
+  ej. *"Son: DOSCIENTOS… CON 17/100 DÓLARES"*), el historial de abonos y líneas de firma. Muestra
+  **"Saldo por cobrar/pagar"** si aún debe, o **"Total cobrado/pagado"** si ya está saldada. Es
+  **solo lectura** (no cambia la cuenta), así que está disponible aunque solo tengas permiso de
+  lectura.
 
 **🔎 Buscador:** por nombre, concepto, factura o nota. Por defecto solo se ven las cuentas
 **vivas**; con el botón **"Mostrar también pagadas y anuladas"** aparecen todas.
