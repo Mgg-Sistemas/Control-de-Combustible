@@ -1,0 +1,268 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reportes — propuesta visual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --fondo:#11161A;
+  --sup:#182025;
+  --sup2:#1E282D;
+  --borde:#28343A;
+  --borde-cl:#35454C;
+  --texto:#E9EFF0;
+  --tenue:#8FA0A6;
+  --tenue2:#6E8087;
+  --acento:#3AA9A2;
+  --acento-d:#0F5C63;
+  --acento-s:rgba(58,169,162,.13);
+  --ambar:#E0A040;
+  --verde:#4BB477;
+  --r:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Barlow",system-ui,sans-serif;font-size:15px;line-height:1.5;
+  background:var(--fondo);color:var(--texto);-webkit-font-smoothing:antialiased;padding:0 0 70px}
+h1,h2,h3,.cond{font-family:"Barlow Semi Condensed","Barlow",sans-serif}
+.m{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-align:left}
+:focus-visible{outline:2px solid var(--acento);outline-offset:3px;border-radius:6px}
+
+.env{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* cabecera */
+.cab{border-bottom:1px solid var(--borde);background:#0E1418;padding:26px 0 22px;margin-bottom:26px}
+.cab-f{display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap}
+.cab h1{font-size:1.75rem;font-weight:700;line-height:1.15}
+.cab p{color:var(--tenue);font-size:.9375rem;margin-top:3px}
+.busca{position:relative;margin-left:auto;width:290px}
+.busca input{width:100%;height:42px;padding:0 14px 0 40px;background:var(--sup);border:1.5px solid var(--borde);
+  border-radius:9px;color:var(--texto);font-size:.9375rem}
+.busca input::placeholder{color:var(--tenue2)}
+.busca input:focus{outline:none;border-color:var(--acento)}
+.busca svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--tenue2)}
+
+/* seccion acordeón */
+.sec{margin-bottom:10px}
+.sec-cab{display:flex;align-items:center;gap:13px;width:100%;padding:14px 4px;border-radius:9px}
+.sec-cab:hover{background:var(--sup)}
+.chv{width:26px;height:26px;border-radius:7px;background:var(--sup2);display:grid;place-items:center;
+  flex:none;color:var(--tenue);transition:transform .18s}
+.sec.ab .chv{transform:rotate(90deg);background:var(--acento-s);color:var(--acento)}
+.sec-ic{width:34px;height:34px;border-radius:9px;background:var(--sup2);display:grid;place-items:center;
+  flex:none;color:var(--acento)}
+.sec.ab .sec-ic{background:var(--acento-s)}
+.sec-cab h2{font-size:1.1875rem;font-weight:700;white-space:nowrap}
+.rule{flex:1;height:1px;background:var(--borde);min-width:20px}
+.cuenta{font-family:"IBM Plex Mono",monospace;font-size:.75rem;font-weight:600;color:var(--tenue2);
+  background:var(--sup2);padding:3px 9px;border-radius:20px;flex:none}
+
+.sec-cuerpo{display:none;padding:6px 0 18px 39px}
+.sec.ab .sec-cuerpo{display:block}
+
+/* rejilla de reportes */
+.rej{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+
+.rep{display:flex;gap:14px;align-items:flex-start;width:100%;padding:16px 16px 15px;
+  background:var(--sup);border:1px solid var(--borde);border-radius:var(--r);
+  transition:border-color .15s,background .15s;position:relative}
+.rep:hover{border-color:var(--borde-cl);background:var(--sup2)}
+.rep:hover .flecha{color:var(--acento);transform:translateX(2px)}
+.rep-ic{width:38px;height:38px;border-radius:9px;background:var(--acento-s);color:var(--acento);
+  display:grid;place-items:center;flex:none}
+.rep-t{flex:1;min-width:0}
+.rep-t h3{font-size:1rem;font-weight:600;line-height:1.3}
+.rep-t p{font-size:.875rem;color:var(--tenue);margin-top:3px;line-height:1.45}
+.flecha{color:var(--tenue2);flex:none;margin-top:9px;transition:color .15s,transform .15s}
+
+.campos{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.campos span{font-size:.75rem;font-weight:500;color:var(--tenue);background:var(--sup2);
+  border:1px solid var(--borde);padding:2px 8px;border-radius:5px;white-space:nowrap}
+.sec.ab .rep:hover .campos span{background:#232F35}
+.meta{display:flex;align-items:center;gap:7px;margin-top:11px;padding-top:10px;border-top:1px solid var(--borde);
+  font-size:.75rem;color:var(--tenue2)}
+.meta .pt{width:6px;height:6px;border-radius:50%;background:var(--verde);flex:none}
+
+/* recientes */
+.rec{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:26px}
+.rec-b{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;background:var(--sup);
+  border:1px solid var(--borde);border-radius:22px;font-size:.875rem;font-weight:500;color:var(--tenue)}
+.rec-b:hover{border-color:var(--acento);color:var(--texto)}
+.rec-b svg{color:var(--tenue2)}
+.rec-l{font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.13em;color:var(--tenue2);
+  align-self:center;margin-right:3px;font-family:"Barlow Semi Condensed",sans-serif}
+
+@media(max-width:640px){
+  .env{padding:0 16px}
+  .busca{margin-left:0;width:100%}
+  .sec-cuerpo{padding-left:0}
+  .rej{grid-template-columns:1fr}
+  .sec-cab h2{white-space:normal;font-size:1.0625rem}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<svg style="display:none">
+  <symbol id="chk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="truck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3V7h11v10H9"/><path d="M14 10h3.5l3.5 3.5V17h-2"/><circle cx="7" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/></symbol>
+  <symbol id="mach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h13v-4H3z"/><circle cx="6" cy="18" r="1"/><circle cx="13" cy="18" r="1"/><path d="M8 16V9h4l5-5 3 3-5 5v4"/></symbol>
+  <symbol id="ruta" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h4a4 4 0 0 0 0-8h-2a4 4 0 0 1 0-8h4"/></symbol>
+  <symbol id="graf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="lupa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="reloj" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+</svg>
+
+<header class="cab">
+  <div class="env cab-f">
+    <div>
+      <h1>Reportes</h1>
+      <p>Consultas operativas por inspector, máquina y jornada</p>
+    </div>
+    <div class="busca">
+      <svg width="17" height="17"><use href="#lupa"/></svg>
+      <input placeholder="Buscar reporte…">
+    </div>
+  </div>
+</header>
+
+<div class="env">
+
+  <div class="rec">
+    <span class="rec-l">Recientes</span>
+    <button class="rec-b"><svg width="15" height="15"><use href="#reloj"/></svg>Reporte por inspector</button>
+    <button class="rec-b"><svg width="15" height="15"><use href="#reloj"/></svg>Jornadas de operadores</button>
+  </div>
+
+  <!-- SECCIÓN 1 -->
+  <section class="sec ab">
+    <button class="sec-cab" onclick="this.parentNode.classList.toggle('ab')">
+      <span class="chv"><svg width="15" height="15"><use href="#chev"/></svg></span>
+      <span class="sec-ic"><svg width="19" height="19"><use href="#chk"/></svg></span>
+      <h2>Máquinas asignadas por inspector</h2>
+      <span class="rule"></span>
+      <span class="cuenta">2 reportes</span>
+    </button>
+
+    <div class="sec-cuerpo">
+      <div class="rej">
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#graf"/></svg></span>
+          <span class="rep-t">
+            <h3>Reporte por inspector</h3>
+            <p>Máquinas asignadas en un día o rango de fechas.</p>
+            <span class="campos">
+              <span>Hora de inicio</span><span>Máquina</span><span>Serial / placa</span><span>Sector</span><span>Empresa</span>
+            </span>
+            <span class="meta"><span class="pt"></span>Actualizado hace 12 min</span>
+          </span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#cal"/></svg></span>
+          <span class="rep-t">
+            <h3>Entrada y salida de camiones</h3>
+            <p>Calendario con el conteo de camiones que entraron y salieron cada día.</p>
+            <span class="campos">
+              <span>Vista mensual</span><span>Entradas</span><span>Salidas</span>
+            </span>
+            <span class="meta"><span class="pt"></span>Actualizado hace 12 min</span>
+          </span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 2 -->
+  <section class="sec">
+    <button class="sec-cab" onclick="this.parentNode.classList.toggle('ab')">
+      <span class="chv"><svg width="15" height="15"><use href="#chev"/></svg></span>
+      <span class="sec-ic"><svg width="19" height="19"><use href="#truck"/></svg></span>
+      <h2>Camiones (asistencia)</h2>
+      <span class="rule"></span>
+      <span class="cuenta">3 reportes</span>
+    </button>
+    <div class="sec-cuerpo">
+      <div class="rej">
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#cal"/></svg></span>
+          <span class="rep-t"><h3>Asistencia diaria</h3>
+            <p>Camiones presentes por jornada, con hora de llegada.</p>
+            <span class="campos"><span>Día</span><span>Placa</span><span>Empresa</span></span></span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#graf"/></svg></span>
+          <span class="rep-t"><h3>Asistencia por empresa</h3>
+            <p>Comparativo de cumplimiento entre empresas contratistas.</p>
+            <span class="campos"><span>Rango de fechas</span><span>Empresa</span></span></span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#truck"/></svg></span>
+          <span class="rep-t"><h3>Camiones sin asistencia</h3>
+            <p>Unidades registradas que no se presentaron en el período.</p>
+            <span class="campos"><span>Rango de fechas</span><span>Sector</span></span></span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 3 -->
+  <section class="sec">
+    <button class="sec-cab" onclick="this.parentNode.classList.toggle('ab')">
+      <span class="chv"><svg width="15" height="15"><use href="#chev"/></svg></span>
+      <span class="sec-ic"><svg width="19" height="19"><use href="#mach"/></svg></span>
+      <h2>Jornadas de operadores</h2>
+      <span class="rule"></span>
+      <span class="cuenta">2 reportes</span>
+    </button>
+    <div class="sec-cuerpo">
+      <div class="rej">
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#reloj"/></svg></span>
+          <span class="rep-t"><h3>Horas por operador</h3>
+            <p>Jornadas trabajadas y horas acumuladas por persona.</p>
+            <span class="campos"><span>Rango de fechas</span><span>Operador</span><span>Máquina</span></span></span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#graf"/></svg></span>
+          <span class="rep-t"><h3>Jornadas por sector</h3>
+            <p>Distribución del trabajo entre los sectores de la operación.</p>
+            <span class="campos"><span>Rango de fechas</span><span>Sector</span></span></span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECCIÓN 4 -->
+  <section class="sec">
+    <button class="sec-cab" onclick="this.parentNode.classList.toggle('ab')">
+      <span class="chv"><svg width="15" height="15"><use href="#chev"/></svg></span>
+      <span class="sec-ic"><svg width="19" height="19"><use href="#ruta"/></svg></span>
+      <h2>Traza por inspector</h2>
+      <span class="rule"></span>
+      <span class="cuenta">1 reporte</span>
+    </button>
+    <div class="sec-cuerpo">
+      <div class="rej">
+        <button class="rep">
+          <span class="rep-ic"><svg width="19" height="19"><use href="#ruta"/></svg></span>
+          <span class="rep-t"><h3>Recorrido del inspector</h3>
+            <p>Secuencia de revisiones con hora y ubicación a lo largo del día.</p>
+            <span class="campos"><span>Día</span><span>Inspector</span><span>Sector</span></span></span>
+          <svg width="17" height="17" class="flecha"><use href="#chev"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+</div>

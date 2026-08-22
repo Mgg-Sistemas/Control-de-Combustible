@@ -3241,6 +3241,44 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 ### Vista del listero
 
+> **🚚 Un camión que no está en la lista (21-ago-2026).** Cuando el listero busca su camión y no lo
+> encuentra, tiene **dos salidas**, en este orden:
+>
+> **1. Sí está en el catálogo, pero no en su lista.** Al escribir en el buscador, debajo de los
+> resultados aparece la sección **"No están en tu lista, pero sí en el catálogo"**, con borde punteado.
+> Tócala y ese camión **se agrega a su lista** para poder registrarle viajes.
+>
+> Esto pasa porque la lista del listero se arma mirando si el **código** dice *"volteo"*, *"volqueta"*
+> o *"toronto"*: un camión real con otro código nunca entraba, aunque estuviera bien cargado.
+> Agregarlo **no cambia nada en el catálogo**.
+>
+> **2. No está en ningún lado.** Al final del buscador está **"🚚 El camión no está en la lista"**.
+> Ahí escribe **cómo se identifica** (obligatorio) y su **placa, empresa o seña** (opcional), y
+> registra el viaje.
+>
+> ⚠️ **Ese camión se guarda SOLO en ese viaje.** No se crea en el catálogo, no aparece en Control de
+> Maquinaria, ni en Mantenimiento, ni en los reportes de flota, ni le llega a los inspectores.
+>
+> **Cómo lo ve quien supervisa.** Esos viajes salen **siempre marcados**: ícono 🚚 en vez de 🚜,
+> etiqueta *"🚚 fuera de catálogo"*, y donde iría la placa dice *"Anotado a mano por el listero"* con
+> la seña que escribió. En el PDF, la columna de placa dice **"⚠️ FUERA DE CATÁLOGO"**. Es a propósito:
+> un viaje contra un camión anotado a mano **no se puede confundir** con uno de la flota al revisar o
+> al cobrar.
+>
+> En el resumen por camión, **cada camión anotado a mano se cuenta aparte** por su nombre — dos
+> camiones distintos no se suman como si fueran uno. Como no tienen ficha caen bajo *"Sin empresa"*
+> (no se les inventa una), y **no entran a la alerta** de *"camión sin viaje reciente"*: un camión
+> prestado que se anotó una vez no está parado, simplemente ya no está.
+>
+> Necesita correr **`supabase/viajes_camion_fuera_catalogo.sql`**.
+
+> **⬛ Las retiradas no se le muestran al listero** (18-ago-2026, sigue vigente). Al buscar un camión
+> para registrar **no salen las RETIRADAS** (fuera de servicio) ni las que están **EN ESPERA** de
+> instrucciones — tampoco por la vía nueva de *"sí está en el catálogo"*. Una máquina retirada o en
+> espera no puede estar haciendo viajes, y tenerla en la lista solo se presta a registrar el viaje
+> contra el camión equivocado. La jefa **sí** las sigue viendo en sus paneles (resumen, metas,
+> alertas), que necesitan la flota completa.
+
 - **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
   (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
   que el Catálogo. Si el camión está averiado, parado o retirado, sale un **aviso** antes de

@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOS La Guaira · Mantenimiento, conductores, mapa y analítica — Propuesta visual III</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0B1A2E; --navy:#1E3A5F; --navy-500:#2C5486; --paper:#F3F6FA; --card:#FFFFFF;
+  --line:#DCE3EC; --text:#0E1A26; --muted:#5F7183;
+  --amber:#FFB020; --amber-soft:#FFF3DA; --green:#0FA36B; --green-soft:#E3F7EE;
+  --red:#D93A32; --red-soft:#FDEAE8; --info:#2E7CF6; --info-soft:#E8F1FE;
+  --violet:#6E56CF; --violet-soft:#EFEBFB; --teal:#12879B; --teal-soft:#E2F4F7;
+  --r-sm:8px; --r-md:12px; --r-lg:18px;
+  --sh-1:0 1px 2px rgba(11,26,46,.06), 0 1px 3px rgba(11,26,46,.05);
+  --sh-3:0 18px 44px rgba(11,26,46,.16);
+  --display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --body:"Barlow","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Courier New",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--body);background:var(--paper);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+.doc{display:grid;grid-template-columns:264px 1fr;min-height:100vh}
+.rail{background:var(--ink);color:#D9E2EE;padding:22px 18px 40px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:26px}
+.brand-mark{width:38px;height:38px;border-radius:10px;flex:none;background:linear-gradient(155deg,var(--navy-500),var(--navy));border:1px solid rgba(255,255,255,.16);display:grid;place-items:center;font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.06em;color:#fff}
+.brand-name{font-family:var(--display);font-weight:700;font-size:19px;letter-spacing:.04em;text-transform:uppercase;color:#fff;line-height:1.1}
+.brand-sub{font-size:11.5px;color:#7E93AB;letter-spacing:.09em;text-transform:uppercase;font-weight:600}
+.rail-label{font-family:var(--display);text-transform:uppercase;letter-spacing:.16em;font-size:11.5px;color:#67809B;margin:22px 6px 9px;font-weight:600}
+.nav-btn{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:0;cursor:pointer;color:#B9C8D8;font-family:var(--body);font-size:14.5px;font-weight:500;text-align:left;padding:9px 11px;border-radius:var(--r-sm);margin-bottom:2px;transition:background .15s,color .15s}
+.nav-btn:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-btn .idx{font-family:var(--mono);font-size:11px;color:#5E7590;border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:1px 5px;flex:none}
+.nav-btn[aria-selected="true"]{background:var(--navy);color:#fff;box-shadow:inset 3px 0 0 var(--amber)}
+.nav-btn[aria-selected="true"] .idx{color:var(--amber);border-color:rgba(255,176,32,.45)}
+.rail-note{margin-top:26px;padding:12px;border-radius:var(--r-sm);background:rgba(255,176,32,.09);border:1px solid rgba(255,176,32,.22);font-size:12.5px;color:#E6D2AE;line-height:1.45}
+
+.stage{padding:34px 40px 90px;max-width:1180px}
+.doc-head{margin-bottom:30px;border-bottom:1px solid var(--line);padding-bottom:22px}
+.eyebrow{font-family:var(--display);text-transform:uppercase;letter-spacing:.18em;font-size:12px;font-weight:600;color:var(--navy-500)}
+.doc-head h1{font-family:var(--display);font-weight:700;font-size:41px;line-height:1.05;margin:6px 0 10px;text-transform:uppercase}
+.doc-head p{margin:0;color:var(--muted);max-width:66ch;font-size:15.5px}
+
+.screen{display:none}
+.screen.is-on{display:block;animation:rise .28s ease}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.screen-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:16px;flex-wrap:wrap}
+.screen-head h2{font-family:var(--display);text-transform:uppercase;font-size:27px;margin:0}
+.screen-head .lede{color:var(--muted);font-size:14.5px;margin:4px 0 0;max-width:60ch}
+
+.frame{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-3);overflow:hidden}
+.frame-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:#E9EEF5;border-bottom:1px solid var(--line)}
+.dot{width:10px;height:10px;border-radius:50%;background:#C3CDD9}
+.frame-url{margin-left:8px;font-family:var(--mono);font-size:11.5px;color:#7A8B9C;background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 12px}
+
+.gains{margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:12px}
+.gain{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:var(--r-sm);padding:13px 15px}
+.gain h4{margin:0 0 3px;font-size:14px;font-weight:700}
+.gain p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.45}
+.mockdata{font-size:12px;color:var(--muted);margin-top:10px;font-style:italic}
+
+.app{display:grid;grid-template-columns:214px 1fr;min-height:600px;background:var(--paper)}
+.app-side{background:var(--navy);padding:16px 12px;color:#CBD8E6}
+.app-side .brand{margin-bottom:20px}
+.side-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r-sm);font-size:14px;color:#B4C6D8;margin-bottom:2px}
+.side-item.on{background:rgba(255,255,255,.12);color:#fff;font-weight:600}
+.side-item .ic{width:16px;text-align:center;opacity:.85}
+.app-main{display:flex;flex-direction:column;min-width:0}
+.app-top{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 22px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.app-top h3{font-family:var(--display);text-transform:uppercase;font-size:21px;margin:0}
+.app-top .sub{font-size:12.5px;color:var(--muted)}
+.top-actions{display:flex;align-items:center;gap:10px}
+.app-body{padding:20px 22px 26px;display:grid;gap:16px}
+
+.btn{font-family:var(--body);font-weight:600;font-size:14px;cursor:pointer;border-radius:var(--r-sm);padding:10px 16px;border:1px solid transparent;display:inline-flex;align-items:center;gap:8px;transition:filter .15s}
+.btn-primary{background:var(--navy);color:#fff;box-shadow:var(--sh-1)}
+.btn-primary:hover{filter:brightness(1.14)}
+.btn-accent{background:var(--amber);color:#3A2703;box-shadow:0 2px 0 #D9930F}
+.btn-ghost{background:#fff;border-color:var(--line);color:var(--text)}
+.btn-ghost:hover{background:#F5F8FC}
+
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap}
+.chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.chip-ok{background:var(--green-soft);color:#0A7A50}
+.chip-wait{background:var(--amber-soft);color:#946200}
+.chip-bad{background:var(--red-soft);color:#B02A22}
+.chip-info{background:var(--info-soft);color:#1B5FC4}
+.chip-v{background:var(--violet-soft);color:#4C39A0}
+.chip-mute{background:#EDF1F6;color:#5F7183}
+
+.plate{font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.08em;background:#fff;border:1.5px solid var(--navy);border-radius:5px;padding:2px 8px;display:inline-block;color:var(--navy)}
+
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-1)}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);gap:12px;flex-wrap:wrap}
+.panel-head h4{font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;font-size:14px;margin:0}
+.panel-head .link{font-size:13px;color:var(--navy-500);font-weight:600}
+.panel-body{padding:14px 16px}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+thead th{font-family:var(--display);text-transform:uppercase;letter-spacing:.11em;font-size:11.5px;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-weight:600}
+tbody td{padding:11px 12px;border-bottom:1px solid #EDF1F6}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#F7FAFD}
+td.num{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono)}
+
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.search{flex:1;min-width:210px;position:relative}
+.input{width:100%;border:1.5px solid var(--line);border-radius:var(--r-sm);padding:11px 13px;font-family:var(--body);font-size:15px;background:#fff}
+.search .input{padding-left:38px}
+.search .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.input:focus{border-color:var(--navy-500);outline:none;box-shadow:0 0 0 3px rgba(44,84,134,.14)}
+.filters{display:flex;gap:7px;flex-wrap:wrap}
+.filter{border:1px solid var(--line);background:#fff;border-radius:20px;padding:6px 13px;font-size:13px;cursor:pointer;font-weight:500}
+.filter.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.filter .n{font-family:var(--mono);font-size:11.5px;opacity:.7;margin-left:5px}
+.hint{font-size:12.5px;color:var(--muted);margin-top:5px}
+
+.split2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start}
+.split3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.split4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:15px 16px;box-shadow:var(--sh-1);position:relative;overflow:hidden}
+.kpi::after{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--navy-500)}
+.kpi.a::after{background:var(--amber)} .kpi.g::after{background:var(--green)} .kpi.r::after{background:var(--red)} .kpi.t::after{background:var(--teal)}
+.kpi .lbl{font-family:var(--display);text-transform:uppercase;letter-spacing:.13em;font-size:11.5px;color:var(--muted);font-weight:600}
+.kpi .val{font-family:var(--mono);font-weight:600;font-size:28px;line-height:1.15;margin-top:3px}
+.kpi .val small{font-size:14px;color:var(--muted);font-weight:400;margin-left:3px}
+.kpi .delta{font-size:12.5px;color:var(--muted);margin-top:2px}
+.kpi .delta b{color:var(--green)} .kpi .delta b.dn{color:var(--red)}
+
+/* ---- MANTENIMIENTO: plan por unidad (barras de horizonte) ---- */
+.plan-row{display:grid;grid-template-columns:190px 1fr;gap:14px;align-items:center;padding:11px 0;border-bottom:1px solid #EDF1F6}
+.plan-row:last-child{border-bottom:0}
+.plan-unit{display:flex;flex-direction:column;gap:3px}
+.plan-unit .sub{font-size:12px;color:var(--muted)}
+.track{position:relative;height:30px;background:#F1F4F8;border-radius:6px;overflow:hidden}
+.track .grid{position:absolute;inset:0;background-image:linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:25% 100%}
+.track i{position:absolute;top:5px;height:20px;border-radius:5px;display:flex;align-items:center;padding:0 8px;font-size:11.5px;font-family:var(--mono);color:#fff;white-space:nowrap}
+.track i.prev{background:var(--navy-500)}
+.track i.corr{background:var(--red)}
+.track i.insp{background:var(--teal)}
+.track i.done{background:#B9C6D4}
+.track .now{position:absolute;top:0;bottom:0;width:2px;background:var(--amber)}
+.track-scale{display:grid;grid-template-columns:repeat(4,1fr);font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:4px}
+
+/* ---- Orden de trabajo ---- */
+.ot-state{display:flex;gap:0;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;background:#fff}
+.ot-state div{flex:1;padding:9px 10px;font-size:12.5px;text-align:center;color:var(--muted);border-right:1px solid var(--line)}
+.ot-state div:last-child{border-right:0}
+.ot-state div.done{background:var(--green-soft);color:#0A7A50;font-weight:600}
+.ot-state div.on{background:var(--navy);color:#fff;font-weight:600}
+.cost-row{display:flex;justify-content:space-between;font-size:13.5px;padding:6px 0;border-bottom:1px dashed #E3E9F1}
+.cost-row:last-of-type{border-bottom:0}
+.cost-row b{font-family:var(--mono);font-weight:500}
+.cost-total{margin-top:10px;padding-top:10px;border-top:2px solid var(--navy);display:flex;justify-content:space-between;align-items:center}
+.cost-total .big{font-family:var(--mono);font-size:21px;font-weight:600}
+
+/* ---- Conductores ---- */
+.driver{display:flex;gap:12px;align-items:flex-start;padding:13px 0;border-bottom:1px solid #EDF1F6}
+.driver:last-child{border-bottom:0}
+.avatar{width:40px;height:40px;border-radius:50%;flex:none;background:var(--navy-500);color:#fff;display:grid;place-items:center;font-size:14px;font-weight:700;font-family:var(--mono)}
+.driver h5{margin:0;font-size:15px}
+.driver .meta{font-size:12.5px;color:var(--muted)}
+.doc-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.doc-pill{font-size:12px;border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-family:var(--mono);background:#fff}
+.doc-pill.ok{border-color:#BDE9D5;background:var(--green-soft);color:#0A6E48}
+.doc-pill.soon{border-color:#F2DCAE;background:var(--amber-soft);color:#7A5200}
+.doc-pill.exp{border-color:#F3C6C2;background:var(--red-soft);color:#8E241D}
+
+.assign{display:grid;grid-template-columns:1fr 26px 1fr;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #EDF1F6}
+.assign:last-child{border-bottom:0}
+.assign .arrow{text-align:center;color:var(--muted)}
+.slot{border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;background:#fff;font-size:13.5px}
+.slot.empty{border-style:dashed;color:var(--muted);text-align:center}
+
+/* ---- Mapa ---- */
+.map-wrap{position:relative;background:#EAF1F6;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line)}
+.map-legend{position:absolute;left:14px;bottom:14px;background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;font-size:12.5px;box-shadow:var(--sh-1)}
+.map-legend div{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.map-legend div:last-child{margin-bottom:0}
+.map-legend i{width:11px;height:11px;border-radius:50%;display:block}
+.map-card{position:absolute;right:14px;top:14px;width:238px;background:#fff;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-3);overflow:hidden}
+.map-card .h{background:var(--navy);color:#fff;padding:10px 13px;font-family:var(--display);text-transform:uppercase;letter-spacing:.08em;font-size:15px}
+.map-card .b{padding:12px 13px;font-size:13px}
+.map-card .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #E7EDF4}
+.map-card .row:last-of-type{border-bottom:0}
+.map-card .row b{font-family:var(--mono);font-weight:500}
+
+/* ---- Analítica ---- */
+.bars{display:flex;align-items:flex-end;gap:12px;height:190px}
+.bars .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
+.bars .stack{width:100%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:5px 5px 0 0;overflow:hidden}
+.bars .stack i{display:block;width:100%}
+.bars small{font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+.legend{display:flex;gap:16px;font-size:12.5px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
+.legend b{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+
+.rank{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid #EDF1F6}
+.rank:last-child{border-bottom:0}
+.rank .nm{width:150px;font-size:13.5px;flex:none}
+.rank .bar{flex:1;height:9px;border-radius:20px;background:#EDF1F6;overflow:hidden}
+.rank .bar i{display:block;height:100%;background:var(--navy-500)}
+.rank .bar i.a{background:var(--amber)}
+.rank .vv{width:88px;text-align:right;font-family:var(--mono);font-size:13px}
+
+.heat td{text-align:center;font-family:var(--mono);font-size:12.5px;padding:8px 6px;border:1px solid #fff}
+.heat td.h1{background:#EAF0F7} .heat td.h2{background:#CBDAEC} .heat td.h3{background:#9DBADD}
+.heat td.h4{background:#6C93C9;color:#fff} .heat td.h5{background:var(--navy);color:#fff}
+.heat th{font-size:11px}
+.heat td.lab{text-align:left;font-family:var(--body);background:#fff;font-size:13px;border:0;border-bottom:1px solid #EDF1F6}
+
+.callout{background:var(--navy);color:#fff;border-radius:var(--r-md);padding:20px 22px;margin-top:26px}
+.callout h4{font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;margin:0 0 8px;font-size:16px}
+.callout p{margin:0;color:#C4D5E7;font-size:14.5px;max-width:72ch}
+
+@media (max-width:1080px){
+  .doc{grid-template-columns:1fr}
+  .rail{position:static;height:auto;display:grid;grid-template-columns:1fr 1fr;align-items:start}
+  .brand{grid-column:1/-1}
+  .stage{padding:24px 18px 70px}
+  .split2,.split3,.split4,.app{grid-template-columns:1fr}
+  .app-side{display:flex;gap:8px;overflow-x:auto;padding:11px}
+  .app-side .brand{display:none}
+  .side-item{margin:0;white-space:nowrap}
+  .plan-row{grid-template-columns:1fr}
+  .assign{grid-template-columns:1fr}
+  .assign .arrow{display:none}
+  .rank .nm{width:110px}
+  .map-card{position:static;width:auto;margin:12px}
+  .doc-head h1{font-size:32px}
+}
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="brand-mark">SOS</div>
+      <div><div class="brand-name">La Guaira</div><div class="brand-sub">Propuesta visual · III</div></div>
+    </div>
+
+    <div class="rail-label">Módulos</div>
+    <div role="tablist" aria-label="Módulos de la propuesta">
+      <button class="nav-btn" role="tab" aria-selected="true" data-target="s-mant"><span class="idx">18</span> Plan de mantenimiento</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-ot"><span class="idx">19</span> Orden de trabajo</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-cond"><span class="idx">20</span> Conductores</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-asig"><span class="idx">21</span> Asignación del turno</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-mapa"><span class="idx">22</span> Mapa operativo</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-ruta"><span class="idx">23</span> Recorrido de una unidad</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-ana"><span class="idx">24</span> Analítica gerencial</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-comp"><span class="idx">25</span> Comparativo y consumo</button>
+    </div>
+
+    <div class="rail-note">
+      Continúa la numeración de las partes 1 (01–08) y 2 (09–17). Mismos tokens y misma retícula.
+    </div>
+  </aside>
+
+  <main class="stage">
+    <header class="doc-head">
+      <div class="eyebrow">Propuesta de rediseño · Parte III · Agosto 2026</div>
+      <h1>De la falla al costo,<br>sin cambiar de sistema</h1>
+      <p>Un hallazgo de inspección se convierte en orden de trabajo; la orden inmoviliza una unidad; la unidad inmovilizada cambia quién conduce y desde qué estación se surte; y todo eso termina siendo litros y bolívares en un indicador. Estos ocho módulos cierran esa cadena.</p>
+    </header>
+
+    <!-- ============ 18 PLAN DE MANTENIMIENTO ============ -->
+    <section class="screen is-on" id="s-mant">
+      <div class="screen-head">
+        <div>
+          <h2>18 · Plan de mantenimiento</h2>
+          <p class="lede">No una lista de órdenes, sino un horizonte: qué le toca a cada unidad en las próximas cuatro semanas y qué ya se pasó de fecha.</p>
+        </div>
+        <span class="chip chip-v">Módulo nuevo</span>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/mantenimiento</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">✓</span> Inspecciones</div>
+            <div class="side-item on"><span class="ic">⚒</span> Mantenimiento</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Mantenimiento</h3><div class="sub">4 al 31 de agosto · 58 unidades · 3 en taller</div></div>
+              <div class="top-actions">
+                <button class="btn btn-ghost">Ver como lista</button>
+                <button class="btn btn-accent">⚒ Nueva orden</button>
+              </div>
+            </div>
+
+            <div class="app-body">
+              <div class="split4">
+                <div class="kpi r"><div class="lbl">Correctivos vencidos</div><div class="val">2</div><div class="delta">Ambos de origen inspección</div></div>
+                <div class="kpi a"><div class="lbl">Unidades inmovilizadas</div><div class="val">3<small>/58</small></div><div class="delta">1.180 L/día sin consumir</div></div>
+                <div class="kpi"><div class="lbl">Preventivos del mes</div><div class="val">14</div><div class="delta">9 cumplidos a tiempo</div></div>
+                <div class="kpi g"><div class="lbl">Cumplimiento del plan</div><div class="val">64<small>%</small></div><div class="delta"><b>+11 pts</b> vs. julio</div></div>
+              </div>
+
+              <div class="toolbar">
+                <div class="filters">
+                  <span class="filter on">Todas las unidades</span>
+                  <span class="filter">En taller <span class="n">3</span></span>
+                  <span class="filter">Vencidos <span class="n">2</span></span>
+                  <span class="filter">Bomberos</span>
+                  <span class="filter">Maquinaria</span>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-head"><h4>Horizonte de 4 semanas</h4><span class="link">La línea ámbar marca hoy</span></div>
+                <div class="panel-body">
+                  <div class="plan-row" style="border-bottom:2px solid var(--line);padding-bottom:6px">
+                    <div style="font-family:var(--display);text-transform:uppercase;letter-spacing:.12em;font-size:11.5px;color:var(--muted);font-weight:600">Unidad</div>
+                    <div class="track-scale" style="margin:0"><span>Sem. 1 · 4 ago</span><span>Sem. 2 · 11 ago</span><span>Sem. 3 · 18 ago</span><span>Sem. 4 · 25 ago</span></div>
+                  </div>
+
+                  <div class="plan-row">
+                    <div class="plan-unit"><span class="plate">AH412VC</span><span class="sub">Cisterna Mack · Bomberos</span></div>
+                    <div class="track">
+                      <div class="grid"></div>
+                      <i class="corr" style="left:1%;width:16%">Correctivo · manguera</i>
+                      <i class="insp" style="left:26%;width:13%">Preoperacional</i>
+                      <i class="prev" style="left:62%;width:20%">Aceite y filtros</i>
+                      <div class="now" style="left:4%"></div>
+                    </div>
+                  </div>
+
+                  <div class="plan-row">
+                    <div class="plan-unit"><span class="plate">MQ8802</span><span class="sub">Retroexcavadora CAT</span></div>
+                    <div class="track">
+                      <div class="grid"></div>
+                      <i class="done" style="left:1%;width:12%">Cumplido</i>
+                      <i class="prev" style="left:33%;width:24%">Servicio 500 h</i>
+                      <div class="now" style="left:4%"></div>
+                    </div>
+                  </div>
+
+                  <div class="plan-row">
+                    <div class="plan-unit"><span class="plate">AMB204</span><span class="sub">Ambulancia Sprinter</span></div>
+                    <div class="track">
+                      <div class="grid"></div>
+                      <i class="insp" style="left:12%;width:13%">Preoperacional</i>
+                      <i class="prev" style="left:48%;width:18%">Frenos</i>
+                      <div class="now" style="left:4%"></div>
+                    </div>
+                  </div>
+
+                  <div class="plan-row">
+                    <div class="plan-unit"><span class="plate">CIS118</span><span class="sub">Cisterna de agua · Hidrocapital</span></div>
+                    <div class="track">
+                      <div class="grid"></div>
+                      <i class="corr" style="left:0;width:9%">Vencido 3 d</i>
+                      <i class="prev" style="left:70%;width:22%">Bomba y mangueras</i>
+                      <div class="now" style="left:4%"></div>
+                    </div>
+                  </div>
+
+                  <div class="plan-row">
+                    <div class="plan-unit"><b>Surtidor 3</b><span class="sub">Catia La Mar</span></div>
+                    <div class="track">
+                      <div class="grid"></div>
+                      <i class="corr" style="left:0;width:11%">Calibración · vencido 11 d</i>
+                      <i class="insp" style="left:52%;width:14%">Verificación</i>
+                      <div class="now" style="left:4%"></div>
+                    </div>
+                  </div>
+
+                  <div class="legend">
+                    <span><b style="background:var(--red)"></b>Correctivo</span>
+                    <span><b style="background:var(--navy-500)"></b>Preventivo</span>
+                    <span><b style="background:var(--teal)"></b>Inspección</span>
+                    <span><b style="background:#B9C6D4"></b>Cumplido</span>
+                    <span><b style="background:var(--amber)"></b>Hoy</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Horizonte, no bandeja de entrada</h4><p>Una lista dice qué hay pendiente; la línea de tiempo dice cuándo cae y si dos trabajos chocan en la misma semana.</p></div>
+        <div class="gain"><h4>Los surtidores también son activos</h4><p>Calibraciones y verificaciones conviven con los vehículos en el mismo plan: es el mismo taller y el mismo presupuesto.</p></div>
+        <div class="gain"><h4>Vencido pegado al borde</h4><p>Lo atrasado se dibuja antes de la línea de hoy, así se ve como deuda y no como algo por venir.</p></div>
+        <div class="gain"><h4>El costo del paro, visible</h4><p>«3 inmovilizadas · 1.180 L/día sin consumir» conecta el taller con la operación de combustible.</p></div>
+      </div>
+      <p class="mockdata">Cifras de demostración.</p>
+    </section>
+
+    <!-- ============ 19 ORDEN DE TRABAJO ============ -->
+    <section class="screen" id="s-ot">
+      <div class="screen-head">
+        <div>
+          <h2>19 · Orden de trabajo</h2>
+          <p class="lede">Nace de un hallazgo y termina en un costo. La ficha mantiene visible esa cadena de principio a fin.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/mantenimiento/OT-2026-0233</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">✓</span> Inspecciones</div>
+            <div class="side-item on"><span class="ic">⚒</span> Mantenimiento</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div>
+                <h3>OT-2026-0233 · Correctivo</h3>
+                <div class="sub">AH412VC · Cisterna Mack · abierta el 4 ago 06:55 · responsable P. Istúriz</div>
+              </div>
+              <div class="top-actions"><button class="btn btn-ghost">Imprimir</button><button class="btn btn-primary">Marcar como reparada</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="ot-state">
+                <div class="done">Abierta · 06:55</div>
+                <div class="done">Repuesto solicitado · 08:10</div>
+                <div class="on">En reparación</div>
+                <div>Verificación</div>
+                <div>Cerrada</div>
+              </div>
+
+              <div class="split2">
+                <div style="display:grid;gap:16px">
+                  <div class="panel">
+                    <div class="panel-head"><h4>Origen</h4><span class="chip chip-bad">Crítico</span></div>
+                    <div class="panel-body">
+                      <div style="font-weight:700;font-size:15px">Manguera del surtidor con grieta longitudinal</div>
+                      <p style="margin:4px 0 0;font-size:13.5px;color:var(--muted)">Detectado en <b>INS-2026-0418</b>, punto 2 del checklist, por M. Salazar. La unidad quedó fuera de servicio automáticamente.</p>
+                      <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
+                        <button class="btn btn-ghost" style="padding:7px 13px">Ver inspección</button>
+                        <button class="btn btn-ghost" style="padding:7px 13px">Ver evidencia (3)</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="panel">
+                    <div class="panel-head"><h4>Trabajo y repuestos</h4><span class="link">Agregar renglón</span></div>
+                    <table>
+                      <thead><tr><th>Renglón</th><th>Detalle</th><th style="text-align:right">Cant.</th><th style="text-align:right">Costo</th></tr></thead>
+                      <tbody>
+                        <tr><td>Repuesto</td><td>Manguera 1½" con acople</td><td class="num">1</td><td class="num">148,00</td></tr>
+                        <tr><td>Repuesto</td><td>Abrazaderas de acero</td><td class="num">4</td><td class="num">12,80</td></tr>
+                        <tr><td>Mano de obra</td><td>Mecánico · taller propio</td><td class="num">3 h</td><td class="num">45,00</td></tr>
+                        <tr><td>Servicio</td><td>Prueba de presión</td><td class="num">1</td><td class="num">30,00</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div style="display:grid;gap:16px">
+                  <div class="panel">
+                    <div class="panel-head"><h4>Impacto</h4></div>
+                    <div class="panel-body">
+                      <div class="cost-row"><span>Unidad fuera de servicio</span><b>2 d 11 h</b></div>
+                      <div class="cost-row"><span>Consumo promedio detenido</span><b>180 L/día</b></div>
+                      <div class="cost-row"><span>Despachos reasignados</span><b>6</b></div>
+                      <div class="cost-row"><span>Plazo comprometido</span><b style="color:#B02A22">Vencido 4 ago</b></div>
+                    </div>
+                  </div>
+
+                  <div class="panel">
+                    <div class="panel-head"><h4>Costo</h4></div>
+                    <div class="panel-body">
+                      <div class="cost-row"><span>Repuestos</span><b>160,80</b></div>
+                      <div class="cost-row"><span>Mano de obra</span><b>45,00</b></div>
+                      <div class="cost-row"><span>Servicios externos</span><b>30,00</b></div>
+                      <div class="cost-total">
+                        <span class="chip chip-wait">Pendiente de aprobación</span>
+                        <span class="big">235,80 $</span>
+                      </div>
+                      <p class="hint">Sobre 200 $ se requiere aprobación del supervisor antes de cerrar la orden.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>El origen no se pierde</h4><p>La orden muestra de qué inspección y de qué punto salió, con acceso a la evidencia original.</p></div>
+        <div class="gain"><h4>Estados con hora</h4><p>La barra superior lleva la marca temporal de cada transición: se ve dónde se estancó el trabajo.</p></div>
+        <div class="gain"><h4>Impacto operativo, no solo costo</h4><p>Días fuera de servicio y despachos reasignados explican por qué una reparación de 235 $ importa.</p></div>
+        <div class="gain"><h4>El umbral de aprobación se anuncia</h4><p>Antes de intentar cerrar, no como error al final.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 20 CONDUCTORES ============ -->
+    <section class="screen" id="s-cond">
+      <div class="screen-head">
+        <div>
+          <h2>20 · Conductores</h2>
+          <p class="lede">La vigencia de licencias y certificados es lo que más caduca sin que nadie lo note. Aquí es lo primero que se ve.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/conductores</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item on"><span class="ic">◎</span> Conductores</div>
+            <div class="side-item"><span class="ic">✓</span> Inspecciones</div>
+            <div class="side-item"><span class="ic">⚒</span> Mantenimiento</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Conductores</h3><div class="sub">36 registrados · 2 con documentos vencidos · 4 por vencer este mes</div></div>
+              <div class="top-actions"><button class="btn btn-primary">Registrar conductor</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="toolbar">
+                <div class="search"><span class="ic">⌕</span><input class="input" placeholder="Buscar por nombre, cédula o unidad asignada"></div>
+                <div class="filters">
+                  <span class="filter on">Todos <span class="n">36</span></span>
+                  <span class="filter">Documentos vencidos <span class="n">2</span></span>
+                  <span class="filter">Por vencer <span class="n">4</span></span>
+                  <span class="filter">Sin unidad <span class="n">5</span></span>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-body">
+                  <div class="driver">
+                    <span class="avatar">RA</span>
+                    <div style="flex:1">
+                      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                        <div><h5>Rafael Aguilera</h5><div class="meta">V-16.204.118 · Bomberos La Guaira · desde 2019</div></div>
+                        <span class="chip chip-ok">Habilitado</span>
+                      </div>
+                      <div class="doc-strip">
+                        <span class="doc-pill ok">Licencia 5.ª · vence 12 mar 2028</span>
+                        <span class="doc-pill ok">Certificado médico · 30 ene 2027</span>
+                        <span class="doc-pill soon">Manejo defensivo · 29 ago 2026</span>
+                        <span class="doc-pill">Unidad AH412VC</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="driver">
+                    <span class="avatar">DP</span>
+                    <div style="flex:1">
+                      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                        <div><h5>Douglas Peña</h5><div class="meta">V-9.882.470 · Maquinaria pesada · desde 2015</div></div>
+                        <span class="chip chip-bad">No puede operar</span>
+                      </div>
+                      <div class="doc-strip">
+                        <span class="doc-pill exp">Certificado médico · venció 18 jul 2026</span>
+                        <span class="doc-pill ok">Licencia 5.ª · vence 04 sep 2029</span>
+                        <span class="doc-pill">Unidad MQ8802</span>
+                      </div>
+                      <p class="hint" style="color:#B02A22">El sistema bloquea el despacho a su unidad mientras el certificado esté vencido.</p>
+                    </div>
+                  </div>
+
+                  <div class="driver">
+                    <span class="avatar">YM</span>
+                    <div style="flex:1">
+                      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                        <div><h5>Yulimar Márquez</h5><div class="meta">V-21.447.033 · Salud · Ambulancias · desde 2023</div></div>
+                        <span class="chip chip-ok">Habilitada</span>
+                      </div>
+                      <div class="doc-strip">
+                        <span class="doc-pill ok">Licencia 4.ª · vence 08 jun 2030</span>
+                        <span class="doc-pill ok">Certificado médico · 15 abr 2027</span>
+                        <span class="doc-pill">Unidad AMB204</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="driver">
+                    <span class="avatar">EC</span>
+                    <div style="flex:1">
+                      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                        <div><h5>Endor Colina</h5><div class="meta">V-13.775.902 · Protección Civil · desde 2018</div></div>
+                        <span class="chip chip-mute">Sin unidad asignada</span>
+                      </div>
+                      <div class="doc-strip">
+                        <span class="doc-pill ok">Licencia 5.ª · vence 22 nov 2027</span>
+                        <span class="doc-pill soon">Certificado médico · 25 ago 2026</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Documentos como píldoras con fecha</h4><p>Verde vigente, ámbar por vencer, rojo vencido. La fecha va dentro: no hay que abrir la ficha para saber cuánto falta.</p></div>
+        <div class="gain"><h4>El estado dice la consecuencia</h4><p>«No puede operar» en lugar de «Inactivo»: nombra el efecto real sobre el despacho.</p></div>
+        <div class="gain"><h4>Sin unidad es un estado gris</h4><p>Ni bueno ni malo, pero visible: es capacidad disponible que alguien puede asignar.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 21 ASIGNACIÓN ============ -->
+    <section class="screen" id="s-asig">
+      <div class="screen-head">
+        <div>
+          <h2>21 · Asignación del turno</h2>
+          <p class="lede">Quién conduce qué, hoy. Emparejar conductor y unidad debe hacerse en una sola pantalla y con los bloqueos a la vista.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/asignaciones</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item on"><span class="ic">◎</span> Conductores</div>
+            <div class="side-item"><span class="ic">✓</span> Inspecciones</div>
+            <div class="side-item"><span class="ic">⚒</span> Mantenimiento</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Asignaciones · Turno B</h3><div class="sub">4 de agosto · 14:00 a 22:00 · 12 unidades en servicio</div></div>
+              <div class="top-actions"><button class="btn btn-ghost">Copiar del turno anterior</button><button class="btn btn-primary">Confirmar turno</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="split2">
+                <div class="panel">
+                  <div class="panel-head"><h4>Emparejamiento</h4><span class="link">Arrastre para reasignar</span></div>
+                  <div class="panel-body">
+                    <div class="assign">
+                      <div class="slot"><b>Rafael Aguilera</b><div style="font-size:12.5px;color:var(--muted)">Licencia 5.ª · habilitado</div></div>
+                      <div class="arrow">→</div>
+                      <div class="slot"><span class="plate">AH412VC</span> <span class="chip chip-bad" style="margin-left:6px">Fuera de servicio</span><div style="font-size:12.5px;color:var(--muted);margin-top:5px">OT-2026-0233 en reparación</div></div>
+                    </div>
+                    <div class="assign">
+                      <div class="slot"><b>Yulimar Márquez</b><div style="font-size:12.5px;color:var(--muted)">Licencia 4.ª · habilitada</div></div>
+                      <div class="arrow">→</div>
+                      <div class="slot"><span class="plate">AMB204</span> <span class="chip chip-ok" style="margin-left:6px">Lista</span><div style="font-size:12.5px;color:var(--muted);margin-top:5px">Preoperacional al día · cupo 62 L</div></div>
+                    </div>
+                    <div class="assign">
+                      <div class="slot"><b>Douglas Peña</b><div style="font-size:12.5px;color:#B02A22">Certificado médico vencido</div></div>
+                      <div class="arrow">→</div>
+                      <div class="slot"><span class="plate">MQ8802</span> <span class="chip chip-bad" style="margin-left:6px">Bloqueada</span><div style="font-size:12.5px;color:var(--muted);margin-top:5px">No podrá recibir combustible</div></div>
+                    </div>
+                    <div class="assign">
+                      <div class="slot"><b>Endor Colina</b><div style="font-size:12.5px;color:var(--muted)">Disponible desde las 14:00</div></div>
+                      <div class="arrow">→</div>
+                      <div class="slot empty">Sin unidad · arrastre una aquí</div>
+                    </div>
+                    <div class="assign">
+                      <div class="slot empty">Sin conductor</div>
+                      <div class="arrow">→</div>
+                      <div class="slot"><span class="plate">PC0937</span> <span class="chip chip-ok" style="margin-left:6px">Lista</span><div style="font-size:12.5px;color:var(--muted);margin-top:5px">Pick-up Hilux · Protección Civil</div></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display:grid;gap:16px">
+                  <div class="panel">
+                    <div class="panel-head"><h4>Antes de confirmar</h4></div>
+                    <div class="panel-body" style="display:grid;gap:11px">
+                      <div style="border-left:3px solid var(--red);padding-left:11px">
+                        <div style="font-weight:700;font-size:14px">2 asignaciones bloqueadas</div>
+                        <div style="font-size:13px;color:var(--muted)">Una por unidad en reparación, otra por documento vencido del conductor.</div>
+                      </div>
+                      <div style="border-left:3px solid var(--amber);padding-left:11px">
+                        <div style="font-weight:700;font-size:14px">PC0937 sin conductor</div>
+                        <div style="font-size:13px;color:var(--muted)">Endor Colina está disponible y habilitado para esa unidad.</div>
+                      </div>
+                      <div style="border-left:3px solid var(--green);padding-left:11px">
+                        <div style="font-weight:700;font-size:14px">9 asignaciones listas</div>
+                        <div style="font-size:13px;color:var(--muted)">Conductor habilitado y unidad con inspección vigente.</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="panel">
+                    <div class="panel-head"><h4>Cobertura del turno</h4></div>
+                    <div class="panel-body">
+                      <div class="rank"><span class="nm">Bomberos</span><span class="bar"><i style="width:80%"></i></span><span class="vv">4 / 5</span></div>
+                      <div class="rank"><span class="nm">Protección Civil</span><span class="bar"><i class="a" style="width:60%"></i></span><span class="vv">3 / 5</span></div>
+                      <div class="rank"><span class="nm">Ambulancias</span><span class="bar"><i style="width:100%"></i></span><span class="vv">3 / 3</span></div>
+                      <div class="rank"><span class="nm">Maquinaria</span><span class="bar"><i class="a" style="width:50%"></i></span><span class="vv">1 / 2</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Los bloqueos se explican en la fila</h4><p>No se puede confirmar un turno sin ver por qué esa pareja no funciona: unidad en taller o documento vencido.</p></div>
+        <div class="gain"><h4>Los huecos se ven igual que las parejas</h4><p>Un espacio punteado ocupa el mismo lugar visual que una asignación hecha.</p></div>
+        <div class="gain"><h4>Sugerencia, no automatismo</h4><p>El sistema propone a Endor Colina para PC0937, pero la decisión sigue siendo del supervisor.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 22 MAPA ============ -->
+    <section class="screen" id="s-mapa">
+      <div class="screen-head">
+        <div>
+          <h2>22 · Mapa operativo</h2>
+          <p class="lede">El litoral central es una franja: la costa manda la forma del mapa. Estaciones, nivel de inventario y unidades activas en un solo lienzo.</p>
+        </div>
+        <span class="chip chip-info">Esquema base</span>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/mapa</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item on"><span class="ic">◈</span> Mapa</div>
+            <div class="side-item"><span class="ic">▤</span> Estaciones</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Mapa operativo</h3><div class="sub">4 estaciones · 12 unidades en servicio · posición actualizada hace 40 s</div></div>
+              <div class="top-actions">
+                <button class="btn btn-ghost">Solo estaciones</button>
+                <button class="btn btn-ghost">Historial</button>
+              </div>
+            </div>
+
+            <div class="app-body">
+              <div class="map-wrap">
+                <svg viewBox="0 0 900 380" style="display:block;width:100%;height:auto" role="img" aria-label="Esquema del litoral central con estaciones y unidades">
+                  <!-- mar -->
+                  <rect x="0" y="0" width="900" height="150" fill="#CFE0EC"/>
+                  <path d="M0 150 C 120 128, 220 168, 330 150 C 450 130, 560 172, 690 150 C 790 132, 850 158, 900 148 L900 380 L0 380 Z" fill="#EDF2F0"/>
+                  <!-- montaña / Ávila -->
+                  <path d="M0 380 L0 300 C 140 250, 300 288, 430 258 C 580 224, 700 272, 900 240 L900 380 Z" fill="#DFE7E1"/>
+                  <path d="M0 380 L0 336 C 180 306, 340 340, 520 314 C 700 288, 800 320, 900 302 L900 380 Z" fill="#D3DED7"/>
+                  <!-- carretera costera -->
+                  <path d="M40 214 C 200 196, 330 226, 470 208 C 620 188, 740 220, 866 202" stroke="#B9C6D4" stroke-width="7" fill="none" stroke-linecap="round"/>
+                  <path d="M40 214 C 200 196, 330 226, 470 208 C 620 188, 740 220, 866 202" stroke="#fff" stroke-width="1.6" fill="none" stroke-dasharray="9 11"/>
+
+                  <text x="24" y="36" font-family="Barlow Condensed" font-size="17" letter-spacing="3" fill="#7C99B0">MAR CARIBE</text>
+                  <text x="24" y="366" font-family="Barlow Condensed" font-size="17" letter-spacing="3" fill="#93A79A">PARQUE NACIONAL EL ÁVILA</text>
+
+                  <!-- estación 1: Catia La Mar (crítica) -->
+                  <g>
+                    <circle cx="150" cy="208" r="22" fill="#D93A32" opacity=".16"/>
+                    <circle cx="150" cy="208" r="11" fill="#D93A32" stroke="#fff" stroke-width="3"/>
+                    <text x="150" y="180" text-anchor="middle" font-family="Barlow" font-size="14" font-weight="600" fill="#0E1A26">Catia La Mar</text>
+                    <text x="150" y="246" text-anchor="middle" font-family="IBM Plex Mono" font-size="12.5" fill="#B02A22">Diésel 18%</text>
+                  </g>
+                  <!-- estación 2: Maiquetía -->
+                  <g>
+                    <circle cx="360" cy="216" r="11" fill="#0FA36B" stroke="#fff" stroke-width="3"/>
+                    <text x="360" y="188" text-anchor="middle" font-family="Barlow" font-size="14" font-weight="600" fill="#0E1A26">Maiquetía</text>
+                    <text x="360" y="254" text-anchor="middle" font-family="IBM Plex Mono" font-size="12.5" fill="#5F7183">Diésel 37%</text>
+                  </g>
+                  <!-- estación 3: Macuto -->
+                  <g>
+                    <circle cx="588" cy="196" r="11" fill="#0FA36B" stroke="#fff" stroke-width="3"/>
+                    <text x="588" y="168" text-anchor="middle" font-family="Barlow" font-size="14" font-weight="600" fill="#0E1A26">Macuto</text>
+                    <text x="588" y="234" text-anchor="middle" font-family="IBM Plex Mono" font-size="12.5" fill="#5F7183">Diésel 88%</text>
+                  </g>
+                  <!-- estación 4: Caraballeda (recepción) -->
+                  <g>
+                    <circle cx="792" cy="208" r="11" fill="#FFB020" stroke="#fff" stroke-width="3"/>
+                    <text x="792" y="180" text-anchor="middle" font-family="Barlow" font-size="14" font-weight="600" fill="#0E1A26">Caraballeda</text>
+                    <text x="792" y="246" text-anchor="middle" font-family="IBM Plex Mono" font-size="12.5" fill="#946200">Recepción</text>
+                  </g>
+
+                  <!-- unidades -->
+                  <g font-family="IBM Plex Mono" font-size="10.5" fill="#fff">
+                    <rect x="228" y="196" width="60" height="19" rx="5" fill="#1E3A5F"/><text x="258" y="209.5" text-anchor="middle">AMB204</text>
+                    <rect x="470" y="186" width="60" height="19" rx="5" fill="#1E3A5F"/><text x="500" y="199.5" text-anchor="middle">PC0937</text>
+                    <rect x="676" y="204" width="60" height="19" rx="5" fill="#1E3A5F"/><text x="706" y="217.5" text-anchor="middle">CIS118</text>
+                    <rect x="106" y="272" width="60" height="19" rx="5" fill="#D93A32"/><text x="136" y="285.5" text-anchor="middle">MQ8802</text>
+                  </g>
+                  <!-- cisterna en camino -->
+                  <g>
+                    <path d="M866 202 L 830 204" stroke="#FFB020" stroke-width="3" stroke-dasharray="6 5"/>
+                    <rect x="828" y="272" width="64" height="19" rx="5" fill="#FFB020"/>
+                    <text x="860" y="285.5" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#3A2703">PV-3312</text>
+                  </g>
+                </svg>
+
+                <div class="map-legend">
+                  <div><i style="background:#D93A32"></i> Inventario crítico</div>
+                  <div><i style="background:#FFB020"></i> Recepción en curso</div>
+                  <div><i style="background:#0FA36B"></i> Nivel normal</div>
+                  <div><i style="background:#1E3A5F"></i> Unidad en servicio</div>
+                </div>
+
+                <div class="map-card">
+                  <div class="h">Catia La Mar</div>
+                  <div class="b">
+                    <div class="row"><span>Diésel</span><b style="color:#B02A22">5.400 L · 18%</b></div>
+                    <div class="row"><span>Gasolina</span><b>22.200 L · 74%</b></div>
+                    <div class="row"><span>Surtidores</span><b>3 de 4</b></div>
+                    <div class="row"><span>Despachos hoy</span><b>63</b></div>
+                    <div class="row"><span>Cisterna en camino</span><b>19:40</b></div>
+                    <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:11px">Abrir estación</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>La geografía real como marco</h4><p>Mar arriba, Ávila abajo, carretera en medio: cualquiera del litoral se ubica sin leer nombres.</p></div>
+        <div class="gain"><h4>El pin dice el inventario</h4><p>El color del punto es el mismo semáforo de tanques del resto del sistema, con el halo reservado al nivel crítico.</p></div>
+        <div class="gain"><h4>Placas legibles como etiqueta</h4><p>Las unidades se dibujan como matrícula, no como iconos genéricos que hay que pulsar para identificar.</p></div>
+        <div class="gain"><h4>Ficha sin salir del mapa</h4><p>La tarjeta lateral resume la estación y ofrece una sola salida: abrirla completa.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 23 RUTA ============ -->
+    <section class="screen" id="s-ruta">
+      <div class="screen-head">
+        <div>
+          <h2>23 · Recorrido de una unidad</h2>
+          <p class="lede">Cruzar posición con consumo: dónde estuvo, dónde cargó y si los kilómetros recorridos justifican los litros entregados.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/flota/AH412VC/recorrido</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">◈</span> Mapa</div>
+            <div class="side-item on"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">✓</span> Inspecciones</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>AH412VC · recorrido del 3 de agosto</h3><div class="sub">Cisterna Mack · Bomberos La Guaira · conductor R. Aguilera</div></div>
+              <div class="top-actions"><button class="btn btn-ghost">Cambiar fecha</button><button class="btn btn-ghost">Exportar</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="split4">
+                <div class="kpi"><div class="lbl">Distancia</div><div class="val">112<small>km</small></div><div class="delta">6 h 20 min en ruta</div></div>
+                <div class="kpi a"><div class="lbl">Combustible cargado</div><div class="val">180<small>L</small></div><div class="delta">1 despacho · 06:41</div></div>
+                <div class="kpi t"><div class="lbl">Rendimiento</div><div class="val">2,4<small>km/L</small></div><div class="delta">Esperado 2,2 a 2,8</div></div>
+                <div class="kpi"><div class="lbl">Paradas</div><div class="val">7</div><div class="delta">1 sin justificar · 42 min</div></div>
+              </div>
+
+              <div class="map-wrap">
+                <svg viewBox="0 0 900 300" style="display:block;width:100%;height:auto" role="img" aria-label="Recorrido de la unidad durante el día">
+                  <rect x="0" y="0" width="900" height="118" fill="#CFE0EC"/>
+                  <path d="M0 118 C 140 100, 260 136, 400 118 C 560 96, 700 138, 900 116 L900 300 L0 300 Z" fill="#EDF2F0"/>
+                  <path d="M0 300 L0 236 C 180 208, 360 244, 540 216 C 720 190, 820 224, 900 208 L900 300 Z" fill="#DFE7E1"/>
+                  <!-- recorrido -->
+                  <path d="M120 176 C 220 160, 300 194, 400 172 C 520 146, 620 190, 740 164" stroke="#1E3A5F" stroke-width="4" fill="none" stroke-linecap="round"/>
+                  <!-- paradas -->
+                  <g fill="#1E3A5F">
+                    <circle cx="120" cy="176" r="7" stroke="#fff" stroke-width="2.5"/>
+                    <circle cx="286" cy="180" r="6" stroke="#fff" stroke-width="2.5"/>
+                    <circle cx="400" cy="172" r="6" stroke="#fff" stroke-width="2.5"/>
+                    <circle cx="620" cy="182" r="6" stroke="#fff" stroke-width="2.5"/>
+                    <circle cx="740" cy="164" r="7" stroke="#fff" stroke-width="2.5"/>
+                  </g>
+                  <!-- carga -->
+                  <circle cx="120" cy="176" r="17" fill="#FFB020" opacity=".28"/>
+                  <text x="120" y="150" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#946200">06:41 · 180 L</text>
+                  <!-- parada larga -->
+                  <circle cx="510" cy="160" r="16" fill="#D93A32" opacity=".2"/>
+                  <circle cx="510" cy="160" r="6.5" fill="#D93A32" stroke="#fff" stroke-width="2.5"/>
+                  <text x="510" y="136" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#B02A22">42 min detenida</text>
+                  <text x="740" y="140" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#5F7183">18:12 · fin</text>
+                </svg>
+              </div>
+
+              <div class="panel">
+                <div class="panel-head"><h4>Cronología</h4><span class="link">Ver en tabla</span></div>
+                <table>
+                  <thead><tr><th>Hora</th><th>Evento</th><th>Lugar</th><th style="text-align:right">Odómetro</th><th>Nota</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mono">06:41</td><td>Carga de combustible</td><td>Catia La Mar</td><td class="num">148.302</td><td><span class="chip chip-ok">Ticket 000-4801</span></td></tr>
+                    <tr><td class="mono">08:15</td><td>Parada operativa</td><td>Maiquetía</td><td class="num">148.331</td><td>Apoyo a rescate</td></tr>
+                    <tr><td class="mono">12:04</td><td>Parada prolongada</td><td>Sector Tanaguarena</td><td class="num">148.379</td><td><span class="chip chip-bad">42 min sin justificar</span></td></tr>
+                    <tr><td class="mono">15:30</td><td>Parada operativa</td><td>Macuto</td><td class="num">148.392</td><td>Descarga de agua</td></tr>
+                    <tr><td class="mono">18:12</td><td>Fin de jornada</td><td>Caraballeda</td><td class="num">148.414</td><td>Entrega de unidad</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Rendimiento con rango esperado</h4><p>2,4 km/L no significa nada solo; junto al rango de la unidad se convierte en un juicio.</p></div>
+        <div class="gain"><h4>Las anomalías se marcan en el trazo</h4><p>La parada prolongada se resalta en el mapa y se repite en la cronología, no solo en la tabla.</p></div>
+        <div class="gain"><h4>El ticket vive en la línea de tiempo</h4><p>La carga se ve junto al odómetro del momento: así se audita el consumo declarado.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 24 ANALÍTICA ============ -->
+    <section class="screen" id="s-ana">
+      <div class="screen-head">
+        <div>
+          <h2>24 · Analítica gerencial</h2>
+          <p class="lede">Para quien no despacha ni inspecciona: cuánto se consume, quién consume, cuánto cuesta y hacia dónde va la tendencia.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/analitica</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item on"><span class="ic">▦</span> Analítica</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">⚒</span> Mantenimiento</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Analítica</h3><div class="sub">Julio 2026 · comparado con junio · 4 estaciones</div></div>
+              <div class="top-actions">
+                <button class="btn btn-ghost">Julio 2026 ▾</button>
+                <button class="btn btn-primary">Exportar informe</button>
+              </div>
+            </div>
+
+            <div class="app-body">
+              <div class="split4">
+                <div class="kpi a"><div class="lbl">Litros del mes</div><div class="val">386.240</div><div class="delta"><b>+12,3%</b> vs. junio</div></div>
+                <div class="kpi"><div class="lbl">Despachos</div><div class="val">1.842</div><div class="delta">210 L promedio</div></div>
+                <div class="kpi t"><div class="lbl">Costo estimado</div><div class="val">94,2<small>k $</small></div><div class="delta">0,244 $ por litro</div></div>
+                <div class="kpi g"><div class="lbl">Merma acumulada</div><div class="val">0,31<small>%</small></div><div class="delta"><b>−0,12 pts</b> vs. junio</div></div>
+              </div>
+
+              <div class="split2">
+                <div class="panel">
+                  <div class="panel-head"><h4>Consumo mensual por producto</h4><span class="link">Últimos 6 meses</span></div>
+                  <div class="panel-body">
+                    <div class="bars">
+                      <div class="col"><div class="stack" style="height:52%"><i style="background:var(--amber);height:64%"></i><i style="background:var(--navy-500);height:36%"></i></div><small>feb</small></div>
+                      <div class="col"><div class="stack" style="height:58%"><i style="background:var(--amber);height:62%"></i><i style="background:var(--navy-500);height:38%"></i></div><small>mar</small></div>
+                      <div class="col"><div class="stack" style="height:55%"><i style="background:var(--amber);height:60%"></i><i style="background:var(--navy-500);height:40%"></i></div><small>abr</small></div>
+                      <div class="col"><div class="stack" style="height:63%"><i style="background:var(--amber);height:63%"></i><i style="background:var(--navy-500);height:37%"></i></div><small>may</small></div>
+                      <div class="col"><div class="stack" style="height:78%"><i style="background:var(--amber);height:70%"></i><i style="background:var(--navy-500);height:30%"></i></div><small>jun</small></div>
+                      <div class="col"><div class="stack" style="height:100%"><i style="background:var(--amber);height:73%"></i><i style="background:var(--navy-500);height:27%"></i></div><small>jul</small></div>
+                    </div>
+                    <div class="legend">
+                      <span><b style="background:var(--amber)"></b>Diésel</span>
+                      <span><b style="background:var(--navy-500)"></b>Gasolina</span>
+                      <span>El salto de junio y julio corresponde a la contingencia del 24 de junio.</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="panel">
+                  <div class="panel-head"><h4>Consumo por organismo</h4><span class="link">Julio</span></div>
+                  <div class="panel-body">
+                    <div class="rank"><span class="nm">Maquinaria pesada</span><span class="bar"><i style="width:100%"></i></span><span class="vv">128.400 L</span></div>
+                    <div class="rank"><span class="nm">Bomberos</span><span class="bar"><i style="width:74%"></i></span><span class="vv">95.100 L</span></div>
+                    <div class="rank"><span class="nm">Hidrocapital</span><span class="bar"><i style="width:52%"></i></span><span class="vv">66.800 L</span></div>
+                    <div class="rank"><span class="nm">Protección Civil</span><span class="bar"><i style="width:41%"></i></span><span class="vv">52.300 L</span></div>
+                    <div class="rank"><span class="nm">Ambulancias</span><span class="bar"><i style="width:22%"></i></span><span class="vv">28.200 L</span></div>
+                    <div class="rank"><span class="nm">Logística</span><span class="bar"><i class="a" style="width:12%"></i></span><span class="vv">15.440 L</span></div>
+                    <p class="hint">Logística creció 61% respecto a junio: es el mayor cambio relativo del mes.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-head"><h4>Demanda por hora y día</h4><span class="link">Julio · promedio de litros</span></div>
+                <div class="panel-body" style="overflow-x:auto">
+                  <table class="heat">
+                    <thead><tr><th></th><th>06</th><th>08</th><th>10</th><th>12</th><th>14</th><th>16</th><th>18</th><th>20</th><th>22</th></tr></thead>
+                    <tbody>
+                      <tr><td class="lab">Lunes</td><td class="h3">820</td><td class="h4">1.410</td><td class="h4">1.380</td><td class="h2">640</td><td class="h3">910</td><td class="h5">1.720</td><td class="h4">1.290</td><td class="h2">560</td><td class="h1">210</td></tr>
+                      <tr><td class="lab">Martes</td><td class="h3">790</td><td class="h4">1.320</td><td class="h3">1.010</td><td class="h2">590</td><td class="h3">880</td><td class="h5">1.680</td><td class="h4">1.240</td><td class="h2">520</td><td class="h1">180</td></tr>
+                      <tr><td class="lab">Miércoles</td><td class="h2">640</td><td class="h4">1.290</td><td class="h3">980</td><td class="h2">610</td><td class="h3">940</td><td class="h4">1.480</td><td class="h3">1.020</td><td class="h2">490</td><td class="h1">160</td></tr>
+                      <tr><td class="lab">Jueves</td><td class="h3">810</td><td class="h4">1.360</td><td class="h3">1.060</td><td class="h2">600</td><td class="h4">1.180</td><td class="h5">1.760</td><td class="h4">1.310</td><td class="h2">540</td><td class="h1">190</td></tr>
+                      <tr><td class="lab">Viernes</td><td class="h3">880</td><td class="h5">1.640</td><td class="h4">1.420</td><td class="h3">870</td><td class="h4">1.290</td><td class="h5">1.810</td><td class="h4">1.360</td><td class="h3">720</td><td class="h2">280</td></tr>
+                      <tr><td class="lab">Sábado</td><td class="h2">520</td><td class="h3">960</td><td class="h3">1.020</td><td class="h2">640</td><td class="h2">680</td><td class="h3">890</td><td class="h2">610</td><td class="h1">280</td><td class="h1">120</td></tr>
+                      <tr><td class="lab">Domingo</td><td class="h1">310</td><td class="h2">580</td><td class="h2">620</td><td class="h1">380</td><td class="h2">520</td><td class="h2">640</td><td class="h1">390</td><td class="h1">180</td><td class="h1">90</td></tr>
+                    </tbody>
+                  </table>
+                  <p class="hint">Dos picos claros: 08:00 y 16:00, con el viernes como día más exigente. La franja de 22:00 casi no se usa en ninguna estación.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Cada gráfico responde una pregunta</h4><p>Cuánto (barras), quién (ranking), cuándo (mapa de calor). Ninguno repite lo que dice otro.</p></div>
+        <div class="gain"><h4>El contexto va escrito</h4><p>El salto de junio se explica bajo el gráfico. Un pico sin explicación se malinterpreta siempre.</p></div>
+        <div class="gain"><h4>Mapa de calor en una sola tinta</h4><p>Intensidades del azul de marca en vez de la escala arcoíris: la lectura es ordinal y no confunde.</p></div>
+        <div class="gain"><h4>Comparación por defecto</h4><p>Todo indicador trae su variación contra el período anterior; un número solo no permite decidir.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 25 COMPARATIVO ============ -->
+    <section class="screen" id="s-comp">
+      <div class="screen-head">
+        <div>
+          <h2>25 · Comparativo y consumo</h2>
+          <p class="lede">La vista que sostiene decisiones incómodas: qué estación cuadra mejor, qué unidades se salen de su rendimiento esperado.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/analitica/comparativo</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand"><div class="brand-mark">SOS</div><div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div></div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item on"><span class="ic">▦</span> Analítica</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">⚒</span> Mantenimiento</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Comparativo</h3><div class="sub">Julio 2026 · 4 estaciones · 58 unidades</div></div>
+              <div class="top-actions"><button class="btn btn-ghost">Exportar CSV</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="panel">
+                <div class="panel-head"><h4>Estaciones</h4><span class="link">Ordenado por merma</span></div>
+                <table>
+                  <thead>
+                    <tr><th>Estación</th><th style="text-align:right">Litros</th><th style="text-align:right">Despachos</th><th style="text-align:right">Merma</th><th style="text-align:right">Tiempo medio</th><th>Inspecciones al día</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><b>Catia La Mar</b><div style="font-size:12.5px;color:var(--muted)">Planta · 4 surtidores</div></td>
+                      <td class="num">198.400</td><td class="num">912</td>
+                      <td class="num" style="color:#B02A22">0,58%</td><td class="num">6,2 min</td>
+                      <td><span class="chip chip-wait">3 de 5</span></td>
+                    </tr>
+                    <tr>
+                      <td><b>Maiquetía</b><div style="font-size:12.5px;color:var(--muted)">Punto móvil · 2 surtidores</div></td>
+                      <td class="num">88.600</td><td class="num">441</td>
+                      <td class="num">0,31%</td><td class="num">5,1 min</td>
+                      <td><span class="chip chip-ok">4 de 4</span></td>
+                    </tr>
+                    <tr>
+                      <td><b>Caraballeda</b><div style="font-size:12.5px;color:var(--muted)">Apoyo · 2 surtidores</div></td>
+                      <td class="num">62.100</td><td class="num">318</td>
+                      <td class="num">0,22%</td><td class="num">4,8 min</td>
+                      <td><span class="chip chip-ok">4 de 4</span></td>
+                    </tr>
+                    <tr>
+                      <td><b>Macuto</b><div style="font-size:12.5px;color:var(--muted)">Portátil · 1 manguera</div></td>
+                      <td class="num">37.140</td><td class="num">171</td>
+                      <td class="num">0,14%</td><td class="num">7,9 min</td>
+                      <td><span class="chip chip-bad">1 de 3</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="panel-body" style="border-top:1px solid var(--line)">
+                  <p class="hint" style="margin:0">Catia La Mar concentra el 51% del volumen y también la mayor merma. El surtidor 3, con calibración vencida hace 11 días, explica buena parte de esa diferencia.</p>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-head"><h4>Unidades fuera de su rendimiento esperado</h4><span class="link">Julio</span></div>
+                <table>
+                  <thead>
+                    <tr><th>Unidad</th><th>Organismo</th><th style="text-align:right">Litros</th><th style="text-align:right">km</th><th style="text-align:right">Real</th><th style="text-align:right">Esperado</th><th>Desvío</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span class="plate">MQ8802</span></td><td>Maquinaria pesada</td>
+                      <td class="num">18.400</td><td class="num">—</td><td class="num">32 L/h</td><td class="num">24 L/h</td>
+                      <td><span class="chip chip-bad">+33%</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="plate">CIS118</span></td><td>Hidrocapital</td>
+                      <td class="num">9.640</td><td class="num">3.120</td><td class="num">3,0 km/L</td><td class="num">3,8 km/L</td>
+                      <td><span class="chip chip-wait">−21%</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="plate">GN5540</span></td><td>Logística</td>
+                      <td class="num">6.280</td><td class="num">2.940</td><td class="num">4,1 km/L</td><td class="num">4,4 km/L</td>
+                      <td><span class="chip chip-wait">−7%</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="plate">AMB204</span></td><td>Ambulancias</td>
+                      <td class="num">1.860</td><td class="num">9.480</td><td class="num">5,1 km/L</td><td class="num">4,9 km/L</td>
+                      <td><span class="chip chip-ok">+4%</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="panel-body" style="border-top:1px solid var(--line)">
+                  <p class="hint" style="margin:0">Un desvío alto no acusa a nadie: puede ser una falla mecánica, un horómetro descalibrado o un mal registro. Por eso cada fila enlaza a su historial de despachos y a su última inspección.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Real contra esperado</h4><p>El desvío se calcula contra el rendimiento propio del tipo de unidad, no contra un promedio de flota que mezcla ambulancias con retroexcavadoras.</p></div>
+        <div class="gain"><h4>Litros por hora donde corresponde</h4><p>La maquinaria se mide en L/h y los vehículos en km/L. Forzar una sola métrica falsea el ranking.</p></div>
+        <div class="gain"><h4>La causa probable, sugerida</h4><p>La nota conecta la merma de Catia La Mar con la calibración vencida en vez de dejar el dato suelto.</p></div>
+        <div class="gain"><h4>Prudencia escrita en la interfaz</h4><p>El texto advierte que un desvío no es una acusación: evita que el tablero se use como instrumento sancionatorio.</p></div>
+      </div>
+
+      <div class="callout">
+        <h4>Cómo se conectan las tres entregas</h4>
+        <p>Un punto de checklist en rojo (parte 2) abre una orden de trabajo e inmoviliza la unidad (parte 3), lo que cambia la asignación del turno y desvía despachos a otra estación (parte 1), y esa desviación termina explicando la merma del mes en el comparativo. Ninguna pantalla vive sola: por eso comparten tokens, semáforo y vocabulario.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function(){
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.nav-btn'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.screen'));
+  function show(id){
+    panels.forEach(function(p){ p.classList.toggle('is-on', p.id === id); });
+    tabs.forEach(function(t){ t.setAttribute('aria-selected', String(t.dataset.target === id)); });
+    window.scrollTo({top:0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+  }
+  tabs.forEach(function(t, i){
+    t.addEventListener('click', function(){ show(t.dataset.target); });
+    t.addEventListener('keydown', function(e){
+      var next = e.key === 'ArrowDown' ? i+1 : e.key === 'ArrowUp' ? i-1 : null;
+      if(next === null) return;
+      e.preventDefault();
+      var el = tabs[(next + tabs.length) % tabs.length];
+      el.focus(); show(el.dataset.target);
+    });
+  });
+})();
+</script>
+</body>
+</html>

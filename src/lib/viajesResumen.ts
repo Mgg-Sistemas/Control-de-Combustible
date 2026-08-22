@@ -12,8 +12,24 @@
 /** Clave de los camiones sin empresa asignada: van todos a una sola cubeta. */
 export const SIN_EMPRESA = '__sin_empresa__';
 
+/** Clave de los camiones que el listero anotó a mano por no estar en el catálogo. */
+export const FUERA_CATALOGO = '__fuera_catalogo__';
+
 /** Lo mínimo que el resumen necesita de un viaje. */
-export type ViajeMin = { machineryId: string; machineCode: string };
+export type ViajeMin = { machineryId: string | null; machineCode: string; fueraCatalogo?: boolean };
+
+/**
+ * Clave con la que se cuenta un camión dentro de su empresa.
+ *
+ * ⚠️ Los camiones FUERA DE CATÁLOGO no tienen id, así que si se agruparan por
+ * `machineryId` caerían TODOS en la misma cubeta (`null`) y "VOLTEO 88" y
+ * "VOLTEO 99" saldrían sumados como si fueran un solo camión. Se agrupan por su
+ * código escrito, normalizado, que es lo único que los distingue.
+ */
+export function claveCamion(v: ViajeMin): string {
+  if (v.machineryId) return v.machineryId;
+  return FUERA_CATALOGO + ':' + String(v.machineCode ?? '').trim().toUpperCase();
+}
 
 /** Lo mínimo que necesita del camión (sale de `machinery`). */
 export type CamionMin = { companyId: string | null; companyName: string; plate: string | null; serial: string | null };
@@ -43,20 +59,25 @@ export function resumirViajes(
   const emp = new Map<string, { key: string; name: string; total: number; camiones: Map<string, CamionResumen> }>();
 
   for (const r of rows) {
-    const t = camionPorId(r.machineryId);
+    // Un camión fuera de catálogo no se busca: no está y nunca va a estar.
+    const t = r.machineryId ? camionPorId(r.machineryId) : undefined;
     const key = t?.companyId ?? SIN_EMPRESA;
     const name = t?.companyName || 'Sin empresa';
 
     const g = emp.get(key) ?? { key, name, total: 0, camiones: new Map<string, CamionResumen>() };
     g.total += 1;
 
-    const cam = g.camiones.get(r.machineryId) ?? {
+    const ck = claveCamion(r);
+    const cam = g.camiones.get(ck) ?? {
       code: r.machineCode,
-      placa: t?.plate || t?.serial || '—',
+      // Los de fuera de catálogo no tienen placa en el sistema (no hay ficha que
+      // consultar): se marcan para que quien lee el reporte sepa que ese camión
+      // lo anotó un listero a mano y no está en la flota.
+      placa: r.machineryId ? (t?.plate || t?.serial || '—') : 'FUERA DE CATÁLOGO',
       viajes: 0,
     };
     cam.viajes += 1;
-    g.camiones.set(r.machineryId, cam);
+    g.camiones.set(ck, cam);
     emp.set(key, g);
   }
 

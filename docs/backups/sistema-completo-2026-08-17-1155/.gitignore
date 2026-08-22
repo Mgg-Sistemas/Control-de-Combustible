@@ -1,0 +1,61 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+
+# Supabase CLI
+supabase/.temp/
+supabase/.branches/
+# dist/ se COMMITEA a propósito: DigitalOcean sirve esta carpeta ya compilada
+# (deploy casi instantáneo, sin recompilar). Se regenera con `npm run deploy`.
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# Archivos locales generados (no versionar)
+QR-maquinas-por-empresa.html
+_genqr.mjs
+
+QR-maquinas-por-empresa.pdf
+
+# Guía local del inspector (no versionar; se genera en local)
+Guia-Inspector-SOS-La-Guaira.pdf
+
+# Temporales de pruebas/automatizacion
+.playwright-mcp/
+boot.png
+qrinactive.png

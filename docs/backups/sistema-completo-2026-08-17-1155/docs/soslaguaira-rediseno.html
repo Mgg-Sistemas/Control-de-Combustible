@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOS La Guaira · Control de Combustible — Propuesta visual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS
+   Ancla de marca: #1E3A5F (color de tema actual del sitio)
+   ============================================================ */
+:root{
+  --ink:#0B1A2E;
+  --navy:#1E3A5F;
+  --navy-700:#17304E;
+  --navy-500:#2C5486;
+  --steel:#6B8099;
+  --paper:#F3F6FA;
+  --card:#FFFFFF;
+  --line:#DCE3EC;
+  --text:#0E1A26;
+  --muted:#5F7183;
+
+  --amber:#FFB020;      /* diésel / señalética de surtidor */
+  --amber-soft:#FFF3DA;
+  --green:#0FA36B;      /* gasolina / confirmado */
+  --green-soft:#E3F7EE;
+  --red:#D93A32;        /* alerta / nivel crítico */
+  --red-soft:#FDEAE8;
+  --info:#2E7CF6;
+  --info-soft:#E8F1FE;
+
+  --r-sm:8px; --r-md:12px; --r-lg:18px;
+  --sh-1:0 1px 2px rgba(11,26,46,.06), 0 1px 3px rgba(11,26,46,.05);
+  --sh-2:0 4px 14px rgba(11,26,46,.08), 0 1px 3px rgba(11,26,46,.05);
+  --sh-3:0 18px 44px rgba(11,26,46,.16);
+
+  --display:"Barlow Condensed", "Arial Narrow", sans-serif;
+  --body:"Barlow", "Segoe UI", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, "Courier New", monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--body);
+  background:var(--paper);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  line-height:1.5;
+}
+:focus-visible{outline:3px solid var(--amber); outline-offset:2px; border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+
+/* ============================================================
+   CASCARÓN DEL DOCUMENTO
+   ============================================================ */
+.doc{display:grid; grid-template-columns:264px 1fr; min-height:100vh}
+
+.rail{
+  background:var(--ink);
+  color:#D9E2EE;
+  padding:22px 18px 40px;
+  position:sticky; top:0; height:100vh; overflow-y:auto;
+}
+.brand{display:flex; align-items:center; gap:11px; margin-bottom:26px}
+.brand-mark{
+  width:38px; height:38px; border-radius:10px; flex:none;
+  background:linear-gradient(155deg,var(--navy-500),var(--navy));
+  border:1px solid rgba(255,255,255,.16);
+  display:grid; place-items:center;
+  font-family:var(--display); font-weight:700; font-size:15px; letter-spacing:.06em; color:#fff;
+}
+.brand-name{font-family:var(--display); font-weight:700; font-size:19px; letter-spacing:.04em; text-transform:uppercase; color:#fff; line-height:1.1}
+.brand-sub{font-size:11.5px; color:#7E93AB; letter-spacing:.09em; text-transform:uppercase; font-weight:600}
+
+.rail-label{
+  font-family:var(--display); text-transform:uppercase; letter-spacing:.16em;
+  font-size:11.5px; color:#67809B; margin:22px 6px 9px; font-weight:600;
+}
+.nav-btn{
+  display:flex; align-items:center; gap:10px; width:100%;
+  background:transparent; border:0; cursor:pointer;
+  color:#B9C8D8; font-family:var(--body); font-size:14.5px; font-weight:500;
+  text-align:left; padding:9px 11px; border-radius:var(--r-sm); margin-bottom:2px;
+  transition:background .15s, color .15s;
+}
+.nav-btn:hover{background:rgba(255,255,255,.06); color:#fff}
+.nav-btn .idx{
+  font-family:var(--mono); font-size:11px; color:#5E7590;
+  border:1px solid rgba(255,255,255,.14); border-radius:5px;
+  padding:1px 5px; flex:none;
+}
+.nav-btn[aria-selected="true"]{background:var(--navy); color:#fff; box-shadow:inset 3px 0 0 var(--amber)}
+.nav-btn[aria-selected="true"] .idx{color:var(--amber); border-color:rgba(255,176,32,.45)}
+.rail-note{
+  margin-top:26px; padding:12px; border-radius:var(--r-sm);
+  background:rgba(255,176,32,.09); border:1px solid rgba(255,176,32,.22);
+  font-size:12.5px; color:#E6D2AE; line-height:1.45;
+}
+
+.stage{padding:34px 40px 90px; max-width:1180px}
+
+/* Encabezado de documento */
+.doc-head{margin-bottom:30px; border-bottom:1px solid var(--line); padding-bottom:22px}
+.eyebrow{
+  font-family:var(--display); text-transform:uppercase; letter-spacing:.18em;
+  font-size:12px; font-weight:600; color:var(--navy-500);
+}
+.doc-head h1{
+  font-family:var(--display); font-weight:700; font-size:41px; line-height:1.05;
+  margin:6px 0 10px; letter-spacing:-.01em; text-transform:uppercase;
+}
+.doc-head p{margin:0; color:var(--muted); max-width:66ch; font-size:15.5px}
+
+/* Pantallas */
+.screen{display:none}
+.screen.is-on{display:block; animation:rise .28s ease}
+@keyframes rise{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none}}
+.screen-head{display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:16px; flex-wrap:wrap}
+.screen-head h2{font-family:var(--display); text-transform:uppercase; font-size:27px; letter-spacing:.01em; margin:0}
+.screen-head .lede{color:var(--muted); font-size:14.5px; margin:4px 0 0; max-width:60ch}
+
+/* Marco "monitor" que envuelve cada maqueta */
+.frame{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--sh-3); overflow:hidden;
+}
+.frame-bar{
+  display:flex; align-items:center; gap:8px; padding:9px 14px;
+  background:#E9EEF5; border-bottom:1px solid var(--line);
+}
+.dot{width:10px; height:10px; border-radius:50%; background:#C3CDD9}
+.frame-url{
+  margin-left:8px; font-family:var(--mono); font-size:11.5px; color:#7A8B9C;
+  background:#fff; border:1px solid var(--line); border-radius:20px; padding:3px 12px;
+}
+
+/* Mejoras aplicadas */
+.gains{margin-top:18px; display:grid; grid-template-columns:repeat(auto-fit,minmax(232px,1fr)); gap:12px}
+.gain{background:var(--card); border:1px solid var(--line); border-left:3px solid var(--amber); border-radius:var(--r-sm); padding:13px 15px}
+.gain h4{margin:0 0 3px; font-size:14px; font-weight:700}
+.gain p{margin:0; font-size:13.5px; color:var(--muted); line-height:1.45}
+
+/* ============================================================
+   INTERIOR DE LA APP (maquetas)
+   ============================================================ */
+.app{display:grid; grid-template-columns:214px 1fr; min-height:600px; background:var(--paper)}
+.app-side{background:var(--navy); padding:16px 12px; color:#CBD8E6}
+.app-side .brand{margin-bottom:20px}
+.side-item{
+  display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:var(--r-sm);
+  font-size:14px; color:#B4C6D8; margin-bottom:2px;
+}
+.side-item.on{background:rgba(255,255,255,.12); color:#fff; font-weight:600}
+.side-item .ic{width:16px; text-align:center; opacity:.85}
+.side-foot{margin-top:auto; padding-top:16px; font-size:12px; color:#8CA3BC}
+
+.app-main{padding:0; display:flex; flex-direction:column; min-width:0}
+.app-top{
+  display:flex; align-items:center; justify-content:space-between; gap:14px;
+  padding:14px 22px; background:#fff; border-bottom:1px solid var(--line); flex-wrap:wrap;
+}
+.app-top h3{font-family:var(--display); text-transform:uppercase; font-size:21px; margin:0; letter-spacing:.02em}
+.app-top .sub{font-size:12.5px; color:var(--muted)}
+.top-actions{display:flex; align-items:center; gap:10px}
+.app-body{padding:20px 22px 26px; display:grid; gap:16px}
+
+/* Componentes */
+.btn{
+  font-family:var(--body); font-weight:600; font-size:14px; cursor:pointer;
+  border-radius:var(--r-sm); padding:10px 16px; border:1px solid transparent;
+  display:inline-flex; align-items:center; gap:8px; transition:filter .15s, box-shadow .15s;
+}
+.btn-primary{background:var(--navy); color:#fff; box-shadow:var(--sh-1)}
+.btn-primary:hover{filter:brightness(1.14)}
+.btn-accent{background:var(--amber); color:#3A2703; box-shadow:0 2px 0 #D9930F}
+.btn-accent:hover{filter:brightness(1.05)}
+.btn-ghost{background:#fff; border-color:var(--line); color:var(--text)}
+.btn-ghost:hover{background:#F5F8FC}
+.btn-lg{padding:14px 22px; font-size:16px}
+
+.chip{
+  display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600;
+  padding:3px 10px; border-radius:20px; letter-spacing:.02em; white-space:nowrap;
+}
+.chip::before{content:""; width:6px; height:6px; border-radius:50%; background:currentColor}
+.chip-ok{background:var(--green-soft); color:#0A7A50}
+.chip-wait{background:var(--amber-soft); color:#946200}
+.chip-bad{background:var(--red-soft); color:#B02A22}
+.chip-info{background:var(--info-soft); color:#1B5FC4}
+
+.plate{
+  font-family:var(--mono); font-weight:600; font-size:13px; letter-spacing:.08em;
+  background:#fff; border:1.5px solid var(--navy); border-radius:5px; padding:2px 8px;
+  display:inline-block; color:var(--navy);
+}
+
+.kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:12px}
+.kpi{background:var(--card); border:1px solid var(--line); border-radius:var(--r-md); padding:15px 16px; box-shadow:var(--sh-1); position:relative; overflow:hidden}
+.kpi::after{content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--navy-500)}
+.kpi.a::after{background:var(--amber)}
+.kpi.g::after{background:var(--green)}
+.kpi.r::after{background:var(--red)}
+.kpi .lbl{font-family:var(--display); text-transform:uppercase; letter-spacing:.13em; font-size:11.5px; color:var(--muted); font-weight:600}
+.kpi .val{font-family:var(--mono); font-weight:600; font-size:29px; letter-spacing:-.02em; line-height:1.15; margin-top:3px}
+.kpi .val small{font-size:14px; color:var(--muted); font-weight:400; margin-left:3px}
+.kpi .delta{font-size:12.5px; color:var(--muted); margin-top:2px}
+.kpi .delta b{color:var(--green)}
+
+.panel{background:var(--card); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--sh-1)}
+.panel-head{display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border-bottom:1px solid var(--line)}
+.panel-head h4{font-family:var(--display); text-transform:uppercase; letter-spacing:.1em; font-size:14px; margin:0}
+.panel-head .link{font-size:13px; color:var(--navy-500); font-weight:600}
+.panel-body{padding:14px 16px}
+
+table{width:100%; border-collapse:collapse; font-size:13.5px}
+thead th{
+  font-family:var(--display); text-transform:uppercase; letter-spacing:.11em; font-size:11.5px;
+  color:var(--muted); text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); font-weight:600;
+}
+tbody td{padding:11px 12px; border-bottom:1px solid #EDF1F6}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#F7FAFD}
+td.num{font-family:var(--mono); text-align:right; font-variant-numeric:tabular-nums}
+
+/* Medidor de tanque */
+.tanks{display:grid; grid-template-columns:repeat(4,1fr); gap:14px}
+.tank{text-align:center}
+.tank-tube{
+  height:120px; border-radius:9px; background:#EDF1F6; border:1px solid var(--line);
+  position:relative; overflow:hidden;
+}
+.tank-fill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(180deg,var(--navy-500),var(--navy)); }
+.tank-fill.warn{background:linear-gradient(180deg,#FFC658,var(--amber))}
+.tank-fill.crit{background:linear-gradient(180deg,#EE6A63,var(--red))}
+.tank-tube span{
+  position:absolute; inset:auto 0 6px; font-family:var(--mono); font-size:12.5px; color:#fff; font-weight:600;
+}
+.tank-name{font-size:12.5px; margin-top:7px; font-weight:600}
+.tank-meta{font-size:11.5px; color:var(--muted); font-family:var(--mono)}
+
+/* ---------- FIRMA: el totalizador / ticket de despacho ---------- */
+.dispatch{display:grid; grid-template-columns:1.15fr .85fr; gap:16px; align-items:start}
+.steps{display:flex; gap:0; margin-bottom:16px; border:1px solid var(--line); border-radius:var(--r-sm); overflow:hidden; background:#fff}
+.step{flex:1; padding:10px 12px; font-size:13px; color:var(--muted); border-right:1px solid var(--line); display:flex; gap:8px; align-items:center}
+.step:last-child{border-right:0}
+.step b{font-family:var(--mono); font-size:11.5px; border:1px solid var(--line); border-radius:4px; padding:0 5px}
+.step.on{background:var(--navy); color:#fff; font-weight:600}
+.step.on b{border-color:rgba(255,255,255,.4); color:var(--amber)}
+.step.done{color:var(--green); background:var(--green-soft)}
+
+.field{margin-bottom:14px}
+.field label{display:block; font-family:var(--display); text-transform:uppercase; letter-spacing:.12em; font-size:11.5px; color:var(--muted); font-weight:600; margin-bottom:5px}
+.input{
+  width:100%; border:1.5px solid var(--line); border-radius:var(--r-sm); padding:11px 13px;
+  font-family:var(--body); font-size:15px; background:#fff; color:var(--text);
+}
+.input.mono{font-family:var(--mono); letter-spacing:.14em; text-transform:uppercase; font-size:17px; font-weight:600}
+.input:focus{border-color:var(--navy-500); outline:none; box-shadow:0 0 0 3px rgba(44,84,134,.14)}
+.hint{font-size:12.5px; color:var(--muted); margin-top:5px}
+
+.segmented{display:grid; grid-template-columns:1fr 1fr; gap:9px}
+.seg{
+  border:1.5px solid var(--line); border-radius:var(--r-sm); padding:11px 13px; background:#fff;
+  display:flex; align-items:center; gap:9px; font-weight:600; font-size:14.5px; cursor:pointer;
+}
+.seg .swatch{width:13px; height:13px; border-radius:4px; flex:none}
+.seg.on{border-color:var(--navy); box-shadow:0 0 0 3px rgba(30,58,95,.12)}
+
+.totalizer{
+  background:var(--ink); border-radius:var(--r-md); padding:18px 18px 16px; color:#fff;
+  border:1px solid #16304C; box-shadow:inset 0 1px 0 rgba(255,255,255,.07);
+}
+.totalizer .cap{
+  font-family:var(--display); text-transform:uppercase; letter-spacing:.19em; font-size:11px; color:#7E97B3; font-weight:600;
+  display:flex; justify-content:space-between;
+}
+.readout{position:relative; font-family:var(--mono); font-weight:600; line-height:1; margin:9px 0 4px}
+.readout .ghost{position:absolute; inset:0; color:rgba(255,176,32,.11)}
+.readout .live{position:relative; color:var(--amber); text-shadow:0 0 18px rgba(255,176,32,.35)}
+.readout span{font-size:52px; letter-spacing:.04em; display:block}
+.totalizer .unit{font-family:var(--display); text-transform:uppercase; letter-spacing:.2em; font-size:12px; color:#8FA8C2}
+.tot-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; border-top:1px solid rgba(255,255,255,.1); padding-top:12px}
+.tot-grid div{font-size:12.5px; color:#9FB4CB}
+.tot-grid b{display:block; font-family:var(--mono); font-size:15px; color:#fff; font-weight:500; margin-top:2px}
+
+.ticket{
+  background:#fff; border:1px solid var(--line); border-radius:var(--r-md); margin-top:14px; padding:16px 18px;
+  position:relative; box-shadow:var(--sh-1);
+}
+.ticket::before,.ticket::after{
+  content:""; position:absolute; left:0; right:0; height:9px;
+  background-image:radial-gradient(circle at 5px 5px, var(--paper) 5px, transparent 5.5px);
+  background-size:14px 14px;
+}
+.ticket::before{top:-5px}
+.ticket::after{bottom:-5px; transform:rotate(180deg)}
+.ticket h5{font-family:var(--display); text-transform:uppercase; letter-spacing:.13em; font-size:13px; margin:0 0 10px; color:var(--navy)}
+.trow{display:flex; justify-content:space-between; font-size:13.5px; padding:5px 0; border-bottom:1px dashed #E3E9F1}
+.trow:last-of-type{border-bottom:0}
+.trow span{color:var(--muted)}
+.trow b{font-family:var(--mono); font-weight:500}
+.tfoot{margin-top:11px; padding-top:11px; border-top:2px solid var(--navy); display:flex; justify-content:space-between; align-items:center}
+.tfoot .big{font-family:var(--mono); font-size:23px; font-weight:600}
+
+/* Flota */
+.toolbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px}
+.search{flex:1; min-width:210px; position:relative}
+.search .input{padding-left:38px}
+.search .ic{position:absolute; left:13px; top:50%; transform:translateY(-50%); color:var(--muted)}
+.filters{display:flex; gap:7px; flex-wrap:wrap}
+.filter{border:1px solid var(--line); background:#fff; border-radius:20px; padding:6px 13px; font-size:13px; cursor:pointer; font-weight:500}
+.filter.on{background:var(--navy); border-color:var(--navy); color:#fff}
+
+.fleet{display:grid; grid-template-columns:repeat(3,1fr); gap:12px}
+.unit-card{background:#fff; border:1px solid var(--line); border-radius:var(--r-md); padding:14px; box-shadow:var(--sh-1)}
+.unit-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:9px}
+.unit-card h5{margin:0; font-size:15px}
+.unit-card .org{font-size:12.5px; color:var(--muted)}
+.quota{margin-top:11px}
+.quota-bar{height:7px; border-radius:20px; background:#EDF1F6; overflow:hidden}
+.quota-bar i{display:block; height:100%; background:var(--navy-500)}
+.quota-bar i.warn{background:var(--amber)}
+.quota-txt{display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:5px; font-family:var(--mono)}
+
+/* Estaciones */
+.stations{display:grid; grid-template-columns:repeat(2,1fr); gap:14px}
+.station{background:#fff; border:1px solid var(--line); border-radius:var(--r-md); padding:16px; box-shadow:var(--sh-1)}
+.station-top{display:flex; justify-content:space-between; align-items:center; margin-bottom:12px}
+.station h5{margin:0; font-size:16px; font-family:var(--display); text-transform:uppercase; letter-spacing:.05em}
+.station .addr{font-size:12.5px; color:var(--muted)}
+.gauges{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+
+/* Reportes */
+.chart{display:flex; align-items:flex-end; gap:10px; height:180px; padding:0 4px}
+.bar{flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:6px; height:100%}
+.bar i{display:block; width:100%; border-radius:5px 5px 0 0; background:var(--navy-500)}
+.bar i.b2{background:var(--amber)}
+.bar small{font-size:11.5px; color:var(--muted); font-family:var(--mono)}
+.legend{display:flex; gap:16px; font-size:12.5px; color:var(--muted); margin-top:10px}
+.legend b{display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px}
+
+.split2{display:grid; grid-template-columns:1.4fr 1fr; gap:16px; align-items:start}
+
+/* Login */
+.login{display:grid; grid-template-columns:1fr 1fr; min-height:560px}
+.login-art{
+  background:
+    radial-gradient(120% 90% at 20% 0%, #2C5486 0%, transparent 60%),
+    linear-gradient(160deg,var(--navy) 0%, var(--ink) 100%);
+  color:#fff; padding:38px 36px; display:flex; flex-direction:column; justify-content:space-between; position:relative; overflow:hidden;
+}
+.login-art::after{
+  content:""; position:absolute; right:-90px; bottom:-90px; width:300px; height:300px; border-radius:50%;
+  border:34px solid rgba(255,176,32,.13);
+}
+.login-art h2{font-family:var(--display); text-transform:uppercase; font-size:38px; line-height:1.02; margin:0 0 12px; letter-spacing:.01em}
+.login-art p{color:#B9CCE0; font-size:15px; max-width:34ch; margin:0}
+.status-strip{display:flex; gap:18px; position:relative; z-index:1}
+.status-strip div{font-family:var(--mono); font-size:12.5px; color:#93AECA}
+.status-strip b{display:block; font-size:20px; color:#fff; font-weight:500; margin-top:2px}
+.login-form{padding:44px 42px; display:flex; flex-direction:column; justify-content:center; background:#fff}
+.login-form h3{font-family:var(--display); text-transform:uppercase; font-size:24px; margin:0 0 4px}
+.login-form .sub{color:var(--muted); font-size:14px; margin:0 0 22px}
+
+/* Móvil */
+.mobile-row{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:26px; justify-items:center}
+.phone{
+  width:292px; border-radius:32px; border:9px solid #12212F; background:#fff;
+  box-shadow:var(--sh-3); overflow:hidden; position:relative;
+}
+.phone-notch{height:22px; background:#12212F; display:grid; place-items:center}
+.phone-notch i{width:70px; height:5px; border-radius:9px; background:#33475B; display:block}
+.phone-top{background:var(--navy); color:#fff; padding:12px 15px}
+.phone-top .t1{font-family:var(--display); text-transform:uppercase; letter-spacing:.08em; font-size:16px}
+.phone-top .t2{font-size:11.5px; color:#A9C0D8}
+.phone-body{padding:14px 15px 18px; min-height:420px; background:var(--paper)}
+.phone-cap{text-align:center; font-size:13px; color:var(--muted); margin-top:11px}
+.big-tap{
+  width:100%; border:0; border-radius:var(--r-md); padding:18px; font-family:var(--body);
+  font-size:17px; font-weight:700; cursor:pointer; background:var(--amber); color:#3A2703; box-shadow:0 3px 0 #D9930F;
+}
+.big-tap.sec{background:#fff; color:var(--navy); border:1.5px solid var(--line); box-shadow:none}
+.m-card{background:#fff; border:1px solid var(--line); border-radius:var(--r-md); padding:13px; margin-bottom:11px}
+
+/* Sistema */
+.swatches{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px}
+.sw{border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; background:#fff}
+.sw i{display:block; height:64px}
+.sw div{padding:9px 11px; font-size:12.5px}
+.sw b{display:block; font-family:var(--mono); font-size:12px; color:var(--muted); font-weight:500}
+.type-row{border-bottom:1px solid var(--line); padding:14px 0; display:grid; grid-template-columns:150px 1fr; gap:16px; align-items:baseline}
+.type-row:last-child{border-bottom:0}
+.type-row .meta{font-size:12.5px; color:var(--muted); font-family:var(--mono)}
+
+.callout{
+  background:var(--navy); color:#fff; border-radius:var(--r-md); padding:20px 22px; margin-top:26px;
+}
+.callout h4{font-family:var(--display); text-transform:uppercase; letter-spacing:.1em; margin:0 0 8px; font-size:16px}
+.callout p{margin:0; color:#C4D5E7; font-size:14.5px; max-width:72ch}
+
+.mockdata{font-size:12px; color:var(--muted); margin-top:10px; font-style:italic}
+
+/* Responsivo */
+@media (max-width:1080px){
+  .doc{grid-template-columns:1fr}
+  .rail{position:static; height:auto; display:grid; grid-template-columns:1fr 1fr; gap:0 18px; align-items:start}
+  .brand{grid-column:1/-1}
+  .stage{padding:24px 18px 70px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .dispatch,.split2,.login{grid-template-columns:1fr}
+  .fleet,.stations{grid-template-columns:1fr}
+  .app{grid-template-columns:1fr}
+  .app-side{display:flex; gap:8px; overflow-x:auto; padding:11px}
+  .app-side .brand,.side-foot,.rail-label{display:none}
+  .side-item{margin:0; white-space:nowrap}
+  .mobile-row{grid-template-columns:1fr}
+  .tanks{grid-template-columns:repeat(2,1fr)}
+  .doc-head h1{font-size:32px}
+}
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <!-- ===================== ÍNDICE ===================== -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="brand-mark">SOS</div>
+      <div>
+        <div class="brand-name">La Guaira</div>
+        <div class="brand-sub">Control de combustible</div>
+      </div>
+    </div>
+
+    <div class="rail-label">Pantallas</div>
+    <div role="tablist" aria-label="Pantallas de la propuesta">
+      <button class="nav-btn" role="tab" aria-selected="true" data-target="s-panel"><span class="idx">01</span> Panel operativo</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-despacho"><span class="idx">02</span> Registrar despacho</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-flota"><span class="idx">03</span> Flota y cupos</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-estaciones"><span class="idx">04</span> Estaciones y tanques</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-reportes"><span class="idx">05</span> Cierre de turno</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-movil"><span class="idx">06</span> Vista en campo</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-ingreso"><span class="idx">07</span> Ingreso</button>
+      <button class="nav-btn" role="tab" aria-selected="false" data-target="s-sistema"><span class="idx">08</span> Sistema visual</button>
+    </div>
+
+    <div class="rail-note">
+      Maqueta con datos de demostración. El color base <b>#1E3A5F</b> se conserva del sitio actual; todo lo demás se construye alrededor de él.
+    </div>
+  </aside>
+
+  <!-- ===================== ESCENARIO ===================== -->
+  <main class="stage">
+    <header class="doc-head">
+      <div class="eyebrow">Propuesta de rediseño · Agosto 2026</div>
+      <h1>Una consola de despacho,<br>no un formulario</h1>
+      <p>El sistema se usa de pie, en planta, con prisa y a veces bajo el sol. La propuesta ordena cada pantalla alrededor de la cifra que importa —los litros— y deja el resto en silencio: navegación oscura fija, área de trabajo clara, y un solo acento ámbar reservado para lo que se toca o lo que urge.</p>
+    </header>
+
+    <!-- ============ 01 PANEL ============ -->
+    <section class="screen is-on" id="s-panel">
+      <div class="screen-head">
+        <div>
+          <h2>01 · Panel operativo</h2>
+          <p class="lede">Lo primero que ve un supervisor al entrar: cuánto se despachó, cuánto queda y qué está por vencerse.</p>
+        </div>
+        <span class="chip chip-info">Pantalla de inicio</span>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/panel</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand">
+              <div class="brand-mark">SOS</div>
+              <div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div>
+            </div>
+            <div class="side-item on"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">▤</span> Estaciones</div>
+            <div class="side-item"><span class="ic">◷</span> Turnos</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+            <div class="side-foot">Turno B · Operador<br>J. Rondón</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div>
+                <h3>Panel operativo</h3>
+                <div class="sub">Martes 4 de agosto · Turno B (14:00 – 22:00) · Estación Catia La Mar</div>
+              </div>
+              <div class="top-actions">
+                <button class="btn btn-ghost">Exportar día</button>
+                <button class="btn btn-accent">⛽ Nuevo despacho</button>
+              </div>
+            </div>
+
+            <div class="app-body">
+              <div class="kpis">
+                <div class="kpi a">
+                  <div class="lbl">Litros del turno</div>
+                  <div class="val">12.480<small>L</small></div>
+                  <div class="delta"><b>+8,4%</b> vs. turno anterior</div>
+                </div>
+                <div class="kpi">
+                  <div class="lbl">Despachos</div>
+                  <div class="val">63</div>
+                  <div class="delta">Promedio 198 L por unidad</div>
+                </div>
+                <div class="kpi g">
+                  <div class="lbl">Unidades atendidas</div>
+                  <div class="val">47<small>/58</small></div>
+                  <div class="delta">11 pendientes en cola</div>
+                </div>
+                <div class="kpi r">
+                  <div class="lbl">Inventario diésel</div>
+                  <div class="val">18<small>%</small></div>
+                  <div class="delta">Reposición estimada: 19:40</div>
+                </div>
+              </div>
+
+              <div class="split2">
+                <div class="panel">
+                  <div class="panel-head"><h4>Últimos despachos</h4><span class="link">Ver todos</span></div>
+                  <table>
+                    <thead>
+                      <tr><th>Hora</th><th>Unidad</th><th>Organismo</th><th>Producto</th><th style="text-align:right">Litros</th><th>Estado</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr><td class="num">17:42</td><td><span class="plate">AH412VC</span></td><td>Bomberos La Guaira</td><td>Diésel</td><td class="num">180,0</td><td><span class="chip chip-ok">Cerrado</span></td></tr>
+                      <tr><td class="num">17:26</td><td><span class="plate">PC0937</span></td><td>Protección Civil</td><td>Gasolina</td><td class="num">60,0</td><td><span class="chip chip-ok">Cerrado</span></td></tr>
+                      <tr><td class="num">17:05</td><td><span class="plate">CIS118</span></td><td>Hidrocapital</td><td>Diésel</td><td class="num">420,0</td><td><span class="chip chip-wait">Por firmar</span></td></tr>
+                      <tr><td class="num">16:48</td><td><span class="plate">AMB204</span></td><td>Salud · Ambulancias</td><td>Gasolina</td><td class="num">55,0</td><td><span class="chip chip-ok">Cerrado</span></td></tr>
+                      <tr><td class="num">16:31</td><td><span class="plate">MQ8802</span></td><td>Maquinaria pesada</td><td>Diésel</td><td class="num">640,0</td><td><span class="chip chip-bad">Excede cupo</span></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style="display:grid; gap:16px">
+                  <div class="panel">
+                    <div class="panel-head"><h4>Requiere atención</h4></div>
+                    <div class="panel-body" style="display:grid; gap:11px">
+                      <div style="border-left:3px solid var(--red); padding-left:11px">
+                        <div style="font-weight:700; font-size:14px">Tanque 2 bajo el mínimo</div>
+                        <div style="font-size:13px; color:var(--muted)">Diésel al 18%. Con el ritmo actual alcanza para 3 h 10 min.</div>
+                      </div>
+                      <div style="border-left:3px solid var(--amber); padding-left:11px">
+                        <div style="font-weight:700; font-size:14px">3 tickets sin firma</div>
+                        <div style="font-size:13px; color:var(--muted)">No cierran el turno hasta ser conformados.</div>
+                      </div>
+                      <div style="border-left:3px solid var(--info); padding-left:11px">
+                        <div style="font-weight:700; font-size:14px">Cisterna en camino</div>
+                        <div style="font-size:13px; color:var(--muted)">30.000 L de diésel · llegada 19:40.</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="panel">
+                    <div class="panel-head"><h4>Ritmo del turno</h4></div>
+                    <div class="panel-body">
+                      <div class="chart" style="height:110px">
+                        <div class="bar"><i style="height:40%"></i><small>14</small></div>
+                        <div class="bar"><i style="height:62%"></i><small>15</small></div>
+                        <div class="bar"><i style="height:78%"></i><small>16</small></div>
+                        <div class="bar"><i class="b2" style="height:96%"></i><small>17</small></div>
+                        <div class="bar"><i style="height:30%; opacity:.35"></i><small>18</small></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Una cifra manda</h4><p>Los litros del turno se leen en mono tabular a 29 px; el resto de la tarjeta baja de peso para no competir.</p></div>
+        <div class="gain"><h4>Semáforo con significado</h4><p>Rojo, ámbar y verde solo indican estado de inventario o de ticket. Nunca decoran.</p></div>
+        <div class="gain"><h4>Acción principal siempre visible</h4><p>«Nuevo despacho» vive en la barra superior, en ámbar, y es el único botón de ese color en pantalla.</p></div>
+        <div class="gain"><h4>Alertas accionables</h4><p>Cada aviso dice qué pasa y en cuánto tiempo impacta, no solo que existe.</p></div>
+      </div>
+      <p class="mockdata">Cifras de demostración.</p>
+    </section>
+
+    <!-- ============ 02 DESPACHO ============ -->
+    <section class="screen" id="s-despacho">
+      <div class="screen-head">
+        <div>
+          <h2>02 · Registrar despacho</h2>
+          <p class="lede">La pantalla que más se usa. Tres pasos, campos grandes y un totalizador que confirma la carga sin que haya que leer nada más.</p>
+        </div>
+        <span class="chip chip-wait">Elemento firma</span>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/despachos/nuevo</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand">
+              <div class="brand-mark">SOS</div>
+              <div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div>
+            </div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item on"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">▤</span> Estaciones</div>
+            <div class="side-item"><span class="ic">◷</span> Turnos</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div>
+                <h3>Nuevo despacho</h3>
+                <div class="sub">Surtidor 3 · Diésel · Operador J. Rondón</div>
+              </div>
+              <div class="top-actions"><button class="btn btn-ghost">Cancelar</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="steps">
+                <div class="step done"><b>1</b> Unidad verificada</div>
+                <div class="step on"><b>2</b> Carga</div>
+                <div class="step"><b>3</b> Firma y ticket</div>
+              </div>
+
+              <div class="dispatch">
+                <div class="panel">
+                  <div class="panel-body">
+                    <div class="field">
+                      <label for="pl">Placa de la unidad</label>
+                      <input id="pl" class="input mono" value="AH412VC" readonly>
+                      <div class="hint">Bomberos La Guaira · Cisterna Mack 2019 · cupo diario 400 L</div>
+                    </div>
+
+                    <div class="field">
+                      <label>Producto</label>
+                      <div class="segmented">
+                        <div class="seg on"><span class="swatch" style="background:var(--amber)"></span> Diésel</div>
+                        <div class="seg"><span class="swatch" style="background:var(--green)"></span> Gasolina</div>
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <label for="lt">Litros a despachar</label>
+                      <input id="lt" class="input mono" value="180,0">
+                      <div class="hint">Quedan 220 L de cupo hoy. Sobre 400 L se pide autorización del supervisor.</div>
+                    </div>
+
+                    <div class="field">
+                      <label for="od">Odómetro / horómetro</label>
+                      <input id="od" class="input mono" value="148 302">
+                    </div>
+
+                    <button class="btn btn-accent btn-lg" style="width:100%; justify-content:center">Confirmar carga</button>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="totalizer">
+                    <div class="cap"><span>Totalizador · surtidor 3</span><span>en curso</span></div>
+                    <div class="readout">
+                      <span class="ghost">888,8</span>
+                      <span class="live">180,0</span>
+                    </div>
+                    <div class="unit">Litros · diésel</div>
+                    <div class="tot-grid">
+                      <div>Inicio<b>17:41:08</b></div>
+                      <div>Caudal<b>38 L/min</b></div>
+                      <div>Acumulado surtidor<b>4.208 L</b></div>
+                      <div>Precinto<b>SG-04127</b></div>
+                    </div>
+                  </div>
+
+                  <div class="ticket">
+                    <h5>Ticket 000-4821</h5>
+                    <div class="trow"><span>Unidad</span><b>AH412VC</b></div>
+                    <div class="trow"><span>Organismo</span><b>Bomberos La Guaira</b></div>
+                    <div class="trow"><span>Producto</span><b>Diésel</b></div>
+                    <div class="trow"><span>Estación</span><b>Catia La Mar</b></div>
+                    <div class="trow"><span>Autoriza</span><b>M. Salazar</b></div>
+                    <div class="tfoot">
+                      <span class="chip chip-wait">Falta firma del conductor</span>
+                      <span class="big">180,0 L</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>El totalizador como ancla</h4><p>Dígitos ámbar sobre fondo oscuro, con los «8» apagados detrás, igual que el visor de un surtidor real. Se lee de lejos y de pie.</p></div>
+        <div class="gain"><h4>El ticket parece un ticket</h4><p>Borde troquelado y tipografía mono: el operador reconoce el documento antes de leerlo, y sabe que aún no está firmado.</p></div>
+        <div class="gain"><h4>El cupo se avisa antes, no después</h4><p>El límite aparece bajo el campo de litros, no en un error posterior al guardar.</p></div>
+        <div class="gain"><h4>Placas legibles</h4><p>Campo mono, mayúsculas y espaciado amplio para evitar confundir 0/O y 1/I al teclear con prisa.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 03 FLOTA ============ -->
+    <section class="screen" id="s-flota">
+      <div class="screen-head">
+        <div>
+          <h2>03 · Flota y cupos</h2>
+          <p class="lede">Buscar una unidad debe tomar un segundo. Filtros por organismo y estado, y el cupo consumido visible sin abrir la ficha.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/flota</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand">
+              <div class="brand-mark">SOS</div>
+              <div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div>
+            </div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item on"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">▤</span> Estaciones</div>
+            <div class="side-item"><span class="ic">◷</span> Turnos</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Flota</h3><div class="sub">58 unidades registradas · 47 activas hoy</div></div>
+              <div class="top-actions"><button class="btn btn-primary">Registrar unidad</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="toolbar">
+                <div class="search"><span class="ic">⌕</span><input class="input" placeholder="Buscar por placa, organismo o conductor"></div>
+                <div class="filters">
+                  <span class="filter on">Todas</span>
+                  <span class="filter">Bomberos</span>
+                  <span class="filter">Protección Civil</span>
+                  <span class="filter">Salud</span>
+                  <span class="filter">Maquinaria</span>
+                  <span class="filter">Cupo agotado</span>
+                </div>
+              </div>
+
+              <div class="fleet">
+                <div class="unit-card">
+                  <div class="unit-top">
+                    <div><span class="plate">AH412VC</span><h5 style="margin-top:7px">Cisterna Mack</h5><div class="org">Bomberos La Guaira</div></div>
+                    <span class="chip chip-ok">Activa</span>
+                  </div>
+                  <div class="quota">
+                    <div class="quota-bar"><i style="width:45%"></i></div>
+                    <div class="quota-txt"><span>180 / 400 L</span><span>diésel</span></div>
+                  </div>
+                </div>
+
+                <div class="unit-card">
+                  <div class="unit-top">
+                    <div><span class="plate">AMB204</span><h5 style="margin-top:7px">Ambulancia Sprinter</h5><div class="org">Salud · Emergencias</div></div>
+                    <span class="chip chip-ok">Activa</span>
+                  </div>
+                  <div class="quota">
+                    <div class="quota-bar"><i class="warn" style="width:88%"></i></div>
+                    <div class="quota-txt"><span>55 / 62 L</span><span>gasolina</span></div>
+                  </div>
+                </div>
+
+                <div class="unit-card">
+                  <div class="unit-top">
+                    <div><span class="plate">MQ8802</span><h5 style="margin-top:7px">Retroexcavadora CAT</h5><div class="org">Maquinaria pesada</div></div>
+                    <span class="chip chip-bad">Cupo agotado</span>
+                  </div>
+                  <div class="quota">
+                    <div class="quota-bar"><i class="warn" style="width:100%"></i></div>
+                    <div class="quota-txt"><span>640 / 640 L</span><span>diésel</span></div>
+                  </div>
+                </div>
+
+                <div class="unit-card">
+                  <div class="unit-top">
+                    <div><span class="plate">PC0937</span><h5 style="margin-top:7px">Pick-up Hilux</h5><div class="org">Protección Civil</div></div>
+                    <span class="chip chip-ok">Activa</span>
+                  </div>
+                  <div class="quota">
+                    <div class="quota-bar"><i style="width:40%"></i></div>
+                    <div class="quota-txt"><span>60 / 150 L</span><span>gasolina</span></div>
+                  </div>
+                </div>
+
+                <div class="unit-card">
+                  <div class="unit-top">
+                    <div><span class="plate">CIS118</span><h5 style="margin-top:7px">Cisterna de agua</h5><div class="org">Hidrocapital</div></div>
+                    <span class="chip chip-wait">Ticket abierto</span>
+                  </div>
+                  <div class="quota">
+                    <div class="quota-bar"><i style="width:70%"></i></div>
+                    <div class="quota-txt"><span>420 / 600 L</span><span>diésel</span></div>
+                  </div>
+                </div>
+
+                <div class="unit-card">
+                  <div class="unit-top">
+                    <div><span class="plate">GN5540</span><h5 style="margin-top:7px">Camión de carga</h5><div class="org">Logística · Almacén</div></div>
+                    <span class="chip chip-info">Sin actividad</span>
+                  </div>
+                  <div class="quota">
+                    <div class="quota-bar"><i style="width:0%"></i></div>
+                    <div class="quota-txt"><span>0 / 300 L</span><span>diésel</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Tarjetas en vez de tabla ancha</h4><p>En tablet la tabla obliga a desplazar en horizontal; la tarjeta muestra placa, organismo, estado y cupo de un vistazo.</p></div>
+        <div class="gain"><h4>La placa es el identificador</h4><p>Se dibuja como matrícula, no como texto suelto: es lo que el operador ve en el vehículo.</p></div>
+        <div class="gain"><h4>Filtros de una sola pulsación</h4><p>Los estados que el equipo consulta a diario ya son filtros, sin menús desplegables.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 04 ESTACIONES ============ -->
+    <section class="screen" id="s-estaciones">
+      <div class="screen-head">
+        <div>
+          <h2>04 · Estaciones y tanques</h2>
+          <p class="lede">Inventario como medidores verticales: la forma se parece al tanque real y el nivel crítico se ve sin leer números.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/estaciones</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand">
+              <div class="brand-mark">SOS</div>
+              <div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div>
+            </div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item on"><span class="ic">▤</span> Estaciones</div>
+            <div class="side-item"><span class="ic">◷</span> Turnos</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Estaciones</h3><div class="sub">4 puntos activos · actualizado hace 2 min</div></div>
+              <div class="top-actions"><button class="btn btn-ghost">Registrar recepción</button></div>
+            </div>
+
+            <div class="app-body">
+              <div class="stations">
+                <div class="station">
+                  <div class="station-top">
+                    <div><h5>Catia La Mar</h5><div class="addr">Planta de distribución · 4 surtidores</div></div>
+                    <span class="chip chip-bad">Diésel bajo</span>
+                  </div>
+                  <div class="gauges">
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill" style="height:74%"></div><span>74%</span></div>
+                      <div class="tank-name">Tanque 1 · Gasolina</div>
+                      <div class="tank-meta">22.200 / 30.000 L</div>
+                    </div>
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill crit" style="height:18%"></div><span>18%</span></div>
+                      <div class="tank-name">Tanque 2 · Diésel</div>
+                      <div class="tank-meta">5.400 / 30.000 L</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="station">
+                  <div class="station-top">
+                    <div><h5>Maiquetía</h5><div class="addr">Punto móvil · 2 surtidores</div></div>
+                    <span class="chip chip-ok">Normal</span>
+                  </div>
+                  <div class="gauges">
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill" style="height:61%"></div><span>61%</span></div>
+                      <div class="tank-name">Tanque 1 · Gasolina</div>
+                      <div class="tank-meta">9.150 / 15.000 L</div>
+                    </div>
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill warn" style="height:37%"></div><span>37%</span></div>
+                      <div class="tank-name">Tanque 2 · Diésel</div>
+                      <div class="tank-meta">5.550 / 15.000 L</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="station">
+                  <div class="station-top">
+                    <div><h5>Macuto</h5><div class="addr">Surtidor portátil · 1 manguera</div></div>
+                    <span class="chip chip-ok">Normal</span>
+                  </div>
+                  <div class="gauges">
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill" style="height:88%"></div><span>88%</span></div>
+                      <div class="tank-name">Cisterna A · Diésel</div>
+                      <div class="tank-meta">7.040 / 8.000 L</div>
+                    </div>
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill" style="height:52%"></div><span>52%</span></div>
+                      <div class="tank-name">Cisterna B · Gasolina</div>
+                      <div class="tank-meta">4.160 / 8.000 L</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="station">
+                  <div class="station-top">
+                    <div><h5>Caraballeda</h5><div class="addr">Punto de apoyo · 2 surtidores</div></div>
+                    <span class="chip chip-wait">Recepción en curso</span>
+                  </div>
+                  <div class="gauges">
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill" style="height:45%"></div><span>45%</span></div>
+                      <div class="tank-name">Tanque 1 · Gasolina</div>
+                      <div class="tank-meta">6.750 / 15.000 L</div>
+                    </div>
+                    <div class="tank">
+                      <div class="tank-tube"><div class="tank-fill warn" style="height:29%"></div><span>29%</span></div>
+                      <div class="tank-name">Tanque 2 · Diésel</div>
+                      <div class="tank-meta">4.350 / 15.000 L</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>La forma dice el dato</h4><p>Un medidor vertical se interpreta más rápido que una barra horizontal o un porcentaje suelto: se parece al tanque.</p></div>
+        <div class="gain"><h4>Umbrales de color explícitos</h4><p>Verde/azul sobre 40%, ámbar entre 20 y 40%, rojo por debajo. Mismo criterio en todo el sistema.</p></div>
+        <div class="gain"><h4>Litros junto al porcentaje</h4><p>«18%» no basta para decidir; «5.400 de 30.000 L» sí.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 05 REPORTES ============ -->
+    <section class="screen" id="s-reportes">
+      <div class="screen-head">
+        <div>
+          <h2>05 · Cierre de turno</h2>
+          <p class="lede">El momento en que hay que cuadrar. Lo despachado contra lo medido, con la diferencia siempre a la vista.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/turnos/cierre</span></div>
+        <div class="app">
+          <nav class="app-side">
+            <div class="brand">
+              <div class="brand-mark">SOS</div>
+              <div><div class="brand-name" style="font-size:16px">La Guaira</div><div class="brand-sub" style="font-size:10px">Combustible</div></div>
+            </div>
+            <div class="side-item"><span class="ic">▣</span> Panel</div>
+            <div class="side-item"><span class="ic">⛽</span> Despachos</div>
+            <div class="side-item"><span class="ic">🚛</span> Flota</div>
+            <div class="side-item"><span class="ic">▤</span> Estaciones</div>
+            <div class="side-item on"><span class="ic">◷</span> Turnos</div>
+            <div class="side-item"><span class="ic">▦</span> Reportes</div>
+          </nav>
+
+          <div class="app-main">
+            <div class="app-top">
+              <div><h3>Cierre de turno B</h3><div class="sub">14:00 – 22:00 · Catia La Mar · J. Rondón</div></div>
+              <div class="top-actions">
+                <button class="btn btn-ghost">Descargar PDF</button>
+                <button class="btn btn-primary">Cerrar turno</button>
+              </div>
+            </div>
+
+            <div class="app-body">
+              <div class="split2">
+                <div class="panel">
+                  <div class="panel-head"><h4>Despacho por hora</h4><span class="link">Comparar con turno A</span></div>
+                  <div class="panel-body">
+                    <div class="chart">
+                      <div class="bar"><i style="height:34%"></i><small>14h</small></div>
+                      <div class="bar"><i style="height:52%"></i><small>15h</small></div>
+                      <div class="bar"><i style="height:66%"></i><small>16h</small></div>
+                      <div class="bar"><i class="b2" style="height:94%"></i><small>17h</small></div>
+                      <div class="bar"><i style="height:71%"></i><small>18h</small></div>
+                      <div class="bar"><i style="height:48%"></i><small>19h</small></div>
+                      <div class="bar"><i style="height:38%"></i><small>20h</small></div>
+                      <div class="bar"><i style="height:22%"></i><small>21h</small></div>
+                    </div>
+                    <div class="legend">
+                      <span><b style="background:var(--navy-500)"></b>Litros despachados</span>
+                      <span><b style="background:var(--amber)"></b>Hora pico (2.940 L)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="panel">
+                  <div class="panel-head"><h4>Cuadre</h4></div>
+                  <div class="panel-body">
+                    <div class="trow"><span>Medición inicial tanques</span><b>17.880 L</b></div>
+                    <div class="trow"><span>Recepción cisterna</span><b>+ 0 L</b></div>
+                    <div class="trow"><span>Despachado según tickets</span><b>− 12.480 L</b></div>
+                    <div class="trow"><span>Medición final tanques</span><b>5.372 L</b></div>
+                    <div class="tfoot">
+                      <span class="chip chip-wait">Diferencia 28 L (0,22%)</span>
+                      <span class="big">−28 L</span>
+                    </div>
+                    <p class="hint" style="margin-top:12px">Tolerancia operativa: 0,5%. Dentro del rango; requiere nota del operador.</p>
+                    <button class="btn btn-ghost" style="width:100%; justify-content:center; margin-top:6px">Agregar nota de cuadre</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-head"><h4>Resumen por organismo</h4><span class="link">Exportar CSV</span></div>
+                <table>
+                  <thead><tr><th>Organismo</th><th>Unidades</th><th>Despachos</th><th style="text-align:right">Diésel</th><th style="text-align:right">Gasolina</th><th style="text-align:right">Total</th></tr></thead>
+                  <tbody>
+                    <tr><td>Bomberos La Guaira</td><td class="num">9</td><td class="num">14</td><td class="num">3.120</td><td class="num">480</td><td class="num">3.600</td></tr>
+                    <tr><td>Maquinaria pesada</td><td class="num">6</td><td class="num">11</td><td class="num">4.180</td><td class="num">0</td><td class="num">4.180</td></tr>
+                    <tr><td>Protección Civil</td><td class="num">12</td><td class="num">18</td><td class="num">640</td><td class="num">1.260</td><td class="num">1.900</td></tr>
+                    <tr><td>Salud · Ambulancias</td><td class="num">8</td><td class="num">12</td><td class="num">0</td><td class="num">820</td><td class="num">820</td></tr>
+                    <tr><td>Hidrocapital</td><td class="num">4</td><td class="num">8</td><td class="num">1.980</td><td class="num">0</td><td class="num">1.980</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>El cuadre se lee como un ticket</h4><p>Mismo lenguaje visual que el despacho: sumas, restas y una diferencia destacada al pie.</p></div>
+        <div class="gain"><h4>Gráfico sin adornos</h4><p>Barras planas, una sola barra en ámbar para la hora pico. Sin degradados ni cuadrícula.</p></div>
+        <div class="gain"><h4>Exportar donde se necesita</h4><p>PDF para el acta firmada, CSV junto a la tabla que se va a analizar.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 06 MÓVIL ============ -->
+    <section class="screen" id="s-movil">
+      <div class="screen-head">
+        <div>
+          <h2>06 · Vista en campo</h2>
+          <p class="lede">Un surtidor portátil no tiene escritorio. En teléfono, cada paso ocupa una pantalla y los botones se pulsan con guantes.</p>
+        </div>
+        <span class="chip chip-info">Ancho 390 px</span>
+      </div>
+
+      <div class="mobile-row">
+        <div>
+          <div class="phone">
+            <div class="phone-notch"><i></i></div>
+            <div class="phone-top"><div class="t1">Despacho</div><div class="t2">Macuto · Cisterna A · Diésel</div></div>
+            <div class="phone-body">
+              <div class="m-card">
+                <div style="font-family:var(--display); text-transform:uppercase; letter-spacing:.13em; font-size:11px; color:var(--muted)">Paso 1 de 3</div>
+                <div style="font-weight:700; font-size:16px; margin:3px 0 10px">Identificar la unidad</div>
+                <input class="input mono" value="AH412VC" style="font-size:20px; text-align:center">
+                <button class="big-tap sec" style="margin-top:10px">▤ Escanear código</button>
+              </div>
+              <div class="m-card" style="border-left:3px solid var(--green)">
+                <div style="font-weight:700">Bomberos La Guaira</div>
+                <div style="font-size:13px; color:var(--muted)">Cisterna Mack 2019 · cupo 400 L<br>Consumido hoy: 0 L</div>
+              </div>
+              <button class="big-tap">Continuar</button>
+            </div>
+          </div>
+          <p class="phone-cap">Identificación por placa o código QR</p>
+        </div>
+
+        <div>
+          <div class="phone">
+            <div class="phone-notch"><i></i></div>
+            <div class="phone-top"><div class="t1">Carga en curso</div><div class="t2">Ticket 000-4821</div></div>
+            <div class="phone-body">
+              <div class="totalizer" style="margin-bottom:12px">
+                <div class="cap"><span>Surtidor portátil</span><span>en curso</span></div>
+                <div class="readout">
+                  <span class="ghost">888,8</span>
+                  <span class="live">180,0</span>
+                </div>
+                <div class="unit">Litros · diésel</div>
+              </div>
+              <div class="m-card">
+                <div class="trow"><span>Cupo restante</span><b>220 L</b></div>
+                <div class="trow"><span>Caudal</span><b>38 L/min</b></div>
+              </div>
+              <button class="big-tap">Detener y firmar</button>
+              <button class="big-tap sec" style="margin-top:9px">Anular carga</button>
+            </div>
+          </div>
+          <p class="phone-cap">El totalizador ocupa el tercio superior: visible a un brazo de distancia</p>
+        </div>
+
+        <div>
+          <div class="phone">
+            <div class="phone-notch"><i></i></div>
+            <div class="phone-top"><div class="t1">Firma</div><div class="t2">Paso 3 de 3</div></div>
+            <div class="phone-body">
+              <div class="ticket" style="margin-top:0">
+                <h5>Ticket 000-4821</h5>
+                <div class="trow"><span>Unidad</span><b>AH412VC</b></div>
+                <div class="trow"><span>Producto</span><b>Diésel</b></div>
+                <div class="trow"><span>Hora</span><b>17:46</b></div>
+                <div class="tfoot"><span style="font-size:13px; color:var(--muted)">Total</span><span class="big">180,0 L</span></div>
+              </div>
+              <div class="m-card" style="margin-top:12px; text-align:center; border-style:dashed">
+                <div style="height:74px; display:grid; place-items:center; color:var(--muted); font-size:13px">Firma del conductor</div>
+              </div>
+              <button class="big-tap">Cerrar ticket</button>
+              <div style="text-align:center; font-size:12.5px; color:var(--muted); margin-top:10px">Sin conexión: se guarda y se sincroniza al volver la señal.</div>
+            </div>
+          </div>
+          <p class="phone-cap">Firma en pantalla y respaldo sin conexión</p>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Un paso, una pantalla</h4><p>Nada de formularios largos con desplazamiento: identificar, cargar, firmar.</p></div>
+        <div class="gain"><h4>Objetivos táctiles grandes</h4><p>Botones de 56 px de alto, con relieve inferior para que se perciban pulsables bajo el sol.</p></div>
+        <div class="gain"><h4>Estado de conexión honesto</h4><p>Si no hay señal se dice qué pasará con el ticket, en lugar de fallar al guardar.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 07 INGRESO ============ -->
+    <section class="screen" id="s-ingreso">
+      <div class="screen-head">
+        <div>
+          <h2>07 · Ingreso</h2>
+          <p class="lede">La primera pantalla del sistema. Aprovecha el momento para decir dónde estoy entrando y en qué estado está la operación.</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="frame-url">soslaguaira.com/ingreso</span></div>
+        <div class="login">
+          <div class="login-art">
+            <div class="brand">
+              <div class="brand-mark">SOS</div>
+              <div><div class="brand-name">La Guaira</div><div class="brand-sub">Control de combustible</div></div>
+            </div>
+            <div>
+              <h2>Cada litro,<br>con nombre y hora</h2>
+              <p>Registro de despacho para la flota de emergencia del litoral central.</p>
+            </div>
+            <div class="status-strip">
+              <div>Estaciones activas<b>4</b></div>
+              <div>Despachos hoy<b>128</b></div>
+              <div>Turno en curso<b>B</b></div>
+            </div>
+          </div>
+          <div class="login-form">
+            <h3>Ingresar</h3>
+            <p class="sub">Use la cédula y la clave asignada por su supervisor.</p>
+            <div class="field">
+              <label for="ci">Cédula</label>
+              <input id="ci" class="input mono" placeholder="V-00000000">
+            </div>
+            <div class="field">
+              <label for="cl">Clave</label>
+              <input id="cl" class="input" type="password" value="000000000">
+            </div>
+            <div class="field">
+              <label for="es">Estación del turno</label>
+              <select id="es" class="input">
+                <option>Catia La Mar</option>
+                <option>Maiquetía</option>
+                <option>Macuto</option>
+                <option>Caraballeda</option>
+              </select>
+            </div>
+            <button class="btn btn-primary btn-lg" style="width:100%; justify-content:center">Entrar</button>
+            <p class="hint" style="text-align:center; margin-top:14px">¿Olvidó la clave? Solicítela al supervisor de estación.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="gains">
+        <div class="gain"><h4>Elegir estación al entrar</h4><p>Evita el error más caro del sistema: cargar despachos en la estación equivocada.</p></div>
+        <div class="gain"><h4>Contexto antes de entrar</h4><p>Tres cifras vivas confirman que el sistema está operativo y sincronizado.</p></div>
+        <div class="gain"><h4>Sin pantalla en blanco</h4><p>Mientras carga la app se muestra la marca y un esqueleto, no el aviso de «habilite JavaScript».</p></div>
+      </div>
+    </section>
+
+    <!-- ============ 08 SISTEMA ============ -->
+    <section class="screen" id="s-sistema">
+      <div class="screen-head">
+        <div>
+          <h2>08 · Sistema visual</h2>
+          <p class="lede">Los valores que hacen falta para implementar todo lo anterior sin decidir dos veces lo mismo.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h4>Color</h4></div>
+        <div class="panel-body">
+          <div class="swatches">
+            <div class="sw"><i style="background:#1E3A5F"></i><div>Marca<b>#1E3A5F</b></div></div>
+            <div class="sw"><i style="background:#0B1A2E"></i><div>Fondo profundo<b>#0B1A2E</b></div></div>
+            <div class="sw"><i style="background:#2C5486"></i><div>Marca clara<b>#2C5486</b></div></div>
+            <div class="sw"><i style="background:#FFB020"></i><div>Acción / diésel<b>#FFB020</b></div></div>
+            <div class="sw"><i style="background:#0FA36B"></i><div>Correcto / gasolina<b>#0FA36B</b></div></div>
+            <div class="sw"><i style="background:#D93A32"></i><div>Crítico<b>#D93A32</b></div></div>
+            <div class="sw"><i style="background:#F3F6FA"></i><div>Área de trabajo<b>#F3F6FA</b></div></div>
+            <div class="sw"><i style="background:#DCE3EC"></i><div>Líneas<b>#DCE3EC</b></div></div>
+          </div>
+          <p class="hint" style="margin-top:14px">El ámbar aparece una sola vez por pantalla: en la acción principal o en el dato que urge. Si aparece dos veces, deja de significar algo.</p>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head"><h4>Tipografía</h4></div>
+        <div class="panel-body">
+          <div class="type-row">
+            <div class="meta">Barlow Condensed<br>700 · versalitas</div>
+            <div style="font-family:var(--display); font-size:31px; text-transform:uppercase; letter-spacing:.02em; font-weight:700">Cierre de turno B</div>
+          </div>
+          <div class="type-row">
+            <div class="meta">Barlow<br>400 / 600 · 15 px</div>
+            <div style="font-size:15px">Texto de interfaz, etiquetas y descripciones. Cuerpo de 15 px porque la pantalla se lee de pie y a distancia.</div>
+          </div>
+          <div class="type-row">
+            <div class="meta">IBM Plex Mono<br>500 · tabular</div>
+            <div style="font-family:var(--mono); font-size:25px; font-variant-numeric:tabular-nums">12.480,0 L · AH412VC · 17:46</div>
+          </div>
+          <p class="hint" style="margin-top:12px">Toda cifra, placa u hora va en mono tabular: las columnas se alinean solas y los dígitos no bailan al actualizarse.</p>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head"><h4>Controles</h4></div>
+        <div class="panel-body" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center">
+          <button class="btn btn-accent">Acción principal</button>
+          <button class="btn btn-primary">Acción secundaria</button>
+          <button class="btn btn-ghost">Terciaria</button>
+          <span class="chip chip-ok">Cerrado</span>
+          <span class="chip chip-wait">Por firmar</span>
+          <span class="chip chip-bad">Excede cupo</span>
+          <span class="chip chip-info">Sin actividad</span>
+          <span class="plate">AH412VC</span>
+        </div>
+      </div>
+
+      <div class="callout">
+        <h4>Regla de oro</h4>
+        <p>Si un elemento no ayuda a decidir cuántos litros entregar, a quién y con qué respaldo, no va en pantalla. La navegación es oscura y estable, el área de trabajo es clara, y el único color cálido pertenece a lo que se toca o a lo que se está acabando.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function(){
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.nav-btn'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.screen'));
+
+  function show(id){
+    panels.forEach(function(p){ p.classList.toggle('is-on', p.id === id); });
+    tabs.forEach(function(t){ t.setAttribute('aria-selected', String(t.dataset.target === id)); });
+    window.scrollTo({top:0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+  }
+
+  tabs.forEach(function(t, i){
+    t.addEventListener('click', function(){ show(t.dataset.target); });
+    t.addEventListener('keydown', function(e){
+      var next = e.key === 'ArrowDown' ? i+1 : e.key === 'ArrowUp' ? i-1 : null;
+      if(next === null) return;
+      e.preventDefault();
+      var el = tabs[(next + tabs.length) % tabs.length];
+      el.focus(); show(el.dataset.target);
+    });
+  });
+
+  // Totalizadores: conteo breve al mostrarse, respetando reduce-motion
+  if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+    document.querySelectorAll('.readout .live').forEach(function(el){
+      var target = parseFloat(el.textContent.replace(',', '.'));
+      var t0 = null, dur = 900;
+      function step(ts){
+        if(!t0) t0 = ts;
+        var k = Math.min(1, (ts - t0) / dur);
+        var v = (target * (1 - Math.pow(1 - k, 3))).toFixed(1).replace('.', ',');
+        el.textContent = v;
+        if(k < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    });
+  }
+})();
+</script>
+</body>
+</html>

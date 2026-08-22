@@ -1,0 +1,593 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, KeyboardAvoidingView } from 'react-native';
+import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { ConfigBanner } from '../components/ConfigBanner';
+import { DateField } from '../components/DateField';
+import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
+import { norm, cmpText } from '../lib/text';
+import { equipCategory } from '../lib/equipos';
+import { exportPdf } from '../lib/pdf';
+import { inspeccionHtml, InspeccionPdfItem } from '../lib/inspeccion';
+import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
+import { useTheme } from '../theme/ThemeContext';
+import { levelMeets } from '../lib/permissions';
+import { spacing, radius } from '../theme';
+import type { MachineInspection, InspectionItem, InspectionNote } from '../types/database';
+import { downloadInspeccionTemplate, pickWorkbookFile, parseInspeccionWorkbook, groupSummary, type BulkParse } from '../lib/inspeccionBulk';
+import { Platform } from 'react-native';
+
+const CARACAS_TZ = 'America/Caracas';
+function caracasToday(): string {
+  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+  return `${p.year}-${p.month}-${p.day}`;
+}
+function caracasNowTime(): string {
+  const p: any = new Intl.DateTimeFormat('en-GB', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: false })
+    .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+  return `${p.hour}:${p.minute}`;
+}
+/** "AAAA-MM-DD" → "dd/mm/aaaa". */
+function dmy(iso: string): string {
+  const [y, m, d] = (iso || '').split('-');
+  return y && m && d ? `${d}/${m}/${y}` : iso;
+}
+/** "HH:MM" (24h) → "12:48 pm". */
+function to12h(hhmm: string): string {
+  const [hs, ms] = (hhmm || '').split(':');
+  let h = Number(hs); const m = ms ?? '00';
+  if (!isFinite(h)) return hhmm;
+  const ap = h < 12 ? 'am' : 'pm';
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${m} ${ap}`;
+}
+
+type Machine = { id: string; code: string; plate: string | null; serial: string | null; tipo: string | null; clasificacion: string | null; company: string };
+
+const NIVELES: { v: 'ok' | 'warn' | 'bad'; label: string }[] = [
+  { v: 'ok', label: '🟢 Bien' },
+  { v: 'warn', label: '🟠 Regular' },
+  { v: 'bad', label: '🔴 Falla' },
+];
+
+type EditItem = { descripcion: string; cantidad: string; unidad: string; serial: string; estado: string; nivel: 'ok' | 'warn' | 'bad' };
+const blankItem = (): EditItem => ({ descripcion: '', cantidad: '1', unidad: 'Unid.', serial: '', estado: 'Operativo', nivel: 'ok' });
+
+/**
+ * INSPECCIONES DE MAQUINARIA (control por equipo): lista buscable de equipos; al
+ * tocar uno se ve su detalle + historial de inspecciones y se puede crear una
+ * NUEVA inspección (inventario de equipos/herramientas con su estado) que genera
+ * el REPORTE DE INSPECCIÓN en PDF con los estilos del sistema.
+ */
+export default function InspeccionesScreen() {
+  const { colors } = useTheme();
+  const { session, moduleLevel } = useAuth();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const canWrite = levelMeets(moduleLevel('inspecciones_maq'), 'escritura');
+
+  // Color sólido del estado (texto) según el nivel — adapta a claro/oscuro.
+  const nivelColor = (n: string) => (n === 'bad' ? colors.danger : n === 'warn' ? colors.warning : colors.success);
+  // Variante "soft" para el nivel seleccionado (chip legible en ambos temas).
+  const nivelSoft = (n: string) =>
+    n === 'bad'
+      ? { bg: colors.dangerSoftBg, text: colors.dangerSoftText, border: colors.dangerSoftBorder }
+      : n === 'warn'
+      ? { bg: colors.warningSoftBg, text: colors.warningSoftText, border: colors.warningSoftBorder }
+      : { bg: colors.successSoftBg, text: colors.successSoftText, border: colors.successSoftBorder };
+
+  const [machines, setMachines] = useState<Machine[] | null>(null);
+  const [q, setQ] = useState('');
+  const [selected, setSelected] = useState<Machine | null>(null);
+  const [history, setHistory] = useState<MachineInspection[] | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // inspección en edición (null = nueva)
+
+  // Formulario de nueva inspección.
+  const [inspDate, setInspDate] = useState(caracasToday());
+  const [inspTime, setInspTime] = useState(caracasNowTime());
+  const [items, setItems] = useState<EditItem[]>([blankItem()]);
+  const [condicion, setCondicion] = useState('');
+  const [notas, setNotas] = useState<InspectionNote[]>([]);
+  const [inspector, setInspector] = useState('');
+  const [operador, setOperador] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Carga masiva por Excel.
+  const [bulkParse, setBulkParse] = useState<BulkParse | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const loadMachines = React.useCallback(async () => {
+    const { data, error } = await supabase
+      .from('machinery')
+      .select('id, code, plate, serial, tipo, clasificacion, company:company_id(name)')
+      .order('code', { ascending: true });
+    if (error) { toast.error('No se pudo cargar el catálogo de equipos: ' + error.message); return; }
+    setMachines((data ?? []).map((m: any) => ({
+      id: m.id, code: m.code ?? '—', plate: m.plate ?? null, serial: m.serial ?? null,
+      tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, company: m.company?.name ?? 'Sin empresa',
+    })));
+  }, [toast]);
+  useEffect(() => { loadMachines(); }, [loadMachines]);
+
+  const loadHistory = React.useCallback(async (machineId: string) => {
+    setHistory(null);
+    const { data, error } = await supabase
+      .from('machine_inspections')
+      .select('*')
+      .eq('machinery_id', machineId)
+      .order('inspected_at', { ascending: false })
+      .limit(100);
+    if (error) { toast.error('No se pudo cargar el historial: ' + error.message); setHistory([]); return; }
+    setHistory((data as MachineInspection[]) ?? []);
+  }, [toast]);
+
+  // Tiempo real: si otro usuario da de alta/edita un equipo, o registra/edita/borra
+  // una inspección, esta pantalla se refresca sola (lista y detalle abierto).
+  useRealtimeRefresh(['machinery'], () => { loadMachines(); });
+  useRealtimeRefresh(['machine_inspections'], () => { if (selected) loadHistory(selected.id); });
+
+  const machineType = (m: Machine) => (m.tipo && m.tipo.trim()) || equipCategory(m.code) || m.code;
+
+  const nq = norm(q.trim());
+  const shown = useMemo(() => {
+    // Mismas máquinas del CATÁLOGO y en el mismo orden natural A→Z (cmpText).
+    const list = (machines ?? []).slice().sort((a, b) => cmpText(a.code, b.code));
+    if (!nq) return list;
+    return list.filter((m) => norm([m.code, m.plate, m.serial, m.tipo, m.clasificacion, m.company].filter(Boolean).join(' ')).includes(nq));
+  }, [machines, nq]);
+
+  const openMachine = (m: Machine) => { setSelected(m); loadHistory(m.id); };
+
+  // Abre el formulario: si hay inspecciones previas, PRECARGA los ítems de la última
+  // (control por equipo: el inventario del equipo se mantiene y solo se ajusta).
+  const openForm = () => {
+    setEditId(null);
+    const last = (history ?? [])[0];
+    if (last && Array.isArray(last.items) && last.items.length) {
+      setItems(last.items.map((it) => ({
+        descripcion: it.descripcion ?? '', cantidad: String(it.cantidad ?? 1), unidad: it.unidad ?? 'Unid.',
+        serial: it.serial ?? '', estado: it.estado ?? '', nivel: (it.nivel as any) ?? 'ok',
+      })));
+      setCondicion(last.condicion_general ?? '');
+      setNotas(Array.isArray(last.observaciones) ? last.observaciones : []);
+    } else {
+      setItems([blankItem()]); setCondicion(''); setNotas([]);
+    }
+    setInspDate(caracasToday()); setInspTime(caracasNowTime());
+    setInspector(''); setOperador('');
+    setFormOpen(true);
+  };
+
+  // Abre el formulario para EDITAR una inspección guardada (precarga todos sus datos).
+  const openEdit = (r: MachineInspection) => {
+    setEditId(r.id);
+    const dt = new Date(r.inspected_at);
+    setInspDate(new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(dt));
+    setInspTime(new Intl.DateTimeFormat('en-GB', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(dt));
+    setItems((Array.isArray(r.items) && r.items.length ? r.items : []).map((it) => ({
+      descripcion: it.descripcion ?? '', cantidad: String(it.cantidad ?? 1), unidad: it.unidad ?? 'Unid.',
+      serial: it.serial ?? '', estado: it.estado ?? '', nivel: (it.nivel as any) ?? 'ok',
+    })));
+    if (!(Array.isArray(r.items) && r.items.length)) setItems([blankItem()]);
+    setCondicion(r.condicion_general ?? '');
+    setNotas(Array.isArray(r.observaciones) ? r.observaciones : []);
+    setInspector(r.inspector_name ?? '');
+    setOperador(r.operator_name ?? '');
+    setFormOpen(true);
+  };
+
+  // Elimina una inspección del historial (con confirmación).
+  const eliminar = async (r: MachineInspection) => {
+    const ok = await confirm({
+      title: 'Eliminar inspección',
+      message: '¿Eliminar esta inspección? Esta acción no se puede deshacer.',
+      confirmText: 'Eliminar', cancelText: 'Cancelar', danger: true,
+    });
+    if (!ok) return;
+    const { error } = await supabase.from('machine_inspections').delete().eq('id', r.id);
+    if (error) return toast.error(error.message);
+    if (selected) loadHistory(selected.id);
+  };
+
+  const setItem = (i: number, patch: Partial<EditItem>) => setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+  const addItem = () => setItems((prev) => [...prev, blankItem()]);
+  const removeItem = (i: number) => setItems((prev) => prev.filter((_, idx) => idx !== i));
+  const addNota = () => setNotas((prev) => [...prev, { label: '', text: '' }]);
+  const setNota = (i: number, patch: Partial<InspectionNote>) => setNotas((prev) => prev.map((n, idx) => (idx === i ? { ...n, ...patch } : n)));
+  const removeNota = (i: number) => setNotas((prev) => prev.filter((_, idx) => idx !== i));
+
+  // Construye los ítems limpios (para guardar y para el PDF).
+  const cleanItems = (): InspectionItem[] => items
+    .filter((it) => it.descripcion.trim())
+    .map((it) => ({
+      descripcion: it.descripcion.trim(), cantidad: Number(it.cantidad) || 0, unidad: it.unidad.trim() || 'Unid.',
+      serial: it.serial.trim() || null, estado: it.estado.trim() || '—', nivel: it.nivel,
+    }));
+  const cleanNotas = (): InspectionNote[] => notas.filter((n) => n.label.trim() || n.text.trim()).map((n) => ({ label: n.label.trim(), text: n.text.trim() }));
+
+  const buildPdfData = (m: Machine, its: InspeccionPdfItem[], cond: string, obs: InspectionNote[], fecha: string, hora: string, insp: string, oper: string) => ({
+    machineName: m.code, machineType: machineType(m), plate: m.plate, serial: m.serial,
+    fecha, hora, items: its, condicionGeneral: cond || null, observaciones: obs, inspector: insp || null, operator: oper || null,
+  });
+
+  const guardarYPdf = async () => {
+    if (!selected) return;
+    const its = cleanItems();
+    if (its.length === 0) return toast.error('Agrega al menos un ítem con descripción.');
+    setBusy(true);
+    const inspectedAt = `${inspDate}T${inspTime || '00:00'}:00-04:00`;
+    const obs = cleanNotas();
+    // EDITAR: actualiza la inspección existente. CREAR: inserta una nueva.
+    const { error } = editId
+      ? await supabase.from('machine_inspections').update({
+          inspected_at: inspectedAt, machine_type: machineType(selected),
+          machine_plate: selected.plate, machine_serial: selected.serial,
+          inspector_name: inspector.trim() || null, operator_name: operador.trim() || null,
+          condicion_general: condicion.trim() || null, observaciones: obs, items: its,
+        }).eq('id', editId)
+      : await supabase.from('machine_inspections').insert({
+          machinery_id: selected.id, machine_code: selected.code, machine_type: machineType(selected),
+          machine_plate: selected.plate, machine_serial: selected.serial, inspected_at: inspectedAt,
+          inspector_name: inspector.trim() || null, operator_name: operador.trim() || null,
+          condicion_general: condicion.trim() || null, observaciones: obs, items: its,
+          created_by: session?.user?.id ?? null,
+        });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    setFormOpen(false);
+    setEditId(null);
+    loadHistory(selected.id);
+    await exportPdf(
+      inspeccionHtml(buildPdfData(selected, its, condicion.trim(), obs, dmy(inspDate), to12h(inspTime), inspector.trim(), operador.trim())),
+      `REPORTE DE INSPECCION - ${selected.code}`
+    );
+  };
+
+  // Reimprime una inspección guardada del historial.
+  const reimprimir = async (m: Machine, r: MachineInspection) => {
+    const its: InspeccionPdfItem[] = (r.items ?? []).map((it) => ({ descripcion: it.descripcion, cantidad: it.cantidad, unidad: it.unidad, serial: it.serial, estado: it.estado, nivel: it.nivel }));
+    const dt = new Date(r.inspected_at);
+    const fecha = new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit', year: 'numeric' }).format(dt);
+    const hora = new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(dt);
+    await exportPdf(
+      inspeccionHtml(buildPdfData(m, its, r.condicion_general ?? '', r.observaciones ?? [], fecha, hora, r.inspector_name ?? '', r.operator_name ?? '')),
+      `REPORTE DE INSPECCION - ${m.code}`
+    );
+  };
+
+  const histFmt = (iso: string) => {
+    try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso)); } catch { return iso; }
+  };
+
+  // ── Carga masiva por Excel ─────────────────────────────────────────────────
+  const descargarPlantilla = () => {
+    if (Platform.OS !== 'web') return toast.info('La plantilla se descarga desde el navegador (versión web).');
+    const ok = downloadInspeccionTemplate((machines ?? []).map((m) => ({ id: m.id, code: m.code, plate: m.plate, serial: m.serial, tipo: m.tipo })));
+    if (!ok) toast.error('No se pudo generar la plantilla.');
+  };
+
+  const cargarPlantilla = async () => {
+    if (Platform.OS !== 'web') return toast.info('La carga masiva se hace desde el navegador (versión web).');
+    const buf = await pickWorkbookFile();
+    if (!buf) return;
+    const parsed = parseInspeccionWorkbook(buf, (machines ?? []).map((m) => ({ id: m.id, code: m.code, plate: m.plate, serial: m.serial, tipo: m.tipo })));
+    if (parsed.fatal) return toast.error(parsed.fatal);
+    setBulkParse(parsed);
+  };
+
+  const confirmarCargaMasiva = async () => {
+    if (!bulkParse) return;
+    const listos = bulkParse.groups.filter((g) => g.ok);
+    if (listos.length === 0) return toast.error('No hay ninguna máquina válida para cargar. Corrige los errores marcados.');
+    setBulkBusy(true);
+    const nowT = caracasNowTime();
+    const filas = listos.map((g) => {
+      const m = g.machine!;
+      const fecha = g.fecha || caracasToday();
+      const hora = g.hora || nowT;
+      return {
+        machinery_id: m.id, machine_code: m.code, machine_type: g.tipo || m.code,
+        machine_plate: m.plate, machine_serial: m.serial,
+        inspected_at: `${fecha}T${hora || '00:00'}:00-04:00`,
+        inspector_name: g.inspector.trim() || null, operator_name: g.operador.trim() || null,
+        condicion_general: g.condicion.trim() || null, observaciones: [], items: g.items,
+        created_by: session?.user?.id ?? null,
+      };
+    });
+    const { error } = await supabase.from('machine_inspections').insert(filas);
+    setBulkBusy(false);
+    if (error) return toast.error(error.message);
+    const affected = new Set(listos.map((g) => g.machine!.id));
+    setBulkParse(null);
+    if (selected && affected.has(selected.id)) loadHistory(selected.id);
+    toast.success(`Se cargaron ${listos.length} inspección(es) (${listos.reduce((a, g) => a + g.items.length, 0)} ítem(s)).`);
+  };
+
+  return (
+    <Screen>
+      <ConfigBanner />
+      <SectionTitle>🔍 Inspecciones de Maquinaria</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+        Busca un equipo por placa/serial o nombre, tócalo para ver su detalle y generar su REPORTE DE INSPECCIÓN.
+      </Text>
+
+      <TextInput
+        value={q} onChangeText={setQ}
+        placeholder="🔎 Buscar por placa, serial o nombre…" placeholderTextColor={colors.muted}
+        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+      />
+
+      {/* Carga masiva por Excel (solo web y con permiso de escritura) */}
+      {canWrite && Platform.OS === 'web' ? (
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          <TouchableOpacity onPress={descargarPlantilla} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>⬇️ Plantilla Excel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={cargarPlantilla} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>⬆️ Carga masiva</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {machines === null ? (
+        <Loading />
+      ) : shown.length === 0 ? (
+        <EmptyState title={nq ? 'Sin resultados' : 'Sin equipos'} subtitle={nq ? 'Prueba con otra búsqueda.' : undefined} />
+      ) : (
+        shown.map((m) => (
+          <TouchableOpacity key={m.id} onPress={() => openMachine(m)} activeOpacity={0.7}>
+            <Card>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <Text style={{ fontSize: 20 }}>🔧</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{m.code}</Text>
+                  {m.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ Marca - Modelo: {m.tipo}</Text> : null}
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`].filter(Boolean).join(' · ') || 'Sin placa/serial'}
+                  </Text>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>🏢 {m.company}</Text>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>
+              </View>
+            </Card>
+          </TouchableOpacity>
+        ))
+      )}
+
+      {/* Detalle del equipo + historial de inspecciones */}
+      <Modal visible={!!selected} animationType="slide" transparent onRequestClose={() => setSelected(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '88%' }}>
+            {selected ? (
+              <>
+                <View style={{ padding: spacing.lg, paddingBottom: spacing.sm }}>
+                  {/* Banda de resumen del equipo (navy de marca) */}
+                  <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 18 }}>{selected.code}</Text>
+                        <Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 12 }}>{machineType(selected)}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelected(null)}>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 20 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ marginTop: spacing.xs, gap: 2 }}>
+                      {selected.plate ? <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🔖 Placa: <Text style={{ fontWeight: '800' }}>{selected.plate}</Text></Text> : null}
+                      {selected.serial ? <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🔖 Serial: <Text style={{ fontWeight: '800' }}>{selected.serial}</Text></Text> : null}
+                      <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🏢 Empresa: <Text style={{ fontWeight: '800' }}>{selected.company}</Text></Text>
+                      {selected.clasificacion ? <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🗂️ {selected.clasificacion}</Text> : null}
+                    </View>
+                  </View>
+
+                  {canWrite ? (
+                    <TouchableOpacity onPress={openForm} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>📋 REPORTE DE INSPECCIÓN (nueva)</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>Historial de inspecciones</Text>
+                  {history === null ? (
+                    <Loading />
+                  ) : history.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Aún no hay inspecciones de este equipo.</Text>
+                  ) : history.map((r) => (
+                    <View key={r.id} style={{ paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🗓️ {histFmt(r.inspected_at)}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>{(r.items ?? []).length} ítem(s){r.inspector_name ? ` · Inspector: ${r.inspector_name}` : ''}</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 6, flexWrap: 'wrap' }}>
+                        <TouchableOpacity onPress={() => reimprimir(selected, r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
+                        </TouchableOpacity>
+                        {canWrite ? (
+                          <TouchableOpacity onPress={() => openEdit(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {canWrite ? (
+                          <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Formulario de NUEVA inspección */}
+      <Modal visible={formOpen} animationType="slide" transparent onRequestClose={() => setFormOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
+            <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 18 }}>{editId ? 'Editar inspección' : 'Nueva inspección'} · {selected?.code}</Text>
+              <TouchableOpacity onPress={() => { setFormOpen(false); setEditId(null); }}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, gap: spacing.sm }}>
+              {/* Fecha y hora */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Fecha</Text>
+                  <DateField value={inspDate} onChange={setInspDate} maxISO={caracasToday()} />
+                </View>
+                <View style={{ width: 110 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Hora (HH:MM)</Text>
+                  <TextInput value={inspTime} onChangeText={(t) => setInspTime(t.replace(/[^0-9:]/g, '').slice(0, 5))} placeholder="12:48" placeholderTextColor={colors.muted}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                </View>
+              </View>
+
+              {/* Inspector / operador */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Inspector (firma)</Text>
+                  <TextInput value={inspector} onChangeText={setInspector} placeholder="Nombre del inspector" placeholderTextColor={colors.muted}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Chofer / Operador</Text>
+                  <TextInput value={operador} onChangeText={setOperador} placeholder="Nombre del operador" placeholderTextColor={colors.muted}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                </View>
+              </View>
+
+              {/* Ítems del inventario */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+                <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 14 }}>1. Inventario de equipos / herramientas</Text>
+                <TouchableOpacity onPress={addItem} style={{ backgroundColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4 }}>
+                  <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>+ Ítem</Text>
+                </TouchableOpacity>
+              </View>
+
+              {items.map((it, i) => (
+                <View key={i} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, gap: 6, backgroundColor: colors.surface }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>Ítem {i + 1}</Text>
+                    {items.length > 1 ? <TouchableOpacity onPress={() => removeItem(i)}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>Quitar</Text></TouchableOpacity> : null}
+                  </View>
+                  <TextInput value={it.descripcion} onChangeText={(t) => setItem(i, { descripcion: t })} placeholder="Descripción del equipo / herramienta" placeholderTextColor={colors.muted}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    <TextInput value={it.cantidad} onChangeText={(t) => setItem(i, { cantidad: t.replace(/[^0-9.]/g, '') })} keyboardType="numeric" placeholder="Cant." placeholderTextColor={colors.muted}
+                      style={{ width: 60, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                    <TextInput value={it.unidad} onChangeText={(t) => setItem(i, { unidad: t })} placeholder="Unid." placeholderTextColor={colors.muted}
+                      style={{ width: 80, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                    <TextInput value={it.serial} onChangeText={(t) => setItem(i, { serial: t })} placeholder="Serial / Especificación" placeholderTextColor={colors.muted}
+                      style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                  </View>
+                  <TextInput value={it.estado} onChangeText={(t) => setItem(i, { estado: t })} placeholder="Estado / Condición (ej. Operativo, Verificado…)" placeholderTextColor={colors.muted}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: nivelColor(it.nivel), fontWeight: '700' }} />
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {NIVELES.map((n) => {
+                      const on = it.nivel === n.v;
+                      const sf = nivelSoft(n.v);
+                      return (
+                        <TouchableOpacity key={n.v} onPress={() => setItem(i, { nivel: n.v })} style={{ flex: 1, paddingVertical: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: on ? sf.border : colors.border, backgroundColor: on ? sf.bg : colors.surface, alignItems: 'center' }}>
+                          <Text style={{ color: on ? sf.text : colors.muted, fontSize: 11, fontWeight: '800' }}>{n.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+
+              {/* Observaciones */}
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 14, marginTop: spacing.sm }}>2. Observaciones generales</Text>
+              <TextInput value={condicion} onChangeText={setCondicion} placeholder="Condición general del equipo…" placeholderTextColor={colors.muted} multiline
+                style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 54, textAlignVertical: 'top' }} />
+              {notas.map((n, i) => (
+                <View key={i} style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+                  <TextInput value={n.label} onChangeText={(t) => setNota(i, { label: t })} placeholder="Título" placeholderTextColor={colors.muted}
+                    style={{ width: 110, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                  <TextInput value={n.text} onChangeText={(t) => setNota(i, { text: t })} placeholder="Detalle" placeholderTextColor={colors.muted} multiline
+                    style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.xs, color: colors.text }} />
+                  <TouchableOpacity onPress={() => removeNota(i)} style={{ paddingTop: spacing.xs }}><Text style={{ color: colors.danger, fontWeight: '800' }}>✕</Text></TouchableOpacity>
+                </View>
+              ))}
+              <TouchableOpacity onPress={addNota}><Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>+ Agregar observación</Text></TouchableOpacity>
+
+              <TouchableOpacity onPress={guardarYPdf} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios y generar PDF' : '💾 Guardar y generar REPORTE DE INSPECCIÓN')}</Text>
+              </TouchableOpacity>
+              <View style={{ height: spacing.lg }} />
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Vista previa de la CARGA MASIVA por Excel */}
+      <Modal visible={!!bulkParse} animationType="slide" transparent onRequestClose={() => setBulkParse(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
+            <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 18 }}>Carga masiva · vista previa</Text>
+              <TouchableOpacity onPress={() => setBulkParse(null)}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
+            </View>
+
+            {bulkParse ? (
+              <>
+                <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    {bulkParse.groups.length} máquina(s) · {bulkParse.totalItems} ítem(s) ·{' '}
+                    <Text style={{ color: colors.success, fontWeight: '800' }}>{bulkParse.okCount} lista(s)</Text>
+                    {bulkParse.errorCount ? <Text style={{ color: colors.danger, fontWeight: '800' }}>{`  ·  ${bulkParse.errorCount} con error`}</Text> : null}
+                  </Text>
+                </View>
+
+                <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.sm }}>
+                  {bulkParse.groups.map((g, i) => (
+                    <View key={i} style={{ borderWidth: 1, borderColor: g.ok ? colors.successSoftBorder : colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm, backgroundColor: g.ok ? colors.successSoftBg : colors.dangerSoftBg }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }}>
+                          {g.machine ? g.machine.code : g.input}
+                        </Text>
+                        <Text style={{ color: g.ok ? colors.successSoftText : colors.dangerSoftText, fontWeight: '800', fontSize: 12 }}>{g.ok ? '✓ lista' : '✕ error'}</Text>
+                      </View>
+                      {g.machine ? (
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>🏷️ {g.tipo}{g.machine.serial ? ` · Serial: ${g.machine.serial}` : ''}</Text>
+                      ) : null}
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                        📦 {groupSummary(g)}{g.fecha ? ` · 🗓️ ${dmy(g.fecha)}` : ''}{g.inspector ? ` · Inspector: ${g.inspector}` : ''}
+                      </Text>
+                      {g.errors.map((e, k) => (
+                        <Text key={k} style={{ color: colors.dangerSoftText, fontSize: 11, marginTop: 2 }}>⚠️ {e}</Text>
+                      ))}
+                    </View>
+                  ))}
+                </ScrollView>
+
+                <View style={{ padding: spacing.lg, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <TouchableOpacity
+                    onPress={confirmarCargaMasiva}
+                    disabled={bulkBusy || bulkParse.okCount === 0}
+                    style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: bulkBusy || bulkParse.okCount === 0 ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>
+                      {bulkBusy ? 'Cargando…' : `💾 Cargar ${bulkParse.okCount} inspección(es)`}
+                    </Text>
+                  </TouchableOpacity>
+                  {bulkParse.errorCount ? (
+                    <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 6 }}>
+                      Las {bulkParse.errorCount} con error se omiten. Corrige la plantilla y vuelve a subirla para cargarlas.
+                    </Text>
+                  ) : null}
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+    </Screen>
+  );
+}
