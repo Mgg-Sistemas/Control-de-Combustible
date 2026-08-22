@@ -11,7 +11,7 @@
 //     filtrable con edición/borrado, configuración de metas y umbral de alerta,
 //     y exportar el reporte del rango filtrado.
 // Pedido del cliente 12-ago-2026.
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -53,8 +53,7 @@ import {
   setAlertaHoras,
   resolveChoferActual,
 } from '../lib/camionViajes';
-import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes, nuevoClientActionId } from '../lib/viajesOfflineQueue';
-import { accionTrasFalloConSenal, motivoLegible } from '../lib/colaOfflinePolicy';
+import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes } from '../lib/viajesOfflineQueue';
 
 // ── Fecha/hora en Caracas (mismas utilidades locales que otras pantallas de
 //    reportes, p. ej. AuditScreen/CoordinadorOperadoresScreen) ──────────────
@@ -341,10 +340,6 @@ export default function ViajesCamionesScreen() {
   const [selectedChofer, setSelectedChofer] = useState<string | null>(null);
   const [choferLoading, setChoferLoading] = useState(false);
   const [registering, setRegistering] = useState(false);
-  /** Guard del doble toque. En un ref porque el state no cambia hasta el próximo
-   *  render y dos toques del mismo frame pasarían los dos. */
-  const registeringRef = useRef(false);
-  const retryingRef = useRef(false);
 
   const openPicker = () => {
     setPickQuery('');
@@ -402,27 +397,15 @@ export default function ViajesCamionesScreen() {
   // ── Mis viajes de hoy ────────────────────────────────────────────────────
   const [misViajes, setMisViajes] = useState<CamionViajeRow[]>([]);
   const [misViajesMissing, setMisViajesMissing] = useState(false);
-  /** El último error de lectura. Se muestra en vez de mentir con "no hay viajes". */
-  const [misViajesError, setMisViajesError] = useState<string | null>(null);
   const [misViajesLoading, setMisViajesLoading] = useState(true);
   const loadMisViajes = async () => {
-    if (!uid) { setMisViajesLoading(false); return; }  // si no, la caja gira para siempre
-    // Solo se muestra el "cargando" cuando NO hay nada que enseñar. El realtime
-    // lo dispara el INSERT de CUALQUIER listero de la flota, y poner la caja en
-    // blanco en cada uno hacía desaparecer la lista (y las casillas de edición,
-    // si estaba corrigiendo una hora) cada pocos segundos.
-    setMisViajesLoading((prev) => prev || misViajes.length === 0);
+    if (!uid) return;
+    setMisViajesLoading(true);
     const today = caracasToday();
-    // Rango SEMIABIERTO [hoy 00:00, mañana 00:00): con `23:59:59` un viaje entre
-    // .001 y .999 de ese segundo no caía en NINGÚN día.
-    const { rows, missing, error } = await listMisViajesHoy(
-      uid, `${today}T00:00:00-04:00`, `${addDaysISO(today, 1)}T00:00:00-04:00`);
+    const { rows, missing } = await listMisViajesHoy(uid, `${today}T00:00:00-04:00`, `${today}T23:59:59-04:00`);
     setMisViajesLoading(false);
     setMisViajesMissing(missing);
-    setMisViajesError(error ?? null);
-    // ⚠️ Ante un error NO se vacía la lista: dejarla en blanco le decía al
-    // listero «no registraste nada» y lo empujaba a registrar todo otra vez.
-    if (!error) setMisViajes(rows);
+    setMisViajes(rows);
   };
 
   // ── Cola offline: mismo tratamiento visual (insignia ámbar) que la del
@@ -451,43 +434,23 @@ export default function ViajesCamionesScreen() {
   // Reintento manual de los apartados (una vez resuelta la causa). Conservan su
   // `client_action_id`, así que reintentar NUNCA duplica un viaje ya insertado.
   const reintentarApartados = async () => {
-    // Mismo motivo que `registeringRef`: el state no cambia hasta el próximo
-    // render y dos toques del mismo frame pasarían los dos.
-    if (retryingRef.current) return;
-    retryingRef.current = true;
+    if (retrying) return;
     setRetrying(true);
     try {
       const r = await retryQuarantinedViajes();
       if (r.synced > 0) loadMisViajes();
-      // ⚠️ `quarantined === 0` NO significa que se subieran. Si el reintento
-      //    vuelve a fallar por falta de señal, el viaje regresa a la COLA sin
-      //    pasar por cuarentena — y antes eso sacaba un toast verde de éxito
-      //    sin haber subido nada. Lo que manda es `synced`.
-      if (r.synced > 0) toast.success(`${r.synced} viaje(s) subido(s).`);
-      else if (r.quarantined > 0) toast.error(`Siguen sin poder subirse ${r.quarantined} viaje(s). Avisa al administrador.`);
-      else if (r.remaining > 0) toast.info(`Quedaron ${r.remaining} viaje(s) esperando señal. Se suben solos.`);
-      else toast.success('Listo, no quedan viajes apartados.');
+      if (r.quarantined === 0) toast.success(r.synced > 0 ? `${r.synced} viaje(s) subido(s).` : 'Listo, no quedan viajes apartados.');
+      else toast.error(`Siguen sin poder subirse ${r.quarantined} viaje(s). Avisa al administrador.`);
     } catch {
       toast.error('No se pudo reintentar. Revisa la conexión.');
     } finally {
-      retryingRef.current = false;
       setRetrying(false);
     }
   };
 
   const misViajesDisplay: DisplayViaje[] = useMemo(() => {
-    // ⭐ Un viaje recién subido llega por realtime ANTES de que el flush reescriba
-    //    la cola (solo lo hace al final de la pasada). Sin esta lista, el mismo
-    //    viaje se pintaba DOS VECES —y el contador del título mentiría—
-    //    durante todos los segundos que dure la subida.
-    const yaEnServidor = new Set(misViajes.map((r) => r.clientActionId).filter(Boolean) as string[]);
-    // El `!q.payload.listeroId` cubre los viajes encolados por el código viejo,
-    // cuando todavía se podía encolar sin sesión lista: sin eso quedaban
-    // INVISIBLES en la lista aunque siguieran contando en la insignia.
-    const mio = (q: { payload: { listeroId: string } }) => !uid || !q.payload.listeroId || q.payload.listeroId === uid;
-    const queuedRows: DisplayViaje[] = queuedItems.filter((q) => mio(q) && !yaEnServidor.has(q.id)).map((q) => ({
+    const queuedRows: DisplayViaje[] = queuedItems.map((q) => ({
       id: `queued-${q.id}`,
-      clientActionId: q.id,
       machineryId: q.payload.machineryId,
       machineCode: q.payload.machineCode,
       fueraCatalogo: q.payload.fueraCatalogo === true,
@@ -503,9 +466,8 @@ export default function ViajesCamionesScreen() {
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
     // se esfumaría de la pantalla del listero y él lo daría por registrado.
-    const stuckRows: DisplayViaje[] = stuckItems.filter((q) => mio(q) && !yaEnServidor.has(q.id)).map((q) => ({
+    const stuckRows: DisplayViaje[] = stuckItems.map((q) => ({
       id: `stuck-${q.id}`,
-      clientActionId: q.id,
       machineryId: q.payload.machineryId,
       machineCode: q.payload.machineCode,
       fueraCatalogo: q.payload.fueraCatalogo === true,
@@ -523,111 +485,49 @@ export default function ViajesCamionesScreen() {
     }));
     const synced: DisplayViaje[] = misViajes.map((r) => ({ ...r, queued: false }));
     return [...stuckRows, ...queuedRows, ...synced].sort((a, b) => (a.registeredAt < b.registeredAt ? 1 : -1));
-  }, [queuedItems, stuckItems, misViajes, uid]);
-
-  /** Cuántos de los que se ven todavía NO están en el servidor (en cola o apartados). */
-  const sinSubirEnPantalla = useMemo(() => misViajesDisplay.filter((r) => r.queued).length, [misViajesDisplay]);
-  // ⚠️ Las insignias usan estos contadores, NO `queuedItems.length` crudo. Los
-  //    crudos incluyen viajes que ya llegaron al servidor y todavía no salieron
-  //    de la cola, así que la insignia decía «1 sin subir» mientras el título de
-  //    la lista ya no lo contaba — la misma contradicción que el contador vino a
-  //    eliminar.
-  const pendientesVisibles = useMemo(() => misViajesDisplay.filter((r) => r.queued && !r.stuck).length, [misViajesDisplay]);
-  const apartadosVisibles = useMemo(() => misViajesDisplay.filter((r) => r.stuck).length, [misViajesDisplay]);
-  // Los viajes en cola NO se filtran por fecha a propósito: esconder uno de
-  // anteanoche sería peor (el listero lo daría por perdido). Pero entonces el
-  // rótulo "de hoy" mentiría, así que se avisa en el propio título.
-  const hayDeOtrosDias = useMemo(
-    () => { const hoy = caracasToday(); return misViajesDisplay.some((r) => caracasParts(new Date(r.registeredAt)).iso !== hoy); },
-    [misViajesDisplay]);
-
-  /**
-   * Guarda el viaje en el teléfono y avisa DICIENDO LA VERDAD sobre si llegó a
-   * grabarse. Antes se anunciaba «quedó guardado» sin comprobarlo: si el
-   * almacenamiento fallaba, el viaje se veía en pantalla (estaba en memoria) y
-   * desaparecía al cerrar la app.
-   */
-  const guardarEnCola = async (payload: any, clientActionId: string, msgOk: string) => {
-    const { ok } = await enqueueViaje(payload, clientActionId);
-    if (ok) { toast.info(msgOk); return; }
-    toast.error('⚠️ El viaje se ve en pantalla pero NO se pudo guardar en el teléfono. NO cierres la aplicación hasta que suba.');
-  };
+  }, [queuedItems, stuckItems, misViajes]);
 
   const doRegistrarViaje = async () => {
-    // El guard va en un REF, no en el state: dos toques dentro del mismo frame
-    // leen el mismo `registering` del cierre y los dos pasan. Y se toma ANTES
-    // del `confirm`, que es donde estaba la ventana ancha de verdad — mientras
-    // el modal se monta, el botón seguía habilitado.
-    if (!selectedTruck || registeringRef.current) return;
-    registeringRef.current = true;
+    if (!selectedTruck || registering) return;
+    const estadoConteo = truckEstadoConteo(selectedTruck);
+    if (ESTADO_ADVERSO.includes(estadoConteo)) {
+      const meta = ESTADO_CONTEO_META[estadoConteo];
+      const ok = await confirm(`Este camión figura ${meta.label.toUpperCase()}, ¿de todas formas quieres registrar el viaje?`);
+      if (!ok) return;
+    }
     setRegistering(true);
-    try {
-      if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
-      const estadoConteo = truckEstadoConteo(selectedTruck);
-      if (ESTADO_ADVERSO.includes(estadoConteo)) {
-        const meta = ESTADO_CONTEO_META[estadoConteo];
-        const ok = await confirm(`Este camión figura ${meta.label.toUpperCase()}, ¿de todas formas quieres registrar el viaje?`);
-        if (!ok) return;
-      }
-      const registeredAt = new Date().toISOString(); // capturado AHORA, en el teléfono (necesario offline)
-      const shift = caracasNowShift();
-      const esFuera = selectedTruck.id === FUERA_CATALOGO_ID;
-      let chofer = selectedChofer;
-      if (!esFuera && shift !== selectedShift) chofer = await resolveChoferActual(selectedTruck.id, shift);
-      const payload = {
-        // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
-        // existe únicamente como texto en esta fila. La BD lo exige con el CHECK
-        // `cv_fuera_catalogo_coherente`.
-        machineryId: esFuera ? null : selectedTruck.id,
-        machineCode: selectedTruck.code,
-        fueraCatalogo: esFuera,
-        camionRef: esFuera ? (fcRef.trim() || null) : null,
-        listeroId: uid,
-        listeroName,
-        choferName: chofer,
-        shift,
-        estadoMaquina: estadoConteo,
-        note: null as string | null,
-        registeredAt,
-      };
-
-      // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
-      //    desde la cola. Sin esto, encolar tras un fallo duplicaría el viaje
-      //    cuando el insert sí entró y se perdió la respuesta.
-      const clientActionId = nuevoClientActionId();
-
-      if (!isOnline()) {
-        await guardarEnCola(payload, clientActionId,
-          'Sin señal: el viaje quedó guardado en el teléfono y se sube solo al recuperar conexión.');
-        return;
-      }
-
-      const { error } = await registrarViaje({ ...payload, clientActionId });
-      if (!error) {
-        toast.success(`Viaje de ${selectedTruck.code} registrado.`);
-        loadMisViajes();
-        return;
-      }
-
-      // ⭐ DE ACÁ PARA ABAJO EL VIAJE NO SE DESCARTA NUNCA.
-      //
-      // El duplicado es la ÚNICA salida sin cola, y significa que el insert ya
-      // entró y se perdió la respuesta: encolarlo sí lo duplicaría de verdad.
-      if (accionTrasFalloConSenal(error) === 'ya_estaba') {
-        toast.success(`Viaje de ${selectedTruck.code} registrado.`);
-        loadMisViajes();
-        return;
-      }
-
-      // Todo lo demás va a la cola, incluso un error de datos. Antes acá había
-      // un `toast.error(error); return;` y el viaje se perdía para siempre: el
-      // wifi del patio da señal sin internet a cada rato, y `isOnline()` es
-      // optimista por diseño (en web es solo `navigator.onLine`).
-      await guardarEnCola(payload, clientActionId,
-        `No se pudo subir (${motivoLegible(error)}). El viaje quedó guardado en el teléfono y se reintenta solo.`);
-    } finally {
-      registeringRef.current = false;
+    const registeredAt = new Date().toISOString(); // capturado AHORA, en el teléfono (necesario offline)
+    const shift = caracasNowShift();
+    const esFuera = selectedTruck.id === FUERA_CATALOGO_ID;
+    let chofer = selectedChofer;
+    if (!esFuera && shift !== selectedShift) chofer = await resolveChoferActual(selectedTruck.id, shift);
+    const payload = {
+      // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
+      // existe únicamente como texto en esta fila. La BD lo exige con el CHECK
+      // `cv_fuera_catalogo_coherente`.
+      machineryId: esFuera ? null : selectedTruck.id,
+      machineCode: selectedTruck.code,
+      fueraCatalogo: esFuera,
+      camionRef: esFuera ? (fcRef.trim() || null) : null,
+      listeroId: uid,
+      listeroName,
+      choferName: chofer,
+      shift,
+      estadoMaquina: estadoConteo,
+      note: null as string | null,
+      registeredAt,
+    };
+    if (isOnline()) {
+      const { error, missing } = await registrarViaje(payload);
       setRegistering(false);
+      if (missing) { toast.error('Falta configurar la tabla de viajes en la base de datos. Avisa al administrador.'); return; }
+      if (error) { toast.error(error); return; }
+      toast.success(`Viaje de ${selectedTruck.code} registrado.`);
+      loadMisViajes();
+    } else {
+      await enqueueViaje(payload);
+      setRegistering(false);
+      toast.info('Sin señal: el viaje quedó guardado en el teléfono y se sube solo al recuperar conexión.');
     }
   };
 
@@ -688,20 +588,11 @@ export default function ViajesCamionesScreen() {
   // Resumen del día.
   const [resumenRows, setResumenRows] = useState<CamionViajeRow[]>([]);
   const [metasByTruck, setMetasByTruck] = useState<Record<string, number | null>>({});
-  /** Errores de lectura del panel: se muestran en vez de fingir que no hay datos. */
-  const [resumenError, setResumenError] = useState<string | null>(null);
-  const [alertaError, setAlertaError] = useState<string | null>(null);
   const loadResumen = async () => {
     if (!canFull) return;
     const today = caracasToday();
-    const { rows, error } = await listTodosLosViajes({
-      desdeISO: `${today}T00:00:00-04:00`,
-      hastaExclusivoISO: `${addDaysISO(today, 1)}T00:00:00-04:00`,
-    });
-    setResumenError(error ?? null);
-    // Si falló, se conserva lo último bueno: un resumen en ceros hacía concluir
-    // que los listeros no trabajaron hoy.
-    if (!error) setResumenRows(rows);
+    const { rows } = await listTodosLosViajes({ desdeISO: `${today}T00:00:00-04:00`, hastaISO: `${today}T23:59:59-04:00` });
+    setResumenRows(rows);
   };
   useEffect(() => {
     if (!canFull || allTrucks.length === 0) return;
@@ -754,18 +645,8 @@ export default function ViajesCamionesScreen() {
     if (!canFull) return;
     const lookbackHours = Math.max(168, alertaHoras * 3);
     const desdeISO = new Date(Date.now() - lookbackHours * 3600000).toISOString();
-    // El tope es MAÑANA, no "ahora": `registered_at` lo pone el reloj del
-    // TELÉFONO, y acotar con "ahora" dejaba fuera el viaje de un aparato
-    // adelantado unos minutos. Pero quitarlo del todo era peor: un solo viaje
-    // con fecha futura da horas NEGATIVAS y ese camión no vuelve a salir en la
-    // alerta NUNCA. Un día de margen cubre el reloj corrido sin abrir esa puerta.
-    const hastaExclusivoISO = new Date(Date.now() + 86400000).toISOString();
-    const { rows, error } = await listTodosLosViajes({ desdeISO, hastaExclusivoISO });
-    // ⚠️ Si la consulta falló, NO se pinta la alerta: con `last` vacío, TODOS
-    //    los camiones dan "sin viaje reciente" y la jefa recibe una alarma falsa
-    //    de flota entera parada. Mejor no decir nada que decir una barbaridad.
-    setAlertaError(error ?? null);
-    if (error) return;
+    const hastaISO = new Date().toISOString();
+    const { rows } = await listTodosLosViajes({ desdeISO, hastaISO });
     const last: Record<string, string> = {};
     // `rows` ya viene ordenado registered_at desc: la primera aparición de cada
     // camión es su viaje MÁS RECIENTE.
@@ -838,29 +719,23 @@ export default function ViajesCamionesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, rangeFrom, rangeTo, diasSel, todayISO]);
   const desdeISO = `${rangeBounds.desde}T00:00:00-04:00`;
-  // Rango SEMIABIERTO [desde, hasta+1): con `23:59:59` los viajes de ese último
-  // segundo no caían en ningún día. Mismo patrón que HistoricoJornadasScreen.
-  const hastaExclusivoISO = `${addDaysISO(rangeBounds.hasta, 1)}T00:00:00-04:00`;
+  const hastaISO = `${rangeBounds.hasta}T23:59:59-04:00`;
 
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeMissing, setRangeMissing] = useState(false);
-  const [rangeError, setRangeError] = useState<string | null>(null);
   const loadRangeRows = async () => {
     if (!canFull) return;
-    setRangeLoading((prev) => prev || rangeRows.length === 0);
-    const { rows, missing, error } = await listTodosLosViajes({ desdeISO, hastaExclusivoISO });
+    setRangeLoading(true);
+    const { rows, missing } = await listTodosLosViajes({ desdeISO, hastaISO });
     setRangeLoading(false);
     setRangeMissing(missing);
-    setRangeError(error ?? null);
-    // ⚠️ Ante un error se conserva lo anterior: si no, la lista queda vacía Y
-    //    ESE VACÍO ES EL QUE SE EXPORTA AL PDF, con "Total: 0 viajes".
-    if (!error) setRangeRows(rows);
+    setRangeRows(rows);
   };
 
   useEffect(() => {
     if (canFull) loadRangeRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFull, desdeISO, hastaExclusivoISO]);
+  }, [canFull, desdeISO, hastaISO]);
 
   const dateScopedRows = useMemo(() => {
     if (preset === 'dias' && diasSel.size > 0) {
@@ -952,12 +827,6 @@ export default function ViajesCamionesScreen() {
   // que el resto del sistema, ver src/lib/pdf.ts + CoordinadorOperadoresScreen).
   const [shareBusy, setShareBusy] = useState(false);
   const compartirReporte = async () => {
-    // ⚠️ Un reporte sacado sobre una lectura fallida sale con menos viajes de los
-    //    que hay y NO lo dice. Se cobra por viaje: mejor no emitirlo.
-    if (rangeError) {
-      toast.error(`No se pueden exportar los viajes ahora (${motivoLegible(rangeError)}). El reporte saldría incompleto.`);
-      return;
-    }
     setShareBusy(true);
     try {
       const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1038,10 +907,6 @@ export default function ViajesCamionesScreen() {
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
       const sufijo = reporteModo === 'resumen' ? (porListero ? 'resumen por listero ' : 'resumen por camion ') : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
-    } catch (e: any) {
-      // Sin este catch, un fallo de exportPdf dejaba el botón como si nada y la
-      // jefa concluía que «no hizo nada», sin saber por qué.
-      toast.error(`No se pudo generar el reporte: ${String(e?.message ?? e)}`);
     } finally {
       setShareBusy(false);
     }
@@ -1113,7 +978,7 @@ export default function ViajesCamionesScreen() {
           {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
         </View>
         {row.stuck && row.stuckError ? (
-          <Text style={{ color: '#B42318', fontSize: 11, fontStyle: 'italic' }}>{motivoLegible(row.stuckError)}</Text>
+          <Text style={{ color: '#B42318', fontSize: 11, fontStyle: 'italic' }} numberOfLines={2}>{row.stuckError}</Text>
         ) : null}
         {placaSerial ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>{placaSerial}</Text> : null}
         <Text style={{ color: colors.muted, fontSize: 12 }}>
@@ -1177,11 +1042,11 @@ export default function ViajesCamionesScreen() {
       <SectionTitle>🚛 Viajes de camiones</SectionTitle>
 
       {/* ── Vista LISTERO ─────────────────────────────────────────────── */}
-      {pendientesVisibles > 0 ? (
+      {queuedItems.length > 0 ? (
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontSize: 16 }}>📶</Text>
           <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
-            {pendientesVisibles} {pendientesVisibles === 1 ? 'viaje guardado' : 'viajes guardados'} en el teléfono sin subir. Se suben solos al recuperar señal.
+            {queuedItems.length} {queuedItems.length === 1 ? 'viaje guardado' : 'viajes guardados'} en el teléfono sin subir. Se suben solos al recuperar señal.
           </Text>
         </View>
       ) : null}
@@ -1189,12 +1054,12 @@ export default function ViajesCamionesScreen() {
       {/* APARTADOS: no se suben solos por más que se espere — hace falta que
           alguien resuelva la causa. Aviso ROJO y separado del ámbar de arriba,
           justamente para que no se confunda con "esperando señal". */}
-      {apartadosVisibles > 0 ? (
+      {stuckItems.length > 0 ? (
         <View style={{ backgroundColor: '#FEF3F2', borderRadius: radius.md, borderWidth: 1, borderColor: '#F97066', padding: spacing.sm, gap: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontSize: 16 }}>⚠️</Text>
             <Text style={{ color: '#B42318', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
-              {apartadosVisibles} {apartadosVisibles === 1 ? 'viaje no pudo subirse' : 'viajes no pudieron subirse'}. NO se pierden, pero tampoco se suben solos: avisa al administrador.
+              {stuckItems.length} {stuckItems.length === 1 ? 'viaje no pudo subirse' : 'viajes no pudieron subirse'}. NO se pierden, pero tampoco se suben solos: avisa al administrador.
             </Text>
           </View>
           <TouchableOpacity
@@ -1239,36 +1104,17 @@ export default function ViajesCamionesScreen() {
       </Card>
 
       <Card>
-        {/* ⭐ EL CONTADOR VA EN EL TÍTULO. La caja mostraba ~4 renglones y no
-            tenía número: el listero contaba lo que veía y reclamaba viajes
-            faltantes que sí estaban. Y va DESGLOSADO porque un total a secas
-            mentiría al revés: haría creer que están todos en el sistema cuando
-            algunos siguen en el teléfono. */}
-        <SectionTitle>
-          {`${hayDeOtrosDias ? 'Mis viajes' : 'Mis viajes de hoy'} · ${misViajesDisplay.length}`}
-          {sinSubirEnPantalla > 0 ? ` (${sinSubirEnPantalla} sin subir)` : ''}
-          {hayDeOtrosDias ? ' · incluye pendientes de días anteriores' : ''}
-        </SectionTitle>
-        {misViajesLoading && misViajesDisplay.length === 0 ? (
+        <SectionTitle>Mis viajes de hoy</SectionTitle>
+        {misViajesLoading ? (
           <Loading />
         ) : misViajesMissing ? (
           <Text style={{ color: colors.muted }}>Aún no se configuró esta función en la base de datos. Avisa al administrador.</Text>
-        ) : misViajesError ? (
-          // NO se dice "no hay viajes": la consulta falló y sus viajes SIGUEN en
-          // el sistema. Decirle que no registró nada lo empuja a registrar todo
-          // otra vez, y ahí sí se duplica.
-          <Text style={{ color: colors.danger, fontWeight: '700' }}>
-            ⚠️ No se pudo leer la lista ({motivoLegible(misViajesError)}). Tus viajes NO se perdieron: desliza hacia abajo para reintentar.
-          </Text>
         ) : misViajesDisplay.length === 0 ? (
           <Text style={{ color: colors.muted }}>Todavía no registras viajes hoy.</Text>
         ) : (
-          // Sin `maxHeight` ni ScrollView anidado: el recorte no ahorraba nada
-          // (React Native renderiza igual todos los hijos, solo los tapaba) y en
-          // Android el scroll anidado casi no se puede accionar con el dedo.
-          <View>
+          <ScrollView style={{ maxHeight: 360 }} nestedScrollEnabled>
             {misViajesDisplay.map((row) => renderRow(row, { canEdit: !row.queued && isEditableByListero(row), canDelete: false }))}
-          </View>
+          </ScrollView>
         )}
       </Card>
 
@@ -1414,7 +1260,7 @@ export default function ViajesCamionesScreen() {
             )}
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: spacing.xs, fontWeight: '800' }}>POR LISTERO</Text>
             {resumenPorListero.length === 0 ? (
-              <Text style={{ color: resumenError ? colors.danger : colors.muted, fontWeight: resumenError ? '700' : '400' }}>{resumenError ? `⚠️ No se pudo leer el resumen (${motivoLegible(resumenError)}).` : 'Sin viajes registrados hoy.'}</Text>
+              <Text style={{ color: colors.muted }}>Sin viajes registrados hoy.</Text>
             ) : (
               <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
                 {resumenPorListero.map((l) => (
@@ -1433,7 +1279,7 @@ export default function ViajesCamionesScreen() {
               Más de {alertaHoras}h sin registrar viaje (no incluye averiados, parados ni retirados).
             </Text>
             {alertList.length === 0 ? (
-              <Text style={{ color: alertaError ? colors.danger : colors.success, fontWeight: '700' }}>{alertaError ? `⚠️ No se pudo revisar la alerta (${motivoLegible(alertaError)}). No se sabe si hay camiones parados.` : '✅ Todos los camiones tienen viajes recientes.'}</Text>
+              <Text style={{ color: colors.success, fontWeight: '700' }}>✅ Todos los camiones tienen viajes recientes.</Text>
             ) : (
               <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled>
                 {alertList.map((x) => (
@@ -1635,7 +1481,7 @@ export default function ViajesCamionesScreen() {
               ) : rangeMissing ? (
                 <Text style={{ color: colors.muted }}>Aún no se configuró esta función en la base de datos.</Text>
               ) : filteredRangeRows.length === 0 ? (
-                <Text style={{ color: rangeError ? colors.danger : colors.muted, fontWeight: rangeError ? '700' : '400' }}>{rangeError ? `⚠️ No se pudieron cargar los viajes (${motivoLegible(rangeError)}). NO exportes el reporte hasta resolverlo: saldría incompleto.` : 'Sin viajes en el rango seleccionado.'}</Text>
+                <Text style={{ color: colors.muted }}>Sin viajes en el rango seleccionado.</Text>
               ) : reporteModo === 'resumen' ? (
                 // Lo mismo que va a salir en el PDF, en pantalla: total general,
                 // total por empresa y el desglose de sus camiones.
