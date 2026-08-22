@@ -1952,10 +1952,10 @@ export default function ReportsScreen({ route }: any) {
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       ${resumenCoHtml}
-      <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
-      ${maquinariaHtml}
       ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
+      <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
+      ${maquinariaHtml}
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
     const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
