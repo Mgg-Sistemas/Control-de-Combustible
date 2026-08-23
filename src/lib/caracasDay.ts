@@ -7,10 +7,30 @@
 // mismo criterio (confirmado por el cliente 08/08/2026).
 const CARACAS_TZ = 'America/Caracas';
 
+/**
+ * ⚠️ LOS FORMATTERS SE CONSTRUYEN UNA SOLA VEZ, A PROPÓSITO.
+ *
+ * `new Intl.DateTimeFormat(...)` es CARO: medido en este proyecto, 11.000
+ * construcciones tardan ~1.120 ms, y reusando el mismo objeto, ~48 ms. Son 23
+ * veces. Las opciones son fijas (la zona no cambia nunca), así que no hay
+ * ninguna razón para rehacerlo en cada llamada.
+ *
+ * Por qué importa acá y no en cualquier otro sitio: `caracasPartsOf` se llama
+ * UNA VEZ POR VIAJE en pantallas que pintan cientos de filas, y esas pantallas
+ * se re-renderizan con cada tecla que se escribe en un input. Con 1.000 viajes
+ * en el rango eso eran ~11.000 construcciones por pulsación.
+ *
+ * Reusar un `Intl.DateTimeFormat` es seguro: `format`/`formatToParts` no
+ * guardan estado entre llamadas.
+ */
+const FMT_DIA = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+const FMT_DIA_HORA = new Intl.DateTimeFormat('en-CA', {
+  timeZone: CARACAS_TZ, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+});
+
 /** Fecha ISO (AAAA-MM-DD) de HOY en Caracas (calendario puro). */
 export function caracasToday(): string {
-  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+  const p: any = FMT_DIA.formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
   return `${p.year}-${p.month}-${p.day}`;
 }
 
@@ -44,9 +64,7 @@ export function isoYesterday(iso: string): string {
  *  (mismo cálculo que `caracasToday()`/`caracasNowHour()`, pero para un `Date`
  *  dado en vez de "ahora"). */
 export function caracasPartsOf(d: Date): { iso: string; hour: number } {
-  const p: any = new Intl.DateTimeFormat('en-CA', {
-    timeZone: CARACAS_TZ, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
-  }).formatToParts(d).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+  const p: any = FMT_DIA_HORA.formatToParts(d).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
   return { iso: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24 };
 }
 

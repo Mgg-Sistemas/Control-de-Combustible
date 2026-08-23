@@ -39,8 +39,8 @@ import {
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { resumirViajes, SIN_EMPRESA, claveCamion, type EjeResumen } from '../lib/viajesResumen';
-import { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros } from '../lib/viajesFiltros';
-import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, TURNO_NOMBRE, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
+import { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
+import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
@@ -687,6 +687,17 @@ export default function ViajesCamionesScreen() {
       const ok = await confirm(`Con esa hora el viaje pasa de la jornada del ${jornadaAntes} a la del ${jornadaDespues}, así que va a salir en otro día. ¿Lo dejas así?`);
       if (!ok) return;
     }
+    // ⭐ Y lo mismo al cruzar las 7pm, que NO cambia de jornada pero sí de TURNO.
+    //    Corregir un viaje de 6:50pm a 7:10pm lo muda de día a noche: si la jefa
+    //    tiene marcado un turno, el viaje se le desaparece de la lista al
+    //    guardar y sin este aviso no habría manera de saber por qué. Es el único
+    //    momento en que se puede advertir — después ya solo queda detectarlo.
+    const turnoAntes = turnoDeViaje(row.registeredAt);
+    const turnoDespues = turnoDeViaje(newIso);
+    if (turnoAntes !== turnoDespues) {
+      const ok = await confirm(`Con esa hora el viaje pasa del turno de ${TURNO_NOMBRE[turnoAntes].toLowerCase()} al de ${TURNO_NOMBRE[turnoDespues].toLowerCase()}. ¿Lo dejas así?`);
+      if (!ok) return;
+    }
     const { error } = await editarHoraViaje(editing.id, newIso);
     if (error) { toast.error(error); return; }
     setEditing(null);
@@ -910,37 +921,56 @@ export default function ViajesCamionesScreen() {
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeMissing, setRangeMissing] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
+  /**
+   * ⭐ A QUÉ VENTANA PERTENECEN LAS FILAS QUE HAY CARGADAS.
+   *
+   * Sin esto, al cambiar de rango la pantalla seguía mostrando los viajes del
+   * rango ANTERIOR bajo la etiqueta y el conteo del NUEVO, y el botón de
+   * exportar no tenía ninguna guarda: salía un PDF con el subtítulo de «este
+   * mes» y las doce filas de hoy. Es exactamente la clase de mentira que este
+   * módulo lleva dos revisiones tratando de eliminar.
+   */
+  const rangeKey = `${desdeISO}|${hastaExclusivoISO}`;
+  const [rangeRowsKey, setRangeRowsKey] = useState('');
+  const rangeDesactualizado = rangeRowsKey !== rangeKey;
+  /** Contador de peticiones: si dos rangos se piden seguidos y el PRIMERO
+   *  responde de último, su respuesta se descarta. Manda siempre la última. */
+  const pedidoRef = useRef(0);
   const loadRangeRows = async () => {
     // Un rango al revés no se le pregunta a la base: no hay respuesta correcta
-    // que dar. La pantalla lo explica en vez de mostrar cero viajes.
-    if (!canFull || rangoInvalido) return;
-    setRangeLoading((prev) => prev || rangeRows.length === 0);
+    // que dar. Sin días marcados, tampoco: el rango caería a HOY por defecto y
+    // se consultaría algo que el usuario no pidió.
+    if (!canFull || rangoInvalido || sinDiasMarcados) return;
+    const key = rangeKey;
+    const nro = ++pedidoRef.current;
+    setRangeLoading((prev) => prev || rangeRows.length === 0 || rangeRowsKey !== key);
     const { rows, missing, error } = await listTodosLosViajes({ desdeISO, hastaExclusivoISO });
+    if (nro !== pedidoRef.current) return;   // llegó tarde: ya hay otra petición
     setRangeLoading(false);
     setRangeMissing(missing);
     setRangeError(error ?? null);
     // ⚠️ Ante un error se conserva lo anterior: si no, la lista queda vacía Y
     //    ESE VACÍO ES EL QUE SE EXPORTA AL PDF, con "Total: 0 viajes".
-    if (!error) setRangeRows(rows);
+    if (!error) { setRangeRows(rows); setRangeRowsKey(key); }
   };
 
   useEffect(() => {
     if (canFull) loadRangeRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFull, desdeISO, hastaExclusivoISO, rangoInvalido]);
+  }, [canFull, desdeISO, hastaExclusivoISO, rangoInvalido, sinDiasMarcados]);
 
   const dateScopedRows = useMemo(() => {
     // Sin ningún día marcado no hay nada que mostrar. Devolver el rango entero
     // (que por defecto es HOY) haría pasar la jornada de hoy por «los días que
     // elegiste», y de ahí a un reporte con la fecha equivocada hay un paso.
-    if (sinDiasMarcados || rangoInvalido) return [];
+    if (sinDiasMarcados || rangoInvalido || rangeDesactualizado) return [];
     if (preset === 'dias') {
       // Por JORNADA: un viaje de la madrugada pertenece a la jornada de la noche
       // anterior, así que marcar un día trae también su madrugada.
       return rangeRows.filter((r) => diasSel.has(jornadaDeFecha(new Date(r.registeredAt))));
     }
     return rangeRows;
-  }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido]);
+  }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado]);
 
   // Empresa de un viaje: la del camión que lo hizo. Los camiones sin empresa
   // asignada caen en una sola cubeta, para que no desaparezcan del filtro.
@@ -962,6 +992,14 @@ export default function ViajesCamionesScreen() {
   //    nullable en los viajes viejos y `editarHoraViaje` la deja
   //    desactualizada al corregir una hora que cruza las 7pm. El porqué
   //    completo está en src/lib/viajesTurno.ts.
+  /**
+   * El ícono con el que se dibuja cada eje. Hace falta para nombrar un filtro
+   * sobrante SIN AMBIGÜEDAD: un mensaje como «(MGG, MGG)» no se puede resolver
+   * cuando un listero se apellida igual que una empresa. El turno no lleva
+   * ícono acá porque su etiqueta ya trae el suyo (☀️/🌙).
+   */
+  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '' };
+
   const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
     listero: r.listeroId,
     empresa: companyOfRow(r).key,
@@ -1006,8 +1044,12 @@ export default function ViajesCamionesScreen() {
   );
   // Filtros marcados que no le tocan a NINGÚN viaje del rango — casi siempre uno
   // que quedó puesto de otro día. Es la explicación concreta de una lista vacía.
+  // ⚠️ Solo tiene sentido señalar un filtro si HAY viajes que podría estar
+  //    tapando. Con el rango vacío, todo lo marcado sale «fuera del rango» y el
+  //    mensaje culpaba a un filtro inocente: el usuario lo quitaba y la lista
+  //    seguía igual de vacía, porque ese día no se trabajó.
   const filtrosSobrantes = useMemo(
-    () => marcadosFueraDelRango(dateScopedRows, clavesDe, seleccion),
+    () => (dateScopedRows.length === 0 ? [] : marcadosFueraDelRango(dateScopedRows, clavesDe, seleccion)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dateScopedRows, seleccion, truckById]
   );
@@ -1071,6 +1113,12 @@ export default function ViajesCamionesScreen() {
       toast.error('No hay ningún día marcado. Agrega al menos uno con «+ agregar día».');
       return;
     }
+    // Las filas que hay en pantalla todavía son de otro rango: el PDF saldría
+    // con el subtítulo del rango nuevo y los viajes del viejo.
+    if (rangeLoading || rangeDesactualizado) {
+      toast.error('Los viajes de ese rango todavía se están cargando. Espera a que termine.');
+      return;
+    }
     setShareBusy(true);
     try {
       const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1088,11 +1136,15 @@ export default function ViajesCamionesScreen() {
       // Los nombres salen de lo MARCADO, no de las opciones visibles: si un
       // filtro quedó puesto sobre algo que este rango no tiene, igual hay que
       // decirlo en el encabezado — es la explicación de por qué salió corto.
+      // ⚠️ `esc()` también acá. El subtítulo se interpola CRUDO en el HTML del
+      //    PDF (src/lib/pdf.ts), y estos nombres los teclea gente: el código de
+      //    un camión «fuera de catálogo» lo escribe el listero a mano. Un `<`
+      //    suelto rompe el documento; algo peor, lo reescribe.
       const filtros = [
-        filterCompanySel.size ? `Empresas: ${Array.from(filterCompanySel.values()).join(', ')}` : null,
-        filterTruckSel.size ? `Camiones: ${Array.from(filterTruckSel.values()).join(', ')}` : null,
-        filterListeroSel.size ? `Listeros: ${Array.from(filterListeroSel.values()).join(', ')}` : null,
-        filterTurnoSel.size ? `Turno: ${Array.from(filterTurnoSel.values()).join(', ')}` : null,
+        filterCompanySel.size ? `Empresas: ${esc(Array.from(filterCompanySel.values()).join(', '))}` : null,
+        filterTruckSel.size ? `Camiones: ${esc(Array.from(filterTruckSel.values()).join(', '))}` : null,
+        filterListeroSel.size ? `Listeros: ${esc(Array.from(filterListeroSel.values()).join(', '))}` : null,
+        filterTurnoSel.size ? `Turno: ${esc(Array.from(filterTurnoSel.values()).join(', '))}` : null,
       ].filter(Boolean).join(' · ');
 
       // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
@@ -1108,15 +1160,11 @@ export default function ViajesCamionesScreen() {
       // camión que solo trabaja de día queda limpia en vez de arrastrar un
       // «0» en la de noche.
       const num = (n: number) => (n > 0 ? String(n) : '—');
-      // Viajes sin turno conocido (los viejos, de antes de que se guardara).
-      // Se DICEN en vez de repartirlos: si no, las dos columnas no sumarían el
-      // total y quien revisa el reporte pensaría que falta algo.
-      const sinTurno = resumenViajes.total - resumenViajes.dia - resumenViajes.noche;
       const bodyResumen = `
         <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}
-          <br><span style="font-weight:600">☀️ Día (7am–7pm): ${resumenViajes.dia} · 🌙 Noche (7pm–7am): ${resumenViajes.noche}${sinTurno > 0 ? ` · ${sinTurno} sin turno registrado` : ''}</span></p>
+          <br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span></p>
         ${resumenViajes.empresas.map((e) => `
-          <h3>${icoGrupo} ${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es)${e.dia + e.noche > 0 ? ` · ☀️ ${e.dia} · 🌙 ${e.noche}` : ''}</h3>
+          <h3>${icoGrupo} ${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es) · ${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}</h3>
           <table>
             <thead><tr><th>Camión</th><th>Placa / Serial</th><th style="text-align:right">☀️ Día</th><th style="text-align:right">🌙 Noche</th><th style="text-align:right">Viajes</th></tr></thead>
             <tbody>
@@ -1684,7 +1732,7 @@ export default function ViajesCamionesScreen() {
                   })}
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-                  ☀️ Día 7am–7pm · 🌙 Noche 7pm–7am. El turno sale de la HORA del viaje, que es la misma regla con la que se corta el día.
+                  {leyendaTurnos()}. El turno sale de la HORA del viaje, que es la misma regla con la que se corta el día.
                 </Text>
                 {/* Se DICE en vez de corregirlo por lo bajo: son viajes a los que
                     alguien les movió la hora cruzando las 7am o las 7pm, así que
@@ -1817,7 +1865,19 @@ export default function ViajesCamionesScreen() {
             </View>
 
             <View style={{ marginTop: spacing.sm }}>
-              {rangeLoading ? (
+              {/* ⚠️ EL ORDEN DE ESTAS RAMAS IMPORTA. «Rango al revés» y «ningún día
+                  marcado» van PRIMERO porque en esos dos casos no se consulta
+                  nada: si el spinner fuera antes, el aviso que explica qué
+                  corregir quedaría tapado por un «cargando…» que no termina. */}
+              {rangoInvalido || sinDiasMarcados ? (
+                <Text style={{ color: rangoInvalido ? colors.danger : colors.muted, fontWeight: '700' }}>
+                  {rangoInvalido
+                    ? `⚠️ El rango está al revés: DESDE (${dmy(rangeBounds.desde)}) es posterior a HASTA (${dmy(rangeBounds.hasta)}). No se consultó nada — corrige las fechas.`
+                    : 'No hay ningún día marcado. Toca «+ agregar día» y elige al menos uno.'}
+                </Text>
+              ) : rangeLoading || rangeDesactualizado ? (
+                // `rangeDesactualizado`: lo cargado es de OTRO rango. Mostrarlo
+                // bajo la etiqueta del rango nuevo era una mentira exportable.
                 <Loading />
               ) : rangeMissing ? (
                 <Text style={{ color: colors.muted }}>Aún no se configuró esta función en la base de datos.</Text>
@@ -1825,18 +1885,14 @@ export default function ViajesCamionesScreen() {
                 // Una lista vacía tiene varias causas MUY distintas y hasta ahora
                 // todas decían lo mismo. Cada una se nombra con lo que hay que
                 // hacer para arreglarla; si no, se lee como «ese día no se trabajó».
-                <Text style={{ color: rangoInvalido || rangeError ? colors.danger : colors.muted, fontWeight: rangoInvalido || rangeError || filtrosSobrantes.length > 0 ? '700' : '400' }}>
+                <Text style={{ color: rangeError ? colors.danger : colors.muted, fontWeight: rangeError || filtrosSobrantes.length > 0 ? '700' : '400' }}>
                   {rangeError
                     ? `⚠️ No se pudieron cargar los viajes (${motivoLegible(rangeError)}). NO exportes el reporte hasta resolverlo: saldría incompleto.`
-                    : rangoInvalido
-                      ? `⚠️ El rango está al revés: DESDE (${dmy(rangeBounds.desde)}) es posterior a HASTA (${dmy(rangeBounds.hasta)}). No se consultó nada — corrige las fechas.`
-                      : sinDiasMarcados
-                        ? 'No hay ningún día marcado. Toca «+ agregar día» y elige al menos uno.'
-                        : filtrosSobrantes.length > 0
-                          ? `Sin viajes: hay filtros marcados que no aparecen en este rango (${filtrosSobrantes.join(', ')}). Toca «✕ Limpiar filtros» o desmárcalos.`
-                          : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size > 0
-                            ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
-                            : 'Sin viajes en el rango seleccionado.'}
+                    : filtrosSobrantes.length > 0
+                      ? `Sin viajes: hay filtros marcados que no aparecen en este rango (${filtrosSobrantes.map((f) => ICONO_EJE[f.eje] + f.label).join(', ')}). Toca «✕ Limpiar filtros» o desmárcalos.`
+                      : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size > 0
+                        ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
+                        : 'Sin viajes en el rango seleccionado.'}
                 </Text>
               ) : reporteModo === 'resumen' ? (
                 // Lo mismo que va a salir en el PDF, en pantalla: total general,
@@ -1845,11 +1901,12 @@ export default function ViajesCamionesScreen() {
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
                     TOTAL: {resumenViajes.total} viaje(s) · {resumenViajes.totalCamiones} camión(es)
                   </Text>
+                  {/* El desglose siempre suma el total: `turnoDeViaje` le da turno
+                      a TODAS las filas (nunca devuelve null), así que acá no hay
+                      caso «sin turno» que contemplar. La librería sí lo admite,
+                      para quien la llame con datos de otra procedencia. */}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
                     {resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}
-                    {resumenViajes.dia + resumenViajes.noche < resumenViajes.total
-                      ? ` · ${resumenViajes.total - resumenViajes.dia - resumenViajes.noche} sin turno`
-                      : ''}
                   </Text>
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>

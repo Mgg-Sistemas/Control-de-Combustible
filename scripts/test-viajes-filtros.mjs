@@ -113,10 +113,20 @@ eq('* el listero marcado que no trabajo ese dia NO se pierde de la vista',
   visibles(otroDia, 'listero', marcadoElyOtroDia), ['arcy', 'ely']);
 eq('* y sale en 0', conteo(otroDia, 'listero', marcadoElyOtroDia).ely, 0);
 eq('* con la lista vacia', listados(otroDia, marcadoElyOtroDia), 0);
-eq('* y el aviso dice CUAL filtro sobra', marcadosFueraDelRango(otroDia, clavesDe, marcadoElyOtroDia), ['ely']);
+// ⭐ El aviso dice de QUE EJE es cada sobrante. Sin el eje, un mensaje como
+// «(MGG, MGG)» es irresoluble cuando un listero se apellida igual que una
+// empresa — y eso es exactamente lo que pasaba antes.
+eq('* el aviso dice cual filtro sobra Y de que eje',
+  marcadosFueraDelRango(otroDia, clavesDe, marcadoElyOtroDia), [{ eje: 'listero', label: 'ely' }]);
 eq('* sin filtros no hay nada que avisar', marcadosFueraDelRango(otroDia, clavesDe, sel()), []);
-eq('* y el aviso dice CUAL filtro sobra', marcadosFueraDelRango(otroDia, clavesDe, marcadoElyOtroDia), ['ely']);
-eq('* sin filtros no hay nada que avisar', marcadosFueraDelRango(otroDia, clavesDe, sel()), []);
+// Dos sobrantes de ejes distintos con la MISMA etiqueta: sin el eje serian
+// indistinguibles.
+eq('* dos homonimos de ejes distintos se distinguen',
+  marcadosFueraDelRango(otroDia, clavesDe, sel(['MGG'], ['MGG'])),
+  [{ eje: 'listero', label: 'MGG' }, { eje: 'empresa', label: 'MGG' }]);
+eq('* el turno tambien se reporta con su eje',
+  marcadosFueraDelRango([v('ely', 'beraca', 'c1')], clavesDe, sel([], [], [], ['night'])),
+  [{ eje: 'turno', label: 'night' }]);
 
 // -- 4b) EL TURNO ES UN EJE MAS -------------------------------------------
 // Va por el mismo camino que los otros tres a proposito: si fuera un filtro
@@ -148,6 +158,14 @@ eq('* y dia + noche de arcy da su total', 1 + 2, listados(ROWS, sel(['arcy'])));
 eq('* dia + noche = total general',
   listados(ROWS, sel([], [], [], ['day'])) + listados(ROWS, sel([], [], [], ['night'])), ROWS.length);
 
+// ⚠️ Con el rango VACIO la libreria reporta TODO lo marcado como «fuera del
+// rango» — es correcto literalmente, pero como mensaje culpa a un filtro
+// inocente: el usuario lo quita y la lista sigue vacia porque ese dia no se
+// trabajo. Por eso la pantalla solo pregunta cuando hay filas (ver
+// `filtrosSobrantes` en ViajesCamionesScreen).
+eq('* con el rango vacio, todo lo marcado sale «fuera»',
+  marcadosFueraDelRango([], clavesDe, sel(['ely'])), [{ eje: 'listero', label: 'ely' }]);
+
 // -- 5) BORDES --------------------------------------------------------------
 eq('sin viajes no hay opciones', opts([], 'listero', sel()), []);
 eq('sin viajes tampoco revienta el listado', listados([], sel(['ely'])), 0);
@@ -171,7 +189,8 @@ for (const base of combos) {
   for (const eje of ['listero', 'empresa', 'camion', 'turno']) {
     for (const o of opts(ROWS, eje, base)) {
       // Marcar SOLO esa opcion en su eje, dejando los otros ejes como estaban.
-      const s = { ...base, [eje]: new Set([o.id]) };
+      // Con `mk` (Map id->etiqueta), no con un Set: el Map ES el contrato.
+      const s = { ...base, [eje]: mk([o.id]) };
       if (listados(ROWS, s) !== o.count) descuadres++;
     }
   }
