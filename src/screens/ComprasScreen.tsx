@@ -973,6 +973,9 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const [busy, setBusy] = useState<string | null>(null);
+  // Selección para APROBAR EN LOTE (solo mangueras INSTALADAS se pueden pagar).
+  const [selMang, setSelMang] = useState<Set<string>>(new Set());
+  const toggleSelMang = (id: string) => setSelMang((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const pendientes = useMemo(
     () => hoses
@@ -1013,6 +1016,29 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
     refetch();
   };
 
+  // APROBACIÓN EN LOTE: el gerente marca (☑) varias mangueras y aprueba el pago de
+  // todas de un click. Solo las INSTALADAS son pagables; las no instaladas se avisan
+  // y se saltan (no se puede pagar un trabajo que no se hizo).
+  const aprobarLote = async () => {
+    const sel = pendientes.filter((h) => selMang.has(h.id));
+    const pagables = sel.filter((h) => h.install_status === 'instalada');
+    const noInst = sel.length - pagables.length;
+    if (!pagables.length) return toast.error('Marca (☑) mangueras INSTALADAS para aprobar el pago en lote.');
+    const ok = await confirm({ title: 'Aprobar pago en lote', message: `¿Aprobar el pago de ${pagables.length} manguera(s)?` + (noInst ? `\n\n${noInst} no está(n) instalada(s) y se omitirá(n).` : ''), confirmText: `Aprobar ${pagables.length}` });
+    if (!ok) return;
+    setBusy('lote');
+    const { error } = await supabase.from('hose_services').update({
+      payment_status: 'pagado',
+      approved_by: session?.user?.id ?? null,
+      approved_at: nowISO(),
+    }).in('id', pagables.map((h) => h.id));
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    setSelMang(new Set());
+    toast.success(`${pagables.length} pago(s) aprobados en lote.`);
+    refetch();
+  };
+
   // 🗑️ Eliminar una manguera que AÚN NO fue aprobada/pagada. Borra primero su cuenta
   // ligada NO pagada (el FK es `on delete set null` → si no, quedaría huérfana).
   const eliminarManguera = async (h: HoseService) => {
@@ -1039,7 +1065,18 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
           <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>{pendientes.length} pendiente(s)</Text>
         </View>
       </View>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Las mangueras se crean en su módulo (Taller). Aquí el gerente aprueba los pagos pendientes.</Text>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Las mangueras se crean en su módulo (Taller). Aquí el gerente aprueba los pagos pendientes. Marca (☑) varias y usa "Aprobar pago en lote".</Text>
+
+      {/* APROBACIÓN EN LOTE: aparece cuando hay ≥1 manguera INSTALADA marcada. */}
+      {canWrite && (() => {
+        const nPag = pendientes.filter((h) => selMang.has(h.id) && h.install_status === 'instalada').length;
+        if (!nPag) return null;
+        return (
+          <TouchableOpacity onPress={aprobarLote} disabled={busy === 'lote'} style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm, opacity: busy === 'lote' ? 0.6 : 1 }}>
+            <Text style={{ color: colors.successSoftText, fontWeight: '900', fontSize: 14 }}>✅ Aprobar pago en lote ({nPag})</Text>
+          </TouchableOpacity>
+        );
+      })()}
 
       {pendientes.length === 0 ? (
         <EmptyState title="Sin mangueras por aprobar" subtitle="No hay pagos de mangueras pendientes de autorización." />
@@ -1047,7 +1084,17 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
         const inst = HOSE_INSTALL[h.install_status] ?? HOSE_INSTALL.en_proceso;
         const pay = HOSE_PAYMENT[h.payment_status] ?? HOSE_PAYMENT.pendiente;
         const puedePagar = h.install_status === 'instalada';
+        const mSel = selMang.has(h.id);
         return (
+          <View key={h.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
+            {canWrite ? (
+              <TouchableOpacity onPress={() => toggleSelMang(h.id)} style={{ paddingTop: spacing.md }}>
+                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: mSel ? colors.brand : colors.border, backgroundColor: mSel ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {mSel ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                </View>
+              </TouchableOpacity>
+            ) : null}
+            <View style={{ flex: 1 }}>
           <ExpandableCard
             key={h.id}
             summary={
@@ -1097,6 +1144,8 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
               </>
             }
           />
+            </View>
+          </View>
         );
       })}
       <View style={{ height: spacing.xl }} />
