@@ -116,7 +116,7 @@ export function marcadosFueraDelRango<R>(
   rows: readonly R[],
   clavesDe: (r: R) => ClavesViaje,
   sel: SeleccionFiltros,
-): string[] {
+): Array<{ eje: EjeFiltro; label: string }> {
   // Se arma recorriendo EJES_FILTRO y no escribiendo los ejes a mano: cuando se
   // agregó `turno` como cuarto eje, la versión escrita a mano dejaba su cubeta
   // en `undefined` y esto reventaba con «Cannot read properties of undefined».
@@ -125,9 +125,12 @@ export function marcadosFueraDelRango<R>(
     const c = clavesDe(r);
     EJES_FILTRO.forEach((eje) => presentes[eje].add(c[eje]));
   });
-  const fuera: string[] = [];
+  // Se devuelve el EJE junto a la etiqueta: sin él, un mensaje como
+  // «(☀️ Día, MGG, MGG)» es irresoluble cuando un listero se apellida igual que
+  // una empresa. Quien lo pinta le pone el ícono que corresponda.
+  const fuera: Array<{ eje: EjeFiltro; label: string }> = [];
   EJES_FILTRO.forEach((eje) => {
-    sel[eje].forEach((label, id) => { if (!presentes[eje].has(id)) fuera.push(label); });
+    sel[eje].forEach((label, id) => { if (!presentes[eje].has(id)) fuera.push({ eje, label }); });
   });
   return fuera;
 }

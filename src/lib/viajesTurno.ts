@@ -27,7 +27,6 @@
 import { caracasPartsOf } from './caracasDay';
 
 export type Turno = 'day' | 'night';
-export const TURNOS: readonly Turno[] = ['day', 'night'] as const;
 
 /**
  * ¿A qué turno pertenece un instante? Mismo corte que `caracasNowShift()`
@@ -64,13 +63,34 @@ export function turnoLabel(t: Turno): string {
   return `${TURNO_ICONO[t]} ${TURNO_NOMBRE[t]}`;
 }
 
+/** «☀️ Día (7am–7pm)» — para donde hace falta recordar el horario. */
+export function turnoLabelConHorario(t: Turno): string {
+  return `${turnoLabel(t)} (${TURNO_HORARIO[t]})`;
+}
+
+/** «☀️ Día 7am–7pm · 🌙 Noche 7pm–7am», la leyenda completa de los dos turnos. */
+export function leyendaTurnos(): string {
+  return `${TURNO_ICONO.day} ${TURNO_NOMBRE.day} ${TURNO_HORARIO.day} · ${TURNO_ICONO.night} ${TURNO_NOMBRE.night} ${TURNO_HORARIO.night}`;
+}
+
 // ── Contar ──────────────────────────────────────────────────────────────────
 export type ConteoTurno = { dia: number; noche: number; total: number };
-export const CONTEO_VACIO: ConteoTurno = { dia: 0, noche: 0, total: 0 };
 
+/**
+ * ⚠️ ESTRICTO: lo que no sea exactamente 'day' o 'night' no cuenta para ninguno
+ * de los dos. La versión perezosa (`if night … else dia++`) contaba como DÍA
+ * cualquier cosa —incluido un `null`—, que es justo lo contrario de la regla que
+ * sigue `resumirViajes` («no se le inventa a ninguno de los dos»). Hoy no se
+ * nota porque el único llamador le pasa `turnoDeViaje`, que nunca devuelve null;
+ * pero el día que alguien lo alimente desde la columna `shift`, que sí es
+ * nullable, todos los viajes viejos habrían salido diurnos.
+ */
 export function contarTurnos(turnos: Iterable<Turno>): ConteoTurno {
   let dia = 0, noche = 0;
-  for (const t of turnos) { if (t === 'night') noche++; else dia++; }
+  for (const t of turnos) {
+    if (t === 'day') dia++;
+    else if (t === 'night') noche++;
+  }
   return { dia, noche, total: dia + noche };
 }
 

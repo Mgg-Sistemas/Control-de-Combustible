@@ -50,8 +50,8 @@ Module._load = function (req, parent) {
 };
 
 const T = compilar(path.join(ROOT, 'src/lib/viajesTurno.ts'));
-const { turnoDeInstante, turnoDeViaje, desacuerdoDeTurno, turnoLabel,
-        contarTurnos, resumenTurno, perfilDeTurno, PERFIL_LABEL } = T;
+const { turnoDeInstante, turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario,
+        leyendaTurnos, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_LABEL } = T;
 // El turno de AHORA, para comprobar que los dos calculos son el mismo.
 const { caracasNowShift } = compilar(path.join(ROOT, 'src/lib/caracasDay.ts'));
 
@@ -153,6 +153,30 @@ eq('* la noche entera cuenta como un solo turno',
   contarTurnos(laNoche.map((d) => turnoDeInstante(d))), { dia: 0, noche: 4, total: 4 });
 eq('* y ese camion es «trabaja de noche»',
   perfilDeTurno(contarTurnos(laNoche.map((d) => turnoDeInstante(d)))), 'noche');
+
+// -- 8) CONTAR ES ESTRICTO: LO DESCONOCIDO NO ES «DIA» ----------------------
+// La version perezosa (`if night ... else dia++`) contaba como DIA cualquier
+// cosa, incluido un null. Eso contradice de frente la regla de `resumirViajes`
+// («no se le inventa a ninguno de los dos»), y el dia que alguien alimente esto
+// desde la columna `shift` —que SI es nullable— todos los viajes viejos
+// habrian salido diurnos.
+eq('* un null no cuenta como dia', contarTurnos([null]), { dia: 0, noche: 0, total: 0 });
+eq('* ni undefined, ni una cadena cualquiera',
+  contarTurnos([undefined, 'DIA', '', 'day']), { dia: 1, noche: 0, total: 1 });
+eq('* el total solo cuenta lo que reconocio',
+  contarTurnos(['day', null, 'night', 'x']), { dia: 1, noche: 1, total: 2 });
+eq('lo valido se sigue contando igual', contarTurnos(['day', 'day', 'night']), { dia: 2, noche: 1, total: 3 });
+
+// -- 9) EL HORARIO SE ESCRIBE EN UN SOLO LUGAR ------------------------------
+// Estaba literal en dos sitios de la pantalla (el PDF y la leyenda) mientras el
+// archivo decia «Como se escribe, en un solo lugar». Ahora si lo es.
+eq('la etiqueta con horario del dia', turnoLabelConHorario('day'), '\u2600\ufe0f D\u00eda (7am\u20137pm)');
+eq('la etiqueta con horario de la noche', turnoLabelConHorario('night'), '\ud83c\udf19 Noche (7pm\u20137am)');
+eq('la leyenda de los dos turnos', leyendaTurnos(),
+  '\u2600\ufe0f D\u00eda 7am\u20137pm \u00b7 \ud83c\udf19 Noche 7pm\u20137am');
+// Y el horario que anuncia es el mismo que aplica el calculo: corta en 7 y 19.
+eq('* la leyenda no miente sobre el corte',
+  [turnoDeInstante(enCaracas('2026-08-20', 7)), turnoDeInstante(enCaracas('2026-08-20', 19))], ['day', 'night']);
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-turno · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
