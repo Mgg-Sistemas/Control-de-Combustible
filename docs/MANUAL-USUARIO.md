@@ -2937,6 +2937,12 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 > no dejarla colgada sin manguera. Una vez **aprobada/pagada** el botón **desaparece**: ese
 > registro ya **no se puede borrar** y queda como constancia contable.
 
+> ✏️ **Editar una manguera YA aprobada:** se puede **corregir** una manguera incluso después de
+> aprobada/pagada con el botón **✏️ Editar**. Al guardar, su estatus cambia a **"✏️ Modificada y
+> aprobada"** — sigue contando como aprobada, pero deja **constancia** de que se editó. El estado de
+> instalación queda **bloqueado** y la **cuenta por pagar sigue saldada**; solo se re-sincroniza el
+> **monto** si cambiaste el costo. *(Requiere correr una vez `supabase/mangueras_modificada_aprobada.sql`.)*
+
 **Filtrar por máquina (trazabilidad):**
 En la tarjeta **"🚜 Filtro y consulta por equipo"**, busca la máquina por **código, serial o
 placa** y elígela. La lista y el recuadro de **total invertido** (en US$ y su equivalente en Bs a
