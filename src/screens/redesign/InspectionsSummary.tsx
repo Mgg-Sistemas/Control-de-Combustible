@@ -1012,9 +1012,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if ((r as any).jornada_start_at) {
         const openSh = roundShift(r);
         cur[openSh].openNow = liveDay;
-        // Horario NOMINAL del turno (7am día / 7pm noche): la jornada se muestra desde
-        // el inicio del turno aunque la marquen tarde. Fin fijo 7pm/7am si ya cerró.
-        cur[openSh].horaIni = horarioNominal(openSh).ini;
+        // Inicio MOSTRADO = hora REAL de arranque (jornada_start_at): queda 7am/7pm si la
+        // jornada se ANCLÓ al turno (marcó ≤9am/≤9pm), pero muestra la hora tardía real si
+        // marcó FUERA del margen (ej. i3k iniciada 9:30 → "09:30 a. m.", ya no un 7am falso).
+        // Las horas se siguen midiendo desde jornada_start_at, así inicio + horas cuadra.
+        cur[openSh].horaIni = horaCaracas(new Date((r as any).jornada_start_at).getTime());
         cur[openSh].horaFin = liveDay ? 'En curso' : horaFinJornada(openSh, cur[openSh].hours);
         // Hora REAL en que el inspector marcó la jornada (si difiere ≥2 min del inicio
         // declarado): "INICIO 07:00 · marcó 8:15". Vacío si coincide o no se registró.
@@ -1171,7 +1173,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const nom = horarioNominal(nomShift);
       const shiftHrs = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
       const hasSeg = !!(seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity);
-      const horaIni = (hasSeg || rd?.openStartAt) ? nom.ini : '—';
+      // Jornada ABIERTA: inicio = hora REAL de arranque (7am si se ancló, o la hora tardía
+      // real, ej. 9:30). Cerrada/por tramos: horario NOMINAL, igual que los reportes.
+      const horaIni = openNow && rd?.openStartAt
+        ? horaCaracas(new Date(rd.openStartAt).getTime())
+        : (hasSeg || rd?.openStartAt) ? nom.ini : '—';
       const horaFin = openNow ? 'En curso' : (hasSeg ? horaFinJornada(nomShift, shiftHrs) : '—');
       // Transcurrido EN VIVO: mientras la jornada sigue ABIERTA, cuánto lleva corriendo
       // (ahora − inicio real). Tope 12h = duración del turno. Usa nowTick para tictaquear.
@@ -1244,7 +1250,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const nom = horarioNominal(nomShift);
       const shiftHrs = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
       const hasSeg = !!(seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity);
-      const horaIni = (hasSeg || rd?.openStartAt) ? nom.ini : '—';
+      // Jornada ABIERTA: inicio = hora REAL de arranque (7am si se ancló, o la hora tardía
+      // real, ej. 9:30). Cerrada/por tramos: horario NOMINAL, igual que los reportes.
+      const horaIni = openNow && rd?.openStartAt
+        ? horaCaracas(new Date(rd.openStartAt).getTime())
+        : (hasSeg || rd?.openStartAt) ? nom.ini : '—';
       const horaFin = openNow ? 'En curso' : (hasSeg ? horaFinJornada(nomShift, shiftHrs) : '—');
       const elapsedH = openNow && rd?.openStartAt ? Math.max(0, Math.min(12, (nowTick - new Date(rd.openStartAt).getTime()) / 3600000)) : null;
       // Horas del TURNO de la jornada (noche muestra noche) + EN VIVO si sigue abierta.
