@@ -8,6 +8,10 @@
 -- ============================================================================
 
 -- 1) Bitácora de viajes.
+-- ⚠️ OJO CON LAS DOS `on delete cascade` DE ABAJO: se corrigen en
+--    `viajes_camiones_fk_no_cascada.sql` (22-ago-2026), porque borrar un camión
+--    del catálogo o el usuario de un listero se llevaba TODOS sus viajes. Si
+--    restauras la base desde cero con este archivo, hay que correr también aquel.
 create table if not exists public.camion_viajes (
   id uuid primary key default gen_random_uuid(),
   machinery_id uuid not null references public.machinery(id) on delete cascade,

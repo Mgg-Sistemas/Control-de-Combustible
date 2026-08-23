@@ -13,6 +13,12 @@
  *   · un viaje de un camión que ya no está en el catálogo NO se pierde
  *   · el orden es de más viajes a menos, tanto empresas como camiones
  *
+ * Ampliado el 22-ago-2026 (agrupar POR LISTERO). Lo que fija esa parte:
+ *   · AGRUPAR NO FILTRA: el total es idéntico por empresa y por listero
+ *   · dos listeros distintos NUNCA se funden, aunque se llamen igual
+ *   · un mismo listero con el nombre escrito de dos formas es UN solo grupo
+ *   · un camión trabajado por varios listeros se cuenta UNA vez en el total
+ *
  * Sin framework (el repo no tiene): transpila el .ts en memoria con `typescript`.
  *
  *   npm run test:viajes   (o: node scripts/test-viajes-resumen.mjs)
@@ -36,7 +42,7 @@ const m = new Module(srcPath);
 m.filename = srcPath;
 m.paths = Module._nodeModulePaths(path.dirname(srcPath));
 m._compile(out, m.filename);
-const { resumirViajes, SIN_EMPRESA } = m.exports;
+const { resumirViajes, SIN_EMPRESA, SIN_LISTERO } = m.exports;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -121,6 +127,145 @@ const original = [viaje('t1', 'A'), viaje('t2', 'B')];
 const copia = JSON.stringify(original);
 resumirViajes(original, cat);
 eq('no modifica las filas que recibe', JSON.stringify(original), copia);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGRUPAR POR LISTERO (22-ago-2026)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Un viaje con listero. `L` es el uuid (la identidad de verdad) y `n` el nombre
+// copiado en la fila, que es solo una FOTO y puede variar entre un viaje y otro.
+const vl = (truck, code, L, n) => ({ machineryId: truck, machineCode: code, listeroId: L, listeroName: n });
+
+// Busca un grupo por su clave SIN reventar si no está.
+//
+// Sin esto, romper la clave de agrupación (por ejemplo agrupar por nombre en vez
+// de por uuid) hacía que el test se cayera con "Cannot read properties of
+// undefined" en vez de decir qué se rompió, y de paso se llevaba por delante los
+// casos que venían después. Un test que revienta no informa: informa el que
+// falla y sigue.
+const grupoDe = (resumen, key) =>
+  resumen.empresas.find((g) => g.key === key) ?? { key: `⚠️ NO EXISTE EL GRUPO ${key}`, name: '', total: -1, camiones: [] };
+
+// ── 8) LA INVARIANTE: agrupar por otro eje no saca ni agrega un solo viaje ──
+// Es la propiedad que hace que dos reportes del mismo día siempre cuadren entre
+// sí. Si esto se rompe, alguien cobra de menos o de más.
+const mezcla = [
+  vl('t1', 'VOLTEO A', 'u-junior', 'Junior Cardona'),
+  vl('t1', 'VOLTEO A', 'u-junior', 'Junior Cardona'),
+  vl('t2', 'VOLTEO B', 'u-junior', 'Junior Cardona'),
+  vl('t3', 'VOLTEO C', 'u-maria',  'María Pérez'),
+  vl('t4', 'VOLTEO D', 'u-maria',  'María Pérez'),
+  vl('t1', 'VOLTEO A', 'u-maria',  'María Pérez'),
+];
+const porEmp = resumirViajes(mezcla, cat, 'empresa');
+const porLis = resumirViajes(mezcla, cat, 'listero');
+eq('agrupar por listero NO cambia el total general', porLis.total, porEmp.total);
+eq('el total por listero cuadra con las filas recibidas', porLis.total, mezcla.length);
+eq('la suma de los grupos cuadra con el total',
+  porLis.empresas.reduce((s, g) => s + g.total, 0), porLis.total);
+
+// ── 9) EL EJE POR DEFECTO SIGUE SIENDO EMPRESA ─────────────────────────────
+// Compatibilidad: quien llame sin el tercer argumento recibe lo de siempre.
+eq('sin decir el eje, agrupa por empresa como siempre',
+  JSON.stringify(resumirViajes(mezcla, cat)), JSON.stringify(porEmp));
+eq('el resultado dice por dónde quedó partido (empresa)', porEmp.groupBy, 'empresa');
+eq('el resultado dice por dónde quedó partido (listero)', porLis.groupBy, 'listero');
+
+// ── 10) CADA LISTERO, SU GRUPO ─────────────────────────────────────────────
+eq('salen los dos listeros', porLis.empresas.length, 2);
+eq('el que más registró va primero', porLis.empresas[0].name, 'Junior Cardona');
+eq('Junior con sus 3 viajes', porLis.empresas[0].total, 3);
+eq('María con sus 3 viajes', grupoDe(porLis, 'u-maria').total, 3);
+eq('el desglose de cada listero es por camión',
+  porLis.empresas[0].camiones.map((c) => `${c.code}:${c.viajes}`).join('|'),
+  'VOLTEO A:2|VOLTEO B:1');
+
+// ── 11) ⭐ EL CAMIÓN COMPARTIDO NO SE CUENTA DOS VECES ──────────────────────
+// t1 lo trabajaron Junior (2 viajes) y María (1). Aparece en los dos grupos,
+// pero camiones DISTINTOS hay 4, no 5. Si se sumaran los grupos, el encabezado
+// del reporte diría 5 camiones y sería mentira.
+eq('camiones distintos, no la suma de los grupos', porLis.totalCamiones, 4);
+eq('sumar los grupos daría de más (por eso no se hace)',
+  porLis.empresas.reduce((s, g) => s + g.camiones.length, 0), 5);
+eq('agrupando por empresa el conteo de camiones es el mismo',
+  porEmp.totalCamiones, porLis.totalCamiones);
+
+// ── 12) ⭐ DOS CUENTAS DISTINTAS NO SE FUNDEN AUNQUE SE LLAMEN IGUAL ────────
+// Pasa de verdad: dos personas homónimas, o la misma persona con dos cuentas.
+// La clave es el uuid, así que son dos grupos — y eso es lo correcto: el
+// reporte no puede inventar que dos cuentas son la misma persona.
+const homonimos = resumirViajes([
+  vl('t1', 'VOLTEO A', 'u-uno', 'José García'),
+  vl('t1', 'VOLTEO A', 'u-dos', 'José García'),
+], cat, 'listero');
+eq('dos cuentas con el mismo nombre son dos grupos', homonimos.empresas.length, 2);
+eq('y no se pierde ningún viaje', homonimos.total, 2);
+
+// ── 13) ⭐ UN MISMO LISTERO CON EL NOMBRE ESCRITO DE DOS FORMAS ─────────────
+// `listero_name` es una foto: si le corrigen el nombre en su perfil, los viajes
+// viejos conservan el viejo. Tiene que ser UN grupo, rotulado con la variante
+// más usada — no con la que llegó primero.
+const renombrado = resumirViajes([
+  vl('t1', 'VOLTEO A', 'u-junior', 'Jr Cardona'),
+  vl('t1', 'VOLTEO A', 'u-junior', 'Junior Cardona'),
+  vl('t2', 'VOLTEO B', 'u-junior', 'Junior Cardona'),
+], cat, 'listero');
+eq('el mismo uuid con dos nombres es UN solo grupo', renombrado.empresas.length, 1);
+eq('se rotula con la variante más usada, no con la primera',
+  renombrado.empresas[0].name, 'Junior Cardona');
+eq('y conserva sus 3 viajes', renombrado.empresas[0].total, 3);
+
+// El empate se resuelve alfabéticamente para que dos corridas del MISMO reporte
+// salgan idénticas — si dependiera del orden de llegada, el título bailaría.
+const empate = resumirViajes([
+  vl('t1', 'VOLTEO A', 'u-x', 'Zoraida Ruiz'),
+  vl('t1', 'VOLTEO A', 'u-x', 'Ana Ruiz'),
+], cat, 'listero');
+eq('empate de variantes: gana la alfabéticamente menor (determinista)',
+  empate.empresas[0].name, 'Ana Ruiz');
+const empateAlReves = resumirViajes([
+  vl('t1', 'VOLTEO A', 'u-x', 'Ana Ruiz'),
+  vl('t1', 'VOLTEO A', 'u-x', 'Zoraida Ruiz'),
+], cat, 'listero');
+eq('y da lo mismo en qué orden lleguen las filas',
+  empateAlReves.empresas[0].name, empate.empresas[0].name);
+
+// ── 14) ESPACIOS DE MÁS NO PARTEN UN GRUPO ─────────────────────────────────
+const espacios = resumirViajes([
+  vl('t1', 'VOLTEO A', 'u-j', '  Junior   Cardona '),
+  vl('t1', 'VOLTEO A', 'u-j', 'Junior Cardona'),
+], cat, 'listero');
+eq('los espacios de más se colapsan', espacios.empresas[0].name, 'Junior Cardona');
+eq('y sigue siendo un solo grupo', espacios.empresas.length, 1);
+
+// ── 15) UN VIAJE SIN LISTERO NO SE PIERDE ──────────────────────────────────
+// En la base `listero_id` es not null, así que no debería pasar nunca. Pero la
+// función es pura y recibe lo que le den: si llega uno sin listero cae en su
+// cubeta en vez de desaparecer, porque el total tiene que cuadrar SIEMPRE.
+const huerfano = resumirViajes([
+  vl('t1', 'VOLTEO A', 'u-junior', 'Junior Cardona'),
+  { machineryId: 't2', machineCode: 'VOLTEO B' },
+], cat, 'listero');
+eq('el viaje sin listero no se pierde', huerfano.total, 2);
+ok('cae en la cubeta "sin listero"', huerfano.empresas.some((g) => g.key === SIN_LISTERO));
+eq('rotulada de forma legible',
+  grupoDe(huerfano, SIN_LISTERO).name, 'Sin listero');
+
+// ── 16) LOS CAMIONES FUERA DE CATÁLOGO TAMBIÉN CUENTAN POR LISTERO ─────────
+// Un camión anotado a mano no tiene ficha, pero sí tiene quien lo registró.
+const fuera = resumirViajes([
+  { machineryId: null, machineCode: 'VOLTEO 88', fueraCatalogo: true, listeroId: 'u-j', listeroName: 'Junior Cardona' },
+  { machineryId: null, machineCode: 'VOLTEO 99', fueraCatalogo: true, listeroId: 'u-j', listeroName: 'Junior Cardona' },
+], cat, 'listero');
+eq('los de fuera de catálogo se le cuentan a su listero', fuera.empresas[0].total, 2);
+eq('y siguen siendo dos camiones distintos, no uno', fuera.empresas[0].camiones.length, 2);
+eq('con la marca de que no están en la flota', fuera.empresas[0].camiones[0].placa, 'FUERA DE CATÁLOGO');
+
+// ── 17) NO MUTA LO QUE RECIBE (tampoco por listero) ────────────────────────
+const orig2 = [vl('t1', 'A', 'u-j', 'Junior Cardona')];
+const copia2 = JSON.stringify(orig2);
+resumirViajes(orig2, cat, 'listero');
+eq('agrupar por listero no modifica las filas recibidas', JSON.stringify(orig2), copia2);
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-resumen · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

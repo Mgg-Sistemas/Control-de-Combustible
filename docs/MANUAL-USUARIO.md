@@ -3288,6 +3288,18 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 - **Sin señal:** el viaje se guarda igual en el teléfono y se sube solo en cuanto vuelva la
   conexión — se ve una insignia **ámbar "📤 pendiente"** mientras tanto. Por muchos días que
   pase el listero sin cobertura, nunca se pierde ni se descarta nada.
+- **Con señal a medias (22-ago-2026):** ahora **tampoco**. Si el teléfono cree que hay conexión
+  pero el envío falla —el wifi del patio da señal sin internet, la sesión venció, el servidor
+  tardó de más— el viaje **ya no se descarta**: se guarda en el teléfono igual que si no hubiera
+  señal, y se reintenta solo. **Antes ese viaje se perdía** con un aviso rojo que desaparecía a
+  los tres segundos, y esa es la causa más probable de los faltantes que se venían reclamando.
+- **El aviso ahora dice la verdad.** Si el teléfono no pudo ni siquiera guardar el viaje en su
+  propia memoria, sale un aviso rojo pidiendo **no cerrar la aplicación**. Antes decía "quedó
+  guardado en el teléfono" sin comprobarlo.
+- **Contador en «Mis viajes de hoy»:** el título trae el número — `Mis viajes de hoy · 7`, y si
+  alguno sigue sin subir, `7 (2 sin subir)`. La lista ya **no se corta**: se ven todos.
+  Antes la caja solo mostraba unos cuatro renglones y no tenía número, así que el listero
+  contaba lo que veía y reclamaba viajes que sí estaban registrados.
 - **⚠️ Viajes que no pudieron subirse:** si un viaje falla por algo que **no** es la señal (el
   camión se borró del catálogo, un dato quedó inválido), el sistema lo reintenta 3 veces y
   después lo **aparta** — pero **la cola sigue subiendo los demás**. El viaje apartado no se
@@ -3346,6 +3358,52 @@ cargarla en cada viaje. Los camiones sin empresa asignada se agrupan en **"Sin e
 > De paso, el Catálogo y Control de Maquinaria ahora muestran el **operador planeado** por el
 > Coordinador de Operadores (antes solo se veía dentro de ese módulo) — mismo tratamiento que ya
 > tenía el Inspector, para que una reasignación se note en toda la app, no solo ahí.
+
+### 👤 El mismo reporte, agrupado POR LISTERO (22-ago-2026)
+
+Cuando eliges **📊 Resumido**, aparece debajo una segunda fila, **AGRUPAR POR**, con dos opciones:
+
+- **🏢 Empresa** — como venía funcionando: cada empresa con sus camiones.
+- **👤 Listero** — cada **listero** con los camiones que **él** registró: *"Junior Cardona — 11
+  viajes · 2 camiones"*, y debajo el desglose de cada camión.
+
+> **Agrupar no filtra.** Cambiar el eje **no saca ni agrega ni un solo viaje**: el TOTAL GENERAL
+> es idéntico en los dos modos. Es lo único que garantiza que dos reportes del mismo día cuadren
+> entre sí, y está fijado con prueba automática (`npm run test:viajes`).
+
+> **El total de camiones cuenta camiones DISTINTOS.** Si un mismo camión lo trabajaron dos
+> listeros, aparece en los dos grupos pero se cuenta **una sola vez** en el encabezado. Sumar los
+> grupos daría de más.
+
+**Dos detalles que conviene saber para no reclamar de balde:**
+
+> **Dos cuentas de usuario = dos listeros.** El reporte agrupa por la **cuenta**, no por el
+> nombre. Si una misma persona tiene un usuario viejo y uno nuevo, sale en **dos renglones**
+> aunque se llame igual — y está bien que así sea: el sistema no puede adivinar que dos cuentas
+> son la misma persona. Si ves a alguien duplicado, es eso.
+
+> **El corte es por JORNADA, no por día de calendario (22-ago-2026).** En este módulo el «día»
+> va de las **7 de la mañana a las 7 de la mañana** del día siguiente: turno de día (7am–7pm)
+> más turno de noche (7pm–7am). Los dos juntos son **un** día de trabajo, que es como se cuenta
+> y se paga.
+>
+> Antes cortaba a medianoche y eso **partía la noche en dos fechas**: un listero que trabajó una
+> sola noche veía 4 viajes en un día y 3 en el siguiente, y creía que le faltaban. **Ese era el
+> reclamo de «registré 7 y el sistema muestra 4».** Ahora marcas un día y salen los 7.
+>
+> Vale para todo el módulo: «Mis viajes de hoy», el «Resumen de hoy» de la jefa, los filtros de
+> día y el PDF, que además **lo dice en su encabezado** para que nadie compare estas cifras
+> contra un conteo hecho por calendario.
+>
+> ⚠️ De madrugada, «hoy» sigue siendo la jornada que arrancó **ayer** a las 7am. Es lo correcto:
+> a las 3 de la mañana el listero está en medio de su turno, no en uno nuevo.
+>
+> ⚠️ Corregir la hora de un viaje puede **moverlo de jornada** si cruza las 7am. El sistema
+> avisa antes de guardar y te deja decidir.
+
+**El nombre del listero.** Es el que tenía cuando registró el viaje, no el de hoy. Si a alguien le
+corrigen el nombre en su ficha, los viajes viejos conservan el anterior; el reporte los junta
+igual (agrupa por cuenta) y rotula el grupo con la forma **más usada**.
 
 ---
 
