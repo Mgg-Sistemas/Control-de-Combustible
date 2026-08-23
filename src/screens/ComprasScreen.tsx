@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Linking, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -10,7 +10,8 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { RequerimientoTab } from './RequerimientoTab';
-import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa } from '../types/database';
+import { pickAndUploadDocFile } from '../lib/photo';
+import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -382,146 +383,199 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
   );
 }
 
-// ── Solicitudes ──────────────────────────────────────────────────────────────
-function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
+// ── Compras directas ─────────────────────────────────────────────────────────
+// Compra YA hecha (con factura) que entra DIRECTO al inventario al crearla y genera
+// su cuenta por pagar (todo lo hace el trigger de la base, ver compras_directas.sql).
+// Reemplaza al viejo flujo de "Solicitudes de pedido" (pedir sin precio → aprobar
+// → orden): eso lo cubre la pestaña "Requerimiento".
+function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
-  const confirm = useConfirm();
   const toast = useToast();
-  const { data: reqs, loading, refetch } = useTable<PurchaseRequest>('purchase_requests', { orderBy: 'created_at', ascending: false });
+  const { data: compras, loading, refetch } = useTable<DirectPurchase>('direct_purchases', { orderBy: 'created_at', ascending: false, realtimeFrom: 'direct_purchases' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: catalog } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
+  const supplierName = (id: string | null) => (id ? suppliers.find((s) => s.id === id)?.name ?? '—' : '—');
 
   const [open, setOpen] = useState(false);
   const [company, setCompany] = useState('');
+  const [supplier, setSupplier] = useState('');
   const [category, setCategory] = useState('repuestos');
-  const [neededFor, setNeededFor] = useState('');
   const [note, setNote] = useState('');
   const [items, setItems] = useState<PurchaseLine[]>([{ description: '', qty: 1, unit: '', price: 0 }]);
+  const [factura, setFactura] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
+  const [subiendo, setSubiendo] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Carpeta de Storage para la factura de ESTA compra en edición (la fila aún no
+  // existe al subir; el path solo organiza el archivo, no depende del id real).
+  const [draftId] = useState(() => (globalThis as any)?.crypto?.randomUUID?.() ?? String(Date.now()));
+  // Vista de la factura ya cargada (imagen o PDF).
+  const [preview, setPreview] = useState<DirectPurchase | null>(null);
+
+  const resetForm = () => { setOpen(false); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
+
+  const adjuntarFactura = async () => {
+    setSubiendo(true);
+    try {
+      const res = await pickAndUploadDocFile('compras-directas', draftId);
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
+      setFactura({ url: res.url!, kind: res.kind ?? 'image', name: res.name ?? 'factura' });
+      toast.success('Factura adjuntada.');
+    } finally { setSubiendo(false); }
+  };
 
   const crear = async () => {
     if (!company) return toast.error('Elige la empresa.');
-    // La solicitud NO lleva precio: solo qué y cuánto. El precio va en la Orden de Compra.
-    const clean = items.filter((l) => l.description.trim()).map((l) => ({ ...l, price: 0 }));
-    if (!clean.length) return toast.error('Agrega al menos un renglón con descripción.');
+    if (!supplier) return toast.error('Elige el proveedor (a quién se le paga).');
+    // La compra directa SÍ lleva precio: entra al inventario con su costo.
+    const clean = items.filter((l) => l.description.trim() && Number(l.qty) > 0);
+    if (!clean.length) return toast.error('Agrega al menos un renglón con producto y cantidad.');
     setBusy(true);
-    const { error } = await supabase.from('purchase_requests').insert({
-      company_id: company, requested_by: session?.user?.id ?? null, category, needed_for: neededFor.trim().toUpperCase() || null,
-      note: note.trim().toUpperCase() || null, items: clean, estimated_total: 0, status: 'solicitada',
+    const { error } = await supabase.from('direct_purchases').insert({
+      company_id: company, supplier_id: supplier, category,
+      items: clean, total: linesTotal(clean),
+      factura_url: factura?.url ?? null, factura_type: factura?.kind ?? null, factura_name: factura?.name ?? null,
+      note: note.trim().toUpperCase() || null, created_by: session?.user?.id ?? null,
     });
     setBusy(false);
-    if (error) return toast.error(error.message);
-    setOpen(false); setCompany(''); setCategory('repuestos'); setNeededFor(''); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]);
+    if (error) {
+      if (/direct_purchases|relation|does not exist|column/i.test(error.message)) { toast.error('Corre "compras_directas.sql" en Supabase para habilitar Compras Directas.'); return; }
+      return toast.error(error.message);
+    }
+    resetForm();
     refetch();
+    toast.success('Compra directa registrada: los productos entraron al inventario y se generó la cuenta por pagar.');
   };
 
-  const setStatus = async (r: PurchaseRequest, status: 'aprobada' | 'rechazada') => {
-    const ok = await confirm({ title: status === 'aprobada' ? 'Aprobar solicitud' : 'Rechazar solicitud', message: `¿${status === 'aprobada' ? 'Aprobar' : 'Rechazar'} la solicitud de ${companyName(r.company_id)}?`, confirmText: status === 'aprobada' ? 'Aprobar' : 'Rechazar' });
-    if (!ok) return;
-    await supabase.from('purchase_requests').update({ status, approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', r.id);
-    refetch();
-  };
-
-  const generarOrden = async (r: PurchaseRequest) => {
-    const ok = await confirm({ title: 'Generar orden de compra', message: 'Se creará una orden en borrador con estos renglones. Luego eliges proveedor y precios en la pestaña Órdenes.', confirmText: 'Generar' });
-    if (!ok) return;
-    await supabase.from('purchase_orders').insert({ request_id: r.id, company_id: r.company_id, category: r.category ?? null, items: r.items, total: linesTotal(r.items || []), status: 'borrador', created_by: session?.user?.id ?? null });
-    await supabase.from('purchase_requests').update({ status: 'ordenada' }).eq('id', r.id);
-    refetch();
-    toast.success('Orden creada en borrador. Ve a la pestaña "Órdenes" para completarla.');
+  const verFactura = (c: DirectPurchase) => {
+    if (!c.factura_url) return;
+    if (Platform.OS === 'web') { setPreview(c); return; }
+    Linking.openURL(c.factura_url);
   };
 
   return (
     <Screen>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <SectionTitle>Solicitudes de pedido</SectionTitle>
+        <SectionTitle>Compras directas</SectionTitle>
         {canWrite ? (
           <TouchableOpacity onPress={() => setOpen(true)} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
           </TouchableOpacity>
         ) : null}
       </View>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Compra ya hecha con su factura: al guardarla entra DIRECTO al inventario (entrada con su precio) y genera la cuenta por pagar al proveedor.</Text>
 
-      {loading ? <Loading /> : reqs.length === 0 ? (
-        <EmptyState title="Sin solicitudes" subtitle="Crea una solicitud de pedido para iniciar una compra." />
-      ) : groupByCompany(reqs, companyName).map((grp) => (
+      {loading ? <Loading /> : compras.length === 0 ? (
+        <EmptyState title="Sin compras directas" subtitle="Registra una compra directa: producto, precio y factura → entra al inventario." />
+      ) : groupByCompany(compras, companyName).map((grp) => (
         <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
-          {grp.items.map((r) => {
-            const st = REQ_STATUS[r.status] ?? REQ_STATUS.solicitada;
-            return (
-              <ExpandableCard
-                key={r.id}
-            summary={
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>{companyName(r.company_id)}</Text>
-                  <Pill label={st.label} {...toneSoft(colors, st.tone)} />
-                </View>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(r.category).icon} {catInfo(r.category).label} · {(r.items || []).length} renglón(es)</Text>
-              </View>
-            }
-            detail={
-              <>
-                {r.needed_for ? <Text style={{ color: colors.muted, fontSize: 13 }}>Para: {r.needed_for}</Text> : null}
-                {(r.items || []).map((l, i) => (
-                  <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description}</Text>
-                ))}
-                {canWrite ? (
-                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                    {r.status === 'solicitada' ? (
-                      <>
-                        <TouchableOpacity onPress={() => setStatus(r, 'aprobada')} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>✅ Aprobar</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Rechazar</Text></TouchableOpacity>
-                      </>
-                    ) : r.status === 'aprobada' ? (
-                      <>
-                        <TouchableOpacity onPress={() => generarOrden(r)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>🧾 Generar orden</Text></TouchableOpacity>
-                        {/* El mismo gerente puede anular una solicitud ya aprobada. */}
-                        <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Anular (rechazar)</Text></TouchableOpacity>
-                      </>
-                    ) : null}
+          {grp.items.map((c) => (
+            <ExpandableCard
+              key={c.id}
+              summary={
+                <View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                    <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>🛒 {c.code}</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800' }}>{usd(c.total)}</Text>
                   </View>
-                ) : null}
-              </>
-            }
-              />
-            );
-          })}
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(c.category).icon} {catInfo(c.category).label} · {(c.items || []).length} renglón(es) · 🏭 {supplierName(c.supplier_id)}</Text>
+                </View>
+              }
+              detail={
+                <>
+                  {(c.items || []).map((l, i) => (
+                    <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text>
+                  ))}
+                  {c.note ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {c.note}</Text> : null}
+                  <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>✓ Cargada al inventario · cuenta por pagar generada</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                    {c.factura_url ? (
+                      <TouchableOpacity onPress={() => verFactura(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📎 Ver factura{c.factura_type === 'pdf' ? ' (PDF)' : ''}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Sin factura adjunta.</Text>
+                    )}
+                  </View>
+                </>
+              }
+            />
+          ))}
         </AccordionGroup>
       ))}
 
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>
           <ScrollView>
-            <SectionTitle>Nueva solicitud</SectionTitle>
+            <SectionTitle>Nueva compra directa</SectionTitle>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa</Text>
               <CompanyPicker companies={generalCompanies(companies)} value={company} onChange={setCompany} colors={colors} />
+            </Card>
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Proveedor (a quién se le paga)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {suppliers.map((s) => {
+                  const on = supplier === s.id;
+                  return (
+                    <TouchableOpacity key={s.id} onPress={() => setSupplier(s.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{s.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {suppliers.length === 0 ? <Text style={{ color: colors.muted, fontSize: 13 }}>Registra proveedores en su pestaña.</Text> : null}
+              </View>
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Categoría del gasto</Text>
               <CategoryPicker value={category} onChange={setCategory} colors={colors} />
             </Card>
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>¿Para qué / destino? (opcional)</Text>
-              <TextInput value={neededFor} onChangeText={(t) => setNeededFor(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. MÁQUINA 010, ALMACÉN…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Nota (opcional)</Text>
-              <TextInput value={note} onChangeText={(t) => setNote(t.toUpperCase())} autoCapitalize="characters" placeholder="OBSERVACIÓN…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (producto · cantidad · precio)</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Cada renglón entra al inventario como ENTRADA con su precio. Al escribir, se sugieren productos ya registrados.</Text>
+              <LineEditor items={items} setItems={setItems} priceLabel="Precio unit." catalog={catalog} />
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginTop: spacing.xs, textAlign: 'right' }}>Total: {usd(linesTotal(items))}</Text>
             </Card>
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (qué se necesita)</Text>
-              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Solo qué y cuánto. El precio se coloca en la Orden de Compra. Al escribir, se sugieren productos ya registrados en inventario.</Text>
-              <LineEditor items={items} setItems={setItems} priceLabel="" catalog={catalog} noPrice />
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Factura</Text>
+              <TouchableOpacity onPress={adjuntarFactura} disabled={subiendo} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: subiendo ? 0.6 : 1 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{subiendo ? '⏳ Subiendo…' : factura ? `📎 ${factura.name} · Cambiar` : '📎 Adjuntar factura (imagen o PDF)'}</Text>
+              </TouchableOpacity>
+            </Card>
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nota (opcional)</Text>
+              <TextInput value={note} onChangeText={(t) => setNote(t.toUpperCase())} autoCapitalize="characters" placeholder="OBSERVACIÓN…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-              <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
-              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Guardar solicitud'}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={resetForm} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Registrar compra directa'}</Text></TouchableOpacity>
             </View>
           </ScrollView>
         </Screen>
+      </Modal>
+
+      {/* Ver factura (web): imagen o PDF embebido. En nativo se abre con Linking. */}
+      <Modal visible={!!preview} animationType="slide" transparent onRequestClose={() => setPreview(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>📎 {preview?.factura_name || 'Factura'} · {preview?.code}</Text>
+              <TouchableOpacity onPress={() => setPreview(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill }}><Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar</Text></TouchableOpacity>
+            </View>
+            {preview?.factura_url ? (
+              preview.factura_type === 'pdf' ? (
+                Platform.OS === 'web'
+                  ? React.createElement('iframe', { src: preview.factura_url, style: { width: '100%', height: '70vh', border: 'none', borderRadius: 8 } })
+                  : <Text style={{ color: colors.muted }}>Abriendo PDF…</Text>
+              ) : (
+                <Image source={{ uri: preview.factura_url }} style={{ width: '100%', height: 460, borderRadius: radius.md }} resizeMode="contain" />
+              )
+            ) : null}
+          </View>
+        </View>
       </Modal>
     </Screen>
   );
@@ -1066,7 +1120,7 @@ export default function ComprasScreen() {
 
   const TABS = [
     { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
-    { key: 'solicitudes', label: 'Solicitudes', icon: '🗒️' },
+    { key: 'directas', label: 'Compras directas', icon: '🛒' },
     { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
@@ -1095,7 +1149,7 @@ export default function ComprasScreen() {
           // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
           // propio buscador y formulario limpios.
           <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
-        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : active === 'mangueras' ? <ManguerasAprobarTab canWrite={canWrite} /> : <ProveedoresTab canWrite={canWrite} />}
+        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'directas' ? <ComprasDirectasTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : active === 'mangueras' ? <ManguerasAprobarTab canWrite={canWrite} /> : <ProveedoresTab canWrite={canWrite} />}
       </View>
     </View>
   );

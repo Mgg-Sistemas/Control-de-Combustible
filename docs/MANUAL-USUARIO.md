@@ -1880,6 +1880,16 @@ escritura en Compras (o Inventario).
 > proveedores se crean en la pestaña **"🏭 Proveedores"** de Compras. Para **recibir** el material
 > en el almacén se sigue necesitando permiso de **Inventario**.
 
+> **🛒 Compras directas (reemplaza a "Solicitudes de pedido"):** para una compra **ya hecha** que
+> quieres cargar de una vez, sin pasar por aprobación. En **Compras → "🛒 Compras directas"** toca
+> **"+ Nueva"**, elige la **EMPRESA** y el **PROVEEDOR**, agrega los renglones (**producto · cantidad ·
+> PRECIO**), **adjunta la FACTURA** (imagen o PDF) y toca **"Registrar compra directa"**. Al guardarla:
+> **(1)** cada renglón **entra al inventario** con su precio (recalcula el costo promedio), **(2)** se
+> genera la **cuenta por pagar** al proveedor, y **(3)** le queda su **código correlativo** (CD-0001,
+> CD-0002…). En la lista, cada compra trae **"📎 Ver factura"** para revisar la factura cargada. A
+> diferencia del Requerimiento (que se pide y el jefe aprueba antes de comprar), la compra directa es
+> **inmediata**. *(Requiere correr una vez `supabase/compras_directas.sql`.)*
+
 > **Cambiar estado a mano (04/08/2026):** quien tenga **todos los permisos de Inventario** (o sea
 > administrador) puede tocar el mismo **badge de estado** (arriba a la derecha de cada
 > requerimiento, ej. "APROBADO") para desplegar "Cambiar a: Pendiente/Aprobado/Rechazado/Recibido"

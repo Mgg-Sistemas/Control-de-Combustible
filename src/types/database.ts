@@ -599,6 +599,27 @@ export interface PurchaseOrder {
   inventory_requirement_id?: string | null;
 }
 
+/**
+ * COMPRA DIRECTA (direct_purchases): compra ya hecha (con factura) que entra DIRECTO
+ * al inventario al crearla y genera su cuenta por pagar. Reemplaza a "Solicitudes de
+ * pedido". Migración: supabase/compras_directas.sql.
+ */
+export interface DirectPurchase {
+  id: string;
+  code: string;                 // CD-#### (correlativo en la base)
+  company_id: string | null;
+  supplier_id: string | null;
+  category: string | null;
+  items: PurchaseLine[];
+  total: number;
+  factura_url: string | null;
+  factura_type: 'image' | 'pdf' | null;
+  factura_name: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 // ── Inventario / Almacén ─────────────────────────────────────────────────────
 export interface InventoryItem {
   id: string;
