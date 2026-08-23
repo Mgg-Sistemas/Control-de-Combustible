@@ -227,14 +227,14 @@ export default function ManguerasScreen() {
     { key: 'supplier_id', label: 'Proveedor (a quién se le paga)', type: 'lookup', table: 'suppliers', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
     // Cuenta POR COBRAR: empresa + encargado a quien se le cobra la manguera y el
     // margen de venta. Aplica a mangueras de flota Y externas (se piden siempre). La
-    // BD genera la cuenta 'por_cobrar' (trigger), salvo que el encargado sea CHELI
-    // (cobrar=false) o falte empresa/encargado.
+    // BD genera la cuenta 'por_cobrar' (trigger) con empresa + encargado + costo.
+    // Desde 23-ago-2026 TODOS los encargados generan cobro (incl. CHELI).
     // Empresa a cobrar de la LISTA PROPIA de mangueras (hose_empresas): se puede
     // agregar una nueva escribiéndola (createColumn) SIN que entre al catálogo companies.
     { key: 'hose_empresa_id', label: 'Empresa a cobrar', type: 'lookup', table: 'hose_empresas', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
     { key: 'encargado_id', label: 'Encargado (a quién se le cobra)', type: 'lookup', table: 'encargados', labelCol: 'name', createColumn: 'name', dropdown: true, required: true },
     { key: 'sale_margin_pct', label: 'Margen de cobro (%)', type: 'number', defaultValue: '30' },
-    { key: 'cobro_info', type: 'section', label: 'ℹ️ Monto a cobrar = costo + margen. Si el encargado es CHELI, NO se genera cuenta por cobrar.' },
+    { key: 'cobro_info', type: 'section', label: 'ℹ️ Monto a cobrar = costo + margen. Todos los encargados generan cuenta por cobrar.' },
     installStatusField,
   ];
 
@@ -543,11 +543,12 @@ export default function ManguerasScreen() {
                         } finally { setBusy(null); }
                       }} />
                     ) : null}
-                    {/* Recibo de cobro (PDF): solo si la manguera es cobrable — tiene
-                        empresa + encargado y el encargado NO es CHELI (cobrar !== false). */}
+                    {/* Recibo de cobro (PDF): con empresa + encargado. Desde 23-ago-2026
+                        TODOS los encargados generan cobro (incl. CHELI): ya no se filtra por
+                        el flag `cobrar`. */}
                     {(() => {
                       const enc = h.encargado_id ? encargadosMap[h.encargado_id] : undefined;
-                      const cobrable = !!h.hose_empresa_id && !!h.encargado_id && (enc ? enc.cobrar !== false : false);
+                      const cobrable = !!h.hose_empresa_id && !!h.encargado_id;
                       if (!cobrable) return null;
                       return (
                         <Btn label="🧾 Recibo de cobro" color="#7C3AED" disabled={busy === h.id + '-recibo'} onPress={async () => {
