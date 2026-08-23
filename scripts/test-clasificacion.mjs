@@ -69,6 +69,7 @@ const round = (id, o = {}) => ({
   machinery_id: id, round_date: DAY,
   day_hours: o.day_hours ?? null, night_hours: o.night_hours ?? null,
   jornada_shift: o.jornada_shift ?? null, jornada_start_at: o.jornada_start_at ?? null,
+  jornada_marked_at: o.jornada_marked_at ?? null,
   declared_day: o.declared_day ?? null, declared_night: o.declared_night ?? null,
 });
 const maint = (id, hhmm, material = null, plusDay = 0) => ({
@@ -118,6 +119,24 @@ eq('paradaShiftOf 02:00 = night', paradaShiftOf(iso(2)), 'night');
   const ds = run({ shift: 'day', assignments: [assign('E', 'juan', 'day')],
     maint: [maint('E', [11, 0])], rounds: [round('E', { jornada_shift: 'day', jornada_start_at: iso(8, 0) })] });
   eq('averia posterior a jornada averiada', arr(ds.averSet), ['E']);
+}
+// 5b) REACTIVACIÓN por HORA REAL de arranque (jornada_marked_at): la jornada se re-inició
+//     a las 9:30 pero `jornada_start_at` quedó ANCLADO a las 7am. Una parada a las 8:00 NO
+//     puede dejarla parada: se reactivó a las 9:30 (después de la parada). Bug 23-ago-2026.
+{
+  const ds = run({ shift: 'day', assignments: [assign('RE', 'juan', 'day')],
+    maint: [maint('RE', [8, 0], 'MÁQUINA PARADA')],
+    rounds: [round('RE', { jornada_shift: 'day', jornada_start_at: iso(7, 0), jornada_marked_at: iso(9, 30) })] });
+  eq('reactivada por marked_at sin parada', arr(ds.paradaSet), []);
+  eq('reactivada por marked_at iniciada', arr(ds.startedSet), ['RE']);
+}
+// 5c) CONTRA-CASO: sin marked_at (fila vieja), se usa jornada_start_at anclado (compat):
+//     start 7am, parada 8am → NO reactivada (7am < 8am) → sigue parada.
+{
+  const ds = run({ shift: 'day', assignments: [assign('RC', 'juan', 'day')],
+    maint: [maint('RC', [8, 0], 'MÁQUINA PARADA')],
+    rounds: [round('RC', { jornada_shift: 'day', jornada_start_at: iso(7, 0) })] });
+  eq('sin marked_at usa start anclado (parada)', arr(ds.paradaSet), ['RC']);
 }
 // 7) Reactivación CRUZADA de turno NO aplica acá (por-turno aislado, a propósito).
 //    Caso LUMINARIA/PAYLOADER: el parche cruzado vive en Dashboard, no en buildDaySets.

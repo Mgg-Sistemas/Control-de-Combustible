@@ -59,6 +59,11 @@ export type DaySetRound = {
   night_hours: number | null;
   jornada_shift: string | null;
   jornada_start_at: string | null;
+  /** Hora REAL en que se tocó "iniciar" (puede diferir del inicio ANCLADO al nominal
+   *  7am/7pm). Se usa SOLO para la reactivación: si la jornada se re-inició a las 9:30
+   *  pero `jornada_start_at` quedó anclado a las 7am, la reactivación debe compararse
+   *  contra las 9:30 (cuando de verdad volvió a arrancar), no contra las 7am. */
+  jornada_marked_at?: string | null;
   // "Declaró jornada" DURABLE por turno (no se pisan entre sí, a diferencia de la
   // columna única `jornada_shift`). Opcionales: si la consulta no los trae, se hace
   // fallback a `jornada_shift === turno` (comportamiento previo). Ver
@@ -278,7 +283,12 @@ export function buildDaySets(params: {
       anyOpenSet.add(r.machinery_id);
       if (openShiftOf(r) === shiftArg) {
         openSet.add(r.machinery_id);
-        const ms = new Date(r.jornada_start_at as string).getTime();
+        // Para la REACTIVACIÓN se usa el instante REAL en que se tocó "iniciar"
+        // (jornada_marked_at) y no el inicio ANCLADO al nominal 7am/7pm: una jornada
+        // re-iniciada a las 9:30 (pero anclada a las 7am) tiene que reactivarse contra
+        // las 9:30 — si no, una parada de la mañana la deja "🟡 parada" con la jornada
+        // abierta (bug reportado 23-ago-2026: máquina iniciada a las 9:30 salía parada).
+        const ms = new Date((r.jornada_marked_at || r.jornada_start_at) as string).getTime();
         if (!isNaN(ms)) openStartMs.set(r.machinery_id, Math.max(openStartMs.get(r.machinery_id) ?? 0, ms));
       }
     }
