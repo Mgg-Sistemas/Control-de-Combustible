@@ -616,24 +616,6 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         </View>
       ) : null}
 
-      {/* Filtro por TIPO de producto (bombona, silla, mecate…) */}
-      {tipoOptions.length ? (
-        <View style={{ marginTop: spacing.sm }}>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tipo</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
-            {([['__all__', 'Todos', levels.length], ...tipoOptions.map(([t, n]) => [t, t, n] as [string, string, number])] as [string, string, number][]).map(([val, label, n]) => {
-              const on = tipoFilter === val;
-              return (
-                <TouchableOpacity key={val} onPress={() => setTipoFilter(val)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
-                  <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({n})</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      ) : null}
-
       {filtered.length === 0 ? (
         <EmptyState title="Sin productos" subtitle="Agrega productos o recíbelos desde una orden de compra." />
       ) : filtered.map((it) => {
