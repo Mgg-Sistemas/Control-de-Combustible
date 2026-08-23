@@ -52,6 +52,16 @@ export type ViajeMin = {
   fueraCatalogo?: boolean;
   listeroId?: string | null;
   listeroName?: string | null;
+  /**
+   * ☀️ día (7am–7pm) o 🌙 noche (7pm–7am).
+   *
+   * Lo calcula QUIEN LLAMA, no este archivo: acá no hay imports a propósito
+   * (ver la nota de arriba), y deducir el turno necesita la zona horaria de
+   * Caracas. La pantalla lo saca con `turnoDeViaje` de src/lib/viajesTurno.ts.
+   * Si no viene, los contadores de día/noche quedan en 0 y el total general
+   * sigue cuadrando igual.
+   */
+  turno?: 'day' | 'night' | null;
 };
 
 /**
@@ -70,7 +80,10 @@ export function claveCamion(v: ViajeMin): string {
 /** Lo mínimo que necesita del camión (sale de `machinery`). */
 export type CamionMin = { companyId: string | null; companyName: string; plate: string | null; serial: string | null };
 
-export type CamionResumen = { code: string; placa: string; viajes: number };
+/** `dia + noche` puede ser MENOR que `viajes`: los viajes sin turno conocido
+ *  (los viejos, de antes de que se guardara) no se le inventan a ninguno de
+ *  los dos. `viajes` es el que manda y el que tiene que cuadrar. */
+export type CamionResumen = { code: string; placa: string; viajes: number; dia: number; noche: number };
 /**
  * Un GRUPO del resumen. Se llama `EmpresaResumen` por historia: cuando se
  * agrupa por listero, cada uno de estos es un LISTERO y no una empresa. El
@@ -78,11 +91,14 @@ export type CamionResumen = { code: string; placa: string; viajes: number };
  * el HTML del PDF y el test sin ganar nada. Es justo lo que hace barato el
  * `groupBy`: la FORMA del resultado no cambia, solo por dónde se parte.
  */
-export type EmpresaResumen = { key: string; name: string; total: number; camiones: CamionResumen[] };
+export type EmpresaResumen = { key: string; name: string; total: number; dia: number; noche: number; camiones: CamionResumen[] };
 
 export type ResumenViajes = {
   empresas: EmpresaResumen[];
   total: number;
+  /** Desglose del total general por turno. Ver la nota de `CamionResumen`. */
+  dia: number;
+  noche: number;
   totalCamiones: number;
   /** Por cuál eje quedó partido esto. Lo usa el PDF para rotular sin adivinar. */
   groupBy: EjeResumen;
@@ -141,7 +157,8 @@ export function resumirViajes(
   groupBy: EjeResumen = 'empresa'
 ): ResumenViajes {
   const porListero = groupBy === 'listero';
-  const emp = new Map<string, { key: string; nombres: Map<string, number>; total: number; camiones: Map<string, CamionResumen> }>();
+  const emp = new Map<string, { key: string; nombres: Map<string, number>; total: number; dia: number; noche: number; camiones: Map<string, CamionResumen> }>();
+  let totalDia = 0, totalNoche = 0;
 
   for (const r of rows) {
     // Un camión fuera de catálogo no se busca: no está y nunca va a estar.
@@ -156,8 +173,18 @@ export function resumirViajes(
       ? (String(r.listeroName ?? '').replace(/\s+/g, ' ').trim() || 'Sin listero')
       : (t?.companyName || 'Sin empresa');
 
-    const g = emp.get(key) ?? { key, nombres: new Map<string, number>(), total: 0, camiones: new Map<string, CamionResumen>() };
+    // Ni 'day' ni 'night' (viaje viejo, sin turno guardado): no se le regala a
+    // ninguno de los dos lados. Mejor que el desglose no sume al total a que
+    // aparezcan viajes de día que nadie hizo.
+    const esDia = r.turno === 'day';
+    const esNoche = r.turno === 'night';
+    if (esDia) totalDia += 1;
+    if (esNoche) totalNoche += 1;
+
+    const g = emp.get(key) ?? { key, nombres: new Map<string, number>(), total: 0, dia: 0, noche: 0, camiones: new Map<string, CamionResumen>() };
     g.total += 1;
+    if (esDia) g.dia += 1;
+    if (esNoche) g.noche += 1;
     g.nombres.set(name, (g.nombres.get(name) ?? 0) + 1);
 
     const ck = claveCamion(r);
@@ -168,8 +195,12 @@ export function resumirViajes(
       // lo anotó un listero a mano y no está en la flota.
       placa: r.machineryId ? (t?.plate || t?.serial || '—') : 'FUERA DE CATÁLOGO',
       viajes: 0,
+      dia: 0,
+      noche: 0,
     };
     cam.viajes += 1;
+    if (esDia) cam.dia += 1;
+    if (esNoche) cam.noche += 1;
     g.camiones.set(ck, cam);
     emp.set(key, g);
   }
@@ -179,6 +210,8 @@ export function resumirViajes(
       key: g.key,
       name: etiquetaGrupo(g.nombres, porListero ? 'Sin listero' : 'Sin empresa'),
       total: g.total,
+      dia: g.dia,
+      noche: g.noche,
       camiones: Array.from(g.camiones.values()).sort((a, b) => b.viajes - a.viajes || cmp(a.code, b.code)),
     }))
     .sort((a, b) => b.total - a.total || cmp(a.name, b.name));
@@ -186,6 +219,8 @@ export function resumirViajes(
   return {
     empresas,
     total: rows.length,
+    dia: totalDia,
+    noche: totalNoche,
     // ⚠️ Camiones DISTINTOS, no la suma de los grupos. Agrupando por empresa da
     //    igual (un camión pertenece a una sola empresa), pero agrupando por
     //    listero un mismo camión aparece bajo cada listero que lo registró: si

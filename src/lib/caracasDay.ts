@@ -43,7 +43,7 @@ export function isoYesterday(iso: string): string {
 /** Fecha ISO (AAAA-MM-DD) y hora (0–23) de un instante ARBITRARIO en Caracas
  *  (mismo cálculo que `caracasToday()`/`caracasNowHour()`, pero para un `Date`
  *  dado en vez de "ahora"). */
-function caracasPartsOf(d: Date): { iso: string; hour: number } {
+export function caracasPartsOf(d: Date): { iso: string; hour: number } {
   const p: any = new Intl.DateTimeFormat('en-CA', {
     timeZone: CARACAS_TZ, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
   }).formatToParts(d).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});

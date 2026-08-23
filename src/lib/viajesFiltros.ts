@@ -29,9 +29,17 @@
  * ningún viaje del rango, que es justo cuando más falta hace verlo.
  */
 
-/** Los tres ejes por los que se puede filtrar la lista. */
-export type EjeFiltro = 'listero' | 'empresa' | 'camion';
-export const EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion'] as const;
+/**
+ * Los ejes por los que se puede filtrar la lista.
+ *
+ * `turno` (☀️ día 7am–7pm · 🌙 noche 7pm–7am) entra por acá y no como un filtro
+ * aparte a propósito: así hereda gratis las dos reglas de arriba —su cuenta
+ * respeta los otros filtros, y marcarlo baja las cuentas de empresa, listero y
+ * camión—. Un filtro de turno por fuera se contradiría con los otros tres en
+ * cuanto se marcaran juntos.
+ */
+export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno';
+export const EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno'] as const;
 
 /** Lo marcado en un eje: id → etiqueta. Vacío = «todos». */
 export type MarcadosEje = ReadonlyMap<string, string>;
@@ -109,7 +117,10 @@ export function marcadosFueraDelRango<R>(
   clavesDe: (r: R) => ClavesViaje,
   sel: SeleccionFiltros,
 ): string[] {
-  const presentes: Record<EjeFiltro, Set<string>> = { listero: new Set(), empresa: new Set(), camion: new Set() };
+  // Se arma recorriendo EJES_FILTRO y no escribiendo los ejes a mano: cuando se
+  // agregó `turno` como cuarto eje, la versión escrita a mano dejaba su cubeta
+  // en `undefined` y esto reventaba con «Cannot read properties of undefined».
+  const presentes = Object.fromEntries(EJES_FILTRO.map((eje) => [eje, new Set<string>()])) as Record<EjeFiltro, Set<string>>;
   rows.forEach((r) => {
     const c = clavesDe(r);
     EJES_FILTRO.forEach((eje) => presentes[eje].add(c[eje]));

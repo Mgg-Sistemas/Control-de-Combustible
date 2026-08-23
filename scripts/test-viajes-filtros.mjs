@@ -41,8 +41,8 @@ const cmp = (a, b) => String(a).localeCompare(String(b), 'es');
 // Lo marcado va en Map id->etiqueta: la etiqueta es lo unico que permite
 // dibujar el chip de algo que ya no aparece en ningun viaje del rango.
 const mk = (ids) => new Map(ids.map((id) => [id, id]));
-const sel = (l = [], e = [], c = []) => ({ listero: mk(l), empresa: mk(e), camion: mk(c) });
-const clavesDe = (r) => ({ listero: r.listero, empresa: r.empresa, camion: r.camion });
+const sel = (l = [], e = [], c = [], t = []) => ({ listero: mk(l), empresa: mk(e), camion: mk(c), turno: mk(t) });
+const clavesDe = (r) => ({ listero: r.listero, empresa: r.empresa, camion: r.camion, turno: r.turno });
 const opcionEn = (eje) => (r) => ({ id: r[eje], label: r[eje] });
 const opts = (rows, eje, s) => opcionesDeEje(rows, eje, clavesDe, opcionEn(eje), s, cmp);
 const conteo = (rows, eje, s) => Object.fromEntries(opts(rows, eje, s).map((o) => [o.id, o.count]));
@@ -51,16 +51,19 @@ const visibles = (rows, eje, s) => opts(rows, eje, s).map((o) => o.id);
 const listados = (rows, s) => rows.filter((r) => pasaFiltros(clavesDe(r), s)).length;
 const suma = (o) => Object.values(o).reduce((a, b) => a + b, 0);
 
-// Un dia cualquiera: 2 listeros, 2 empresas, 3 camiones.
-const v = (listero, empresa, camion) => ({ listero, empresa, camion });
+// Un dia cualquiera: 2 listeros, 2 empresas, 3 camiones, 2 turnos.
+// ely trabaja SOLO de dia (4). arcy es nocturno (2) con un viaje suelto de
+// dia (1) — el caso que de verdad cruza los ejes.
+const v = (listero, empresa, camion, turno = 'day') => ({ listero, empresa, camion, turno });
 const ROWS = [
   v('ely', 'beraca', 'c1'), v('ely', 'beraca', 'c1'), v('ely', 'beraca', 'c2'),
   v('ely', 'savanna', 'c3'),
   v('arcy', 'beraca', 'c1'),
-  v('arcy', 'savanna', 'c3'), v('arcy', 'savanna', 'c3'),
+  v('arcy', 'savanna', 'c3', 'night'), v('arcy', 'savanna', 'c3', 'night'),
 ];
 // ely: 4 (beraca 3, savanna 1) - arcy: 3 (beraca 1, savanna 2)
 // beraca: 4 - savanna: 3 - c1: 3 - c2: 1 - c3: 3
+// ☀️ dia: 5 (los 4 de ely + el suelto de arcy) - 🌙 noche: 2 (arcy en savanna/c3)
 
 // -- 1) SIN NADA MARCADO: los contadores son el rango entero -----------------
 eq('listeros sin filtros', conteo(ROWS, 'listero', sel()), { arcy: 3, ely: 4 });
@@ -115,6 +118,36 @@ eq('* sin filtros no hay nada que avisar', marcadosFueraDelRango(otroDia, claves
 eq('* y el aviso dice CUAL filtro sobra', marcadosFueraDelRango(otroDia, clavesDe, marcadoElyOtroDia), ['ely']);
 eq('* sin filtros no hay nada que avisar', marcadosFueraDelRango(otroDia, clavesDe, sel()), []);
 
+// -- 4b) EL TURNO ES UN EJE MAS -------------------------------------------
+// Va por el mismo camino que los otros tres a proposito: si fuera un filtro
+// aparte, marcar «noche» no bajaria las cuentas de empresa/listero/camion y la
+// pantalla se contradiria en cuanto se marcaran juntos.
+const soloNoche = sel([], [], [], ['night']);
+eq('turnos sin filtros', conteo(ROWS, 'turno', sel()), { day: 5, night: 2 });
+eq('* marcar NOCHE baja las cuentas de listero', conteo(ROWS, 'listero', soloNoche), { arcy: 2 });
+eq('* marcar NOCHE baja las cuentas de empresa', conteo(ROWS, 'empresa', soloNoche), { savanna: 2 });
+eq('* marcar NOCHE baja las cuentas de camion', conteo(ROWS, 'camion', soloNoche), { c3: 2 });
+eq('* y el eje turno NO se filtra a si mismo', conteo(ROWS, 'turno', soloNoche), { day: 5, night: 2 });
+eq('* lo listado con NOCHE coincide con su chip', listados(ROWS, soloNoche), 2);
+eq('marcar los DOS turnos es no filtrar', listados(ROWS, sel([], [], [], ['day', 'night'])), 7);
+
+// ⭐ ely DESAPARECE de los chips de listero cuando se marca noche, y esta bien:
+// no tiene un solo viaje nocturno. Es lo que hace util la fila —dice QUIENES
+// trabajaron de noche— y es distinto del caso protegido de mas arriba, donde lo
+// que no puede desaparecer es un filtro MARCADO (ese si tapa la lista).
+eq('* ely no sale entre los listeros de noche: no trabajo ninguna', visibles(ROWS, 'listero', soloNoche), ['arcy']);
+eq('* pero si ely estuviera MARCADO, seguiria visible en 0',
+  visibles(ROWS, 'listero', sel(['ely'], [], [], ['night'])), ['arcy', 'ely']);
+eq('* ely de noche no da nada', listados(ROWS, sel(['ely'], [], [], ['night'])), 0);
+
+// arcy trabaja los dos turnos: el cruce turno x listero tiene que cuadrar.
+eq('arcy de dia tiene 1', listados(ROWS, sel(['arcy'], [], [], ['day'])), 1);
+eq('arcy de noche tiene 2', listados(ROWS, sel(['arcy'], [], [], ['night'])), 2);
+eq('* y dia + noche de arcy da su total', 1 + 2, listados(ROWS, sel(['arcy'])));
+// El desglose por turno de TODO tiene que sumar el total, sin perder ni repetir.
+eq('* dia + noche = total general',
+  listados(ROWS, sel([], [], [], ['day'])) + listados(ROWS, sel([], [], [], ['night'])), ROWS.length);
+
 // -- 5) BORDES --------------------------------------------------------------
 eq('sin viajes no hay opciones', opts([], 'listero', sel()), []);
 eq('sin viajes tampoco revienta el listado', listados([], sel(['ely'])), 0);
@@ -131,9 +164,11 @@ eq('y filtra bien', listados(conSinEmpresa, sel([], ['__sin_empresa__'])), 1);
 // comprobar que la lista de abajo trae exactamente lo que decia el chip.
 let descuadres = 0;
 const combos = [sel(), sel(['ely']), sel(['arcy']), sel([], ['beraca']), sel([], ['savanna']),
-  sel([], [], ['c1']), sel(['ely'], ['beraca']), sel(['arcy'], ['savanna']), sel(['ely'], [], ['c3'])];
+  sel([], [], ['c1']), sel(['ely'], ['beraca']), sel(['arcy'], ['savanna']), sel(['ely'], [], ['c3']),
+  sel([], [], [], ['day']), sel([], [], [], ['night']), sel(['arcy'], [], [], ['night']),
+  sel([], ['beraca'], [], ['day'])];
 for (const base of combos) {
-  for (const eje of ['listero', 'empresa', 'camion']) {
+  for (const eje of ['listero', 'empresa', 'camion', 'turno']) {
     for (const o of opts(ROWS, eje, base)) {
       // Marcar SOLO esa opcion en su eje, dejando los otros ejes como estaban.
       const s = { ...base, [eje]: new Set([o.id]) };

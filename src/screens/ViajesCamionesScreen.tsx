@@ -40,6 +40,7 @@ import {
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { resumirViajes, SIN_EMPRESA, claveCamion, type EjeResumen } from '../lib/viajesResumen';
 import { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros } from '../lib/viajesFiltros';
+import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, TURNO_NOMBRE, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
@@ -741,11 +742,22 @@ export default function ViajesCamionesScreen() {
     // (ver `claveCamion` en src/lib/viajesResumen.ts, que es la única verdad).
     resumenRows.forEach((r) => { const k = claveCamion(r); if (!infoOf.has(k)) infoOf.set(k, { code: r.machineCode, plate: r.fueraCatalogo ? 'FUERA DE CATÁLOGO' : null, serial: null }); });
     const counts = new Map<string, number>();
-    resumenRows.forEach((r) => { const k = claveCamion(r); counts.set(k, (counts.get(k) ?? 0) + 1); });
+    // ⭐ Y en qué TURNO los hizo. Es lo que pidió la jefa: mirar la lista y ver
+    //    de un vistazo cuáles camiones andan de día y cuáles de noche, sin
+    //    tener que abrir el detalle viaje por viaje.
+    const turnos = new Map<string, ('day' | 'night')[]>();
+    resumenRows.forEach((r) => {
+      const k = claveCamion(r);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+      const t = turnos.get(k) ?? [];
+      t.push(turnoDeViaje(r.registeredAt));
+      turnos.set(k, t);
+    });
     const ids = new Set<string>([...allTrucks.map((t) => t.id), ...resumenRows.map((r) => claveCamion(r))]);
     const arr = Array.from(ids).map((id) => {
       const info = infoOf.get(id) ?? { code: '—', plate: null, serial: null };
-      return { id, ...info, count: counts.get(id) ?? 0, meta: metasByTruck[id] ?? null };
+      const conteo = contarTurnos(turnos.get(id) ?? []);
+      return { id, ...info, count: counts.get(id) ?? 0, meta: metasByTruck[id] ?? null, conteo, perfil: perfilDeTurno(conteo) };
     });
     arr.sort((a, b) => b.count - a.count || cmpText(a.code, b.code));
     return arr;
@@ -836,6 +848,10 @@ export default function ViajesCamionesScreen() {
   // empresa NO viaja en `camion_viajes`: se resuelve por el camión (`truckById`),
   // que ya trae `companyId`/`companyName` desde `machinery`.
   const [filterCompanySel, setFilterCompanySel] = useState<Map<string, string>>(new Map());
+  // ⭐ TURNO (☀️ día 7am–7pm · 🌙 noche 7pm–7am). Es un filtro más del PANEL DE
+  //    LA JEFA; la vista del listero no lo lleva — él ya ve el turno escrito en
+  //    cada uno de sus viajes y no tiene nada que filtrar.
+  const [filterTurnoSel, setFilterTurnoSel] = useState<Map<string, string>>(new Map());
   // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
   // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje.
   const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen'>('detallado');
@@ -852,6 +868,7 @@ export default function ViajesCamionesScreen() {
   const toggleFilterListero = toggleEn(setFilterListeroSel);
   const toggleFilterTruck = toggleEn(setFilterTruckSel);
   const toggleFilterCompany = toggleEn(setFilterCompanySel);
+  const toggleFilterTurno = toggleEn(setFilterTurnoSel);
   const toggleDia = (iso: string) => setDiasSel((prev) => { const n = new Set(prev); n.has(iso) ? n.delete(iso) : n.add(iso); return n; });
 
   // ⚠️ De NEGOCIO, no de calendario: a las 3 de la mañana la jornada en curso
@@ -941,14 +958,19 @@ export default function ViajesCamionesScreen() {
   //    con el PDF. La regla, el porqué y sus casos: src/lib/viajesFiltros.ts.
   // Por CLAVE y no por id en el camión: los fuera de catálogo no tienen id y se
   // fundirían todos en una sola opción del filtro (ver `claveCamion`).
+  // ⚠️ El turno se DEDUCE DE LA HORA, no se lee de la columna `shift`: esa es
+  //    nullable en los viajes viejos y `editarHoraViaje` la deja
+  //    desactualizada al corregir una hora que cruza las 7pm. El porqué
+  //    completo está en src/lib/viajesTurno.ts.
   const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
     listero: r.listeroId,
     empresa: companyOfRow(r).key,
     camion: claveCamion(r),
+    turno: turnoDeViaje(r.registeredAt),
   });
   const seleccion: SeleccionFiltros = useMemo(
-    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel }),
-    [filterListeroSel, filterCompanySel, filterTruckSel]
+    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel }),
+    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel]
   );
   const listeroOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'listero', clavesDe, (r) => ({ id: r.listeroId, label: r.listeroName }), seleccion, cmpText),
@@ -963,6 +985,16 @@ export default function ViajesCamionesScreen() {
   const truckOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'camion', clavesDe,
       (r) => ({ id: claveCamion(r), label: r.fueraCatalogo ? r.machineCode + ' (fuera de catálogo)' : r.machineCode }), seleccion, cmpText),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById]
+  );
+
+  const turnoOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'turno', clavesDe,
+      (r) => { const t = turnoDeViaje(r.registeredAt); return { id: t, label: turnoLabel(t) }; }, seleccion, cmpText)
+      // Día primero, noche después: es el orden de la jornada. Ordenar por la
+      // etiqueta dejaría el orden a merced de cómo colacione el emoji.
+      .sort((a, b) => (a.id === b.id ? 0 : a.id === 'day' ? -1 : 1)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dateScopedRows, seleccion, truckById]
   );
@@ -988,9 +1020,23 @@ export default function ViajesCamionesScreen() {
    * Respeta exactamente los mismos filtros que la lista detallada.
    * La cuenta vive en `src/lib/viajesResumen.ts` (función pura, con test propio).
    */
+  // `resumirViajes` es una función pura SIN imports (a propósito, ver su
+  // cabecera), así que no puede deducir el turno sola: se lo damos ya masticado.
+  const filasResumen = useMemo(
+    () => filteredRangeRows.map((r) => ({ ...r, turno: turnoDeViaje(r.registeredAt) })),
+    [filteredRangeRows]
+  );
   const resumenViajes = useMemo(
-    () => resumirViajes(filteredRangeRows, (id) => truckById.get(id), resumenEje),
-    [filteredRangeRows, truckById, resumenEje]
+    () => resumirViajes(filasResumen, (id) => truckById.get(id), resumenEje),
+    [filasResumen, truckById, resumenEje]
+  );
+
+  // Viajes cuya columna `shift` contradice a su hora — pasa al corregir una hora
+  // cruzando las 7am o las 7pm. No se corrige solo: se DICE, para que nadie
+  // concluya que el reporte cambió de números por su cuenta.
+  const viajesConTurnoDesacordado = useMemo(
+    () => filteredRangeRows.filter((r) => desacuerdoDeTurno(r.shift, r.registeredAt)).length,
+    [filteredRangeRows]
   );
 
   // Metas por camión (editable).
@@ -1046,6 +1092,7 @@ export default function ViajesCamionesScreen() {
         filterCompanySel.size ? `Empresas: ${Array.from(filterCompanySel.values()).join(', ')}` : null,
         filterTruckSel.size ? `Camiones: ${Array.from(filterTruckSel.values()).join(', ')}` : null,
         filterListeroSel.size ? `Listeros: ${Array.from(filterListeroSel.values()).join(', ')}` : null,
+        filterTurnoSel.size ? `Turno: ${Array.from(filterTurnoSel.values()).join(', ')}` : null,
       ].filter(Boolean).join(' · ');
 
       // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
@@ -1057,16 +1104,25 @@ export default function ViajesCamionesScreen() {
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
       const icoGrupo = porListero ? '👤' : '🏢';
       const palabraGrupo = porListero ? 'listero(s)' : 'empresa(s)';
+      // Un 0 en una columna de números se lee peor que un guion: la fila del
+      // camión que solo trabaja de día queda limpia en vez de arrastrar un
+      // «0» en la de noche.
+      const num = (n: number) => (n > 0 ? String(n) : '—');
+      // Viajes sin turno conocido (los viejos, de antes de que se guardara).
+      // Se DICEN en vez de repartirlos: si no, las dos columnas no sumarían el
+      // total y quien revisa el reporte pensaría que falta algo.
+      const sinTurno = resumenViajes.total - resumenViajes.dia - resumenViajes.noche;
       const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}</p>
+        <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}
+          <br><span style="font-weight:600">☀️ Día (7am–7pm): ${resumenViajes.dia} · 🌙 Noche (7pm–7am): ${resumenViajes.noche}${sinTurno > 0 ? ` · ${sinTurno} sin turno registrado` : ''}</span></p>
         ${resumenViajes.empresas.map((e) => `
-          <h3>${icoGrupo} ${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es)</h3>
+          <h3>${icoGrupo} ${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es)${e.dia + e.noche > 0 ? ` · ☀️ ${e.dia} · 🌙 ${e.noche}` : ''}</h3>
           <table>
-            <thead><tr><th>Camión</th><th>Placa / Serial</th><th style="text-align:right">Viajes</th></tr></thead>
+            <thead><tr><th>Camión</th><th>Placa / Serial</th><th style="text-align:right">☀️ Día</th><th style="text-align:right">🌙 Noche</th><th style="text-align:right">Viajes</th></tr></thead>
             <tbody>
-              ${e.camiones.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.placa)}</td><td style="text-align:right"><b>${c.viajes}</b></td></tr>`).join('')}
+              ${e.camiones.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.placa)}</td><td style="text-align:right">${num(c.dia)}</td><td style="text-align:right">${num(c.noche)}</td><td style="text-align:right"><b>${c.viajes}</b></td></tr>`).join('')}
             </tbody>
-            <tfoot><tr><td colspan="2"><b>Total ${esc(e.name)}</b></td><td style="text-align:right"><b>${e.total}</b></td></tr></tfoot>
+            <tfoot><tr><td colspan="2"><b>Total ${esc(e.name)}</b></td><td style="text-align:right"><b>${num(e.dia)}</b></td><td style="text-align:right"><b>${num(e.noche)}</b></td><td style="text-align:right"><b>${e.total}</b></td></tr></tfoot>
           </table>`).join('')}`;
 
       // ── DETALLADO: como siempre, pero ahora CON empresa y placa en cada línea.
@@ -1078,7 +1134,7 @@ export default function ViajesCamionesScreen() {
             ${filteredRangeRows
               .map(
                 (r) =>
-                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(companyOfRow(r).name)}</td><td>${esc(r.machineCode)}</td><td>${esc(placaDe(r))}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(r.shift === 'night' ? 'Noche' : r.shift === 'day' ? 'Día' : '—')}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
+                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(companyOfRow(r).name)}</td><td>${esc(r.machineCode)}</td><td>${esc(placaDe(r))}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(TURNO_NOMBRE[turnoDeViaje(r.registeredAt)])}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
               )
               .join('')}
           </tbody>
@@ -1186,7 +1242,7 @@ export default function ViajesCamionesScreen() {
         ) : null}
         {placaSerial ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>{placaSerial}</Text> : null}
         <Text style={{ color: colors.muted, fontSize: 12 }}>
-          {fmtFecha(row.registeredAt)} · {fmtHora(row.registeredAt)} · {row.shift === 'night' ? '🌙 Noche' : row.shift === 'day' ? '☀️ Día' : '—'}
+          {fmtFecha(row.registeredAt)} · {fmtHora(row.registeredAt)} · {turnoLabel(turnoDeViaje(row.registeredAt))}
           {row.choferName ? ` · 👤 ${row.choferName}` : ''}
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
         </Text>
@@ -1484,6 +1540,15 @@ export default function ViajesCamionesScreen() {
                       {(r.plate || r.serial) ? (
                         <Text style={{ color: colors.muted, fontSize: 11 }}>{[r.plate ? `Placa ${r.plate}` : null, r.serial ? `Serial ${r.serial}` : null].filter(Boolean).join(' · ')}</Text>
                       ) : null}
+                      {/* ⭐ En qué turno anda ESTE camión hoy. «mixto» solo si el
+                          turno menor pesa de verdad (ver `perfilDeTurno`): con un
+                          viaje suelto de noche, un camión diurno sigue siendo
+                          diurno, si no toda la flota saldría «mixto». */}
+                      {r.count > 0 ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {PERFIL_CORTO[r.perfil]} · {resumenTurno(r.conteo)}
+                        </Text>
+                      ) : null}
                     </View>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>{r.meta != null ? `${r.count}/${r.meta}` : `${r.count}`}</Text>
                   </View>
@@ -1551,7 +1616,7 @@ export default function ViajesCamionesScreen() {
             {/* Qué se está mirando, dicho en una línea. Sin esto, «días
                 específicos» sin ningún día marcado se veía igual que «hoy». */}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-              📅 {etiquetaRango}{rangoInvalido || sinDiasMarcados ? '' : ` · ${filteredRangeRows.length} viaje(s)`}
+              📅 {etiquetaRango}{rangoInvalido || sinDiasMarcados ? '' : ` · ${filteredRangeRows.length} viaje(s) · ${resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}`}
             </Text>
 
             {preset === 'rango' ? (
@@ -1590,6 +1655,44 @@ export default function ViajesCamionesScreen() {
                   <View style={{ marginTop: spacing.xs }}>
                     <DateField value={todayISO} onChange={(iso) => { setDiasSel((prev) => new Set(prev).add(iso)); setDiasPickOpen(false); }} />
                   </View>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* ⭐ TURNO. Va primero de los cuatro filtros porque es el corte más
+                grueso: día o noche parte la jornada en dos mitades, y las otras
+                tres preguntas (quién, de qué empresa, cuál camión) casi siempre
+                se hacen ya dentro de una de las dos. */}
+            {turnoOptions.length > 0 ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  TURNO{filterTurnoSel.size > 0 ? ` (${filterTurnoSel.size})` : ' (los dos)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {turnoOptions.map((o) => {
+                    const on = filterTurnoSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterTurno(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                  ☀️ Día 7am–7pm · 🌙 Noche 7pm–7am. El turno sale de la HORA del viaje, que es la misma regla con la que se corta el día.
+                </Text>
+                {/* Se DICE en vez de corregirlo por lo bajo: son viajes a los que
+                    alguien les movió la hora cruzando las 7am o las 7pm, así que
+                    lo que quedó guardado en su día ya no concuerda con su hora. */}
+                {viajesConTurnoDesacordado > 0 ? (
+                  <Text style={{ color: colors.warning, fontSize: 11, marginTop: 2 }}>
+                    ⚠️ {viajesConTurnoDesacordado} viaje(s) tienen guardado un turno distinto al de su hora (les corrigieron la hora). Manda la hora.
+                  </Text>
                 ) : null}
               </View>
             ) : null}
@@ -1663,8 +1766,8 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0) ? (
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0) ? (
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -1742,15 +1845,23 @@ export default function ViajesCamionesScreen() {
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
                     TOTAL: {resumenViajes.total} viaje(s) · {resumenViajes.totalCamiones} camión(es)
                   </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                    {resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}
+                    {resumenViajes.dia + resumenViajes.noche < resumenViajes.total
+                      ? ` · ${resumenViajes.total - resumenViajes.dia - resumenViajes.noche} sin turno`
+                      : ''}
+                  </Text>
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porListero ? '👤' : '🏢'} {e.name}</Text>
                         <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{e.total} viaje(s)</Text>
                       </View>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>{resumenTurno({ dia: e.dia, noche: e.noche, total: e.total })}</Text>
                       {e.camiones.map((c, i) => (
                         <View key={`${e.key}-${i}`} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3, paddingLeft: spacing.sm }}>
                           <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>🚜 {c.code} · {c.placa}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginRight: spacing.xs }}>{resumenTurno({ dia: c.dia, noche: c.noche, total: c.viajes })}</Text>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{c.viajes}</Text>
                         </View>
                       ))}
