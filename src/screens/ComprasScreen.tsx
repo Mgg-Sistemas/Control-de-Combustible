@@ -954,9 +954,12 @@ const HOSE_PAYMENT: Record<string, { label: string; tone: Tone }> = {
 
 function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, appRole } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
+  // ALMACENISTA (Diana): solo aprueba marcando "Autorizado bajo orden del Gerente General".
+  const esAlmacenista = /almacen/i.test(appRole?.name ?? '');
+  const [ordenGG, setOrdenGG] = useState(false);
   const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'created_at', ascending: false, realtimeFrom: 'hose_services' });
   // Empresa a cobrar: LISTA PROPIA de mangueras (hose_empresas), no el catálogo companies.
   const { data: hoseEmpresas } = useTable<HoseEmpresa>('hose_empresas', { orderBy: 'name' });
@@ -1002,6 +1005,9 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
     if (h.install_status !== 'instalada') {
       return toast.error('No se puede pagar una manguera que no está instalada.');
     }
+    if (esAlmacenista && !ordenGG) {
+      return toast.error('Marca "Autorizado bajo orden del Gerente General" para poder aprobar.');
+    }
     const ok = await confirm({ title: 'Aprobar pago', message: `¿Aprobar el pago de la manguera ${h.code} por ${usd(h.cost_usd)}?`, confirmText: 'Aprobar' });
     if (!ok) return;
     setBusy(h.id + '-approve');
@@ -1009,6 +1015,7 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
       payment_status: 'pagado',
       approved_by: session?.user?.id ?? null,
       approved_at: nowISO(),
+      ...(esAlmacenista ? { orden_gg: true } : {}),
     }).eq('id', h.id);
     setBusy(null);
     if (error) return toast.error(error.message);
@@ -1024,6 +1031,7 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
     const pagables = sel.filter((h) => h.install_status === 'instalada');
     const noInst = sel.length - pagables.length;
     if (!pagables.length) return toast.error('Marca (☑) mangueras INSTALADAS para aprobar el pago en lote.');
+    if (esAlmacenista && !ordenGG) return toast.error('Marca "Autorizado bajo orden del Gerente General" para poder aprobar.');
     const ok = await confirm({ title: 'Aprobar pago en lote', message: `¿Aprobar el pago de ${pagables.length} manguera(s)?` + (noInst ? `\n\n${noInst} no está(n) instalada(s) y se omitirá(n).` : ''), confirmText: `Aprobar ${pagables.length}` });
     if (!ok) return;
     setBusy('lote');
@@ -1031,6 +1039,7 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
       payment_status: 'pagado',
       approved_by: session?.user?.id ?? null,
       approved_at: nowISO(),
+      ...(esAlmacenista ? { orden_gg: true } : {}),
     }).in('id', pagables.map((h) => h.id));
     setBusy(null);
     if (error) return toast.error(error.message);
@@ -1066,6 +1075,21 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Las mangueras se crean en su módulo (Taller). Aquí el gerente aprueba los pagos pendientes. Marca (☑) varias y usa "Aprobar pago en lote".</Text>
+
+      {/* ALMACENISTA: check obligatorio para poder aprobar (single o lote). */}
+      {esAlmacenista ? (
+        <TouchableOpacity onPress={() => setOrdenGG((v) => !v)} activeOpacity={0.7} style={{ marginBottom: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: ordenGG ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+            <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: ordenGG ? colors.success : colors.border, backgroundColor: ordenGG ? colors.success : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+              {ordenGG ? <Text style={{ color: '#fff', fontWeight: '900' }}>✓</Text> : null}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>Autorizado bajo orden del Gerente General</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Debes marcar esta casilla para poder aprobar. Sale en el PDF de autorización con la firma del Gerente General.</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      ) : null}
 
       {/* APROBACIÓN EN LOTE: aparece cuando hay ≥1 manguera INSTALADA marcada. */}
       {canWrite && (() => {

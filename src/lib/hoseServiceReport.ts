@@ -172,10 +172,15 @@ export async function generateHoseAuthorization(opts: {
   const tabla = `<table class="det"><tbody>${filas
     .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</tbody></table>`;
 
-  // Bloque de firma: autorizada → firma escaneada del Director General; si no, línea a mano.
+  // "Autorizado bajo orden del Gerente General": lo marca el ALMACENISTA al aprobar
+  // (solo puede aprobar con ese check). Sale sobre la firma del Gerente General.
+  const ordenGGnote = h.orden_gg
+    ? `<div class="ordengg">Autorizado bajo orden del Gerente General</div>`
+    : '';
+  // Bloque de firma: autorizada → firma escaneada del Gerente General; si no, línea a mano.
   const firmaBlock = autorizada
-    ? `<img src="${FIRMA_DATA_URI}"/><div class="line">Autorizado por Director General</div><div class="firmante">JESÚS LOZADA</div>`
-    : `<div class="line">Autoriza — Director General (Jesús Lozada)</div>`;
+    ? `${ordenGGnote}<img src="${FIRMA_DATA_URI}"/><div class="line">Autorizado por el Gerente General</div><div class="firmante">JESÚS LOZADA</div>`
+    : `${ordenGGnote}<div class="line">Autoriza — Gerente General (Jesús Lozada)</div>`;
 
   const extraCss = `
     table.det{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}
@@ -186,7 +191,8 @@ export async function generateHoseAuthorization(opts: {
     .firma{text-align:center;page-break-inside:avoid}
     .firma img{height:auto;max-height:110px;max-width:260px;display:block;margin:0 auto 2px}
     .firma .line{width:300px;margin:0 auto;border-top:1px solid #1a1a1a;padding-top:6px;font-weight:800;color:#16324F}
-    .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}`;
+    .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}
+    .firma .ordengg{margin-bottom:8px;font-weight:800;color:#16324F;font-size:12.5px}`;
 
   const body = `
     <div class="authbody">
