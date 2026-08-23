@@ -53,7 +53,14 @@ const PAYMENT_INFO: Record<HosePaymentStatus, { label: string; tone: Tone }> = {
   pendiente: { label: '⏳ Pendiente', tone: 'warning' },
   en_proceso_autorizacion: { label: '📤 Pendiente por autorización', tone: 'info' },
   pagado: { label: '✅ Pagado', tone: 'success' },
+  modificada_aprobada: { label: '✏️ Modificada y aprobada', tone: 'success' },
 };
+
+// Una manguera "aprobada" (ya pasó por Chelia) es tanto la PAGADA como la que se
+// editó después (modificada_aprobada): en ambas el pago ya está autorizado, así que
+// comparten reglas (no se re-aprueba, no se borra, la cuenta queda saldada).
+const esAprobada = (h: { payment_status: HosePaymentStatus }) =>
+  h.payment_status === 'pagado' || h.payment_status === 'modificada_aprobada';
 
 const INSTALL_FILTERS: { key: '' | HoseInstallStatus; label: string }[] = [
   { key: '', label: 'Todas' },
@@ -65,6 +72,7 @@ const PAYMENT_FILTERS: { key: '' | HosePaymentStatus; label: string }[] = [
   { key: 'pendiente', label: '⏳ Pendiente' },
   { key: 'en_proceso_autorizacion', label: '📤 Pendiente por autorización' },
   { key: 'pagado', label: '✅ Pagado' },
+  { key: 'modificada_aprobada', label: '✏️ Modificada y aprobada' },
 ];
 
 const fmtFecha = (iso: string | null | undefined) => {
@@ -177,10 +185,10 @@ export default function ManguerasScreen() {
   // El campo `install_status` se arma aparte (ver abajo): si la manguera ya está
   // pagada, NO se deja como `select` editable (evita "desinstalarla" por accidente
   // desde el formulario normal); se muestra como texto fijo informativo.
-  const installStatusField: Field = editing?.payment_status === 'pagado'
+  const installStatusField: Field = editing && esAprobada(editing)
     ? {
         key: 'install_status_locked', type: 'section',
-        label: `Estado de instalación: ${INSTALL_INFO[editing.install_status]?.label ?? editing.install_status} (bloqueado: ya está pagada, no se puede editar aquí)`,
+        label: `Estado de instalación: ${INSTALL_INFO[editing.install_status]?.label ?? editing.install_status} (bloqueado: ya está aprobada, no se puede editar aquí)`,
       }
     : {
         key: 'install_status', label: 'Estado de instalación', type: 'select',
@@ -232,7 +240,13 @@ export default function ManguerasScreen() {
   // 'pendiente' se aplica SOLO al crear: si se pasara también al editar,
   // RecordForm lo re-aplicaría en cada guardado y resetearía el estado de pago
   // de una manguera ya enviada a autorización o pagada.
-  const formFixedValues = editing ? undefined : { payment_status: 'pendiente' as HosePaymentStatus };
+  // Al EDITAR una manguera YA aprobada (pagada o ya modificada), el guardado la deja
+  // en 'modificada_aprobada' (sigue aprobada, pero queda constancia de que se editó).
+  // Al crear, nace 'pendiente'. Al editar una que aún NO está aprobada, no se toca el
+  // payment_status (lo maneja el flujo de botones).
+  const formFixedValues = editing
+    ? (esAprobada(editing) ? { payment_status: 'modificada_aprobada' as HosePaymentStatus } : undefined)
+    : { payment_status: 'pendiente' as HosePaymentStatus };
 
   // ── Acciones por fila ──────────────────────────────────────────────────
   const [busy, setBusy] = useState<string | null>(null);
@@ -272,7 +286,7 @@ export default function ManguerasScreen() {
   // hose_service se elimina su cuenta ligada NO pagada — el FK es `on delete set null`, así
   // que sin esto la cuenta quedaría huérfana (pendiente por pagar/cobrar sin manguera).
   const eliminarManguera = async (h: HoseService) => {
-    if (h.payment_status === 'pagado') { toast.error('No se puede eliminar: ya fue aprobada/pagada.'); return; }
+    if (esAprobada(h)) { toast.error('No se puede eliminar: ya fue aprobada/pagada.'); return; }
     const ok = await confirm({ title: 'Eliminar manguera', message: `¿Eliminar "${h.code || 'manguera'}"? Se borrará también su cuenta pendiente asociada. No se puede deshacer.`, confirmText: 'Eliminar', danger: true });
     if (!ok) return;
     setBusy(h.id + '-del');
@@ -461,7 +475,7 @@ export default function ManguerasScreen() {
                   {h.provider ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏭 {h.provider}</Text> : null}
                   {/* La cuenta por pagar se genera/sincroniza sola en la BD (trigger). */}
                   {h.supplier_id && (Number(h.cost_usd) || 0) > 0 ? (
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>🧾 Cuenta por pagar {h.payment_status === 'pagado' ? 'saldada' : 'generada'} en Cuentas ({fmtUsd(h.cost_usd)})</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>🧾 Cuenta por pagar {esAprobada(h) ? 'saldada' : 'generada'} en Cuentas ({fmtUsd(h.cost_usd)})</Text>
                   ) : null}
 
                   <Text style={{ color: colors.muted, fontSize: 11 }}>Registrado por {registradoPor} el {fmtFecha(h.created_at)}</Text>
@@ -480,7 +494,7 @@ export default function ManguerasScreen() {
                           <Btn label="📤 Enviar a autorización" color="#D97706" disabled={busy === h.id + '-auth'} onPress={() => enviarAutorizacion(h)} />
                         ) : null}
                         {/* Eliminar: solo mientras NO haya sido aprobada/pagada. */}
-                        {h.payment_status !== 'pagado' ? (
+                        {!esAprobada(h) ? (
                           <Btn label="🗑️ Eliminar" color="#B91C1C" disabled={busy === h.id + '-del'} onPress={() => eliminarManguera(h)} />
                         ) : null}
                       </>
@@ -488,7 +502,7 @@ export default function ManguerasScreen() {
                     {/* No se puede aprobar el pago de una manguera que aún no está
                         instalada (el botón se oculta; aprobarPago() también valida
                         esto por si acaso). */}
-                    {canApprove && h.payment_status !== 'pagado' && h.install_status === 'instalada' ? (
+                    {canApprove && !esAprobada(h) && h.install_status === 'instalada' ? (
                       <Btn label="✅ Aprobar y marcar pagado" color="#059669" disabled={busy === h.id + '-approve'} onPress={() => aprobarPago(h)} />
                     ) : null}
                     {/* PDF de autorización con la firma del Director General (Jesús Lozada):

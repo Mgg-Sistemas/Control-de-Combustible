@@ -21,6 +21,7 @@ const PAYMENT_LABEL: Record<HoseService['payment_status'], string> = {
   pendiente: 'Pendiente',
   en_proceso_autorizacion: 'En autorización',
   pagado: 'Pagado',
+  modificada_aprobada: 'Modificada y aprobada',
 };
 
 /**
@@ -79,7 +80,7 @@ export async function generateHoseServiceReport(opts: {
   // ── Detalle ──────────────────────────────────────────────────────────────
   const filas = rows.map((r) => {
     const registradoPor = r.created_by ? (profilesMap[r.created_by] ?? '—') : '—';
-    const aprobadoPor = r.payment_status === 'pagado' && r.approved_by ? (profilesMap[r.approved_by] ?? '—') : '—';
+    const aprobadoPor = (r.payment_status === 'pagado' || r.payment_status === 'modificada_aprobada') && r.approved_by ? (profilesMap[r.approved_by] ?? '—') : '—';
     return `<tr>
       <td>${esc(r.code)}</td>
       <td>${r.is_external ? `🏭 ${esc(r.external_client ?? '—')} · Externa` : machineTxt(r.machinery_id)}</td>
@@ -139,6 +140,7 @@ const PAYMENT_LBL: Record<HoseService['payment_status'], string> = {
   pendiente: 'Pendiente por pagar',
   en_proceso_autorizacion: 'Pendiente por autorización',
   pagado: 'Pagado / Autorizado',
+  modificada_aprobada: 'Modificada y aprobada',
 };
 
 /**
@@ -154,7 +156,7 @@ export async function generateHoseAuthorization(opts: {
   bcvRate?: number | null;
 }): Promise<boolean> {
   const { hose: h, machineLabel, bcvRate } = opts;
-  const autorizada = h.payment_status === 'pagado';
+  const autorizada = h.payment_status === 'pagado' || h.payment_status === 'modificada_aprobada';
   const costoTxt = `${fmtUsd(h.cost_usd)}${bcvRate ? ` (${fmtBs(bsFromUsd(h.cost_usd, bcvRate))})` : ''}`;
 
   const filas: [string, string][] = [
