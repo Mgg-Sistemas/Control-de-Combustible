@@ -564,7 +564,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Ventana de gracia 7–9am: fuente de verdad única en caracasDay.ts (nightGraceRoundDate).
     const nightGraceDay = nightGraceRoundDate();
     const [{ data: rs, error: rsErr }, { data: rsRescue, error: rsRescueErr }, { data: rsNight, error: rsNightErr }, { data: par, error: parErr }, { data: avPend, error: avPendErr }, { data: segs }] = await Promise.all([
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours, declared_day, declared_night').in('round_date', roundDates),
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_marked_at, jornada_shift, day_hours, night_hours, declared_day, declared_night').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
       // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
       // esto el círculo 🟢 se apagaba al pasar las 12) como una jornada de DÍA que
@@ -572,7 +572,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // (caída del servidor/cron) — antes solo se rescataba 'night', así que un DÍA
       // huérfano desaparecía silenciosamente del teléfono y el inspector podía volver
       // a iniciar jornada sobre la misma máquina.
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').gte('round_date', rescueCutoff).lt('round_date', today).not('jornada_start_at', 'is', null),
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_marked_at, jornada_shift, day_hours, night_hours').gte('round_date', rescueCutoff).lt('round_date', today).not('jornada_start_at', 'is', null),
       // GRACIA 7am–9am: horas de NOCHE de ayer (jornada de noche ya finalizada) para
       // conservarlas como CERRADAS hasta las 9am. Solo night_hours (no día).
       nightGraceDay
@@ -625,7 +625,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const openSh = r.jornada_shift === 'night' ? 'night'
         : r.jornada_shift === 'day' ? 'day'
         : (isOpen ? (caracasParts(new Date(r.jornada_start_at)).hour >= 7 && caracasParts(new Date(r.jornada_start_at)).hour < 19 ? 'day' : 'night') : null);
-      const startMs = isOpen ? new Date(r.jornada_start_at).getTime() : 0;
+      // Para la REACTIVACIÓN se usa la hora REAL en que se tocó "iniciar"
+      // (jornada_marked_at), no el inicio ANCLADO al nominal 7am/7pm: una jornada
+      // re-iniciada a las 9:30 (anclada a 7am) debe reactivarse contra las 9:30 — si no,
+      // una parada de la mañana la deja 🟡 con la jornada abierta (bug 23-ago-2026).
+      const startMs = isOpen ? new Date(r.jornada_marked_at || r.jornada_start_at).getTime() : 0;
       rmap[r.machinery_id] = {
         open: prev.open || isOpen,
         worked: Math.max(prev.worked, dh + nh),
@@ -649,7 +653,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // respetando SU turno (día o noche) — no pisa el turno contrario.
     ((rsRescue ?? []) as any[]).forEach((r) => {
       const prev = rmap[r.machinery_id] ?? empty;
-      const startMs = r.jornada_start_at ? new Date(r.jornada_start_at).getTime() : 0;
+      const startMs = r.jornada_start_at ? new Date(r.jornada_marked_at || r.jornada_start_at).getTime() : 0;
       const ms = !isNaN(startMs) ? startMs : 0;
       if (r.jornada_shift === 'day') {
         rmap[r.machinery_id] = { ...prev, open: true, openDay: true, openStartDay: Math.max(prev.openStartDay, ms) };

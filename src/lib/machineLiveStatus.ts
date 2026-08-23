@@ -14,7 +14,14 @@ import { paradaShiftOf } from './inspectorDaySets';
  * en `inspectorDaySets.ts` antes de intentar unificarlas.
  */
 
-export type JornadaEntry = { dayH: number; nightH: number; openStartDay: number | null; openStartNight: number | null };
+export type JornadaEntry = {
+  dayH: number; nightH: number;
+  openStartDay: number | null; openStartNight: number | null;
+  // Hora REAL en que se tocó "iniciar" (jornada_marked_at ?? jornada_start_at), SOLO
+  // para la reactivación: si la jornada se re-inició a las 9:30 pero `jornada_start_at`
+  // quedó anclado a las 7am, la reactivación debe compararse contra las 9:30, no las 7am.
+  reactStartDay: number | null; reactStartNight: number | null;
+};
 export type AveriaEntry = { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number };
 export type InspByShiftEntry = { day: string | null; night: string | null };
 export type MachineEstado = 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
@@ -50,11 +57,11 @@ export async function fetchJornadaCat(now: Date = new Date()): Promise<Record<st
   const today = caracasParts(now).iso;
   const yesterday = caracasParts(new Date(now.getTime() - 86400000)).iso;
   const [todayRes, nightRes] = await Promise.all([
-    supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift').eq('round_date', today),
-    supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
+    supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_marked_at, jornada_shift').eq('round_date', today),
+    supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_marked_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
   ]);
   const m: Record<string, JornadaEntry> = {};
-  const ensure = (id: string) => (m[id] ??= { dayH: 0, nightH: 0, openStartDay: null, openStartNight: null });
+  const ensure = (id: string) => (m[id] ??= { dayH: 0, nightH: 0, openStartDay: null, openStartNight: null, reactStartDay: null, reactStartNight: null });
   // Turno del inicio: el declarado; si falta, se infiere por la hora Caracas (07–18:59 = día).
   const inferShift = (iso: string, shift: 'day' | 'night' | null): 'day' | 'night' => {
     if (shift) return shift;
@@ -67,8 +74,14 @@ export async function fetchJornadaCat(now: Date = new Date()): Promise<Record<st
     e.nightH = Math.max(e.nightH, Number(r.night_hours) || 0);
     if (r.jornada_start_at) {
       const t = new Date(r.jornada_start_at).getTime();
-      if (inferShift(r.jornada_start_at, r.jornada_shift) === 'day') e.openStartDay = e.openStartDay == null ? t : Math.min(e.openStartDay, t);
-      else e.openStartNight = e.openStartNight == null ? t : Math.min(e.openStartNight, t);
+      const rt = new Date(r.jornada_marked_at || r.jornada_start_at).getTime(); // hora real (para reactivación)
+      if (inferShift(r.jornada_start_at, r.jornada_shift) === 'day') {
+        e.openStartDay = e.openStartDay == null ? t : Math.min(e.openStartDay, t);
+        e.reactStartDay = e.reactStartDay == null ? rt : Math.max(e.reactStartDay, rt);
+      } else {
+        e.openStartNight = e.openStartNight == null ? t : Math.min(e.openStartNight, t);
+        e.reactStartNight = e.reactStartNight == null ? rt : Math.max(e.reactStartNight, rt);
+      }
     }
   });
   // Jornada de NOCHE de anoche aún abierta → cuenta como noche de hoy.
@@ -77,7 +90,9 @@ export async function fetchJornadaCat(now: Date = new Date()): Promise<Record<st
     e.nightH = Math.max(e.nightH, Number(r.night_hours) || 0);
     if (r.jornada_start_at) {
       const t = new Date(r.jornada_start_at).getTime();
+      const rt = new Date(r.jornada_marked_at || r.jornada_start_at).getTime();
       e.openStartNight = e.openStartNight == null ? t : Math.min(e.openStartNight, t);
+      e.reactStartNight = e.reactStartNight == null ? rt : Math.max(e.reactStartNight, rt);
     }
   });
   return m;
@@ -139,7 +154,11 @@ export function makeLiveStatusOf(params: {
     const enCurso = elapsedDia + elapsedNoche;
     const trabajadas = Math.max(0, total - enCurso);
     const hasOpen = openStartDay != null || openStartNight != null;
-    const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
+    // Para la REACTIVACIÓN se usa la hora REAL de arranque (jornada_marked_at), no el
+    // inicio anclado al nominal 7am: una jornada re-iniciada a las 9:30 (anclada a 7am)
+    // debe reactivarse contra las 9:30 — si no, una parada de la mañana la deja averiada/
+    // parada con la jornada abierta (bug 23-ago-2026). Las horas de arriba NO cambian.
+    const openStart = Math.max(j?.reactStartDay ?? 0, j?.reactStartNight ?? 0);
     const insp = inspByShift[id];
     const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
     const todayStartMs = new Date(`${caracasParts(new Date(nowTick)).iso}T00:00:00-04:00`).getTime();
