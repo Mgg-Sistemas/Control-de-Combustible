@@ -1121,13 +1121,23 @@ function MovimientosTab() {
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{itemName(m.item_id)}</Text>
                   <Text style={{ color: k.color, fontSize: 13, fontWeight: '800' }}>{k.sign}{qtyFmt(m.qty)} {itemUnit(m.item_id)}</Text>
+                  {/* Precio en el resumen (no solo al expandir): costo unitario y total del
+                      movimiento. Aplica a ENTRADAS y SALIDAS (la salida trae su costo
+                      promedio) y a las CARGAS POR LOTE, que se marcan con 📋 para distinguirlas. */}
+                  {m.unit_cost != null ? (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>
+                      💵 {usd(m.unit_cost)} c/u{Number(m.qty) ? ` · ${usd(Number(m.unit_cost) * Number(m.qty))}` : ''}{m.reason === 'CARGA POR LOTE' ? ' · 📋 Lote' : ''}
+                    </Text>
+                  ) : m.reason === 'CARGA POR LOTE' ? (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>📋 Lote · sin precio</Text>
+                  ) : null}
                 </View>
                 <Pill label={k.label} color={k.color} />
               </View>
             }
             detail={
               <>
-                {m.unit_cost != null ? <Text style={{ color: colors.muted, fontSize: 13 }}>Costo unitario: {usd(m.unit_cost)}</Text> : null}
+                {m.unit_cost != null ? <Text style={{ color: colors.muted, fontSize: 13 }}>Costo unitario: {usd(m.unit_cost)}{Number(m.qty) ? ` · Total: ${usd(Number(m.unit_cost) * Number(m.qty))}` : ''}</Text> : null}
                 {m.reason ? <Text style={{ color: colors.text, fontSize: 13 }}>{m.reason}</Text> : null}
                 {m.order_id ? <Text style={{ color: colors.success, fontSize: 13, fontWeight: '700' }}>🧾 Desde orden de compra</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDate(m.created_at)}</Text>
