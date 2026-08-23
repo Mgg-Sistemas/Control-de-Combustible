@@ -262,6 +262,22 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (status === 'aprobado' && r.attachment_url) setPreviewReq({ ...r, status });
   };
 
+  // APROBACIÓN EN LOTE: el gerente marca (☑) varios requerimientos PENDIENTES y los
+  // aprueba todos de un click. Solo toca los pendientes seleccionados; el trigger
+  // req_sync_compra genera la orden/cuenta de cada uno igual que al aprobar uno a uno.
+  const aprobarLote = async () => {
+    const ids = reqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').map((r) => r.id);
+    if (!ids.length) return toast.error('Marca (☑) requerimientos PENDIENTES para aprobar en lote.');
+    const ok = await confirm({ title: 'Aprobar en lote', message: `¿Aprobar ${ids.length} requerimiento(s) pendiente(s) de una vez?`, confirmText: `Aprobar ${ids.length}` });
+    if (!ok) return;
+    const decName = await perfilNombre();
+    const { error } = await supabase.from('inventory_requirements').update({ status: 'aprobado', decided_by: uid, decided_by_name: decName, decided_at: nowISO() }).in('id', ids);
+    if (error) return toast.error(error.message);
+    setReqSelIds(new Set());
+    refetch();
+    toast.success(`${ids.length} requerimiento(s) aprobados en lote.`);
+  };
+
   // ANULAR un requerimiento YA APROBADO: el mismo gerente lo rechaza. Pasa a
   // RECHAZADO y el trigger de la BD (req_sync_compra) anula automáticamente la
   // orden de compra y la cuenta por pagar que se hubieran generado. No revierte
@@ -548,6 +564,17 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </TouchableOpacity>
             </View>
           </View>
+          {/* APROBACIÓN EN LOTE (solo admin): aparece cuando hay ≥1 requerimiento
+              PENDIENTE marcado; aprueba todos los marcados de un solo click. */}
+          {isAdmin && (() => {
+            const nPend = filteredReqs.filter((r) => reqSelIds.has(r.id) && r.status === 'pendiente').length;
+            if (!nPend) return null;
+            return (
+              <TouchableOpacity onPress={aprobarLote} style={{ backgroundColor: colors.infoSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.brandContrast ?? '#fff', fontWeight: '900', fontSize: 14 }}>✅ Aprobar en lote ({nPend})</Text>
+              </TouchableOpacity>
+            );
+          })()}
           {filteredReqs.map((r) => {
             const rSel = reqSelIds.has(r.id);
             return (
