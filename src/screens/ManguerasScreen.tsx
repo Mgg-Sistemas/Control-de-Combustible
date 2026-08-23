@@ -85,8 +85,12 @@ export default function ManguerasScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const confirm = useConfirm();
-  const { moduleLevel } = useAuth();
+  const { moduleLevel, appRole } = useAuth();
   const level = moduleLevel('mangueras');
+  // ALMACENISTA (Diana): solo puede aprobar el pago marcando "Autorizado bajo orden del
+  // Gerente General". El check solo le sale a ella (rol app almacenista) y es OBLIGATORIO.
+  const esAlmacenista = /almacen/i.test(appRole?.name ?? '');
+  const [ordenGG, setOrdenGG] = useState(false);
 
   if (level === 'none') {
     return (
@@ -271,12 +275,18 @@ export default function ManguerasScreen() {
       toast.error('No se puede pagar una manguera que no está instalada.');
       return;
     }
+    // ALMACENISTA: sin marcar "Autorizado bajo orden del Gerente General" no puede aprobar.
+    if (esAlmacenista && !ordenGG) {
+      toast.error('Marca "Autorizado bajo orden del Gerente General" para poder aprobar.');
+      return;
+    }
     setBusy(h.id + '-approve');
     const { data } = await supabase.auth.getUser();
     await supabase.from('hose_services').update({
       payment_status: 'pagado',
       approved_by: data.user?.id ?? null,
       approved_at: new Date().toISOString(),
+      ...(esAlmacenista ? { orden_gg: true } : {}),
     }).eq('id', h.id);
     setBusy(null);
     refetch();
@@ -337,6 +347,23 @@ export default function ManguerasScreen() {
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {/* ALMACENISTA: check obligatorio para poder aprobar el pago de mangueras. */}
+      {esAlmacenista ? (
+        <TouchableOpacity onPress={() => setOrdenGG((v) => !v)} activeOpacity={0.7}>
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: ordenGG ? colors.success : colors.border, backgroundColor: ordenGG ? colors.success : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                {ordenGG ? <Text style={{ color: '#fff', fontWeight: '900' }}>✓</Text> : null}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>Autorizado bajo orden del Gerente General</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Debes marcar esta casilla para poder aprobar el pago. Quedará constancia en el PDF de autorización, con la firma del Gerente General.</Text>
+              </View>
+            </View>
+          </Card>
+        </TouchableOpacity>
+      ) : null}
 
       {hoses.length === 0 ? (
         <EmptyState title="Sin registros" subtitle="Aún no se ha registrado ninguna fabricación." />

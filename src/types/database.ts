@@ -1153,6 +1153,9 @@ export interface HoseService {
   created_at: string;
   approved_by: string | null;
   approved_at: string | null;
+  /** El pago se aprobó "bajo orden del Gerente General" (lo marca el ALMACENISTA, que
+   *  solo puede aprobar con este check). Sale en el PDF de autorización. */
+  orden_gg?: boolean | null;
 }
 
 /** Encargado (persona a la que se le cobra una manguera). `cobrar=false` = no se
