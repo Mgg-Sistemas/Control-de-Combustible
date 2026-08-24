@@ -18,7 +18,17 @@ import { useTheme } from '../theme/ThemeContext';
 import { norm, cmpText } from '../lib/text';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+// Acepta punto O coma como separador decimal (12,50 y 12.50 valen igual). Si vienen
+// los dos, el ÚLTIMO manda como decimal y el otro se trata como separador de miles
+// (1.234,56 y 1,234.56). Tolera texto intermedio al escribir ("12," -> 12).
+function parseNum(t: string): number {
+  let s = String(t ?? '').replace(/[^0-9.,\-]/g, '');
+  const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
+  if (lc > -1 && ld > -1) s = lc > ld ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  else if (lc > -1) s = s.replace(',', '.');
+  const n = Number(s);
+  return isFinite(n) ? n : 0;
+}
 const nowISO = () => new Date().toISOString();
 const linesTotal = (items: PurchaseLine[]) => (items || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
 
@@ -97,9 +107,16 @@ function Pill({ label, bg, border, text }: { label: string; bg: string; border: 
 function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }: { items: PurchaseLine[]; setItems: (l: PurchaseLine[]) => void; priceLabel: string; readOnly?: boolean; catalog?: InventoryLevel[]; noPrice?: boolean }) {
   const { colors } = useTheme();
   const [focus, setFocus] = useState<number | null>(null);
+  // Texto crudo de cant./precio mientras se escribe: deja teclear "12," o "12." sin
+  // que el número parseado (12) reescriba el campo y borre el decimal a medio poner.
+  const [raw, setRaw] = useState<Record<string, string>>({});
+  const rk = (i: number, f: string) => `${i}:${f}`;
+  const onNum = (i: number, f: 'qty' | 'price', t: string) => { setRaw((r) => ({ ...r, [rk(i, f)]: t })); upd(i, { [f]: parseNum(t) } as any); };
+  const numVal = (i: number, f: 'qty' | 'price', n?: number | null) => { const k = rk(i, f); return raw[k] !== undefined ? raw[k] : (n ? String(n) : ''); };
+  const clearRaw = (i: number) => setRaw((r) => { const n = { ...r }; delete n[rk(i, 'qty')]; delete n[rk(i, 'price')]; return n; });
   const upd = (i: number, patch: Partial<PurchaseLine>) => setItems(items.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const inputStyle = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 13 } as const;
-  const pick = (i: number, it: InventoryLevel) => { upd(i, { description: it.name, unit: it.unit || '', item_id: it.id, price: Number(it.avg_cost) || items[i]?.price || 0 }); setFocus(null); };
+  const pick = (i: number, it: InventoryLevel) => { upd(i, { description: it.name, unit: it.unit || '', item_id: it.id, price: Number(it.avg_cost) || items[i]?.price || 0 }); clearRaw(i); setFocus(null); };
   return (
     <View style={{ gap: spacing.xs }}>
       {items.map((l, i) => {
@@ -121,23 +138,23 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }:
             </View>
           ) : null}
           <View style={{ flexDirection: 'row', gap: 6 }}>
-            <TextInput value={l.qty ? String(l.qty) : ''} editable={!readOnly} onChangeText={(t) => upd(i, { qty: parseNum(t) })} keyboardType="numeric" placeholder="Cant." placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
+            <TextInput value={numVal(i, 'qty', l.qty)} editable={!readOnly} onChangeText={(t) => onNum(i, 'qty', t)} keyboardType="decimal-pad" inputMode="decimal" placeholder="Cant." placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
             <TextInput value={l.unit ?? ''} editable={!readOnly} onChangeText={(t) => upd(i, { unit: t.toUpperCase() })} placeholder="Unidad" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[inputStyle, { flex: 1 }]} />
             {!noPrice ? (
-              <TextInput value={l.price ? String(l.price) : ''} editable={!readOnly} onChangeText={(t) => upd(i, { price: parseNum(t) })} keyboardType="numeric" placeholder={priceLabel} placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
+              <TextInput value={numVal(i, 'price', l.price)} editable={!readOnly} onChangeText={(t) => onNum(i, 'price', t)} keyboardType="decimal-pad" inputMode="decimal" placeholder={priceLabel} placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
             ) : null}
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text> : <View />}
             {!readOnly ? (
-              <TouchableOpacity onPress={() => setItems(items.filter((_, j) => j !== i))}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => { setItems(items.filter((_, j) => j !== i)); setRaw({}); }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
             ) : null}
           </View>
         </View>
         );
       })}
       {!readOnly ? (
-        <TouchableOpacity onPress={() => setItems([...items, { description: '', qty: 1, unit: '', price: 0 }])} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+        <TouchableOpacity onPress={() => { setItems([...items, { description: '', qty: 1, unit: '', price: 0 }]); setRaw({}); }} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
           <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>+ Agregar renglón</Text>
         </TouchableOpacity>
       ) : null}
@@ -400,6 +417,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const supplierName = (id: string | null) => (id ? suppliers.find((s) => s.id === id)?.name ?? '—' : '—');
 
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null); // null = nueva; id = editando una ya cargada
+  const [formKey, setFormKey] = useState(0); // remonta el editor de renglones en cada apertura (limpia texto a medio escribir)
   const [company, setCompany] = useState('');
   const [supplier, setSupplier] = useState('');
   const [category, setCategory] = useState('repuestos');
@@ -414,7 +433,24 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   // Vista de la factura ya cargada (imagen o PDF).
   const [preview, setPreview] = useState<DirectPurchase | null>(null);
 
-  const resetForm = () => { setOpen(false); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
+  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
+
+  const abrirNueva = () => {
+    setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote('');
+    setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null);
+    setFormKey((k) => k + 1); setOpen(true);
+  };
+
+  const abrirEditar = (c: DirectPurchase) => {
+    setEditingId(c.id);
+    setCompany(c.company_id ?? '');
+    setSupplier(c.supplier_id ?? '');
+    setCategory(c.category ?? 'repuestos');
+    setNote(c.note ?? '');
+    setItems((c.items && c.items.length) ? c.items.map((l) => ({ ...l })) : [{ description: '', qty: 1, unit: '', price: 0 }]);
+    setFactura(c.factura_url ? { url: c.factura_url, kind: (c.factura_type as 'image' | 'pdf') ?? 'image', name: c.factura_name ?? 'factura' } : null);
+    setFormKey((k) => k + 1); setOpen(true);
+  };
 
   const adjuntarFactura = async () => {
     setSubiendo(true);
@@ -433,20 +469,27 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     const clean = items.filter((l) => l.description.trim() && Number(l.qty) > 0);
     if (!clean.length) return toast.error('Agrega al menos un renglón con producto y cantidad.');
     setBusy(true);
-    const { error } = await supabase.from('direct_purchases').insert({
+    const payload = {
       company_id: company, supplier_id: supplier, category,
       items: clean, total: linesTotal(clean),
       factura_url: factura?.url ?? null, factura_type: factura?.kind ?? null, factura_name: factura?.name ?? null,
-      note: note.trim().toUpperCase() || null, created_by: session?.user?.id ?? null,
-    });
+      note: note.trim().toUpperCase() || null,
+    };
+    const { error } = editingId
+      ? await supabase.from('direct_purchases').update(payload).eq('id', editingId)
+      : await supabase.from('direct_purchases').insert({ ...payload, created_by: session?.user?.id ?? null });
     setBusy(false);
     if (error) {
       if (/direct_purchases|relation|does not exist|column/i.test(error.message)) { toast.error('Corre "compras_directas.sql" en Supabase para habilitar Compras Directas.'); return; }
+      if (editingId && /reapply|trigger|function/i.test(error.message)) { toast.error('Corre "compras_directas_editar.sql" en Supabase para habilitar la edición.'); return; }
       return toast.error(error.message);
     }
+    const editado = !!editingId;
     resetForm();
     refetch();
-    toast.success('Compra directa registrada: los productos entraron al inventario y se generó la cuenta por pagar.');
+    toast.success(editado
+      ? 'Compra directa actualizada: se re-sincronizó el inventario y la cuenta por pagar.'
+      : 'Compra directa registrada: los productos entraron al inventario y se generó la cuenta por pagar.');
   };
 
   const verFactura = (c: DirectPurchase) => {
@@ -461,7 +504,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Compras directas</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => setOpen(true)} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <TouchableOpacity onPress={abrirNueva} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
           </TouchableOpacity>
         ) : null}
@@ -499,6 +542,11 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                     ) : (
                       <Text style={{ color: colors.muted, fontSize: 12 }}>Sin factura adjunta.</Text>
                     )}
+                    {canWrite ? (
+                      <TouchableOpacity onPress={() => abrirEditar(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>✏️ Editar</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 </>
               }
@@ -510,7 +558,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>
           <ScrollView>
-            <SectionTitle>Nueva compra directa</SectionTitle>
+            <SectionTitle>{editingId ? 'Editar compra directa' : 'Nueva compra directa'}</SectionTitle>
+            {editingId ? <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Al guardar se re-sincroniza el inventario (se rehace la entrada con los nuevos precios/cantidades) y la cuenta por pagar.</Text> : null}
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa</Text>
               <CompanyPicker companies={generalCompanies(companies)} value={company} onChange={setCompany} colors={colors} />
@@ -536,7 +585,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (producto · cantidad · precio)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Cada renglón entra al inventario como ENTRADA con su precio. Al escribir, se sugieren productos ya registrados.</Text>
-              <LineEditor items={items} setItems={setItems} priceLabel="Precio unit." catalog={catalog} />
+              <LineEditor key={formKey} items={items} setItems={setItems} priceLabel="Precio unit." catalog={catalog} />
               <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginTop: spacing.xs, textAlign: 'right' }}>Total: {usd(linesTotal(items))}</Text>
             </Card>
             <Card>
@@ -551,7 +600,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={resetForm} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
-              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Registrar compra directa'}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Registrar compra directa'}</Text></TouchableOpacity>
             </View>
           </ScrollView>
         </Screen>
