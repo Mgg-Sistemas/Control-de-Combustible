@@ -2252,6 +2252,15 @@ export default function ReportsScreen({ route }: any) {
     });
     return Array.from(set).sort((a, b) => cmpText(a, b));
   }, [encByCompany, repCompanies]);
+  // Encargados AGRUPADOS POR EMPRESA (como el reporte por día por empresa): cada empresa
+  // en alcance con su cabecera y sus encargados debajo, en vez de una lista plana revuelta.
+  const encGroups = useMemo(() => {
+    const cos = repCompanies.length ? repCompanies : Object.keys(encByCompany);
+    return cos
+      .filter((c) => (encByCompany[c] || []).length > 0)
+      .sort((a, b) => cmpText(a, b))
+      .map((c) => ({ company: c, encs: [...(encByCompany[c] || [])].sort((a, b) => cmpText(a, b)) }));
+  }, [encByCompany, repCompanies]);
   // Si cambia la empresa marcada, quita los encargados seleccionados que ya no están en
   // el alcance (evita filtrar por un responsable que no pertenece a la empresa elegida).
   useEffect(() => {
@@ -2661,26 +2670,34 @@ export default function ReportsScreen({ route }: any) {
                 </TouchableOpacity>
               ) : null}
             </View>
-            {encargadosScoped.length === 0 ? (
+            {encGroups.length === 0 ? (
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
                 {Object.keys(encByCompany).length === 0 ? 'Cargando encargados…' : 'No hay encargados para esta empresa.'}
               </Text>
             ) : (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-                {encargadosScoped.map((e) => {
-                  const on = repEncargados.includes(e);
-                  return (
-                    <TouchableOpacity
-                      key={e}
-                      onPress={() => setRepEncargados((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]))}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
-                    >
-                      <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>👤 {e}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              encGroups.map((g) => (
+                <View key={g.company} style={{ marginTop: spacing.sm }}>
+                  {/* Cabecera de empresa (como el reporte por día por empresa) */}
+                  <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderLeftWidth: 3, borderLeftColor: colors.brand, paddingHorizontal: spacing.sm, paddingVertical: 4, marginBottom: spacing.xs }}>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '900' }} numberOfLines={1}>🏢 {g.company} · {g.encs.length}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    {g.encs.map((e) => {
+                      const on = repEncargados.includes(e);
+                      return (
+                        <TouchableOpacity
+                          key={`${g.company}:${e}`}
+                          onPress={() => setRepEncargados((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]))}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>👤 {e}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))
             )}
           </>
         ) : null}
