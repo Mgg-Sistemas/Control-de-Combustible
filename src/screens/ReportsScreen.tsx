@@ -1757,7 +1757,8 @@ export default function ReportsScreen({ route }: any) {
           const est = estadoOf(m);
           const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
           const marca = (m.tipo && String(m.tipo).trim()) || '';
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ');
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${ps ? ' · ' + esc(ps) : ''}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
       const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
       return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
@@ -1768,7 +1769,7 @@ export default function ReportsScreen({ route }: any) {
     const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
     // Máquinas pick-up + vehículos pick-up en UNA lista, ordenada ALFABÉTICAMENTE (serial/placa). Sin columna de ubicación.
     const pickItems = [
-      ...pickupMachines.map((m) => ({ label: `<b>${esc(m.code ?? '—')}</b>${m.serial ? ' · ' + esc(m.serial) : ''}${m.tipo ? ' · 🏷️ ' + esc(String(m.tipo).trim()) : ''}`, key: String(m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) })),
+      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${m.tipo ? ' · 🏷️ ' + esc(String(m.tipo).trim()) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
       ...vehPickups.map((v) => ({ label: `<b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' })),
     ].sort((a, b) => cmpText(a.key, b.key));
     const pickupsHtml = pickItems.length
