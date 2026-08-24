@@ -267,5 +267,71 @@ const copia2 = JSON.stringify(orig2);
 resumirViajes(orig2, cat, 'listero');
 eq('agrupar por listero no modifica las filas recibidas', JSON.stringify(orig2), copia2);
 
+// ── N) EL DESGLOSE POR TURNO (23-ago-2026) ─────────────────────────────────
+// La jefa pide ver, en el mismo reporte, cuanto se hizo de dia y cuanto de
+// noche. La regla que no se puede romper: `dia + noche` NUNCA puede pasarse de
+// `viajes`, y `viajes` sigue siendo el numero que manda.
+const vT = (id, code, turno) => ({ machineryId: id, machineCode: code, turno });
+const conTurno = resumirViajes([
+  vT('t1', 'CAMION VOLTEO TORONTO', 'day'), vT('t1', 'CAMION VOLTEO TORONTO', 'day'),
+  vT('t1', 'CAMION VOLTEO TORONTO', 'night'),
+  vT('t3', 'CHUTO CON VOLQUETA', 'night'), vT('t3', 'CHUTO CON VOLQUETA', 'night'),
+], cat);
+
+eq('turno · el total general no cambia', conTurno.total, 5);
+eq('* turno · dia + noche = total', conTurno.dia + conTurno.noche, conTurno.total);
+eq('turno · el desglose general', [conTurno.dia, conTurno.noche], [2, 3]);
+
+const grupoDe2 = (R, nombre) => R.empresas.find((e) => e.name === nombre) ?? { total: -1, dia: -1, noche: -1, camiones: [] };
+const beraca2 = grupoDe2(conTurno, 'INVERSIONES BERACA 2021 CA');
+const costa2 = grupoDe2(conTurno, 'INGENIERIA & LOGISTICA COSTA BRAVA, C.A');
+eq('turno · desglose de BERACA', [beraca2.dia, beraca2.noche], [2, 1]);
+eq('turno · desglose de COSTA BRAVA', [costa2.dia, costa2.noche], [0, 2]);
+eq('* turno · cada grupo cuadra consigo mismo',
+  conTurno.empresas.every((e) => e.dia + e.noche === e.total), true);
+eq('* turno · cada camion cuadra consigo mismo',
+  conTurno.empresas.every((e) => e.camiones.every((c) => c.dia + c.noche === c.viajes)), true);
+eq('turno · el camion t1 por dentro', [beraca2.camiones[0].dia, beraca2.camiones[0].noche], [2, 1]);
+eq('* turno · la suma de los grupos da el general',
+  [conTurno.empresas.reduce((a, e) => a + e.dia, 0), conTurno.empresas.reduce((a, e) => a + e.noche, 0)],
+  [conTurno.dia, conTurno.noche]);
+
+// ⭐ Un viaje VIEJO, sin turno guardado, no se le regala a ninguno de los dos.
+// Que el desglose no sume al total es preferible a inventar viajes de dia que
+// nadie hizo — el que se cobra es `viajes`, no el desglose.
+const conViejos = resumirViajes([
+  vT('t1', 'CAMION VOLTEO TORONTO', 'day'),
+  vT('t1', 'CAMION VOLTEO TORONTO', null),
+  vT('t1', 'CAMION VOLTEO TORONTO', undefined),
+  { machineryId: 't1', machineCode: 'CAMION VOLTEO TORONTO' },
+], cat);
+eq('* turno · los viajes sin turno NO se pierden del total', conViejos.total, 4);
+eq('* turno · pero tampoco se le inventan a un turno', [conViejos.dia, conViejos.noche], [1, 0]);
+eq('* turno · el desglose puede quedar CORTO, nunca largo',
+  conViejos.dia + conViejos.noche <= conViejos.total, true);
+eq('turno · el camion tambien queda corto',
+  conViejos.empresas[0].camiones[0].viajes, 4);
+
+// Agrupado por LISTERO el desglose tiene que dar exactamente lo mismo: es el
+// mismo conjunto de viajes partido por otro lado.
+const mezclaT = [
+  { machineryId: 't1', machineCode: 'CAMION VOLTEO TORONTO', listeroId: 'u1', listeroName: 'Junior', turno: 'day' },
+  { machineryId: 't1', machineCode: 'CAMION VOLTEO TORONTO', listeroId: 'u2', listeroName: 'Maria', turno: 'night' },
+  { machineryId: 't3', machineCode: 'CHUTO CON VOLQUETA', listeroId: 'u2', listeroName: 'Maria', turno: 'night' },
+];
+const tEmp = resumirViajes(mezclaT, cat, 'empresa');
+const tLis = resumirViajes(mezclaT, cat, 'listero');
+eq('* turno · el desglose general no depende del eje',
+  [tEmp.dia, tEmp.noche], [tLis.dia, tLis.noche]);
+eq('turno · por listero, Maria es toda de noche',
+  (tLis.empresas.find((e) => e.name === 'Maria') ?? {}).noche, 2);
+eq('turno · por listero, Junior es todo de dia',
+  (tLis.empresas.find((e) => e.name === 'Junior') ?? {}).dia, 1);
+
+// Sin ningun turno en las filas (llamadores viejos): todo en 0, sin reventar.
+const sinTurnoDelTodo = resumirViajes([viaje('t1', 'CAMION VOLTEO TORONTO')], cat);
+eq('* turno · un llamador que no manda turno no rompe nada',
+  [sinTurnoDelTodo.total, sinTurnoDelTodo.dia, sinTurnoDelTodo.noche], [1, 0, 0]);
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-resumen · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

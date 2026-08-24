@@ -3350,6 +3350,92 @@ empresa sale del **camión** (la que tiene en el catálogo de maquinaria), así 
 cargarla en cada viaje. Los camiones sin empresa asignada se agrupan en **"Sin empresa"**.
 **✕ Limpiar filtros** borra empresa, camión y listero de un toque.
 
+### ☀️🌙 Ver los viajes por turno (23-ago-2026)
+
+> **Solo en el panel de la jefa.** La vista del listero **no cambia**: él sigue viendo el turno
+> escrito en cada uno de sus viajes, y no necesita filtrar nada.
+
+**El filtro.** En la **Lista completa**, arriba de listero/empresa/camión, hay una fila **TURNO**
+con dos pastillas — **☀️ Día** y **🌙 Noche** — cada una con su cantidad. Sin marcar nada salen
+los dos.
+
+| | Horario |
+|---|---|
+| ☀️ Día | 7am – 7pm |
+| 🌙 Noche | 7pm – 7am |
+
+Es el mismo corte con el que el sistema arma la jornada (ver 4.31, *el filtro por día*): los dos
+turnos juntos son **un** día de trabajo.
+
+> **Marcar un turno baja las cuentas de los demás filtros.** Con **🌙 Noche** marcado, los chips de
+> listero muestran **solo a quienes trabajaron de noche**, con la cantidad de viajes que hicieron
+> **esa** noche. Un listero que no trabajó de noche **desaparece** de la fila — y eso es
+> justamente lo que hace útil la lista: dice *quiénes* andan de noche.
+
+**En el resumido.** Cada empresa (o listero) y **cada camión** traen su desglose **☀️ X · 🌙 Y**.
+El PDF gana dos columnas, **☀️ Día** y **🌙 Noche**, junto al total de siempre.
+
+**En el resumen del día.** Debajo de cada camión dice si anda **☀️ día**, **🌙 noche** o
+**☀️🌙 mixto**, con cuántos viajes hizo en cada turno.
+
+> **"Mixto" no es un empate.** Solo sale si el turno menor pesa **al menos un 20%**. Un camión con
+> 30 viajes de día y 1 de noche **sigue siendo de día** — es uno diurno al que se le coló un viaje.
+> Sin ese umbral, casi toda la flota saldría "mixto" y la columna no diría nada.
+
+#### ⏰ De dónde sale el turno
+
+De la **hora del viaje**, no de lo que se guardó el día que se registró. En condiciones normales
+son lo mismo (al registrar, el sistema guarda el turno que corresponde a esa hora), pero deducirlo
+resuelve dos cosas:
+
+- los viajes **viejos**, de antes de que se guardara el turno, ya no salen en blanco;
+- si a un viaje se le **corrige la hora** cruzando las 7am o las 7pm, el turno **se mueve con
+  ella** en vez de quedarse en el que tenía.
+
+> Cuando lo guardado y la hora **no concuerdan**, la pantalla lo avisa en amarillo con la cantidad
+> de viajes afectados. **Manda la hora.**
+
+### 🔎 Los filtros de la lista completa, revisados (22-ago-2026)
+
+> **El número del chip ya no miente.** La cantidad entre paréntesis de cada empresa, listero y
+> camión se cuenta ahora sobre los viajes que **ya pasan los otros filtros marcados**. Antes se
+> contaba sobre el rango entero: con un listero marcado, los chips de empresa seguían mostrando el
+> total de **todos** los listeros y no cuadraban ni con la lista de abajo ni con el PDF.
+>
+> El chip de un eje **no se filtra a sí mismo** — si lo hiciera, al marcar un listero todos los
+> demás caerían a (0) y no habría cómo comparar ni cómo agregar un segundo.
+
+> **Un filtro marcado ya no se esconde.** Si cambias de día y el listero que tenías marcado no
+> trabajó ese día, su chip **sigue ahí, en (0)**. Antes desaparecía de la fila: la lista salía
+> vacía y no había manera de saber qué la estaba tapando ni dónde desmarcarla.
+
+**La lista vacía ahora dice por qué.** Ya no todo es *"Sin viajes en el rango seleccionado"*.
+Distingue cinco causas, y cada una nombra lo que hay que hacer:
+
+| Lo que ves | Qué pasó |
+|---|---|
+| *Sin viajes en el rango seleccionado* | de verdad no hubo viajes |
+| *hay filtros marcados que no aparecen en este rango (…)* | quedó un filtro puesto de otro día |
+| *Sin viajes con esa combinación de filtros* | cada filtro por separado sí tiene viajes, juntos no |
+| *No hay ningún día marcado* | estás en **Días específicos** sin elegir ninguno |
+| *El rango está al revés* | el **DESDE** quedó después del **HASTA** |
+
+> **📅 Días específicos sin ningún día marcado.** Antes caía al rango de **hoy** por su cuenta y
+> mostraba la jornada de hoy **sin decirlo**, lo cual se leía como si esos fueran los viajes de los
+> días elegidos. Ahora no muestra nada y lo dice. Arriba de los filtros hay **siempre** una línea
+> **📅** con el rango que está en efecto y cuántos viajes trae.
+
+> **⚠️ El rango al revés.** En **Rango libre**, si el **DESDE** queda después del **HASTA** (en la
+> web el campo de fecha deja escribir cualquier valor, y además se puede borrar el HASTA), antes
+> salían **cero viajes sin decir por qué** — y ese cero se podía exportar en PDF como si fuera un
+> día flojo. Ahora no se consulta nada, se explica en rojo y **el botón de exportar se niega**.
+
+> **📄 El encabezado del PDF en "Días específicos".** Ya **no** dice *"del 5 al 22"*: los días
+> marcados no tienen por qué ser seguidos, y ese texto hacía leer **18 jornadas donde había 2**.
+> Ahora dice cuántas **jornadas sueltas** son y cuáles. Si son más de ocho, dice la cantidad y
+> entre qué extremos están.
+
+
 **Dos formas de ver y de imprimir.** En **VISTA Y REPORTE** eliges:
 
 - **📋 Detallado (viaje por viaje)** — como siempre: una línea por cada viaje. El PDF ahora trae
