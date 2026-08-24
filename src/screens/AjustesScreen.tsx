@@ -23,7 +23,11 @@ export default function AjustesScreen() {
   // admins). Web.
   const nfull = (fullName ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
   const esSuperadmin = nfull.includes('ANTHONY') || nfull.includes('ANGELICA');
-  const puedeBackup = esSuperadmin;
+  // Backup de la BD: además de los superadmin, ANTONI VARGAS puede descargarlo
+  // (SOLO el backup, no el panel masivo de máquinas). "frank vargas" también existe,
+  // por eso se exige ANTONI + VARGAS, no solo el apellido.
+  const esAntoniVargas = nfull.includes('ANTONI') && nfull.includes('VARGAS');
+  const puedeBackup = esSuperadmin || esAntoniVargas;
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
   const doBackup = async () => {
@@ -52,7 +56,7 @@ export default function AjustesScreen() {
           <Card>
             <Text style={{ fontWeight: '700', color: colors.text }}>Backup de la base de datos</Text>
             <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-              Descarga un archivo JSON con TODOS los datos (máquinas, jornadas, empleados, pagos, inventario…). Acceso restringido a Anthony y Angelica.
+              Descarga un archivo JSON con TODOS los datos (máquinas, jornadas, empleados, pagos, inventario…). Acceso restringido a Anthony, Angelica y Antoni Vargas.
             </Text>
             <TouchableOpacity onPress={doBackup} disabled={backupBusy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', opacity: backupBusy ? 0.6 : 1 }}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{backupBusy ? 'Generando…' : '⬇️ Descargar backup'}</Text>
