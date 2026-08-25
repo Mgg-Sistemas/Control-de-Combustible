@@ -1676,9 +1676,9 @@ export default function ReportsScreen({ route }: any) {
     // reporte siempre cuadra con la cantidad que se ve en el Catálogo. La diferencia
     // REAL vs SIMULADO es solo el ESTADO (real vs todo operativo) y el reparto de zona
     // (GPS real vs Este/Oeste al azar).
-    // Excluye RETIRADAS (operational=false) y las que están ESPERANDO INSTRUCCIONES
-    // (en_espera=true): el cliente no las quiere en el reporte de ubicaciones.
-    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false && m.en_espera !== true);
+    // TODAS las máquinas disponibles = operational != false (239): incluye las que están
+    // esperando instrucciones. Solo se excluyen las RETIRADAS (operational=false).
+    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1723,7 +1723,8 @@ export default function ReportsScreen({ route }: any) {
       if (macro) parts.push(macro);
       if (sub) parts.push(sub);
       if (ref) parts.push(ref);
-      return parts.length ? parts.join(' · ') : 'Desplegadas por todo el territorio de La Guaira';
+      // Sin GPS ni referencia: se ubican por defecto en el ESTE, Patio - Camurí Chico (pedido del cliente).
+      return parts.length ? parts.join(' · ') : 'Este · Patio - Camuri Chico';
     };
     // Las camionetas PICK-UP no van en la lista de maquinaria: van en su propia sección
     // (a disposición de los encargados de SOS La Guaira).
