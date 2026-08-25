@@ -1669,14 +1669,16 @@ export default function ReportsScreen({ route }: any) {
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
   const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     // Los DOS reportes (REAL y SIMULADO) cuentan el MISMO universo que el Catálogo:
     // TODAS las máquinas menos las RETIRADAS (operational=false). Así el TOTAL del
     // reporte siempre cuadra con la cantidad que se ve en el Catálogo. La diferencia
     // REAL vs SIMULADO es solo el ESTADO (real vs todo operativo) y el reparto de zona
     // (GPS real vs Este/Oeste al azar).
-    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
+    // Excluye RETIRADAS (operational=false) y las que están ESPERANDO INSTRUCCIONES
+    // (en_espera=true): el cliente no las quiere en el reporte de ubicaciones.
+    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false && m.en_espera !== true);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1758,11 +1760,11 @@ export default function ReportsScreen({ route }: any) {
           const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
           const marca = (m.tipo && String(m.tipo).trim()) || '';
           const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ');
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${ps ? ' · ' + esc(ps) : ''}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
       const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
       return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Ubicación</th>${opHead}<th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Placa / Serial</th><th>Ubicación</th>${opHead}<th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
