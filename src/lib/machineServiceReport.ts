@@ -3,7 +3,36 @@
 //
 // Reproduce el documento que trajo el cliente («Ficha técnica Jumbo con martillo
 // 0488», Golden Touch 1127 C.A.): la ficha técnica de la máquina en la primera
-// página, y sus reparaciones a partir de la segunda, con las dos firmas al pie.
+// página, y sus reparaciones a partir de la segunda.
+//
+// ⭐ CADA REPARACIÓN ES UNA HOJA DEL FORMULARIO (25-ago-2026). Antes salían como
+//    tarjetitas resumidas —una línea con el nombre, unas píldoras con los tipos y
+//    dos renglones de texto—. Ahora cada una se imprime con la MISMA forma que la
+//    hoja de papel que llena el taller: franja azul con el título, los cuatro
+//    datos de cabecera (fecha · operador/técnico · equipo · serial), las CASILLAS
+//    de tipo de intervención, y los tres recuadros (problema · acciones ·
+//    repuestos), con sus dos firmas al pie. Así el PDF y el papel se pueden poner
+//    uno al lado del otro.
+//
+// ⚠️ LAS CASILLAS SE IMPRIMEN TODAS, marcadas y sin marcar — es lo que las hace
+//    una casilla y no una etiqueta. Por eso el reporte necesita saber el CATÁLOGO
+//    completo (`tiposIntervencion`), no solo lo que el servicio marcó. Un tipo
+//    marcado que ya no está en el catálogo (lo desactivaron) igual sale, al final
+//    y marcado: un servicio viejo no puede perder lo que dijo.
+//
+// ⚠️ EL CRUCE ES POR **CLAVE**, NUNCA POR EL NOMBRE VISIBLE. La primera versión
+//    comparaba textos en minúsculas y se caía de cuatro maneras distintas, todas
+//    alcanzables desde el modal de «⚙️ Tipos de intervención»:
+//      · «Aire Acondicionado» (nombre) nunca cruzaba con `aire_acondicionado`
+//        (clave), así que la casilla marcada salía SIN marcar y aparecía una
+//        segunda casilla, cruda y marcada;
+//      · dos tipos que solo difieren en mayúsculas se marcaban LOS DOS —falso
+//        positivo en un papel que se firma—;
+//      · dos tipos con el mismo nombre salían como dos casillas repetidas
+//        (`validarTipoIntervencion` exige clave única, no nombre único);
+//      · «Mecanica» sin tilde no cruzaba con «Mecánica».
+//    La clave es única por construcción y es lo que queda GUARDADO dentro de cada
+//    servicio, así que es lo único con lo que se puede comparar sin equivocarse.
 //
 // Función PURA: recibe los datos ya cargados por la pantalla, no consulta
 // Supabase. Mismo contrato que `hoseServiceReport.ts`.
@@ -18,7 +47,8 @@
 // ============================================================================
 import { pdfDocument, exportPdf } from './pdf';
 import { machineLabel, machineFileLabel, MaquinaIdentificable } from './machineLabel';
-import { quienLoHizo, INTERVENCION_LABEL, Intervencion, ServiceOrigen } from './machineService';
+import { quienLoHizo, etiquetaIntervencion, INTERVENCIONES_POR_DEFECTO,
+  TipoIntervencion, ServiceOrigen } from './machineService';
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const dmy = (iso?: string | null) => {
@@ -43,6 +73,8 @@ export type ServicioImprimible = {
   origen: ServiceOrigen;
   technician?: string | null;
   provider?: string | null;
+  /** Las CLAVES tal como están guardadas (`mecanica`, `aire_acondicionado`…),
+   *  NO los nombres visibles: la casilla se cruza por clave. */
   intervenciones?: string[] | null;
   problem?: string | null;
   work_done?: string | null;
@@ -70,18 +102,47 @@ export const FICHA_CSS = `
 `;
 
 const CSS = FICHA_CSS + `
-  .srv{border:1px solid #D7E3F4;border-radius:8px;padding:10px 12px;margin-bottom:10px;page-break-inside:avoid}
-  .srv .top{display:flex;justify-content:space-between;gap:10px;font-size:12px;font-weight:800;color:#1E3A5F}
-  .srv .tags span{display:inline-block;background:#EAF1FB;border:1px solid #D7E3F4;border-radius:10px;padding:1px 8px;font-size:10px;margin-left:4px}
-  .srv .kv{font-size:12px;margin-top:4px}
-  .srv .kv b{color:#374151}
-  .viejo{background:#FFFBEB;border-color:#FDE68A}
-  table.rep{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+  /* ── LA HOJA ──────────────────────────────────────────────────────────────
+     «page-break-inside:avoid» PIDE que no se parta entre dos páginas, y el motor
+     lo cumple MIENTRAS LA HOJA QUEPA en una. Una hoja vacía ya mide ~600px de los
+     ~905px útiles de una carta con márgenes de 2cm, así que en la práctica va UNA
+     HOJA POR PÁGINA —igual que el formulario de papel, que también es de una
+     página—. Con muchos repuestos la hoja se pasa de largo y el motor la parte
+     igual; por eso «.firmas» lleva además «page-break-before:avoid», para que las
+     dos rayas de firmar no terminen solas en una página en blanco.
+     ⚠️ Medido, no supuesto: una hoja mínima = ~600px. No escribas acá que «dos
+     hojas cortas caben juntas» — no caben. */
+  .hoja{border:1px solid #D7E3F4;border-radius:10px;overflow:hidden;margin-bottom:16px;page-break-inside:avoid}
+  .hoja-band{background:#2F4257;color:#fff;text-align:center;padding:11px 10px}
+  .hb-t{font-size:16px;font-weight:800;letter-spacing:.4px;line-height:1.15}
+  .hb-s{font-size:9.5px;color:#C3CEDC;letter-spacing:2.2px;margin-top:4px}
+  .hoja-viejo{background:#FFFBEB;border-bottom:1px solid #FDE68A;color:#92400E;font-size:10px;font-weight:700;padding:5px 14px}
+  .hoja-datos{display:flex;gap:14px;align-items:flex-start;padding:11px 14px 2px}
+  .hoja-foto{width:104px;height:78px;object-fit:cover;border:2px solid #1E3A5F;border-radius:8px;background:#EEF2F7;flex:none}
+  .campos{flex:1}
+  .campo{display:flex;gap:8px;border-bottom:1px solid #E8EDF3;padding:6px 2px;font-size:12px}
+  .campo .k{font-weight:800;color:#1E3A5F;white-space:nowrap}
+  .campo .v{color:#333;flex:1}
+  /* La banda gris con el filito azul, igual que en la hoja de papel. */
+  .banda{background:#EEF2F7;border-left:4px solid #1E3A5F;color:#1E3A5F;font-size:11.5px;font-weight:800;letter-spacing:.5px;padding:6px 12px;margin:12px 14px 8px}
+  .chks{display:flex;flex-wrap:wrap;gap:7px 22px;padding:0 16px 2px;font-size:12px}
+  .chk{display:flex;gap:6px;align-items:flex-start;min-width:140px}
+  /* La casilla se dibuja con un borde, no con el carácter ☐: no todas las
+     fuentes de impresión lo traen y salía un cuadrito vacío o nada. */
+  .bx{display:inline-block;width:12px;height:12px;line-height:11px;text-align:center;border:1.5px solid #1E3A5F;border-radius:2px;font-size:10px;font-weight:900;flex:none;margin-top:1px}
+  .bx.on{background:#1E3A5F;color:#fff}
+  /* ⚠️ «overflow-wrap:anywhere» NO ES COSMÉTICO: «.hoja» recorta lo que se sale
+     («overflow:hidden»), así que sin esto una referencia larga sin espacios
+     —«REF3PZ112088HIDRAULICO…», una URL, un serial pegado— se sale del recuadro
+     y NO LLEGA AL PAPEL. No se ve mal: desaparece. */
+  .caja{border:1px solid #D7E3F4;border-radius:8px;margin:0 14px;padding:9px 11px;min-height:50px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+  table.rep{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
   table.rep th{background:#1E3A5F;color:#fff;padding:4px 7px;text-align:left}
-  table.rep td{border:1px solid #D7E3F4;padding:4px 7px}
-  .grupo{font-size:15px;font-weight:800;color:#1E3A5F;margin:14px 0 6px;border-bottom:2px solid #1E3A5F;page-break-after:avoid}
-  .firmas{display:flex;gap:60px;margin-top:56px;page-break-inside:avoid}
+  table.rep td{border:1px solid #D7E3F4;padding:4px 7px;overflow-wrap:anywhere;word-break:break-word}
+  .firmas{display:flex;gap:56px;margin:30px 22px 16px;page-break-inside:avoid;page-break-before:avoid;break-before:avoid}
   .firmas div{flex:1;border-top:1px solid #333;padding-top:6px;text-align:center;font-size:11px;font-weight:700}
+  .sin{border:1px dashed #D7E3F4;border-radius:8px;padding:12px;font-size:12px;color:#6B7280;margin-bottom:12px}
+  .grupo{font-size:15px;font-weight:800;color:#1E3A5F;margin:14px 0 6px;border-bottom:2px solid #1E3A5F;page-break-after:avoid}
 `;
 
 /** Filas de una tabla clave/valor, saltando lo que viene vacío. */
@@ -130,44 +191,174 @@ export function fichaTecnicaHtml(m: MaquinaFicha, opts: FichaOpts = {}): string 
   </div>`;
 }
 
-/** Una reparación, como la hoja «Reporte de mantenimiento / reparación». */
-export function servicioCardHtml(s: ServicioImprimible): string {
-  const tags = (s.intervenciones ?? [])
-    .map((k) => `<span>${esc(INTERVENCION_LABEL[k as Intervencion] ?? k)}</span>`).join('');
-  const reps = (s.parts ?? []).length
+const limpio = (v: unknown): string => String(v ?? '').trim();
+
+/** Un renglón de la cabecera: «Fecha: 18/08/2026». */
+function campo(k: string, v: string): string {
+  return `<div class="campo"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
+}
+
+/** Un recuadro con lo que escribió el taller. Se dibuja SIEMPRE, aunque venga
+ *  vacío: en la hoja de papel el recuadro está para llenarlo a mano si hace
+ *  falta, y una hoja a la que le faltan recuadros ya no es la misma hoja. */
+function caja(html: string): string {
+  return `<div class="caja">${html}</div>`;
+}
+
+/** Un tipo de intervención como lo necesita la casilla: su CLAVE (con la que se
+ *  cruza) y su NOMBRE (el que se imprime). Es la forma que ya tiene
+ *  `TipoIntervencion`, así que la pantalla pasa su catálogo tal cual. */
+export type TipoParaCasilla = { key?: string | null; label?: string | null };
+
+/**
+ * Las casillas de «Tipo de intervención», TODAS: las marcadas y las que no.
+ *
+ * @param marcadas las CLAVES que guardó el servicio (`camion_viajes` no, esto es
+ *        `machinery_service_orders.intervenciones`) — tal como están en la base.
+ * @param tipos el catálogo ACTIVO, en su orden: es lo que dibuja las casillas y
+ *        es el mismo que ve el formulario en pantalla.
+ * @param conocidos TODOS los tipos, incluidos los desactivados. Solo sirve para
+ *        ponerle NOMBRE a una clave marcada que ya no está en el catálogo.
+ *
+ * Lo que el servicio marcó y ya no está en el catálogo —un tipo que desactivaron
+ * después— se agrega al final, marcado: el servicio viejo tiene que seguir
+ * diciendo lo que dijo.
+ *
+ * Sin catálogo (nadie corrió `supabase/servicio_tipos_intervencion.sql`) salen
+ * los cuatro de siempre, que son exactamente los de la hoja de papel.
+ */
+export function casillasIntervencionHtml(
+  marcadas?: unknown[] | null,
+  tipos?: TipoParaCasilla[] | null,
+  conocidos?: TipoParaCasilla[] | null,
+): string {
+  // `etiquetaIntervencion` ya sabe la cadena de respaldo (catálogo → los cuatro
+  // de siempre → la clave cruda) y NUNCA devuelve vacío. No se reimplementa acá.
+  const nombreDe = (k: string) => etiquetaIntervencion(k, (conocidos ?? []) as TipoIntervencion[]);
+
+  // ⚠️ `Array.isArray` y no `?? []`: si un jsonb llega como texto (o como null
+  // dentro de un array), `.map` reventaría y el usuario solo vería «No se pudo
+  // generar el PDF» sin saber por qué.
+  const claves = (xs: unknown) => (Array.isArray(xs) ? xs : []);
+  const marcadasKeys = new Set(claves(marcadas).map(limpio).filter(Boolean));
+
+  // El catálogo, deduplicado POR CLAVE y en su orden. Se deduplica porque
+  // `validarTipoIntervencion` exige clave única pero NO nombre único: dos tipos
+  // llamados igual son legales y salían como dos casillas idénticas.
+  const catalogo: { key: string; label: string }[] = [];
+  const enCatalogo = new Set<string>();
+  for (const t of claves(tipos) as TipoParaCasilla[]) {
+    const key = limpio(t?.key);
+    if (!key || enCatalogo.has(key)) continue;
+    enCatalogo.add(key);
+    catalogo.push({ key, label: limpio(t?.label) || nombreDe(key) });
+  }
+  if (!catalogo.length) {
+    for (const t of INTERVENCIONES_POR_DEFECTO) {
+      enCatalogo.add(t.key);
+      catalogo.push({ key: t.key, label: t.label });
+    }
+  }
+
+  // Las sobrantes: marcadas que el catálogo no tiene. Un `Set` ya las trae sin
+  // repetir y en el orden en que se marcaron.
+  const sobrantes = Array.from(marcadasKeys)
+    .filter((k) => !enCatalogo.has(k))
+    .map((k) => ({ key: k, label: nombreDe(k) }));
+
+  return `<div class="chks">${[...catalogo, ...sobrantes].map(({ key, label }) => {
+    const on = marcadasKeys.has(key);
+    return `<span class="chk"><span class="bx${on ? ' on' : ''}">${on ? '✓' : ''}</span>${esc(label)}</span>`;
+  }).join('')}</div>`;
+}
+
+/** Las dos líneas para firmar a mano, al pie de CADA hoja — como en el papel:
+ *  cada intervención la firman el técnico que la hizo y su supervisor. */
+const FIRMAS = `<div class="firmas"><div>Firma del Técnico</div><div>Firma Supervisor</div></div>`;
+
+/**
+ * Una reparación, con la forma de la hoja «Reporte de mantenimiento /
+ * reparación» que llena el taller.
+ *
+ * @param m la máquina, para los renglones «Equipo» y «Código de Serial» y para
+ *          su foto. Va en CADA hoja a propósito: cuando se imprime un rango con
+ *          varias máquinas y después alguien separa los papeles, una hoja suelta
+ *          tiene que poder decir de qué máquina es.
+ * @param opts `tipos` (catálogo activo) y `conocidos` (todos, para nombrar un
+ *        tipo desactivado). Ver `casillasIntervencionHtml`.
+ */
+export function servicioCardHtml(
+  s: ServicioImprimible,
+  m?: MaquinaFicha | null,
+  opts: { tipos?: TipoParaCasilla[] | null; conocidos?: TipoParaCasilla[] | null } = {},
+): string {
+  // `limpio` y no la verdad cruda: un `photo_url` con solo espacios dejaba un
+  // `<img src="   ">` roto, y ahora la foto va en CADA hoja — se repetiría N veces.
+  const url = limpio(m?.photo_url);
+  const foto = url ? `<img class="hoja-foto" src="${esc(url)}" alt=""/>` : '';
+  const modelo = [limpio(m?.marca), limpio(m?.modelo)].filter(Boolean).join(' ');
+  const equipo = [machineLabel(m ?? null), modelo].filter(Boolean).join(' · ');
+
+  // `.filter(Boolean)`: un null dentro de `parts` tumbaba la exportación entera
+  // con un TypeError que la pantalla mostraba como «No se pudo generar el PDF».
+  const partes = (Array.isArray(s.parts) ? s.parts : []).filter(Boolean);
+  const reps = partes.length
     ? `<table class="rep"><thead><tr><th>Cant.</th><th>Descripción del repuesto / insumo</th><th>Estado</th></tr></thead><tbody>${
-        (s.parts ?? []).map((p) =>
+        partes.map((p) =>
           `<tr><td>${esc(oDash(p.quantity))}</td><td>${esc(p.description)}</td><td>${esc(oDash(p.estado))}</td></tr>`
         ).join('')}</tbody></table>`
     : '';
-  return `<div class="srv${s.esRegistroAnterior ? ' viejo' : ''}">
-    <div class="top"><span>${esc(dmy(s.service_date))} · ${esc(quienLoHizo(s))}</span>
-      <span class="tags">${tags}${s.esRegistroAnterior ? '<span>Registro anterior</span>' : ''}</span></div>
-    ${s.problem ? `<div class="kv"><b>Problema:</b> ${esc(s.problem)}</div>` : ''}
-    ${s.work_done ? `<div class="kv"><b>Se hizo:</b> ${esc(s.work_done)}</div>` : ''}
-    ${s.averia ? `<div class="kv"><b>Atiende:</b> ${esc(s.averia)}</div>` : ''}
-    ${reps}
+
+  return `<div class="hoja">
+    <div class="hoja-band">
+      <div class="hb-t">Reporte de mantenimiento / reparación</div>
+      <div class="hb-s">Maquinaria pesada</div>
+    </div>
+    ${s.esRegistroAnterior
+      ? '<div class="hoja-viejo">⚠️ Registro anterior del taller — se guardó antes de este formulario, por eso trae menos datos.</div>'
+      : ''}
+    <div class="hoja-datos">${foto}
+      <div class="campos">
+        ${campo('Fecha:', dmy(s.service_date))}
+        ${campo('Operador / Técnico:', quienLoHizo(s))}
+        ${campo('Equipo (ID / Modelo):', oDash(equipo))}
+        ${campo('Código de Serial:', oDash(limpio(m?.serial)))}
+        ${s.averia ? campo('Avería que atiende:', s.averia) : ''}
+      </div>
+    </div>
+    <div class="banda">Tipo de intervención</div>
+    ${casillasIntervencionHtml(s.intervenciones, opts.tipos, opts.conocidos)}
+    <div class="banda">Descripción del problema</div>
+    ${caja(esc(limpio(s.problem)))}
+    <div class="banda">Acciones realizadas</div>
+    ${caja(esc(limpio(s.work_done)))}
+    <div class="banda">Repuestos utilizados</div>
+    ${caja(reps)}
+    ${FIRMAS}
   </div>`;
 }
-
-/** Las dos líneas para firmar a mano, como en el formulario de papel. */
-const FIRMAS = `<div class="firmas"><div>Firma del Técnico</div><div>Firma Supervisor</div></div>`;
 
 export type ReportOpts = {
   maquinas: { m: MaquinaFicha; servicios: ServicioImprimible[] }[];
   desde?: string; hasta?: string;
+  /** El catálogo ACTIVO de tipos de intervención, en su orden, para dibujar
+   *  TODAS las casillas. Si no viene, salen los cuatro de siempre. */
+  tiposIntervencion?: TipoParaCasilla[] | null;
+  /** TODOS los tipos, incluidos los desactivados: solo para ponerle nombre a una
+   *  clave marcada que ya salió del catálogo. */
+  tiposConocidos?: TipoParaCasilla[] | null;
 };
 
 /** El documento completo. PURA — devuelve el HTML, no imprime nada. */
 export function buildMachineServiceReportHtml(opts: ReportOpts): string {
-  const { maquinas, desde, hasta } = opts;
+  const { maquinas, desde, hasta, tiposIntervencion, tiposConocidos } = opts;
   const unaSola = maquinas.length === 1;   // ← acá se decide el modo
   const rango = desde && hasta ? `${dmy(desde)} — ${dmy(hasta)}` : '';
 
   const cuerpo = maquinas.map(({ m, servicios }) => {
     const lista = servicios.length
-      ? servicios.map(servicioCardHtml).join('')
-      : '<div class="srv">Sin servicios registrados en el período.</div>';
+      ? servicios.map((s) => servicioCardHtml(s, m, { tipos: tiposIntervencion, conocidos: tiposConocidos })).join('')
+      : '<div class="sin">Sin servicios registrados en el período.</div>';
     return unaSola
       ? fichaTecnicaHtml(m) + `<h3 class="sec">🔧 Reparaciones${rango ? ` · ${esc(rango)}` : ''}</h3>` + lista
       : `<div class="grupo">${esc(machineLabel(m))}</div>` + lista;
@@ -177,7 +368,9 @@ export function buildMachineServiceReportHtml(opts: ReportOpts): string {
   return pdfDocument({
     title: unaSola ? 'Ficha técnica y reparaciones' : 'Reparaciones de maquinaria',
     subtitle: `${total} servicio(s)${rango ? ` · ${rango}` : ''}`,
-    body: cuerpo + FIRMAS,
+    // Las firmas ya NO van al final del documento: cada hoja trae las suyas,
+    // porque cada intervención se firma por separado (igual que en el papel).
+    body: cuerpo,
     extraCss: CSS,
   });
 }

@@ -1123,6 +1123,44 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > se siguen editando en **🚜 Equipos / Control de Maquinaria**; lo único que cambió es que dejaron de
 > **imprimirse** en este PDF.
 
+> **📋 El PDF ahora tiene la forma de la HOJA de papel (25-ago-2026):** el cliente mandó el
+> formato que llena el taller —**«REPORTE DE MANTENIMIENTO / REPARACIÓN — MAQUINARIA PESADA»**— y el
+> PDF se ajustó a él. **Cada reparación es una hoja completa**, no una tarjetita resumida como antes:
+>
+> - **Franja azul** con el título, y debajo la cabecera: la **foto de la máquina** a la izquierda
+>   y los datos a la derecha.
+> - Los **cuatro renglones de cabecera** del papel: **Fecha · Operador / Técnico · Equipo (ID /
+>   Modelo) · Código de Serial**. Salen **siempre**: a un formulario no se le pueden caer renglones.
+>   Si falta el dato, **Fecha**, **Equipo** y **Código de Serial** dicen «—»; **Operador / Técnico**
+>   nunca queda en blanco porque, aunque no se haya puesto el nombre, siempre dice al menos si el
+>   trabajo fue **🏭 Interno** o **🤝 Externo**. Si el servicio está enlazado a una avería, se agrega
+>   el renglón **«Avería que atiende»**.
+> - Las **casillas** de **TIPO DE INTERVENCIÓN**, y los tres recuadros con su banda gris:
+>   **DESCRIPCIÓN DEL PROBLEMA · ACCIONES REALIZADAS · REPUESTOS UTILIZADOS**. Los recuadros se
+>   imprimen **aunque estén vacíos**, para poder llenarlos a mano.
+> - **Las dos firmas al pie de CADA hoja** (Técnico y Supervisor), no una sola vez al final del
+>   documento: cada intervención la firma quien la hizo y su supervisor, igual que en el papel.
+>
+> **☑️ Las casillas salen TODAS, marcadas y sin marcar** — es lo que las hace casillas y no etiquetas.
+> Son **las mismas del formulario en pantalla y en el mismo orden**, así que un tipo nuevo (ej.
+> *Soldadura*) también aparece en el PDF. Un tipo que se marcó y **después desactivaron** igual sale,
+> **al final de la fila y marcado**: un servicio viejo no puede perder lo que dijo.
+>
+> **Detalles que importan al imprimir.** **Cada reparación ocupa su propia página**, igual que el
+> formulario de papel, que también es de una sola página: una hoja vacía ya mide dos tercios de la
+> hoja carta, así que dos nunca caben juntas. Se le **pide** al PDF que no parta una hoja por la
+> mitad, y lo cumple mientras la hoja quepa en la página; si lleva muchos repuestos se pasa de largo
+> y se parte igual, pero en ese caso las **dos rayas de firmar no se quedan solas** en una página en
+> blanco. La **foto va en cada hoja**, no solo en la ficha: al imprimir un rango con varias máquinas
+> y separar después los papeles, una hoja suelta tiene que poder decir de qué máquina es.
+>
+> **Una referencia larga sin espacios no se pierde.** Si alguien pega un código de repuesto larguísimo
+> sin separaciones, el texto **se corta y sigue en la línea de abajo** en vez de salirse del recuadro.
+> Antes de este arreglo, lo que se salía **no llegaba al papel**: no se veía mal, desaparecía.
+>
+> **La ficha técnica NO cambió** (sigue igual, con su foto y su Información general), porque la
+> comparte el **Recibo de cobro de mangueras**, que es de otro módulo.
+
 > **⚙️ Tipos de intervención administrables (20-ago-2026):** en **🧾 Servicios**, los tipos de la
 > parte **«2. TIPO DE INTERVENCIÓN»** ya **no están fijos en el programa**. Quien tenga **permiso de
 > escritura** ve el botón **"⚙️ Tipos de intervención"** (y el atajo **"⚙️ Administrar los tipos…"**

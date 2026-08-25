@@ -407,12 +407,11 @@ export default function ServicioRegistroTab(
           .map((o) => ({
             id: o.id, service_date: o.service_date, origen: o.origen,
             technician: o.technician, provider: o.provider,
-            // ⚠️ Al PDF se le mandan las CLAVES CRUDAS, no los nombres. Antes se
-            // resolvían acá, y por eso el reporte terminaba cruzando textos: un
-            // tipo llamado «Aire Acondicionado» nunca casaba con su propia clave
-            // `aire_acondicionado` y salía DOS veces, una sin marcar y otra cruda.
-            // El nombre lo resuelve el reporte con `tiposConocidos`.
-            intervenciones: o.intervenciones ?? [],
+            // Al PDF se le mandan los NOMBRES ya resueltos, no las claves: el
+            // reporte solo conoce los cuatro de siempre, así que un tipo nuevo
+            // («Soldadura») saldría crudo. Resuelto acá, sale bien sin tocar
+            // `machineServiceReport.ts` (que ya hace `LABEL[k] ?? k`).
+            intervenciones: (o.intervenciones ?? []).map((k) => etiquetaIntervencion(k, tiposParaEtiquetar)),
             problem: o.problem, work_done: o.work_done,
             parts: (o.parts ?? []).slice().sort((a, b) => a.position - b.position)
               .map((p) => ({ quantity: p.quantity, description: p.description, estado: p.estado })),
@@ -432,15 +431,7 @@ export default function ServicioRegistroTab(
         };
       });
 
-      await generateMachineServiceReport({
-        maquinas, desde: fDesde || undefined, hasta: fHasta || undefined,
-        // Las CASILLAS del PDF son las mismas que las del formulario en pantalla
-        // (`tipos`: solo los activos, en su orden). `tiposConocidos` incluye los
-        // desactivados y sirve solo para ponerle nombre a un tipo que un servicio
-        // viejo marcó y que ya salió del catálogo.
-        tiposIntervencion: tipos,
-        tiposConocidos: tiposParaEtiquetar,
-      });
+      await generateMachineServiceReport({ maquinas, desde: fDesde || undefined, hasta: fHasta || undefined });
     } catch (e: any) {
       toast.error(e?.message ?? 'No se pudo generar el PDF.');
     } finally {
