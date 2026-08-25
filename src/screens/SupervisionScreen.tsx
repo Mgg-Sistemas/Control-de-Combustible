@@ -81,6 +81,27 @@ const sectorOfVisit = (v: VisitRow): string => {
   const s = sectorLabel(sectorOf(v.machineLat, v.machineLng));
   return s && s !== 'Sin zona' ? s : (v.machineRef || 'Sin zona');
 };
+/**
+ * TOKEN de sector para el listado "Sectores por inspector": si tiene GPS, el
+ * subsector (TANAGUARENA, LICORERÍA…) o, si el sector solo llega al macro, ESTE/OESTE;
+ * si no hay GPS, la referencia (si no es solo números) o el sector guardado. Todo en
+ * MAYÚSCULAS para agrupar bien (ej. "Este · Tanaguarena" → "TANAGUARENA").
+ */
+const sectorTokenOf = (m: { latitude: number | null; longitude: number | null; referencia: string | null; sector: string | null }): string => {
+  const sec = sectorOf(m.latitude, m.longitude);
+  if (sec) {
+    const lbl = sectorLabel(sec);
+    if (lbl && lbl !== 'Sin zona') {
+      const sub = lbl.replace(/^(Este|Oeste)\s*·\s*/i, '').trim();
+      return (sub || lbl).toUpperCase();
+    }
+  }
+  const ref = (m.referencia || '').trim();
+  if (ref && !/^[\d.,\s-]+$/.test(ref)) return ref.toUpperCase();
+  const s = (m.sector || '').trim();
+  if (s) return s.toUpperCase();
+  return 'SIN ZONA';
+};
 /** Serial o placa de la máquina de una visita. */
 const plateOfVisit = (v: VisitRow): string => v.machinePlate || v.machineSerial || '—';
 
@@ -111,7 +132,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const puedeCoordinar = isAdmin || canSee('coordinador_inspectores');
   // Secciones colapsables del módulo. Por defecto TODAS COLAPSADAS (arranca con
   // todas las claves cerradas). Guarda las CERRADAS.
-  const ALL_SECS = ['reportes', 'guardias', 'camiones', 'opjor', 'traza'];
+  const ALL_SECS = ['reportes', 'guardias', 'camiones', 'opjor', 'sectores', 'traza'];
   const [secClosed, setSecClosed] = useState<Set<string>>(() => new Set(ALL_SECS));
   const toggleSec = (k: string) => setSecClosed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   // Abre la ficha de ESA máquina. Si fue reportada AVERIADA (parada), va al módulo
@@ -667,6 +688,27 @@ export default function SupervisionScreen({ navigation }: any) {
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
   }, [assigns, rawRounds, paradaByMachine, machJorQuery, machJorShiftFilter]);
 
+  // 📍 SECTORES POR INSPECTOR: por cada inspector y turno (día/noche), los sectores
+  // DISTINTOS donde están sus máquinas ASIGNADAS (machine_inspectors). El sector sale
+  // del GPS de la máquina (subsector o macro Este/Oeste) o de su referencia. Ordenado
+  // A→Z por inspector; los sectores también A→Z. Independiente del filtro día/noche.
+  const sectoresPorInspector = useMemo(() => {
+    const byInsp = new Map<string, { day: Set<string>; night: Set<string> }>();
+    assigns.forEach((a) => {
+      const insp = a.inspector_name || '—';
+      const g = byInsp.get(insp) ?? { day: new Set<string>(), night: new Set<string>() };
+      (a.shift === 'night' ? g.night : g.day).add(sectorTokenOf(a));
+      byInsp.set(insp, g);
+    });
+    return Array.from(byInsp.entries())
+      .map(([inspector, g]) => ({
+        inspector,
+        day: Array.from(g.day).sort(cmpText),
+        night: Array.from(g.night).sort(cmpText),
+      }))
+      .sort((a, b) => cmpText(a.inspector, b.inspector));
+  }, [assigns]);
+
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
   // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
   const camiones = useMemo(() => {
@@ -1078,6 +1120,31 @@ export default function SupervisionScreen({ navigation }: any) {
             </Card>
           );
         })
+      )}
+
+      {/* ── 📍 SECTORES POR INSPECTOR: turno + sectores de sus máquinas asignadas ── */}
+      {secHead('sectores', '📍 Sectores por inspector')}
+      {secClosed.has('sectores') ? null : sectoresPorInspector.length === 0 ? (
+        <EmptyState title="Sin asignaciones" subtitle="Aún no hay inspectores con máquinas asignadas (CHECK MÁQUINA)." />
+      ) : (
+        sectoresPorInspector.map((r) => (
+          <Card key={r.inspector}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🧑‍🔧 {r.inspector}</Text>
+            {r.day.length > 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12.5, marginTop: 4 }}>
+                ☀️ Turno de día · <Text style={{ color: colors.text, fontWeight: '700' }}>{r.day.join(', ')}</Text>
+              </Text>
+            ) : null}
+            {r.night.length > 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12.5, marginTop: 2 }}>
+                🌙 Turno de noche · <Text style={{ color: colors.text, fontWeight: '700' }}>{r.night.join(', ')}</Text>
+              </Text>
+            ) : null}
+            {r.day.length === 0 && r.night.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Sin sectores</Text>
+            ) : null}
+          </Card>
+        ))
       )}
 
       {/* ── TRAZA POR INSPECTOR ── */}
