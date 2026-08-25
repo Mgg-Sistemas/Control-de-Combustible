@@ -34,13 +34,20 @@ import {
   quienLoHizo, ServiceOrigen, ServicePartInput,
   resolverIntervenciones, etiquetaIntervencion, validarTipoIntervencion, claveDesdeTexto,
 } from '../lib/machineService';
-import { generateMachineServiceReport, MaquinaFicha, ServicioImprimible } from '../lib/machineServiceReport';
+import { generateMachineServiceReport, generateServicioHojaPdf, MaquinaFicha, ServicioImprimible } from '../lib/machineServiceReport';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 const todayISO = () => caracasParts(new Date()).iso;
+/** El día de AYER en Caracas, para el atajo del filtro. Se calcula desde el ISO
+ *  de hoy (mediodía, para que ningún desfase de zona lo corra un día). */
+const ayerISO = () => {
+  const d = new Date(`${todayISO()}T12:00:00-04:00`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
 const fmtDMY = (iso?: string | null) => {
   if (!iso) return '—';
   const [y, m, d] = String(iso).split('T')[0].split('-');
@@ -136,6 +143,15 @@ export default function ServicioRegistroTab(
   const [fHasta, setFHasta] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQ, setPickerQ] = useState('');
+  /**
+   * ¿El PDF arrastra también los expedientes VIEJOS del taller
+   * (`machinery_repairs`, los de antes de esta pestaña)?
+   *
+   * ⭐ Sale ENCENDIDO para no cambiarle el documento a nadie de un día para otro
+   *    —hasta hoy siempre venían—, pero ahora se puede apagar: era parte de la
+   *    queja de «me los arroja los dos». Ver `exportar`.
+   */
+  const [conViejos, setConViejos] = useState(true);
 
   // ── Formulario ─────────────────────────────────────────────────────────────
   const [formOpen, setFormOpen] = useState(false);
@@ -369,29 +385,83 @@ export default function ServicioRegistroTab(
   };
 
   // ── El PDF ────────────────────────────────────────────────────────────────
+
+  /**
+   * La ficha de unas máquinas. La pantalla madre no carga foto, marca ni modelo,
+   * así que se piden aparte — SOLO para las máquinas que hagan falta.
+   */
+  const traerFichas = async (ids: string[]): Promise<Map<string, MaquinaFicha>> => {
+    const { data } = await supabase
+      .from('machinery')
+      .select('id, code, plate, serial, identifier, tipo, marca, modelo, photo_url, encargado, last_horometro, horometro_base, oil_type, oil_capacity_l, oil_notes, company:company_id(name)')
+      .in('id', ids);
+    return new Map<string, MaquinaFicha>(
+      (data ?? []).map((f: any) => [f.id, { ...f, companyName: f.company?.name ?? null }])
+    );
+  };
+
+  /** Lo que hace falta de UN servicio para imprimirlo. */
+  const imprimible = (o: Orden): ServicioImprimible => ({
+    id: o.id, service_date: o.service_date, origen: o.origen,
+    technician: o.technician, provider: o.provider,
+    intervenciones: o.intervenciones ?? [],
+    problem: o.problem, work_done: o.work_done,
+    parts: (o.parts ?? []).slice().sort((a, b) => a.position - b.position)
+      .map((p) => ({ quantity: p.quantity, description: p.description, estado: p.estado })),
+    averia: o.maintenance_request_id ? textoAveria(reqById.get(o.maintenance_request_id)) : null,
+  });
+
+  /**
+   * ⭐ UNA SOLA HOJA — la de ESTE servicio y nada más.
+   *
+   * Es la respuesta a la queja del taller: «me los arroja los dos, el que ya
+   * monté y el de prueba». El botón de arriba exporta TODO lo que haya en el
+   * filtro; este exporta exactamente el servicio que se está mirando.
+   */
+  const exportarUna = async (o: Orden) => {
+    setBusy(true);
+    try {
+      const ficha = (await traerFichas([o.machinery_id])).get(o.machinery_id);
+      // ⚠️ Sin ficha (la consulta falló, o RLS esconde la fila) la hoja sale
+      //    MUTILADA —sin foto, sin serial, sin marca ni modelo— y antes salía
+      //    así calladita. El respaldo usa los campos SUELTOS de la pantalla
+      //    madre, no la etiqueta ya armada: metiéndola entera en `code`, el
+      //    «Equipo» salía con el separador repetido.
+      const m0 = machById.get(o.machinery_id);
+      if (!ficha) {
+        toast.error('No se pudieron leer los datos de la máquina: la hoja sale sin foto ni serial.');
+      }
+      await generateServicioHojaPdf({
+        m: ficha ?? ({ code: m0?.code ?? '—', plate: m0?.plate ?? null, serial: m0?.serial ?? null, tipo: m0?.tipo ?? null } as MaquinaFicha),
+        servicio: imprimible(o),
+        tiposIntervencion: tipos,
+        tiposConocidos: tiposParaEtiquetar,
+      });
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo generar el PDF.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const exportar = async () => {
     if (!visibles.length) return toast.error('No hay servicios en el filtro para exportar.');
     setBusy(true);
     try {
       const ids = Array.from(new Set(visibles.map((o) => o.machinery_id)));
 
-      // La ficha técnica necesita campos que la pantalla madre no carga (foto,
-      // marca, modelo, lubricación). Se piden SOLO para las máquinas del filtro.
-      const { data: fichas } = await supabase
-        .from('machinery')
-        .select('id, code, plate, serial, identifier, tipo, marca, modelo, photo_url, encargado, last_horometro, horometro_base, oil_type, oil_capacity_l, oil_notes, company:company_id(name)')
-        .in('id', ids);
-      const fichaById = new Map<string, MaquinaFicha>(
-        (fichas ?? []).map((f: any) => [f.id, { ...f, companyName: f.company?.name ?? null }])
-      );
+      const fichaById = await traerFichas(ids);
 
       // Los expedientes viejos del taller entran al mismo PDF, marcados como
-      // tales: traen menos datos porque no los guardaban.
-      const { data: viejos } = await supabase
-        .from('machinery_repairs')
-        .select('id, machinery_id, out_at, work_done')
-        .eq('tipo', 'correctivo')
-        .in('machinery_id', ids);
+      // tales: traen menos datos porque no los guardaban. Se pueden dejar fuera
+      // con el interruptor «🧰 Traer también los expedientes viejos».
+      const { data: viejos } = conViejos
+        ? await supabase
+          .from('machinery_repairs')
+          .select('id, machinery_id, out_at, work_done')
+          .eq('tipo', 'correctivo')
+          .in('machinery_id', ids)
+        : { data: [] as any[] };
 
       const dentro = (d?: string | null) => {
         const s = String(d ?? '').slice(0, 10);
@@ -402,23 +472,11 @@ export default function ServicioRegistroTab(
       };
 
       const maquinas = ids.map((id) => {
+        // ⚠️ Al PDF se le mandan las CLAVES CRUDAS de las intervenciones, no los
+        //    nombres (ver `imprimible`): el reporte las cruza por clave.
         const nuevos: ServicioImprimible[] = visibles
           .filter((o) => o.machinery_id === id)
-          .map((o) => ({
-            id: o.id, service_date: o.service_date, origen: o.origen,
-            technician: o.technician, provider: o.provider,
-            // ⚠️ Al PDF se le mandan las CLAVES CRUDAS, no los nombres. Antes se
-            // resolvían acá, y por eso el reporte terminaba cruzando textos: un
-            // tipo llamado «Aire Acondicionado» nunca casaba con su propia clave
-            // `aire_acondicionado` y salía DOS veces, una sin marcar y otra cruda.
-            // El nombre lo resuelve el reporte con `tiposConocidos`.
-            intervenciones: o.intervenciones ?? [],
-            problem: o.problem, work_done: o.work_done,
-            parts: (o.parts ?? []).slice().sort((a, b) => a.position - b.position)
-              .map((p) => ({ quantity: p.quantity, description: p.description, estado: p.estado })),
-            averia: o.maintenance_request_id
-              ? textoAveria(reqById.get(o.maintenance_request_id)) : null,
-          }));
+          .map(imprimible);
         const antiguos: ServicioImprimible[] = (viejos ?? [])
           .filter((v: any) => v.machinery_id === id && dentro(v.out_at))
           .map((v: any) => ({
@@ -470,8 +528,49 @@ export default function ServicioRegistroTab(
           <View style={{ flex: 1 }}><DateField value={fDesde} onChange={setFDesde} placeholder="Desde" /></View>
           <View style={{ flex: 1 }}><DateField value={fHasta} onChange={setFHasta} placeholder="Hasta" /></View>
         </View>
+
+        {/* ⭐ ATAJOS DE DÍA. Los dos campos de fecha arrancan VACÍOS, y sin
+            fechas «Exportar PDF» saca TODO lo registrado — que es justo la queja
+            del taller: «me los arroja los dos, el que ya monté y el de prueba».
+            Con «Hoy» se acota a un día de un toque. */}
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="📄 Exportar PDF" onPress={exportar} /></View>
+          <View style={{ flex: 1 }}>
+            <Boton colors={colors} disabled={busy} label="📅 Hoy"
+              onPress={() => { const h = todayISO(); setFDesde(h); setFHasta(h); }} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Boton colors={colors} disabled={busy} label="📅 Ayer"
+              onPress={() => { const a = ayerISO(); setFDesde(a); setFHasta(a); }} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Boton colors={colors} disabled={busy} label="✕ Sin fecha"
+              onPress={() => { setFDesde(''); setFHasta(''); }} />
+          </View>
+        </View>
+
+        {/* El interruptor de los expedientes viejos del taller. */}
+        <TouchableOpacity onPress={() => setConViejos((v) => !v)} activeOpacity={0.8}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm }}>
+          <Text style={{ fontSize: 15 }}>{conViejos ? '☑️' : '⬜'}</Text>
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
+            🧰 Traer también los expedientes viejos del taller
+          </Text>
+        </TouchableOpacity>
+
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          <View style={{ flex: 1 }}>
+            {/* ⚠️ EL NÚMERO SOLO SE PROMETE CUANDO SE PUEDE CUMPLIR. Cada
+                expediente viejo del taller también sale como una hoja entera, y
+                cuántos hay no se sabe sin consultarlos. Poner «Exportar 1 hoja»
+                y entregar 4 páginas es EXACTAMENTE la sorpresa que este cambio
+                vino a quitar, así que con la casilla encendida se dice
+                «+ viejos» en vez de un total falso. */}
+            <Boton colors={colors} disabled={busy}
+              label={conViejos
+                ? `📄 Exportar ${visibles.length} servicio${visibles.length === 1 ? '' : 's'} + viejos`
+                : `📄 Exportar ${visibles.length} hoja${visibles.length === 1 ? '' : 's'}`}
+              onPress={exportar} />
+          </View>
           {canWrite ? (
             <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="➕ Registrar servicio" tone="brand" onPress={() => { limpiarForm(); setFormOpen(true); }} /></View>
           ) : null}
@@ -481,6 +580,20 @@ export default function ServicioRegistroTab(
             <Boton colors={colors} disabled={busy} label="⚙️ Tipos de intervención" onPress={abrirTipos} />
           </View>
         ) : null}
+        {/* Decir ANTES de tocar el botón qué va a salir. La queja del taller
+            fue recibir un PDF con más hojas de las que esperaba. */}
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
+          {(() => {
+            const n = visibles.length;
+            const cuantos = `${n} servicio${n === 1 ? '' : 's'}`;
+            const mas = conViejos
+              ? ', MÁS una hoja por cada expediente viejo del taller (apaga la casilla de arriba para dejarlos fuera)'
+              : '';
+            return !fDesde && !fHasta
+              ? `⚠️ Sin fechas: el PDF trae TODOS los ${cuantos} registrados${mas}. Toca «📅 Hoy» para sacar solo el día, o «📄 Solo esta hoja» en el servicio que quieras.`
+              : `El PDF trae ${cuantos} del filtro${mas}.`;
+          })()}
+        </Text>
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
           ℹ️ Este módulo lleva el registro del trabajo. No cambia el estado de las máquinas ni cierra averías —
           para eso, Control de Maquinaria o el panel QR del coordinador.
@@ -543,11 +656,19 @@ export default function ServicioRegistroTab(
               </ScrollView>
             ) : null}
 
-            {canWrite ? (
-              <TouchableOpacity onPress={() => borrar(o)} style={{ marginTop: spacing.sm, alignSelf: 'flex-start' }}>
-                <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>🗑 Borrar</Text>
+            {/* ⭐ UNA SOLA HOJA — la de ESTE servicio. Lo pidió el taller: el botón
+                de arriba saca todo lo del filtro; este saca exactamente lo que se
+                está mirando, sin ficha técnica y sin arrastrar nada más. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm }}>
+              <TouchableOpacity onPress={() => exportarUna(o)} disabled={busy} style={{ opacity: busy ? 0.5 : 1 }}>
+                <Text style={{ color: colors.brand, fontSize: 12, fontWeight: '800' }}>📄 Solo esta hoja</Text>
               </TouchableOpacity>
-            ) : null}
+              {canWrite ? (
+                <TouchableOpacity onPress={() => borrar(o)}>
+                  <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>🗑 Borrar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </Card>
         );
       })}

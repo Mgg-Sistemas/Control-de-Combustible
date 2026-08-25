@@ -375,6 +375,55 @@ export function buildMachineServiceReportHtml(opts: ReportOpts): string {
   });
 }
 
+/**
+ * UNA SOLA HOJA: el papel de ESA reparación y nada más.
+ *
+ * ⭐ POR QUÉ EXISTE (25-ago-2026, queja del taller). «Exportar PDF» saca todo lo
+ *    que haya en el filtro, y los filtros de fecha arrancan VACÍOS: quien
+ *    registraba un servicio de prueba recibía un PDF con ese, con el que ya
+ *    tenía montado y con los expedientes viejos del taller, todo junto. Lo que
+ *    pidieron fue poder sacar «nada más el del servicio».
+ *
+ * Sin ficha técnica a propósito: la hoja ya lleva la foto de la máquina, el
+ * equipo con su placa y el código de serial. La ficha sería una segunda página
+ * repitiendo lo mismo, y lo que se pidió fue UN documento, no dos páginas.
+ */
+export function buildServicioHojaHtml(opts: {
+  m: MaquinaFicha;
+  servicio: ServicioImprimible;
+  tiposIntervencion?: TipoParaCasilla[] | null;
+  tiposConocidos?: TipoParaCasilla[] | null;
+}): string {
+  const { m, servicio, tiposIntervencion, tiposConocidos } = opts;
+  return pdfDocument({
+    // ⚠️ «Hoja de servicio» y NO «Reporte de mantenimiento / reparación»: ese
+    //    nombre ya lo lleva la franja de la hoja, tres centímetros más abajo.
+    //    Puesto en los dos sitios salía repetido y encima partía el título en
+    //    dos líneas.
+    title: 'Hoja de servicio',
+    // ⚠️ `esc()` OBLIGATORIO: `pdfDocument` interpola el subtítulo CRUDO
+    //    (src/lib/pdf.ts), y acá adentro va el nombre/placa/serial de la
+    //    máquina, que un humano escribe en Control de Maquinaria. En web la
+    //    vista previa se pinta con `document.write` sobre un iframe DEL MISMO
+    //    ORIGEN, así que un `<script>` en el nombre de una máquina se ejecutaría
+    //    en el origen de la app. Y sin llegar a tanto: un `&` o un `<` sueltos
+    //    rompen el encabezado del papel que se firma.
+    subtitle: esc(`${machineLabel(m)} · ${dmy(servicio.service_date)}`),
+    body: servicioCardHtml(servicio, m, { tipos: tiposIntervencion, conocidos: tiposConocidos }),
+    extraCss: CSS,
+  });
+}
+
+/** Genera y exporta la hoja de UN servicio. @returns true si el usuario confirmó. */
+export async function generateServicioHojaPdf(
+  opts: Parameters<typeof buildServicioHojaHtml>[0]
+): Promise<boolean> {
+  // El nombre lleva máquina Y fecha: si no, dos hojas de la misma máquina se
+  // pisan en la carpeta de descargas y se pierde la primera.
+  const fecha = String(opts.servicio.service_date ?? '').slice(0, 10);
+  return exportPdf(buildServicioHojaHtml(opts), `Servicio - ${machineFileLabel(opts.m)}${fecha ? ` - ${fecha}` : ''}`);
+}
+
 /** Genera y exporta el PDF. @returns true si el usuario confirmó (imprimió/guardó). */
 export async function generateMachineServiceReport(opts: ReportOpts): Promise<boolean> {
   // El nombre del archivo lleva placa o serial: tres máquinas se llaman

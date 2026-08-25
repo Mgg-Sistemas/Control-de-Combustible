@@ -175,7 +175,13 @@ console.log('SERVICIO DE MAQUINARIA\n');
     if (id.includes('machineLabel')) return lblMod.exports;
     if (id.includes('machineService')) return mod.exports;
     if (id.includes('pdf')) return {
-      pdfDocument: (o) => `<html><title>${o.title}</title><style>${o.extraCss || ''}</style>${o.body}</html>`,
+      // ⚠️ EL SUBTÍTULO TIENE QUE ENTRAR AL HTML. Este doble lo descartaba, y por
+      //    eso «el texto del usuario va escapado» salía verde aunque el subtítulo
+      //    inyectara: nunca llegaba al HTML que la prueba revisa. El `pdfDocument`
+      //    de verdad (src/lib/pdf.ts) lo interpola CRUDO, así que el escapado es
+      //    responsabilidad de quien lo arma.
+      pdfDocument: (o) => `<html><title>${o.title}</title><style>${o.extraCss || ''}</style>`
+        + `<div class="doc-sub">${o.subtitle || ''}</div>${o.body}</html>`,
       exportPdf: async () => true,
     };
     throw new Error('import inesperado: ' + id);
@@ -183,7 +189,8 @@ console.log('SERVICIO DE MAQUINARIA\n');
   const repMod = { exports: {} };
   new Function('exports', 'module', 'require', transpilar('src/lib/machineServiceReport.ts'))(
     repMod.exports, repMod, fakeRequire);
-  const { buildMachineServiceReportHtml, servicioCardHtml, casillasIntervencionHtml } = repMod.exports;
+  const { buildMachineServiceReportHtml, buildServicioHojaHtml,
+          servicioCardHtml, casillasIntervencionHtml } = repMod.exports;
 
   const R053 = {
     code: 'RETROEXCAVADORA', identifier: '053', serial: '5YN02894',
@@ -460,6 +467,58 @@ console.log('SERVICIO DE MAQUINARIA\n');
   // (`reciboCobro.ts`), que es de otro módulo. Si alguien la toca, se entera acá.
   ok('⭐ la ficha técnica sigue intacta (la usa el recibo de mangueras)',
     /FICHA T[ÉE]CNICA DE MAQUINARIA/i.test(unaHtml) && /class="sv-photo"/.test(unaHtml));
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UNA SOLA HOJA (25-ago-2026)
+  //
+  // Queja del taller: «me los arroja los dos, el que ya monté y el que estoy
+  // haciendo de prueba». «Exportar PDF» saca TODO lo del filtro, y los filtros
+  // de fecha arrancan vacíos. Ahora cada servicio tiene su «📄 Solo esta hoja».
+  // ══════════════════════════════════════════════════════════════════════════
+  const sola = buildServicioHojaHtml({ m: R053, servicio: SRV, tiposIntervencion: CATALOGO });
+
+  ok('⭐ la hoja sola NO arrastra la ficha técnica (sería una página repitiendo lo mismo)',
+    !/FICHA T[ÉE]CNICA/i.test(sola));
+  ok('⭐ y es UNA sola hoja, no la lista entera',
+    (sola.match(/class="hoja"/g) || []).length === 1);
+  ok('⭐ una sola pareja de firmas', (sola.match(/Firma Supervisor/g) || []).length === 1);
+  ok('la hoja sola es la MISMA hoja de siempre (mismo formato)',
+    /REPORTE DE MANTENIMIENTO \/ REPARACI[ÓO]N/i.test(sola)
+    && /Descripci[óo]n del problema/i.test(sola) && /Repuestos utilizados/i.test(sola));
+  ok('el encabezado dice de qué máquina y de qué día es',
+    sola.includes('SLP214TSWE0471955') && sola.includes('18/08/2026'));
+  ok('lleva su foto, su serial y lo que se hizo',
+    sola.includes('https://x/foto.jpg') && sola.includes('5YN02894')
+    && sola.includes('Cambio de manguera y filtro'));
+  ok('las casillas salen igual que en el reporte grande',
+    (sola.match(/class="chk"/g) || []).length === 5
+    && (sola.match(/class="bx on"/g) || []).length === 2);
+  ok('⭐ la hoja sola tampoco habla de dinero',
+    !/costo|precio|monto|pagar/i.test(sola.replace(/<[^>]+>/g, ' ')));
+  ok('sin catálogo la hoja sola sigue saliendo con las cuatro casillas',
+    (buildServicioHojaHtml({ m: R053, servicio: SRV }).match(/class="chk"/g) || []).length === 4);
+  ok('una máquina a medio llenar no rompe la hoja sola',
+    typeof buildServicioHojaHtml({ m: { code: 'VOLTEO' }, servicio: SRV }) === 'string');
+  ok('el texto del usuario va escapado también en la hoja sola',
+    !buildServicioHojaHtml({ m: { code: '<script>x</script>' }, servicio: SRV }).includes('<script>x</script>'));
+  // ⚠️ EL ENCABEZADO, no solo el cuerpo. `pdfDocument` interpola el subtítulo
+  //    CRUDO, y en web la vista previa se pinta con `document.write` sobre un
+  //    iframe del MISMO ORIGEN: un `<script>` en el nombre de una máquina se
+  //    ejecutaría en el origen de la app. El nombre lo escribe un humano en
+  //    Control de Maquinaria.
+  const conVeneno = buildServicioHojaHtml({
+    m: { code: '"><img src=x onerror=alert(1)>', plate: 'P1' }, servicio: SRV,
+  });
+  ok('⭐ el SUBTÍTULO de la hoja sola va escapado, no solo el cuerpo',
+    /class="doc-sub"/.test(conVeneno) && !/<img src=x/.test(conVeneno));
+  ok('…y un & o un < sueltos no rompen el encabezado del papel',
+    !/<b>/.test(buildServicioHojaHtml({ m: { code: 'RETRO & CIA <b>', plate: 'P2' }, servicio: SRV })));
+  // Un tipo desactivado también tiene que salir acá, no solo en el reporte grande.
+  ok('un tipo desactivado sale marcado en la hoja sola',
+    /class="bx on">✓<\/span>Aire acondicionado/.test(buildServicioHojaHtml({
+      m: R053, servicio: { ...SRV, intervenciones: ['aire_acondicionado'] },
+      tiposIntervencion: CATALOGO, tiposConocidos: CONOCIDOS,
+    })));
 
 }
 
