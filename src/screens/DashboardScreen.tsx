@@ -155,23 +155,43 @@ export default function DashboardScreen({ navigation }: any) {
   const loadChart = useCallback(async (mode: 'dia' | 'mes' | 'anio') => {
     const [from, to] = rangeForMode(mode);
     const [rows, comps, machs] = await Promise.all([
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift', (q) => q.gte('round_date', from).lte('round_date', to)),
       supabase.from('companies').select('id, name').then((r) => r.data ?? []),
       selectAllRows('machinery', 'id, company_id'),
     ]);
     const cname = new Map<string, string>((comps as any[]).map((c) => [c.id, c.name]));
-    const mInfo = new Map<string, { cid: string | null }>();
-    (machs ?? []).forEach((m: any) => mInfo.set(m.id, { cid: m.company_id }));
-    // Una fila por (máquina, día) para no duplicar.
-    const byMD = new Map<string, any>();
-    (rows ?? []).forEach((b: any) => byMD.set(`${b.machinery_id}|${b.round_date}`, b));
+    const mInfo = new Map<string, string | null>();
+    (machs ?? []).forEach((m: any) => mInfo.set(m.id, m.company_id));
+    const nowMs = Date.now();
+    // Una fila por (máquina, día): acumula con Math.max y guarda el inicio de la jornada
+    // EN CURSO para sumar el tiempo transcurrido EN VIVO (igual que el Informe por jornada).
+    const byMD = new Map<string, { mid: string; date: string; d: number; n: number; s: number; o: number; js: number | null; jsh: string | null }>();
+    (rows ?? []).forEach((b: any) => {
+      const k = `${b.machinery_id}|${b.round_date}`;
+      const cur = byMD.get(k) ?? { mid: b.machinery_id, date: b.round_date, d: 0, n: 0, s: 0, o: 0, js: null, jsh: null };
+      cur.d = Math.max(cur.d, Number(b.day_hours ?? 0));
+      cur.n = Math.max(cur.n, Number(b.night_hours ?? 0));
+      cur.s = Math.max(cur.s, Number(b.hours_stopped ?? 0));
+      cur.o = Math.max(cur.o, Number(b.overtime_hours ?? 0));
+      if (b.jornada_start_at) { const ms = new Date(b.jornada_start_at).getTime(); if (isFinite(ms)) { cur.js = ms; cur.jsh = b.jornada_shift ?? null; } }
+      byMD.set(k, cur);
+    });
     const byCompany = new Map<string, number>();
-    byMD.forEach((b) => {
-      const info = mInfo.get(b.machinery_id);
-      if (!info) return;
-      const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+    byMD.forEach((r) => {
+      if (!mInfo.has(r.mid)) return;
+      // Jornada EN CURSO: sumar el tiempo transcurrido desde el inicio del turno (día 7am /
+      // noche 7pm, hora Caracas), tope 12h — así el total del día va EN VIVO y aparecen las
+      // empresas que están trabajando aunque aún no hayan finalizado la jornada.
+      let dd = r.d, nn = r.n;
+      if (r.js != null) {
+        const shiftStart = new Date(`${r.date}T${r.jsh === 'night' ? '19:00:00' : '07:00:00'}-04:00`).getTime();
+        const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
+        if (r.jsh === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
+      }
+      const w = workedFromShifts(dd, nn, r.s, r.o);
       if (w <= 0) return;
-      const key = info.cid ? cname.get(info.cid) ?? 'Empresa' : 'Sin empresa';
+      const cid = mInfo.get(r.mid);
+      const key = cid ? cname.get(cid) ?? 'Empresa' : 'Sin empresa';
       byCompany.set(key, (byCompany.get(key) ?? 0) + w);
     });
     const list = [...byCompany.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
@@ -200,7 +220,15 @@ export default function DashboardScreen({ navigation }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadCounts]);
 
-  useEffect(() => { setChart(null); loadChart(chartMode); }, [chartMode, loadChart]);
+  useEffect(() => {
+    setChart(null);
+    loadChart(chartMode);
+    // EN VIVO: en modo Día, refresca cada 60s para que las jornadas en curso vayan
+    // sumando su tiempo transcurrido sin tener que cambiar de pestaña.
+    if (chartMode !== 'dia') return;
+    const id = setInterval(() => loadChart('dia'), 60000);
+    return () => clearInterval(id);
+  }, [chartMode, loadChart]);
 
   const totalCurrent = tanks.reduce((s, t) => s + Number(t.current_l || 0), 0);
   // Umbral de "stock bajo" (20%): mismo valor que usa el módulo Combustible ▸ Tanques
