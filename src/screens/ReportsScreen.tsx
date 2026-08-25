@@ -999,10 +999,13 @@ export default function ReportsScreen({ route }: any) {
         .join('');
       const totalPagar = g.totalUSD + g.viajesUSD;
       const abonado = Number(g.abonado) || 0;
+      // Abonado MOSTRADO topado al total a pagar: si se pagó de más en la semana, el
+      // exceso no se muestra (queda para la otra semana) → Abonado y Total coinciden.
+      const abonadoShown = Math.min(abonado, totalPagar);
       const saldo = Math.max(0, totalPagar - abonado);
       // Si hay abonos en el rango, muestra Abonado y Saldo (sincronizado con Control de Pagos).
       const abonoRows = abonado > 0
-        ? `<tr><td style="text-align:right;font-weight:700;background:#EAF6EE;color:#15803D;padding:5px 8px">ABONADO ${esc(g.company)}</td><td style="text-align:right;font-weight:700;background:#EAF6EE;color:#15803D;padding:5px 8px">− ${usd(abonado)}</td></tr>
+        ? `<tr><td style="text-align:right;font-weight:700;background:#EAF6EE;color:#15803D;padding:5px 8px">ABONADO ${esc(g.company)}</td><td style="text-align:right;font-weight:700;background:#EAF6EE;color:#15803D;padding:5px 8px">− ${usd(abonadoShown)}</td></tr>
         <tr><td style="text-align:right;font-weight:800;background:#FBEEEE;color:#B91C1C;padding:6px 8px">SALDO POR PAGAR ${esc(g.company)}</td><td style="text-align:right;font-weight:800;background:#FBEEEE;color:#B91C1C;padding:6px 8px">${usd(saldo)}</td></tr>`
         : '';
       return `<table style="margin-top:-4px;margin-bottom:10px"><tbody>${groupRows}
@@ -1108,6 +1111,9 @@ export default function ReportsScreen({ route }: any) {
     const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
     // Abonos del rango (por empresa) y pendiente del corte = total $ − abonado.
     const grandAbonado = roundGroups.reduce((s, g) => s + (Number(g.abonado) || 0), 0);
+    // Abonado MOSTRADO topado al Total $: si se pagó de más, el exceso no se muestra
+    // (pasa a la otra semana) para que Total $ y Total abonado coincidan.
+    const grandAbonadoShown = Math.min(grandAbonado, grandUSD);
     const grandPendiente = Math.max(0, grandUSD - grandAbonado);
     // ── Reporte general (mismo bloque que el reporte de maquinaria): resumen de
     // equipos por CLASIFICACIÓN y por EMPRESA (horas × precio). No incluye fletes.
@@ -1156,7 +1162,7 @@ export default function ReportsScreen({ route }: any) {
       <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
         ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#F3F6FB')}
         ${resumenCard('Total $', usd(grandUSD), '#1E3A5F', '#EEF3FB')}
-        ${resumenCard('Total abonado', usd(grandAbonado), '#15803D', '#EAF6EE')}
+        ${resumenCard('Total abonado', usd(grandAbonadoShown), '#15803D', '#EAF6EE')}
         ${resumenCard('TOTAL PENDIENTE', usd(grandPendiente), '#B91C1C', '#FBEEEE')}
       </tr></tbody></table>`
       : `
@@ -3429,9 +3435,11 @@ export default function ReportsScreen({ route }: any) {
               const fact = roundGroups.reduce((s, g) => s + g.totalUSD + g.viajesUSD, 0);
               const abon = roundGroups.reduce((s, g) => s + (Number(g.abonado) || 0), 0);
               const saldo = Math.max(0, fact - abon);
+              // Abonado topado al facturado (el exceso pagado pasa a la otra semana).
+              const abonShown = Math.min(abon, fact);
               return abon > 0 ? (
                 <Text style={{ fontSize: 13, marginTop: 4, fontWeight: '800', color: colors.text }}>
-                  💰 Abonado <Text style={{ color: colors.success }}>{usd(abon)}</Text> · Saldo pendiente <Text style={{ color: colors.brandText }}>{usd(saldo)}</Text>
+                  💰 Abonado <Text style={{ color: colors.success }}>{usd(abonShown)}</Text> · Saldo pendiente <Text style={{ color: colors.brandText }}>{usd(saldo)}</Text>
                 </Text>
               ) : null;
             })()}
@@ -3605,12 +3613,13 @@ export default function ReportsScreen({ route }: any) {
                 {Number(g.abonado) > 0 ? (() => {
                   const totalPagar = g.totalUSD + g.viajesUSD;
                   const abonado = Number(g.abonado) || 0;
+                  const abonadoShown = Math.min(abonado, totalPagar); // exceso pagado pasa a la otra semana
                   const saldo = Math.max(0, totalPagar - abonado);
                   return (
                     <View style={{ marginTop: 2 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 3 }}>
                         <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12 }}>Abonado</Text>
-                        <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12 }}>− {usd(abonado)}</Text>
+                        <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12 }}>− {usd(abonadoShown)}</Text>
                       </View>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                         <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>SALDO POR PAGAR</Text>
