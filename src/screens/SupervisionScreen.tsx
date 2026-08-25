@@ -693,19 +693,20 @@ export default function SupervisionScreen({ navigation }: any) {
   // del GPS de la máquina (subsector o macro Este/Oeste) o de su referencia. Ordenado
   // A→Z por inspector; los sectores también A→Z. Independiente del filtro día/noche.
   const sectoresPorInspector = useMemo(() => {
-    const byInsp = new Map<string, { day: Set<string>; night: Set<string> }>();
+    const byInsp = new Map<string, { day: Map<string, number>; night: Map<string, number> }>();
     assigns.forEach((a) => {
       const insp = a.inspector_name || '—';
-      const g = byInsp.get(insp) ?? { day: new Set<string>(), night: new Set<string>() };
-      (a.shift === 'night' ? g.night : g.day).add(sectorTokenOf(a));
+      const g = byInsp.get(insp) ?? { day: new Map<string, number>(), night: new Map<string, number>() };
+      const bucket = a.shift === 'night' ? g.night : g.day;
+      const tk = sectorTokenOf(a);
+      bucket.set(tk, (bucket.get(tk) ?? 0) + 1); // cuenta máquinas asignadas por sector
       byInsp.set(insp, g);
     });
+    // "SECTOR (n)" con el número de máquinas asignadas en ese sector, A→Z.
+    const fmt = (m: Map<string, number>) =>
+      Array.from(m.entries()).sort((a, b) => cmpText(a[0], b[0])).map(([s, n]) => `${s} (${n})`);
     return Array.from(byInsp.entries())
-      .map(([inspector, g]) => ({
-        inspector,
-        day: Array.from(g.day).sort(cmpText),
-        night: Array.from(g.night).sort(cmpText),
-      }))
+      .map(([inspector, g]) => ({ inspector, day: fmt(g.day), night: fmt(g.night) }))
       .sort((a, b) => cmpText(a.inspector, b.inspector));
   }, [assigns]);
 
