@@ -8,7 +8,9 @@ import { useTable } from '../hooks/useTable';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { nextRtInstanceId } from '../hooks/useRealtime';
 import { TankLevel } from '../types/database';
-import { workedFromShifts } from './ControlMaquinariaScreen';
+// Fórmula CANÓNICA de horas del día (la misma que usa el Reporte del día por empresa y
+// el Informe por jornada): suma jornadas EN CURSO desde el inicio nominal del turno.
+import { horasTurnoDelDia } from '../lib/hours';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
@@ -165,7 +167,7 @@ export default function DashboardScreen({ navigation }: any) {
     const nowMs = Date.now();
     // Una fila por (máquina, día): acumula con Math.max y guarda el inicio de la jornada
     // EN CURSO para sumar el tiempo transcurrido EN VIVO (igual que el Informe por jornada).
-    const byMD = new Map<string, { mid: string; date: string; d: number; n: number; s: number; o: number; js: number | null; jsh: string | null }>();
+    const byMD = new Map<string, { mid: string; date: string; d: number; n: number; s: number; o: number; js: string | null; jsh: string | null }>();
     (rows ?? []).forEach((b: any) => {
       const k = `${b.machinery_id}|${b.round_date}`;
       const cur = byMD.get(k) ?? { mid: b.machinery_id, date: b.round_date, d: 0, n: 0, s: 0, o: 0, js: null, jsh: null };
@@ -173,22 +175,18 @@ export default function DashboardScreen({ navigation }: any) {
       cur.n = Math.max(cur.n, Number(b.night_hours ?? 0));
       cur.s = Math.max(cur.s, Number(b.hours_stopped ?? 0));
       cur.o = Math.max(cur.o, Number(b.overtime_hours ?? 0));
-      if (b.jornada_start_at) { const ms = new Date(b.jornada_start_at).getTime(); if (isFinite(ms)) { cur.js = ms; cur.jsh = b.jornada_shift ?? null; } }
+      if (b.jornada_start_at) { cur.js = b.jornada_start_at; cur.jsh = b.jornada_shift ?? null; }
       byMD.set(k, cur);
     });
     const byCompany = new Map<string, number>();
     byMD.forEach((r) => {
       if (!mInfo.has(r.mid)) return;
-      // Jornada EN CURSO: sumar el tiempo transcurrido desde el inicio del turno (día 7am /
-      // noche 7pm, hora Caracas), tope 12h — así el total del día va EN VIVO y aparecen las
-      // empresas que están trabajando aunque aún no hayan finalizado la jornada.
-      let dd = r.d, nn = r.n;
-      if (r.js != null) {
-        const shiftStart = new Date(`${r.date}T${r.jsh === 'night' ? '19:00:00' : '07:00:00'}-04:00`).getTime();
-        const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
-        if (r.jsh === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
-      }
-      const w = workedFromShifts(dd, nn, r.s, r.o);
+      // MISMA función que el Reporte del día por empresa / Informe por jornada: cuenta las
+      // jornadas EN CURSO desde el inicio nominal del turno (día 7am / noche 7pm), tope 12h.
+      const w = horasTurnoDelDia(
+        { day_hours: r.d, night_hours: r.n, hours_stopped: r.s, overtime_hours: r.o, jornada_start_at: r.js, jornada_shift: r.jsh },
+        r.date, nowMs,
+      ).trabajadas;
       if (w <= 0) return;
       const cid = mInfo.get(r.mid);
       const key = cid ? cname.get(cid) ?? 'Empresa' : 'Sin empresa';
