@@ -112,6 +112,10 @@ export const FLEET_HOURS_CUTOFF = '2026-07-05';
 // Patrones para los reportes de "camiones" y de "transporte de escombros" (por nombre/tipo/clasificación).
 const TRUCK_RE = /CAMION|CHUTO|VOLQUETA|VOLTEO|TORONTO|CISTERNA|PIPA/;
 const ESCOMBRO_RE = /VOLQUETA|VOLTEO|TORONTO|ESCOMBRO|BATEA/; // equipos de transporte de escombros (volteo)
+// Clave para UNIFICAR encargados que solo difieren en mayúsculas/acentos/espacios
+// (ej. "CARLOS NUÑES" y "Carlos Nuñes" → misma clave). Solo para comparar/deduplicar.
+const normEnc = (s: any): string =>
+  String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -2257,12 +2261,25 @@ export default function ReportsScreen({ route }: any) {
   }, [encByCompany, repCompanies]);
   // Encargados AGRUPADOS POR EMPRESA (como el reporte por día por empresa): cada empresa
   // en alcance con su cabecera y sus encargados debajo, en vez de una lista plana revuelta.
+  // Además UNIFICA los encargados repetidos que solo difieren en mayúsculas/acentos/espacios
+  // (ej. "CARLOS NUÑES" y "Carlos Nuñes" = uno solo). Cada chip agrupa todas sus variantes:
+  // al marcarlo se seleccionan/quitan TODAS, así el filtro (match por texto crudo) las toma.
   const encGroups = useMemo(() => {
     const cos = repCompanies.length ? repCompanies : Object.keys(encByCompany);
     return cos
       .filter((c) => (encByCompany[c] || []).length > 0)
       .sort((a, b) => cmpText(a, b))
-      .map((c) => ({ company: c, encs: [...(encByCompany[c] || [])].sort((a, b) => cmpText(a, b)) }));
+      .map((c) => {
+        const byKey = new Map<string, { key: string; display: string; variants: string[] }>();
+        (encByCompany[c] || []).forEach((raw) => {
+          const key = normEnc(raw);
+          const g = byKey.get(key);
+          if (g) g.variants.push(raw);
+          else byKey.set(key, { key, display: raw.toLocaleUpperCase('es-VE'), variants: [raw] });
+        });
+        const items = [...byKey.values()].sort((a, b) => cmpText(a.display, b.display));
+        return { company: c, items };
+      });
   }, [encByCompany, repCompanies]);
   // Si cambia la empresa marcada, quita los encargados seleccionados que ya no están en
   // el alcance (evita filtrar por un responsable que no pertenece a la empresa elegida).
@@ -2682,19 +2699,19 @@ export default function ReportsScreen({ route }: any) {
                 <View key={g.company} style={{ marginTop: spacing.sm }}>
                   {/* Cabecera de empresa (como el reporte por día por empresa) */}
                   <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, borderLeftWidth: 3, borderLeftColor: colors.brand, paddingHorizontal: spacing.sm, paddingVertical: 4, marginBottom: spacing.xs }}>
-                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '900' }} numberOfLines={1}>🏢 {g.company} · {g.encs.length}</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '900' }} numberOfLines={1}>🏢 {g.company} · {g.items.length}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                    {g.encs.map((e) => {
-                      const on = repEncargados.includes(e);
+                    {g.items.map((it) => {
+                      const on = it.variants.some((v) => repEncargados.includes(v));
                       return (
                         <TouchableOpacity
-                          key={`${g.company}:${e}`}
-                          onPress={() => setRepEncargados((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]))}
+                          key={`${g.company}:${it.key}`}
+                          onPress={() => setRepEncargados((prev) => (on ? prev.filter((x) => !it.variants.includes(x)) : [...prev, ...it.variants.filter((v) => !prev.includes(v))]))}
                           style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
                         >
                           <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
-                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>👤 {e}</Text>
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>👤 {it.display}</Text>
                         </TouchableOpacity>
                       );
                     })}
