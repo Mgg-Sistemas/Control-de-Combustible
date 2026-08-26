@@ -992,8 +992,12 @@ const ANTES = {
   ok('hay dos imágenes remotas en el reporte', imgs.length === 2, String(imgs.length));
   ok('⭐ TODAS llevan width y height (si no, la página no se puede maquetar sin bajarlas)',
     imgs.every((t) => /width="\d+"/.test(t) && /height="\d+"/.test(t)), imgs.join(' | '));
-  ok('⭐ TODAS se decodifican aparte del hilo que maqueta',
-    imgs.every((t) => /decoding="async"/.test(t)), imgs.join(' | '));
+  // 🚫 NUNCA MÁS `decoding="async"`. Se puso el 26-ago-2026 por rendimiento y
+  //    hubo que quitarlo EL MISMO DÍA: le da permiso al navegador para pintar
+  //    sin esperar la foto, y al imprimir salían recuadros negros (foto a medio
+  //    decodificar) y vacíos. El taller mandó el PDF con 4 hojas así.
+  ok('🚫 NINGUNA lleva decoding="async" (imprime recuadros negros y vacíos)',
+    imgs.every((t) => !/decoding=/.test(t)), imgs.join(' | '));
 
   // ── 16.c) El reporte no arrastra el histórico completo ───────────────────
   ok('⭐ las dos consultas del PDF van a la vez, no en serie',
