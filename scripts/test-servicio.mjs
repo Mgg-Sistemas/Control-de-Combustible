@@ -959,6 +959,75 @@ const ANTES = {
   ok('trae su bloque de verificación', /pg_policies|pg_indexes/.test(vivo));
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// 16) QUE LA VISTA PREVIA NO SE VUELVA A PONER LENTA (26-ago-2026)
+//     El taller reportó «la vista previa tarda muchísimo en cargar». Estas
+//     guardas cuidan los tres arreglos que lo destrabaron.
+// ══════════════════════════════════════════════════════════════════════════
+{
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ServicioRegistroTab.tsx'), 'utf8');
+  const rep = fs.readFileSync(path.join(ROOT, 'src/lib/machineServiceReport.ts'), 'utf8');
+  const pdf = fs.readFileSync(path.join(ROOT, 'src/lib/pdf.ts'), 'utf8');
+
+  // ── 16.a) La ventana se pinta ANTES de escribir el documento ─────────────
+  // Si `cdoc.write(html)` vuelve a quedar pegado al `appendChild(overlay)`, todo
+  // pasa en una sola tarea del hilo y la app se ve CONGELADA hasta el final.
+  const iWrite = pdf.indexOf('cdoc.write(html)');
+  ok('⭐ el documento se escribe dentro de una función diferida, no en línea',
+    /const escribirDocumento = \(\) => \{[\s\S]{0,400}cdoc\.write\(html\)/.test(pdf));
+  ok('⭐ y se difiere de verdad (requestAnimationFrame o setTimeout)',
+    /requestAnimationFrame[\s\S]{0,200}escribirDocumento|setTimeout\(escribirDocumento/.test(pdf));
+  ok('⭐ NO se escribe inmediatamente después de insertar el overlay',
+    !/d\.body\.appendChild\(overlay\);[\s\S]{0,200}cdoc\.write\(html\)/.test(pdf), 'volvió a ser síncrono');
+  ok('la ventana avisa que está preparando', /Preparando la vista previa/.test(pdf));
+  ok('si el usuario cierra mientras prepara, no se escribe nada',
+    /const escribirDocumento = \(\) => \{\s*\n\s*if \(closed\) return;/.test(pdf));
+  ok('el escritor diferido no puede tumbar la app', iWrite > 0 && /escribirDocumento = \(\) => \{[\s\S]{0,600}catch/.test(pdf));
+
+  // ── 16.b) Las fotos no frenan la maquetación ─────────────────────────────
+  // Se guardan a 1600px y se pintan a 104x78. Sin medidas, el navegador espera
+  // a descargarlas para saber cuánto ocupan y no puede armar la página.
+  const imgs = [...rep.matchAll(/<img class="(hoja-foto|sv-photo)"[^`]*/g)].map((m) => m[0]);
+  ok('hay dos imágenes remotas en el reporte', imgs.length === 2, String(imgs.length));
+  ok('⭐ TODAS llevan width y height (si no, la página no se puede maquetar sin bajarlas)',
+    imgs.every((t) => /width="\d+"/.test(t) && /height="\d+"/.test(t)), imgs.join(' | '));
+  ok('⭐ TODAS se decodifican aparte del hilo que maqueta',
+    imgs.every((t) => /decoding="async"/.test(t)), imgs.join(' | '));
+
+  // ── 16.c) El reporte no arrastra el histórico completo ───────────────────
+  ok('⭐ las dos consultas del PDF van a la vez, no en serie',
+    /await Promise\.all\(\[\s*\n\s*traerFichas\(ids\)/.test(scr));
+  ok('⭐ los expedientes viejos se acotan por fecha EN EL SERVIDOR',
+    /traerViejos[\s\S]{0,900}\.gte\('out_at'/.test(scr) && /traerViejos[\s\S]{0,900}\.lt\('out_at'/.test(scr));
+  ok('⭐ …y paginan (antes PostgREST los cortaba en 1000 en silencio)',
+    /const traerViejos[\s\S]{0,400}selectAllRows\('machinery_repairs'/.test(scr));
+  ok('⭐ el rango del servidor va ESTIRADO, para no perder filas por zona horaria',
+    /masDias\(fDesde, -1\)/.test(scr) && /masDias\(fHasta, 2\)/.test(scr));
+  // El filtro fino de la pantalla SIGUE mandando: es lo que garantiza que el
+  // resultado no cambió. Si alguien lo quita creyendo que ya sobra, el PDF
+  // empezaría a traer días de más.
+  ok('⭐ el filtro fino de la pantalla sigue existiendo y sigue aplicándose',
+    /const dentro = \(d\?: string \| null\)/.test(scr)
+    && /\.filter\(\(v: any\) => v\.machinery_id === id && dentro\(v\.out_at\)\)/.test(scr));
+  ok('ya no queda la consulta vieja sin filtrar',
+    !/\.from\('machinery_repairs'\)\s*\n?\s*\.select\([^)]*\)\s*\n?\s*\.eq\('tipo', 'correctivo'\)\s*\n?\s*\.in\('machinery_id', ids\)\s*\n?\s*:/.test(scr));
+
+  // `masDias` tiene que dar el día correcto, o el filtro del servidor recorta mal.
+  {
+    const m = scr.match(/const masDias = \(iso: string, n: number\) => \{[\s\S]*?\n  \};/);
+    ok('existe `masDias`', !!m);
+    if (m) {
+      const masDias = new Function('return ' + m[0].replace('const masDias = ', '').replace(/;$/, '')
+        .replace(/: string|: number/g, ''))();
+      ok('masDias(+1) cruza bien el fin de mes', masDias('2026-08-31', 1) === '2026-09-01', masDias('2026-08-31', 1));
+      ok('masDias(-1) cruza bien el inicio de mes', masDias('2026-09-01', -1) === '2026-08-31', masDias('2026-09-01', -1));
+      ok('masDias(+2) suma dos días', masDias('2026-08-26', 2) === '2026-08-28', masDias('2026-08-26', 2));
+      ok('masDias aguanta año bisiesto', masDias('2028-02-28', 1) === '2028-02-29', masDias('2028-02-28', 1));
+    }
+  }
+}
+
 if (fail) {
   console.log(`✗ ${fail} FALLO(S):\n` + failures.map((f) => `  · ${f}`).join('\n'));
   process.exit(1);

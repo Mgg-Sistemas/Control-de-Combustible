@@ -181,7 +181,11 @@ export type FichaOpts = {
  */
 export function fichaTecnicaHtml(m: MaquinaFicha, opts: FichaOpts = {}): string {
   const { corte = true, titulo = 'FICHA TÉCNICA DE MAQUINARIA' } = opts;
-  const foto = m.photo_url ? `<img class="sv-photo" src="${esc(m.photo_url)}"/>` : '';
+  // ⚠️ `width`/`height` Y `decoding="async"` NO SON ADORNO — ver la nota larga
+  //    en `servicioCardHtml`, que es donde de verdad duele.
+  const foto = m.photo_url
+    ? `<img class="sv-photo" src="${esc(m.photo_url)}" width="150" height="120" decoding="async" alt=""/>`
+    : '';
   const vacio = (k: string) => `<tr><td class="k">${k}</td><td>—</td></tr>`;
   return `<div${corte ? ' class="corte"' : ''}>
     <h3 class="sec">${esc(titulo)}</h3>
@@ -302,7 +306,28 @@ export function servicioCardHtml(
   // `limpio` y no la verdad cruda: un `photo_url` con solo espacios dejaba un
   // `<img src="   ">` roto, y ahora la foto va en CADA hoja — se repetiría N veces.
   const url = limpio(m?.photo_url);
-  const foto = url ? `<img class="hoja-foto" src="${esc(url)}" alt=""/>` : '';
+  /**
+   * ⭐ LA FOTO LLEVA MEDIDAS Y SE DECODIFICA APARTE (26-ago-2026).
+   *
+   * ⚠️ EL PORQUÉ. Las fotos se guardan a 1600 px de lado (`photo.ts:69`) y acá
+   *    se pintan a 104×78 (`.hoja-foto`, ver el CSS de arriba). Sin los
+   *    atributos `width`/`height`, el navegador NO sabe qué tamaño va a ocupar
+   *    la imagen hasta que la descarga y la decodifica, así que la maquetación
+   *    de TODAS las hojas se queda esperando — y la vista previa aparece vacía
+   *    o brincando. Con las medidas puestas, el hueco se reserva de una vez y
+   *    el documento se arma completo aunque las fotos todavía vengan en camino.
+   *
+   *    `decoding="async"` saca la decodificación del hilo que está maquetando.
+   *    Cada foto de 1600×1200 son 7,3 MB de mapa de bits en memoria; con 30
+   *    máquinas distintas eso es ~220 MB que antes se decodificaban en medio
+   *    del armado de la página.
+   *
+   *    Medido el 26-ago-2026, cuando el taller reportó que «la vista previa
+   *    tarda muchísimo en cargar».
+   */
+  const foto = url
+    ? `<img class="hoja-foto" src="${esc(url)}" width="104" height="78" decoding="async" alt=""/>`
+    : '';
   const modelo = [limpio(m?.marca), limpio(m?.modelo)].filter(Boolean).join(' ');
   const equipo = [machineLabel(m ?? null), modelo].filter(Boolean).join(' · ');
 
