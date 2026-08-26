@@ -1189,6 +1189,28 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > **La ficha técnica NO cambió** (sigue igual, con su foto y su Información general), porque la
 > comparte el **Recibo de cobro de mangueras**, que es de otro módulo.
 
+> **⚡ LA VISTA PREVIA YA NO SE QUEDA PENSANDO (26-ago-2026).** El taller avisó que al
+> tocar **📄 Exportar** la aplicación se quedaba trabada un buen rato, sin señal de vida,
+> antes de mostrar el documento. Ya no.
+>
+> - **La ventana de vista previa aparece de una vez**, diciendo **«Preparando la vista previa…»**
+>   mientras arma el documento. Antes el navegador armaba TODO el reporte antes de dibujar nada,
+>   así que no se veía ni la ventana: parecía que la aplicación se había colgado. **Y ahora se
+>   puede cancelar mientras prepara**, que antes tampoco se podía.
+> - **Las fotos ya no frenan el armado de las hojas.** Cada foto se guarda grande (1600 px) y en
+>   la hoja se ve chiquita; ahora el documento reserva su espacio y se termina de armar aunque las
+>   fotos vengan en camino.
+> - **El reporte pide menos datos.** Los **expedientes viejos del taller** ahora se piden a la
+>   base **ya recortados por las fechas del filtro** (antes se traía el histórico completo y se
+>   descartaba aquí), y las dos consultas del PDF salen **a la vez** en vez de una esperando a la
+>   otra.
+> - **De paso se arregló un error viejo:** si había más de **1.000** expedientes viejos, la
+>   consulta se cortaba ahí **en silencio** y el PDF salía incompleto sin avisar. Ahora los trae
+>   todos.
+>
+> **El documento que sale es EXACTAMENTE el mismo de antes.** No cambió ni una línea del
+> contenido: solo cuánto tarda en aparecer.
+
 > **✏️ EDITAR UN SERVICIO YA REGISTRADO (26-ago-2026).** En **🧾 Servicios**, cada servicio de la
 > lista tiene ahora un botón **"✏️ Editar"** (solo lo ve quien tenga **permiso de escritura** en el
 > módulo). Abre **el mismo formulario** con todo cargado —fecha, máquina, quién lo hizo, tipos de
