@@ -110,6 +110,7 @@ const TABLE_LABEL: Record<string, string> = {
   purchase_requests: 'Requisición', staff_pay_payments: 'Pago a personal', vehicles: 'Vehículo', fletes: 'Flete',
   machine_operators: 'Operador asignado a máquina', machine_inspectors: 'Inspector asignado a máquina',
   service_intervention_types: 'Tipo de intervención (taller)',
+  machinery_service_orders: 'Servicio de maquinaria', machinery_service_parts: 'Repuesto de un servicio',
 };
 const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
 
@@ -124,7 +125,7 @@ type ModuleDef = { key: string; label: string; icon: string; tables: string[] };
 //    faltaban 11 y por eso medio sistema salía como "Otro").
 const MODULES: ModuleDef[] = [
   { key: 'combustible', label: 'Combustible', icon: '⛽', tables: ['tanks', 'fuel_intakes', 'dispatches', 'transfers', 'authorizations', 'price_tariffs', 'company_price_tariffs', 'stock_movements'] },
-  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs', 'machine_guards', 'service_intervention_types'] },
+  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs', 'machine_guards', 'service_intervention_types', 'machinery_service_orders', 'machinery_service_parts'] },
   { key: 'viajes', label: 'Viajes de camiones', icon: '🚛', tables: ['camion_viajes'] },
   { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments', 'machine_operators', 'machine_inspectors', 'machine_inspections'] },
   { key: 'nomina', label: 'Nómina y personal', icon: '👷', tables: ['employees', 'payroll_companies', 'attendance', 'uniform_deliveries', 'staff_pay_payments', 'staff_pay_periods', 'payroll_periods', 'aliados'] },
