@@ -1123,6 +1123,34 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > se siguen editando en **🚜 Equipos / Control de Maquinaria**; lo único que cambió es que dejaron de
 > **imprimirse** en este PDF.
 
+> **📄 Sacar UNA SOLA hoja, o el día (25-ago-2026 — pedido del taller):** *«me arroja los PDF
+> pero me los arroja en conjunto: el que ya monté y el que estoy haciendo de prueba, los dos.
+> ¿No habrá cómo canalizar que salga nada más el del servicio, para hacerlo por día?»*
+>
+> Pasaba porque **«Desde» y «Hasta» arrancan vacíos**, y sin fechas el botón de exportar saca
+> **todo** lo que hay registrado de esa máquina — el de prueba, el de verdad y encima los
+> expedientes viejos del taller. Ahora hay tres maneras de acotarlo:
+>
+> - **📄 Solo esta hoja** — un botón **en cada servicio de la lista**. Saca **ese** y nada más, sin
+>   ficha técnica (la hoja ya lleva la foto, el equipo y el serial) y sin arrastrar ningún otro
+>   registro. Es lo que hay que usar para entregar el papel de UN trabajo. **Cabe en una página**
+>   mientras el servicio no lleve más de tres repuestos; con más, sigue en la segunda.
+> - **📅 Hoy · 📅 Ayer · ✕ Sin fecha** — atajos que ponen las dos fechas de un toque, para sacar
+>   **el día** completo. «✕ Sin fecha» las vacía y vuelve a traer todo.
+> - **🧰 Traer también los expedientes viejos del taller** — una casilla que se puede **apagar**.
+>   Viene encendida (es como funcionó siempre), pero si se apaga el PDF trae **solo** los servicios
+>   registrados en esta pestaña, sin los expedientes de `machinery_repairs` marcados como
+>   *«Registro anterior»*.
+>
+> Además, el botón ahora **dice cuánto va a sacar antes de tocarlo**: *«📄 Exportar 3 servicios»*, o
+> *«📄 Exportar 3 servicios + viejos»* con la casilla encendida.
+>
+> **Cuenta SERVICIOS, nunca páginas** — y es a propósito. El número de páginas no se puede prometer:
+> si el filtro deja **una sola máquina**, el PDF empieza con su **ficha técnica en página aparte**
+> (así que «3 servicios» son 4 páginas), y una hoja con muchos repuestos ocupa dos. Prometer un
+> número de páginas y entregar otro sería repetir la misma sorpresa. Debajo del botón, un aviso
+> explica qué va a salir, incluida la página de la ficha cuando toca.
+
 > **📋 El PDF ahora tiene la forma de la HOJA de papel (25-ago-2026):** el cliente mandó el
 > formato que llena el taller —**«REPORTE DE MANTENIMIENTO / REPARACIÓN — MAQUINARIA PESADA»**— y el
 > PDF se ajustó a él. **Cada reparación es una hoja completa**, no una tarjetita resumida como antes:
