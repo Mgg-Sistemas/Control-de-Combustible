@@ -429,7 +429,12 @@ export default function ServicioRegistroTab(
       //    «Equipo» salía con el separador repetido.
       const m0 = machById.get(o.machinery_id);
       if (!ficha) {
-        toast.error('No se pudieron leer los datos de la máquina: la hoja sale sin foto ni serial.');
+        // ⚠️ `confirm` y NO `toast`: la vista previa del PDF se monta encima con
+        //    z-index 99999 y tapa el toast justo cuando aparece (este archivo ya
+        //    documenta esa trampa dos veces). Un aviso que nadie ve es el mismo
+        //    silencio que se vino a quitar — y encima hay que poder NO generarla.
+        const igual = await confirm('No se pudieron leer los datos de la máquina. La hoja saldría sin foto, sin marca ni modelo y sin la empresa. ¿La generas igual?');
+        if (!igual) return;
       }
       await generateServicioHojaPdf({
         m: ficha ?? ({ code: m0?.code ?? '—', plate: m0?.plate ?? null, serial: m0?.serial ?? null, tipo: m0?.tipo ?? null } as MaquinaFicha),
@@ -559,16 +564,15 @@ export default function ServicioRegistroTab(
 
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
           <View style={{ flex: 1 }}>
-            {/* ⚠️ EL NÚMERO SOLO SE PROMETE CUANDO SE PUEDE CUMPLIR. Cada
-                expediente viejo del taller también sale como una hoja entera, y
-                cuántos hay no se sabe sin consultarlos. Poner «Exportar 1 hoja»
-                y entregar 4 páginas es EXACTAMENTE la sorpresa que este cambio
-                vino a quitar, así que con la casilla encendida se dice
-                «+ viejos» en vez de un total falso. */}
+            {/* ⚠️ SE CUENTAN SERVICIOS, NUNCA PÁGINAS NI «HOJAS».
+                Contado en PDFs de verdad: con UNA sola máquina el reporte
+                antepone su ficha técnica en página aparte, así que «3 hojas»
+                entregaba 4 páginas; y una hoja con muchos repuestos ocupa dos.
+                Prometer un número de páginas es imposible de cumplir, y era
+                EXACTAMENTE la sorpresa que este cambio vino a quitar. Se cuenta
+                lo único que sí se sabe: cuántos servicios van. */}
             <Boton colors={colors} disabled={busy}
-              label={conViejos
-                ? `📄 Exportar ${visibles.length} servicio${visibles.length === 1 ? '' : 's'} + viejos`
-                : `📄 Exportar ${visibles.length} hoja${visibles.length === 1 ? '' : 's'}`}
+              label={`📄 Exportar ${visibles.length} servicio${visibles.length === 1 ? '' : 's'}${conViejos ? ' + viejos' : ''}`}
               onPress={exportar} />
           </View>
           {canWrite ? (
@@ -585,13 +589,18 @@ export default function ServicioRegistroTab(
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
           {(() => {
             const n = visibles.length;
-            const cuantos = `${n} servicio${n === 1 ? '' : 's'}`;
+            const cuantos = n === 1 ? 'un servicio' : `${n} servicios`;
+            // «los que caigan en el rango» y no «uno por cada»: los viejos se
+            // filtran por las mismas fechas y los que no tienen fecha de salida
+            // se descartan, así que pueden ser cero.
             const mas = conViejos
-              ? ', MÁS una hoja por cada expediente viejo del taller (apaga la casilla de arriba para dejarlos fuera)'
+              ? ', más los expedientes viejos del taller que caigan en el rango (apaga la casilla para dejarlos fuera)'
               : '';
+            // La ficha técnica es una PÁGINA de más, y solo aparece con una máquina.
+            const ficha = fMaquina ? ' Empieza con la ficha técnica de la máquina, en su propia página.' : '';
             return !fDesde && !fHasta
-              ? `⚠️ Sin fechas: el PDF trae TODOS los ${cuantos} registrados${mas}. Toca «📅 Hoy» para sacar solo el día, o «📄 Solo esta hoja» en el servicio que quieras.`
-              : `El PDF trae ${cuantos} del filtro${mas}.`;
+              ? `⚠️ Sin fechas: van TODOS los servicios registrados (${n})${mas}.${ficha} Toca «📅 Hoy» para sacar solo el día, o «📄 Solo esta hoja» en el servicio que quieras.`
+              : `Van ${cuantos} del filtro${mas}.${ficha}`;
           })()}
         </Text>
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
