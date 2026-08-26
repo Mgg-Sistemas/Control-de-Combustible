@@ -430,8 +430,48 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
     overlay.onclick = (ev: any) => { if (ev.target === overlay) cleanup(); };
     d.addEventListener('keydown', onKey);
 
-    btnPrint.onclick = () => {
+    /**
+     * ⭐ NO SE IMPRIME HASTA QUE LAS FOTOS ESTÉN.
+     *
+     * ⚠️ EL PORQUÉ. Las fotos de las máquinas son URL remotas de Supabase
+     *    Storage: el documento se arma y se muestra enseguida, pero las
+     *    imágenes siguen bajando. Si `print()` sale en ese momento, el navegador
+     *    congela lo que hay EN ESE INSTANTE y las hojas salen con el recuadro
+     *    vacío —o negro, si la foto estaba a medio decodificar—. Lo reportó el
+     *    taller el 26-ago-2026 con un PDF de 11 servicios donde 4 hojas salieron
+     *    así. No era nuevo del todo: con conexión lenta ya podía pasar.
+     *
+     *    `complete === false` = todavía viene en camino. Una que ya llegó rota
+     *    tiene `complete === true`, así que NO se espera: nunca va a cargar y
+     *    dejaría el botón trancado para siempre.
+     *
+     * ⚠️ CON TOPE DE TIEMPO, Y NO ES OPCIONAL. Si una foto se queda pegada (red
+     *    caída, archivo borrado del bucket), el usuario TIENE que poder imprimir
+     *    igual. Vencido el plazo se imprime con lo que haya — que es exactamente
+     *    lo que pasaba antes, nunca peor.
+     */
+    const esperarFotos = async (limiteMs = 15000): Promise<void> => {
       try {
+        const cdoc: any = cw.document;
+        const pendientes: any[] = Array.from(cdoc.images ?? []).filter((im: any) => !im.complete);
+        if (!pendientes.length) return;
+        barTitle.textContent = `Cargando las fotos… (${pendientes.length})`;
+        await Promise.race([
+          Promise.all(pendientes.map((im: any) => new Promise<void>((res) => {
+            // `error` también resuelve: una foto rota no puede trancar el botón.
+            im.addEventListener('load', () => res(), { once: true });
+            im.addEventListener('error', () => res(), { once: true });
+          }))),
+          new Promise<void>((res) => { setTimeout(res, limiteMs); }),
+        ]);
+      } catch (e) { /* si no se pueden mirar las imágenes, se imprime igual */ }
+      if (!closed) barTitle.textContent = 'Vista previa del documento';
+    };
+
+    btnPrint.onclick = async () => {
+      try {
+        await esperarFotos();
+        if (closed) return; // cerró la ventana mientras cargaban las fotos
         cw.focus();
         cw.print();
         // El usuario mandó a imprimir/guardar: queda CONFIRMADO. Al cerrar la
