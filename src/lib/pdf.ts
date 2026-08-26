@@ -370,20 +370,52 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
     d.body.appendChild(overlay);
 
     const cw: any = iframe.contentWindow;
-    const cdoc: any = cw.document;
-    cdoc.open();
-    cdoc.write(html);
-    cdoc.close();
-
-    // El navegador usa el título del documento como nombre de archivo sugerido
-    // al "Guardar como PDF". Lo fijamos en el iframe.
-    if (fileName) { try { cdoc.title = fileName; } catch (e) {} }
 
     // Solo se considera CONFIRMADO si el usuario tocó "Imprimir" (guardar/imprimir).
     // Si cierra con "Cancelar", Escape o clic afuera, se resuelve `false` para que
     // quien llama NO ejecute efectos (p. ej. descontar del inventario).
     let printed = false;
     let closed = false;
+
+    /**
+     * ⭐ ESCRIBIR EL DOCUMENTO **DESPUÉS** DE QUE LA VENTANA SE HAYA PINTADO.
+     *
+     * ⚠️ EL PORQUÉ, QUE NO ES OBVIO. Antes esto era `cdoc.write(html)` pegado al
+     *    `appendChild(overlay)` de arriba, o sea TODO en la misma tarea del hilo
+     *    principal. El navegador no pinta a mitad de una tarea: primero terminaba
+     *    de parsear el documento entero y recién ahí dibujaba… las dos cosas
+     *    juntas. Con un reporte grande (300 servicios ≈ 580 KB de HTML y ~9.000
+     *    nodos, todos con `page-break-inside:avoid`) eso son varios segundos en
+     *    los que la aplicación se ve CONGELADA: ni la ventana de vista previa, ni
+     *    el botón atenuado, ni nada. El usuario del taller lo reportó como «la
+     *    vista previa tarda muchísimo en cargar» (26-ago-2026).
+     *
+     *    Cediendo el hilo, la ventana aparece de inmediato diciendo «Preparando…»
+     *    y el documento se arma después. El tiempo TOTAL es el mismo; lo que
+     *    cambia es que se ve lo que está pasando y se puede cancelar mientras
+     *    tanto. Eso es justo lo que se estaba perdiendo.
+     *
+     *    Se piden DOS cuadros seguidos a propósito: con uno, algunos navegadores
+     *    todavía no habían pintado el overlay recién insertado.
+     */
+    const escribirDocumento = () => {
+      if (closed) return; // cerró la ventana mientras se preparaba: no hay nada que escribir
+      try {
+        const cdoc: any = cw.document;
+        cdoc.open();
+        cdoc.write(html);
+        cdoc.close();
+        // El navegador usa el título del documento como nombre de archivo sugerido
+        // al "Guardar como PDF". Lo fijamos en el iframe.
+        if (fileName) { try { cdoc.title = fileName; } catch (e) {} }
+      } catch (e) { /* si el iframe ya no está, no hay nada que hacer */ }
+      if (!closed) barTitle.textContent = 'Vista previa del documento';
+    };
+
+    barTitle.textContent = 'Preparando la vista previa…';
+    const raf: any = (globalThis as any).requestAnimationFrame;
+    if (typeof raf === 'function') raf(() => raf(escribirDocumento));
+    else setTimeout(escribirDocumento, 0);
     const cleanup = () => {
       if (closed) return;
       closed = true;

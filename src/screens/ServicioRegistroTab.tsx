@@ -544,6 +544,44 @@ export default function ServicioRegistroTab(
    * La ficha de unas máquinas. La pantalla madre no carga foto, marca ni modelo,
    * así que se piden aparte — SOLO para las máquinas que hagan falta.
    */
+  /**
+   * Los expedientes VIEJOS del taller (`machinery_repairs`) que entran al PDF.
+   *
+   * ⚠️ EL RANGO DE FECHAS SE APLICA EN EL SERVIDOR, no solo en la pantalla.
+   *    Antes esta consulta se traía TODO el histórico correctivo de la flota
+   *    —una tabla que existe desde que arrancó el sistema— y recién después
+   *    `dentro()` descartaba lo que no entraba en el rango. Con los filtros
+   *    vacíos eso son miles de filas viajando para nada, y era una de las
+   *    razones de que la vista previa tardara tanto (26-ago-2026).
+   *
+   * ⚠️ Y AHORA PAGINA. Antes era un `.select()` pelado, así que PostgREST lo
+   *    cortaba en ~1000 filas EN SILENCIO: con más correctivos que eso, el PDF
+   *    salía incompleto y nadie se enteraba.
+   *
+   * ⚠️⚠️ EL RANGO DEL SERVIDOR VA ESTIRADO UN DÍA POR LADO, A PROPÓSITO.
+   *    `dentro()` compara `out_at.slice(0,10)`, o sea la fecha en UTC. Postgres,
+   *    en cambio, interpreta `'2026-08-20'` en la zona horaria de la sesión. Si
+   *    esa zona no es UTC (Caracas es UTC-4), las dos cuentas se corren hasta
+   *    cuatro horas y un `gte` exacto DEJARÍA FUERA reparaciones que la pantalla
+   *    sí cuenta — el PDF saldría con menos filas y nadie sabría por qué.
+   *    Estirando el rango, el servidor devuelve de más y `dentro()` hace el
+   *    corte fino: el resultado es EL MISMO de antes, byte por byte, pero sin
+   *    arrastrar el histórico completo. La prueba lo vigila.
+   */
+  const masDias = (iso: string, n: number) => {
+    const d = new Date(`${iso}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const traerViejos = async (ids: string[]): Promise<any[]> =>
+    selectAllRows('machinery_repairs', 'id, machinery_id, out_at, work_done', (q) => {
+      let x = q.eq('tipo', 'correctivo').in('machinery_id', ids);
+      if (fDesde) x = x.gte('out_at', masDias(fDesde, -1));
+      if (fHasta) x = x.lt('out_at', masDias(fHasta, 2));
+      return x;
+    }).catch(() => [] as any[]);
+
   const traerFichas = async (ids: string[]): Promise<Map<string, MaquinaFicha>> => {
     const { data } = await supabase
       .from('machinery')
@@ -609,18 +647,17 @@ export default function ServicioRegistroTab(
     try {
       const ids = Array.from(new Set(visibles.map((o) => o.machinery_id)));
 
-      const fichaById = await traerFichas(ids);
-
-      // Los expedientes viejos del taller entran al mismo PDF, marcados como
-      // tales: traen menos datos porque no los guardaban. Se pueden dejar fuera
-      // con el interruptor «🧰 Traer también los expedientes viejos».
-      const { data: viejos } = conViejos
-        ? await supabase
-          .from('machinery_repairs')
-          .select('id, machinery_id, out_at, work_done')
-          .eq('tipo', 'correctivo')
-          .in('machinery_id', ids)
-        : { data: [] as any[] };
+      // ⭐ LAS DOS CONSULTAS A LA VEZ, no una esperando a la otra. Son
+      //    independientes: la segunda no necesita nada de la primera. En serie
+      //    se pagaban dos viajes de red completos antes de empezar a armar el
+      //    PDF (26-ago-2026, «la vista previa tarda muchísimo»).
+      const [fichaById, viejos] = await Promise.all([
+        traerFichas(ids),
+        // Los expedientes viejos del taller entran al mismo PDF, marcados como
+        // tales: traen menos datos porque no los guardaban. Se pueden dejar fuera
+        // con el interruptor «🧰 Traer también los expedientes viejos».
+        conViejos ? traerViejos(ids) : Promise.resolve([] as any[]),
+      ]);
 
       const dentro = (d?: string | null) => {
         const s = String(d ?? '').slice(0, 10);
