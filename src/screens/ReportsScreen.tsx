@@ -868,7 +868,7 @@ export default function ReportsScreen({ route }: any) {
     // la flota". Paginado con selectAllRows: con >1000 máquinas se truncaba en 1000.
     const machAll = await selectAllRows(
       'machinery',
-      'id, code, tipo, clasificacion, serial, plate, encargado, active, en_espera, company:company_id(name)'
+      'id, code, tipo, clasificacion, serial, plate, encargado, active, operational, en_espera, company:company_id(name)'
     );
     // Reparto en los TRES bloques (avería real / parada / espera) con la función pura
     // `clasificarNoTrabajaron`: avería > parada > espera, turno por `paradaShiftOf`, y
@@ -876,10 +876,16 @@ export default function ReportsScreen({ route }: any) {
     // trabajaron) y las de inspector SIEMPRE ACTIVO (SOS LA GUAIRA, intocable).
     // Nota: entran también las INACTIVAS (pedido cliente 12-ago-2026: "todas las
     // máquinas, estén o no activas"), en 0 h y con su placa/serial.
+    // RETIRADAS (operational=false): SOLO aparecen en el Informe si TRABAJARON en el rango
+    // (entran por `workedIds` con sus horas/facturación, camino aparte). Si NO trabajaron se
+    // excluyen de los bloques 🔴 avería / 🟡 parada / ⏳ espera: una máquina retirada del
+    // servicio no debe figurar como averiada por un ticket viejo sin cerrar (pedido cliente).
+    // NO toca el cálculo de horas (totalH/dayH/nightH/totalUSD) — es solo aguas abajo.
+    const retiradaSet = new Set((machAll as any[]).filter((m) => m.operational === false).map((m) => m.id));
     const noTrabajaron = clasificarNoTrabajaron({
       tickets: mrPend as any[],
       espera: machAll as any[],
-      excluir: (mid) => siempreActivoSetRounds.has(mid) || workedIds.has(mid),
+      excluir: (mid) => siempreActivoSetRounds.has(mid) || workedIds.has(mid) || retiradaSet.has(mid),
     });
     // El alcance por empresa se aplica acá (todas las filas de una máquina traen la misma).
     const pushNoTrabajo = (items: RoundAveria[], bucket: 'averias' | 'paradas' | 'espera') => {
