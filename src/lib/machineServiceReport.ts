@@ -104,28 +104,35 @@ export const FICHA_CSS = `
 const CSS = FICHA_CSS + `
   /* ── LA HOJA ──────────────────────────────────────────────────────────────
      «page-break-inside:avoid» PIDE que no se parta entre dos páginas, y el motor
-     lo cumple MIENTRAS LA HOJA QUEPA en una. Una hoja vacía ya mide ~600px de los
-     ~905px útiles de una carta con márgenes de 2cm, así que en la práctica va UNA
-     HOJA POR PÁGINA —igual que el formulario de papel, que también es de una
-     página—. Con muchos repuestos la hoja se pasa de largo y el motor la parte
-     igual; por eso «.firmas» lleva además «page-break-before:avoid», para que las
-     dos rayas de firmar no terminen solas en una página en blanco.
-     ⚠️ Medido, no supuesto: una hoja mínima = ~600px. No escribas acá que «dos
-     hojas cortas caben juntas» — no caben. */
+     lo cumple MIENTRAS LA HOJA QUEPA en una. En la práctica va UNA HOJA POR
+     PÁGINA —igual que el formulario de papel, que también es de una página—.
+     Con muchos repuestos la hoja se pasa de largo y el motor la parte igual;
+     por eso «.firmas» lleva además «page-break-before:avoid», para que las dos
+     rayas de firmar no terminen solas en una página en blanco.
+
+     ⚠️ LAS MEDIDAS DE ACÁ ABAJO ESTÁN AJUSTADAS AL MILÍMETRO, NO LAS ENGORDES.
+     Contado en PDFs de verdad: una carta con «@page{margin:2cm}» deja ~905px, y
+     EL MEMBRETE (los dos logos, el título y la línea de empresa) se come ~190px
+     — quedan ~715px para la hoja. Con los valores originales una hoja con UN
+     SOLO REPUESTO ya medía ~790px y salía en DOS páginas. Cada punto que se le
+     sume a los «min-height» o a los márgenes de acá empuja la hoja fuera de su
+     página. Si tocas algo, vuelve a contar las páginas del PDF; no lo supongas. */
   .hoja{border:1px solid #D7E3F4;border-radius:10px;overflow:hidden;margin-bottom:16px;page-break-inside:avoid}
-  .hoja-band{background:#2F4257;color:#fff;text-align:center;padding:11px 10px}
+  .hoja-band{background:#2F4257;color:#fff;text-align:center;padding:8px 10px}
   .hb-t{font-size:16px;font-weight:800;letter-spacing:.4px;line-height:1.15}
   .hb-s{font-size:9.5px;color:#C3CEDC;letter-spacing:2.2px;margin-top:4px}
   .hoja-viejo{background:#FFFBEB;border-bottom:1px solid #FDE68A;color:#92400E;font-size:10px;font-weight:700;padding:5px 14px}
-  .hoja-datos{display:flex;gap:14px;align-items:flex-start;padding:11px 14px 2px}
+  .hoja-datos{display:flex;gap:14px;align-items:flex-start;padding:8px 14px 2px}
   .hoja-foto{width:104px;height:78px;object-fit:cover;border:2px solid #1E3A5F;border-radius:8px;background:#EEF2F7;flex:none}
   .campos{flex:1}
-  .campo{display:flex;gap:8px;border-bottom:1px solid #E8EDF3;padding:6px 2px;font-size:12px}
+  .campo{display:flex;gap:8px;border-bottom:1px solid #E8EDF3;padding:5px 2px;font-size:12px}
   .campo .k{font-weight:800;color:#1E3A5F;white-space:nowrap}
-  .campo .v{color:#333;flex:1}
+  /* Sin «overflow-wrap» un serial largo sin espacios se sale de la hoja y, como
+     «.hoja» recorta, NO LLEGA AL PAPEL — el mismo fallo que ya tenía «.caja». */
+  .campo .v{color:#333;flex:1;min-width:0;overflow-wrap:anywhere;word-break:break-word}
   /* La banda gris con el filito azul, igual que en la hoja de papel. */
-  .banda{background:#EEF2F7;border-left:4px solid #1E3A5F;color:#1E3A5F;font-size:11.5px;font-weight:800;letter-spacing:.5px;padding:6px 12px;margin:12px 14px 8px}
-  .chks{display:flex;flex-wrap:wrap;gap:7px 22px;padding:0 16px 2px;font-size:12px}
+  .banda{background:#EEF2F7;border-left:4px solid #1E3A5F;color:#1E3A5F;font-size:11.5px;font-weight:800;letter-spacing:.5px;padding:5px 12px;margin:8px 14px 5px}
+  .chks{display:flex;flex-wrap:wrap;gap:5px 22px;padding:0 16px 2px;font-size:12px}
   .chk{display:flex;gap:6px;align-items:flex-start;min-width:140px}
   /* La casilla se dibuja con un borde, no con el carácter ☐: no todas las
      fuentes de impresión lo traen y salía un cuadrito vacío o nada. */
@@ -135,11 +142,11 @@ const CSS = FICHA_CSS + `
      («overflow:hidden»), así que sin esto una referencia larga sin espacios
      —«REF3PZ112088HIDRAULICO…», una URL, un serial pegado— se sale del recuadro
      y NO LLEGA AL PAPEL. No se ve mal: desaparece. */
-  .caja{border:1px solid #D7E3F4;border-radius:8px;margin:0 14px;padding:9px 11px;min-height:50px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+  .caja{border:1px solid #D7E3F4;border-radius:8px;margin:0 14px;padding:7px 11px;min-height:38px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
   table.rep{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
   table.rep th{background:#1E3A5F;color:#fff;padding:4px 7px;text-align:left}
   table.rep td{border:1px solid #D7E3F4;padding:4px 7px;overflow-wrap:anywhere;word-break:break-word}
-  .firmas{display:flex;gap:56px;margin:30px 22px 16px;page-break-inside:avoid;page-break-before:avoid;break-before:avoid}
+  .firmas{display:flex;gap:56px;margin:20px 22px 10px;page-break-inside:avoid;page-break-before:avoid;break-before:avoid}
   .firmas div{flex:1;border-top:1px solid #333;padding-top:6px;text-align:center;font-size:11px;font-weight:700}
   .sin{border:1px dashed #D7E3F4;border-radius:8px;padding:12px;font-size:12px;color:#6B7280;margin-bottom:12px}
   .grupo{font-size:15px;font-weight:800;color:#1E3A5F;margin:14px 0 6px;border-bottom:2px solid #1E3A5F;page-break-after:avoid}
@@ -376,6 +383,21 @@ export function buildMachineServiceReportHtml(opts: ReportOpts): string {
 }
 
 /**
+ * ⚠️ SOLO PARA EL DOCUMENTO DE UNA HOJA: acá la hoja SÍ se puede partir.
+ *
+ * En el reporte grande «page-break-inside:avoid» evita que una hoja quede a
+ * caballo entre dos páginas, y está bien. Pero en un documento de UNA sola hoja
+ * esa misma regla se vuelve en contra: si la hoja no cabe debajo del membrete
+ * —que se come ~190px de los ~905px de la carta—, el motor la empuja ENTERA a
+ * la página 2 y deja la 1 con el membrete y nada más. Dejándola fluir, la hoja
+ * arranca en la página 1 y a la 2 pasa solo lo que sobre; y las firmas siguen
+ * pegadas a lo anterior por su propio «page-break-before:avoid».
+ */
+const HOJA_SUELTA_CSS = `
+  .hoja{page-break-inside:auto}
+`;
+
+/**
  * UNA SOLA HOJA: el papel de ESA reparación y nada más.
  *
  * ⭐ POR QUÉ EXISTE (25-ago-2026, queja del taller). «Exportar PDF» saca todo lo
@@ -410,7 +432,7 @@ export function buildServicioHojaHtml(opts: {
     //    rompen el encabezado del papel que se firma.
     subtitle: esc(`${machineLabel(m)} · ${dmy(servicio.service_date)}`),
     body: servicioCardHtml(servicio, m, { tipos: tiposIntervencion, conocidos: tiposConocidos }),
-    extraCss: CSS,
+    extraCss: CSS + HOJA_SUELTA_CSS,
   });
 }
 

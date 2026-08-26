@@ -513,6 +513,30 @@ console.log('SERVICIO DE MAQUINARIA\n');
     /class="doc-sub"/.test(conVeneno) && !/<img src=x/.test(conVeneno));
   ok('…y un & o un < sueltos no rompen el encabezado del papel',
     !/<b>/.test(buildServicioHojaHtml({ m: { code: 'RETRO & CIA <b>', plate: 'P2' }, servicio: SRV })));
+
+  // ── QUE QUEPA EN UNA PÁGINA ───────────────────────────────────────────────
+  // ⚠️ Contado en PDF de verdad: la carta deja ~905px y el MEMBRETE se come
+  //    ~190px. Con las medidas originales, una hoja con UN SOLO REPUESTO ya
+  //    medía ~790px y salía en DOS páginas — justo lo contrario de lo que el
+  //    manual prometía. Estas aserciones fijan los números ajustados: si alguien
+  //    los engorda, se entera acá antes de que el taller reciba dos hojas.
+  ok('⭐ los recuadros vacíos no pasan de 38px (si crecen, la hoja no cabe)',
+    /\.caja\{[^}]*min-height:38px/.test(sola));
+  ok('⭐ las firmas no separan más de 20px por arriba', /\.firmas\{[^}]*margin:20px/.test(sola));
+  ok('⭐ las bandas van apretadas', /\.banda\{[^}]*margin:8px 14px 5px/.test(sola));
+
+  // ⚠️ En un documento de UNA sola hoja, la hoja SÍ se puede partir. Si no, y no
+  //    cabe debajo del membrete, el motor la empuja ENTERA a la página 2 y deja
+  //    la 1 con el membrete y nada más.
+  ok('⭐ la hoja SOLA puede fluir a la página siguiente', /\.hoja\{page-break-inside:auto\}/.test(sola));
+  ok('⭐ …pero el reporte GRANDE sigue sin partir sus hojas',
+    !/\.hoja\{page-break-inside:auto\}/.test(unaHtml)
+    && /\.hoja\{[^}]*page-break-inside:avoid/.test(unaHtml));
+
+  // Los renglones de cabecera recortaban igual que los recuadros antes.
+  ok('⭐ un serial largo sin espacios no se sale de la cabecera',
+    /\.campo \.v\{[^}]*overflow-wrap:anywhere/.test(sola));
+
   // Un tipo desactivado también tiene que salir acá, no solo en el reporte grande.
   ok('un tipo desactivado sale marcado en la hoja sola',
     /class="bx on">✓<\/span>Aire acondicionado/.test(buildServicioHojaHtml({
