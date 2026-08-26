@@ -2,16 +2,17 @@
 -- COMPRAS DIRECTAS · EDITAR una compra ya cargada — 2026-08-24
 --
 -- Pedido del cliente: "permite editar la compra una vez cargada".
--- compras_directas.sql cargaba el inventario + la cuenta SOLO en INSERT. Aquí se
--- agrega el manejo de UPDATE: al editar renglones/precios/proveedor, la base:
---   1) REVIERTE las entradas anteriores de esa compra (borra sus inventory_movements;
---      el stock y el PMP se recalculan solos) y las vuelve a cargar con los datos nuevos;
---   2) RE-SINCRONIZA la cuenta por pagar (monto, proveedor, documento); si se quitó el
---      proveedor o el total quedó en 0, la anula.
+-- compras_directas.sql carga el inventario SOLO en INSERT. Aquí se agrega el manejo
+-- de UPDATE: al editar renglones/precios, la base REVIERTE las entradas anteriores
+-- de esa compra (borra sus inventory_movements; el stock y el PMP se recalculan
+-- solos) y las vuelve a cargar con los datos nuevos.
+--
+-- ACTUALIZADO 26-ago-2026: las compras directas YA NO generan cuenta por pagar
+-- (ver compras_directas_sin_cuenta.sql), así que la edición ya no toca `cuentas`.
 --
 -- SECURITY DEFINER (igual que direct_purchase_apply): el reflejo ocurre aunque el
--- usuario no tenga permiso directo de inventario/cuentas. No recursiona: sólo toca
--- inventory_movements y cuentas, no direct_purchases. Idempotente.
+-- usuario no tenga permiso directo de inventario. No recursiona: sólo toca
+-- inventory_movements, no direct_purchases. Idempotente.
 --
 -- OJO: si una entrada ya fue consumida (hay salidas de ese producto), revertirla
 -- puede dejar el stock corto; edita las compras antes de despachar su mercancía.
@@ -63,34 +64,7 @@ begin
     end loop;
   end if;
 
-  -- 3) re-sincronizar la CUENTA POR PAGAR
-  if new.supplier_id is not null and coalesce(new.total, 0) > 0 then
-    insert into public.cuentas (
-      tipo, supplier_id, company_id, direct_purchase_id,
-      concepto, documento, monto, moneda, fecha_emision, estado, nota, created_by
-    ) values (
-      'por_pagar', new.supplier_id, null, new.id,
-      'Compra directa ' || coalesce(new.code, ''),
-      coalesce(nullif(new.factura_name, ''), new.code),
-      new.total, 'USD', coalesce(new.created_at::date, current_date), 'pendiente',
-      'Generada automáticamente desde Compra Directa ' || coalesce(new.code, '') || '.',
-      new.created_by
-    )
-    on conflict (direct_purchase_id) where direct_purchase_id is not null
-    do update set
-      supplier_id = excluded.supplier_id,
-      documento   = excluded.documento,
-      concepto    = excluded.concepto,
-      monto       = excluded.monto,
-      estado      = case when cuentas.estado = 'pagada' then 'pagada' else 'pendiente' end,
-      updated_at  = now();
-  else
-    -- sin proveedor o total 0 → anular la cuenta si existía
-    update public.cuentas
-       set estado = 'anulada', updated_at = now()
-     where direct_purchase_id = new.id and estado <> 'anulada';
-  end if;
-
+  -- (Sin cuenta por pagar: editar una compra directa solo re-sincroniza inventario.)
   return new;
 end $$;
 

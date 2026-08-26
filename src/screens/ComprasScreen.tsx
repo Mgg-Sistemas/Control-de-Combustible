@@ -401,10 +401,10 @@ function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
 }
 
 // ── Compras directas ─────────────────────────────────────────────────────────
-// Compra YA hecha (con factura) que entra DIRECTO al inventario al crearla y genera
-// su cuenta por pagar (todo lo hace el trigger de la base, ver compras_directas.sql).
-// Reemplaza al viejo flujo de "Solicitudes de pedido" (pedir sin precio → aprobar
-// → orden): eso lo cubre la pestaña "Requerimiento".
+// Compra YA hecha (con factura) que entra DIRECTO al inventario al crearla (lo hace
+// el trigger de la base, ver compras_directas.sql). NO genera cuenta por pagar: solo
+// se carga la factura y pasa al inventario. Reemplaza al viejo flujo de "Solicitudes
+// de pedido" (pedir sin precio → aprobar → orden): eso lo cubre la pestaña "Requerimiento".
 function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
@@ -488,8 +488,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     resetForm();
     refetch();
     toast.success(editado
-      ? 'Compra directa actualizada: se re-sincronizó el inventario y la cuenta por pagar.'
-      : 'Compra directa registrada: los productos entraron al inventario y se generó la cuenta por pagar.');
+      ? 'Compra directa actualizada: se re-sincronizó el inventario.'
+      : 'Compra directa registrada: los productos entraron al inventario.');
   };
 
   const verFactura = (c: DirectPurchase) => {
@@ -509,7 +509,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
           </TouchableOpacity>
         ) : null}
       </View>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Compra ya hecha con su factura: al guardarla entra DIRECTO al inventario (entrada con su precio) y genera la cuenta por pagar al proveedor.</Text>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Compra ya hecha con su factura: al guardarla entra DIRECTO al inventario (entrada con su precio). No genera cuenta por pagar.</Text>
 
       {loading ? <Loading /> : compras.length === 0 ? (
         <EmptyState title="Sin compras directas" subtitle="Registra una compra directa: producto, precio y factura → entra al inventario." />
@@ -533,7 +533,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                     <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text>
                   ))}
                   {c.note ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {c.note}</Text> : null}
-                  <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>✓ Cargada al inventario · cuenta por pagar generada</Text>
+                  <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>✓ Cargada al inventario</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                     {c.factura_url ? (
                       <TouchableOpacity onPress={() => verFactura(c)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
@@ -559,7 +559,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
         <Screen>
           <ScrollView>
             <SectionTitle>{editingId ? 'Editar compra directa' : 'Nueva compra directa'}</SectionTitle>
-            {editingId ? <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Al guardar se re-sincroniza el inventario (se rehace la entrada con los nuevos precios/cantidades) y la cuenta por pagar.</Text> : null}
+            {editingId ? <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Al guardar se re-sincroniza el inventario (se rehace la entrada con los nuevos precios/cantidades).</Text> : null}
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa</Text>
               <CompanyPicker companies={generalCompanies(companies)} value={company} onChange={setCompany} colors={colors} />

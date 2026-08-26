@@ -4,12 +4,14 @@
 -- Pedido del cliente (23-ago-2026): "que Solicitudes se llame COMPRAS DIRECTAS.
 -- Nueva compra directa, con su código incremental, cargan el producto, el precio
 -- Y LA FACTURA, y al crearlas pasan DIRECTO al inventario. Al verlas se podrá ver
--- la factura cargada." + "que genere la cuenta por pagar al proveedor".
+-- la factura cargada."
+--
+-- ACTUALIZADO 26-ago-2026: las compras directas YA NO generan cuenta por pagar
+-- (ver compras_directas_sin_cuenta.sql). Solo cargan la factura y pasan al inventario.
 --
 -- Flujo: se crea UNA compra directa (varios renglones con precio + proveedor +
 -- factura adjunta). Al insertarla, la BASE (trigger, atómico):
---   1) carga cada renglón al INVENTARIO como ENTRADA (recalcula el PMP solo);
---   2) genera la CUENTA POR PAGAR al proveedor por el total.
+--   1) carga cada renglón al INVENTARIO como ENTRADA (recalcula el PMP solo).
 -- El código correlativo (CD-####) también lo asigna la base.
 --
 -- Patrón calcado de requerimientos_correlativo.sql + requerimiento_a_compras.sql
@@ -41,16 +43,11 @@ create index if not exists idx_direct_purchases_supplier on public.direct_purcha
 create index if not exists idx_direct_purchases_created  on public.direct_purchases(created_at);
 
 
--- ── 2) Enlaces de ORIGEN en inventario y cuentas ────────────────────────────
+-- ── 2) Enlace de ORIGEN en inventario ───────────────────────────────────────
 alter table public.inventory_movements
   add column if not exists direct_purchase_id uuid references public.direct_purchases(id) on delete set null;
 create index if not exists idx_inv_mov_direct on public.inventory_movements(direct_purchase_id);
-
-alter table public.cuentas
-  add column if not exists direct_purchase_id uuid references public.direct_purchases(id) on delete set null;
--- 1 sola cuenta por compra directa (permite muchas filas NULL: las cuentas normales).
-create unique index if not exists cuentas_direct_purchase_uniq
-  on public.cuentas(direct_purchase_id) where direct_purchase_id is not null;
+-- (Ya no se enlaza a `cuentas`: las compras directas no generan cuenta por pagar.)
 
 
 -- ── 3) Correlativo CD-#### (BEFORE INSERT) ──────────────────────────────────
@@ -76,11 +73,11 @@ create trigger trg_assign_direct_purchase_code
   for each row execute function public.assign_direct_purchase_code();
 
 
--- ── 4) AFTER INSERT: cargar INVENTARIO + generar CUENTA POR PAGAR ────────────
--- SECURITY DEFINER: el reflejo (stock + cuenta) se genera aunque el usuario no
--- tenga permiso directo de 'inventario' / 'cuentas'. SOLO en INSERT: una compra
--- directa es un hecho consumado (ya entró al inventario), no se reprocesa en
--- UPDATE — así no se duplican entradas ni recursiona el trigger.
+-- ── 4) AFTER INSERT: cargar INVENTARIO ──────────────────────────────────────
+-- SECURITY DEFINER: el reflejo (stock) se genera aunque el usuario no tenga
+-- permiso directo de 'inventario'. SOLO en INSERT: una compra directa es un hecho
+-- consumado (ya entró al inventario), no se reprocesa en UPDATE — así no se
+-- duplican entradas ni recursiona el trigger. (No genera cuenta por pagar.)
 create or replace function public.direct_purchase_apply()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
@@ -118,24 +115,7 @@ begin
        'COMPRA DIRECTA ' || coalesce(new.code, ''), new.created_by);
   end loop;
 
-  -- CUENTA POR PAGAR: solo con proveedor y monto (la constraint 'por_pagar' exige
-  -- supplier_id). Sin proveedor, la compra entra al inventario pero no genera deuda.
-  if new.supplier_id is not null and coalesce(new.total, 0) > 0 then
-    insert into public.cuentas (
-      tipo, supplier_id, company_id, direct_purchase_id,
-      concepto, documento, monto, moneda, fecha_emision, estado, nota, created_by
-    ) values (
-      'por_pagar', new.supplier_id, null, new.id,
-      'Compra directa ' || coalesce(new.code, ''),
-      coalesce(nullif(new.factura_name, ''), new.code),
-      new.total, 'USD', coalesce(new.created_at::date, current_date), 'pendiente',
-      'Generada automáticamente desde Compra Directa ' || coalesce(new.code, '') || '.',
-      new.created_by
-    )
-    on conflict (direct_purchase_id) where direct_purchase_id is not null
-    do nothing;
-  end if;
-
+  -- (Sin cuenta por pagar: una compra directa solo entra al inventario.)
   return new;
 end $$;
 
@@ -178,21 +158,16 @@ select 'direct_purchases' as obj,
 union all
 select 'inventory_movements.direct_purchase_id',
        exists (select 1 from information_schema.columns
-               where table_schema='public' and table_name='inventory_movements' and column_name='direct_purchase_id')
-union all
-select 'cuentas.direct_purchase_id',
-       exists (select 1 from information_schema.columns
-               where table_schema='public' and table_name='cuentas' and column_name='direct_purchase_id');
+               where table_schema='public' and table_name='inventory_movements' and column_name='direct_purchase_id');
 
 -- 7.2 · Triggers creados (deben aparecer los dos).
 select tgname from pg_trigger
 where tgrelid = 'public.direct_purchases'::regclass and not tgisinternal
 order by tgname;
 
--- 7.3 · Compras directas con su stock y cuenta generados (tras crear alguna).
+-- 7.3 · Compras directas con su stock generado (tras crear alguna).
 select d.code, s.name as proveedor, d.total,
-       (select count(*) from public.inventory_movements m where m.direct_purchase_id = d.id) as entradas,
-       (select c.estado from public.cuentas c where c.direct_purchase_id = d.id) as cuenta
+       (select count(*) from public.inventory_movements m where m.direct_purchase_id = d.id) as entradas
 from public.direct_purchases d
 left join public.suppliers s on s.id = d.supplier_id
 order by d.created_at desc;
