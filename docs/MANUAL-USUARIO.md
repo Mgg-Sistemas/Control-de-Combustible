@@ -1200,6 +1200,11 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > - **Las fotos ya no frenan el armado de las hojas.** Cada foto se guarda grande (1600 px) y en
 >   la hoja se ve chiquita; ahora el documento reserva su espacio y se termina de armar aunque las
 >   fotos vengan en camino.
+> - **🖨️ Imprimir espera a que las fotos estén.** Al tocar **Imprimir**, si alguna foto todavía
+>   viene bajando, la ventana dice **«Cargando las fotos…»** y espera. Antes se mandaba a imprimir
+>   de una y las hojas salían con el recuadro **vacío o negro**. Si una foto se queda pegada (se cayó
+>   la red, o el archivo ya no está), **a los 15 segundos imprime igual** con lo que haya: nunca te
+>   deja trancado.
 > - **El reporte pide menos datos.** Los **expedientes viejos del taller** ahora se piden a la
 >   base **ya recortados por las fechas del filtro** (antes se traía el histórico completo y se
 >   descartaba aquí), y las dos consultas del PDF salen **a la vez** en vez de una esperando a la

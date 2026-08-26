@@ -25,8 +25,21 @@ let pass = 0, fail = 0; const malas = [];
 const ok = (n, c, extra = '') => { if (c) pass++; else { fail++; malas.push(n + (extra ? ` → ${extra}` : '')); } };
 
 // ── Un DOM de mentira, lo mínimo que `previewHtmlWeb` toca ────────────────
-const hacerDom = () => {
-  const escrito = { html: null, abierto: 0, cerrado: 0, title: null };
+/**
+ * Una `<img>` de mentira, para probar la espera de las fotos.
+ * `complete:false` = todavía viene en camino. Se "completa" llamando a `llega()`.
+ */
+const fotoFalsa = (completa) => {
+  const oyentes = { load: [], error: [] };
+  return {
+    complete: completa,
+    addEventListener(ev, fn) { (oyentes[ev] ?? []).push(fn); },
+    llega(evento = 'load') { this.complete = true; oyentes[evento].forEach((f) => f()); },
+  };
+};
+
+const hacerDom = (imagenes = []) => {
+  const escrito = { html: null, abierto: 0, cerrado: 0, title: null, images: imagenes };
   const nuevoEl = (tag) => {
     const el = {
       tag, hijos: [], _style: '', textContent: '', onclick: null,
@@ -42,6 +55,7 @@ const hacerDom = () => {
           close() { escrito.cerrado++; },
           set title(v) { escrito.title = v; },
           get title() { return escrito.title; },
+          get images() { return escrito.images; },
         },
         focus() {}, print() { escrito.imprimio = true; },
       };
@@ -128,9 +142,9 @@ console.log('VISTA PREVIA DE IMPRESIÓN (pdf.ts)\n');
   restaurar();
 }
 
-// ── 3) Imprimir sigue funcionando ────────────────────────────────────────
-{
-  const dom = hacerDom(); const rafs = [];
+// ── 3) Imprimir sigue funcionando (con todas las fotos ya cargadas) ──────
+const bloque3 = async () => {
+  const dom = hacerDom([fotoFalsa(true), fotoFalsa(true)]); const rafs = [];
   const { mod, restaurar } = cargarPdf(dom, rafs);
   const p = mod.exports.exportPdf('<html>OK</html>', 'y.pdf');
   correrRafs(rafs);
@@ -139,17 +153,139 @@ console.log('VISTA PREVIA DE IMPRESIÓN (pdf.ts)\n');
   const btns = overlay.hijos[0].hijos[0].hijos[1];
   const btnCancel = btns.hijos[0], btnPrint = btns.hijos[1];
   ok('el botón dice Imprimir', /Imprimir/.test(btnPrint.textContent), btnPrint.textContent);
-  btnPrint.onclick();
+  await btnPrint.onclick();
   ok('⭐ imprimir llama a print() del iframe', dom.escrito.imprimio === true);
   ok('tras imprimir, Cancelar pasa a decir Cerrar', btnCancel.textContent === 'Cerrar', btnCancel.textContent);
   btnCancel.onclick();
-  p.then((r) => ok('⭐ imprimir resuelve true (los efectos SÍ se ejecutan)', r === true, String(r)));
+  const r = await p;
+  ok('⭐ imprimir resuelve true (los efectos SÍ se ejecutan)', r === true, String(r));
   restaurar();
-}
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// 3.b) ⭐ NO SE IMPRIME HASTA QUE LAS FOTOS ESTÉN (26-ago-2026)
+//      El taller mandó un PDF de 11 servicios con 4 hojas de recuadro negro o
+//      vacío: `print()` salía mientras las fotos todavía bajaban.
+// ══════════════════════════════════════════════════════════════════════════
+const bloque3b = async () => {
+  const enCamino = fotoFalsa(false);
+  const dom = hacerDom([fotoFalsa(true), enCamino]); const rafs = [];
+  const { mod, restaurar } = cargarPdf(dom, rafs);
+  mod.exports.exportPdf('<html>CON FOTOS</html>', 'z.pdf');
+  correrRafs(rafs);
+
+  const overlay = dom.body.hijos[0];
+  const bar = overlay.hijos[0].hijos[0];
+  const btnPrint = bar.hijos[1].hijos[1];
+
+  const clic = btnPrint.onclick();          // el usuario toca Imprimir
+  await new Promise((r) => setTimeout(r, 5));
+  ok('⭐ con una foto en camino, NO se imprime todavía',
+    dom.escrito.imprimio !== true, String(dom.escrito.imprimio));
+  ok('⭐ …y la ventana lo dice, en vez de quedarse muda',
+    /Cargando las fotos/.test(bar.hijos[0].textContent), bar.hijos[0].textContent);
+  ok('dice cuántas faltan', /\(1\)/.test(bar.hijos[0].textContent), bar.hijos[0].textContent);
+
+  enCamino.llega();                          // llega la foto
+  await clic;
+  ok('⭐ cuando llega la foto, SÍ se imprime', dom.escrito.imprimio === true);
+  ok('y el título vuelve a la normalidad',
+    bar.hijos[0].textContent === 'Vista previa del documento', bar.hijos[0].textContent);
+  restaurar();
+};
+
+// ── 3.c) Una foto ROTA no puede trancar el botón para siempre ────────────
+const bloque3c = async () => {
+  const rota = fotoFalsa(false);
+  const dom = hacerDom([rota]); const rafs = [];
+  const { mod, restaurar } = cargarPdf(dom, rafs);
+  mod.exports.exportPdf('<html>ROTA</html>', 'w.pdf');
+  correrRafs(rafs);
+  const btnPrint = dom.body.hijos[0].hijos[0].hijos[0].hijos[1].hijos[1];
+
+  const clic = btnPrint.onclick();
+  await new Promise((r) => setTimeout(r, 5));
+  ok('con la foto rota todavía sin resolver, espera', dom.escrito.imprimio !== true);
+  rota.llega('error');                       // el navegador avisa que falló
+  await clic;
+  ok('⭐ una foto que falla NO tranca el botón: igual se imprime',
+    dom.escrito.imprimio === true, String(dom.escrito.imprimio));
+  restaurar();
+};
+
+// ── 3.d) Una foto ya rota (complete=true, nunca cargó) no se espera ──────
+const bloque3d = async () => {
+  // `complete` en true = el navegador ya terminó con ella, cargara o no.
+  const dom = hacerDom([fotoFalsa(true)]); const rafs = [];
+  const { mod, restaurar } = cargarPdf(dom, rafs);
+  mod.exports.exportPdf('<html>YA</html>', 'v.pdf');
+  correrRafs(rafs);
+  const btnPrint = dom.body.hijos[0].hijos[0].hijos[0].hijos[1].hijos[1];
+  await btnPrint.onclick();
+  ok('⭐ si ninguna está pendiente, imprime de una vez', dom.escrito.imprimio === true);
+  restaurar();
+};
+
+// ── 3.e) Cerrar mientras cargan las fotos no manda a imprimir ────────────
+const bloque3e = async () => {
+  const enCamino = fotoFalsa(false);
+  const dom = hacerDom([enCamino]); const rafs = [];
+  const { mod, restaurar } = cargarPdf(dom, rafs);
+  const p = mod.exports.exportPdf('<html>CIERRA</html>', 'u.pdf');
+  correrRafs(rafs);
+  const btns = dom.body.hijos[0].hijos[0].hijos[0].hijos[1];
+  const btnCancel = btns.hijos[0], btnPrint = btns.hijos[1];
+
+  const clic = btnPrint.onclick();
+  await new Promise((r) => setTimeout(r, 5));
+  btnCancel.onclick();                       // cierra mientras carga
+  enCamino.llega();
+  await clic;
+  ok('⭐ si cerró mientras cargaban, NO se manda a imprimir',
+    dom.escrito.imprimio !== true, String(dom.escrito.imprimio));
+  const r = await p;
+  ok('…y se resuelve false (los efectos NO se ejecutan)', r === false, String(r));
+  restaurar();
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// 3.f) ⭐ UNA FOTO PEGADA NO PUEDE TRANCAR EL BOTÓN PARA SIEMPRE
+//      Foto que nunca llega y nunca falla (red caída, archivo borrado del
+//      bucket): vencido el tope de tiempo se imprime con lo que haya.
+//      El reloj se comprime para no tener que esperar los 15 s de verdad.
+// ══════════════════════════════════════════════════════════════════════════
+const bloque3f = async () => {
+  const pegada = fotoFalsa(false);           // no llega jamás
+  const dom = hacerDom([pegada]); const rafs = [];
+
+  const realST = globalThis.setTimeout;
+  let huboEspera = 0;
+  // Cualquier plazo largo (el tope de `esperarFotos`) se dispara enseguida.
+  globalThis.setTimeout = (fn, ms, ...r) => {
+    if (ms >= 1000) { huboEspera = ms; return realST(fn, 1, ...r); }
+    return realST(fn, ms, ...r);
+  };
+
+  const { mod, restaurar } = cargarPdf(dom, rafs);
+  mod.exports.exportPdf('<html>PEGADA</html>', 't.pdf');
+  correrRafs(rafs);
+  const btnPrint = dom.body.hijos[0].hijos[0].hijos[0].hijos[1].hijos[1];
+
+  await btnPrint.onclick();
+  ok('⭐ con una foto pegada, el tope de tiempo deja imprimir igual',
+    dom.escrito.imprimio === true, String(dom.escrito.imprimio));
+  ok('⭐ y el tope existe de verdad (no es una espera infinita)',
+    huboEspera >= 1000, `plazo=${huboEspera}`);
+  ok('el tope es razonable: ni eterno ni tan corto que no sirva',
+    huboEspera >= 5000 && huboEspera <= 60000, `plazo=${huboEspera}`);
+
+  globalThis.setTimeout = realST;
+  restaurar();
+};
 
 // ── 4) Sin requestAnimationFrame (algún navegador viejo) igual escribe ────
-{
-  const dom = hacerDom(); const rafs = [];
+const bloque4 = async () => {
+  const dom = hacerDom();
   const g = globalThis;
   const viejoDoc = g.document, viejoRaf = g.requestAnimationFrame;
   g.document = dom.doc; g.requestAnimationFrame = undefined;
@@ -160,18 +296,42 @@ console.log('VISTA PREVIA DE IMPRESIÓN (pdf.ts)\n');
     if (id.includes('react-native')) return { Platform: { OS: 'web' } };
     return {};
   });
-  mod.exports.exportPdf('<html>SIN RAF</html>', 'z.pdf');
+  mod.exports.exportPdf('<html>SIN RAF</html>', 'sinraf.pdf');
   ok('sin requestAnimationFrame tampoco escribe de inmediato', dom.escrito.html === null);
-  setTimeout(() => {
-    ok('⭐ …pero el respaldo con setTimeout sí escribe', dom.escrito.html === '<html>SIN RAF</html>', String(dom.escrito.html));
-    g.document = viejoDoc; g.requestAnimationFrame = viejoRaf;
-    cerrar();
-  }, 5);
+  await new Promise((r) => setTimeout(r, 5));
+  ok('⭐ …pero el respaldo con setTimeout sí escribe',
+    dom.escrito.html === '<html>SIN RAF</html>', String(dom.escrito.html));
+  g.document = viejoDoc; g.requestAnimationFrame = viejoRaf;
+};
+
+// ── 5) 🚫 Que nadie vuelva a poner `decoding="async"` en el reporte ──────
+// Se puso el 26-ago-2026 por rendimiento y hubo que quitarlo el mismo día:
+// permite pintar sin esperar la foto, y al imprimir salían recuadros negros.
+{
+  const rep = fs.readFileSync(path.join(ROOT, 'src/lib/machineServiceReport.ts'), 'utf8');
+  // Solo las etiquetas `<img>` de verdad: el comentario que explica por qué NO
+  // hay que ponerlo tiene que poder nombrarlo sin que la prueba se dispare.
+  const etiquetas = rep.match(/<img[^>]*>/g) ?? [];
+  ok('hay imágenes en el reporte que vigilar', etiquetas.length >= 2, String(etiquetas.length));
+  ok('🚫 NINGUNA etiqueta <img> usa decoding="async"',
+    etiquetas.every((t) => !/decoding=/.test(t)),
+    etiquetas.filter((t) => /decoding=/.test(t)).join(' | '));
+  ok('el aviso de por qué no volver a ponerlo sigue escrito',
+    /NO VOLVER A PONERLO/.test(rep));
 }
 
-const cerrar = () => {
-  setTimeout(() => {
-    if (fail) { console.log(`✗ ${fail} FALLO(S):\n` + malas.map((m) => '  · ' + m).join('\n')); process.exit(1); }
-    console.log(`${pass} OK · 0 FALLO(S)\nLa ventana se pinta primero y el documento se escribe después.`);
-  }, 5);
-};
+// Las pruebas asíncronas van EN ORDEN: comparten `globalThis.document`, así que
+// dos a la vez se pisarían el DOM la una a la otra.
+await bloque3();
+await bloque3b();
+await bloque3c();
+await bloque3d();
+await bloque3e();
+await bloque3f();
+await bloque4();
+
+if (fail) {
+  console.log(`✗ ${fail} FALLO(S):\n` + malas.map((m) => '  · ' + m).join('\n'));
+  process.exit(1);
+}
+console.log(`${pass} OK · 0 FALLO(S)\nLa ventana se pinta primero, el documento se escribe después, y no se imprime sin las fotos.`);
