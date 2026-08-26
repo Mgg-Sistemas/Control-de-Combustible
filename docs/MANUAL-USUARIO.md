@@ -1950,11 +1950,12 @@ escritura en Compras (o Inventario).
 > quieres cargar de una vez, sin pasar por aprobación. En **Compras → "🛒 Compras directas"** toca
 > **"+ Nueva"**, elige la **EMPRESA** y el **PROVEEDOR**, agrega los renglones (**producto · cantidad ·
 > PRECIO**), **adjunta la FACTURA** (imagen o PDF) y toca **"Registrar compra directa"**. Al guardarla:
-> **(1)** cada renglón **entra al inventario** con su precio (recalcula el costo promedio), **(2)** se
-> genera la **cuenta por pagar** al proveedor, y **(3)** le queda su **código correlativo** (CD-0001,
-> CD-0002…). En la lista, cada compra trae **"📎 Ver factura"** para revisar la factura cargada. A
-> diferencia del Requerimiento (que se pide y el jefe aprueba antes de comprar), la compra directa es
-> **inmediata**. *(Requiere correr una vez `supabase/compras_directas.sql`.)*
+> **(1)** cada renglón **entra al inventario** con su precio (recalcula el costo promedio) y **(2)** le
+> queda su **código correlativo** (CD-0001, CD-0002…). **NO genera cuenta por pagar:** solo carga la
+> factura y pasa al inventario. En la lista, cada compra trae **"📎 Ver factura"** para revisar la
+> factura cargada. A diferencia del Requerimiento (que se pide y el jefe aprueba antes de comprar), la
+> compra directa es **inmediata**. *(Requiere correr una vez `supabase/compras_directas.sql` y
+> `supabase/compras_directas_sin_cuenta.sql`.)*
 
 > **Cambiar estado a mano (04/08/2026):** quien tenga **todos los permisos de Inventario** (o sea
 > administrador) puede tocar el mismo **badge de estado** (arriba a la derecha de cada
