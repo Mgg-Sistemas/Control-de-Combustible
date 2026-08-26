@@ -1189,6 +1189,34 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > **La ficha técnica NO cambió** (sigue igual, con su foto y su Información general), porque la
 > comparte el **Recibo de cobro de mangueras**, que es de otro módulo.
 
+> **✏️ EDITAR UN SERVICIO YA REGISTRADO (26-ago-2026).** En **🧾 Servicios**, cada servicio de la
+> lista tiene ahora un botón **"✏️ Editar"** (solo lo ve quien tenga **permiso de escritura** en el
+> módulo). Abre **el mismo formulario** con todo cargado —fecha, máquina, quién lo hizo, tipos de
+> intervención, problema, acciones, fotos y repuestos— y se guarda con **"💾 Guardar cambios"**.
+>
+> **Y queda constancia de quién lo tocó.** Debajo del servicio aparece la línea
+> **"✏️ Última edición: Fulano · 26/08/2026 3:15 p.m."**, y al lado de los botones sale
+> **"🕓 Ver cambios"**, que abre la lista completa de ediciones: **quién**, **cuándo** y **qué campo
+> cambió**, con el valor de antes en rojo y el de después en verde. La bitácora **solo se agrega**:
+> ni el que editó ni nadie más la puede modificar ni borrar.
+>
+> - **Los servicios que nunca se han editado no muestran ninguna de esas dos cosas.** Si no ves la
+>   línea de "Última edición", es que ese registro está tal cual se guardó.
+> - **"Ver cambios" lo puede abrir cualquiera** que entre a la pestaña, tenga o no permiso de
+>   escribir: saber quién cambió un registro es justo lo que necesita el que solo mira.
+> - **Si no cambiaste nada y le das a guardar, no se anota nada.** El sistema te avisa
+>   ("no cambiaste nada") en vez de llenar la bitácora de ediciones vacías.
+> - **Editar NO le cambia el dueño al registro.** Quien lo **registró** sigue siendo el mismo para
+>   siempre; lo que se guarda aparte es quién lo **editó**.
+> - **Editar sigue sin tocar la máquina ni la avería**, igual que registrar. La frontera del módulo
+>   no se movió.
+> - **⚠️ Hay que correr UNA SOLA VEZ** el archivo `supabase/servicio_editar.sql` en
+>   **Supabase → SQL Editor**. Mientras nadie lo corra, **editar funciona igual y el servicio se
+>   guarda bien**, pero **no queda el rastro** — y la pantalla te lo dice con todas sus letras,
+>   nombrando el archivo, en vez de fingir que lo guardó.
+> - Los administradores con permiso de **Auditoría** ven además estas ediciones —y los **borrados**,
+>   que la bitácora del módulo no puede registrar— en la pantalla de **🕵️ Auditoría** de siempre.
+
 > **⚙️ Tipos de intervención administrables (20-ago-2026):** en **🧾 Servicios**, los tipos de la
 > parte **«2. TIPO DE INTERVENCIÓN»** ya **no están fijos en el programa**. Quien tenga **permiso de
 > escritura** ve el botón **"⚙️ Tipos de intervención"** (y el atajo **"⚙️ Administrar los tipos…"**
