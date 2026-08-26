@@ -370,20 +370,52 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
     d.body.appendChild(overlay);
 
     const cw: any = iframe.contentWindow;
-    const cdoc: any = cw.document;
-    cdoc.open();
-    cdoc.write(html);
-    cdoc.close();
-
-    // El navegador usa el título del documento como nombre de archivo sugerido
-    // al "Guardar como PDF". Lo fijamos en el iframe.
-    if (fileName) { try { cdoc.title = fileName; } catch (e) {} }
 
     // Solo se considera CONFIRMADO si el usuario tocó "Imprimir" (guardar/imprimir).
     // Si cierra con "Cancelar", Escape o clic afuera, se resuelve `false` para que
     // quien llama NO ejecute efectos (p. ej. descontar del inventario).
     let printed = false;
     let closed = false;
+
+    /**
+     * ⭐ ESCRIBIR EL DOCUMENTO **DESPUÉS** DE QUE LA VENTANA SE HAYA PINTADO.
+     *
+     * ⚠️ EL PORQUÉ, QUE NO ES OBVIO. Antes esto era `cdoc.write(html)` pegado al
+     *    `appendChild(overlay)` de arriba, o sea TODO en la misma tarea del hilo
+     *    principal. El navegador no pinta a mitad de una tarea: primero terminaba
+     *    de parsear el documento entero y recién ahí dibujaba… las dos cosas
+     *    juntas. Con un reporte grande (300 servicios ≈ 580 KB de HTML y ~9.000
+     *    nodos, todos con `page-break-inside:avoid`) eso son varios segundos en
+     *    los que la aplicación se ve CONGELADA: ni la ventana de vista previa, ni
+     *    el botón atenuado, ni nada. El usuario del taller lo reportó como «la
+     *    vista previa tarda muchísimo en cargar» (26-ago-2026).
+     *
+     *    Cediendo el hilo, la ventana aparece de inmediato diciendo «Preparando…»
+     *    y el documento se arma después. El tiempo TOTAL es el mismo; lo que
+     *    cambia es que se ve lo que está pasando y se puede cancelar mientras
+     *    tanto. Eso es justo lo que se estaba perdiendo.
+     *
+     *    Se piden DOS cuadros seguidos a propósito: con uno, algunos navegadores
+     *    todavía no habían pintado el overlay recién insertado.
+     */
+    const escribirDocumento = () => {
+      if (closed) return; // cerró la ventana mientras se preparaba: no hay nada que escribir
+      try {
+        const cdoc: any = cw.document;
+        cdoc.open();
+        cdoc.write(html);
+        cdoc.close();
+        // El navegador usa el título del documento como nombre de archivo sugerido
+        // al "Guardar como PDF". Lo fijamos en el iframe.
+        if (fileName) { try { cdoc.title = fileName; } catch (e) {} }
+      } catch (e) { /* si el iframe ya no está, no hay nada que hacer */ }
+      if (!closed) barTitle.textContent = 'Vista previa del documento';
+    };
+
+    barTitle.textContent = 'Preparando la vista previa…';
+    const raf: any = (globalThis as any).requestAnimationFrame;
+    if (typeof raf === 'function') raf(() => raf(escribirDocumento));
+    else setTimeout(escribirDocumento, 0);
     const cleanup = () => {
       if (closed) return;
       closed = true;
@@ -398,8 +430,48 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
     overlay.onclick = (ev: any) => { if (ev.target === overlay) cleanup(); };
     d.addEventListener('keydown', onKey);
 
-    btnPrint.onclick = () => {
+    /**
+     * ⭐ NO SE IMPRIME HASTA QUE LAS FOTOS ESTÉN.
+     *
+     * ⚠️ EL PORQUÉ. Las fotos de las máquinas son URL remotas de Supabase
+     *    Storage: el documento se arma y se muestra enseguida, pero las
+     *    imágenes siguen bajando. Si `print()` sale en ese momento, el navegador
+     *    congela lo que hay EN ESE INSTANTE y las hojas salen con el recuadro
+     *    vacío —o negro, si la foto estaba a medio decodificar—. Lo reportó el
+     *    taller el 26-ago-2026 con un PDF de 11 servicios donde 4 hojas salieron
+     *    así. No era nuevo del todo: con conexión lenta ya podía pasar.
+     *
+     *    `complete === false` = todavía viene en camino. Una que ya llegó rota
+     *    tiene `complete === true`, así que NO se espera: nunca va a cargar y
+     *    dejaría el botón trancado para siempre.
+     *
+     * ⚠️ CON TOPE DE TIEMPO, Y NO ES OPCIONAL. Si una foto se queda pegada (red
+     *    caída, archivo borrado del bucket), el usuario TIENE que poder imprimir
+     *    igual. Vencido el plazo se imprime con lo que haya — que es exactamente
+     *    lo que pasaba antes, nunca peor.
+     */
+    const esperarFotos = async (limiteMs = 15000): Promise<void> => {
       try {
+        const cdoc: any = cw.document;
+        const pendientes: any[] = Array.from(cdoc.images ?? []).filter((im: any) => !im.complete);
+        if (!pendientes.length) return;
+        barTitle.textContent = `Cargando las fotos… (${pendientes.length})`;
+        await Promise.race([
+          Promise.all(pendientes.map((im: any) => new Promise<void>((res) => {
+            // `error` también resuelve: una foto rota no puede trancar el botón.
+            im.addEventListener('load', () => res(), { once: true });
+            im.addEventListener('error', () => res(), { once: true });
+          }))),
+          new Promise<void>((res) => { setTimeout(res, limiteMs); }),
+        ]);
+      } catch (e) { /* si no se pueden mirar las imágenes, se imprime igual */ }
+      if (!closed) barTitle.textContent = 'Vista previa del documento';
+    };
+
+    btnPrint.onclick = async () => {
+      try {
+        await esperarFotos();
+        if (closed) return; // cerró la ventana mientras cargaban las fotos
         cw.focus();
         cw.print();
         // El usuario mandó a imprimir/guardar: queda CONFIRMADO. Al cerrar la

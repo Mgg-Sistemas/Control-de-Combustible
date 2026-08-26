@@ -1189,6 +1189,61 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > **La ficha técnica NO cambió** (sigue igual, con su foto y su Información general), porque la
 > comparte el **Recibo de cobro de mangueras**, que es de otro módulo.
 
+> **⚡ LA VISTA PREVIA YA NO SE QUEDA PENSANDO (26-ago-2026).** El taller avisó que al
+> tocar **📄 Exportar** la aplicación se quedaba trabada un buen rato, sin señal de vida,
+> antes de mostrar el documento. Ya no.
+>
+> - **La ventana de vista previa aparece de una vez**, diciendo **«Preparando la vista previa…»**
+>   mientras arma el documento. Antes el navegador armaba TODO el reporte antes de dibujar nada,
+>   así que no se veía ni la ventana: parecía que la aplicación se había colgado. **Y ahora se
+>   puede cancelar mientras prepara**, que antes tampoco se podía.
+> - **Las fotos ya no frenan el armado de las hojas.** Cada foto se guarda grande (1600 px) y en
+>   la hoja se ve chiquita; ahora el documento reserva su espacio y se termina de armar aunque las
+>   fotos vengan en camino.
+> - **🖨️ Imprimir espera a que las fotos estén.** Al tocar **Imprimir**, si alguna foto todavía
+>   viene bajando, la ventana dice **«Cargando las fotos…»** y espera. Antes se mandaba a imprimir
+>   de una y las hojas salían con el recuadro **vacío o negro**. Si una foto se queda pegada (se cayó
+>   la red, o el archivo ya no está), **a los 15 segundos imprime igual** con lo que haya: nunca te
+>   deja trancado.
+> - **El reporte pide menos datos.** Los **expedientes viejos del taller** ahora se piden a la
+>   base **ya recortados por las fechas del filtro** (antes se traía el histórico completo y se
+>   descartaba aquí), y las dos consultas del PDF salen **a la vez** en vez de una esperando a la
+>   otra.
+> - **De paso se arregló un error viejo:** si había más de **1.000** expedientes viejos, la
+>   consulta se cortaba ahí **en silencio** y el PDF salía incompleto sin avisar. Ahora los trae
+>   todos.
+>
+> **El documento que sale es EXACTAMENTE el mismo de antes.** No cambió ni una línea del
+> contenido: solo cuánto tarda en aparecer.
+
+> **✏️ EDITAR UN SERVICIO YA REGISTRADO (26-ago-2026).** En **🧾 Servicios**, cada servicio de la
+> lista tiene ahora un botón **"✏️ Editar"** (solo lo ve quien tenga **permiso de escritura** en el
+> módulo). Abre **el mismo formulario** con todo cargado —fecha, máquina, quién lo hizo, tipos de
+> intervención, problema, acciones, fotos y repuestos— y se guarda con **"💾 Guardar cambios"**.
+>
+> **Y queda constancia de quién lo tocó.** Debajo del servicio aparece la línea
+> **"✏️ Última edición: Fulano · 26/08/2026 3:15 p.m."**, y al lado de los botones sale
+> **"🕓 Ver cambios"**, que abre la lista completa de ediciones: **quién**, **cuándo** y **qué campo
+> cambió**, con el valor de antes en rojo y el de después en verde. La bitácora **solo se agrega**:
+> ni el que editó ni nadie más la puede modificar ni borrar.
+>
+> - **Los servicios que nunca se han editado no muestran ninguna de esas dos cosas.** Si no ves la
+>   línea de "Última edición", es que ese registro está tal cual se guardó.
+> - **"Ver cambios" lo puede abrir cualquiera** que entre a la pestaña, tenga o no permiso de
+>   escribir: saber quién cambió un registro es justo lo que necesita el que solo mira.
+> - **Si no cambiaste nada y le das a guardar, no se anota nada.** El sistema te avisa
+>   ("no cambiaste nada") en vez de llenar la bitácora de ediciones vacías.
+> - **Editar NO le cambia el dueño al registro.** Quien lo **registró** sigue siendo el mismo para
+>   siempre; lo que se guarda aparte es quién lo **editó**.
+> - **Editar sigue sin tocar la máquina ni la avería**, igual que registrar. La frontera del módulo
+>   no se movió.
+> - **⚠️ Hay que correr UNA SOLA VEZ** el archivo `supabase/servicio_editar.sql` en
+>   **Supabase → SQL Editor**. Mientras nadie lo corra, **editar funciona igual y el servicio se
+>   guarda bien**, pero **no queda el rastro** — y la pantalla te lo dice con todas sus letras,
+>   nombrando el archivo, en vez de fingir que lo guardó.
+> - Los administradores con permiso de **Auditoría** ven además estas ediciones —y los **borrados**,
+>   que la bitácora del módulo no puede registrar— en la pantalla de **🕵️ Auditoría** de siempre.
+
 > **⚙️ Tipos de intervención administrables (20-ago-2026):** en **🧾 Servicios**, los tipos de la
 > parte **«2. TIPO DE INTERVENCIÓN»** ya **no están fijos en el programa**. Quien tenga **permiso de
 > escritura** ve el botón **"⚙️ Tipos de intervención"** (y el atajo **"⚙️ Administrar los tipos…"**

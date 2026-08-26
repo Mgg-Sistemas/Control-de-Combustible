@@ -181,10 +181,7 @@ export type FichaOpts = {
  */
 export function fichaTecnicaHtml(m: MaquinaFicha, opts: FichaOpts = {}): string {
   const { corte = true, titulo = 'FICHA TÉCNICA DE MAQUINARIA' } = opts;
-  // ⚠️ `width`/`height` NO SON ADORNO — ver la nota larga en `servicioCardHtml`.
-  const foto = m.photo_url
-    ? `<img class="sv-photo" src="${esc(m.photo_url)}" width="150" height="120" alt=""/>`
-    : '';
+  const foto = m.photo_url ? `<img class="sv-photo" src="${esc(m.photo_url)}"/>` : '';
   const vacio = (k: string) => `<tr><td class="k">${k}</td><td>—</td></tr>`;
   return `<div${corte ? ' class="corte"' : ''}>
     <h3 class="sec">${esc(titulo)}</h3>
@@ -305,32 +302,7 @@ export function servicioCardHtml(
   // `limpio` y no la verdad cruda: un `photo_url` con solo espacios dejaba un
   // `<img src="   ">` roto, y ahora la foto va en CADA hoja — se repetiría N veces.
   const url = limpio(m?.photo_url);
-  /**
-   * ⭐ LA FOTO LLEVA MEDIDAS (26-ago-2026).
-   *
-   * ⚠️ EL PORQUÉ. Las fotos se guardan a 1600 px de lado (`photo.ts:69`) y acá
-   *    se pintan a 104×78 (`.hoja-foto`, ver el CSS de arriba). Sin los
-   *    atributos `width`/`height`, el navegador NO sabe qué tamaño va a ocupar
-   *    la imagen hasta que la descarga, así que la maquetación de TODAS las
-   *    hojas se queda esperando — y la vista previa aparece vacía o brincando.
-   *    Con las medidas puestas, el hueco se reserva de una vez y el documento
-   *    se arma completo aunque las fotos todavía vengan en camino.
-   *
-   * 🚫 AQUÍ IBA UN `decoding="async"` Y HUBO QUE QUITARLO EL MISMO DÍA.
-   *    NO VOLVER A PONERLO. Ese atributo le da permiso EXPLÍCITO al navegador
-   *    para pintar el cuadro SIN esperar a que la foto termine de decodificarse
-   *    — justo lo contrario de lo que uno quiere al imprimir. En el PDF salían
-   *    recuadros NEGROS (la foto a medio decodificar) y recuadros VACÍOS (sin
-   *    decodificar todavía), mezclados con las que sí alcanzaron a salir. Lo
-   *    reportó el taller con un PDF de 11 servicios donde 4 hojas salieron así.
-   *    Ahorraba trabajo de decodificación a costa de imprimir mal: mal negocio.
-   *
-   *    La espera de las fotos se resuelve donde corresponde: el botón
-   *    🖨️ Imprimir de `pdf.ts` no llama a `print()` hasta que todas cargaron.
-   */
-  const foto = url
-    ? `<img class="hoja-foto" src="${esc(url)}" width="104" height="78" alt=""/>`
-    : '';
+  const foto = url ? `<img class="hoja-foto" src="${esc(url)}" alt=""/>` : '';
   const modelo = [limpio(m?.marca), limpio(m?.modelo)].filter(Boolean).join(' ');
   const equipo = [machineLabel(m ?? null), modelo].filter(Boolean).join(' · ');
 

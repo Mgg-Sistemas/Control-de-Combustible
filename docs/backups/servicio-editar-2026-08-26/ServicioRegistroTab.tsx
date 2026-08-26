@@ -33,9 +33,7 @@ import {
   guardarServicio, validarServicio, ESTADOS_REPUESTO,
   quienLoHizo, ServiceOrigen, ServicePartInput,
   resolverIntervenciones, etiquetaIntervencion, validarTipoIntervencion, claveDesdeTexto,
-  editarServicio, cambiosServicio, resumenCambios, filaServicio, Cambio,
 } from '../lib/machineService';
-import { useAuth } from '../context/AuthContext';
 import { generateMachineServiceReport, generateServicioHojaPdf, MaquinaFicha, ServicioImprimible } from '../lib/machineServiceReport';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
@@ -55,17 +53,6 @@ const fmtDMY = (iso?: string | null) => {
   const [y, m, d] = String(iso).split('T')[0].split('-');
   return y && m && d ? `${d}/${m}/${y}` : String(iso);
 };
-/** Fecha Y HORA de Caracas. La bitácora sin hora no sirve: dos ediciones del
- *  mismo día se verían iguales y no se sabría cuál fue la última. */
-const fmtFechaHora = (ts?: string | null) => {
-  if (!ts) return '—';
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return String(ts);
-  const p = caracasParts(d);
-  const h12 = p.hour % 12 === 0 ? 12 : p.hour % 12;
-  const mm = String(p.minute).padStart(2, '0');
-  return `${fmtDMY(p.iso)} ${h12}:${mm} ${p.hour < 12 ? 'a.m.' : 'p.m.'}`;
-};
 
 /** Lo que la pantalla madre ya cargó — no se vuelve a consultar. */
 type Mach = {
@@ -83,20 +70,6 @@ type Orden = {
   intervenciones: string[] | null; problem: string | null; work_done: string | null;
   photos: string[] | null; notes: string | null; created_at: string;
   parts?: { id: string; quantity: number | null; description: string; estado: string | null; position: number }[];
-  // ⭐ Las dos columnas de `supabase/servicio_editar.sql`. Van OPCIONALES a
-  //    propósito: mientras ese SQL no se corra a mano, la consulta con `*` ni
-  //    siquiera las trae y llegan `undefined`. Nada puede reventar por eso.
-  updated_at?: string | null;
-  updated_by?: string | null;
-};
-
-/** Una edición guardada, tal como sale de `machinery_service_edits`. */
-type FilaEdicion = {
-  id: string;
-  edited_by: string | null;
-  edited_by_name: string | null;
-  edited_at: string;
-  changes: Cambio[] | null;
 };
 
 /** Una fila del catálogo `service_intervention_types` (ver
@@ -159,10 +132,6 @@ export default function ServicioRegistroTab(
   const { colors } = useTheme();
   const toast = useToast();
   const confirm = useConfirm();
-  // El nombre se COPIA a la bitácora al editar, no se resuelve después por
-  // JOIN: si mañana se borra el perfil, el registro tiene que seguir diciendo
-  // quién fue. Mismo criterio que `audit_log.user_name`.
-  const { fullName } = useAuth();
 
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
@@ -186,15 +155,6 @@ export default function ServicioRegistroTab(
 
   // ── Formulario ─────────────────────────────────────────────────────────────
   const [formOpen, setFormOpen] = useState(false);
-  /**
-   * `null` = se está REGISTRANDO uno nuevo. Con un id = se está EDITANDO ese.
-   *
-   * Es el mismo formulario para las dos cosas —igual que en Compras directas
-   * (`ComprasScreen.tsx:420`) y en Mangueras—, porque son exactamente los mismos
-   * campos: tener dos formularios gemelos garantiza que un día se arregle uno y
-   * se olvide el otro.
-   */
-  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [fecha, setFecha] = useState(todayISO());
   const [maquinaId, setMaquinaId] = useState('');
   const [origen, setOrigen] = useState<ServiceOrigen>('interno');
@@ -224,15 +184,6 @@ export default function ServicioRegistroTab(
   // Lo que se está escribiendo en cada renglón del catálogo, sin tocar la base
   // hasta que se toque 💾. Clave = id del tipo.
   const [borradores, setBorradores] = useState<Record<string, { label: string; orden: string }>>({});
-
-  // ── El rastro de las ediciones ────────────────────────────────────────────
-  // id de perfil → nombre y apellido. Solo para poder escribir «editado por
-  // Fulano» sin que cada tarjeta se ponga a consultar la base por su cuenta.
-  const [nombres, setNombres] = useState<Record<string, string>>({});
-  // El servicio cuya bitácora se está mirando, con lo que se pudo leer de ella.
-  const [historial, setHistorial] = useState<
-    { orden: Orden; filas: FilaEdicion[] | null; error: string | null } | null
-  >(null);
 
   const machById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
   const reqById = useMemo(() => new Map(reqs.map((r) => [r.id, r])), [reqs]);
@@ -286,22 +237,8 @@ export default function ServicioRegistroTab(
       '*, parts:machinery_service_parts(*)',
       (q) => q.order('service_date', { ascending: false })
     ).catch(() => [] as any[]);
-    const filas = (data ?? []) as Orden[];
-    setOrdenes(filas);
+    setOrdenes((data ?? []) as Orden[]);
     setLoading(false);
-
-    // Los nombres de quienes editaron. Va DESPUÉS de pintar la lista y en su
-    // propio try: si falla (o si todavía no existe la columna `updated_by`
-    // porque no se corrió el SQL), la pestaña tiene que seguir funcionando
-    // igual — simplemente no dirá el nombre.
-    const ids = Array.from(new Set(filas.map((o) => o.updated_by).filter(Boolean))) as string[];
-    if (!ids.length) return;
-    try {
-      const { data: perfiles } = await supabase.from('profiles').select('id, full_name').in('id', ids);
-      const mapa: Record<string, string> = {};
-      ((perfiles ?? []) as any[]).forEach((p) => { if (p?.id && p?.full_name) mapa[p.id] = p.full_name; });
-      setNombres((prev) => ({ ...prev, ...mapa }));
-    } catch { /* sin nombres, pero la lista ya está en pantalla */ }
   };
   useEffect(() => { cargar(); cargarTipos(); }, []);
 
@@ -326,32 +263,6 @@ export default function ServicioRegistroTab(
     setProblema(''); setAcciones(''); setAveriaId('');
     setFotos([]); setRenglones([{ ...RENGLON_VACIO }]);
     setFormError(null);
-    setEditandoId(null);
-  };
-
-  /** Abre el MISMO formulario, pero cargado con lo que ya tiene el servicio. */
-  const abrirEditar = (o: Orden) => {
-    setFecha(String(o.service_date ?? '').slice(0, 10));
-    setMaquinaId(o.machinery_id ?? '');
-    setOrigen(o.origen === 'externo' ? 'externo' : 'interno');
-    setTecnico(o.technician ?? '');
-    setProveedor(o.provider ?? '');
-    setIntervs((o.intervenciones ?? []).slice());
-    setProblema(o.problem ?? '');
-    setAcciones(o.work_done ?? '');
-    setAveriaId(o.maintenance_request_id ?? '');
-    setFotos((o.photos ?? []).slice());
-    // Los repuestos, en su orden, más el renglón vacío del final que el
-    // formulario siempre tiene para poder agregar otro sin tocar nada.
-    const rs = (o.parts ?? []).slice().sort((a, b) => a.position - b.position).map((p) => ({
-      quantity: p.quantity == null ? '' : String(p.quantity),
-      description: p.description ?? '',
-      estado: p.estado || ESTADOS_REPUESTO[0],
-    }));
-    setRenglones([...rs, { ...RENGLON_VACIO }]);
-    setFormError(null);
-    setEditandoId(o.id);
-    setFormOpen(true);
   };
 
   const guardar = async () => {
@@ -373,49 +284,6 @@ export default function ServicioRegistroTab(
     const partes: ServicePartInput[] = renglones.map((r) => ({
       quantity: r.quantity, description: r.description, estado: r.estado,
     }));
-
-    // ── EDITANDO uno que ya existe ──────────────────────────────────────────
-    if (editandoId) {
-      const original = ordenes.find((x) => x.id === editandoId);
-      // El «qué cambió» se calcula comparando las DOS FILAS tal como van a la
-      // base, no los estados de la pantalla: así un espacio de más al final de
-      // un texto no aparece como un cambio de verdad.
-      const cambios = cambiosServicio({
-        antes: original as any,
-        despues: filaServicio(inp),
-        repuestosAntes: (original?.parts ?? []).slice().sort((a, b) => a.position - b.position),
-        repuestosDespues: partes,
-        nombres: {
-          maquina: (id) => etiquetaMaquina(machById.get(id)) || id.slice(0, 8),
-          intervencion: (k) => etiquetaIntervencion(k, tiposParaEtiquetar),
-          averia: (id) => {
-            const r0 = reqById.get(id);
-            return r0 ? `${r0.material}${r0.notes ? ` · ${r0.notes}` : ''}` : id.slice(0, 8);
-          },
-        },
-      });
-
-      // Si no se movió nada, no se escribe: una bitácora llena de ediciones
-      // vacías esconde las que sí importan.
-      if (!cambios.length) {
-        setBusy(false);
-        setFormOpen(false); limpiarForm();
-        return toast.success('No cambiaste nada, así que no se guardó ninguna edición.');
-      }
-
-      const re = await editarServicio(supabase as any, editandoId, inp, partes, {
-        id: uid, nombre: fullName, cambios,
-      });
-      setBusy(false);
-      if (re.error) return setFormError(re.error);
-      setFormOpen(false); limpiarForm(); cargar();
-      // El aviso del rastro pesa más que el de éxito: si la bitácora no quedó,
-      // hay que decirlo, no dar un ✅ que no corresponde.
-      if (re.avisoBitacora) return toast.error(re.avisoBitacora);
-      return toast.success(`Servicio actualizado: ${resumenCambios(cambios)}.`);
-    }
-
-    // ── REGISTRANDO uno nuevo ───────────────────────────────────────────────
     const r = await guardarServicio(supabase as any, inp, partes);
     setBusy(false);
     if (r.error) return setFormError(r.error);
@@ -423,28 +291,6 @@ export default function ServicioRegistroTab(
     // encargado acaba de registrar y podría suponer que la máquina ya se activó.
     toast.success('Servicio registrado. No cambia el estado de la máquina.');
     setFormOpen(false); limpiarForm(); cargar();
-  };
-
-  /** Abre la bitácora de UN servicio: quién lo editó, cuándo y qué tocó. */
-  const verCambios = async (o: Orden) => {
-    setHistorial({ orden: o, filas: null, error: null });
-    const { data, error } = await supabase
-      .from('machinery_service_edits')
-      .select('id, edited_by, edited_by_name, edited_at, changes')
-      .eq('service_order_id', o.id)
-      .order('edited_at', { ascending: false });
-    if (error) {
-      // Lo normal mientras no se corra el SQL: la tabla no existe. Se dice en
-      // criollo y con el nombre del archivo, no con el código de Postgres.
-      const falta = /does not exist|42P01|schema cache/i.test(error.message);
-      return setHistorial({
-        orden: o, filas: null,
-        error: falta
-          ? 'Todavía no se está guardando el detalle de las ediciones. Hay que correr «supabase/servicio_editar.sql» en Supabase.'
-          : error.message,
-      });
-    }
-    setHistorial({ orden: o, filas: (data ?? []) as FilaEdicion[], error: null });
   };
 
   const borrar = async (o: Orden) => {
@@ -544,44 +390,6 @@ export default function ServicioRegistroTab(
    * La ficha de unas máquinas. La pantalla madre no carga foto, marca ni modelo,
    * así que se piden aparte — SOLO para las máquinas que hagan falta.
    */
-  /**
-   * Los expedientes VIEJOS del taller (`machinery_repairs`) que entran al PDF.
-   *
-   * ⚠️ EL RANGO DE FECHAS SE APLICA EN EL SERVIDOR, no solo en la pantalla.
-   *    Antes esta consulta se traía TODO el histórico correctivo de la flota
-   *    —una tabla que existe desde que arrancó el sistema— y recién después
-   *    `dentro()` descartaba lo que no entraba en el rango. Con los filtros
-   *    vacíos eso son miles de filas viajando para nada, y era una de las
-   *    razones de que la vista previa tardara tanto (26-ago-2026).
-   *
-   * ⚠️ Y AHORA PAGINA. Antes era un `.select()` pelado, así que PostgREST lo
-   *    cortaba en ~1000 filas EN SILENCIO: con más correctivos que eso, el PDF
-   *    salía incompleto y nadie se enteraba.
-   *
-   * ⚠️⚠️ EL RANGO DEL SERVIDOR VA ESTIRADO UN DÍA POR LADO, A PROPÓSITO.
-   *    `dentro()` compara `out_at.slice(0,10)`, o sea la fecha en UTC. Postgres,
-   *    en cambio, interpreta `'2026-08-20'` en la zona horaria de la sesión. Si
-   *    esa zona no es UTC (Caracas es UTC-4), las dos cuentas se corren hasta
-   *    cuatro horas y un `gte` exacto DEJARÍA FUERA reparaciones que la pantalla
-   *    sí cuenta — el PDF saldría con menos filas y nadie sabría por qué.
-   *    Estirando el rango, el servidor devuelve de más y `dentro()` hace el
-   *    corte fino: el resultado es EL MISMO de antes, byte por byte, pero sin
-   *    arrastrar el histórico completo. La prueba lo vigila.
-   */
-  const masDias = (iso: string, n: number) => {
-    const d = new Date(`${iso}T12:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + n);
-    return d.toISOString().slice(0, 10);
-  };
-
-  const traerViejos = async (ids: string[]): Promise<any[]> =>
-    selectAllRows('machinery_repairs', 'id, machinery_id, out_at, work_done', (q) => {
-      let x = q.eq('tipo', 'correctivo').in('machinery_id', ids);
-      if (fDesde) x = x.gte('out_at', masDias(fDesde, -1));
-      if (fHasta) x = x.lt('out_at', masDias(fHasta, 2));
-      return x;
-    }).catch(() => [] as any[]);
-
   const traerFichas = async (ids: string[]): Promise<Map<string, MaquinaFicha>> => {
     const { data } = await supabase
       .from('machinery')
@@ -647,17 +455,18 @@ export default function ServicioRegistroTab(
     try {
       const ids = Array.from(new Set(visibles.map((o) => o.machinery_id)));
 
-      // ⭐ LAS DOS CONSULTAS A LA VEZ, no una esperando a la otra. Son
-      //    independientes: la segunda no necesita nada de la primera. En serie
-      //    se pagaban dos viajes de red completos antes de empezar a armar el
-      //    PDF (26-ago-2026, «la vista previa tarda muchísimo»).
-      const [fichaById, viejos] = await Promise.all([
-        traerFichas(ids),
-        // Los expedientes viejos del taller entran al mismo PDF, marcados como
-        // tales: traen menos datos porque no los guardaban. Se pueden dejar fuera
-        // con el interruptor «🧰 Traer también los expedientes viejos».
-        conViejos ? traerViejos(ids) : Promise.resolve([] as any[]),
-      ]);
+      const fichaById = await traerFichas(ids);
+
+      // Los expedientes viejos del taller entran al mismo PDF, marcados como
+      // tales: traen menos datos porque no los guardaban. Se pueden dejar fuera
+      // con el interruptor «🧰 Traer también los expedientes viejos».
+      const { data: viejos } = conViejos
+        ? await supabase
+          .from('machinery_repairs')
+          .select('id, machinery_id, out_at, work_done')
+          .eq('tipo', 'correctivo')
+          .in('machinery_id', ids)
+        : { data: [] as any[] };
 
       const dentro = (d?: string | null) => {
         const s = String(d ?? '').slice(0, 10);
@@ -856,35 +665,13 @@ export default function ServicioRegistroTab(
               </ScrollView>
             ) : null}
 
-            {/* ⭐ QUIÉN LO EDITÓ DE ÚLTIMO. Solo aparece si de verdad se editó
-                alguna vez (`updated_at` en NULL = nadie lo ha tocado). No se
-                inventa una línea «editado por —» para los que están intactos. */}
-            {o.updated_at ? (
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, fontStyle: 'italic' }}>
-                ✏️ Última edición: {(o.updated_by ? nombres[o.updated_by] : '') || 'alguien'} · {fmtFechaHora(o.updated_at)}
-              </Text>
-            ) : null}
-
             {/* ⭐ UNA SOLA HOJA — la de ESTE servicio. Lo pidió el taller: el botón
                 de arriba saca todo lo del filtro; este saca exactamente lo que se
                 está mirando, sin ficha técnica y sin arrastrar nada más. */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={() => exportarUna(o)} disabled={busy} style={{ opacity: busy ? 0.5 : 1 }}>
                 <Text style={{ color: colors.brand, fontSize: 12, fontWeight: '800' }}>📄 Solo esta hoja</Text>
               </TouchableOpacity>
-              {canWrite ? (
-                <TouchableOpacity onPress={() => abrirEditar(o)} disabled={busy} style={{ opacity: busy ? 0.5 : 1 }}>
-                  <Text style={{ color: colors.brand, fontSize: 12, fontWeight: '800' }}>✏️ Editar</Text>
-                </TouchableOpacity>
-              ) : null}
-              {/* El historial lo puede ver CUALQUIERA que entre a la pestaña,
-                  tenga o no permiso de escribir: saber quién cambió un registro
-                  es justamente lo que necesita el que solo mira. */}
-              {o.updated_at ? (
-                <TouchableOpacity onPress={() => verCambios(o)}>
-                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800' }}>🕓 Ver cambios</Text>
-                </TouchableOpacity>
-              ) : null}
               {canWrite ? (
                 <TouchableOpacity onPress={() => borrar(o)}>
                   <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>🗑 Borrar</Text>
@@ -894,55 +681,6 @@ export default function ServicioRegistroTab(
           </Card>
         );
       })}
-
-      {/* ── 🕓 La bitácora de un servicio ── */}
-      <Modal visible={!!historial} transparent animationType="slide" onRequestClose={() => setHistorial(null)}>
-        <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.md, maxHeight: '85%' }}>
-            <SectionTitle>🕓 Cambios de este servicio</SectionTitle>
-            {historial ? (
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-                🚜 {etiquetaMaquina(machById.get(historial.orden.machinery_id)) || '—'} · {fmtDMY(historial.orden.service_date)}
-              </Text>
-            ) : null}
-
-            <ScrollView>
-              {historial?.error ? (
-                <Text style={{ color: colors.warningSoftText, fontSize: 12, fontWeight: '700' }}>⚠️ {historial.error}</Text>
-              ) : historial?.filas == null ? (
-                <Loading />
-              ) : !historial.filas.length ? (
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  Este servicio se editó, pero el detalle de esa edición no quedó guardado.
-                </Text>
-              ) : historial.filas.map((f) => (
-                <Card key={f.id}>
-                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>
-                    ✏️ {f.edited_by_name || (f.edited_by ? nombres[f.edited_by] : '') || 'Alguien'}
-                  </Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>{fmtFechaHora(f.edited_at)}</Text>
-                  {(f.changes ?? []).map((c, i) => (
-                    <View key={`${f.id}-${i}`} style={{ marginTop: 3 }}>
-                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>{c.etiqueta}</Text>
-                      {/* Rojo lo que decía, verde lo que dice ahora: el mismo
-                          código de colores que usa la pantalla de Auditoría. */}
-                      <Text style={{ fontSize: 12 }}>
-                        <Text style={{ color: colors.danger }}>{c.de}</Text>
-                        <Text style={{ color: colors.muted }}>{'  →  '}</Text>
-                        <Text style={{ color: colors.successSoftText }}>{c.a}</Text>
-                      </Text>
-                    </View>
-                  ))}
-                </Card>
-              ))}
-            </ScrollView>
-
-            <View style={{ marginTop: spacing.sm, marginBottom: spacing.md }}>
-              <Boton colors={colors} label="Cerrar" onPress={() => setHistorial(null)} />
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* ── Selector de máquina (filtro) ── */}
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)}>
@@ -971,7 +709,7 @@ export default function ServicioRegistroTab(
         <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.md, maxHeight: '92%' }}>
             <ScrollView>
-              <SectionTitle>{editandoId ? '✏️ Editar servicio' : '🔧 Registrar servicio'}</SectionTitle>
+              <SectionTitle>🔧 Registrar servicio</SectionTitle>
 
               {/* 1. DATOS GENERALES */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.sm }}>1. DATOS GENERALES</Text>
@@ -1108,8 +846,8 @@ export default function ServicioRegistroTab(
               ) : null}
 
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, marginBottom: spacing.md }}>
-                <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="Cancelar" onPress={() => { setFormOpen(false); limpiarForm(); }} /></View>
-                <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label={busy ? 'Guardando…' : (editandoId ? '💾 Guardar cambios' : '💾 Guardar')} tone="brand" onPress={guardar} /></View>
+                <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="Cancelar" onPress={() => setFormOpen(false)} /></View>
+                <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label={busy ? 'Guardando…' : '💾 Guardar'} tone="brand" onPress={guardar} /></View>
               </View>
             </ScrollView>
           </View>
