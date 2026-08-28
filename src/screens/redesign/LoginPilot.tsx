@@ -16,6 +16,7 @@ import { COMPANY_NAME } from '../../lib/company';
 import { spacing, radius, AppColors } from '../../theme';
 import { useTheme } from '../../theme/ThemeContext';
 import { passField } from '../../lib/fonts';
+import { claveNormalizada } from '../../lib/password';
 
 /**
  * PILOTO DE REDISEÑO — Sesión (login). Misma lógica que LoginScreen: usa los MISMOS
@@ -85,7 +86,9 @@ export default function LoginPilot() {
               // único que impide que se vea en MAYÚSCULA. Ver src/lib/fonts.ts.
               {...passField}
               value={password}
-              onChangeText={setPassword}
+              // ⭐ MAYÚSCULA EN EL VALOR, no solo en la pantalla: lo que se ve
+              //    es literalmente lo que se manda. Ver src/lib/password.ts.
+              onChangeText={(t) => setPassword(claveNormalizada(t))}
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}

@@ -22,6 +22,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { BulkPermissionsModal } from '../components/BulkPermissionsModal';
 import { useToast } from '../components/ToastProvider';
 import { passField } from '../lib/fonts';
+import { claveNormalizada } from '../lib/password';
 import {
   CompanyScopeRow,
   MachineScopeRow,
@@ -621,7 +622,8 @@ function NewUserForm({
     const baseRole: UserRole = sel.kind === 'base' ? sel.role : 'conductor';
     const appRoleId = sel.kind === 'app' ? sel.id : null;
     const { data, errorMsg } = await adminInvoke('admin-create-user', {
-      first_name: firstName, last_name: lastName, password, role: baseRole, cedula: ci || undefined, username: un,
+      // ⭐ En MAYÚSCULA al enviar, por si el valor llegó sin pasar por el teclado.
+      first_name: firstName, last_name: lastName, password: claveNormalizada(password), role: baseRole, cedula: ci || undefined, username: un,
     });
     if (errorMsg) {
       setError(errorMsg);
@@ -676,7 +678,7 @@ function NewUserForm({
             <TextInput style={styles.input} placeholder="Cédula (opcional, única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
             <TextInput style={styles.input} placeholder="Usuario (para entrar · máx 10)" placeholderTextColor={colors.muted} value={username} onChangeText={(t) => setUsername(t.replace(/\s/g, '').slice(0, 10))} maxLength={10} autoCapitalize="none" autoCorrect={false} />
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Contraseña (mín. 6)" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} {...passField} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Contraseña (mín. 6)" placeholderTextColor={colors.muted} value={password} onChangeText={(t) => setPassword(claveNormalizada(t))} secureTextEntry={!showPass} {...passField} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
               <TouchableOpacity onPress={() => setShowPass((v) => !v)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{showPass ? '🙈 Ocultar' : '👁 Ver'}</Text>
               </TouchableOpacity>
@@ -1041,7 +1043,8 @@ function EditUserForm({
     }
     setSaving(true);
     const { errorMsg } = await adminInvoke('admin-manage-user', {
-      action: 'update', id: user.id, full_name: fullName, password: password || undefined,
+      // ⭐ Vacío = no cambiar la clave. Si trae algo, va en MAYÚSCULA.
+      action: 'update', id: user.id, full_name: fullName, password: password ? claveNormalizada(password) : undefined,
     });
     if (errorMsg) {
       setError(errorMsg);
@@ -1101,7 +1104,7 @@ function EditUserForm({
             <TextInput style={styles.input} placeholder="Usuario (único)" placeholderTextColor={colors.muted} value={username} onChangeText={(t) => setUsername(t.replace(/\s/g, '').slice(0, 10))} maxLength={10} autoCapitalize="none" autoCorrect={false} />
             <Text style={typography.muted}>Nueva contraseña (opcional)</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Dejar vacío para no cambiar" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} {...passField} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Dejar vacío para no cambiar" placeholderTextColor={colors.muted} value={password} onChangeText={(t) => setPassword(claveNormalizada(t))} secureTextEntry={!showPass} {...passField} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
               <TouchableOpacity onPress={() => setShowPass((v) => !v)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{showPass ? '🙈' : '👁'}</Text>
               </TouchableOpacity>

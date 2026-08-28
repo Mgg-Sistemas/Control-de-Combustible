@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { passField } from '../lib/fonts';
+import { claveNormalizada } from '../lib/password';
 
 /**
  * Botón + modal para que CUALQUIER usuario logueado cambie su propia contraseña.
@@ -29,7 +30,9 @@ export function ChangePasswordButton({ variant = 'chip' }: { variant?: 'chip' | 
 
   const guardar = async () => {
     setMsg(null); setOkMsg(null);
-    const a = p1.trim(); const b = p2.trim();
+    // ⭐ En MAYÚSCULA también aquí, por si el valor llegó sin pasar por el
+    //    teclado (autocompletado del navegador). Ver src/lib/password.ts.
+    const a = claveNormalizada(p1.trim()); const b = claveNormalizada(p2.trim());
     if (a.length < 6) { setMsg('La contraseña debe tener al menos 6 caracteres.'); return; }
     if (a !== b) { setMsg('Las contraseñas no coinciden.'); return; }
     setBusy(true);
@@ -77,10 +80,10 @@ export function ChangePasswordButton({ variant = 'chip' }: { variant?: 'chip' | 
               </Text>
 
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nueva contraseña</Text>
-              <TextInput value={p1} onChangeText={setP1} secureTextEntry={!show} {...passField} placeholder="Nueva contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput value={p1} onChangeText={(t) => setP1(claveNormalizada(t))} secureTextEntry={!show} {...passField} placeholder="Nueva contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
 
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4, marginTop: spacing.sm }}>Repetir contraseña</Text>
-              <TextInput value={p2} onChangeText={setP2} secureTextEntry={!show} {...passField} placeholder="Repite la contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput value={p2} onChangeText={(t) => setP2(claveNormalizada(t))} secureTextEntry={!show} {...passField} placeholder="Repite la contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
 
               <TouchableOpacity onPress={() => setShow((v) => !v)} style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{show ? '🙈 Ocultar contraseñas' : '👁️ Mostrar contraseñas'}</Text>
