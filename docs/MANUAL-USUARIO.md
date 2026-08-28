@@ -495,15 +495,20 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   Úsalo cuando necesites el conteo por zona 100% real; usa el conteo normal cuando necesites que el
   total cuadre siempre con la cantidad de equipos.
 
-- **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"Reporte Diario de
-  Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira"** en PDF. Cuenta el **mismo
+- **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
+  MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
+  logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
+  y **Responsable**— para completar a mano al imprimirlo, porque el reporte cubre a LICCIONE y a
+  GOLDEN TOUCH a la vez. Cuenta el **mismo
   universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
   por EMPRESA en dos grupos**: **LICCIONE** (sus máquinas) y **GOLDEN TOUCH** (las de Golden + TODAS
-  las demás empresas), cada una con su **ubicación real** (referencia + sector Este/Oeste y subzona
+  las demás empresas), cada una con su **placa / serial** (en **columna propia**), su **ubicación real**
+  (referencia + sector Este/Oeste y subzona
   por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado** (Operativo / Inoperativo / En espera). Las
   máquinas **sin ubicación cargada** salen como **"Desplegadas por todo el territorio de La Guaira"**.
   **Arriba** trae la cantidad de maquinaria por empresa; cierra con un **conteo por clasificación**.
   El reporte va **100% por empresa** (ya **no** trae los resúmenes por zona Este/Oeste).
+  El archivo se descarga como *"Reporte - Inventario de maquinaria"*.
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
   **SOS La Guaira** (no en los de CVM / Gobernación / FANB): a cada máquina le asigna **2 operadores**
