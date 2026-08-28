@@ -27,6 +27,21 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 3. Toca el botón **Entrar**.
 4. Si el teléfono te lo pide, puedes entrar con tu **huella** o tu **cara** la próxima vez.
 
+> ⚠️ **ARREGLADO EL 27/08/2026 — «la contraseña es correcta y no me deja entrar».** Hasta esa
+> fecha había un fallo feo: al pulsar el **ojo 👁️** para revisar la clave, la pantalla la
+> mostraba **TODA EN MAYÚSCULA**, aunque la clave real tuviera minúsculas. Lo que se veía y lo
+> que se guardaba **no eran lo mismo**.
+>
+> Pasaba esto: el administrador creaba la clave `Sos2026`, pulsaba el ojo para leerla, veía
+> `SOS2026`, y eso era lo que dictaba. El trabajador escribía `SOS2026` y el sistema lo
+> rechazaba. Parecía que fallaba **a veces**, porque solo ocurría si alguien pulsaba el ojo **y**
+> la clave tenía minúsculas; una clave toda en mayúscula nunca dio problema. Restablecer la
+> contraseña lo "arreglaba" — pero volvía a pasar con el siguiente usuario.
+>
+> **Ya no pasa: el ojo muestra la clave exactamente como es, mayúsculas y minúsculas
+> incluidas.** Si alguien sigue sin poder entrar, ahora sí es otra cosa: revisa que no esté
+> **bloqueado** por 3 intentos fallidos (abajo).
+
 > **Cuidado con los intentos:** si te equivocas de contraseña **3 veces**, el usuario se
 > **BLOQUEA** por seguridad. Solo un **administrador** puede desbloquearlo (Más → Usuarios).
 
@@ -1336,10 +1351,20 @@ Sirve para saber si los inspectores **sí están yendo a las máquinas** a revis
 trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
-> **📄 Mi reporte de jornada — desde el teléfono, cuando quiera (15/08/2026):** el inspector
-> tiene en su pantalla un bloque **"📄 Mi reporte de jornada"** con el que se descarga el PDF
+> **📄 Mi reporte de jornada (15/08/2026 · cambiado el 27/08/2026):** bloque
+> **"📄 Mi reporte de jornada"** con el que se descarga el PDF
 > del resumen de **sus** máquinas: cada una con su estado, las horas que trabajó, las de parada
 > y el total de la jornada. Es el mismo dato que ve el jefe.
+>
+> ⚠️⚠️ **DESDE EL 27/08/2026 EL INSPECTOR YA NO LO VE EN SU TELÉFONO** (lo pidió el
+> cliente). **El reporte no desapareció.** Sigue estando, con todo lo que se explica abajo, en:
+>
+> - la **misma pantalla abierta desde una PC** — el propio inspector, entrando por computadora;
+> - el **coordinador de inspectores**, tanto en teléfono como en PC;
+> - y **📄 Reportes**, de donde lo saca el jefe.
+>
+> Es la misma limpieza que se le hizo al botón "📚 Histórico por inspector" el 21/08/2026: en la
+> pantalla del teléfono estorbaba entre el trabajo del día y el buscador de máquinas.
 >
 > **Antes solo aparecía al terminar el turno** (cuando ya no le quedaba ninguna máquina en
 > curso), así que no podía sacar el de ayer ni revisar el de hoy a media jornada. Ahora:
@@ -1926,9 +1951,12 @@ producto muestra su **PMP y su valor en stock en $ y en Bs** al cambio del día.
 en **US$** y te muestra el equivalente en la otra moneda.
 
 **🏷️ Tipo de producto y filtro:** al crear/editar un producto puedes ponerle un **TIPO**
-(bombona, silla, mecate…) — lo escribes o lo tocas de las sugerencias. Arriba de la lista aparece
-**"Filtrar por tipo"** con un chip por cada tipo (y su cantidad): toca uno para ver **solo esos
-productos**. El tipo también sale en el **reporte de productos**.
+(bombona, silla, mecate…) — lo escribes o lo tocas de las sugerencias. El tipo sale en el
+**reporte de productos** y en **🔁 Movimientos**, donde sí puedes filtrar por él.
+
+> ⚠️ **Ya NO hay chips "Filtrar por tipo" encima de la lista de productos** (se quitaron el
+> 23/08/2026). Si los estás buscando, no es que te falten permisos: no existen. Para acotar la
+> lista usa el **buscador**; para filtrar por tipo, la pestaña **🔁 Movimientos**.
 
 **🛢️ Bombonas — carga (vacía / en uso / llena):** en los productos tipo **bombona** aparecen
 botones para tildar su carga (🔴 vacía, 🟡 en uso, 🟢 llena) directo en la tarjeta o en el editor
@@ -2009,8 +2037,17 @@ escritura en Compras (o Inventario).
 > queda su **código correlativo** (CD-0001, CD-0002…). **NO genera cuenta por pagar:** solo carga la
 > factura y pasa al inventario. En la lista, cada compra trae **"📎 Ver factura"** para revisar la
 > factura cargada. A diferencia del Requerimiento (que se pide y el jefe aprueba antes de comprar), la
-> compra directa es **inmediata**. *(Requiere correr una vez `supabase/compras_directas.sql` y
-> `supabase/compras_directas_sin_cuenta.sql`.)*
+> compra directa es **inmediata**.
+>
+> **✏️ Editar una compra ya cargada:** si te equivocaste en un precio o una cantidad, entra a la
+> compra y corrígela. Al guardar, el inventario **se rehace solo**: se retira la entrada anterior
+> y se vuelve a cargar con los datos nuevos, así que el costo promedio queda bien. No hace falta
+> borrar nada ni hacer un ajuste a mano. *(Requiere `supabase/compras_directas_editar.sql`.)*
+>
+> *(Los tres SQL de este submodulo, EN ESTE ORDEN: `supabase/compras_directas.sql` →
+> `supabase/compras_directas_editar.sql` → `supabase/compras_directas_sin_cuenta.sql`. El
+> último es el que quita la cuenta por pagar, y va después porque reemplaza funciones de los
+> otros dos.)*
 
 > **Cambiar estado a mano (04/08/2026):** quien tenga **todos los permisos de Inventario** (o sea
 > administrador) puede tocar el mismo **badge de estado** (arriba a la derecha de cada
@@ -2252,6 +2289,23 @@ de noche otro; al final de cada uno va su línea de firma.
    en el día, sale **una fila por cada transición** consecutiva.
 
 ### 4.13. Usuarios (solo administrador)
+
+> ⚠️ **ARREGLADO EL 27/08/2026 — «elijo un rol al crear y me lo deja en otro».** Hasta esa fecha,
+> al **crear** un usuario nuevo, el rol que se elegía podía perderse: el usuario quedaba como
+> **conductor** y al entrar abría en la pantalla de **Surtir ⛽**, como si fuera chofer. Entrando
+> otra vez al usuario y **cambiándole el rol sí funcionaba** — por eso parecía un capricho.
+>
+> No era capricho: crear y editar seguían caminos distintos, y el de crear tenía una lista de
+> roles que se había quedado vieja. Cualquier rol que esa lista no reconociera se cambiaba por
+> "conductor" **sin avisar**. Le pasó dos veces al mismo tipo de rol: primero a **Coordinador de
+> Patio** y luego a **Coordinador de Inspectores**.
+>
+> **Ya no pasa: el rol que eliges es el que queda.** Y si por lo que sea no se pudiera fijar, la
+> pantalla ahora **te lo dice** en vez de callarse, avisando que el usuario **sí se creó** (para
+> que no lo intentes otra vez y choques con un usuario repetido).
+>
+> *(Requiere haber corrido `supabase/rol_coordinador_inspectores_enum.sql`. Ese archivo trae
+> primero un bloque que solo lee y te dice si hace falta o no.)*
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
 **✏️ Edición masiva (21-ago-2026):** en Usuarios, toca **"✏️ Edición masiva → Abrir"** para
@@ -2618,7 +2672,15 @@ Módulo **aislado** para el personal de **lavado**: registra qué máquinas se l
 
 ---
 
-## 4.25. Notas técnicas (para quien administra el proyecto)
+## 4.25. Notas técnicas
+
+> ⚠️ **Esto NO es para el usuario final.** Son notas de desarrollo fechadas que quedaron dentro
+> de un manual escrito para que cualquiera lo entienda. Si buscas cómo usar el sistema, salta esta
+> sección entera.
+>
+> 📌 **El SQL pendiente ya no se lleva aquí.** La lista buena y única está en
+> **`supabase/PENDIENTES.md`**. Cualquier mención de «correr esto una vez» que encuentres suelta en
+> este manual puede estar caducada; aquel archivo manda. (para quien administra el proyecto)
 
 Pendientes que requieren una acción **manual** (fuera del código) para que algunas funciones nuevas
 queden 100% operativas:
@@ -3041,9 +3103,15 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 > sistema — quedan solo dentro de mangueras. Al guardar, el sistema
 > crea sola una **cuenta por cobrar** a esa empresa por **costo + margen**, visible en
 > **Compras → 💰 Por cobrar**. Queda sincronizada con la manguera (si cambia el costo/margen se
-> ajusta el monto). **Excepción CHELI:** si el encargado es **CHELI** (marcado "no cobrar" en el
-> catálogo de encargados), **NO se genera** cuenta por cobrar. Los campos aplican también a las
-> mangueras **externas**.
+> ajusta el monto). Los campos aplican también a las mangueras **externas**.
+>
+> ⚠️ **SI LEISTE ESTE MANUAL ANTES, ESTO CAMBIÓ (23/08/2026).** Hasta esa fecha había una
+> **excepción con CHELI**: sus mangueras no generaban cuenta por cobrar, porque el encargado
+> estaba marcado "no cobrar" en el catálogo. **Eso se acabó. Hoy TODOS los encargados generan
+> cuenta por cobrar, CHELI incluido.** Basta con que la manguera tenga **empresa** y
+> **encargado**; el flag "cobrar" ya no se mira. Si venías sin revisar los cobros de CHELI,
+> revísalos: ahora están ahí. *(Lo aplica `supabase/mangueras_cobrar_todos_encargados.sql`, que
+> además creó hacia atrás las cuentas que faltaban. Si no se ha corrido, hay que correrlo.)*
 > - 🧾 **Recibo de cobro (PDF):** cuando la manguera es cobrable, su tarjeta muestra el botón
 >   **"🧾 Recibo de cobro"**, que descarga un recibo imprimible con la **máquina** a la que se le
 >   hizo el cambio de manguera (código + serial, o el cliente externo), la empresa, el encargado, el
@@ -3635,7 +3703,7 @@ igual (agrupa por cuenta) y rotula el grupo con la forma **más usada**.
 
 Es la **libreta de deudas** de la empresa. Compras te dice **qué se compró**; esta sección te dice
 **qué se debe** y **qué te deben**, con su **fecha de vencimiento** y su **saldo**. Se entra por
-*Compras → pestañas 💸 **Por pagar** y 💰 **Por cobrar***, junto a Solicitudes, Órdenes,
+*Compras → pestañas 💸 **Por pagar** y 💰 **Por cobrar***, junto a Requerimiento, 🛒 Compras directas, Órdenes,
 Proveedores y Resumen.
 
 **Dos pestañas arriba:**

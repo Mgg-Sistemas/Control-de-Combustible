@@ -1,5 +1,9 @@
 # Requisitos del Sistema — Control de Combustible
 
+> ⚠️ **DOCUMENTO HISTÓRICO — revisado el 28/08/2026.** Declara «fuera de alcance» cosas que hoy
+> están **en producción**: Compras y órdenes, pagos a proveedores, cuentas por pagar/cobrar y el
+> mantenimiento de maquinaria. El alcance real son **35 módulos** (ver `src/lib/permissions.ts`).
+
 | Campo | Valor |
 |---|---|
 | Proyecto | Control de Combustible |

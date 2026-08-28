@@ -56,8 +56,18 @@ Deno.serve(async (req) => {
     if (String(password).length < 6) {
       return json({ error: 'La contraseña debe tener al menos 6 caracteres' }, 400);
     }
-    const allowed = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
-    const finalRole = allowed.includes(role) ? role : 'conductor';
+    // ⚠️ ESTA LISTA SE QUEDA ATRÁS Y NADIE SE ENTERA. Ya pasó dos veces: con
+    //    'coordinador_patio' (jul-2026) y con 'coordinador_inspectores'
+    //    (ago-2026, commit 04cafb88, que agregó el rol al front pero no acá).
+    //    Cuando eso ocurre, el rol elegido se degrada A 'conductor' y el usuario
+    //    nuevo abre en la pantalla de Surtir ⛽ como si fuera chofer.
+    //
+    //    Si agregas un rol en `src/lib/permissions.ts` o en `src/types/database.ts`,
+    //    AGRÉGALO TAMBIÉN AQUÍ — y acuérdate de que esta función NO se publica con
+    //    el CI: hay que correr `supabase functions deploy admin-create-user`.
+    const allowed = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio', 'coordinador_inspectores'];
+    const degradado = !allowed.includes(role);
+    const finalRole = degradado ? 'conductor' : role;
     const fullName = `${first_name.trim()} ${last_name.trim()}`;
     const email = `${slug(first_name)}.${slug(last_name)}@combustible.app`;
 
@@ -78,12 +88,27 @@ Deno.serve(async (req) => {
     }
 
     // 4) Asignar rol y nombre en el perfil
-    await admin
+    //
+    // ⚠️ ESTE ERROR ANTES SE TRAGABA. Si el UPDATE falla —por ejemplo porque el
+    //    enum `user_role` de la base todavía no tiene el rol nuevo—, el perfil se
+    //    queda con el 'conductor' que le pone el trigger `handle_new_user`, y el
+    //    síntoma es idéntico al de la lista blanca desactualizada pero con la
+    //    causa escondida. Ahora se devuelve, para que la pantalla lo pueda decir.
+    const { error: upErr } = await admin
       .from('profiles')
       .update({ role: finalRole, full_name: fullName, cedula: (cedula ?? '').toString().trim() || null })
       .eq('id', created.user.id);
 
-    return json({ ok: true, id: created.user.id, email, role: finalRole });
+    return json({
+      ok: true,
+      id: created.user.id,
+      email,
+      role: upErr ? 'conductor' : finalRole,
+      // La pantalla ya reenvía el rol por su cuenta, así que esto es un aviso,
+      // no un fallo: el usuario SÍ quedó creado.
+      ...(upErr ? { warn: `No se pudo fijar el rol en el perfil: ${upErr.message}` } : {}),
+      ...(degradado ? { warn_role: `El rol "${role}" no está en la lista de esta función; se usó "conductor". Actualiza \`allowed\` y vuelve a desplegarla.` } : {}),
+    });
   } catch (e) {
     return json({ error: String((e as Error)?.message ?? e) }, 500);
   }
