@@ -7,6 +7,7 @@ import { nameToEmail, validateName } from '../lib/username';
 import { UserRole, AppRole } from '../types/database';
 import { PermLevel, defaultLevel, maxLevel, MODULE_HEREDA_DE } from '../lib/permissions';
 import { logAudit } from '../lib/audit';
+import { clavesAProbar } from '../lib/password';
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -284,7 +285,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const v = validateName(firstName, lastName);
     if (v) return { error: v };
     const email = nameToEmail(firstName, lastName);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await intentarEntrar(email, password);
     if (error) {
       return {
         error:
@@ -296,6 +297,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logAudit('LOGIN', 'profiles', data.user?.id ?? null); // bitácora: inició sesión
     setLocked(false);
     return {};
+  };
+
+  /**
+   * ⭐ EL INTENTO DE ENTRADA, CON EL PUENTE DE LAS CLAVES VIEJAS.
+   *
+   * Desde el 27-ago-2026 las contraseñas se guardan en MAYÚSCULA (regla del
+   * cliente). Pero las que ya existían están cifradas y NO se pueden reescribir,
+   * así que muchas siguen teniendo minúsculas. Por eso se prueba primero la
+   * versión en mayúscula y, solo si esa falla y la persona escribió minúsculas,
+   * se reintenta TAL CUAL lo tecleó. Ver `src/lib/password.ts`.
+   *
+   * ⚠️ EL REINTENTO NO PUEDE GASTAR UN INTENTO DEL BLOQUEO. El contador de los
+   *    3 fallos lo lleva la app llamando a `register_failed_login*`, y esa
+   *    llamada se hace FUERA de aquí, una sola vez, cuando ya fallaron todas
+   *    las opciones. Si se registrara por cada opción, la gente con clave vieja
+   *    se bloquearía al primer error de tecleo en vez de al tercero.
+   */
+  const intentarEntrar = async (email: string, password: string) => {
+    const opciones = clavesAProbar(password);
+    let ultimo: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>> | null = null;
+    for (const clave of opciones) {
+      const r = await supabase.auth.signInWithPassword({ email, password: clave });
+      if (!r.error) return r;                       // entró
+      ultimo = r;
+      // Si el fallo NO es de credenciales (red, servidor, límite de peticiones),
+      // no tiene sentido reintentar con otra clave: se devuelve tal cual.
+      if (!r.error.message.toLowerCase().includes('invalid')) return r;
+    }
+    return ultimo!;
   };
 
   // Inicio de sesión BLINDADO: por CÉDULA + contraseña. La cédula se traduce al
@@ -312,7 +342,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const email = status?.email;
     if (!email) return { error: 'Pídele al administrador de sistemas que agregue la CÉDULA para poder ingresar.' };
     if (status?.locked) return { error: '🔒 Usuario BLOQUEADO por intentos fallidos. Pídele al administrador de sistemas que lo desbloquee.' };
-    const { data, error } = await supabase.auth.signInWithPassword({ email: String(email), password });
+    const { data, error } = await intentarEntrar(String(email), password);
     if (error) {
       const invalid = error.message.toLowerCase().includes('invalid');
       if (!invalid) return { error: error.message };
@@ -343,7 +373,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const email = status?.email;
     if (!email) return { error: 'Usuario no registrado. Pídele al administrador de sistemas que te cree un usuario.' };
     if (status?.locked) return { error: '🔒 Usuario BLOQUEADO por intentos fallidos. Pídele al administrador de sistemas que lo desbloquee.' };
-    const { data, error } = await supabase.auth.signInWithPassword({ email: String(email), password });
+    const { data, error } = await intentarEntrar(String(email), password);
     if (error) {
       const invalid = error.message.toLowerCase().includes('invalid');
       if (!invalid) return { error: error.message };
