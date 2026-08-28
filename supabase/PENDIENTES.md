@@ -44,24 +44,20 @@ where table_schema = 'public' and table_name = 'machine_rounds'
 
 ## 🟠 De los arreglos del 27/08/2026
 
-### `rol_coordinador_inspectores_enum.sql`
+### `rol_coordinador_inspectores_enum.sql` ✅ CORRIDO Y VERIFICADO — 28/08/2026
 
-Registra `coordinador_inspectores` en el enum `user_role`. Mitad del arreglo del bug «elijo un rol
-al crear y me lo deja en otro».
+El cliente lo corrió y el bloque 3 devolvió **`quedo_registrado = true`**, con los ocho roles en el
+enum: `admin, supervisor, operador, conductor, analista, cocina, coordinador_patio,
+coordinador_inspectores`. Cotejados contra las tres listas del código (`UsersScreen.ROLES`, el
+`allowed` de la Edge Function y el tipo `UserRole`): **las cuatro coinciden**.
 
-**Probablemente ya esté** (si editando a un usuario se le puede poner ese rol, es que el valor
-existe). El archivo trae un bloque 1 que solo lee y te lo dice.
-
-```sql
-select exists (select 1 from pg_enum
-  where enumtypid = 'public.user_role'::regtype
-    and enumlabel = 'coordinador_inspectores') as ya_esta;
-```
-
-> **La otra mitad no es SQL:** la Edge Function hay que desplegarla aparte, y **el CI no lo hace**:
+> **Queda una cosa, y NO es SQL.** La Edge Function que crea usuarios sigue sin desplegar, y **el
+> CI no la publica**:
 > ```bash
 > supabase functions deploy admin-create-user
 > ```
+> No es urgente: la pantalla ya reenvía el rol después de crear, así que el bug está tapado
+> aunque la función desplegada siga siendo la vieja. Desplegarla cierra la causa de raíz.
 
 ---
 
@@ -116,6 +112,7 @@ También: la definición de `truck_yard_logs` **solo existe en producción**
 
 | Archivo | Cuándo |
 |---|---|
+| `rol_coordinador_inspectores_enum.sql` | **28/08/2026** — `quedo_registrado = true`, 8 roles en el enum |
 | `servicio_editar.sql` | 26/08/2026 — verificación 7/7 en verde |
 | `vaciar_obras_publicas.sql` | semana del 14/08 |
 | `expira_paradas_no_trabajo_al_cerrar_turno.sql` | semana del 14/08 |
