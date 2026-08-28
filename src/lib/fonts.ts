@@ -12,10 +12,27 @@
 // placeholders sí se ven en mayúscula.
 //
 // En NATIVO usamos Text.defaultProps como mejor esfuerzo (no lanza error);
-// TextInput es otro componente, por eso las contraseñas no se ven afectadas.
+// TextInput es otro componente, así que en el teléfono nada de esto lo alcanza.
+//
+// ⚠️ EN LA WEB SÍ LO ALCANZA. Aquí `TextInput` se renderiza como un <input> de
+//    verdad, y por eso hizo falta la excepción [data-pass] de más abajo. El
+//    comentario que antes decía que "las contraseñas no se ven afectadas" era
+//    cierto en nativo y falso en la web, que es donde estaba el bug.
 import { Platform, Text } from 'react-native';
 
 export const FONT_FAMILY = 'Tahoma, Geneva, Verdana, sans-serif';
+
+/**
+ * Props a esparcir en TODO campo de CONTRASEÑA:  <TextInput {...passField} … />
+ *
+ * Marca el <input> con `data-pass` para que la regla CSS de abajo lo deje en paz
+ * aunque el usuario pulse el 👁 y deje de ser type="password". En nativo no hace
+ * nada, porque allí no hay CSS que estorbe.
+ *
+ * Mismo patrón que `figFont` en ./figFont — va tipado `any` porque `dataSet` es
+ * una extensión de react-native-web que no está en los tipos de React Native.
+ */
+export const passField: any = Platform.OS === 'web' ? { dataSet: { pass: '1' } } : {};
 
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
   const style = document.createElement('style');
@@ -26,7 +43,28 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
     // Al ESCRIBIR también se ve en MAYÚSCULA (input/textarea), como pidió el cliente.
     ` input, textarea { text-transform: uppercase !important; }` +
     // EXCEPCIÓN: las CONTRASEÑAS nunca se transforman (deben respetar mayús/minús).
-    ` input[type="password"] { text-transform: none !important; }` +
+    //
+    // ⭐⭐ EL `[data-pass]` NO ES UN ADORNO — ARREGLA EL BUG DE LOGIN DEL 27-ago-2026.
+    //
+    //    `input[type="password"]` SOLO alcanza mientras la contraseña está oculta.
+    //    Todos los campos de clave de la app tienen un ojito 👁 para revelarla, y
+    //    react-native-web implementa eso cambiando el input a type="text". En ese
+    //    instante esta excepción deja de aplicar, la regla de arriba lo pinta EN
+    //    MAYÚSCULA... y el valor que se envía sigue en minúscula, porque
+    //    text-transform es puramente visual y jamás toca `input.value`.
+    //
+    //    Consecuencia real: el administrador creaba la clave "Sos2026", pulsaba el
+    //    ojo para leerla, la pantalla le mostraba "SOS2026", y eso era lo que
+    //    dictaba. El trabajador tecleaba SOS2026 contra el hash de Sos2026 y el
+    //    sistema le decía "contraseña incorrecta". Parecía intermitente porque
+    //    solo fallaba si alguien revelaba la clave Y la clave tenía minúsculas;
+    //    restablecerla lo "arreglaba" porque volvía a alinear el par.
+    //
+    //    Por eso cada campo de contraseña se marca con dataSet={{ pass: '1' }},
+    //    que react-native-web emite como data-pass y sobrevive al cambio de type.
+    //    Hay una prueba que exige la marca en TODO campo con secureTextEntry:
+    //    scripts/test-password-mayusculas.mjs
+    ` input[type="password"], input[data-pass] { text-transform: none !important; }` +
     ` input::placeholder, textarea::placeholder { text-transform: uppercase; }`;
   document.head.appendChild(style);
 

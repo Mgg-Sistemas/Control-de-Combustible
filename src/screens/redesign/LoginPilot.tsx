@@ -15,6 +15,7 @@ import { EyeIcon } from '../../components/EyeIcon';
 import { COMPANY_NAME } from '../../lib/company';
 import { spacing, radius, AppColors } from '../../theme';
 import { useTheme } from '../../theme/ThemeContext';
+import { passField } from '../../lib/fonts';
 
 /**
  * PILOTO DE REDISEÑO — Sesión (login). Misma lógica que LoginScreen: usa los MISMOS
@@ -80,6 +81,9 @@ export default function LoginPilot() {
               placeholder="Contraseña"
               placeholderTextColor={colors.muted}
               secureTextEntry={!showPass}
+              // Al pulsar 👁 esto deja de ser type="password"; la marca es lo
+              // único que impide que se vea en MAYÚSCULA. Ver src/lib/fonts.ts.
+              {...passField}
               value={password}
               onChangeText={setPassword}
               autoCapitalize="none"

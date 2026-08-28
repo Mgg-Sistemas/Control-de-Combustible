@@ -21,6 +21,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BulkPermissionsModal } from '../components/BulkPermissionsModal';
 import { useToast } from '../components/ToastProvider';
+import { passField } from '../lib/fonts';
 import {
   CompanyScopeRow,
   MachineScopeRow,
@@ -627,9 +628,37 @@ function NewUserForm({
       setSaving(false);
       return;
     }
-    // Respaldo: fijamos cédula/usuario y el rol personalizado por el id devuelto.
+    // Respaldo: fijamos cédula/usuario, el rol personalizado y EL ROL BASE.
+    //
+    // ⭐ POR QUÉ SE REENVÍA `role` (arreglo del 27-ago-2026).
+    //    La Edge Function `admin-create-user` filtra el rol contra una lista
+    //    blanca suya y, si no lo reconoce, lo degrada A 'conductor' EN SILENCIO,
+    //    sin devolver error. Esa lista se quedó atrás dos veces (con
+    //    'coordinador_patio' en julio y con 'coordinador_inspectores' en agosto),
+    //    y el resultado era este: elegías un rol, el usuario se creaba como
+    //    conductor y abría en la pantalla de Surtir ⛽. Editarlo después sí
+    //    funcionaba, porque ese camino escribe directo en `profiles` sin pasar
+    //    por la función.
+    //
+    //    Reenviarlo acá arregla el bug SIN redesplegar la Edge Function, que es
+    //    un paso aparte que el CI no hace. Es seguro en los dos casos: con un rol
+    //    base manda el que se eligió, y con un rol PERSONALIZADO manda
+    //    'conductor', que es justo lo que `baseRole` vale a propósito (ver arriba).
     const newId = (data as any)?.id ?? (data as any)?.user?.id;
-    if (newId) { await supabase.from('profiles').update({ cedula: ci || null, username: un, app_role_id: appRoleId }).eq('id', newId); }
+    if (newId) {
+      const { error: e2 } = await supabase.from('profiles')
+        .update({ cedula: ci || null, username: un, app_role_id: appRoleId, role: baseRole })
+        .eq('id', newId);
+      // Antes esto se ignoraba: si fallaba, el usuario quedaba creado con el rol
+      // equivocado y nadie se enteraba. Ahora se dice, y se dice que YA existe,
+      // para que no se intente crearlo otra vez y choque con el usuario duplicado.
+      if (e2) {
+        setError(`El usuario se creó, pero no se pudo fijar su rol: ${e2.message}. Ciérralo y corrígeselo desde la lista.`);
+        setSaving(false);
+        onSaved();
+        return;
+      }
+    }
     setSaving(false);
     reset();
     onSaved();
@@ -647,7 +676,7 @@ function NewUserForm({
             <TextInput style={styles.input} placeholder="Cédula (opcional, única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
             <TextInput style={styles.input} placeholder="Usuario (para entrar · máx 10)" placeholderTextColor={colors.muted} value={username} onChangeText={(t) => setUsername(t.replace(/\s/g, '').slice(0, 10))} maxLength={10} autoCapitalize="none" autoCorrect={false} />
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Contraseña (mín. 6)" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Contraseña (mín. 6)" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} {...passField} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
               <TouchableOpacity onPress={() => setShowPass((v) => !v)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{showPass ? '🙈 Ocultar' : '👁 Ver'}</Text>
               </TouchableOpacity>
@@ -1072,7 +1101,7 @@ function EditUserForm({
             <TextInput style={styles.input} placeholder="Usuario (único)" placeholderTextColor={colors.muted} value={username} onChangeText={(t) => setUsername(t.replace(/\s/g, '').slice(0, 10))} maxLength={10} autoCapitalize="none" autoCorrect={false} />
             <Text style={typography.muted}>Nueva contraseña (opcional)</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Dejar vacío para no cambiar" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Dejar vacío para no cambiar" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} {...passField} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
               <TouchableOpacity onPress={() => setShowPass((v) => !v)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{showPass ? '🙈' : '👁'}</Text>
               </TouchableOpacity>

@@ -35,6 +35,7 @@ import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
 import { generateMyShiftReceipt } from '../lib/inspectorReport';
+import { isPhoneDevice } from '../lib/device';
 import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
 import InspectorKpiGrid from '../components/redesign/InspectorKpiGrid';
@@ -199,6 +200,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // máquina de otro y cualquier turno. La atribución sigue siendo del inspector dueño
   // de la máquina (así se le "marca" a él); queda traza de que lo registró el coordinador.
   const esCoordInsp = role === 'coordinador_inspectores';
+  // ¿Esta sesión corre en un TELÉFONO? Se calcula una sola vez: el aparato no cambia
+  // a media sesión. Es el mismo mecanismo que usa la navegación (src/navigation),
+  // y el único del proyecto: `Platform.OS === 'web'` NO sirve para esto, porque un
+  // inspector entrando a soslaguaira.com desde su celular también es 'web'.
+  const esTelefono = useMemo(() => isPhoneDevice(), []);
   // Coordinador de inspectores por ROL fijo O por PERMISO de módulo (sin contar admin).
   // Se usa para la TRAZA "registrado por coordinador" y, vía puedeCoordinar, para
   // desbloquear las acciones sobre máquina ajena (antes solo el rol las desbloqueaba,
@@ -1316,7 +1322,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // que un inspector no podía sacar el de ayer, ni revisar el de hoy a media jornada).
   // Lo único que hace falta es tener turno fijo: `generateMyShiftReceipt` busca por
   // nombre + turno, sin turno no hay a quién buscarle nada.
-  const puedeDescargarCierre = !!fixedShift;
+  //
+  // ⛔ MENOS EN EL TELÉFONO DEL INSPECTOR (pedido del cliente 27-ago-2026).
+  //    El inspector ya NO ve este bloque en su celular. Sigue estando en todos
+  //    los demás sitios, a propósito y sin tocar nada de ellos:
+  //      · el MISMO inspector desde una PC (esta pantalla se usa en las dos),
+  //      · el coordinador de inspectores, en teléfono y en PC,
+  //      · quien entra por el QR de una máquina con otro rol,
+  //      · y el reporte del jefe en 📄 Reportes, que es otro botón y otra pantalla.
+  //    Se apaga acá, en la condición, y NO se borra el bloque: así el día que lo
+  //    pidan de vuelta se quita esta línea y ya. Ver el JSX «📄 Mi reporte de
+  //    jornada» más abajo, que cuelga entero de esta variable.
+  const puedeDescargarCierre = !!fixedShift && !(esTelefono && role === 'supervisor');
 
   // ── Jornada que se va a imprimir (día de negocio + turno) ────────────────────
   // Arranca en la ÚLTIMA jornada del turno del inspector, que es el caso normal; se

@@ -3,6 +3,7 @@ import { Modal, View, Text, TextInput, TouchableOpacity, ScrollView, ActivityInd
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { passField } from '../lib/fonts';
 
 /**
  * Botón + modal para que CUALQUIER usuario logueado cambie su propia contraseña.
@@ -76,10 +77,10 @@ export function ChangePasswordButton({ variant = 'chip' }: { variant?: 'chip' | 
               </Text>
 
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nueva contraseña</Text>
-              <TextInput value={p1} onChangeText={setP1} secureTextEntry={!show} placeholder="Nueva contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput value={p1} onChangeText={setP1} secureTextEntry={!show} {...passField} placeholder="Nueva contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
 
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4, marginTop: spacing.sm }}>Repetir contraseña</Text>
-              <TextInput value={p2} onChangeText={setP2} secureTextEntry={!show} placeholder="Repite la contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
+              <TextInput value={p2} onChangeText={setP2} secureTextEntry={!show} {...passField} placeholder="Repite la contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
 
               <TouchableOpacity onPress={() => setShow((v) => !v)} style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{show ? '🙈 Ocultar contraseñas' : '👁️ Mostrar contraseñas'}</Text>
