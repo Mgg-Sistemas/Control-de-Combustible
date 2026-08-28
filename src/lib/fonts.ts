@@ -6,10 +6,16 @@
 // property [0] on 'CSSStyleDeclaration'") al pasar un arreglo de estilos a un
 // nodo del DOM. Con CSS global evitamos por completo ese problema.
 //
-// MAYÚSCULA: todo el texto de la UI se muestra en mayúscula, MENOS lo que se
-// escribe en campos (input/textarea) — así la CONTRASEÑA y lo tecleado nunca se
-// alteran (text-transform es solo visual, pero en un campo confundiría). Los
-// placeholders sí se ven en mayúscula.
+// MAYÚSCULA: todo el texto de la UI se muestra en mayúscula, **incluido lo que
+// se escribe en los campos** (input/textarea) y los placeholders. Lo pidió el
+// cliente y así sigue: de los 441 campos de la app, 436 se ven en mayúscula.
+//
+// La ÚNICA excepción son los 5 campos de CONTRASEÑA, que deben respetar
+// mayúsculas y minúsculas (ver la regla [data-pass] más abajo y `passField`).
+//
+// ⚠️ Este párrafo decía antes que los campos NO se transformaban. Era verdad
+//    hasta el 2-ago-2026, cuando se invirtió la regla; el comentario se quedó
+//    atrás y contribuyó a que el bug de las contraseñas tardara en verse.
 //
 // En NATIVO usamos Text.defaultProps como mejor esfuerzo (no lanza error);
 // TextInput es otro componente, así que en el teléfono nada de esto lo alcanza.
