@@ -38,9 +38,31 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 > la clave tenía minúsculas; una clave toda en mayúscula nunca dio problema. Restablecer la
 > contraseña lo "arreglaba" — pero volvía a pasar con el siguiente usuario.
 >
-> **Ya no pasa: el ojo muestra la clave exactamente como es, mayúsculas y minúsculas
-> incluidas.** Si alguien sigue sin poder entrar, ahora sí es otra cosa: revisa que no esté
-> **bloqueado** por 3 intentos fallidos (abajo).
+> **Ya no pasa.** Y ese mismo día se fue un paso más allá, que es lo que de verdad cierra el
+> problema:
+
+> 🔤 **LAS CONTRASEÑAS VAN SIEMPRE EN MAYÚSCULA (27/08/2026).** Escribas como escribas, la
+> clave **se convierte sola a MAYÚSCULA** — al crear un usuario, al cambiar la clave y al
+> entrar. Si tecleas `sos2026`, se guarda y se manda `SOS2026`.
+>
+> **Por qué así:** toda la app se escribe en mayúscula, y las contraseñas eran la única
+> excepción. Esa excepción fue justo la que causó el lío de arriba. Ahora **lo que ves es
+> exactamente lo que se guarda**, sin excepciones que recordar.
+>
+> **En la práctica:** ya no importa si la escribes con mayúsculas o sin ellas, ni si el
+> trabajador la teclea distinto de como se la dictaste. **Da igual: entra.**
+>
+> ✅ **A nadie se le queda la clave vieja sin funcionar.** Las contraseñas guardadas antes del
+> 27/08 **siguen sirviendo tal cual**. El sistema prueba primero la mayúscula y, si esa no es,
+> reintenta con lo que tecleaste. **Y ese reintento NO gasta uno de tus 3 intentos** antes del
+> bloqueo.
+>
+> El único caso que sigue sin funcionar es el mismo de siempre: una clave vieja escrita toda en
+> minúscula que se teclee toda en mayúscula. Si le pasa a alguien, restablece su clave y ya
+> queda con la regla nueva.
+
+> Si alguien sigue sin poder entrar, ahora sí es otra cosa: revisa que no esté **bloqueado** por
+> 3 intentos fallidos (abajo).
 
 > **Cuidado con los intentos:** si te equivocas de contraseña **3 veces**, el usuario se
 > **BLOQUEA** por seguridad. Solo un **administrador** puede desbloquearlo (Más → Usuarios).
