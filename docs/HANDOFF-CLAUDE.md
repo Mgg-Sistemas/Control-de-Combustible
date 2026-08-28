@@ -114,6 +114,10 @@ Prioridad: **avería > parada > iniciada > pendiente**; `finalizada` = cerrada.
 
 ## 8. SQL pendiente por correr (CRÍTICO)
 
+> ⚠️ **ESTA LISTA ESTÁ ANULADA (28/08/2026).** Había tres listas de «SQL pendiente» en tres
+> documentos distintos y se contradecían entre sí. Se unificaron en **`supabase/PENDIENTES.md`**,
+> que es la única buena. Lo de abajo se conserva como historia — **no lo sigas**.
+
 Estado de `sql-pendiente-por-correr` (memoria). Los que faltan:
 
 - 🔴 **`machine_rounds_jornada_marked_by.sql`** — URGENTE. Columna `jornada_marked_by` + recrea el RPC `upsert_machine_round`. **Bloqueante** (el cliente ya hace `select ... jornada_marked_by` en 3 sitios → sin él, error 400 rompe el panel de Inspecciones y 2 reportes).

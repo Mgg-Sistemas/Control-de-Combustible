@@ -1,5 +1,10 @@
 # SKILLS — Control de Combustible
 
+> ⚠️ **PARCIALMENTE HISTÓRICO — revisado el 28/08/2026.** Las skills que define deberían vivir en
+> `.claude/skills/<nombre>/SKILL.md`, y **ese directorio no existe**. Tampoco se adoptó la
+> convención `supabase/migrations/<timestamp>_...`: los 175 `.sql` viven sueltos en `supabase/`
+> (ver `supabase/PENDIENTES.md`).
+
 Documento de competencias y skills reutilizables para el proyecto **Control de Combustible**.
 
 - **Stack:** App móvil Expo (React Native) + TypeScript; backend Supabase (PostgreSQL, Auth, RLS, Storage).

@@ -1,5 +1,10 @@
 # Roadmap — Control de Combustible
 
+> ⚠️ **DOCUMENTO HISTÓRICO — revisado el 28/08/2026.** Se escribió el 29/06/2026 y **no se ha
+> actualizado desde entonces**. Pone en el futuro fases que llevan meses en producción (la Fase 2
+> «24-ago → 4-oct», la Fase 3 «oct-nov», el «lanzamiento v1.0 el 29/11/2026»). Sirve para ver qué
+> se planeó, **no para saber en qué va el proyecto**. Para eso: `README.md` y `AGENTS.md`.
+
 > Documento de planificación del producto. Última actualización: **2026-06-29**.
 > Stack: **Expo / React Native + TypeScript** (móvil) · **Supabase** (backend, Auth, Postgres, Storage, RLS).
 > Flujo de trabajo: **GitFlow** (`main` / `dev` / `feature/*` / `release/*` / `hotfix/*`). Equipo pequeño.

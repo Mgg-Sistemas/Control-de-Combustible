@@ -1,65 +1,121 @@
-# Despliegue web en un subdominio de GoDaddy
+# Despliegue de la web
 
-La app web de Expo es un sitio estático. La estrategia recomendada es:
-**hostear el build en Vercel (gratis) y apuntar un subdominio de GoDaddy con un registro CNAME.**
-
-> Ejemplo de subdominio: `combustible.tudominio.com`
+> **Revisado el 28/08/2026 contra lo que hay en el repositorio.**
+>
+> ⚠️ **Este documento describía un despliegue en Vercel con un CNAME de GoDaddy. Eso ya no es
+> así, y seguirlo era peligroso:** habría levantado un sitio paralelo y tocado el DNS de
+> producción. Se reescribió con la cadena real. Lo de Vercel/Netlify se conserva al final, pero
+> marcado como histórico.
 
 ---
 
-## Opción A — Vercel (recomendada, con deploy automático desde GitHub)
+## Lo que pasa hoy, en una frase
 
-### 1. Generar el build localmente (opcional, para probar)
+**Subes código a `main` → GitHub Actions compila la web en la nube y commitea `dist/` de vuelta
+al repo → DigitalOcean sirve esa carpeta.** El sitio es **https://soslaguaira.com**.
+
+**Nadie tiene que compilar en su PC.** Es todo automático.
+
+---
+
+## La cadena completa
+
+| Paso | Quién lo hace | Dónde está definido |
+|---|---|---|
+| 1. Llega un push a `main` | — | — |
+| 2. Se compila `npx expo export -p web` en un runner de Ubuntu | **GitHub Actions** | `.github/workflows/deploy-web.yml` |
+| 3. Se escribe `dist/version.json` con el SHA del commit | GitHub Actions | mismo archivo |
+| 4. Se inyectan los íconos de alta resolución en `index.html` | GitHub Actions | mismo archivo |
+| 5. Se commitea `dist/` de vuelta a `main` | GitHub Actions | necesita `permissions: contents: write` |
+| 6. Se detecta el push y se publica la carpeta | **DigitalOcean App Platform** | `.do/app.yaml` (`deploy_on_push: true`) |
+
+DigitalOcean **no recompila nada**: sirve `dist/` tal cual (`output_dir: dist`, sin
+`build_command`), con `catchall_document: index.html` para que la app de una sola página resuelva
+todas sus rutas.
+
+### Dos detalles que evitan problemas conocidos
+
+- **`paths-ignore: dist/**`** — sin esto, el commit que hace el propio robot dispararía otro
+  build, y otro, en bucle.
+- **`cancel-in-progress: false`** — cuando dos personas suben cambios seguidos, los builds se
+  **encolan** en vez de cancelarse. Antes cada push cancelaba al anterior y no terminaba ninguno.
+
+---
+
+## Los secretos
+
+Están en **GitHub → Settings → Secrets and variables → Actions**, no en el panel de DigitalOcean
+y no en el repositorio:
+
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+
+Quedan **incrustados en el bundle** al compilar. Por eso son la *anon key* y no la de servicio:
+lo que va en `dist/` es público por definición.
+
+---
+
+## Compilar a mano (rara vez hace falta)
+
+Existe `npm run deploy` (`scripts/deploy.mjs`), que compila en tu PC y commitea `dist/`. **Era el
+método anterior.** Hoy solo sirve para publicar de urgencia si GitHub Actions está caído.
+
 ```powershell
-npx expo export -p web
-```
-Esto crea la carpeta `dist/` con el sitio estático. Para previsualizar:
-```powershell
-npx serve dist
+npm run build:web    # solo compila, deja dist/ y no commitea
+npm run deploy       # compila y commitea dist/
 ```
 
-### 2. Conectar el repo a Vercel
-1. Entra a [vercel.com](https://vercel.com) e inicia sesión con GitHub.
-2. **Add New → Project** → importa `Mgg-Sistemas/Control-de-Combustible`.
-3. Vercel detectará `vercel.json`. Si pide configuración manual:
-   - **Build Command:** `npx expo export -p web`
-   - **Output Directory:** `dist`
-4. **Environment Variables** (¡importante! el `.env` no se sube al repo). Agrega:
-   - `EXPO_PUBLIC_SUPABASE_URL` = `https://ddcwqmuqdqnsrtpticpx.supabase.co`
-   - `EXPO_PUBLIC_SUPABASE_ANON_KEY` = (tu anon key)
-5. **Deploy**. Te dará una URL tipo `control-de-combustible.vercel.app`.
+> ⚠️ Si compilas en tu PC, el bundle se lleva las variables de **tu `.env` local**. Comprueba que
+> apunten a producción antes de publicar.
 
-### 3. Agregar tu subdominio en Vercel
-1. En el proyecto → **Settings → Domains**.
-2. Escribe `combustible.tudominio.com` → **Add**.
-3. Vercel te mostrará el valor CNAME a usar (normalmente `cname.vercel-dns.com`).
-
-### 4. Configurar el DNS en GoDaddy
-1. Entra a [godaddy.com](https://godaddy.com) → **My Products → Domains → DNS** del dominio.
-2. **Add New Record:**
-   | Campo | Valor |
-   |---|---|
-   | **Type** | `CNAME` |
-   | **Name (Host)** | `combustible`  *(solo el subdominio, sin el dominio)* |
-   | **Value / Points to** | `cname.vercel-dns.com`  *(el que indique Vercel)* |
-   | **TTL** | `1 Hour` (o el menor disponible) |
-3. **Save**. La propagación DNS tarda de minutos hasta ~1 hora.
-4. Vuelve a Vercel → Domains; cuando verifique, emite el certificado **HTTPS** automáticamente.
-
-✅ Listo: la app quedará en `https://combustible.tudominio.com`.
+Las cabeceras de `.do/app.yaml` y `scripts/deploy.mjs` todavía describen ese método manual como
+si fuera el vigente. **Manda este documento.**
 
 ---
 
-## Opción B — Netlify (alternativa equivalente)
-- Build command `npx expo export -p web`, publish directory `dist`.
-- Mismas variables `EXPO_PUBLIC_*`.
-- En GoDaddy, CNAME del subdominio → el host que te dé Netlify (`tu-sitio.netlify.app`).
+## Cómo saber si un despliegue salió
+
+1. **GitHub → pestaña Actions** → el job *"Compilar web (DigitalOcean)"* en verde.
+2. **DigitalOcean → App Platform** → el despliegue más reciente en *Deployed*.
+3. En el navegador, `https://soslaguaira.com/version.json` devuelve el SHA del commit publicado.
+   La app compara ese valor con el que trae incrustado para avisarle al usuario que hay versión
+   nueva.
+
+Si Actions está en verde pero el sitio sigue viejo, el problema está entre los pasos 5 y 6:
+mira si el commit de `dist/` llegó a `main`.
 
 ---
 
-## Notas
-- **Subdominio = CNAME.** Solo el dominio raíz (`tudominio.com`) necesitaría registro `A`; un subdominio siempre usa `CNAME`.
-- Si el subdominio ya existía con otro registro, edítalo en vez de duplicarlo.
-- Cada `git push` a la rama conectada **redepliega** automáticamente.
-- Las variables `EXPO_PUBLIC_*` se definen en el panel del hosting, **no** en el repo.
-- Esto publica la versión **web**. Para las apps nativas de **iOS/Android** se usa EAS Build (`eas build`) y las tiendas — es un flujo aparte.
+## Lo que este flujo **no** cubre
+
+- **Las Edge Functions de Supabase.** No se despliegan con el CI. Hay que correr a mano:
+  ```bash
+  supabase functions deploy admin-create-user
+  supabase functions deploy admin-manage-user
+  ```
+  Olvidarlo ya causó un bug real: el rol elegido al crear un usuario se perdía (ver el manual,
+  §4.13, y `supabase/rol_coordinador_inspectores_enum.sql`).
+- **El SQL.** Ningún `.sql` de `supabase/` se aplica solo. Se corren a mano en el editor SQL de
+  Supabase. Editar el archivo **no lo aplica**.
+- **Las apps nativas de iOS/Android.** Eso es EAS Build (`eas build`) y las tiendas; flujo aparte
+  y hoy no configurado (`eas.json` no existe).
+
+---
+
+## Histórico — Vercel / Netlify (ya no se usa)
+
+> Se conserva por si alguna vez hace falta un espejo. **`vercel.json` sigue en la raíz del
+> repositorio pero no lo usa nadie**: puede borrarse.
+
+La app web de Expo es un sitio estático, así que cualquier hosting estático sirve:
+
+- **Build command:** `npx expo export -p web`
+- **Output directory:** `dist`
+- **Variables:** `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` en el panel del
+  hosting, nunca en el repo.
+- **Dominio:** un subdominio se apunta con un registro **CNAME** al host que dé el proveedor
+  (`cname.vercel-dns.com`, `tu-sitio.netlify.app`…). Solo el dominio raíz necesitaría un
+  registro `A`.
+
+⚠️ **No montes esto en paralelo al despliegue real sin hablarlo antes.** Dos sitios sirviendo la
+misma app contra la misma base de datos es una fuente de confusión garantizada.
