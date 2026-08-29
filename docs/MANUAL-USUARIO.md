@@ -652,6 +652,23 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 >   salen en ninguno de los dos filtros, solo en **"Todos"**. Fijado con prueba automática
 >   (`npm run test:pagos`).
 
+> **🏢 PESTAÑAS CARBOZULIA Y SEGURIDAD EN EL PERÍODO (29-ago-2026).** Junto a *Activos*, *Todos*
+> e *Inactivos/Desincorporados* hay dos pestañas más: **Carbozulia** y **Seguridad**. Sirven para
+> ver y **exportar a Excel** a esa gente aparte, sin tener que buscarlos uno por uno.
+>
+> Se reconocen por lo que ya está en la ficha, igual que en **Empleados**: **Carbozulia** por su
+> **"Empresa filtro nómina"** y **Seguridad** por el **cargo SEGURIDAD**.
+>
+> ⚠️ **Ojo con una diferencia a propósito frente a Empleados.** Allá esa gente **sale** de *Todos*
+> y *Activos*; **aquí no**: siguen contando en las tres pestañas de siempre y las dos nuevas son
+> solo un **atajo para filtrarlos**. El motivo es que **todos los períodos mezclan a los tres
+> grupos** — por ejemplo *"Carbozulia semana 4 de agosto"* son **22** de Carbozulia + **16** de
+> Seguridad + **181** del resto — y el **TOTAL DEL PERÍODO** que se ve arriba los incluye a todos.
+> Si se escondieran, la lista dejaría de cuadrar con el monto y parecería un error de pago.
+>
+> El nombre del período es solo una **etiqueta**: que se llame "Carbozulia" no quiere decir que
+> adentro solo haya gente de Carbozulia.
+
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
 > ("manual")) junto al botón **"🔄 Actualizar tasa BCV"**, que refresca la tasa oficial desde
