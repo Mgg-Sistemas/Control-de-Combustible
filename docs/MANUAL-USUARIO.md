@@ -968,6 +968,30 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > filtro de una vez, sin recargar. Las que salen con **"· 0"** ya existen pero todavía no tienen a
 > nadie asignado: recién creada, es lo normal.
 
+> **🏢 CARBOZULIA Y SEGURIDAD TIENEN SU PROPIA PESTAÑA (29-ago-2026).** En la línea de **Estado**
+> hay dos chips nuevos al final: **Carbozulia** y **Seguridad**. Esa gente **ya no se mezcla** con
+> el resto de la plantilla: **no** aparece ni se cuenta en **Todos**, **Activos**, **Inactivos** ni
+> **Otro**. Para verlos hay que tocar su chip.
+>
+> **De dónde sale la separación** — de lo que ya está en la ficha, no hay campo nuevo que llenar:
+>
+> - **Carbozulia** → los que tienen esa **empresa filtro nómina**.
+> - **Seguridad** → los que tienen **SEGURIDAD** como **cargo**.
+>
+> Si alguien estuviera en los dos (hoy no pasa), manda **Carbozulia**: la empresa que paga pesa más
+> que el cargo, y así nadie sale contado dos veces.
+>
+> **Cómo cambió el conteo:** *Todos* pasó de **338** a **282** y *Activos* de **237** a **181**;
+> *Inactivos* (61) y *Otro* (40) quedan igual. Los que salieron están en **Carbozulia · 40** y
+> **Seguridad · 16**. Sumando las pestañas sigue dando la plantilla completa: 282 + 40 + 16 = 338.
+>
+> **Para mover a alguien de pestaña** se le cambia la ficha: ✎ Editar → **"🏢 Empresa filtro
+> nómina"** (para Carbozulia) o el campo **Cargo** (para Seguridad). No hay que pedir nada al
+> sistema, el chip se recalcula solo.
+>
+> El **📊 Reporte** respeta la pestaña que tengas puesta: si estás en *Carbozulia*, sale con esa
+> gente y el encabezado lo dice.
+
 > **🐞 ARREGLADO 21/08/2026.** Al crear una empresa nueva, el chip salía rotulado **"Empresa"** en
 > vez del nombre escrito, y solo se corregía recargando la app entera: la pantalla releía los
 > empleados pero **no** la lista de empresas de nómina. Ahora relee las dos. Además:
