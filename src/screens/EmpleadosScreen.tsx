@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { coincideEmpleado } from '../lib/empleadosBuscar';
 import { canonicalCargo } from '../lib/cargos';
+import { grupoApartado, pasaFiltroEstado, FiltroEstado } from '../lib/nominaGrupos';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
@@ -95,7 +96,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const { data: payrollCompanies, refetch: refetchPayroll } = useTable<{ id: string; name: string; active?: boolean }>('payroll_companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo' | 'otro'>('todos'); // estado del empleado
+  const [statusFilter, setStatusFilter] = useState<FiltroEstado>('todos'); // estado del empleado (+ grupos apartados)
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
   const [cargoQ, setCargoQ] = useState(''); // buscador dentro de la lista de cargos
@@ -126,13 +127,14 @@ export default function EmpleadosScreen({ navigation }: any) {
   const estadoDe = (e: Employee) => (e.status || '').toLowerCase();
   const esActivo = (e: Employee) => estadoDe(e) === 'activo';
   const esOtro = (e: Employee) => estadoDe(e) === 'otro';
+  // GRUPO APARTADO del empleado (CARBOZULIA / SEGURIDAD) o null si va en las
+  // pestañas normales. Se decide con lo YA registrado en su ficha: la empresa
+  // filtro de nómina y el cargo. Ver `src/lib/nominaGrupos.ts`.
+  const grupoDe = (e: Employee) => grupoApartado(nominaName((e as any).payroll_company_id), e.cargo);
   // ¿El empleado pasa el filtro de estado elegido? "Inactivos" = ni activo ni "otro"
-  // (inactivo/suspendido); "Otro" tiene su propio chip.
-  const pasaEstado = (e: Employee) =>
-    statusFilter === 'todos' ? true
-    : statusFilter === 'activo' ? esActivo(e)
-    : statusFilter === 'otro' ? esOtro(e)
-    : (!esActivo(e) && !esOtro(e)); // inactivo
+  // (inactivo/suspendido); "Otro" tiene su propio chip. Los apartados NO salen en
+  // ninguna de esas cuatro: cada uno solo en SU pestaña.
+  const pasaEstado = (e: Employee) => pasaFiltroEstado(statusFilter, grupoDe(e), e.status);
   // Clave de empresa de un empleado: su `company_id`, o SIN_EMPRESA si no tiene
   // contratista asignado (esos son de SOS LA GUAIRA, ver `companyName`).
   // Agrupa por la EMPRESA FILTRO NÓMINA, no por la empresa real: es exactamente el
@@ -185,11 +187,20 @@ export default function EmpleadosScreen({ navigation }: any) {
   );
 
   // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
+  // Los APARTADOS se cuentan aparte y se descuentan del resto: "Todos" ya no es
+  // la plantilla entera, es la plantilla MENOS Carbozulia y Seguridad. Así el
+  // número del chip cuadra con lo que después se lista.
   const statusCounts = useMemo(() => {
-    let act = 0, otr = 0;
-    employees.forEach((e) => { if (esActivo(e)) act++; else if (esOtro(e)) otr++; });
-    return { activo: act, otro: otr, inactivo: employees.length - act - otr, todos: employees.length };
-  }, [employees]);
+    let act = 0, otr = 0, carb = 0, seg = 0, base = 0;
+    employees.forEach((e) => {
+      const g = grupoDe(e);
+      if (g === 'carbozulia') { carb++; return; }
+      if (g === 'seguridad') { seg++; return; }
+      base++;
+      if (esActivo(e)) act++; else if (esOtro(e)) otr++;
+    });
+    return { activo: act, otro: otr, inactivo: base - act - otr, todos: base, carbozulia: carb, seguridad: seg };
+  }, [employees, payrollCompanies]);
 
   // Conteo por cargo (para los chips-filtro y el reporte): [cargo, cantidad], de mayor a menor.
   const cargoCounts = useMemo(() => {
@@ -366,7 +377,12 @@ export default function EmpleadosScreen({ navigation }: any) {
     setBusy('reporte-cargo');
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const list = shown; // ya respeta estado + cargos + búsqueda, y viene ordenado
-    const estadoTxt = statusFilter === 'todos' ? 'Todos' : statusFilter === 'activo' ? 'Activos' : statusFilter === 'otro' ? 'Otro' : 'Inactivos';
+    const estadoTxt = statusFilter === 'todos' ? 'Todos'
+      : statusFilter === 'activo' ? 'Activos'
+      : statusFilter === 'otro' ? 'Otro'
+      : statusFilter === 'carbozulia' ? 'Carbozulia'
+      : statusFilter === 'seguridad' ? 'Seguridad'
+      : 'Inactivos';
     const cargoTxt = cargoSel.size === 0 ? 'Todos los cargos' : Array.from(cargoSel).sort().join(', ');
     const busqTxt = q ? ` · Búsqueda: "${esc(query.trim())}"` : '';
 
@@ -472,9 +488,15 @@ export default function EmpleadosScreen({ navigation }: any) {
       {/* Filtro por ESTADO (activos / inactivos) */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
-        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
+        {/* Carbozulia y Seguridad van APARTE (pedido del cliente 29-ago-2026): no se
+            cuentan ni salen en Todos/Activos/Inactivos/Otro, cada uno tiene su chip.
+            Van de últimos para no mover de sitio los cuatro de siempre. */}
+        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro], ['carbozulia', 'Carbozulia', statusCounts.carbozulia], ['seguridad', 'Seguridad', statusCounts.seguridad]] as const).map(([key, label, n]) => {
           const on = statusFilter === key;
-          const tint = key === 'todos' ? colors.brand : EMPLOYEE_STATUS_COLOR[key] ?? colors.brand;
+          const tint = key === 'todos' ? colors.brand
+            : key === 'carbozulia' ? '#7C3AED'
+            : key === 'seguridad' ? '#0891B2'
+            : EMPLOYEE_STATUS_COLOR[key] ?? colors.brand;
           return (
             <TouchableOpacity
               key={key}
