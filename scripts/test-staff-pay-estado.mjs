@@ -128,5 +128,48 @@ ok('"Quitar del período" no depende de source === manual',
 ok('"Quitar del período" sigue bloqueado en período aprobado/pagado',
   /\{!readOnly \?\s*\(\s*<TouchableOpacity onPress=\{\(\) => \{ setEditItem\(null\); eliminarItem/.test(scr));
 
+// ── 7) PESTAÑAS CARBOZULIA Y SEGURIDAD (29-ago-2026) ───────────────────────
+// A diferencia de la pantalla de Empleados, acá los grupos NO se descuentan de
+// Todos/Activos: son un ATAJO para filtrar y exportar. El TOTAL del período los
+// incluye, así que esconderlos haría que la lista no cuadre con el monto.
+const GR = new Map([
+  ['carbo-1', 'carbozulia'],
+  ['segu-1', 'seguridad'],
+]);
+const ST2 = new Map([
+  ['carbo-1', 'activo'],
+  ['segu-1', 'activo'],
+  ['normal-1', 'activo'],
+  ['inactivo-2', 'inactivo'],
+]);
+const pasaG = (id, filtro) => pasaFiltroEstado(id, filtro, ST2, true, GR);
+
+eq('Carbozulia trae a los suyos', pasaG('carbo-1', 'carbozulia'), true);
+eq('Carbozulia no trae a Seguridad', pasaG('segu-1', 'carbozulia'), false);
+eq('Carbozulia no trae al resto', pasaG('normal-1', 'carbozulia'), false);
+eq('Seguridad trae a los suyos', pasaG('segu-1', 'seguridad'), true);
+eq('Seguridad no trae a Carbozulia', pasaG('carbo-1', 'seguridad'), false);
+// ⭐ Lo que separa esta pantalla de la de Empleados: acá SIGUEN contando.
+eq('Carbozulia SIGUE en Todos', pasaG('carbo-1', 'todos'), true);
+eq('Seguridad SIGUE en Todos', pasaG('segu-1', 'todos'), true);
+eq('Carbozulia SIGUE en Activos', pasaG('carbo-1', 'activos'), true);
+eq('Seguridad SIGUE en Activos', pasaG('segu-1', 'activos'), true);
+// Un renglón suelto (sin employee_id) no puede caer en un grupo.
+eq('sin ficha no es de ningún grupo', pasaG(null, 'carbozulia'), false);
+// Sin el mapa de grupos (llamada vieja de 4 argumentos) no se inventa nada.
+eq('sin mapa de grupos no muestra a nadie', pasaFiltroEstado('carbo-1', 'carbozulia', ST2, true), false);
+// Mientras carga, las pestañas de grupo salen VACÍAS (no con el período entero).
+eq('cargando → Carbozulia vacía', pasaFiltroEstado('carbo-1', 'carbozulia', new Map(), false, GR), false);
+// Las llamadas de 4 argumentos que ya existían siguen comportándose igual.
+eq('compatibilidad: Todos sin mapa', pasaFiltroEstado('normal-1', 'todos', ST2, true), true);
+eq('compatibilidad: Inactivos sin mapa', pasaFiltroEstado('inactivo-2', 'inactivos', ST2, true), true);
+
+ok('la pantalla le pasa el mapa de grupos a la función pura',
+  /pasaFiltroEstado\(it\.employee_id, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo\)/.test(scr));
+ok('la pantalla usa grupoApartado (misma regla que Empleados), no una copia',
+  /grupoApartado\(/.test(scr) && /from '\.\.\/lib\/nominaGrupos'/.test(scr));
+ok('los dos chips nuevos están en la barra de estado',
+  /k: 'carbozulia'/.test(scr) && /k: 'seguridad'/.test(scr));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-staff-pay-estado · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

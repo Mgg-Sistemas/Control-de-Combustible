@@ -14,7 +14,22 @@
 // LA REGLA: sin estado ≠ desincorporado. Si está cobrando en el período, cuenta como
 // ACTIVO; desincorporado es SOLO quien está explícitamente 'inactivo' o 'suspendido'.
 
-export type EstadoFiltro = 'activos' | 'todos' | 'inactivos';
+// GRUPOS APARTADOS (29-ago-2026): además de Activos/Todos/Inactivos, el período
+// tiene dos pestañas más — CARBOZULIA y SEGURIDAD — para poder verlos y
+// exportarlos aparte sin perderlos de vista en el resto.
+//
+// A DIFERENCIA de la pantalla de Empleados, acá los grupos NO se descuentan de
+// «Todos» ni de «Activos»: son un ATAJO para filtrar, no una partición. El
+// motivo es que TODOS los períodos mezclan a los tres (p. ej. "CARBOZULIA
+// SEMANA 4 DE AGOSTO" son 22 de Carbozulia + 16 de Seguridad + 181 del resto) y
+// el TOTAL DEL PERÍODO que se ve arriba los incluye a todos: si se escondieran,
+// la lista dejaría de cuadrar con el monto y en una pantalla de dinero eso se
+// lee como un error de pago.
+//
+// Quién es de cada grupo se decide con `grupoApartado` de `src/lib/nominaGrupos.ts`
+// (la MISMA regla que usa Empleados, para que no se separen con el tiempo). Acá
+// solo se recibe ya resuelto, en `grupoById`, para no traer imports a este archivo.
+export type EstadoFiltro = 'activos' | 'todos' | 'inactivos' | 'carbozulia' | 'seguridad';
 
 /** Estados del empleado que cuentan como DESINCORPORADO. */
 export const ESTADOS_DESINCORPORADO = ['inactivo', 'suspendido'] as const;
@@ -32,13 +47,23 @@ export function esDesincorporado(status?: string | null): boolean {
  * @param statusById   estado ACTUAL de cada empleado (no el que tenía al incluirlo).
  * @param statusLoaded false mientras `statusById` todavía no llega: no se excluye a
  *                     nadie, si no la lista parpadea vacía al abrir el período.
+ * @param grupoById    employee_id → 'carbozulia' | 'seguridad' (ya resuelto con
+ *                     `grupoApartado`). Solo hace falta para esas dos pestañas.
  */
 export function pasaFiltroEstado(
   employeeId: string | null | undefined,
   estado: EstadoFiltro,
   statusById: Map<string, string>,
-  statusLoaded: boolean
+  statusLoaded: boolean,
+  grupoById?: Map<string, 'carbozulia' | 'seguridad'>
 ): boolean {
+  // Pestañas de GRUPO: muestran SOLO a los suyos. Mientras el detalle no haya
+  // cargado no se puede decidir, y devolver `true` llenaría la pestaña con todo
+  // el período por un instante — acá sí se prefiere vacío y que se llene.
+  if (estado === 'carbozulia' || estado === 'seguridad') {
+    if (!statusLoaded || !grupoById || !employeeId) return false;
+    return grupoById.get(employeeId) === estado;
+  }
   if (estado === 'todos') return true;
   if (!statusLoaded) return true;
   const st = employeeId ? statusById.get(employeeId) : undefined;
