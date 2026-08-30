@@ -45,10 +45,10 @@ function caracasToday(): string {
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
-/** Comida sugerida según la hora de Caracas: desayuno < 11, almuerzo < 16, cena. */
+/** Comida sugerida según la hora de Caracas: desayuno < 11, almuerzo < 15, lunch < 18, cena. */
 function servingByTime(): MealType {
   const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: CARACAS_TZ, hour: '2-digit', hour12: false }).format(new Date())) % 24;
-  return h < 11 ? 'desayuno' : h < 16 ? 'almuerzo' : 'cena';
+  return h < 11 ? 'desayuno' : h < 15 ? 'almuerzo' : h < 18 ? 'lunch' : 'cena';
 }
 
 type Person = { id: string; name: string; cedula: string | null; cargo: string | null; photo_url: string | null; companyName: string };
@@ -84,6 +84,8 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   // esa comida a la persona; solo puede pasar una vez por comida al día.
   const [serving, setServing] = useState<MealType>(servingByTime());
   const [served, setServed] = useState(0); // contador de esta sesión
+  // Conteo del día por comida (TODAS las personas repartidas hoy), en vivo.
+  const [dayCounts, setDayCounts] = useState<Record<string, number>>({});
   // Modo de entrega: torniquete (registra la comida fija de la sesión) o
   // "elegir por persona" (al escanear abre a la persona y el cocinero elige la
   // comida — p. ej. alguien que llega a almorzar a las 4pm).
@@ -96,6 +98,17 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     setLoading(false);
   }, [uid]);
   React.useEffect(() => { loadMyName(); }, [loadMyName]);
+
+  // Conteo del día por comida: cuenta food_distributions de HOY agrupadas por tipo.
+  // Se refresca al abrir y en tiempo real (ver useRealtimeRefresh más abajo), así
+  // que al escanear un desayuno la tarjeta sube sola.
+  const loadDayCounts = React.useCallback(async () => {
+    const { data } = await supabase.from('food_distributions').select('meal_type').eq('distribution_date', today);
+    const c: Record<string, number> = {};
+    (data ?? []).forEach((r: any) => { if (r.meal_type) c[r.meal_type] = (c[r.meal_type] || 0) + 1; });
+    setDayCounts(c);
+  }, [today]);
+  React.useEffect(() => { loadDayCounts(); }, [loadDayCounts]);
 
   // Botón/gesto "atrás" físico (Android): Cocina es la pantalla RAÍZ de su propio
   // Stack (no vive dentro de pestañas), así que sin este manejo, "atrás" no tenía
@@ -119,9 +132,11 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   // ya abiertos en pantalla (evita perder el registro en curso).
   const onRefresh = async () => { setRefreshing(true); await loadMyName(); setRefreshing(false); };
 
-  // TIEMPO REAL: si otro dispositivo registra/borra una comida de la persona
-  // que tengo abierta, su lista de hoy se actualiza sola.
+  // TIEMPO REAL: al registrar/borrar una comida (este u otro dispositivo), suben
+  // las tarjetas de conteo del día; y si tengo una persona abierta, su lista de hoy
+  // también se actualiza sola.
   useRealtimeRefresh(['food_distributions'], () => {
+    loadDayCounts();
     if (person) listForEmployeeDay(person.id, today).then(setTodayList);
   });
 
@@ -202,6 +217,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     if (error || !saved) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
     setTodayList((prev) => [saved, ...prev]);
     setServed((s) => s + 1);
+    setDayCounts((c) => ({ ...c, [serving]: (c[serving] || 0) + 1 }));
     setNotice(`✅ ${mealLabel(serving).toUpperCase()} entregado a ${p.name} · ${caracasClock(saved.delivered_at)}.`);
   };
 
@@ -261,6 +277,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     setSavingMeal(null);
     if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
     setTodayList((prev) => [data, ...prev]);
+    setDayCounts((c) => ({ ...c, [mealType]: (c[mealType] || 0) + 1 }));
     setNotice(`✅ ${mealLabel(mealType)} registrado para ${person.name} · ${caracasClock(data.delivered_at)}.`);
   };
 
@@ -305,6 +322,20 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
           </Card>
         </TouchableOpacity>
       ) : null}
+
+      {/* Tarjetas de conteo del día por comida (todas las personas). Suben en vivo. */}
+      <Card>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>🍽️ Repartidas hoy (personas)</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          {MEALS.map((m) => (
+            <View key={m.key} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ fontSize: 18 }}>{m.icon}</Text>
+              <Text style={{ color: m.color, fontSize: 20, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{dayCounts[m.key] || 0}</Text>
+              <Text style={{ color: colors.muted, fontSize: 10 }}>{m.label}</Text>
+            </View>
+          ))}
+        </View>
+      </Card>
 
       {!cook ? (
         <Card>

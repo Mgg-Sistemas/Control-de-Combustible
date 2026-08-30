@@ -1949,8 +1949,12 @@ usuario con **rol Cocina** (entra con su nombre y contraseña).
    cocina**). Si su cargo no es de cocina, **no puede** ingresar cantidades.
 3. **Escanea el carnet de nómina** de la persona (el mismo del empleado) o la busca por **cédula**.
 4. Ve los datos de la persona (foto, cargo, cédula).
-5. Marca **Desayuno**, **Almuerzo** o **Cena**: cada botón se marca **1 sola vez por día** por persona.
+5. Marca **Desayuno**, **Almuerzo**, **Lunch** o **Cena** (las **4 comidas del día**): cada botón se marca **1 sola vez por día** por persona.
 6. Queda guardado con la **hora**. Debajo se ve lo ya marcado hoy a esa persona.
+
+> **Tarjetas de conteo en vivo:** arriba de la pantalla de Cocina hay **4 tarjetas** (🌅 Desayuno ·
+> 🍽️ Almuerzo · 🥪 Lunch · 🌙 Cena) con lo repartido **HOY**. Suben **solas en tiempo real**: apenas
+> escaneas un desayuno, la tarjeta de Desayuno sube **+1** (aunque reparta otra persona desde otro teléfono).
 
 > Debajo se ve lo que ya se le entregó a esa persona **hoy** y el total. Si te equivocaste,
 > puedes borrar una entrega con 🗑.
@@ -1959,9 +1963,10 @@ usuario con **rol Cocina** (entra con su nombre y contraseña).
 > Cocina abre **directo** el registro de esa persona; si no has entrado, toca **"🍽️ ¿Eres de
 > cocina? Inicia sesión"** y al entrar caes en el registro de esa misma persona.
 
-**Módulo "Distribución de comida" (en Más, para el jefe):** por día muestra las comidas
-repartidas **por empresa** (desayuno/almuerzo/cena) y también **por persona**, con sus totales.
-Con las flechas ◀ ▶ cambias de día.
+**Módulo "Distribución de comida" (en Más, para el jefe):** por día muestra **4 tarjetas de conteo**
+por comida (🌅 Desayuno · 🍽️ Almuerzo · 🥪 Lunch · 🌙 Cena, empresa + persona) que **suben en tiempo
+real**, y debajo el detalle repartido **por empresa** y **por persona**, con sus totales. Con las
+flechas ◀ ▶ cambias de día.
 
 **Comida POR EMPRESA (con QR):**
 1. En **Distribución de comida** (jefe), toca **"🖼️ QR por empresa (imágenes)"** y descarga el QR
@@ -1971,7 +1976,7 @@ Con las flechas ◀ ▶ cambias de día.
    **"Escanear carnet"** dentro de su propia pantalla de Cocina) → se abre la pantalla de comidas
    del día de esa empresa.
 3. Se **verifica** con su carnet/cédula (solo **cargo de cocina/alimentación**).
-4. Toca uno de los **3 botones grandes**: **Desayuno, Almuerzo o Cena** (cada uno **1 sola vez
+4. Toca uno de los **4 botones grandes**: **Desayuno, Almuerzo, Lunch o Cena** (cada uno **1 sola vez
    por día** por empresa).
 5. El sistema **sugiere** el total = **máquinas de la empresa × 2 + 15**; el cocinero escribe
    cuántas comidas **entregó realmente** y registra.
@@ -1987,7 +1992,7 @@ Con las flechas ◀ ▶ cambias de día.
 **Control por empresa (asistencia/entrega):** en **Distribución de comida** (jefe) toca la
 pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los atajos *Hoy / 7 días /
 30 días*) y verás:
-- **Totales del rango**: total entregado y cuánto por desayuno, almuerzo y cena.
+- **Totales del rango**: total entregado y cuánto por desayuno, almuerzo, lunch y cena.
 - **Resumen por empresa**: cuánto entregó cada empresa por tiempo de comida y en cuántos días.
 - Al elegir **una empresa** (filtro de arriba): su **historial día por día** con lo entregado en
   cada comida, la hora y quién lo registró.
