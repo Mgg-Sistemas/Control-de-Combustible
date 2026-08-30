@@ -18,6 +18,7 @@ import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, dateRangeLabel, REPORT_BRAND } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { BCV_LOGO_DATA_URI } from '../lib/logoBcvData';
+import { RENACE_WAVE_DATA_URI, RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
 import { COMPANY_NAME } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
@@ -261,6 +262,53 @@ function pdfShell(title: string, sub: string, body: string): string {
     </div>
     ${body}
     <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
+  </body></html>`;
+}
+
+// ── Plantilla "Plan Venezuela Renace" ────────────────────────────────────────
+// Membrete oficial del INVENTARIO DE MAQUINARIA (reporte de Ubicaciones
+// tácticas). Es una plantilla APARTE de pdfShell a propósito: pdfShell lo
+// comparten ~20 reportes con el membrete BCV + SOS La Guaira, y este documento
+// va con la marca del Plan. Los dos logos salen de la plantilla oficial en PDF
+// (ver src/lib/logoRenaceData.ts).
+const RENACE_NAVY = '#1F3864';
+function renaceShell(title: string, sub: string, body: string, fields: { empresa?: string; responsable?: string } = {}): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
+  @page{size:letter;margin:14mm 12mm}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;color:#1a1c20;margin:0;font-size:12px}
+  /* Marca de agua: el logo del Plan, tenue, detrás del contenido en cada hoja. */
+  .wm{position:fixed;top:45%;left:50%;transform:translate(-50%,-50%);width:62%;opacity:.10;z-index:0;pointer-events:none}
+  .page{position:relative;z-index:1}
+  .hd{position:relative;min-height:150px;margin-bottom:6px}
+  .hd .wave{position:absolute;top:-6px;right:-12px;width:74%;z-index:0}
+  .hd .tit{position:relative;z-index:1;font-size:31px;line-height:1.12;font-weight:800;color:${RENACE_NAVY};letter-spacing:-.3px;max-width:52%;padding-top:12px}
+  .hd .mark{position:absolute;right:5%;top:2px;width:140px;z-index:2}
+  /* La fecha va DEBAJO del logo (el logo mide ~102px de alto): si se sube, se
+     encima con la palabra "renace" del logotipo. */
+  .hd .fecha{position:absolute;right:0;bottom:2px;z-index:3;font-size:11px;color:#374151}
+  .hd .fecha b{color:#111}
+  .rule{height:5px;background:${RENACE_NAVY};border-radius:2px;margin:0 0 10px}
+  .fld{font-size:12px;color:${RENACE_NAVY};font-weight:700;margin:2px 0}
+  .fld span{display:inline-block;min-width:210px;border-bottom:1px solid #9CA3AF;color:#111;font-weight:600;margin-left:6px}
+  .sub{font-size:11px;color:#6B7280;margin:6px 0 2px}
+  .foot{margin-top:18px;padding-top:8px;border-top:1px solid #E5E7EB;text-align:center;color:#9CA3AF;font-size:10px}
+  </style></head><body>
+    <img class="wm" src="${RENACE_LOGO_DATA_URI}"/>
+    <div class="page">
+      <div class="hd">
+        <img class="wave" src="${RENACE_WAVE_DATA_URI}"/>
+        <img class="mark" src="${RENACE_LOGO_DATA_URI}"/>
+        <div class="tit">${title}</div>
+        <div class="fecha"><b>Fecha:</b> ${nowStamp()}</div>
+      </div>
+      <div class="rule"></div>
+      <div class="fld">Empresa:<span>${fields.empresa ?? ''}</span></div>
+      <div class="fld">Responsable:<span>${fields.responsable ?? ''}</span></div>
+      <div class="sub">${sub}</div>
+      ${body}
+      <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
+    </div>
   </body></html>`;
 }
 
@@ -1780,8 +1828,10 @@ export default function ReportsScreen({ route }: any) {
           return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
       const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
+      // Anchos fijos en Placa/Serial y Estado: la plantilla del Plan reparte así las
+      // columnas y evita que "Ubicación" (texto largo) se coma el resto de la fila.
       return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Placa / Serial</th><th>Ubicación</th>${opHead}<th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th style="width:120px">Placa / Serial</th><th>Ubicación</th>${opHead}<th style="width:110px">Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
@@ -1957,16 +2007,19 @@ export default function ReportsScreen({ route }: any) {
       : '';
     const body = `
       <style>
-        .sect{margin:14px 0 4px;font-size:13px;font-weight:800;color:#1E3A5F;border-left:4px solid ${PDF_ACCENT};padding-left:8px}
+        /* Estilos de la plantilla oficial del Plan: cabecera azul marino, filas
+           alternas gris-azul y título de sección con barra a la izquierda. */
+        .sect{margin:16px 0 5px;font-size:12.5px;font-weight:800;color:${RENACE_NAVY};border-left:5px solid ${RENACE_NAVY};padding-left:8px;text-transform:uppercase;letter-spacing:.2px}
         .box{border:1px solid #D1D5DB;border-radius:8px;padding:10px 12px;margin:6px 0 12px}
         .fill{border-bottom:1px solid #9CA3AF;height:15px;margin:8px 0}
         .kv{font-size:12px;color:#374151;margin:4px 0}.kv b{color:#111}
-        table.tac{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:12px}
-        table.tac th,table.tac td{border:1px solid #ccc;padding:6px 9px;text-align:left;vertical-align:top}
-        table.tac th{background:#1E3A5F;color:#fff}
-        table.tac tfoot td{background:#EEF2F7;font-weight:800}
+        table.tac{width:100%;border-collapse:collapse;margin:4px 0 14px;font-size:11.5px}
+        table.tac th,table.tac td{border:1px solid #C9D2E0;padding:6px 9px;text-align:left;vertical-align:top}
+        table.tac th{background:${RENACE_NAVY};color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+        table.tac tbody tr:nth-child(even) td{background:#F2F5FA}
+        table.tac tfoot td{background:#E4EAF3;font-weight:800;color:${RENACE_NAVY}}
         .ente{margin:12px 0 2px;font-size:12.5px;color:#111}
-        .cnt-pill{background:#EEF2F7;color:#1E3A5F;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700}
+        .cnt-pill{background:#E4EAF3;color:${RENACE_NAVY};border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700}
         .muted{color:#6B7280;font-size:12px}
         .disp{font-size:12.5px;color:#0B3D2E;background:#E7F5EC;border:1px solid #B7E0C4;border-radius:6px;padding:6px 10px;margin:4px 0 8px}
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
@@ -1979,8 +2032,11 @@ export default function ReportsScreen({ route }: any) {
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
     const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
-    const fileName = `Reporte - Despliegue de maquinaria${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
-    await exportPdf(pdfShell('DESPLIEGUE DE MAQUINARIA', subtitle, body), fileName);
+    const fileName = `Reporte - Inventario de maquinaria${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    // Membrete del Plan Venezuela Renace. "Empresa" y "Responsable" van como
+    // líneas en blanco (igual que la plantilla oficial): el reporte cubre a
+    // LICCIONE y GOLDEN TOUCH a la vez, así que quien lo imprime las completa.
+    await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', subtitle, body), fileName);
   };
 
   // Reporte de PERSONAL COMPLETO: MOVIDO a Nómina · Personal → src/lib/personalReport.ts

@@ -27,6 +27,43 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 3. Toca el botón **Entrar**.
 4. Si el teléfono te lo pide, puedes entrar con tu **huella** o tu **cara** la próxima vez.
 
+> ⚠️ **ARREGLADO EL 27/08/2026 — «la contraseña es correcta y no me deja entrar».** Hasta esa
+> fecha había un fallo feo: al pulsar el **ojo 👁️** para revisar la clave, la pantalla la
+> mostraba **TODA EN MAYÚSCULA**, aunque la clave real tuviera minúsculas. Lo que se veía y lo
+> que se guardaba **no eran lo mismo**.
+>
+> Pasaba esto: el administrador creaba la clave `Sos2026`, pulsaba el ojo para leerla, veía
+> `SOS2026`, y eso era lo que dictaba. El trabajador escribía `SOS2026` y el sistema lo
+> rechazaba. Parecía que fallaba **a veces**, porque solo ocurría si alguien pulsaba el ojo **y**
+> la clave tenía minúsculas; una clave toda en mayúscula nunca dio problema. Restablecer la
+> contraseña lo "arreglaba" — pero volvía a pasar con el siguiente usuario.
+>
+> **Ya no pasa.** Y ese mismo día se fue un paso más allá, que es lo que de verdad cierra el
+> problema:
+
+> 🔤 **LAS CONTRASEÑAS VAN SIEMPRE EN MAYÚSCULA (27/08/2026).** Escribas como escribas, la
+> clave **se convierte sola a MAYÚSCULA** — al crear un usuario, al cambiar la clave y al
+> entrar. Si tecleas `sos2026`, se guarda y se manda `SOS2026`.
+>
+> **Por qué así:** toda la app se escribe en mayúscula, y las contraseñas eran la única
+> excepción. Esa excepción fue justo la que causó el lío de arriba. Ahora **lo que ves es
+> exactamente lo que se guarda**, sin excepciones que recordar.
+>
+> **En la práctica:** ya no importa si la escribes con mayúsculas o sin ellas, ni si el
+> trabajador la teclea distinto de como se la dictaste. **Da igual: entra.**
+>
+> ✅ **A nadie se le queda la clave vieja sin funcionar.** Las contraseñas guardadas antes del
+> 27/08 **siguen sirviendo tal cual**. El sistema prueba primero la mayúscula y, si esa no es,
+> reintenta con lo que tecleaste. **Y ese reintento NO gasta uno de tus 3 intentos** antes del
+> bloqueo.
+>
+> El único caso que sigue sin funcionar es el mismo de siempre: una clave vieja escrita toda en
+> minúscula que se teclee toda en mayúscula. Si le pasa a alguien, restablece su clave y ya
+> queda con la regla nueva.
+
+> Si alguien sigue sin poder entrar, ahora sí es otra cosa: revisa que no esté **bloqueado** por
+> 3 intentos fallidos (abajo).
+
 > **Cuidado con los intentos:** si te equivocas de contraseña **3 veces**, el usuario se
 > **BLOQUEA** por seguridad. Solo un **administrador** puede desbloquearlo (Más → Usuarios).
 
@@ -458,15 +495,20 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   Úsalo cuando necesites el conteo por zona 100% real; usa el conteo normal cuando necesites que el
   total cuadre siempre con la cantidad de equipos.
 
-- **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"Reporte Diario de
-  Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira"** en PDF. Cuenta el **mismo
+- **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
+  MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
+  logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
+  y **Responsable**— para completar a mano al imprimirlo, porque el reporte cubre a LICCIONE y a
+  GOLDEN TOUCH a la vez. Cuenta el **mismo
   universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
   por EMPRESA en dos grupos**: **LICCIONE** (sus máquinas) y **GOLDEN TOUCH** (las de Golden + TODAS
-  las demás empresas), cada una con su **ubicación real** (referencia + sector Este/Oeste y subzona
+  las demás empresas), cada una con su **placa / serial** (en **columna propia**), su **ubicación real**
+  (referencia + sector Este/Oeste y subzona
   por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado** (Operativo / Inoperativo / En espera). Las
   máquinas **sin ubicación cargada** salen como **"Desplegadas por todo el territorio de La Guaira"**.
   **Arriba** trae la cantidad de maquinaria por empresa; cierra con un **conteo por clasificación**.
   El reporte va **100% por empresa** (ya **no** trae los resúmenes por zona Este/Oeste).
+  El archivo se descarga como *"Reporte - Inventario de maquinaria"*.
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
   **SOS La Guaira** (no en los de CVM / Gobernación / FANB): a cada máquina le asigna **2 operadores**
@@ -609,6 +651,23 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 >   desincorporado es **solo** quien está inactivo o suspendido. Los de estado **"Otro"** no
 >   salen en ninguno de los dos filtros, solo en **"Todos"**. Fijado con prueba automática
 >   (`npm run test:pagos`).
+
+> **🏢 PESTAÑAS CARBOZULIA Y SEGURIDAD EN EL PERÍODO (29-ago-2026).** Junto a *Activos*, *Todos*
+> e *Inactivos/Desincorporados* hay dos pestañas más: **Carbozulia** y **Seguridad**. Sirven para
+> ver y **exportar a Excel** a esa gente aparte, sin tener que buscarlos uno por uno.
+>
+> Se reconocen por lo que ya está en la ficha, igual que en **Empleados**: **Carbozulia** por su
+> **"Empresa filtro nómina"** y **Seguridad** por el **cargo SEGURIDAD**.
+>
+> ⚠️ **Ojo con una diferencia a propósito frente a Empleados.** Allá esa gente **sale** de *Todos*
+> y *Activos*; **aquí no**: siguen contando en las tres pestañas de siempre y las dos nuevas son
+> solo un **atajo para filtrarlos**. El motivo es que **todos los períodos mezclan a los tres
+> grupos** — por ejemplo *"Carbozulia semana 4 de agosto"* son **22** de Carbozulia + **16** de
+> Seguridad + **181** del resto — y el **TOTAL DEL PERÍODO** que se ve arriba los incluye a todos.
+> Si se escondieran, la lista dejaría de cuadrar con el monto y parecería un error de pago.
+>
+> El nombre del período es solo una **etiqueta**: que se llame "Carbozulia" no quiere decir que
+> adentro solo haya gente de Carbozulia.
 
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
@@ -925,6 +984,30 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > **"🏢 Empresa filtro nómina"** → escribe el nombre → **"➕ Agregar"**. Queda disponible en el
 > filtro de una vez, sin recargar. Las que salen con **"· 0"** ya existen pero todavía no tienen a
 > nadie asignado: recién creada, es lo normal.
+
+> **🏢 CARBOZULIA Y SEGURIDAD TIENEN SU PROPIA PESTAÑA (29-ago-2026).** En la línea de **Estado**
+> hay dos chips nuevos al final: **Carbozulia** y **Seguridad**. Esa gente **ya no se mezcla** con
+> el resto de la plantilla: **no** aparece ni se cuenta en **Todos**, **Activos**, **Inactivos** ni
+> **Otro**. Para verlos hay que tocar su chip.
+>
+> **De dónde sale la separación** — de lo que ya está en la ficha, no hay campo nuevo que llenar:
+>
+> - **Carbozulia** → los que tienen esa **empresa filtro nómina**.
+> - **Seguridad** → los que tienen **SEGURIDAD** como **cargo**.
+>
+> Si alguien estuviera en los dos (hoy no pasa), manda **Carbozulia**: la empresa que paga pesa más
+> que el cargo, y así nadie sale contado dos veces.
+>
+> **Cómo cambió el conteo:** *Todos* pasó de **338** a **282** y *Activos* de **237** a **181**;
+> *Inactivos* (61) y *Otro* (40) quedan igual. Los que salieron están en **Carbozulia · 40** y
+> **Seguridad · 16**. Sumando las pestañas sigue dando la plantilla completa: 282 + 40 + 16 = 338.
+>
+> **Para mover a alguien de pestaña** se le cambia la ficha: ✎ Editar → **"🏢 Empresa filtro
+> nómina"** (para Carbozulia) o el campo **Cargo** (para Seguridad). No hay que pedir nada al
+> sistema, el chip se recalcula solo.
+>
+> El **📊 Reporte** respeta la pestaña que tengas puesta: si estás en *Carbozulia*, sale con esa
+> gente y el encabezado lo dice.
 
 > **🐞 ARREGLADO 21/08/2026.** Al crear una empresa nueva, el chip salía rotulado **"Empresa"** en
 > vez del nombre escrito, y solo se corregía recargando la app entera: la pantalla releía los
@@ -1336,10 +1419,20 @@ Sirve para saber si los inspectores **sí están yendo a las máquinas** a revis
 trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
-> **📄 Mi reporte de jornada — desde el teléfono, cuando quiera (15/08/2026):** el inspector
-> tiene en su pantalla un bloque **"📄 Mi reporte de jornada"** con el que se descarga el PDF
+> **📄 Mi reporte de jornada (15/08/2026 · cambiado el 27/08/2026):** bloque
+> **"📄 Mi reporte de jornada"** con el que se descarga el PDF
 > del resumen de **sus** máquinas: cada una con su estado, las horas que trabajó, las de parada
 > y el total de la jornada. Es el mismo dato que ve el jefe.
+>
+> ⚠️⚠️ **DESDE EL 27/08/2026 EL INSPECTOR YA NO LO VE EN SU TELÉFONO** (lo pidió el
+> cliente). **El reporte no desapareció.** Sigue estando, con todo lo que se explica abajo, en:
+>
+> - la **misma pantalla abierta desde una PC** — el propio inspector, entrando por computadora;
+> - el **coordinador de inspectores**, tanto en teléfono como en PC;
+> - y **📄 Reportes**, de donde lo saca el jefe.
+>
+> Es la misma limpieza que se le hizo al botón "📚 Histórico por inspector" el 21/08/2026: en la
+> pantalla del teléfono estorbaba entre el trabajo del día y el buscador de máquinas.
 >
 > **Antes solo aparecía al terminar el turno** (cuando ya no le quedaba ninguna máquina en
 > curso), así que no podía sacar el de ayer ni revisar el de hoy a media jornada. Ahora:
@@ -1931,9 +2024,12 @@ producto muestra su **PMP y su valor en stock en $ y en Bs** al cambio del día.
 en **US$** y te muestra el equivalente en la otra moneda.
 
 **🏷️ Tipo de producto y filtro:** al crear/editar un producto puedes ponerle un **TIPO**
-(bombona, silla, mecate…) — lo escribes o lo tocas de las sugerencias. Arriba de la lista aparece
-**"Filtrar por tipo"** con un chip por cada tipo (y su cantidad): toca uno para ver **solo esos
-productos**. El tipo también sale en el **reporte de productos**.
+(bombona, silla, mecate…) — lo escribes o lo tocas de las sugerencias. El tipo sale en el
+**reporte de productos** y en **🔁 Movimientos**, donde sí puedes filtrar por él.
+
+> ⚠️ **Ya NO hay chips "Filtrar por tipo" encima de la lista de productos** (se quitaron el
+> 23/08/2026). Si los estás buscando, no es que te falten permisos: no existen. Para acotar la
+> lista usa el **buscador**; para filtrar por tipo, la pestaña **🔁 Movimientos**.
 
 **🛢️ Bombonas — carga (vacía / en uso / llena):** en los productos tipo **bombona** aparecen
 botones para tildar su carga (🔴 vacía, 🟡 en uso, 🟢 llena) directo en la tarjeta o en el editor
@@ -2014,8 +2110,17 @@ escritura en Compras (o Inventario).
 > queda su **código correlativo** (CD-0001, CD-0002…). **NO genera cuenta por pagar:** solo carga la
 > factura y pasa al inventario. En la lista, cada compra trae **"📎 Ver factura"** para revisar la
 > factura cargada. A diferencia del Requerimiento (que se pide y el jefe aprueba antes de comprar), la
-> compra directa es **inmediata**. *(Requiere correr una vez `supabase/compras_directas.sql` y
-> `supabase/compras_directas_sin_cuenta.sql`.)*
+> compra directa es **inmediata**.
+>
+> **✏️ Editar una compra ya cargada:** si te equivocaste en un precio o una cantidad, entra a la
+> compra y corrígela. Al guardar, el inventario **se rehace solo**: se retira la entrada anterior
+> y se vuelve a cargar con los datos nuevos, así que el costo promedio queda bien. No hace falta
+> borrar nada ni hacer un ajuste a mano. *(Requiere `supabase/compras_directas_editar.sql`.)*
+>
+> *(Los tres SQL de este submodulo, EN ESTE ORDEN: `supabase/compras_directas.sql` →
+> `supabase/compras_directas_editar.sql` → `supabase/compras_directas_sin_cuenta.sql`. El
+> último es el que quita la cuenta por pagar, y va después porque reemplaza funciones de los
+> otros dos.)*
 
 > **Cambiar estado a mano (04/08/2026):** quien tenga **todos los permisos de Inventario** (o sea
 > administrador) puede tocar el mismo **badge de estado** (arriba a la derecha de cada
@@ -2257,6 +2362,23 @@ de noche otro; al final de cada uno va su línea de firma.
    en el día, sale **una fila por cada transición** consecutiva.
 
 ### 4.13. Usuarios (solo administrador)
+
+> ⚠️ **ARREGLADO EL 27/08/2026 — «elijo un rol al crear y me lo deja en otro».** Hasta esa fecha,
+> al **crear** un usuario nuevo, el rol que se elegía podía perderse: el usuario quedaba como
+> **conductor** y al entrar abría en la pantalla de **Surtir ⛽**, como si fuera chofer. Entrando
+> otra vez al usuario y **cambiándole el rol sí funcionaba** — por eso parecía un capricho.
+>
+> No era capricho: crear y editar seguían caminos distintos, y el de crear tenía una lista de
+> roles que se había quedado vieja. Cualquier rol que esa lista no reconociera se cambiaba por
+> "conductor" **sin avisar**. Le pasó dos veces al mismo tipo de rol: primero a **Coordinador de
+> Patio** y luego a **Coordinador de Inspectores**.
+>
+> **Ya no pasa: el rol que eliges es el que queda.** Y si por lo que sea no se pudiera fijar, la
+> pantalla ahora **te lo dice** en vez de callarse, avisando que el usuario **sí se creó** (para
+> que no lo intentes otra vez y choques con un usuario repetido).
+>
+> *(Requiere haber corrido `supabase/rol_coordinador_inspectores_enum.sql`. Ese archivo trae
+> primero un bloque que solo lee y te dice si hace falta o no.)*
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
 **✏️ Edición masiva (21-ago-2026):** en Usuarios, toca **"✏️ Edición masiva → Abrir"** para
@@ -2623,7 +2745,15 @@ Módulo **aislado** para el personal de **lavado**: registra qué máquinas se l
 
 ---
 
-## 4.25. Notas técnicas (para quien administra el proyecto)
+## 4.25. Notas técnicas
+
+> ⚠️ **Esto NO es para el usuario final.** Son notas de desarrollo fechadas que quedaron dentro
+> de un manual escrito para que cualquiera lo entienda. Si buscas cómo usar el sistema, salta esta
+> sección entera.
+>
+> 📌 **El SQL pendiente ya no se lleva aquí.** La lista buena y única está en
+> **`supabase/PENDIENTES.md`**. Cualquier mención de «correr esto una vez» que encuentres suelta en
+> este manual puede estar caducada; aquel archivo manda. (para quien administra el proyecto)
 
 Pendientes que requieren una acción **manual** (fuera del código) para que algunas funciones nuevas
 queden 100% operativas:
@@ -3046,9 +3176,15 @@ qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya est�
 > sistema — quedan solo dentro de mangueras. Al guardar, el sistema
 > crea sola una **cuenta por cobrar** a esa empresa por **costo + margen**, visible en
 > **Compras → 💰 Por cobrar**. Queda sincronizada con la manguera (si cambia el costo/margen se
-> ajusta el monto). **Excepción CHELI:** si el encargado es **CHELI** (marcado "no cobrar" en el
-> catálogo de encargados), **NO se genera** cuenta por cobrar. Los campos aplican también a las
-> mangueras **externas**.
+> ajusta el monto). Los campos aplican también a las mangueras **externas**.
+>
+> ⚠️ **SI LEISTE ESTE MANUAL ANTES, ESTO CAMBIÓ (23/08/2026).** Hasta esa fecha había una
+> **excepción con CHELI**: sus mangueras no generaban cuenta por cobrar, porque el encargado
+> estaba marcado "no cobrar" en el catálogo. **Eso se acabó. Hoy TODOS los encargados generan
+> cuenta por cobrar, CHELI incluido.** Basta con que la manguera tenga **empresa** y
+> **encargado**; el flag "cobrar" ya no se mira. Si venías sin revisar los cobros de CHELI,
+> revísalos: ahora están ahí. *(Lo aplica `supabase/mangueras_cobrar_todos_encargados.sql`, que
+> además creó hacia atrás las cuentas que faltaban. Si no se ha corrido, hay que correrlo.)*
 > - 🧾 **Recibo de cobro (PDF):** cuando la manguera es cobrable, su tarjeta muestra el botón
 >   **"🧾 Recibo de cobro"**, que descarga un recibo imprimible con la **máquina** a la que se le
 >   hizo el cambio de manguera (código + serial, o el cliente externo), la empresa, el encargado, el
@@ -3640,7 +3776,7 @@ igual (agrupa por cuenta) y rotula el grupo con la forma **más usada**.
 
 Es la **libreta de deudas** de la empresa. Compras te dice **qué se compró**; esta sección te dice
 **qué se debe** y **qué te deben**, con su **fecha de vencimiento** y su **saldo**. Se entra por
-*Compras → pestañas 💸 **Por pagar** y 💰 **Por cobrar***, junto a Solicitudes, Órdenes,
+*Compras → pestañas 💸 **Por pagar** y 💰 **Por cobrar***, junto a Requerimiento, 🛒 Compras directas, Órdenes,
 Proveedores y Resumen.
 
 **Dos pestañas arriba:**

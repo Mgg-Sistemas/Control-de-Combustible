@@ -213,9 +213,15 @@ Archivo: `src/screens/EquiposScreen.tsx`. Commits `46fe846e` y `3aa1cada` en `de
 
 ### Obras Públicas
 
-Se creó `src/screens/ObrasPublicasAsignacionScreen.tsx`: panel de administración **fuera** del módulo de Obras Públicas para asignarle máquinas a mano (no solo Liccioni/Golden). Tiene chips de multi-empresa, filtro por varios estados (operativa / averiada / en espera / inactiva), lista de checkboxes, asignación por lote e individual, y "Quitar".
+⚠️ **NADA DE ESTO EXISTE (verificado el 28/08/2026).** Este apartado describía una pantalla
+`src/screens/ObrasPublicasAsignacionScreen.tsx` y un módulo `op_asignacion` para asignar
+máquinas a mano. **Ni el archivo ni el módulo están en el repositorio**: `grep -rn
+"op_asignacion|ObrasPublicasAsignacion" src/` no devuelve nada, y `permissions.ts` no tiene esa
+clave. O nunca se llegó a commitear, o se revirtió y el documento se quedó atrás.
 
-Módulo `op_asignacion`, registrado en `src/lib/permissions.ts`, `src/navigation/index.tsx` (`ObrasPublicasAsignacion: 'obras-publicas-asignacion'`) y `src/screens/MoreScreen.tsx`. **Nace cerrado** — el cliente tiene que habilitar el permiso desde Usuarios.
+Se deja escrito en vez de borrarlo porque el texto describe bien lo que se quería (chips de
+multi-empresa, filtro por estado, asignación por lote) por si alguien lo retoma. **Pero no lo
+busques en el menú ni intentes habilitarle el permiso a nadie: no hay permiso que habilitar.**
 
 ---
 
@@ -224,9 +230,14 @@ Módulo `op_asignacion`, registrado en `src/lib/permissions.ts`, `src/navigation
 ### 🔴 Acción del cliente
 
 1. **Autorizar el MCP de Supabase**: `/mcp` → `supabase` → autorizar en el navegador. Sin eso el asistente no puede correr SQL. (Detalle en §9.)
-2. **Habilitar el permiso `op_asignacion`** desde Usuarios para poder ver el panel de Obras Públicas.
+2. ~~**Habilitar el permiso `op_asignacion`** desde Usuarios.~~ ❌ **ANULADO (28/08/2026):** ese
+   permiso no existe. Ver la nota en la sección de Obras Públicas.
 
 ### 🟡 SQL escrito pero sin correr
+
+> ⚠️ **ESTA LISTA ESTÁ ANULADA (28/08/2026).** Había tres listas de «SQL pendiente» en tres
+> documentos distintos y se contradecían entre sí. Se unificaron en **`supabase/PENDIENTES.md`**,
+> que es la única buena. Lo de abajo se conserva como historia — **no lo sigas**.
 
 - `supabase/quitar_adopcion_automatica_placeholder.sql` — **Opción A** (quitar solo `assign-missing-to-placeholder`). Riesgo cero: ya se verificó que el cajón tiene 0 máquinas.
 - `supabase/servicio_maquinaria_tabla_propia.sql` — crea `servicio_registros` (`origen 'taller'|'inspector'`, `source_request_id`, `estado 'pendiente'|'realizado'`), con RLS, realtime y bloques de verificación y deshacer. **Solo CREATE, ningún ALTER de tablas existentes.**
@@ -325,7 +336,7 @@ src/navigation/index.tsx          Registro de pantallas
 src/screens/EquiposScreen.tsx     Catálogo + reporte de maquinaria (selección, marca/modelo)
 src/screens/MantenimientoMaquinariaScreen.tsx   Mantenimiento Y Servicio (prop `seccion`)
 src/screens/ServicioMaquinariaScreen.tsx        Envoltorio de 19 líneas del anterior
-src/screens/ObrasPublicasAsignacionScreen.tsx   Panel de asignación (nuevo)
+(src/screens/ObrasPublicasAsignacionScreen.tsx  ❌ NO EXISTE — ver nota arriba)
 src/screens/ComprasScreen.tsx     Compras (708 líneas) — base para cuentas por pagar/cobrar
 src/screens/MoreScreen.tsx        Menú de módulos
 src/screens/ManualScreen.tsx      Manual dentro de la app

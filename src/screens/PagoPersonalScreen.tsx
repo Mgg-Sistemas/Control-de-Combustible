@@ -10,7 +10,8 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
-import { pasaFiltroEstado, esDesincorporado } from '../lib/staffPayEstado';
+import { pasaFiltroEstado, esDesincorporado, EstadoFiltro } from '../lib/staffPayEstado';
+import { grupoApartado, GrupoApartado } from '../lib/nominaGrupos';
 import { levelMeets } from '../lib/permissions';
 import { caracasParts } from '../lib/jornada';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
@@ -129,7 +130,7 @@ export default function PagoPersonalScreen() {
   // del período (mismo patrón que PagoPorPersona). Default 'todos': un período ya cerrado tiene
   // sentido verlo completo, incluidos los desincorporados después de cargarlo.
   const [personaQuery, setPersonaQuery] = useState('');
-  const [estadoSel, setEstadoSel] = useState<'activos' | 'todos' | 'inactivos'>('todos');
+  const [estadoSel, setEstadoSel] = useState<EstadoFiltro>('todos');
 
   // Crear período
   const [createOpen, setCreateOpen] = useState(false);
@@ -154,6 +155,10 @@ export default function PagoPersonalScreen() {
   // Estado ACTUAL (no el que tenía al momento de incluirlo) de los empleados de este
   // período, para poder marcar en la lista a quien ya fue desincorporado. employee_id → status.
   const [itemEmployeeStatus, setItemEmployeeStatus] = useState<Map<string, string>>(new Map());
+  // GRUPO APARTADO (Carbozulia / Seguridad) de los empleados de este período, para
+  // las dos pestañas nuevas. Se resuelve con la MISMA regla que usa Empleados
+  // (`grupoApartado`), a partir de la empresa filtro de nómina y el cargo.
+  const [itemEmployeeGrupo, setItemEmployeeGrupo] = useState<Map<string, GrupoApartado>>(new Map());
   // ¿Ya llegó el estado de los empleados de este período? Sin esto no se puede
   // distinguir "todavía no cargó" de "este renglón no tiene estado", que es justo
   // lo que rompía el filtro de desincorporados (ver `itemsShown`).
@@ -230,14 +235,23 @@ export default function PagoPersonalScreen() {
     // Estado ACTUAL de los empleados ya incluidos (puede haber cambiado desde que se
     // agregaron al período) → para marcar "Desincorporado" en la lista sin afectar montos.
     const empIds = Array.from(new Set(list.map((i) => i.employee_id).filter((id): id is string => !!id)));
+    // Se traen también `cargo` y la empresa filtro de nómina (embebida por la FK
+    // employees_payroll_company_id_fkey) para poder resolver el GRUPO APARTADO
+    // de cada quien en la misma consulta, sin un viaje extra.
     const { data: empStatus } = empIds.length
-      ? await supabase.from('employees').select('id, status').in('id', empIds)
-      : { data: [] as { id: string; status: string }[] };
+      ? await supabase.from('employees').select('id, status, cargo, payroll_company:payroll_company_id(name)').in('id', empIds)
+      : { data: [] as any[] };
     setItemEmployeeStatus(new Map((empStatus ?? []).map((e: any) => [e.id, e.status])));
+    const grupos = new Map<string, GrupoApartado>();
+    (empStatus ?? []).forEach((e: any) => {
+      const g = grupoApartado(e.payroll_company?.name, e.cargo);
+      if (g) grupos.set(e.id, g);
+    });
+    setItemEmployeeGrupo(grupos);
     setStatusLoaded(true);
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setStatusLoaded(false); setCargoSel(new Set()); setCargoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setItemEmployeeGrupo(new Map()); setStatusLoaded(false); setCargoSel(new Set()); setCargoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
   // El detalle (renglones, abonos y estado de empleados) se carga aparte con
   // supabase.from() directo (no useTable), así que se sincroniza en vivo aquí.
   useRealtimeRefresh(['staff_pay_items', 'staff_pay_payments', 'employees'], () => { if (sel) loadDetail(sel); });
@@ -725,8 +739,8 @@ export default function PagoPersonalScreen() {
       //    NO la reimplementes aquí: el bug del 20-ago-2026 fue exactamente eso —
       //    "sin estado" se trataba como "pasa todos los filtros", así que los renglones
       //    sin ficha salían a la vez en Activos y en Inactivos/Desincorporados.
-      .filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded));
-  }, [items, cargoSel, personaQuery, estadoSel, itemEmployeeStatus, statusLoaded]);
+      .filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo));
+  }, [items, cargoSel, personaQuery, estadoSel, itemEmployeeStatus, itemEmployeeGrupo, statusLoaded]);
 
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
@@ -1000,7 +1014,11 @@ export default function PagoPersonalScreen() {
                 style={{ ...input, marginBottom: spacing.xs }}
               />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-                {([{ k: 'activos', t: 'Activos' }, { k: 'todos', t: 'Todos' }, { k: 'inactivos', t: 'Inactivos/Desincorporados' }] as const).map((o) => (
+                {/* Carbozulia y Seguridad (29-ago-2026): atajos para ver y exportar a
+                    esa gente aparte. NO se descuentan de Todos/Activos —el TOTAL del
+                    período los incluye y esconderlos haría que la lista no cuadre con
+                    el monto. Ver el comentario de src/lib/staffPayEstado.ts. */}
+                {([{ k: 'activos', t: 'Activos' }, { k: 'todos', t: 'Todos' }, { k: 'inactivos', t: 'Inactivos/Desincorporados' }, { k: 'carbozulia', t: 'Carbozulia' }, { k: 'seguridad', t: 'Seguridad' }] as const).map((o) => (
                   <TouchableOpacity key={o.k} onPress={() => setEstadoSel(o.k)} style={chip(estadoSel === o.k)}>
                     <Text style={chipTxt(estadoSel === o.k)}>{o.t}</Text>
                   </TouchableOpacity>
@@ -1059,6 +1077,10 @@ export default function PagoPersonalScreen() {
                     title="Sin resultados en ESTE período"
                     subtitle={estadoSel === 'inactivos'
                       ? 'Nadie de los que están en este período figura como inactivo o desincorporado. Si buscas a alguien que NO está en el período, tráelo desde el registro completo.'
+                      : estadoSel === 'carbozulia'
+                      ? 'En este período no hay nadie de Carbozulia. Se reconocen por su “Empresa filtro nómina” en la ficha del empleado.'
+                      : estadoSel === 'seguridad'
+                      ? 'En este período no hay nadie de Seguridad. Se reconocen por el cargo SEGURIDAD en la ficha del empleado.'
                       : 'Ningún empleado del período coincide con el cargo, la búsqueda o el estado filtrados.'}
                   />
                   {!readOnly ? (

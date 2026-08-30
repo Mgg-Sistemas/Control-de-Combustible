@@ -1,5 +1,12 @@
 # Plan de Arquitectura — Control de Combustible
 
+> ⚠️ **DOCUMENTO HISTÓRICO — revisado el 28/08/2026.** Dos partes ya no describen la realidad:
+> el **árbol de carpetas** (promete `src/services/`, `src/utils/`, `supabase/migrations/` y 6 hooks;
+> lo real es `src/screens/` plano, **2 hooks**, y `src/lib/` con **111 archivos** donde vive toda la
+> lógica) y el **plan de pruebas y tooling** (Jest, Testing Library, ESLint, Prettier, EAS, CI por
+> PR — nada de eso se adoptó: `package.json` tiene **dos** devDependencies). Para lo real, manda
+> **`AGENTS.md`**.
+
 > Documento de arquitectura de software para la aplicación **Control de Combustible**.
 > Aplicación móvil de gestión de inventario y movimientos de combustible para flotas de vehículos y maquinaria.
 > Versión: 1.0 — Fecha: 2026-06-29
