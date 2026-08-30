@@ -10,10 +10,11 @@ export const isCookCargo = (cargo?: string | null): boolean => {
   return !!n && COOK_KEYS.some((k) => n.includes(k));
 };
 
-/** Las 3 comidas del día, en orden. */
+/** Las 4 comidas del día, en orden: desayuno → almuerzo → lunch (merienda tarde) → cena. */
 export const MEALS: { key: MealType; label: string; icon: string; color: string }[] = [
   { key: 'desayuno', label: 'Desayuno', icon: '🌅', color: '#F59E0B' },
   { key: 'almuerzo', label: 'Almuerzo', icon: '🍽️', color: '#2563EB' },
+  { key: 'lunch', label: 'Lunch', icon: '🥪', color: '#0D9488' },
   { key: 'cena', label: 'Cena', icon: '🌙', color: '#7C3AED' },
 ];
 

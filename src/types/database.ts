@@ -855,7 +855,7 @@ export interface FoodDistribution {
   employee_name: string;
   cedula: string | null;
   meals: number;
-  meal_type: MealType | null;  // desayuno/almuerzo/cena (1 por día por persona)
+  meal_type: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
   delivered_at: string;        // hora de entrega (ISO UTC)
   distribution_date: string;   // día (ISO Caracas)
   note: string | null;
@@ -864,9 +864,9 @@ export interface FoodDistribution {
   created_at: string;
 }
 
-export type MealType = 'desayuno' | 'almuerzo' | 'cena';
+export type MealType = 'desayuno' | 'almuerzo' | 'lunch' | 'cena';
 
-/** Comida entregada a una EMPRESA en un día (desayuno/almuerzo/cena), 1 vez por día. */
+/** Comida entregada a una EMPRESA en un día (desayuno/almuerzo/lunch/cena), 1 vez por día. */
 export interface FoodCompanyMeal {
   id: string;
   company_id: string | null;

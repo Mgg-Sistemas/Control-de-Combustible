@@ -177,14 +177,14 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
       const byDay = new Map<string, Partial<Record<MealType, FoodCompanyMeal>>>();
       rows.forEach((r) => { if (!byDay.has(r.meal_date)) byDay.set(r.meal_date, {}); byDay.get(r.meal_date)![r.meal_type] = r; });
       const days = [...byDay.keys()].sort((a, b) => b.localeCompare(a));
-      const totals: Record<MealType, number> = { desayuno: 0, almuerzo: 0, cena: 0 };
+      const totals: Record<MealType, number> = Object.fromEntries(MEALS.map((m) => [m.key, 0])) as Record<MealType, number>;
       const bodyRows = days.map((d) => {
         const g = byDay.get(d)!;
         let tot = 0;
         MEALS.forEach((m) => { const v = Number(g[m.key]?.delivered) || 0; tot += v; totals[m.key] += v; });
         return `<tr><td class="l">${esc(dmy(d))}</td>${MEALS.map((m) => `<td>${g[m.key] ? g[m.key]!.delivered : '—'}</td>`).join('')}<td class="b">${tot}</td></tr>`;
       }).join('');
-      const grand = totals.desayuno + totals.almuerzo + totals.cena;
+      const grand = MEALS.reduce((a, m) => a + totals[m.key], 0);
       const totalRow = `<tr class="tot"><td class="l">TOTAL</td>${MEALS.map((m) => `<td>${totals[m.key]}</td>`).join('')}<td class="b">${grand}</td></tr>`;
       const html = `
         <style>
@@ -278,7 +278,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : notice.startsWith('ℹ️') ? colors.text : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {/* 3 botones grandes: desayuno / almuerzo / cena */}
+      {/* Botones grandes por comida: desayuno / almuerzo / lunch / cena (de MEALS) */}
       {MEALS.map((mt) => {
         const done = doneOf(mt.key);
         return (

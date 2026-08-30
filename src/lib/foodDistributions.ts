@@ -6,7 +6,7 @@ export type SaveFoodInput = {
   employeeName: string;
   cedula?: string | null;
   meals: number;
-  mealType?: MealType | null;  // desayuno/almuerzo/cena (1 por día por persona)
+  mealType?: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
   distributionDate: string;   // día ISO (Caracas)
   deliveredAt?: string;       // hora de entrega (ISO). Por defecto ahora.
   note?: string | null;

@@ -249,7 +249,7 @@ export default function ComidaScreen() {
     }
   };
 
-  // Agrupa las comidas por empresa → { desayuno, almuerzo, cena }.
+  // Agrupa las comidas por empresa → { desayuno, almuerzo, lunch, cena }.
   const companyGroups = useMemo(() => {
     const map = new Map<string, { name: string; meals: Partial<Record<string, FoodCompanyMeal>>; total: number }>();
     companyMeals.forEach((cm) => {
@@ -313,6 +313,14 @@ export default function ComidaScreen() {
     });
     return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [rows]);
+
+  // Conteo del día por comida (empresa entregadas + personas), para las tarjetas.
+  const dayByMeal = useMemo(() => {
+    const by: Record<string, number> = {};
+    rows.forEach((r) => { if (r.meal_type) by[r.meal_type] = (by[r.meal_type] || 0) + (Number(r.meals) || 0); });
+    companyMeals.forEach((cm) => { by[cm.meal_type] = (by[cm.meal_type] || 0) + (Number(cm.delivered) || 0); });
+    return by;
+  }, [rows, companyMeals]);
 
   if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
@@ -516,6 +524,14 @@ export default function ComidaScreen() {
           {kpi('Por empresa', companyTotal, colors.brandText)}
           {kpi('Por persona', totalMeals, colors.text)}
           {kpi('Empresas', companyGroups.length, colors.text)}
+        </View>
+      </Card>
+
+      {/* Tarjetas de conteo del día por comida (empresa + persona). Suben en vivo. */}
+      <Card>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🍽️ Comidas del día (empresa + persona)</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          {MEALS.map((m) => kpi(`${m.icon} ${m.label}`, dayByMeal[m.key] || 0, m.color))}
         </View>
       </Card>
 

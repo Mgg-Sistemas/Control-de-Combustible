@@ -1602,7 +1602,7 @@ create table if not exists public.food_company_meals (
   id uuid primary key default gen_random_uuid(),
   company_id uuid references public.companies(id) on delete set null,
   company_name text not null,
-  meal_type text not null check (meal_type in ('desayuno','almuerzo','cena')),
+  meal_type text not null check (meal_type in ('desayuno','almuerzo','lunch','cena')),
   meal_date date not null,
   machines integer not null default 0,
   suggested integer not null default 0,
