@@ -7,7 +7,7 @@ import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { captureAndUploadPhoto } from '../lib/photo';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
@@ -104,13 +104,27 @@ export default function AsistenciaCamionesScreen() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    // 1) Todos los camiones (volteos/volquetas): se filtran por código en el cliente.
-    const { data: machs } = await supabase
-      .from('machinery')
-      .select('id, code, plate, serial, latitude, longitude, en_espera, company:company_id(name)')
-      .order('code');
+    try {
+    // 1) Los camiones (volteos/volquetas): se filtran por código en el cliente.
+    //
+    // MISMA regla que la lista del listero en Viajes de camiones: aquí solo pasan
+    // lista los camiones que ESTÁN en la obra.
+    //   - `active = false`      = eliminado del catálogo.
+    //   - `operational = false` = RETIRADO (fin de contrato, reemplazo por otro...).
+    // Ninguno de los dos pasa lista, y si entran no solo ensucian la lista: cuentan
+    // como AUSENTES, que es el número que mira el encargado. Un camión que se fue de
+    // la obra hace meses aparecía todos los días como si hubiera faltado.
+    //   - `en_espera` SÍ entra: está en la obra, solo que sin trabajo asignado.
+    //
+    // Y va por selectAllRows, no por un .select() pelado: PostgREST corta en ~1000
+    // filas SIN avisar, así que la flota se recortaba sola al crecer.
+    const machs = await selectAllRows(
+      'machinery',
+      'id, code, plate, serial, operational, latitude, longitude, en_espera, company:company_id(name)',
+      (q: any) => q.eq('active', true),
+    );
     const list = ((machs ?? []) as any[])
-      .filter((m) => isVolteoVolqueta(m.code || ''))
+      .filter((m) => isVolteoVolqueta(m.code || '') && m.operational !== false)
       .map((m) => ({
         id: m.id as string, code: m.code ?? '—', plate: m.plate ?? null, serial: m.serial ?? null,
         companyName: m.company?.name ?? 'Sin empresa', latitude: m.latitude ?? null, longitude: m.longitude ?? null,
@@ -142,7 +156,14 @@ export default function AsistenciaCamionesScreen() {
     const omap: Record<string, Override> = {};
     ((ov ?? []) as any[]).forEach((o) => { omap[o.machinery_id] = { status: o.status }; });
     setOverrides(omap);
-    setLoading(false);
+    } catch (e: any) {
+      // Si una consulta falla hay que DECIRLO, y en el cartel de la pantalla, que se
+      // queda. Una lista vacía se lee como "no vino nadie a trabajar", que es una
+      // mentira peor que un error a la vista.
+      setNotice(`❌ No se pudo cargar la lista de camiones: ${e?.message ?? e}`);
+    } finally {
+      setLoading(false);
+    }
   }, [date]);
   useEffect(() => { load(); }, [load]);
   useRealtimeRefresh(['machine_rounds', 'truck_attendance'], load);

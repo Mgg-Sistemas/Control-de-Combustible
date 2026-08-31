@@ -495,6 +495,15 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   Úsalo cuando necesites el conteo por zona 100% real; usa el conteo normal cuando necesites que el
   total cuadre siempre con la cantidad de equipos.
 
+> **🚚 Asistencia de camiones: los retirados ya no cuentan como ausentes (31/08/2026).** Esa
+> pantalla listaba **todas** las máquinas de la base, incluidas las **retiradas** y las
+> **eliminadas del catálogo**. No solo ensuciaban la lista: entraban en el contador de
+> **AUSENTES**, que es el número que se mira. Un camión que se fue de la obra hace meses aparecía
+> todos los días como si hubiera faltado. Ahora pasan lista solo los camiones que **están** en la
+> obra (las que están *"en espera"* sí entran: están en el patio, solo que sin trabajo asignado).
+> Además, si la consulta falla, **lo dice**, en vez de mostrar una lista vacía que se lee como *"no
+> vino nadie a trabajar"*.
+
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
   MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
   logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
@@ -3636,6 +3645,64 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ⬛ Retirada, ⏳ Esperando instrucciones), y el camión escogido lo muestra antes de tocar el botón.
 > Además el estado queda **congelado en el viaje**, así que la jefa puede revisar después cuáles se
 > registraron contra un camión averiado.
+>
+> ---
+>
+> **🔍 «Faltan viajes»: qué se encontró y qué se arregló (31/08/2026).** Se revisó el módulo entero
+> y se comparó contra la base de datos, viaje por viaje. **Los reportes cuadran**: los viajes que
+> faltan **nunca llegaron a entrar**. Pero sí aparecieron caminos por los que un viaje real se
+> perdía antes de guardarse. Los arreglados:
+>
+> - **La lista de camiones se vaciaba sola en hora pico, y este es el peor de todos.** El refresco
+>   automático se dispara con el viaje de **cualquier listero de la flota**: con cuatro registrando,
+>   la lista de camiones desaparecía y volvía cada pocos segundos. Si el listero tocaba un camión
+>   justo en ese momento, **no pasaba nada**: sin error, sin viaje, y él creyendo que ya lo había
+>   registrado. Ahora la lista solo se pone en *"cargando"* la primera vez; después se actualiza
+>   sin desaparecer.
+> - **El botón se quedaba gris diciendo «Buscando el chofer…».** Con el wifi del patio (esa señal
+>   que conecta pero no tiene internet) la consulta del chofer se colgaba y el botón de registrar
+>   **no se volvía a habilitar en toda la sesión**. Ahora espera 4 segundos y sigue: el viaje entra
+>   con el chofer que se pueda. Un chofer que falta se corrige; un viaje perdido no se recupera.
+> - **Cambiar de camión rápido le pegaba el chofer del anterior.** Si escogías un camión y cambiabas
+>   a otro antes de que respondiera, la respuesta vieja pisaba a la nueva.
+> - **La cola de los viajes sin señal se apartaba sola cuando vencía la sesión.** Un viaje guardado
+>   en el teléfono se intenta subir cada 30 segundos, y a los 3 fallos se **aparta** (sale en rojo,
+>   esperando que alguien lo resuelva). El problema: una **sesión vencida** contaba como fallo, así
+>   que con la app abierta en la pantalla de entrar **la cola entera se apartaba en minuto y medio**.
+>   Ahora lo que no es culpa del viaje —sesión, señal, servidor caído, el portal cautivo del
+>   patio— **nunca lo aparta**: se reintenta hasta que se pueda. Solo se aparta lo que de verdad
+>   está mal en el dato (un camión borrado del catálogo, por ejemplo).
+> - **Si te bajaban el permiso a solo lectura, los viajes que ya tenías guardados no subían nunca.**
+>   Vaciar la cola no es registrar: el viaje ya lo escribió alguien que en ese momento sí tenía
+>   permiso.
+> - **Una cola dañada se comía la memoria del teléfono.** Guardaba una copia de rescate **nueva en
+>   cada lectura** (unas cuatro por minuto, para siempre) hasta llenar el almacenamiento; a partir
+>   de ahí **ya no se podía guardar ningún viaje nuevo**. Ahora guarda **una sola** copia, y la
+>   cola se cura sola en cuanto se registre el siguiente viaje.
+> - **«VOLTEO  88» y «VOLTEO 88» salían como dos camiones distintos** en el resumen (dos espacios
+>   contra uno). Ahora los espacios de adentro y las tildes ya no separan; la **ñ** sí, porque es
+>   otra letra: *PEÑA* y *PENA* siguen siendo dos camiones.
+>
+> **Lo que NO era del sistema, y hay que resolver en la calle:** el **turno de noche** dejó de
+> registrar viajes, y la base confirma que **sí se trabajó** — **1.040 y 911 horas** de operación
+> las noches del 29 y el 30 de agosto. El registro a mano de noche viene cayendo **desde el 24 de
+> agosto**, no desde el 29. Y hay teléfonos que cortan a media jornada. Eso se arregla con los
+> listeros, no con el código.
+>
+> ---
+>
+> **🏢 En el panel de la jefa, las retiradas tampoco (31/08/2026).** El mismo arreglo que las sacó
+> de la lista del listero las dejaba todavía en dos sitios del panel: **pedían meta diaria** y
+> salían en el **resumen por camión con 0 viajes**, o sea contadas como flota parada. Un camión con
+> *"Fin de contrato"* no tiene meta que cumplir ni está parado: no está. **Sus viajes viejos no se
+> pierden**: si un camión retirado tiene viajes en el rango que estás mirando, su renglón sale igual.
+>
+> **Y los camiones que el listero «agregó a su lista» ya salen con su placa y su empresa.** Los que
+> se agregan desde el buscador (los que existen en el catálogo pero su código no dice
+> *volteo/volqueta/toronto*) salían en el resumen, en los filtros y en el PDF **sin placa (—) y bajo
+> "Sin empresa"**: se buscaban en la lista corta en vez de en el catálogo completo.
+>
+> ---
 >
 > ⚠️ **Registrar un viaje NO le cambia el estado a la máquina.** Este módulo no escribe nada en el
 > catálogo de maquinaria, ni le abre jornadas, ni le toca el horómetro. La alerta de *"camión sin
