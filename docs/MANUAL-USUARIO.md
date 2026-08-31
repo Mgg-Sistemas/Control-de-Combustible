@@ -498,7 +498,12 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
   MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
   logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
-  y **Responsable**— para completar a mano al imprimirlo, porque el reporte cubre a LICCIONE y a
+  y **Responsable**— para completar a mano al imprimirlo, porque el reporte puede cubrir varias
+  empresas a la vez. **Desde el 31-ago-2026 se divide por EMPRESA DE VERDAD** (una sección por cada
+  una; antes metía todo en dos cubetas fijas y la segunda se tragaba a todas las demás), y **respeta
+  las empresas marcadas** en «Empresas (marca una o varias)»: marca las que quieras y el PDF sale
+  solo con esas. Sin marcar ninguna, sale la flota completa. El alcance queda impreso en el
+  encabezado y en el nombre del archivo. Antes cubría a LICCIONE y a
   GOLDEN TOUCH a la vez. Cuenta el **mismo
   universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
   por EMPRESA en dos grupos**: **LICCIONE** (sus máquinas) y **GOLDEN TOUCH** (las de Golden + TODAS
