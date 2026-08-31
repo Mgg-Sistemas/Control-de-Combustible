@@ -7,7 +7,7 @@
  * Lo que fijan estos casos:
  *   - los bordes exactos (7:00, 18:59, 19:00, 6:59) y que la madrugada es NOCHE;
  *   - que el turno se deduce de la HORA y no de la columna `shift`, que es
- *     nullable y que `editarHoraViaje` deja desactualizada;
+ *     nullable y que `editarViaje` deja desactualizada;
  *   - que "mixto" no se dispara con un viaje suelto en el otro turno.
  *
  *   node scripts/test-viajes-turno.mjs
@@ -107,7 +107,7 @@ eq('* mismo corte que caracasNowShift() usa al registrar',
   turnoDeInstante(new Date()), caracasNowShift());
 
 // -- 4) EL DESACUERDO CON LA COLUMNA `shift` --------------------------------
-// Pasa cuando se corrige la hora cruzando las 7pm: `editarHoraViaje` mueve
+// Pasa cuando se corrige la hora cruzando las 7pm: `editarViaje` mueve
 // `registered_at` pero deja `shift` como estaba.
 const seisCincuenta = iso(enCaracas('2026-08-20', 18, 50));
 const sieteDiez = iso(enCaracas('2026-08-20', 19, 10));

@@ -196,17 +196,58 @@ export async function listTodosLosViajes(filtro: {
   }
 }
 
-/** Corrige la hora de un viaje ya registrado. El listero solo debe poder
- *  llamar esto sobre sus PROPIOS viajes — se valida en la pantalla, no aquí. */
-export async function editarHoraViaje(id: string, registeredAtISO: string): Promise<{ error?: string }> {
+/**
+ * Cambios que la JEFA (nivel `full`) puede hacerle a un viaje ya registrado.
+ * Todos son opcionales: se manda solo lo que se tocó.
+ *
+ * ⚠️ NO incluye el camión. Cambiar de camión un viaje no es una corrección, es
+ *    otro viaje: hay que borrar este y cargar el bueno, y así la auditoría
+ *    conserva las dos cosas por separado en vez de una fila que mutó.
+ */
+export type CambiosViaje = {
+  /** Fecha Y hora. Ver `src/lib/viajesEdicion.ts` — puede mudar el viaje de día. */
+  registeredAtISO?: string;
+  /** El chofer/responsable que iba en el camión. `null` = sin chofer anotado. */
+  choferName?: string | null;
+  /** Reasignar a otro listero. Los DOS campos van juntos: `listero_name` es el
+   *  nombre congelado que se muestra en el reporte, y dejarlo sin actualizar
+   *  mostraría al listero viejo con el id del nuevo. */
+  listeroId?: string;
+  listeroName?: string;
+  shift?: 'day' | 'night' | null;
+  note?: string | null;
+};
+
+/**
+ * Corrige un viaje ya registrado. El listero solo debe poder tocar la HORA de
+ * sus PROPIOS viajes; la jefa puede tocarlo todo — se valida en la pantalla, no
+ * aquí (mismo criterio que el resto del módulo, ver la cabecera del archivo).
+ */
+export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ error?: string }> {
+  const patch: Record<string, any> = {};
+  if (cambios.registeredAtISO !== undefined) patch.registered_at = cambios.registeredAtISO;
+  if (cambios.choferName !== undefined) patch.chofer_name = cambios.choferName;
+  if (cambios.listeroId !== undefined) patch.listero_id = cambios.listeroId;
+  if (cambios.listeroName !== undefined) patch.listero_name = cambios.listeroName;
+  if (cambios.shift !== undefined) patch.shift = cambios.shift;
+  if (cambios.note !== undefined) patch.note = cambios.note;
+  // Un update vacío en PostgREST devuelve la fila sin cambiar nada: parecería
+  // que se guardó algo. Mejor decirlo.
+  if (Object.keys(patch).length === 0) return { error: 'No cambiaste nada.' };
   // `.select('id')` para distinguir «actualizado» de «no había fila que actualizar»:
-  // sin él, corregir la hora de un viaje que otro usuario ya borró devolvía
-  // ÉXITO y la corrección se perdía sin que nadie lo notara.
-  const { data, error } = await supabase.from('camion_viajes').update({ registered_at: registeredAtISO }).eq('id', id).select('id');
+  // sin él, corregir un viaje que otro usuario ya borró devolvía ÉXITO y la
+  // corrección se perdía sin que nadie lo notara.
+  const { data, error } = await supabase.from('camion_viajes').update(patch).eq('id', id).select('id');
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { error: 'Ese viaje ya no existe (puede haberlo borrado otro usuario). Refresca la lista.' };
   return {};
 }
+
+// Acá vivía `editarHoraViaje(id, iso)`. Se quitó el 31-ago-2026 al abrirse la
+// edición completa: los tres llamadores pasaron a `editarViaje`, y dejarla
+// habría sido una segunda puerta a la misma tabla — la clase de duplicado que
+// termina desincronizándose. Si buscas ese nombre en un comentario viejo, es
+// esta función.
 
 /** Borrado real (hard delete) — la auditoría automática (`trg_audit`) conserva
  *  el registro completo igual. Solo debe quedar accesible desde la UI para
@@ -259,6 +300,46 @@ export async function setAlertaHoras(horas: number, userId: string): Promise<{ e
     .eq('id', true);
   if (error) return { error: error.message };
   return {};
+}
+
+/**
+ * LOS LISTEROS a los que se le puede atribuir un viaje: perfiles cuyo rol
+ * dinámico (`app_roles.modules`) o permiso por-usuario (`module_permissions`)
+ * incluye `viajes_camiones`. Mismo criterio que `listLavadoWorkers` en
+ * `src/lib/lavadoMaquinaria.ts` y `listOpSupervisors` en obras públicas.
+ *
+ * Hace falta para la carga manual de la jefa: cuando cuadra un día pasado tiene
+ * que poder dejar el viaje a nombre del listero que de verdad estaba, no al
+ * suyo. Si quedara siempre a su nombre, el resumen por listero diría que ella
+ * contó viajes en el patio.
+ */
+export async function listListeros(): Promise<{ id: string; full_name: string }[]> {
+  const [rolesRes, permsRes] = await Promise.all([
+    supabase.from('app_roles').select('id, modules'),
+    supabase.from('module_permissions').select('user_id, level').eq('module', 'viajes_camiones').neq('level', 'none'),
+  ]);
+  if (rolesRes.error) throw rolesRes.error;
+  if (permsRes.error) throw permsRes.error;
+  const roleIds = (rolesRes.data ?? [])
+    .filter((r: any) => r?.modules && r.modules['viajes_camiones'] && r.modules['viajes_camiones'] !== 'none')
+    .map((r: any) => r.id as string);
+  const permUserIds = (permsRes.data ?? []).map((p: any) => p.user_id as string);
+  if (!roleIds.length && !permUserIds.length) return [];
+  const [byRole, byPerm] = await Promise.all([
+    roleIds.length ? supabase.from('profiles').select('id, full_name, active').in('app_role_id', roleIds) : Promise.resolve({ data: [] as any[], error: null }),
+    permUserIds.length ? supabase.from('profiles').select('id, full_name, active').in('id', permUserIds) : Promise.resolve({ data: [] as any[], error: null }),
+  ]);
+  if (byRole.error) throw byRole.error;
+  if (byPerm.error) throw byPerm.error;
+  const seen = new Set<string>();
+  const out: { id: string; full_name: string }[] = [];
+  [...(byRole.data ?? []), ...(byPerm.data ?? [])].forEach((p: any) => {
+    if (p.active === false || seen.has(p.id)) return;
+    seen.add(p.id);
+    out.push({ id: p.id, full_name: p.full_name ?? '(sin nombre)' });
+  });
+  out.sort((a, b) => a.full_name.localeCompare(b.full_name, 'es', { sensitivity: 'base' }));
+  return out;
 }
 
 /** Chofer PLANEADO del turno (tabla `machine_operators`, ya administrada por el
