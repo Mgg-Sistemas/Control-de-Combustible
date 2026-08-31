@@ -160,12 +160,39 @@ async function readQuarantine(): Promise<QuarantinedViaje[]> {
 }
 
 async function writeQuarantine(items: QuarantinedViaje[]): Promise<void> {
+  // ⚠️ EL CAMBIO EN MEMORIA SE DESHACE SI EL DISCO FALLA. No es cosmético: si la
+  //    memoria se queda diciendo que el viaje YA está apartado, el recálculo del
+  //    flush lo borra de la cola por considerarlo resuelto y el viaje no queda
+  //    en ningún lado.
+  const previo = quarantineCache;
   quarantineCache = items;
   try {
     await AsyncStorage.setItem(QUARANTINE_KEY, JSON.stringify(items));
   } catch (e: any) {
+    // ⭐ ANTES ESTO SE TRAGABA EL ERROR (era un `console.warn` y seguía de largo),
+    //    y ese era el ÚNICO camino por el que un viaje se perdía de verdad:
+    //
+    //      1. el viaje llega al tope de intentos y se manda a cuarentena;
+    //      2. el disco falla (almacenamiento lleno, navegador en privado,
+    //         cookies bloqueadas) y nadie se entera;
+    //      3. dos líneas más abajo `writeAll(quedan)` SÍ funciona y lo saca de
+    //         la cola por estar "resuelto";
+    //      4. y encima `writeAll` pone `ultimoFalloDeGuardado = null`, así que
+    //         el aviso rojo tampoco salía.
+    //
+    //    Ni en la cola ni en la cuarentena, y sin una sola señal. Ahora revienta
+    //    hacia arriba: `writeQuarantine` se llama ANTES que `writeAll` dentro del
+    //    mismo bloque en serie, así que al tirar, la cola NO se reescribe y el
+    //    viaje se queda donde estaba, para reintentarlo después.
+    //
+    //    Es exactamente la misma disciplina que ya tenía `writeAll`, y que el
+    //    comentario de arriba de `readQuarantine` decía tener («perderla es
+    //    perder el trabajo del listero definitivamente») sin cumplirla.
+    quarantineCache = previo;
     ultimoFalloDeGuardado = `No se pudo guardar los viajes apartados: ${e?.message ?? e}`;
     console.warn('[viajesOfflineQueue] no se pudo guardar la cuarentena:', e);
+    quarantineListeners.forEach((l) => l(previo ?? []));
+    throw new Error(ultimoFalloDeGuardado);
   }
   quarantineListeners.forEach((l) => l(items));
 }
@@ -364,8 +391,18 @@ export async function retryQuarantinedViajes(): Promise<{ synced: number; remain
   return flushViajesQueue();
 }
 
-/** Descarta UN viaje apartado. Solo por decisión explícita de una persona. */
+/**
+ * Descarta UN viaje apartado. Solo por decisión explícita de una persona.
+ *
+ * ⚠️ VA EN SERIE como todo lo que toca estos dos almacenes. Antes leía y
+ *    escribía por fuera: un flush corriendo en el medio podía resucitar el
+ *    descartado, o borrar los que el flush acababa de apartar. Hoy nadie la
+ *    llama todavía (no hay botón de descartar), pero dejarla con la carrera
+ *    puesta era una trampa esperando a quien la cablee.
+ */
 export async function discardQuarantinedViaje(id: string): Promise<void> {
-  const q = await readQuarantine();
-  await writeQuarantine(q.filter((x) => x.id !== id));
+  await enSerie(async () => {
+    const q = await readQuarantine();
+    await writeQuarantine(q.filter((x) => x.id !== id));
+  });
 }

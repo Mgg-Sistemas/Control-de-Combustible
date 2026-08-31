@@ -473,7 +473,10 @@ export default function ViajesCamionesScreen() {
     // no debe cerrar la app. Se revisa en cada cambio de la cola, que es cuando
     // puede haber fallado una escritura.
     const unsub = subscribeViajesQueue((items) => { setQueuedItems(items); setFalloGuardado(falloDeGuardadoLocal()); });
-    const unsubQ = subscribeViajesQuarantine((items) => setStuckItems(items));
+    // ⭐ El aviso rojo también se refresca desde ACÁ, no solo desde la cola. Si
+    //    falla el guardado de la CUARENTENA, la cola no cambia y su listener no
+    //    dispara: el aviso se quedaba mudo justo en el caso más grave.
+    const unsubQ = subscribeViajesQuarantine((items) => { setStuckItems(items); setFalloGuardado(falloDeGuardadoLocal()); });
     const tryFlush = () => {
       flushViajesQueue()
         .then((r) => { if (r.synced > 0) loadMisViajes(); })

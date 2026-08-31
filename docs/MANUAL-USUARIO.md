@@ -3625,6 +3625,26 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
 
+### 🛡️ La última fuga de viajes, tapada (31-ago-2026)
+
+Quedaba **un** camino por el que un viaje desaparecía sin dejar rastro, y era el peor de todos porque
+no daba **ninguna** señal:
+
+1. Un viaje que no puede subirse por un problema de datos (el camión se borró del catálogo, por
+   ejemplo) se **aparta** a la lista de rojos tras varios intentos.
+2. Si justo en ese momento el teléfono **no podía escribir en su memoria** —memoria llena, navegador
+   en modo privado, cookies bloqueadas— el error se ignoraba.
+3. Un instante después el viaje se sacaba de la cola por considerarlo *ya resuelto*.
+4. No quedaba **ni en la cola ni en los apartados**. Y como el paso siguiente borraba el mensaje de
+   error, **el aviso rojo tampoco salía**.
+
+**Ahora:** si no se puede apartar, el viaje **se queda en la cola** y el aviso lo dice. Se reintenta
+solo cuando el teléfono vuelve a poder guardar. La cola normal ya tenía esta protección desde el
+22-ago-2026; a los apartados les faltaba, aunque el propio código decía tenerla.
+
+> Está fijado con prueba automática: si alguien vuelve a hacer que ese fallo se ignore, tres casos de
+> `scripts/test-cola-offline.mjs` se ponen en rojo.
+
 ### 🔎 Buscador y placas en los filtros (31-ago-2026)
 
 Dos cosas que iban juntas, las dos en la **lista completa de viajes**.
