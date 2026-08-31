@@ -1856,7 +1856,7 @@ export default function ReportsScreen({ route }: any) {
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
   const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, tipo, marca, modelo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     // Los DOS reportes (REAL y SIMULADO) cuentan el MISMO universo que el Catálogo:
     // TODAS las máquinas menos las RETIRADAS (operational=false). Así el TOTAL del
@@ -1946,22 +1946,26 @@ export default function ReportsScreen({ route }: any) {
         .map((m, i) => {
           const est = estadoOf(m);
           const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
-          const marca = (m.tipo && String(m.tipo).trim()) || '';
+          // MARCA y MODELO son campos propios de la maquina (CAT 320, Komatsu PC200…) y van
+          // en su propia columna. `tipo` es otra cosa (el tipo de equipo) y se queda en la
+          // linea gris junto al codigo, que es donde estaba antes mal rotulado como marca.
+          const marcaModelo = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ');
+          const tipoEq = (m.tipo && String(m.tipo).trim()) || '';
           const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ');
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${tipoEq ? ' · ' + esc(tipoEq) : ''}</span></td><td>${esc(marcaModelo || '—')}</td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
       const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
       // Anchos fijos en Placa/Serial y Estado: la plantilla del Plan reparte así las
       // columnas y evita que "Ubicación" (texto largo) se coma el resto de la fila.
       return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th style="width:120px">Placa / Serial</th><th>Ubicación</th>${opHead}<th style="width:110px">Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th style="width:120px">Marca / Modelo</th><th style="width:120px">Placa / Serial</th><th>Ubicación</th>${opHead}<th style="width:110px">Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
     const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
     // Máquinas pick-up + vehículos pick-up en UNA lista, ordenada ALFABÉTICAMENTE (serial/placa). Sin columna de ubicación.
     const pickItems = [
-      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${m.tipo ? ' · 🏷️ ' + esc(String(m.tipo).trim()) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
+      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); const mm = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo ? String(m.tipo).trim() : ''); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${mm ? ' · 🏷️ ' + esc(mm) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
       ...vehPickups.map((v) => ({ label: `<b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' })),
     ].sort((a, b) => cmpText(a.key, b.key));
     const pickupsHtml = pickItems.length
@@ -2081,7 +2085,7 @@ export default function ReportsScreen({ route }: any) {
     const sinUbicSorted = sinUbicMachines.slice().sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? ''));
     const sinUbicHtml = sinUbicSorted.length
       ? `<div class="ente">📍 <b>DESPLEGADAS POR TODO EL TERRITORIO DE LA GUAIRA</b> <span class="cnt-pill">${sinUbicSorted.length} equipo(s)</span></div>
-         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc((m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc([m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
       : '';
     const despliegueSectorHtml = `<div class="sect">📍 Despliegue por sector y edificio · ubicación al ${new Date().toLocaleString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>`
       + (sectorsSorted.length ? sectorsSorted.map(([secL, g]) => {
