@@ -296,5 +296,40 @@ ok('* un rango al reves se dice, no se disimula',
   ok('* la busqueda se apoya en machineMatches', codigo.includes('machineMatches('));
 }
 
+// -- 12) LA PANTALLA: que el panel nuevo NO toque el informe de siempre -------
+// Es la garantia mecanica de "sin danar nada en el modulo".
+{
+  const src = fs.readFileSync(path.join(ROOT, 'src/screens/ReportsScreen.tsx'), 'utf8');
+  const codigo = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  ok('* la pantalla usa la libreria, no una copia', codigo.includes('resumirPorMaquina('));
+  ok('* y su buscador', codigo.includes('filtrarMaquinas('));
+
+  // EL FILTRO POR MAQUINA NO PUEDE ENTRAR EN generateRounds. Si entrara, los
+  // FLETES y los ABONOS -- que son de la EMPRESA -- se seguirian sumando
+  // completos contra las horas de UN equipo, y el "SALDO POR PAGAR" del
+  // documento con el que se cobra saldria falso.
+  // El corte va hasta `const usd =`, que es lo primero que viene DESPUES de
+  // generateRounds. Cortar en generateFleet se tragaba el panel nuevo entero.
+  const gen = codigo.slice(codigo.indexOf('const generateRounds'), codigo.indexOf('const usd ='));
+  ok('* (el corte agarra generateRounds de verdad)', gen.length > 3000 && gen.includes('machine_rounds'));
+  ok('* generateRounds no sabe nada del filtro por maquina', !gen.includes('maqSel'));
+  ok('* ni del buscador', !gen.includes('maqQuery'));
+
+  // El desglose por dia tiene que llenarse con las horas ANCLADAS (dd/nn/w). Con
+  // las crudas (d/n), una jornada abierta hoy mostraria MENOS horas en el panel
+  // que en el informe de arriba, en la misma pantalla.
+  ok('* el dia a dia usa las horas ancladas', /porDia\.push\(\{[^}]*dia: dd[^}]*noche: nn[^}]*trabajadas: w/.test(gen));
+  ok('* y NO las crudas', !/porDia\.push\(\{[^}]*dia: d,/.test(gen));
+
+  // La consulta tiene que traer el identificador, o las tres retroexcavadoras
+  // quedan indistinguibles entre si.
+  ok('* la consulta trae el identificador', gen.includes('plate, identifier,'));
+
+  // La identidad de una MAQUINA no se resuelve con la regla de los CAMIONES.
+  ok('* el panel etiqueta con machineLabel', codigo.includes('machineLabel('));
+  ok('* y no con placaDeCamion', !codigo.includes('placaDeCamion'));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-jornada-por-maquina · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
