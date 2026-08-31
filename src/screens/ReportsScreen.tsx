@@ -1865,7 +1865,14 @@ export default function ReportsScreen({ route }: any) {
     // (GPS real vs Este/Oeste al azar).
     // TODAS las máquinas disponibles = operational != false (239): incluye las que están
     // esperando instrucciones. Solo se excluyen las RETIRADAS (operational=false).
-    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
+    // ⭐ SE RESPETAN LAS EMPRESAS MARCADAS (cliente 31-ago-2026: «que yo pueda
+    //    seleccionar las empresas que quiera que salgan, en caso de que quiera
+    //    el de algunas y no todas»). `repCompanies` vacío = todas, misma
+    //    convención que el resto de los reportes de esta pantalla.
+    const cosSel = repCompanies.length ? new Set(repCompanies) : null;
+    const list = ((mach ?? []) as any[])
+      .filter((m) => m.operational !== false)
+      .filter((m) => !cosSel || cosSel.has((m.company?.name && String(m.company.name).trim()) || 'Sin empresa'));
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1918,13 +1925,24 @@ export default function ReportsScreen({ route }: any) {
     const esPickup = (m: any) => /pick|camioneta/i.test(equipCategory(m.code)) || /pick|camioneta/i.test(String(m.clasificacion ?? ''));
     const pickupMachines = list.filter(esPickup);
     const maqList = list.filter((m) => !esPickup(m));
-    // Agrupar por EMPRESA en DOS grupos: LICCIONE (sus máquinas) y GOLDEN TOUCH (las de
-    // Golden + TODAS las demás empresas). Liccione se reconoce por el nombre de la empresa
-    // supervisora; cualquier otra (o sin empresa) cae en Golden Touch.
-    const grupoEmpresaDe = (m: any) => (/liccion/i.test(companyOf(m)) ? 'LICCIONE' : 'GOLDEN TOUCH');
+    // ⭐ UNA SECCIÓN POR EMPRESA DE VERDAD (cliente 31-ago-2026: «que se divida
+    //    por empresa»). Antes esto metía TODO en dos cubetas fijas —LICCIONE y
+    //    GOLDEN TOUCH, donde la segunda se tragaba a todas las demás empresas—
+    //    así que una máquina de Savanna o de Ferreconstrucciones salía impresa
+    //    bajo el nombre de otra empresa. Ahora cada empresa es su propia sección
+    //    y las que no tienen ficha caen en «Sin empresa», sin inventarles una.
+    const grupoEmpresaDe = (m: any) => companyOf(m);
+    // Cuántas empresas hay en TODA la flota, para poder decir «3 de 7» y que se
+    // note de un vistazo que el reporte va recortado.
+    const todasLasEmpresas = new Set(((mach ?? []) as any[])
+      .filter((m) => m.operational !== false)
+      .map((m) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa')).size;
     const groups = new Map<string, any[]>();
     list.forEach((m) => { const e = grupoEmpresaDe(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); }); // TODA la maquinaria (= Catálogo)
-    const enteNames = ['LICCIONE', 'GOLDEN TOUCH'].filter((g) => groups.has(g)); // Liccione primero; Golden Touch (el resto) después
+    // A→Z, y «Sin empresa» al final: es una ausencia, no una empresa más.
+    const SIN_EMP = 'Sin empresa';
+    const enteNames = Array.from(groups.keys())
+      .sort((a, b) => (a === SIN_EMP ? 1 : b === SIN_EMP ? -1 : cmpText(a, b)));
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
     const sortMaq = (a: any, b: any) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? '');
     // Operadores: 2 por máquina de SOS La Guaira (1 turno día + 1 turno noche), en
@@ -1983,7 +2001,7 @@ export default function ReportsScreen({ route }: any) {
       return sectorMacro(sectorOf(m.latitude, m.longitude)) ?? 'ESTE';
     };
     // Resumen ARRIBA: cantidad de maquinaria por empresa (incluye pick-ups), con el total
-    // en ESTE y en OESTE. Mismos DOS grupos que la lista: LICCIONE y GOLDEN TOUCH.
+    // en ESTE y en OESTE. Las MISMAS empresas que la lista de abajo, en el mismo orden.
     const countByCo = new Map<string, { total: number; este: number; oeste: number }>();
     list.forEach((m) => {
       const c = grupoEmpresaDe(m);
@@ -1996,7 +2014,7 @@ export default function ReportsScreen({ route }: any) {
     countByCo.forEach((v) => { coTot.este += v.este; coTot.oeste += v.oeste; });
     const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
       <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th><th style="width:90px;text-align:right">🟢 Este</th><th style="width:90px;text-align:right">🟠 Oeste</th></tr></thead>
-      <tbody>${['LICCIONE', 'GOLDEN TOUCH'].filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tbody>${enteNames.filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${coTot.este}</td><td style="text-align:right;font-weight:800">${coTot.oeste}</td></tr></tfoot></table>`;
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
@@ -2150,15 +2168,22 @@ export default function ReportsScreen({ route }: any) {
       ${resumenCoHtml}
       ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
-      <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
+      <div class="sect">🏢 Maquinaria por empresa${cosSel ? ` · ${enteNames.length} de ${todasLasEmpresas} empresa(s)` : ''}</div>
       ${maquinariaHtml}
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
-    const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
-    const fileName = `Reporte - Inventario de maquinaria${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    // ⚠️ EL ALCANCE VA IMPRESO. Un reporte de tres empresas y uno de toda la
+    //    flota se ven idénticos en papel si no lo dice; y con el nombre de
+    //    archivo igual, el segundo pisa al primero en la carpeta de descargas.
+    const alcanceEmp = cosSel
+      ? (repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : `Empresas: ${repCompanies.join(', ')}`)
+      : 'Todas las empresas';
+    const subtitle = `${subBase} · ${alcanceEmp}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
+    const sufijoEmp = cosSel ? ` - ${repCompanies.join(', ').slice(0, 60)}` : '';
+    const fileName = `Reporte - Inventario de maquinaria${sufijoEmp}${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
     // Membrete del Plan Venezuela Renace. "Empresa" y "Responsable" van como
-    // líneas en blanco (igual que la plantilla oficial): el reporte cubre a
-    // LICCIONE y GOLDEN TOUCH a la vez, así que quien lo imprime las completa.
+    // líneas en blanco (igual que la plantilla oficial): el reporte puede cubrir
+    // varias empresas a la vez, así que quien lo imprime las completa.
     await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', subtitle, body), fileName);
   };
 
@@ -3034,6 +3059,17 @@ export default function ReportsScreen({ route }: any) {
                 </Text>
                 <Switch value={tacConPersonal} onValueChange={setTacConPersonal} />
               </View>
+              {/* ⭐ Se DICE qué empresas van a salir. El selector de empresas vive
+                  más abajo en la pantalla y aplica a todos los reportes, pero
+                  desde acá no se ve: sin este renglón, quien marca tres empresas
+                  no tiene forma de saber que el botón ya las está respetando —ni
+                  quien no marcó ninguna, de saber que le va a salir la flota
+                  entera. Cliente 31-ago-2026. */}
+              <Text style={{ color: repCompanies.length ? colors.brandText : colors.muted, fontSize: 11.5, marginBottom: 4, fontWeight: repCompanies.length ? '700' : '400' }}>
+                {repCompanies.length
+                  ? `🏢 Sale dividido por empresa, solo con: ${repCompanies.join(' · ')}`
+                  : '🏢 Sale dividido por empresa, con TODAS. Marca empresas más abajo para sacar solo algunas.'}
+              </Text>
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
