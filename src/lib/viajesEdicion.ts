@@ -168,6 +168,26 @@ export function turnoParaGuardar(registeredAtISO: string): Turno {
 }
 
 /**
+ * Los turnos DISTINTOS que toca una tanda, en orden. Hermano de
+ * `jornadasDeCarga`, y hace falta por la misma razón: una tanda se puede
+ * DESBORDAR de turno sin que se note.
+ *
+ * ⚠️ Empezar a las 6:50pm y cargar cuatro deja dos en el turno de DÍA y dos en
+ *    el de NOCHE, aunque quien carga haya elegido «noche». Como el turno se
+ *    deduce de la hora (ver la cabecera de `viajesTurno.ts`), esos viajes salen
+ *    en el turno que dice su hora y no en el que se pidió: si no se avisa,
+ *    parecen perdidos al filtrar por turno.
+ */
+export function turnosDeCarga(horariosISO: string[]): Turno[] {
+  const out: Turno[] = [];
+  for (const iso of horariosISO) {
+    const t = turnoDeViaje(iso);
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
  * QUÉ HAY QUE AVISARLE A QUIEN EDITA, ANTES DE GUARDAR.
  *
  * ⚠️ Cambiar la hora de un viaje puede MUDARLO DE DÍA sin que nadie lo pida,
