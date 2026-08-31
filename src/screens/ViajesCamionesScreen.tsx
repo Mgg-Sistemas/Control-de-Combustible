@@ -139,9 +139,12 @@ const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 
 // 'espera' entró el 18-ago-2026: una máquina EN ESPERA DE INSTRUCCIONES está
 // congelada por completo (no se le inicia jornada ni se le surte), así que
 // legítimamente no viaja — reclamarle "sin viaje reciente" a la jefa era ruido.
-// En el registro sirve de red: el listero ya no puede escogerla (ver
-// `trucksSeleccionables`), pero si se congela DESPUÉS de seleccionarla, pide
-// confirmación en vez de registrar el viaje en silencio.
+//
+// ⚠️ HOY ESTA LISTA SOLO SIRVE PARA ESA ALERTA. El 31-ago-2026 se quitó su uso
+//    en el REGISTRO: ni esconde el camión del buscador ni pide confirmación
+//    antes de guardar (el cliente pidió que el estado no frene al listero). La
+//    única exclusión que quedó en el buscador es la de las RETIRADAS, y se hace
+//    aparte — ver la nota larga de `trucksSeleccionables`.
 const ESTADO_ADVERSO: EstadoConteo[] = ['averiada', 'parada', 'retirada', 'espera'];
 
 type Preset = 'hoy' | 'semana' | 'mes' | 'rango' | 'dias';
@@ -302,13 +305,27 @@ export default function ViajesCamionesScreen() {
   //    no importa el estado del camión, si está averiado o algo por el estilo;
   //    si colocan que se hizo un viaje, lo registre»).
   //
-  //    Esto REVIERTE el filtro que se puso el 18-ago-2026 («que no le salgan las
-  //    retiradas a los listeros, ni las que están en espera»). El motivo del
-  //    cambio: un viaje es un HECHO OBSERVADO —el listero vio entrar el camión—
-  //    y el estado es una ANOTACIÓN de otro módulo que puede estar vieja, mal
-  //    puesta o sin actualizar. Cuando las dos cosas se contradicen, gana lo que
-  //    se vio. Antes, un camión marcado "en espera" por error dejaba al listero
-  //    sin manera de anotar viajes que sí ocurrieron, y esos viajes se perdían.
+  //    El motivo: un viaje es un HECHO OBSERVADO —el listero vio entrar el
+  //    camión— y AVERIADA / PARADA / EN ESPERA son ANOTACIONES de otro módulo
+  //    que pueden estar viejas, mal puestas o sin actualizar. Cuando las dos
+  //    cosas se contradicen, gana lo que se vio. Antes, un camión marcado por
+  //    error dejaba al listero sin manera de anotar viajes que sí ocurrieron.
+  //
+  // ⚠️⚠️ CON UNA EXCEPCIÓN: LAS **RETIRADAS** SIGUEN FUERA (31-ago-2026, mismo
+  //    día, después de verlo en producción). Al quitar el filtro entero, la
+  //    lista del listero pasó de 61 a 89 camiones: los 28 nuevos eran RETIRADOS,
+  //    con motivos como «Fin de contrato» o «reemplazo por A74AB3P». El cliente
+  //    lo reportó ese mismo día como «se están registrando máquinas que no
+  //    están», y tenía razón literalmente: esos camiones ya no están en la obra.
+  //
+  //    RETIRADA NO ES LO MISMO que las otras tres. Averiada o parada es una
+  //    anotación dudosa sobre un camión que SIGUE en el patio; retirada es un
+  //    HECHO ADMINISTRATIVO — el camión se fue. No hay «viaje observado» que
+  //    pueda contradecirlo, así que acá no aplica la regla de arriba.
+  //
+  //    Y la puerta no se cierra, se muda: si de verdad hubo un viaje de un
+  //    camión ya retirado, la jefa lo carga desde «✍️ Cargar viajes a mano»,
+  //    que tiene el catálogo completo. Queda en manos de quien puede juzgarlo.
   //
   // ⚠️ NO SE PIERDE LA ADVERTENCIA, solo deja de ser un obstáculo: el estado se
   //    sigue viendo en el buscador y en el camión escogido (chip de color), y se
@@ -323,11 +340,15 @@ export default function ViajesCamionesScreen() {
   // buscador (`extraTruckIds`): existen en el catálogo pero su código no dice
   // "volteo"/"volqueta"/"toronto", así que nunca habrían entrado. Agregarlas NO
   // escribe nada en `machinery` — es una lista de esta pantalla y nada más.
+  /** RETIRADA = `operational === false`. En este sistema ese es el retiro de
+   *  servicio; `active = false` es otra cosa (eliminada del catálogo) y esa la
+   *  consulta ya no la trae. Ver `src/lib/auditMachineState.ts`. */
+  const estaRetirada = (t: TruckRow) => !t.operational;
   const trucksSeleccionables = useMemo(() => {
-    const base = allTrucks;
+    const base = allTrucks.filter((t) => !estaRetirada(t));
     if (extraTruckIds.size === 0) return base;
     const yaEstan = new Set(base.map((t) => t.id));
-    const sumadas = catalogoTrucks.filter((t) => extraTruckIds.has(t.id) && !yaEstan.has(t.id));
+    const sumadas = catalogoTrucks.filter((t) => extraTruckIds.has(t.id) && !yaEstan.has(t.id) && !estaRetirada(t));
     return [...base, ...sumadas].sort((a, b) => cmpText(a.code, b.code));
   }, [allTrucks, catalogoTrucks, extraTruckIds]);
   const pickEstadoOptions = useMemo(() => {
@@ -349,19 +370,18 @@ export default function ViajesCamionesScreen() {
   // salen cuando se escribe algo — si salieran siempre, la lista se llenaría de
   // excavadoras y payloaders y el listero no encontraría sus camiones.
   //
-  // El ESTADO no las saca de acá (31-ago-2026): esta vía tiene que ofrecer lo
-  // mismo que la lista principal, o quedaba un camión imposible de encontrar.
+  // El MISMO criterio que la lista principal (31-ago-2026): averiadas, paradas y
+  // en espera SÍ se ofrecen; las RETIRADAS no. Si acá se filtrara distinto,
+  // quedaría un camión imposible de encontrar por un lado y un fantasma por el
+  // otro. Ver la nota larga de `trucksSeleccionables`.
   const pickExtras = useMemo(() => {
     if (!nqPick) return [] as TruckRow[];
     const yaOfrecidas = new Set(trucksSeleccionables.map((t) => t.id));
     return catalogoTrucks
       .filter(
-        // Sin filtro de estado, igual que `trucksSeleccionables`: si se filtrara
-        // solo acá, un camión retirado o en espera cuyo código no diga
-        // "volteo"/"volqueta"/"toronto" no habría manera de encontrarlo — que es
-        // justo el caso que el pedido del 31-ago-2026 vino a destrabar.
         (t) =>
           !yaOfrecidas.has(t.id) &&
+          !estaRetirada(t) &&
           [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName]
             .some((f) => f != null && norm(String(f)).includes(nqPick))
       )
@@ -616,7 +636,25 @@ export default function ViajesCamionesScreen() {
       const shift = caracasNowShift();
       const esFuera = selectedTruck.id === FUERA_CATALOGO_ID;
       let chofer = selectedChofer;
-      if (!esFuera && shift !== selectedShift) chofer = await resolveChoferActual(selectedTruck.id, shift);
+      // ⚠️⚠️ ESTA CONSULTA NO PUEDE FRENAR EL REGISTRO, Y ANTES LO FRENABA.
+      //
+      //    Iba con `await` pelado y ANTES del `if (!isOnline())` de más abajo:
+      //    con el wifi del patio (señal sin internet) o un portal cautivo, el
+      //    `fetch` se cuelga decenas de segundos con el botón en «Registrando…».
+      //    Si el listero se cansaba y cerraba la app, el viaje NO se había
+      //    encolado todavía: se perdía entero. Es el único camino del módulo que
+      //    pierde el dato antes de tocar el disco, y cae justo en el cambio de
+      //    turno, que es cuando más se registra.
+      //
+      //    Ahora tiene tope de tiempo: si no contesta en 4 segundos se sigue con
+      //    el chofer que ya se tenía. Un chofer viejo es un dato imperfecto; un
+      //    viaje perdido no se recupera.
+      if (!esFuera && shift !== selectedShift) {
+        chofer = await Promise.race([
+          resolveChoferActual(selectedTruck.id, shift),
+          new Promise<string | null>((r) => setTimeout(() => r(selectedChofer), 4000)),
+        ]);
+      }
       const payload = {
         // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
         // existe únicamente como texto en esta fila. La BD lo exige con el CHECK
@@ -1718,13 +1756,20 @@ export default function ViajesCamionesScreen() {
             <Text style={{ color: colors.muted, fontSize: 13 }}>
               👤 Chofer del turno {selectedShift === 'night' ? '🌙 noche' : '☀️ día'}: {choferLoading ? 'cargando…' : (selectedChofer ?? 'sin asignar')}
             </Text>
+            {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
+                cierra el buscador y toca Registrar de una —su trabajo es un
+                toque por camión, lo va a hacer siempre—; si la consulta del
+                chofer no había vuelto, el viaje se guardaba con el chofer VACÍO
+                y después la pantalla pintaba el nombre como si todo hubiera
+                salido bien. Es la explicación más probable de los viajes sin
+                chofer en el reporte de la jefa. */}
             <TouchableOpacity
               onPress={doRegistrarViaje}
-              disabled={registering}
-              style={[styles.registerBtn, { opacity: registering ? 0.6 : 1 }]}
+              disabled={registering || choferLoading}
+              style={[styles.registerBtn, { opacity: registering || choferLoading ? 0.6 : 1 }]}
             >
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 15 }}>
-                {registering ? 'Registrando…' : '🚛 Registrar viaje'}
+                {registering ? 'Registrando…' : choferLoading ? 'Buscando el chofer…' : '🚛 Registrar viaje'}
               </Text>
             </TouchableOpacity>
           </View>
