@@ -498,22 +498,35 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
   MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
   logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
-  y **Responsable**— para completar a mano al imprimirlo, porque el reporte puede cubrir varias
-  empresas a la vez. **Desde el 31-ago-2026 se divide por EMPRESA DE VERDAD** (una sección por cada
-  una; antes metía todo en dos cubetas fijas y la segunda se tragaba a todas las demás), y **respeta
-  las empresas marcadas** en «Empresas (marca una o varias)»: marca las que quieras y el PDF sale
-  solo con esas. Sin marcar ninguna, sale la flota completa. El alcance queda impreso en el
-  encabezado y en el nombre del archivo. Antes cubría a LICCIONE y a
+  y **Responsable**— para completar a mano al imprimirlo, porque el reporte cubre a LICCIONE y a
   GOLDEN TOUCH a la vez. Cuenta el **mismo
   universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
   por EMPRESA en dos grupos**: **LICCIONE** (sus máquinas) y **GOLDEN TOUCH** (las de Golden + TODAS
-  las demás empresas), cada una con su **placa / serial** (en **columna propia**), su **ubicación real**
+  las demás empresas), cada una con su **marca y modelo** (en **columna propia**: CAT 320,
+  Komatsu PC200…), su **placa / serial** (también en columna propia), su **ubicación real**
   (referencia + sector Este/Oeste y subzona
   por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado** (Operativo / Inoperativo / En espera). Las
   máquinas **sin ubicación cargada** salen como **"Desplegadas por todo el territorio de La Guaira"**.
   **Arriba** trae la cantidad de maquinaria por empresa; cierra con un **conteo por clasificación**.
   El reporte va **100% por empresa** (ya **no** trae los resúmenes por zona Este/Oeste).
   El archivo se descarga como *"Reporte - Inventario de maquinaria"*.
+
+  > **🏷️ Marca y modelo, en su propia columna (31/08/2026):** a pedido del cliente el
+  > inventario ahora imprime la **MARCA** y el **MODELO** de cada máquina en una columna aparte,
+  > entre *"Equipo / Tipo"* y *"Placa / Serial"*.
+  >
+  > **Ojo con esto, que es lo que confunde:** son **tres campos distintos** de la ficha de la
+  > máquina. El **tipo** es qué clase de equipo es (excavadora, volteo…), la **marca** es de
+  > quién es (CAT, Komatsu, Kodiak…) y el **modelo** es cuál (320, PC200, D6…). Antes el
+  > reporte imprimía el **tipo** haciéndolo pasar por marca —con su etiqueta 🏷️ y todo—, y la
+  > tabla de *"Desplegadas por todo el territorio"* tenía una columna que **decía**
+  > *"Marca/Modelo"* pero adentro mostraba el tipo. Las dos ya muestran el dato correcto.
+  >
+  > **Si la columna te sale con un guión (—)** es que esa máquina **no tiene la marca ni el
+  > modelo cargados en su ficha**: no es una falla del reporte, hay que llenarlos en el
+  > **Catálogo de maquinaria**. El **tipo** sigue saliendo, en gris, junto al código del equipo.
+  > En las **pick-up** se muestra marca y modelo, y si la máquina no los tiene, el tipo.
+
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
   **SOS La Guaira** (no en los de CVM / Gobernación / FANB): a cada máquina le asigna **2 operadores**

@@ -1856,7 +1856,7 @@ export default function ReportsScreen({ route }: any) {
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
   const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, tipo, marca, modelo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     // Los DOS reportes (REAL y SIMULADO) cuentan el MISMO universo que el Catálogo:
     // TODAS las máquinas menos las RETIRADAS (operational=false). Así el TOTAL del
@@ -1865,14 +1865,7 @@ export default function ReportsScreen({ route }: any) {
     // (GPS real vs Este/Oeste al azar).
     // TODAS las máquinas disponibles = operational != false (239): incluye las que están
     // esperando instrucciones. Solo se excluyen las RETIRADAS (operational=false).
-    // ⭐ SE RESPETAN LAS EMPRESAS MARCADAS (cliente 31-ago-2026: «que yo pueda
-    //    seleccionar las empresas que quiera que salgan, en caso de que quiera
-    //    el de algunas y no todas»). `repCompanies` vacío = todas, misma
-    //    convención que el resto de los reportes de esta pantalla.
-    const cosSel = repCompanies.length ? new Set(repCompanies) : null;
-    const list = ((mach ?? []) as any[])
-      .filter((m) => m.operational !== false)
-      .filter((m) => !cosSel || cosSel.has((m.company?.name && String(m.company.name).trim()) || 'Sin empresa'));
+    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1925,24 +1918,13 @@ export default function ReportsScreen({ route }: any) {
     const esPickup = (m: any) => /pick|camioneta/i.test(equipCategory(m.code)) || /pick|camioneta/i.test(String(m.clasificacion ?? ''));
     const pickupMachines = list.filter(esPickup);
     const maqList = list.filter((m) => !esPickup(m));
-    // ⭐ UNA SECCIÓN POR EMPRESA DE VERDAD (cliente 31-ago-2026: «que se divida
-    //    por empresa»). Antes esto metía TODO en dos cubetas fijas —LICCIONE y
-    //    GOLDEN TOUCH, donde la segunda se tragaba a todas las demás empresas—
-    //    así que una máquina de Savanna o de Ferreconstrucciones salía impresa
-    //    bajo el nombre de otra empresa. Ahora cada empresa es su propia sección
-    //    y las que no tienen ficha caen en «Sin empresa», sin inventarles una.
-    const grupoEmpresaDe = (m: any) => companyOf(m);
-    // Cuántas empresas hay en TODA la flota, para poder decir «3 de 7» y que se
-    // note de un vistazo que el reporte va recortado.
-    const todasLasEmpresas = new Set(((mach ?? []) as any[])
-      .filter((m) => m.operational !== false)
-      .map((m) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa')).size;
+    // Agrupar por EMPRESA en DOS grupos: LICCIONE (sus máquinas) y GOLDEN TOUCH (las de
+    // Golden + TODAS las demás empresas). Liccione se reconoce por el nombre de la empresa
+    // supervisora; cualquier otra (o sin empresa) cae en Golden Touch.
+    const grupoEmpresaDe = (m: any) => (/liccion/i.test(companyOf(m)) ? 'LICCIONE' : 'GOLDEN TOUCH');
     const groups = new Map<string, any[]>();
     list.forEach((m) => { const e = grupoEmpresaDe(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); }); // TODA la maquinaria (= Catálogo)
-    // A→Z, y «Sin empresa» al final: es una ausencia, no una empresa más.
-    const SIN_EMP = 'Sin empresa';
-    const enteNames = Array.from(groups.keys())
-      .sort((a, b) => (a === SIN_EMP ? 1 : b === SIN_EMP ? -1 : cmpText(a, b)));
+    const enteNames = ['LICCIONE', 'GOLDEN TOUCH'].filter((g) => groups.has(g)); // Liccione primero; Golden Touch (el resto) después
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
     const sortMaq = (a: any, b: any) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? '');
     // Operadores: 2 por máquina de SOS La Guaira (1 turno día + 1 turno noche), en
@@ -1964,22 +1946,26 @@ export default function ReportsScreen({ route }: any) {
         .map((m, i) => {
           const est = estadoOf(m);
           const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
-          const marca = (m.tipo && String(m.tipo).trim()) || '';
+          // MARCA y MODELO son campos propios de la maquina (CAT 320, Komatsu PC200…) y van
+          // en su propia columna. `tipo` es otra cosa (el tipo de equipo) y se queda en la
+          // linea gris junto al codigo, que es donde estaba antes mal rotulado como marca.
+          const marcaModelo = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ');
+          const tipoEq = (m.tipo && String(m.tipo).trim()) || '';
           const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ');
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${tipoEq ? ' · ' + esc(tipoEq) : ''}</span></td><td>${esc(marcaModelo || '—')}</td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
       const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
       // Anchos fijos en Placa/Serial y Estado: la plantilla del Plan reparte así las
       // columnas y evita que "Ubicación" (texto largo) se coma el resto de la fila.
       return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th style="width:120px">Placa / Serial</th><th>Ubicación</th>${opHead}<th style="width:110px">Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th style="width:120px">Marca / Modelo</th><th style="width:120px">Placa / Serial</th><th>Ubicación</th>${opHead}<th style="width:110px">Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
     const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
     // Máquinas pick-up + vehículos pick-up en UNA lista, ordenada ALFABÉTICAMENTE (serial/placa). Sin columna de ubicación.
     const pickItems = [
-      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${m.tipo ? ' · 🏷️ ' + esc(String(m.tipo).trim()) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
+      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); const mm = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo ? String(m.tipo).trim() : ''); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${mm ? ' · 🏷️ ' + esc(mm) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
       ...vehPickups.map((v) => ({ label: `<b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' })),
     ].sort((a, b) => cmpText(a.key, b.key));
     const pickupsHtml = pickItems.length
@@ -2001,7 +1987,7 @@ export default function ReportsScreen({ route }: any) {
       return sectorMacro(sectorOf(m.latitude, m.longitude)) ?? 'ESTE';
     };
     // Resumen ARRIBA: cantidad de maquinaria por empresa (incluye pick-ups), con el total
-    // en ESTE y en OESTE. Las MISMAS empresas que la lista de abajo, en el mismo orden.
+    // en ESTE y en OESTE. Mismos DOS grupos que la lista: LICCIONE y GOLDEN TOUCH.
     const countByCo = new Map<string, { total: number; este: number; oeste: number }>();
     list.forEach((m) => {
       const c = grupoEmpresaDe(m);
@@ -2014,7 +2000,7 @@ export default function ReportsScreen({ route }: any) {
     countByCo.forEach((v) => { coTot.este += v.este; coTot.oeste += v.oeste; });
     const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
       <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th><th style="width:90px;text-align:right">🟢 Este</th><th style="width:90px;text-align:right">🟠 Oeste</th></tr></thead>
-      <tbody>${enteNames.filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tbody>${['LICCIONE', 'GOLDEN TOUCH'].filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${coTot.este}</td><td style="text-align:right;font-weight:800">${coTot.oeste}</td></tr></tfoot></table>`;
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
@@ -2099,7 +2085,7 @@ export default function ReportsScreen({ route }: any) {
     const sinUbicSorted = sinUbicMachines.slice().sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? ''));
     const sinUbicHtml = sinUbicSorted.length
       ? `<div class="ente">📍 <b>DESPLEGADAS POR TODO EL TERRITORIO DE LA GUAIRA</b> <span class="cnt-pill">${sinUbicSorted.length} equipo(s)</span></div>
-         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc((m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc([m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
       : '';
     const despliegueSectorHtml = `<div class="sect">📍 Despliegue por sector y edificio · ubicación al ${new Date().toLocaleString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>`
       + (sectorsSorted.length ? sectorsSorted.map(([secL, g]) => {
@@ -2168,22 +2154,15 @@ export default function ReportsScreen({ route }: any) {
       ${resumenCoHtml}
       ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
-      <div class="sect">🏢 Maquinaria por empresa${cosSel ? ` · ${enteNames.length} de ${todasLasEmpresas} empresa(s)` : ''}</div>
+      <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
       ${maquinariaHtml}
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
-    // ⚠️ EL ALCANCE VA IMPRESO. Un reporte de tres empresas y uno de toda la
-    //    flota se ven idénticos en papel si no lo dice; y con el nombre de
-    //    archivo igual, el segundo pisa al primero en la carpeta de descargas.
-    const alcanceEmp = cosSel
-      ? (repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : `Empresas: ${repCompanies.join(', ')}`)
-      : 'Todas las empresas';
-    const subtitle = `${subBase} · ${alcanceEmp}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
-    const sufijoEmp = cosSel ? ` - ${repCompanies.join(', ').slice(0, 60)}` : '';
-    const fileName = `Reporte - Inventario de maquinaria${sufijoEmp}${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
+    const fileName = `Reporte - Inventario de maquinaria${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
     // Membrete del Plan Venezuela Renace. "Empresa" y "Responsable" van como
-    // líneas en blanco (igual que la plantilla oficial): el reporte puede cubrir
-    // varias empresas a la vez, así que quien lo imprime las completa.
+    // líneas en blanco (igual que la plantilla oficial): el reporte cubre a
+    // LICCIONE y GOLDEN TOUCH a la vez, así que quien lo imprime las completa.
     await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', subtitle, body), fileName);
   };
 
@@ -3059,17 +3038,6 @@ export default function ReportsScreen({ route }: any) {
                 </Text>
                 <Switch value={tacConPersonal} onValueChange={setTacConPersonal} />
               </View>
-              {/* ⭐ Se DICE qué empresas van a salir. El selector de empresas vive
-                  más abajo en la pantalla y aplica a todos los reportes, pero
-                  desde acá no se ve: sin este renglón, quien marca tres empresas
-                  no tiene forma de saber que el botón ya las está respetando —ni
-                  quien no marcó ninguna, de saber que le va a salir la flota
-                  entera. Cliente 31-ago-2026. */}
-              <Text style={{ color: repCompanies.length ? colors.brandText : colors.muted, fontSize: 11.5, marginBottom: 4, fontWeight: repCompanies.length ? '700' : '400' }}>
-                {repCompanies.length
-                  ? `🏢 Sale dividido por empresa, solo con: ${repCompanies.join(' · ')}`
-                  : '🏢 Sale dividido por empresa, con TODAS. Marca empresas más abajo para sacar solo algunas.'}
-              </Text>
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
