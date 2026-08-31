@@ -13,7 +13,7 @@
  *   1. Es NULLABLE (`supabase/viajes_camiones.sql:22`). Los viajes viejos, de
  *      antes de que existiera la columna, la tienen en null: quedarían en un
  *      limbo "sin turno" que no le sirve a nadie.
- *   2. `editarHoraViaje` cambia `registered_at` pero NO toca `shift`. Corregir
+ *   2. `editarViaje` cambia `registered_at` pero NO toca `shift`. Corregir
  *      un viaje de las 6:50pm a las 7:10pm lo deja marcado como de DÍA para
  *      siempre, aunque su hora ya diga noche.
  *   3. Al registrar, la app guarda `caracasNowShift()`, que es EXACTAMENTE este
