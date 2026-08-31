@@ -3550,12 +3550,30 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >
 > Necesita correr **`supabase/viajes_camion_fuera_catalogo.sql`**.
 
-> **⬛ Las retiradas no se le muestran al listero** (18-ago-2026, sigue vigente). Al buscar un camión
-> para registrar **no salen las RETIRADAS** (fuera de servicio) ni las que están **EN ESPERA** de
-> instrucciones — tampoco por la vía nueva de *"sí está en el catálogo"*. Una máquina retirada o en
-> espera no puede estar haciendo viajes, y tenerla en la lista solo se presta a registrar el viaje
-> contra el camión equivocado. La jefa **sí** las sigue viendo en sus paneles (resumen, metas,
-> alertas), que necesitan la flota completa.
+> **🟢 El estado del camión ya no impide registrar** (31-ago-2026). En **este módulo y solo en este**,
+> no importa cómo figure el camión: **averiado, parado, retirado o en espera de instrucciones, todos
+> salen en el buscador y todos aceptan viajes**. Y ya no pregunta nada antes de guardar: donde antes
+> salía *"este camión figura AVERIADA, ¿de todas formas quieres registrar el viaje?"*, ahora
+> **registra y ya**.
+>
+> El motivo: un viaje es algo que el listero **vio** —el camión entró— mientras que el estado es una
+> **anotación de otro módulo**, que puede estar vieja o mal puesta. Cuando las dos cosas se
+> contradicen, **gana lo que se vio**. Antes, un camión marcado por error dejaba al listero sin manera
+> de anotar viajes que sí ocurrieron, y esos viajes se perdían.
+>
+> ⚠️ **Esto reemplaza la regla del 18-ago-2026**, que sacaba de la lista del listero las retiradas y
+> las que estaban en espera.
+>
+> **Pero el estado se sigue viendo, y se guarda.** Quitar el bloqueo no es esconder el dato: en el
+> buscador cada camión sigue mostrando su estado con su color (✅ Operativa, 🔴 Averiada, 🟡 Parada,
+> ⬛ Retirada, ⏳ Esperando instrucciones), y el camión escogido lo muestra antes de tocar el botón.
+> Además el estado queda **congelado en el viaje**, así que la jefa puede revisar después cuáles se
+> registraron contra un camión averiado.
+>
+> ⚠️ **Registrar un viaje NO le cambia el estado a la máquina.** Este módulo no escribe nada en el
+> catálogo de maquinaria, ni le abre jornadas, ni le toca el horómetro. La alerta de *"camión sin
+> viaje reciente"* **sí** sigue sin reclamar por los averiados y retirados, que es lo correcto: una
+> máquina retirada legítimamente no viaja.
 
 - **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
   (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
@@ -3597,13 +3615,94 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   un camión lleva más del **umbral configurado** (arranca en 6 horas, se ajusta en
   "Configuración") sin registrar viaje — no incluye camiones averiados, parados o retirados, que
   legítimamente no viajan.
+- **✍️ Cargar viajes a mano:** agregar viajes a **cualquier camión, en el día que sea** (31-ago-2026,
+  ver abajo).
 - **Lista completa:** todos los viajes de todos los listeros, filtrable por **empresa**, por
   **listero**, por **camión** y por rango de fecha (Hoy / Esta semana / Este mes / Rango libre /
-  Días específicos). Desde ahí puede **corregir la hora o borrar cualquier viaje** — el borrado
+  Días específicos). Desde ahí puede **editar o borrar cualquier viaje** — el borrado
   queda igual en la auditoría (ver 4.13b), no se pierde el rastro.
 - **Configuración:** el **umbral de alerta** (horas) y la **meta de viajes diarios** de cada
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
+
+### 🔎 Buscador y placas en los filtros (31-ago-2026)
+
+Dos cosas que iban juntas, las dos en la **lista completa de viajes**.
+
+**1. La placa en cada pastilla.** En la fila **CAMIÓN** cada pastilla decía solo el nombre. Como
+todos los camiones de la flota se llaman igual —*"CAMION VOLTEO TORONTO"*— salían **treinta
+pastillas idénticas** y no había forma de saber cuál tocar. Ahora dicen:
+
+```
+🚜 CAMION VOLTEO TORONTO · A28BC1J   (4)
+```
+
+- Si el camión **no tiene placa** cargada, sale su **serial**.
+- Si no tiene ninguno de los dos, queda solo el nombre.
+- Es la **misma** placa que ya salía en el resumen y en el PDF, sacada del mismo lugar, así que los
+  tres siempre dicen lo mismo.
+
+**2. El buscador.** Arriba de los filtros hay una caja **"🔎 Buscar camión por placa, listero o
+empresa"**. Escribe un pedazo de la placa (o del nombre del listero, o de la empresa) y las pastillas
+se reducen a las que coinciden. No distingue mayúsculas ni acentos. Debajo dice cuántas quedaron
+ocultas, y **"✕ Limpiar"** las devuelve todas.
+
+> ⚠️ **El buscador no esconde lo que tengas marcado.** Un filtro marcado sigue a la vista aunque no
+> coincida con lo que escribiste. Es a propósito: una pastilla marcada **sigue filtrando la lista de
+> abajo**, y si se escondiera, la pantalla mostraría pocos viajes sin nada que explique por qué — el
+> mismo problema que ya se corrigió el 22-ago-2026. El buscador solo cambia **qué ves**, nunca qué
+> está filtrando: para dejar de filtrar hay que desmarcar la pastilla o tocar **"✕ Limpiar filtros"**,
+> que es otro botón.
+
+### ✍️ Cuadrar un día: poner y quitar viajes a mano (31-ago-2026, solo FULL)
+
+Quien tenga **Full control** en este módulo puede arreglar **cualquier dato de cualquier camión, para
+el día que sea**. Antes solo se podía **borrar** y **corregir la hora dentro del mismo día**: no había
+manera de agregar un viaje a una fecha pasada, porque el botón del listero sella la hora del toque.
+
+**Agregar.** Tarjeta **"✍️ Cargar viajes a mano"** en el panel de la jefa:
+
+| Campo | Qué hace |
+|---|---|
+| **Camión** | Se busca por código, placa o serial. Salen **todos**, en cualquier estado. |
+| **Día del viaje** | Cualquier día **de hoy hacia atrás**. |
+| **Hora del primero** | La hora del primer viaje de la tanda. |
+| **¿Cuántos viajes?** | Hasta **30 por vez**. |
+| **Chofer / responsable** | Opcional. |
+| **A nombre de** | Por defecto tú; se puede atribuir a otro listero. |
+
+Si cargas **más de uno**, se separan **5 minutos** a partir de esa hora, para que después le puedas
+corregir la hora a cada uno por separado — apilarlos todos en el mismo minuto los volvería
+indistinguibles, y un camión no hace dos viajes en el mismo instante.
+
+**Quitar.** En la lista completa, filtras el día y le das **"🗑️ Borrar"** a los que sobren.
+
+#### ✏️ Editar un viaje completo
+
+El botón de la lista completa ahora dice **"✏️ Editar"** (antes *"Editar hora"*) y abre **cuatro**
+campos: la **FECHA** (nueva — el día del viaje antes no se podía cambiar de ninguna manera), la
+**HORA**, el **CHOFER / RESPONSABLE** y **LO REGISTRÓ**, que reasigna el viaje a otro listero.
+
+- Cambiar de listero **pregunta antes**: el viaje deja de contar para uno y pasa a contar para el otro
+  en el resumen por listero.
+- Al **listero de campo no le cambia nada**: sigue viendo solo la hora, y solo de sus viajes de su
+  jornada.
+- ⚠️ **El CAMIÓN no se puede cambiar.** Cambiarle el camión a un viaje no es corregirlo, es *otro*
+  viaje: se borra este y se carga el bueno, y así la auditoría conserva las dos cosas por separado.
+
+#### 🏷️ Los viajes cargados a mano se distinguen
+
+Todo viaje cargado desde la oficina sale con la etiqueta **"✍️ cargado a mano"** y guarda **el nombre
+de quién lo cargó**. Es a propósito: el reporte tiene que poder responder *"¿esto lo contó alguien en
+el patio, o lo cuadraron después?"*, y sin la marca las dos cosas se verían idénticas.
+
+⚠️ **No se pueden cargar viajes a futuro** — solo de hoy hacia atrás, porque un viaje con fecha de
+mañana se contaría como trabajo hecho sin serlo.
+
+Todo esto queda además en la **Auditoría** (quién, qué y cuándo), igual que el borrado.
+
+> **No hace falta correr ningún `.sql`.** La tabla `camion_viajes` ya acepta cualquier fecha, chofer
+> y listero: lo que faltaba era la pantalla.
 
 ### 🏢 Filtrar por empresa y reporte GLOBALIZADO (20-ago-2026)
 
