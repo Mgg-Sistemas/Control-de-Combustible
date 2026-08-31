@@ -3694,7 +3694,11 @@ export default function ReportsScreen({ route }: any) {
                   <Text style={{ color: colors.muted, fontSize: 11, flexShrink: 1 }}>
                     {maquinasVisibles.length === 0
                       ? 'Ninguna máquina coincide.'
-                      : `${maquinasVisibles.length} máquina(s) coinciden. Toca las que quieras sumar.`}
+                      : maquinasVisibles.length > 40
+                        // Se DICE que hay más. Cortar en 40 en silencio dejaba la
+                        // 41 imposible de marcar sin ninguna señal de por qué.
+                        ? `${maquinasVisibles.length} coinciden y se muestran las primeras 40. Escribe algo más para achicar la lista.`
+                        : `${maquinasVisibles.length} máquina(s) coinciden. Toca las que quieras sumar.`}
                   </Text>
                   <TouchableOpacity onPress={() => setMaqQuery('')}>
                     <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
