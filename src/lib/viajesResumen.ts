@@ -74,7 +74,20 @@ export type ViajeMin = {
  */
 export function claveCamion(v: ViajeMin): string {
   if (v.machineryId) return v.machineryId;
-  return FUERA_CATALOGO + ':' + String(v.machineCode ?? '').trim().toUpperCase();
+  // Se aplastan los espacios de ADENTRO y las tildes, no solo los de las puntas.
+  // "VOLTEO  88" (dos espacios) y "VOLTEO 88" son el mismo camión escrito por
+  // dos listeros distintos, y salían como DOS camiones en el resumen y en
+  // `totalCamiones`. El buscador de la pantalla ya los trata como el mismo.
+  // La ñ se protege igual que en `norm` (src/lib/text.ts): su tilde no es un
+  // acento, es otra letra, y "PEÑA" y "PENA" son dos camiones distintos.
+  // Es una clave interna: no se muestra, la etiqueta sale de `machineCode`.
+  const code = String(v.machineCode ?? '')
+    .replace(/\u00f1/gi, '\u0001')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0001/g, '\u00d1')
+    .toUpperCase()
+    .trim().replace(/\s+/g, ' ');
+  return FUERA_CATALOGO + ':' + code;
 }
 
 /** Lo mínimo que necesita del camión (sale de `machinery`). */

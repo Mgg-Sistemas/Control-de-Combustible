@@ -18,9 +18,10 @@
  *    ya se aplicó en el servidor y se perdió la respuesta (ver `client_action_id`
  *    y el índice único `uq_camion_viajes_client_action`): reintentar no debe
  *    duplicar la fila, así que cuenta como subido.
- *  - Falta de señal → REINTENTAR, siempre. NUNCA cuenta para la cuarentena: no
- *    es culpa del ítem y se resolverá sola al volver la conexión. Un listero que
- *    pasa el día entero sin cobertura no puede perder sus viajes por eso.
+ *  - Falta de señal, sesión vencida, timeout o 5xx → REINTENTAR, siempre. NUNCA
+ *    cuenta para la cuarentena: no es culpa del ítem y se resuelve sola al volver
+ *    la conexión o al volver a entrar. Un listero que pasa el día entero sin
+ *    cobertura no puede perder sus viajes por eso (ver `esErrorTransitorio`).
  *  - Cualquier otro error → REINTENTAR hasta `MAX_INTENTOS_COLA` y después
  *    CUARENTENA: el ítem se aparta a un lado, la cola sigue con los demás y la
  *    pantalla lo muestra en rojo con el motivo para que alguien lo resuelva.
@@ -40,14 +41,68 @@ export type AccionCola = 'exito' | 'reintentar' | 'cuarentena';
  */
 export const MAX_INTENTOS_COLA = 3;
 
-/** Mensajes típicos de fallo de RED (no de validación) al llamar a Supabase. */
+/**
+ * Mensajes típicos de fallo de RED (no de validación) al llamar a Supabase.
+ *
+ * Cada navegador y cada versión de Android dice lo suyo, y la lista se quedó
+ * corta: eran cuatro cadenas y dejaban fuera el mensaje de Firefox de Android
+ * ("NetworkError when attempting to fetch resource"), el de WebKit ("The
+ * Internet connection appears to be offline") y el aborto del propio fetch.
+ * Un fallo de red que no se reconoce se trata como si fuera culpa del dato.
+ */
 export function esErrorDeRed(msg?: string | null): boolean {
   if (!msg) return false;
   const m = String(msg).toLowerCase();
   return m.includes('failed to fetch')
     || m.includes('network request failed')
     || m.includes('fetch failed')
-    || m.includes('load failed');
+    || m.includes('load failed')
+    || m.includes('networkerror')
+    || m.includes('connection appears to be offline')
+    || m.includes('network is unreachable')
+    || m.includes('err_internet_disconnected')
+    || m.includes('err_network')
+    || m.includes('econnreset')
+    || m.includes('econnrefused')
+    || m.includes('etimedout')
+    || m.includes('aborterror')
+    || m.includes('the operation was aborted')
+    || m.includes('signal is aborted');
+}
+
+/**
+ * ¿El fallo es AJENO al dato del viaje?
+ *
+ * Distinta de `esErrorDeRed`, y la diferencia importa: aparta o no aparta un
+ * viaje de trabajo real. Un fallo transitorio NO cuenta para la cuarentena
+ * porque el mismo viaje, sin tocarle una coma, va a entrar bien en el próximo
+ * intento. Aquí entran tres familias además de la red:
+ *
+ *  - **Sesión** (JWT vencido, RLS). Es EL caso que se comía los viajes: con la
+ *    app parada en la pantalla de entrar, cada intento choca con RLS y con
+ *    `MAX_INTENTOS_COLA = 3` cada 30 s la cola ENTERA se iba a cuarentena en
+ *    minuto y medio. Vuelve a entrar y suben solos.
+ *  - **Timeout / aborto.** El servidor tardó, no es que el viaje esté malo.
+ *  - **5xx de puerta de enlace.** El portal cautivo del patio devuelve HTML y
+ *    revienta el parse con un mensaje que no se parece a nada.
+ *
+ * Se buscan frases explicitas, NUNCA el numero suelto: un "500" pelado matchea
+ * el codigo de un camion.
+ */
+export function esErrorTransitorio(msg?: string | null): boolean {
+  if (!msg) return false;
+  if (esErrorDeRed(msg)) return true;
+  const m = String(msg).toLowerCase();
+  return m.includes('jwt')
+    || m.includes('row-level security')
+    || m.includes('row level security')
+    || m.includes('timeout')
+    || m.includes('timed out')
+    || m.includes('statement canceled')
+    || m.includes('internal server error')
+    || m.includes('bad gateway')
+    || m.includes('service unavailable')
+    || m.includes('gateway time');
 }
 
 /**
@@ -69,7 +124,10 @@ export function esErrorDuplicado(msg?: string | null): boolean {
 export function decidirAccionCola(x: { error?: string | null; intentos: number }): AccionCola {
   if (!x.error) return 'exito';
   if (esErrorDuplicado(x.error)) return 'exito';
-  if (esErrorDeRed(x.error)) return 'reintentar';
+  // Transitorio, no solo "de red": ver `esErrorTransitorio`. Con la comprobación
+  // vieja, una sesión vencida o un 502 del portal cautivo apartaban viajes
+  // buenos en ~90 segundos.
+  if (esErrorTransitorio(x.error)) return 'reintentar';
   return (Number(x.intentos) || 0) + 1 >= MAX_INTENTOS_COLA ? 'cuarentena' : 'reintentar';
 }
 
