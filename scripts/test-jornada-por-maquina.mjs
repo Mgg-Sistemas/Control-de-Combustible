@@ -331,5 +331,104 @@ ok('* un rango al reves se dice, no se disimula',
   ok('* y no con placaDeCamion', !codigo.includes('placaDeCamion'));
 }
 
+// -- 13) LO QUE ENCONTRO LA REVISION ADVERSARIAL -----------------------------
+// Todos estos daban un numero distinto al del informe, o imprimian basura.
+{
+  // (a) DOBLE REDONDEO. El informe acumula CRUDO y redondea una sola vez al
+  //     mostrar; si el panel redondea por maquina y suma lo redondeado, se va
+  //     hasta unos centavos. Y los dos numeros salen en la MISMA pantalla.
+  const tresSucias = [1, 2, 3].map((i) => maq(`r${i}`, `EQ${i}`, {
+    porDia: [{ fecha: '2026-08-24', dia: 12, noche: 0, trabajadas: 12, precioJornada: 33.335, monto: 33.335 }],
+  }));
+  const r = resumirPorMaquina(tresSucias, RANGO);
+  eq('* el total NO suma las filas ya redondeadas', r.monto, 100.01);
+  const sumandoFilas = Math.round(r.maquinas.reduce((s, m) => s + m.monto, 0) * 100) / 100;
+  ok('* (y sumar las filas daria otra cosa: por eso importa)', sumandoFilas !== r.monto);
+
+  const horasSucias = [1, 2, 3].map((i) => maq(`h${i}`, `EQ${i}`, {
+    porDia: [{ fecha: '2026-08-24', dia: 10.005, noche: 0, trabajadas: 10.005, precioJornada: null, monto: 0 }],
+  }));
+  eq('* y lo mismo con las horas', resumirPorMaquina(horasSucias, RANGO).horas, 30.02);
+}
+{
+  // (b) UN PRECIO EN CERO ES "SIN PRECIO". Los dos producen $0, y el que no
+  //     avisa es el peor: un total en cero se lee como "no genero nada".
+  const cero = [maq('mz', 'GRUA', { porDia: [dia('2026-08-24', 12, 0)] })];
+  const r = resumirPorMaquina(cero, RANGO).maquinas[0];
+  ok('* un precio en CERO avisa que el monto esta incompleto', r.sinPrecio);
+  eq('* y el monto es cero', r.monto, 0);
+  const html = htmlPorMaquina(resumirPorMaquina(cero, RANGO), { money: true, conDetalleDiario: true, dmy });
+  ok('* el detalle dice "sin precio", no "$0.00"', html.includes('sin precio'));
+}
+{
+  // (c) UN PRECIO QUE NO ES NUMERO no puede llegar al PDF.
+  const roto = [maq('mn', 'MARTILLO', { porDia: [
+    { fecha: '2026-08-24', dia: 12, noche: 0, trabajadas: 12, precioJornada: NaN, monto: NaN },
+  ] })];
+  const r = resumirPorMaquina(roto, RANGO);
+  eq('* un precio basura cuenta como cero, no como NaN', r.monto, 0);
+  ok('* y avisa', r.maquinas[0].sinPrecio);
+  const html = htmlPorMaquina(r, { money: true, conDetalleDiario: true, dmy });
+  ok('* el PDF no imprime NaN', !html.includes('NaN'));
+}
+{
+  // (d) DETERMINISMO CON ETIQUETAS IGUALES. Dos maquinas del mismo nombre, sin
+  //     placa ni serial ni identificador, las dos en cero: es el caso real de
+  //     las retroexcavadoras averiadas. Sin desempate por id, el orden bailaba.
+  const gemelas = [
+    maq('zz', 'RETROEXCAVADORA', { estado: 'averia', motivo: 'Motor', porDia: [] }),
+    maq('aa', 'RETROEXCAVADORA', { estado: 'averia', motivo: 'Bomba', porDia: [] }),
+  ];
+  const a = resumirPorMaquina(gemelas, RANGO).maquinas.map((m) => m.id);
+  const b = resumirPorMaquina([...gemelas].reverse(), RANGO).maquinas.map((m) => m.id);
+  eq('* con etiquetas identicas el orden sigue siendo estable', a, b);
+}
+{
+  // (e) LA SALIDA NO PUEDE MUTAR LA ENTRADA. `dias` es mutable; devolver las
+  //     mismas referencias dejaba que tocar el panel le cambiara las horas al
+  //     informe que lo produjo.
+  const fuente = [maq('mm', 'EQ', { porDia: [dia('2026-08-24', 8, 100)] })];
+  const r = resumirPorMaquina(fuente, RANGO);
+  r.maquinas[0].dias[0].monto = 99999;
+  r.maquinas[0].dias[0].trabajadas = 99999;
+  eq('* tocar la salida no le cambia el monto al informe', fuente[0].porDia[0].monto, (8 / 12) * 100);
+  eq('* ni las horas', fuente[0].porDia[0].trabajadas, 8);
+  // Y el alcance tampoco se guarda por referencia: el rotulo ya nombro un PDF.
+  const dias = ['2026-08-24'];
+  const r2 = resumirPorMaquina(fuente, { modo: 'dias', dias });
+  dias.push('2026-08-26');
+  eq('* el alcance guardado no cambia por debajo', r2.alcance.dias.length, 1);
+}
+{
+  // (f) UNA FECHA CON HORA PEGADA. Antes se perdia el ULTIMO dia del rango en
+  //     silencio, mientras los de en medio si pasaban.
+  ok('* el ultimo dia entra aunque traiga la hora', diaEnAlcance('2026-08-30T00:00:00', RANGO));
+  ok('* y uno de en medio tambien', diaEnAlcance('2026-08-24T12:00:00', RANGO));
+  ok('* los dos modos coinciden sobre el MISMO dato',
+    diaEnAlcance('2026-08-25T03:00:00', { modo: 'dias', dias: ['2026-08-25'] }));
+  ok('* y los espacios de sobra no cambian nada', diaEnAlcance('  2026-08-25  ', RANGO));
+}
+{
+  // (g) DIAS REPETIDOS EN EL ROTULO. Va en el NOMBRE del archivo del PDF.
+  eq('* un dia repetido no se cuenta dos veces',
+    etiquetaAlcance({ modo: 'dias', dias: ['2026-08-25', '2026-08-25'] }, dmy), '25/08/2026');
+}
+{
+  // (h) EL FORMATO DE LA PLATA es el MISMO que el del informe (separador de
+  //     miles), o dos PDF del mismo corte salen escritos distinto.
+  const gordo = [maq('mg', 'EQ', { porDia: [dia('2026-08-24', 12, 1234.5)] })];
+  const html = htmlPorMaquina(resumirPorMaquina(gordo, RANGO), { money: true, conDetalleDiario: false, dmy });
+  const comoElInforme = (1234.5).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  ok('* la plata se escribe como en el informe', html.includes(`$${comoElInforme}`));
+}
+{
+  // (i) EL DESGLOSE DIA/NOCHE se verifica de verdad (antes noche era 0 siempre).
+  const mixta = [maq('mx2', 'EQ', { porDia: [dia('2026-08-24', 8, 100, { d: 5, n: 5 })] })];
+  const r = resumirPorMaquina(mixta, RANGO);
+  eq('* las horas de dia se suman aparte', r.horasDia, 5);
+  eq('* las de noche tambien', r.horasNoche, 5);
+  eq('* y las TRABAJADAS son las netas, no la suma de los dos turnos', r.horas, 8);
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-jornada-por-maquina · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

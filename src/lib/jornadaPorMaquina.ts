@@ -125,13 +125,20 @@ export type ResumenPorMaquina = {
  *    misma lección de `rangoInvalido`/`sinDiasMarcados` en la pantalla de viajes.
  */
 export function diaEnAlcance(fecha: string, alcance: AlcanceDias): boolean {
-  if (!fecha) return false;
-  if (alcance.modo === 'dias') return alcance.dias.includes(fecha);
+  // ⚠️ Se recorta a `AAAA-MM-DD` antes de comparar. `round_date` llega limpio
+  //    hoy, pero si algún día trajera la hora pegada ('2026-08-30T00:00:00'),
+  //    comparar el texto crudo dejaba fuera el ÚLTIMO día del rango —en
+  //    silencio— mientras los de en medio sí pasaban. Y los dos modos
+  //    discrepaban sobre el mismo dato: el rango por `<=`, los días sueltos por
+  //    igualdad exacta.
+  const f = String(fecha ?? '').trim().slice(0, 10);
+  if (!f) return false;
+  if (alcance.modo === 'dias') return alcance.dias.some((d) => String(d ?? '').trim().slice(0, 10) === f);
   if (!alcance.desde || !alcance.hasta) return false;
   if (alcance.desde > alcance.hasta) return false;
   // Inclusivo en los dos extremos, y comparando texto ISO — que ordena igual que
   // la fecha porque el formato es AAAA-MM-DD.
-  return fecha >= alcance.desde && fecha <= alcance.hasta;
+  return f >= alcance.desde.slice(0, 10) && f <= alcance.hasta.slice(0, 10);
 }
 
 /**
@@ -143,7 +150,9 @@ export function diaEnAlcance(fecha: string, alcance: AlcanceDias): boolean {
  */
 export function etiquetaAlcance(alcance: AlcanceDias, dmy: (iso: string) => string): string {
   if (alcance.modo === 'dias') {
-    const dias = [...alcance.dias].filter(Boolean).sort();
+    // Sin repetidos: el rótulo va en el nombre del PDF, y «2 jornadas sueltas:
+    // 25/08, 25/08» es una cuenta que no existe.
+    const dias = Array.from(new Set(alcance.dias.filter(Boolean))).sort();
     if (dias.length === 0) return 'sin días marcados';
     if (dias.length === 1) return dmy(dias[0]);
     if (dias.length <= 8) return `${dias.length} jornadas sueltas: ${dias.map(dmy).join(', ')}`;
@@ -181,6 +190,18 @@ export function filtrarMaquinas<M extends MaquinaJornada>(maquinas: readonly M[]
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
+ * ¿Este precio de jornada sirve para cobrar?
+ *
+ * Nulo, cero, o un número que no es número (llegó texto basura de la base) son
+ * todos lo mismo a los efectos del reporte: NO hay tarifa. Se juntan a
+ * propósito porque los tres producen $0, y un $0 sin aviso se lee como «esta
+ * máquina no generó nada» en vez de «nadie le puso precio».
+ */
+function precioUtil(p: number | null | undefined): boolean {
+  return p != null && Number.isFinite(p) && p > 0;
+}
+
+/**
  * Suma el informe por máquina dentro del alcance elegido.
  *
  * ⚠️ EL MONTO ES LA SUMA DÍA POR DÍA, NO `horas / 12 × precio`. Si el precio de
@@ -203,6 +224,12 @@ export function resumirPorMaquina(
   const soloIds = opts?.soloIds;
   const diasCubiertos = new Set<string>();
   const filas: TotalMaquina[] = [];
+  // ⚠️ LOS TOTALES SE ACUMULAN EN CRUDO, NO SUMANDO LAS FILAS YA REDONDEADAS.
+  //    Redondear por máquina y volver a sumar da hasta unos centavos de más que
+  //    el informe, que acumula crudo y redondea UNA sola vez al mostrar. Y los
+  //    dos números salen en la MISMA pantalla: basta un centavo de diferencia
+  //    para que nadie sepa cuál de los dos creer.
+  let tHorasDia = 0, tHorasNoche = 0, tHoras = 0, tMonto = 0, tJornadas = 0, tEquipos = 0;
 
   for (const m of maquinas) {
     if (soloIds && !soloIds.has(m.id)) continue;
@@ -212,13 +239,23 @@ export function resumirPorMaquina(
       horasDia += d.dia;
       horasNoche += d.noche;
       horas += d.trabajadas;
-      monto += d.monto;
+      // Un monto no finito (un precio que llegó como texto basura) se cuenta
+      // como 0 y se avisa. Sin esto el PDF imprimía «$NaN» cuatro veces.
+      monto += Number.isFinite(d.monto) ? d.monto : 0;
       // «0 horas = parada»: un día sin horas trabajadas no es una jornada.
       if (d.trabajadas > 0) {
         jornadas += 1;
         diasCubiertos.add(d.fecha);
-        if (d.precioJornada == null) sinPrecio = true;
+        // ⚠️ Un precio en CERO cuenta como «sin precio», igual que un nulo. Los
+        //    dos producen $0, y el que no avisa es el peor de los dos: un total
+        //    en cero se lee como «esta máquina no generó», cuando lo que pasa
+        //    es que nadie le puso tarifa.
+        if (!precioUtil(d.precioJornada)) sinPrecio = true;
       }
+    }
+    if (horas > 0) {
+      tHorasDia += horasDia; tHorasNoche += horasNoche; tHoras += horas;
+      tMonto += monto; tJornadas += jornadas; tEquipos += 1;
     }
     horasDia = round2(horasDia); horasNoche = round2(horasNoche);
     horas = round2(horas); monto = round2(monto);
@@ -240,25 +277,32 @@ export function resumirPorMaquina(
       monto,
       sinPrecio,
       precioHoraEfectivo: horas > 0 ? round2(monto / horas) : null,
-      dias: [...dias].sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)),
+      // Copia de cada día, no la referencia: `dias` es mutable, y devolver los
+      // mismos objetos dejaría que tocar la salida le cambie las horas al
+      // informe que la produjo.
+      dias: dias.map((d) => ({ ...d })).sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)),
     });
   }
 
-  // Más horas primero; el desempate por etiqueta es lo que hace que dos corridas
-  // de los mismos datos salgan idénticas aunque lleguen en distinto orden.
-  filas.sort((a, b) => (b.horas - a.horas) || cmpText(a.etiqueta, b.etiqueta));
+  // Más horas primero; el desempate por etiqueta —y después por id— es lo que
+  // hace que dos corridas de los mismos datos salgan idénticas aunque lleguen en
+  // distinto orden. Sin el id, dos máquinas con el MISMO nombre, sin placa ni
+  // serial y las dos en cero (las retroexcavadoras averiadas) quedaban a merced
+  // del orden de entrada.
+  filas.sort((a, b) => (b.horas - a.horas) || cmpText(a.etiqueta, b.etiqueta) || cmpText(a.id, b.id));
 
-  const trabajaron = filas.filter((f) => f.horas > 0);
   return {
     maquinas: filas,
-    equipos: trabajaron.length,
-    jornadas: trabajaron.reduce((s, f) => s + f.jornadas, 0),
-    horas: round2(trabajaron.reduce((s, f) => s + f.horas, 0)),
-    horasDia: round2(trabajaron.reduce((s, f) => s + f.horasDia, 0)),
-    horasNoche: round2(trabajaron.reduce((s, f) => s + f.horasNoche, 0)),
-    monto: round2(trabajaron.reduce((s, f) => s + f.monto, 0)),
+    equipos: tEquipos,
+    jornadas: tJornadas,
+    horas: round2(tHoras),
+    horasDia: round2(tHorasDia),
+    horasNoche: round2(tHorasNoche),
+    monto: round2(tMonto),
     diasCubiertos: Array.from(diasCubiertos).sort(),
-    alcance,
+    // Copia del alcance: guardarlo por referencia dejaba que mutar la lista de
+    // días después cambiara el rótulo con el que ya se nombró un PDF.
+    alcance: alcance.modo === 'dias' ? { modo: 'dias', dias: [...alcance.dias] } : { ...alcance },
   };
 }
 
@@ -269,8 +313,12 @@ export function resumirPorMaquina(
 
 const esc = (s: any): string =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const nh = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
-const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+// ⚠️ EL MISMO FORMATO QUE EL INFORME (ver `usd`/`nH` en ReportsScreen). Con
+//    `toFixed` pelado salía «$1234.50» al lado de un informe que dice
+//    «$1.234,50»: dos PDF del mismo corte escritos distinto.
+const nh = (n: number) => `${Number((Number.isFinite(n) ? n : 0).toFixed(2)).toLocaleString()}`;
+const usd = (n: number) =>
+  `$${(Number.isFinite(n) ? n : 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const ICONO_ESTADO: Record<EstadoMaquina, string> = {
   trabajo: '', averia: '🔴', parada: '🟡', espera: '⏳',
@@ -309,12 +357,12 @@ export function htmlPorMaquina(
                <td>${nh(d.dia)}</td>
                <td>${nh(d.noche)}</td>
                <td>${nh(d.trabajadas)}</td>
-               ${money ? `<td>${d.precioJornada == null ? '⚠️ sin precio' : usd(d.monto)}</td>` : ''}
+               ${money ? `<td>${precioUtil(d.precioJornada) ? usd(d.monto) : '⚠️ sin precio'}</td>` : ''}
              </tr>`).join('')}
            </table></td></tr>`
       : '';
     const nota = m.estado !== 'trabajo'
-      ? `<div class="nota">${ICONO_ESTADO[m.estado]} ${esc(m.motivo || 'No trabajó')}</div>`
+      ? `<div class="nota">${ICONO_ESTADO[m.estado] ?? '•'} ${esc(m.motivo || 'No trabajó')}</div>`
       : '';
     return `<tr>
       <td><b>${esc(m.etiqueta)}</b><div class="chico">${esc(m.clasificacion)} · ${esc(m.company)}</div>${nota}</td>
