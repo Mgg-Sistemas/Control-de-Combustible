@@ -345,6 +345,55 @@ asyncStorageStub.default.setItem = setItemOriginal;
 eq('⭐ el viaje se sube igual aunque el teléfono no pudiera guardarlo',
   subidosSinDisco.includes('SIN-DISCO'), true);
 
+// ── 10) ⭐⭐ SI FALLA EL GUARDADO DE LA CUARENTENA, EL VIAJE NO SE PIERDE ────
+//
+// ERA EL ÚNICO CAMINO POR EL QUE UN VIAJE SE PERDÍA DE VERDAD (31-ago-2026).
+// `writeQuarantine` se tragaba el fallo de disco con un `console.warn`, y dos
+// líneas más abajo `writeAll` SÍ funcionaba y sacaba el viaje de la cola por
+// considerarlo "resuelto". No quedaba ni en la cola ni en la cuarentena. Y como
+// `writeAll` pone `ultimoFalloDeGuardado = null` al escribir bien, el aviso rojo
+// tampoco salía: el viaje se esfumaba en silencio absoluto.
+//
+// La cola ya tenía esta disciplina (revienta hacia arriba). La cuarentena no,
+// aunque su propio comentario decía "perderla es perder el trabajo del listero
+// definitivamente".
+store.clear();
+intentosDelMalo = 0;
+camionViajesStub.registrarViaje = async (p) => {
+  if (p.machineCode === 'MALO') { intentosDelMalo++; return { error: 'insert or update violates foreign key constraint "camion_viajes_machinery_id_fkey"' }; }
+  return { error: null };
+};
+
+await queue.enqueueViaje(viaje('MALO'));
+eq('arranca con el viaje malo en cola', await queue.queueViajesCount(), 1);
+
+// Solo falla la CUARENTENA. La cola escribe bien — que es justo lo que hacía
+// del bug algo tan silencioso.
+asyncStorageStub.default.setItem = async (k, v) => {
+  if (k === 'viajes_offline_quarantine_v1') throw new Error('QuotaExceededError');
+  return setItemOriginal(k, v);
+};
+for (let i = 0; i < MAX_INTENTOS_COLA + 2; i++) await queue.flushViajesQueue();
+asyncStorageStub.default.setItem = setItemOriginal;
+
+eq('el viaje llegó al tope de intentos (si no, el test no prueba nada)',
+  intentosDelMalo >= MAX_INTENTOS_COLA, true);
+eq('⭐ el viaje NO se perdió: sigue en la cola', await queue.queueViajesCount(), 1);
+eq('y no quedó a medias en la cuarentena', (await queue.quarantinedViajes()).length, 0);
+eq('⭐ y el fallo se REPORTA (el aviso rojo tiene qué decir)',
+  typeof queue.falloDeGuardadoLocal() === 'string' && queue.falloDeGuardadoLocal().length > 0, true);
+
+// Y lo que de verdad importa: sobrevive a cerrar la app. Se relee del disco
+// desde cero, como si el listero volviera a abrir el teléfono al día siguiente.
+const crudoCola = store.get('viajes_offline_queue_v1');
+eq('⭐ y sigue GUARDADO en el teléfono, no solo en memoria',
+  typeof crudoCola === 'string' && JSON.parse(crudoCola).length === 1, true);
+
+// Resuelta la causa (el disco vuelve), el viaje termina de procesarse normal.
+camionViajesStub.registrarViaje = async () => ({ error: null });
+await queue.flushViajesQueue();
+eq('cuando el disco vuelve, el viaje se sube y la cola queda limpia', await queue.queueViajesCount(), 0);
+
 // ── Resultado ──────────────────────────────────────────────────────────────
 console.log(`\n${pass} OK · ${fail} FALLO(S)`);
 if (failures.length) {
