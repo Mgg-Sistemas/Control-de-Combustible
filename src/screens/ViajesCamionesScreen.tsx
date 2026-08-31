@@ -486,9 +486,40 @@ export default function ViajesCamionesScreen() {
     setFcRef('');
     setFcOpen(true);
   };
-  const confirmarFueraCatalogo = () => {
+  const confirmarFueraCatalogo = async () => {
     const code = fcCode.trim().toUpperCase();
     if (!code) { toast.error('Escribe al menos cómo identificar el camión.'); return; }
+    // ⚠️ ANTES DE INVENTAR UN CAMIÓN, MIRAR SI YA EXISTE.
+    //
+    //    Esta es la puerta de atrás del filtro de retiradas, y el arreglo que las
+    //    sacó de la lista la dejó a DOS toques: el listero busca "TORONTO
+    //    A74AB3P" (retirado), no sale nada, y justo debajo del "Sin coincidencias"
+    //    está el botón de anotarlo a mano — con el texto que acaba de escribir ya
+    //    puesto. Toca, toca otra vez, y el camión fantasma vuelve. Y vuelve PEOR:
+    //    sin `machinery_id`, sin placa, sin empresa, marcado "FUERA DE CATÁLOGO"
+    //    en el reporte y cayendo en la cubeta "Sin empresa".
+    //
+    //    Tampoco hay nada que impida anotar a mano un camión que SÍ está en la
+    //    lista, seleccionable, ahí mismo.
+    //
+    //    No se bloquea, se avisa: la regla del módulo es que si el listero VIO el
+    //    viaje, el viaje se registra. Pero que sea una decisión y no un descuido.
+    const yaExiste = catalogoTrucks.filter((t) =>
+      [t.code, t.plate, t.serial].some((f) => f != null && norm(String(f)) === norm(code)));
+    if (yaExiste.length > 0) {
+      const t = yaExiste[0];
+      const placa = [t.plate, t.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ') || 'sin placa';
+      const seleccionable = trucksSeleccionables.some((s) => s.id === t.id);
+      const ok = await confirm({
+        title: 'Ese camión sí existe',
+        message: seleccionable
+          ? `${t.code} · ${placa} YA está en tu lista. Búscalo por su placa y regístralo normal: anotado a mano el viaje queda suelto, sin ficha y sin empresa, y no cuenta para ese camión.`
+          : `${t.code} · ${placa} está en el catálogo pero RETIRADO — ya no está en la obra. Si de verdad hizo este viaje, avísale a la jefa para que se lo cargue con su ficha. Anotado a mano el viaje queda suelto, sin empresa y sin contar para ese camión.`,
+        confirmText: 'Anotarlo a mano igual',
+        cancelText: 'Volver a buscarlo',
+      });
+      if (!ok) { setFcOpen(false); setPickOpen(true); return; }
+    }
     setFcOpen(false);
     // Se arma un camión "de mentira" con el id centinela para que el resto de la
     // pantalla (el resumen de arriba, el botón de registrar) funcione igual sin

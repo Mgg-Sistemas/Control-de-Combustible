@@ -223,5 +223,55 @@ ok('dos codigos distintos no se funden', claveCamion(fuera('VOLTEO 88')) !== cla
 // Y el que SI tiene ficha se agrupa por su id, no por el texto.
 eq('el del catalogo manda por id', claveCamion({ machineryId: 'abc', machineCode: 'lo que sea' }), 'abc');
 
+// ── 9) LA PUERTA DE ATRAS DE "FUERA DE CATALOGO" ────────────────────────────
+// El boton de anotar un camion a mano sale JUSTO debajo del "Sin coincidencias"
+// y con el texto que el listero acaba de escribir ya puesto. O sea: busca un
+// camion retirado, no sale, y a dos toques lo reinventa a mano — sin ficha, sin
+// placa y sin empresa, que es PEOR que verlo en la lista.
+{
+  const i = pantalla.indexOf('const confirmarFueraCatalogo');
+  const cuerpo = i >= 0 ? pantalla.slice(i, i + 2600) : '';
+  ok('confirmarFueraCatalogo existe', cuerpo.length > 200);
+  ok('* mira el catalogo antes de inventar un camion', /const yaExiste = catalogoTrucks\.filter/.test(cuerpo));
+  ok('* compara por codigo, placa y serial', /\[t\.code, t\.plate, t\.serial\]/.test(cuerpo));
+  ok('* sin distinguir mayusculas ni acentos', /norm\(String\(f\)\) === norm\(code\)/.test(cuerpo));
+  ok('* distingue el que SI esta en la lista del que esta retirado', /trucksSeleccionables\.some/.test(cuerpo));
+  // NO se bloquea: la regla del modulo es que si el listero vio el viaje, entra.
+  ok('* avisa, no bloquea', /confirmText: 'Anotarlo a mano igual'/.test(cuerpo));
+  ok('* y si se arrepiente, vuelve al buscador', /setPickOpen\(true\); return;/.test(cuerpo));
+  // El aviso tiene que decir la placa, o no sirve de nada: media flota se llama
+  // igual y "ese camion ya existe" sin placa no le dice a nadie cual es.
+  ok('* el aviso dice la placa', /\$\{t\.code\} · \$\{placa\}/.test(cuerpo));
+}
+
+// ── 10) LA COLA SE VACIA AUNQUE LA PANTALLA ESTE CERRADA ────────────────────
+// Vivia dentro de un useEffect de la pantalla de Viajes, con clearInterval al
+// desmontar: si esa pantalla no estaba abierta, la cola NO se vaciaba. Ni al
+// arrancar la app ni al recuperar la senal.
+{
+  const ruta = path.join(ROOT, 'src/components/SincronizadorColas.tsx');
+  ok('existe el sincronizador de la raiz', fs.existsSync(ruta));
+  const sinc = sinComentarios(fs.readFileSync(ruta, 'utf8'));
+  ok('* vacia la cola de viajes', /flushViajesQueue\(\)/.test(sinc));
+  ok('* al arrancar, al volver la senal y cada tanto', /onConnectivityChange\(/.test(sinc) && /setInterval\(/.test(sinc));
+  // Sin sesion el servidor rechaza todo por RLS: no vale la pena gastar bateria.
+  ok('* no intenta sin sesion', /if \(!uid\) return;/.test(sinc));
+  // Un rechazo sin atrapar en la raiz de la app tumba la app entera.
+  ok('* nunca deja un rechazo suelto', /\.catch\(\(\) => \{\}\)/.test(sinc));
+  // Y tiene que soltar el temporizador y la suscripcion al desmontarse.
+  ok('* limpia lo que dejo montado', /clearInterval\(timer\)/.test(sinc) && /unsub\(\)/.test(sinc));
+  ok('* no pinta nada', /return null;/.test(sinc));
+
+  const app = sinComentarios(fs.readFileSync(path.join(ROOT, 'App.tsx'), 'utf8'));
+  ok('esta montado en la raiz', /<SincronizadorColas \/>/.test(app));
+  // DENTRO del AuthProvider: si no, no puede leer la sesion y revienta.
+  const iAuth = app.indexOf('<AuthProvider>');
+  const iSinc = app.indexOf('<SincronizadorColas />');
+  const iFin = app.indexOf('</AuthProvider>');
+  ok('* dentro del AuthProvider', iAuth >= 0 && iSinc > iAuth && iFin > iSinc);
+}
+// Y el de la pantalla sigue estando: ademas refresca "mis viajes" al subir algo.
+ok('la pantalla conserva su propio vaciado', /const poll = setInterval\(tryFlush, 30000\)/.test(pantalla));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-listeros-viajes-fiables · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
