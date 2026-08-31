@@ -10,6 +10,7 @@ import { ToastProvider } from './src/components/ToastProvider';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { UpdateBanner } from './src/components/UpdateBanner';
 import { PhotoCropperHost } from './src/components/PhotoCropper';
+import { SincronizadorColas } from './src/components/SincronizadorColas';
 import RootNavigator from './src/navigation';
 
 function ThemedStatusBar() {
@@ -29,6 +30,9 @@ export default function App() {
                 <RootNavigator />
                 <UpdateBanner />
                 <PhotoCropperHost />
+                {/* Sube los viajes que quedaron guardados en el telefono, este
+                    abierta o no la pantalla de Viajes de camiones. */}
+                <SincronizadorColas />
               </AuthProvider>
             </ErrorBoundary>
           </ConfirmProvider>

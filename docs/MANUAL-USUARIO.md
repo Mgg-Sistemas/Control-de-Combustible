@@ -3683,6 +3683,21 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   contra uno). Ahora los espacios de adentro y las tildes ya no separan; la **ñ** sí, porque es
 >   otra letra: *PEÑA* y *PENA* siguen siendo dos camiones.
 >
+> - **Los viajes guardados en el teléfono ahora suben con la app abierta en cualquier pantalla.**
+>   Antes el reintento vivía **dentro** de la pantalla de *Viajes de camiones*: si esa pantalla no
+>   estaba abierta, **la cola no se vaciaba**. Ni al arrancar la app, ni al recuperar la señal. Un
+>   listero que registró sin cobertura, cerró la app, y al día siguiente entró y se quedó en el
+>   inicio, tenía sus viajes guardados y sin subir, **sin ninguna señal de que faltaba algo**.
+> - **«El camión no está en la lista» ahora avisa si el camión SÍ existe.** Ese botón sale justo
+>   debajo del *"Sin coincidencias"* y ya viene con lo que acabas de escribir. Si buscabas un camión
+>   **retirado** (que a propósito ya no sale), a dos toques lo volvías a crear **a mano** — y así
+>   queda peor: **sin ficha, sin placa y sin empresa**, marcado *"FUERA DE CATÁLOGO"* en el reporte.
+>   Ahora, si lo que escribiste coincide con un camión del catálogo, te lo dice con su placa: si
+>   está **en tu lista**, te manda a buscarlo por la placa; si está **retirado**, te dice que le
+>   avises a la jefa para que ella se lo cargue con su ficha. **No te bloquea** — si insistes, lo
+>   anota a mano igual, porque si el viaje se hizo, el viaje entra. Pero que sea una decisión y no
+>   un descuido.
+>
 > **Lo que NO era del sistema, y hay que resolver en la calle:** el **turno de noche** dejó de
 > registrar viajes, y la base confirma que **sí se trabajó** — **1.040 y 911 horas** de operación
 > las noches del 29 y el 30 de agosto. El registro a mano de noche viene cayendo **desde el 24 de
