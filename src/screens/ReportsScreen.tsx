@@ -23,6 +23,19 @@ import { COMPANY_NAME } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
 import { DateField } from '../components/DateField';
+// TOTAL POR EQUIPO (31-ago-2026): la cuenta por máquina vive en un lib puro para
+// poder probarla sin montar la pantalla. NO recalcula horas: suma lo que este
+// archivo ya calculó. Ver `scripts/test-jornada-por-maquina.mjs`.
+import {
+  filtrarMaquinas,
+  resumirPorMaquina,
+  etiquetaAlcance,
+  htmlPorMaquina,
+  type DiaMaquina,
+  type MaquinaJornada,
+  type AlcanceDias,
+} from '../lib/jornadaPorMaquina';
+import { machineLabel } from '../lib/machineLabel';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { normalizeDept } from '../lib/personal';
@@ -38,11 +51,20 @@ import { useTheme } from '../theme/ThemeContext';
 
 // Máquina agregada en el informe por rondas (por empresa → maquinaria).
 type RoundMachine = {
+  /** Clave de la máquina (la misma con la que se acumuló: `machinery.id`). */
+  id: string;
   machine: string;
   tipo: string;         // marca / modelo
   clasificacion: string; // clasificación del equipo
   serial: string | null;
   plate: string | null;
+  /** Tercer discriminante. Hay máquinas —las tres RETROEXCAVADORA— que no tienen
+   *  ni placa ni serial y SOLO se distinguen por acá. Ver `machineLabel.ts`. */
+  identifier: string | null;
+  /** Desglose DÍA POR DÍA, para poder totalizar por equipo eligiendo días sueltos.
+   *  Se llena con las horas YA ancladas (dd/nn/w), nunca con las crudas: si no, el
+   *  panel por equipo mostraría menos horas que el informe en la jornada abierta. */
+  porDia: DiaMaquina[];
   entryDate: string | null; // fecha de llegada de la máquina (entry_date)
   days: number;         // días (jornadas) que trabajó
   dayH: number;         // total horas de día
@@ -599,6 +621,34 @@ export default function ReportsScreen({ route }: any) {
   // montos) o 'solo_horas' (todos los datos MENOS el dinero — precio/hora, totales $,
   // abonos, fletes). Pedido del cliente 21-ago-2026. Solo afecta el PDF, no el cálculo.
   const [jornadaSoloHoras, setJornadaSoloHoras] = useState(false);
+
+  // ── TOTAL POR EQUIPO (31-ago-2026) ────────────────────────────────────────
+  // Pedido del cliente: «buscar por maquinaria en específico, y poder tener un
+  // total generado por equipo, el total de horas y el total en dinero, en un
+  // rango que yo elija o para días que elija».
+  //
+  // ⚠️ ESTE PANEL VA AGUAS ABAJO, y es la clave de que no dañe nada. El filtro
+  //    por máquina NO entra en `generateRounds`: si entrara, los FLETES y los
+  //    ABONOS —que son de la EMPRESA, no de la máquina— se seguirían sumando
+  //    completos contra las horas de un solo equipo, y el "SALDO POR PAGAR" del
+  //    informe con el que se cobra saldría falso. Acá solo se re-suma lo que el
+  //    informe ya calculó.
+  const [maqQuery, setMaqQuery] = useState('');
+  /** id → etiqueta. Mapa y no Set: hace falta el texto para poder mostrar el
+   *  chip de una máquina marcada que ya no aparece en el rango. */
+  const [maqSel, setMaqSel] = useState<Map<string, string>>(new Map());
+  const [maqModoDias, setMaqModoDias] = useState<'rango' | 'dias'>('rango');
+  const [maqDias, setMaqDias] = useState<Set<string>>(new Set());
+  const [maqDetalle, setMaqDetalle] = useState(true);
+  const [maqAbierto, setMaqAbierto] = useState<string | null>(null);
+  const toggleMaq = (id: string, label: string) =>
+    setMaqSel((prev) => { const n = new Map(prev); n.has(id) ? n.delete(id) : n.set(id, label); return n; });
+  // Al cerrar la vista previa se limpia todo: dejar un filtro puesto haría que
+  // el próximo reporte se abriera ya recortado sin que nadie lo pidiera.
+  useEffect(() => {
+    if (!roundsPreview) { setMaqQuery(''); setMaqSel(new Map()); setMaqDias(new Set()); setMaqModoDias('rango'); setMaqAbierto(null); }
+  }, [roundsPreview]);
+
   // Al cerrar la vista previa del reporte de jornada, se apaga la actualización en vivo.
   useEffect(() => { if (!roundsPreview) liveRef.current = null; }, [roundsPreview]);
   // Igual para el conteo: al cerrarlo se apaga la sincronización en vivo.
@@ -765,7 +815,7 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, plate, tipo, clasificacion, entry_date, price_per_hour, encargado, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, plate, identifier, tipo, clasificacion, entry_date, price_per_hour, encargado, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     const nowMs = Date.now();
@@ -798,7 +848,7 @@ export default function ReportsScreen({ route }: any) {
     // Cada fecha guarda el precio EFECTIVO de esa ronda: si la ronda está cerrada trae
     // frozen_price (precio congelado del corte); si no, el precio actual de la máquina.
     // Así un corte cerrado se reporta con SUS precios aunque después cambien.
-    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; plate: string | null; entry: string | null; company: string; encargado: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null; js: number | null; jsh: string | null }> };
+    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; plate: string | null; identifier: string | null; entry: string | null; company: string; encargado: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null; js: number | null; jsh: string | null }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -809,6 +859,7 @@ export default function ReportsScreen({ route }: any) {
         clasificacion: (mm.clasificacion && String(mm.clasificacion).trim()) || 'Sin clasificación',
         serial: mm.serial ?? null,
         plate: mm.plate ?? null,
+        identifier: mm.identifier ?? null,
         entry: mm.entry_date ?? null,
         company: mm.company?.name ?? 'Sin empresa',
         encargado: String(mm.encargado ?? ''),
@@ -838,6 +889,10 @@ export default function ReportsScreen({ route }: any) {
       if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
       if (!encOk(a.encargado)) return;             // filtro por encargado (solo modo encargado)
       let dayH = 0, nightH = 0, totalH = 0, days = 0, totalUSD = 0, repPrice: number | null = null;
+      // Desglose día por día para el panel "TOTAL POR EQUIPO". Se llena ACÁ
+      // DENTRO, con las mismas variables que suman los totales, para que el
+      // panel y el informe no puedan decir números distintos.
+      const porDia: DiaMaquina[] = [];
       a.byDate.forEach(({ d, n, s, o, price, js, jsh }, dateKey) => {
         // Si hay jornada EN CURSO, sumamos el tiempo transcurrido (cap 12h) al turno
         // abierto para que la máquina APAREZCA aunque no se haya finalizado todavía
@@ -857,10 +912,14 @@ export default function ReportsScreen({ route }: any) {
         // cerrados suman con sus precios aunque el precio de la máquina haya cambiado.
         const p = price != null ? price : a.price;
         if (p != null) { totalUSD += (w / 12) * p; if (w > 0) repPrice = p; }
+        // ⭐ `dd`/`nn`/`w`, NO `d`/`n`: son las horas ya ancladas en vivo. Con las
+        //    crudas, una jornada abierta hoy mostraría menos horas en el panel por
+        //    equipo que en el informe de arriba, en la misma pantalla.
+        porDia.push({ fecha: dateKey, dia: dd, noche: nn, trabajadas: w, precioJornada: p, monto: p != null ? (w / 12) * p : 0 });
       });
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
       workedIds.add(key);
-      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD, cierreMotivo: cierreMotivoById.get(key)?.motivo || '', cierreFinBy: nameById[cierreFinById.get(key)?.id || ''] || '', encargado: a.encargado, company: a.company };
+      const rm: RoundMachine = { id: key, machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, plate: a.plate, identifier: a.identifier, porDia: porDia.sort((x, y) => (x.fecha < y.fecha ? -1 : x.fecha > y.fecha ? 1 : 0)), entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD, cierreMotivo: cierreMotivoById.get(key)?.motivo || '', cierreFinBy: nameById[cierreFinById.get(key)?.id || ''] || '', encargado: a.encargado, company: a.company };
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [], paradas: [], espera: [] };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
@@ -1024,6 +1083,70 @@ export default function ReportsScreen({ route }: any) {
 
   const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const nH = (n: number) => `${Number(n.toFixed(2)).toLocaleString()} h`;
+
+  // ── TOTAL POR EQUIPO: lo derivado ─────────────────────────────────────────
+  // Todo sale de `roundGroups` (el corte por EMPRESA), que es la única fuente
+  // del dinero. El corte por encargado no se usa acá: es el mismo universo
+  // partido por otro eje, y tomarlo duplicaría máquinas.
+  const maquinasJornada = useMemo<MaquinaJornada[]>(() => {
+    const out: MaquinaJornada[] = [];
+    for (const g of roundGroups) {
+      for (const m of g.machines) {
+        out.push({
+          id: m.id, code: m.machine, plate: m.plate, serial: m.serial, identifier: m.identifier,
+          tipo: m.tipo, clasificacion: m.clasificacion, company: m.company, encargado: m.encargado,
+          estado: 'trabajo', porDia: m.porDia,
+        });
+      }
+      // Las que NO trabajaron entran igual, en cero. Si no, buscar una máquina
+      // averiada no daría ningún resultado y parecería que no existe — cuando lo
+      // que hay que ver es justamente que estuvo parada.
+      const noTrabajaron: Array<[RoundAveria[], MaquinaJornada['estado']]> =
+        [[g.averias, 'averia'], [g.paradas, 'parada'], [g.espera, 'espera']];
+      for (const [lista, estado] of noTrabajaron) {
+        for (const a of lista) {
+          out.push({
+            id: a.machineryId, code: a.machine, plate: a.plate, serial: a.serial, identifier: null,
+            tipo: a.tipo, clasificacion: a.clasificacion, company: a.company, encargado: a.encargado,
+            estado, motivo: a.motivo, porDia: [],
+          });
+        }
+      }
+    }
+    return out;
+  }, [roundGroups]);
+
+  const maquinasVisibles = useMemo(
+    () => filtrarMaquinas(maquinasJornada, maqQuery),
+    [maquinasJornada, maqQuery]
+  );
+  const alcanceMaq = useMemo<AlcanceDias>(
+    () => (maqModoDias === 'dias'
+      ? { modo: 'dias', dias: Array.from(maqDias) }
+      : { modo: 'rango', desde: from, hasta: to }),
+    [maqModoDias, maqDias, from, to]
+  );
+  const resumenMaq = useMemo(
+    () => resumirPorMaquina(maquinasJornada, alcanceMaq, maqSel.size ? { soloIds: new Set(maqSel.keys()) } : undefined),
+    [maquinasJornada, alcanceMaq, maqSel]
+  );
+  /** Los días que el informe trae, para poder marcarlos de a uno. */
+  const diasDelInforme = useMemo(() => {
+    const s = new Set<string>();
+    maquinasJornada.forEach((m) => m.porDia.forEach((d) => { if (d.trabajadas > 0) s.add(d.fecha); }));
+    return Array.from(s).sort();
+  }, [maquinasJornada]);
+
+  const downloadPorMaquinaPdf = async () => {
+    const body = htmlPorMaquina(resumenMaq, { money: !jornadaSoloHoras, conDetalleDiario: maqDetalle, dmy: fmtDMY });
+    const et = etiquetaAlcance(alcanceMaq, fmtDMY);
+    const sub = `Total por equipo · ${et}${jornadaSoloHoras ? ' · SOLO HORAS (sin precios)' : ''}`;
+    // El nombre del archivo lleva el alcance: dos PDF de cortes distintos no se
+    // pueden llamar igual, o el último pisa al anterior en la carpeta de descargas.
+    await exportPdf(pdfShell('TOTAL POR EQUIPO · JORNADA', sub, body),
+      `Total por equipo ${et}${jornadaSoloHoras ? ' - solo horas' : ''}`);
+  };
+
   const downloadRoundsPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // MODO "SOLO HORAS": todos los datos MENOS el dinero. Cuando `money` es false se
@@ -3544,6 +3667,179 @@ export default function ReportsScreen({ route }: any) {
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
             <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF{jornadaSoloHoras ? ' (solo horas)' : ''}</Text>
           </TouchableOpacity>
+
+          {/* ── 🔎 TOTAL POR EQUIPO ─────────────────────────────────────────
+              Buscar UNA máquina y ver su total de horas y de dinero, en el rango
+              del informe o en los días que se marquen. NO cambia ni un número
+              del informe de arriba: es la misma cuenta re-sumada por máquina.
+              Ver `src/lib/jornadaPorMaquina.ts`. */}
+          {roundGroups.length > 0 ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🔎 Total por equipo</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                Busca una máquina y mira su total de horas{jornadaSoloHoras ? '' : ' y de dinero'}. No cambia
+                nada del informe de arriba — es la misma cuenta vista por equipo.
+              </Text>
+
+              <TextInput
+                value={maqQuery}
+                onChangeText={setMaqQuery}
+                placeholder="🔎 Nombre, placa, serial, identificador, empresa o encargado…"
+                placeholderTextColor={colors.muted}
+                style={styles.input}
+                autoCorrect={false}
+              />
+              {maqQuery.trim() ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, flexShrink: 1 }}>
+                    {maquinasVisibles.length === 0
+                      ? 'Ninguna máquina coincide.'
+                      : maquinasVisibles.length > 40
+                        // Se DICE que hay más. Cortar en 40 en silencio dejaba la
+                        // 41 imposible de marcar sin ninguna señal de por qué.
+                        ? `${maquinasVisibles.length} coinciden y se muestran las primeras 40. Escribe algo más para achicar la lista.`
+                        : `${maquinasVisibles.length} máquina(s) coinciden. Toca las que quieras sumar.`}
+                  </Text>
+                  <TouchableOpacity onPress={() => setMaqQuery('')}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              {/* Chips de las máquinas que coinciden. Las MARCADAS van siempre,
+                  coincidan o no con lo escrito: un filtro que se esconde sigue
+                  filtrando sin dar la cara. */}
+              {(maqQuery.trim() || maqSel.size > 0) ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.xs }} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}>
+                  {Array.from(maqSel.entries())
+                    .filter(([id]) => !maquinasVisibles.some((m) => m.id === id))
+                    .map(([id, label]) => (
+                      <TouchableOpacity key={`sel-${id}`} onPress={() => toggleMaq(id, label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.brand, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 12 }}>🚜 {label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  {maquinasVisibles.slice(0, 40).map((m) => {
+                    const label = machineLabel(m) || m.code;
+                    const on = maqSel.has(m.id);
+                    return (
+                      <TouchableOpacity key={m.id} onPress={() => toggleMaq(m.id, label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🚜 {label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
+              {maqSel.size > 0 ? (
+                <TouchableOpacity onPress={() => setMaqSel(new Map())} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+                  <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar las {maqSel.size} marcada(s) — vuelve a sumar toda la flota</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {/* Qué días entran: el rango del informe, o días sueltos. */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 4 }}>QUÉ DÍAS SUMAR</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                {([['rango', `📅 Todo el rango (${fmtDMY(from)} – ${fmtDMY(to)})`], ['dias', '📆 Días sueltos']] as const).map(([v, label]) => {
+                  const on = maqModoDias === v;
+                  return (
+                    <TouchableOpacity key={v} onPress={() => setMaqModoDias(v)}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {maqModoDias === 'dias' ? (
+                <View style={{ marginTop: spacing.xs }}>
+                  {diasDelInforme.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>El informe no trae ningún día con horas.</Text>
+                  ) : (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {diasDelInforme.map((d) => {
+                        const on = maqDias.has(d);
+                        return (
+                          <TouchableOpacity key={d}
+                            onPress={() => setMaqDias((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; })}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{fmtDMY(d)}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                  {/* Un aviso, no un número en cero disfrazado de resultado. */}
+                  {maqDias.size === 0 && diasDelInforme.length > 0 ? (
+                    <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700', marginTop: 4 }}>
+                      No marcaste ningún día, así que no se está sumando nada. Toca al menos uno.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {/* Los totales. */}
+              <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>{etiquetaAlcance(alcanceMaq, fmtDMY)}{maqSel.size > 0 ? ` · ${maqSel.size} equipo(s) marcado(s)` : ''}</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16, marginTop: 2 }}>
+                  {resumenMaq.equipos} equipo(s) · {resumenMaq.jornadas} jornada(s) · {nH(resumenMaq.horas)}
+                  {jornadaSoloHoras ? '' : ` · ${usd(resumenMaq.monto)}`}
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                  ☀️ {nH(resumenMaq.horasDia)} de día · 🌙 {nH(resumenMaq.horasNoche)} de noche
+                </Text>
+              </View>
+
+              {/* Una fila por equipo, con su detalle día a día desplegable. */}
+              <ScrollView style={{ maxHeight: 340, marginTop: spacing.xs }} nestedScrollEnabled>
+                {resumenMaq.maquinas.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Nada que sumar con lo que elegiste.</Text>
+                ) : resumenMaq.maquinas.map((m) => (
+                  <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 6 }}>
+                    <TouchableOpacity onPress={() => setMaqAbierto((a) => (a === m.id ? null : m.id))}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm }}>
+                        <View style={{ flexShrink: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                            {m.estado === 'averia' ? '🔴 ' : m.estado === 'parada' ? '🟡 ' : m.estado === 'espera' ? '⏳ ' : ''}{m.etiqueta}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 10.5 }}>{m.clasificacion} · {m.company}</Text>
+                          {m.estado !== 'trabajo' ? <Text style={{ color: colors.danger, fontSize: 10.5 }}>{m.motivo || 'No trabajó'}</Text> : null}
+                          {m.sinPrecio && !jornadaSoloHoras ? <Text style={{ color: colors.warning, fontSize: 10.5 }}>⚠️ hubo jornadas sin precio: el monto está incompleto</Text> : null}
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{nH(m.horas)}</Text>
+                          {!jornadaSoloHoras ? <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>{usd(m.monto)}</Text> : null}
+                          <Text style={{ color: colors.muted, fontSize: 10.5 }}>{m.jornadas} jornada(s)</Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                    {maqAbierto === m.id && m.dias.length > 0 ? (
+                      <View style={{ marginTop: 4, paddingLeft: spacing.sm }}>
+                        {m.dias.map((d) => (
+                          <View key={d.fecha} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>{fmtDMY(d.fecha)} · ☀️ {d.dia.toFixed(2)} · 🌙 {d.noche.toFixed(2)}</Text>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>
+                              {d.trabajadas.toFixed(2)} h{jornadaSoloHoras ? '' : ` · ${d.precioJornada == null ? '⚠️ sin precio' : usd(d.monto)}`}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                ))}
+              </ScrollView>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+                <TouchableOpacity onPress={() => setMaqDetalle((v) => !v)} style={{ flex: 1 }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>
+                    {maqDetalle ? '☑' : '☐'} Incluir el día a día en el PDF
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand, flex: 1 }]} onPress={downloadPorMaquinaPdf}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 12.5 }}>⬇️ PDF por equipo</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
 
           {/* Reporte general (arriba): por clasificación + por empresa (igual al de maquinaria). */}
           {roundGroups.length > 0 ? (() => {

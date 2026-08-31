@@ -2260,6 +2260,43 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 **empresa**. Al generarlos se abre una **ventana con la vista previa** y los botones
 **🖨️ Imprimir** y **Cancelar**.
 
+#### 🔎 Total por equipo — buscar UNA máquina (31-ago-2026)
+
+Dentro de **🔧 Jornada**: genera el informe y, en la vista previa, **debajo del botón de descargar**,
+hay un bloque **«🔎 Total por equipo»**.
+
+Escribes el **nombre, la placa, el serial, el identificador, la empresa o el encargado** y salen las
+máquinas que coinciden. Tocas las que quieras y arriba te da:
+
+**equipos · jornadas · total de horas · total en dinero**, más el desglose ☀️ día / 🌙 noche.
+
+Si no marcas ninguna, suma **toda la flota** del informe. Cada máquina se puede tocar para ver su
+detalle **día por día**, y el botón **⬇️ PDF por equipo** imprime exactamente eso.
+
+**Qué días suma:** dos modos — **📅 Todo el rango** (el mismo del informe) o **📆 Días sueltos**, con
+una pastilla por cada día que tenga horas para marcar los que quieras (el martes y el jueves
+solamente, por ejemplo). Si no marcas ninguno **te lo dice**, en vez de mostrarte un cero que parece
+un resultado.
+
+> ⚠️ **Esto NO cambia ni un número del informe.** Es la **misma cuenta** vista por equipo: buscar o
+> marcar máquinas no recalcula nada ni saca máquinas del informe de arriba. Está fijado con prueba
+> automática.
+
+Tres cosas que conviene saber:
+
+1. **El monto se suma día por día.** Si a una máquina le cambiaron el precio a mitad de semana, cada
+   jornada vale lo que valía **ese** día — no el último.
+2. **Si alguna jornada no tenía precio**, la máquina lo avisa (*«el monto está incompleto»*) en vez de
+   mostrar un total que parece completo.
+3. **No muestra abonos ni saldo por pagar.** Esos son de la **empresa**, no de la máquina: ponerlos al
+   lado de las horas de un equipo daría una cifra de cobro inventada.
+
+Con **🕒 Solo horas** en *Contenido del PDF*, el bloque también esconde el dinero.
+
+Las máquinas **🔴 averiadas, 🟡 paradas o ⏳ esperando instrucciones** también salen, con **0 horas**,
+**$0** y su motivo — para que buscarlas dé un resultado y no parezca que no existen. No suman a los
+totales ni cuentan como equipo que trabajó.
+
 > **Resumen del corte (arriba del Informe por jornada):** en la parte superior del PDF salen
 > cuatro recuadros con el **Total de horas por corte**, el **Total $**, el **Total abonado**
 > (lo ya pagado en el rango) y el **TOTAL PENDIENTE** (*total $ − abonado*). El detalle por
