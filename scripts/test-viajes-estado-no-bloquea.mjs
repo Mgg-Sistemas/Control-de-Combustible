@@ -43,13 +43,33 @@ const src = fs.readFileSync(PANTALLA, 'utf8');
 // texto pelado daria positivo por el comentario y no por el codigo.
 const codigo = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-// -- 1) LA LISTA DEL LISTERO NO SACA NINGUN CAMION ---------------------------
-// El filtro que habia era `allTrucks.filter((t) => t.operational && !t.enEspera)`.
-ok('* la lista de camiones ya no filtra por operational',
-  !/allTrucks\.filter\([^)]*operational/.test(codigo));
-ok('* ni por "en espera"', !/allTrucks\.filter\([^)]*enEspera/.test(codigo));
-ok('* y las maquinas agregadas a mano tampoco se filtran por estado',
-  !/extraTruckIds\.has\(t\.id\)[^;]*operational/.test(codigo));
+// -- 1) AVERIADA / PARADA / EN ESPERA SI SALEN. RETIRADA NO. -----------------
+// El filtro viejo era `allTrucks.filter((t) => t.operational && !t.enEspera)`:
+// sacaba las retiradas Y las que esperan instrucciones. Se quito entero el
+// 31-ago-2026 y, el mismo dia, hubo que devolver LA MITAD: la lista del listero
+// paso de 61 a 89 camiones y los 28 nuevos eran RETIRADOS -- con motivos como
+// "Fin de contrato" o "reemplazo por A74AB3P". El cliente lo reporto como "se
+// estan registrando maquinas que no estan", y tenia razon literalmente.
+//
+// LA REGLA QUE QUEDO, y es la que fija esta prueba:
+//   · AVERIADA / PARADA / EN ESPERA -> SI se pueden escoger. Son anotaciones de
+//     otro modulo que pueden estar viejas o mal puestas, y contra un viaje que
+//     el listero VIO, gana lo que se vio.
+//   · RETIRADA -> NO. No es una anotacion dudosa: es un hecho administrativo,
+//     el camion se fue de la obra. No hay viaje observado que lo contradiga.
+//     Si de verdad hubo uno, lo carga la jefa desde "Cargar viajes a mano".
+ok('* las EN ESPERA ya no se filtran', !/allTrucks\.filter\([^)]*enEspera/.test(codigo));
+ok('* la lista saca las RETIRADAS', /allTrucks\.filter\(\(t\) => !estaRetirada\(t\)\)/.test(codigo));
+ok('* y retirada se define por operational, no por active',
+  /const estaRetirada = \(t: TruckRow\) => !t\.operational;/.test(codigo));
+ok('* las agregadas a mano usan el MISMO criterio (o quedaria un fantasma por un lado)',
+  /extraTruckIds\.has\(t\.id\)[^;]*!estaRetirada\(t\)/.test(codigo));
+// El segundo grupo del buscador ("si esta en el catalogo pero no en tu lista")
+// tiene que filtrar igual, o una retirada entra por la puerta de atras.
+{
+  const extras = codigo.slice(codigo.indexOf('const pickExtras'), codigo.indexOf('const [selectedTruck'));
+  ok('* y el segundo grupo del buscador tambien', extras.includes('!estaRetirada(t)'));
+}
 
 // -- 2) REGISTRAR NO PREGUNTA POR EL ESTADO ----------------------------------
 // Habia un `if (ESTADO_ADVERSO.includes(estadoConteo)) { ... confirm ... }`
@@ -62,6 +82,20 @@ ok('* registrar un viaje ya no pide confirmacion por el estado',
   const menciones = (codigo.match(/figura \$\{meta\.label/g) || []).length;
   eq('* no queda ningun aviso de "este camion figura AVERIADA"', menciones, 0);
 }
+
+// -- 2-bis) EL CHOFER NO PUEDE FRENAR NI VACIAR EL REGISTRO ------------------
+// Dos caminos distintos, los dos confirmados el 31-ago-2026:
+//   (a) `resolveChoferActual` iba con await pelado ANTES del chequeo de senal:
+//       con wifi sin internet se colgaba y, si el listero cerraba la app, el
+//       viaje NO se habia encolado todavia -- se perdia entero;
+//   (b) el boton de registrar no miraba `choferLoading`, asi que un toque
+//       rapido guardaba el viaje con el chofer VACIO y la pantalla despues
+//       pintaba el nombre como si hubiera salido bien.
+ok('* la consulta del chofer tiene tope de tiempo', /Promise\.race\(\[[\s\S]{0,200}resolveChoferActual/.test(codigo));
+ok('* y al vencerse se sigue con el chofer que ya se tenia',
+  /setTimeout\(\(\) => r\(selectedChofer\)/.test(codigo));
+ok('* no se puede registrar mientras carga el chofer',
+  codigo.includes('disabled={registering || choferLoading}'));
 
 // -- 3) PERO EL ESTADO SE SIGUE VIENDO Y SE SIGUE GUARDANDO ------------------
 // Quitar el bloqueo NO es esconder el dato: la jefa tiene que poder revisar

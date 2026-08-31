@@ -3588,8 +3588,8 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > Necesita correr **`supabase/viajes_camion_fuera_catalogo.sql`**.
 
 > **🟢 El estado del camión ya no impide registrar** (31-ago-2026). En **este módulo y solo en este**,
-> no importa cómo figure el camión: **averiado, parado, retirado o en espera de instrucciones, todos
-> salen en el buscador y todos aceptan viajes**. Y ya no pregunta nada antes de guardar: donde antes
+> no importa cómo figure el camión: **averiado, parado o en espera de instrucciones, todos salen en el
+> buscador y todos aceptan viajes**. La **única excepción son las RETIRADAS** — ver abajo. Y ya no pregunta nada antes de guardar: donde antes
 > salía *"este camión figura AVERIADA, ¿de todas formas quieres registrar el viaje?"*, ahora
 > **registra y ya**.
 >
@@ -3598,8 +3598,20 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > contradicen, **gana lo que se vio**. Antes, un camión marcado por error dejaba al listero sin manera
 > de anotar viajes que sí ocurrieron, y esos viajes se perdían.
 >
-> ⚠️ **Esto reemplaza la regla del 18-ago-2026**, que sacaba de la lista del listero las retiradas y
-> las que estaban en espera.
+> ⚠️ **Esto reemplaza EN PARTE la regla del 18-ago-2026**, que sacaba de la lista tanto las retiradas
+> como las que estaban en espera: **las en espera vuelven, las retiradas no**.
+>
+> **⬛ Las retiradas siguen fuera, y es a propósito** (31-ago-2026, el mismo día). Al quitar el filtro
+> entero, la lista del listero pasó de **61 a 89 camiones**: los 28 nuevos eran **retirados**, con
+> motivos cargados como *"Fin de contrato"* o *"reemplazo por A74AB3P"*. O sea, camiones que **ya no
+> están en la obra** — y dos de ellos, sin placa ni serial, salían como dos renglones idénticos.
+>
+> Una máquina **averiada o parada sigue en el patio**, y su estado es una anotación que puede estar
+> vieja o mal puesta: contra un viaje que el listero **vio**, gana lo que se vio. Una **retirada es
+> otra cosa**: es un hecho administrativo, el camión se fue, y no hay viaje observado que lo
+> contradiga. Si de verdad hubo un viaje de un camión ya retirado, **la jefa lo carga desde
+> «✍️ Cargar viajes a mano»**, que sí tiene el catálogo completo. La puerta no se cierra: se mueve a
+> quien puede juzgarlo.
 >
 > **Pero el estado se sigue viendo, y se guarda.** Quitar el bloqueo no es esconder el dato: en el
 > buscador cada camión sigue mostrando su estado con su color (✅ Operativa, 🔴 Averiada, 🟡 Parada,
