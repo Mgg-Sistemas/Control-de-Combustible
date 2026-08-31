@@ -3835,6 +3835,7 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 |---|---|
 | **Camión** | Se busca por código, placa o serial. Salen **todos**, en cualquier estado. |
 | **Día del viaje** | Cualquier día **de hoy hacia atrás**. |
+| **Turno** | **☀️ Día (7am–7pm)** o **🌙 Noche (7pm–7am)**. Tocarlo pone su hora de arranque. |
 | **Hora del primero** | La hora del primer viaje de la tanda. |
 | **¿Cuántos viajes?** | Hasta **30 por vez**. |
 | **Chofer / responsable** | Opcional. |
@@ -3843,6 +3844,20 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 Si cargas **más de uno**, se separan **5 minutos** a partir de esa hora, para que después le puedas
 corregir la hora a cada uno por separado — apilarlos todos en el mismo minuto los volvería
 indistinguibles, y un camión no hace dos viajes en el mismo instante.
+
+> **🕗 EL TURNO Y LA HORA SON LA MISMA COSA (31-ago-2026).** Los dos botones de turno **no son un
+> campo aparte**: son un **atajo** que pone la hora de arranque del turno — **☀️ Día → 07:00** y
+> **🌙 Noche → 19:00**. Si prefieres una hora exacta, **escríbela**: el turno que se ve marcado
+> **se ajusta solo** a lo que diga la hora, así que siempre te está diciendo la verdad.
+>
+> Se hizo así a propósito. En todo el módulo el turno de un viaje **se deduce de su hora**, no de
+> un campo guardado (por eso corregirle la hora a un viaje lo mueve de turno). Si el botón guardara
+> un turno por su cuenta, podrías dejar un viaje marcado «noche» con hora de las 8am y saldría en
+> los reportes como de día: dos datos peleados por el mismo viaje.
+>
+> ⚠️ **Aviso al guardar:** si la tanda **cruza las 7pm** —por ejemplo empezar 6:50pm y cargar
+> cuatro— **no cae toda en el mismo turno**, y te lo dice antes de guardar. Es el mismo aviso que
+> ya existía para las tandas que cruzan las **7am** y se reparten entre dos días.
 
 **Quitar.** En la lista completa, filtras el día y le das **"🗑️ Borrar"** a los que sobren.
 

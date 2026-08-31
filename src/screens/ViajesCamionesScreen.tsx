@@ -40,7 +40,7 @@ import {
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { resumirViajes, SIN_EMPRESA, claveCamion, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
-import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
+import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, TURNO_ICONO, TURNO_HORARIO, turnoDeHora, HORA_INICIO_TURNO, Turno, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
@@ -62,6 +62,7 @@ import {
   mismoMinuto,
   horariosDeCarga,
   jornadasDeCarga,
+  turnosDeCarga,
   turnoParaGuardar,
   avisosDeCambio,
   validarCargaManual,
@@ -1026,12 +1027,22 @@ export default function ViajesCamionesScreen() {
       const desborde = jornadas.length > 1
         ? `\n\n⚠️ OJO: la tanda cruza las 7am, así que NO cae toda en el mismo día. Se reparte entre las jornadas del ${jornadas.map(dmy).join(' y del ')}.`
         : '';
+      // ⚠️ Mismo problema que el desborde de jornada, pero con las 7pm: una tanda
+      //    que arranca a las 6:50pm parte en dos turnos. Como el turno se deduce
+      //    de la hora, esos viajes salen en el turno que diga su hora y no en el
+      //    que se eligió arriba — hay que decirlo antes de guardar.
+      const turnos = turnosDeCarga(horarios);
+      const cruceTurno = turnos.length > 1
+        ? `\n\n⚠️ OJO: la tanda cruza las 7pm, así que NO cae toda en el mismo turno. Se reparte entre ${turnos.map((t) => `${TURNO_ICONO[t]} ${TURNO_NOMBRE[t].toLowerCase()}`).join(' y ')}.`
+        : '';
+      const turnoElegido = turnos[0];
       const ok = await confirm({
         title: 'Cargar viajes a mano',
         message:
           `Se van a agregar ${cantidad} viaje(s) al camión ${cargaTruck.code} el ${dmy(cargaFecha)}, ` +
-          `desde las ${pad2(hh)}:${pad2(mm)}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}, ` +
-          `a nombre de ${listero.full_name}.\n\nQuedan marcados como «cargado a mano».${desborde}`,
+          `desde las ${pad2(hh)}:${pad2(mm)}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}` +
+          `${turnos.length === 1 ? ` (turno de ${TURNO_NOMBRE[turnoElegido].toLowerCase()})` : ''}, ` +
+          `a nombre de ${listero.full_name}.\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
         confirmText: 'Cargar',
       });
       if (!ok) return;
@@ -2153,6 +2164,35 @@ export default function ViajesCamionesScreen() {
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               Es el día de trabajo, no el del calendario: un viaje de la madrugada
               pertenece al día que arrancó la mañana anterior.
+            </Text>
+
+            {/* TURNO (31-ago-2026). El turno NO se guarda aparte: se DEDUCE de la
+                hora (ver la cabecera de src/lib/viajesTurno.ts), así que estos dos
+                botones no son un campo más — son un atajo que PONE la hora de
+                arranque del turno elegido. Y el que se ve marcado sale de la hora
+                que hay escrita, así que siempre dice la verdad aunque después se
+                teclee otra cosa a mano. */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>TURNO</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {(['day', 'night'] as Turno[]).map((t) => {
+                const on = turnoDeHora(normalizarHora(cargaHH, cargaMM).hh) === t;
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => { setCargaHH(pad2(HORA_INICIO_TURNO[t].hh)); setCargaMM(pad2(HORA_INICIO_TURNO[t].mm)); }}
+                    style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                  >
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>
+                      {TURNO_ICONO[t]} {TURNO_NOMBRE[t]}
+                    </Text>
+                    <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 10, marginTop: 1 }}>{TURNO_HORARIO[t]}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Tocar un turno pone su hora de arranque. Si prefieres una hora exacta,
+              escríbela abajo: el turno se ajusta solo a lo que diga la hora.
             </Text>
 
             <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>

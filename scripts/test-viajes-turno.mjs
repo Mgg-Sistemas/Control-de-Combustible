@@ -51,7 +51,8 @@ Module._load = function (req, parent) {
 
 const T = compilar(path.join(ROOT, 'src/lib/viajesTurno.ts'));
 const { turnoDeInstante, turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario,
-        leyendaTurnos, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_LABEL } = T;
+        leyendaTurnos, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_LABEL,
+        turnoDeHora, HORA_INICIO_TURNO } = T;
 // El turno de AHORA, para comprobar que los dos calculos son el mismo.
 const { caracasNowShift } = compilar(path.join(ROOT, 'src/lib/caracasDay.ts'));
 
@@ -177,6 +178,33 @@ eq('la leyenda de los dos turnos', leyendaTurnos(),
 // Y el horario que anuncia es el mismo que aplica el calculo: corta en 7 y 19.
 eq('* la leyenda no miente sobre el corte',
   [turnoDeInstante(enCaracas('2026-08-20', 7)), turnoDeInstante(enCaracas('2026-08-20', 19))], ['day', 'night']);
+
+// ── EL CORTE 7/19 VIVE EN UN SOLO SITIO (31-ago-2026) ──────────────────────
+// `turnoDeHora` se extrajo para que el selector de turno de «cargar viajes a
+// mano» no tuviera que reimplementar la frontera. Si alguien la cambia en un
+// lado y no en el otro, esto lo caza.
+eq('7am ya es dia', turnoDeHora(7), 'day');
+eq('6am todavia es noche', turnoDeHora(6), 'night');
+eq('18:xx sigue siendo dia', turnoDeHora(18), 'day');
+eq('19h ya es noche', turnoDeHora(19), 'night');
+eq('medianoche es noche', turnoDeHora(0), 'night');
+eq('23h es noche', turnoDeHora(23), 'night');
+// ⭐ Las dos funciones tienen que coincidir en las 24 horas del dia: son la
+//    MISMA regla y `turnoDeInstante` ahora delega en `turnoDeHora`.
+{
+  const desacuerdos = [];
+  for (let h = 0; h < 24; h++) {
+    if (turnoDeHora(h) !== turnoDeInstante(enCaracas('2026-08-20', h))) desacuerdos.push(h);
+  }
+  eq('* turnoDeHora y turnoDeInstante coinciden en las 24 horas', desacuerdos, []);
+}
+
+// La hora de arranque de cada turno cae DENTRO de su propio turno. Sin esto,
+// tocar «Noche» en el formulario podria dejar la hora en un turno de dia.
+eq('el arranque del dia es de dia', turnoDeHora(HORA_INICIO_TURNO.day.hh), 'day');
+eq('el arranque de la noche es de noche', turnoDeHora(HORA_INICIO_TURNO.night.hh), 'night');
+eq('el dia arranca a las 7:00', [HORA_INICIO_TURNO.day.hh, HORA_INICIO_TURNO.day.mm], [7, 0]);
+eq('la noche arranca a las 19:00', [HORA_INICIO_TURNO.night.hh, HORA_INICIO_TURNO.night.mm], [19, 0]);
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-turno · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
