@@ -58,7 +58,7 @@ Module._load = function (req, parent) {
 
 const E = compilar(path.join(ROOT, 'src/lib/viajesEdicion.ts'));
 const {
-  normalizarHora, isoDeFechaHora, horariosDeCarga, turnoParaGuardar,
+  normalizarHora, isoDeFechaHora, horariosDeCarga, turnoParaGuardar, turnosDeCarga,
   avisosDeCambio, validarCargaManual, notaCargaManual, esCargaManual,
   MAX_CARGA, SEPARACION_MIN, MARCA_CARGA_MANUAL,
 } = E;
@@ -262,6 +262,45 @@ ok('* ni uno con una nota cualquiera', !esCargaManual('Se le pincho un caucho'))
   const posGuard = carga.indexOf('cargaBusyRef.current = true');
   const posConfirm = carga.indexOf('await confirm(');
   ok('* el guard de doble toque se toma antes del confirm', posGuard > 0 && posGuard < posConfirm);
+}
+
+// ── SELECTOR DE TURNO EN LA CARGA A MANO (31-ago-2026) ─────────────────────
+// Pedido del cliente: «que tenga la opción de que yo coloque si es para el
+// turno de día o turno de noche». Como el turno se DEDUCE de la hora, el
+// selector pone la hora de arranque del turno — no guarda un campo aparte.
+{
+  const J = '2026-08-20';
+  // Una tanda que arranca de día y no llega a las 7pm: un solo turno.
+  eq('tanda diurna, un solo turno', turnosDeCarga(horariosDeCarga(J, 8, 0, 4)), ['day']);
+  // Una tanda que arranca a las 7pm: toda de noche.
+  eq('tanda nocturna, un solo turno', turnosDeCarga(horariosDeCarga(J, 19, 0, 4)), ['night']);
+  // ⭐ La que cruza las 7pm parte en dos, y en ORDEN: primero el que arranca.
+  eq('* la tanda que cruza las 7pm parte en dos',
+    turnosDeCarga(horariosDeCarga(J, 18, 50, 4)), ['day', 'night']);
+  // La madrugada de la jornada sigue siendo NOCHE (no se "reinicia" a las 00:00).
+  eq('la madrugada de la jornada es noche', turnosDeCarga(horariosDeCarga(J, 2, 0, 2)), ['night']);
+  // ⭐ Y cruzar las 7am cambia de jornada Y de turno a la vez.
+  eq('* cruzar las 7am tambien cambia de turno',
+    turnosDeCarga(horariosDeCarga(J, 6, 50, 4)), ['night', 'day']);
+  // Un solo viaje nunca puede estar en dos turnos.
+  eq('un solo viaje, un solo turno', turnosDeCarga(horariosDeCarga(J, 12, 0, 1)).length, 1);
+  eq('cero viajes, ningun turno', turnosDeCarga(horariosDeCarga(J, 12, 0, 0)), []);
+  // El turno que se guarda coincide con el que reporta la tanda.
+  const h = horariosDeCarga(J, 19, 30, 1);
+  eq('turnoParaGuardar coincide con turnosDeCarga', turnoParaGuardar(h[0]), turnosDeCarga(h)[0]);
+}
+
+// Guardas sobre la pantalla: que el selector sea un ATAJO de hora y no un campo
+// paralelo, y que el aviso de cruce de turno llegue antes de guardar.
+{
+  const src = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8');
+  ok('el selector de turno pone la hora de arranque',
+    /HORA_INICIO_TURNO\[t\]\.hh/.test(src) && /setCargaHH\(pad2\(HORA_INICIO_TURNO/.test(src));
+  ok('el turno marcado se DEDUCE de la hora escrita',
+    /turnoDeHora\(normalizarHora\(cargaHH, cargaMM\)\.hh\)/.test(src));
+  ok('no se guarda un campo de turno aparte', !/const \[cargaTurno/.test(src));
+  ok('avisa cuando la tanda cruza de turno',
+    /turnosDeCarga\(horarios\)/.test(src) && /cruza las 7pm/.test(src));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-edicion · ${pass} ok · ${fail} fallando`);
