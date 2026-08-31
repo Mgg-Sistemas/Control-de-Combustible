@@ -217,7 +217,17 @@ export default function ViajesCamionesScreen() {
   };
 
   const loadTrucks = async () => {
-    setTrucksLoading(true);
+    // ⭐ SOLO se pone en "cargando" cuando NO hay nada que enseñar — la MISMA
+    //    regla que `loadMisViajes` unas líneas más abajo, y por la misma razón.
+    //
+    //    El realtime de `camion_viajes` lo dispara el INSERT de CUALQUIER listero
+    //    de la flota. En hora pico, con cuatro listeros registrando, esto corría
+    //    cada pocos segundos y desmontaba el buscador ENTERO: las filas de
+    //    camiones y el botón de "fuera de catálogo" viven dentro de esa rama del
+    //    render. El listero tocaba un camión, la lista se iba a mitad del toque,
+    //    y no pasaba nada. Sin error, sin viaje, y él creyendo que lo registró.
+    //    Es la explicación más probable de los viajes que "faltan".
+    setTrucksLoading((prev) => prev || allTrucks.length === 0);
     // ⚠️ `selectAllRows` y no un `.select()` pelado: PostgREST corta la
     //    respuesta en su tope de filas y lo hace SIN AVISAR — no llega un error,
     //    llega una página. Un catálogo que pase ese tope dejaría camiones reales
@@ -289,7 +299,15 @@ export default function ViajesCamionesScreen() {
   // Muchos camiones comparten el mismo "code" (ej. "Camion Volteo Toronto"
   // repetido en casi toda la flota) — la placa/serial es lo que en la práctica
   // distingue uno de otro, así que se resuelve acá para mostrarla donde falte.
-  const truckById = useMemo(() => new Map(allTrucks.map((t) => [t.id, t])), [allTrucks]);
+  //
+  // ⭐ Se arma con el CATÁLOGO COMPLETO, no con `allTrucks`. Desde que el listero
+  //    puede agregar a su lista una máquina cuyo código NO dice volteo/volqueta
+  //    (ver `extraTruckIds`), esos viajes traen un `machinery_id` que no está en
+  //    `allTrucks`: buscarlo ahí devolvía `undefined` y el viaje salía sin placa
+  //    ("—") y bajo "Sin empresa" en el resumen, en los filtros y en el PDF de la
+  //    jefa. Se abrió la puerta de entrada y no se había cableado la de salida.
+  //    `catalogoTrucks` incluye a `allTrucks`, así que no se pierde nada.
+  const truckById = useMemo(() => new Map(catalogoTrucks.map((t) => [t.id, t])), [catalogoTrucks]);
 
   // ── Vista LISTERO: buscador de camión ───────────────────────────────────
   const [pickOpen, setPickOpen] = useState(false);
@@ -351,6 +369,19 @@ export default function ViajesCamionesScreen() {
     const sumadas = catalogoTrucks.filter((t) => extraTruckIds.has(t.id) && !yaEstan.has(t.id) && !estaRetirada(t));
     return [...base, ...sumadas].sort((a, b) => cmpText(a.code, b.code));
   }, [allTrucks, catalogoTrucks, extraTruckIds]);
+  /**
+   * La flota que ESTÁ en la obra: los camiones de siempre menos las retiradas.
+   *
+   * Es lo que se le enseña a la jefa. El arreglo del 31-ago sacó las retiradas
+   * de la lista del LISTERO, pero en el panel de la jefa seguían en dos sitios:
+   * pedían meta diaria y salían en el resumen por camión con 0 viajes, o sea
+   * contadas como flota parada. Un camión con "Fin de contrato" no tiene meta
+   * que cumplir ni está parado: no está.
+   *
+   * Los viajes VIEJOS de un camión ya retirado no se pierden: el resumen suma
+   * ADEMÁS los camiones que aparecen en los viajes del rango (ver `ids`).
+   */
+  const camionesEnObra = useMemo(() => allTrucks.filter((t) => !estaRetirada(t)), [allTrucks]);
   const pickEstadoOptions = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
     // Cuenta sobre la MISMA lista que se va a mostrar: si contara sobre
@@ -404,6 +435,12 @@ export default function ViajesCamionesScreen() {
     setPickEstadoSel(new Set());
     setPickOpen(true);
   };
+  // Qué pedido de chofer es el que vale. Escoger el camión A (consulta lenta) y
+  // cambiar al B (rápida) terminaba pintando el chofer de A ENCIMA del de B: la
+  // respuesta vieja llega después y pisa. Y su `setChoferLoading(false)` soltaba
+  // el botón de Registrar mientras la consulta de B seguía corriendo, anulando la
+  // defensa que ese botón tiene puesta justo para eso.
+  const choferPedidoRef = useRef(0);
   const onSelectTruck = async (t: TruckRow) => {
     setPickOpen(false);
     setSelectedTruck(t);
@@ -413,8 +450,23 @@ export default function ViajesCamionesScreen() {
     // Un camión fuera de catálogo no tiene ficha ni chofer asignado que consultar:
     // `machine_operators` va contra un `machinery_id` que no existe.
     if (t.id === FUERA_CATALOGO_ID) return;
+    const pedido = ++choferPedidoRef.current;
     setChoferLoading(true);
-    const chofer = await resolveChoferActual(t.id, shift);
+    // ⚠️ CON TOPE DE TIEMPO, igual que en `doRegistrarViaje`. El cliente de
+    //    Supabase no lleva timeout propio: con el wifi del patio (señal sin
+    //    internet) o un portal cautivo este `fetch` se queda colgado y
+    //    `choferLoading` no volvía NUNCA a `false`. El botón de Registrar se
+    //    quedaba gris diciendo «Buscando el chofer…» el resto de la sesión y el
+    //    listero no podía registrar ni un viaje más. Sin error y sin cola.
+    //
+    //    Ahí abajo, al registrar, se vuelve a consultar si cambió el turno; y si
+    //    tampoco contesta, el viaje entra sin chofer. Un chofer que falta se
+    //    corrige; un viaje perdido no se recupera.
+    const chofer = await Promise.race([
+      resolveChoferActual(t.id, shift).catch(() => null),
+      new Promise<string | null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
+    if (pedido !== choferPedidoRef.current) return; // llegó tarde: manda el camión de ahora
     setChoferLoading(false);
     setSelectedChofer(chofer);
   };
@@ -487,7 +539,15 @@ export default function ViajesCamionesScreen() {
   const [retrying, setRetrying] = useState(false);
   const [falloGuardado, setFalloGuardado] = useState<string | null>(null);
   useEffect(() => {
-    if (!canWrite) return;
+    // ⚠️ Acá iba un `if (!canWrite) return;` y se comía viajes ya registrados.
+    //    VACIAR LA COLA NO ES REGISTRAR: el viaje ya está en el teléfono, lo
+    //    escribió un listero que en ese momento SÍ tenía permiso. Si después le
+    //    bajan el nivel a solo lectura, esos viajes se quedaban en el disco para
+    //    siempre y nadie se enteraba — ni el listero (ya no ve el botón) ni la
+    //    jefa (para ella nunca existieron). Subir lo que YA está guardado no
+    //    necesita permiso de esta pantalla: la última palabra la tiene RLS en el
+    //    servidor, y si lo rechaza es un error transitorio y se reintenta.
+    
     // El aviso de "no se pudo guardar en el teléfono" tiene que quedarse EN
     // PANTALLA: un toast se va a los 3 segundos y el listero no puede saber que
     // no debe cerrar la app. Se revisa en cada cambio de la cola, que es cuando
@@ -829,7 +889,13 @@ export default function ViajesCamionesScreen() {
     if (canFull) { loadRangeRows(); loadResumen(); }
   };
 
+  // Mismo motivo que `registeringRef`: el state no cambia hasta el próximo
+  // render. Sin esto, dos toques seguidos en el tacho borraban bien la primera
+  // vez y la segunda sacaba un toast ROJO ("ese viaje ya no existe") sobre una
+  // operación que SÍ funcionó — la jefa creyendo que algo falló cuando no.
+  const borrandoRef = useRef(false);
   const onBorrar = async (row: CamionViajeRow) => {
+    if (borrandoRef.current) return;
     const ok = await confirm({
       title: 'Borrar viaje',
       message: `¿Borrar el viaje de ${row.machineCode} de las ${fmtHora(row.registeredAt)}? Esta acción no se puede deshacer.`,
@@ -837,11 +903,16 @@ export default function ViajesCamionesScreen() {
       danger: true,
     });
     if (!ok) return;
-    const { error } = await borrarViaje(row.id);
-    if (error) { toast.error(error); return; }
-    toast.success('Viaje borrado.');
-    loadRangeRows();
-    loadResumen();
+    borrandoRef.current = true;
+    try {
+      const { error } = await borrarViaje(row.id);
+      if (error) { toast.error(error); return; }
+      toast.success('Viaje borrado.');
+      loadRangeRows();
+      loadResumen();
+    } finally {
+      borrandoRef.current = false;
+    }
   };
 
   // ── CARGA MANUAL DE VIAJES (nivel full) ──────────────────────────────────
@@ -866,8 +937,13 @@ export default function ViajesCamionesScreen() {
     () => allTrucks.find((t) => t.id === cargaTruckId) ?? catalogoTrucks.find((t) => t.id === cargaTruckId) ?? null,
     [allTrucks, catalogoTrucks, cargaTruckId],
   );
-  // TODOS los camiones, en cualquier estado — misma regla que la vista del
-  // listero (ver `trucksSeleccionables`): si el viaje ocurrió, se carga.
+  // TODOS los camiones, en cualquier estado, RETIRADAS INCLUIDAS. Acá la regla
+  // NO es la misma que la del listero, y es a propósito: `trucksSeleccionables`
+  // deja las retiradas fuera de la lista del listero (un camión con "Fin de
+  // contrato" no debería ofrecérsele a nadie en el patio), pero la jefa tiene que
+  // poder cuadrar un día viejo en el que ese camión SÍ trabajó. Esta es la puerta
+  // por la que entra ese caso, y por eso acá no se filtra: si el viaje ocurrió,
+  // se carga.
   //
   // Se busca primero en la lista de camiones y después en el catálogo COMPLETO,
   // por el mismo motivo que el buscador del listero (21-ago-2026): la lista se
@@ -989,10 +1065,10 @@ export default function ViajesCamionesScreen() {
     if (!error) setResumenRows(rows);
   };
   useEffect(() => {
-    if (!canFull || allTrucks.length === 0) return;
-    getMetasPorCamion(allTrucks.map((t) => t.id)).then(setMetasByTruck);
+    if (!canFull || camionesEnObra.length === 0) return;
+    getMetasPorCamion(camionesEnObra.map((t) => t.id)).then(setMetasByTruck);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFull, allTrucks]);
+  }, [canFull, camionesEnObra]);
 
   // El "code" de estos camiones suele repetirse (ej. "Camion Volteo Toronto" en
   // casi toda la flota) — sin placa/serial no se puede distinguir uno de otro
@@ -1016,7 +1092,10 @@ export default function ViajesCamionesScreen() {
       t.push(turnoDeViaje(r.registeredAt));
       turnos.set(k, t);
     });
-    const ids = new Set<string>([...allTrucks.map((t) => t.id), ...resumenRows.map((r) => claveCamion(r))]);
+    // Los camiones que están en la obra MÁS los que tengan viajes en el rango
+    // (por si a uno lo retiraron hoy después de haber trabajado: sus viajes se
+    // siguen viendo, es la fila inventada la que ya no sale).
+    const ids = new Set<string>([...camionesEnObra.map((t) => t.id), ...resumenRows.map((r) => claveCamion(r))]);
     const arr = Array.from(ids).map((id) => {
       const info = infoOf.get(id) ?? { code: '—', plate: null, serial: null };
       const conteo = contarTurnos(turnos.get(id) ?? []);
@@ -1024,7 +1103,7 @@ export default function ViajesCamionesScreen() {
     });
     arr.sort((a, b) => b.count - a.count || cmpText(a.code, b.code));
     return arr;
-  }, [resumenRows, allTrucks, metasByTruck]);
+  }, [resumenRows, allTrucks, camionesEnObra, metasByTruck]);
 
   const resumenPorListero = useMemo(() => {
     const m = new Map<string, { name: string; count: number }>();
@@ -1525,10 +1604,15 @@ export default function ViajesCamionesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadTrucks();
-    if (canWrite) await loadMisViajes();
-    if (canFull) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
-    setRefreshing(false);
+    try {
+      await loadTrucks();
+      if (canWrite) await loadMisViajes();
+      if (canFull) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
+    } finally {
+      // Sin el `finally`, una sola consulta colgada (el wifi del patio otra vez)
+      // dejaba el "deslizar para refrescar" girando hasta cerrar la app.
+      setRefreshing(false);
+    }
   };
 
   // ── Sin acceso ───────────────────────────────────────────────────────────
@@ -2489,11 +2573,11 @@ export default function ViajesCamionesScreen() {
             </View>
 
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>META DE VIAJES DIARIOS POR CAMIÓN</Text>
-            {allTrucks.length === 0 ? (
+            {camionesEnObra.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
             ) : (
               <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                {allTrucks.map((t) => (
+                {camionesEnObra.map((t) => (
                   <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
