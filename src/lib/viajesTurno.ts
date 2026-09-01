@@ -13,7 +13,7 @@
  *   1. Es NULLABLE (`supabase/viajes_camiones.sql:22`). Los viajes viejos, de
  *      antes de que existiera la columna, la tienen en null: quedarían en un
  *      limbo "sin turno" que no le sirve a nadie.
- *   2. `editarHoraViaje` cambia `registered_at` pero NO toca `shift`. Corregir
+ *   2. `editarViaje` cambia `registered_at` pero NO toca `shift`. Corregir
  *      un viaje de las 6:50pm a las 7:10pm lo deja marcado como de DÍA para
  *      siempre, aunque su hora ya diga noche.
  *   3. Al registrar, la app guarda `caracasNowShift()`, que es EXACTAMENTE este
@@ -29,14 +29,33 @@ import { caracasPartsOf } from './caracasDay';
 export type Turno = 'day' | 'night';
 
 /**
- * ¿A qué turno pertenece un instante? Mismo corte que `caracasNowShift()`
- * (src/lib/caracasDay.ts:21) pero para una fecha cualquiera, no para "ahora".
- * Día 7:00–18:59 · noche 19:00–6:59.
+ * ¿A qué turno pertenece una HORA del reloj (0–23)? Este es el único sitio
+ * donde vive el corte 7/19; todo lo demás pasa por acá para que no haya dos
+ * versiones de la misma frontera. Día 7:00–18:59 · noche 19:00–6:59.
+ *
+ * Se expone suelto porque el formulario de «cargar viajes a mano» necesita el
+ * turno de una hora TECLEADA, cuando todavía no hay una fecha armada.
  */
-export function turnoDeInstante(d: Date): Turno {
-  const { hour } = caracasPartsOf(d);
+export function turnoDeHora(hour: number): Turno {
   return hour >= 7 && hour < 19 ? 'day' : 'night';
 }
+
+/**
+ * ¿A qué turno pertenece un instante? Mismo corte que `caracasNowShift()`
+ * (src/lib/caracasDay.ts:21) pero para una fecha cualquiera, no para "ahora".
+ */
+export function turnoDeInstante(d: Date): Turno {
+  return turnoDeHora(caracasPartsOf(d).hour);
+}
+
+/**
+ * La hora a la que ARRANCA cada turno. La usa el selector de turno de la carga
+ * a mano: elegir «🌙 Noche» pone las 7pm, que es cuando empieza.
+ */
+export const HORA_INICIO_TURNO: Record<Turno, { hh: number; mm: number }> = {
+  day: { hh: 7, mm: 0 },
+  night: { hh: 19, mm: 0 },
+};
 
 /** El turno de un viaje, deducido de cuándo se registró. */
 export function turnoDeViaje(registeredAtISO: string): Turno {

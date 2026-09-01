@@ -74,11 +74,40 @@ export type ViajeMin = {
  */
 export function claveCamion(v: ViajeMin): string {
   if (v.machineryId) return v.machineryId;
-  return FUERA_CATALOGO + ':' + String(v.machineCode ?? '').trim().toUpperCase();
+  // Se aplastan los espacios de ADENTRO y las tildes, no solo los de las puntas.
+  // "VOLTEO  88" (dos espacios) y "VOLTEO 88" son el mismo camión escrito por
+  // dos listeros distintos, y salían como DOS camiones en el resumen y en
+  // `totalCamiones`. El buscador de la pantalla ya los trata como el mismo.
+  // La ñ se protege igual que en `norm` (src/lib/text.ts): su tilde no es un
+  // acento, es otra letra, y "PEÑA" y "PENA" son dos camiones distintos.
+  // Es una clave interna: no se muestra, la etiqueta sale de `machineCode`.
+  const code = String(v.machineCode ?? '')
+    .replace(/\u00f1/gi, '\u0001')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0001/g, '\u00d1')
+    .toUpperCase()
+    .trim().replace(/\s+/g, ' ');
+  return FUERA_CATALOGO + ':' + code;
 }
 
 /** Lo mínimo que necesita del camión (sale de `machinery`). */
 export type CamionMin = { companyId: string | null; companyName: string; plate: string | null; serial: string | null };
+
+/**
+ * CÓMO SE IDENTIFICA UN CAMIÓN A LA VISTA: su placa; si no tiene, su serial; si
+ * tampoco, un guion.
+ *
+ * ⚠️ ESTO NO ES COSMÉTICO. El código de estos camiones es literalmente el mismo
+ *    texto para todos —"CAMION VOLTEO TORONTO"— así que una lista que muestre
+ *    solo el código enseña treinta renglones idénticos y no hay manera de saber
+ *    cuál es cuál. Pasa en el filtro por camión, en el resumen y en el reporte.
+ *
+ * Vive acá y no en cada pantalla porque la regla ya estaba escrita dos veces y
+ * cada copia es una oportunidad de que una diga "serial" y la otra no.
+ */
+export function placaDeCamion(t: { plate: string | null; serial: string | null } | null | undefined): string {
+  return t?.plate || t?.serial || '—';
+}
 
 /** `dia + noche` puede ser MENOR que `viajes`: los viajes sin turno conocido
  *  (los viejos, de antes de que se guardara) no se le inventan a ninguno de
@@ -193,7 +222,7 @@ export function resumirViajes(
       // Los de fuera de catálogo no tienen placa en el sistema (no hay ficha que
       // consultar): se marcan para que quien lee el reporte sepa que ese camión
       // lo anotó un listero a mano y no está en la flota.
-      placa: r.machineryId ? (t?.plate || t?.serial || '—') : 'FUERA DE CATÁLOGO',
+      placa: r.machineryId ? placaDeCamion(t) : 'FUERA DE CATÁLOGO',
       viajes: 0,
       dia: 0,
       noche: 0,

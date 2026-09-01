@@ -17,7 +17,7 @@ import { registrarViaje } from './camionViajes';
 // Decisión ÚNICA compartida de qué hacer con un ítem que falló (éxito /
 // reintentar / cuarentena). No se reimplementa acá — ver el archivo para el
 // porqué de cada regla.
-import { decidirAccionCola, esErrorDeRed, MAX_INTENTOS_COLA } from './colaOfflinePolicy';
+import { decidirAccionCola, esErrorTransitorio, MAX_INTENTOS_COLA } from './colaOfflinePolicy';
 // Utilidades genéricas de conectividad reutilizadas tal cual — ya no son
 // específicas de la pantalla del Supervisor, ver `src/lib/offlineQueue.ts`.
 // Se re-exportan para que quien use esta cola no tenga que importar de dos
@@ -27,6 +27,8 @@ export { MAX_INTENTOS_COLA } from './colaOfflinePolicy';
 
 const STORAGE_KEY = 'viajes_offline_queue_v1';
 const QUARANTINE_KEY = 'viajes_offline_quarantine_v1';
+// Copia de rescate de una cola ilegible. Clave FIJA a proposito: ver readAll().
+const CORRUPTO_KEY = 'viajes_offline_queue_v1_corrupto';
 
 export type QueuedViaje = {
   id: string;
@@ -107,7 +109,12 @@ async function readAll(): Promise<QueuedViaje[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    cache = Array.isArray(parsed) ? (parsed as QueuedViaje[]) : [];
+    // Si parsea pero NO es un arreglo (un "null", un "{}", un "0" que dejó una
+    // escritura a medias) va por el mismo camino que el JSON roto. Antes caía en
+    // el `: []` de aquí mismo y la cola se vaciaba sin copia, sin aviso y sin
+    // banner rojo: el siguiente `writeAll` pisaba el disco y no quedaba nada.
+    if (!Array.isArray(parsed)) throw new Error('la cola guardada no es una lista');
+    cache = parsed as QueuedViaje[];
   } catch (e: any) {
     // El JSON se corrompió o el almacenamiento no responde. NO se devuelve una
     // cola vacía como si no hubiera nada: eso hacía que un carácter roto
@@ -116,8 +123,21 @@ async function readAll(): Promise<QueuedViaje[]> {
     ultimoFalloDeGuardado = `No se pudo leer la cola guardada: ${e?.message ?? e}`;
     console.warn('[viajesOfflineQueue] cola ilegible, se preserva el crudo:', e);
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) await AsyncStorage.setItem(`${STORAGE_KEY}_corrupto_${Date.now()}`, raw);
+      // ⚠️ UNA SOLA COPIA, con clave FIJA. Antes la clave llevaba `Date.now()` y
+      //    se escribía una copia nueva en CADA lectura fallida: `readAll` corre
+      //    dos veces por pasada de vaciado, más el sondeo cada 30 s, o sea unas
+      //    cuatro copias por minuto del mismo texto roto, para siempre. En web
+      //    son 5 MB de localStorage: se llenaba en horas y a partir de ahí ya no
+      //    se podía guardar NINGÚN viaje nuevo. La corrupción se comía el disco.
+      //
+      //    Se conserva la PRIMERA (la que todavía tiene los viajes), no la
+      //    última. Y no se borra la clave buena: el próximo `writeAll` la
+      //    reescribe con JSON válido y esto se cura solo.
+      const yaGuardado = await AsyncStorage.getItem(CORRUPTO_KEY);
+      if (!yaGuardado) {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) await AsyncStorage.setItem(CORRUPTO_KEY, raw);
+      }
     } catch { /* si tampoco se puede preservar, ya no hay más que hacer */ }
     cache = cache ?? [];
   }
@@ -160,12 +180,39 @@ async function readQuarantine(): Promise<QuarantinedViaje[]> {
 }
 
 async function writeQuarantine(items: QuarantinedViaje[]): Promise<void> {
+  // ⚠️ EL CAMBIO EN MEMORIA SE DESHACE SI EL DISCO FALLA. No es cosmético: si la
+  //    memoria se queda diciendo que el viaje YA está apartado, el recálculo del
+  //    flush lo borra de la cola por considerarlo resuelto y el viaje no queda
+  //    en ningún lado.
+  const previo = quarantineCache;
   quarantineCache = items;
   try {
     await AsyncStorage.setItem(QUARANTINE_KEY, JSON.stringify(items));
   } catch (e: any) {
+    // ⭐ ANTES ESTO SE TRAGABA EL ERROR (era un `console.warn` y seguía de largo),
+    //    y ese era el ÚNICO camino por el que un viaje se perdía de verdad:
+    //
+    //      1. el viaje llega al tope de intentos y se manda a cuarentena;
+    //      2. el disco falla (almacenamiento lleno, navegador en privado,
+    //         cookies bloqueadas) y nadie se entera;
+    //      3. dos líneas más abajo `writeAll(quedan)` SÍ funciona y lo saca de
+    //         la cola por estar "resuelto";
+    //      4. y encima `writeAll` pone `ultimoFalloDeGuardado = null`, así que
+    //         el aviso rojo tampoco salía.
+    //
+    //    Ni en la cola ni en la cuarentena, y sin una sola señal. Ahora revienta
+    //    hacia arriba: `writeQuarantine` se llama ANTES que `writeAll` dentro del
+    //    mismo bloque en serie, así que al tirar, la cola NO se reescribe y el
+    //    viaje se queda donde estaba, para reintentarlo después.
+    //
+    //    Es exactamente la misma disciplina que ya tenía `writeAll`, y que el
+    //    comentario de arriba de `readQuarantine` decía tener («perderla es
+    //    perder el trabajo del listero definitivamente») sin cumplirla.
+    quarantineCache = previo;
     ultimoFalloDeGuardado = `No se pudo guardar los viajes apartados: ${e?.message ?? e}`;
     console.warn('[viajesOfflineQueue] no se pudo guardar la cuarentena:', e);
+    quarantineListeners.forEach((l) => l(previo ?? []));
+    throw new Error(ultimoFalloDeGuardado);
   }
   quarantineListeners.forEach((l) => l(items));
 }
@@ -296,10 +343,11 @@ export async function flushViajesQueue(): Promise<{ synced: number; remaining: n
         continue; // la cola sigue: los viajes de atrás no se quedan atascados
       }
 
-      // 'reintentar'. La falta de señal NO cuenta como fallo del ítem (si no, un
-      // día entero sin cobertura mandaría los viajes a cuarentena sin motivo).
-      const deRed = esErrorDeRed(error);
-      if (!deRed) { nuevosIntentos.set(it.id, intentosPrevios + 1); cambio = true; }
+      // 'reintentar'. Lo que NO es culpa del viaje no cuenta como fallo del ítem
+      // (si no, un día sin cobertura —o la app parada en la pantalla de entrar—
+      // mandaría los viajes a cuarentena sin motivo). Ver `esErrorTransitorio`.
+      const ajeno = esErrorTransitorio(error);
+      if (!ajeno) { nuevosIntentos.set(it.id, intentosPrevios + 1); cambio = true; }
       detenido = true;
     }
 
@@ -364,8 +412,18 @@ export async function retryQuarantinedViajes(): Promise<{ synced: number; remain
   return flushViajesQueue();
 }
 
-/** Descarta UN viaje apartado. Solo por decisión explícita de una persona. */
+/**
+ * Descarta UN viaje apartado. Solo por decisión explícita de una persona.
+ *
+ * ⚠️ VA EN SERIE como todo lo que toca estos dos almacenes. Antes leía y
+ *    escribía por fuera: un flush corriendo en el medio podía resucitar el
+ *    descartado, o borrar los que el flush acababa de apartar. Hoy nadie la
+ *    llama todavía (no hay botón de descartar), pero dejarla con la carrera
+ *    puesta era una trampa esperando a quien la cablee.
+ */
 export async function discardQuarantinedViaje(id: string): Promise<void> {
-  const q = await readQuarantine();
-  await writeQuarantine(q.filter((x) => x.id !== id));
+  await enSerie(async () => {
+    const q = await readQuarantine();
+    await writeQuarantine(q.filter((x) => x.id !== id));
+  });
 }

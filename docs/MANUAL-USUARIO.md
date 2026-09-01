@@ -495,6 +495,15 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   Úsalo cuando necesites el conteo por zona 100% real; usa el conteo normal cuando necesites que el
   total cuadre siempre con la cantidad de equipos.
 
+> **🚚 Asistencia de camiones: los retirados ya no cuentan como ausentes (31/08/2026).** Esa
+> pantalla listaba **todas** las máquinas de la base, incluidas las **retiradas** y las
+> **eliminadas del catálogo**. No solo ensuciaban la lista: entraban en el contador de
+> **AUSENTES**, que es el número que se mira. Un camión que se fue de la obra hace meses aparecía
+> todos los días como si hubiera faltado. Ahora pasan lista solo los camiones que **están** en la
+> obra (las que están *"en espera"* sí entran: están en el patio, solo que sin trabajo asignado).
+> Además, si la consulta falla, **lo dice**, en vez de mostrar una lista vacía que se lee como *"no
+> vino nadie a trabajar"*.
+
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
   MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
   logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
@@ -502,13 +511,31 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   GOLDEN TOUCH a la vez. Cuenta el **mismo
   universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
   por EMPRESA en dos grupos**: **LICCIONE** (sus máquinas) y **GOLDEN TOUCH** (las de Golden + TODAS
-  las demás empresas), cada una con su **placa / serial** (en **columna propia**), su **ubicación real**
+  las demás empresas), cada una con su **marca y modelo** (en **columna propia**: CAT 320,
+  Komatsu PC200…), su **placa / serial** (también en columna propia), su **ubicación real**
   (referencia + sector Este/Oeste y subzona
   por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado** (Operativo / Inoperativo / En espera). Las
   máquinas **sin ubicación cargada** salen como **"Desplegadas por todo el territorio de La Guaira"**.
   **Arriba** trae la cantidad de maquinaria por empresa; cierra con un **conteo por clasificación**.
   El reporte va **100% por empresa** (ya **no** trae los resúmenes por zona Este/Oeste).
   El archivo se descarga como *"Reporte - Inventario de maquinaria"*.
+
+  > **🏷️ Marca y modelo, en su propia columna (31/08/2026):** a pedido del cliente el
+  > inventario ahora imprime la **MARCA** y el **MODELO** de cada máquina en una columna aparte,
+  > entre *"Equipo / Tipo"* y *"Placa / Serial"*.
+  >
+  > **Ojo con esto, que es lo que confunde:** son **tres campos distintos** de la ficha de la
+  > máquina. El **tipo** es qué clase de equipo es (excavadora, volteo…), la **marca** es de
+  > quién es (CAT, Komatsu, Kodiak…) y el **modelo** es cuál (320, PC200, D6…). Antes el
+  > reporte imprimía el **tipo** haciéndolo pasar por marca —con su etiqueta 🏷️ y todo—, y la
+  > tabla de *"Desplegadas por todo el territorio"* tenía una columna que **decía**
+  > *"Marca/Modelo"* pero adentro mostraba el tipo. Las dos ya muestran el dato correcto.
+  >
+  > **Si la columna te sale con un guión (—)** es que esa máquina **no tiene la marca ni el
+  > modelo cargados en su ficha**: no es una falla del reporte, hay que llenarlos en el
+  > **Catálogo de maquinaria**. El **tipo** sigue saliendo, en gris, junto al código del equipo.
+  > En las **pick-up** se muestra marca y modelo, y si la máquina no los tiene, el tipo.
+
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
   **SOS La Guaira** (no en los de CVM / Gobernación / FANB): a cada máquina le asigna **2 operadores**
@@ -2260,6 +2287,43 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 **empresa**. Al generarlos se abre una **ventana con la vista previa** y los botones
 **🖨️ Imprimir** y **Cancelar**.
 
+#### 🔎 Total por equipo — buscar UNA máquina (31-ago-2026)
+
+Dentro de **🔧 Jornada**: genera el informe y, en la vista previa, **debajo del botón de descargar**,
+hay un bloque **«🔎 Total por equipo»**.
+
+Escribes el **nombre, la placa, el serial, el identificador, la empresa o el encargado** y salen las
+máquinas que coinciden. Tocas las que quieras y arriba te da:
+
+**equipos · jornadas · total de horas · total en dinero**, más el desglose ☀️ día / 🌙 noche.
+
+Si no marcas ninguna, suma **toda la flota** del informe. Cada máquina se puede tocar para ver su
+detalle **día por día**, y el botón **⬇️ PDF por equipo** imprime exactamente eso.
+
+**Qué días suma:** dos modos — **📅 Todo el rango** (el mismo del informe) o **📆 Días sueltos**, con
+una pastilla por cada día que tenga horas para marcar los que quieras (el martes y el jueves
+solamente, por ejemplo). Si no marcas ninguno **te lo dice**, en vez de mostrarte un cero que parece
+un resultado.
+
+> ⚠️ **Esto NO cambia ni un número del informe.** Es la **misma cuenta** vista por equipo: buscar o
+> marcar máquinas no recalcula nada ni saca máquinas del informe de arriba. Está fijado con prueba
+> automática.
+
+Tres cosas que conviene saber:
+
+1. **El monto se suma día por día.** Si a una máquina le cambiaron el precio a mitad de semana, cada
+   jornada vale lo que valía **ese** día — no el último.
+2. **Si alguna jornada no tenía precio**, la máquina lo avisa (*«el monto está incompleto»*) en vez de
+   mostrar un total que parece completo.
+3. **No muestra abonos ni saldo por pagar.** Esos son de la **empresa**, no de la máquina: ponerlos al
+   lado de las horas de un equipo daría una cifra de cobro inventada.
+
+Con **🕒 Solo horas** en *Contenido del PDF*, el bloque también esconde el dinero.
+
+Las máquinas **🔴 averiadas, 🟡 paradas o ⏳ esperando instrucciones** también salen, con **0 horas**,
+**$0** y su motivo — para que buscarlas dé un resultado y no parezca que no existen. No suman a los
+totales ni cuentan como equipo que trabajó.
+
 > **Resumen del corte (arriba del Informe por jornada):** en la parte superior del PDF salen
 > cuatro recuadros con el **Total de horas por corte**, el **Total $**, el **Total abonado**
 > (lo ya pagado en el rango) y el **TOTAL PENDIENTE** (*total $ − abonado*). El detalle por
@@ -3550,12 +3614,115 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >
 > Necesita correr **`supabase/viajes_camion_fuera_catalogo.sql`**.
 
-> **⬛ Las retiradas no se le muestran al listero** (18-ago-2026, sigue vigente). Al buscar un camión
-> para registrar **no salen las RETIRADAS** (fuera de servicio) ni las que están **EN ESPERA** de
-> instrucciones — tampoco por la vía nueva de *"sí está en el catálogo"*. Una máquina retirada o en
-> espera no puede estar haciendo viajes, y tenerla en la lista solo se presta a registrar el viaje
-> contra el camión equivocado. La jefa **sí** las sigue viendo en sus paneles (resumen, metas,
-> alertas), que necesitan la flota completa.
+> **🟢 El estado del camión ya no impide registrar** (31-ago-2026). En **este módulo y solo en este**,
+> no importa cómo figure el camión: **averiado, parado o en espera de instrucciones, todos salen en el
+> buscador y todos aceptan viajes**. La **única excepción son las RETIRADAS** — ver abajo. Y ya no pregunta nada antes de guardar: donde antes
+> salía *"este camión figura AVERIADA, ¿de todas formas quieres registrar el viaje?"*, ahora
+> **registra y ya**.
+>
+> El motivo: un viaje es algo que el listero **vio** —el camión entró— mientras que el estado es una
+> **anotación de otro módulo**, que puede estar vieja o mal puesta. Cuando las dos cosas se
+> contradicen, **gana lo que se vio**. Antes, un camión marcado por error dejaba al listero sin manera
+> de anotar viajes que sí ocurrieron, y esos viajes se perdían.
+>
+> ⚠️ **Esto reemplaza EN PARTE la regla del 18-ago-2026**, que sacaba de la lista tanto las retiradas
+> como las que estaban en espera: **las en espera vuelven, las retiradas no**.
+>
+> **⬛ Las retiradas siguen fuera, y es a propósito** (31-ago-2026, el mismo día). Al quitar el filtro
+> entero, la lista del listero pasó de **61 a 89 camiones**: los 28 nuevos eran **retirados**, con
+> motivos cargados como *"Fin de contrato"* o *"reemplazo por A74AB3P"*. O sea, camiones que **ya no
+> están en la obra** — y dos de ellos, sin placa ni serial, salían como dos renglones idénticos.
+>
+> Una máquina **averiada o parada sigue en el patio**, y su estado es una anotación que puede estar
+> vieja o mal puesta: contra un viaje que el listero **vio**, gana lo que se vio. Una **retirada es
+> otra cosa**: es un hecho administrativo, el camión se fue, y no hay viaje observado que lo
+> contradiga. Si de verdad hubo un viaje de un camión ya retirado, **la jefa lo carga desde
+> «✍️ Cargar viajes a mano»**, que sí tiene el catálogo completo. La puerta no se cierra: se mueve a
+> quien puede juzgarlo.
+>
+> **Pero el estado se sigue viendo, y se guarda.** Quitar el bloqueo no es esconder el dato: en el
+> buscador cada camión sigue mostrando su estado con su color (✅ Operativa, 🔴 Averiada, 🟡 Parada,
+> ⬛ Retirada, ⏳ Esperando instrucciones), y el camión escogido lo muestra antes de tocar el botón.
+> Además el estado queda **congelado en el viaje**, así que la jefa puede revisar después cuáles se
+> registraron contra un camión averiado.
+>
+> ---
+>
+> **🔍 «Faltan viajes»: qué se encontró y qué se arregló (31/08/2026).** Se revisó el módulo entero
+> y se comparó contra la base de datos, viaje por viaje. **Los reportes cuadran**: los viajes que
+> faltan **nunca llegaron a entrar**. Pero sí aparecieron caminos por los que un viaje real se
+> perdía antes de guardarse. Los arreglados:
+>
+> - **La lista de camiones se vaciaba sola en hora pico, y este es el peor de todos.** El refresco
+>   automático se dispara con el viaje de **cualquier listero de la flota**: con cuatro registrando,
+>   la lista de camiones desaparecía y volvía cada pocos segundos. Si el listero tocaba un camión
+>   justo en ese momento, **no pasaba nada**: sin error, sin viaje, y él creyendo que ya lo había
+>   registrado. Ahora la lista solo se pone en *"cargando"* la primera vez; después se actualiza
+>   sin desaparecer.
+> - **El botón se quedaba gris diciendo «Buscando el chofer…».** Con el wifi del patio (esa señal
+>   que conecta pero no tiene internet) la consulta del chofer se colgaba y el botón de registrar
+>   **no se volvía a habilitar en toda la sesión**. Ahora espera 4 segundos y sigue: el viaje entra
+>   con el chofer que se pueda. Un chofer que falta se corrige; un viaje perdido no se recupera.
+> - **Cambiar de camión rápido le pegaba el chofer del anterior.** Si escogías un camión y cambiabas
+>   a otro antes de que respondiera, la respuesta vieja pisaba a la nueva.
+> - **La cola de los viajes sin señal se apartaba sola cuando vencía la sesión.** Un viaje guardado
+>   en el teléfono se intenta subir cada 30 segundos, y a los 3 fallos se **aparta** (sale en rojo,
+>   esperando que alguien lo resuelva). El problema: una **sesión vencida** contaba como fallo, así
+>   que con la app abierta en la pantalla de entrar **la cola entera se apartaba en minuto y medio**.
+>   Ahora lo que no es culpa del viaje —sesión, señal, servidor caído, el portal cautivo del
+>   patio— **nunca lo aparta**: se reintenta hasta que se pueda. Solo se aparta lo que de verdad
+>   está mal en el dato (un camión borrado del catálogo, por ejemplo).
+> - **Si te bajaban el permiso a solo lectura, los viajes que ya tenías guardados no subían nunca.**
+>   Vaciar la cola no es registrar: el viaje ya lo escribió alguien que en ese momento sí tenía
+>   permiso.
+> - **Una cola dañada se comía la memoria del teléfono.** Guardaba una copia de rescate **nueva en
+>   cada lectura** (unas cuatro por minuto, para siempre) hasta llenar el almacenamiento; a partir
+>   de ahí **ya no se podía guardar ningún viaje nuevo**. Ahora guarda **una sola** copia, y la
+>   cola se cura sola en cuanto se registre el siguiente viaje.
+> - **«VOLTEO  88» y «VOLTEO 88» salían como dos camiones distintos** en el resumen (dos espacios
+>   contra uno). Ahora los espacios de adentro y las tildes ya no separan; la **ñ** sí, porque es
+>   otra letra: *PEÑA* y *PENA* siguen siendo dos camiones.
+>
+> - **Los viajes guardados en el teléfono ahora suben con la app abierta en cualquier pantalla.**
+>   Antes el reintento vivía **dentro** de la pantalla de *Viajes de camiones*: si esa pantalla no
+>   estaba abierta, **la cola no se vaciaba**. Ni al arrancar la app, ni al recuperar la señal. Un
+>   listero que registró sin cobertura, cerró la app, y al día siguiente entró y se quedó en el
+>   inicio, tenía sus viajes guardados y sin subir, **sin ninguna señal de que faltaba algo**.
+> - **«El camión no está en la lista» ahora avisa si el camión SÍ existe.** Ese botón sale justo
+>   debajo del *"Sin coincidencias"* y ya viene con lo que acabas de escribir. Si buscabas un camión
+>   **retirado** (que a propósito ya no sale), a dos toques lo volvías a crear **a mano** — y así
+>   queda peor: **sin ficha, sin placa y sin empresa**, marcado *"FUERA DE CATÁLOGO"* en el reporte.
+>   Ahora, si lo que escribiste coincide con un camión del catálogo, te lo dice con su placa: si
+>   está **en tu lista**, te manda a buscarlo por la placa; si está **retirado**, te dice que le
+>   avises a la jefa para que ella se lo cargue con su ficha. **No te bloquea** — si insistes, lo
+>   anota a mano igual, porque si el viaje se hizo, el viaje entra. Pero que sea una decisión y no
+>   un descuido.
+>
+> **Lo que NO era del sistema, y hay que resolver en la calle:** el **turno de noche** dejó de
+> registrar viajes, y la base confirma que **sí se trabajó** — **1.040 y 911 horas** de operación
+> las noches del 29 y el 30 de agosto. El registro a mano de noche viene cayendo **desde el 24 de
+> agosto**, no desde el 29. Y hay teléfonos que cortan a media jornada. Eso se arregla con los
+> listeros, no con el código.
+>
+> ---
+>
+> **🏢 En el panel de la jefa, las retiradas tampoco (31/08/2026).** El mismo arreglo que las sacó
+> de la lista del listero las dejaba todavía en dos sitios del panel: **pedían meta diaria** y
+> salían en el **resumen por camión con 0 viajes**, o sea contadas como flota parada. Un camión con
+> *"Fin de contrato"* no tiene meta que cumplir ni está parado: no está. **Sus viajes viejos no se
+> pierden**: si un camión retirado tiene viajes en el rango que estás mirando, su renglón sale igual.
+>
+> **Y los camiones que el listero «agregó a su lista» ya salen con su placa y su empresa.** Los que
+> se agregan desde el buscador (los que existen en el catálogo pero su código no dice
+> *volteo/volqueta/toronto*) salían en el resumen, en los filtros y en el PDF **sin placa (—) y bajo
+> "Sin empresa"**: se buscaban en la lista corta en vez de en el catálogo completo.
+>
+> ---
+>
+> ⚠️ **Registrar un viaje NO le cambia el estado a la máquina.** Este módulo no escribe nada en el
+> catálogo de maquinaria, ni le abre jornadas, ni le toca el horómetro. La alerta de *"camión sin
+> viaje reciente"* **sí** sigue sin reclamar por los averiados y retirados, que es lo correcto: una
+> máquina retirada legítimamente no viaja.
 
 - **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
   (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
@@ -3597,13 +3764,129 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   un camión lleva más del **umbral configurado** (arranca en 6 horas, se ajusta en
   "Configuración") sin registrar viaje — no incluye camiones averiados, parados o retirados, que
   legítimamente no viajan.
+- **✍️ Cargar viajes a mano:** agregar viajes a **cualquier camión, en el día que sea** (31-ago-2026,
+  ver abajo).
 - **Lista completa:** todos los viajes de todos los listeros, filtrable por **empresa**, por
   **listero**, por **camión** y por rango de fecha (Hoy / Esta semana / Este mes / Rango libre /
-  Días específicos). Desde ahí puede **corregir la hora o borrar cualquier viaje** — el borrado
+  Días específicos). Desde ahí puede **editar o borrar cualquier viaje** — el borrado
   queda igual en la auditoría (ver 4.13b), no se pierde el rastro.
 - **Configuración:** el **umbral de alerta** (horas) y la **meta de viajes diarios** de cada
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
+
+### 🛡️ La última fuga de viajes, tapada (31-ago-2026)
+
+Quedaba **un** camino por el que un viaje desaparecía sin dejar rastro, y era el peor de todos porque
+no daba **ninguna** señal:
+
+1. Un viaje que no puede subirse por un problema de datos (el camión se borró del catálogo, por
+   ejemplo) se **aparta** a la lista de rojos tras varios intentos.
+2. Si justo en ese momento el teléfono **no podía escribir en su memoria** —memoria llena, navegador
+   en modo privado, cookies bloqueadas— el error se ignoraba.
+3. Un instante después el viaje se sacaba de la cola por considerarlo *ya resuelto*.
+4. No quedaba **ni en la cola ni en los apartados**. Y como el paso siguiente borraba el mensaje de
+   error, **el aviso rojo tampoco salía**.
+
+**Ahora:** si no se puede apartar, el viaje **se queda en la cola** y el aviso lo dice. Se reintenta
+solo cuando el teléfono vuelve a poder guardar. La cola normal ya tenía esta protección desde el
+22-ago-2026; a los apartados les faltaba, aunque el propio código decía tenerla.
+
+> Está fijado con prueba automática: si alguien vuelve a hacer que ese fallo se ignore, tres casos de
+> `scripts/test-cola-offline.mjs` se ponen en rojo.
+
+### 🔎 Buscador y placas en los filtros (31-ago-2026)
+
+Dos cosas que iban juntas, las dos en la **lista completa de viajes**.
+
+**1. La placa en cada pastilla.** En la fila **CAMIÓN** cada pastilla decía solo el nombre. Como
+todos los camiones de la flota se llaman igual —*"CAMION VOLTEO TORONTO"*— salían **treinta
+pastillas idénticas** y no había forma de saber cuál tocar. Ahora dicen:
+
+```
+🚜 CAMION VOLTEO TORONTO · A28BC1J   (4)
+```
+
+- Si el camión **no tiene placa** cargada, sale su **serial**.
+- Si no tiene ninguno de los dos, queda solo el nombre.
+- Es la **misma** placa que ya salía en el resumen y en el PDF, sacada del mismo lugar, así que los
+  tres siempre dicen lo mismo.
+
+**2. El buscador.** Arriba de los filtros hay una caja **"🔎 Buscar camión por placa, listero o
+empresa"**. Escribe un pedazo de la placa (o del nombre del listero, o de la empresa) y las pastillas
+se reducen a las que coinciden. No distingue mayúsculas ni acentos. Debajo dice cuántas quedaron
+ocultas, y **"✕ Limpiar"** las devuelve todas.
+
+> ⚠️ **El buscador no esconde lo que tengas marcado.** Un filtro marcado sigue a la vista aunque no
+> coincida con lo que escribiste. Es a propósito: una pastilla marcada **sigue filtrando la lista de
+> abajo**, y si se escondiera, la pantalla mostraría pocos viajes sin nada que explique por qué — el
+> mismo problema que ya se corrigió el 22-ago-2026. El buscador solo cambia **qué ves**, nunca qué
+> está filtrando: para dejar de filtrar hay que desmarcar la pastilla o tocar **"✕ Limpiar filtros"**,
+> que es otro botón.
+
+### ✍️ Cuadrar un día: poner y quitar viajes a mano (31-ago-2026, solo FULL)
+
+Quien tenga **Full control** en este módulo puede arreglar **cualquier dato de cualquier camión, para
+el día que sea**. Antes solo se podía **borrar** y **corregir la hora dentro del mismo día**: no había
+manera de agregar un viaje a una fecha pasada, porque el botón del listero sella la hora del toque.
+
+**Agregar.** Tarjeta **"✍️ Cargar viajes a mano"** en el panel de la jefa:
+
+| Campo | Qué hace |
+|---|---|
+| **Camión** | Se busca por código, placa o serial. Salen **todos**, en cualquier estado. |
+| **Día del viaje** | Cualquier día **de hoy hacia atrás**. |
+| **Turno** | **☀️ Día (7am–7pm)** o **🌙 Noche (7pm–7am)**. Tocarlo pone su hora de arranque. |
+| **Hora del primero** | La hora del primer viaje de la tanda. |
+| **¿Cuántos viajes?** | Hasta **30 por vez**. |
+| **Chofer / responsable** | Opcional. |
+| **A nombre de** | Por defecto tú; se puede atribuir a otro listero. |
+
+Si cargas **más de uno**, se separan **5 minutos** a partir de esa hora, para que después le puedas
+corregir la hora a cada uno por separado — apilarlos todos en el mismo minuto los volvería
+indistinguibles, y un camión no hace dos viajes en el mismo instante.
+
+> **🕗 EL TURNO Y LA HORA SON LA MISMA COSA (31-ago-2026).** Los dos botones de turno **no son un
+> campo aparte**: son un **atajo** que pone la hora de arranque del turno — **☀️ Día → 07:00** y
+> **🌙 Noche → 19:00**. Si prefieres una hora exacta, **escríbela**: el turno que se ve marcado
+> **se ajusta solo** a lo que diga la hora, así que siempre te está diciendo la verdad.
+>
+> Se hizo así a propósito. En todo el módulo el turno de un viaje **se deduce de su hora**, no de
+> un campo guardado (por eso corregirle la hora a un viaje lo mueve de turno). Si el botón guardara
+> un turno por su cuenta, podrías dejar un viaje marcado «noche» con hora de las 8am y saldría en
+> los reportes como de día: dos datos peleados por el mismo viaje.
+>
+> ⚠️ **Aviso al guardar:** si la tanda **cruza las 7pm** —por ejemplo empezar 6:50pm y cargar
+> cuatro— **no cae toda en el mismo turno**, y te lo dice antes de guardar. Es el mismo aviso que
+> ya existía para las tandas que cruzan las **7am** y se reparten entre dos días.
+
+**Quitar.** En la lista completa, filtras el día y le das **"🗑️ Borrar"** a los que sobren.
+
+#### ✏️ Editar un viaje completo
+
+El botón de la lista completa ahora dice **"✏️ Editar"** (antes *"Editar hora"*) y abre **cuatro**
+campos: la **FECHA** (nueva — el día del viaje antes no se podía cambiar de ninguna manera), la
+**HORA**, el **CHOFER / RESPONSABLE** y **LO REGISTRÓ**, que reasigna el viaje a otro listero.
+
+- Cambiar de listero **pregunta antes**: el viaje deja de contar para uno y pasa a contar para el otro
+  en el resumen por listero.
+- Al **listero de campo no le cambia nada**: sigue viendo solo la hora, y solo de sus viajes de su
+  jornada.
+- ⚠️ **El CAMIÓN no se puede cambiar.** Cambiarle el camión a un viaje no es corregirlo, es *otro*
+  viaje: se borra este y se carga el bueno, y así la auditoría conserva las dos cosas por separado.
+
+#### 🏷️ Los viajes cargados a mano se distinguen
+
+Todo viaje cargado desde la oficina sale con la etiqueta **"✍️ cargado a mano"** y guarda **el nombre
+de quién lo cargó**. Es a propósito: el reporte tiene que poder responder *"¿esto lo contó alguien en
+el patio, o lo cuadraron después?"*, y sin la marca las dos cosas se verían idénticas.
+
+⚠️ **No se pueden cargar viajes a futuro** — solo de hoy hacia atrás, porque un viaje con fecha de
+mañana se contaría como trabajo hecho sin serlo.
+
+Todo esto queda además en la **Auditoría** (quién, qué y cuándo), igual que el borrado.
+
+> **No hace falta correr ningún `.sql`.** La tabla `camion_viajes` ya acepta cualquier fecha, chofer
+> y listero: lo que faltaba era la pantalla.
 
 ### 🏢 Filtrar por empresa y reporte GLOBALIZADO (20-ago-2026)
 

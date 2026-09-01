@@ -103,6 +103,35 @@ export function opcionesDeEje<R>(
 }
 
 /**
+ * EL BUSCADOR DE LOS FILTROS: deja solo las opciones que coinciden con lo que se
+ * escribió.
+ *
+ * Hace falta por lo mismo que la placa en la etiqueta: los camiones de la flota
+ * se llaman TODOS "CAMION VOLTEO TORONTO", así que la fila de camión son treinta
+ * pastillas y encontrar una es imposible a ojo.
+ *
+ * ⚠️ LO MARCADO NUNCA SE ESCONDE, coincida o no con la búsqueda. Es la misma
+ *    regla que ya rige en `opcionesDeEje`, y por el mismo motivo: un filtro que
+ *    desaparece de la vista sigue filtrando la lista de abajo, y entonces la
+ *    pantalla muestra pocos viajes sin nada que explique por qué. Un buscador
+ *    que esconde el filtro activo es exactamente esa trampa otra vez.
+ *
+ * `normalizar` se recibe en vez de importarse para que este archivo siga sin
+ * dependencias (es lo que lo hace probable sin montar la app) — la pantalla le
+ * pasa el mismo `norm` que usa el resto del sistema.
+ */
+export function filtrarOpciones(
+  opciones: readonly OpcionFiltro[],
+  texto: string,
+  marcados: MarcadosEje,
+  normalizar: (s: string) => string,
+): OpcionFiltro[] {
+  const q = normalizar(texto || '').trim();
+  if (!q) return [...opciones];
+  return opciones.filter((o) => marcados.has(o.id) || normalizar(o.label).includes(q));
+}
+
+/**
  * Etiquetas de los filtros marcados que NO le corresponden a NINGÚN viaje del
  * rango — típicamente los que quedaron puestos de otro día. Es la explicación
  * concreta de una lista vacía: sin esto solo se ve «Sin viajes en el rango».

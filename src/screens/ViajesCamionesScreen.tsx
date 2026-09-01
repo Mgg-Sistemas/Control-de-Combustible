@@ -38,23 +38,39 @@ import {
   InspByShiftEntry,
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
-import { resumirViajes, SIN_EMPRESA, claveCamion, type EjeResumen } from '../lib/viajesResumen';
-import { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
-import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
+import { resumirViajes, SIN_EMPRESA, claveCamion, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
+import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, TURNO_ICONO, TURNO_HORARIO, turnoDeHora, HORA_INICIO_TURNO, Turno, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
   CamionViajeRow,
   registrarViaje,
   listMisViajesHoy,
   listTodosLosViajes,
-  editarHoraViaje,
+  editarViaje,
   borrarViaje,
   getMetasPorCamion,
   setMetaCamion,
   getAlertaHoras,
   setAlertaHoras,
   resolveChoferActual,
+  listListeros,
 } from '../lib/camionViajes';
+import {
+  normalizarHora,
+  isoDeJornadaHora,
+  mismoMinuto,
+  horariosDeCarga,
+  jornadasDeCarga,
+  turnosDeCarga,
+  turnoParaGuardar,
+  avisosDeCambio,
+  validarCargaManual,
+  notaCargaManual,
+  esCargaManual,
+  MAX_CARGA,
+  SEPARACION_MIN,
+} from '../lib/viajesEdicion';
 import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes, nuevoClientActionId, falloDeGuardadoLocal } from '../lib/viajesOfflineQueue';
 import { accionTrasFalloConSenal, motivoLegible } from '../lib/colaOfflinePolicy';
 
@@ -124,9 +140,12 @@ const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 
 // 'espera' entró el 18-ago-2026: una máquina EN ESPERA DE INSTRUCCIONES está
 // congelada por completo (no se le inicia jornada ni se le surte), así que
 // legítimamente no viaja — reclamarle "sin viaje reciente" a la jefa era ruido.
-// En el registro sirve de red: el listero ya no puede escogerla (ver
-// `trucksSeleccionables`), pero si se congela DESPUÉS de seleccionarla, pide
-// confirmación en vez de registrar el viaje en silencio.
+//
+// ⚠️ HOY ESTA LISTA SOLO SIRVE PARA ESA ALERTA. El 31-ago-2026 se quitó su uso
+//    en el REGISTRO: ni esconde el camión del buscador ni pide confirmación
+//    antes de guardar (el cliente pidió que el estado no frene al listero). La
+//    única exclusión que quedó en el buscador es la de las RETIRADAS, y se hace
+//    aparte — ver la nota larga de `trucksSeleccionables`.
 const ESTADO_ADVERSO: EstadoConteo[] = ['averiada', 'parada', 'retirada', 'espera'];
 
 type Preset = 'hoy' | 'semana' | 'mes' | 'rango' | 'dias';
@@ -199,7 +218,17 @@ export default function ViajesCamionesScreen() {
   };
 
   const loadTrucks = async () => {
-    setTrucksLoading(true);
+    // ⭐ SOLO se pone en "cargando" cuando NO hay nada que enseñar — la MISMA
+    //    regla que `loadMisViajes` unas líneas más abajo, y por la misma razón.
+    //
+    //    El realtime de `camion_viajes` lo dispara el INSERT de CUALQUIER listero
+    //    de la flota. En hora pico, con cuatro listeros registrando, esto corría
+    //    cada pocos segundos y desmontaba el buscador ENTERO: las filas de
+    //    camiones y el botón de "fuera de catálogo" viven dentro de esa rama del
+    //    render. El listero tocaba un camión, la lista se iba a mitad del toque,
+    //    y no pasaba nada. Sin error, sin viaje, y él creyendo que lo registró.
+    //    Es la explicación más probable de los viajes que "faltan".
+    setTrucksLoading((prev) => prev || allTrucks.length === 0);
     // ⚠️ `selectAllRows` y no un `.select()` pelado: PostgREST corta la
     //    respuesta en su tope de filas y lo hace SIN AVISAR — no llega un error,
     //    llega una página. Un catálogo que pase ese tope dejaría camiones reales
@@ -271,7 +300,15 @@ export default function ViajesCamionesScreen() {
   // Muchos camiones comparten el mismo "code" (ej. "Camion Volteo Toronto"
   // repetido en casi toda la flota) — la placa/serial es lo que en la práctica
   // distingue uno de otro, así que se resuelve acá para mostrarla donde falte.
-  const truckById = useMemo(() => new Map(allTrucks.map((t) => [t.id, t])), [allTrucks]);
+  //
+  // ⭐ Se arma con el CATÁLOGO COMPLETO, no con `allTrucks`. Desde que el listero
+  //    puede agregar a su lista una máquina cuyo código NO dice volteo/volqueta
+  //    (ver `extraTruckIds`), esos viajes traen un `machinery_id` que no está en
+  //    `allTrucks`: buscarlo ahí devolvía `undefined` y el viaje salía sin placa
+  //    ("—") y bajo "Sin empresa" en el resumen, en los filtros y en el PDF de la
+  //    jefa. Se abrió la puerta de entrada y no se había cableado la de salida.
+  //    `catalogoTrucks` incluye a `allTrucks`, así que no se pierde nada.
+  const truckById = useMemo(() => new Map(catalogoTrucks.map((t) => [t.id, t])), [catalogoTrucks]);
 
   // ── Vista LISTERO: buscador de camión ───────────────────────────────────
   const [pickOpen, setPickOpen] = useState(false);
@@ -279,38 +316,73 @@ export default function ViajesCamionesScreen() {
   const [pickEstadoSel, setPickEstadoSel] = useState<Set<EstadoConteo>>(new Set());
   const togglePickEstado = (e: EstadoConteo) =>
     setPickEstadoSel((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
-  // Camiones que se pueden ESCOGER para registrar un viaje (pedido del cliente,
-  // 18-ago-2026: "que no le salgan las retiradas a los listeros, ni las que
-  // están en espera de instrucciones"). Se sacan dos grupos:
+  // Camiones que se pueden ESCOGER para registrar un viaje: TODOS, sin importar
+  // en qué estado figure el camión.
   //
-  //   · RETIRADAS → `operational === false`. En este sistema RETIRADA (fuera de
-  //     servicio) ES `operational = false`; `active = false` es otra cosa:
-  //     ELIMINADA del catálogo, y esa la consulta ya no la trae. No hay un tercer
-  //     nivel de retiro. (Antes acá había un comentario que decía lo contrario y
-  //     confundía; ver `supabase/averiadas_mal_retiradas.sql` y
-  //     `src/lib/auditMachineState.ts`, que son la verdad sobre estos nombres.)
-  //   · EN ESPERA → `en_espera === true`. Una máquina en espera está congelada
-  //     por completo: no se le inicia jornada ni se le surte. Mal podría hacer
-  //     viajes, y tenerla en la lista solo se presta a registrar un viaje contra
-  //     el camión equivocado.
+  // ⭐ ESTE MÓDULO ES LA EXCEPCIÓN DEL SISTEMA, Y ES A PROPÓSITO (pedido del
+  //    cliente 31-ago-2026: «para y solo para el módulo de viajes de camiones,
+  //    no importa el estado del camión, si está averiado o algo por el estilo;
+  //    si colocan que se hizo un viaje, lo registre»).
   //
-  // Se filtra acá y no en la consulta a propósito: `allTrucks` lo siguen usando
-  // los paneles de la jefa (resumen, meta, alertas — todo detrás de `canFull`),
-  // que sí necesitan ver la flota completa.
+  //    El motivo: un viaje es un HECHO OBSERVADO —el listero vio entrar el
+  //    camión— y AVERIADA / PARADA / EN ESPERA son ANOTACIONES de otro módulo
+  //    que pueden estar viejas, mal puestas o sin actualizar. Cuando las dos
+  //    cosas se contradicen, gana lo que se vio. Antes, un camión marcado por
+  //    error dejaba al listero sin manera de anotar viajes que sí ocurrieron.
+  //
+  // ⚠️⚠️ CON UNA EXCEPCIÓN: LAS **RETIRADAS** SIGUEN FUERA (31-ago-2026, mismo
+  //    día, después de verlo en producción). Al quitar el filtro entero, la
+  //    lista del listero pasó de 61 a 89 camiones: los 28 nuevos eran RETIRADOS,
+  //    con motivos como «Fin de contrato» o «reemplazo por A74AB3P». El cliente
+  //    lo reportó ese mismo día como «se están registrando máquinas que no
+  //    están», y tenía razón literalmente: esos camiones ya no están en la obra.
+  //
+  //    RETIRADA NO ES LO MISMO que las otras tres. Averiada o parada es una
+  //    anotación dudosa sobre un camión que SIGUE en el patio; retirada es un
+  //    HECHO ADMINISTRATIVO — el camión se fue. No hay «viaje observado» que
+  //    pueda contradecirlo, así que acá no aplica la regla de arriba.
+  //
+  //    Y la puerta no se cierra, se muda: si de verdad hubo un viaje de un
+  //    camión ya retirado, la jefa lo carga desde «✍️ Cargar viajes a mano»,
+  //    que tiene el catálogo completo. Queda en manos de quien puede juzgarlo.
+  //
+  // ⚠️ NO SE PIERDE LA ADVERTENCIA, solo deja de ser un obstáculo: el estado se
+  //    sigue viendo en el buscador y en el camión escogido (chip de color), y se
+  //    congela en el viaje (`estado_maquina`), así que la jefa puede revisar
+  //    después cuáles se registraron contra un camión averiado.
+  //
+  // ⚠️ Y NO SE TOCA LA MÁQUINA: registrar un viaje contra un camión averiado NO
+  //    lo pone operativo ni cambia nada en `machinery`. Este módulo solo escribe
+  //    filas en `camion_viajes`.
   //
   // A la lista de siempre se le suman las máquinas que el listero AGREGÓ desde el
   // buscador (`extraTruckIds`): existen en el catálogo pero su código no dice
   // "volteo"/"volqueta"/"toronto", así que nunca habrían entrado. Agregarlas NO
   // escribe nada en `machinery` — es una lista de esta pantalla y nada más.
+  /** RETIRADA = `operational === false`. En este sistema ese es el retiro de
+   *  servicio; `active = false` es otra cosa (eliminada del catálogo) y esa la
+   *  consulta ya no la trae. Ver `src/lib/auditMachineState.ts`. */
+  const estaRetirada = (t: TruckRow) => !t.operational;
   const trucksSeleccionables = useMemo(() => {
-    const base = allTrucks.filter((t) => t.operational && !t.enEspera);
+    const base = allTrucks.filter((t) => !estaRetirada(t));
     if (extraTruckIds.size === 0) return base;
     const yaEstan = new Set(base.map((t) => t.id));
-    const sumadas = catalogoTrucks.filter(
-      (t) => extraTruckIds.has(t.id) && !yaEstan.has(t.id) && t.operational && !t.enEspera
-    );
+    const sumadas = catalogoTrucks.filter((t) => extraTruckIds.has(t.id) && !yaEstan.has(t.id) && !estaRetirada(t));
     return [...base, ...sumadas].sort((a, b) => cmpText(a.code, b.code));
   }, [allTrucks, catalogoTrucks, extraTruckIds]);
+  /**
+   * La flota que ESTÁ en la obra: los camiones de siempre menos las retiradas.
+   *
+   * Es lo que se le enseña a la jefa. El arreglo del 31-ago sacó las retiradas
+   * de la lista del LISTERO, pero en el panel de la jefa seguían en dos sitios:
+   * pedían meta diaria y salían en el resumen por camión con 0 viajes, o sea
+   * contadas como flota parada. Un camión con "Fin de contrato" no tiene meta
+   * que cumplir ni está parado: no está.
+   *
+   * Los viajes VIEJOS de un camión ya retirado no se pierden: el resumen suma
+   * ADEMÁS los camiones que aparecen en los viajes del rango (ver `ids`).
+   */
+  const camionesEnObra = useMemo(() => allTrucks.filter((t) => !estaRetirada(t)), [allTrucks]);
   const pickEstadoOptions = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
     // Cuenta sobre la MISMA lista que se va a mostrar: si contara sobre
@@ -330,8 +402,10 @@ export default function ViajesCamionesScreen() {
   // salen cuando se escribe algo — si salieran siempre, la lista se llenaría de
   // excavadoras y payloaders y el listero no encontraría sus camiones.
   //
-  // Las retiradas y las que están en espera quedan fuera acá también: el pedido
-  // de no mostrárselas al listero vale igual por esta vía.
+  // El MISMO criterio que la lista principal (31-ago-2026): averiadas, paradas y
+  // en espera SÍ se ofrecen; las RETIRADAS no. Si acá se filtrara distinto,
+  // quedaría un camión imposible de encontrar por un lado y un fantasma por el
+  // otro. Ver la nota larga de `trucksSeleccionables`.
   const pickExtras = useMemo(() => {
     if (!nqPick) return [] as TruckRow[];
     const yaOfrecidas = new Set(trucksSeleccionables.map((t) => t.id));
@@ -339,7 +413,7 @@ export default function ViajesCamionesScreen() {
       .filter(
         (t) =>
           !yaOfrecidas.has(t.id) &&
-          t.operational && !t.enEspera &&
+          !estaRetirada(t) &&
           [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName]
             .some((f) => f != null && norm(String(f)).includes(nqPick))
       )
@@ -362,6 +436,12 @@ export default function ViajesCamionesScreen() {
     setPickEstadoSel(new Set());
     setPickOpen(true);
   };
+  // Qué pedido de chofer es el que vale. Escoger el camión A (consulta lenta) y
+  // cambiar al B (rápida) terminaba pintando el chofer de A ENCIMA del de B: la
+  // respuesta vieja llega después y pisa. Y su `setChoferLoading(false)` soltaba
+  // el botón de Registrar mientras la consulta de B seguía corriendo, anulando la
+  // defensa que ese botón tiene puesta justo para eso.
+  const choferPedidoRef = useRef(0);
   const onSelectTruck = async (t: TruckRow) => {
     setPickOpen(false);
     setSelectedTruck(t);
@@ -371,8 +451,23 @@ export default function ViajesCamionesScreen() {
     // Un camión fuera de catálogo no tiene ficha ni chofer asignado que consultar:
     // `machine_operators` va contra un `machinery_id` que no existe.
     if (t.id === FUERA_CATALOGO_ID) return;
+    const pedido = ++choferPedidoRef.current;
     setChoferLoading(true);
-    const chofer = await resolveChoferActual(t.id, shift);
+    // ⚠️ CON TOPE DE TIEMPO, igual que en `doRegistrarViaje`. El cliente de
+    //    Supabase no lleva timeout propio: con el wifi del patio (señal sin
+    //    internet) o un portal cautivo este `fetch` se queda colgado y
+    //    `choferLoading` no volvía NUNCA a `false`. El botón de Registrar se
+    //    quedaba gris diciendo «Buscando el chofer…» el resto de la sesión y el
+    //    listero no podía registrar ni un viaje más. Sin error y sin cola.
+    //
+    //    Ahí abajo, al registrar, se vuelve a consultar si cambió el turno; y si
+    //    tampoco contesta, el viaje entra sin chofer. Un chofer que falta se
+    //    corrige; un viaje perdido no se recupera.
+    const chofer = await Promise.race([
+      resolveChoferActual(t.id, shift).catch(() => null),
+      new Promise<string | null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
+    if (pedido !== choferPedidoRef.current) return; // llegó tarde: manda el camión de ahora
     setChoferLoading(false);
     setSelectedChofer(chofer);
   };
@@ -392,9 +487,40 @@ export default function ViajesCamionesScreen() {
     setFcRef('');
     setFcOpen(true);
   };
-  const confirmarFueraCatalogo = () => {
+  const confirmarFueraCatalogo = async () => {
     const code = fcCode.trim().toUpperCase();
     if (!code) { toast.error('Escribe al menos cómo identificar el camión.'); return; }
+    // ⚠️ ANTES DE INVENTAR UN CAMIÓN, MIRAR SI YA EXISTE.
+    //
+    //    Esta es la puerta de atrás del filtro de retiradas, y el arreglo que las
+    //    sacó de la lista la dejó a DOS toques: el listero busca "TORONTO
+    //    A74AB3P" (retirado), no sale nada, y justo debajo del "Sin coincidencias"
+    //    está el botón de anotarlo a mano — con el texto que acaba de escribir ya
+    //    puesto. Toca, toca otra vez, y el camión fantasma vuelve. Y vuelve PEOR:
+    //    sin `machinery_id`, sin placa, sin empresa, marcado "FUERA DE CATÁLOGO"
+    //    en el reporte y cayendo en la cubeta "Sin empresa".
+    //
+    //    Tampoco hay nada que impida anotar a mano un camión que SÍ está en la
+    //    lista, seleccionable, ahí mismo.
+    //
+    //    No se bloquea, se avisa: la regla del módulo es que si el listero VIO el
+    //    viaje, el viaje se registra. Pero que sea una decisión y no un descuido.
+    const yaExiste = catalogoTrucks.filter((t) =>
+      [t.code, t.plate, t.serial].some((f) => f != null && norm(String(f)) === norm(code)));
+    if (yaExiste.length > 0) {
+      const t = yaExiste[0];
+      const placa = [t.plate, t.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ') || 'sin placa';
+      const seleccionable = trucksSeleccionables.some((s) => s.id === t.id);
+      const ok = await confirm({
+        title: 'Ese camión sí existe',
+        message: seleccionable
+          ? `${t.code} · ${placa} YA está en tu lista. Búscalo por su placa y regístralo normal: anotado a mano el viaje queda suelto, sin ficha y sin empresa, y no cuenta para ese camión.`
+          : `${t.code} · ${placa} está en el catálogo pero RETIRADO — ya no está en la obra. Si de verdad hizo este viaje, avísale a la jefa para que se lo cargue con su ficha. Anotado a mano el viaje queda suelto, sin empresa y sin contar para ese camión.`,
+        confirmText: 'Anotarlo a mano igual',
+        cancelText: 'Volver a buscarlo',
+      });
+      if (!ok) { setFcOpen(false); setPickOpen(true); return; }
+    }
     setFcOpen(false);
     // Se arma un camión "de mentira" con el id centinela para que el resto de la
     // pantalla (el resumen de arriba, el botón de registrar) funcione igual sin
@@ -445,13 +571,24 @@ export default function ViajesCamionesScreen() {
   const [retrying, setRetrying] = useState(false);
   const [falloGuardado, setFalloGuardado] = useState<string | null>(null);
   useEffect(() => {
-    if (!canWrite) return;
+    // ⚠️ Acá iba un `if (!canWrite) return;` y se comía viajes ya registrados.
+    //    VACIAR LA COLA NO ES REGISTRAR: el viaje ya está en el teléfono, lo
+    //    escribió un listero que en ese momento SÍ tenía permiso. Si después le
+    //    bajan el nivel a solo lectura, esos viajes se quedaban en el disco para
+    //    siempre y nadie se enteraba — ni el listero (ya no ve el botón) ni la
+    //    jefa (para ella nunca existieron). Subir lo que YA está guardado no
+    //    necesita permiso de esta pantalla: la última palabra la tiene RLS en el
+    //    servidor, y si lo rechaza es un error transitorio y se reintenta.
+    
     // El aviso de "no se pudo guardar en el teléfono" tiene que quedarse EN
     // PANTALLA: un toast se va a los 3 segundos y el listero no puede saber que
     // no debe cerrar la app. Se revisa en cada cambio de la cola, que es cuando
     // puede haber fallado una escritura.
     const unsub = subscribeViajesQueue((items) => { setQueuedItems(items); setFalloGuardado(falloDeGuardadoLocal()); });
-    const unsubQ = subscribeViajesQuarantine((items) => setStuckItems(items));
+    // ⭐ El aviso rojo también se refresca desde ACÁ, no solo desde la cola. Si
+    //    falla el guardado de la CUARENTENA, la cola no cambia y su listener no
+    //    dispara: el aviso se quedaba mudo justo en el caso más grave.
+    const unsubQ = subscribeViajesQuarantine((items) => { setStuckItems(items); setFalloGuardado(falloDeGuardadoLocal()); });
     const tryFlush = () => {
       flushViajesQueue()
         .then((r) => { if (r.synced > 0) loadMisViajes(); })
@@ -579,17 +716,37 @@ export default function ViajesCamionesScreen() {
     setRegistering(true);
     try {
       if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
+      // ⭐ EL ESTADO NO BLOQUEA NI PREGUNTA (cliente, 31-ago-2026). Acá había un
+      //    `confirm` de "este camión figura AVERIADA, ¿de todas formas...?" que
+      //    frenaba el registro. Se quitó: el listero está anotando algo que VIO,
+      //    y ponerle un obstáculo por una anotación de otro módulo hacía que los
+      //    viajes se dejaran de registrar. El estado igual queda CONGELADO en la
+      //    fila (`estado_maquina`) para que la jefa lo pueda revisar después, y
+      //    se sigue viendo en pantalla antes de tocar el botón.
       const estadoConteo = truckEstadoConteo(selectedTruck);
-      if (ESTADO_ADVERSO.includes(estadoConteo)) {
-        const meta = ESTADO_CONTEO_META[estadoConteo];
-        const ok = await confirm(`Este camión figura ${meta.label.toUpperCase()}, ¿de todas formas quieres registrar el viaje?`);
-        if (!ok) return;
-      }
       const registeredAt = new Date().toISOString(); // capturado AHORA, en el teléfono (necesario offline)
       const shift = caracasNowShift();
       const esFuera = selectedTruck.id === FUERA_CATALOGO_ID;
       let chofer = selectedChofer;
-      if (!esFuera && shift !== selectedShift) chofer = await resolveChoferActual(selectedTruck.id, shift);
+      // ⚠️⚠️ ESTA CONSULTA NO PUEDE FRENAR EL REGISTRO, Y ANTES LO FRENABA.
+      //
+      //    Iba con `await` pelado y ANTES del `if (!isOnline())` de más abajo:
+      //    con el wifi del patio (señal sin internet) o un portal cautivo, el
+      //    `fetch` se cuelga decenas de segundos con el botón en «Registrando…».
+      //    Si el listero se cansaba y cerraba la app, el viaje NO se había
+      //    encolado todavía: se perdía entero. Es el único camino del módulo que
+      //    pierde el dato antes de tocar el disco, y cae justo en el cambio de
+      //    turno, que es cuando más se registra.
+      //
+      //    Ahora tiene tope de tiempo: si no contesta en 4 segundos se sigue con
+      //    el chofer que ya se tenía. Un chofer viejo es un dato imperfecto; un
+      //    viaje perdido no se recupera.
+      if (!esFuera && shift !== selectedShift) {
+        chofer = await Promise.race([
+          resolveChoferActual(selectedTruck.id, shift),
+          new Promise<string | null>((r) => setTimeout(() => r(selectedChofer), 4000)),
+        ]);
+      }
       const payload = {
         // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
         // existe únicamente como texto en esta fila. La BD lo exige con el CHECK
@@ -647,15 +804,37 @@ export default function ViajesCamionesScreen() {
     }
   };
 
-  // ── Editar hora (compartido: listero sobre lo suyo dentro de su jornada;
-  //    la jefa/full sobre cualquier viaje, sin esa restricción). ─────────────
-  const [editing, setEditing] = useState<{ id: string; hh: string; mm: string } | null>(null);
+  // ── Editar un viaje (compartido: el listero solo la HORA de lo suyo dentro de
+  //    su jornada; la jefa/full TODO —fecha, hora, chofer y listero— sobre
+  //    cualquier viaje de cualquier día, sin esa restricción). ───────────────
+  //
+  // ⚠️ El camión NO se puede cambiar acá a propósito: cambiarle el camión a un
+  //    viaje no es corregirlo, es otro viaje. Para eso se borra este y se carga
+  //    el bueno, y así la auditoría conserva las dos cosas por separado.
+  const [editing, setEditing] = useState<
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string } | null
+  >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
   // jefa vive más abajo, junto al resto de sus filtros).
   const [rangeRows, setRangeRows] = useState<CamionViajeRow[]>([]);
   const findRow = (id: string): CamionViajeRow | null =>
     misViajes.find((r) => r.id === id) ?? rangeRows.find((r) => r.id === id) ?? null;
+
+  // Los listeros a los que la jefa le puede atribuir un viaje (al cargarlo a
+  // mano o al reasignarlo). Solo se leen con nivel full: al listero no le hace
+  // falta y sería una consulta de más en el teléfono, que es donde trabaja.
+  const [listeros, setListeros] = useState<{ id: string; full_name: string }[]>([]);
+  useEffect(() => {
+    if (!canFull) return;
+    let vivo = true;
+    listListeros()
+      .then((l) => { if (vivo) setListeros(l); })
+      // No bloquea nada: sin la lista, la carga manual queda a nombre de quien
+      // la hace (que es el valor por defecto de todos modos).
+      .catch((e: any) => console.warn('[viajes] no se pudo leer la lista de listeros:', String(e?.message ?? e)));
+    return () => { vivo = false; };
+  }, [canFull]);
 
   const isEditableByListero = (row: CamionViajeRow): boolean => {
     if (row.listeroId !== uid) return false;
@@ -666,47 +845,89 @@ export default function ViajesCamionesScreen() {
 
   const startEdit = (row: CamionViajeRow) => {
     const p = caracasParts(new Date(row.registeredAt));
-    setEditing({ id: row.id, hh: pad2(p.hour), mm: pad2(p.minute) });
+    setEditing({
+      id: row.id,
+      // ⭐ La JORNADA, no la fecha de calendario: es el "día" con el que trabaja
+      //    todo el módulo (7am a 7am). Un viaje de las 2am pertenece al día
+      //    ANTERIOR del calendario, y mostrar el del calendario haría que la
+      //    jefa "corrigiera" un día que en realidad estaba bien.
+      fecha: jornadaDeFecha(new Date(row.registeredAt)),
+      hh: pad2(p.hour),
+      mm: pad2(p.minute),
+      chofer: row.choferName ?? '',
+      listeroId: row.listeroId,
+    });
   };
   const cancelEdit = () => setEditing(null);
   const saveEdit = async () => {
     if (!editing) return;
     const row = findRow(editing.id);
     if (!row) { setEditing(null); return; }
-    const hh = Math.min(23, Math.max(0, parseInt(editing.hh, 10) || 0));
-    const mm = Math.min(59, Math.max(0, parseInt(editing.mm, 10) || 0));
-    const dateIso = caracasParts(new Date(row.registeredAt)).iso;
-    const newIso = `${dateIso}T${pad2(hh)}:${pad2(mm)}:00-04:00`;
-    // ⚠️ Ahora que todo se filtra por JORNADA, cambiar la hora puede mudar el
-    //    viaje de una jornada a otra (cruzar las 7am), y entonces desaparece del
-    //    día que se está mirando. No se bloquea —a veces es justo lo que se
-    //    quiere corregir— pero se pregunta antes.
-    const jornadaAntes = jornadaDeFecha(new Date(row.registeredAt));
-    const jornadaDespues = jornadaDeFecha(new Date(newIso));
-    if (jornadaAntes !== jornadaDespues) {
-      const ok = await confirm(`Con esa hora el viaje pasa de la jornada del ${jornadaAntes} a la del ${jornadaDespues}, así que va a salir en otro día. ¿Lo dejas así?`);
-      if (!ok) return;
+    const { hh, mm } = normalizarHora(editing.hh, editing.mm);
+    // El listero solo mueve la HORA: la jornada que se manda es la que ya tenía
+    // el viaje. La jefa sí puede haber cambiado el día en el selector.
+    const jornada = canFull ? editing.fecha : jornadaDeFecha(new Date(row.registeredAt));
+    // ⭐ NO SE PUEDE MANDAR UN VIAJE AL FUTURO, ni por acá. La carga manual ya lo
+    //    prohíbe; sin esto se prohibía por una puerta y se permitía por la otra,
+    //    y un viaje con fecha de mañana envenena la alerta de "camión sin viaje"
+    //    (le da horas negativas y ese camión no vuelve a salir en la lista).
+    if (canFull && jornada > caracasBusinessToday()) {
+      toast.error('Esa fecha todavía no llega. Un viaje no puede quedar en el futuro.');
+      return;
     }
-    // ⭐ Y lo mismo al cruzar las 7pm, que NO cambia de jornada pero sí de TURNO.
-    //    Corregir un viaje de 6:50pm a 7:10pm lo muda de día a noche: si la jefa
-    //    tiene marcado un turno, el viaje se le desaparece de la lista al
-    //    guardar y sin este aviso no habría manera de saber por qué. Es el único
-    //    momento en que se puede advertir — después ya solo queda detectarlo.
-    const turnoAntes = turnoDeViaje(row.registeredAt);
-    const turnoDespues = turnoDeViaje(newIso);
-    if (turnoAntes !== turnoDespues) {
-      const ok = await confirm(`Con esa hora el viaje pasa del turno de ${TURNO_NOMBRE[turnoAntes].toLowerCase()} al de ${TURNO_NOMBRE[turnoDespues].toLowerCase()}. ¿Lo dejas así?`);
-      if (!ok) return;
+    const newIso = isoDeJornadaHora(jornada, hh, mm);
+
+    // ⚠️ Cambiar fecha u hora puede MUDAR EL VIAJE DE DÍA o DE TURNO sin que
+    //    nadie lo pida (el corte del negocio son las 7am, y el turno las 7pm).
+    //    No se bloquea —a veces es justo lo que se quiere corregir— pero se
+    //    pregunta antes, porque si no el viaje se "desaparece" de la lista al
+    //    guardar y no hay manera de entender por qué. Ver `viajesEdicion.ts`.
+    //
+    // ⚠️ Se compara POR MINUTO, no por instante: el viaje de campo trae segundos
+    //    y el formulario solo llega al minuto, así que comparar los instantes
+    //    daba "cambió" SIEMPRE y abrir/guardar sin tocar nada movía el viaje.
+    const cambioDeInstante = !mismoMinuto(newIso, row.registeredAt);
+    if (cambioDeInstante) {
+      const avisos = avisosDeCambio(row.registeredAt, newIso);
+      if (avisos.length > 0) {
+        const ok = await confirm(`${avisos.join('\n\n')}\n\n¿Lo dejas así?`);
+        if (!ok) return;
+      }
     }
-    const { error } = await editarHoraViaje(editing.id, newIso);
+
+    const cambios: Parameters<typeof editarViaje>[1] = {};
+    if (cambioDeInstante) cambios.registeredAtISO = newIso;
+    if (canFull) {
+      const choferNuevo = editing.chofer.trim() || null;
+      if (choferNuevo !== (row.choferName ?? null)) cambios.choferName = choferNuevo;
+      if (editing.listeroId && editing.listeroId !== row.listeroId) {
+        const nuevo = listeros.find((l) => l.id === editing.listeroId);
+        // Sin nombre no se reasigna: `listero_name` es lo que sale en el reporte
+        // y dejarlo desactualizado mostraría al listero VIEJO con el id del nuevo.
+        if (!nuevo) { toast.error('No se pudo identificar a ese listero. Refresca la pantalla.'); return; }
+        const ok = await confirm(`El viaje va a quedar a nombre de ${nuevo.full_name} en vez de ${row.listeroName}. Deja de contar para uno y cuenta para el otro en el resumen por listero. ¿Lo cambias?`);
+        if (!ok) return;
+        cambios.listeroId = nuevo.id;
+        cambios.listeroName = nuevo.full_name;
+      }
+    }
+    if (Object.keys(cambios).length === 0) { setEditing(null); return; }
+
+    const { error } = await editarViaje(editing.id, cambios);
     if (error) { toast.error(error); return; }
     setEditing(null);
-    toast.success('Hora actualizada.');
+    toast.success('Viaje actualizado.');
     loadMisViajes();
-    if (canFull) loadRangeRows();
+    if (canFull) { loadRangeRows(); loadResumen(); }
   };
 
+  // Mismo motivo que `registeringRef`: el state no cambia hasta el próximo
+  // render. Sin esto, dos toques seguidos en el tacho borraban bien la primera
+  // vez y la segunda sacaba un toast ROJO ("ese viaje ya no existe") sobre una
+  // operación que SÍ funcionó — la jefa creyendo que algo falló cuando no.
+  const borrandoRef = useRef(false);
   const onBorrar = async (row: CamionViajeRow) => {
+    if (borrandoRef.current) return;
     const ok = await confirm({
       title: 'Borrar viaje',
       message: `¿Borrar el viaje de ${row.machineCode} de las ${fmtHora(row.registeredAt)}? Esta acción no se puede deshacer.`,
@@ -714,11 +935,160 @@ export default function ViajesCamionesScreen() {
       danger: true,
     });
     if (!ok) return;
-    const { error } = await borrarViaje(row.id);
-    if (error) { toast.error(error); return; }
-    toast.success('Viaje borrado.');
-    loadRangeRows();
-    loadResumen();
+    borrandoRef.current = true;
+    try {
+      const { error } = await borrarViaje(row.id);
+      if (error) { toast.error(error); return; }
+      toast.success('Viaje borrado.');
+      loadRangeRows();
+      loadResumen();
+    } finally {
+      borrandoRef.current = false;
+    }
+  };
+
+  // ── CARGA MANUAL DE VIAJES (nivel full) ──────────────────────────────────
+  // Pedido del cliente 31-ago-2026. El botón de registrar de la vista del
+  // listero sella `new Date()`: solo sirve para AHORA. Esto es lo que faltaba
+  // para poder cuadrar un día pasado — agregar los viajes que no se anotaron.
+  //
+  // ⚠️ NO TOCA LA MÁQUINA. Escribe filas en `camion_viajes` y nada más: no le
+  //    cambia el estado al camión, ni el horómetro, ni le abre jornadas.
+  const [cargaTruckId, setCargaTruckId] = useState<string | null>(null);
+  const [cargaQuery, setCargaQuery] = useState('');
+  const [cargaFecha, setCargaFecha] = useState<string>(() => caracasBusinessToday());
+  const [cargaHH, setCargaHH] = useState('08');
+  const [cargaMM, setCargaMM] = useState('00');
+  const [cargaCantidad, setCargaCantidad] = useState('1');
+  const [cargaChofer, setCargaChofer] = useState('');
+  const [cargaListeroId, setCargaListeroId] = useState<string>('');
+  const [cargaBusy, setCargaBusy] = useState(false);
+  const cargaBusyRef = useRef(false);
+
+  const cargaTruck = useMemo(
+    () => allTrucks.find((t) => t.id === cargaTruckId) ?? catalogoTrucks.find((t) => t.id === cargaTruckId) ?? null,
+    [allTrucks, catalogoTrucks, cargaTruckId],
+  );
+  // TODOS los camiones, en cualquier estado, RETIRADAS INCLUIDAS. Acá la regla
+  // NO es la misma que la del listero, y es a propósito: `trucksSeleccionables`
+  // deja las retiradas fuera de la lista del listero (un camión con "Fin de
+  // contrato" no debería ofrecérsele a nadie en el patio), pero la jefa tiene que
+  // poder cuadrar un día viejo en el que ese camión SÍ trabajó. Esta es la puerta
+  // por la que entra ese caso, y por eso acá no se filtra: si el viaje ocurrió,
+  // se carga.
+  //
+  // Se busca primero en la lista de camiones y después en el catálogo COMPLETO,
+  // por el mismo motivo que el buscador del listero (21-ago-2026): la lista se
+  // arma mirando si el código dice "volteo"/"volqueta"/"toronto", así que un
+  // camión real con otro código nunca saldría. Si un listero ya le registró
+  // viajes por la vía de "agregar a mi lista", la jefa tiene que poder
+  // completarle el día igual.
+  const cargaFiltrados = useMemo(() => {
+    const nq = norm(cargaQuery.trim());
+    if (!nq) return [] as TruckRow[];
+    const coincide = (t: TruckRow) =>
+      [t.code, t.plate, t.serial, t.clasificacion, t.marca, t.modelo, t.companyName]
+        .some((f) => f != null && norm(String(f)).includes(nq));
+    const camiones = allTrucks.filter(coincide);
+    const yaEstan = new Set(camiones.map((t) => t.id));
+    const delCatalogo = catalogoTrucks.filter((t) => !yaEstan.has(t.id) && coincide(t));
+    return [...camiones, ...delCatalogo].slice(0, 25);
+  }, [allTrucks, catalogoTrucks, cargaQuery]);
+
+  const doCargarViajes = async () => {
+    // ⚠️ EL GUARD SE TOMA ANTES DEL `confirm`, NO DESPUÉS. Mientras el modal se
+    //    monta el botón sigue habilitado, y esa —no el guardado— es la ventana
+    //    ancha de verdad: dos toques ahí son DOS TANDAS de viajes. Va en un ref
+    //    porque el state no cambia hasta el próximo render. Mismo criterio que
+    //    `doRegistrarViaje`, que ya tenía este bug y ya lo tiene resuelto así.
+    if (cargaBusyRef.current) return;
+    cargaBusyRef.current = true;
+    setCargaBusy(true);
+    try {
+      const { hh, mm } = normalizarHora(cargaHH, cargaMM);
+      const cantidad = parseInt(cargaCantidad, 10);
+      const motivo = validarCargaManual(
+        { machineryId: cargaTruckId, fechaISO: cargaFecha, hh, mm, cantidad },
+        caracasBusinessToday(),
+      );
+      if (motivo) { toast.error(motivo); return; }
+      if (!cargaTruck) { toast.error('Ese camión ya no está en la lista. Refresca la pantalla.'); return; }
+      if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
+
+      // Por defecto el viaje queda a nombre de quien lo carga. Se puede atribuir a
+      // otro listero para que el resumen por listero siga diciendo la verdad.
+      const listero = listeros.find((l) => l.id === cargaListeroId) ?? { id: uid, full_name: listeroName };
+      const horarios = horariosDeCarga(cargaFecha, hh, mm, cantidad);
+      // ⚠️ Una tanda puede DESBORDARSE a la jornada siguiente (empezar 6:50am y
+      //    cargar cuatro deja dos de cada lado de las 7). No se prohíbe, pero se
+      //    dice: si no, esos viajes salen en un día que la jefa no eligió y
+      //    parecen perdidos.
+      const jornadas = jornadasDeCarga(horarios);
+      const desborde = jornadas.length > 1
+        ? `\n\n⚠️ OJO: la tanda cruza las 7am, así que NO cae toda en el mismo día. Se reparte entre las jornadas del ${jornadas.map(dmy).join(' y del ')}.`
+        : '';
+      // ⚠️ Mismo problema que el desborde de jornada, pero con las 7pm: una tanda
+      //    que arranca a las 6:50pm parte en dos turnos. Como el turno se deduce
+      //    de la hora, esos viajes salen en el turno que diga su hora y no en el
+      //    que se eligió arriba — hay que decirlo antes de guardar.
+      const turnos = turnosDeCarga(horarios);
+      const cruceTurno = turnos.length > 1
+        ? `\n\n⚠️ OJO: la tanda cruza las 7pm, así que NO cae toda en el mismo turno. Se reparte entre ${turnos.map((t) => `${TURNO_ICONO[t]} ${TURNO_NOMBRE[t].toLowerCase()}`).join(' y ')}.`
+        : '';
+      const turnoElegido = turnos[0];
+      const ok = await confirm({
+        title: 'Cargar viajes a mano',
+        message:
+          `Se van a agregar ${cantidad} viaje(s) al camión ${cargaTruck.code} el ${dmy(cargaFecha)}, ` +
+          `desde las ${pad2(hh)}:${pad2(mm)}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}` +
+          `${turnos.length === 1 ? ` (turno de ${TURNO_NOMBRE[turnoElegido].toLowerCase()})` : ''}, ` +
+          `a nombre de ${listero.full_name}.\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
+        confirmText: 'Cargar',
+      });
+      if (!ok) return;
+
+      const nota = notaCargaManual(fullName || '');
+      let hechos = 0;
+      let ultimoError = '';
+      for (const iso of horarios) {
+        const { error } = await registrarViaje({
+          machineryId: cargaTruck.id,
+          machineCode: cargaTruck.code,
+          fueraCatalogo: false,
+          camionRef: null,
+          listeroId: listero.id,
+          listeroName: listero.full_name,
+          choferName: cargaChofer.trim() || null,
+          shift: turnoParaGuardar(iso),
+          // ⚠️ `null` a propósito: `estado_maquina` es la foto del estado EN EL
+          //    MOMENTO del viaje, y de un día pasado no se sabe. Poner el estado
+          //    de hoy sería inventarlo.
+          estadoMaquina: null,
+          note: nota,
+          registeredAt: iso,
+          clientActionId: nuevoClientActionId(),
+        });
+        if (error) { ultimoError = error; break; }
+        hechos++;
+      }
+      // Se dice EXACTAMENTE cuántos entraron. Un fallo a mitad de camino dejaba
+      // la mitad cargada, y anunciar "listo" haría que se cargara otra vez.
+      if (ultimoError) {
+        toast.error(
+          hechos === 0
+            ? `No se pudo cargar ninguno (${motivoLegible(ultimoError)}).`
+            : `Se cargaron ${hechos} de ${horarios.length} y falló el siguiente (${motivoLegible(ultimoError)}). Revisa la lista antes de reintentar: cargar de nuevo los duplicaría.`,
+        );
+      } else {
+        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}.`);
+        setCargaCantidad('1');
+      }
+      loadRangeRows();
+      loadResumen();
+    } finally {
+      cargaBusyRef.current = false;
+      setCargaBusy(false);
+    }
   };
 
   // ── Panel de la JEFA/ADMIN (nivel full) ─────────────────────────────────
@@ -737,10 +1107,10 @@ export default function ViajesCamionesScreen() {
     if (!error) setResumenRows(rows);
   };
   useEffect(() => {
-    if (!canFull || allTrucks.length === 0) return;
-    getMetasPorCamion(allTrucks.map((t) => t.id)).then(setMetasByTruck);
+    if (!canFull || camionesEnObra.length === 0) return;
+    getMetasPorCamion(camionesEnObra.map((t) => t.id)).then(setMetasByTruck);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFull, allTrucks]);
+  }, [canFull, camionesEnObra]);
 
   // El "code" de estos camiones suele repetirse (ej. "Camion Volteo Toronto" en
   // casi toda la flota) — sin placa/serial no se puede distinguir uno de otro
@@ -764,7 +1134,10 @@ export default function ViajesCamionesScreen() {
       t.push(turnoDeViaje(r.registeredAt));
       turnos.set(k, t);
     });
-    const ids = new Set<string>([...allTrucks.map((t) => t.id), ...resumenRows.map((r) => claveCamion(r))]);
+    // Los camiones que están en la obra MÁS los que tengan viajes en el rango
+    // (por si a uno lo retiraron hoy después de haber trabajado: sus viajes se
+    // siguen viendo, es la fila inventada la que ya no sale).
+    const ids = new Set<string>([...camionesEnObra.map((t) => t.id), ...resumenRows.map((r) => claveCamion(r))]);
     const arr = Array.from(ids).map((id) => {
       const info = infoOf.get(id) ?? { code: '—', plate: null, serial: null };
       const conteo = contarTurnos(turnos.get(id) ?? []);
@@ -772,7 +1145,7 @@ export default function ViajesCamionesScreen() {
     });
     arr.sort((a, b) => b.count - a.count || cmpText(a.code, b.code));
     return arr;
-  }, [resumenRows, allTrucks, metasByTruck]);
+  }, [resumenRows, allTrucks, camionesEnObra, metasByTruck]);
 
   const resumenPorListero = useMemo(() => {
     const m = new Map<string, { name: string; count: number }>();
@@ -989,7 +1362,7 @@ export default function ViajesCamionesScreen() {
   // Por CLAVE y no por id en el camión: los fuera de catálogo no tienen id y se
   // fundirían todos en una sola opción del filtro (ver `claveCamion`).
   // ⚠️ El turno se DEDUCE DE LA HORA, no se lee de la columna `shift`: esa es
-  //    nullable en los viajes viejos y `editarHoraViaje` la deja
+  //    nullable en los viajes viejos y `editarViaje` la deja
   //    desactualizada al corregir una hora que cruza las 7pm. El porqué
   //    completo está en src/lib/viajesTurno.ts.
   /**
@@ -1022,10 +1395,43 @@ export default function ViajesCamionesScreen() {
   );
   const truckOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'camion', clavesDe,
-      (r) => ({ id: claveCamion(r), label: r.fueraCatalogo ? r.machineCode + ' (fuera de catálogo)' : r.machineCode }), seleccion, cmpText),
+      // ⭐ LA PLACA VA EN LA ETIQUETA, no solo el código. Todos estos camiones se
+      //    llaman igual —"CAMION VOLTEO TORONTO"— así que sin la placa el filtro
+      //    mostraba treinta pastillas idénticas y no había forma de saber cuál
+      //    tocar. Misma regla que el resumen y el PDF: `placaDeCamion`.
+      (r) => {
+        if (r.fueraCatalogo) return { id: claveCamion(r), label: `${r.machineCode} (fuera de catálogo)` };
+        const t = r.machineryId ? truckById.get(r.machineryId) : undefined;
+        const placa = placaDeCamion(t);
+        return { id: claveCamion(r), label: placa === '—' ? r.machineCode : `${r.machineCode} · ${placa}` };
+      }, seleccion, cmpText),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dateScopedRows, seleccion, truckById]
   );
+
+  // ── BUSCADOR DE LOS FILTROS (31-ago-2026) ────────────────────────────────
+  // La fila de CAMIÓN son treinta pastillas que dicen todas lo mismo. Con el
+  // buscador se escribe la placa (o parte del nombre del listero, o la empresa)
+  // y quedan las que coinciden. Lo MARCADO no se esconde nunca — ver
+  // `filtrarOpciones`.
+  const [busqFiltros, setBusqFiltros] = useState('');
+  const listeroOptionsVisibles = useMemo(
+    () => filtrarOpciones(listeroOptions, busqFiltros, filterListeroSel, norm),
+    [listeroOptions, busqFiltros, filterListeroSel]
+  );
+  const companyOptionsVisibles = useMemo(
+    () => filtrarOpciones(companyOptions, busqFiltros, filterCompanySel, norm),
+    [companyOptions, busqFiltros, filterCompanySel]
+  );
+  const truckOptionsVisibles = useMemo(
+    () => filtrarOpciones(truckOptions, busqFiltros, filterTruckSel, norm),
+    [truckOptions, busqFiltros, filterTruckSel]
+  );
+  /** Cuántas opciones dejó fuera la búsqueda — para no dejar la fila vacía y muda. */
+  const ocultasPorBusqueda =
+    (listeroOptions.length - listeroOptionsVisibles.length) +
+    (companyOptions.length - companyOptionsVisibles.length) +
+    (truckOptions.length - truckOptionsVisibles.length);
 
   const turnoOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'turno', clavesDe,
@@ -1128,7 +1534,7 @@ export default function ViajesCamionesScreen() {
       const placaDe = (r: CamionViajeRow) => {
         if (r.fueraCatalogo) return `⚠️ FUERA DE CATÁLOGO${r.camionRef ? ` · ${r.camionRef}` : ''}`;
         const t = r.machineryId ? truckById.get(r.machineryId) : undefined;
-        return t?.plate || t?.serial || '—';
+        return placaDeCamion(t);
       };
 
       // Un encabezado común que deja constancia de con qué filtros se sacó, para
@@ -1240,10 +1646,15 @@ export default function ViajesCamionesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadTrucks();
-    if (canWrite) await loadMisViajes();
-    if (canFull) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
-    setRefreshing(false);
+    try {
+      await loadTrucks();
+      if (canWrite) await loadMisViajes();
+      if (canFull) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
+    } finally {
+      // Sin el `finally`, una sola consulta colgada (el wifi del patio otra vez)
+      // dejaba el "deslizar para refrescar" girando hasta cerrar la app.
+      setRefreshing(false);
+    }
   };
 
   // ── Sin acceso ───────────────────────────────────────────────────────────
@@ -1283,6 +1694,10 @@ export default function ViajesCamionesScreen() {
               quien supervisa: un viaje contra un camión anotado a mano no se
               puede confundir con uno de la flota al revisar o al cobrar. */}
           {row.fueraCatalogo ? <Badge label="🚚 fuera de catálogo" tone="warning" /> : null}
+          {/* ⭐ Un viaje que cargó la oficina NO se puede confundir con uno que
+              un listero tocó en el patio: el reporte tiene que poder responder
+              «¿esto lo contó alguien, o lo cuadraron después?». */}
+          {esCargaManual(row.note) ? <Badge label="✍️ cargado a mano" tone="warning" /> : null}
           {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
         </View>
         {row.stuck && row.stuckError ? (
@@ -1295,34 +1710,94 @@ export default function ViajesCamionesScreen() {
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
         </Text>
         {isEditing ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
-            <TextInput
-              value={editing.hh}
-              onChangeText={(t) => setEditing((e) => (e ? { ...e, hh: t.replace(/[^0-9]/g, '').slice(0, 2) } : e))}
-              keyboardType="number-pad"
-              maxLength={2}
-              style={[styles.timeInput]}
-            />
-            <Text style={{ color: colors.text, fontWeight: '800' }}>:</Text>
-            <TextInput
-              value={editing.mm}
-              onChangeText={(t) => setEditing((e) => (e ? { ...e, mm: t.replace(/[^0-9]/g, '').slice(0, 2) } : e))}
-              keyboardType="number-pad"
-              maxLength={2}
-              style={[styles.timeInput]}
-            />
-            <TouchableOpacity onPress={saveEdit} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.primary }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>Guardar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={cancelEdit} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
-              <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
-            </TouchableOpacity>
+          <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
+            {/* ⭐ LA FECHA SOLO LA MUEVE LA JEFA. Para el listero no aparece
+                siquiera: él corrige la hora de un viaje que acaba de dar, y
+                dejarle mover el día sería darle una manera silenciosa de sacar
+                trabajo de la jornada que se le está revisando. */}
+            {canFull ? (
+              <View>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>DÍA (JORNADA DE 7AM A 7AM)</Text>
+                <DateField
+                  value={editing.fecha}
+                  onChange={(iso) => setEditing((e) => (e ? { ...e, fecha: iso } : e))}
+                  maxISO={caracasBusinessToday()}
+                />
+              </View>
+            ) : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>HORA</Text>
+              <TextInput
+                value={editing.hh}
+                onChangeText={(t) => setEditing((e) => (e ? { ...e, hh: t.replace(/[^0-9]/g, '').slice(0, 2) } : e))}
+                keyboardType="number-pad"
+                maxLength={2}
+                style={[styles.timeInput]}
+              />
+              <Text style={{ color: colors.text, fontWeight: '800' }}>:</Text>
+              <TextInput
+                value={editing.mm}
+                onChangeText={(t) => setEditing((e) => (e ? { ...e, mm: t.replace(/[^0-9]/g, '').slice(0, 2) } : e))}
+                keyboardType="number-pad"
+                maxLength={2}
+                style={[styles.timeInput]}
+              />
+            </View>
+            {canFull ? (
+              <>
+                <View>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>CHOFER / RESPONSABLE</Text>
+                  <TextInput
+                    value={editing.chofer}
+                    onChangeText={(t) => setEditing((e) => (e ? { ...e, chofer: t } : e))}
+                    placeholder="Sin chofer anotado"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input]}
+                  />
+                </View>
+                {listeros.length > 0 ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>LO REGISTRÓ</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                      {listeros.map((l) => {
+                        const activo = editing.listeroId === l.id;
+                        return (
+                          <TouchableOpacity
+                            key={l.id}
+                            onPress={() => setEditing((e) => (e ? { ...e, listeroId: l.id } : e))}
+                            style={{
+                              paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                              borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                              backgroundColor: activo ? colors.primary : colors.surface,
+                            }}
+                          >
+                            <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                              👤 {l.full_name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <TouchableOpacity onPress={saveEdit} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.primary }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>Guardar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={cancelEdit} style={{ paddingHorizontal: spacing.sm, paddingVertical: 8 }}>
+                <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
           <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
             {opts.canEdit ? (
               <TouchableOpacity onPress={() => startEdit(row)}>
-                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12.5 }}>✏️ Editar hora</Text>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12.5 }}>
+                  {canFull ? '✏️ Editar' : '✏️ Editar hora'}
+                </Text>
               </TouchableOpacity>
             ) : null}
             {opts.canDelete ? (
@@ -1407,13 +1882,20 @@ export default function ViajesCamionesScreen() {
             <Text style={{ color: colors.muted, fontSize: 13 }}>
               👤 Chofer del turno {selectedShift === 'night' ? '🌙 noche' : '☀️ día'}: {choferLoading ? 'cargando…' : (selectedChofer ?? 'sin asignar')}
             </Text>
+            {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
+                cierra el buscador y toca Registrar de una —su trabajo es un
+                toque por camión, lo va a hacer siempre—; si la consulta del
+                chofer no había vuelto, el viaje se guardaba con el chofer VACÍO
+                y después la pantalla pintaba el nombre como si todo hubiera
+                salido bien. Es la explicación más probable de los viajes sin
+                chofer en el reporte de la jefa. */}
             <TouchableOpacity
               onPress={doRegistrarViaje}
-              disabled={registering}
-              style={[styles.registerBtn, { opacity: registering ? 0.6 : 1 }]}
+              disabled={registering || choferLoading}
+              style={[styles.registerBtn, { opacity: registering || choferLoading ? 0.6 : 1 }]}
             >
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 15 }}>
-                {registering ? 'Registrando…' : '🚛 Registrar viaje'}
+                {registering ? 'Registrando…' : choferLoading ? 'Buscando el chofer…' : '🚛 Registrar viaje'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1618,6 +2100,186 @@ export default function ViajesCamionesScreen() {
             )}
           </Card>
 
+          {/* ── CARGAR VIAJES A MANO (solo nivel full) ───────────────────────
+              Lo que faltaba para poder cuadrar un día pasado: el botón del
+              listero sella la hora del toque, así que nunca sirvió para agregar
+              un viaje de anteayer. Borrar ya se podía; agregar, no. */}
+          <Card>
+            <SectionTitle>✍️ Cargar viajes a mano</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              Para completar un día que quedó incompleto. Los viajes quedan marcados
+              como «cargado a mano» para que se distingan de los que se anotaron en el patio.
+            </Text>
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>CAMIÓN</Text>
+            {cargaTruck ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', flexShrink: 1 }} numberOfLines={2}>
+                  🚜 {cargaTruck.code}
+                  {cargaTruck.plate ? ` · ${cargaTruck.plate}` : ''}
+                  {` · ${ESTADO_CONTEO_META[truckEstadoConteo(cargaTruck)].icon} ${ESTADO_CONTEO_META[truckEstadoConteo(cargaTruck)].label}`}
+                </Text>
+                <TouchableOpacity onPress={() => { setCargaTruckId(null); setCargaQuery(''); }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12.5 }}>Cambiar</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ marginBottom: spacing.sm }}>
+                <TextInput
+                  value={cargaQuery}
+                  onChangeText={setCargaQuery}
+                  placeholder="🔎 Escribe el código, placa o serial…"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input]}
+                />
+                {cargaQuery.trim() && cargaFiltrados.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Ningún camión coincide.</Text>
+                ) : null}
+                {cargaFiltrados.length > 0 ? (
+                  <ScrollView style={{ maxHeight: 200, marginTop: spacing.xs }} nestedScrollEnabled>
+                    {cargaFiltrados.map((t) => (
+                      <TouchableOpacity
+                        key={t.id}
+                        onPress={() => { setCargaTruckId(t.id); setCargaQuery(''); }}
+                        style={{ paddingVertical: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>🚜 {t.code}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {[t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null, t.companyName].filter(Boolean).join(' · ')}
+                        </Text>
+                        {/* El estado se VE, pero no impide nada: en este módulo
+                            un viaje observado gana sobre la anotación de estado. */}
+                        <Text style={{ color: ESTADO_CONTEO_META[truckEstadoConteo(t)].color, fontSize: 11, fontWeight: '700' }}>
+                          {ESTADO_CONTEO_META[truckEstadoConteo(t)].icon} {ESTADO_CONTEO_META[truckEstadoConteo(t)].label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                ) : null}
+              </View>
+            )}
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>DÍA DEL VIAJE (JORNADA DE 7AM A 7AM)</Text>
+            <DateField value={cargaFecha} onChange={setCargaFecha} maxISO={caracasBusinessToday()} />
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Es el día de trabajo, no el del calendario: un viaje de la madrugada
+              pertenece al día que arrancó la mañana anterior.
+            </Text>
+
+            {/* TURNO (31-ago-2026). El turno NO se guarda aparte: se DEDUCE de la
+                hora (ver la cabecera de src/lib/viajesTurno.ts), así que estos dos
+                botones no son un campo más — son un atajo que PONE la hora de
+                arranque del turno elegido. Y el que se ve marcado sale de la hora
+                que hay escrita, así que siempre dice la verdad aunque después se
+                teclee otra cosa a mano. */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>TURNO</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {(['day', 'night'] as Turno[]).map((t) => {
+                const on = turnoDeHora(normalizarHora(cargaHH, cargaMM).hh) === t;
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => { setCargaHH(pad2(HORA_INICIO_TURNO[t].hh)); setCargaMM(pad2(HORA_INICIO_TURNO[t].mm)); }}
+                    style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                  >
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>
+                      {TURNO_ICONO[t]} {TURNO_NOMBRE[t]}
+                    </Text>
+                    <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 10, marginTop: 1 }}>{TURNO_HORARIO[t]}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Tocar un turno pone su hora de arranque. Si prefieres una hora exacta,
+              escríbela abajo: el turno se ajusta solo a lo que diga la hora.
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>HORA DEL PRIMERO</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                  <TextInput
+                    value={cargaHH}
+                    onChangeText={(t) => setCargaHH(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    style={[styles.timeInput]}
+                  />
+                  <Text style={{ color: colors.text, fontWeight: '800' }}>:</Text>
+                  <TextInput
+                    value={cargaMM}
+                    onChangeText={(t) => setCargaMM(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    style={[styles.timeInput]}
+                  />
+                </View>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿CUÁNTOS VIAJES?</Text>
+                <TextInput
+                  value={cargaCantidad}
+                  onChangeText={(t) => setCargaCantidad(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  style={[styles.input]}
+                />
+              </View>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Si cargas más de uno, se separan {SEPARACION_MIN} minutos a partir de esa hora
+              (máximo {MAX_CARGA} por vez). Después le puedes corregir la hora a cada uno.
+            </Text>
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>CHOFER / RESPONSABLE</Text>
+            <TextInput
+              value={cargaChofer}
+              onChangeText={setCargaChofer}
+              placeholder="Opcional"
+              placeholderTextColor={colors.muted}
+              style={[styles.input]}
+            />
+
+            {listeros.length > 0 ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                  A NOMBRE DE (por defecto, tú)
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                  {[{ id: '', full_name: `Yo (${listeroName})` }, ...listeros.filter((l) => l.id !== uid)].map((l) => {
+                    const activo = cargaListeroId === l.id;
+                    return (
+                      <TouchableOpacity
+                        key={l.id || '__yo__'}
+                        onPress={() => setCargaListeroId(l.id)}
+                        style={{
+                          paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                          borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                          backgroundColor: activo ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          👤 {l.full_name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : null}
+
+            <TouchableOpacity
+              onPress={doCargarViajes}
+              disabled={cargaBusy}
+              style={[styles.registerBtn, { marginTop: spacing.md, opacity: cargaBusy ? 0.6 : 1 }]}
+            >
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>
+                {cargaBusy ? 'Cargando…' : '✍️ Cargar viajes'}
+              </Text>
+            </TouchableOpacity>
+          </Card>
+
           <Card>
             <SectionTitle>⚠️ Camiones sin viaje reciente</SectionTitle>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
@@ -1707,6 +2369,33 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
+            {/* ⭐ BUSCADOR DE FILTROS. Con treinta camiones que se llaman todos
+                "CAMION VOLTEO TORONTO", buscar a ojo no es viable: acá se
+                escribe la placa (o el listero, o la empresa) y quedan las que
+                coinciden. Lo marcado NO se esconde — ver `filtrarOpciones`. */}
+            <View style={{ marginTop: spacing.sm }}>
+              <TextInput
+                value={busqFiltros}
+                onChangeText={setBusqFiltros}
+                placeholder="🔎 Buscar camión por placa, listero o empresa…"
+                placeholderTextColor={colors.muted}
+                style={[styles.input]}
+                autoCorrect={false}
+              />
+              {busqFiltros.trim() ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, flexShrink: 1 }}>
+                    {ocultasPorBusqueda > 0
+                      ? `${ocultasPorBusqueda} opción(es) ocultas por la búsqueda. Las que tengas marcadas siguen a la vista.`
+                      : 'Ninguna opción quedó fuera de la búsqueda.'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setBusqFiltros('')}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+
             {/* ⭐ TURNO. Va primero de los cuatro filtros porque es el corte más
                 grueso: día o noche parte la jornada en dos mitades, y las otras
                 tres preguntas (quién, de qué empresa, cuál camión) casi siempre
@@ -1745,13 +2434,13 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {listeroOptions.length > 1 || filterListeroSel.size > 0 ? (
+            {listeroOptionsVisibles.length > 0 && (listeroOptions.length > 1 || filterListeroSel.size > 0) ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   LISTERO{filterListeroSel.size > 0 ? ` (${filterListeroSel.size})` : ' (todos)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                  {listeroOptions.map((o) => {
+                  {listeroOptionsVisibles.map((o) => {
                     const on = filterListeroSel.has(o.id);
                     return (
                       <TouchableOpacity
@@ -1768,13 +2457,13 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {companyOptions.length > 1 || filterCompanySel.size > 0 ? (
+            {companyOptionsVisibles.length > 0 && (companyOptions.length > 1 || filterCompanySel.size > 0) ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   EMPRESA{filterCompanySel.size > 0 ? ` (${filterCompanySel.size})` : ' (todas)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                  {companyOptions.map((o) => {
+                  {companyOptionsVisibles.map((o) => {
                     const on = filterCompanySel.has(o.id);
                     return (
                       <TouchableOpacity
@@ -1791,13 +2480,13 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {truckOptions.length > 1 || filterTruckSel.size > 0 ? (
+            {truckOptionsVisibles.length > 0 && (truckOptions.length > 1 || filterTruckSel.size > 0) ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
                   CAMIÓN{filterTruckSel.size > 0 ? ` (${filterTruckSel.size})` : ' (todos)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                  {truckOptions.map((o) => {
+                  {truckOptionsVisibles.map((o) => {
                     const on = filterTruckSel.has(o.id);
                     return (
                       <TouchableOpacity
@@ -1955,11 +2644,11 @@ export default function ViajesCamionesScreen() {
             </View>
 
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>META DE VIAJES DIARIOS POR CAMIÓN</Text>
-            {allTrucks.length === 0 ? (
+            {camionesEnObra.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
             ) : (
               <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                {allTrucks.map((t) => (
+                {camionesEnObra.map((t) => (
                   <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
