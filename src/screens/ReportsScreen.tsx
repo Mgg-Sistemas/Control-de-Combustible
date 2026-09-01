@@ -38,6 +38,12 @@ import {
 import { machineLabel } from '../lib/machineLabel';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
+// LOS TRES INFORMES de Ubicaciones tácticas y la regla de quién es "nuestro".
+// Vive en su propia librería para poder probarla de verdad; ver el archivo.
+import {
+  ALCANCES, alcanceInfoDe, grupoDeEmpresa, nombreEmpresa, ordenarGrupos, repartirPorAlcance,
+  type AlcanceEmpresas,
+} from '../lib/empresasPropias';
 import { normalizeDept } from '../lib/personal';
 import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
@@ -558,6 +564,9 @@ export default function ReportsScreen({ route }: any) {
   const [conteoPreview, setConteoPreview] = useState(false);
   // Ubicaciones tácticas: ON = incluye personal (operadores por máquina, coordinadores/inspectores por zona).
   const [tacConPersonal, setTacConPersonal] = useState(false);
+  // Ubicaciones tácticas: cuál de los TRES informes se descarga. Arranca en el de
+  // siempre para que quien no toque nada siga sacando el mismo papel de ayer.
+  const [tacAlcance, setTacAlcance] = useState<AlcanceEmpresas>('juntas');
   // Filtro por ZONA del conteo: '__all__' (todas), un nombre de zona, o 'Sin zona'.
   const [conteoZona, setConteoZona] = useState<string>('__all__');
   // Filtro por EMPRESA del conteo (multi-selección; vacío = TODAS). Pedido del cliente
@@ -1854,7 +1863,7 @@ export default function ReportsScreen({ route }: any) {
   // conPersonal = incluye personal (operadores/inspectores). ficticio = versión
   // SIMULADA: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
-  const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
+  const downloadTacticalPdf = async (conPersonal = false, ficticio = false, alcance: AlcanceEmpresas = 'juntas') => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, tipo, marca, modelo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
@@ -1865,7 +1874,15 @@ export default function ReportsScreen({ route }: any) {
     // (GPS real vs Este/Oeste al azar).
     // TODAS las máquinas disponibles = operational != false (239): incluye las que están
     // esperando instrucciones. Solo se excluyen las RETIRADAS (operational=false).
-    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
+    const universo = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
+    // ⭐ EL ALCANCE SE APLICA ACÁ Y EN NINGÚN OTRO LADO. Todo lo de abajo —el
+    //    resumen por empresa, el de tipo por zona, el conteo por clasificación,
+    //    el de "a cargo de", las pick-up y el listado— sale de `list`. Filtrando
+    //    en un solo punto, los totales de arriba SIEMPRE cuadran con la lista de
+    //    abajo. Si se filtrara solo el listado, el papel diría "296 equipos"
+    //    arriba y listaría 180, que es como se pierde la confianza en un reporte.
+    const soloPropias = alcance === 'propias';
+    const { list, empresasDentro, empresasFuera } = repartirPorAlcance(universo, alcance, nombreEmpresa);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1918,13 +1935,22 @@ export default function ReportsScreen({ route }: any) {
     const esPickup = (m: any) => /pick|camioneta/i.test(equipCategory(m.code)) || /pick|camioneta/i.test(String(m.clasificacion ?? ''));
     const pickupMachines = list.filter(esPickup);
     const maqList = list.filter((m) => !esPickup(m));
-    // Agrupar por EMPRESA en DOS grupos: LICCIONE (sus máquinas) y GOLDEN TOUCH (las de
-    // Golden + TODAS las demás empresas). Liccione se reconoce por el nombre de la empresa
-    // supervisora; cualquier otra (o sin empresa) cae en Golden Touch.
-    const grupoEmpresaDe = (m: any) => (/liccion/i.test(companyOf(m)) ? 'LICCIONE' : 'GOLDEN TOUCH');
+    // Cómo se agrupa, según el informe que se pidió:
+    //
+    //  - `porEmpresa` → cada empresa con su nombre de verdad. Una máquina de La
+    //    Veglia sale bajo "LA VEGLIA".
+    //  - los otros dos → los DOS sacos de siempre: LICCIONE (las suyas) y GOLDEN
+    //    TOUCH (las de Golden + todas las demás). En `propias` las demás ya no
+    //    están, así que ese saco trae solo Golden Touch de verdad.
+    const grupoEmpresaDe = (m: any) => grupoDeEmpresa(companyOf(m), alcance);
     const groups = new Map<string, any[]>();
     list.forEach((m) => { const e = grupoEmpresaDe(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); }); // TODA la maquinaria (= Catálogo)
-    const enteNames = ['LICCIONE', 'GOLDEN TOUCH'].filter((g) => groups.has(g)); // Liccione primero; Golden Touch (el resto) después
+    // El ORDEN de las secciones, y también el del resumen de arriba: las nuestras
+    // primero (Liccione, Golden Touch), después las subcontratadas de la A a la Z,
+    // y "Sin empresa" siempre al final — es un cajón de sastre, no una empresa.
+    const enteNames = alcance === 'porEmpresa'
+      ? ordenarGrupos([...groups.keys()])
+      : ['LICCIONE', 'GOLDEN TOUCH'].filter((g) => groups.has(g));
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
     const sortMaq = (a: any, b: any) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? '');
     // Operadores: 2 por máquina de SOS La Guaira (1 turno día + 1 turno noche), en
@@ -2000,7 +2026,7 @@ export default function ReportsScreen({ route }: any) {
     countByCo.forEach((v) => { coTot.este += v.este; coTot.oeste += v.oeste; });
     const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
       <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th><th style="width:90px;text-align:right">🟢 Este</th><th style="width:90px;text-align:right">🟠 Oeste</th></tr></thead>
-      <tbody>${['LICCIONE', 'GOLDEN TOUCH'].filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tbody>${enteNames.filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${coTot.este}</td><td style="text-align:right;font-weight:800">${coTot.oeste}</td></tr></tfoot></table>`;
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
@@ -2132,6 +2158,25 @@ export default function ReportsScreen({ route }: any) {
          <tbody>${[...depTot.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([d, n]) => `<tr><td>${esc(d)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin personal</td></tr>'}</tbody>
          <tfoot><tr><td style="font-weight:800">TOTAL PERSONAL</td><td style="text-align:right;font-weight:800">${activeEmps.length}</td></tr></tfoot></table>`
       : '';
+    // ── EL ALCANCE, EN PALABRAS ────────────────────────────────────────────
+    const alcanceInfo = alcanceInfoDe(alcance);
+    const tituloMaquinaria = alcance === 'porEmpresa'
+      ? 'Maquinaria por empresa'
+      : `Maquinaria por empresa (${enteNames.join(' / ') || 'sin empresas'})`;
+    // ⭐ EL PIE QUE DICE QUÉ ENTRÓ Y QUÉ QUEDÓ FUERA.
+    //
+    //    Es la red de seguridad de toda la idea. "Propia" se decide por el NOMBRE
+    //    de la empresa (ver RE_EMPRESA_PROPIA), y ese nombre lo escribió una
+    //    persona en el catálogo: si alguna está cargada como "GOLDENTOUCH" junta,
+    //    o con un error de tipeo, caería en el saco equivocado sin que nadie lo
+    //    note. Imprimiéndolo, se ve en el papel y no en una reunión.
+    const alcanceHtml = `<div class="sect">🧾 Alcance de este informe</div>
+      <div class="box">
+        <div class="kv"><b>${esc(alcanceInfo.largo)}.</b></div>
+        <div class="kv"><b>Empresas incluidas (${empresasDentro.length}):</b> ${esc(empresasDentro.join(' · ')) || '—'}</div>
+        ${empresasFuera.length ? `<div class="kv"><b>Empresas dejadas fuera (${empresasFuera.length}):</b> ${esc(empresasFuera.join(' · '))}</div>` : ''}
+        <div class="kv">Equipos en este informe: <b>${list.length}</b>${soloPropias ? ` de ${universo.length} de la flota` : ''}.</div>
+      </div>`;
     const body = `
       <style>
         /* Estilos de la plantilla oficial del Plan: cabecera azul marino, filas
@@ -2154,15 +2199,19 @@ export default function ReportsScreen({ route }: any) {
       ${resumenCoHtml}
       ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
-      <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
+      <div class="sect">🏢 ${esc(tituloMaquinaria)}</div>
       ${maquinariaHtml}
-      ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
+      ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}
+      ${alcanceHtml}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
-    const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
-    const fileName = `Reporte - Inventario de maquinaria${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    // ⭐ EL ALCANCE VA EN EL SUBTÍTULO **Y** EN EL NOMBRE DEL ARCHIVO. Son tres
+    //    papeles que se parecen mucho: sin esto, tres PDF con el mismo nombre se
+    //    pisan en la carpeta de descargas y nadie sabe cuál está mirando.
+    const subtitle = `${subBase} · ${alcanceInfo.largo}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
+    const fileName = `Reporte - Inventario de maquinaria (${alcanceInfo.archivo})${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
     // Membrete del Plan Venezuela Renace. "Empresa" y "Responsable" van como
-    // líneas en blanco (igual que la plantilla oficial): el reporte cubre a
-    // LICCIONE y GOLDEN TOUCH a la vez, así que quien lo imprime las completa.
+    // líneas en blanco (igual que la plantilla oficial): el reporte puede cubrir
+    // a varias empresas a la vez, así que quien lo imprime las completa.
     await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', subtitle, body), fileName);
   };
 
@@ -3038,11 +3087,35 @@ export default function ReportsScreen({ route }: any) {
                 </Text>
                 <Switch value={tacConPersonal} onValueChange={setTacConPersonal} />
               </View>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
+              {/* LOS TRES INFORMES que pidió el cliente (01-sep-2026), con UN SOLO
+                  botón. El alcance se escoge acá y vale igual para el real, el
+                  simulado y el "con personal": tres botones más habrían dejado
+                  seis en la misma tarjeta y nadie encuentra nada. */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ EMPRESAS SALEN?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                {ALCANCES.map((a) => {
+                  const on = tacAlcance === a.id;
+                  return (
+                    <TouchableOpacity
+                      key={a.id}
+                      onPress={() => setTacAlcance(a.id)}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{a.chip}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {/* Que diga en criollo qué va a salir ANTES de descargarlo: son tres
+                  papeles muy parecidos y equivocarse cuesta una impresión. */}
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                {ALCANCES.find((a) => a.id === tacAlcance)?.largo}. Sale igual en el simulado.
+              </Text>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, false, tacAlcance)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
               {/* Versión SIMULADA/ficticia: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para presentaciones). */}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true)}>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true, tacAlcance)}>
                 <Text style={{ color: colors.warning, fontWeight: '800' }}>🎭 Ubicaciones tácticas (SIMULADO){tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
               {/* Zona 100% real por GPS, igual que el Mapa: sin reparto 50/50 para las máquinas sin GPS. */}
