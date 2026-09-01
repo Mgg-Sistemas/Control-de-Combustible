@@ -103,17 +103,25 @@ async function freshToken(force = false): Promise<string | null> {
 // ("Edge Function returned a non-2xx status code"); el cuerpo real está en
 // `error.context` (un Response). Esto lo lee para mostrar la causa exacta.
 async function fnErrorMessage(error: any, data: any, fallback = 'No se pudo completar la operación.'): Promise<string> {
-  if (data?.error) return String(data.error);
+  // Un cuerpo vacío o "{}" NO es un mensaje útil: pasa cuando la Edge Function
+  // reenvió un error sin `.message` (p. ej. la BD bloquea el borrado por una FK).
+  // En ese caso devolvemos el fallback, nunca el críptico "{}".
+  const clean = (s: any): string => {
+    const t = String(s ?? '').trim();
+    return !t || t === '{}' || t === '[object Object]' ? '' : t;
+  };
+  if (clean(data?.error)) return clean(data.error);
   try {
     const ctx = error?.context;
     if (ctx && typeof ctx.clone === 'function') {
       const body = await ctx.clone().json().catch(() => null);
-      if (body?.error) return String(body.error);
+      if (clean(body?.error)) return clean(body.error);
+      if (clean(body?.message)) return clean(body.message);
       const txt = await ctx.clone().text().catch(() => '');
-      if (txt) return txt;
+      if (clean(txt)) return clean(txt);
     }
   } catch {}
-  return error?.message ?? fallback;
+  return clean(error?.message) || fallback;
 }
 
 // Llama a una Edge Function de administración con el token del admin. Si el token

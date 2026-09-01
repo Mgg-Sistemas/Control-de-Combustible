@@ -42,7 +42,13 @@ Deno.serve(async (req) => {
     if (action === 'delete') {
       if (id === who.user.id) return json({ error: 'No puedes eliminar tu propio usuario' }, 400);
       const { error } = await admin.auth.admin.deleteUser(id);
-      if (error) return json({ error: error.message }, 400);
+      if (error) {
+        // OJO: cuando la BD bloquea el borrado por una FK (p. ej. un listero con
+        // viajes), este error puede venir SIN `.message`, y `{ error: undefined }`
+        // se serializa como "{}". Se pone un mensaje claro de respaldo.
+        console.error('deleteUser failed', id, JSON.stringify(error));
+        return json({ error: error.message || 'No se pudo eliminar el usuario (puede tener registros que lo referencian).' }, 400);
+      }
       return json({ ok: true });
     }
 
