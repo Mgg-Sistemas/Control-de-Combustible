@@ -3,9 +3,21 @@
  *
  * Blinda `src/lib/machineService.ts`. Lo más importante que se prueba acá es LA
  * FRONTERA: guardar un servicio —y desde el 26-ago-2026 también EDITARLO— NO
- * puede escribir en `machinery` ni en `maintenance_requests`. Es un pedido explícito del cliente (18-ago-2026): los
+ * puede escribir en `machinery`. Pedido explícito del cliente (18-ago-2026): los
  * módulos del taller reciben los avisos pero no mueven el estado de las máquinas,
  * para que la acumulación de reportes pendientes no arrastre a la flota.
+ *
+ * ⚠️ LA FRONTERA SE MOVIÓ EL 01-sep-2026, y se movió a propósito. Hasta esa fecha
+ * también estaba prohibido tocar `maintenance_requests`, y eso dejaba dos botones
+ * del MISMO módulo con reglas opuestas: en «⏳ Averías» el botón «✓ Realizado»
+ * cerraba la avería, y en «🧾 Servicios» registrar el trabajo completo —con
+ * repuestos y fotos— no la cerraba. La regla nueva separa las dos cosas que
+ * estaban enredadas en una: **el taller manda sobre EL PAPEL, nunca sobre LA
+ * MÁQUINA.** Cerrar un reporte de hace meses no dice nada sobre si la máquina
+ * sirve hoy; lo que protegía el miedo del cliente era siempre la pared de
+ * `machinery`, y ESA sigue en pie y sin una sola grieta.
+ *
+ * Lo del papel se prueba aparte, en `scripts/test-servicio-averias.mjs`.
  *
  *   npm run test:servicio   (o: node scripts/test-servicio.mjs)
  */
@@ -907,8 +919,15 @@ const ANTES = {
   // La frontera, también en la pantalla.
   ok('⭐ la pantalla sigue sin escribir en `machinery`',
     !/from\('machinery'\)[\s\S]{0,80}\.(update|insert|delete)/.test(scr));
-  ok('⭐ la pantalla sigue sin escribir en `maintenance_requests`',
+  // ⭐ Desde el 01-sep-2026 la pantalla SÍ cierra la avería que el trabajo
+  //    atendió — pero SOLO a través de `cerrarAveriaPorServicio`, que lleva el
+  //    candado de "únicamente las pendientes" y escribe exactamente tres campos.
+  //    Un `.update` escrito a mano acá se saltaría las dos cosas, así que lo que
+  //    se prohíbe no es tocar la tabla: es tocarla POR FUERA de la librería.
+  ok('⭐ la pantalla NO le escribe a `maintenance_requests` por su cuenta',
     !/from\('maintenance_requests'\)[\s\S]{0,80}\.(update|insert|delete)/.test(scr));
+  ok('⭐ el cierre de la avería pasa por la librería',
+    /cerrarAveriaPorServicio\s*\(/.test(scr));
   // Los nombres se leen, nunca se escriben.
   ok('a `profiles` solo se le lee el nombre',
     !/from\('profiles'\)[\s\S]{0,80}\.(update|insert|delete)/.test(scr));
@@ -916,8 +935,16 @@ const ANTES = {
   // Si no hay nada que anotar, no se anota.
   ok('sin cambios no se escribe bitácora', /if \(!cambios\.length\)/.test(scr));
   // El aviso de "no quedó el rastro" no puede salir como un ✅.
+  //
+  // Se comprueba el COMPORTAMIENTO, no la forma exacta del código. La versión
+  // anterior exigía literalmente `if (re.avisoBitacora) return toast.error(`, y
+  // el 01-sep-2026 se cayó sola: al sumarse el aviso de "no se pudo cerrar la
+  // avería" los dos se juntaron en una lista (`avisos.join(' · ')`), que hace lo
+  // mismo y mejor. Una prueba que se rompe cuando el código MEJORA está mal
+  // escrita — lo que hay que blindar es que ese aviso nunca salga como éxito.
   ok('⭐ si no quedó el rastro se avisa como ERROR, no como éxito',
-    /if \(re\.avisoBitacora\) return toast\.error\(/.test(scr));
+    /avisoBitacora[\s\S]{0,200}?toast\.error\(/.test(scr)
+    && !/toast\.success\([^;]{0,200}avisoBitacora/.test(scr));
 }
 
 // ── 15.b) El SQL que hay que correr a mano ────────────────────────────────

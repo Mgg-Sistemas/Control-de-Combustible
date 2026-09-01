@@ -3,11 +3,19 @@
 // hizo a una máquina, con el formato del formulario en papel del cliente
 // («Ficha técnica Jumbo con martillo 0488»).
 //
-// ⚠️ LA FRONTERA. Esta pantalla NO escribe en `machinery` ni en
-//    `maintenance_requests`. Registrar un servicio deja el registro y nada más:
-//    no pone la máquina operativa ni cierra la avería. Quien saca una máquina de
-//    averiada es el coordinador por QR o Control de Maquinaria, que son los que
-//    de verdad la ven. Así una pila de reportes sin cerrar no arrastra a la flota.
+// ⚠️ LA FRONTERA. Esta pantalla NO escribe NUNCA en `machinery`. Registrar un
+//    servicio no pone la máquina operativa ni la saca de averiada: eso lo
+//    deciden el coordinador por QR y Control de Maquinaria, que son los que de
+//    verdad la ven. Así una pila de reportes sin cerrar no arrastra a la flota.
+//
+//    Lo que SÍ puede hacer desde el 01-sep-2026 es cerrar EL PAPEL: la avería
+//    (`maintenance_requests`). Son dos preguntas distintas —«¿alguien atendió
+//    este reporte?» y «¿la máquina sirve hoy?»— y hasta ahora el módulo no podía
+//    contestar ni la primera: quedaban dos botones del MISMO módulo con reglas
+//    opuestas, en «⏳ Averías» el «✓ Realizado» cerraba, y aquí registrar el
+//    trabajo completo, con repuestos y fotos, no. Y siempre a través de
+//    `cerrarAveriaPorServicio`, nunca con un `.update` escrito a mano acá: esa
+//    función es la que sabe no pisar una avería que ya estaba cerrada.
 //
 //    Por eso cada servicio enlazado a una avería muestra LAS DOS VERDADES juntas
 //    ("atendida en taller" / "el sistema la sigue viendo pendiente"): no son
@@ -34,6 +42,7 @@ import {
   quienLoHizo, ServiceOrigen, ServicePartInput,
   resolverIntervenciones, etiquetaIntervencion, validarTipoIntervencion, claveDesdeTexto,
   editarServicio, cambiosServicio, resumenCambios, filaServicio, Cambio,
+  cerrarAveriaPorServicio,
 } from '../lib/machineService';
 import { useAuth } from '../context/AuthContext';
 import { generateMachineServiceReport, generateServicioHojaPdf, MaquinaFicha, ServicioImprimible } from '../lib/machineServiceReport';
@@ -204,6 +213,17 @@ export default function ServicioRegistroTab(
   const [problema, setProblema] = useState('');
   const [acciones, setAcciones] = useState('');
   const [averiaId, setAveriaId] = useState('');
+  /**
+   * ¿Al guardar, la avería enlazada queda dada por atendida?
+   *
+   * Sale MARCADA porque es lo que pasa casi siempre: si el mecánico se sentó a
+   * llenar la hoja de un trabajo, ese trabajo se hizo. Se desmarca para el caso
+   * contrario, que también existe: la máquina volvió con el mismo problema y el
+   * reporte tiene que seguir vivo hasta que de verdad se resuelva.
+   *
+   * ⚠️ Marcarla NO toca el estado de la máquina. Cierra el PAPEL y nada más.
+   */
+  const [cerrarAveria, setCerrarAveria] = useState(true);
   const [fotos, setFotos] = useState<string[]>([]);
   const [renglones, setRenglones] = useState<Renglon[]>([{ ...RENGLON_VACIO }]);
   const [pickMaquinaForm, setPickMaquinaForm] = useState(false);
@@ -314,16 +334,50 @@ export default function ServicioRegistroTab(
     return true;
   }), [ordenes, fMaquina, fDesde, fHasta]);
 
-  // Averías pendientes de la máquina elegida, para el desplegable del formulario.
+  /**
+   * Las averías de la máquina elegida, para el desplegable del formulario.
+   *
+   * ⭐ TAMBIÉN LAS YA CERRADAS, y no es un descuido. Antes esta lista solo traía
+   *    las `pendiente`, y eso dejaba trabajo huérfano para siempre: el orden real
+   *    del taller es que el inspector cierra la avería en campo el MARTES y el
+   *    mecánico se sienta a llenar la hoja el MIÉRCOLES — para entonces la avería
+   *    ya no salía en el desplegable, la hoja se guardaba sin enlazar y nadie
+   *    podía volver a saber qué reporte había atendido ese trabajo.
+   *
+   *    Enlazar una avería cerrada no la reabre ni le cambia quién la cerró:
+   *    `cerrarAveriaPorServicio` solo escribe sobre las pendientes.
+   *
+   * El orden importa tanto como el contenido: primero las pendientes (que es lo
+   * que el mecánico viene a buscar el 99% de las veces) y dentro de cada grupo
+   * las más nuevas arriba, para que las cerradas de hace meses no empujen hacia
+   * abajo el reporte de ayer.
+   */
   const averiasDe = useMemo(
-    () => reqs.filter((r) => r.machinery_id === maquinaId && r.status === 'pendiente'),
+    () => reqs
+      .filter((r) => r.machinery_id === maquinaId)
+      .sort((a, b) =>
+        Number(a.status !== 'pendiente') - Number(b.status !== 'pendiente')
+        || String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''))
+      ),
     [reqs, maquinaId]
   );
+
+  /**
+   * La avería que está elegida ahora mismo, y si todavía está pendiente.
+   *
+   * De aquí sale si la casilla «dar por atendida» se puede tocar: sobre una
+   * avería que YA está cerrada no hay nada que cerrar, así que la casilla sale
+   * apagada y deshabilitada en vez de prometer algo que no va a pasar.
+   */
+  const averiaSel = useMemo(() => (averiaId ? reqById.get(averiaId) : undefined), [averiaId, reqById]);
+  const averiaSelPendiente = averiaSel?.status === 'pendiente';
+  /** ¿Este guardado va a cerrar el papel? Lo miran los tres caminos de `guardar`. */
+  const vaACerrarAveria = !!averiaId && cerrarAveria && averiaSelPendiente;
 
   const limpiarForm = () => {
     setFecha(todayISO()); setMaquinaId(''); setOrigen('interno');
     setTecnico(''); setProveedor(''); setIntervs([]);
-    setProblema(''); setAcciones(''); setAveriaId('');
+    setProblema(''); setAcciones(''); setAveriaId(''); setCerrarAveria(true);
     setFotos([]); setRenglones([{ ...RENGLON_VACIO }]);
     setFormError(null);
     setEditandoId(null);
@@ -340,6 +394,11 @@ export default function ServicioRegistroTab(
     setProblema(o.problem ?? '');
     setAcciones(o.work_done ?? '');
     setAveriaId(o.maintenance_request_id ?? '');
+    // La casilla arranca marcada también al editar: el caso que trae aquí a la
+    // gente es justamente el de la hoja que se guardó sin enlazar la avería, y
+    // se vuelve a abrir para enlazarla. Si la avería ya está cerrada, la casilla
+    // se apaga sola (`averiaSelPendiente`) y no hay nada que pisar.
+    setCerrarAveria(true);
     setFotos((o.photos ?? []).slice());
     // Los repuestos, en su orden, más el renglón vacío del final que el
     // formulario siempre tiene para poder agregar otro sin tocar nada.
@@ -352,6 +411,25 @@ export default function ServicioRegistroTab(
     setFormError(null);
     setEditandoId(o.id);
     setFormOpen(true);
+  };
+
+  /**
+   * Da por atendida la avería enlazada, si el usuario dejó marcada la casilla.
+   * Devuelve el aviso que hay que decir en voz alta, o `null` si todo bien.
+   *
+   * ⚠️ NUNCA DESHACE NADA. Cuando esto corre, el servicio YA está guardado.
+   *    Si el cierre falla, el trabajo se queda registrado igual y lo único que
+   *    pasa es que la avería sigue pendiente — y se dice, no se disimula.
+   *    Devolver el registro del trabajo por no haber podido cerrar un reporte
+   *    sería cambiar un problema chico por uno grande: la hoja tiene repuestos,
+   *    fotos y un texto que nadie va a volver a escribir igual.
+   */
+  const cerrarPapelSiTocaba = async (): Promise<string | null> => {
+    if (!vaACerrarAveria) return null;
+    const { error } = await cerrarAveriaPorServicio(supabase as any, averiaId, uid);
+    return error
+      ? `El trabajo QUEDÓ REGISTRADO, pero la avería no se pudo cerrar y sigue pendiente: ${error}`
+      : null;
   };
 
   const guardar = async () => {
@@ -370,59 +448,90 @@ export default function ServicioRegistroTab(
     if (problemaTxt) return setFormError(problemaTxt);
 
     setBusy(true);
-    const partes: ServicePartInput[] = renglones.map((r) => ({
-      quantity: r.quantity, description: r.description, estado: r.estado,
-    }));
+    /**
+     * ⚠️ DE AQUÍ HASTA EL `finally` VA TODO ADENTRO DEL `try`, Y NO ES ADORNO.
+     *
+     * `busy` deshabilita los botones del pie del formulario. Antes los tres
+     * `setBusy(false)` estaban sueltos en los caminos normales, así que
+     * cualquier reventón en el medio —la red que se cae a mitad del `await`, un
+     * `null` inesperado— dejaba el bloqueo puesto PARA SIEMPRE: el encargado
+     * quedaba encerrado en la ventana, sin poder guardar ni cancelar, con todo
+     * lo que había escrito adentro, y la única salida era recargar la app y
+     * volver a llenar la hoja completa. Con el `finally`, pase lo que pase el
+     * bloqueo se levanta y por lo menos se puede volver a intentar o salir.
+     */
+    try {
+      const partes: ServicePartInput[] = renglones.map((r) => ({
+        quantity: r.quantity, description: r.description, estado: r.estado,
+      }));
 
-    // ── EDITANDO uno que ya existe ──────────────────────────────────────────
-    if (editandoId) {
-      const original = ordenes.find((x) => x.id === editandoId);
-      // El «qué cambió» se calcula comparando las DOS FILAS tal como van a la
-      // base, no los estados de la pantalla: así un espacio de más al final de
-      // un texto no aparece como un cambio de verdad.
-      const cambios = cambiosServicio({
-        antes: original as any,
-        despues: filaServicio(inp),
-        repuestosAntes: (original?.parts ?? []).slice().sort((a, b) => a.position - b.position),
-        repuestosDespues: partes,
-        nombres: {
-          maquina: (id) => etiquetaMaquina(machById.get(id)) || id.slice(0, 8),
-          intervencion: (k) => etiquetaIntervencion(k, tiposParaEtiquetar),
-          averia: (id) => {
-            const r0 = reqById.get(id);
-            return r0 ? `${r0.material}${r0.notes ? ` · ${r0.notes}` : ''}` : id.slice(0, 8);
+      // ── EDITANDO uno que ya existe ────────────────────────────────────────
+      if (editandoId) {
+        const original = ordenes.find((x) => x.id === editandoId);
+        // El «qué cambió» se calcula comparando las DOS FILAS tal como van a la
+        // base, no los estados de la pantalla: así un espacio de más al final de
+        // un texto no aparece como un cambio de verdad.
+        const cambios = cambiosServicio({
+          antes: original as any,
+          despues: filaServicio(inp),
+          repuestosAntes: (original?.parts ?? []).slice().sort((a, b) => a.position - b.position),
+          repuestosDespues: partes,
+          nombres: {
+            maquina: (id) => etiquetaMaquina(machById.get(id)) || id.slice(0, 8),
+            intervencion: (k) => etiquetaIntervencion(k, tiposParaEtiquetar),
+            averia: (id) => {
+              const r0 = reqById.get(id);
+              return r0 ? `${r0.material}${r0.notes ? ` · ${r0.notes}` : ''}` : id.slice(0, 8);
+            },
           },
-        },
-      });
+        });
 
-      // Si no se movió nada, no se escribe: una bitácora llena de ediciones
-      // vacías esconde las que sí importan.
-      if (!cambios.length) {
-        setBusy(false);
-        setFormOpen(false); limpiarForm();
-        return toast.success('No cambiaste nada, así que no se guardó ninguna edición.');
+        // Si no se movió nada, no se escribe: una bitácora llena de ediciones
+        // vacías esconde las que sí importan. Pero la casilla de dar por
+        // atendida SÍ se atiende igual: puede ser lo único que el mecánico vino
+        // a hacer, y no cerrarla en silencio sería el mismo bug de antes con
+        // otra cara.
+        if (!cambios.length) {
+          const aviso = await cerrarPapelSiTocaba();
+          const cerroElPapel = vaACerrarAveria && !aviso;
+          setFormOpen(false); limpiarForm();
+          if (aviso) return toast.error(aviso);
+          return toast.success(cerroElPapel
+            ? 'Avería dada por atendida. Los datos del servicio no cambiaron.'
+            : 'No cambiaste nada, así que no se guardó ninguna edición.');
+        }
+
+        const re = await editarServicio(supabase as any, editandoId, inp, partes, {
+          id: uid, nombre: fullName, cambios,
+        });
+        if (re.error) return setFormError(re.error);
+        const aviso = await cerrarPapelSiTocaba();
+        const cerroElPapel = vaACerrarAveria && !aviso;
+        setFormOpen(false); limpiarForm(); cargar();
+        // Los avisos de problema pesan más que el ✅: si el rastro de la edición
+        // no quedó, o la avería no se pudo cerrar, hay que decirlo — no dar por
+        // bueno lo que no lo está.
+        const avisos = [re.avisoBitacora, aviso].filter(Boolean) as string[];
+        if (avisos.length) return toast.error(avisos.join(' · '));
+        return toast.success(`Servicio actualizado: ${resumenCambios(cambios)}.`
+          + (cerroElPapel ? ' La avería quedó dada por atendida.' : ''));
       }
 
-      const re = await editarServicio(supabase as any, editandoId, inp, partes, {
-        id: uid, nombre: fullName, cambios,
-      });
-      setBusy(false);
-      if (re.error) return setFormError(re.error);
+      // ── REGISTRANDO uno nuevo ─────────────────────────────────────────────
+      const r = await guardarServicio(supabase as any, inp, partes);
+      if (r.error) return setFormError(r.error);
+      const aviso = await cerrarPapelSiTocaba();
+      const cerroElPapel = vaACerrarAveria && !aviso;
       setFormOpen(false); limpiarForm(); cargar();
-      // El aviso del rastro pesa más que el de éxito: si la bitácora no quedó,
-      // hay que decirlo, no dar un ✅ que no corresponde.
-      if (re.avisoBitacora) return toast.error(re.avisoBitacora);
-      return toast.success(`Servicio actualizado: ${resumenCambios(cambios)}.`);
+      if (aviso) return toast.error(aviso);
+      // El aviso dice la frontera EN EL MOMENTO en que importa: justo cuando el
+      // encargado acaba de registrar y podría suponer que la máquina ya se activó.
+      toast.success(cerroElPapel
+        ? 'Servicio registrado y avería dada por atendida. El estado de la máquina no cambia.'
+        : 'Servicio registrado. No cambia el estado de la máquina.');
+    } finally {
+      setBusy(false);
     }
-
-    // ── REGISTRANDO uno nuevo ───────────────────────────────────────────────
-    const r = await guardarServicio(supabase as any, inp, partes);
-    setBusy(false);
-    if (r.error) return setFormError(r.error);
-    // El aviso dice la frontera EN EL MOMENTO en que importa: justo cuando el
-    // encargado acaba de registrar y podría suponer que la máquina ya se activó.
-    toast.success('Servicio registrado. No cambia el estado de la máquina.');
-    setFormOpen(false); limpiarForm(); cargar();
   };
 
   /** Abre la bitácora de UN servicio: quién lo editó, cuándo y qué tocó. */
@@ -795,8 +904,8 @@ export default function ServicioRegistroTab(
           })()}
         </Text>
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
-          ℹ️ Este módulo lleva el registro del trabajo. No cambia el estado de las máquinas ni cierra averías —
-          para eso, Control de Maquinaria o el panel QR del coordinador.
+          ℹ️ Este módulo lleva el registro del trabajo. Al guardar puede dar por atendida la avería que atendió,
+          pero NO cambia el estado de las máquinas — para eso, Control de Maquinaria o el panel QR del coordinador.
         </Text>
       </Card>
 
@@ -1035,15 +1144,52 @@ export default function ServicioRegistroTab(
                       {!averiaId ? '◉' : '○'} Ninguna
                     </Text>
                   </TouchableOpacity>
-                  {averiasDe.map((r) => (
-                    <TouchableOpacity key={r.id} onPress={() => setAveriaId(r.id)} style={{ paddingVertical: 6 }}>
-                      <Text style={{ color: averiaId === r.id ? colors.brand : colors.muted, fontSize: 12, fontWeight: averiaId === r.id ? '800' : '400' }}>
-                        {averiaId === r.id ? '◉' : '○'} {fmtDMY(r.created_at)} · {r.material}{r.notes ? ` · ${r.notes}` : ''}
-                      </Text>
+                  {/* Las YA CERRADAS van marcadas con todas sus letras. Salen en
+                      la lista a propósito (ver `averiasDe`: el inspector cierra el
+                      martes y el mecánico llena la hoja el miércoles), pero quien
+                      elige tiene que ver de un vistazo cuál sigue abierta y cuál
+                      no — si no, el desplegable se vuelve una trampa. */}
+                  {averiasDe.map((r) => {
+                    const cerrada = r.status !== 'pendiente';
+                    return (
+                      <TouchableOpacity key={r.id} onPress={() => setAveriaId(r.id)} style={{ paddingVertical: 6 }}>
+                        <Text style={{ color: averiaId === r.id ? colors.brand : colors.muted, fontSize: 12, fontWeight: averiaId === r.id ? '800' : '400' }}>
+                          {averiaId === r.id ? '◉' : '○'} {cerrada ? '✓ (ya cerrada) ' : ''}{fmtDMY(r.created_at)} · {r.material}{r.notes ? ` · ${r.notes}` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {/* ⭐ LA CASILLA QUE CIERRA EL PAPEL —y SOLO el papel.
+                      Sale marcada porque es lo que pasa casi siempre: si el
+                      mecánico se sentó a llenar la hoja, el trabajo se hizo.
+                      Se apaga para el caso contrario, que también existe: la
+                      máquina volvió con el mismo problema y el reporte tiene que
+                      seguir vivo hasta que de verdad se resuelva.
+                      Sobre una avería que YA está cerrada no hay nada que cerrar,
+                      así que ahí la casilla ni se marca ni se deja tocar: prometer
+                      algo que no va a pasar es peor que no ofrecerlo. */}
+                  {averiaId ? (
+                    <TouchableOpacity onPress={() => setCerrarAveria((v) => !v)} activeOpacity={0.8}
+                      disabled={!averiaSelPendiente}
+                      style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: spacing.xs,
+                        opacity: averiaSelPendiente ? 1 : 0.55 }}>
+                      <Text style={{ fontSize: 15 }}>{vaACerrarAveria ? '☑️' : '⬜'}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+                          ✓ Dar por atendida esta avería
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                          {averiaSelPendiente
+                            ? 'No cambia el estado de la máquina. Eso lo sigue decidiendo Control de Maquinaria o el coordinador por QR.'
+                            : 'Esta avería ya está cerrada: no hay nada que cerrar. Enlazarla solo deja constancia de qué trabajo la atendió.'}
+                        </Text>
+                      </View>
                     </TouchableOpacity>
-                  ))}
-                  <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
-                    Enlazarla deja constancia de que se atendió. No la cierra en el resto del sistema.
+                  ) : null}
+
+                  <Text style={{ color: colors.muted, fontSize: 10, marginTop: spacing.xs }}>
+                    Enlazarla deja constancia de cuál trabajo atendió ese reporte. La máquina no cambia de estado por esto.
                   </Text>
                 </View>
               ) : null}
@@ -1108,7 +1254,14 @@ export default function ServicioRegistroTab(
               ) : null}
 
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, marginBottom: spacing.md }}>
-                <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label="Cancelar" onPress={() => { setFormOpen(false); limpiarForm(); }} /></View>
+                {/* ⚠️ CANCELAR NO LLEVA `disabled={busy}`, A PROPÓSITO. Lo llevaba,
+                    y con eso los DOS botones se apagaban a la vez: si el guardado
+                    se quedaba colgado, la única salida de la ventana era recargar
+                    la app. Salir nunca puede estar bloqueado — lo peor que puede
+                    pasar tocándolo mientras se guarda es que el guardado termine
+                    igual (el `finally` levanta el bloqueo) y la lista se recargue
+                    sola con lo que quedó. */}
+                <View style={{ flex: 1 }}><Boton colors={colors} label="Cancelar" onPress={() => { setFormOpen(false); limpiarForm(); }} /></View>
                 <View style={{ flex: 1 }}><Boton colors={colors} disabled={busy} label={busy ? 'Guardando…' : (editandoId ? '💾 Guardar cambios' : '💾 Guardar')} tone="brand" onPress={guardar} /></View>
               </View>
             </ScrollView>
