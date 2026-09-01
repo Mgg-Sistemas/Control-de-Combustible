@@ -457,7 +457,7 @@ export function cambiosServicio(opts: {
   // eso, cuando el contenido cambia y la cuenta no, se dice con todas sus letras.
   const fa = (Array.isArray(a.photos) ? a.photos : []).map((x: unknown) => txt(x));
   const fb = (Array.isArray(b.photos) ? b.photos : []).map((x: unknown) => txt(x));
-  if (fa.join(' ') !== fb.join(' ')) {
+  if (fa.join('\u0000') !== fb.join('\u0000')) {
     const da = fotosLegible(fa);
     const db = fotosLegible(fb);
     out.push({
@@ -624,4 +624,122 @@ export async function editarServicio(
   }
 
   return {};
+}
+
+// ============================================================================
+// CERRAR LA AVERÍA QUE EL TRABAJO ATENDIÓ
+//
+// LA REGLA, en una línea: **el taller manda sobre el PAPEL, nunca sobre la
+// MÁQUINA.** Son tres cosas distintas y hasta ahora estaban enredadas en una:
+//
+//   · LA MÁQUINA  → ¿está operativa hoy? La deciden Control, el inspector y el
+//                   coordinador QR. Este archivo NUNCA la toca. Esa pared se
+//                   queda, y `scripts/test-servicio.mjs` la vigila.
+//   · EL REPORTE  → ¿alguien atendió esta avería? Lo decide el taller. ACÁ.
+//   · EL TRABAJO  → qué se hizo y con qué. Es el registro, no cambia.
+//
+// Por qué cambió (pedido del cliente, 01-sep-2026): el desacople del 18-ago
+// cortó las dos cosas de un solo tajo, y quedaron dos botones del MISMO módulo
+// con reglas opuestas — en «⏳ Averías» el botón «✓ Realizado» cerraba, y en
+// «🧾 Servicios» registrar el trabajo completo, con repuestos y fotos, no. El
+// miedo original («que marcar realizado en un reporte viejo no cambie la
+// realidad de la máquina de hoy») lo resuelve la pared de `machinery`, no la de
+// `maintenance_requests`: cerrar un papel no dice nada sobre si la máquina sirve.
+// ============================================================================
+
+/**
+ * Los ÚNICOS tres campos que el taller le escribe a una avería. Está aparte y
+ * es puro a propósito: la prueba compara esta fila contra la lista permitida,
+ * así que agregarle un campo de más rompe una prueba en vez de romper un dato.
+ */
+export function filaCierreAveria(uid?: string | null): Record<string, any> {
+  return {
+    status: 'realizado',
+    resolved_by: txtOrNull(uid),
+    resolved_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Cierra la avería que este servicio atendió.
+ *
+ * ⭐ `.eq('status', 'pendiente')` NO es un detalle: es lo que permite enlazar una
+ *    avería que YA está cerrada sin pisar nada. El orden real del taller es que
+ *    el inspector cierra en campo el martes y el mecánico llena la hoja el
+ *    miércoles; cuando eso pasa, esto no reabre ni reescribe quién la cerró — no
+ *    encuentra fila que actualizar y se va en silencio, que es lo correcto.
+ *
+ * Nunca revienta hacia afuera: el servicio YA quedó guardado cuando esto corre,
+ * y perder el registro del trabajo por no poder cerrar el papel sería peor.
+ */
+export async function cerrarAveriaPorServicio(
+  db: SupabaseLike,
+  requestId?: string | null,
+  uid?: string | null,
+): Promise<{ error?: string }> {
+  const id = txt(requestId);
+  if (!id) return {};
+  const { error } = await db
+    .from('maintenance_requests')
+    .update(filaCierreAveria(uid))
+    .eq('id', id)
+    .eq('status', 'pendiente');
+  return error ? { error: error.message } : {};
+}
+
+/**
+ * ¿Cuáles de estas averías ya tienen hoja de servicio? Devuelve, por avería, la
+ * fecha del trabajo más reciente.
+ *
+ * Es de SOLO LECTURA y va en la dirección contraria a todo lo demás: es
+ * Mantenimiento leyendo lo del taller, para que la tarjeta de una avería pueda
+ * decir «🧾 ya tiene hoja de servicio» sin que nadie tenga que saltar de pestaña
+ * y volver. Si la consulta falla se devuelve vacío: la lista de averías se pinta
+ * igual, solo que sin el aviso.
+ */
+export async function serviciosPorAveria(
+  db: SupabaseLike,
+  requestIds: string[],
+): Promise<Record<string, string>> {
+  const ids = [...new Set((requestIds ?? []).map(txt).filter(Boolean))];
+  if (!ids.length) return {};
+  const { data, error } = await db
+    .from('machinery_service_orders')
+    .select('id, service_date, maintenance_request_id')
+    .in('maintenance_request_id', ids);
+  if (error) return {};
+  const out: Record<string, string> = {};
+  ((data ?? []) as any[]).forEach((o) => {
+    const k = txt(o?.maintenance_request_id);
+    const f = txt(o?.service_date).slice(0, 10);
+    if (!k || !f) return;
+    if (!out[k] || f > out[k]) out[k] = f;   // la más reciente
+  });
+  return out;
+}
+
+// ============================================================================
+// LA RAYA EN LA ARENA — los reportes viejos, aparte de los de hoy
+//
+// Pedido del cliente (01-sep-2026): hay averías de hace meses mezcladas con el
+// trabajo del día. Se separan visualmente para que nadie las cierre por
+// accidente y para que la lista de hoy sea la lista de hoy. No se borra ni se
+// esconde nada: es una sección aparte, plegada.
+// ============================================================================
+
+/** Cuántos días tiene que tener un reporte para contar como viejo. */
+export const DIAS_REPORTE_VIEJO = 30;
+
+/**
+ * ¿Este reporte es de los viejos? Sin fecha legible, NO lo es: ante la duda se
+ * queda arriba, a la vista, que es el lado seguro del error.
+ */
+export function esReporteViejo(
+  creadoISO?: string | null,
+  hoy: Date = new Date(),
+  dias: number = DIAS_REPORTE_VIEJO,
+): boolean {
+  const t = Date.parse(txt(creadoISO));
+  if (!isFinite(t)) return false;
+  return (hoy.getTime() - t) > dias * 24 * 60 * 60 * 1000;
 }
