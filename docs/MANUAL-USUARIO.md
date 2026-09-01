@@ -387,8 +387,10 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - Elige de la **lista desplegable** la **🏢 empresa** y luego el **🚜 equipo** (se muestra con su
   **serial / placa** para no confundirlo). Puedes escribir para buscarlo.
 - Escribe el **motivo** de la avería (opcional) y toca **⚠️ Marcar averiado**.
-- El equipo queda **No operativa**, **sale del control** y pasa a **"En reparación"** en el módulo
-  **Servicio de Maquinaria**, donde se registra su retorno operativo cuando quede lista.
+- El equipo queda **No operativa**, **sale del control** y se crea el **reporte de avería**, que
+  aparece en la pestaña **⏳ Averías** de **🔧 Servicio de Maquinaria**. Ahí el taller lo **cierra
+  cuando lo atiende**, pero eso **NO vuelve a poner la máquina operativa**: para reactivarla la
+  marcas tú otra vez aquí en el Control, o lo hace el **coordinador desde su panel QR**.
 
 **🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
 - Las máquinas asignadas al inspector **SOS LA GUAIRA** **nunca se muestran como parada ni averiada**:
@@ -1262,7 +1264,64 @@ mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — 
 
 ### 4.7b. Servicio de Maquinaria (averías · taller · reporte)
 Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
-**⏳ Averías · 🔧 En reparación · ✓ Historial · 📊 Reporte**.
+**⏳ Averías · 🧾 Servicios · ✓ Historial · 📊 Reporte**.
+
+> **Aquí NO hay pestaña "🔧 En reparación".** Se quitó el **17-ago-2026** a pedido del cliente: el
+> circuito de *enviar a reparación* y *registrar el retorno operativo* vive **solo** en
+> **🧰 Mantenimiento de Maquinaria** (donde la pestaña se llama **🧰 En mantenimiento**). Los
+> expedientes que se abrieron antes se **siguen viendo** en el **✓ Historial** de Servicio.
+
+> **🧩 SON TRES COSAS DISTINTAS, y antes estaban enredadas en una sola (01/09/2026).** Vale la pena
+> leerlo una vez, porque explica todo lo demás:
+>
+> - **La máquina** — *¿está operativa hoy?* La deciden **🛠️ Control de Maquinaria**, el **inspector**
+>   y el **coordinador QR**. **El taller NUNCA la cambia.**
+> - **El reporte / la avería** — *¿alguien la atendió?* Eso **sí** lo puede cerrar el taller.
+> - **El trabajo / la hoja de servicio** — *qué se le hizo.* Es el **registro**, y no cambia nunca.
+>
+> Por eso **cerrar una avería vieja no dice nada** sobre si la máquina sirve hoy — y por eso **ya no
+> da miedo cerrarlas**.
+
+> **✅ AL GUARDAR UN SERVICIO, LA AVERÍA ENLAZADA SE DA POR ATENDIDA (01/09/2026).** En el formulario
+> de **🧾 Servicios**, debajo de la avería que elegiste, hay una **casilla marcada por defecto**: al
+> guardar la hoja, esa avería **queda cerrada**.
+>
+> - **Se puede desmarcar.** El caso para el que existe: **la máquina volvió con el mismo problema**,
+>   así que el trabajo se registra pero la avería **sigue pendiente**.
+> - **NO cambia el estado de la máquina**, con todas sus letras. Si está o no operativa lo sigue
+>   decidiendo **🛠️ Control de Maquinaria**.
+> - **Por qué se hizo:** quedaban **dos botones del mismo módulo con reglas opuestas** — en
+>   **⏳ Averías** el botón **"✓ Realizado"** cerraba la avería, y en **🧾 Servicios** registrar el
+>   trabajo **completo**, con repuestos y fotos, **no**. El mecánico llenaba la hoja entera y la
+>   avería seguía figurando **pendiente**.
+
+> **🔗 YA SE PUEDE ENLAZAR UNA AVERÍA AUNQUE ESTÉ CERRADA (01/09/2026).** Antes el desplegable
+> mostraba **solo las pendientes**, que es justo **al revés del orden real del taller**: el inspector
+> cierra la avería **en campo el martes** y el mecánico se sienta a llenar la hoja **el miércoles** —
+> y para entonces esa avería **ya no aparecía**, la hoja se guardaba **sin enlazar** y el trabajo
+> quedaba **huérfano**. Ahora salen **todas**: primero las pendientes y después las cerradas,
+> **marcadas** como tales. **Enlazar una cerrada no la reabre ni le cambia quién la cerró.**
+
+> **🧾 LA TARJETA DE LA AVERÍA AVISA SI EL TALLER YA LA ATENDIÓ (01/09/2026).** En **⏳ Averías**, la
+> que ya tiene su hoja lo dice en su propia tarjeta: **"🧾 Ya tiene hoja de servicio del …"**. Antes
+> había que **saltar de pestaña, buscarla y volver** — y en la práctica no había forma de saberlo.
+
+> **📦 LOS REPORTES VIEJOS VAN APARTE (01/09/2026).** Las averías de **más de 30 días** salen en una
+> sección **"📦 Reportes viejos"**, **plegada** por defecto (tócala para abrirla). **No se borra ni
+> se esconde nada:** es para que **la lista de hoy sea la lista de hoy**, y para que nadie cierre
+> **por accidente** un reporte de hace meses creyendo que es el de esta mañana.
+
+> **📋 LA LISTA DE AVERÍAS YA NO SE CORTA NI MIENTE (01/09/2026).** Dos cosas que pasaban:
+>
+> - La consulta traía **como mucho 1.000 filas** y **no avisaba**, así que **se perdían las averías
+>   más viejas**. Ahora las trae **todas**.
+> - Si la carga **fallaba**, la pantalla decía **"Sin averías pendientes"** — y el encargado leía que
+>   **no había trabajo** cuando lo que pasó fue que **no cargó**. Ahora **avisa** que no pudo cargar.
+
+> **🚪 EL FORMULARIO DE SERVICIO YA NO TE ENCIERRA (01/09/2026).** Si algo fallaba al guardar,
+> quedaban **bloqueados los dos botones** —**incluido Cancelar**— y la única salida era **recargar la
+> aplicación perdiendo todo lo escrito**. Ahora **Cancelar está disponible siempre**: se guarde o no
+> se guarde, puedes salir.
 
 > **✂️ El PDF ya no imprime lubricación ni horómetro (20-ago-2026):** el cliente revisó el documento
 > real y pidió quitar los dos bloques. En la flota salían casi siempre vacíos
@@ -1456,9 +1515,10 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > **💰 De dónde sale el gasto:** el dinero que genera cada equipo se toma del **almacén** — los materiales
 > que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en
 > Inventario conviene elegir el **🚜 equipo** destino: así el gasto queda bien atribuido en este reporte.
-- **🔧 En reparación:** máquinas que salieron a reparación **por avería** (correctivas). Las que
-  están en su **servicio programado** no salen aquí, sino en Mantenimiento → 🧰 En mantenimiento.
-- **✓ Historial:** reparaciones correctivas ya cerradas.
+- **✓ Historial:** lo **correctivo** ya cerrado — las **averías resueltas** (con quién la reportó,
+  quién la resolvió y las dos fechas) y las máquinas que en su momento **pasaron por el taller**
+  porque se dañaron. Las de **servicio programado** no salen aquí, sino en Mantenimiento →
+  🧰 En mantenimiento.
 
 **🔴 Paradas viejas sin resolver:** arriba de esta sección aparece un banner rojo cuando una máquina
 lleva **más de 4 horas** marcada **"MÁQUINA PARADA"** sin que nadie la libere. Trae el botón
@@ -1466,17 +1526,20 @@ lleva **más de 4 horas** marcada **"MÁQUINA PARADA"** sin que nadie la libere.
 máquina. Este aviso vive **solo en Servicio**: una parada es una máquina caída, no un mantenimiento
 programado.
 
-**Enviar una máquina a reparación:** toca **"🔧 Enviar a reparación"** (o el botón en la tarjeta de la
-máquina). Indica la **fecha de salida**, el **motivo de la avería** (obligatorio), **por cuánto
-tiempo** (días estimados) y, si quieres, **qué se le va a cambiar**. Se registra como **🔧
-correctivo** y la máquina queda **No operativa** en todo el sistema.
+**Enviar a reparación y registrar el retorno YA NO se hacen aquí.** Los botones
+**"🔧 Enviar a reparación"** y **"✓ Registrar retorno operativo"** viven **solo** en
+**🧰 Mantenimiento de Maquinaria** desde el **17-ago-2026**. Lo que se hace en Servicio es **cerrar
+el reporte de la avería** (**"✓ Realizado"** en su tarjeta, o la **casilla** del formulario de
+**🧾 Servicios**) y **dejar la hoja del trabajo**.
 
-**Registrar el retorno:** cuando vuelve, toca **"✓ Registrar retorno operativo"**, pon **qué se le
-cambió** y la **fecha de retorno**. La máquina vuelve a **Operativa** automáticamente, y se cierran
-tanto el marcador **MÁQUINA PARADA** como las **averías pendientes** de esa máquina.
-
-> El botón **"✓ Registrar retorno operativo"** funciona igual en las dos secciones — la diferencia
-> es solo **cuál** de las dos listas te lo muestra.
+> **⚠️ Esto que decía el manual era mentira, y quedó corregido.** Aquí se leía que al enviar a
+> reparación *"la máquina queda **No operativa** en todo el sistema"* y que al registrar el retorno
+> *"la máquina vuelve a **Operativa** automáticamente"*. **Ninguna de las dos cosas pasa.** Desde el
+> **18-ago-2026 el módulo de Servicio no cambia el estado de ninguna máquina**: quien la pone o la
+> saca de operación es **🛠️ Control de Maquinaria**, o el **coordinador desde su panel QR** — que son
+> los que de verdad la están viendo. Se hizo así **a propósito, a pedido del cliente**: para que una
+> pila de reportes sin cerrar no arrastre el estado de la flota. La **única excepción** es el
+> **horómetro**: **"✓ Confirmar mantenimiento"** sigue reiniciando el conteo, como siempre.
 
 ### 4.8. Operadores
 La lista de operadores. Su vista es **sencilla a propósito**: solo lo que necesitan en el
