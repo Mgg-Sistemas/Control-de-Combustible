@@ -30,10 +30,10 @@ export const SIN_EMPRESA = '__sin_empresa__';
 /**
  * Cubeta de los viajes sin listero identificado.
  *
- * En la base `listero_id` es `not null`, así que en teoría nunca se usa. Existe
- * porque esta función es pura y recibe lo que le den: si algún día llega una
- * fila sin listero, cae aquí en vez de perderse — el total general tiene que
- * cuadrar SIEMPRE con la cantidad de filas recibidas.
+ * `listero_id` queda NULL cuando se borra el usuario del listero (los viajes se
+ * conservan, ver fix_borrar_usuario_conserva_viajes.sql). Esos viajes caen aquí en
+ * vez de perderse — el total general tiene que cuadrar SIEMPRE con la cantidad de
+ * filas recibidas. El nombre sigue disponible en `listero_name`.
  */
 export const SIN_LISTERO = '__sin_listero__';
 

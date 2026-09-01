@@ -16,7 +16,11 @@ create table if not exists public.camion_viajes (
   id uuid primary key default gen_random_uuid(),
   machinery_id uuid not null references public.machinery(id) on delete cascade,
   machine_code text not null,
-  listero_id uuid not null references public.profiles(id) on delete cascade,
+  -- listero_id: NULLABLE + ON DELETE SET NULL (ver fix_borrar_usuario_conserva_viajes.sql).
+  -- Al borrar el usuario del listero, sus viajes SE CONSERVAN (solo se suelta el id);
+  -- el nombre queda en listero_name (una FOTO). machinery_id sigue RESTRICT aparte
+  -- (viajes_camiones_fk_no_cascada.sql) por el CHECK de fuera de catálogo.
+  listero_id uuid references public.profiles(id) on delete set null,
   listero_name text not null,
   chofer_name text,
   shift text check (shift in ('day','night')),
