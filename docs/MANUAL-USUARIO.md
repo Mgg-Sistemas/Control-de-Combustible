@@ -520,6 +520,47 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   El reporte va **100% por empresa** (ya **no** trae los resúmenes por zona Este/Oeste).
   El archivo se descarga como *"Reporte - Inventario de maquinaria"*.
 
+  > **📑 TRES informes, con un solo botón (01/09/2026).** Encima del botón hay una fila de
+  > pastillas: **¿QUÉ EMPRESAS SALEN?** Se escoge una y se descarga. Vale igual para el botón
+  > normal, para el **SIMULADO** y con el switch de **personal** activado.
+  >
+  > | Pastilla | Qué máquinas salen | Cómo se agrupan |
+  > |---|---|---|
+  > | 🏢 **Solo las nuestras** | Liccione y Golden Touch, nada más | Dos secciones |
+  > | 🤝 **Todas, sin separar** | Todas | Dos secciones: las subcontratadas van dentro de GOLDEN TOUCH |
+  > | 🏗️ **Todas, por empresa** | Todas | Una sección por empresa, con su nombre real |
+  >
+  > **La del medio es la de siempre y viene marcada por defecto**, así que quien no toque nada
+  > sigue sacando el mismo papel de antes.
+  >
+  > **La regla, tal cual se acordó: subcontratada es todo lo que NO sea Liccione ni Golden
+  > Touch** (La Veglia, Costa Brava, y las que vengan). Antes el reporte no sabía distinguirlas:
+  > tenía dos sacos fijos y el de *Golden Touch* se tragaba a todas las demás empresas. Por eso
+  > una máquina de La Veglia salía impresa bajo el nombre de Golden Touch.
+  >
+  > ⚠️ **Esa regla no está en la base de datos, está en el código** — no hay ninguna casilla en
+  > la pantalla de Empresas que diga si una es propia o subcontratada. Si mañana entra otra
+  > empresa propia, hay que avisar para agregarla.
+  >
+  > **Por eso cada PDF cierra con un cuadro «🧾 Alcance de este informe»** que dice cuál de los
+  > tres es, **qué empresas entraron**, **cuáles quedaron fuera** y cuántos equipos trae de la
+  > flota total. Es a propósito: como "propia" se decide por el **nombre** de la empresa, y ese
+  > nombre lo escribió una persona en el catálogo, si alguna está cargada con un error de tipeo
+  > podría caer en el saco equivocado. Ese cuadro lo deja a la vista **en el papel**, en vez de
+  > que se descubra en una reunión.
+  >
+  > **El nombre del archivo también lleva el alcance** (*"…(solo Liccione y Golden Touch)"*,
+  > *"…(todas sin separar)"*, *"…(por empresa)"*). Son tres papeles muy parecidos: si se
+  > llamaran igual, el segundo pisaría al primero en la carpeta de descargas.
+  >
+  > En **🏗️ Todas, por empresa** el orden es: **Liccione**, **Golden Touch**, después las
+  > subcontratadas de la A a la Z, y **«Sin empresa» de último** — ese es el cajón de las
+  > máquinas a las que no les cargaron la empresa en el catálogo, y salen en los informes 2 y 3
+  > pero **no** en «Solo las nuestras».
+  >
+  > Las **camionetas pick-up del módulo de Vehículos** salen en los tres: no tienen empresa
+  > cargada, están a disposición de los encargados de SOS La Guaira.
+
   > **🏷️ Marca y modelo, en su propia columna (31/08/2026):** a pedido del cliente el
   > inventario ahora imprime la **MARCA** y el **MODELO** de cada máquina en una columna aparte,
   > entre *"Equipo / Tipo"* y *"Placa / Serial"*.
