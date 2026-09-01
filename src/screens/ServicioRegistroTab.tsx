@@ -529,6 +529,24 @@ export default function ServicioRegistroTab(
       toast.success(cerroElPapel
         ? 'Servicio registrado y avería dada por atendida. El estado de la máquina no cambia.'
         : 'Servicio registrado. No cambia el estado de la máquina.');
+    } catch (e: any) {
+      // ⚠️ SIN ESTE `catch` EL FALLO ERA MUDO, Y ESO FABRICA DUPLICADOS.
+      //
+      // El `finally` levanta el bloqueo, así que el encargado ya no queda
+      // encerrado. Pero si algo LANZA —una caída de red a mitad de camino, por
+      // ejemplo al cerrar la avería— la pantalla no decía absolutamente nada: el
+      // formulario se quedaba abierto y en silencio. Quien está del otro lado lee
+      // ese silencio como «no se guardó» y vuelve a darle a Guardar. Si la
+      // excepción saltó DESPUÉS de que el servicio entró, el segundo intento deja
+      // DOS hojas iguales para el mismo trabajo, con sus repuestos duplicados.
+      //
+      // El mensaje va en el formulario (`setFormError`) y no en un toast a
+      // propósito: el toast se va solo a los pocos segundos y este aviso hay que
+      // leerlo ANTES de tocar Guardar de nuevo.
+      setFormError(
+        `No se pudo completar la operación: ${e?.message ?? e}. ` +
+        'Antes de volver a guardar, cierra y revisa la lista: puede que el servicio SÍ haya entrado.'
+      );
     } finally {
       setBusy(false);
     }
