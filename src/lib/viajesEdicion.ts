@@ -325,11 +325,27 @@ function codigoParaClave(code: string): string {
  * mucho peor que el duplicado que estamos evitando.
  */
 export function claveViajeEstable(p: {
-  machineCode: string;
+  /**
+   * ⚠️⚠️ LA IDENTIDAD DEL CAMIÓN, **NO** SU CÓDIGO. Y no es una sutileza: es la
+   *      diferencia entre evitar un duplicado y BORRAR UN VIAJE REAL.
+   *
+   *      En esta flota casi todos los camiones se llaman igual («Camion Volteo
+   *      Toronto» y parecidos) — por eso el resto del módulo arrastra la placa a
+   *      todas partes. Si acá entrara el código pelado, dos camiones DISTINTOS
+   *      del mismo listero en el mismo minuto darían LA MISMA clave, la base
+   *      rechazaría el segundo por el índice único, y ese viaje —que ocurrió de
+   *      verdad— desaparecería sin que nadie viera un error. En una tanda
+   *      cargada a mano el estropicio es mayor: la tanda entera del segundo
+   *      camión rebota.
+   *
+   *      Manda algo ÚNICO por camión: el `id` del catálogo. Para los de fuera de
+   *      catálogo, que no tienen `id`, el texto que se tecleó ya distingue.
+   */
+  identidadCamion: string;
   listeroId: string;
   registeredAtISO: string;
 }): string {
-  const code = codigoParaClave(p.machineCode);
+  const code = codigoParaClave(p.identidadCamion);
   const listero = String(p.listeroId ?? '').trim();
   // Al MINUTO: el segundo y los milisegundos son ruido del reloj, no intención.
   const minuto = String(p.registeredAtISO ?? '').trim().slice(0, 16); // AAAA-MM-DDTHH:MM
