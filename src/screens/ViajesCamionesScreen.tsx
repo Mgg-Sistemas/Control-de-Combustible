@@ -70,9 +70,7 @@ import {
   esCargaManual,
   claveViajeEstable,
   fueraDeJornada,
-  requiereRastroDeEdicion,
-  detalleRastroEdicion,
-  ACCION_EDIT_FUERA_JORNADA,
+  rastroDeEdicion,
   MAX_CARGA,
   SEPARACION_MIN,
 } from '../lib/viajesEdicion';
@@ -123,6 +121,31 @@ function currentJornadaWindow(): { startMs: number; endMs: number } {
 }
 
 /**
+ * La ventana de LA JORNADA EN CURSO: 7am a 7am, el DÍA DE TRABAJO completo.
+ *
+ * ⚠️ NO ES LO MISMO QUE `currentJornadaWindow`, aunque el nombre de aquélla lo
+ *    sugiera. Ésa devuelve el TURNO de 12 horas (día o noche) y sirve para
+ *    decidir hasta cuándo el listero puede corregir lo suyo — eso se queda como
+ *    está, es de siempre.
+ *
+ * ⭐ ACÁ HACE FALTA LA JORNADA ENTERA, y la diferencia se ve en el caso más
+ *    común de todos: la jefa cuadrando el día a las 8 de la noche y corrigiendo
+ *    un viaje de las 10 de la mañana DEL MISMO DÍA DE TRABAJO. Con la ventana de
+ *    turno, ese viaje cae "fuera" y se escribía una fila en Auditoría que decía
+ *    «corrigió un viaje de OTRO DÍA». Falso, y encima rutinario: exactamente el
+ *    ruido que el cliente pidió evitar («que no se dañe ni abuse el módulo de
+ *    auditoría»). Y el manual promete lo contrario, que las correcciones
+ *    normales del día no generan ese registro.
+ *
+ *    Además es la regla de la casa: la jornada es el día de trabajo, no el
+ *    calendario ni el turno.
+ */
+function ventanaJornadaEnCurso(): { startMs: number; endMs: number } {
+  const { desdeISO, hastaExclusivoISO } = jornadaWindowISO(caracasBusinessToday());
+  return { startMs: new Date(desdeISO).getTime(), endMs: new Date(hastaExclusivoISO).getTime() };
+}
+
+/**
  * LA HORA DEL SERVIDOR, PARA PODER CONTRASTAR LA DEL TELÉFONO (02-sep-2026).
  *
  * ⚠️ NO SE USA PARA SELLAR NADA. El viaje se sigue sellando con `new Date()`,
@@ -132,8 +155,24 @@ function currentJornadaWindow(): { startMs: number; endMs: number } {
  *
  * Sale de la cabecera `Date` de la respuesta, que todo servidor HTTP manda de
  * todas formas: no hace falta una tabla nueva, ni una función en la base, ni
- * traer una sola fila. Se pide con HEAD contra la raíz de PostgREST, así que no
- * hay cuerpo que descargar; hasta un 401 sirve, porque la cabecera viene igual.
+ * traer una sola fila (el HEAD no descarga cuerpo).
+ *
+ * ⚠️⚠️ VA CONTRA UNA TABLA, **NO** CONTRA LA RAÍZ DE PostgREST, y esa diferencia
+ *      es la que hace que esto funcione o no en la web. Verificado contra el
+ *      servidor real el 02-sep-2026:
+ *
+ *        · `HEAD /rest/v1/`                  → 401 y SIN `Access-Control-Expose-Headers`
+ *        · `HEAD /rest/v1/camion_viajes?…`   → 200 y expone `Date` entre otras
+ *
+ *      `Date` no es una cabecera «CORS-segura», así que el navegador solo la deja
+ *      leer si el servidor la nombra en `Access-Control-Expose-Headers`. Contra
+ *      la raíz, `res.headers.get('date')` devuelve `null` EN EL NAVEGADOR aunque
+ *      la cabecera viaje por el cable — y como acá «no poder medir» no dice nada
+ *      a propósito, el aviso no salía NUNCA en soslaguaira.com, ni con el reloj
+ *      tres horas corrido. En la app nativa sí funcionaba (no hay CORS), que es
+ *      lo que hacía el fallo tan fácil de no ver.
+ *
+ * `limit=0` no trae ni una fila: solo interesa la cabecera.
  *
  * Es UN chequeo al abrir la pantalla, no un latido: con tope de tiempo para que
  * el wifi del patio (señal sin internet) no deje nada colgado, y devolviendo
@@ -146,7 +185,7 @@ async function horaDelServidor(): Promise<string | null> {
   if (!base || !apikey) return null;
   try {
     const res = await Promise.race([
-      fetch(`${base}/rest/v1/`, { method: 'HEAD', headers: { apikey } }),
+      fetch(`${base}/rest/v1/camion_viajes?select=id&limit=0`, { method: 'HEAD', headers: { apikey } }),
       new Promise<null>((r) => setTimeout(() => r(null), 4000)),
     ]);
     return res ? res.headers.get('date') : null;
@@ -1050,9 +1089,15 @@ export default function ViajesCamionesScreen() {
   // cambia de día/turno": mientras el modal se monta, el botón Guardar sigue
   // habilitado — dos toques ahí eran DOS updates y DOS filas de auditoría.
   const guardandoEdicionRef = useRef(false);
+  // El ref es el que FRENA (se lee y se escribe sin esperar al re-render, que es
+  // lo que hace falta contra el doble toque). Este estado es solo para que se
+  // VEA: sin el, el boton no cambiaba nada en pantalla y quien tocaba dos veces
+  // no tenia forma de saber que el primer toque habia contado.
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const saveEdit = async () => {
     if (!editing || guardandoEdicionRef.current) return;
     guardandoEdicionRef.current = true;
+    setGuardandoEdicion(true);
     try {
       const row = findRow(editing.id);
       if (!row) { setEditing(null); return; }
@@ -1133,20 +1178,29 @@ export default function ViajesCamionesScreen() {
       // Sin `await` a propósito, igual que en el resto de la app: la bitácora es
       // secundaria y `logAudit` nunca lanza. Que la auditoría vaya lenta no puede
       // dejar a la jefa mirando un botón que no responde.
-      const despuesISO = cambios.registeredAtISO ?? row.registeredAt;
-      if (requiereRastroDeEdicion({
+      // La placa se busca en el catálogo porque NO viaja en la fila del viaje.
+      // Sin ella el rastro diría «CAMION VOLTEO TORONTO» y no serviría para
+      // identificar cuál de los treinta fue. Para los de fuera de catálogo no hay
+      // catálogo que consultar: ahí la seña que anotó el listero es lo único que
+      // distingue, y es justo para lo que existe ese campo.
+      const camionDeLaFila = row.machineryId ? truckById.get(row.machineryId) : undefined;
+      // ⭐ QUIÉN DECIDE NO ES ESTA PANTALLA. `rastroDeEdicion` devuelve `null`
+      //    cuando no hay nada que escribir, y ese `null` es toda la protección
+      //    contra llenar la bitácora de ruido — pedido del cliente: «que no se
+      //    dañe ni abuse el módulo de auditoría». Acá solo se obedece.
+      const rastro = rastroDeEdicion({
         registeredAtAntesISO: row.registeredAt,
-        registeredAtDespuesISO: despuesISO,
-        ventana: currentJornadaWindow(),
+        registeredAtDespuesISO: cambios.registeredAtISO ?? row.registeredAt,
+        ventana: ventanaJornadaEnCurso(),
         huboCambios: queCambio.length > 0,
-      })) {
-        logAudit(ACCION_EDIT_FUERA_JORNADA as any, 'camion_viajes', editing.id, detalleRastroEdicion({
-          machineCode: row.machineCode,
-          antesISO: row.registeredAt,
-          despuesISO,
-          cambios: queCambio,
-        }));
-      }
+        machineCode: row.machineCode,
+        placa: camionDeLaFila?.plate || camionDeLaFila?.serial || row.camionRef,
+        cambios: queCambio,
+      });
+      // Sin `await` a propósito: la bitácora es secundaria y `logAudit` nunca
+      // lanza. Que la auditoría vaya lenta no puede dejar a la jefa mirando un
+      // botón que no responde.
+      if (rastro) logAudit(rastro.accion as any, 'camion_viajes', editing.id, rastro.detalle);
 
       setEditing(null);
       toast.success('Viaje actualizado.');
@@ -1154,6 +1208,7 @@ export default function ViajesCamionesScreen() {
       if (canFull) { loadRangeRows(); loadResumen(); }
     } finally {
       guardandoEdicionRef.current = false;
+      setGuardandoEdicion(false);
     }
   };
 
@@ -1284,7 +1339,8 @@ export default function ViajesCamionesScreen() {
       if (!ok) return;
 
       const nota = notaCargaManual(fullName || '');
-      let hechos = 0;
+      let hechos = 0;      // entraron AHORA
+      let yaEstaban = 0;   // rebotaron por clave repetida: ya estaban de antes
       let ultimoError = '';
       for (const iso of horarios) {
         const { error } = await registrarViaje({
@@ -1326,8 +1382,23 @@ export default function ViajesCamionesScreen() {
             registeredAtISO: iso,
           }) || nuevoClientActionId(),
         });
-        if (error) { ultimoError = error; break; }
-        hechos++;
+        if (!error) { hechos++; continue; }
+        // ⭐⭐ EL DUPLICADO NO ES UN FALLO: ES LA CLAVE ESTABLE HACIENDO SU TRABAJO.
+        //
+        //    Este `continue` es lo que hace que la promesa del aviso de abajo sea
+        //    verdad. Cuando la tanda se recarga —que es justo lo que se le pide a
+        //    la jefa cuando falla a la mitad— los renglones que YA entraron
+        //    rebotan con un 23505. Tratarlos como error y cortar el bucle dejaba
+        //    el peor de los mundos: cero cargados, el texto crudo de Postgres en
+        //    inglés en pantalla, y los que faltaban sin entrar NUNCA. La única
+        //    salida habría sido cambiar la hora de arranque, y eso no se lo dice
+        //    nadie.
+        //
+        //    Los otros dos caminos ya sabían leerlo así: el registro en el patio
+        //    (`accionTrasFalloConSenal` → `ya_estaba`) y la cola offline
+        //    (`decidirAccionCola` → `exito`). Éste era el único que faltaba.
+        if (accionTrasFalloConSenal(error) === 'ya_estaba') { yaEstaban++; continue; }
+        ultimoError = error; break;
       }
       // Se dice EXACTAMENTE cuántos entraron. Un fallo a mitad de camino dejaba
       // la mitad cargada, y anunciar "listo" haría que se cargara otra vez.
@@ -1336,14 +1407,23 @@ export default function ViajesCamionesScreen() {
       //    de nuevo los duplicaría», que dejaba a la jefa sin salida más que
       //    contar y borrar a mano. Con la clave estable, repetir la MISMA tanda
       //    es seguro: los que ya entraron rebotan solos.
+      // Los que ya estaban se DICEN aparte. Si se sumaran a `hechos`, recargar
+      // una tanda entera anunciaría "10 viajes cargados" sin haber creado uno
+      // solo, y la jefa no tendría forma de saber si su reintento sirvió.
+      const yaTxt = yaEstaban ? ` (${yaEstaban} ya estaba${yaEstaban === 1 ? '' : 'n'} de antes)` : '';
       if (ultimoError) {
         toast.error(
-          hechos === 0
+          hechos === 0 && yaEstaban === 0
             ? `No se pudo cargar ninguno (${motivoLegible(ultimoError)}).`
-            : `Se cargaron ${hechos} de ${horarios.length} y falló el siguiente (${motivoLegible(ultimoError)}). Vuelve a cargar la MISMA tanda —mismo camión, misma fecha, misma hora de arranque y mismo listero— y solo entrarán los que faltan.`,
+            : `Se cargaron ${hechos} de ${horarios.length}${yaTxt} y falló el siguiente (${motivoLegible(ultimoError)}). Vuelve a cargar la MISMA tanda —mismo camión, misma fecha, misma hora de arranque y mismo listero— y solo entrarán los que faltan.`,
         );
+      } else if (hechos === 0 && yaEstaban > 0) {
+        // Recargar una tanda que ya estaba completa. No es un error, pero decir
+        // "0 cargados" a secas parecería una falla: se explica por qué.
+        toast.success(`Esos ${yaEstaban} viaje(s) ya estaban cargados. No se duplicó ninguno.`);
+        setCargaCantidad('1');
       } else {
-        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}.`);
+        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}.`);
         setCargaCantidad('1');
       }
       loadRangeRows();
@@ -2029,7 +2109,7 @@ export default function ViajesCamionesScreen() {
     //    —fuera de jornada por donde ESTABA o por donde va a QUEDAR— para que no
     //    haya ni un aviso sin rastro ni un rastro sin aviso.
     const edicionExcepcional = isEditing && canFull && editing != null && (() => {
-      const ventana = currentJornadaWindow();
+      const ventana = ventanaJornadaEnCurso();
       const { hh, mm } = normalizarHora(editing.hh, editing.mm);
       return fueraDeJornada(row.registeredAt, ventana)
         || fueraDeJornada(isoDeJornadaHora(editing.fecha, hh, mm), ventana);
@@ -2150,7 +2230,7 @@ export default function ViajesCamionesScreen() {
               </>
             ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <TouchableOpacity onPress={saveEdit} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.primary }}>
+              <TouchableOpacity onPress={saveEdit} disabled={guardandoEdicion} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.primary, opacity: guardandoEdicion ? 0.6 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>Guardar</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={cancelEdit} style={{ paddingHorizontal: spacing.sm, paddingVertical: 8 }}>

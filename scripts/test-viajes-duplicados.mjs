@@ -212,6 +212,29 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
     cambios: ['chofer: Juan'],
   });
   ok('el detalle trae el camion en mayusculas', d.includes('V-12'), d);
+
+  // ⭐⭐ LA PLACA, QUE ES LO QUE DE VERDAD IDENTIFICA AL CAMION.
+  //    En esta flota casi todos se llaman igual ("Camion Volteo Toronto"), asi
+  //    que un rastro con solo el nombre deja a quien lo lee sin saber cual de los
+  //    treinta fue -- y el cliente pidio esto justamente para "poder identificar
+  //    facilmente esos cambios". Es la misma trampa que obligo a que la clave use
+  //    la identidad y no el nombre; aca se colo por la puerta de al lado.
+  const conPlaca = detalleRastroEdicion({
+    machineCode: 'Camion Volteo Toronto', placa: 'A74AB3P',
+    antesISO: '2026-08-15T03:00:00-04:00', despuesISO: '2026-08-15T05:30:00-04:00',
+  });
+  ok('⭐⭐ el detalle trae la PLACA', conPlaca.includes('A74AB3P'), conPlaca);
+  ok('* y sigue trayendo el nombre', conPlaca.includes('CAMION VOLTEO TORONTO'), conPlaca);
+
+  // Sin placa no se inventa ni se pinta un separador huerfano.
+  const sinPlaca = detalleRastroEdicion({
+    machineCode: 'V-1', placa: null,
+    antesISO: '2026-08-15T03:00:00-04:00', despuesISO: '2026-08-15T05:30:00-04:00',
+  });
+  ok('sin placa no queda un separador colgando', !/V-1\s*·\s*·/.test(sinPlaca), sinPlaca);
+  ok('placa vacia se trata como sin placa',
+    detalleRastroEdicion({ machineCode: 'V-1', placa: '   ', antesISO: '', despuesISO: '' })
+      === detalleRastroEdicion({ machineCode: 'V-1', antesISO: '', despuesISO: '' }));
   ok('el detalle muestra el movimiento', d.includes('->') || d.includes('→'), d);
   ok('el detalle trae los cambios extra', d.includes('chofer: Juan'), d);
 
@@ -229,7 +252,10 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
 {
   const crudo = fs.readFileSync(path.join(ROOT, 'src/lib/viajesEdicion.ts'), 'utf8');
   const vivo = crudo.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-  ok('⭐ no habla con Supabase', !/supabase|from\(/.test(vivo));
+  // Ojo con el atajo: `from\(` a secas casa con `Array.from(`, que es JavaScript
+  // normal y no tiene nada que ver con la base. Escribir `Array.from(new Set(...))`
+  // en esta libreria tumbaba la suite sin que nada estuviera mal.
+  ok('⭐ no habla con Supabase', !/\bsupabase\b/i.test(vivo) && !/\.from\(\s*['"`]/.test(vivo));
 
   // ── ⭐⭐ LA PANTALLA NO PUEDE ABUSAR DE AUDITORIA ────────────────────────
   //
@@ -243,10 +269,37 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
   // ruido y es exactamente lo que se pidio evitar.
   const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8');
   const scrVivo = scr.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-  const llamadas = (scrVivo.match(/logAudit\s*\(/g) || []).length;
-  ok('⭐⭐ la pantalla escribe en auditoria UNA sola vez', llamadas === 1, String(llamadas));
-  ok('⭐⭐ y esa escritura va DENTRO del if de requiereRastroDeEdicion',
-    /if\s*\(\s*requiereRastroDeEdicion\(\{[\s\S]{0,400}?\}\)\s*\)\s*\{[\s\S]{0,300}?logAudit\s*\(/.test(scrVivo));
+  // ⚠️ SE VIGILA LA INTENCION, NO LA FORMA. La primera version de esta guardia
+  //    exigia que el `if (requiereRastroDeEdicion({...}))` y el `logAudit(`
+  //    estuvieran pegados y en ese orden literal, y contaba que hubiera
+  //    EXACTAMENTE un `logAudit` en 3.000 lineas. Las dos cosas se rompian con
+  //    refactors correctos: extraer la condicion a una variable con nombre, o
+  //    auditar ademas otra cosa distinta de esta pantalla. Una prueba que se cae
+  //    cuando el codigo MEJORA entrena a la gente a desactivarla.
+  //
+  //    Lo que de verdad importa: que la accion del viaje-de-otro-dia no se
+  //    escriba sin haber consultado antes a `requiereRastroDeEdicion`.
+  // ⭐⭐ LA PANTALLA NO DECIDE, OBEDECE.
+  //
+  // Esta guardia es corta porque la regla de verdad se prueba por COMPORTAMIENTO
+  // mas abajo (bloque 9): `rastroDeEdicion` devuelve `null` cuando no hay nada
+  // que escribir. Aca solo hay que asegurar que la pantalla no se salte esa
+  // respuesta -- que es justo lo que la version anterior de esta guardia NO
+  // agarraba: sacar el `logAudit` fuera del `if` la sobrevivia entera.
+  const escrituras = scrVivo.match(/logAudit\s*\([^)]*/g) || [];
+  ok('⭐⭐ toda escritura a auditoria sale de `rastro`',
+    escrituras.length > 0 && escrituras.every((e) => /rastro\./.test(e)),
+    escrituras.join(' | '));
+  ok('⭐ y va condicionada a que haya rastro', /if\s*\(\s*rastro\s*\)\s*logAudit/.test(scrVivo));
+  // Que la DECISION no se rehaga a mano. Ojo con pasarse de estricto: la pantalla
+  // SI puede usar `fueraDeJornada`, y de hecho debe -- el aviso del formulario se
+  // apoya en esa misma primitiva justamente para que no haya ni un aviso sin
+  // rastro ni un rastro sin aviso. Lo que no puede es rehacer el criterio
+  // completo (que incluye el "y ademas cambio algo") por su cuenta.
+  ok('⭐ la decision de auditar no se reimplementa en la pantalla',
+    !/requiereRastroDeEdicion\s*\(/.test(scrVivo));
+  ok('* y el aviso del formulario si comparte la primitiva',
+    /fueraDeJornada\s*\(/.test(scrVivo));
   // Ojo con el atajo: `/machinery/` a secas tambien casa con `machineryId`, que
   // es un NOMBRE DE CAMPO del formulario y no la tabla. Lo que hay que prohibir
   // es nombrar la TABLA, y eso solo pasa entre comillas.
@@ -255,6 +308,38 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
   const bytes = Buffer.from(crudo, 'utf8');
   ok('⭐ sin bytes de control en el fuente',
     !bytes.some((b) => b < 9 || (b > 13 && b < 32)));
+}
+
+// ── 9) ⭐⭐ rastroDeEdicion: LA REGLA, PROBADA POR COMPORTAMIENTO ───────────
+//
+// Antes esta regla solo se vigilaba leyendo el codigo de la pantalla con una
+// expresion regular, y eso fallaba por los dos lados: se rompia con refactors
+// correctos (extraer la condicion a una variable) y DEJABA PASAR el bug de
+// verdad (sacar el logAudit fuera del if). Ahora la decision vive en una
+// funcion pura y se prueba con entradas y salidas.
+{
+  const { rastroDeEdicion } = E;
+  const V = { startMs: Date.parse('2026-09-02T07:00:00-04:00'), endMs: Date.parse('2026-09-03T07:00:00-04:00') };
+  const HOY = '2026-09-02T12:00:00-04:00';
+  const NOCHE_DE_HOY = '2026-09-03T02:00:00-04:00';  // madrugada: MISMA jornada
+  const VIEJO = '2026-08-15T12:00:00-04:00';
+  const r = (antes, despues, huboCambios) => rastroDeEdicion({
+    registeredAtAntesISO: antes, registeredAtDespuesISO: despues,
+    ventana: V, huboCambios, machineCode: 'Camion Volteo Toronto', placa: 'A74AB3P',
+    cambios: ['hora'],
+  });
+
+  ok('⭐⭐ un viaje de HOY no genera rastro', r(HOY, HOY, true) === null);
+  ok('⭐⭐ la MADRUGADA de hoy tampoco (la jornada es de 7am a 7am)',
+    r(NOCHE_DE_HOY, NOCHE_DE_HOY, true) === null);
+  ok('⭐⭐ un viaje VIEJO si genera rastro', r(VIEJO, VIEJO, true) !== null);
+  ok('⭐⭐ sin cambios NUNCA genera rastro, aunque sea viejo', r(VIEJO, VIEJO, false) === null);
+  ok('⭐ mover un viaje de hoy al pasado genera rastro', r(HOY, VIEJO, true) !== null);
+
+  const con = r(VIEJO, VIEJO, true);
+  ok('el rastro trae la accion propia', con.accion === 'EDIT_VIAJE_FUERA_JORNADA', String(con && con.accion));
+  ok('⭐ y el detalle identifica el camion por su PLACA', con.detalle.includes('A74AB3P'), con.detalle);
+  ok('* y trae lo que cambio', con.detalle.includes('hora'), con.detalle);
 }
 
 console.log('\n' + pass + ' OK · ' + fail + ' FALLO(S)');

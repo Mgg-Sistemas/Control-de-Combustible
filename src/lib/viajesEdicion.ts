@@ -408,16 +408,71 @@ export function requiereRastroDeEdicion(p: {
 export const ACCION_EDIT_FUERA_JORNADA = 'EDIT_VIAJE_FUERA_JORNADA';
 
 /**
+ * ⭐ LA DECISIÓN Y EL TEXTO, EN UNA SOLA RESPUESTA: o hay rastro que escribir, o
+ *    no hay nada. `null` significa «no escribas nada en Auditoría».
+ *
+ * Por qué existe teniendo ya `requiereRastroDeEdicion` y `detalleRastroEdicion`
+ * por separado: porque cuando la pantalla decide por un lado y arma el texto por
+ * otro, la única forma de comprobar que no audita de más es leer el código con
+ * una expresión regular — y eso es exactamente lo que se rompe cuando alguien
+ * refactoriza bien y deja pasar cuando alguien refactoriza mal (probado: sacar
+ * el `logAudit` fuera del `if` no lo agarraba ninguna guardia de texto).
+ *
+ * Con esto la regla se prueba POR COMPORTAMIENTO: si la función devuelve `null`,
+ * no hay nada que escribir. La pantalla se limita a obedecer, y una sola guardia
+ * corta —que el `logAudit` salga de acá— alcanza.
+ */
+export function rastroDeEdicion(p: {
+  registeredAtAntesISO: string;
+  registeredAtDespuesISO: string;
+  ventana: { startMs: number; endMs: number };
+  huboCambios: boolean;
+  machineCode: string;
+  placa?: string | null;
+  cambios?: string[] | null;
+}): { accion: string; detalle: string } | null {
+  if (!requiereRastroDeEdicion({
+    registeredAtAntesISO: p.registeredAtAntesISO,
+    registeredAtDespuesISO: p.registeredAtDespuesISO,
+    ventana: p.ventana,
+    huboCambios: p.huboCambios,
+  })) return null;
+  return {
+    accion: ACCION_EDIT_FUERA_JORNADA,
+    detalle: detalleRastroEdicion({
+      machineCode: p.machineCode,
+      placa: p.placa,
+      antesISO: p.registeredAtAntesISO,
+      despuesISO: p.registeredAtDespuesISO,
+      cambios: p.cambios,
+    }),
+  };
+}
+
+/**
  * El texto que se lee en Auditoría. Tiene que bastarse solo: quien lo lee no va
  * a ir a cruzarlo con otra tabla.
  */
 export function detalleRastroEdicion(p: {
   machineCode: string;
+  /**
+   * ⚠️ LA PLACA NO ES UN ADORNO: sin ella el rastro NO IDENTIFICA AL CAMIÓN.
+   *
+   *    En esta flota casi todos se llaman igual («Camion Volteo Toronto»), así
+   *    que una fila que dijera solo el código deja a quien la lee sin saber cuál
+   *    de los treinta fue — y el cliente pidió esto precisamente para «poder
+   *    identificar fácilmente esos cambios». Es la misma trampa que obligó a que
+   *    la clave de idempotencia use la identidad y no el nombre; acá se coló por
+   *    la puerta de al lado. El resto del módulo ya arrastra la placa por esto.
+   */
+  placa?: string | null;
   antesISO: string;
   despuesISO: string;
   cambios?: string[] | null;
 }): string {
-  const code = codigoParaClave(p.machineCode) || '(sin código)';
+  const soloCode = codigoParaClave(p.machineCode) || '(sin código)';
+  const placa = String(p.placa ?? '').trim();
+  const code = placa ? `${soloCode} · ${placa}` : soloCode;
   const a = String(p.antesISO ?? '').slice(0, 16).replace('T', ' ');
   const b = String(p.despuesISO ?? '').slice(0, 16).replace('T', ' ');
   const movio = a && b && a !== b ? `${a} → ${b}` : (a || b || 'sin fecha');
