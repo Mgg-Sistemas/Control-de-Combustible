@@ -88,6 +88,36 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
   ok('parada de HOY + trabajó → SIGUE averiada (no es arrastrada)', averiadas.has('m8'));
 }
 
+// ── 9) ⭐ MARCAR AVERIADO NO ABRE EXPEDIENTE DE TALLER (02-sep-2026) ────────
+//
+// Durante dos semanas, cada "⚠️ Marcar equipo averiado" desde Control insertaba
+// un `machinery_repairs` correctivo en estado 'en_reparacion'. El comentario
+// decía «para que Mantenimiento la gestione», pero eso dejó de ser cierto el
+// 17-ago-2026, cuando se quitó la pestaña "🔧 En reparación" de Servicio:
+// Mantenimiento solo lista preventivos, Servicio ya no dibuja los correctivos, y
+// `openReturn` —la única forma de cerrarlos— vivía dentro de esa pestaña. El
+// resultado eran expedientes invisibles, imposibles de cerrar, que además dejaban
+// a la máquina bloqueada para mantenimiento preventivo para siempre.
+//
+// LA REGLA: marcar una máquina averiada es una decisión sobre LA MÁQUINA, no
+// sobre EL TALLER. El expediente nace cuando el taller RECIBE la máquina.
+{
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ControlMaquinariaScreen.tsx'), 'utf8');
+  // Sin comentarios: nombrar la tabla en una explicación no es escribirla.
+  const vivo = scr.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  ok('⭐⭐ Control NO abre expedientes de taller',
+    !/from\(\s*'machinery_repairs'\s*\)[\s\S]{0,200}\.insert\(/.test(vivo));
+  ok('⭐ y no toca `machinery_repairs` de ninguna forma',
+    !/from\(\s*'machinery_repairs'\s*\)/.test(vivo));
+
+  // Lo que SÍ tiene que seguir haciendo: el reporte y el marcador de parada. Sin
+  // estos dos la máquina dejaría de verse averiada y detenida en todo el sistema,
+  // que sería cambiar un problema por otro mucho peor.
+  ok('⭐ pero SIGUE creando la avería real', /material:\s*'otro'/.test(vivo));
+  ok('⭐ y SIGUE dejando el marcador de parada', /material:\s*'MÁQUINA PARADA'/.test(vivo));
+}
+
 if (fail) {
   console.log(`\n✗ ${fail} FALLO(S):\n` + failures.map((f) => `  · ${f}`).join('\n'));
   process.exit(1);
