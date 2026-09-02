@@ -3849,8 +3849,20 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 - **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
   (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
-  que el Catálogo. Si el camión está averiado, parado o retirado, sale un **aviso** antes de
-  registrar (no bloquea, solo confirma).
+  que el Catálogo.
+  >
+  > **⚠️ Corrección (02-sep-2026):** aquí decía que *"si el camión está averiado, parado o retirado
+  > sale un aviso antes de registrar"*. **Eso ya no es cierto, y hay dos cosas distintas mezcladas:**
+  >
+  > - **Averiada, parada o esperando instrucciones → sale en la lista y NO pregunta nada.** Es la
+  >   regla que pediste el 31-ago-2026: *"no importa el estado del camión si está averiado o algo
+  >   por el estilo, si colocan que se hizo un viaje, lo registre"*. El motivo de fondo: un viaje es
+  >   un **hecho observado** —el listero vio entrar el camión— y el estado es una **anotación** de
+  >   otro módulo, que puede estar vieja o mal puesta. Cuando se contradicen, gana lo que se vio.
+  >   (Hay una prueba automática que vigila esta regla para que no se revierta sola.)
+  > - **Retirada → NO sale en la lista del listero.** Eso es otra cosa: son camiones que ya no están
+  >   en la obra (fin de contrato, reemplazo). Cuando salían, se registraban viajes de camiones que
+  >   no existen — *"se están registrando máquinas que no están"*.
 - **Registrar viaje:** un solo botón — **🚛 Registrar viaje**. La hora se toma sola (la del
   teléfono en el momento del toque) y el **chofer** también: es el que el Coordinador de Operadores
   tiene asignado a ese camión en el turno actual (no se escribe a mano).
@@ -3896,6 +3908,96 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 - **Configuración:** el **umbral de alerta** (horas) y la **meta de viajes diarios** de cada
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
+
+### 🧾 Siete arreglos del registro de viajes (02-sep-2026)
+
+#### 1. 🚫 El mismo viaje ya no entra dos veces
+
+Antes, si el listero tocaba **dos veces** el botón porque *"no pasó nada"*, quedaban **dos viajes de
+verdad** y **nadie avisaba**: el sistema le ponía una marca nueva a cada toque, así que los dos
+entraban como si fueran distintos.
+
+Ahora el viaje se reconoce por **lo que es**: **mismo camión, mismo listero, mismo minuto**. El
+segundo toque **no crea nada**.
+
+> ⚠️ **Si en el segundo toque sale igual el mensaje verde de «registrado», está bien.** Quiere decir
+> que el primero **sí entró**. No hay que volver a tocar, ni reclamar un faltante.
+
+#### 2. ✍️ La carga a mano ya no duplica al reintentar
+
+Antes, si la tanda fallaba a la mitad —el aviso decía *"se cargaron 3 de 5"*— y se volvía a cargar la
+**misma cantidad**, **los 3 que ya habían entrado se repetían** y el camión terminaba con más viajes
+de los que hizo.
+
+Ahora se puede **reintentar sin miedo**: los que ya entraron **se rechazan solos** y solo se cargan
+los que faltaban. Es el mismo candado del punto 1, aplicado **renglón por renglón** de la tanda.
+
+#### 3. ⚠️ La casilla de cantidad SUMA, no fija el total
+
+Hay que decirlo con todas sus letras: el número de **"¿Cuántos viajes?"** **se agrega** a los que el
+camión **ya tiene** ese día — **no fija el total del día**.
+
+| El camión ya tiene | Escribes | Queda con |
+|---|---|---|
+| 3 | 5 | **8** (no 5) |
+
+Antes la etiqueta no lo decía y la cuenta se cuadraba al revés. Ahora **la etiqueta lo dice**, y
+debajo se muestra **cuántos viajes tiene ya** ese camión ese día y **cómo va a quedar** después de
+guardar. Para dejarlo en 5, carga **2**; y si sobran, se borran desde la **lista completa**.
+
+> **Cuándo aparece ese conteo, y cuándo no.** Solo sale si el día que elegiste ya está
+> **cargado en la lista de abajo** (por eso con el filtro en *Hoy* aparece para hoy). Si estás
+> cuadrando un día viejo que no está en el rango cargado, **la línea sencillamente no se muestra**.
+>
+> Es a propósito, y es la parte importante: **preferimos no decir nada antes que decir un número
+> equivocado.** Un «ya tiene 0» falso te haría cargar de más, y eso es peor que no tener el dato.
+> Si quieres que aparezca para un día viejo, primero cambia el **filtro de fechas** de la lista para
+> que incluya ese día.
+
+#### 4. 📋 Corregir viajes de cualquier día, y que quede el rastro (solo FULL)
+
+Antes, **pasadas las 7 de la mañana** ya no se podían tocar los viajes de la noche que acababa de
+terminar — justo cuando se corrigen, porque la corrección de la madrugada se hace **por la mañana**.
+La regla llegaba tarde precisamente cuando más falta hacía.
+
+Ahora quien tiene acceso **Full** puede corregir el viaje **del día que sea**. **Pero queda
+registrado:** esas correcciones excepcionales salen en **📋 Auditoría** (ver 4.13b) con su **propia
+etiqueta**, para poder ubicarlas de un vistazo entre miles de filas — **quién** la hizo, **cuándo**,
+**qué camión** y **de qué fecha a qué fecha** se movió el viaje.
+
+> ⚠️ **Las correcciones normales del día NO generan ese registro especial**, y es **a propósito**: de
+> esas ya queda el **rastro de siempre**, y escribir además una fila aparte llenaría la auditoría de
+> ruido. Abrir **"✏️ Editar"** y cerrarlo **sin cambiar nada** tampoco escribe nada.
+
+#### 5. 👤 El chofer ya no se pierde en silencio
+
+Cuando la red estaba lenta, el sistema **se rendía a los pocos segundos** buscando quién manejaba y
+guardaba el viaje **sin chofer**, sin decir nada. Después nadie sabía si ese camión de verdad andaba
+**sin chofer asignado** o si simplemente **no se pudo averiguar**.
+
+Ahora **las dos cosas se distinguen** y se ven distinto: una es *"no había chofer"* y la otra es
+*"no se pudo averiguar"*. El viaje **entra igual** en los dos casos: un chofer que falta se corrige
+después, un viaje perdido no se recupera.
+
+#### 6. ⏰ Aviso si el teléfono tiene la hora mal
+
+El viaje se guarda con **la hora del teléfono**, y esa hora decide **a qué día y a qué turno**
+pertenece (recuerda: **el día va de 7am a 7am**). Un teléfono con la hora corrida manda los viajes de
+las 6:45am a la **jornada anterior**, y los de las 6:45pm al **turno de día**. No se rompe nada:
+simplemente **aparecen en el día o el turno equivocado**, y el listero jura que los registró.
+
+Ahora, **al entrar a la pantalla**, se compara la hora del teléfono con la del sistema y, si está
+corrida más de unos minutos, sale un aviso que dice si va **adelantado** o **atrasado** y **cuánto**,
+y pide ajustarla.
+
+> ⚠️ **El sistema NO corrige la hora solo.** Sin internet el **único reloj que existe** es el del
+> teléfono — que es justo el caso para el que se hizo el registro sin señal. Hay que arreglarlo **en
+> el teléfono**: lo más seguro es ponerle la hora **en automático**.
+
+#### 7. 💾 Guardar una corrección ya no se puede tocar dos veces
+
+En el editor de un viaje, el botón de guardar **se apaga en cuanto se toca** y hasta que termina.
+Antes se podía tocar de nuevo mientras trabajaba, y la misma corrección salía **dos veces**.
 
 ### 🛡️ La última fuga de viajes, tapada (31-ago-2026)
 

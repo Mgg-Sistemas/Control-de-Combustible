@@ -68,9 +68,14 @@ import {
   validarCargaManual,
   notaCargaManual,
   esCargaManual,
+  claveViajeEstable,
+  fueraDeJornada,
+  rastroDeEdicion,
   MAX_CARGA,
   SEPARACION_MIN,
 } from '../lib/viajesEdicion';
+import { desfaseMinutos, avisoDesfase } from '../lib/relojDesfase';
+import { logAudit } from '../lib/audit';
 import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes, nuevoClientActionId, falloDeGuardadoLocal } from '../lib/viajesOfflineQueue';
 import { accionTrasFalloConSenal, motivoLegible } from '../lib/colaOfflinePolicy';
 
@@ -113,6 +118,80 @@ function currentJornadaWindow(): { startMs: number; endMs: number } {
   }
   const nextDay = addDaysISO(bDay, 1);
   return { startMs: new Date(`${bDay}T19:00:00-04:00`).getTime(), endMs: new Date(`${nextDay}T07:00:00-04:00`).getTime() };
+}
+
+/**
+ * La ventana de LA JORNADA EN CURSO: 7am a 7am, el DÍA DE TRABAJO completo.
+ *
+ * ⚠️ NO ES LO MISMO QUE `currentJornadaWindow`, aunque el nombre de aquélla lo
+ *    sugiera. Ésa devuelve el TURNO de 12 horas (día o noche) y sirve para
+ *    decidir hasta cuándo el listero puede corregir lo suyo — eso se queda como
+ *    está, es de siempre.
+ *
+ * ⭐ ACÁ HACE FALTA LA JORNADA ENTERA, y la diferencia se ve en el caso más
+ *    común de todos: la jefa cuadrando el día a las 8 de la noche y corrigiendo
+ *    un viaje de las 10 de la mañana DEL MISMO DÍA DE TRABAJO. Con la ventana de
+ *    turno, ese viaje cae "fuera" y se escribía una fila en Auditoría que decía
+ *    «corrigió un viaje de OTRO DÍA». Falso, y encima rutinario: exactamente el
+ *    ruido que el cliente pidió evitar («que no se dañe ni abuse el módulo de
+ *    auditoría»). Y el manual promete lo contrario, que las correcciones
+ *    normales del día no generan ese registro.
+ *
+ *    Además es la regla de la casa: la jornada es el día de trabajo, no el
+ *    calendario ni el turno.
+ */
+function ventanaJornadaEnCurso(): { startMs: number; endMs: number } {
+  const { desdeISO, hastaExclusivoISO } = jornadaWindowISO(caracasBusinessToday());
+  return { startMs: new Date(desdeISO).getTime(), endMs: new Date(hastaExclusivoISO).getTime() };
+}
+
+/**
+ * LA HORA DEL SERVIDOR, PARA PODER CONTRASTAR LA DEL TELÉFONO (02-sep-2026).
+ *
+ * ⚠️ NO SE USA PARA SELLAR NADA. El viaje se sigue sellando con `new Date()`,
+ *    la hora del teléfono, porque el registro sin conexión es la razón de ser de
+ *    este módulo y sin internet el único reloj que existe es ese. Esto sirve
+ *    únicamente para AVISAR cuando el teléfono está corrido — ver `relojDesfase`.
+ *
+ * Sale de la cabecera `Date` de la respuesta, que todo servidor HTTP manda de
+ * todas formas: no hace falta una tabla nueva, ni una función en la base, ni
+ * traer una sola fila (el HEAD no descarga cuerpo).
+ *
+ * ⚠️⚠️ VA CONTRA UNA TABLA, **NO** CONTRA LA RAÍZ DE PostgREST, y esa diferencia
+ *      es la que hace que esto funcione o no en la web. Verificado contra el
+ *      servidor real el 02-sep-2026:
+ *
+ *        · `HEAD /rest/v1/`                  → 401 y SIN `Access-Control-Expose-Headers`
+ *        · `HEAD /rest/v1/camion_viajes?…`   → 200 y expone `Date` entre otras
+ *
+ *      `Date` no es una cabecera «CORS-segura», así que el navegador solo la deja
+ *      leer si el servidor la nombra en `Access-Control-Expose-Headers`. Contra
+ *      la raíz, `res.headers.get('date')` devuelve `null` EN EL NAVEGADOR aunque
+ *      la cabecera viaje por el cable — y como acá «no poder medir» no dice nada
+ *      a propósito, el aviso no salía NUNCA en soslaguaira.com, ni con el reloj
+ *      tres horas corrido. En la app nativa sí funcionaba (no hay CORS), que es
+ *      lo que hacía el fallo tan fácil de no ver.
+ *
+ * `limit=0` no trae ni una fila: solo interesa la cabecera.
+ *
+ * Es UN chequeo al abrir la pantalla, no un latido: con tope de tiempo para que
+ * el wifi del patio (señal sin internet) no deje nada colgado, y devolviendo
+ * `null` ante cualquier tropiezo — no poder medir NO es lo mismo que estar mal,
+ * y de eso se encarga `avisoDesfase`, que ante `null` no dice nada.
+ */
+async function horaDelServidor(): Promise<string | null> {
+  const base = String(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
+  const apikey = String(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '');
+  if (!base || !apikey) return null;
+  try {
+    const res = await Promise.race([
+      fetch(`${base}/rest/v1/camion_viajes?select=id&limit=0`, { method: 'HEAD', headers: { apikey } }),
+      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
+    return res ? res.headers.get('date') : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Camión (fila de `machinery`, filtrada a volteos/volquetas) ─────────────
@@ -160,6 +239,62 @@ type DisplayViaje = CamionViajeRow & { queued?: boolean; stuck?: boolean; stuckE
  *  catálogo. No es un uuid ni existe en `machinery`: solo sirve para que el
  *  flujo de la pantalla sea el mismo. Al guardar se manda `machinery_id = null`. */
 const FUERA_CATALOGO_ID = '__fuera_catalogo__';
+
+/**
+ * QUÉ CAMIÓN ES, PARA LA CLAVE DE IDEMPOTENCIA (02-sep-2026).
+ *
+ * ⚠️ NO se manda el `code` pelado, y es a propósito: en esta flota casi todos
+ *    los camiones se llaman IGUAL («Camion Volteo Toronto» repetido en casi
+ *    toda la flota) — es el motivo de que media pantalla arrastre la placa a
+ *    todos lados para poder distinguirlos. Con el código solo, dos camiones
+ *    DISTINTOS del mismo listero en el mismo minuto darían LA MISMA clave y la
+ *    base rechazaría el segundo como si fuera un doble toque: un viaje real
+ *    perdido en silencio, que es peor que el duplicado que se está evitando. Y
+ *    en la carga a mano sería aún más visible: cargarle la misma tanda a dos
+ *    camiones con el mismo código rebotaría entera la segunda.
+ *
+ *    Con la ficha del camión delante, cada camión tiene su propia clave y la
+ *    idempotencia sigue funcionando igual: el mismo camión, el mismo listero y
+ *    el mismo minuto vuelven a dar exactamente la misma.
+ *
+ * Los camiones de fuera de catálogo no tienen ficha: ahí manda el texto que
+ * escribió el listero, que es todo lo que hay para identificarlos.
+ */
+const identidadParaClave = (t: TruckRow): string =>
+  t.id === FUERA_CATALOGO_ID ? t.code : `${t.id} ${t.code}`;
+
+/**
+ * Lo que devuelve la consulta del chofer cuando SE VENCIÓ EL TIEMPO.
+ *
+ * ⚠️ Hace falta un valor aparte porque `null` YA significa algo: «este camión no
+ *    tiene chofer asignado en este turno». Confundir las dos cosas es justo el
+ *    bug — el viaje se guardaba con el chofer vacío y ese dato queda congelado
+ *    en la fila para siempre, indistinguible de un camión sin chofer de verdad.
+ */
+const CHOFER_SIN_RESPUESTA = '__chofer_sin_respuesta__';
+
+/**
+ * Cuánto se espera por la consulta del chofer antes de seguir sin ella.
+ *
+ * ⚠️ NO SE ALARGA. Existe para que la pantalla no se congele con el wifi del
+ *    patio —señal sin internet, portal cautivo— donde el `fetch` de Supabase se
+ *    queda colgado sin timeout propio. Esperar más no consigue el chofer: solo
+ *    aumenta la ventana en la que el listero se cansa, cierra la app y pierde el
+ *    viaje entero.
+ */
+const TOPE_CHOFER_MS = 4000;
+
+/**
+ * La marca que queda en el viaje cuando NO SE PUDO AVERIGUAR el chofer.
+ *
+ * Va en `note` —la misma columna que usa «Cargado a mano»— porque es lo único
+ * que viaja con la fila hasta el reporte de la jefa. Sin esto, un viaje sin
+ * chofer por un problema de red se ve idéntico a uno de un camión que de verdad
+ * no tiene chofer asignado, y nadie sabe a cuál hay que ir a preguntarle.
+ */
+const MARCA_CHOFER_SIN_CONFIRMAR = 'Chofer sin confirmar';
+const esChoferSinConfirmar = (note: string | null | undefined): boolean =>
+  String(note ?? '').startsWith(MARCA_CHOFER_SIN_CONFIRMAR);
 
 export default function ViajesCamionesScreen() {
   const { colors } = useTheme();
@@ -425,6 +560,10 @@ export default function ViajesCamionesScreen() {
   const [selectedShift, setSelectedShift] = useState<'day' | 'night'>('day');
   const [selectedChofer, setSelectedChofer] = useState<string | null>(null);
   const [choferLoading, setChoferLoading] = useState(false);
+  /** true = la consulta del chofer NO contestó a tiempo, así que no se sabe si
+   *  este camión tiene chofer o no. Distinto de `selectedChofer === null`, que
+   *  significa «se preguntó y no tiene». Ver `CHOFER_SIN_RESPUESTA`. */
+  const [choferIncierto, setChoferIncierto] = useState(false);
   const [registering, setRegistering] = useState(false);
   /** Guard del doble toque. En un ref porque el state no cambia hasta el próximo
    *  render y dos toques del mismo frame pasarían los dos. */
@@ -446,6 +585,7 @@ export default function ViajesCamionesScreen() {
     setPickOpen(false);
     setSelectedTruck(t);
     setSelectedChofer(null);
+    setChoferIncierto(false);
     const shift = caracasNowShift();
     setSelectedShift(shift);
     // Un camión fuera de catálogo no tiene ficha ni chofer asignado que consultar:
@@ -460,16 +600,25 @@ export default function ViajesCamionesScreen() {
     //    quedaba gris diciendo «Buscando el chofer…» el resto de la sesión y el
     //    listero no podía registrar ni un viaje más. Sin error y sin cola.
     //
-    //    Ahí abajo, al registrar, se vuelve a consultar si cambió el turno; y si
-    //    tampoco contesta, el viaje entra sin chofer. Un chofer que falta se
+    //    Ahí abajo, al registrar, se vuelve a preguntar. Un chofer que falta se
     //    corrige; un viaje perdido no se recupera.
+    //
+    // ⚠️⚠️ PERO EL TOPE YA NO SE TRAGA LA RESPUESTA. Antes, vencido el tiempo,
+    //    esto guardaba `null` — el MISMO valor que significa «se preguntó y este
+    //    camión no tiene chofer asignado»— y el viaje se subía con el chofer
+    //    vacío como si eso fuera un hecho comprobado. Ese dato queda congelado
+    //    en la fila y ya no se recupera: es la explicación más probable de los
+    //    viajes sin chofer del reporte de la jefa. Ahora el vencimiento devuelve
+    //    su propio centinela y la pantalla se acuerda de que NO SABE.
     const chofer = await Promise.race([
       resolveChoferActual(t.id, shift).catch(() => null),
-      new Promise<string | null>((r) => setTimeout(() => r(null), 4000)),
+      new Promise<string | null>((r) => setTimeout(() => r(CHOFER_SIN_RESPUESTA), TOPE_CHOFER_MS)),
     ]);
     if (pedido !== choferPedidoRef.current) return; // llegó tarde: manda el camión de ahora
     setChoferLoading(false);
-    setSelectedChofer(chofer);
+    const sinRespuesta = chofer === CHOFER_SIN_RESPUESTA;
+    setChoferIncierto(sinRespuesta);
+    setSelectedChofer(sinRespuesta ? null : chofer);
   };
 
   // ── CAMIÓN QUE NO ESTÁ EN EL CATÁLOGO ───────────────────────────────────
@@ -533,6 +682,9 @@ export default function ViajesCamionesScreen() {
       operational: true, enEspera: false,
     });
     setSelectedChofer(null);
+    // De un camión anotado a mano no hay chofer que averiguar: sin chofer es un
+    // HECHO, no una consulta que no contestó. Ver `CHOFER_SIN_RESPUESTA`.
+    setChoferIncierto(false);
     setSelectedShift(caracasNowShift());
   };
 
@@ -728,6 +880,9 @@ export default function ViajesCamionesScreen() {
       const shift = caracasNowShift();
       const esFuera = selectedTruck.id === FUERA_CATALOGO_ID;
       let chofer = selectedChofer;
+      // Arranca donde lo dejó `onSelectTruck`: si aquella consulta no contestó,
+      // esto sigue siendo «no se sabe» mientras no se compruebe otra cosa.
+      let choferSinConfirmar = choferIncierto;
       // ⚠️⚠️ ESTA CONSULTA NO PUEDE FRENAR EL REGISTRO, Y ANTES LO FRENABA.
       //
       //    Iba con `await` pelado y ANTES del `if (!isOnline())` de más abajo:
@@ -741,11 +896,43 @@ export default function ViajesCamionesScreen() {
       //    Ahora tiene tope de tiempo: si no contesta en 4 segundos se sigue con
       //    el chofer que ya se tenía. Un chofer viejo es un dato imperfecto; un
       //    viaje perdido no se recupera.
-      if (!esFuera && shift !== selectedShift) {
-        chofer = await Promise.race([
-          resolveChoferActual(selectedTruck.id, shift),
-          new Promise<string | null>((r) => setTimeout(() => r(selectedChofer), 4000)),
-        ]);
+      //
+      // ⭐ Y AHORA TAMBIÉN SE REINTENTA CUANDO LA PRIMERA CONSULTA NO CONTESTÓ
+      //    (02-sep-2026), no solo cuando cambió el turno: al escoger el camión
+      //    la pantalla acababa de abrirse y la red podía estar peor que ahora, y
+      //    este es el último momento en que el dato todavía se puede averiguar
+      //    —después queda congelado en la fila para siempre—.
+      //
+      // ⚠️ SOLO CON SEÑAL. Sin ella no hay a quién preguntarle, y gastar otros
+      //    cuatro segundos antes de encolar es justo la ventana por la que se
+      //    pierde un viaje si el listero se cansa y cierra la app.
+      if (!esFuera && (shift !== selectedShift || (choferIncierto && isOnline()))) {
+        // ⚠️ El tope sigue devolviendo el chofer que YA SE TENÍA —un dato viejo
+        //    es mejor que ninguno—, pero ahora deja constancia de que ganó ÉL y
+        //    no la consulta. Sin esa marca, «no contestó» y «contestó que este
+        //    camión no tiene chofer» son el mismo `null`, y el viaje se guardaba
+        //    con el chofer vacío como si fuera un hecho comprobado.
+        let vencioElTope = false;
+        try {
+          chofer = await Promise.race([
+            resolveChoferActual(selectedTruck.id, shift),
+            new Promise<string | null>((resolver) => {
+              // `r` no es el `resolve` pelado: anota el vencimiento antes de
+              // devolver lo que ya se tenía.
+              const r = (v: string | null) => { vencioElTope = true; resolver(v); };
+              setTimeout(() => r(selectedChofer), TOPE_CHOFER_MS);
+            }),
+          ]);
+        } catch {
+          // Que la consulta reviente no puede tumbar el registro: se trata igual
+          // que si no hubiera contestado.
+          chofer = selectedChofer;
+          vencioElTope = true;
+        }
+        choferSinConfirmar = vencioElTope;
+        // Si esta vez SÍ contestó, la pantalla deja de estar en duda: el listero
+        // ve el nombre y el próximo toque no vuelve a gastar el tope entero.
+        if (!vencioElTope && choferIncierto) { setChoferIncierto(false); setSelectedChofer(chofer); }
       }
       const payload = {
         // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
@@ -760,14 +947,37 @@ export default function ViajesCamionesScreen() {
         choferName: chofer,
         shift,
         estadoMaquina: estadoConteo,
-        note: null as string | null,
+        // ⭐ QUE SE VEA QUE NO SE PUDO AVERIGUAR EL CHOFER. Es la única forma de
+        //    que la duda viaje con la fila hasta el reporte: sin la marca, este
+        //    viaje se lee exactamente igual que el de un camión que de verdad no
+        //    tiene chofer asignado, y nadie sabe cuál hay que ir a completar.
+        note: (choferSinConfirmar ? MARCA_CHOFER_SIN_CONFIRMAR : null) as string | null,
         registeredAt,
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
       //    desde la cola. Sin esto, encolar tras un fallo duplicaría el viaje
       //    cuando el insert sí entró y se perdió la respuesta.
-      const clientActionId = nuevoClientActionId();
+      //
+      // ⭐⭐ Y LA CLAVE SALE DE LA INTENCIÓN, NO DEL RELOJ (02-sep-2026).
+      //    `nuevoClientActionId()` la armaba con `Date.now()` + azar: NUEVA EN
+      //    CADA TOQUE. Así el índice único de `client_action_id` solo servía
+      //    para los reintentos del propio código —que sí reusan la clave— y no
+      //    para lo que de verdad pasa en el patio: el listero toca dos veces
+      //    porque «no pasó nada» y quedan DOS viajes de verdad, sin aviso.
+      //    Con la clave estable el segundo toque rebota con un 23505, que este
+      //    mismo flujo ya lee unas líneas más abajo como «ese viaje ya estaba» y
+      //    responde en verde. Eso es lo correcto: el viaje SÍ quedó registrado.
+      //
+      // ⚠️ Si le faltara algún dato, `claveViajeEstable` devuelve cadena vacía y
+      //    se cae en la de siempre: una clave a medias podría chocar con la de
+      //    OTRO viaje legítimo y hacerlo desaparecer en silencio, que es mucho
+      //    peor que el duplicado que estamos evitando.
+      const clientActionId = claveViajeEstable({
+        identidadCamion: identidadParaClave(selectedTruck),
+        listeroId: uid,
+        registeredAtISO: registeredAt,
+      }) || nuevoClientActionId();
 
       if (!isOnline()) {
         await guardarEnCola(payload, clientActionId,
@@ -838,6 +1048,20 @@ export default function ViajesCamionesScreen() {
 
   const isEditableByListero = (row: CamionViajeRow): boolean => {
     if (row.listeroId !== uid) return false;
+    // ⭐ CON ACCESO FULL NO HAY HORA DE CIERRE (02-sep-2026).
+    //
+    //    La regla de «solo dentro de tu jornada» existe para el LISTERO: él
+    //    corrige la hora de un viaje que acaba de dar, y dejarlo tocar días
+    //    viejos sería darle una manera silenciosa de sacar trabajo de la jornada
+    //    que se le está revisando. Pero a quien tiene full le llegaba tarde justo
+    //    cuando más falta hace: a las 7:01am ya no se podía corregir la noche que
+    //    acababa de terminar, y la corrección de la madrugada se hace POR LA
+    //    MAÑANA. En el panel de la jefa esto ya se podía; en su propia lista de
+    //    «mis viajes de hoy», no — la misma persona con dos reglas distintas.
+    //
+    //    No queda invisible: la edición excepcional deja rastro en Auditoría.
+    //    Ver `saveEdit` y `requiereRastroDeEdicion`.
+    if (canFull) return true;
     const { startMs, endMs } = currentJornadaWindow();
     const t = new Date(row.registeredAt).getTime();
     return t >= startMs && t < endMs;
@@ -859,66 +1083,133 @@ export default function ViajesCamionesScreen() {
     });
   };
   const cancelEdit = () => setEditing(null);
+  // Mismo motivo que `registeringRef` y `borrandoRef`: el state no cambia hasta
+  // el próximo render, así que dos toques dentro del mismo frame leen los dos el
+  // mismo cierre y pasan los dos. Acá la ventana ancha es el `confirm` de "esto
+  // cambia de día/turno": mientras el modal se monta, el botón Guardar sigue
+  // habilitado — dos toques ahí eran DOS updates y DOS filas de auditoría.
+  const guardandoEdicionRef = useRef(false);
+  // El ref es el que FRENA (se lee y se escribe sin esperar al re-render, que es
+  // lo que hace falta contra el doble toque). Este estado es solo para que se
+  // VEA: sin el, el boton no cambiaba nada en pantalla y quien tocaba dos veces
+  // no tenia forma de saber que el primer toque habia contado.
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const saveEdit = async () => {
-    if (!editing) return;
-    const row = findRow(editing.id);
-    if (!row) { setEditing(null); return; }
-    const { hh, mm } = normalizarHora(editing.hh, editing.mm);
-    // El listero solo mueve la HORA: la jornada que se manda es la que ya tenía
-    // el viaje. La jefa sí puede haber cambiado el día en el selector.
-    const jornada = canFull ? editing.fecha : jornadaDeFecha(new Date(row.registeredAt));
-    // ⭐ NO SE PUEDE MANDAR UN VIAJE AL FUTURO, ni por acá. La carga manual ya lo
-    //    prohíbe; sin esto se prohibía por una puerta y se permitía por la otra,
-    //    y un viaje con fecha de mañana envenena la alerta de "camión sin viaje"
-    //    (le da horas negativas y ese camión no vuelve a salir en la lista).
-    if (canFull && jornada > caracasBusinessToday()) {
-      toast.error('Esa fecha todavía no llega. Un viaje no puede quedar en el futuro.');
-      return;
-    }
-    const newIso = isoDeJornadaHora(jornada, hh, mm);
-
-    // ⚠️ Cambiar fecha u hora puede MUDAR EL VIAJE DE DÍA o DE TURNO sin que
-    //    nadie lo pida (el corte del negocio son las 7am, y el turno las 7pm).
-    //    No se bloquea —a veces es justo lo que se quiere corregir— pero se
-    //    pregunta antes, porque si no el viaje se "desaparece" de la lista al
-    //    guardar y no hay manera de entender por qué. Ver `viajesEdicion.ts`.
-    //
-    // ⚠️ Se compara POR MINUTO, no por instante: el viaje de campo trae segundos
-    //    y el formulario solo llega al minuto, así que comparar los instantes
-    //    daba "cambió" SIEMPRE y abrir/guardar sin tocar nada movía el viaje.
-    const cambioDeInstante = !mismoMinuto(newIso, row.registeredAt);
-    if (cambioDeInstante) {
-      const avisos = avisosDeCambio(row.registeredAt, newIso);
-      if (avisos.length > 0) {
-        const ok = await confirm(`${avisos.join('\n\n')}\n\n¿Lo dejas así?`);
-        if (!ok) return;
+    if (!editing || guardandoEdicionRef.current) return;
+    guardandoEdicionRef.current = true;
+    setGuardandoEdicion(true);
+    try {
+      const row = findRow(editing.id);
+      if (!row) { setEditing(null); return; }
+      const { hh, mm } = normalizarHora(editing.hh, editing.mm);
+      // El listero solo mueve la HORA: la jornada que se manda es la que ya tenía
+      // el viaje. La jefa sí puede haber cambiado el día en el selector.
+      const jornada = canFull ? editing.fecha : jornadaDeFecha(new Date(row.registeredAt));
+      // ⭐ NO SE PUEDE MANDAR UN VIAJE AL FUTURO, ni por acá. La carga manual ya lo
+      //    prohíbe; sin esto se prohibía por una puerta y se permitía por la otra,
+      //    y un viaje con fecha de mañana envenena la alerta de "camión sin viaje"
+      //    (le da horas negativas y ese camión no vuelve a salir en la lista).
+      if (canFull && jornada > caracasBusinessToday()) {
+        toast.error('Esa fecha todavía no llega. Un viaje no puede quedar en el futuro.');
+        return;
       }
-    }
+      const newIso = isoDeJornadaHora(jornada, hh, mm);
 
-    const cambios: Parameters<typeof editarViaje>[1] = {};
-    if (cambioDeInstante) cambios.registeredAtISO = newIso;
-    if (canFull) {
-      const choferNuevo = editing.chofer.trim() || null;
-      if (choferNuevo !== (row.choferName ?? null)) cambios.choferName = choferNuevo;
-      if (editing.listeroId && editing.listeroId !== row.listeroId) {
-        const nuevo = listeros.find((l) => l.id === editing.listeroId);
-        // Sin nombre no se reasigna: `listero_name` es lo que sale en el reporte
-        // y dejarlo desactualizado mostraría al listero VIEJO con el id del nuevo.
-        if (!nuevo) { toast.error('No se pudo identificar a ese listero. Refresca la pantalla.'); return; }
-        const ok = await confirm(`El viaje va a quedar a nombre de ${nuevo.full_name} en vez de ${row.listeroName}. Deja de contar para uno y cuenta para el otro en el resumen por listero. ¿Lo cambias?`);
-        if (!ok) return;
-        cambios.listeroId = nuevo.id;
-        cambios.listeroName = nuevo.full_name;
+      // ⚠️ Cambiar fecha u hora puede MUDAR EL VIAJE DE DÍA o DE TURNO sin que
+      //    nadie lo pida (el corte del negocio son las 7am, y el turno las 7pm).
+      //    No se bloquea —a veces es justo lo que se quiere corregir— pero se
+      //    pregunta antes, porque si no el viaje se "desaparece" de la lista al
+      //    guardar y no hay manera de entender por qué. Ver `viajesEdicion.ts`.
+      //
+      // ⚠️ Se compara POR MINUTO, no por instante: el viaje de campo trae segundos
+      //    y el formulario solo llega al minuto, así que comparar los instantes
+      //    daba "cambió" SIEMPRE y abrir/guardar sin tocar nada movía el viaje.
+      const cambioDeInstante = !mismoMinuto(newIso, row.registeredAt);
+      if (cambioDeInstante) {
+        const avisos = avisosDeCambio(row.registeredAt, newIso);
+        if (avisos.length > 0) {
+          const ok = await confirm(`${avisos.join('\n\n')}\n\n¿Lo dejas así?`);
+          if (!ok) return;
+        }
       }
-    }
-    if (Object.keys(cambios).length === 0) { setEditing(null); return; }
 
-    const { error } = await editarViaje(editing.id, cambios);
-    if (error) { toast.error(error); return; }
-    setEditing(null);
-    toast.success('Viaje actualizado.');
-    loadMisViajes();
-    if (canFull) { loadRangeRows(); loadResumen(); }
+      const cambios: Parameters<typeof editarViaje>[1] = {};
+      // Qué cambió, en palabras, para el rastro de Auditoría. Se arma con LO
+      // MISMO que decide qué se manda a la base: si algún día divergen, la
+      // bitácora contaría una historia distinta de la que quedó en la fila.
+      const queCambio: string[] = [];
+      if (cambioDeInstante) { cambios.registeredAtISO = newIso; queCambio.push('hora'); }
+      if (canFull) {
+        const choferNuevo = editing.chofer.trim() || null;
+        if (choferNuevo !== (row.choferName ?? null)) {
+          cambios.choferName = choferNuevo;
+          queCambio.push(`chofer: ${row.choferName || 'sin chofer'} → ${choferNuevo || 'sin chofer'}`);
+        }
+        if (editing.listeroId && editing.listeroId !== row.listeroId) {
+          const nuevo = listeros.find((l) => l.id === editing.listeroId);
+          // Sin nombre no se reasigna: `listero_name` es lo que sale en el reporte
+          // y dejarlo desactualizado mostraría al listero VIEJO con el id del nuevo.
+          if (!nuevo) { toast.error('No se pudo identificar a ese listero. Refresca la pantalla.'); return; }
+          const ok = await confirm(`El viaje va a quedar a nombre de ${nuevo.full_name} en vez de ${row.listeroName}. Deja de contar para uno y cuenta para el otro en el resumen por listero. ¿Lo cambias?`);
+          if (!ok) return;
+          cambios.listeroId = nuevo.id;
+          cambios.listeroName = nuevo.full_name;
+          queCambio.push(`lo registró: ${row.listeroName} → ${nuevo.full_name}`);
+        }
+      }
+      if (Object.keys(cambios).length === 0) { setEditing(null); return; }
+
+      const { error } = await editarViaje(editing.id, cambios);
+      if (error) { toast.error(error); return; }
+
+      // ⭐⭐ RASTRO DE LA EDICIÓN EXCEPCIONAL (02-sep-2026).
+      //
+      //    Ahora que quien tiene full puede corregir CUALQUIER día, esa puerta no
+      //    puede quedar sin testigo: tocar la noche del mes pasado no se parece
+      //    en nada a corregirle la hora al viaje que se acaba de dar.
+      //
+      // ⚠️ PERO SOLO LA EXCEPCIONAL. Las ediciones del día corriente NO escriben
+      //    nada desde acá: ya las cubre el trigger `trg_audit` de `camion_viajes`,
+      //    y duplicar el rastro llenaría la bitácora de ruido. Es pedido explícito
+      //    del cliente: «que no se dañe ni abuse el módulo de auditoría, y que no
+      //    se tumbe ni consuma en exceso». Quién decide es `requiereRastroDeEdicion`,
+      //    que está probada aparte — acá no se rehace ese criterio.
+      //
+      // Sin `await` a propósito, igual que en el resto de la app: la bitácora es
+      // secundaria y `logAudit` nunca lanza. Que la auditoría vaya lenta no puede
+      // dejar a la jefa mirando un botón que no responde.
+      // La placa se busca en el catálogo porque NO viaja en la fila del viaje.
+      // Sin ella el rastro diría «CAMION VOLTEO TORONTO» y no serviría para
+      // identificar cuál de los treinta fue. Para los de fuera de catálogo no hay
+      // catálogo que consultar: ahí la seña que anotó el listero es lo único que
+      // distingue, y es justo para lo que existe ese campo.
+      const camionDeLaFila = row.machineryId ? truckById.get(row.machineryId) : undefined;
+      // ⭐ QUIÉN DECIDE NO ES ESTA PANTALLA. `rastroDeEdicion` devuelve `null`
+      //    cuando no hay nada que escribir, y ese `null` es toda la protección
+      //    contra llenar la bitácora de ruido — pedido del cliente: «que no se
+      //    dañe ni abuse el módulo de auditoría». Acá solo se obedece.
+      const rastro = rastroDeEdicion({
+        registeredAtAntesISO: row.registeredAt,
+        registeredAtDespuesISO: cambios.registeredAtISO ?? row.registeredAt,
+        ventana: ventanaJornadaEnCurso(),
+        huboCambios: queCambio.length > 0,
+        machineCode: row.machineCode,
+        placa: camionDeLaFila?.plate || camionDeLaFila?.serial || row.camionRef,
+        cambios: queCambio,
+      });
+      // Sin `await` a propósito: la bitácora es secundaria y `logAudit` nunca
+      // lanza. Que la auditoría vaya lenta no puede dejar a la jefa mirando un
+      // botón que no responde.
+      if (rastro) logAudit(rastro.accion as any, 'camion_viajes', editing.id, rastro.detalle);
+
+      setEditing(null);
+      toast.success('Viaje actualizado.');
+      loadMisViajes();
+      if (canFull) { loadRangeRows(); loadResumen(); }
+    } finally {
+      guardandoEdicionRef.current = false;
+      setGuardandoEdicion(false);
+    }
   };
 
   // Mismo motivo que `registeringRef`: el state no cambia hasta el próximo
@@ -1048,7 +1339,8 @@ export default function ViajesCamionesScreen() {
       if (!ok) return;
 
       const nota = notaCargaManual(fullName || '');
-      let hechos = 0;
+      let hechos = 0;      // entraron AHORA
+      let yaEstaban = 0;   // rebotaron por clave repetida: ya estaban de antes
       let ultimoError = '';
       for (const iso of horarios) {
         const { error } = await registrarViaje({
@@ -1066,21 +1358,72 @@ export default function ViajesCamionesScreen() {
           estadoMaquina: null,
           note: nota,
           registeredAt: iso,
-          clientActionId: nuevoClientActionId(),
+          // ⭐⭐ CLAVE ESTABLE, NO UNA NUEVA EN CADA INTENTO (02-sep-2026).
+          //
+          //    `nuevoClientActionId()` daba una clave distinta en cada pasada, así
+          //    que si la tanda fallaba a la mitad y la jefa volvía a cargar la
+          //    misma cantidad, los que YA habían entrado se repetían: el camión
+          //    terminaba con el doble de viajes y no había forma de saber cuáles
+          //    sobraban. La única salida era contarlos a ojo y borrarlos a mano.
+          //
+          //    Con la clave derivada de la intención, recargar la MISMA tanda
+          //    regenera LAS MISMAS claves y el índice único de la base rechaza
+          //    solo los que ya estaban. Los horarios van de 5 en 5 minutos, así
+          //    que dentro de una tanda cada viaje cae en un minuto distinto y
+          //    tiene su propia clave: no se pisan entre ellos.
+          //
+          // ⚠️ El listero de la clave es el ELEGIDO (`listero.id`), no el usuario
+          //    que está cargando: es el que va a quedar en la fila, y usar otro
+          //    haría que la misma tanda atribuida a la misma persona diera claves
+          //    distintas según quién estuviera sentado frente a la pantalla.
+          clientActionId: claveViajeEstable({
+            identidadCamion: identidadParaClave(cargaTruck),
+            listeroId: listero.id,
+            registeredAtISO: iso,
+          }) || nuevoClientActionId(),
         });
-        if (error) { ultimoError = error; break; }
-        hechos++;
+        if (!error) { hechos++; continue; }
+        // ⭐⭐ EL DUPLICADO NO ES UN FALLO: ES LA CLAVE ESTABLE HACIENDO SU TRABAJO.
+        //
+        //    Este `continue` es lo que hace que la promesa del aviso de abajo sea
+        //    verdad. Cuando la tanda se recarga —que es justo lo que se le pide a
+        //    la jefa cuando falla a la mitad— los renglones que YA entraron
+        //    rebotan con un 23505. Tratarlos como error y cortar el bucle dejaba
+        //    el peor de los mundos: cero cargados, el texto crudo de Postgres en
+        //    inglés en pantalla, y los que faltaban sin entrar NUNCA. La única
+        //    salida habría sido cambiar la hora de arranque, y eso no se lo dice
+        //    nadie.
+        //
+        //    Los otros dos caminos ya sabían leerlo así: el registro en el patio
+        //    (`accionTrasFalloConSenal` → `ya_estaba`) y la cola offline
+        //    (`decidirAccionCola` → `exito`). Éste era el único que faltaba.
+        if (accionTrasFalloConSenal(error) === 'ya_estaba') { yaEstaban++; continue; }
+        ultimoError = error; break;
       }
       // Se dice EXACTAMENTE cuántos entraron. Un fallo a mitad de camino dejaba
       // la mitad cargada, y anunciar "listo" haría que se cargara otra vez.
+      //
+      // ⭐ Y ahora se puede DECIR QUÉ HACER. Antes el aviso terminaba en «cargar
+      //    de nuevo los duplicaría», que dejaba a la jefa sin salida más que
+      //    contar y borrar a mano. Con la clave estable, repetir la MISMA tanda
+      //    es seguro: los que ya entraron rebotan solos.
+      // Los que ya estaban se DICEN aparte. Si se sumaran a `hechos`, recargar
+      // una tanda entera anunciaría "10 viajes cargados" sin haber creado uno
+      // solo, y la jefa no tendría forma de saber si su reintento sirvió.
+      const yaTxt = yaEstaban ? ` (${yaEstaban} ya estaba${yaEstaban === 1 ? '' : 'n'} de antes)` : '';
       if (ultimoError) {
         toast.error(
-          hechos === 0
+          hechos === 0 && yaEstaban === 0
             ? `No se pudo cargar ninguno (${motivoLegible(ultimoError)}).`
-            : `Se cargaron ${hechos} de ${horarios.length} y falló el siguiente (${motivoLegible(ultimoError)}). Revisa la lista antes de reintentar: cargar de nuevo los duplicaría.`,
+            : `Se cargaron ${hechos} de ${horarios.length}${yaTxt} y falló el siguiente (${motivoLegible(ultimoError)}). Vuelve a cargar la MISMA tanda —mismo camión, misma fecha, misma hora de arranque y mismo listero— y solo entrarán los que faltan.`,
         );
+      } else if (hechos === 0 && yaEstaban > 0) {
+        // Recargar una tanda que ya estaba completa. No es un error, pero decir
+        // "0 cargados" a secas parecería una falla: se explica por qué.
+        toast.success(`Esos ${yaEstaban} viaje(s) ya estaban cargados. No se duplicó ninguno.`);
+        setCargaCantidad('1');
       } else {
-        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}.`);
+        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}.`);
         setCargaCantidad('1');
       }
       loadRangeRows();
@@ -1344,6 +1687,57 @@ export default function ViajesCamionesScreen() {
     }
     return rangeRows;
   }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado]);
+
+  // ── CUÁNTOS VIAJES TIENE YA ESE CAMIÓN EN ESA JORNADA (02-sep-2026) ───────
+  //
+  // La casilla de la carga a mano decía «¿CUÁNTOS VIAJES?», que se lee como
+  // «cuántos hubo ese día». Y el campo NO fija el total: SUMA. Quien quería
+  // dejar un camión en 8 escribía 8 sobre uno que ya tenía 3 y lo dejaba en 11,
+  // sin que nada se lo dijera hasta ir a contar la lista.
+  //
+  // ⚠️ NO SE LE PREGUNTA A LA BASE. Los viajes ya están cargados en la pantalla
+  //    —el resumen de hoy y la lista del rango de la jefa—, y una consulta por
+  //    cada tecleo del formulario sería peso puro en un teléfono.
+  //
+  // ⚠️ Y POR ESO PUEDE DEVOLVER `null`: si la jornada elegida no cae dentro de lo
+  //    que se leyó, NO SE SABE. Pintar un 0 en ese caso sería inventar el dato
+  //    justo con la misma confianza que el rótulo que estamos corrigiendo.
+  const cargaYaEnJornada = useMemo<number | null>(() => {
+    if (!cargaTruck || !/^\d{4}-\d{2}-\d{2}$/.test(cargaFecha)) return null;
+    // La lista del rango es la que puede cubrir días viejos; el resumen solo sabe
+    // de hoy. Sirve cualquiera de las dos, siempre que de verdad abarque ese día
+    // y no venga de una consulta que falló (ahí las filas son las de antes).
+    const cubreRango = !rangeDesactualizado && !rangoInvalido && !sinDiasMarcados && !rangeError
+      && cargaFecha >= rangeBounds.desde && cargaFecha <= rangeBounds.hasta;
+    const filas = cubreRango
+      ? rangeRows
+      : (cargaFecha === todayISO && !resumenError ? resumenRows : null);
+    if (!filas) return null;
+    return filas.filter(
+      (r) => r.machineryId === cargaTruck.id && jornadaDeFecha(new Date(r.registeredAt)) === cargaFecha
+    ).length;
+  }, [cargaTruck, cargaFecha, rangeRows, rangeDesactualizado, rangoInvalido, sinDiasMarcados,
+      rangeError, rangeBounds, resumenRows, resumenError, todayISO]);
+
+  /** Cómo queda el camión si se carga la tanda tal como está escrita. `null`
+   *  mientras la cantidad no sea usable: no se promete un total con la casilla a
+   *  medio escribir (ni con una que la validación va a rechazar igual). */
+  const cargaQuedaraEn = useMemo<number | null>(() => {
+    if (cargaYaEnJornada === null) return null;
+    const n = parseInt(cargaCantidad, 10);
+    if (!Number.isFinite(n) || n < 1 || n > MAX_CARGA) return null;
+    return cargaYaEnJornada + n;
+  }, [cargaYaEnJornada, cargaCantidad]);
+
+  /** La frase completa, o `null` si no hay nada honesto que decir. */
+  const cargaConteoTexto = useMemo<string | null>(() => {
+    if (cargaYaEnJornada === null) return null;
+    const ya = cargaYaEnJornada === 0
+      ? 'Ese camión todavía no tiene viajes en esa jornada.'
+      : `Ese camión ya tiene ${cargaYaEnJornada} ${cargaYaEnJornada === 1 ? 'viaje' : 'viajes'} en esa jornada.`;
+    if (cargaQuedaraEn === null) return ya;
+    return `${ya} ${cargaQuedaraEn === 1 ? 'Quedará' : 'Quedarán'} ${cargaQuedaraEn}.`;
+  }, [cargaYaEnJornada, cargaQuedaraEn]);
 
   // Empresa de un viaje: la del camión que lo hizo. Los camiones sin empresa
   // asignada caen en una sola cubeta, para que no desaparezcan del filtro.
@@ -1626,6 +2020,32 @@ export default function ViajesCamionesScreen() {
     }
   };
 
+  // ── EL RELOJ DEL TELÉFONO, CONTRASTADO CON EL DEL SERVIDOR (02-sep-2026) ──
+  //
+  // El viaje se sella con `new Date()`, y esa hora decide dos cosas que después
+  // nadie puede corregir a ojo: a qué JORNADA pertenece (el día va de 7am a 7am)
+  // y a qué TURNO (el turno se deduce de la hora). Un teléfono corrido media
+  // hora manda los viajes de las 6:45am a la jornada anterior y los de las
+  // 6:45pm al turno de día. No revienta nada: simplemente salen en el día
+  // equivocado, y el listero jura que los registró.
+  //
+  // ⚠️ ESTO SOLO AVISA. NO cambia la hora con la que se sella el viaje: el
+  //    registro sin conexión depende del reloj del teléfono, que sin internet es
+  //    el único que hay. Lo que se corrige es el reloj, no el dato.
+  //
+  // UNA vez al abrir, no un latido: el reloj no se descuadra a media jornada, y
+  // este módulo trabaja en teléfonos con la señal justa. Si no se puede medir
+  // (sin internet), `avisoDesfase` devuelve `null` y no se dice nada — no saber
+  // no es lo mismo que estar mal.
+  const [avisoReloj, setAvisoReloj] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    horaDelServidor()
+      .then((iso) => { if (vivo) setAvisoReloj(avisoDesfase(desfaseMinutos(iso))); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+
   // ── Carga inicial + tiempo real ─────────────────────────────────────────
   useEffect(() => {
     loadTrucks();
@@ -1678,6 +2098,22 @@ export default function ViajesCamionesScreen() {
   // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
   const renderRow = (row: DisplayViaje, opts: { canEdit: boolean; canDelete: boolean; showListero?: boolean }) => {
     const isEditing = editing?.id === row.id;
+    // ⚠️ QUE SEPA QUE VA A QUEDAR REGISTRADO, ANTES DE GUARDAR.
+    //
+    //    Desde que quien tiene full puede corregir cualquier día, esa corrección
+    //    deja rastro en Auditoría. Enterarse después, revisando la bitácora, no
+    //    es lo mismo que saberlo mientras se decide: el aviso convierte el
+    //    rastro en algo aceptado y no en algo que a uno le hicieron a la espalda.
+    //
+    //    Se usa el MISMO criterio con el que `saveEdit` decide escribir la fila
+    //    —fuera de jornada por donde ESTABA o por donde va a QUEDAR— para que no
+    //    haya ni un aviso sin rastro ni un rastro sin aviso.
+    const edicionExcepcional = isEditing && canFull && editing != null && (() => {
+      const ventana = ventanaJornadaEnCurso();
+      const { hh, mm } = normalizarHora(editing.hh, editing.mm);
+      return fueraDeJornada(row.registeredAt, ventana)
+        || fueraDeJornada(isoDeJornadaHora(editing.fecha, hh, mm), ventana);
+    })();
     const truck = row.machineryId ? truckById.get(row.machineryId) : undefined;
     // Del camión de fuera no hay placa ni serial que buscar: se muestra la seña
     // que escribió el listero, que es lo único que permite identificarlo.
@@ -1698,6 +2134,10 @@ export default function ViajesCamionesScreen() {
               un listero tocó en el patio: el reporte tiene que poder responder
               «¿esto lo contó alguien, o lo cuadraron después?». */}
           {esCargaManual(row.note) ? <Badge label="✍️ cargado a mano" tone="warning" /> : null}
+          {/* ⚠️ NO ES LO MISMO «no tiene chofer» que «no se pudo averiguar». Sin
+              esta marca los dos casos se ven idénticos en el reporte y nadie
+              sabe cuál hay que ir a completar. Ver `CHOFER_SIN_RESPUESTA`. */}
+          {esChoferSinConfirmar(row.note) ? <Badge label="👤 chofer sin confirmar" tone="warning" /> : null}
           {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
         </View>
         {row.stuck && row.stuckError ? (
@@ -1711,6 +2151,13 @@ export default function ViajesCamionesScreen() {
         </Text>
         {isEditing ? (
           <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
+            {edicionExcepcional ? (
+              <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.xs }}>
+                <Text style={{ color: '#92400E', fontSize: 11.5, fontWeight: '700' }}>
+                  ⚠️ Este viaje no es de la jornada en curso. Puedes corregirlo igual, pero la corrección queda registrada en Auditoría con tu nombre.
+                </Text>
+              </View>
+            ) : null}
             {/* ⭐ LA FECHA SOLO LA MUEVE LA JEFA. Para el listero no aparece
                 siquiera: él corrige la hora de un viaje que acaba de dar, y
                 dejarle mover el día sería darle una manera silenciosa de sacar
@@ -1783,7 +2230,7 @@ export default function ViajesCamionesScreen() {
               </>
             ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <TouchableOpacity onPress={saveEdit} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.primary }}>
+              <TouchableOpacity onPress={saveEdit} disabled={guardandoEdicion} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.primary, opacity: guardandoEdicion ? 0.6 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>Guardar</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={cancelEdit} style={{ paddingHorizontal: spacing.sm, paddingVertical: 8 }}>
@@ -1834,6 +2281,15 @@ export default function ViajesCamionesScreen() {
         </View>
       ) : null}
 
+      {/* ⏰ El reloj del teléfono está corrido. Se avisa y ya: la hora del viaje
+          NO se toca (el registro sin conexión depende de ese reloj), lo que hay
+          que arreglar es el teléfono. Ver `horaDelServidor` y `relojDesfase`. */}
+      {avisoReloj ? (
+        <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700' }}>{avisoReloj}</Text>
+        </View>
+      ) : null}
+
       {pendientesVisibles > 0 ? (
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontSize: 16 }}>📶</Text>
@@ -1879,9 +2335,18 @@ export default function ViajesCamionesScreen() {
                 {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].icon} {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].label}
               </Text>
             </View>
+            {/* ⚠️ «No se pudo averiguar» NO es «sin asignar». Antes las dos cosas
+                se leían igual acá y se guardaban igual en la fila: el listero
+                daba por bueno un vacío que en realidad era una consulta que no
+                contestó. Ver `CHOFER_SIN_RESPUESTA`. */}
             <Text style={{ color: colors.muted, fontSize: 13 }}>
-              👤 Chofer del turno {selectedShift === 'night' ? '🌙 noche' : '☀️ día'}: {choferLoading ? 'cargando…' : (selectedChofer ?? 'sin asignar')}
+              👤 Chofer del turno {selectedShift === 'night' ? '🌙 noche' : '☀️ día'}: {choferLoading ? 'cargando…' : choferIncierto ? '❓ no se pudo averiguar' : (selectedChofer ?? 'sin asignar')}
             </Text>
+            {!choferLoading && choferIncierto ? (
+              <Text style={{ color: '#92400E', fontSize: 11.5 }}>
+                Se vuelve a intentar al registrar. Si tampoco se logra, el viaje se guarda igual y queda marcado «chofer sin confirmar» para completarlo después.
+              </Text>
+            ) : null}
             {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
                 cierra el buscador y toca Registrar de una —su trabajo es un
                 toque por camión, lo va a hacer siempre—; si la consulta del
@@ -2217,7 +2682,11 @@ export default function ViajesCamionesScreen() {
                 </View>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿CUÁNTOS VIAJES?</Text>
+                {/* ⭐ «AGREGAR», no «¿cuántos viajes?». Esta casilla SUMA: no fija
+                    el total del día. Con el rótulo viejo se leía como «cuántos
+                    hubo ese día», y quien quería dejar el camión en 8 escribía 8
+                    sobre los 3 que ya tenía y lo dejaba en 11. */}
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿CUÁNTOS VIAJES AGREGAR?</Text>
                 <TextInput
                   value={cargaCantidad}
                   onChangeText={(t) => setCargaCantidad(t.replace(/[^0-9]/g, '').slice(0, 2))}
@@ -2227,6 +2696,13 @@ export default function ViajesCamionesScreen() {
                 />
               </View>
             </View>
+            {/* La suma, dicha antes de tocar el botón. Solo aparece cuando se
+                puede saber de verdad — ver `cargaYaEnJornada`. */}
+            {cargaConteoTexto ? (
+              <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                🧮 {cargaConteoTexto}
+              </Text>
+            ) : null}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               Si cargas más de uno, se separan {SEPARACION_MIN} minutos a partir de esa hora
               (máximo {MAX_CARGA} por vez). Después le puedes corregir la hora a cada uno.
