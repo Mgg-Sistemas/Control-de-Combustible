@@ -928,6 +928,16 @@ const ANTES = {
     !/from\('maintenance_requests'\)[\s\S]{0,80}\.(update|insert|delete)/.test(scr));
   ok('⭐ el cierre de la avería pasa por la librería',
     /cerrarAveriaPorServicio\s*\(/.test(scr));
+
+  // ⭐ GUARDAR NO PUEDE FALLAR EN SILENCIO — el silencio fabrica duplicados.
+  //    El `finally` suelta el bloqueo (eso arregla el encierro), pero sin `catch`
+  //    una excepción dejaba el formulario abierto SIN decir nada. Quien está del
+  //    otro lado lee eso como "no se guardó", toca Guardar otra vez, y si la
+  //    excepción salto DESPUES de que el servicio entro quedan dos hojas iguales.
+  ok('⭐ guardar tiene try, catch Y finally',
+    /const guardar = async \(\)[\s\S]{0,4000}?try \{[\s\S]{0,12000}?\} catch[\s\S]{0,2000}?\} finally \{/.test(scr));
+  ok('⭐ y el fallo se dice en el formulario, no en un toast que se va solo',
+    /\} catch \(e: any\) \{[\s\S]{0,1600}?setFormError\(/.test(scr));
   // Los nombres se leen, nunca se escriben.
   ok('a `profiles` solo se le lee el nombre',
     !/from\('profiles'\)[\s\S]{0,80}\.(update|insert|delete)/.test(scr));
