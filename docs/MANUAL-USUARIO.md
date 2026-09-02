@@ -392,6 +392,25 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   cuando lo atiende**, pero eso **NO vuelve a poner la máquina operativa**: para reactivarla la
   marcas tú otra vez aquí en el Control, o lo hace el **coordinador desde su panel QR**.
 
+  > **🧹 Ya no se abre un expediente de taller invisible (02/09/2026).** Hasta hoy, marcar un
+  > equipo averiado desde aquí **también** abría por detrás un *expediente de reparación*. Eso tenía
+  > sentido cuando Servicio tenía una pestaña **🔧 En reparación** para gestionarlo — pero esa
+  > pestaña **se quitó el 17 de agosto** a pedido del cliente, y nadie desconectó lo que la
+  > alimentaba. Resultado: durante dos semanas cada marcado dejó un expediente que **no se veía en
+  > ninguna pantalla, que nadie podía cerrar**, y que además dejaba a esa máquina **bloqueada para
+  > mantenimiento preventivo**.
+  >
+  > **La regla que lo ordena:** marcar una máquina averiada es una decisión sobre **la máquina**,
+  > no sobre **el taller**. Aquí se crea el **reporte** y el marcador de parada — que es lo que el
+  > resto del sistema lee — y el expediente de taller nace cuando el taller **recibe** la máquina.
+  >
+  > **En pantalla no cambia nada:** la máquina se sigue viendo averiada y detenida en todas partes,
+  > igual que antes.
+  >
+  > ⚠️ **Los expedientes que ya se crearon siguen ahí.** Esto detiene la sangría, no la limpia. Si
+  > una máquina aparece bloqueada al enviarla a **🧰 Mantenimiento**, avisa: hay que cerrarle el
+  > expediente viejo a mano.
+
 **🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
 - Las máquinas asignadas al inspector **SOS LA GUAIRA** **nunca se muestran como parada ni averiada**:
   siempre cuentan como **trabajando** y sus horas paradas se cuentan como **trabajadas** — en el
