@@ -62,7 +62,7 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
 
 // ── 1) ⭐ La clave es la MISMA para el mismo viaje ──────────────────────────
 {
-  const base = { machineCode: 'V-12', listeroId: 'lis-1', registeredAtISO: '2026-09-02T14:30:00.000Z' };
+  const base = { identidadCamion: 'V-12', listeroId: 'lis-1', registeredAtISO: '2026-09-02T14:30:00.000Z' };
   const k = claveViajeEstable(base);
 
   ok('la clave no viene vacia', !!k, k);
@@ -73,21 +73,21 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
     k === claveViajeEstable({ ...base, registeredAtISO: '2026-09-02T14:30:00.777Z' }));
 
   // El codigo sale del catalogo, pero por si acaso: mayusculas y espacios.
-  ok('el codigo se normaliza (minusculas)', k === claveViajeEstable({ ...base, machineCode: 'v-12' }));
-  ok('el codigo se normaliza (espacios de mas)', k === claveViajeEstable({ ...base, machineCode: '  V-12  ' }));
+  ok('el codigo se normaliza (minusculas)', k === claveViajeEstable({ ...base, identidadCamion: 'v-12' }));
+  ok('el codigo se normaliza (espacios de mas)', k === claveViajeEstable({ ...base, identidadCamion: '  V-12  ' }));
   ok('el codigo se normaliza (espacios dobles adentro)',
-    claveViajeEstable({ ...base, machineCode: 'V  12' }) === claveViajeEstable({ ...base, machineCode: 'V 12' }));
+    claveViajeEstable({ ...base, identidadCamion: 'V  12' }) === claveViajeEstable({ ...base, identidadCamion: 'V 12' }));
 }
 
 // ── 2) ⭐ Y DISTINTA cuando de verdad es otro viaje ─────────────────────────
 {
-  const base = { machineCode: 'V-12', listeroId: 'lis-1', registeredAtISO: '2026-09-02T14:30:00.000Z' };
+  const base = { identidadCamion: 'V-12', listeroId: 'lis-1', registeredAtISO: '2026-09-02T14:30:00.000Z' };
   const k = claveViajeEstable(base);
 
   ok('⭐ otro minuto -> otra clave',
     k !== claveViajeEstable({ ...base, registeredAtISO: '2026-09-02T14:31:00.000Z' }));
   ok('⭐ otro camion -> otra clave',
-    k !== claveViajeEstable({ ...base, machineCode: 'V-13' }));
+    k !== claveViajeEstable({ ...base, identidadCamion: 'V-13' }));
   ok('⭐ otro listero -> otra clave',
     k !== claveViajeEstable({ ...base, listeroId: 'lis-2' }));
   ok('otra hora -> otra clave',
@@ -96,23 +96,59 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
     k !== claveViajeEstable({ ...base, registeredAtISO: '2026-09-03T14:30:00.000Z' }));
 }
 
+// ── 2.b) ⭐⭐ DOS CAMIONES DISTINTOS CON EL MISMO CODIGO ────────────────────
+//
+// EL CASO QUE HABRIA BORRADO VIAJES REALES. En esta flota casi todos los
+// camiones se llaman igual ("Camion Volteo Toronto" y parecidos) — por eso el
+// resto del modulo arrastra la placa a todas partes. Si la clave se armara con
+// el CODIGO pelado, dos camiones distintos del mismo listero en el mismo minuto
+// darian LA MISMA clave, el indice unico rechazaria el segundo, y ese viaje
+// -que ocurrio de verdad- desapareceria sin que nadie viera un error.
+//
+// Por eso el parametro se llama `identidadCamion` y no `machineCode`: quien
+// llama tiene que mandar algo UNICO por camion (el id del catalogo).
+{
+  const MISMO_CODIGO = 'Camion Volteo Toronto';
+  const base = { listeroId: 'lis-1', registeredAtISO: '2026-09-02T14:30:00.000Z' };
+
+  const a = claveViajeEstable({ ...base, identidadCamion: `cam-aaa ${MISMO_CODIGO}` });
+  const b = claveViajeEstable({ ...base, identidadCamion: `cam-bbb ${MISMO_CODIGO}` });
+
+  ok('⭐⭐ dos camiones con el MISMO codigo dan claves DISTINTAS', a !== b, a + ' vs ' + b);
+  ok('* las dos son claves validas', !!a && !!b);
+
+  // Y el mismo camion, aunque se lo nombre igual, sigue dando la misma clave:
+  // el arreglo no puede haber roto la deteccion del doble toque de verdad.
+  ok('⭐ pero el MISMO camion sigue chocando consigo mismo',
+    claveViajeEstable({ ...base, identidadCamion: `cam-aaa ${MISMO_CODIGO}` }) === a);
+
+  // Una tanda completa cargada a dos camiones homonimos: los diez tienen que
+  // poder entrar. Antes de esto, la tanda del segundo camion rebotaba ENTERA.
+  const horarios = E.horariosDeCarga('2026-09-01', 8, 0, 5);
+  const claves = (id) => horarios.map((iso) =>
+    claveViajeEstable({ identidadCamion: `${id} ${MISMO_CODIGO}`, listeroId: 'jefa', registeredAtISO: iso }));
+  const todas = [...claves('cam-aaa'), ...claves('cam-bbb')];
+  ok('⭐⭐ dos tandas a camiones homonimos: las 10 claves son distintas',
+    new Set(todas).size === 10, String(new Set(todas).size));
+}
+
 // ── 3) ⭐ Sin datos completos NO se inventa una clave ───────────────────────
 //    Una clave a medias podria chocar con la de otro viaje legitimo y hacerlo
 //    desaparecer en silencio: peor que el duplicado que estamos evitando.
 {
-  const base = { machineCode: 'V-12', listeroId: 'lis-1', registeredAtISO: '2026-09-02T14:30:00.000Z' };
-  ok('⭐ sin codigo de camion -> vacio', claveViajeEstable({ ...base, machineCode: '' }) === '');
+  const base = { identidadCamion: 'V-12', listeroId: 'lis-1', registeredAtISO: '2026-09-02T14:30:00.000Z' };
+  ok('⭐ sin codigo de camion -> vacio', claveViajeEstable({ ...base, identidadCamion: '' }) === '');
   ok('⭐ sin listero -> vacio', claveViajeEstable({ ...base, listeroId: '' }) === '');
   ok('⭐ sin fecha -> vacio', claveViajeEstable({ ...base, registeredAtISO: '' }) === '');
   ok('⭐ fecha incompleta -> vacio', claveViajeEstable({ ...base, registeredAtISO: '2026-09-02' }) === '');
-  ok('codigo solo espacios -> vacio', claveViajeEstable({ ...base, machineCode: '   ' }) === '');
+  ok('codigo solo espacios -> vacio', claveViajeEstable({ ...base, identidadCamion: '   ' }) === '');
   ok('listero solo espacios -> vacio', claveViajeEstable({ ...base, listeroId: '  ' }) === '');
 }
 
 // ── 4) La tanda cargada a mano: misma tanda, mismas claves ─────────────────
 {
   const horarios = E.horariosDeCarga('2026-09-01', 8, 0, 5);
-  const claves = (h) => h.map((iso) => claveViajeEstable({ machineCode: 'V-9', listeroId: 'jefa', registeredAtISO: iso }));
+  const claves = (h) => h.map((iso) => claveViajeEstable({ identidadCamion: 'V-9', listeroId: 'jefa', registeredAtISO: iso }));
   const a = claves(horarios);
   const b = claves(E.horariosDeCarga('2026-09-01', 8, 0, 5));
 
@@ -194,6 +230,23 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
   const crudo = fs.readFileSync(path.join(ROOT, 'src/lib/viajesEdicion.ts'), 'utf8');
   const vivo = crudo.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   ok('⭐ no habla con Supabase', !/supabase|from\(/.test(vivo));
+
+  // ── ⭐⭐ LA PANTALLA NO PUEDE ABUSAR DE AUDITORIA ────────────────────────
+  //
+  // Pedido explicito del cliente (02-sep-2026): «que no se dañe ni abuse el
+  // modulo de auditoria, y que no se tumbe ni consuma en exceso».
+  //
+  // La regla concreta: en toda la pantalla de viajes hay UNA sola escritura a la
+  // bitacora, y va DENTRO del `if (requiereRastroDeEdicion(...))`. Las
+  // correcciones normales del dia no escriben nada extra: ya las registra el
+  // trigger `trg_audit` de `camion_viajes`. Aflojar esto llenaria la bitacora de
+  // ruido y es exactamente lo que se pidio evitar.
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8');
+  const scrVivo = scr.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const llamadas = (scrVivo.match(/logAudit\s*\(/g) || []).length;
+  ok('⭐⭐ la pantalla escribe en auditoria UNA sola vez', llamadas === 1, String(llamadas));
+  ok('⭐⭐ y esa escritura va DENTRO del if de requiereRastroDeEdicion',
+    /if\s*\(\s*requiereRastroDeEdicion\(\{[\s\S]{0,400}?\}\)\s*\)\s*\{[\s\S]{0,300}?logAudit\s*\(/.test(scrVivo));
   // Ojo con el atajo: `/machinery/` a secas tambien casa con `machineryId`, que
   // es un NOMBRE DE CAMPO del formulario y no la tabla. Lo que hay que prohibir
   // es nombrar la TABLA, y eso solo pasa entre comillas.

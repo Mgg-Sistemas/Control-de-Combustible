@@ -156,6 +156,15 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
   JORNADA_INICIO: { icon: '🟢', label: 'inició jornada', color: '#15803D' },
   JORNADA_FIN: { icon: '🏁', label: 'finalizó jornada', color: '#2563EB' },
   PARADA: { icon: '🟡', label: 'marcó PARADA', color: '#D9A200' },
+  // ⭐ La corrección EXCEPCIONAL de un viaje: la que toca un día que ya cerró.
+  //    Sin esta entrada igual se vería (la línea de abajo cae a un genérico con
+  //    la acción en minúsculas), pero el pedido del cliente fue poder
+  //    IDENTIFICARLAS FÁCILMENTE — y con nombre y color propios se encuentran de
+  //    un vistazo entre miles de filas, además de poderse buscar por su texto.
+  //    Ojo: acá NO llegan las correcciones normales del día. Esas las registra
+  //    el trigger `trg_audit` de `camion_viajes` como un UPDATE cualquiera, y se
+  //    dejó así a propósito para no llenar la bitácora de ruido.
+  EDIT_VIAJE_FUERA_JORNADA: { icon: '🚚', label: 'corrigió un viaje de OTRO DÍA', color: '#B45309' },
 };
 // Eventos de la app: el "objeto" de la acción es el detalle (código de máquina),
 // no el nombre de la tabla; y no llevan preposición ("creó Máquina" vs "escaneó CARGADOR 01").
