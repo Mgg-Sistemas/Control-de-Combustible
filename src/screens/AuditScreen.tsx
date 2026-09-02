@@ -181,6 +181,18 @@ const ACTION_BUCKETS: { key: string; label: string }[] = [
   { key: 'UPDATE', label: '✏️ Modificó' },
   { key: 'DELETE', label: '🗑️ Eliminó' },
   { key: 'EVENTOS', label: '📋 Eventos de app' },
+  // ⭐ SIN ESTA PASTILLA, LA CORRECCIÓN EXCEPCIONAL SE ESCONDÍA.
+  //
+  //    `actionBucket` devuelve la acción cruda para todo lo que no es evento de
+  //    app, así que estas filas caen en un cajón propio. Si el cajón no está
+  //    listado pasan dos cosas malas a la vez: no hay forma de pedirlas, y —peor—
+  //    al marcar «✏️ Modificó» para buscar ediciones de viajes DESAPARECEN, y
+  //    quien busca ve solo el UPDATE genérico del trigger, que parece rutina.
+  //
+  //    El cliente pidió esto justamente para «poder identificar fácilmente esos
+  //    cambios»: un filtro de un toque es la mitad de esa promesa (la otra mitad
+  //    es que la fila diga qué camión, con su placa).
+  { key: 'EDIT_VIAJE_FUERA_JORNADA', label: '🚚 Viajes de otro día' },
 ];
 
 // Favorito de auditoría: una combinación COMPLETA de filtros guardada con nombre, para

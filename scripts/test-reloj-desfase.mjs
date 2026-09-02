@@ -55,6 +55,31 @@ const ms = (iso) => Date.parse(iso);
   ok('sin hora del telefono usa la de ahora (no revienta)', typeof desfaseMinutos(SRV) === 'number');
 }
 
+// ── 1.b) ⭐⭐ EL FORMATO QUE DE VERDAD LLEGA ────────────────────────────────
+//
+// La hora del servidor NO viene en ISO: sale de la cabecera HTTP `Date`, que va
+// en RFC 1123 ("Wed, 02 Sep 2026 18:49:59 GMT"). Verificado contra el servidor
+// real el 02-sep-2026.
+//
+// Sin este caso, endurecer el parseo a ISO estricto dejaria el aviso MUDO PARA
+// SIEMPRE y las demas pruebas seguirian en verde: el desfase daria `null`, y
+// `null` significa "no se pudo medir", que a proposito no dice nada. Un fallo
+// silencioso que nadie notaria hasta que un telefono corrido mandara los viajes
+// al dia equivocado.
+{
+  const RFC = 'Wed, 02 Sep 2026 18:49:59 GMT';
+  const enISO = Date.parse(RFC);
+
+  ok('⭐⭐ entiende la cabecera Date en RFC 1123', desfaseMinutos(RFC, enISO) === 0, String(desfaseMinutos(RFC, enISO)));
+  ok('⭐ y mide bien el desfase con ese formato',
+    desfaseMinutos(RFC, enISO + 10 * 60000) === 10);
+  ok('⭐ y avisa con ese formato',
+    avisoDesfase(desfaseMinutos(RFC, enISO + 20 * 60000)) !== null);
+
+  // Una cabecera rara no puede pasar por buena.
+  ok('una cabecera ilegible sigue dando null', desfaseMinutos('Notadate', enISO) === null);
+}
+
 // ── 2) Cuando amerita avisar ───────────────────────────────────────────────
 {
   ok('0 no amerita', relojDesfasado(0) === false);
@@ -94,8 +119,11 @@ const ms = (iso) => Date.parse(iso);
   ok('⭐ no hace fetch', !/fetch\(/.test(vivo));
   // ⚠️ NO reemplaza la hora del viaje: solo avisa. Si algun dia esto empezara a
   //    devolver una hora "corregida", el registro sin conexion se rompe.
+  // El `\b` no sobra: sin el, cualquier export que EMPIECE por "ahora" tumbaba
+  // la suite. `export function ahoraEsFiable(min)` no devuelve ninguna hora y sin
+  // embargo la rompia — una prueba que castiga codigo correcto.
   ok('⭐⭐ no exporta nada que parezca "la hora buena"',
-    !/export function (ahora|horaCorregida|horaBuena)/.test(vivo));
+    !/export function (ahora|horaCorregida|horaBuena)\b/.test(vivo));
 }
 
 console.log('\n' + pass + ' OK · ' + fail + ' FALLO(S)');

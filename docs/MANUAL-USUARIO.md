@@ -3945,6 +3945,15 @@ Antes la etiqueta no lo decía y la cuenta se cuadraba al revés. Ahora **la eti
 debajo se muestra **cuántos viajes tiene ya** ese camión ese día y **cómo va a quedar** después de
 guardar. Para dejarlo en 5, carga **2**; y si sobran, se borran desde la **lista completa**.
 
+> **Cuándo aparece ese conteo, y cuándo no.** Solo sale si el día que elegiste ya está
+> **cargado en la lista de abajo** (por eso con el filtro en *Hoy* aparece para hoy). Si estás
+> cuadrando un día viejo que no está en el rango cargado, **la línea sencillamente no se muestra**.
+>
+> Es a propósito, y es la parte importante: **preferimos no decir nada antes que decir un número
+> equivocado.** Un «ya tiene 0» falso te haría cargar de más, y eso es peor que no tener el dato.
+> Si quieres que aparezca para un día viejo, primero cambia el **filtro de fechas** de la lista para
+> que incluya ese día.
+
 #### 4. 📋 Corregir viajes de cualquier día, y que quede el rastro (solo FULL)
 
 Antes, **pasadas las 7 de la mañana** ya no se podían tocar los viajes de la noche que acababa de
