@@ -610,7 +610,7 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   >
   > **Dos, las pastillas.** En 📊 Conteo de equipos, debajo de la fila *¿QUÉ EMPRESAS SALEN?* y
   > antes de los botones de Ubicaciones tácticas, hay una fila nueva: **¿QUÉ SE OCULTA?**, con
-  > **cuatro pastillas que se pueden encender varias a la vez** (no son excluyentes como las de
+  > **nueve pastillas que se pueden encender varias a la vez** (no son excluyentes como las de
   > empresas). **Por defecto ninguna está encendida**, así que quien no toque nada saca el mismo
   > papel de siempre. Debajo dice en criollo qué se va a ocultar antes de descargar (*"Sale
   > completo."* o *"Se oculta: marca · Este/Oeste."*). Vale igual para el botón normal, para el
@@ -620,11 +620,20 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > |---|---|
   > | 🚫 **Marca** | La columna *"Marca / Modelo"* del listado pasa a decir solo *"Modelo"* y muestra solo el modelo |
   > | 🚫 **Modelo** | Al revés: la columna pasa a decir solo *"Marca"*. **Si se encienden las dos, la columna desaparece** del listado |
+  > | 🚫 **Placa / Serial** | Desaparece la columna *"Placa / Serial"* del listado de maquinaria |
   > | 🚫 **Ubicaciones** | Desaparece la columna *"Ubicación"* del listado de maquinaria (la de *"Este · Macuto · referencia"* o *"Desplegadas por los sectores estratégicos"*) |
   > | 🚫 **Este / Oeste** | Desaparecen las columnas 🟢 Este / 🟠 Oeste de *"Cantidad de maquinaria por empresa"* y de *"Total por tipo de maquinaria"* (quedan solo Empresa/Tipo y Cantidad); desaparece la nota de que las volquetas y torontos pernoctan en Camurí Chico (ESTE); en la columna Ubicación de cada máquina ya no sale el *"Este ·"* / *"Oeste ·"* adelante (queda la subzona y la referencia: *"Macuto · Edificio X"*); y con personal, los coordinadores e inspectores salen en **una sola lista**, sin repartir por zona |
+  > | 🚫 **Nombre de empresas** | No sale el nombre de ninguna empresa: desaparece el cuadro *"Cantidad de maquinaria por empresa"* (el total sigue en los cuadros por tipo y por clasificación), el listado sale en **un solo bloque** sin cabeceras por empresa, el título de la sección dice solo *"Maquinaria"*, y el cuadro de alcance dice **cuántas** empresas entraron pero no cuáles. El alcance se describe sin nombrarlas (*"Solo las empresas propias"* / *"Todas las empresas"*), también en el subtítulo y en el nombre del archivo. **El logo de Golden Touch del membrete se queda**: es un logo, no un nombre, y se pidió aparte |
+  > | 🚫 **Listado por máquina** | **Solo el conteo resumido**: desaparece entera la sección *"Maquinaria por empresa"* (el listado máquina por máquina). Quedan los resúmenes de arriba —cantidad por empresa, total por tipo, cantidad por clasificación— y, con personal, los totales por departamento y los coordinadores e inspectores. Las otras pastillas de columnas dejan de tener efecto porque ya no hay listado |
+  > | 🚫 **Total por tipo** | Desaparece el cuadro *"Total por tipo de maquinaria"* (Jumbo, Payloader… con su Este/Oeste) |
+  > | 🚫 **Cantidad por clasificación** | Desaparece el cuadro *"Cantidad por clasificación"* |
   >
-  > ⚠️ **Los totales no cambian con las pastillas.** Se ocultan columnas y textos, no máquinas:
-  > el número de equipos es el mismo con o sin pastillas.
+  > Así, **con las siete primeras encendidas queda solo el total por tipo y la cantidad por
+  > clasificación** (pedido del cliente: *"si desactivo todo, solo me quedaría clasificación y tipo"*);
+  > y con las nueve, solo el membrete y el cuadro de alcance.
+  >
+  > ⚠️ **Los totales no cambian con las pastillas.** Se ocultan columnas, textos o el listado
+  > entero, no máquinas: el número de equipos es el mismo con o sin pastillas.
   >
   > **Y la red de seguridad, igual que con el alcance: lo que se ocultó queda escrito en el
   > papel.** El cuadro «🧾 Alcance de este informe» del final agrega una línea *"Campos ocultos:
