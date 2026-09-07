@@ -43,7 +43,7 @@ const {
   OPCIONES_TACTICO_COMPLETO, PASTILLAS_OCULTAR, UBICACION_POR_DEFECTO,
   alternarOcultar, hayAlgoOculto, ocultosLista, ocultosEnPalabras,
   sufijoArchivoOcultos, sufijoSubtituloOcultos, tituloMarcaModelo, marcaModeloDe,
-  columnasMaquinaria, ubicacionEnPalabras,
+  columnasMaquinaria, ubicacionEnPalabras, alcanceSinNombres,
 } = cargar('src/lib/tacticoOpciones.ts');
 
 let pass = 0, fail = 0;
@@ -56,15 +56,15 @@ const ok = (name, cond, extra = '') => { if (cond) pass++; else { fail++; failur
 
 const COMPLETO = OPCIONES_TACTICO_COMPLETO;
 const con = (...keys) => keys.reduce((o, k) => alternarOcultar(o, k), COMPLETO);
-// Las 16 combinaciones posibles de las cuatro pastillas.
-const KEYS = ['sinMarca', 'sinModelo', 'sinUbicaciones', 'sinZona'];
-const TODAS = Array.from({ length: 16 }, (_, i) => con(...KEYS.filter((_, j) => (i >> j) & 1)));
+// Las 512 combinaciones posibles de las nueve pastillas.
+const KEYS = ['sinMarca', 'sinModelo', 'sinPlaca', 'sinUbicaciones', 'sinZona', 'sinEmpresas', 'sinListado', 'sinTipos', 'sinClasificacion'];
+const TODAS = Array.from({ length: 512 }, (_, i) => con(...KEYS.filter((_, j) => (i >> j) & 1)));
 
 console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
 
 // ── 1) POR DEFECTO NO SE OCULTA NADA ──────────────────────────────────────
 {
-  eq('el papel de siempre: nada oculto', COMPLETO, { sinMarca: false, sinModelo: false, sinUbicaciones: false, sinZona: false });
+  eq('el papel de siempre: nada oculto', COMPLETO, { sinMarca: false, sinModelo: false, sinPlaca: false, sinUbicaciones: false, sinZona: false, sinEmpresas: false, sinListado: false, sinTipos: false, sinClasificacion: false });
   ok('* y la pantalla lo sabe', hayAlgoOculto(COMPLETO) === false);
   eq('* y lo dice en criollo', ocultosEnPalabras(COMPLETO), 'Sale completo.');
   eq('* sin sufijo en el archivo', sufijoArchivoOcultos(COMPLETO), '');
@@ -75,14 +75,14 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
 
 // ── 2) LAS PASTILLAS ───────────────────────────────────────────────────────
 {
-  eq('son cuatro', PASTILLAS_OCULTAR.length, 4);
-  eq('* con las cuatro llaves, en este orden', PASTILLAS_OCULTAR.map((p) => p.key), KEYS);
+  eq('son nueve', PASTILLAS_OCULTAR.length, 9);
+  eq('* con las nueve llaves, en este orden', PASTILLAS_OCULTAR.map((p) => p.key), KEYS);
   ok('* cada una con su texto de pastilla', PASTILLAS_OCULTAR.every((p) => p.chip && p.largo && p.archivo));
-  ok('* ninguna repite el texto', new Set(PASTILLAS_OCULTAR.map((p) => p.chip)).size === 4);
+  ok('* ninguna repite el texto', new Set(PASTILLAS_OCULTAR.map((p) => p.chip)).size === 9);
 
   const a = alternarOcultar(COMPLETO, 'sinMarca');
   eq('encender una la enciende', a.sinMarca, true);
-  eq('* y no toca las otras', [a.sinModelo, a.sinUbicaciones, a.sinZona], [false, false, false]);
+  eq('* y no toca las otras', KEYS.filter((k) => k !== 'sinMarca').map((k) => a[k]), Array(8).fill(false));
   eq('* el original no cambia (es un objeto nuevo)', COMPLETO.sinMarca, false);
   eq('* dos toques la apagan', alternarOcultar(a, 'sinMarca'), COMPLETO);
   ok('* se pueden encender varias', hayAlgoOculto(con('sinMarca', 'sinZona')) && con('sinMarca', 'sinZona').sinZona);
@@ -114,23 +114,27 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
     columnasMaquinaria(con('sinMarca', 'sinModelo'), false), ['n', 'equipo', 'placa', 'ubicacion', 'estado']);
   eq('* con solo una de las dos, la columna SIGUE (retitulada)',
     columnasMaquinaria(con('sinMarca'), false).includes('marcaModelo'), true);
+  eq('⭐ sin placa/serial se cae esa columna',
+    columnasMaquinaria(con('sinPlaca'), false), ['n', 'equipo', 'marcaModelo', 'ubicacion', 'estado']);
   eq('⭐ todo oculto, con personal: queda lo minimo para identificar la maquina',
-    columnasMaquinaria(con(...KEYS), true), ['n', 'equipo', 'placa', 'opDia', 'opNoche', 'estado']);
+    columnasMaquinaria(con(...KEYS), true), ['n', 'equipo', 'opDia', 'opNoche', 'estado']);
   ok('⭐ Este/Oeste NO quita columnas del listado (solo el prefijo del texto)',
     JSON.stringify(columnasMaquinaria(con('sinZona'), false)) === JSON.stringify(columnasMaquinaria(COMPLETO, false)));
+  ok('* "solo resumen" tampoco: el listado entero lo quita la pantalla, no las columnas',
+    JSON.stringify(columnasMaquinaria(con('sinListado'), false)) === JSON.stringify(columnasMaquinaria(COMPLETO, false)));
 
-  // Para las 16 combinaciones x con/sin personal: siempre hay N, equipo, placa y
-  // estado (sin eso la fila no identifica nada), N va primero, estado de ultimo,
-  // y ninguna columna se repite.
+  // Para las 512 combinaciones x con/sin personal: siempre hay N, equipo y estado
+  // (sin eso la fila no identifica nada), la placa va si y solo si no se oculta,
+  // N va primero, estado de ultimo, y ninguna columna se repite.
   let bien = 0;
   for (const o of TODAS) for (const p of [false, true]) {
     const c = columnasMaquinaria(o, p);
-    const base = c[0] === 'n' && c[c.length - 1] === 'estado' && c.includes('equipo') && c.includes('placa');
+    const base = c[0] === 'n' && c[c.length - 1] === 'estado' && c.includes('equipo') && (c.includes('placa') === !o.sinPlaca);
     const unicas = new Set(c).size === c.length;
     const personal = p ? (c.includes('opDia') && c.includes('opNoche')) : (!c.includes('opDia') && !c.includes('opNoche'));
     if (base && unicas && personal) bien++;
   }
-  eq('⭐⭐ las 32 variantes (16 combinaciones x con/sin personal) tienen forma valida', bien, 32);
+  eq('⭐⭐ las 1024 variantes (512 combinaciones x con/sin personal) tienen forma valida', bien, 1024);
 }
 
 // ── 5) LA UBICACION EN PALABRAS ────────────────────────────────────────────
@@ -159,11 +163,31 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
   eq('* en criollo para la pantalla', ocultosEnPalabras(o), 'Se oculta: marca · Este/Oeste.');
   eq('⭐ en el nombre del archivo', sufijoArchivoOcultos(o), ' sin marca, sin Este-Oeste');
   eq('⭐ en el subtitulo', sufijoSubtituloOcultos(o), ' · Sin marca · Sin Este/Oeste');
-  eq('con todo oculto, el archivo lo dice completo', sufijoArchivoOcultos(con(...KEYS)), ' sin marca, sin modelo, sin ubicaciones, sin Este-Oeste');
+  eq('con todo oculto, el archivo lo dice completo', sufijoArchivoOcultos(con(...KEYS)), ' sin marca, sin modelo, sin placa, sin ubicaciones, sin Este-Oeste, sin empresas, solo resumen, sin tipos, sin clasificacion');
   // Un nombre de archivo con "/" o ":" no se guarda (o se guarda en otra carpeta).
   const malos = TODAS.map((x) => sufijoArchivoOcultos(x)).filter((s) => /[\\/:*?"<>|]/.test(s));
   eq('⭐ ningun sufijo de archivo lleva caracteres prohibidos', malos, []);
-  ok('* distintas combinaciones dan distintos nombres', new Set(TODAS.map((x) => sufijoArchivoOcultos(x))).size === 16);
+  ok('* distintas combinaciones dan distintos nombres', new Set(TODAS.map((x) => sufijoArchivoOcultos(x))).size === 512);
+
+  // Los dos cuadros que quedan con todo lo demas apagado tambien se pueden quitar.
+  eq('⭐ sin el total por tipo, en palabras', ocultosLista(con('sinTipos')), ['total por tipo de maquinaria']);
+  eq('⭐ sin la cantidad por clasificacion', ocultosLista(con('sinClasificacion')), ['cantidad por clasificación']);
+
+  // Sin nombres de empresas (07-sep-2026): el alcance se describe sin nombrarlas.
+  eq('⭐ sin empresas, en palabras', ocultosLista(con('sinEmpresas')), ['nombres de empresas']);
+  eq('* y en el archivo', sufijoArchivoOcultos(con('sinEmpresas')), ' sin empresas');
+  eq('⭐ el alcance "solo las nuestras" deja de nombrarlas', alcanceSinNombres('propias'), { largo: 'Solo las empresas propias', archivo: 'solo las propias' });
+  eq('* "todas sin separar" tampoco', alcanceSinNombres('juntas'), { largo: 'Todas las empresas', archivo: 'todas' });
+  eq('* y "por empresa" da el mismo papel (un solo listado), asi que se describe igual', alcanceSinNombres('porEmpresa'), alcanceSinNombres('juntas'));
+  ok('⭐⭐ ninguna descripcion sin nombres lleva un nombre',
+    ['propias', 'juntas', 'porEmpresa', 'lo-que-sea'].every((a) => { const d = alcanceSinNombres(a); return !/liccione|golden/i.test(d.largo + d.archivo); }));
+
+  // Las dos pastillas nuevas (07-sep-2026): placa/serial y "solo el conteo resumido".
+  eq('⭐ sin placa/serial, en palabras', ocultosLista(con('sinPlaca')), ['placa/serial']);
+  eq('* y en el archivo, sin la barra', sufijoArchivoOcultos(con('sinPlaca')), ' sin placa');
+  eq('⭐ solo resumen: lo que se oculta es el listado por maquina', ocultosLista(con('sinListado')), ['listado por máquina']);
+  eq('* el archivo lo dice como lo pidio el cliente', sufijoArchivoOcultos(con('sinListado')), ' solo resumen');
+  eq('* y el subtitulo', sufijoSubtituloOcultos(con('sinListado')), ' · Sin listado por máquina');
 }
 
 // ── 7) LA PANTALLA OBEDECE ─────────────────────────────────────────────────
@@ -198,6 +222,21 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
   ok('* y la nota de pernocta en Camuri Chico (ESTE)', /\$\{opciones\.sinZona \? '' : `\s*<div[^\n]*🌙 Las <b>VOLQUETAS<\/b>/.test(bloque));
   ok('* con personal, la tabla de coordinadores/inspectores tambien', /const zonaPersonalHtml = !conPersonal\s*\? ''\s*: opciones\.sinZona\s*\?/.test(bloque));
   ok('* y su titulo', /Coordinadores e inspectores\$\{opciones\.sinZona \? '' : ' por zona'\}/.test(bloque));
+  // Solo el resumen: la seccion entera del listado (titulo + tablas) se cae del
+  // cuerpo; los resumenes de arriba siguen entrando sin condicion.
+  ok('⭐ "solo resumen" quita la seccion del listado entera (titulo y tablas juntos)',
+    /\$\{opciones\.sinListado \? '' : `<div class="sect">🏢 \$\{esc\(tituloMaquinaria\)\}<\/div>\s*\$\{maquinariaHtml\}`\}/.test(bloque));
+  // Los cuadros de arriba entran en este orden, y los dos ultimos obedecen a su pastilla.
+  ok('* los cuadros de arriba entran en orden y cada uno obedece a su pastilla',
+    /\n\s*\$\{resumenCoHtml\}\s*\$\{opciones\.sinTipos \? '' : resumenTipoZonaHtml\}\s*\$\{opciones\.sinClasificacion \? '' : resumenClasifHtml\}/.test(bloque));
+  // Sin nombres de empresas: el cuadro por empresa no va, el listado va en un solo
+  // bloque, el titulo y el alcance no nombran a nadie.
+  ok('⭐ sin empresas, el cuadro por empresa no va', /const resumenCoHtml = opciones\.sinEmpresas\s*\? ''\s*: `<div class="sect">🏢 Cantidad de maquinaria por empresa<\/div>/.test(bloque));
+  ok('⭐ y el listado va en UN solo bloque con todas', /const gruposAImprimir: \[string, any\[\]\]\[\] = opciones\.sinEmpresas \? \[\['', list\]\] : enteNames\.map/.test(bloque));
+  ok('* con una cabecera sin nombre', /const cabecera = opciones\.sinEmpresas \? '🚜 <b>Maquinaria<\/b>' : `🏢 Empresa: <b>\$\{esc\(ente\)\}<\/b>`/.test(bloque));
+  ok('* el titulo de la seccion tampoco nombra', /const tituloMaquinaria = opciones\.sinEmpresas\s*\? 'Maquinaria'/.test(bloque));
+  ok('⭐ el alcance se describe sin nombres (subtitulo, cuadro y archivo salen de ahi)', /const alcanceInfo: \{ largo: string; archivo: string \} = opciones\.sinEmpresas \? alcanceSinNombres\(alcance\) : alcanceInfoDe\(alcance\)/.test(bloque));
+  ok('* y el cuadro de alcance dice cuantas, no cuales', /\$\{opciones\.sinEmpresas\s*\? `<div class="kv"><b>Empresas incluidas:<\/b> \$\{empresasDentro\.length\}[^\n]*nombres ocultos a propósito/.test(bloque));
   ok('* lo oculto va al nombre del archivo', /sufijoArchivoOcultos\(opciones\)/.test(bloque));
   ok('* y al subtitulo', /sufijoSubtituloOcultos\(opciones\)/.test(bloque));
   ok('* y al cuadro de alcance, solo si hay algo oculto', /\$\{ocultosLista\(opciones\)\.length \? `<div class="kv"><b>Campos ocultos:<\/b> \$\{esc\(ocultosLista\(opciones\)\.join\(' · '\)\)\}/.test(bloque));

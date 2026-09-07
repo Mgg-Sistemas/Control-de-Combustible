@@ -1,10 +1,11 @@
 // QUÉ SE OCULTA en el INVENTARIO DE MAQUINARIA (reporte de Ubicaciones tácticas).
 //
 // Pedido del cliente (06-sep-2026): poder sacar el mismo papel SIN la marca, SIN
-// el modelo, SIN las ubicaciones o SIN decir si es Este u Oeste — según a quién
-// se le entregue. Son cuatro pastillas independientes (se encienden varias a la
-// vez), y por defecto ninguna: quien no toque nada sigue sacando el papel de
-// siempre.
+// el modelo, SIN la placa/serial, SIN las ubicaciones, SIN decir si es Este u
+// Oeste, o SOLO con el conteo resumido (sin el listado máquina por máquina) —
+// según a quién se le entregue. Son seis pastillas independientes (se encienden
+// varias a la vez), y por defecto ninguna: quien no toque nada sigue sacando el
+// papel de siempre.
 //
 // Vive en su propia librería, sin React ni Supabase, para poder probarla de
 // verdad (ver scripts/test-reporte-tactico-opciones.mjs). La pantalla obedece:
@@ -19,27 +20,56 @@ export type OpcionesTactico = {
   sinMarca: boolean;
   /** Sin el modelo (320, PC200…). */
   sinModelo: boolean;
+  /** Sin la columna Placa / Serial del listado. */
+  sinPlaca: boolean;
   /** Sin la columna Ubicación del listado ("Este · Macuto · referencia"). */
   sinUbicaciones: boolean;
   /** Sin decir Este/Oeste en ningún lado: ni columnas de zona, ni prefijo en la ubicación. */
   sinZona: boolean;
+  /** Sin nombres de empresas: ni en el resumen, ni en el listado, ni en el alcance. */
+  sinEmpresas: boolean;
+  /** Solo el conteo resumido: se cae el listado máquina por máquina. */
+  sinListado: boolean;
+  /** Sin el cuadro "Total por tipo de maquinaria". */
+  sinTipos: boolean;
+  /** Sin el cuadro "Cantidad por clasificación". */
+  sinClasificacion: boolean;
 };
 
 /** El papel de siempre: no se oculta nada. */
 export const OPCIONES_TACTICO_COMPLETO: OpcionesTactico = {
   sinMarca: false,
   sinModelo: false,
+  sinPlaca: false,
   sinUbicaciones: false,
   sinZona: false,
+  sinEmpresas: false,
+  sinListado: false,
+  sinTipos: false,
+  sinClasificacion: false,
 };
 
-/** Las cuatro pastillas de la pantalla, en el orden en que se muestran y se nombran. */
+/** Las seis pastillas de la pantalla, en el orden en que se muestran y se nombran. */
 export const PASTILLAS_OCULTAR: { key: keyof OpcionesTactico; chip: string; largo: string; archivo: string }[] = [
   { key: 'sinMarca', chip: '🚫 Marca', largo: 'marca', archivo: 'sin marca' },
   { key: 'sinModelo', chip: '🚫 Modelo', largo: 'modelo', archivo: 'sin modelo' },
+  // En el nombre del archivo sin barra: "/" no se puede usar en un nombre de archivo.
+  { key: 'sinPlaca', chip: '🚫 Placa / Serial', largo: 'placa/serial', archivo: 'sin placa' },
   { key: 'sinUbicaciones', chip: '🚫 Ubicaciones', largo: 'ubicaciones', archivo: 'sin ubicaciones' },
-  // En el nombre del archivo va con guion: la barra "/" no se puede usar en un nombre de archivo.
   { key: 'sinZona', chip: '🚫 Este / Oeste', largo: 'Este/Oeste', archivo: 'sin Este-Oeste' },
+  // Sin nombres de empresas: se cae el cuadro por empresa (el total sigue en los
+  // otros cuadros), el listado sale en un solo bloque sin cabeceras por empresa, y
+  // el cuadro de alcance dice cuántas entraron pero no cuáles. El logo del membrete
+  // se queda: es un logo, no un nombre, y el cliente lo pidió aparte.
+  { key: 'sinEmpresas', chip: '🚫 Nombre de empresas', largo: 'nombres de empresas', archivo: 'sin empresas' },
+  // Solo el conteo resumido: se cae el listado máquina por máquina entero (y con
+  // él, las pastillas de columnas no tienen sobre qué actuar).
+  { key: 'sinListado', chip: '🚫 Listado por máquina', largo: 'listado por máquina', archivo: 'solo resumen' },
+  // Los dos cuadros que quedan cuando todo lo demás está apagado (pedido del
+  // cliente: "si desactivo todo, solo me quedaría clasificación y tipo"). También
+  // se pueden quitar, para armar cualquier otra combinación.
+  { key: 'sinTipos', chip: '🚫 Total por tipo', largo: 'total por tipo de maquinaria', archivo: 'sin tipos' },
+  { key: 'sinClasificacion', chip: '🚫 Cantidad por clasificación', largo: 'cantidad por clasificación', archivo: 'sin clasificacion' },
 ];
 
 /** Enciende o apaga UNA pastilla. Devuelve un objeto nuevo (no toca el que recibe). */
@@ -101,7 +131,7 @@ export type ColumnaMaquinaria = 'n' | 'equipo' | 'marcaModelo' | 'placa' | 'ubic
 export function columnasMaquinaria(o: OpcionesTactico, conPersonal: boolean): ColumnaMaquinaria[] {
   const cols: ColumnaMaquinaria[] = ['n', 'equipo'];
   if (tituloMarcaModelo(o)) cols.push('marcaModelo');
-  cols.push('placa');
+  if (!o.sinPlaca) cols.push('placa');
   if (!o.sinUbicaciones) cols.push('ubicacion');
   if (conPersonal) cols.push('opDia', 'opNoche');
   cols.push('estado');
@@ -127,4 +157,17 @@ export function ubicacionEnPalabras(p: { macro?: string | null; sub?: string | n
   if (partes.length) return partes.join(' · ');
   if (macro && o.sinZona) return '—';
   return o.sinZona ? UBICACION_POR_DEFECTO : `Este · ${UBICACION_POR_DEFECTO}`;
+}
+
+/**
+ * Cómo se describe el alcance cuando NO pueden salir nombres de empresas. El
+ * texto normal del alcance los lleva ("Solo LICCIONE y GOLDEN TOUCH"), así que
+ * con `sinEmpresas` se cambia por uno neutro — en el subtítulo, en el cuadro de
+ * alcance y en el nombre del archivo. "Por empresa" y "todas sin separar" dan el
+ * mismo papel sin nombres (un solo listado), así que se describen igual.
+ */
+export function alcanceSinNombres(alcance: string): { largo: string; archivo: string } {
+  return alcance === 'propias'
+    ? { largo: 'Solo las empresas propias', archivo: 'solo las propias' }
+    : { largo: 'Todas las empresas', archivo: 'todas' };
 }
