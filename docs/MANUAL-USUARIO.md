@@ -2838,14 +2838,15 @@ completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 > **Margen de ganancia** no tiene pastilla propia: lo que edita es el costo en la **ficha** de la
 > máquina, así que sale en 🚜 Catálogo de equipos. **Reportes** solo lee, no deja rastro.
 >
-> ⚠️ **Lo que sí depende de la base (07/09/2026).** Se comprobó en producción que desde el
-> **09/08/2026** —el día de la caída por los crons— la auditoría quedó **apagada en 32 de las 42
-> tablas**, no solo en las jornadas. Por eso Nómina, Inventario, Compras, Combustible (salvo
-> despachos), las rondas de Inspecciones, las averías, Cocina, Aliados, Empresas, Pagos, Asistencia
-> y los permisos de Usuarios **no tienen nada nuevo desde esa fecha** aunque la pastilla exista.
-> Lo reenciende `supabase/auditoria_reencender_tablas_humanas.sql` (solo tablas que escriben
-> personas, ~4 % del volumen que tumbó el sistema; las jornadas siguen como están). Hasta correrlo,
-> esas secciones solo muestran lo de antes del 09/08.
+> ⚠️ **El hueco del 09/08 al 07/09/2026.** Se comprobó en producción que el día de la caída por
+> los crons la auditoría quedó **apagada en 32 de las 42 tablas**, no solo en las jornadas. Por eso
+> Nómina, Inventario, Compras, Combustible (salvo despachos), las rondas de Inspecciones, las
+> averías, Cocina, Aliados, Empresas, Pagos, Asistencia y los permisos de Usuarios **no tienen
+> nada entre el 09/08 y el 07/09**, y eso no se recupera. El **07/09/2026** se corrió
+> `supabase/auditoria_reencender_tablas_humanas.sql` y se verificó: **42 triggers encendidos**,
+> solo el de las jornadas sigue apagado a propósito (esa tabla tiene su trigger de personas). Desde
+> ese día esas secciones vuelven a grabar. Se midió antes de correrlo: entre 440 y 830 filas por
+> día, un 4 % de lo que tumbó el sistema.
 >
 > **Cómo sabe de qué sección vino.** La bitácora guarda **qué tabla** se tocó, **no de qué
 > pantalla** vino — y a la tabla de máquinas le escriben unas **20 pantallas**. Lo que desempata
