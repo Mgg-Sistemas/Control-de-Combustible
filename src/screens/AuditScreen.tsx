@@ -11,7 +11,7 @@ import { norm, cmpText } from '../lib/text';
 import { fieldLabel, changesSummary } from '../lib/auditLabels';
 // Los MÓDULOS son las SECCIONES DE LA APP (Control, Inspecciones, Nómina…), no las
 // tablas de la base. La regla vive en su librería para poder probarla; ver el archivo.
-import { MODULOS_AUDITORIA, etiquetaModulo, filaEnModulos } from '../lib/auditModulos';
+import { MODULOS_AUDITORIA, etiquetaModulo, etiquetaPastilla, filaEnModulos } from '../lib/auditModulos';
 import {
   cambiosEstadoMaquina, esCambioDeEstadoMaquina, conteoPorEstado, acompanantes,
   TABLAS_CON_ESTADO, CambioEstadoMaquina,
@@ -1241,8 +1241,16 @@ export default function AuditScreen() {
                   <View>
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>MÓDULO (uno o varios)</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                      {MODULOS_AUDITORIA.map((m) => <Chip key={m.key} label={`${m.icon} ${m.label}`} on={moduleFilter.has(m.key)} onPress={() => toggleModule(m.key)} />)}
+                      {MODULOS_AUDITORIA.map((m) => <Chip key={m.key} label={etiquetaPastilla(m)} on={moduleFilter.has(m.key)} onPress={() => toggleModule(m.key)} />)}
                     </View>
+                    {/* Secciones del menú cuyas tablas todavía no tienen auditoría: la pastilla
+                        está para que la lista sea el menú completo, y avisa para que nadie
+                        crea que "no pasó nada" ahí. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                      Son las mismas secciones del menú. Las que dicen «sin rastro aún» todavía no dejan huella en la
+                      bitácora ({MODULOS_AUDITORIA.filter((m) => m.sinRastro).map((m) => m.label).join(', ')}): no es que no
+                      pasó nada, es que ahí no se registra todavía.
+                    </Text>
                   </View>
 
                   <View>
