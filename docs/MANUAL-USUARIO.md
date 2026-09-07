@@ -2245,8 +2245,10 @@ producto"**. Pide confirmación y borra el producto **y todo su historial** de m
 **Salida** — el documento (nota de salida) que se hace cuando salen materiales:
 1. Ve a la pestaña **"📤 Salida"**.
 2. Busca cada producto y agrégalo; indica la **cantidad** de cada uno.
-3. Elige la **🚜 máquina** (lista desplegable y filtrable) y los **👷 empleados** que reciben
-   (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.
+3. Elige la **🚜 máquina** (lista desplegable y filtrable) **o el 🚗 vehículo** (la lista de la
+   pestaña Vehículos del Catálogo de equipos, filtrable por nombre, placa, marca, modelo, encargado
+   o empresa) y los **👷 empleados** que reciben (lista de la nómina, filtrable, se pueden marcar
+   varios). Escribe el destino/motivo si quiere.
    Elige también la **🏢 empresa registrada** a la que se carga la salida (lista desplegable y
    filtrable): **se guarda en el movimiento** y sale en la nota. (Sigue el campo de empresa **NO
    registrada** en texto libre para casos fuera del sistema.)
@@ -2262,9 +2264,17 @@ producto"**. Pide confirmación y borra el producto **y todo su historial** de m
 > el PDF), lo que alimenta la nueva pestaña **"👷 Dotación"** (ver más abajo) y el historial en su
 > ficha.
 
+> **Vehículo destino (07/09/2026):** debajo de la máquina hay un apartado **🚗 Vehículo** con los
+> vehículos del Catálogo de equipos (pestaña Vehículos). Antes ahí solo salían las máquinas, porque
+> los vehículos viven en otra lista y no aparecían ni buscando la placa. Sirve, por ejemplo, para
+> darle salida a un Starlink que va en una camioneta. El vehículo sale en el PDF (línea
+> **Vehículo:**), queda en el texto del movimiento (`VEHÍCULO: …`) y queda además **vinculado por
+> dentro** (`vehicle_id`): el SQL `supabase/inventory_movements_vehiculo.sql` **se corrió y se
+> verificó el 07/09/2026**. Se puede elegir máquina y vehículo a la vez.
+
 > **IMPORTANTE:** la salida se descuenta del inventario **SOLO cuando confirmas**
 > (Imprimir/Guardar). Si le das **Cancelar** en la vista previa, **no se descuenta nada** y **no
-> se pierde** lo que ya elegiste: productos, cantidades, máquina y empleados quedan tal cual para
+> se pierde** lo que ya elegiste: productos, cantidades, máquina, vehículo y empleados quedan tal cual para
 > seguir editándolos.
 
 **Gastos** — cada material que **sale del almacén es un gasto**. En la pestaña **"💸 Gastos"**

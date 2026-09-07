@@ -667,6 +667,7 @@ export interface InventoryMovement {
   order_id: string | null;
   company_id: string | null;
   machinery_id: string | null; // equipo destino de la salida (para el gasto por equipo en Mantenimiento)
+  vehicle_id?: string | null;  // vehículo destino de la salida (supabase/inventory_movements_vehiculo.sql)
   note: string | null;
   employee_ids: string[];                        // empleados que reciben la salida (multi)
   employees_detail: InventoryMovementEmployee[];  // snapshot nombre/cédula/cargo al momento de la salida

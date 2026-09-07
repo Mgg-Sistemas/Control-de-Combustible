@@ -112,6 +112,7 @@ También: la definición de `truck_yard_logs` **solo existe en producción**
 
 | Archivo | Cuándo |
 |---|---|
+| `inventory_movements_vehiculo.sql` | **07/09/2026** — la comprobación devolvió **1 fila: `vehicle_id`**. La nota de salida ya guarda el vehículo vinculado, no solo en el texto |
 | `rol_coordinador_inspectores_enum.sql` | **28/08/2026** — `quedo_registrado = true`, 8 roles en el enum |
 | `servicio_editar.sql` | 26/08/2026 — verificación 7/7 en verde |
 | `vaciar_obras_publicas.sql` | semana del 14/08 |

@@ -8,6 +8,7 @@ export type NotaData = {
   destino?: string | null;
   empresa?: string | null;
   maquina?: string | null;      // equipo al que se entrega
+  vehiculo?: string | null;     // vehículo al que se entrega (pestaña Vehículos del catálogo)
   empleados?: string[];         // empleados que reciben
   empleadosDetalle?: { name: string; cedula?: string | null; cargo?: string | null }[]; // empleados registrados que reciben (con cédula y cargo)
   items: NotaItem[];
@@ -91,6 +92,7 @@ export function notaEntregaHtml(d: NotaData): string {
       <div>${d.empresa ? `<b>Empresa:</b> ${esc(d.empresa)}` : ''}</div>
     </div>
     ${d.maquina ? `<div class="meta"><div><b>Máquina / equipo:</b> ${esc(d.maquina)}</div></div>` : ''}
+    ${d.vehiculo ? `<div class="meta"><div><b>Vehículo:</b> ${esc(d.vehiculo)}</div></div>` : ''}
     ${recibeHtml}
     ${d.destino ? `<div class="meta"><div><b>Destino / motivo:</b> ${esc(d.destino)}</div></div>` : ''}
 
