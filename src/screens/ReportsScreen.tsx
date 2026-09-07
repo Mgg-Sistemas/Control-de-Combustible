@@ -19,6 +19,14 @@ import { exportPdf, dateRangeLabel, REPORT_BRAND } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { BCV_LOGO_DATA_URI } from '../lib/logoBcvData';
 import { RENACE_WAVE_DATA_URI, RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
+// QUÉ SE OCULTA en el Inventario de maquinaria (marca, modelo, ubicaciones, Este/Oeste).
+// La regla vive en su librería para poder probarla; la pantalla obedece.
+import {
+  OPCIONES_TACTICO_COMPLETO, PASTILLAS_OCULTAR, alternarOcultar, columnasMaquinaria, marcaModeloDe,
+  ocultosEnPalabras, ocultosLista, sufijoArchivoOcultos, sufijoSubtituloOcultos, tituloMarcaModelo,
+  ubicacionEnPalabras, type ColumnaMaquinaria, type OpcionesTactico,
+} from '../lib/tacticoOpciones';
 import { COMPANY_NAME } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
@@ -310,7 +318,15 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
   .page{position:relative;z-index:1}
   .hd{position:relative;min-height:150px;margin-bottom:6px}
   .hd .wave{position:absolute;top:-6px;right:-12px;width:74%;z-index:0}
-  .hd .tit{position:relative;z-index:1;font-size:31px;line-height:1.12;font-weight:800;color:${RENACE_NAVY};letter-spacing:-.3px;max-width:52%;padding-top:12px}
+  .hd .tit{position:relative;z-index:1;display:flex;align-items:center;gap:14px;font-size:31px;line-height:1.12;font-weight:800;color:${RENACE_NAVY};letter-spacing:-.3px;max-width:58%;padding-top:12px}
+  /* Logo de GOLDEN TOUCH (06-sep-2026), a la izquierda del título. El del Plan
+     sigue a la derecha: se suma, no se reemplaza. El JPG trae fondo de acero, no
+     transparente; por eso las esquinas redondeadas. */
+  .hd .gt{width:76px;height:76px;border-radius:10px;flex:none;object-fit:cover}
+  /* Con el logo, el título arranca 90px más a la derecha y su segunda línea
+     cruza las franjas de la ola (azul marino sobre azul, medido al ancho de
+     carta). Un halo blanco hace que el texto gane sin mover la ola oficial. */
+  .hd .tit span{text-shadow:0 0 6px #fff,0 0 3px #fff,0 0 1px #fff}
   .hd .mark{position:absolute;right:5%;top:2px;width:140px;z-index:2}
   /* La fecha va DEBAJO del logo (el logo mide ~102px de alto): si se sube, se
      encima con la palabra "renace" del logotipo. */
@@ -327,7 +343,7 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
       <div class="hd">
         <img class="wave" src="${RENACE_WAVE_DATA_URI}"/>
         <img class="mark" src="${RENACE_LOGO_DATA_URI}"/>
-        <div class="tit">${title}</div>
+        <div class="tit"><img class="gt" src="${GOLDEN_TOUCH_LOGO_DATA_URI}"/><span>${title}</span></div>
         <div class="fecha"><b>Fecha:</b> ${nowStamp()}</div>
       </div>
       <div class="rule"></div>
@@ -567,6 +583,9 @@ export default function ReportsScreen({ route }: any) {
   // Ubicaciones tácticas: cuál de los TRES informes se descarga. Arranca en el de
   // siempre para que quien no toque nada siga sacando el mismo papel de ayer.
   const [tacAlcance, setTacAlcance] = useState<AlcanceEmpresas>('juntas');
+  // Ubicaciones tácticas: qué se OCULTA (marca, modelo, ubicaciones, Este/Oeste).
+  // Arranca sin ocultar nada: el papel de siempre.
+  const [tacOpciones, setTacOpciones] = useState<OpcionesTactico>(OPCIONES_TACTICO_COMPLETO);
   // Filtro por ZONA del conteo: '__all__' (todas), un nombre de zona, o 'Sin zona'.
   const [conteoZona, setConteoZona] = useState<string>('__all__');
   // Filtro por EMPRESA del conteo (multi-selección; vacío = TODAS). Pedido del cliente
@@ -1863,7 +1882,7 @@ export default function ReportsScreen({ route }: any) {
   // conPersonal = incluye personal (operadores/inspectores). ficticio = versión
   // SIMULADA: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
-  const downloadTacticalPdf = async (conPersonal = false, ficticio = false, alcance: AlcanceEmpresas = 'juntas') => {
+  const downloadTacticalPdf = async (conPersonal = false, ficticio = false, alcance: AlcanceEmpresas = 'juntas', opciones: OpcionesTactico = OPCIONES_TACTICO_COMPLETO) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, tipo, marca, modelo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
@@ -1923,12 +1942,9 @@ export default function ReportsScreen({ route }: any) {
       const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
       const macro = sec ? (sec.startsWith('Oeste') ? 'Oeste' : 'Este') : '';
       const sub = sec ? sectorLabel(sec).replace(/^(Este|Oeste)\s*·\s*/, '') : '';
-      const parts: string[] = [];
-      if (macro) parts.push(macro);
-      if (sub) parts.push(sub);
-      if (ref) parts.push(ref);
-      // Sin GPS ni referencia: se ubican por defecto en el ESTE, Patio - Camurí Chico (pedido del cliente).
-      return parts.length ? parts.join(' · ') : 'Este · Patio - Camuri Chico';
+      // Sin GPS ni referencia: el patio de Camurí Chico, en el ESTE (pedido del cliente).
+      // Con "sin Este/Oeste" se cae el prefijo; esa regla vive en la librería.
+      return ubicacionEnPalabras({ macro, sub, ref }, opciones);
     };
     // Las camionetas PICK-UP no van en la lista de maquinaria: van en su propia sección
     // (a disposición de los encargados de SOS La Guaira).
@@ -1964,35 +1980,57 @@ export default function ReportsScreen({ route }: any) {
         opAssign.set(m, { dia: operadores[(2 * i) % operadores.length], noche: operadores[(2 * i + 1) % operadores.length] });
       });
     }
+    // ⭐ LAS COLUMNAS DEL LISTADO SALEN DE UNA SOLA LISTA (según qué se oculta y si
+    //    va con personal). El encabezado y cada fila la recorren igual: un <th> sin
+    //    su <td> corre toda la tabla y el PDF sale con la placa debajo de "Marca"
+    //    sin que nadie lo note leyendo el código.
+    //    Anchos fijos en Marca, Placa/Serial y Estado: la plantilla del Plan reparte
+    //    así las columnas y evita que "Ubicación" (texto largo) se coma el resto.
+    const cols = columnasMaquinaria(opciones, conPersonal);
+    const thDe: Record<ColumnaMaquinaria, string> = {
+      n: '<th style="width:30px">Nº</th>',
+      equipo: '<th>Equipo / Tipo</th>',
+      marcaModelo: `<th style="width:120px">${tituloMarcaModelo(opciones) ?? ''}</th>`,
+      placa: '<th style="width:120px">Placa / Serial</th>',
+      ubicacion: '<th>Ubicación</th>',
+      opDia: '<th>Operador (día)</th>',
+      opNoche: '<th>Operador (noche)</th>',
+      estado: '<th style="width:110px">Estado</th>',
+    };
     const maquinariaHtml = enteNames.map((ente) => {
-      const showOps = conPersonal;
       const rows = groups.get(ente)!
         .slice()
         .sort(sortMaq)
         .map((m, i) => {
           const est = estadoOf(m);
-          const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
-          // MARCA y MODELO son campos propios de la maquina (CAT 320, Komatsu PC200…) y van
-          // en su propia columna. `tipo` es otra cosa (el tipo de equipo) y se queda en la
-          // linea gris junto al codigo, que es donde estaba antes mal rotulado como marca.
-          const marcaModelo = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ');
+          // `tipo` es el tipo de equipo (excavadora, volteo…): va en gris junto al
+          // código. No es la marca, que antes se imprimía ahí mal rotulada.
           const tipoEq = (m.tipo && String(m.tipo).trim()) || '';
           const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ');
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${tipoEq ? ' · ' + esc(tipoEq) : ''}</span></td><td>${esc(marcaModelo || '—')}</td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          const tdDe: Record<ColumnaMaquinaria, string> = {
+            n: `<td>${i + 1}</td>`,
+            equipo: `<td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${tipoEq ? ' · ' + esc(tipoEq) : ''}</span></td>`,
+            // MARCA y MODELO (CAT 320, Komatsu PC200…), o la mitad que no se oculta.
+            // Guion si la ficha no los tiene cargados.
+            marcaModelo: `<td>${esc(marcaModeloDe(m, opciones) || '—')}</td>`,
+            placa: `<td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td>`,
+            ubicacion: `<td>${esc(ubicOf(m))}</td>`,
+            opDia: `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td>`,
+            opNoche: `<td>${esc(opAssign.get(m)?.noche ?? '—')}</td>`,
+            estado: `<td style="color:${estadoColor(est)};font-weight:700">${est}</td>`,
+          };
+          return `<tr>${cols.map((c) => tdDe[c]).join('')}</tr>`;
         }).join('');
-      const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
-      // Anchos fijos en Placa/Serial y Estado: la plantilla del Plan reparte así las
-      // columnas y evita que "Ubicación" (texto largo) se coma el resto de la fila.
       return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th style="width:120px">Marca / Modelo</th><th style="width:120px">Placa / Serial</th><th>Ubicación</th>${opHead}<th style="width:110px">Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="tac"><thead><tr>${cols.map((c) => thDe[c]).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
     const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
     // Máquinas pick-up + vehículos pick-up en UNA lista, ordenada ALFABÉTICAMENTE (serial/placa). Sin columna de ubicación.
     const pickItems = [
-      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); const mm = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo ? String(m.tipo).trim() : ''); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${mm ? ' · 🏷️ ' + esc(mm) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
-      ...vehPickups.map((v) => ({ label: `<b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' })),
+      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); const mm = marcaModeloDe(m, opciones) || (m.tipo ? String(m.tipo).trim() : ''); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${mm ? ' · 🏷️ ' + esc(mm) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
+      ...vehPickups.map((v) => { const mm = marcaModeloDe({ marca: v.brand, modelo: v.model }, opciones); return { label: `<b>${esc(v.plate ?? '—')}</b>${mm ? ' · ' + esc(mm) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' }; }),
     ].sort((a, b) => cmpText(a.key, b.key));
     const pickupsHtml = pickItems.length
       ? `<div class="disp">🔰 A disposición de los encargados de <b>SOS LA GUAIRA</b></div>
@@ -2024,10 +2062,15 @@ export default function ReportsScreen({ route }: any) {
     });
     const coTot = { este: 0, oeste: 0 };
     countByCo.forEach((v) => { coTot.este += v.este; coTot.oeste += v.oeste; });
+    // Sin Este/Oeste: las dos columnas de zona no van (queda Empresa/Tipo y Cantidad).
+    // El encabezado y las celdas salen del MISMO interruptor para que no se corran.
+    const zonaTh = (ancho: number) => opciones.sinZona ? '' : `<th style="width:${ancho}px;text-align:right">🟢 Este</th><th style="width:${ancho}px;text-align:right">🟠 Oeste</th>`;
+    const zonaTd = (este: number, oeste: number, negrita = false) => opciones.sinZona ? '' : `<td style="text-align:right${negrita ? ';font-weight:800' : ''}">${este}</td><td style="text-align:right${negrita ? ';font-weight:800' : ''}">${oeste}</td>`;
+    const colspanZona = opciones.sinZona ? 2 : 4;
     const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
-      <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th><th style="width:90px;text-align:right">🟢 Este</th><th style="width:90px;text-align:right">🟠 Oeste</th></tr></thead>
-      <tbody>${enteNames.filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${coTot.este}</td><td style="text-align:right;font-weight:800">${coTot.oeste}</td></tr></tfoot></table>`;
+      <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th>${zonaTh(90)}</tr></thead>
+      <tbody>${enteNames.filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td>${zonaTd(v.este, v.oeste)}</tr>`; }).join('') || `<tr><td colspan="${colspanZona}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td>${zonaTd(coTot.este, coTot.oeste, true)}</tr></tfoot></table>`;
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
       const mac = zonaMacroDe(m);
@@ -2074,11 +2117,11 @@ export default function ReportsScreen({ route }: any) {
     });
     const tipoZTot = { este: 0, oeste: 0 };
     porTipoZona.forEach((v) => { tipoZTot.este += v.este; tipoZTot.oeste += v.oeste; });
-    const resumenTipoZonaHtml = `<div class="sect">🚜 Total por tipo de maquinaria · 🟢 Este / 🟠 Oeste</div>
-      <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:80px;text-align:right">Total</th><th style="width:80px;text-align:right">🟢 Este</th><th style="width:80px;text-align:right">🟠 Oeste</th></tr></thead>
-      <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>`}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td></tr></tfoot></table>
-      <div style="font-size:12px;color:#374151;margin:6px 0 2px 0">🌙 Las <b>VOLQUETAS</b> y los <b>TORONTOS</b> pernoctan en <b>CAMURÍ CHICO (ESTE)</b>; durante el día son desplegados a los sectores que requieran su servicio (<b>ESTE / OESTE</b>).</div>`;
+    const resumenTipoZonaHtml = `<div class="sect">🚜 Total por tipo de maquinaria${opciones.sinZona ? '' : ' · 🟢 Este / 🟠 Oeste'}</div>
+      <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:80px;text-align:right">Total</th>${zonaTh(80)}</tr></thead>
+      <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td>${zonaTd(v.este, v.oeste)}</tr>`).join('') || `<tr><td colspan="${colspanZona}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td>${zonaTd(tipoZTot.este, tipoZTot.oeste, true)}</tr></tfoot></table>${opciones.sinZona ? '' : `
+      <div style="font-size:12px;color:#374151;margin:6px 0 2px 0">🌙 Las <b>VOLQUETAS</b> y los <b>TORONTOS</b> pernoctan en <b>CAMURÍ CHICO (ESTE)</b>; durante el día son desplegados a los sectores que requieran su servicio (<b>ESTE / OESTE</b>).</div>`}`;
     // ── 📍 DESPLIEGUE POR SECTOR (localidad) Y EDIFICIO ─────────────────────────
     // Pedido: ver las UBICACIONES por sector con su ref/edificio y cuántos equipos de cada
     // tipo hay en cada sitio (ej. "3 JUMBO en Caraballeda Este"). La localidad sale del GPS
@@ -2111,7 +2154,7 @@ export default function ReportsScreen({ route }: any) {
     const sinUbicSorted = sinUbicMachines.slice().sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? ''));
     const sinUbicHtml = sinUbicSorted.length
       ? `<div class="ente">📍 <b>DESPLEGADAS POR TODO EL TERRITORIO DE LA GUAIRA</b> <span class="cnt-pill">${sinUbicSorted.length} equipo(s)</span></div>
-         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc([m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc(marcaModeloDe(m, opciones) || (m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
       : '';
     const despliegueSectorHtml = `<div class="sect">📍 Despliegue por sector y edificio · ubicación al ${new Date().toLocaleString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>`
       + (sectorsSorted.length ? sectorsSorted.map(([secL, g]) => {
@@ -2146,10 +2189,14 @@ export default function ReportsScreen({ route }: any) {
     // Con personal: coordinadores e inspectores repartidos entre ESTE y OESTE (rotación).
     const pickZona = (arr: string[], z: number) => arr.filter((_, i) => i % 2 === z);
     const celda = (arr: string[]) => (arr.length ? arr.map((n) => esc(n)).join('<br/>') : '—');
-    const zonaPersonalHtml = conPersonal
-      ? `<table class="tac"><thead><tr><th style="width:80px">Zona</th><th>Coordinadores</th><th>Inspectores</th></tr></thead>
-         <tbody>${['ESTE', 'OESTE'].map((z, idx) => `<tr><td style="font-weight:700">${z}</td><td>${celda(pickZona(coordinadores, idx))}</td><td>${celda(pickZona(inspectores, idx))}</td></tr>`).join('')}</tbody></table>`
-      : '';
+    const zonaPersonalHtml = !conPersonal
+      ? ''
+      : opciones.sinZona
+        // Sin Este/Oeste: una sola lista, sin repartir por zona.
+        ? `<table class="tac"><thead><tr><th>Coordinadores</th><th>Inspectores</th></tr></thead>
+         <tbody><tr><td>${celda(coordinadores)}</td><td>${celda(inspectores)}</td></tr></tbody></table>`
+        : `<table class="tac"><thead><tr><th style="width:80px">Zona</th><th>Coordinadores</th><th>Inspectores</th></tr></thead>
+         <tbody>${['ESTE', 'OESTE'].map((z, idx) => `<tr><td style="font-weight:700">${z}</td><td>${celda(pickZona(coordinadores, idx))}</td><td>${celda(pickZona(inspectores, idx))}</td></tr>`).join('')}</tbody></table>`;
     // TODO el personal, SOLO TOTALES por departamento (unificado / inferido del cargo).
     const depTot = new Map<string, number>();
     activeEmps.forEach((e) => { const d = normalizeDept(e.department, e.cargo); depTot.set(d, (depTot.get(d) ?? 0) + 1); });
@@ -2173,6 +2220,7 @@ export default function ReportsScreen({ route }: any) {
     const alcanceHtml = `<div class="sect">🧾 Alcance de este informe</div>
       <div class="box">
         <div class="kv"><b>${esc(alcanceInfo.largo)}.</b></div>
+        ${ocultosLista(opciones).length ? `<div class="kv"><b>Campos ocultos:</b> ${esc(ocultosLista(opciones).join(' · '))}. Los totales son los mismos.</div>` : ''}
         <div class="kv"><b>Empresas incluidas (${empresasDentro.length}):</b> ${esc(empresasDentro.join(' · ')) || '—'}</div>
         ${empresasFuera.length ? `<div class="kv"><b>Empresas dejadas fuera (${empresasFuera.length}):</b> ${esc(empresasFuera.join(' · '))}</div>` : ''}
         <div class="kv">Equipos en este informe: <b>${list.length}</b>${soloPropias ? ` de ${universo.length} de la flota` : ''}.</div>
@@ -2201,14 +2249,15 @@ export default function ReportsScreen({ route }: any) {
       ${resumenClasifHtml}
       <div class="sect">🏢 ${esc(tituloMaquinaria)}</div>
       ${maquinariaHtml}
-      ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}
+      ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores${opciones.sinZona ? '' : ' por zona'}</div>${zonaPersonalHtml}` : ''}
       ${alcanceHtml}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
-    // ⭐ EL ALCANCE VA EN EL SUBTÍTULO **Y** EN EL NOMBRE DEL ARCHIVO. Son tres
-    //    papeles que se parecen mucho: sin esto, tres PDF con el mismo nombre se
-    //    pisan en la carpeta de descargas y nadie sabe cuál está mirando.
-    const subtitle = `${subBase} · ${alcanceInfo.largo}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
-    const fileName = `Reporte - Inventario de maquinaria (${alcanceInfo.archivo})${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    // ⭐ EL ALCANCE —Y LO QUE SE OCULTÓ— VAN EN EL SUBTÍTULO **Y** EN EL NOMBRE DEL
+    //    ARCHIVO. Son papeles que se parecen mucho: sin esto, dos PDF con el mismo
+    //    nombre se pisan en la carpeta de descargas y nadie sabe cuál está mirando,
+    //    ni distingue el recortado del completo.
+    const subtitle = `${subBase} · ${alcanceInfo.largo}${sufijoSubtituloOcultos(opciones)}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
+    const fileName = `Reporte - Inventario de maquinaria (${alcanceInfo.archivo})${sufijoArchivoOcultos(opciones)}${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
     // Membrete del Plan Venezuela Renace. "Empresa" y "Responsable" van como
     // líneas en blanco (igual que la plantilla oficial): el reporte puede cubrir
     // a varias empresas a la vez, así que quien lo imprime las completa.
@@ -3111,11 +3160,32 @@ export default function ReportsScreen({ route }: any) {
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
                 {ALCANCES.find((a) => a.id === tacAlcance)?.largo}. Sale igual en el simulado.
               </Text>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, false, tacAlcance)}>
+              {/* QUÉ SE OCULTA (06-sep-2026): cuatro pastillas que se encienden VARIAS a la
+                  vez, no como las de empresas. Ocultan columnas y textos, nunca máquinas:
+                  los totales no cambian. Valen para el real, el simulado y con personal. */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                {PASTILLAS_OCULTAR.map((p) => {
+                  const on = tacOpciones[p.key];
+                  return (
+                    <TouchableOpacity
+                      key={p.key}
+                      onPress={() => setTacOpciones((o) => alternarOcultar(o, p.key))}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: on ? '#FFFFFF' : colors.text, fontSize: 13, fontWeight: '700' }}>{p.chip}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                {ocultosEnPalabras(tacOpciones)} Los totales no cambian; vale para el real, el simulado y con personal.
+              </Text>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, false, tacAlcance, tacOpciones)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
               {/* Versión SIMULADA/ficticia: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para presentaciones). */}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true, tacAlcance)}>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true, tacAlcance, tacOpciones)}>
                 <Text style={{ color: colors.warning, fontWeight: '800' }}>🎭 Ubicaciones tácticas (SIMULADO){tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
               {/* Zona 100% real por GPS, igual que el Mapa: sin reparto 50/50 para las máquinas sin GPS. */}
