@@ -2268,10 +2268,9 @@ producto"**. Pide confirmación y borra el producto **y todo su historial** de m
 > vehículos del Catálogo de equipos (pestaña Vehículos). Antes ahí solo salían las máquinas, porque
 > los vehículos viven en otra lista y no aparecían ni buscando la placa. Sirve, por ejemplo, para
 > darle salida a un Starlink que va en una camioneta. El vehículo sale en el PDF (línea
-> **Vehículo:**), queda en el texto del movimiento (`VEHÍCULO: …`) y, con el SQL
-> `supabase/inventory_movements_vehiculo.sql` corrido, queda además **vinculado por dentro**
-> (`vehicle_id`). Si ese SQL aún no se corrió, la salida se registra igual: solo se pierde el
-> vínculo interno, no el dato del PDF ni del texto. Se puede elegir máquina y vehículo a la vez.
+> **Vehículo:**), queda en el texto del movimiento (`VEHÍCULO: …`) y queda además **vinculado por
+> dentro** (`vehicle_id`): el SQL `supabase/inventory_movements_vehiculo.sql` **se corrió y se
+> verificó el 07/09/2026**. Se puede elegir máquina y vehículo a la vez.
 
 > **IMPORTANTE:** la salida se descuenta del inventario **SOLO cuando confirmas**
 > (Imprimir/Guardar). Si le das **Cancelar** en la vista previa, **no se descuenta nada** y **no
