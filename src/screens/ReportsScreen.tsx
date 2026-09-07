@@ -323,6 +323,10 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
      sigue a la derecha: se suma, no se reemplaza. El JPG trae fondo de acero, no
      transparente; por eso las esquinas redondeadas. */
   .hd .gt{width:76px;height:76px;border-radius:10px;flex:none;object-fit:cover}
+  /* Con el logo, el título arranca 90px más a la derecha y su segunda línea
+     cruza las franjas de la ola (azul marino sobre azul, medido al ancho de
+     carta). Un halo blanco hace que el texto gane sin mover la ola oficial. */
+  .hd .tit span{text-shadow:0 0 6px #fff,0 0 3px #fff,0 0 1px #fff}
   .hd .mark{position:absolute;right:5%;top:2px;width:140px;z-index:2}
   /* La fecha va DEBAJO del logo (el logo mide ~102px de alto): si se sube, se
      encima con la palabra "renace" del logotipo. */
@@ -2216,7 +2220,7 @@ export default function ReportsScreen({ route }: any) {
     const alcanceHtml = `<div class="sect">🧾 Alcance de este informe</div>
       <div class="box">
         <div class="kv"><b>${esc(alcanceInfo.largo)}.</b></div>
-        ${ocultosLista(opciones).length ? `<div class="kv"><b>Campos ocultos a propósito:</b> ${esc(ocultosLista(opciones).join(' · '))}. Los totales son los mismos.</div>` : ''}
+        ${ocultosLista(opciones).length ? `<div class="kv"><b>Campos ocultos:</b> ${esc(ocultosLista(opciones).join(' · '))}. Los totales son los mismos.</div>` : ''}
         <div class="kv"><b>Empresas incluidas (${empresasDentro.length}):</b> ${esc(empresasDentro.join(' · ')) || '—'}</div>
         ${empresasFuera.length ? `<div class="kv"><b>Empresas dejadas fuera (${empresasFuera.length}):</b> ${esc(empresasFuera.join(' · '))}</div>` : ''}
         <div class="kv">Equipos en este informe: <b>${list.length}</b>${soloPropias ? ` de ${universo.length} de la flota` : ''}.</div>
