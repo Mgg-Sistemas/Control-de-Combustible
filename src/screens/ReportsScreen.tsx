@@ -24,7 +24,7 @@ import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
 // La regla vive en su librería para poder probarla; la pantalla obedece.
 import {
   OPCIONES_TACTICO_COMPLETO, PASTILLAS_OCULTAR, alcanceSinNombres, alternarOcultar, columnasMaquinaria, marcaModeloDe,
-  ocultosEnPalabras, ocultosLista, sufijoArchivoOcultos, sufijoSubtituloOcultos, tituloMarcaModelo,
+  ocultosEnPalabras, ocultosLista, sufijoArchivoOcultos, tituloMarcaModelo,
   ubicacionEnPalabras, type ColumnaMaquinaria, type OpcionesTactico,
 } from '../lib/tacticoOpciones';
 import { COMPANY_NAME } from '../lib/company';
@@ -349,7 +349,7 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
       <div class="rule"></div>
       <div class="fld">Empresa:<span>${fields.empresa ?? ''}</span></div>
       <div class="fld">Responsable:<span>${fields.responsable ?? ''}</span></div>
-      <div class="sub">${sub}</div>
+      ${sub ? `<div class="sub">${sub}</div>` : ''}
       ${body}
       <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
     </div>
@@ -2264,18 +2264,18 @@ export default function ReportsScreen({ route }: any) {
       ${opciones.sinListado ? '' : `<div class="sect">🏢 ${esc(tituloMaquinaria)}</div>
       ${maquinariaHtml}`}
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores${opciones.sinZona ? '' : ' por zona'}</div>${zonaPersonalHtml}` : ''}
-      ${alcanceHtml}`;
-    const subBase = 'Operación Rescate y Esperanza – La Guaira';
-    // ⭐ EL ALCANCE —Y LO QUE SE OCULTÓ— VAN EN EL SUBTÍTULO **Y** EN EL NOMBRE DEL
-    //    ARCHIVO. Son papeles que se parecen mucho: sin esto, dos PDF con el mismo
-    //    nombre se pisan en la carpeta de descargas y nadie sabe cuál está mirando,
-    //    ni distingue el recortado del completo.
-    const subtitle = `${subBase} · ${alcanceInfo.largo}${sufijoSubtituloOcultos(opciones)}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
+      ${opciones.sinAlcance ? '' : alcanceHtml}`;
+    // ⭐ EL ALCANCE —Y LO QUE SE OCULTÓ— VAN EN EL NOMBRE DEL ARCHIVO. Son papeles
+    //    que se parecen mucho: sin esto, dos PDF con el mismo nombre se pisan en la
+    //    carpeta de descargas y nadie sabe cuál está mirando, ni distingue el
+    //    recortado del completo. Antes iba también en el subtítulo del membrete;
+    //    el cliente pidió quitarlo (07-sep-2026), así que con el cuadro de alcance
+    //    también oculto, el nombre del archivo es el ÚNICO rastro.
     const fileName = `Reporte - Inventario de maquinaria (${alcanceInfo.archivo})${sufijoArchivoOcultos(opciones)}${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
-    // Membrete del Plan Venezuela Renace. "Empresa" y "Responsable" van como
-    // líneas en blanco (igual que la plantilla oficial): el reporte puede cubrir
-    // a varias empresas a la vez, así que quien lo imprime las completa.
-    await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', subtitle, body), fileName);
+    // Membrete del Plan Venezuela Renace, sin subtítulo. "Empresa" y "Responsable"
+    // van como líneas en blanco (igual que la plantilla oficial): el reporte puede
+    // cubrir a varias empresas a la vez, así que quien lo imprime las completa.
+    await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', '', body), fileName);
   };
 
   // Reporte de PERSONAL COMPLETO: MOVIDO a Nómina · Personal → src/lib/personalReport.ts
@@ -3174,10 +3174,10 @@ export default function ReportsScreen({ route }: any) {
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
                 {ALCANCES.find((a) => a.id === tacAlcance)?.largo}. Sale igual en el simulado.
               </Text>
-              {/* QUÉ SE OCULTA (06-sep-2026): seis pastillas que se encienden VARIAS a la
-                  vez, no como las de empresas. Ocultan columnas, textos o el listado
-                  entero, nunca máquinas: los totales no cambian. Valen para el real, el
-                  simulado y con personal. */}
+              {/* QUÉ SE OCULTA (06-sep-2026): pastillas que se encienden VARIAS a la vez,
+                  no como las de empresas. Ocultan columnas, textos o cuadros enteros,
+                  nunca máquinas: los totales no cambian. Valen para el real, el simulado
+                  y con personal. La lista vive en PASTILLAS_OCULTAR. */}
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
                 {PASTILLAS_OCULTAR.map((p) => {
