@@ -610,7 +610,7 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   >
   > **Dos, las pastillas.** En 📊 Conteo de equipos, debajo de la fila *¿QUÉ EMPRESAS SALEN?* y
   > antes de los botones de Ubicaciones tácticas, hay una fila nueva: **¿QUÉ SE OCULTA?**, con
-  > **nueve pastillas que se pueden encender varias a la vez** (no son excluyentes como las de
+  > **diez pastillas que se pueden encender varias a la vez** (no son excluyentes como las de
   > empresas). **Por defecto ninguna está encendida**, así que quien no toque nada saca el mismo
   > papel de siempre. Debajo dice en criollo qué se va a ocultar antes de descargar (*"Sale
   > completo."* o *"Se oculta: marca · Este/Oeste."*). Vale igual para el botón normal, para el
@@ -623,21 +623,26 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > | 🚫 **Placa / Serial** | Desaparece la columna *"Placa / Serial"* del listado de maquinaria |
   > | 🚫 **Ubicaciones** | Desaparece la columna *"Ubicación"* del listado de maquinaria (la de *"Este · Macuto · referencia"* o *"Desplegadas por los sectores estratégicos"*) |
   > | 🚫 **Este / Oeste** | Desaparecen las columnas 🟢 Este / 🟠 Oeste de *"Cantidad de maquinaria por empresa"* y de *"Total por tipo de maquinaria"* (quedan solo Empresa/Tipo y Cantidad); desaparece la nota de que las volquetas y torontos pernoctan en Camurí Chico (ESTE); en la columna Ubicación de cada máquina ya no sale el *"Este ·"* / *"Oeste ·"* adelante (queda la subzona y la referencia: *"Macuto · Edificio X"*); y con personal, los coordinadores e inspectores salen en **una sola lista**, sin repartir por zona |
-  > | 🚫 **Nombre de empresas** | No sale el nombre de ninguna empresa: desaparece el cuadro *"Cantidad de maquinaria por empresa"* (el total sigue en los cuadros por tipo y por clasificación), el listado sale en **un solo bloque** sin cabeceras por empresa, el título de la sección dice solo *"Maquinaria"*, y el cuadro de alcance dice **cuántas** empresas entraron pero no cuáles. El alcance se describe sin nombrarlas (*"Solo las empresas propias"* / *"Todas las empresas"*), también en el subtítulo y en el nombre del archivo. **El logo de Golden Touch del membrete se queda**: es un logo, no un nombre, y se pidió aparte |
+  > | 🚫 **Nombre de empresas** | No sale el nombre de ninguna empresa: desaparece el cuadro *"Cantidad de maquinaria por empresa"* (el total sigue en los cuadros por tipo y por clasificación), el listado sale en **un solo bloque** sin cabeceras por empresa, el título de la sección dice solo *"Maquinaria"*, y el cuadro de alcance dice **cuántas** empresas entraron pero no cuáles. El alcance se describe sin nombrarlas (*"Solo las empresas propias"* / *"Todas las empresas"*), también en el nombre del archivo. **El logo de Golden Touch del membrete se queda**: es un logo, no un nombre, y se pidió aparte |
   > | 🚫 **Listado por máquina** | **Solo el conteo resumido**: desaparece entera la sección *"Maquinaria por empresa"* (el listado máquina por máquina). Quedan los resúmenes de arriba —cantidad por empresa, total por tipo, cantidad por clasificación— y, con personal, los totales por departamento y los coordinadores e inspectores. Las otras pastillas de columnas dejan de tener efecto porque ya no hay listado |
   > | 🚫 **Total por tipo** | Desaparece el cuadro *"Total por tipo de maquinaria"* (Jumbo, Payloader… con su Este/Oeste) |
   > | 🚫 **Cantidad por clasificación** | Desaparece el cuadro *"Cantidad por clasificación"* |
+  > | 🚫 **Alcance del informe** | Desaparece el cuadro *"🧾 Alcance de este informe"* del final. **OJO:** con esta encendida, lo único que sigue diciendo qué se ocultó es el **nombre del archivo** |
   >
   > Así, **con las siete primeras encendidas queda solo el total por tipo y la cantidad por
   > clasificación** (pedido del cliente: *"si desactivo todo, solo me quedaría clasificación y tipo"*);
-  > y con las nueve, solo el membrete y el cuadro de alcance.
+  > y con las diez, solo el membrete.
+  >
+  > El membrete ya **no lleva subtítulo** (la línea *"Operación Rescate y Esperanza – La Guaira ·
+  > Todas las empresas · Sin marca…"* que iba bajo *Responsable*): se quitó a pedido del cliente el
+  > 07/09/2026.
   >
   > ⚠️ **Los totales no cambian con las pastillas.** Se ocultan columnas, textos o el listado
   > entero, no máquinas: el número de equipos es el mismo con o sin pastillas.
   >
   > **Y la red de seguridad, igual que con el alcance: lo que se ocultó queda escrito en el
   > papel.** El cuadro «🧾 Alcance de este informe» del final agrega una línea *"Campos ocultos:
-  > marca · Este/Oeste. Los totales son los mismos."* cuando hay algo oculto; el subtítulo del encabezado también lo dice; y
+  > marca · Este/Oeste. Los totales son los mismos."* cuando hay algo oculto, y
   > el **nombre del archivo** lo lleva (p. ej. *"Reporte - Inventario de maquinaria (todas sin
   > separar) sin marca, sin Este-Oeste"*), para que dos PDF distintos no se pisen en la carpeta
   > de descargas y nadie confunda un papel recortado con el completo.

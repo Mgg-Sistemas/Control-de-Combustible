@@ -221,9 +221,13 @@ ok('* ya no lleva los dos sacos fijos', !/\['LICCIONE', 'GOLDEN TOUCH'\]\.filter
 ok('el PDF imprime su propio alcance', /Alcance de este informe/.test(bloque));
 ok('* con las empresas incluidas', /Empresas incluidas/.test(bloque) && /empresasDentro/.test(bloque));
 ok('* y las dejadas fuera', /Empresas dejadas fuera/.test(bloque) && /empresasFuera/.test(bloque));
-ok('* y va dentro del cuerpo del PDF', /\$\{alcanceHtml\}/.test(bloque));
+// Desde el 07-sep-2026 el cuadro tiene su pastilla (🚫 Alcance del informe):
+// entra al cuerpo salvo que se oculte a proposito.
+ok('* y va dentro del cuerpo del PDF (salvo que se oculte a proposito)', /\$\{opciones\.sinAlcance \? '' : alcanceHtml\}/.test(bloque));
 
-ok('el subtitulo dice cual de los tres es', /\$\{subBase\} · \$\{alcanceInfo\.largo\}/.test(bloque));
+// El subtitulo del membrete se quito a pedido del cliente (07-sep-2026): el
+// alcance queda en el cuadro del final y en el nombre del archivo.
+ok('el subtitulo ya no sale (se quito a pedido del cliente)', !/const subtitle = /.test(bloque) && /renaceShell\('INVENTARIO DE<br\/>MAQUINARIA', '', body\)/.test(bloque));
 ok('* y el nombre del archivo tambien', /Inventario de maquinaria \(\$\{alcanceInfo\.archivo\}\)/.test(bloque));
 
 // ── 7) LOS BOTONES ──────────────────────────────────────────────────────────
