@@ -2821,12 +2821,31 @@ completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 > Antes los módulos estaban cortados **por tabla de base de datos**, en once cajones, y uno solo
 > —*«Maquinaria y flota»*— se tragaba el **Catálogo de equipos**, el **Control de maquinaria**, el
 > **Servicio de averías**, el **Mantenimiento** y la flota. No había forma de preguntar *«¿qué se
-> tocó en Control?»*. Ahora son **dieciséis secciones, con los nombres del menú**:
+> tocó en Control?»*. Ahora la lista es **el menú de la app, sección por sección**, en el mismo
+> orden y con los mismos nombres:
 >
-> ⛽ Combustible · 🚜 Catálogo de equipos · 🕐 Control de maquinaria (jornadas) · 📋 Inspecciones ·
-> 👷 Operadores · 🔧 Servicio de maquinaria (averías) · 🛠️ Mantenimiento · 🚛 Viajes de camiones ·
-> 🚚 Acarreo y fletes · 👥 Nómina y personal · 🏢 Empresas y facturación · 📦 Inventario y compras ·
-> 🍽️ Alimentación · 🏗️ Obras Públicas · 🔑 Usuarios y permisos · 🔔 Avisos del sistema.
+> 🛻 Acarreo / Transporte · 🤝 Aliados · 🚚 Asistencia de camiones · 🚜 Catálogo de equipos ·
+> 🍽️ Cocina y distribución de comida · ⛽ Combustible · 🛒 Compras · 🕒 Control de asistencia ·
+> 🕐 Control de maquinaria (jornadas) · 💰 Control de pagos · 🏢 Empresas y tarifas · 🏭 Fabricación ·
+> 📐 Geodesta · 🪖 Inspecciones (rondas de inspectores) · 🔍 Inspecciones de maquinaria · 📦 Inventario ·
+> 🚿 Lavado de maquinaria · 🧰 Mantenimiento de maquinaria · 🧾 Nómina · 🏛️ Obras Públicas ·
+> 👷 Operadores y coordinación · 🔧 Servicio de maquinaria (averías) · 👥 Usuarios y permisos ·
+> 🚛 Viajes de camiones · 🔔 Avisos del sistema.
+>
+> Las secciones que dicen **«sin rastro aún»** (Fabricación, Geodesta, Lavado, Obras Públicas y
+> Avisos) todavía **no dejan huella en la bitácora**: sus tablas no tienen auditoría. La pastilla
+> está para que la lista sea el menú completo, y avisa para que nadie crea que «no pasó nada» ahí.
+> **Margen de ganancia** no tiene pastilla propia: lo que edita es el costo en la **ficha** de la
+> máquina, así que sale en 🚜 Catálogo de equipos. **Reportes** solo lee, no deja rastro.
+>
+> ⚠️ **Lo que sí depende de la base (07/09/2026).** Se comprobó en producción que desde el
+> **09/08/2026** —el día de la caída por los crons— la auditoría quedó **apagada en 32 de las 42
+> tablas**, no solo en las jornadas. Por eso Nómina, Inventario, Compras, Combustible (salvo
+> despachos), las rondas de Inspecciones, las averías, Cocina, Aliados, Empresas, Pagos, Asistencia
+> y los permisos de Usuarios **no tienen nada nuevo desde esa fecha** aunque la pastilla exista.
+> Lo reenciende `supabase/auditoria_reencender_tablas_humanas.sql` (solo tablas que escriben
+> personas, ~4 % del volumen que tumbó el sistema; las jornadas siguen como están). Hasta correrlo,
+> esas secciones solo muestran lo de antes del 09/08.
 >
 > **Cómo sabe de qué sección vino.** La bitácora guarda **qué tabla** se tocó, **no de qué
 > pantalla** vino — y a la tabla de máquinas le escriben unas **20 pantallas**. Lo que desempata
