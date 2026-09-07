@@ -1,4 +1,8 @@
 -- ============================================================================
+-- ✅ CORRIDO Y VERIFICADO el 07-sep-2026 (pg_trigger: 42 trg_audit encendidos;
+--    machine_rounds sigue apagado a propósito, con trg_audit_humano activo).
+--    Queda la válvula del día siguiente, al final del archivo.
+-- ============================================================================
 -- REENCENDER LA AUDITORÍA EN LAS TABLAS QUE TOCAN PERSONAS (07-sep-2026)
 --
 -- HALLAZGO (consultando pg_trigger en producción el 07-sep-2026): desde el
@@ -25,9 +29,21 @@
 -- machine_rounds NO se toca: sigue con trg_audit apagado y trg_audit_humano activo.
 -- REVERSIBLE: cambia `enable` por `disable` y queda como estaba.
 -- ============================================================================
+-- MEDIDO ANTES DE CORRERLO (bitácora del 01 al 09-ago): esas 32 tablas hacían entre
+-- 440 y 830 filas/día (1.500 el 08-ago, día de un script masivo de averías); los crons
+-- de jornadas, de 350 a 9.000. La bitácora pesa 52 MB de una base de 146 MB: esto
+-- agrega ~0,4 MB/día. La función audit_row() por fila hace un to_jsonb, una lectura
+-- por clave primaria y el diff del UPDATE: milisegundos.
+--
+-- El lock_timeout es para no trancar a nadie: `enable trigger` toma un bloqueo
+-- brevísimo por tabla, pero si una transacción larga la tiene tomada, sin esto el
+-- comando se queda en cola y detrás de él se encolan las escrituras de la app.
+-- Con el tope, falla limpio a los 5 s y se vuelve a intentar. Es un solo bloque:
+-- o se encienden las 32 o ninguna.
 do $$
 declare t text;
 begin
+  perform set_config('lock_timeout', '5s', true);
   foreach t in array array[
     'aliados','app_roles','attendance','authorizations','companies','company_payments',
     'company_price_tariffs','control_closures','employees','fletes','food_company_meals',
