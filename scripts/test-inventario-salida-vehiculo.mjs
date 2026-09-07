@@ -226,17 +226,21 @@ console.log('INVENTARIO — vehículo destino en la nota de salida\n');
   // ("on delete set null" es la FK, no un borrado.)
   ok('el SQL es idempotente y no borra nada', !/\b(drop|truncate)\b|\bdelete\s+from\b|\bupdate\s+public\./i.test(sql));
   ok('el SQL trae su consulta de comprobación', /column_name = 'vehicle_id'/.test(sql));
-  ok('PENDIENTES.md lo lista como escrito y sin correr', /inventory_movements_vehiculo\.sql/.test(leer('supabase/PENDIENTES.md')));
+  // Corrido y verificado el 07/09/2026: la comprobación del SQL devolvió la fila `vehicle_id`.
+  const pend = leer('supabase/PENDIENTES.md');
+  ok('PENDIENTES.md lo da por corrido y verificado', /\| `inventory_movements_vehiculo\.sql` \| \*\*07\/09\/2026\*\*/.test(pend));
+  ok('…y ya no está entre los escritos y sin correr', pend.indexOf('inventory_movements_vehiculo.sql') > pend.indexOf('## \u2705 Corridos y confirmados por el cliente'));
 
   const md = leer('docs/MANUAL-USUARIO.md');
   ok('manual .md: el paso 3 ofrece el 🚗 vehículo', /o el 🚗 vehículo\*\* \(la lista de la\n\s+pestaña Vehículos del Catálogo de equipos/.test(md));
   ok('manual .md: nota fechada del vehículo destino', /\*\*Vehículo destino \(07\/09\/2026\):\*\*/.test(md));
-  ok('manual .md: avisa qué pasa si el SQL no se corrió', /Si ese SQL aún no se corrió, la salida se registra igual/.test(md));
+  ok('manual .md: dice que el SQL ya se corrió y se verificó', /se corrió y se\n> verificó el 07\/09\/2026/.test(md));
   ok('manual .md: el Cancelar conserva también el vehículo', /máquina, vehículo y empleados quedan tal cual/.test(md));
 
   const ms = leer('src/screens/ManualScreen.tsx');
   ok('manual en pantalla: el paso 3 ofrece el 🚗 vehículo', /o el 🚗 vehículo \(la lista de la pestaña Vehículos del Catálogo de equipos/.test(ms));
   ok('manual en pantalla: nota del vehículo destino', /Vehículo destino \(07\/09\/2026\):/.test(ms));
+  ok('manual en pantalla: dice que el SQL ya se corrió', /se corrió y se verificó el 07\/09\/2026/.test(ms));
   ok('manual en pantalla: el Cancelar conserva también el vehículo', /máquina, vehículo y empleados quedan tal cual/.test(ms));
 }
 
