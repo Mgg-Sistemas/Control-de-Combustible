@@ -68,6 +68,7 @@ coordinador_inspectores`. Cotejados contra las tres listas del código (`UsersSc
 | `quitar_adopcion_automatica_placeholder.sql` | Quita `assign-missing-to-placeholder` | **Ninguno** — verificado que el cajón tiene 0 máquinas |
 | `servicio_maquinaria_tabla_propia.sql` | Crea `servicio_registros` con RLS y realtime | Bajo — **solo CREATE**, ningún ALTER de tablas existentes |
 | `diagnostico_crons_y_jornadas_abiertas.sql` | Solo lee: lista los `cron.job` | Ninguno |
+| `inventory_movements_vehiculo.sql` (07/09/2026) | Agrega `vehicle_id` a `inventory_movements`: el vehículo al que se le dio salida en la nota | **Ninguno** — un `add column if not exists` nulo más un índice. Sin correrlo la app registra la salida igual (reintenta sin la columna); solo falta el vínculo interno |
 
 ### Obras Públicas — el módulo degrada solo, pero con funciones caídas
 
