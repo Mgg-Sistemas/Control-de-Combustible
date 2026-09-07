@@ -231,12 +231,17 @@ ok('el subtitulo ya no sale (se quito a pedido del cliente)', !/const subtitle =
 ok('* y el nombre del archivo tambien', /Inventario de maquinaria \(\$\{alcanceInfo\.archivo\}\)/.test(bloque));
 
 // ── 7) LOS BOTONES ──────────────────────────────────────────────────────────
-// Un solo boton para los tres, y el simulado tiene que respetar lo escogido:
-// si no, el chip diria una cosa y el papel traeria otra.
+// Un solo boton para los tres alcances, y tiene que respetar lo escogido: si no,
+// el chip diria una cosa y el papel traeria otra.
 // (Desde el 06-sep-2026 va un cuarto argumento, lo que se oculta; acá solo
 // importa que el alcance siga yendo en el tercero.)
 ok('el boton real manda el alcance', /downloadTacticalPdf\(tacConPersonal, false, tacAlcance[,)]/.test(limpio));
-ok('* y el SIMULADO tambien', /downloadTacticalPdf\(tacConPersonal, true, tacAlcance[,)]/.test(limpio));
+// ⭐ EL BOTON DEL SIMULADO SE OCULTO (07-sep-2026, «ocultame ese boton»). No puede
+//    volver por descuido: sacaba el mismo papel con todo operativo y repartido al
+//    azar, y al lado del real se imprimia el equivocado. El motor (`ficticio`) sigue.
+ok('⭐ el boton del SIMULADO ya no esta en la pantalla', !/downloadTacticalPdf\(tacConPersonal, true[,)]/.test(limpio));
+ok('* ni su rotulo', !/Ubicaciones tácticas \(SIMULADO\)/.test(limpio));
+ok('* pero el motor del simulado sigue entero, para poder devolverlo', /ficticio = false/.test(limpio) && /if \(ficticio\)/.test(limpio));
 ok('* ya no queda ninguna llamada sin alcance', !/downloadTacticalPdf\(tacConPersonal\)\)/.test(limpio));
 ok('los chips salen de la misma lista que el PDF', /ALCANCES\.map\(\(a\) =>/.test(limpio));
 ok('* arrancan en el informe de siempre', /useState<AlcanceEmpresas>\('juntas'\)/.test(limpio));
