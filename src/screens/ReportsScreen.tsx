@@ -1880,6 +1880,8 @@ export default function ReportsScreen({ route }: any) {
   };
 
   // conPersonal = incluye personal (operadores/inspectores). ficticio = versión
+  // SIN BOTÓN desde el 07-sep-2026 (el cliente lo mandó a ocultar); el parámetro se
+  // conserva entero para poder devolverlo sin rehacer nada. Ver la nota en la tarjeta.
   // SIMULADA: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
   const downloadTacticalPdf = async (conPersonal = false, ficticio = false, alcance: AlcanceEmpresas = 'juntas', opciones: OpcionesTactico = OPCIONES_TACTICO_COMPLETO) => {
@@ -3151,9 +3153,9 @@ export default function ReportsScreen({ route }: any) {
                 <Switch value={tacConPersonal} onValueChange={setTacConPersonal} />
               </View>
               {/* LOS TRES INFORMES que pidió el cliente (01-sep-2026), con UN SOLO
-                  botón. El alcance se escoge acá y vale igual para el real, el
-                  simulado y el "con personal": tres botones más habrían dejado
-                  seis en la misma tarjeta y nadie encuentra nada. */}
+                  botón. El alcance se escoge acá y vale igual con y sin personal:
+                  tres botones más habrían dejado seis en la misma tarjeta y nadie
+                  encuentra nada. (El del simulado se ocultó el 07-sep-2026.) */}
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ EMPRESAS SALEN?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
                 {ALCANCES.map((a) => {
@@ -3172,12 +3174,12 @@ export default function ReportsScreen({ route }: any) {
               {/* Que diga en criollo qué va a salir ANTES de descargarlo: son tres
                   papeles muy parecidos y equivocarse cuesta una impresión. */}
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-                {ALCANCES.find((a) => a.id === tacAlcance)?.largo}. Sale igual en el simulado.
+                {ALCANCES.find((a) => a.id === tacAlcance)?.largo}
               </Text>
               {/* QUÉ SE OCULTA (06-sep-2026): pastillas que se encienden VARIAS a la vez,
                   no como las de empresas. Ocultan columnas, textos o cuadros enteros,
-                  nunca máquinas: los totales no cambian. Valen para el real, el simulado
-                  y con personal. La lista vive en PASTILLAS_OCULTAR. */}
+                  nunca máquinas: los totales no cambian. Valen con y sin personal.
+                  La lista vive en PASTILLAS_OCULTAR. */}
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
                 {PASTILLAS_OCULTAR.map((p) => {
@@ -3194,15 +3196,19 @@ export default function ReportsScreen({ route }: any) {
                 })}
               </View>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-                {ocultosEnPalabras(tacOpciones)} Los totales no cambian; vale para el real, el simulado y con personal.
+                {ocultosEnPalabras(tacOpciones)} Los totales no cambian; vale con y sin personal.
               </Text>
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, false, tacAlcance, tacOpciones)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
-              {/* Versión SIMULADA/ficticia: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para presentaciones). */}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true, tacAlcance, tacOpciones)}>
-                <Text style={{ color: colors.warning, fontWeight: '800' }}>🎭 Ubicaciones tácticas (SIMULADO){tacConPersonal ? ' · con personal' : ''}</Text>
-              </TouchableOpacity>
+              {/* 🎭 EL BOTÓN DEL INFORME SIMULADO SE OCULTÓ (07-sep-2026), a pedido del
+                  cliente: «ocultame ese boton». Sacaba el mismo inventario pero con TODAS
+                  las máquinas operativas y repartidas al azar Este/Oeste, para presentaciones;
+                  al lado del real se prestaba a imprimir el papel equivocado.
+                  El motor sigue entero: `downloadTacticalPdf` mantiene su parámetro
+                  `ficticio`. Para devolverlo, basta un botón que llame
+                  `downloadTacticalPdf(tacConPersonal, true, tacAlcance, tacOpciones)`.
+                  `scripts/test-reporte-tactico-tres-informes.mjs` vigila que no vuelva solo. */}
               {/* Zona 100% real por GPS, igual que el Mapa: sin reparto 50/50 para las máquinas sin GPS. */}
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={downloadConteoZonaMapaPdf}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>🗺️ Zona real por GPS (igual al Mapa)</Text>

@@ -543,8 +543,8 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   El archivo se descarga como *"Reporte - Inventario de maquinaria"*.
 
   > **📑 TRES informes, con un solo botón (01/09/2026).** Encima del botón hay una fila de
-  > pastillas: **¿QUÉ EMPRESAS SALEN?** Se escoge una y se descarga. Vale igual para el botón
-  > normal, para el **SIMULADO** y con el switch de **personal** activado.
+  > pastillas: **¿QUÉ EMPRESAS SALEN?** Se escoge una y se descarga. Vale igual con y sin el
+  > switch de **personal**.
   >
   > | Pastilla | Qué máquinas salen | Cómo se agrupan |
   > |---|---|---|
@@ -605,16 +605,16 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > **Uno, el logo.** El encabezado del inventario ahora lleva el **logo de Golden Touch** (el
   > isotipo naranja y gris) a la **izquierda** del título *"INVENTARIO DE MAQUINARIA"*; el del
   > Plan Venezuela Renace y la ola tricolor siguen igual, a la derecha. Sale en los **tres
-  > informes**, en el real y en el **SIMULADO**, con y sin personal. Va **incrustado en el
-  > sistema** —no depende de internet ni de una URL—, igual que el del Plan.
+  > informes**, con y sin personal. Va **incrustado en el sistema** —no depende de internet ni
+  > de una URL—, igual que el del Plan.
   >
   > **Dos, las pastillas.** En 📊 Conteo de equipos, debajo de la fila *¿QUÉ EMPRESAS SALEN?* y
   > antes de los botones de Ubicaciones tácticas, hay una fila nueva: **¿QUÉ SE OCULTA?**, con
   > **diez pastillas que se pueden encender varias a la vez** (no son excluyentes como las de
   > empresas). **Por defecto ninguna está encendida**, así que quien no toque nada saca el mismo
   > papel de siempre. Debajo dice en criollo qué se va a ocultar antes de descargar (*"Sale
-  > completo."* o *"Se oculta: marca · Este/Oeste."*). Vale igual para el botón normal, para el
-  > **SIMULADO** y con el switch de **personal**.
+  > completo."* o *"Se oculta: marca · Este/Oeste."*). Vale igual con y sin el switch de
+  > **personal**.
   >
   > | Pastilla | Qué se oculta |
   > |---|---|
@@ -646,6 +646,12 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > el **nombre del archivo** lo lleva (p. ej. *"Reporte - Inventario de maquinaria (todas sin
   > separar) sin marca, sin Este-Oeste"*), para que dos PDF distintos no se pisen en la carpeta
   > de descargas y nadie confunda un papel recortado con el completo.
+
+  > **🎭 El botón del informe SIMULADO se ocultó (07/09/2026).** A pedido del cliente. Sacaba el
+  > mismo inventario pero con **todas las máquinas operativas** y repartidas **al azar** Este/Oeste,
+  > para presentaciones; al lado del botón real se prestaba a imprimir el papel equivocado. **Solo
+  > se quitó el botón:** el informe sigue armado por dentro y se puede devolver cuando se pida, sin
+  > rehacer nada. Los demás botones y las pastillas quedaron igual.
 
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
