@@ -533,12 +533,13 @@ const SECTIONS: Sec[] = [
       { t: 'steps', items: [
         'Ve a la pestaña "📤 Salida".',
         'Busca cada producto y agrégalo; indica la cantidad de cada uno.',
-        'Elige la 🚜 máquina (lista desplegable y filtrable) y los 👷 empleados que reciben (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.',
+        'Elige la 🚜 máquina (lista desplegable y filtrable) o el 🚗 vehículo (la lista de la pestaña Vehículos del Catálogo de equipos, filtrable por nombre, placa, marca, modelo, encargado o empresa) y los 👷 empleados que reciben (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.',
         'Elige la 🏢 EMPRESA registrada a la que se carga la salida (lista desplegable y filtrable): se guarda en el movimiento y sale en la nota. (Sigue estando el campo de empresa NO registrada, texto libre, para casos fuera del sistema.)',
         'Toca "🧾 Generar nota de salida (PDF)": se abre la VISTA PREVIA con logo, fecha, productos y la línea de firma autorizado.',
         'Toca 🖨️ Imprimir para guardar/imprimir. RECIÉN AHÍ se descuenta del inventario.',
       ] },
-      { t: 'note', text: 'IMPORTANTE: la salida se descuenta del inventario SOLO cuando confirmas (Imprimir/Guardar). Si le das Cancelar en la vista previa, NO se descuenta nada y NO se pierde lo que ya habías elegido: los productos, cantidades, máquina y empleados quedan tal cual para seguir editándolos o corregirlos.' },
+      { t: 'note', text: 'Vehículo destino (07/09/2026): debajo de la máquina hay un apartado 🚗 Vehículo con los vehículos del Catálogo de equipos (pestaña Vehículos). Antes ahí solo salían las máquinas, porque los vehículos viven en otra lista y no aparecían ni buscando la placa. Sirve, por ejemplo, para darle salida a un Starlink que va en una camioneta. El vehículo sale en el PDF (línea "Vehículo:"), queda en el texto del movimiento (VEHÍCULO: …) y, con el SQL supabase/inventory_movements_vehiculo.sql corrido, queda además vinculado por dentro (vehicle_id). Si ese SQL aún no se corrió, la salida se registra igual: solo se pierde el vínculo interno, no el dato del PDF ni del texto. Se puede elegir máquina y vehículo a la vez.' },
+      { t: 'note', text: 'IMPORTANTE: la salida se descuenta del inventario SOLO cuando confirmas (Imprimir/Guardar). Si le das Cancelar en la vista previa, NO se descuenta nada y NO se pierde lo que ya habías elegido: los productos, cantidades, máquina, vehículo y empleados quedan tal cual para seguir editándolos o corregirlos.' },
       { t: 'p', text: 'Nota de traslado (entre máquinas) — traslada materiales de una máquina/empleado a otra:' },
       { t: 'steps', items: [
         'Ve a la pestaña "🔁 Nota de traslado".',
