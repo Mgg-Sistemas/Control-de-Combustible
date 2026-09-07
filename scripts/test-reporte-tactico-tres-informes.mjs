@@ -229,8 +229,10 @@ ok('* y el nombre del archivo tambien', /Inventario de maquinaria \(\$\{alcanceI
 // ── 7) LOS BOTONES ──────────────────────────────────────────────────────────
 // Un solo boton para los tres, y el simulado tiene que respetar lo escogido:
 // si no, el chip diria una cosa y el papel traeria otra.
-ok('el boton real manda el alcance', /downloadTacticalPdf\(tacConPersonal, false, tacAlcance\)/.test(limpio));
-ok('* y el SIMULADO tambien', /downloadTacticalPdf\(tacConPersonal, true, tacAlcance\)/.test(limpio));
+// (Desde el 06-sep-2026 va un cuarto argumento, lo que se oculta; acá solo
+// importa que el alcance siga yendo en el tercero.)
+ok('el boton real manda el alcance', /downloadTacticalPdf\(tacConPersonal, false, tacAlcance[,)]/.test(limpio));
+ok('* y el SIMULADO tambien', /downloadTacticalPdf\(tacConPersonal, true, tacAlcance[,)]/.test(limpio));
 ok('* ya no queda ninguna llamada sin alcance', !/downloadTacticalPdf\(tacConPersonal\)\)/.test(limpio));
 ok('los chips salen de la misma lista que el PDF', /ALCANCES\.map\(\(a\) =>/.test(limpio));
 ok('* arrancan en el informe de siempre', /useState<AlcanceEmpresas>\('juntas'\)/.test(limpio));

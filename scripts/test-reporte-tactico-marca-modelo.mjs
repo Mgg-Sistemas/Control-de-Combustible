@@ -69,52 +69,52 @@ ok('* pide modelo', columnas.includes('modelo'));
 ok('* y sigue pidiendo tipo (es otro dato, no se toca)', columnas.includes('tipo'));
 
 // -- 2) LA COLUMNA EN EL LISTADO DE MAQUINARIA -------------------------------
-const encabezado = (bloque.match(/<table class="tac"><thead><tr><th style="width:30px">N[^<]*<\/th><th>Equipo \/ Tipo<\/th>[\s\S]*?<\/thead>/) || [])[0] || '';
-ok('el listado de maquinaria tiene encabezado', encabezado.length > 0);
-ok('* con la columna Marca / Modelo', /<th[^>]*>Marca \/ Modelo<\/th>/.test(encabezado));
-ok('* y la de Placa / Serial sigue estando', /<th[^>]*>Placa \/ Serial<\/th>/.test(encabezado));
-
-const fila = (bloque.match(/return `<tr><td>\$\{i \+ 1\}<\/td><td><b>\$\{esc\(equipCategory[\s\S]*?<\/tr>`;/) || [])[0] || '';
-ok('la fila de maquinaria existe', fila.length > 0);
-// El valor se arma unas lineas ANTES del return, asi que se mira el cuerpo del
-// map completo; en la fila misma solo se comprueba que lo imprima.
-const cuerpoFila = (bloque.match(/const est = estadoOf\(m\);[\s\S]*?<\/tr>`;/) || [])[0] || '';
-ok('* el cuerpo de la fila existe', cuerpoFila.length > 0);
-ok('* imprime marca y modelo juntos', /\[m\.marca, m\.modelo\]/.test(cuerpoFila));
-ok('* y pone un guion cuando la maquina no los tiene cargados', /marcaModelo \|\| '—'/.test(fila));
+// Desde el 06-sep-2026 el encabezado y la fila NO estan escritos a mano: los dos
+// se arman recorriendo la MISMA lista de columnas (`columnasMaquinaria`, en
+// src/lib/tacticoOpciones.ts) con un diccionario de <th> y otro de <td>. La
+// marca y el modelo los imprime la libreria, que sabe si se ocultan.
+const thDe = (bloque.match(/const thDe: Record<ColumnaMaquinaria, string> = \{[\s\S]*?\n {4}\};/) || [])[0] || '';
+const tdDe = (bloque.match(/const tdDe: Record<ColumnaMaquinaria, string> = \{[\s\S]*?\n {10}\};/) || [])[0] || '';
+ok('el diccionario de encabezados existe', thDe.length > 0);
+ok('* con la columna Marca / Modelo (la titula la libreria, segun que se oculta)', /marcaModelo: `<th[^>]*>\$\{tituloMarcaModelo\(opciones\)/.test(thDe));
+ok('* y la de Placa / Serial sigue estando', /placa: '<th[^>]*>Placa \/ Serial<\/th>'/.test(thDe));
+ok('el diccionario de celdas existe', tdDe.length > 0);
+ok('* imprime marca y modelo por la libreria', /marcaModelo: `<td>\$\{esc\(marcaModeloDe\(m, opciones\)/.test(tdDe));
+ok('* y pone un guion cuando la maquina no los tiene cargados', /marcaModeloDe\(m, opciones\) \|\| '—'/.test(tdDe));
 
 // -- 3) LA TRAMPA QUE MAS FACIL SE ROMPE: LAS COLUMNAS SE DESALINEAN ---------
 // Un <th> de mas sin su <td> corre toda la tabla: el PDF sale con la placa
 // debajo de "Marca", la ubicacion debajo de "Placa", y nadie lo nota leyendo
-// el codigo. Se cuentan las dos, con y sin la seccion de personal.
-const contar = (txt, tag) => (txt.match(new RegExp('<' + tag + '[ >]', 'g')) || []).length;
-const ths = contar(encabezado, 'th');
-const tds = contar(fila, 'td');
-eq('el encabezado y la fila tienen las MISMAS columnas', tds, ths);
-eq('* y son 6 (N, equipo, marca/modelo, placa, ubicacion, estado)', ths, 6);
-
-const opHead = (bloque.match(/const opHead = [^;]+;/) || [])[0] || '';
-const opCols = (bloque.match(/const opCols = [^;]+;/) || [])[0] || '';
-ok('las columnas de personal existen', opHead.length > 0 && opCols.length > 0);
-eq('* y tambien cuadran entre si', contar(opCols, 'td'), contar(opHead, 'th'));
+// el codigo. Ahora es imposible POR CONSTRUCCION si se cumplen dos cosas, y
+// las dos se vigilan aca: (a) los dos diccionarios tienen EXACTAMENTE las
+// mismas llaves; (b) encabezado y fila recorren la misma lista (`cols.map`).
+const llaves = (txt) => [...txt.matchAll(/^\s+(\w+): [`']/gm)].map((m) => m[1]).sort();
+eq('los dos diccionarios tienen las MISMAS columnas', llaves(tdDe), llaves(thDe));
+eq('* y son 8 (N, equipo, marca/modelo, placa, ubicacion, operador dia, operador noche, estado)', llaves(thDe).length, 8);
+ok('* las de personal estan en los dos', llaves(thDe).includes('opDia') && llaves(tdDe).includes('opNoche'));
+ok('el encabezado recorre la lista', /<thead><tr>\$\{cols\.map\(\(c\) => thDe\[c\]\)\.join\(''\)\}<\/tr><\/thead>/.test(bloque));
+ok('* y la fila tambien', /<tr>\$\{cols\.map\(\(c\) => tdDe\[c\]\)\.join\(''\)\}<\/tr>/.test(bloque));
+ok('* y la lista sale de la libreria, con lo oculto y si va con personal', /const cols = columnasMaquinaria\(opciones, conPersonal\)/.test(bloque));
+ok('* ya no queda un encabezado escrito a mano', !/<th>Equipo \/ Tipo<\/th><th/.test(bloque));
 
 // -- 4) YA NADIE HACE PASAR EL `tipo` POR MARCA ------------------------------
-ok('la fila ya no rotula el tipo como marca', !/🏷️\s*'\s*\+\s*esc\(marca\)/.test(fila));
-ok('* el tipo sigue saliendo, pero como lo que es', /tipoEq/.test(fila));
+ok('la celda ya no rotula el tipo como marca', !/🏷️\s*'\s*\+\s*esc\(marca\)/.test(tdDe));
+ok('* el tipo sigue saliendo, pero como lo que es (en gris junto al codigo)', /equipo: `<td>[^\n]*tipoEq/.test(tdDe));
+ok('* y NO dentro de la celda de marca', !/marcaModelo: `<td>[^\n]*tipoEq/.test(tdDe));
 
 // La tabla de "desplegadas por todo el territorio" DECIA Marca/Modelo y
 // mostraba el tipo. Ahora muestra marca/modelo y usa el tipo solo de respaldo.
 const sinUbic = (bloque.match(/const sinUbicHtml = [\s\S]*?: '';/) || [])[0] || '';
 ok('la tabla de las desplegadas existe', sinUbic.length > 0);
 ok('* dice Marca/Modelo', sinUbic.includes('Marca/Modelo'));
-ok('* y ahora SI imprime marca y modelo', /\[m\.marca, m\.modelo\]/.test(sinUbic));
+ok('* y ahora SI imprime marca y modelo (por la libreria)', /marcaModeloDe\(m, opciones\)/.test(sinUbic));
 
 // -- 5) LAS PICK-UP ----------------------------------------------------------
 const pick = (bloque.match(/const pickItems = \[[\s\S]*?\]\.sort/) || [])[0] || '';
 ok('la lista de pick-up existe', pick.length > 0);
-ok('* las de maquinaria muestran marca y modelo', /\[m\.marca, m\.modelo\]/.test(pick));
+ok('* las de maquinaria muestran marca y modelo (por la libreria)', /const mm = marcaModeloDe\(m, opciones\)/.test(pick));
 ok('* con el tipo de respaldo si no los tienen', /m\.tipo \? String\(m\.tipo\)\.trim\(\) : ''/.test(pick));
-ok('* y las del modulo de Vehiculos siguen con brand/model', /\[v\.brand, v\.model\]/.test(pick));
+ok('* y las del modulo de Vehiculos pasan brand/model por la MISMA regla', /marcaModeloDe\(\{ marca: v\.brand, modelo: v\.model \}, opciones\)/.test(pick));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-reporte-tactico-marca-modelo · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
