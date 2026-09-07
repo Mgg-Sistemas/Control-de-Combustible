@@ -527,7 +527,8 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
   MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
-  logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
+  logotipo) y, desde el **06/09/2026**, el **logo de Golden Touch** a la izquierda del título.
+  El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
   y **Responsable**— para completar a mano al imprimirlo, porque el reporte cubre a LICCIONE y a
   GOLDEN TOUCH a la vez. Cuenta el **mismo
   universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
@@ -597,6 +598,40 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > modelo cargados en su ficha**: no es una falla del reporte, hay que llenarlos en el
   > **Catálogo de maquinaria**. El **tipo** sigue saliendo, en gris, junto al código del equipo.
   > En las **pick-up** se muestra marca y modelo, y si la máquina no los tiene, el tipo.
+
+  > **🚫 ¿Qué se oculta? — pastillas para recortar el inventario, y el logo de Golden Touch
+  > (06/09/2026).** Dos cosas nuevas, a pedido del cliente.
+  >
+  > **Uno, el logo.** El encabezado del inventario ahora lleva el **logo de Golden Touch** (el
+  > isotipo naranja y gris) a la **izquierda** del título *"INVENTARIO DE MAQUINARIA"*; el del
+  > Plan Venezuela Renace y la ola tricolor siguen igual, a la derecha. Sale en los **tres
+  > informes**, en el real y en el **SIMULADO**, con y sin personal. Va **incrustado en el
+  > sistema** —no depende de internet ni de una URL—, igual que el del Plan.
+  >
+  > **Dos, las pastillas.** En 📊 Conteo de equipos, debajo de la fila *¿QUÉ EMPRESAS SALEN?* y
+  > antes de los botones de Ubicaciones tácticas, hay una fila nueva: **¿QUÉ SE OCULTA?**, con
+  > **cuatro pastillas que se pueden encender varias a la vez** (no son excluyentes como las de
+  > empresas). **Por defecto ninguna está encendida**, así que quien no toque nada saca el mismo
+  > papel de siempre. Debajo dice en criollo qué se va a ocultar antes de descargar (*"Sale
+  > completo."* o *"Se oculta: marca · Este/Oeste."*). Vale igual para el botón normal, para el
+  > **SIMULADO** y con el switch de **personal**.
+  >
+  > | Pastilla | Qué se oculta |
+  > |---|---|
+  > | 🚫 **Marca** | La columna *"Marca / Modelo"* del listado pasa a decir solo *"Modelo"* y muestra solo el modelo (también en las camionetas pick-up) |
+  > | 🚫 **Modelo** | Al revés: la columna pasa a decir solo *"Marca"*. **Si se encienden las dos, la columna desaparece** del listado |
+  > | 🚫 **Ubicaciones** | Desaparece la columna *"Ubicación"* del listado de maquinaria (la de *"Este · Macuto · referencia"* o *"Desplegadas por los sectores estratégicos"*) |
+  > | 🚫 **Este / Oeste** | Desaparecen las columnas 🟢 Este / 🟠 Oeste de *"Cantidad de maquinaria por empresa"* y de *"Total por tipo de maquinaria"* (quedan solo Empresa/Tipo y Cantidad); desaparece la nota de que las volquetas y torontos pernoctan en Camurí Chico (ESTE); en la columna Ubicación de cada máquina ya no sale el *"Este ·"* / *"Oeste ·"* adelante (queda la subzona y la referencia: *"Macuto · Edificio X"*); y con personal, los coordinadores e inspectores salen en **una sola lista**, sin repartir por zona |
+  >
+  > ⚠️ **Los totales no cambian con las pastillas.** Se ocultan columnas y textos, no máquinas:
+  > el número de equipos es el mismo con o sin pastillas.
+  >
+  > **Y la red de seguridad, igual que con el alcance: lo que se ocultó queda escrito en el
+  > papel.** El cuadro «🧾 Alcance de este informe» del final agrega una línea *"Campos ocultos:
+  > marca · Este/Oeste"* cuando hay algo oculto; el subtítulo del encabezado también lo dice; y
+  > el **nombre del archivo** lo lleva (p. ej. *"Reporte - Inventario de maquinaria (todas sin
+  > separar) sin marca, sin Este-Oeste"*), para que dos PDF distintos no se pisen en la carpeta
+  > de descargas y nadie confunda un papel recortado con el completo.
 
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
