@@ -245,13 +245,15 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
   ok('⭐ el cuadro de alcance obedece a su pastilla', /\n\s*\$\{opciones\.sinAlcance \? '' : alcanceHtml\}`;/.test(bloque));
   ok('* y al cuadro de alcance, solo si hay algo oculto', /\$\{ocultosLista\(opciones\)\.length \? `<div class="kv"><b>Campos ocultos:<\/b> \$\{esc\(ocultosLista\(opciones\)\.join\(' · '\)\)\}/.test(bloque));
 
-  // La UI: cuatro pastillas, cada una enciende LA SUYA, y los DOS botones (real
-  // y simulado) mandan las opciones.
+  // La UI: cuatro pastillas, cada una enciende LA SUYA, y el boton manda las
+  // opciones. Era DOS hasta el 07-sep-2026: el del simulado se oculto a pedido
+  // del cliente, y si volviera tendria que mandarlas igual.
   ok('la pantalla pinta las pastillas', /PASTILLAS_OCULTAR\.map\(/.test(vivo));
   ok('* cada pastilla pinta la suya', /const on = tacOpciones\[p\.key\]/.test(vivo));
   ok('* y enciende/apaga LA SUYA con la libreria', /setTacOpciones\(\(o\) => alternarOcultar\(o, p\.key\)\)/.test(vivo));
   const llamadas = vivo.match(/downloadTacticalPdf\(tacConPersonal, (false|true), tacAlcance, tacOpciones\)/g) || [];
-  eq('⭐ el boton real y el SIMULADO mandan las opciones', llamadas.length, 2);
+  eq('⭐ el unico boton que queda manda las opciones', llamadas.length, 1);
+  ok('* y es el real, no el simulado (ese se oculto el 07-sep-2026)', llamadas[0] === 'downloadTacticalPdf(tacConPersonal, false, tacAlcance, tacOpciones)', String(llamadas[0]));
   ok('* y dice en criollo que se oculta antes de descargar', /ocultosEnPalabras\(tacOpciones\)/.test(vivo));
 
   // El membrete: Golden Touch a la izquierda del titulo, DENTRO del encabezado,
