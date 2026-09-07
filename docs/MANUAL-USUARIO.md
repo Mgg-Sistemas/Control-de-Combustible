@@ -618,7 +618,7 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   >
   > | Pastilla | Qué se oculta |
   > |---|---|
-  > | 🚫 **Marca** | La columna *"Marca / Modelo"* del listado pasa a decir solo *"Modelo"* y muestra solo el modelo (también en las camionetas pick-up) |
+  > | 🚫 **Marca** | La columna *"Marca / Modelo"* del listado pasa a decir solo *"Modelo"* y muestra solo el modelo |
   > | 🚫 **Modelo** | Al revés: la columna pasa a decir solo *"Marca"*. **Si se encienden las dos, la columna desaparece** del listado |
   > | 🚫 **Ubicaciones** | Desaparece la columna *"Ubicación"* del listado de maquinaria (la de *"Este · Macuto · referencia"* o *"Desplegadas por los sectores estratégicos"*) |
   > | 🚫 **Este / Oeste** | Desaparecen las columnas 🟢 Este / 🟠 Oeste de *"Cantidad de maquinaria por empresa"* y de *"Total por tipo de maquinaria"* (quedan solo Empresa/Tipo y Cantidad); desaparece la nota de que las volquetas y torontos pernoctan en Camurí Chico (ESTE); en la columna Ubicación de cada máquina ya no sale el *"Este ·"* / *"Oeste ·"* adelante (queda la subzona y la referencia: *"Macuto · Edificio X"*); y con personal, los coordinadores e inspectores salen en **una sola lista**, sin repartir por zona |
@@ -628,7 +628,7 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   >
   > **Y la red de seguridad, igual que con el alcance: lo que se ocultó queda escrito en el
   > papel.** El cuadro «🧾 Alcance de este informe» del final agrega una línea *"Campos ocultos:
-  > marca · Este/Oeste"* cuando hay algo oculto; el subtítulo del encabezado también lo dice; y
+  > marca · Este/Oeste. Los totales son los mismos."* cuando hay algo oculto; el subtítulo del encabezado también lo dice; y
   > el **nombre del archivo** lo lleva (p. ej. *"Reporte - Inventario de maquinaria (todas sin
   > separar) sin marca, sin Este-Oeste"*), para que dos PDF distintos no se pisen en la carpeta
   > de descargas y nadie confunda un papel recortado con el completo.

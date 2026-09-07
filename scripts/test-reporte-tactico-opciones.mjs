@@ -176,32 +176,54 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
   ok('la funcion del reporte existe', bloque.length > 3000);
   ok('* y recibe las opciones', /downloadTacticalPdf = async \([^)]*opciones/.test(bloque));
 
+  // ⚠️ Cada guardia va ANCLADA al argumento `opciones` y al interruptor. Un
+  //    revisor demostro que con `/ubicacionEnPalabras\(/` a secas, cambiar el
+  //    argumento por OPCIONES_TACTICO_COMPLETO (o sea: ignorar las pastillas)
+  //    dejaba las 3 suites en verde. Diez mutaciones asi sobrevivian.
+  //
   // El encabezado y las filas del listado se arman con la MISMA lista de columnas.
-  ok('⭐ el listado le pregunta a la libreria que columnas van', /columnasMaquinaria\(/.test(bloque));
-  const usosMap = (bloque.match(/\bcols\.map\(/g) || []).length;
-  ok('⭐⭐ encabezado y fila recorren la misma lista (dos recorridos)', usosMap >= 2, String(usosMap));
+  ok('⭐ el listado le pregunta a la libreria que columnas van, con lo oculto y si va con personal',
+    /const cols = columnasMaquinaria\(opciones, conPersonal\)/.test(bloque));
+  ok('⭐⭐ el encabezado recorre la lista', /<thead><tr>\$\{cols\.map\(\(c\) => thDe\[c\]\)\.join\(''\)\}<\/tr><\/thead>/.test(bloque));
+  ok('⭐⭐ y la fila recorre LA MISMA lista (con su propio diccionario)', /<tr>\$\{cols\.map\(\(c\) => tdDe\[c\]\)\.join\(''\)\}<\/tr>/.test(bloque));
   ok('* el encabezado ya no esta escrito a mano', !/<th>Equipo \/ Tipo<\/th><th/.test(bloque));
-  ok('* la marca/modelo sale de la libreria', /marcaModeloDe\(/.test(bloque));
-  ok('* la ubicacion en palabras sale de la libreria', /ubicacionEnPalabras\(/.test(bloque));
-  // Este/Oeste: las dos tablas de arriba y la nota de pernocta obedecen a sinZona.
-  ok('⭐ las columnas de zona de los resumenes dependen de sinZona', /sinZona/.test(bloque));
-  ok('* lo oculto va al nombre del archivo', /sufijoArchivoOcultos\(/.test(bloque));
-  ok('* y al subtitulo', /sufijoSubtituloOcultos\(/.test(bloque));
-  ok('* y al cuadro de alcance', /ocultosLista\(/.test(bloque));
+  ok('* la marca/modelo sale de la libreria, con las opciones', /marcaModelo: `<td>\$\{esc\(marcaModeloDe\(m, opciones\)/.test(bloque));
+  ok('* el titulo de esa columna tambien', /marcaModelo: `<th[^>]*>\$\{tituloMarcaModelo\(opciones\)/.test(bloque));
+  ok('* la ubicacion en palabras sale de la libreria, con las opciones', /return ubicacionEnPalabras\(\{ macro, sub, ref \}, opciones\)/.test(bloque));
+  // Este/Oeste: las dos tablas de arriba, sus titulos y la nota de pernocta obedecen a sinZona.
+  ok('⭐ las columnas de zona (encabezado) dependen de sinZona', /const zonaTh = \(ancho: number\) => opciones\.sinZona \? ''/.test(bloque));
+  ok('⭐ y las celdas tambien', /const zonaTd = [^\n]* => opciones\.sinZona \? ''/.test(bloque));
+  ok('* el colspan de "Sin equipos" tambien', /const colspanZona = opciones\.sinZona \? 2 : 4/.test(bloque));
+  ok('* el titulo del resumen por tipo tambien', /Total por tipo de maquinaria\$\{opciones\.sinZona \? '' : ' · 🟢 Este \/ 🟠 Oeste'\}/.test(bloque));
+  ok('* y la nota de pernocta en Camuri Chico (ESTE)', /\$\{opciones\.sinZona \? '' : `\s*<div[^\n]*🌙 Las <b>VOLQUETAS<\/b>/.test(bloque));
+  ok('* con personal, la tabla de coordinadores/inspectores tambien', /const zonaPersonalHtml = !conPersonal\s*\? ''\s*: opciones\.sinZona\s*\?/.test(bloque));
+  ok('* y su titulo', /Coordinadores e inspectores\$\{opciones\.sinZona \? '' : ' por zona'\}/.test(bloque));
+  ok('* lo oculto va al nombre del archivo', /sufijoArchivoOcultos\(opciones\)/.test(bloque));
+  ok('* y al subtitulo', /sufijoSubtituloOcultos\(opciones\)/.test(bloque));
+  ok('* y al cuadro de alcance, solo si hay algo oculto', /\$\{ocultosLista\(opciones\)\.length \? `<div class="kv"><b>Campos ocultos:<\/b> \$\{esc\(ocultosLista\(opciones\)\.join\(' · '\)\)\}/.test(bloque));
 
-  // La UI: cuatro pastillas y los DOS botones (real y simulado) mandan las opciones.
+  // La UI: cuatro pastillas, cada una enciende LA SUYA, y los DOS botones (real
+  // y simulado) mandan las opciones.
   ok('la pantalla pinta las pastillas', /PASTILLAS_OCULTAR\.map\(/.test(vivo));
-  ok('* y las enciende/apaga con la libreria', /alternarOcultar\(/.test(vivo));
+  ok('* cada pastilla pinta la suya', /const on = tacOpciones\[p\.key\]/.test(vivo));
+  ok('* y enciende/apaga LA SUYA con la libreria', /setTacOpciones\(\(o\) => alternarOcultar\(o, p\.key\)\)/.test(vivo));
   const llamadas = vivo.match(/downloadTacticalPdf\(tacConPersonal, (false|true), tacAlcance, tacOpciones\)/g) || [];
   eq('⭐ el boton real y el SIMULADO mandan las opciones', llamadas.length, 2);
   ok('* y dice en criollo que se oculta antes de descargar', /ocultosEnPalabras\(tacOpciones\)/.test(vivo));
 
-  // El membrete: Golden Touch a la izquierda del titulo, y el Plan sigue.
+  // El membrete: Golden Touch a la izquierda del titulo, DENTRO del encabezado,
+  // y el Plan sigue. Se recorta solo el div del encabezado antes de buscar: con
+  // `class="hd"[\s\S]*` el logo podia estar en cualquier punto de abajo.
   const shell = (vivo.match(/function renaceShell[\s\S]*?\n}/) || [])[0] || '';
   ok('el membrete del Plan existe', shell.length > 500);
-  ok('⭐ lleva el logo de Golden Touch', /GOLDEN_TOUCH_LOGO_DATA_URI/.test(shell));
-  ok('⭐ y SIGUE llevando el del Plan (ola y logotipo)', /RENACE_WAVE_DATA_URI/.test(shell) && /RENACE_LOGO_DATA_URI/.test(shell));
-  ok('* el logo de Golden Touch esta en el encabezado, no en la marca de agua', /class="hd"[\s\S]*GOLDEN_TOUCH_LOGO_DATA_URI/.test(shell));
+  const hd = (shell.match(/<div class="hd">[\s\S]*?<div class="rule">/) || [''])[0];
+  ok('* el encabezado existe', hd.length > 100);
+  ok('⭐ lleva el logo de Golden Touch a la izquierda del titulo, en el encabezado',
+    /<div class="tit"><img class="gt" src="\$\{GOLDEN_TOUCH_LOGO_DATA_URI\}"\/><span>\$\{title\}<\/span><\/div>/.test(hd));
+  ok('⭐ y SIGUE llevando el del Plan (ola y logotipo) en el encabezado', /class="wave" src="\$\{RENACE_WAVE_DATA_URI\}"/.test(hd) && /class="mark" src="\$\{RENACE_LOGO_DATA_URI\}"/.test(hd));
+  ok('* la marca de agua sigue siendo la del Plan', /<img class="wm" src="\$\{RENACE_LOGO_DATA_URI\}"\/>/.test(shell));
+  ok('* y Golden Touch no se cuela debajo del encabezado', !/GOLDEN_TOUCH/.test(shell.slice(shell.indexOf('<div class="rule">'))));
+  ok('* el titulo lleva halo blanco para ganarle a las franjas de la ola', /\.hd \.tit span\{text-shadow:[^}]*#fff/.test(shell));
   const logoTs = fs.readFileSync(path.join(ROOT, 'src/lib/logoGoldenTouchData.ts'), 'utf8');
   ok('* el logo esta incrustado (data URI, no URL)', /export const GOLDEN_TOUCH_LOGO_DATA_URI = 'data:image\/jpeg;base64,/.test(logoTs));
   ok('* y pesa poco (cabe en el PDF sin engordarlo)', logoTs.length < 40000, String(logoTs.length));
