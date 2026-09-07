@@ -29,8 +29,8 @@
 //    auditoría en ningún .sql (Fabricación, Geodesta, Lavado, Obras Públicas, Avisos).
 //    Salen en la lista para que el menú esté completo, marcadas, y no pueden traer
 //    filas hasta que se auditen. (Otra cosa es que el trigger exista y esté APAGADO
-//    en la base —hoy pasa en 32 tablas—: eso no lo puede saber este archivo; ver
-//    supabase/PENDIENTES.md.)
+//    en la base —pasó en 32 tablas del 09-ago al 07-sep-2026—: eso no lo puede saber
+//    este archivo; ver supabase/PENDIENTES.md.)
 //
 // Si un día se audita una tabla nueva, agrégala acá: lo que no esté cae en
 // "📁 Otro". La prueba falla si alguna tabla auditada queda fuera.
