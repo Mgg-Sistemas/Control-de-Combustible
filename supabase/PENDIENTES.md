@@ -42,6 +42,34 @@ where table_schema = 'public' and table_name = 'machine_rounds'
 
 ---
 
+## 🟠 La auditoría está apagada en 32 tablas desde el 09/08/2026
+
+### `auditoria_reencender_tablas_humanas.sql`
+
+**Hallazgo del 07/09/2026** (consultando `pg_trigger` en producción): el día de la caída por los
+crons no se apagó solo `trg_audit` de `machine_rounds`, se apagó en **32 de las 42 tablas**. La
+bitácora lo confirma: la última fila de `supervisor_visits`, `maintenance_requests`, `inventory_*`,
+`control_closures`, `truck_yard_logs`, `attendance`, `module_permissions`, `food_*` y `vehicles` es
+del **09/08**. Desde entonces **Nómina, Inventario, Compras, Combustible (salvo despachos), las rondas
+de Inspecciones, las averías, Cocina, Aliados, Empresas, Pagos, Asistencia y los permisos no dejan
+rastro**. La pantalla de Auditoría ya tiene la pastilla de cada sección, pero esas llegan vacías.
+
+**Qué hace:** `enable trigger trg_audit` en esas 32 tablas, todas escritas por **personas** desde la
+app (antes del 09/08 sumaban ~600–800 filas/día entre todas: un **4 %** de las 15–20 mil diarias que
+tumbaron el sistema). **`machine_rounds` no se toca**: sigue con `trg_audit` apagado y
+`trg_audit_humano` activo. Reversible cambiando `enable` por `disable`.
+
+**Riesgo:** bajo. La válvula está en el propio archivo: al día siguiente contar filas por tabla en
+24 h; si alguna sube a miles, es un cron y se apaga esa sola.
+
+```sql
+-- ¿Hace falta? Si devuelve filas, SÍ hace falta (son las tablas con la auditoría apagada).
+select c.relname from pg_trigger t join pg_class c on c.oid = t.tgrelid
+where t.tgname = 'trg_audit' and t.tgenabled = 'D' and c.relname <> 'machine_rounds';
+```
+
+---
+
 ## 🟠 De los arreglos del 27/08/2026
 
 ### `rol_coordinador_inspectores_enum.sql` ✅ CORRIDO Y VERIFICADO — 28/08/2026

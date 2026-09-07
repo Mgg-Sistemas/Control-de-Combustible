@@ -103,40 +103,20 @@ console.log('AUDITORÍA — etiquetas legibles y resumen de cambios\n');
   ok('un evento de app (SCAN) no genera resumen', changesSummary('SCAN', { a: 1 }, fmt) === null);
 }
 
-// ── 7) AGRUPAR POR MÓDULO: ninguna tabla auditada puede caer en "📁 Otro" ────
-// El agrupado por módulo de Auditoría reparte las acciones según la tabla que se tocó.
-// Si una tabla tiene trigger de auditoría pero NO está en MODULES, sus acciones salen
-// bajo "📁 Otro" y el agrupado deja de servir. El 20-ago-2026 había ONCE tablas así
-// (camion_viajes, stock_movements, suppliers, staff_pay_periods, notifications…): medio
-// sistema se veía como "Otro". Esto lo impide de aquí en adelante.
+// ── 7) AGRUPAR POR MÓDULO ───────────────────────────────────────────────────
+// El 07-sep-2026 los módulos se mudaron de este archivo a `src/lib/auditModulos.ts`
+// y pasaron a ser las SECCIONES DE LA APP (Control, Inspecciones, Nómina…) en vez
+// de once cajones por tabla. La cobertura —que ninguna tabla auditada caiga en
+// "📁 Otro"— la vigila ahora `scripts/test-auditoria-modulos.mjs`, junto con el
+// reparto por acción. Acá solo se comprueba que la mudanza no dejó a la pantalla
+// decidiendo por su cuenta: si volviera a declarar su propia lista, habría DOS
+// reglas y una de las dos se quedaría vieja sin que nadie lo note.
 {
-  const sqlDir = path.join(ROOT, 'supabase');
-  const auditadas = new Set();
-  for (const f of fs.readdirSync(sqlDir).filter((x) => x.endsWith('.sql'))) {
-    const txt = fs.readFileSync(path.join(sqlDir, f), 'utf8');
-    const arr = /foreach t in array array\[([\s\S]*?)\]/.exec(txt);
-    if (arr) for (const m of arr[1].matchAll(/'([a-z_]+)'/g)) auditadas.add(m[1]);
-    for (const m of txt.matchAll(/create trigger trg_audit\w*\s+[\s\S]{0,80}?on public\.([a-z_]+)/g)) auditadas.add(m[1]);
-  }
-  auditadas.delete('audit_row'); // es el nombre de la función, no una tabla
-
   const scr = fs.readFileSync(path.join(ROOT, 'src/screens/AuditScreen.tsx'), 'utf8');
-  const bloqueMod = /const MODULES: ModuleDef\[\] = \[([\s\S]*?)\n\];/.exec(scr);
-  ok('AuditScreen declara la lista de MÓDULOS', !!bloqueMod);
-  const enModulos = new Set();
-  if (bloqueMod) {
-    for (const linea of bloqueMod[1].split('\n')) {
-      const tablas = /tables:\s*\[([^\]]*)\]/.exec(linea);
-      if (tablas) for (const m of tablas[1].matchAll(/'([a-z_]+)'/g)) enModulos.add(m[1]);
-    }
-  }
-  ok('se detectaron las tablas auditadas', auditadas.size > 20, `detectadas ${auditadas.size}`);
-  const huerfanas = [...auditadas].filter((t) => !enModulos.has(t)).sort();
-  ok(
-    `ninguna tabla auditada cae en "Otro" (${auditadas.size} auditadas)`,
-    huerfanas.length === 0,
-    huerfanas.length ? `sin módulo: ${huerfanas.join(', ')}` : ''
-  );
+  const vivo = scr.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  ok('la pantalla ya no declara su propia lista de módulos', !/const MODULES\s*:/.test(vivo));
+  ok('los pide a la librería', /from '\.\.\/lib\/auditModulos'/.test(vivo));
+  ok('y esa librería existe', fs.existsSync(path.join(ROOT, 'src/lib/auditModulos.ts')));
 }
 
 if (fail) {

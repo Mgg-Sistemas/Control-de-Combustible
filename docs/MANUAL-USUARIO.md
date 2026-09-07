@@ -2807,13 +2807,65 @@ completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 > **🔽 Filtros avanzados (08/08/2026):** junto al buscador hay un botón **"🔽 Filtros"** que abre un
 > panel con **3 pestañas**:
 > - **🔎 Filtrar:** accesos rápidos — **📅 Hoy**, **🗓️ Esta semana**, **🗑️ Solo eliminaciones**,
->   **💰 Solo cambios de dinero** — más selección **múltiple** de **MÓDULO** (⛽ Combustible, 🚜
->   Maquinaria y flota, 📋 Inspecciones y jornadas, 👷 Nómina y personal, 🏢 Empresas y facturación,
->   📦 Inventario y compras, 🍽️ Alimentación, 🔑 Usuarios y permisos) y **tipo de acción** (➕ Creó ·
+>   **💰 Solo cambios de dinero** — más selección **múltiple** de **MÓDULO** (ver el cuadro de
+>   *«Los módulos son las secciones de la app»* más abajo) y **tipo de acción** (➕ Creó ·
 >   ✏️ Modificó · 🗑️ Eliminó · 📋 Eventos de app). Se pueden combinar varios módulos y varias
 >   acciones a la vez, y se suman al buscador de texto y al rango de fechas de arriba.
 > - **📚 Agrupar por:** **Módulo**, **Usuario** o **Día** — en vez de una lista plana, los resultados
 >   salen agrupados con encabezados **plegables** (toca uno para abrir/cerrar ese grupo).
+
+> **🗂️ Los módulos son las SECCIONES de la app (07/09/2026).** Pedido del cliente: *«por módulo
+> me imaginaba a Control, Inspecciones… la idea es que si busco por módulos, pueda ver los cambios
+> que se hicieron en Nómina, o en Inspecciones, o en cualquier otro»*.
+>
+> Antes los módulos estaban cortados **por tabla de base de datos**, en once cajones, y uno solo
+> —*«Maquinaria y flota»*— se tragaba el **Catálogo de equipos**, el **Control de maquinaria**, el
+> **Servicio de averías**, el **Mantenimiento** y la flota. No había forma de preguntar *«¿qué se
+> tocó en Control?»*. Ahora la lista es **el menú de la app, sección por sección**, en el mismo
+> orden y con los mismos nombres:
+>
+> 🛻 Acarreo / Transporte · 🤝 Aliados · 🚚 Asistencia de camiones · 🚜 Catálogo de equipos ·
+> 🍽️ Cocina y distribución de comida · ⛽ Combustible · 🛒 Compras · 🕒 Control de asistencia ·
+> 🕐 Control de maquinaria (jornadas) · 💰 Control de pagos · 🏢 Empresas y tarifas · 🏭 Fabricación ·
+> 📐 Geodesta · 🪖 Inspecciones (rondas de inspectores) · 🔍 Inspecciones de maquinaria · 📦 Inventario ·
+> 🚿 Lavado de maquinaria · 🧰 Mantenimiento de maquinaria · 🧾 Nómina · 🏛️ Obras Públicas ·
+> 👷 Operadores y coordinación · 🔧 Servicio de maquinaria (averías) · 👥 Usuarios y permisos ·
+> 🚛 Viajes de camiones · 🔔 Avisos del sistema.
+>
+> Las secciones que dicen **«sin rastro aún»** (Fabricación, Geodesta, Lavado, Obras Públicas y
+> Avisos) todavía **no dejan huella en la bitácora**: sus tablas no tienen auditoría. La pastilla
+> está para que la lista sea el menú completo, y avisa para que nadie crea que «no pasó nada» ahí.
+> **Margen de ganancia** no tiene pastilla propia: lo que edita es el costo en la **ficha** de la
+> máquina, así que sale en 🚜 Catálogo de equipos. **Reportes** solo lee, no deja rastro.
+>
+> ⚠️ **Lo que sí depende de la base (07/09/2026).** Se comprobó en producción que desde el
+> **09/08/2026** —el día de la caída por los crons— la auditoría quedó **apagada en 32 de las 42
+> tablas**, no solo en las jornadas. Por eso Nómina, Inventario, Compras, Combustible (salvo
+> despachos), las rondas de Inspecciones, las averías, Cocina, Aliados, Empresas, Pagos, Asistencia
+> y los permisos de Usuarios **no tienen nada nuevo desde esa fecha** aunque la pastilla exista.
+> Lo reenciende `supabase/auditoria_reencender_tablas_humanas.sql` (solo tablas que escriben
+> personas, ~4 % del volumen que tumbó el sistema; las jornadas siguen como están). Hasta correrlo,
+> esas secciones solo muestran lo de antes del 09/08.
+>
+> **Cómo sabe de qué sección vino.** La bitácora guarda **qué tabla** se tocó, **no de qué
+> pantalla** vino — y a la tabla de máquinas le escriben unas **20 pantallas**. Lo que desempata
+> es la **acción**:
+>
+> | Lo que se hizo | Va al módulo |
+> |---|---|
+> | Inició / finalizó jornada, marcó **PARADA** | 🕐 Control de maquinaria |
+> | Asignó la máquina a un inspector, escaneó su **QR** | 📋 Inspecciones |
+> | Creó, editó o **retiró la ficha** de la máquina | 🚜 Catálogo de equipos |
+> | Escaneó el **carnet** de un empleado | 👥 Nómina y personal |
+> | Entró o salió del sistema | 🔑 Usuarios y permisos |
+>
+> ⚠️ **No se tocó la base de datos:** ni un trigger nuevo, ni una columna, ni una fila de más. Todo
+> se reparte **al momento de mostrarlo**, sobre lo que ya estaba guardado — por eso **lo de antes
+> del 07/09/2026 también sale repartido con las reglas nuevas**, sin tener que volver a guardar nada.
+>
+> **Si ves un solo módulo, revisa los filtros.** Con la pastilla **🚜 Estados de máquina** activa
+> solo pasan retiros, reactivaciones y esperas, que son todos del mismo módulo: es normal que
+> aparezca uno solo. Apágala para ver el resto.
 
 > **🗂️ Agrupar por módulo, a la vista (20-ago-2026).** La fila **"AGRUPAR POR:"** quedó en la
 > pantalla principal, debajo del contador de acciones: **Sin agrupar · 🗂️ Módulo · 👤 Usuario ·
