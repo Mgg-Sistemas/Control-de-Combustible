@@ -23,7 +23,7 @@ import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
 // QUÉ SE OCULTA en el Inventario de maquinaria (marca, modelo, ubicaciones, Este/Oeste).
 // La regla vive en su librería para poder probarla; la pantalla obedece.
 import {
-  OPCIONES_TACTICO_COMPLETO, PASTILLAS_OCULTAR, alternarOcultar, columnasMaquinaria, marcaModeloDe,
+  OPCIONES_TACTICO_COMPLETO, PASTILLAS_OCULTAR, alcanceSinNombres, alternarOcultar, columnasMaquinaria, marcaModeloDe,
   ocultosEnPalabras, ocultosLista, sufijoArchivoOcultos, sufijoSubtituloOcultos, tituloMarcaModelo,
   ubicacionEnPalabras, type ColumnaMaquinaria, type OpcionesTactico,
 } from '../lib/tacticoOpciones';
@@ -1997,8 +1997,10 @@ export default function ReportsScreen({ route }: any) {
       opNoche: '<th>Operador (noche)</th>',
       estado: '<th style="width:110px">Estado</th>',
     };
-    const maquinariaHtml = enteNames.map((ente) => {
-      const rows = groups.get(ente)!
+    // Sin nombres de empresas: UN solo listado con todas, sin cabeceras por empresa.
+    const gruposAImprimir: [string, any[]][] = opciones.sinEmpresas ? [['', list]] : enteNames.map((e) => [e, groups.get(e)!]);
+    const maquinariaHtml = gruposAImprimir.map(([ente, maqs]) => {
+      const rows = maqs
         .slice()
         .sort(sortMaq)
         .map((m, i) => {
@@ -2021,7 +2023,8 @@ export default function ReportsScreen({ route }: any) {
           };
           return `<tr>${cols.map((c) => tdDe[c]).join('')}</tr>`;
         }).join('');
-      return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
+      const cabecera = opciones.sinEmpresas ? '🚜 <b>Maquinaria</b>' : `🏢 Empresa: <b>${esc(ente)}</b>`;
+      return `<div class="ente">${cabecera} <span class="cnt-pill">${maqs.length} equipo(s)</span></div>
         <table class="tac"><thead><tr>${cols.map((c) => thDe[c]).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
@@ -2067,7 +2070,12 @@ export default function ReportsScreen({ route }: any) {
     const zonaTh = (ancho: number) => opciones.sinZona ? '' : `<th style="width:${ancho}px;text-align:right">🟢 Este</th><th style="width:${ancho}px;text-align:right">🟠 Oeste</th>`;
     const zonaTd = (este: number, oeste: number, negrita = false) => opciones.sinZona ? '' : `<td style="text-align:right${negrita ? ';font-weight:800' : ''}">${este}</td><td style="text-align:right${negrita ? ';font-weight:800' : ''}">${oeste}</td>`;
     const colspanZona = opciones.sinZona ? 2 : 4;
-    const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
+    // Sin nombres de empresas: el cuadro por empresa no va (el total sigue en los
+    // cuadros por tipo y por clasificación). Pedido del cliente: con todo apagado
+    // quedan solo esos dos.
+    const resumenCoHtml = opciones.sinEmpresas
+      ? ''
+      : `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
       <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th>${zonaTh(90)}</tr></thead>
       <tbody>${enteNames.filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td>${zonaTd(v.este, v.oeste)}</tr>`; }).join('') || `<tr><td colspan="${colspanZona}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td>${zonaTd(coTot.este, coTot.oeste, true)}</tr></tfoot></table>`;
@@ -2206,10 +2214,14 @@ export default function ReportsScreen({ route }: any) {
          <tfoot><tr><td style="font-weight:800">TOTAL PERSONAL</td><td style="text-align:right;font-weight:800">${activeEmps.length}</td></tr></tfoot></table>`
       : '';
     // ── EL ALCANCE, EN PALABRAS ────────────────────────────────────────────
-    const alcanceInfo = alcanceInfoDe(alcance);
-    const tituloMaquinaria = alcance === 'porEmpresa'
-      ? 'Maquinaria por empresa'
-      : `Maquinaria por empresa (${enteNames.join(' / ') || 'sin empresas'})`;
+    // Sin nombres de empresas, el alcance se describe sin nombrarlas ("Solo
+    // LICCIONE y GOLDEN TOUCH" los lleva): en el subtítulo, el cuadro y el archivo.
+    const alcanceInfo: { largo: string; archivo: string } = opciones.sinEmpresas ? alcanceSinNombres(alcance) : alcanceInfoDe(alcance);
+    const tituloMaquinaria = opciones.sinEmpresas
+      ? 'Maquinaria'
+      : alcance === 'porEmpresa'
+        ? 'Maquinaria por empresa'
+        : `Maquinaria por empresa (${enteNames.join(' / ') || 'sin empresas'})`;
     // ⭐ EL PIE QUE DICE QUÉ ENTRÓ Y QUÉ QUEDÓ FUERA.
     //
     //    Es la red de seguridad de toda la idea. "Propia" se decide por el NOMBRE
@@ -2221,8 +2233,10 @@ export default function ReportsScreen({ route }: any) {
       <div class="box">
         <div class="kv"><b>${esc(alcanceInfo.largo)}.</b></div>
         ${ocultosLista(opciones).length ? `<div class="kv"><b>Campos ocultos:</b> ${esc(ocultosLista(opciones).join(' · '))}. Los totales son los mismos.</div>` : ''}
-        <div class="kv"><b>Empresas incluidas (${empresasDentro.length}):</b> ${esc(empresasDentro.join(' · ')) || '—'}</div>
-        ${empresasFuera.length ? `<div class="kv"><b>Empresas dejadas fuera (${empresasFuera.length}):</b> ${esc(empresasFuera.join(' · '))}</div>` : ''}
+        ${opciones.sinEmpresas
+          ? `<div class="kv"><b>Empresas incluidas:</b> ${empresasDentro.length}${empresasFuera.length ? ` · <b>dejadas fuera:</b> ${empresasFuera.length}` : ''} (nombres ocultos a propósito).</div>`
+          : `<div class="kv"><b>Empresas incluidas (${empresasDentro.length}):</b> ${esc(empresasDentro.join(' · ')) || '—'}</div>
+        ${empresasFuera.length ? `<div class="kv"><b>Empresas dejadas fuera (${empresasFuera.length}):</b> ${esc(empresasFuera.join(' · '))}</div>` : ''}`}
         <div class="kv">Equipos en este informe: <b>${list.length}</b>${soloPropias ? ` de ${universo.length} de la flota` : ''}.</div>
       </div>`;
     const body = `
@@ -2245,10 +2259,10 @@ export default function ReportsScreen({ route }: any) {
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       ${resumenCoHtml}
-      ${resumenTipoZonaHtml}
-      ${resumenClasifHtml}
-      <div class="sect">🏢 ${esc(tituloMaquinaria)}</div>
-      ${maquinariaHtml}
+      ${opciones.sinTipos ? '' : resumenTipoZonaHtml}
+      ${opciones.sinClasificacion ? '' : resumenClasifHtml}
+      ${opciones.sinListado ? '' : `<div class="sect">🏢 ${esc(tituloMaquinaria)}</div>
+      ${maquinariaHtml}`}
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores${opciones.sinZona ? '' : ' por zona'}</div>${zonaPersonalHtml}` : ''}
       ${alcanceHtml}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
@@ -3160,9 +3174,10 @@ export default function ReportsScreen({ route }: any) {
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
                 {ALCANCES.find((a) => a.id === tacAlcance)?.largo}. Sale igual en el simulado.
               </Text>
-              {/* QUÉ SE OCULTA (06-sep-2026): cuatro pastillas que se encienden VARIAS a la
-                  vez, no como las de empresas. Ocultan columnas y textos, nunca máquinas:
-                  los totales no cambian. Valen para el real, el simulado y con personal. */}
+              {/* QUÉ SE OCULTA (06-sep-2026): seis pastillas que se encienden VARIAS a la
+                  vez, no como las de empresas. Ocultan columnas, textos o el listado
+                  entero, nunca máquinas: los totales no cambian. Valen para el real, el
+                  simulado y con personal. */}
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
                 {PASTILLAS_OCULTAR.map((p) => {
