@@ -3,9 +3,9 @@
 // Pedido del cliente (06-sep-2026): poder sacar el mismo papel SIN la marca, SIN
 // el modelo, SIN la placa/serial, SIN las ubicaciones, SIN decir si es Este u
 // Oeste, o SOLO con el conteo resumido (sin el listado máquina por máquina) —
-// según a quién se le entregue. Son seis pastillas independientes (se encienden
-// varias a la vez), y por defecto ninguna: quien no toque nada sigue sacando el
-// papel de siempre.
+// según a quién se le entregue. Son pastillas independientes (se encienden varias
+// a la vez), y por defecto ninguna: quien no toque nada sigue sacando el papel de
+// siempre. La lista completa es PASTILLAS_OCULTAR.
 //
 // Vive en su propia librería, sin React ni Supabase, para poder probarla de
 // verdad (ver scripts/test-reporte-tactico-opciones.mjs). La pantalla obedece:
@@ -34,6 +34,8 @@ export type OpcionesTactico = {
   sinTipos: boolean;
   /** Sin el cuadro "Cantidad por clasificación". */
   sinClasificacion: boolean;
+  /** Sin el cuadro "Alcance de este informe" del final. */
+  sinAlcance: boolean;
 };
 
 /** El papel de siempre: no se oculta nada. */
@@ -47,6 +49,7 @@ export const OPCIONES_TACTICO_COMPLETO: OpcionesTactico = {
   sinListado: false,
   sinTipos: false,
   sinClasificacion: false,
+  sinAlcance: false,
 };
 
 /** Las seis pastillas de la pantalla, en el orden en que se muestran y se nombran. */
@@ -70,6 +73,10 @@ export const PASTILLAS_OCULTAR: { key: keyof OpcionesTactico; chip: string; larg
   // se pueden quitar, para armar cualquier otra combinación.
   { key: 'sinTipos', chip: '🚫 Total por tipo', largo: 'total por tipo de maquinaria', archivo: 'sin tipos' },
   { key: 'sinClasificacion', chip: '🚫 Cantidad por clasificación', largo: 'cantidad por clasificación', archivo: 'sin clasificacion' },
+  // El cuadro del final que dice qué entró y qué se ocultó. Con esta encendida,
+  // lo ÚNICO que sigue diciéndolo es el nombre del archivo (el subtítulo del
+  // membrete se quitó a pedido del cliente el 07-sep-2026).
+  { key: 'sinAlcance', chip: '🚫 Alcance del informe', largo: 'cuadro de alcance', archivo: 'sin alcance' },
 ];
 
 /** Enciende o apaga UNA pastilla. Devuelve un objeto nuevo (no toca el que recibe). */
@@ -96,12 +103,6 @@ export function ocultosEnPalabras(o: OpcionesTactico): string {
 export function sufijoArchivoOcultos(o: OpcionesTactico): string {
   const l = PASTILLAS_OCULTAR.filter((p) => !!o[p.key]).map((p) => p.archivo);
   return l.length ? ' ' + l.join(', ') : '';
-}
-
-/** Va en el SUBTÍTULO del membrete, junto al alcance. */
-export function sufijoSubtituloOcultos(o: OpcionesTactico): string {
-  const l = ocultosLista(o);
-  return l.length ? l.map((x) => ` · Sin ${x}`).join('') : '';
 }
 
 /** Cómo se titula la columna, o null si no va (las dos ocultas). */
@@ -162,8 +163,8 @@ export function ubicacionEnPalabras(p: { macro?: string | null; sub?: string | n
 /**
  * Cómo se describe el alcance cuando NO pueden salir nombres de empresas. El
  * texto normal del alcance los lleva ("Solo LICCIONE y GOLDEN TOUCH"), así que
- * con `sinEmpresas` se cambia por uno neutro — en el subtítulo, en el cuadro de
- * alcance y en el nombre del archivo. "Por empresa" y "todas sin separar" dan el
+ * con `sinEmpresas` se cambia por uno neutro — en el cuadro de alcance y en el
+ * nombre del archivo. "Por empresa" y "todas sin separar" dan el
  * mismo papel sin nombres (un solo listado), así que se describen igual.
  */
 export function alcanceSinNombres(alcance: string): { largo: string; archivo: string } {
