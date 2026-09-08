@@ -16,12 +16,17 @@ import { caracasParts } from '../lib/jornada';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { DateField } from './DateField';
+import { ContactoEmergencia, MAX_CONTACTOS, contactosParaGuardar, leerContactos, normalizarContacto, tituloContacto, PASOS_SIN_MIGRACION, quitarColumnas } from '../lib/contactosEmergencia';
 
 /** Predicado opcional: el campo solo se muestra si devuelve true. */
 type ShowIf = (values: Record<string, string>) => boolean;
 
 export type Field =
   | { key: string; label: string; type: 'section'; showIf?: ShowIf } // encabezado de sección (no es un campo)
+  /** Lista REPETIBLE de contactos de emergencia (agregar / quitar). El valor viaja en
+   *  `values[key]` como JSON, y al guardar se reparte en la columna `emergency_contacts`
+   *  más las tres columnas viejas con el contacto nº 1. Ver src/lib/contactosEmergencia.ts. */
+  | { key: string; label: string; type: 'contactos'; required?: boolean; showIf?: ShowIf }
   | { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string } // 'textarea' = texto multilínea
   | { key: string; label: string; type: 'switch'; required?: boolean; showIf?: ShowIf; defaultValue?: boolean } // check Sí/No (booleano)
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf; dropdown?: boolean; placeholder?: string }
@@ -141,6 +146,7 @@ export function RecordForm({
     const o: Record<string, string> = {};
     fields.forEach((f) => {
       if (f.type === 'date') o[f.key] = todayISO();
+      else if (f.type === 'contactos') o[f.key] = '[]';
       else if (f.type === 'switch') o[f.key] = f.defaultValue ? 'true' : 'false';
       else if ('defaultValue' in f && f.defaultValue) o[f.key] = f.defaultValue as string;
     });
@@ -164,6 +170,9 @@ export function RecordForm({
       // Modo edición: pre-rellenar con los valores existentes (como texto).
       const pre: Record<string, string> = {};
       fields.forEach((f) => {
+        // Los contactos NO son texto: se leen con su propia regla (que ademas
+        // reconstruye el contacto nº 1 de los empleados viejos) y viajan como JSON.
+        if (f.type === 'contactos') { pre[f.key] = JSON.stringify(leerContactos(record as any)); return; }
         const v = record[f.key];
         if (v !== null && v !== undefined) pre[f.key] = String(v);
       });
@@ -230,6 +239,15 @@ export function RecordForm({
     // Validación de requeridos (solo campos visibles)
     for (const f of visibleFields) {
       if (f.type === 'section') continue;
+      if (f.type === 'contactos') {
+        // Para una LISTA, "obligatorio" es que haya al menos uno con datos. El valor
+        // por defecto es '[]', que como texto es truthy y pasaria la prueba de abajo.
+        if (f.required && !contactosParaGuardar(JSON.parse(values[f.key] || '[]')).emergency_contacts.length) {
+          setError('Agrega al menos un contacto de emergencia.');
+          return;
+        }
+        continue;
+      }
       if (f.required && !values[f.key]) {
         setError(`El campo "${f.label}" es obligatorio.`);
         return;
@@ -244,6 +262,12 @@ export function RecordForm({
     visibleFields.forEach((f) => {
       const raw = values[f.key];
       if (raw === undefined) return;
+      if (f.type === 'contactos') {
+        let lista: any = [];
+        try { lista = JSON.parse(raw || '[]'); } catch { lista = []; }
+        Object.assign(payload, contactosParaGuardar(lista));
+        return;
+      }
       if (raw === '') {
         // Al editar, un campo que se deja en blanco debe vaciarse (null),
         // no conservar el valor anterior. Al crear, simplemente se omite.
@@ -299,12 +323,22 @@ export function RecordForm({
     setSaving(true);
     let savedId: string | undefined = isEdit ? record!.id : undefined;
     let error;
-    if (isEdit) {
-      ({ error } = await supabase.from(table).update(payload).eq('id', record!.id));
-    } else {
-      const res = await supabase.from(table).insert(payload).select('id').single();
-      error = res.error;
-      savedId = (res.data as any)?.id;
+    // Si a la base le falta alguna columna que llego por migracion (p. ej.
+    // `emergency_contacts`, de supabase/empleados_varios_contactos_emergencia.sql),
+    // se reintenta SIN ella en vez de perder el guardado entero. Lo que se pierde es
+    // solo esa columna; el resto de la ficha se guarda igual.
+    let fila: Record<string, any> = payload;
+    const guardar = async () => {
+      if (isEdit) return (await supabase.from(table).update(fila).eq('id', record!.id)).error;
+      const res = await supabase.from(table).insert(fila).select('id').single();
+      savedId = (res.data as any)?.id ?? savedId;
+      return res.error;
+    };
+    error = await guardar();
+    for (const paso of PASOS_SIN_MIGRACION) {
+      if (!error || !paso.columnas.some((c) => c in fila) || !paso.detecta.test(error.message)) break;
+      fila = quitarColumnas(fila, paso.columnas);
+      error = await guardar();
     }
     setSaving(false);
     if (error) {
@@ -423,6 +457,14 @@ export function RecordForm({
                     onCreated={(opt) =>
                       setLookups((prev) => ({ ...prev, [f.key]: [...(prev[f.key] ?? []), opt] }))
                     }
+                  />
+                ) : f.type === 'contactos' ? (
+                  <ContactosField
+                    value={values[f.key] ?? '[]'}
+                    onChange={(v) => set(f.key, v)}
+                    colors={colors}
+                    typography={typography}
+                    styles={styles}
                   />
                 ) : f.type === 'switch' ? (
                   <TouchableOpacity onPress={() => set(f.key, values[f.key] === 'true' ? 'false' : 'true')} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
@@ -1020,3 +1062,56 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     padding: spacing.lg,
   },
 });
+
+/** Lista REPETIBLE de contactos de emergencia: agregar, quitar y editar los tres
+ *  campos de cada uno. El valor entra y sale como JSON para poder viajar dentro del
+ *  `Record<string, string>` que usa el formulario para todo lo demás. */
+function ContactosField({ value, onChange, colors, typography, styles }: {
+  value: string;
+  onChange: (v: string) => void;
+  colors: AppColors;
+  typography: any;
+  styles: any;
+}) {
+  let lista: ContactoEmergencia[] = [];
+  try { const p = JSON.parse(value || '[]'); if (Array.isArray(p)) lista = p.map(normalizarContacto); } catch { lista = []; }
+  // Siempre hay al menos una tarjeta en pantalla: un formulario vacío se llena,
+  // no se "agrega". Si queda en blanco no se guarda nada (limpiarContactos la quita).
+  const vista = lista.length ? lista : [{ nombre: '', telefono: '', parentesco: '' }];
+  const emitir = (l: ContactoEmergencia[]) => onChange(JSON.stringify(l));
+  const set = (i: number, campo: keyof ContactoEmergencia, v: string) =>
+    emitir(vista.map((c, j) => (j === i ? { ...c, [campo]: v } : c)));
+
+  return (
+    <View style={{ gap: spacing.sm }}>
+      {vista.map((c, i) => (
+        <View key={i} style={{ gap: 4, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{tituloContacto(i, vista.length)}</Text>
+            {vista.length > 1 ? (
+              <TouchableOpacity onPress={() => emitir(vista.filter((_, j) => j !== i))}>
+                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑 Quitar</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <Text style={typography.muted}>Nombre</Text>
+          <TextInput style={styles.input} value={c.nombre} onChangeText={(t) => set(i, 'nombre', t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. MARÍA PÉREZ" placeholderTextColor={colors.muted} />
+          <Text style={typography.muted}>Teléfono</Text>
+          <TextInput style={styles.input} value={c.telefono} onChangeText={(t) => set(i, 'telefono', t)} keyboardType="phone-pad" inputMode="tel" placeholder="EJ. 0412-1234567" placeholderTextColor={colors.muted} />
+          <Text style={typography.muted}>Parentesco</Text>
+          <TextInput style={styles.input} value={c.parentesco} onChangeText={(t) => set(i, 'parentesco', t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. MADRE, ESPOSA, HERMANO" placeholderTextColor={colors.muted} />
+        </View>
+      ))}
+      {vista.length < MAX_CONTACTOS ? (
+        <TouchableOpacity
+          onPress={() => emitir([...vista, { nombre: '', telefono: '', parentesco: '' }])}
+          style={{ alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+        >
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>＋ Agregar otro contacto</Text>
+        </TouchableOpacity>
+      ) : (
+        <Text style={{ color: colors.muted, fontSize: 11 }}>Máximo {MAX_CONTACTOS} contactos por persona.</Text>
+      )}
+    </View>
+  );
+}
