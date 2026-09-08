@@ -1,4 +1,7 @@
 -- ============================================================================
+-- ✅ CORRIDO Y VERIFICADO el 08-sep-2026: la comprobación devolvió
+--    emergency_contacts | jsonb.
+-- ============================================================================
 -- VARIOS CONTACTOS DE EMERGENCIA POR TRABAJADOR (08-sep-2026)
 --
 -- Pedido del cliente: «necesito que las personas puedan tener más de un contacto

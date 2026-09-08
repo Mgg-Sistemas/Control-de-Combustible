@@ -221,12 +221,20 @@ console.log('CONTACTOS DE EMERGENCIA — varios por trabajador\n');
   ok('⭐ el SQL NO borra ni altera las columnas viejas',
     !/drop\s+column/i.test(sql) && !/\b(drop|truncate)\b/i.test(sql) && !/delete\s+from/i.test(sql));
   ok('trae su consulta de comprobación', /column_name = 'emergency_contacts'/.test(sql));
-  ok('está anotado en la lista de SQL pendientes', /empleados_varios_contactos_emergencia\.sql/.test(leer('supabase/PENDIENTES.md')));
+  // Corrido y verificado el 08/09/2026: devolvió `emergency_contacts | jsonb`.
+  const pend = leer('supabase/PENDIENTES.md');
+  ok('PENDIENTES.md lo da por corrido y verificado', /\| `empleados_varios_contactos_emergencia\.sql` \| \*\*08\/09\/2026\*\*/.test(pend));
+  ok('…y ya no está entre los escritos y sin correr', pend.indexOf('empleados_varios_contactos_emergencia.sql') > pend.indexOf('## ✅ Corridos y confirmados por el cliente'));
+  ok('el propio .sql queda marcado como corrido', /CORRIDO Y VERIFICADO el 08-sep-2026/.test(sql));
 
   const md = leer('docs/MANUAL-USUARIO.md');
   ok('manual .md: explica los varios contactos', /Varios contactos de emergencia \(08\/09\/2026\)/.test(md));
+  // El texto del manual va cortado en dos líneas con "> " al empezar la segunda
+  // (es una cita de Markdown), así que el guarda tiene que contemplar ese salto.
+  ok('manual .md: dice que el SQL ya se corrió', /se corrió y se\n> verificó el 08\/09\/2026/.test(md));
   const ms = leer('src/screens/ManualScreen.tsx');
   ok('manual en pantalla: explica los varios contactos', /VARIOS CONTACTOS DE EMERGENCIA \(08\/09\/2026\)/.test(ms));
+  ok('manual en pantalla: dice que el SQL ya se corrió', /se corrió y se verificó el 08\/09\/2026/.test(ms));
 }
 
 if (fail) {
