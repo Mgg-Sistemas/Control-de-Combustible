@@ -20,6 +20,7 @@ import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BulkPermissionsModal } from '../components/BulkPermissionsModal';
+import { coincideUsuario } from '../lib/usuariosBulk';
 import { useToast } from '../components/ToastProvider';
 import { passField } from '../lib/fonts';
 import { claveNormalizada } from '../lib/password';
@@ -187,10 +188,10 @@ export default function UsersScreen() {
   }
 
   const onlineCount = users.filter((u) => onlineIds.includes(u.id)).length;
-  const q = norm(query.trim());
-  const filtered = !q
-    ? users
-    : users.filter((u) => norm(u.full_name).includes(q) || norm(u.role).includes(q));
+  // La MISMA regla que la edición masiva (`coincideUsuario`): nombre, usuario,
+  // cédula, rol y estado. Antes esta lista tenía su propio filtro de dos campos y
+  // por eso solo encontraba por el nombre de la persona.
+  const filtered = users.filter((u) => coincideUsuario(u, query, appRoles));
 
   const unlockUser = async (u: Profile) => {
     const { error } = await supabase.from('profiles').update({ locked: false, failed_attempts: 0, locked_at: null }).eq('id', u.id);
@@ -261,7 +262,7 @@ export default function UsersScreen() {
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔎 Buscar usuario por nombre o rol…"
+        placeholder="🔎 Nombre, usuario, cédula, rol, «bloqueado»…"
         placeholderTextColor={colors.muted}
         style={styles.input}
       />

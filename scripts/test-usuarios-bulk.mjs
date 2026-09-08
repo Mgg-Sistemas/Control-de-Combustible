@@ -56,8 +56,13 @@ const loadTs = (srcPath) => {
 
 const {
   gruposPorRol, filtrarUsuarios, textoBuscableDe, claveRolDe, claveRolBase, claveRolApp,
-  nivelEfectivo, motivoNoAplica, repartirPorEfecto,
+  nivelEfectivo, motivoNoAplica, repartirPorEfecto, coincideUsuario, soloDigitos,
 } = loadTs(path.join(ROOT, 'src/lib/usuariosBulk.ts'));
+
+const leerArchivo = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+// Quita comentarios /* */ y // (sin tocar las URLs con "://") para que un guarda
+// no se de por satisfecho con codigo comentado.
+const sinComentarios = (t) => t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -123,6 +128,61 @@ const ids = (arr) => arr.map((x) => x.id).sort();
   eq('sin acentos al revés', buscar('LEON'), ['t1']);
   eq('búsqueda vacía = todos', buscar(''), ids(TODOS));
   eq('sin resultados', buscar('zzzz'), []);
+}
+
+// ── 2b) ⭐ LA MISMA REGLA EN LAS DOS PANTALLAS (08-sep-2026) ───────────────
+// Pedido del cliente: «en el apartado de usuarios, en el buscador, necesito poder
+// buscar también por nombre de usuario, o por nombre de la cuenta o por cédula,
+// porque solo me está dejando buscar por nombre personal». La edición masiva ya
+// buscaba por todo eso; la LISTA tenía su propio filtro de dos campos.
+{
+  const c = (q, usuario = DORIS) => coincideUsuario(usuario, q, ROLES);
+
+  // Lo que pedía el cliente, uno por uno, sobre la MISMA persona.
+  ok('⭐ por nombre personal (lo único que servía antes)', c('dorianne'));
+  ok('⭐ por nombre de usuario', c('dperez'));
+  ok('⭐ por cédula', c('87654321'));
+  ok('⭐ por el rol (nombre de la cuenta)', c('analista'));
+  ok('* y por el nombre del rol personalizado', coincideUsuario(PATIO, 'coordinador de patio', ROLES));
+
+  // La cédula como la escribe la gente, no como la guarda la base.
+  eq('los dígitos de "V-87.654.321"', soloDigitos('V-87.654.321'), '87654321');
+  ok('⭐ la cédula con puntos y letra encuentra igual', c('V-87.654.321'));
+  ok('* con puntos solamente también', c('87.654.321'));
+  ok('* un pedazo de la cédula también', c('8765'));
+  ok('* pero la cédula de otro NO', !c('11111111'));
+  ok('* un texto sin dígitos no se cuela por la vía de la cédula', !c('zzzz'));
+
+  // Cosas que NO pueden romperse.
+  ok('consulta vacía: pasa todo el mundo', c('') && c('   '));
+  ok('un usuario sin ningún dato no revienta', typeof coincideUsuario({ id: 'x' }, 'algo', null) === 'boolean');
+  ok('sin lista de roles tampoco', coincideUsuario(DORIS, 'dperez', null));
+  ok('los espacios sobrantes no estorban', c('  dperez  '));
+  ok('mayúsculas y tildes dan igual', coincideUsuario(ANALI, 'MARTINEZ', ROLES));
+
+  // ⭐⭐ Filtrar y coincidir tienen que ser LA MISMA regla: si se separan, la lista
+  //    y la edición masiva vuelven a encontrar cosas distintas con el mismo texto.
+  const consultas = ['dperez', '87654321', 'V-87.654.321', 'inspector', 'patio', 'bloqueado', 'martinez', '', 'zzzz'];
+  let iguales = 0;
+  for (const q of consultas) {
+    const porFiltro = ids(filtrarUsuarios(TODOS, { q, appRoles: ROLES }));
+    const porRegla = ids(TODOS.filter((x) => coincideUsuario(x, q, ROLES)));
+    if (JSON.stringify(porFiltro) === JSON.stringify(porRegla)) iguales++;
+  }
+  eq(`⭐⭐ filtrar y coincidir dan lo mismo en las ${consultas.length} consultas`, iguales, consultas.length);
+
+  // ⭐ Y que la PANTALLA la use de verdad: el guarda está anclado al argumento,
+  //   no a que el nombre aparezca por ahí.
+  const scr = sinComentarios(leerArchivo('src/screens/UsersScreen.tsx'));
+  ok('⭐ la lista de Usuarios filtra con coincideUsuario', /users\.filter\(\(u\) => coincideUsuario\(u, query, appRoles\)\)/.test(scr));
+  ok('* y la pide a la librería compartida', /import \{ coincideUsuario \} from '\.\.\/lib\/usuariosBulk'/.test(scr));
+  ok('⭐ ya no tiene su propio filtro de dos campos', !/norm\(u\.full_name\)\.includes\(q\)/.test(scr));
+  ok('* el buscador dice qué se puede escribir', /placeholder="[^"]*Nombre, usuario, cédula, rol/.test(scr));
+
+  // Y la edición masiva sigue usando la misma, vía filtrarUsuarios.
+  const lib = sinComentarios(leerArchivo('src/lib/usuariosBulk.ts'));
+  ok('⭐ filtrarUsuarios delega en coincideUsuario', /return coincideUsuario\(u, consulta, opts\.appRoles\)/.test(lib));
+  ok('* y no quedo una segunda regla suelta', !/norm\(textoBuscableDe\(u, opts\.appRoles\)\)\.includes\(q\)/.test(lib));
 }
 
 // ── 3) BUSCAR + AGRUPAR A LA VEZ ───────────────────────────────────────────
