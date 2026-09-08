@@ -1192,9 +1192,8 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > Los contactos salen **todos** en la **ficha del trabajador** (la que se abre con 🪪 Ficha o
 > escaneando su carnet) y **todos** en el **PDF de la ficha completa**, uno debajo del otro.
 >
-> Requiere correr `supabase/empleados_varios_contactos_emergencia.sql`. **Si aún no se corrió, la
-> ficha se guarda igual**: se conserva el contacto principal, exactamente como antes, y los demás
-> se podrán cargar en cuanto el SQL esté aplicado.
+> El SQL que lo habilita, `supabase/empleados_varios_contactos_emergencia.sql`, **se corrió y se
+> verificó el 08/09/2026**, así que ya se pueden cargar varios contactos.
 
 > **Constancias por empleado:** en cada persona de la lista hay dos botones de constancia.
 > **📄 Const. carnet** es la constancia de **entrega de carnet** (trabajo a destajo; la firma el

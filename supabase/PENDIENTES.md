@@ -68,7 +68,6 @@ coordinador_inspectores`. Cotejados contra las tres listas del código (`UsersSc
 | `quitar_adopcion_automatica_placeholder.sql` | Quita `assign-missing-to-placeholder` | **Ninguno** — verificado que el cajón tiene 0 máquinas |
 | `servicio_maquinaria_tabla_propia.sql` | Crea `servicio_registros` con RLS y realtime | Bajo — **solo CREATE**, ningún ALTER de tablas existentes |
 | `diagnostico_crons_y_jornadas_abiertas.sql` | Solo lee: lista los `cron.job` | Ninguno |
-| `empleados_varios_contactos_emergencia.sql` (08/09/2026) | Agrega `employees.emergency_contacts` (jsonb): varios contactos de emergencia por persona | **Ninguno** — un `add column if not exists` con valor por defecto. NO toca las tres columnas viejas, que se siguen escribiendo con el contacto nº 1. Sin correrlo la ficha se guarda igual (reintenta sin la columna) y se conserva solo el principal |
 
 ### Obras Públicas — el módulo degrada solo, pero con funciones caídas
 
@@ -113,6 +112,7 @@ También: la definición de `truck_yard_logs` **solo existe en producción**
 
 | Archivo | Cuándo |
 |---|---|
+| `empleados_varios_contactos_emergencia.sql` | **08/09/2026** — la comprobación devolvió **`emergency_contacts | jsonb`**. Cada trabajador ya puede tener varios contactos de emergencia; el nº 1 se sigue espejando en las tres columnas viejas que leen la vista de nómina y el PDF |
 | `auditoria_reencender_tablas_humanas.sql` | **07/09/2026** — verificado en `pg_trigger`: **42 `trg_audit` encendidos**, solo `machine_rounds` sigue apagado a propósito (tiene `trg_audit_humano`). Reenciende la bitácora en 32 tablas que estaban apagadas desde el **09/08** (el apagón por los crons no fue solo de jornadas). Medido antes: 440–830 filas/día, ~0,4 MB/día. **Válvula pendiente:** el 08/09 contar filas por tabla en 24 h (la consulta está al final del archivo); si alguna sube a miles, es un cron y se apaga esa sola |
 | `inventory_movements_vehiculo.sql` | **07/09/2026** — la comprobación devolvió **1 fila: `vehicle_id`**. La nota de salida ya guarda el vehículo vinculado, no solo en el texto |
 | `rol_coordinador_inspectores_enum.sql` | **28/08/2026** — `quedo_registrado = true`, 8 roles en el enum |
