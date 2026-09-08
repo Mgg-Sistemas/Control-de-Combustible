@@ -272,9 +272,16 @@ export interface Employee {
   address: string | null;        // dónde vive
   city: string | null;
   state: string | null;          // estado / provincia
+  // Contacto de emergencia nº 1. Se conserva porque lo leen la vista/RPC de nómina y
+  // el PDF de la ficha; la lista COMPLETA vive en `emergency_contacts`.
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   emergency_contact_relation: string | null;
+  /** TODOS los contactos de emergencia, en orden. Columna de
+   *  supabase/empleados_varios_contactos_emergencia.sql. Léela con
+   *  `leerContactos()` de src/lib/contactosEmergencia.ts, que reconstruye el nº 1
+   *  desde las columnas de arriba cuando esta viene vacía. */
+  emergency_contacts?: { nombre: string; telefono: string; parentesco: string }[] | null;
   hire_date: string | null;      // fecha de ingreso
   status: 'activo' | 'inactivo' | 'suspendido';
   /** EMPRESA FILTRO NÓMINA: lista propia de Nómina (tabla `payroll_companies`),

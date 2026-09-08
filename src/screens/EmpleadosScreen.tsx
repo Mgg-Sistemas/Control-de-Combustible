@@ -66,9 +66,11 @@ const FIELDS: Field[] = [
   { key: 'address', label: 'Dirección (dónde vive)', type: 'text' },
   { key: 'city', label: 'Ciudad', type: 'text' },
   { key: 'state', label: 'Estado', type: 'text' },
-  { key: 'emergency_contact_name', label: 'Emergencia · Nombre', type: 'text' },
-  { key: 'emergency_contact_phone', label: 'Emergencia · Teléfono', type: 'text' },
-  { key: 'emergency_contact_relation', label: 'Emergencia · Parentesco', type: 'text' },
+  // Contactos de emergencia: VARIOS por persona (08-sep-2026). Antes eran tres campos
+  // planos para uno solo. El primero se sigue guardando en esas tres columnas viejas,
+  // que leen la vista de nómina y el PDF de la ficha. Ver src/lib/contactosEmergencia.ts.
+  { key: '__sec_emergencia', label: '🚑 Contactos de emergencia', type: 'section' },
+  { key: 'emergency_contacts', label: 'Se pueden agregar varios (el primero es el principal)', type: 'contactos' },
   { key: 'hire_date', label: 'Fecha de ingreso', type: 'date' },
   { key: 'status', label: 'Estado', type: 'select', options: STATUS_OPTS },
   { key: 'base_salary', label: 'Salario base', type: 'number' },

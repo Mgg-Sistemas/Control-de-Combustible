@@ -1179,6 +1179,23 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > franelas y demás artículos que se le han entregado, con fecha y detalle — lo mismo que muestra la
 > pestaña **"👷 Dotación"** de Inventario (ver 4.8d) pero ya filtrado a esa persona.
 
+> **🚑 Varios contactos de emergencia (08/09/2026).** Antes la ficha tenía **un solo** contacto:
+> tres casillas sueltas (nombre, teléfono y parentesco). Ahora hay una sección propia
+> **"🚑 Contactos de emergencia"** donde se pueden cargar **hasta cinco** por persona, con
+> **➕ Agregar otro contacto** y **🗑 Quitar**. El **primero es el principal**.
+>
+> **A nadie se le borró nada.** Los trabajadores que ya tenían su contacto lo conservan tal cual:
+> pasa a ser el contacto principal, sin que hiciera falta tocar ni una ficha. El principal se sigue
+> guardando donde estaba, así que el **reporte de nómina** y todo lo que ya leía ese dato siguen
+> funcionando igual.
+>
+> Los contactos salen **todos** en la **ficha del trabajador** (la que se abre con 🪪 Ficha o
+> escaneando su carnet) y **todos** en el **PDF de la ficha completa**, uno debajo del otro.
+>
+> Requiere correr `supabase/empleados_varios_contactos_emergencia.sql`. **Si aún no se corrió, la
+> ficha se guarda igual**: se conserva el contacto principal, exactamente como antes, y los demás
+> se podrán cargar en cuanto el SQL esté aplicado.
+
 > **Constancias por empleado:** en cada persona de la lista hay dos botones de constancia.
 > **📄 Const. carnet** es la constancia de **entrega de carnet** (trabajo a destajo; la firma el
 > colaborador). **📃 Constancia de trabajo** es el **formato estándar** dirigido *"A quien pueda

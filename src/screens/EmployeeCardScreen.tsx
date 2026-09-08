@@ -13,6 +13,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import QrInactive from '../components/QrInactive';
+import { leerContactos, tituloContacto } from '../lib/contactosEmergencia';
 
 const LOGO = require('../../assets/logo.png');
 const FICHA_BG = require('../../assets/ficha-bg.jpg');
@@ -285,13 +286,14 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         <Row k="Estado" v={emp.state} />
       </Section>
 
-      {(emp.emergency_contact_name || emp.emergency_contact_phone) ? (
-        <Section title="🚑 Contacto de emergencia">
-          <Row k="Nombre" v={emp.emergency_contact_name} />
-          <Row k="Teléfono" v={emp.emergency_contact_phone} />
-          <Row k="Parentesco" v={emp.emergency_contact_relation} />
+      {/* Varios contactos por persona (08-sep-2026): una tarjeta por contacto. */}
+      {leerContactos(emp).map((c, i, todos) => (
+        <Section key={i} title={'🚑 ' + tituloContacto(i, todos.length)}>
+          <Row k="Nombre" v={c.nombre} />
+          <Row k="Teléfono" v={c.telefono} />
+          <Row k="Parentesco" v={c.parentesco} />
         </Section>
-      ) : null}
+      ))}
 
       <Section title="💼 Datos laborales">
         <Row k="Cargo" v={emp.cargo} />
