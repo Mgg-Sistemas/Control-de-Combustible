@@ -68,6 +68,7 @@ coordinador_inspectores`. Cotejados contra las tres listas del código (`UsersSc
 | `quitar_adopcion_automatica_placeholder.sql` | Quita `assign-missing-to-placeholder` | **Ninguno** — verificado que el cajón tiene 0 máquinas |
 | `servicio_maquinaria_tabla_propia.sql` | Crea `servicio_registros` con RLS y realtime | Bajo — **solo CREATE**, ningún ALTER de tablas existentes |
 | `diagnostico_crons_y_jornadas_abiertas.sql` | Solo lee: lista los `cron.job` | Ninguno |
+| `empleados_varios_contactos_emergencia.sql` (08/09/2026) | Agrega `employees.emergency_contacts` (jsonb): varios contactos de emergencia por persona | **Ninguno** — un `add column if not exists` con valor por defecto. NO toca las tres columnas viejas, que se siguen escribiendo con el contacto nº 1. Sin correrlo la ficha se guarda igual (reintenta sin la columna) y se conserva solo el principal |
 
 ### Obras Públicas — el módulo degrada solo, pero con funciones caídas
 

@@ -3,6 +3,7 @@
 // El botón "🪪 PDF" de la ficha usa esto; la IMAGEN sigue siendo el carnet (carnet.ts).
 import { pdfDocument } from './pdf';
 import { Employee, Aliado } from '../types/database';
+import { leerContactos, tituloContacto } from './contactosEmergencia';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const nombre = (e: { first_name?: string | null; last_name?: string | null }) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
@@ -67,9 +68,12 @@ export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?:
     + section('📞 Contacto', [
         ['Teléfono', e.phone], ['Correo', e.email], ['Dirección', e.address], ['Ciudad', e.city], ['Estado', e.state],
       ])
-    + section('🚑 Contacto de emergencia', [
-        ['Nombre', e.emergency_contact_name], ['Teléfono', e.emergency_contact_phone], ['Parentesco', e.emergency_contact_relation],
-      ])
+    // Varios contactos por persona (08-sep-2026): una sección por contacto, en orden.
+    // `leerContactos` reconstruye el nº 1 desde las columnas viejas si la lista viene
+    // vacía, así que las fichas de antes salen igual que siempre.
+    + leerContactos(e).map((c, i, todos) => section('🚑 ' + tituloContacto(i, todos.length), [
+        ['Nombre', c.nombre], ['Teléfono', c.telefono], ['Parentesco', c.parentesco],
+      ])).join('')
     + section('🏦 Datos bancarios', [
         ['Banco', e.bank_name], ['N° de cuenta', e.bank_account], ['Titular', e.bank_holder], ['Cédula del titular', e.bank_cedula],
       ])
