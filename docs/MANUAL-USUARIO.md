@@ -2633,6 +2633,24 @@ de noche otro; al final de cada uno va su línea de firma.
 > primero un bloque que solo lee y te dice si hace falta o no.)*
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
+> **🔎 El buscador encuentra por cualquier dato (08/09/2026).** Pedido del cliente: *«en el
+> apartado de usuarios, en el buscador, necesito poder buscar también por nombre de usuario, o por
+> nombre de la cuenta o por cédula, porque solo me está dejando buscar por nombre personal»*.
+>
+> Tenía razón: el buscador de la lista miraba solo **el nombre de la persona y el rol**. Ahora usa
+> **la misma regla que la Edición masiva**, que ya buscaba por todo. Escribe lo que tengas a mano:
+>
+> | Escribes | Encuentra |
+> |---|---|
+> | `dorianne` o `perez` | por **nombre y apellido** |
+> | `dperez` | por **nombre de usuario** (con el que entra al sistema) |
+> | `87654321`, `87.654.321` o `V-87.654.321` | por **cédula**, con puntos o sin ellos, y sirve un pedazo |
+> | `inspector`, `admin`, `coordinador de patio` | por **rol**, tanto los fijos como los personalizados |
+> | `bloqueado` | los que están **trancados por intentos fallidos** |
+>
+> No distingue mayúsculas ni acentos (*"martinez"* encuentra a *"MARTÍNEZ"*). Como las dos
+> pantallas comparten la regla, lo que encuentras en una lo encuentras en la otra.
+
 **✏️ Edición masiva (21-ago-2026):** en Usuarios, toca **"✏️ Edición masiva → Abrir"** para
 cambiarle el permiso de un módulo a **muchas personas de una sola vez**, en vez de entrar y salir
 de *"Editar"* una por una.

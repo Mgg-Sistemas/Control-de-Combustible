@@ -11,6 +11,16 @@
 // Acá vive solo la LÓGICA (agrupar, buscar, y el cálculo de qué nivel le queda
 // de verdad a cada quien). La pantalla es `src/components/BulkPermissionsModal.tsx`.
 // `scripts/test-usuarios-bulk.mjs` la amarra.
+//
+// ⭐ LA BÚSQUEDA ES DE LAS DOS PANTALLAS (08-sep-2026). Pedido del cliente: «en el
+//    apartado de usuarios, en el buscador, necesito poder buscar también por nombre
+//    de usuario, o por nombre de la cuenta o por cédula, porque solo me está
+//    dejando buscar por nombre personal».
+//
+//    La edición masiva ya buscaba por todo eso; la LISTA de Usuarios tenía su
+//    propio filtro, de dos campos (`full_name` y el `role` crudo). Eran DOS reglas
+//    distintas para la misma pregunta. Ahora las dos pantallas llaman a
+//    `coincideUsuario`, así que lo que se pueda buscar en una se puede en la otra.
 // ============================================================================
 
 import { norm } from './text';
@@ -64,6 +74,10 @@ export function gruposPorRol(usuarios: UsuarioBulk[], roles: RolApp[] | null | u
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'es'));
 }
 
+/** Solo los dígitos de un texto. La cédula se guarda sin puntos, pero la gente la
+ *  escribe como la lee: "V-27.514.385". Sin esto, esa búsqueda no encuentra nada. */
+export const soloDigitos = (s: unknown): string => String(s ?? '').replace(/[^0-9]/g, '');
+
 /** Todo el texto por el que se puede BUSCAR a un usuario. "Cualquier
  *  característica": nombre, usuario, cédula, rol base, rol personalizado y su
  *  estado (bloqueado / inactivo), para poder pedir cosas como "bloqueado". */
@@ -81,18 +95,34 @@ export function textoBuscableDe(u: UsuarioBulk, roles: RolApp[] | null | undefin
   ].join(' ');
 }
 
+/** ¿Este usuario responde a lo que se escribió en el buscador? Consulta vacía = sí.
+ *
+ *  Es la ÚNICA regla de búsqueda de usuarios del sistema: la usan la lista de
+ *  Usuarios y la edición masiva. Dos caminos, y basta con que uno acierte:
+ *    1. el texto normalizado (sin tildes ni mayúsculas) contra todo lo buscable;
+ *    2. si lo escrito trae dígitos, esos dígitos contra la cédula y el usuario,
+ *       para que "V-27.514.385" y "27514385" encuentren a la misma persona.
+ */
+export function coincideUsuario(u: UsuarioBulk, consulta: string, roles?: RolApp[] | null): boolean {
+  const q = norm(String(consulta ?? '').trim());
+  if (!q) return true;
+  if (norm(textoBuscableDe(u, roles)).includes(q)) return true;
+  const digitos = soloDigitos(consulta);
+  if (!digitos) return false;
+  return soloDigitos(u.cedula).includes(digitos) || soloDigitos(u.username).includes(digitos);
+}
+
 /** Filtra por texto libre Y por los grupos de rol marcados.
  *  Grupos vacío = todos los roles. Texto vacío = todos los usuarios. */
 export function filtrarUsuarios(
   usuarios: UsuarioBulk[],
   opts: { q?: string; roles?: Set<ClaveRol>; appRoles?: RolApp[] | null }
 ): UsuarioBulk[] {
-  const q = norm((opts.q ?? '').trim());
+  const consulta = String(opts.q ?? '');
   const gruposSel = opts.roles ?? new Set<ClaveRol>();
   return usuarios.filter((u) => {
     if (gruposSel.size > 0 && !gruposSel.has(claveRolDe(u))) return false;
-    if (!q) return true;
-    return norm(textoBuscableDe(u, opts.appRoles)).includes(q);
+    return coincideUsuario(u, consulta, opts.appRoles);
   });
 }
 
