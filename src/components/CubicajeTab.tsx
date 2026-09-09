@@ -1,34 +1,49 @@
 // SUB-PESTAÑA «CUBICAJE Y REPORTE VOLUMÉTRICO» (09-sep-2026).
 //
 // Vive dentro del panel de la jefa de «Ruta de viajes de camiones». Mide la
-// tolva de cada volqueta, saca los indicadores de la flota y decide cuántos m³
-// se le cargan a los viajes de un día o de un rango.
+// tolva de cada volqueta, guarda los m³ que cargó cada camión día por día, y
+// deja buscar ese histórico por día, por mes o por camión.
 //
-// ⚠️ NO ESCRIBE NADA EN LA BASE. El catálogo (`machinery`) se lee y punto: acá
-//    no hay un solo insert, update ni delete contra él. Las medidas se guardan
-//    en ESTE teléfono (AsyncStorage), igual que el umbral de alerta de otras
-//    pantallas. Consecuencia que hay que decir en voz alta: lo que mida una
-//    persona NO lo ve otra, y si se limpian los datos del navegador se pierden.
-//    Es el precio de no tocar el backend, y fue el pedido.
+// ⚠️ EL CATÁLOGO DE VEHÍCULOS SE LEE Y NADA MÁS. Acá no hay un solo insert,
+//    update ni delete contra `machinery`. Lo que se escribe son DOS TABLAS
+//    NUEVAS (`camion_cubicaje` y `camion_cubicaje_carga`), creadas por
+//    `03_cubicaje_camiones.sql`, que está fuera del repositorio porque es
+//    público.
 //
-// La matemática y las reglas están en src/lib/cubicaje.ts (puro, con pruebas en
-// scripts/test-cubicaje.mjs). Acá solo hay pantalla.
+// ⚠️ Y TIENE QUE FUNCIONAR ANTES DE QUE ESE SQL SE CORRA. Si las tablas no
+//    existen, todo sigue como al principio: las medidas se guardan en este
+//    dispositivo y la pantalla lo AVISA. Nunca se queda en blanco.
+//
+// Las volquetas medidas A MANO se quedan siempre en el dispositivo, incluso con
+// el SQL corrido: la tabla se indexa por el camión del catálogo, y una unidad
+// que no está en el catálogo no tiene con qué indexarse. Es la misma regla del
+// camión «fuera de catálogo» del registro de viajes.
+//
+// La matemática vive en src/lib/cubicaje.ts y el PDF en
+// src/lib/reporteVolumetrico.ts, los dos puros y con pruebas propias.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Card, SectionTitle } from './ui';
+import { Card, SectionTitle, Loading } from './ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { useToast } from './ToastProvider';
+import { useConfirm } from './ConfirmProvider';
+import { exportPdf } from '../lib/pdf';
 import {
-  Medida, ModoVolumen, MODOS, OpcionesReporte, OPCIONES_POR_DEFECTO,
+  Medida, ModoVolumen, MODOS, OpcionesReporte, OPCIONES_POR_DEFECTO, VolumenDetalle,
   volumenDe, kpis, clasificar, etiquetaClase, CLASES, esUnidadOculta, num, m3Texto, dimsTexto,
+  filasParaGuardar, claveCarga, CargaMin, CargaHist, EjeHistorico, EJES_HISTORICO,
+  agruparHistorico, totalCargas, segmentoDe, fechaCorta,
 } from '../lib/cubicaje';
+import {
+  listarMedidas, guardarMedida, borrarMedida, listarCargas, guardarCargas, borrarCargas,
+  AVISO_SIN_SQL, type CargaGuardada,
+} from '../lib/cubicajeDatos';
+import { reporteVolumetricoHtml, type UnidadReporte } from '../lib/reporteVolumetrico';
 
 const CLAVE_MEDIDAS = 'cubicaje.medidas.v1';
 
-/** Lo mínimo que necesita el cubicaje de un camión del catálogo. Se pide así, y
- *  no el tipo entero de la pantalla, para que este componente no dependa de
- *  cómo esté armada `ViajesCamionesScreen`. */
 export type CamionCubicaje = {
   id: string;
   code: string;
@@ -39,11 +54,16 @@ export type CamionCubicaje = {
   companyName: string;
 };
 
+export type RangoCubicaje = { desde: string; hasta: string; etiqueta: string };
+
 export type CubicajeState = {
   medidas: Medida[];
   porTruck: Map<string, Medida>;
-  guardar: (m: Medida) => void;
-  borrar: (id: string) => void;
+  cargando: boolean;
+  /** Falta correr el SQL: se trabaja en modo dispositivo y se dice. */
+  sinTabla: boolean;
+  guardar: (m: Medida) => Promise<void>;
+  borrar: (m: Medida) => Promise<void>;
   modo: ModoVolumen;
   setModo: (m: ModoVolumen) => void;
   totalGlobal: string;
@@ -54,82 +74,147 @@ export type CubicajeState = {
   setOp: (k: keyof OpcionesReporte, v: boolean) => void;
   mostrarOcultas: boolean;
   setMostrarOcultas: (v: boolean) => void;
+  /** Lo ya guardado en la base para el rango que se está viendo. */
+  cargas: CargaGuardada[];
+  guardadas: Map<string, CargaMin>;
+  recargarCargas: (desde: string, hasta: string) => Promise<void>;
+  uid: string | null;
 };
 
 /**
  * Todo el estado del cubicaje, en un solo objeto.
  *
- * Va en un hook —y no dentro del componente— porque el REPORTE lo necesita
- * también, y vive en otra sub-pestaña. Con el estado adentro, cambiar de
- * pestaña desmontaría el componente y se perderían las medidas justo antes de
- * exportar.
+ * Va en un hook —y no dentro del componente— porque el REPORTE de la otra
+ * sub-pestaña lo necesita igual. Con el estado adentro, cambiar de pestaña
+ * desmontaría el componente y se perdería justo antes de exportar.
  */
-export function useCubicaje(): CubicajeState {
-  const [medidas, setMedidas] = useState<Medida[]>([]);
+export function useCubicaje(uid: string | null): CubicajeState {
+  const [deLaBase, setDeLaBase] = useState<Medida[]>([]);
+  const [locales, setLocales] = useState<Medida[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [sinTabla, setSinTabla] = useState(false);
   const [modo, setModo] = useState<ModoVolumen>('tolva');
   const [totalGlobal, setTotalGlobal] = useState('');
   const [manual, setManualMap] = useState<Record<string, string>>({});
   const [op, setOpMap] = useState<OpcionesReporte>(OPCIONES_POR_DEFECTO);
   const [mostrarOcultas, setMostrarOcultas] = useState(false);
-  const [cargado, setCargado] = useState(false);
+  const [cargas, setCargas] = useState<CargaGuardada[]>([]);
+  const [leidoLocal, setLeidoLocal] = useState(false);
 
+  // Las medidas del DISPOSITIVO. Siempre se leen: guardan las unidades medidas
+  // a mano (que no tienen ficha) y son el respaldo si falta correr el SQL.
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(CLAVE_MEDIDAS);
         if (raw) {
           const v = JSON.parse(raw);
-          if (Array.isArray(v)) setMedidas(v.filter((x) => x && typeof x.id === 'string'));
+          if (Array.isArray(v)) setLocales(v.filter((x) => x && typeof x.id === 'string'));
         }
       } catch {}
-      // ⚠️ La bandera se levanta pase lo que pase. Si se quedara abajo tras un
-      //    error de lectura, el efecto de guardar no correría nunca y las
-      //    medidas nuevas se perderían al recargar, en silencio.
-      setCargado(true);
+      // La bandera se levanta pase lo que pase: si se quedara abajo tras un
+      // error de lectura, el efecto de guardar no correría nunca y lo medido
+      // después se perdería al recargar, en silencio.
+      setLeidoLocal(true);
     })();
   }, []);
 
-  // Solo DESPUÉS de haber leído: si no, el primer render (con la lista vacía)
-  // pisaría en el disco las medidas que ya había.
   useEffect(() => {
-    if (!cargado) return;
-    AsyncStorage.setItem(CLAVE_MEDIDAS, JSON.stringify(medidas)).catch(() => {});
-  }, [medidas, cargado]);
+    if (!leidoLocal) return;
+    AsyncStorage.setItem(CLAVE_MEDIDAS, JSON.stringify(locales)).catch(() => {});
+  }, [locales, leidoLocal]);
 
-  const guardar = useCallback((m: Medida) => {
-    setMedidas((prev) => {
+  const recargarMedidas = useCallback(async () => {
+    setCargando(true);
+    const { rows, missing } = await listarMedidas();
+    setSinTabla(missing);
+    setDeLaBase(missing ? [] : rows.map((r) => ({
+      id: r.machinery_id,
+      truckId: r.machinery_id,
+      ident: r.ident,
+      marca: r.marca ?? '',
+      modelo: r.modelo ?? '',
+      alto: Number(r.alto), largo: Number(r.largo), ancho: Number(r.ancho),
+    })));
+    setCargando(false);
+  }, []);
+
+  useEffect(() => { recargarMedidas(); }, [recargarMedidas]);
+
+  const recargarCargas = useCallback(async (desde: string, hasta: string) => {
+    if (!desde || !hasta || desde > hasta) { setCargas([]); return; }
+    const { rows } = await listarCargas({ desde, hasta });
+    setCargas(rows);
+  }, []);
+
+  /**
+   * ⚠️ Con el SQL corrido, una medida de un camión DEL CATÁLOGO va a la base y
+   *    NO al dispositivo. Si fuera a los dos, al corregirla en otra computadora
+   *    la copia vieja de este navegador seguiría apareciendo y ganándole.
+   */
+  const guardar = useCallback(async (m: Medida) => {
+    if (m.truckId && !sinTabla) {
+      const r = await guardarMedida({
+        machinery_id: m.truckId, ident: m.ident, marca: m.marca, modelo: m.modelo,
+        alto: m.alto, largo: m.largo, ancho: m.ancho,
+      }, uid);
+      if (r.missing) setSinTabla(true);
+      if (!r.error) { await recargarMedidas(); return; }
+      if (!r.missing) throw new Error(r.error);
+    }
+    setLocales((prev) => {
       const i = prev.findIndex((x) => x.id === m.id);
       if (i >= 0) { const n = prev.slice(); n[i] = m; return n; }
       return [...prev, m];
     });
-  }, []);
+  }, [sinTabla, uid, recargarMedidas]);
 
-  const borrar = useCallback((id: string) => setMedidas((prev) => prev.filter((x) => x.id !== id)), []);
+  const borrar = useCallback(async (m: Medida) => {
+    if (m.truckId && !sinTabla) {
+      const r = await borrarMedida(m.truckId);
+      if (!r.error) { await recargarMedidas(); return; }
+      if (!r.missing) throw new Error(r.error);
+    }
+    setLocales((prev) => prev.filter((x) => x.id !== m.id));
+  }, [sinTabla, recargarMedidas]);
+
   const setManual = useCallback((k: string, v: string) => setManualMap((p) => ({ ...p, [k]: v })), []);
   const setOp = useCallback((k: keyof OpcionesReporte, v: boolean) => setOpMap((p) => ({ ...p, [k]: v })), []);
 
-  // Una sola medida por camión del catálogo: la última que se guardó manda.
+  // La de la base gana sobre la del dispositivo para el mismo camión: es la
+  // compartida, y tener dos verdades del mismo camión es peor que no tener.
+  const medidas = useMemo(() => {
+    const ids = new Set(deLaBase.map((m) => m.truckId));
+    return [...deLaBase, ...locales.filter((m) => !m.truckId || !ids.has(m.truckId))];
+  }, [deLaBase, locales]);
+
   const porTruck = useMemo(() => {
     const m = new Map<string, Medida>();
     for (const x of medidas) if (x.truckId) m.set(x.truckId, x);
     return m;
   }, [medidas]);
 
-  return { medidas, porTruck, guardar, borrar, modo, setModo, totalGlobal, setTotalGlobal,
-    manual, setManual, op, setOp, mostrarOcultas, setMostrarOcultas };
+  const guardadas = useMemo(() => {
+    const m = new Map<string, CargaMin>();
+    for (const c of cargas) m.set(claveCarga(c.machinery_id, String(c.jornada).slice(0, 10)), { m3: Number(c.m3), viajes: Number(c.viajes) });
+    return m;
+  }, [cargas]);
+
+  return {
+    medidas, porTruck, cargando, sinTabla, guardar, borrar,
+    modo, setModo, totalGlobal, setTotalGlobal, manual, setManual, op, setOp,
+    mostrarOcultas, setMostrarOcultas, cargas, guardadas, recargarCargas, uid,
+  };
 }
 
 // ── Piezas de pantalla ──────────────────────────────────────────────────────
 
-/** Interruptor de un solo toque. Sin `Switch` de react-native a propósito: en
- *  web se pinta distinto en cada navegador y esta pantalla se usa en las dos. */
+/** Interruptor de un toque. Sin `Switch` de react-native a propósito: en web se
+ *  pinta distinto en cada navegador y esta pantalla se usa en los dos. */
 export function Toggle({ on, label, onPress, ayuda }: { on: boolean; label: string; onPress: () => void; ayuda?: string }) {
   const { colors } = useTheme();
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 5 }}
-    >
+    <TouchableOpacity onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 5 }}>
       <View style={{ width: 38, height: 22, borderRadius: 11, padding: 2, backgroundColor: on ? colors.brand : colors.border, justifyContent: 'center' }}>
         <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: on ? 'flex-end' : 'flex-start' }} />
       </View>
@@ -155,14 +240,21 @@ function Kpi({ ico, titulo, valor }: { ico: string; titulo: string; valor: strin
 const MANUAL = '__manual__';
 
 export function CubicajeTab({
-  cub, trucks, viajesPorCamion,
+  cub, trucks, viajesPorCamion, viajesPorDia, rango, volumen,
 }: {
   cub: CubicajeState;
   trucks: CamionCubicaje[];
-  /** Cuántos viajes tiene cada camión en el rango que hay filtrado arriba. */
+  /** Viajes de cada camión en el rango filtrado arriba. */
   viajesPorCamion: Map<string, number>;
+  /** Los mismos viajes, abiertos por jornada: camión → jornada → cuántos. */
+  viajesPorDia: Map<string, Map<string, number>>;
+  rango: RangoCubicaje;
+  /** Lo que va a salir impreso, ya con lo guardado mandando sobre lo calculado. */
+  volumen: Map<string, VolumenDetalle>;
 }) {
   const { colors } = useTheme();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [sel, setSel] = useState<string>('');
   const [busca, setBusca] = useState('');
   const [ident, setIdent] = useState('');
@@ -172,15 +264,27 @@ export function CubicajeTab({
   const [largo, setLargo] = useState('');
   const [ancho, setAncho] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [eje, setEje] = useState<EjeHistorico>('dia');
+  const [buscaHist, setBuscaHist] = useState('');
+  const [segmentado, setSegmentado] = useState(true);
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 13 } as const;
 
-  // El catálogo, con la unidad apartada fuera salvo que se pida verla.
+  // Cada vez que cambia el rango de arriba, se relee el histórico de ese rango.
+  useEffect(() => { cub.recargarCargas(rango.desde, rango.hasta); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rango.desde, rango.hasta]);
+
   const visibles = useMemo(
     () => trucks.filter((t) => cub.mostrarOcultas || !esUnidadOculta(t.code, t.marca, t.modelo, t.plate, t.companyName)),
     [trucks, cub.mostrarOcultas]
   );
   const ocultas = trucks.length - visibles.length;
+  const nombreOculta = useMemo(
+    () => trucks.filter((t) => esUnidadOculta(t.code, t.marca, t.modelo, t.plate, t.companyName)).map((t) => t.code),
+    [trucks]
+  );
 
   const opciones = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -208,24 +312,35 @@ export function CubicajeTab({
     setAncho(ya ? String(ya.ancho) : '');
   };
 
-  const m3Vivo = volumenDe({ alto: num(alto), largo: num(largo), ancho: num(ancho) });
-  const puedeGuardar = !!sel && m3Vivo > 0 && (sel !== MANUAL || ident.trim().length > 0);
-
-  const guardar = () => {
-    if (!puedeGuardar) return;
-    cub.guardar({
-      id: editId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      truckId: sel === MANUAL ? null : sel,
-      ident: ident.trim() || 'Sin identificar',
-      marca: marca.trim(),
-      modelo: modelo.trim(),
-      alto: num(alto), largo: num(largo), ancho: num(ancho),
-    });
+  const limpiar = () => {
     setSel(''); setEditId(null);
     setIdent(''); setMarca(''); setModelo(''); setAlto(''); setLargo(''); setAncho('');
   };
 
-  // La flota que se está viendo: las medidas de camiones visibles + las manuales.
+  const m3Vivo = volumenDe({ alto: num(alto), largo: num(largo), ancho: num(ancho) });
+  const puedeGuardar = !!sel && m3Vivo > 0 && (sel !== MANUAL || ident.trim().length > 0) && !ocupado;
+
+  const guardar = async () => {
+    if (!puedeGuardar) return;
+    setOcupado(true);
+    try {
+      await cub.guardar({
+        id: editId ?? (sel === MANUAL ? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : sel),
+        truckId: sel === MANUAL ? null : sel,
+        ident: ident.trim() || 'Sin identificar',
+        marca: marca.trim(),
+        modelo: modelo.trim(),
+        alto: num(alto), largo: num(largo), ancho: num(ancho),
+      });
+      toast.success(cub.sinTabla ? 'Medida guardada en este dispositivo.' : 'Medida guardada.');
+      limpiar();
+    } catch (e: any) {
+      toast.error(`No se pudo guardar: ${String(e?.message ?? e)}`);
+    } finally {
+      setOcupado(false);
+    }
+  };
+
   const idsVisibles = useMemo(() => new Set(visibles.map((t) => t.id)), [visibles]);
   const medidasVistas = useMemo(
     () => cub.medidas.filter((m) => !m.truckId || idsVisibles.has(m.truckId)),
@@ -234,58 +349,155 @@ export function CubicajeTab({
   const k = useMemo(() => kpis(medidasVistas.map(volumenDe)), [medidasVistas]);
 
   /**
-   * A quién se le puede escribir un total a mano.
-   *
-   * ⚠️ A TODO camión CON VIAJES en el rango, esté medido o no. Si la lista
-   *    saliera solo de lo medido, para poder anotarle 40 m³ a un camión habría
-   *    que inventarle antes unas medidas de tolva que nadie tomó — y esas
-   *    medidas falsas se quedarían luego en los indicadores de la flota.
+   * A quién se le puede escribir un total a mano: a TODO camión con viajes en
+   * el rango, medido o no. Si la lista saliera solo de lo medido, para anotarle
+   * 40 m³ a un camión habría que inventarle antes unas medidas de tolva que
+   * nadie tomó, y esas medidas falsas se quedarían en los indicadores.
    */
-  const asignables = useMemo(() => {
-    const lista = visibles
-      .filter((t) => (viajesPorCamion.get(t.id) ?? 0) > 0)
-      .map((t) => {
-        const md = cub.porTruck.get(t.id);
-        return {
-          id: t.id,
-          nombre: md?.ident || `${t.code}${t.plate ? ` · ${t.plate}` : ''}`,
-          viajes: viajesPorCamion.get(t.id) ?? 0,
-          medido: !!md,
-        };
-      });
-    return lista.sort((a, b) => b.viajes - a.viajes);
-  }, [visibles, viajesPorCamion, cub.porTruck]);
+  const asignables = useMemo(() => visibles
+    .filter((t) => (viajesPorCamion.get(t.id) ?? 0) > 0)
+    .map((t) => ({
+      id: t.id,
+      nombre: cub.porTruck.get(t.id)?.ident || `${t.code}${t.plate ? ` · ${t.plate}` : ''}`,
+      viajes: viajesPorCamion.get(t.id) ?? 0,
+      medido: cub.porTruck.has(t.id),
+    }))
+    .sort((a, b) => b.viajes - a.viajes),
+    [visibles, viajesPorCamion, cub.porTruck]);
 
-  const totalViajes = useMemo(() => {
-    let s = 0;
-    medidasVistas.forEach((m) => { if (m.truckId) s += viajesPorCamion.get(m.truckId) ?? 0; });
-    return s;
-  }, [medidasVistas, viajesPorCamion]);
+  const totalViajes = asignables.reduce((a, b) => a + b.viajes, 0);
+
+  // ── GUARDAR EL CÁLCULO DEL RANGO ─────────────────────────────────────────
+  const porViaje = useMemo(() => {
+    const m = new Map<string, number>();
+    volumen.forEach((v, id) => m.set(id, v.porViaje));
+    return m;
+  }, [volumen]);
+
+  const paraGuardar = useMemo(() => filasParaGuardar(porViaje, viajesPorDia), [porViaje, viajesPorDia]);
+  const conVolumen = paraGuardar.filter((f) => f.m3 > 0).length;
+
+  const nombreDe = (id: string) => {
+    const t = trucks.find((x) => x.id === id);
+    return cub.porTruck.get(id)?.ident || (t ? `${t.code}${t.plate ? ` · ${t.plate}` : ''}` : id);
+  };
+
+  const guardarRango = async () => {
+    if (cub.sinTabla) { toast.error(AVISO_SIN_SQL); return; }
+    if (!conVolumen) { toast.error('No hay ningún volumen que guardar en este rango. Mide las tolvas o escribe los totales.'); return; }
+    const ok = await confirm({
+      title: 'Guardar el cubicaje del rango',
+      message: `Se guardan ${conVolumen} día(s) de camión con su volumen, en ${rango.etiqueta}. `
+        + 'Si ya había algo guardado para esos mismos días, SE REEMPLAZA. Lo guardado es lo que sale en los reportes de aquí en adelante.',
+      confirmText: 'Guardar',
+    });
+    if (!ok) return;
+    setOcupado(true);
+    const r = await guardarCargas(paraGuardar.filter((f) => f.m3 > 0).map((f) => ({
+      machinery_id: f.machinery_id,
+      machine_code: nombreDe(f.machinery_id),
+      jornada: f.jornada,
+      m3: f.m3,
+      viajes: f.viajes,
+      modo: cub.modo,
+    })), cub.uid);
+    setOcupado(false);
+    if (r.error) { toast.error(`Se guardaron ${r.guardadas} y falló el resto: ${r.error}`); }
+    else toast.success(`Guardado: ${r.guardadas} día(s) de camión.`);
+    await cub.recargarCargas(rango.desde, rango.hasta);
+  };
+
+  // ── EL HISTÓRICO ─────────────────────────────────────────────────────────
+  const histFilas = useMemo<CargaHist[]>(() => {
+    const q = buscaHist.trim().toLowerCase();
+    return cub.cargas
+      .map((c) => ({
+        machinery_id: c.machinery_id,
+        machine_code: c.machine_code,
+        jornada: String(c.jornada).slice(0, 10),
+        m3: Number(c.m3) || 0,
+        viajes: Number(c.viajes) || 0,
+      }))
+      .filter((c) => !q || c.machine_code.toLowerCase().includes(q));
+  }, [cub.cargas, buscaHist]);
+
+  const grupos = useMemo(() => agruparHistorico(histFilas, eje), [histFilas, eje]);
+  const totalHist = useMemo(() => totalCargas(histFilas), [histFilas]);
+
+  const borrarDia = async (machinery_id: string, jornada: string) => {
+    const fila = cub.cargas.find((c) => c.machinery_id === machinery_id && String(c.jornada).slice(0, 10) === jornada);
+    if (!fila) return;
+    const ok = await confirm({
+      title: 'Borrar el volumen de ese día',
+      message: `${nombreDe(machinery_id)} · ${fechaCorta(jornada)}. Vuelve a calcularse solo, con el modo que tengas puesto.`,
+      confirmText: 'Borrar',
+      danger: true,
+    });
+    if (!ok) return;
+    const r = await borrarCargas([fila.id]);
+    if (r.error) { toast.error(r.error); return; }
+    toast.success('Borrado.');
+    await cub.recargarCargas(rango.desde, rango.hasta);
+  };
+
+  // ── EL REPORTE VOLUMÉTRICO ───────────────────────────────────────────────
+  const exportarReporte = async () => {
+    if (!medidasVistas.length) { toast.error('No hay ninguna unidad medida. Mide al menos una tolva.'); return; }
+    setOcupado(true);
+    try {
+      const unidades: UnidadReporte[] = medidasVistas
+        .map((m) => ({
+          ident: m.ident,
+          marca: m.marca, modelo: m.modelo,
+          alto: m.alto, largo: m.largo, ancho: m.ancho,
+          m3: volumenDe(m),
+          segmento: segmentoDe(m.ident, m.marca, m.modelo),
+        }))
+        .filter((u) => u.m3 > 0);
+      const html = reporteVolumetricoHtml({
+        fechaEmision: new Date().toLocaleDateString('es-VE'),
+        configuracion: segmentado
+          ? `Flota Segmentada por Tipo de Equipo${ocultas > 0 && !cub.mostrarOcultas ? ' (Sin Carbozulia)' : ''}`
+          : `Flota completa, ${unidades.length} vehículos / configuraciones`,
+        unidades,
+        segmentado,
+        excluidas: cub.mostrarOcultas ? [] : nombreOculta,
+        cargas: histFilas.length ? { eje, grupos, total: totalHist, rango: rango.etiqueta } : null,
+      });
+      await exportPdf(html, `Analisis volumetrico de flota ${rango.desde}`);
+    } catch (e: any) {
+      toast.error(`No se pudo generar el reporte: ${String(e?.message ?? e)}`);
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  if (cub.cargando) return <Card><Loading /></Card>;
 
   return (
     <>
+      {cub.sinTabla ? (
+        <Card>
+          <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>⏳ Falta correr el SQL</Text>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>{AVISO_SIN_SQL}</Text>
+        </Card>
+      ) : null}
+
       <Card>
         <SectionTitle>📐 Medir una volqueta</SectionTitle>
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-          Las medidas se guardan <Text style={{ fontWeight: '800' }}>en este dispositivo</Text>. No se agregan al catálogo
-          de vehículos ni las ve otra persona: este apartado lee el catálogo, nunca lo modifica.
+          {cub.sinTabla
+            ? 'Por ahora las medidas se guardan en este dispositivo y no las ve otra persona.'
+            : 'Las medidas quedan guardadas para todos. Este apartado lee el catálogo de vehículos y nunca lo modifica.'}
         </Text>
 
         <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>¿QUÉ UNIDAD?</Text>
-        <TextInput
-          value={busca}
-          onChangeText={setBusca}
-          placeholder="Buscar por código, placa, marca…"
-          placeholderTextColor={colors.muted}
-          style={[input, { marginTop: 4 }]}
-        />
+        <TextInput value={busca} onChangeText={setBusca} placeholder="Buscar por código, placa, marca…" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
         <TouchableOpacity
           onPress={() => elegir(null)}
           style={{ marginTop: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: sel === MANUAL ? colors.brand : colors.border, backgroundColor: sel === MANUAL ? colors.brand : colors.surface, padding: spacing.sm }}
         >
-          <Text style={{ color: sel === MANUAL ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
-            ➕ Medir nueva volqueta (manual)
-          </Text>
+          <Text style={{ color: sel === MANUAL ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>➕ Medir nueva volqueta (manual)</Text>
         </TouchableOpacity>
 
         <ScrollView style={{ maxHeight: 190, marginTop: spacing.xs }} nestedScrollEnabled>
@@ -313,9 +525,7 @@ export function CubicajeTab({
               </TouchableOpacity>
             );
           })}
-          {opciones.length === 0 ? (
-            <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Ningún camión con esa búsqueda.</Text>
-          ) : null}
+          {opciones.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Ningún camión con esa búsqueda.</Text> : null}
         </ScrollView>
 
         {ocultas > 0 || cub.mostrarOcultas ? (
@@ -330,16 +540,16 @@ export function CubicajeTab({
         {sel ? (
           <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>IDENTIFICADOR {sel === MANUAL ? '*' : ''}</Text>
-            <TextInput value={ident} onChangeText={setIdent} placeholder="VOLQUETA 12" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
+            <TextInput value={ident} onChangeText={setIdent} placeholder="Volteo Toronto Iveco Trakker" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>MARCA</Text>
-                <TextInput value={marca} onChangeText={setMarca} placeholder="Mack" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
+                <TextInput value={marca} onChangeText={setMarca} placeholder="Iveco" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>MODELO</Text>
-                <TextInput value={modelo} onChangeText={setModelo} placeholder="Granite" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
+                <TextInput value={modelo} onChangeText={setModelo} placeholder="Trakker" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
               </View>
             </View>
 
@@ -347,39 +557,24 @@ export function CubicajeTab({
               {([['Alto (m)', alto, setAlto], ['Largo (m)', largo, setLargo], ['Ancho (m)', ancho, setAncho]] as const).map(([lab, val, set]) => (
                 <View key={lab} style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>{lab}</Text>
-                  <TextInput
-                    value={val}
-                    onChangeText={set as (v: string) => void}
-                    keyboardType="decimal-pad"
-                    placeholder="0,00"
-                    placeholderTextColor={colors.muted}
-                    style={[input, { marginTop: 4, textAlign: 'center' }]}
-                  />
+                  <TextInput value={val} onChangeText={set as (v: string) => void} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={colors.muted} style={[input, { marginTop: 4, textAlign: 'center' }]} />
                 </View>
               ))}
             </View>
 
-            {/* El resultado se calcula mientras se escribe: si sale un número que
-                no tiene sentido, se ve ANTES de guardarlo. */}
+            {/* El resultado se calcula mientras se escribe: si sale un número
+                que no tiene sentido, se ve ANTES de guardarlo. */}
             <View style={{ marginTop: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: m3Vivo > 0 ? colors.brand : colors.border, padding: spacing.sm, alignItems: 'center' }}>
               <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 22 }}>{m3Vivo > 0 ? m3Vivo.toFixed(2) : '—'} m³</Text>
-              <Text style={{ color: colors.muted, fontSize: 11 }}>
-                {m3Vivo > 0 ? etiquetaClase(m3Vivo) : 'Escribe alto, largo y ancho'}
-              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>{m3Vivo > 0 ? etiquetaClase(m3Vivo) : 'Escribe alto, largo y ancho'}</Text>
             </View>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-              <TouchableOpacity onPress={() => { setSel(''); setEditId(null); }} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+              <TouchableOpacity onPress={limpiar} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={guardar}
-                disabled={!puedeGuardar}
-                style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}
-              >
-                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
-                  {editId ? '💾 Actualizar medida' : '💾 Guardar medida'}
-                </Text>
+              <TouchableOpacity onPress={guardar} disabled={!puedeGuardar} style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{editId ? '💾 Actualizar medida' : '💾 Guardar medida'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -426,11 +621,11 @@ export function CubicajeTab({
                     </Text>
                     <Text style={{ color: colors.muted, fontSize: 10 }} numberOfLines={1}>
                       {[m.marca, m.modelo].filter(Boolean).join(' ') || 'Sin marca ni modelo'} · {dimsTexto(m)} m · {etiquetaClase(v)}
-                      {m.truckId ? ` · ${viajes} viaje(s) en el rango` : ' · medida a mano, sin viajes'}
+                      {m.truckId ? ` · ${viajes} viaje(s) en el rango` : ' · medida a mano, solo en este dispositivo'}
                     </Text>
                   </View>
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{m3Texto(v)}</Text>
-                  <TouchableOpacity onPress={() => cub.borrar(m.id)} style={{ padding: 4 }}>
+                  <TouchableOpacity onPress={() => cub.borrar(m).catch((e) => toast.error(String(e?.message ?? e)))} style={{ padding: 4 }}>
                     <Text style={{ fontSize: 14 }}>🗑️</Text>
                   </TouchableOpacity>
                 </View>
@@ -443,17 +638,13 @@ export function CubicajeTab({
       <Card>
         <SectionTitle>🧮 Cómo se le cargan los m³ a los viajes</SectionTitle>
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
-          Se aplica al <Text style={{ fontWeight: '800' }}>mismo rango de fechas</Text> que tengas puesto en «Lista completa de
-          viajes»: un día, varios días sueltos o un rango. Ahí hay {totalViajes} viaje(s) de unidades medidas.
+          Se aplica al <Text style={{ fontWeight: '800' }}>mismo rango</Text> que tengas en «Lista completa de viajes»
+          ({rango.etiqueta}). Ahí hay {totalViajes} viaje(s) de unidades del catálogo.
         </Text>
         {MODOS.map((m) => {
           const on = cub.modo === m.key;
           return (
-            <TouchableOpacity
-              key={m.key}
-              onPress={() => cub.setModo(m.key)}
-              style={{ borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.surface : 'transparent', padding: spacing.sm, marginBottom: spacing.xs }}
-            >
+            <TouchableOpacity key={m.key} onPress={() => cub.setModo(m.key)} style={{ borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.surface : 'transparent', padding: spacing.sm, marginBottom: spacing.xs }}>
               <Text style={{ color: on ? colors.brandText : colors.text, fontWeight: '800', fontSize: 12 }}>{m.label}</Text>
               <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>{m.ayuda}</Text>
             </TouchableOpacity>
@@ -463,16 +654,9 @@ export function CubicajeTab({
         {cub.modo === 'proporcional' ? (
           <View style={{ marginTop: spacing.xs }}>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>TOTAL DE m³ DEL RANGO</Text>
-            <TextInput
-              value={cub.totalGlobal}
-              onChangeText={cub.setTotalGlobal}
-              keyboardType="decimal-pad"
-              placeholder="0,00"
-              placeholderTextColor={colors.muted}
-              style={[input, { marginTop: 4 }]}
-            />
+            <TextInput value={cub.totalGlobal} onChangeText={cub.setTotalGlobal} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
             <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
-              Se reparte entre los camiones según cuántos viajes hizo cada uno en el rango. Sin viajes en el rango, todos quedan en cero.
+              Se reparte entre los camiones según cuántos viajes hizo cada uno. Sin viajes en el rango, todos quedan en cero.
             </Text>
           </View>
         ) : null}
@@ -485,41 +669,138 @@ export function CubicajeTab({
                 <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.text, fontSize: 12 }} numberOfLines={1}>{a.nombre}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 10 }}>
-                      {a.viajes} viaje(s){a.medido ? '' : ' · sin medir'}
-                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 10 }}>{a.viajes} viaje(s){a.medido ? '' : ' · sin medir'}</Text>
                   </View>
-                  <TextInput
-                    value={cub.manual[a.id] ?? ''}
-                    onChangeText={(v) => cub.setManual(a.id, v)}
-                    keyboardType="decimal-pad"
-                    placeholder="0,00"
-                    placeholderTextColor={colors.muted}
-                    style={[input, { width: 92, paddingVertical: 6, textAlign: 'center' }]}
-                  />
+                  <TextInput value={cub.manual[a.id] ?? ''} onChangeText={(v) => cub.setManual(a.id, v)} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={colors.muted} style={[input, { width: 92, paddingVertical: 6, textAlign: 'center' }]} />
                 </View>
               ))}
               {asignables.length === 0 ? (
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  Ningún camión tiene viajes en el rango que hay puesto en «Lista completa de viajes».
-                </Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Ningún camión tiene viajes en el rango que hay puesto arriba.</Text>
               ) : null}
             </ScrollView>
           </View>
         ) : null}
 
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
-          Para que los m³ salgan impresos, enciende «Metros cúbicos» en <Text style={{ fontWeight: '800' }}>🖨️ Qué sale en el
-          reporte</Text>, dentro de la pestaña 🚛 Viajes, y exporta desde ahí.
+        {/* ⭐ GUARDAR ES LO QUE HACE QUE SE PUEDA BUSCAR DESPUÉS. Sin esto, el
+            número se recalcula cada vez y no hay histórico que consultar. */}
+        <TouchableOpacity
+          onPress={guardarRango}
+          disabled={ocupado || cub.sinTabla}
+          style={{ marginTop: spacing.sm, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, opacity: ocupado || cub.sinTabla ? 0.5 : 1 }}
+        >
+          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
+            💾 Guardar el cubicaje de este rango ({conVolumen} día(s) de camión)
+          </Text>
+        </TouchableOpacity>
+        <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
+          Guardar CONGELA estos números por día. Lo guardado manda sobre el cálculo en todos los reportes, para que un
+          mes viejo salga siempre igual aunque después se cambie el modo o se corrija una medida.
         </Text>
+      </Card>
+
+      <Card>
+        <SectionTitle>🔎 Buscar en el histórico</SectionTitle>
+        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+          Sale de lo guardado, en {rango.etiqueta}. Para cambiar el período usa los botones de fecha de «Lista completa
+          de viajes» (Hoy · Esta semana · Este mes · Rango libre · Días específicos).
+        </Text>
+
+        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+          {EJES_HISTORICO.map((e) => {
+            const on = eje === e.key;
+            return (
+              <TouchableOpacity key={e.key} onPress={() => setEje(e.key)} style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingVertical: 6 }}>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{e.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <TextInput value={buscaHist} onChangeText={setBuscaHist} placeholder="Filtrar por camión…" placeholderTextColor={colors.muted} style={input} />
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+          <Kpi ico="📦" titulo="VOLUMEN" valor={totalHist.m3 > 0 ? totalHist.m3.toFixed(2) : '—'} />
+          <View style={{ flex: 1, minWidth: 96, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+            <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>🔢 VIAJES</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 18 }}>{totalHist.viajes}</Text>
+            <Text style={{ color: colors.muted, fontSize: 10 }}>{totalHist.dias} día(s) · {totalHist.camiones} camión(es)</Text>
+          </View>
+        </View>
+
+        {grupos.length === 0 ? (
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
+            {cub.sinTabla
+              ? 'Todavía no hay histórico: falta correr el SQL.'
+              : buscaHist.trim()
+                ? 'Ningún camión guardado coincide con esa búsqueda en este período.'
+                : 'No hay nada guardado en este período. Calcula arriba y toca «Guardar el cubicaje de este rango».'}
+          </Text>
+        ) : (
+          <ScrollView style={{ maxHeight: 320, marginTop: spacing.sm }} nestedScrollEnabled>
+            {grupos.map((g) => (
+              <View key={g.key} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                    {eje === 'dia' ? fechaCorta(g.label) : g.label}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 10 }}>
+                    {g.viajes} viaje(s) · {eje === 'camion' ? `${g.n} día(s)` : `${g.n} camión(es)`}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{m3Texto(g.m3)} m³</Text>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+
+        {eje === 'dia' && histFilas.length > 0 ? (
+          <ScrollView style={{ maxHeight: 220, marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }} nestedScrollEnabled>
+            <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800', marginBottom: 4 }}>DETALLE, CAMIÓN POR CAMIÓN</Text>
+            {histFilas.map((c) => (
+              <View key={`${c.machinery_id}-${c.jornada}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 5 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 11 }} numberOfLines={1}>{c.machine_code}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 10 }}>{fechaCorta(c.jornada)} · {c.viajes} viaje(s)</Text>
+                </View>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{m3Texto(c.m3)}</Text>
+                <TouchableOpacity onPress={() => borrarDia(c.machinery_id, c.jornada)} style={{ padding: 4 }}>
+                  <Text style={{ fontSize: 13 }}>🗑️</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+      </Card>
+
+      <Card>
+        <SectionTitle>📄 Reporte volumétrico de flota</SectionTitle>
+        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+          El documento de análisis técnico: tarjetas de mayor, menor y promedio, las tablas con su clasificación por
+          color, el análisis logístico y las recomendaciones. Si hay histórico guardado en el período, va incluido.
+        </Text>
+        <Toggle
+          on={segmentado}
+          onPress={() => setSegmentado(!segmentado)}
+          label={segmentado ? 'Segmentado: volteos y volquetas aparte' : 'Una sola tabla con toda la flota'}
+          ayuda="Un volteo rígido anda por 14-17 m³ y un chuto pasa de 21: mezclarlos hace que el promedio no describa a ninguno de los dos."
+        />
+        <TouchableOpacity
+          onPress={exportarReporte}
+          disabled={ocupado}
+          style={{ marginTop: spacing.sm, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, opacity: ocupado ? 0.6 : 1 }}
+        >
+          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
+            {ocupado ? 'Generando…' : '📄 Generar reporte volumétrico'}
+          </Text>
+        </TouchableOpacity>
       </Card>
     </>
   );
 }
 
-/** El panel de interruptores del reporte. Vive junto al botón de exportar —en la
- *  otra sub-pestaña— porque es ahí donde se usa: configurar en un sitio y
- *  exportar en otro es como se olvidan encendidos los filtros. */
+/** El panel de interruptores del reporte de VIAJES. Vive junto al botón de
+ *  exportar de la otra sub-pestaña porque es ahí donde se usa: configurar en un
+ *  sitio y exportar en otro es como se quedan encendidos los filtros. */
 export function OpcionesReporteBox({
   op, setOp, modoResumen, aviso,
 }: {
@@ -530,7 +811,7 @@ export function OpcionesReporteBox({
 }) {
   const { colors } = useTheme();
   const [abierto, setAbierto] = useState(false);
-  const encendidas = (Object.keys(OPCIONES_POR_DEFECTO) as (keyof OpcionesReporte)[])
+  const cambiadas = (Object.keys(OPCIONES_POR_DEFECTO) as (keyof OpcionesReporte)[])
     .filter((k) => op[k] !== OPCIONES_POR_DEFECTO[k]).length;
 
   const filas: { k: keyof OpcionesReporte; label: string; ayuda?: string }[] = [
@@ -550,7 +831,7 @@ export function OpcionesReporteBox({
     <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
       <TouchableOpacity onPress={() => setAbierto((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, flex: 1 }}>
-          🖨️ Qué sale en el reporte{encendidas > 0 ? ` · ${encendidas} cambio(s)` : ''}
+          🖨️ Qué sale en el reporte{cambiadas > 0 ? ` · ${cambiadas} cambio(s)` : ''}
         </Text>
         <Text style={{ color: colors.muted, fontSize: 12 }}>{abierto ? '▲' : '▼'}</Text>
       </TouchableOpacity>
@@ -564,9 +845,7 @@ export function OpcionesReporteBox({
           </Text>
         </View>
       ) : null}
-      {aviso ? (
-        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>{aviso}</Text>
-      ) : null}
+      {aviso ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>{aviso}</Text> : null}
     </View>
   );
 }
