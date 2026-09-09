@@ -75,3 +75,52 @@ export function quitarColumnas(filas: Record<string, unknown>[], columnas: strin
     return copia;
   });
 }
+
+// ── NOTA DE TRASLADO ────────────────────────────────────────────────────────
+// La nota de traslado mueve material de un lado a otro. Hasta hoy cada lado solo
+// podia ser una MAQUINA o una PERSONA; ahora tambien un VEHICULO, igual que en la
+// nota de salida. Mismo motivo: el Starlink (o cualquier material) va montado en
+// una camioneta, que vive en la tabla `vehicles`, no en `machinery`.
+
+/**
+ * Un lado del traslado (origen o destino) en UNA linea.
+ *
+ * La maquina le sigue ganando a la persona, que es como se comportaba antes; el
+ * vehiculo se SUMA en vez de competir, porque material que va a una maquina
+ * montada sobre un vehiculo son las dos cosas a la vez y ocultar una miente.
+ * Devuelve '' si no hay nada elegido, para que la pantalla ponga su propio texto
+ * de respaldo (la empresa/persona no registrada, o el guion).
+ */
+export function ladoTrasladoEnPalabras(
+  maquina: string | null | undefined,
+  vehiculo: string | null | undefined,
+  persona: string | null | undefined,
+): string {
+  const base = txt(maquina) || txt(persona);
+  const veh = txt(vehiculo);
+  if (!veh) return base;
+  return base ? base + ' \u00b7 ' + veh : veh;
+}
+
+/**
+ * Columnas de vehiculo en `inventory_transfers`. Las agrega el SQL
+ * `inventory_transfers_vehiculo.sql`, que NO vive en el repositorio (el repo es
+ * publico): esta en la carpeta de SQL pendientes que se le entrega al cliente.
+ * Sin correrlo el traslado se guarda igual y el vehiculo queda en el PDF y en el
+ * texto del movimiento; lo unico que se pierde es el vinculo consultable.
+ */
+export const PASOS_SIN_MIGRACION_TRASLADO: { archivo: string; detecta: RegExp; columnas: string[] }[] = [
+  {
+    archivo: 'inventory_transfers_vehiculo.sql (fuera del repo)',
+    // Solo /vehicle/: `inventory_transfers` tiene OTRA columna que puede faltar
+    // (to_company_name). Con un /column/ suelto se le quitaría el vehículo a un
+    // error que no es del vehículo, y volvería a fallar igual.
+    detecta: /vehicle/i,
+    columnas: ['from_vehicle_id', 'from_vehicle_label', 'to_vehicle_id', 'to_vehicle_label'],
+  },
+];
+
+/** Copia del objeto sin esas columnas (no toca el original). */
+export function quitarColumnasFila(fila: Record<string, unknown>, columnas: string[]): Record<string, unknown> {
+  return quitarColumnas([fila], columnas)[0] ?? {};
+}

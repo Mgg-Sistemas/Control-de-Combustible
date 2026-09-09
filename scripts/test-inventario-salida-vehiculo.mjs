@@ -208,9 +208,12 @@ console.log('INVENTARIO — vehículo destino en la nota de salida\n');
   ok('el encabezado muestra el vehículo elegido o "elegir…"', /🚗 Vehículo: <Text style=\{\{ color: vehicleId \? colors\.brandText : colors\.muted \}\}>\{vehicleId \? vehicleName\(vehicleId\) : 'elegir…'\}<\/Text>/.test(nota));
   ok('al generar la nota se limpia el vehículo', /setVehicleId\(''\); setVehQuery\(''\); setVehOpen\(false\);/.test(nota));
 
-  // El resto de la pantalla NO se tocó por accidente.
-  const resto = sinComentarios(scr.replace(bloque(scr, 'function NotaTab(', '\nfunction TrasladoTab('), ''));
-  ok('las otras pestañas no cargan vehicles', !/useTable<Vehicle>/.test(resto));
+  // El resto de la pantalla NO se tocó por accidente. Traslado también carga
+  // vehículos DESDE EL 09-09-2026, a propósito (test-inventario-traslado-vehiculo.mjs);
+  // fuera de esas dos pestañas no debe haber ninguno.
+  const traslado = bloque(scr, 'function TrasladoTab(', '\nfunction GastosTab(');
+  const resto = sinComentarios(scr.replace(bloque(scr, 'function NotaTab(', '\nfunction TrasladoTab('), '').replace(traslado, ''));
+  ok('las demás pestañas no cargan vehicles', !/useTable<Vehicle>/.test(resto));
   ok('la pantalla importa la librería', /from '\.\.\/lib\/salidaVehiculo'/.test(scr));
 }
 

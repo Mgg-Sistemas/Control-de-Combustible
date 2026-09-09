@@ -2398,8 +2398,9 @@ escritura en Compras (o Inventario).
 
 **🔁 Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Tiene dos vistas:
 **🔁 Trasladar** y **📋 Realizados**.
-- **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina + responsable) y el
-  **Destino** (máquina + responsable), el **📍 lugar/obra** a donde va, el **estado del material**
+- **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina, 🚗 vehículo y
+  responsable) y el **Destino** (máquina, 🚗 vehículo y responsable), el **📍 lugar/obra** a donde va,
+  el **estado del material**
   (**usado / lleno / vacío / dañado**) y un motivo opcional. Al **generar**, se abre la vista previa del PDF;
   al **confirmar**, se **descuenta del inventario** y queda guardado el traslado. Si cancelas, no se
   descuenta nada.
@@ -2411,6 +2412,15 @@ escritura en Compras (o Inventario).
 - **📄 Reporte:** el botón **"📄 Reporte"** (arriba, visible en ambas vistas) genera un **PDF con
   todos los traslados** —de cualquier estatus— con fecha, origen → destino, lugar, estado, materiales
   y si ya se **retornaron** o siguen **en destino**.
+
+> **Vehículo en el traslado (09/09/2026):** debajo de cada **🚜 máquina** (la de Origen y la de
+> Destino) hay un apartado **🚗 Vehículo** con los vehículos del **Catálogo de equipos** (pestaña
+> **Vehículos**). Antes solo se podía trasladar entre máquinas y personas, porque los vehículos viven
+> en otra lista. **Se pueden elegir máquina y vehículo a la vez:** material montado en una camioneta
+> es las dos cosas, y el PDF muestra las dos líneas en la caja que corresponda. El buscador encuentra
+> por **nombre, placa, marca, modelo, encargado y empresa**. Mientras no se corra el SQL de las cuatro
+> columnas nuevas, **el traslado se guarda igual y el vehículo queda en el PDF** y en el texto del
+> movimiento; lo único que falta es poder consultarlo por vehículo más adelante.
 
 > **Cédula y cargo del responsable (05/08/2026):** si el responsable de **Origen** y/o **Destino**
 > es un empleado registrado, el PDF de "Nota de traslado" muestra su **C.I. y cargo** debajo del

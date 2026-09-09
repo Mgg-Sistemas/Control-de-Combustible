@@ -7,9 +7,11 @@ export type TrasladoData = {
   numero?: string | null;
   empresa?: string | null;
   fromMaquina?: string | null;   // máquina de ORIGEN
+  fromVehiculo?: string | null;  // vehículo de ORIGEN (tabla vehicles)
   fromEmpleado?: string | null;  // empleado responsable en el ORIGEN
   fromEmpleadoDetalle?: { name: string; cedula?: string | null; cargo?: string | null } | null; // detalle del responsable en el ORIGEN
   toMaquina?: string | null;     // máquina de DESTINO
+  toVehiculo?: string | null;    // vehículo de DESTINO (tabla vehicles)
   toEmpleado?: string | null;    // empleado responsable en el DESTINO
   toEmpleadoDetalle?: { name: string; cedula?: string | null; cargo?: string | null } | null; // detalle del responsable en el DESTINO
   motivo?: string | null;
@@ -84,6 +86,7 @@ export function notaTrasladoHtml(d: TrasladoData): string {
       <div class="box o">
         <div class="tag">Origen</div>
         <div class="val"><b>Máquina:</b> ${esc(d.fromMaquina || '—')}</div>
+        ${d.fromVehiculo ? `<div class="val"><b>Vehículo:</b> ${esc(d.fromVehiculo)}</div>` : ''}
         <div class="val"><b>Responsable:</b> ${esc(d.fromEmpleado || '—')}</div>
         ${d.fromEmpleadoDetalle ? `<div class="val" style="font-size:9.5pt;color:#555"><b>C.I.:</b> ${esc(d.fromEmpleadoDetalle.cedula || '—')} &nbsp;·&nbsp; <b>Cargo:</b> ${esc(d.fromEmpleadoDetalle.cargo || '—')}</div>` : ''}
       </div>
@@ -91,6 +94,7 @@ export function notaTrasladoHtml(d: TrasladoData): string {
       <div class="box d">
         <div class="tag">Destino</div>
         <div class="val"><b>Máquina:</b> ${esc(d.toMaquina || '—')}</div>
+        ${d.toVehiculo ? `<div class="val"><b>Vehículo:</b> ${esc(d.toVehiculo)}</div>` : ''}
         <div class="val"><b>Responsable:</b> ${esc(d.toEmpleado || '—')}</div>
         ${d.toEmpleadoDetalle ? `<div class="val" style="font-size:9.5pt;color:#555"><b>C.I.:</b> ${esc(d.toEmpleadoDetalle.cedula || '—')} &nbsp;·&nbsp; <b>Cargo:</b> ${esc(d.toEmpleadoDetalle.cargo || '—')}</div>` : ''}
       </div>
