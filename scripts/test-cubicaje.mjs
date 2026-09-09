@@ -248,15 +248,33 @@ const scrS = sinComentarios(scr);
 // suelto (React, supabase) la rompería acá y en cualquier otro llamador.
 ok('la librería del cubicaje NO importa nada', !/^\s*import\s/m.test(libS));
 
-// ⭐ LA REGLA DE AISLAMIENTO. El catálogo se lee y nada más.
-ok('la sub-pestaña no habla con supabase', !/supabase/i.test(tabS));
-ok('...ni inserta, actualiza o borra nada', !/\.(insert|update|upsert|delete)\s*\(/.test(tabS));
-ok('el componente dice que no toca el catálogo', /NO ESCRIBE NADA EN LA BASE/.test(tab));
-ok('la librería lo dice también', /NO TOCA LA BASE DE DATOS/.test(lib));
+// ⭐ LA REGLA DE AISLAMIENTO. Desde que hay histórico, el cubicaje SÍ escribe
+//    —pero SOLO en sus dos tablas nuevas. El catálogo de vehículos se lee y
+//    nada más: ni una columna nueva, ni una fila tocada.
+const datos = leer('src/lib/cubicajeDatos.ts');
+const datosS = sinComentarios(datos);
+ok('la sub-pestaña no habla con supabase directamente', !/from '\.\.\/lib\/supabase'/.test(tabS));
+ok('el acceso a datos solo conoce sus dos tablas', /TABLA_MEDIDAS = 'camion_cubicaje'/.test(datosS) && /TABLA_CARGAS = 'camion_cubicaje_carga'/.test(datosS));
+// ⚠️ EL GUARDA QUE PROTEGE EL CATÁLOGO. Si alguien escribe machinery acá, esto
+//    falla. Es la promesa que se le hizo al cliente, hecha ejecutable.
+ok('NADIE escribe en el catálogo de vehículos', !/from\('machinery'\)/.test(datosS) && !/from\('machinery'\)/.test(tabS));
+ok('el componente lo dice en su cabecera', /EL CATÁLOGO DE VEHÍCULOS SE LEE Y NADA MÁS/.test(tab));
+ok('la librería pura sigue sin tocar la base', /NO TOCA LA BASE DE DATOS/.test(lib));
 
-// Las medidas se guardan en el teléfono, y eso hay que decirlo en pantalla: es
-// la diferencia entre «se me perdió» y «esto es por dispositivo».
-ok('avisa en pantalla que las medidas son de ese dispositivo', /en este dispositivo/i.test(tab));
+// Sin el SQL corrido todo tiene que seguir funcionando, y decirlo.
+ok('sin las tablas se cae al dispositivo y se avisa', /sinTabla/.test(tabS) && /AVISO_SIN_SQL/.test(tabS));
+ok('el aviso nombra el SQL que falta', /03_cubicaje_camiones\.sql/.test(datos));
+ok('reconoce «esa tabla no existe» por sus tres formas',
+  /42p01/.test(datosS) && /pgrst205/.test(datosS) && /does not exist/.test(datosS));
+
+// Las medidas a mano no tienen ficha: no pueden guardarse contra un camion.
+ok('las unidades medidas a mano se quedan en el dispositivo', /solo en este dispositivo/.test(tab));
+
+// El upsert por (camion, jornada) es lo que impide el volumen duplicado.
+ok('las cargas se guardan con upsert por camión y jornada', /onConflict: 'machinery_id,jornada'/.test(datosS));
+ok('y las medidas por camión', /onConflict: 'machinery_id'/.test(datosS));
+// Un rango de un mes con 30 camiones son 900 filas: se manda en tandas.
+ok('las cargas se mandan en tandas', /const TANDA = \d+/.test(datosS));
 
 // ⭐ EL DOBLE CONTEO. Agrupando por listero un mismo camión sale bajo cada uno.
 ok('el m³ del resumido es por-viaje × sus viajes', /m3Fila\s*=\s*\(key: string, viajes: number\)\s*=>\s*redondear\(porViajeDe\(key\) \* viajes\)/.test(scrS));
@@ -298,6 +316,92 @@ ok('el manual .md explica el cubicaje', /[Cc]ubicaje/.test(md));
 ok('...y nombra los tres modos de reparto', /tolva/i.test(md) && /repartir/i.test(md) && /a mano/i.test(md));
 ok('...y avisa de que las medidas son por dispositivo', /este dispositivo/i.test(md));
 ok('el manual en pantalla también lo explica', /CUBICAJE/.test(ms));
+
+
+// ── 12) LO GUARDADO MANDA SOBRE LO CALCULADO ────────────────────────────────
+const {
+  volumenConGuardado, claveCarga, filasParaGuardar, totalCargas,
+  cargasPorDia, cargasPorMes, cargasPorCamion, agruparHistorico,
+  segmentoDe, pastillaClase, fechaCorta, mesLargo,
+} = m.exports;
+
+const PV = new Map([['t1', 10], ['t2', 5]]);
+const DIAS = new Map([
+  ['t1', new Map([['2026-09-01', 3], ['2026-09-02', 2]])],
+  ['t2', new Map([['2026-09-01', 4]])],
+]);
+
+const sinGuardar = volumenConGuardado(PV, DIAS, new Map());
+eq('sin nada guardado, todo se calcula', sinGuardar.get('t1'),
+  { total: 50, porViaje: 10, guardados: 0, calculados: 2, desactualizados: 0 });
+
+// ⭐ Un reporte de un mes viejo tiene que salir HOY con los mismos números que
+//    salió aquel día. Si mandara el cálculo, corregir una medida reescribiría
+//    el pasado en silencio.
+const conGuardado = volumenConGuardado(PV, DIAS, new Map([
+  [claveCarga('t1', '2026-09-01'), { m3: 99, viajes: 3 }],
+]));
+eq('la jornada guardada MANDA sobre la calculada', conGuardado.get('t1').total, 119);
+eq('...y dice cuántas vinieron de cada sitio',
+  [conGuardado.get('t1').guardados, conGuardado.get('t1').calculados], [1, 1]);
+eq('el camión sin nada guardado no cambia', conGuardado.get('t2').total, 20);
+// Corregir el guardado en silencio cambiaría un número por el que ya se cobró:
+// se avisa, no se arregla solo.
+const desfasado = volumenConGuardado(PV, DIAS, new Map([
+  [claveCarga('t1', '2026-09-01'), { m3: 99, viajes: 7 }],
+]));
+eq('avisa si hoy hay otros viajes que cuando se guardó', desfasado.get('t1').desactualizados, 1);
+eq('...y aun así sale el guardado, no el recalculado', desfasado.get('t1').total, 119);
+
+const guardables = filasParaGuardar(PV, DIAS);
+eq('se guarda una fila por camión y JORNADA, no una por rango', guardables.length, 3);
+eq('...ordenadas por fecha', guardables.map((f) => f.jornada), ['2026-09-01', '2026-09-01', '2026-09-02']);
+eq('cada fila lleva su m³ y sus viajes',
+  guardables.find((f) => f.machinery_id === 't1' && f.jornada === '2026-09-02'),
+  { machinery_id: 't1', jornada: '2026-09-02', m3: 20, viajes: 2 });
+// Una fila en cero dice «ese día cargó nada»; lo cierto es que no trabajó.
+eq('las jornadas sin viajes NO se guardan',
+  filasParaGuardar(new Map([['t9', 5]]), new Map([['t9', new Map([['2026-09-01', 0]])]])).length, 0);
+
+// ── 13) BUSCAR EL HISTÓRICO: POR DÍA, POR MES Y POR CAMIÓN ──────────────────
+const HIST = [
+  { machinery_id: 'a', machine_code: 'FIAT', jornada: '2026-09-01', m3: 60, viajes: 4 },
+  { machinery_id: 'b', machine_code: 'TORONTO', jornada: '2026-09-01', m3: 40, viajes: 2 },
+  { machinery_id: 'a', machine_code: 'FIAT', jornada: '2026-09-02', m3: 30, viajes: 2 },
+  { machinery_id: 'a', machine_code: 'FIAT', jornada: '2026-08-30', m3: 15, viajes: 1 },
+];
+eq('el total del histórico', totalCargas(HIST), { m3: 145, viajes: 9, dias: 3, camiones: 2 });
+// Los tres cortes salen de LA MISMA lista: por eso no pueden dejar de cuadrar.
+eq('por día, por mes y por camión suman lo mismo',
+  [cargasPorDia(HIST), cargasPorMes(HIST), cargasPorCamion(HIST)]
+    .map((g) => g.reduce((a, x) => a + x.m3, 0)), [145, 145, 145]);
+eq('por día, el más reciente arriba', cargasPorDia(HIST).map((g) => g.key),
+  ['2026-09-02', '2026-09-01', '2026-08-30']);
+eq('un día suma sus camiones', cargasPorDia(HIST)[1], { key: '2026-09-01', label: '2026-09-01', m3: 100, viajes: 6, n: 2 });
+eq('por mes agrupa bien', cargasPorMes(HIST).map((g) => [g.key, g.m3]), [['2026-09', 130], ['2026-08', 15]]);
+eq('por camión, el de más volumen primero', cargasPorCamion(HIST)[0], { key: 'a', label: 'FIAT', m3: 105, viajes: 7, n: 3 });
+eq('el eje se elige por nombre', agruparHistorico(HIST, 'mes').length, 2);
+eq('la fecha se escribe como se lee acá', fechaCorta('2026-09-03'), '03/09/2026');
+eq('y el mes con su nombre', mesLargo('2026-09'), 'septiembre 2026');
+
+// ── 14) SEGMENTAR LA FLOTA ──────────────────────────────────────────────────
+eq('un volteo rígido es volteo', segmentoDe('Volteo Toronto Iveco Trakker'), 'volteo');
+eq('un chuto es volqueta', segmentoDe('Chuto con Volqueta Iveco Trakker'), 'volqueta');
+// "Chuto con Volqueta Iveco Trakker" y "Volteo Toronto Iveco Trakker" comparten
+// marca y modelo: lo que decide es el chuto. Si mandara "volteo", un chuto de
+// 21,90 m³ le subiría el máximo a una familia que no llega ahí.
+eq('cuando el texto dice las dos cosas, manda volqueta', segmentoDe('Volteo con Volqueta'), 'volqueta');
+eq('lo que no se reconoce cae en volteo', segmentoDe('Camion X'), 'volteo');
+
+// Las pastillas, contra lo que dicen los PDF que mandó el cliente.
+eq('27.16 es gran capacidad', pastillaClase(27.16, 'Carbozulia Sinotruk (HOWO)', 'volteo').texto, 'GRAN CAPACIDAD');
+eq('21.90 es media capacidad', pastillaClase(21.90, 'Chuto Trakker', 'volqueta').texto, 'MEDIA CAPACIDAD');
+eq('un Toronto lleva su propia etiqueta', pastillaClase(15.84, 'Volteo Toronto Iveco Trakker', 'volteo').texto, 'TORONTO');
+// El mismo número dice cosas distintas según con quién se compare: entre los
+// volteos rígidos 13,93 es lo normal; una volqueta de 12,38 sí es chica.
+eq('bajo 18, un volteo es ESTÁNDAR', pastillaClase(13.93, 'Volteo Fiat', 'volteo').texto, 'ESTÁNDAR');
+eq('bajo 18, una volqueta es COMPACTO', pastillaClase(12.38, 'Volqueta Doble Cajón', 'volqueta').texto, 'COMPACTO');
+eq('sin medir no se clasifica', pastillaClase(0, 'X', 'volteo').texto, 'SIN MEDIR');
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

@@ -42,6 +42,7 @@ import { CubicajeTab, OpcionesReporteBox, useCubicaje, type CamionCubicaje } fro
 import {
   repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen,
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
+  volumenConGuardado,
 } from '../lib/cubicaje';
 import { resumirViajes, SIN_EMPRESA, claveCamion, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
@@ -1886,7 +1887,7 @@ export default function ViajesCamionesScreen() {
   // y las medidas se perderían justo antes de exportar.
   //
   // ⚠️ NO TOCA LA BASE. El catálogo se lee; las medidas se guardan en el teléfono.
-  const cub = useCubicaje();
+  const cub = useCubicaje(uid ?? null);
   const [panelTab, setPanelTab] = useState<'viajes' | 'cubicaje'>('viajes');
 
   /** Cuántos viajes hizo cada camión del catálogo EN LO QUE HAY FILTRADO. Es la
@@ -1898,16 +1899,53 @@ export default function ViajesCamionesScreen() {
     return m;
   }, [filteredRangeRows]);
 
+  /** Los mismos viajes, abiertos POR JORNADA. Es lo que permite guardar el
+   *  volumen día por día y, después, buscarlo por un día, por un mes o por un
+   *  rango. Sin este corte solo se podría guardar un total del rango entero. */
+  const viajesPorDia = useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const r of filteredRangeRows) {
+      if (!r.machineryId) continue;
+      const j = jornadaDeFecha(new Date(r.registeredAt));
+      const d = m.get(r.machineryId) ?? new Map<string, number>();
+      d.set(j, (d.get(j) ?? 0) + 1);
+      m.set(r.machineryId, d);
+    }
+    return m;
+  }, [filteredRangeRows]);
+
   /** m³ de cada camión en el rango, según el modo elegido. `porViaje` sale del
    *  total y no al revés: así la columna de cada línea y la sumatoria del pie no
    *  pueden dejar de cuadrar. */
-  const volumenPorCamion = useMemo(() => {
+  const volumenCalculado = useMemo(() => {
     const filas = Array.from(viajesPorCamion.entries()).map(([key, viajes]) => {
       const md = cub.porTruck.get(key);
       return { key, viajes, m3Tolva: md ? volumenDe(md) : 0, manual: cubNum(cub.manual[key]) };
     });
     return repartirVolumen(cub.modo, filas, cubNum(cub.totalGlobal));
   }, [viajesPorCamion, cub.porTruck, cub.modo, cub.manual, cub.totalGlobal]);
+
+  /**
+   * ⭐ LO GUARDADO MANDA, jornada por jornada.
+   *
+   * Un reporte de un mes viejo tiene que salir HOY con los mismos números que
+   * salió aquel día. Si mandara el cálculo, cambiar el modo o corregir una
+   * medida reescribiría el pasado en silencio y dos impresiones del mismo mes
+   * no coincidirían. Lo que no se guardó se sigue calculando al vuelo.
+   */
+  const volumenPorCamion = useMemo(() => {
+    const pv = new Map<string, number>();
+    volumenCalculado.forEach((v, id) => pv.set(id, v.porViaje));
+    return volumenConGuardado(pv, viajesPorDia, cub.guardadas);
+  }, [volumenCalculado, viajesPorDia, cub.guardadas]);
+
+  /** Días guardados a los que hoy les corresponden otros viajes. No se corrige
+   *  solo: se avisa. Corregirlo en silencio cambiaría un número ya cobrado. */
+  const diasDesactualizados = useMemo(() => {
+    let n = 0;
+    volumenPorCamion.forEach((v) => { n += v.desactualizados; });
+    return n;
+  }, [volumenPorCamion]);
 
   const camionesCubicaje = useMemo<CamionCubicaje[]>(
     () => catalogoTrucks.map((t) => ({
@@ -2686,7 +2724,14 @@ export default function ViajesCamionesScreen() {
           </View>
 
           {panelTab === 'cubicaje' ? (
-            <CubicajeTab cub={cub} trucks={camionesCubicaje} viajesPorCamion={viajesPorCamion} />
+            <CubicajeTab
+              cub={cub}
+              trucks={camionesCubicaje}
+              viajesPorCamion={viajesPorCamion}
+              viajesPorDia={viajesPorDia}
+              rango={{ desde: rangeBounds.desde, hasta: rangeBounds.hasta, etiqueta: etiquetaRango }}
+              volumen={volumenPorCamion}
+            />
           ) : (
           <>
 
@@ -3291,6 +3336,13 @@ export default function ViajesCamionesScreen() {
                 sub-pestaña: configurar en un sitio y exportar en otro es como se
                 quedan encendidos los filtros que nadie quería. */}
             <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo === 'resumen'} aviso={avisoReporte} />
+            {cub.op.m3 && diasDesactualizados > 0 ? (
+              <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>
+                ⚠️ {diasDesactualizados} día(s) con m³ guardados tienen HOY otra cantidad de viajes que cuando se
+                guardaron. Sale el volumen guardado, no el recalculado. Para actualizarlo, vuelve a guardar el rango
+                desde 📐 Cubicaje.
+              </Text>
+            ) : null}
 
             <TouchableOpacity onPress={compartirReporte} disabled={shareBusy || !!avisoReporte} style={[styles.registerBtn, { marginTop: spacing.md, opacity: shareBusy || avisoReporte ? 0.6 : 1 }]}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>
