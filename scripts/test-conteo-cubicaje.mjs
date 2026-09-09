@@ -183,5 +183,46 @@ ok('MachineDetail lleva id y marca', /type MachineDetail = \{ id: string;[\s\S]{
 ok('la consulta del conteo trae la marca',
   /selectAllRows\('machinery', 'id, code, tipo, marca, serial/.test(scr));
 
+
+// ── 6) AGRUPAR POR CATEGORÍA ────────────────────────────────────
+// Pedido del cliente: «poder sacar por categoría, que si remoción de escombros».
+ok('hay un eje de agrupación', /useState<'empresa' \| 'clasificacion'>\('empresa'\)/.test(scr));
+ok('abre por empresa, como siempre', /conteoEje, setConteoEje\] = useState<'empresa' \| 'clasificacion'>\('empresa'\)/.test(scr));
+// ⭐ AGRUPAR NO FILTRA. Los dos ejes reparten LOS MISMOS equipos: el total tiene
+//    que ser idéntico. Por eso el eje se decide en UN solo punto y de ahí para
+//    abajo el código es el mismo.
+ok('el eje se decide en un solo punto', /const ejeDe = \(it: MachineDetail\) => \(conteoEje === 'clasificacion'/.test(scr));
+ok('...y el agrupado usa esa función', /const k = ejeDe\(it\)/.test(scr));
+ok('el total sale de las filas, no de los grupos', /total: match\.length/.test(scr));
+// El filtro por categoría es aparte del eje: uno reparte, el otro saca.
+ok('se puede filtrar por categoría', /clasSel\.size \? porEmpresa\.filter\(\(m\) => clasSel\.has\(m\.clas\)\)/.test(scr));
+ok('vacío significa todas las categorías', /clasSel\.size \?/.test(scr));
+// El papel tiene que DECIR por dónde se partió: dos PDF del mismo conteo con
+// distinto eje se ven casi iguales y se confunden.
+ok('el subtítulo del PDF dice el eje', /por \$\{porCategoria \? 'categoría' : 'empresa'\}/.test(scr));
+ok('y el nombre del archivo también', /porCategoria \? ' por categoria' : ''/.test(scr));
+ok('el listado cambia de título', /tituloListado = porCategoria \? 'Listado por categoría'/.test(scr));
+
+// ── 7) LA HOJA SE VE EN CUBICAJE Y VOLUMEN ─────────────────────────
+// Pedido del cliente: «los que ya cargaste, que se vean reflejados en el
+// apartado nuevo». La MISMA precedencia que el conteo: base → dispositivo →
+// hoja. Si acá fuera otra, los dos papeles dirían cosas distintas.
+const tab = sinComentarios(leer('src/components/CubicajeTab.tsx'));
+ok('Cubicaje cae a la hoja cuando no hay medida', /medidaConocida\(t\.code, t\.marca, t\.modelo\)/.test(tab));
+ok('la de la base gana sobre la del dispositivo', /locales\.filter\(\(m\) => !m\.truckId \|\| !ids\.has\(m\.truckId\)\)/.test(tab));
+ok('y la hoja solo entra si no hay ninguna otra', /if \(yaTiene\.has\(t\.id\)\) continue;/.test(tab));
+// ⚠️ Un número deducido de un nombre parecido no vale lo mismo que uno tomado
+//    con cinta: hay que poder distinguirlos en pantalla.
+ok('se marcan como venidas de la hoja', /deLaHoja: true/.test(tab));
+ok('...y la pantalla lo dice', /de la hoja, sin confirmar/.test(leer('src/components/CubicajeTab.tsx')));
+ok('el botón invita a confirmarla', /Confirmar esta medida/.test(leer('src/components/CubicajeTab.tsx')));
+// Una medida de la hoja NO es una fila guardada: al guardar se crea, no se
+// actualiza una que no existe.
+ok('confirmar crea la fila, no actualiza uno inexistente', /setEditId\(ya && !ya\.deLaHoja \? ya\.id : null\)/.test(tab));
+
+// El conteo NO edita medidas: se manejan en Viajes de camiones, y lo dice.
+ok('el conteo manda a Cubicaje para cambiar las medidas',
+  /Viajes de camiones/.test(leer('src/screens/ReportsScreen.tsx')));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
