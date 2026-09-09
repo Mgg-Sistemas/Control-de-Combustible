@@ -227,7 +227,11 @@ const archiv   = { id: 'c', active: false, archivado_en: '2026-09-05T10:00:00Z',
   ok('pide la columna del archivo', /campos \+ ', archivado_en'/.test(pa));
   ok('reintenta sin ella si no existe', /if \(error && faltaColumnaArchivo\(error\.message\)\)/.test(pa));
   ok('quita a los archivados', /return soloEnUso\(/.test(pa));
-  ok('NO filtra por active, y dice por qué', /Aquí NO se filtra por `active`/.test(pa));
+  // Desde el 09-09-2026 SI se filtra por active: el SQL 02 hizo que una cuenta
+  // apagada no tenga rol, asi que ofrecerla como asignable era ofrecer a alguien
+  // que no puede hacer el trabajo.
+  ok('deja fuera lo apagado', /\.eq\('active', true\)/.test(pa));
+  ok('…y explica desde cuándo y por qué', /Desde el 09-09-2026 eso ya no es así/.test(pa));
 
   const SITIOS = [
     'src/components/CheckMaquinaModal.tsx',
@@ -255,7 +259,10 @@ const archiv   = { id: 'c', active: false, archivado_en: '2026-09-05T10:00:00Z',
   ok('el tipo declara las tres columnas', /archivado_en\?: string \| null;/.test(p) && /archivado_por\?: string \| null;/.test(p) && /archivado_motivo\?: string \| null;/.test(p));
   ok('son opcionales, porque el SQL puede no estar corrido', !/archivado_en: string/.test(p));
 
-  const lib = sinComentarios(leer('src/lib/cicloVidaUsuario.ts'));
+  const cab = leer('src/lib/cicloVidaUsuario.ts');
+  ok('la librería dice que las puertas YA miran active', /CORREGIDO Y VERIFICADO EL 09-09-2026/.test(cab));
+  ok('…y que aun así no cierra el login', /NO cierra el login/.test(cab));
+  const lib = sinComentarios(cab);
   ok('la librería de reglas es pura', !/from '\.\/supabase'|\.from\(|\.rpc\(|\.insert\(|\.update\(/.test(lib));
 }
 
@@ -267,16 +274,18 @@ const archiv   = { id: 'c', active: false, archivado_en: '2026-09-05T10:00:00Z',
   ok('manual .md: la tabla de los tres estados', /\| \*\*Activa\*\* \|/.test(md) && /\| \*\*Inactiva\*\* \|/.test(md) && /\| \*\*Archivada\*\* \|/.test(md));
   ok('manual .md: dice que primero se desactiva', /primero hay que \*\*desactivarlo\*\*/.test(md));
   ok('manual .md: dice que desarchivar deja apagado', /queda \*\*apagado\*\*: encenderlo es otro botón/.test(md));
-  ok('manual .md: avisa de que desactivar aún no quita permisos', /no le quita el sistema a nadie/.test(md));
-  ok('manual .md: nombra los dos SQL', /01_usuarios_archivar\.sql/.test(md) && /02_active_manda_de_verdad\.sql/.test(md));
-  ok('manual .md: dice que el SQL NO va en el repositorio', /no\*\* va en el\n> repositorio/.test(md));
+  ok('manual .md: dice que desactivar YA quita el sistema', /Desactivar ahora sí le quita el sistema a la\n> persona/.test(md));
+  ok('manual .md: y que NO cierra el login', /no cierra el login/.test(md));
+  ok('manual .md: dice que el 01 ya se corrió', /se corrió y se verificó el 09\/09\/2026/.test(md));
+  ok('manual .md: dice que el SQL NO va en el repositorio', /no\*\* va en el repositorio/.test(md));
 
   const ms = leer('src/screens/ManualScreen.tsx');
   ok('manual en pantalla: las cuentas ya no se eliminan', /LAS CUENTAS YA NO SE ELIMINAN \(09\/09\/2026\)/.test(ms));
   ok('manual en pantalla: los tres estados', /AHORA HAY TRES ESTADOS/.test(ms));
   ok('manual en pantalla: el motivo es obligatorio', /PIDE UN MOTIVO obligatorio/.test(ms));
-  ok('manual en pantalla: avisa de lo de desactivar', /OJO CON "DESACTIVAR"/.test(ms));
-  ok('manual en pantalla: nombra los dos SQL', /01_usuarios_archivar\.sql/.test(ms) && /02_active_manda_de_verdad\.sql/.test(ms));
+  ok('manual en pantalla: dice que desactivar YA quita el sistema', /Desactivar ahora si le quita el sistema/.test(ms));
+  ok('manual en pantalla: y que NO cierra el login', /NO cierra el login/.test(ms));
+  ok('manual en pantalla: dice que el 01 ya se corrió', /01_usuarios_archivar\.sql se corrio y se verifico/.test(ms));
 }
 
 if (fail) {

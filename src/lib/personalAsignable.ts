@@ -10,13 +10,12 @@
 // apareciendo como asignable. Es el paso 06 del patrón: la parte que se olvida
 // cuando el sistema no tiene una fuente única de usuarios.
 //
-// Aquí NO se filtra por `active`. Es deliberado: hoy `profiles.active` no manda
-// nada en la base (ninguna puerta de autorización lo mira), así que puede haber
-// gente marcada como inactiva que sigue trabajando. Quitarlos de golpe de estos
-// selectores sería un cambio que nadie pidió. Lo que sí se quita es lo
-// ARCHIVADO, que es una decisión explícita y reciente de un administrador.
-// Cuando se corra 02_active_manda_de_verdad.sql y se limpien las cuentas
-// apagadas, añadir `active` aquí es una línea.
+// Se quita lo APAGADO y lo ARCHIVADO. Al principio solo se quitaba lo archivado,
+// porque `profiles.active` no mandaba nada en la base y podía haber gente marcada
+// como inactiva que seguía trabajando. Desde el 09-09-2026 eso ya no es así:
+// `current_role()` termina en `and p.active`, o sea que una cuenta apagada no
+// tiene rol y no pasa ninguna puerta. Ofrecerla como asignable era ofrecer a
+// alguien que no puede hacer el trabajo.
 
 import { supabase } from './supabase';
 import { soloEnUso, faltaColumnaArchivo } from './cicloVidaUsuario';
@@ -42,7 +41,10 @@ export type PersonaAsignable = {
  */
 export async function personalAsignable(campos = 'id, full_name, role'): Promise<PersonaAsignable[]> {
   const pedir = async (sel: string) =>
-    supabase.from('profiles').select(sel).in('role', ROLES_ASIGNABLES as unknown as string[]).order('full_name');
+    supabase.from('profiles').select(sel)
+      .in('role', ROLES_ASIGNABLES as unknown as string[])
+      .eq('active', true)          // apagado = sin rol desde el 09-09-2026
+      .order('full_name');
 
   let { data, error } = await pedir(campos + ', archivado_en');
   if (error && faltaColumnaArchivo(error.message)) {

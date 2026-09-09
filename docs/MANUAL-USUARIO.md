@@ -2691,23 +2691,27 @@ Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 >
 > Los archivados **tampoco salen ya** en las listas de escoger supervisor o coordinador.
 >
-> *(Requiere correr `01_usuarios_archivar.sql`, que se entrega aparte y **no** va en el
-> repositorio, porque es público.)*
+> *(`01_usuarios_archivar.sql` **se corrió y se verificó el 09/09/2026**: devolvió las dos
+> funciones, `archivar_usuario` y `desarchivar_usuario`. Ese archivo **no** va en el repositorio,
+> porque es público.)*
 
-> ### ⚠️ Ojo con «desactivar»
+> ### ✅ Qué significa «desactivar» (corregido el 09/09/2026)
 >
-> Desactivar **ordena la lista**, pero por ahora **no le quita el sistema a nadie**: se revisaron
-> las cuatro puertas de permisos de la base (`current_role`, `is_staff`, `is_admin`,
-> `can_write_module`) y **ninguna mira si la cuenta está encendida**. Es un agujero que **ya
-> existía**, no algo que trajo el archivo.
+> Hasta el 09/09/2026 desactivar **solo ordenaba la lista**: las cuatro puertas de permisos de la
+> base (`current_role`, `is_staff`, `is_admin`, `can_write_module`) **no miraban si la cuenta estaba
+> encendida**, así que un usuario «desactivado» entraba igual y conservaba todo. Era un agujero que
+> ya existía, no algo que trajo el archivo.
 >
-> Se cierra corriendo `02_active_manda_de_verdad.sql`, que se entrega aparte y que hay que **leer
-> antes de correr**: en el momento en que se corra, **toda cuenta apagada se queda sin permisos**.
-> El archivo trae primero una consulta que te dice exactamente a quién le va a pasar.
+> **Ya está cerrado.** Las cuatro puertas cuelgan de la misma función, así que se arreglaron todas
+> con una línea: una cuenta apagada **no tiene rol**, y por lo tanto no pasa ninguna. Y como
+> archivada implica apagada, un archivado tampoco. **Desactivar ahora sí le quita el sistema a la
+> persona.**
 >
-> Y aun con eso corrido, desactivar **no cierra el login**: la persona puede seguir entrando con su
-> clave y encontrarse el sistema vacío, porque quien mira eso es la capa de permisos, no la de
-> identidad.
+> **Lo que sigue sin hacer, y hay que decirlo:** desactivar **no cierra el login**. La persona puede
+> seguir entrando con su clave y encontrarse el sistema **vacío**, porque quien mira eso es la capa
+> de permisos, no la de identidad. Tampoco invalida el token que ya tenga en la mano: queda una
+> ventana corta en la que sigue leyendo lo que tenga abierto. Cerrarle la puerta de verdad es otro
+> trabajo, en otra capa.
 
 > **🔎 El buscador encuentra por cualquier dato (08/09/2026).** Pedido del cliente: *«en el
 > apartado de usuarios, en el buscador, necesito poder buscar también por nombre de usuario, o por
