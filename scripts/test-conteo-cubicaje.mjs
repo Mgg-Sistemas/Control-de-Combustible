@@ -272,5 +272,24 @@ ok('los recibe por parámetro', /logos\?: \{ renace\?: string; goldenTouch\?: st
 //    Ya pasó una vez en este mismo archivo.
 ok('no hay comentarios de JSX dentro del HTML', !/\{\/\*/.test(volLib));
 
+
+// ── 10) LAS MEDIDAS SE PUEDEN CORREGIR ───────────────────────────
+// ⚠️ La lista «Unidades medidas» solo tenía papelera: para corregir un número
+//    había que volver al buscador y encontrar el camión otra vez, y con treinta
+//    camiones que se llaman igual eso es rendirse. El cliente lo reportó como
+//    que el apartado «no deja editar las medidas».
+ok('hay una función para editar una medida ya hecha', /const editar = \(m: Medida\) =>/.test(tabRaw));
+ok('la fila entera abre el formulario', /onPress=\{\(\) => editar\(m\)\} style=\{\{ flex: 1 \}\}/.test(tabRaw));
+ok('...y hay un lápiz aparte', /onPress=\{\(\) => editar\(m\)\} style=\{\{ padding: 4 \}\}/.test(tabRaw));
+ok('la fila lo dice, para que se sepa que se puede', /Toca para corregirla/.test(tabRaw));
+ok('el formulario avisa que está corrigiendo', /Corrigiendo:/.test(tabRaw));
+// Una medida de la hoja no es una fila guardada: al guardar se CREA.
+ok('editar una de la hoja crea la fila, no actualiza una inexistente',
+  /setEditId\(m\.deLaHoja \? null : m\.id\)/.test(tabRaw));
+// Y la papelera sigue estando, aparte del lápiz.
+ok('la papelera sigue', /onPress=\{\(\) => borrarMedidaDe\(m\)\}/.test(tabRaw));
+// Para medir algo que no es volteo ni volqueta hay que poder ver el resto.
+ok('se puede apagar el filtro de solo camiones', /setSoloCamiones\(!soloCamiones\)/.test(tabRaw));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

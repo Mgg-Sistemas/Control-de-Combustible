@@ -369,6 +369,30 @@ export function CubicajeTab({
     setAncho(ya ? String(ya.ancho) : '');
   };
 
+  /**
+   * EDITAR UNA MEDIDA DESDE LA LISTA (09-sep-2026).
+   *
+   * ⚠️ La lista «Unidades medidas» solo tenía papelera: para corregir un
+   *    número había que volver al buscador de arriba y encontrar el camión otra
+   *    vez, y con treinta camiones que se llaman igual eso es rendirse. Se veía
+   *    como que el apartado «no deja editar», que es exactamente lo que reportó
+   *    el cliente.
+   *
+   * Precarga el formulario de arriba con lo que ya tiene. Guardar sobrescribe.
+   */
+  const editar = (m: Medida) => {
+    setSel(m.truckId ?? MANUAL);
+    // Una medida DE LA HOJA no es una fila guardada: no hay nada que actualizar.
+    // Se precarga para confirmarla o corregirla, y al guardar se crea la fila.
+    setEditId(m.deLaHoja ? null : m.id);
+    setIdent(m.ident);
+    setMarca(m.marca);
+    setModelo(m.modelo);
+    setAlto(String(m.alto));
+    setLargo(String(m.largo));
+    setAncho(String(m.ancho));
+  };
+
   const limpiar = () => {
     setSel(''); setEditId(null);
     setIdent(''); setMarca(''); setModelo(''); setAlto(''); setLargo(''); setAncho('');
@@ -652,6 +676,11 @@ export function CubicajeTab({
 
         {sel ? (
           <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+            {editId || (sel !== MANUAL && cub.porTruck.has(sel)) ? (
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800', marginBottom: spacing.xs }}>
+                ✏️ Corrigiendo: {ident || 'esta unidad'}
+              </Text>
+            ) : null}
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>IDENTIFICADOR {sel === MANUAL ? '*' : ''}</Text>
             <TextInput value={ident} onChangeText={setIdent} placeholder="Volteo Toronto Iveco Trakker" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
 
@@ -729,8 +758,11 @@ export function CubicajeTab({
               const v = volumenDe(m);
               const viajes = m.truckId ? viajesPorCamion.get(m.truckId) ?? 0 : 0;
               return (
-                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <View style={{ flex: 1 }}>
+                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: sel && sel === (m.truckId ?? MANUAL) ? colors.surface : 'transparent' }}>
+                  {/* Toda la fila abre el formulario de arriba con esta medida
+                      cargada. Antes solo estaba la papelera y no había forma de
+                      corregir un número sin volver a buscar el camión. */}
+                  <TouchableOpacity onPress={() => editar(m)} style={{ flex: 1 }} activeOpacity={0.7}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
                       {m.truckId ? '🚛' : '✍️'} {m.ident}
                     </Text>
@@ -739,8 +771,12 @@ export function CubicajeTab({
                       {m.deLaHoja ? ' · ⚠️ de la hoja, sin confirmar' : ''}
                       {m.truckId ? ` · ${viajes} viaje(s) en el rango` : ' · medida a mano, solo en este dispositivo'}
                     </Text>
-                  </View>
+                    <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '700' }}>✏️ Toca para corregirla</Text>
+                  </TouchableOpacity>
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{m3Texto(v)}</Text>
+                  <TouchableOpacity onPress={() => editar(m)} style={{ padding: 4 }}>
+                    <Text style={{ fontSize: 14 }}>✏️</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => borrarMedidaDe(m)} style={{ padding: 4 }}>
                     <Text style={{ fontSize: 14 }}>🗑️</Text>
                   </TouchableOpacity>
