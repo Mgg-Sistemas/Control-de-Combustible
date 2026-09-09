@@ -43,6 +43,8 @@ import {
 import { reporteVolumetricoHtml, type UnidadReporte } from '../lib/reporteVolumetrico';
 import { isVolteoVolqueta } from '../lib/equipos';
 import { medidaConocida } from '../lib/medidasFlota';
+import { RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
 
 const CLAVE_MEDIDAS = 'cubicaje.medidas.v1';
 
@@ -54,6 +56,9 @@ export type CamionCubicaje = {
   marca: string | null;
   modelo: string | null;
   companyName: string;
+  /** Operativa y sin estar en espera de instrucciones. Una unidad retirada o
+   *  parada no describe la capacidad con la que se cuenta hoy. */
+  activo: boolean;
 };
 
 export type RangoCubicaje = { desde: string; hasta: string; etiqueta: string };
@@ -531,7 +536,19 @@ export function CubicajeTab({
     if (!medidasVistas.length) { toast.error('No hay ninguna unidad medida. Mide al menos una tolva.'); return; }
     setOcupado(true);
     try {
+      /**
+       * ⚠️ SOLO LAS ACTIVAS (pedido del cliente, 09-sep-2026).
+       *
+       * Una unidad retirada o en espera de instrucciones no describe la
+       * capacidad con la que se cuenta HOY: inflaba el total y el promedio de
+       * un documento que se entrega para planificar acarreo.
+       *
+       * Las medidas a mano (sin ficha en el catálogo) entran igual: no tienen
+       * estado que consultar, y quien las midió fue justamente para contarlas.
+       */
+      const activoPorId = new Map(trucks.map((t) => [t.id, t.activo]));
       const unidades: UnidadReporte[] = medidasVistas
+        .filter((m) => !m.truckId || activoPorId.get(m.truckId) !== false)
         .map((m) => ({
           ident: m.ident,
           marca: m.marca, modelo: m.modelo,
@@ -540,15 +557,17 @@ export function CubicajeTab({
           segmento: segmentoDe(m.ident, m.marca, m.modelo),
         }))
         .filter((u) => u.m3 > 0);
+      const fuera = medidasVistas.filter((m) => m.truckId && activoPorId.get(m.truckId) === false).length;
       const html = reporteVolumetricoHtml({
         fechaEmision: new Date().toLocaleDateString('es-VE'),
-        configuracion: segmentado
-          ? `Flota Segmentada por Tipo de Equipo${ocultas > 0 && !cub.mostrarOcultas ? ' (Sin Carbozulia)' : ''}`
-          : `Flota completa, ${unidades.length} vehículos / configuraciones`,
+        configuracion: `Solo unidades activas${segmentado ? ' · Segmentada por Tipo de Equipo' : ''}`
+          + `${ocultas > 0 && !cub.mostrarOcultas ? ' · Sin Carbozulia' : ''}`
+          + `${fuera > 0 ? ` · ${fuera} inactiva(s) fuera` : ''}`,
         unidades,
         segmentado,
         excluidas: cub.mostrarOcultas ? [] : nombreOculta,
         cargas: histFilas.length ? { eje, grupos, total: totalHist, rango: rango.etiqueta } : null,
+        logos: { renace: RENACE_LOGO_DATA_URI, goldenTouch: GOLDEN_TOUCH_LOGO_DATA_URI },
       });
       await exportPdf(html, `Analisis volumetrico de flota ${rango.desde}`);
     } catch (e: any) {
@@ -874,6 +893,9 @@ export function CubicajeTab({
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
           El documento de análisis técnico: tarjetas de mayor, menor y promedio, las tablas con su clasificación por
           color, el análisis logístico y las recomendaciones. Si hay histórico guardado en el período, va incluido.
+          Sale con el membrete del <Text style={{ fontWeight: '800' }}>Plan Venezuela Renace</Text> y el logo de Golden Touch.
+          {'\n'}⚠️ Solo entran las unidades <Text style={{ fontWeight: '800' }}>activas</Text>: una retirada o en espera no
+          describe la capacidad con la que se cuenta hoy.
         </Text>
         <Toggle
           on={segmentado}

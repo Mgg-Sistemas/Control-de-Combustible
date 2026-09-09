@@ -110,7 +110,20 @@ ok('un nombre largo se recorta', rep.tarjetas([
   U('Volqueta Iveco Telescópica Eurotech Doble Tolva Reforzada MAX', 1.4, 7.3, 2.4),
 ])[0].titulo.length <= 60);
 // Con toda la flota sin medir no puede reventar: tiene que decir que no sabe.
-eq('sin ninguna unidad medida, rayas', rep.tarjetas([]).map((x) => x.valor), ['—', '—', '—']);
+eq('sin ninguna unidad medida, rayas', rep.tarjetas([]).map((x) => x.valor), ['—', '—', '—', '—']);
+// El TOTAL se suma sobre las MISMAS unidades que promedian: si sumara todas las
+// de la lista y no solo las medidas, no habría forma de cuadrarlo con nada.
+eq('la cuarta tarjeta es la capacidad total, sumada de las filas',
+  parseFloat(t[3].valor),
+  Math.round(sinCarbo.reduce((a, u) => a + u.m3, 0) * 100) / 100);
+ok('...y dice sobre cuántas unidades', /10 UNIDADES/.test(t[3].titulo));
+// ⚠️ EL TOTAL NO ES promedio × unidades, y NO se debe «cuadrar» hacia ahí.
+//    174,15 repartido entre 10 da 17,415, que impreso es 17,42; multiplicado de
+//    vuelta da 174,20. La suma de las filas es la verdad y el promedio es lo
+//    redondeado: quien intente forzar la igualdad estará falseando el total.
+const promXn = Math.round(parseFloat(t[2].valor) * 10 * 100) / 100;
+ok('el promedio impreso puede no multiplicar exacto, y eso es correcto',
+  Math.abs(promXn - parseFloat(t[3].valor)) < 0.1);
 
 // ── EL DOCUMENTO ────────────────────────────────────────────────────────────
 const html = rep.reporteVolumetricoHtml({
