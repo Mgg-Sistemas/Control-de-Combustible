@@ -51,6 +51,15 @@ export type DatosVolumetrico = {
   excluidas: string[];
   cargas?: BloqueCargas | null;
   empresa?: string;
+  /**
+   * Los logos del membrete, como `data:` URI.
+   *
+   * ⚠️ Entran POR PARÁMETRO y no por import a propósito: son dos cadenas de
+   *    cientos de kilobytes, y este archivo se transpila entero en cada corrida
+   *    de las pruebas. Con el import dentro, el test cargaría medio megabyte de
+   *    base64 para comprobar una tabla de números.
+   */
+  logos?: { renace?: string; goldenTouch?: string };
 };
 
 // ── Utilidades de texto ─────────────────────────────────────────────────────
@@ -103,12 +112,18 @@ export function tarjetas(unidades: UnidadReporte[]): { valor: string; titulo: st
       { valor: '—', titulo: 'MAYOR CAPACIDAD' },
       { valor: '—', titulo: 'MENOR CAPACIDAD' },
       { valor: '—', titulo: 'VOLUMEN PROMEDIO GENERAL' },
+      { valor: '—', titulo: 'CAPACIDAD TOTAL DE LA FLOTA' },
     ];
   }
+  // El TOTAL entra el 09-sep-2026 a pedido del cliente. Se suma sobre las
+  // MEDIDAS, las mismas que promedian: si sumara todas, el total no cuadraría
+  // con promedio × unidades y el papel se contradeciría solo.
+  const suma = redondear(medidas.reduce((a, u) => a + u.m3, 0));
   return [
     { valor: `${k.mayor.toFixed(2)} m³`, titulo: `MAYOR CAPACIDAD${nombreDe(k.mayor)}` },
     { valor: `${k.menor.toFixed(2)} m³`, titulo: `MENOR CAPACIDAD${nombreDe(k.menor)}` },
     { valor: `${k.promedio.toFixed(2)} m³`, titulo: 'VOLUMEN PROMEDIO GENERAL' },
+    { valor: `${suma.toFixed(2)} m³`, titulo: `CAPACIDAD TOTAL (${k.n} UNIDADES)` },
   ];
 }
 
@@ -174,7 +189,15 @@ const CSS = `
   *{box-sizing:border-box}
   body{margin:0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#22303C;background:#fff;font-size:11px}
   .hoja{padding:0 0 18px}
-  .cab{background:#16324F;color:#fff;padding:18px 22px 16px;border-bottom:4px solid #E08A2E}
+  .cab{background:#16324F;color:#fff;padding:16px 22px 14px;border-bottom:4px solid #E08A2E;display:flex;align-items:center;gap:14px}
+  .cab-txt{flex:1;min-width:0}
+  .cab-logos{display:flex;align-items:center;gap:8px;flex:none}
+  /* Pastilla blanca detras de los dos logos: el del Plan trae el texto en azul
+     marino y el membrete es azul marino tambien, asi que sin ella el logotipo
+     se pierde dentro de la franja. */
+  .cab-logos .lg{background:#fff;border-radius:6px;padding:4px;object-fit:contain}
+  .cab-logos .gt{width:46px;height:46px}
+  .cab-logos .pv{width:78px;height:46px}
   .cab h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.2px}
   .cab .sub{margin-top:5px;font-size:11px;color:#B9C9DA}
   .meta{margin:14px 22px 0;border:1px solid #D4DCE5;border-radius:4px;padding:8px 12px;font-size:10.5px;color:#41505F;background:#FAFBFD}
@@ -314,10 +337,16 @@ export function reporteVolumetricoHtml(d: DatosVolumetrico): string {
   return `<!doctype html><html><head><meta charset="utf-8"/><title>Analisis Tecnico y Capacidad Volumetrica de Flota</title>
     <style>${CSS}</style></head><body><div class="hoja">
     <div class="cab">
-      <h1>Análisis Técnico y Capacidad Volumétrica de Flota</h1>
-      <div class="sub">${esc(d.segmentado
-        ? 'Evaluación Segmentada: Unidades de Volteo vs. Volquetas / Chutos'
-        : 'Evaluación de Tolvas, Volteos y Chutos de Transporte de Carga Pesada')}</div>
+      <div class="cab-txt">
+        <h1>Análisis Técnico y Capacidad Volumétrica de Flota</h1>
+        <div class="sub">${esc(d.segmentado
+          ? 'Evaluación Segmentada: Unidades de Volteo vs. Volquetas / Chutos'
+          : 'Evaluación de Tolvas, Volteos y Chutos de Transporte de Carga Pesada')}</div>
+      </div>
+      <div class="cab-logos">
+        ${d.logos?.goldenTouch ? `<img class="lg gt" src="${d.logos.goldenTouch}"/>` : ''}
+        ${d.logos?.renace ? `<img class="lg pv" src="${d.logos.renace}"/>` : ''}
+      </div>
     </div>
     <div class="meta">
       <b>Unidades Evaluadas:</b> ${unidades.length} Vehículos / Configuraciones &nbsp;|&nbsp;

@@ -881,6 +881,34 @@ export default function ReportsScreen({ route }: any) {
     return { total: match.length, empresas };
   }, [tiposSel, machinesPorEstado, conteoEje]);
 
+  /**
+   * VOLUMEN DE LO SELECCIONADO: total, promedio, mayor y menor.
+   *
+   * ⚠️ Se promedia SOBRE LAS UNIDADES MEDIDAS, no sobre todas. Contar como
+   *    cero las que no tienen medida hundiría el promedio y diría que la flota
+   *    carga menos de lo que carga; por eso también se dice CUÁNTAS entraron.
+   *
+   * ⚠️ Sale de las MISMAS filas que imprime el PDF, con la misma precedencia
+   *    (medido → hoja → nada). Si se calculara por otro camino, la pantalla y
+   *    el papel podrían dejar de coincidir.
+   */
+  const volumenSeleccion = useMemo(() => {
+    const items = tipoResultado ? tipoResultado.empresas.flatMap((e) => e.items) : [];
+    const v = items
+      .map((mq) => { const md = medidaDeMaquina(mq); return md ? volumenTolva(md.alto, md.largo, md.ancho) : 0; })
+      .filter((x) => x > 0);
+    const suma = Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100;
+    return {
+      medidos: v.length,
+      total: items.length,
+      suma,
+      promedio: v.length ? Math.round((suma / v.length) * 100) / 100 : 0,
+      mayor: v.length ? Math.max(...v) : 0,
+      menor: v.length ? Math.min(...v) : 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipoResultado, medidasPorId]);
+
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
   const byDay = useMemo(() => totalsBy(all, (r) => r.dispatch_date), [rows]);
@@ -2622,6 +2650,24 @@ export default function ReportsScreen({ route }: any) {
         || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>`;
 
+    /**
+     * EL PROMEDIO DE LO SELECCIONADO (09-sep-2026, pedido del cliente).
+     *
+     * ⚠️ Se promedia SOBRE LAS UNIDADES MEDIDAS, no sobre todas. Contar como
+     *    cero las que no tienen medida hundiría el promedio y diría que la
+     *    flota carga menos de lo que carga. Por eso el papel dice también
+     *    CUÁNTAS entraron en la cuenta: un promedio sobre 4 de 61 equipos no
+     *    significa lo mismo que uno sobre 61 de 61.
+     */
+    const todos = empresas.flatMap((e) => e.items);
+    const volumenes = todos
+      .map((mq) => { const md = medidaDeMaquina(mq); return md ? volumenTolva(md.alto, md.largo, md.ancho) : 0; })
+      .filter((v) => v > 0);
+    const sumaM3 = Math.round(volumenes.reduce((a, b) => a + b, 0) * 100) / 100;
+    const promM3 = volumenes.length ? Math.round((sumaM3 / volumenes.length) * 100) / 100 : 0;
+    const mayorM3 = volumenes.length ? Math.max(...volumenes) : 0;
+    const menorM3 = volumenes.length ? Math.min(...volumenes) : 0;
+
     const porClasif = new Map<string, number>();
     empresas.forEach((e) => e.items.forEach((m) => {
       const k = (m.clas && String(m.clas).trim()) || 'Sin clasificación';
@@ -2664,15 +2710,33 @@ export default function ReportsScreen({ route }: any) {
     // Sin nombres de empresas, el listado sale en UN solo bloque: si se dejaran
     // las cabeceras vacías quedarían franjas grises sin texto que se leen como
     // un error de impresión.
+    /**
+     * ⚠️ SIN NOMBRES DE EMPRESA, EL LISTADO SE REORDENA DE CERO.
+     *
+     * `flatMap` conserva el orden de los GRUPOS: los equipos salían ordenados
+     * dentro de cada empresa, pero la lista completa quedaba a saltos — tres
+     * Toronto, dos Fiat, otra vez Toronto— y sin la cabecera de empresa nada
+     * explicaba por qué. Se ordena el conjunto entero por código, y el serial
+     * desempata para que dos equipos del mismo modelo salgan siempre en el
+     * mismo orden entre una impresión y la siguiente.
+     */
     const cuerpo = o.sinEmpresas
-      ? filasDe(empresas.flatMap((e) => e.items))
+      ? filasDe(empresas.flatMap((e) => e.items).slice()
+          .sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')))
       : empresas.map((e) => `
           <tr><td colspan="${cols.length}" style="background:#eef2f7;font-weight:800;color:${RENACE_NAVY}">${icoGrupo} ${esc(e.company)}${!porCategoria && companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
           ${filasDe(e.items)}`).join('');
 
     const bloqueListado = o.sinListado ? '' : `
       <h2 style="font-size:14px;color:${RENACE_NAVY};margin:14px 0 4px">${o.sinEmpresas ? 'Listado de equipos' : tituloListado}</h2>
-      <table>${cabecera}<tbody>${cuerpo || `<tr><td colspan="${cols.length}" style="text-align:center">Sin coincidencias</td></tr>`}</tbody></table>`;
+      <table>${cabecera}<tbody>${cuerpo || `<tr><td colspan="${cols.length}" style="text-align:center">Sin coincidencias</td></tr>`}</tbody>${
+        o.sinCubicaje || !volumenes.length ? '' : `<tfoot><tr>${cols.map((c) => (
+          c === 'n' ? `<td>${total}</td>`
+            : c === 'equipo' ? '<td>TOTAL</td>'
+            : c === 'm3' ? `<td style="text-align:right">${sumaM3.toFixed(2)}</td>`
+            : '<td></td>'
+        )).join('')}</tr></tfoot>`
+      }</table>`;
 
     // El cuadro del final: de dónde salió cada cosa. Un reporte que esconde algo
     // sin decirlo miente por omisión.
@@ -2704,6 +2768,18 @@ export default function ReportsScreen({ route }: any) {
         <div><span class="k">TIPOS</span><b>${sel.length}</b></div>
         ${o.sinEmpresas ? '' : `<div><span class="k">${porCategoria ? 'CATEGORÍAS' : 'EMPRESAS'}</span><b>${empresas.length}</b></div>`}
       </div>
+      ${o.sinCubicaje || !volumenes.length ? '' : `
+      <div class="summary">
+        <div><span class="k">VOLUMEN TOTAL</span><b>${sumaM3.toFixed(2)}</b><span class="k">m³</span></div>
+        <div><span class="k">PROMEDIO POR UNIDAD</span><b>${promM3.toFixed(2)}</b><span class="k">m³</span></div>
+        <div><span class="k">MAYOR</span><b>${mayorM3.toFixed(2)}</b><span class="k">m³</span></div>
+        <div><span class="k">MENOR</span><b>${menorM3.toFixed(2)}</b><span class="k">m³</span></div>
+      </div>
+      <p style="margin:2px 0 8px;font-size:10px;color:#68757F">
+        Promedio y totales calculados sobre <b>${volumenes.length}</b> unidad(es) con medida de tolva, de
+        <b>${total}</b> seleccionada(s). Las que no tienen medida quedan fuera de la cuenta: contarlas como
+        cero hundiría el promedio.
+      </p>`}
       ${bloqueTipos}
       ${bloqueClasif}
       ${bloqueListado}
@@ -3523,8 +3599,36 @@ export default function ReportsScreen({ route }: any) {
                   <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
                     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
                       <Text style={{ color: colors.brandText, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{tipoResultado.total}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 13 }}>equipo(s) · {tipoResultado.empresas.length} empresa(s)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 13 }}>
+                        equipo(s) · {tipoResultado.empresas.length} {conteoEje === 'clasificacion' ? 'categoría(s)' : 'empresa(s)'}
+                      </Text>
                     </View>
+
+                    {/* El promedio se ve ANTES de imprimir: si el número no cuadra,
+                        se corrige la medida y no se gasta una impresión. */}
+                    {volumenSeleccion.medidos > 0 ? (
+                      <View style={{ marginTop: spacing.xs }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                          {([
+                            ['📦 TOTAL', volumenSeleccion.suma],
+                            ['➗ PROMEDIO', volumenSeleccion.promedio],
+                            ['⬆️ MAYOR', volumenSeleccion.mayor],
+                            ['⬇️ MENOR', volumenSeleccion.menor],
+                          ] as const).map(([lab, val]) => (
+                            <View key={lab} style={{ flex: 1, minWidth: 84, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                              <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>{lab}</Text>
+                              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16 }}>{val.toFixed(2)}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 10 }}>m³</Text>
+                            </View>
+                          ))}
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                          Sobre <Text style={{ fontWeight: '800' }}>{volumenSeleccion.medidos}</Text> unidad(es) con medida, de{' '}
+                          {volumenSeleccion.total} seleccionada(s). Las que no tienen medida quedan fuera: contarlas como
+                          cero hundiría el promedio.
+                        </Text>
+                      </View>
+                    ) : null}
                     {/* ── AGRUPAR POR (09-sep-2026) ────────────────────────
                         Pedido del cliente: poder sacarlo por categoría («remoción
                         de escombros» y las demás), no solo por empresa.

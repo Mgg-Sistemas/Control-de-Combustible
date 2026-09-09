@@ -1891,6 +1891,9 @@ export default function ViajesCamionesScreen() {
     () => catalogoTrucks.map((t) => ({
       id: t.id, code: t.code, plate: t.plate, serial: t.serial,
       marca: t.marca, modelo: t.modelo, companyName: t.companyName,
+      // Activa = operativa y NO en espera de instrucciones. Mismo criterio que
+      // el conteo de Reportes, para que los dos papeles cuenten igual.
+      activo: t.operational !== false && !t.enEspera,
     })),
     [catalogoTrucks]
   );

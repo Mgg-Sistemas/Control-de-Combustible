@@ -224,5 +224,53 @@ ok('confirmar crea la fila, no actualiza uno inexistente', /setEditId\(ya && !ya
 ok('el conteo manda a Cubicaje para cambiar las medidas',
   /Viajes de camiones/.test(leer('src/screens/ReportsScreen.tsx')));
 
+
+// ── 8) ORDEN ALFABÉTICO Y PROMEDIO ───────────────────────────────
+// Sin nombres de empresa, `flatMap` conservaba el orden de los GRUPOS: la lista
+// salía a saltos (tres Toronto, dos Fiat, otra vez Toronto) y sin la cabecera de
+// empresa nada explicaba por qué.
+ok('sin empresas, el listado se reordena entero',
+  /flatMap\(\(e\) => e\.items\)\.slice\(\)[\s\S]{0,60}?\.sort\(\(a, b\) => cmpText\(a\.code, b\.code\)/.test(scr));
+// El serial desempata: dos equipos del mismo modelo tienen que salir en el mismo
+// orden entre una impresión y la siguiente.
+ok('...y el serial desempata',
+  /cmpText\(a\.serial \|\| a\.plate \|\| '', b\.serial \|\| b\.plate \|\| ''\)/.test(scr));
+
+// El promedio de lo seleccionado, en el papel y en pantalla.
+ok('el PDF trae total, promedio, mayor y menor',
+  /VOLUMEN TOTAL/.test(scr) && /PROMEDIO POR UNIDAD/.test(scr) && /MAYOR/.test(scr) && /MENOR/.test(scr));
+ok('la pantalla calcula lo mismo, de las mismas filas', /const volumenSeleccion = useMemo/.test(scr));
+// ⚠️ Contar como cero las no medidas hundiría el promedio y diría que la flota
+//    carga menos de lo que carga.
+ok('solo promedia lo MEDIDO', /\.filter\(\(x\) => x > 0\)/.test(scr));
+ok('...y dice sobre cuántas unidades', /unidad\(es\) con medida/.test(scr));
+// El pie de la tabla tiene que cuadrar con la tarjeta de arriba.
+ok('el pie del listado suma el volumen', /sumaM3\.toFixed\(2\)/.test(scr));
+ok('sin cubicaje no hay tarjetas de volumen', /o\.sinCubicaje \|\| !volumenes\.length \? '' :/.test(scr));
+
+
+// ── 9) EL REPORTE VOLUMÉTRICO: LOGOS Y SOLO ACTIVAS ───────────────────
+const tabRaw = leer('src/components/CubicajeTab.tsx');
+ok('el reporte volumétrico lleva los dos logos',
+  /logos: \{ renace: RENACE_LOGO_DATA_URI, goldenTouch: GOLDEN_TOUCH_LOGO_DATA_URI \}/.test(tabRaw));
+// ⚠️ Una unidad retirada o en espera NO describe la capacidad con la que se
+//    cuenta hoy: inflaba el total y el promedio de un papel que se entrega para
+//    planificar acarreo.
+ok('solo entran las unidades activas',
+  /activoPorId\.get\(m\.truckId\) !== false/.test(tabRaw));
+ok('...y el papel dice que son solo activas', /Solo unidades activas/.test(tabRaw));
+ok('...y cuántas quedaron fuera', /inactiva\(s\) fuera/.test(tabRaw));
+// Lo medido a mano no tiene ficha ni estado que consultar: entra igual.
+ok('lo medido a mano no se descarta por estado', /!m\.truckId \|\|/.test(tabRaw));
+
+// Los logos NO se importan en la librería del reporte: son cientos de KB de
+// base64 y ese archivo se transpila entero en cada corrida de las pruebas.
+const volLib = leer('src/lib/reporteVolumetrico.ts');
+ok('la librería del reporte no importa los logos', !/logoRenaceData|logoGoldenTouchData/.test(volLib));
+ok('los recibe por parámetro', /logos\?: \{ renace\?: string; goldenTouch\?: string \}/.test(volLib));
+// ⚠️ Un comentario de JSX dentro de un literal de HTML se IMPRIME tal cual.
+//    Ya pasó una vez en este mismo archivo.
+ok('no hay comentarios de JSX dentro del HTML', !/\{\/\*/.test(volLib));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
