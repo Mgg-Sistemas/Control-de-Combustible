@@ -696,10 +696,17 @@ export interface InventoryTransfer {
   company_id: string | null;
   from_machinery_id: string | null;
   from_machinery_label: string | null;
+  /** Vehículo de ORIGEN (tabla vehicles). Columna de inventory_transfers_vehiculo.sql,
+   *  que se entrega aparte porque el repositorio es público. */
+  from_vehicle_id?: string | null;
+  from_vehicle_label?: string | null;
   from_employee_id: string | null;
   from_employee_name: string | null;
   to_machinery_id: string | null;
   to_machinery_label: string | null;
+  /** Vehículo de DESTINO (tabla vehicles). Misma migración que el de origen. */
+  to_vehicle_id?: string | null;
+  to_vehicle_label?: string | null;
   to_employee_id: string | null;
   to_employee_name: string | null;
   to_company_name: string | null;   // empresa destino NO registrada (texto libre)
