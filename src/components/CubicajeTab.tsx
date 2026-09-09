@@ -41,6 +41,7 @@ import {
   AVISO_SIN_SQL, type CargaGuardada,
 } from '../lib/cubicajeDatos';
 import { reporteVolumetricoHtml, type UnidadReporte } from '../lib/reporteVolumetrico';
+import { isVolteoVolqueta } from '../lib/equipos';
 
 const CLAVE_MEDIDAS = 'cubicaje.medidas.v1';
 
@@ -268,6 +269,7 @@ export function CubicajeTab({
   const [eje, setEje] = useState<EjeHistorico>('dia');
   const [buscaHist, setBuscaHist] = useState('');
   const [segmentado, setSegmentado] = useState(true);
+  const [soloCamiones, setSoloCamiones] = useState(true);
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 13 } as const;
 
@@ -276,11 +278,30 @@ export function CubicajeTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rango.desde, rango.hasta]);
 
+  /**
+   * QUÉ UNIDADES ENTRAN EN EL CUBICAJE.
+   *
+   * ⚠️ `trucks` es el CATÁLOGO ENTERO de maquinaria — excavadoras, grúas,
+   *    cargadores —, no solo camiones. Se recibe así a propósito (ver la nota
+   *    de `catalogoTrucks` en ViajesCamionesScreen: hay camiones reales cuyo
+   *    código no dice "volteo" ni "volqueta", y sin el catálogo completo no hay
+   *    forma de encontrarlos). Pero el cubicaje es de TOLVAS: ofrecer una
+   *    excavadora para medirle el alto, largo y ancho no significa nada, y el
+   *    reporte que se entrega es de camiones.
+   *
+   *    Por eso se filtra por defecto, con la MISMA regla que arma la lista del
+   *    listero (`isVolteoVolqueta`, por el texto del código), y se deja el
+   *    interruptor para apagarlo: sin él, un camión mal codificado no se podría
+   *    medir nunca.
+   */
   const visibles = useMemo(
-    () => trucks.filter((t) => cub.mostrarOcultas || !esUnidadOculta(t.code, t.marca, t.modelo, t.plate, t.companyName)),
-    [trucks, cub.mostrarOcultas]
+    () => trucks.filter((t) =>
+      (cub.mostrarOcultas || !esUnidadOculta(t.code, t.marca, t.modelo, t.plate, t.companyName))
+      && (!soloCamiones || isVolteoVolqueta(t.code || ''))),
+    [trucks, cub.mostrarOcultas, soloCamiones]
   );
-  const ocultas = trucks.length - visibles.length;
+  const ocultas = trucks.filter((t) => esUnidadOculta(t.code, t.marca, t.modelo, t.plate, t.companyName)).length;
+  const noCamiones = trucks.filter((t) => !isVolteoVolqueta(t.code || '')).length;
   const nombreOculta = useMemo(
     () => trucks.filter((t) => esUnidadOculta(t.code, t.marca, t.modelo, t.plate, t.companyName)).map((t) => t.code),
     [trucks]
@@ -424,6 +445,40 @@ export function CubicajeTab({
   const grupos = useMemo(() => agruparHistorico(histFilas, eje), [histFilas, eje]);
   const totalHist = useMemo(() => totalCargas(histFilas), [histFilas]);
 
+  /**
+   * Borrar la MEDIDA de una tolva.
+   *
+   * ⚠️ Pide confirmación, y no es trámite: desde que la medida vive en la base
+   *    la ve toda la empresa, así que un toque en la papelera se la quitaba a
+   *    todo el mundo sin preguntar. Además se avisa de la consecuencia real:
+   *    los días YA GUARDADOS no cambian (lo guardado manda), pero el cálculo
+   *    al vuelo de ese camión se va a cero hasta que se vuelva a medir.
+   */
+  const borrarMedidaDe = async (m: Medida) => {
+    const guardadosDeEse = m.truckId
+      ? cub.cargas.filter((c) => c.machinery_id === m.truckId).length
+      : 0;
+    const ok = await confirm({
+      title: 'Borrar la medida de la tolva',
+      message: `${m.ident}. ${m.truckId && !cub.sinTabla
+        ? 'La medida es compartida: se le quita a todo el mundo. '
+        : 'Está guardada solo en este dispositivo. '}`
+        + (guardadosDeEse > 0
+          ? `Los ${guardadosDeEse} día(s) que ya tiene GUARDADOS en el histórico NO cambian. `
+          : '')
+        + 'Lo que sí cambia es el cálculo automático por tolva: ese camión queda en 0 m³ hasta que se vuelva a medir.',
+      confirmText: 'Borrar la medida',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await cub.borrar(m);
+      toast.success('Medida borrada.');
+    } catch (e: any) {
+      toast.error(String(e?.message ?? e));
+    }
+  };
+
   const borrarDia = async (machinery_id: string, jornada: string) => {
     const fila = cub.cargas.find((c) => c.machinery_id === machinery_id && String(c.jornada).slice(0, 10) === jornada);
     if (!fila) return;
@@ -492,6 +547,14 @@ export function CubicajeTab({
         </Text>
 
         <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>¿QUÉ UNIDAD?</Text>
+        <Toggle
+          on={soloCamiones}
+          onPress={() => setSoloCamiones(!soloCamiones)}
+          label={soloCamiones ? `Solo camiones · ${noCamiones} equipo(s) fuera` : 'Mostrando TODO el catálogo de maquinaria'}
+          ayuda={soloCamiones
+            ? 'Volteos, volquetas y Toronto. El cubicaje es de tolvas: a una excavadora no se le mide una.'
+            : 'Apágalo solo para encontrar un camión cuyo código no diga volteo ni volqueta.'}
+        />
         <TextInput value={busca} onChangeText={setBusca} placeholder="Buscar por código, placa, marca…" placeholderTextColor={colors.muted} style={[input, { marginTop: 4 }]} />
         <TouchableOpacity
           onPress={() => elegir(null)}
@@ -625,7 +688,7 @@ export function CubicajeTab({
                     </Text>
                   </View>
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{m3Texto(v)}</Text>
-                  <TouchableOpacity onPress={() => cub.borrar(m).catch((e) => toast.error(String(e?.message ?? e)))} style={{ padding: 4 }}>
+                  <TouchableOpacity onPress={() => borrarMedidaDe(m)} style={{ padding: 4 }}>
                     <Text style={{ fontSize: 14 }}>🗑️</Text>
                   </TouchableOpacity>
                 </View>
