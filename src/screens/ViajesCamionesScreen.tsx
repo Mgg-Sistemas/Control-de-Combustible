@@ -38,6 +38,11 @@ import {
   InspByShiftEntry,
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
+import { CubicajeTab, OpcionesReporteBox, useCubicaje, type CamionCubicaje } from '../components/CubicajeTab';
+import {
+  repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen,
+  valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
+} from '../lib/cubicaje';
 import { resumirViajes, SIN_EMPRESA, claveCamion, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, TURNO_ICONO, TURNO_HORARIO, turnoDeHora, HORA_INICIO_TURNO, Turno, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
@@ -1873,6 +1878,51 @@ export default function ViajesCamionesScreen() {
     [filasResumen, truckById, resumenEje]
   );
 
+  // ── CUBICAJE: METROS CÚBICOS POR CAMIÓN (09-sep-2026) ────────────────────
+  //
+  // Todo el estado vive en un hook aparte (src/components/CubicajeTab.tsx) porque
+  // lo necesitan las DOS sub-pestañas: se mide en «Cubicaje» y se imprime desde
+  // «Viajes». Si viviera dentro del componente, cambiar de pestaña lo desmontaría
+  // y las medidas se perderían justo antes de exportar.
+  //
+  // ⚠️ NO TOCA LA BASE. El catálogo se lee; las medidas se guardan en el teléfono.
+  const cub = useCubicaje();
+  const [panelTab, setPanelTab] = useState<'viajes' | 'cubicaje'>('viajes');
+
+  /** Cuántos viajes hizo cada camión del catálogo EN LO QUE HAY FILTRADO. Es la
+   *  base de los tres modos de reparto: respeta el rango y los filtros de
+   *  arriba, así que el volumen nunca cubre un período distinto al del reporte. */
+  const viajesPorCamion = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of filteredRangeRows) if (r.machineryId) m.set(r.machineryId, (m.get(r.machineryId) ?? 0) + 1);
+    return m;
+  }, [filteredRangeRows]);
+
+  /** m³ de cada camión en el rango, según el modo elegido. `porViaje` sale del
+   *  total y no al revés: así la columna de cada línea y la sumatoria del pie no
+   *  pueden dejar de cuadrar. */
+  const volumenPorCamion = useMemo(() => {
+    const filas = Array.from(viajesPorCamion.entries()).map(([key, viajes]) => {
+      const md = cub.porTruck.get(key);
+      return { key, viajes, m3Tolva: md ? volumenDe(md) : 0, manual: cubNum(cub.manual[key]) };
+    });
+    return repartirVolumen(cub.modo, filas, cubNum(cub.totalGlobal));
+  }, [viajesPorCamion, cub.porTruck, cub.modo, cub.manual, cub.totalGlobal]);
+
+  const camionesCubicaje = useMemo<CamionCubicaje[]>(
+    () => catalogoTrucks.map((t) => ({
+      id: t.id, code: t.code, plate: t.plate, serial: t.serial,
+      marca: t.marca, modelo: t.modelo, companyName: t.companyName,
+    })),
+    [catalogoTrucks]
+  );
+
+  /** Un resumido sin conteo de viajes Y sin m³ es una tabla de camiones sin una
+   *  sola cifra. Se avisa en pantalla y se bloquea la exportación. */
+  const avisoReporte = reporteSinCifras(cub.op, reporteModo === 'resumen')
+    ? '⚠️ Con «Conteo de viajes» y «Metros cúbicos» apagados, el resumido queda sin ninguna cifra. Enciende al menos uno.'
+    : null;
+
   // Viajes cuya columna `shift` contradice a su hora — pasa al corregir una hora
   // cruzando las 7am o las 7pm. No se corrige solo: se DICE, para que nadie
   // concluya que el reporte cambió de números por su cuenta.
@@ -1919,6 +1969,12 @@ export default function ViajesCamionesScreen() {
       toast.error('Los viajes de ese rango todavía se están cargando. Espera a que termine.');
       return;
     }
+    // Un resumido con el conteo de viajes Y los m³ apagados es una tabla de
+    // camiones sin una sola cifra: parece un reporte y no dice nada.
+    if (reporteSinCifras(cub.op, reporteModo === 'resumen')) {
+      toast.error('El resumido quedaría sin ninguna cifra. Enciende «Conteo de viajes» o «Metros cúbicos» en «Qué sale en el reporte».');
+      return;
+    }
     setShareBusy(true);
     try {
       const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1960,34 +2016,120 @@ export default function ViajesCamionesScreen() {
       // camión que solo trabaja de día queda limpia en vez de arrastrar un
       // «0» en la de noche.
       const num = (n: number) => (n > 0 ? String(n) : '—');
-      const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}
-          <br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span></p>
-        ${resumenViajes.empresas.map((e) => `
-          <h3>${icoGrupo} ${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es) · ${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}</h3>
-          <table>
-            <thead><tr><th>Camión</th><th>Placa / Serial</th><th style="text-align:right">☀️ Día</th><th style="text-align:right">🌙 Noche</th><th style="text-align:right">Viajes</th></tr></thead>
-            <tbody>
-              ${e.camiones.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.placa)}</td><td style="text-align:right">${num(c.dia)}</td><td style="text-align:right">${num(c.noche)}</td><td style="text-align:right"><b>${c.viajes}</b></td></tr>`).join('')}
-            </tbody>
-            <tfoot><tr><td colspan="2"><b>Total ${esc(e.name)}</b></td><td style="text-align:right"><b>${num(e.dia)}</b></td><td style="text-align:right"><b>${num(e.noche)}</b></td><td style="text-align:right"><b>${e.total}</b></td></tr></tfoot>
-          </table>`).join('')}`;
 
-      // ── DETALLADO: como siempre, pero ahora CON empresa y placa en cada línea.
-      const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)</p>
+      // ── QUÉ COLUMNAS LLEVA ESTE REPORTE (09-sep-2026) ──────────────────
+      //
+      // Las columnas ya no están escritas a mano en el HTML: las decide
+      // `columnasDetalle`/`columnasResumen` a partir de los interruptores de
+      // «Qué sale en el reporte», y `valoresEnOrden` toma de cada fila justo
+      // esas y en ese orden. Así encabezado, celdas y pie no pueden
+      // desalinearse: los tres salen de la MISMA lista.
+      //
+      // ⚠️ Con todo por defecto, las columnas son EXACTAMENTE las de siempre.
+      const op = cub.op;
+      const medidaDe = (id: string | null | undefined) => (id ? cub.porTruck.get(id) : undefined);
+      // Marca y modelo salen de la ficha del catálogo; si no los tiene, de lo que
+      // se escribió al medir. Nunca al revés: manda el catálogo.
+      const marcaModeloDe = (id: string | null | undefined) => {
+        const t = id ? truckById.get(id) : undefined;
+        const m = medidaDe(id);
+        return [t?.marca || m?.marca, t?.modelo || m?.modelo].filter(Boolean).join(' ') || '—';
+      };
+      const dimsDe = (id: string | null | undefined) => dimsTexto(medidaDe(id)) || '—';
+      const claseDe = (id: string | null | undefined) => {
+        const m = medidaDe(id);
+        return m ? etiquetaClase(volumenDe(m)) : '—';
+      };
+      // ⚠️ El m³ de una línea del RESUMIDO es `porViaje × sus viajes`, NO el total
+      //    del camión. Agrupando por listero un mismo camión aparece bajo cada
+      //    listero que lo registró: con el total entero en cada uno, el reporte
+      //    sumaría el mismo volumen dos y tres veces.
+      const porViajeDe = (key: string) => volumenPorCamion.get(key)?.porViaje ?? 0;
+      const m3Fila = (key: string, viajes: number) => redondear(porViajeDe(key) * viajes);
+      const totalM3 = sumaVolumen(volumenPorCamion);
+
+      /** Arma una tabla con las columnas visibles. `pie` ya viene con su HTML
+       *  hecho (lleva <b>), así que NO se escapa: lo arma este mismo archivo. */
+      const tabla = (
+        cols: { key: string; head: string; num?: boolean }[],
+        filas: string[][],
+        pie: string[],
+      ) => {
+        const al = (i: number) => (cols[i]?.num ? ' style="text-align:right"' : '');
+        return `
         <table>
-          <thead><tr><th>Fecha</th><th>Hora</th><th>Empresa</th><th>Camión</th><th>Placa / Serial</th><th>Chofer</th><th>Listero</th><th>Turno</th><th>Estado</th></tr></thead>
+          <thead><tr>${cols.map((c, i) => `<th${al(i)}>${esc(c.head)}</th>`).join('')}</tr></thead>
           <tbody>
-            ${filteredRangeRows
-              .map(
-                (r) =>
-                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(companyOfRow(r).name)}</td><td>${esc(r.machineCode)}</td><td>${esc(placaDe(r))}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(TURNO_NOMBRE[turnoDeViaje(r.registeredAt)])}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
-              )
-              .join('')}
+            ${filas.map((f) => `<tr>${f.map((v, i) => `<td${al(i)}>${esc(v)}</td>`).join('')}</tr>`).join('')}
           </tbody>
-          <tfoot><tr><td colspan="9">Total: ${filteredRangeRows.length} viajes</td></tr></tfoot>
+          <tfoot><tr>${pie.map((v, i) => `<td${al(i)}>${v}</td>`).join('')}</tr></tfoot>
         </table>`;
+      };
+
+      // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
+      //    empresa O POR LISTERO, con el total de cada grupo y el total general.
+      //    Sin una línea por viaje — es justo lo contrario del detallado.
+      //
+      //    El HTML es UNO SOLO para los dos ejes: lo único que cambia son los
+      //    rótulos. Si se partiera en dos plantillas, cualquier arreglo futuro
+      //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
+      const colsR = columnasResumen(op);
+      const bodyResumen = `
+        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}
+          ${op.viajes ? `<br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span>` : ''}</p>
+        ${resumenViajes.empresas.map((e) => {
+          const g3 = redondear(e.camiones.reduce((a, c) => a + m3Fila(c.key, c.viajes), 0));
+          const cab = [
+            op.viajes ? `${e.total} viaje(s)` : null,
+            `${e.camiones.length} camión(es)`,
+            op.viajes ? `${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}` : null,
+            op.m3 ? `${m3Texto(g3)} m³` : null,
+          ].filter(Boolean).join(' · ');
+          const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
+            camion: c.code,
+            placa: c.placa,
+            marcaModelo: marcaModeloDe(c.key),
+            dims: dimsDe(c.key),
+            clase: claseDe(c.key),
+            dia: num(c.dia),
+            noche: num(c.noche),
+            viajes: String(c.viajes),
+            m3: m3Texto(m3Fila(c.key, c.viajes)),
+          }));
+          const pie = colsR.map((c, i) => (
+            i === 0 ? `<b>Total ${esc(e.name)}</b>`
+              : c.key === 'dia' ? `<b>${num(e.dia)}</b>`
+              : c.key === 'noche' ? `<b>${num(e.noche)}</b>`
+              : c.key === 'viajes' ? `<b>${e.total}</b>`
+              : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>` : ''
+          ));
+          return `<h3>${icoGrupo} ${esc(e.name)} — ${cab}</h3>${tabla(colsR, filas, pie)}`;
+        }).join('')}`;
+
+      // ── DETALLADO: una línea por viaje, con las columnas que estén encendidas.
+      const colsD = columnasDetalle(op);
+      const filasD = filteredRangeRows.map((r) => valoresEnOrden(colsD, {
+        fecha: fmtFecha(r.registeredAt),
+        hora: fmtHora(r.registeredAt),
+        empresa: companyOfRow(r).name,
+        camion: r.machineCode,
+        placa: placaDe(r),
+        marcaModelo: marcaModeloDe(r.machineryId),
+        dims: dimsDe(r.machineryId),
+        m3: m3Texto(r.machineryId ? porViajeDe(r.machineryId) : 0),
+        clase: claseDe(r.machineryId),
+        chofer: r.choferName ?? '—',
+        listero: r.listeroName,
+        turno: TURNO_NOMBRE[turnoDeViaje(r.registeredAt)],
+        estado: r.estadoMaquina ?? '—',
+      }));
+      const pieD = colsD.map((c, i) => (
+        i === 0 ? `<b>Total: ${filteredRangeRows.length} viajes</b>`
+          : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>` : ''
+      ));
+      const bodyDetalle = `
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}</p>
+        ${tabla(colsD, filasD, pieD)}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
       // de día 7am–7pm más turno de noche 7pm–7am. Se dice en el subtítulo para
@@ -1997,7 +2139,10 @@ export default function ViajesCamionesScreen() {
         title: reporteModo === 'resumen'
           ? (porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
           : 'Viajes de camiones',
-        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}`,
+        // El modo de volumen va en el subtítulo: dos reportes del mismo rango
+        // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
+        // y sin decirlo uno de los dos parece un error de cálculo.
+        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
@@ -2520,6 +2665,30 @@ export default function ViajesCamionesScreen() {
       {canFull ? (
         <>
           <SectionTitle>📊 Panel de la jefa</SectionTitle>
+
+          {/* ── SUB-PESTAÑAS (09-sep-2026) ────────────────────────────────
+              ⚠️ La de VIAJES es la que abre por defecto y trae exactamente lo
+                 que había antes, en el mismo orden. El cubicaje es un apartado
+                 nuevo AL LADO, no un cambio de lo que ya se usaba todos los días. */}
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {([['viajes', '🚛 Viajes'], ['cubicaje', '📐 Cubicaje y volumen']] as const).map(([key, label]) => {
+              const on = panelTab === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => setPanelTab(key)}
+                  style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingVertical: 7 }}
+                >
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {panelTab === 'cubicaje' ? (
+            <CubicajeTab cub={cub} trucks={camionesCubicaje} viajesPorCamion={viajesPorCamion} />
+          ) : (
+          <>
 
           <Card>
             <SectionTitle>Resumen de hoy</SectionTitle>
@@ -3063,28 +3232,49 @@ export default function ViajesCamionesScreen() {
                 // Lo mismo que va a salir en el PDF, en pantalla: total general,
                 // total por empresa y el desglose de sus camiones.
                 <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
+                  {/* La vista previa enseña LO MISMO que el PDF: si se apaga el
+                      conteo de viajes, tampoco sale acá — si no, quien lo apaga
+                      lo ve igual en pantalla y concluye que no funcionó. */}
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
-                    TOTAL: {resumenViajes.total} viaje(s) · {resumenViajes.totalCamiones} camión(es)
+                    TOTAL: {cub.op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}{resumenViajes.totalCamiones} camión(es)
+                    {cub.op.m3 ? ` · ${m3Texto(sumaVolumen(volumenPorCamion))} m³` : ''}
                   </Text>
                   {/* El desglose siempre suma el total: `turnoDeViaje` le da turno
                       a TODAS las filas (nunca devuelve null), así que acá no hay
                       caso «sin turno» que contemplar. La librería sí lo admite,
                       para quien la llame con datos de otra procedencia. */}
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                    {resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}
-                  </Text>
+                  {cub.op.viajes ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                      {resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}
+                    </Text>
+                  ) : null}
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porListero ? '👤' : '🏢'} {e.name}</Text>
-                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{e.total} viaje(s)</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>
+                          {cub.op.viajes ? `${e.total} viaje(s)` : `${e.camiones.length} camión(es)`}
+                          {cub.op.m3 ? ` · ${m3Texto(redondear(e.camiones.reduce((a, c) => a + (volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes, 0)))} m³` : ''}
+                        </Text>
                       </View>
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>{resumenTurno({ dia: e.dia, noche: e.noche, total: e.total })}</Text>
+                      {cub.op.viajes ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{resumenTurno({ dia: e.dia, noche: e.noche, total: e.total })}</Text>
+                      ) : null}
                       {e.camiones.map((c, i) => (
                         <View key={`${e.key}-${i}`} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3, paddingLeft: spacing.sm }}>
                           <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>🚜 {c.code} · {c.placa}</Text>
-                          <Text style={{ color: colors.muted, fontSize: 11, marginRight: spacing.xs }}>{resumenTurno({ dia: c.dia, noche: c.noche, total: c.viajes })}</Text>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{c.viajes}</Text>
+                          {cub.op.viajes ? (
+                            <Text style={{ color: colors.muted, fontSize: 11, marginRight: spacing.xs }}>{resumenTurno({ dia: c.dia, noche: c.noche, total: c.viajes })}</Text>
+                          ) : null}
+                          {/* La vista previa enseña lo MISMO que va a salir impreso:
+                              el m³ de la línea es por-viaje × sus viajes, igual que
+                              en el PDF, para que no haya dos cuentas distintas. */}
+                          {cub.op.m3 ? (
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, marginRight: spacing.xs }}>
+                              {m3Texto(redondear((volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes))} m³
+                            </Text>
+                          ) : null}
+                          {cub.op.viajes ? <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{c.viajes}</Text> : null}
                         </View>
                       ))}
                     </View>
@@ -3097,7 +3287,12 @@ export default function ViajesCamionesScreen() {
               )}
             </View>
 
-            <TouchableOpacity onPress={compartirReporte} disabled={shareBusy} style={[styles.registerBtn, { marginTop: spacing.md, opacity: shareBusy ? 0.6 : 1 }]}>
+            {/* Los interruptores van PEGADOS al botón de exportar, no en la otra
+                sub-pestaña: configurar en un sitio y exportar en otro es como se
+                quedan encendidos los filtros que nadie quería. */}
+            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo === 'resumen'} aviso={avisoReporte} />
+
+            <TouchableOpacity onPress={compartirReporte} disabled={shareBusy || !!avisoReporte} style={[styles.registerBtn, { marginTop: spacing.md, opacity: shareBusy || avisoReporte ? 0.6 : 1 }]}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>
                 {shareBusy ? 'Generando…' : '📤 Compartir / exportar reporte'}
               </Text>
@@ -3149,6 +3344,9 @@ export default function ViajesCamionesScreen() {
               </ScrollView>
             )}
           </Card>
+
+          </>
+          )}
         </>
       ) : null}
 
