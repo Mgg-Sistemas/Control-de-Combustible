@@ -4131,10 +4131,17 @@ El panel de la jefa quedó partido en **dos sub-pestañas**: **🚛 Viajes** (to
 la que abre) y **📐 Cubicaje y volumen**, que es nueva. Sirve para decir **cuántos metros cúbicos**
 cargó cada camión en un día o en un rango, y para armar el reporte quitando y poniendo columnas.
 
-> ⚠️ **Las medidas se guardan en ESTE dispositivo, no en el sistema.** Lo que mida una persona en
-> su computadora **no lo ve otra**, y si se limpian los datos del navegador se pierden. Es el precio
-> de no tocar la base de datos: el apartado **lee** el catálogo de vehículos y **nunca lo modifica**.
-> Una volqueta medida a mano **no se agrega al catálogo**: no aparece en Control de Maquinaria, ni en
+> ✅ **Las medidas y los m³ quedan guardados para todos, y se pueden buscar después.** Requiere correr
+> `03_cubicaje_camiones.sql`, que se entrega aparte y **no** va en el repositorio porque es público.
+> Crea **dos tablas nuevas** y **no toca ninguna existente**: el catálogo de vehículos se sigue
+> **leyendo** y nunca se modifica.
+>
+> **Mientras ese SQL no se corra**, la pantalla funciona igual pero las medidas se guardan **solo en
+> ese dispositivo** y no hay histórico que buscar. La pantalla lo avisa arriba.
+>
+> Una volqueta medida **a mano** se queda siempre en el dispositivo, incluso con el SQL corrido: la
+> tabla se indexa por el camión del catálogo, y una unidad que no está en el catálogo no tiene con
+> qué indexarse. **No se agrega al catálogo**: no aparece en Control de Maquinaria, ni en
 > Mantenimiento, ni le llega a los inspectores. Es el mismo criterio del camión *"fuera de catálogo"*.
 
 **1. Medir una volqueta.** Se elige un camión del catálogo (con su buscador) o **➕ Medir nueva
@@ -4171,6 +4178,48 @@ Un camión **sin medir** queda en **0 m³** en el modo de tolva: no se le invent
 un total", si en el rango no hay viajes, todos quedan en cero (no se divide entre cero). Y el
 **céntimo que sobra al redondear** se le suma al camión de más viajes, para que el reporte cierre
 exactamente con el total que escribiste.
+
+**5. Guardar, que es lo que permite buscar después.** El botón **💾 Guardar el cubicaje de este rango**
+graba **una fila por camión y por jornada**, no un total del rango. Eso es lo que hace posible
+preguntar después *"¿cuánto cargó este camión el 3 de septiembre?"*.
+
+> ⭐ **Lo guardado MANDA sobre el cálculo**, jornada por jornada. Un reporte de un mes viejo tiene que
+> salir **hoy** con los mismos números que salió aquel día. Lo que no se guardó se sigue calculando al
+> vuelo, así que el sistema funciona igual sin haber guardado nada.
+>
+> Las jornadas **sin viajes no se guardan**: una fila en cero diría *"ese día ese camión cargó nada"*,
+> y lo cierto es que ese día no trabajó. Son dos cosas distintas.
+>
+> Si después se le **agregan viajes** a una jornada ya guardada, el sistema **avisa** y sigue mostrando
+> el volumen guardado. No lo corrige solo: cambiaría en silencio un número por el que ya se cobró.
+> Para actualizarlo se vuelve a guardar el rango.
+
+**6. Buscar en el histórico.** La tarjeta **🔎 Buscar en el histórico** consulta lo guardado, con tres
+cortes de un toque: **📅 Por día**, **🗓️ Por mes** y **🚛 Por camión**. Los tres salen de las mismas
+filas, así que los tres suman igual. Hay además un buscador para filtrar por camión.
+
+El **período** es el que tengas puesto en "Lista completa de viajes": Hoy, Esta semana, Este mes,
+Rango libre o Días específicos. En el corte por día sale también el detalle camión por camión, con
+una papelera para borrar el volumen de un día suelto (vuelve a calcularse solo).
+
+**7. El reporte volumétrico.** El botón **📄 Generar reporte volumétrico** saca el documento
+*"Análisis Técnico y Capacidad Volumétrica de Flota"*: cabecera azul, las tres tarjetas de mayor,
+menor y promedio, las tablas con **alto, largo, ancho, volumen y clasificación en pastilla de color**,
+el análisis logístico, las recomendaciones y las notas técnicas. Si hay histórico guardado en el
+período, va incluido como una sección más.
+
+Un interruptor decide si sale **segmentado** (volteos por un lado, volquetas y chutos por otro) o en
+**una sola tabla**. Segmentado por defecto: un volteo rígido anda por 14-17 m³ y un chuto pasa de 21,
+y mezclarlos hace que el promedio no describa a ninguna de las dos familias.
+
+> ⚠️ **El análisis y las recomendaciones NO son texto fijo: se calculan.** Un párrafo escrito a mano
+> que diga *"entre 13,80 y 17,64 m³"* queda mintiendo en cuanto se mida otra unidad, y nadie se acuerda
+> de ir a corregirlo. Los rangos salen de las mismas filas que se imprimieron arriba.
+
+> ⚠️ **El volumen se calcula, no se copia.** El sistema imprime el resultado exacto de
+> alto × largo × ancho. Si un cálculo hecho aparte da otro número, manda el del sistema: se cobra por
+> metro cúbico, y copiar una cifra para que "cuadre" con una hoja anterior es la peor de las dos
+> salidas.
 
 **5. Qué sale en el reporte.** En la sub-pestaña **🚛 Viajes**, justo encima del botón de exportar,
 está **🖨️ Qué sale en el reporte** (se despliega). Son interruptores que **solo cambian las
