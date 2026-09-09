@@ -4125,6 +4125,51 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
 
+### 📐 El PDF del conteo por tipo, con medidas y m³ (09-sep-2026)
+
+En **Reportes → Conteo de equipos → 🔎 Buscar por tipo de equipo**, el botón **«PDF de este conteo»**
+cambió en cuatro cosas.
+
+**1. Mismo membrete que Ubicaciones.** Sale con la plantilla del Plan, no con la hoja simple de antes.
+
+**2. Columnas de cubicaje.** Cada equipo lleva **Alto, Largo, Ancho** y **Volumen (m³)**.
+
+| De dónde sale la medida | Cuándo |
+|---|---|
+| Lo cargado en **Cubicaje y volumen** | Siempre que exista. **Manda sobre todo lo demás.** |
+| La **hoja de cubicaje** del 09/09/2026 (11 unidades) | Cuando no hay medida cargada y la unidad se reconoce |
+| **En blanco** | Cuando no se reconoce |
+
+> ⚠️ **Lo que no se reconoce queda en blanco, a propósito.** Rellenar con un promedio o con un cero
+> sería inventar un número por el que se cobra.
+
+> ⚠️ **Lo medido en el sistema manda sobre la hoja.** Si no, corregir una medida en Cubicaje no cambiaría
+> este reporte y los dos papeles dirían cosas distintas del mismo camión.
+
+Las once de la hoja son: Toronto Trakker, Fiat, Iveco Eurotech, Mitsubishi, Renault Ikemaz, Freightliner,
+Chuto Trakker, Doble Tolva MAX-400, Doble Cajón, Telescópica Eurotech y Sinotruk (HOWO).
+
+> 🚫 **El listado NO lleva columna de clasificación**, se pidió quitarla. El **cuadro** de cantidad por
+> clasificación sí sigue, con su propia pastilla.
+
+**3. ¿Qué se oculta en el PDF?** Pastillas iguales a las de Ubicaciones, **pegadas al botón**: Marca ·
+Modelo · Serial/Placa · Encargado · **Metros cúbicos** · Nombre de empresas · Listado por equipo ·
+Cantidad por tipo · Cantidad por clasificación · Alcance del informe. Se encienden **varias a la vez**,
+ocultan columnas o cuadros pero **nunca equipos**, y los totales no cambian. El nombre del archivo dice
+qué se ocultó, para que dos PDF distintos no se pisen en la carpeta de descargas.
+
+> ⚠️ Si apagas el **listado** y los **dos cuadros** a la vez, el botón se apaga y te lo dice: sería una
+> hoja con membrete y nada más.
+
+**4. Empresas en específico.** En **«¿Qué empresas salen?»**, al elegir *todas* aparece la lista de empresas
+con su cantidad de equipos, para marcar **solo las que quieras**. Sin marcar ninguna salen **todas**, como
+siempre. Vale para el PDF de Ubicaciones tácticas **y** para el conteo por tipo, y lo que marques acota
+también lo que ves en pantalla: **lo que se ve es lo que se imprime**.
+
+> ⚠️ El filtro se aplica **antes** de repartir por alcance, para que el cuadro de «alcance del informe»
+> cuente lo mismo que lista el papel. Aplicándolo después, el papel diría «6 empresas» arriba y listaría 2.
+
+
 ### 📐 Cubicaje y reporte volumétrico (09-sep-2026)
 
 El panel de la jefa quedó partido en **dos sub-pestañas**: **🚛 Viajes** (todo lo de siempre, y es
