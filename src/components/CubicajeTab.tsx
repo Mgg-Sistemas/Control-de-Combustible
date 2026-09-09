@@ -42,6 +42,7 @@ import {
 } from '../lib/cubicajeDatos';
 import { reporteVolumetricoHtml, type UnidadReporte } from '../lib/reporteVolumetrico';
 import { isVolteoVolqueta } from '../lib/equipos';
+import { medidaConocida } from '../lib/medidasFlota';
 
 const CLAVE_MEDIDAS = 'cubicaje.medidas.v1';
 
@@ -89,7 +90,7 @@ export type CubicajeState = {
  * sub-pestaña lo necesita igual. Con el estado adentro, cambiar de pestaña
  * desmontaría el componente y se perdería justo antes de exportar.
  */
-export function useCubicaje(uid: string | null): CubicajeState {
+export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): CubicajeState {
   const [deLaBase, setDeLaBase] = useState<Medida[]>([]);
   const [locales, setLocales] = useState<Medida[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -182,12 +183,39 @@ export function useCubicaje(uid: string | null): CubicajeState {
   const setManual = useCallback((k: string, v: string) => setManualMap((p) => ({ ...p, [k]: v })), []);
   const setOp = useCallback((k: keyof OpcionesReporte, v: boolean) => setOpMap((p) => ({ ...p, [k]: v })), []);
 
-  // La de la base gana sobre la del dispositivo para el mismo camión: es la
-  // compartida, y tener dos verdades del mismo camión es peor que no tener.
+  /**
+   * TRES FUENTES, EN ESTE ORDEN: la base, el dispositivo y la hoja.
+   *
+   * ⭐ La de la BASE gana siempre: es la compartida, y tener dos verdades del
+   *    mismo camión es peor que no tener ninguna.
+   *
+   * ⭐ La HOJA (`medidasFlota`) es el último recurso, y entra el 09-sep-2026 a
+   *    pedido del cliente: «los que ya cargaste, que se vean reflejados en el
+   *    apartado nuevo». Son las once unidades de la hoja de cubicaje que entregó.
+   *    Se reconocen por el TEXTO del equipo, así que se marcan como
+   *    `deLaHoja: true` — en pantalla se ven distintas, y quien las confirme
+   *    tocando «Guardar medida» las convierte en medidas de verdad.
+   *
+   * ⚠️ La misma precedencia que usa el conteo de Reportes. Si acá fuera otra,
+   *    los dos papeles dirían cosas distintas del mismo camión.
+   */
   const medidas = useMemo(() => {
     const ids = new Set(deLaBase.map((m) => m.truckId));
-    return [...deLaBase, ...locales.filter((m) => !m.truckId || !ids.has(m.truckId))];
-  }, [deLaBase, locales]);
+    const conLocal = [...deLaBase, ...locales.filter((m) => !m.truckId || !ids.has(m.truckId))];
+    const yaTiene = new Set(conLocal.map((m) => m.truckId).filter(Boolean) as string[]);
+    const deLaHoja: Medida[] = [];
+    for (const t of flota) {
+      if (yaTiene.has(t.id)) continue;
+      const h = medidaConocida(t.code, t.marca, t.modelo);
+      if (!h) continue;
+      deLaHoja.push({
+        id: t.id, truckId: t.id, ident: h.nombre,
+        marca: t.marca ?? '', modelo: t.modelo ?? '',
+        alto: h.alto, largo: h.largo, ancho: h.ancho, deLaHoja: true,
+      });
+    }
+    return [...conLocal, ...deLaHoja];
+  }, [deLaBase, locales, flota]);
 
   const porTruck = useMemo(() => {
     const m = new Map<string, Medida>();
@@ -323,7 +351,10 @@ export function CubicajeTab({
     }
     setSel(t.id);
     const ya = cub.porTruck.get(t.id);
-    setEditId(ya?.id ?? null);
+    // ⚠️ Una medida DE LA HOJA no es una fila guardada: no hay nada que
+    //    «actualizar». Se precarga para poder confirmarla o corregirla, pero al
+    //    guardar se crea la fila de verdad.
+    setEditId(ya && !ya.deLaHoja ? ya.id : null);
     // Identificador, marca y modelo salen del catálogo: se leen, no se escriben.
     setIdent(ya?.ident || `${t.code}${t.plate ? ` · ${t.plate}` : ''}`);
     setMarca(ya?.marca || t.marca || '');
@@ -637,7 +668,9 @@ export function CubicajeTab({
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={guardar} disabled={!puedeGuardar} style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{editId ? '💾 Actualizar medida' : '💾 Guardar medida'}</Text>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
+                  {sel !== MANUAL && cub.porTruck.get(sel)?.deLaHoja ? '✅ Confirmar esta medida' : editId ? '💾 Actualizar medida' : '💾 Guardar medida'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -684,6 +717,7 @@ export function CubicajeTab({
                     </Text>
                     <Text style={{ color: colors.muted, fontSize: 10 }} numberOfLines={1}>
                       {[m.marca, m.modelo].filter(Boolean).join(' ') || 'Sin marca ni modelo'} · {dimsTexto(m)} m · {etiquetaClase(v)}
+                      {m.deLaHoja ? ' · ⚠️ de la hoja, sin confirmar' : ''}
                       {m.truckId ? ` · ${viajes} viaje(s) en el rango` : ' · medida a mano, solo en este dispositivo'}
                     </Text>
                   </View>

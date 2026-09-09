@@ -614,6 +614,23 @@ export default function ReportsScreen({ route }: any) {
   const [empresasSel, setEmpresasSel] = useState<Set<string>>(new Set());
   const toggleEmpresaSel = (n: string) =>
     setEmpresasSel((prev) => { const x = new Set(prev); x.has(n) ? x.delete(n) : x.add(n); return x; });
+  /**
+   * POR QUÉ EJE SE PARTE EL CONTEO (09-sep-2026).
+   *
+   * Pedido del cliente: «necesito poder sacar por categoría, que si remoción de
+   * escombros, poder agrupar por esas categorías». La categoría es la
+   * CLASIFICACIÓN de la ficha de la máquina.
+   *
+   * ⚠️ AGRUPAR NO FILTRA. Cambiar el eje reparte los MISMOS equipos de otra
+   *    forma: el total general es idéntico por empresa y por categoría. Quien
+   *    filtra es el selector de abajo.
+   */
+  const [conteoEje, setConteoEje] = useState<'empresa' | 'clasificacion'>('empresa');
+  /** Categorías marcadas. Vacío = todas, igual que las empresas. */
+  const [clasSel, setClasSel] = useState<Set<string>>(new Set());
+  const toggleClasSel = (n: string) =>
+    setClasSel((prev) => { const x = new Set(prev); x.has(n) ? x.delete(n) : x.add(n); return x; });
+
   /** Qué se oculta en el PDF del conteo por tipo. Por defecto, nada. */
   const [conteoOpciones, setConteoOpciones] = useState<OpcionesConteo>(OPCIONES_CONTEO_COMPLETO);
   /**
@@ -793,8 +810,17 @@ export default function ReportsScreen({ route }: any) {
     const porEstado = tipoEstado === 'todas' ? src : src.filter((m) => (tipoEstado === 'activas' ? m.estado === 'activo' : m.estado === 'inactivo'));
     // Vacío = todas. Se aplica acá y en ningún otro lado, así que lo que se ve en
     // pantalla y lo que sale impreso son exactamente lo mismo.
-    return empresasSel.size ? porEstado.filter((m) => empresasSel.has(m.company)) : porEstado;
-  }, [conteo, tipoEstado, empresasSel]);
+    const porEmpresa = empresasSel.size ? porEstado.filter((m) => empresasSel.has(m.company)) : porEstado;
+    return clasSel.size ? porEmpresa.filter((m) => clasSel.has(m.clas)) : porEmpresa;
+  }, [conteo, tipoEstado, empresasSel, clasSel]);
+
+  /** Las categorías que hay para marcar, con su cantidad. Salen de los datos,
+   *  no de una lista fija: así no se ofrece una categoría sin un solo equipo. */
+  const clasDelConteo = useMemo(() => {
+    const m = new Map<string, number>();
+    (conteo?.machinesAll ?? []).forEach((x) => m.set(x.clas, (m.get(x.clas) ?? 0) + 1));
+    return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+  }, [conteo]);
 
   /** Las empresas que hay para marcar, con cuántos equipos tiene cada una. Salen
    *  de los datos, no del catálogo de empresas: así no se ofrece una empresa que
@@ -842,12 +868,18 @@ export default function ReportsScreen({ route }: any) {
     if (!tiposSel.size) return null;
     const match = machinesPorEstado.filter((it) => tiposSel.has(tipoKey(it.code)));
     const byCo = new Map<string, MachineDetail[]>();
-    match.forEach((it) => { const l = byCo.get(it.company) ?? []; l.push(it); byCo.set(it.company, l); });
+    // ⭐ EL ÚNICO PUNTO donde los dos ejes se separan. De acá para abajo el
+    //    código es idéntico, y por eso los totales de los dos NO PUEDEN diferir.
+    //    El campo se sigue llamando `company` por historia: agrupando por
+    //    categoría, cada uno de estos grupos es una CLASIFICACIÓN. Renombrarlo
+    //    obligaría a tocar la pantalla, el HTML del PDF y el test sin ganar nada.
+    const ejeDe = (it: MachineDetail) => (conteoEje === 'clasificacion' ? (it.clas || 'Sin clasificación') : it.company);
+    match.forEach((it) => { const k = ejeDe(it); const l = byCo.get(k) ?? []; l.push(it); byCo.set(k, l); });
     const empresas = [...byCo.entries()]
       .map(([company, items]) => ({ company, count: items.length, items: items.slice().sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')) }))
       .sort((a, b) => cmpText(a.company, b.company));
     return { total: match.length, empresas };
-  }, [tiposSel, machinesPorEstado]);
+  }, [tiposSel, machinesPorEstado, conteoEje]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -2575,6 +2607,12 @@ export default function ReportsScreen({ route }: any) {
       .sort((a, b) => cmpText(a.name, b.name));
     const estadoLbl = tipoEstado === 'todas' ? 'Todos los estados' : tipoEstado === 'activas' ? 'Solo activas' : 'Solo inactivas';
     const empLbl = empresasSel.size ? `${empresasSel.size} empresa(s) escogida(s)` : 'Todas las empresas';
+    const clasLbl = clasSel.size ? ` · ${clasSel.size} categoría(s)` : '';
+    // Cómo se nombra el grupo, según el eje. Es lo ÚNICO que cambia entre los
+    // dos: el HTML es el mismo, y por eso los totales no pueden diferir.
+    const porCategoria = conteoEje === 'clasificacion';
+    const icoGrupo = porCategoria ? '\ud83d\udd36' : '\ud83c\udfe2';
+    const tituloListado = porCategoria ? 'Listado por categoría' : 'Listado por empresa';
 
     // ── Los cuadros de conteo ────────────────────────────────────────────
     const cuadro = (titulo: string, filas: [string, number][]) => `
@@ -2629,11 +2667,11 @@ export default function ReportsScreen({ route }: any) {
     const cuerpo = o.sinEmpresas
       ? filasDe(empresas.flatMap((e) => e.items))
       : empresas.map((e) => `
-          <tr><td colspan="${cols.length}" style="background:#eef2f7;font-weight:800;color:${RENACE_NAVY}">\ud83c\udfe2 ${esc(e.company)}${companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
+          <tr><td colspan="${cols.length}" style="background:#eef2f7;font-weight:800;color:${RENACE_NAVY}">${icoGrupo} ${esc(e.company)}${!porCategoria && companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
           ${filasDe(e.items)}`).join('');
 
     const bloqueListado = o.sinListado ? '' : `
-      <h2 style="font-size:14px;color:${RENACE_NAVY};margin:14px 0 4px">${o.sinEmpresas ? 'Listado de equipos' : 'Listado por empresa'}</h2>
+      <h2 style="font-size:14px;color:${RENACE_NAVY};margin:14px 0 4px">${o.sinEmpresas ? 'Listado de equipos' : tituloListado}</h2>
       <table>${cabecera}<tbody>${cuerpo || `<tr><td colspan="${cols.length}" style="text-align:center">Sin coincidencias</td></tr>`}</tbody></table>`;
 
     // El cuadro del final: de dónde salió cada cosa. Un reporte que esconde algo
@@ -2643,7 +2681,8 @@ export default function ReportsScreen({ route }: any) {
       <table><tbody>
         <tr><td style="width:38%"><b>Tipos de equipo</b></td><td>${sel.length ? esc(sel.map((t) => t.name).join(' · ')) : '\u2014'}</td></tr>
         <tr><td><b>Estado</b></td><td>${esc(estadoLbl)}</td></tr>
-        <tr><td><b>Empresas</b></td><td>${o.sinEmpresas ? `${empresas.length} empresa(s)` : esc(empresas.map((e) => e.company).join(' · ')) || '\u2014'}</td></tr>
+        <tr><td><b>${porCategoria ? 'Categorías' : 'Empresas'}</b></td><td>${o.sinEmpresas ? `${empresas.length} grupo(s)` : esc(empresas.map((e) => e.company).join(' · ')) || '\u2014'}</td></tr>
+        ${clasSel.size ? `<tr><td><b>Categorías filtradas</b></td><td>${esc([...clasSel].join(' · '))}</td></tr>` : ''}
         <tr><td><b>Se ocultó</b></td><td>${esc(ocultosConteoEnPalabras(o))}</td></tr>
         ${o.sinCubicaje ? '' : `<tr><td><b>Medidas de tolva</b></td><td>${esc(NOTA_ORIGEN)}</td></tr>`}
       </tbody></table>`;
@@ -2663,7 +2702,7 @@ export default function ReportsScreen({ route }: any) {
       <div class="summary">
         <div><span class="k">TOTAL DE EQUIPOS</span><b>${total}</b></div>
         <div><span class="k">TIPOS</span><b>${sel.length}</b></div>
-        ${o.sinEmpresas ? '' : `<div><span class="k">EMPRESAS</span><b>${empresas.length}</b></div>`}
+        ${o.sinEmpresas ? '' : `<div><span class="k">${porCategoria ? 'CATEGORÍAS' : 'EMPRESAS'}</span><b>${empresas.length}</b></div>`}
       </div>
       ${bloqueTipos}
       ${bloqueClasif}
@@ -2671,8 +2710,8 @@ export default function ReportsScreen({ route }: any) {
       ${bloqueAlcance}`;
 
     await exportPdf(
-      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}`, body),
-      `Conteo de equipos${sufijoArchivoConteo(o)}`,
+      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body),
+      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${sufijoArchivoConteo(o)}`,
     );
   };
 
@@ -3486,6 +3525,64 @@ export default function ReportsScreen({ route }: any) {
                       <Text style={{ color: colors.brandText, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{tipoResultado.total}</Text>
                       <Text style={{ color: colors.muted, fontSize: 13 }}>equipo(s) · {tipoResultado.empresas.length} empresa(s)</Text>
                     </View>
+                    {/* ── AGRUPAR POR (09-sep-2026) ────────────────────────
+                        Pedido del cliente: poder sacarlo por categoría («remoción
+                        de escombros» y las demás), no solo por empresa.
+                        ⚠️ AGRUPAR NO FILTRA: el total es el mismo por los dos ejes,
+                           solo cambia por dónde se parte el papel. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>AGRUPAR POR</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+                      {([['empresa', '\ud83c\udfe2 Empresa'], ['clasificacion', '\ud83d\udd36 Categoría']] as const).map(([k, label]) => {
+                        const on = conteoEje === k;
+                        return (
+                          <TouchableOpacity key={k} onPress={() => setConteoEje(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      No saca ni agrega ningún equipo: solo cambia si el papel viene partido por empresa o por categoría.
+                      El total es el mismo en los dos.
+                    </Text>
+
+                    {/* Filtro por CATEGORÍA. Vacío = todas, igual que el de empresas. */}
+                    {clasDelConteo.length > 0 ? (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
+                            ¿ALGUNA CATEGORÍA EN ESPECÍFICO? ({clasDelConteo.length})
+                          </Text>
+                          {clasSel.size > 0 ? (
+                            <TouchableOpacity onPress={() => setClasSel(new Set())}>
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✕ Todas ({clasSel.size} marcada/s)</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                        <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                            {clasDelConteo.map((c) => {
+                              const on = clasSel.has(c.name);
+                              return (
+                                <TouchableOpacity
+                                  key={c.name}
+                                  onPress={() => toggleClasSel(c.name)}
+                                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                                >
+                                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.name} · {c.count}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </ScrollView>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+                          {clasSel.size === 0
+                            ? 'Sin marcar ninguna salen TODAS las categorías.'
+                            : `Solo saldrán: ${[...clasSel].join(' · ')}.`}
+                        </Text>
+                      </>
+                    ) : null}
+
                     {/* ¿QUÉ SE OCULTA? del conteo (09-sep-2026). Mismas pastillas y
                         mismo comportamiento que las del reporte de Ubicaciones: se
                         encienden VARIAS a la vez y ocultan columnas o cuadros, nunca
@@ -3524,11 +3621,21 @@ export default function ReportsScreen({ route }: any) {
                     >
                       <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
                     </TouchableOpacity>
-                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Listado por empresa</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>
+                      {conteoEje === 'clasificacion' ? 'Listado por categoría' : 'Listado por empresa'}
+                    </Text>
+                    {/* De dónde sale el alto/largo/ancho y dónde se cambia. Se dice acá
+                        para que nadie lo busque en esta pantalla: se maneja en Viajes de
+                        camiones → Cubicaje, y esa es la ÚNICA lista de medidas. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      📐 El alto, el largo, el ancho y los m³ se manejan en{' '}
+                      <Text style={{ fontWeight: '800' }}>Viajes de camiones → 📐 Cubicaje y volumen</Text>. Para medir algo que
+                      no sea un volteo o una volqueta, apaga ahí el interruptor «solo camiones».
+                    </Text>
                     {tipoResultado.empresas.map((e) => (
                       <View key={e.company} style={{ marginBottom: spacing.xs }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', flex: 1 }} numberOfLines={1}>🏢 {e.company}</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', flex: 1 }} numberOfLines={1}>{conteoEje === 'clasificacion' ? '\ud83d\udd36' : '\ud83c\udfe2'} {e.company}</Text>
                           <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800' }}>{e.count}</Text>
                         </View>
                         {e.items.map((m, i) => (
