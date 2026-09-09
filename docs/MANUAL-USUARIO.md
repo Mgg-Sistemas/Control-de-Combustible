@@ -4337,6 +4337,29 @@ catálogo se siga escribiendo igual.
 > catálogo no tiene ninguna columna que diga qué tolva lleva cada máquina. Si una unidad sale con la
 > medida de otra, se corrige aquí mismo y lo corregido manda para siempre.
 
+### ✅ Las correcciones ya no se deshacen solas (09-sep-2026)
+
+**El síntoma.** Se corregía una medida, el sistema decía *"Medida guardada"*, y al volver a mirar
+estaba otra vez como antes. Todas las unidades salían marcadas **⚠️ de la hoja, sin confirmar** por
+mucho que se confirmaran.
+
+**La causa.** No era el guardado: **las medidas siempre se guardaron bien**, y estaban en la base todo
+el tiempo. Lo que fallaba era **leerlas de vuelta**. El lector de tablas del sistema recorre las filas
+ordenando por una columna llamada `id`, y la tabla de medidas no tiene esa columna: su clave es el
+camión, porque hay una tolva por camión. La consulta fallaba entera y devolvía cero medidas.
+
+> ⚠️ **Lo que lo volvió invisible.** Ese fallo **se descartaba sin decir nada**, así que una consulta
+> rota se veía exactamente igual que *"todavía no hay ninguna medida"*. La pantalla caía a la hoja de
+> cubicaje, que es lo correcto cuando de verdad no hay nada guardado, y cada corrección parecía
+> deshacerse sola. Mirando la pantalla no había forma de saberlo.
+
+**Qué se arregló.** Las medidas se leen por la columna que sí existe. Y si alguna vez vuelve a
+fallar la lectura, **la pantalla lo dice** con un aviso rojo que aclara lo único que importa en ese
+momento: guardar sigue funcionando y **no se está perdiendo nada**, solo no se está viendo.
+
+> ℹ️ **Ninguna otra pantalla tenía este problema.** Se revisaron las once tablas que se leen igual
+> y todas tienen su columna `id`. Era el único caso.
+
 ### 🗑️ Borrar una medida, y dónde quedó la placa (09-sep-2026)
 
 Dos cosas más del mismo apartado.

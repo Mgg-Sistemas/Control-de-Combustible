@@ -90,18 +90,29 @@ export const supabase = createClient(
  * @param columns columnas a seleccionar
  * @param filter  callback opcional para aplicar filtros (.lte/.eq/…) al query
  */
+/**
+ * @param orderBy Columna con la que se pagina. Por defecto `id`.
+ *
+ * ⚠️ NO TODA TABLA TIENE UNA COLUMNA `id`. Una cuya clave primaria sea otra
+ *    cosa —`camion_cubicaje` se indexa por `machinery_id`— hace que este
+ *    `order('id')` reviente la consulta ENTERA. Y como el que llama suele
+ *    quedarse con las filas y no con el error, el síntoma no es «falló la
+ *    lectura» sino «la tabla está vacía»: se guardaba bien y no se veía nada,
+ *    hasta que alguien miró la base y encontró las filas ahí.
+ */
 export async function selectAllRows(
   table: string,
   columns: string,
-  filter?: (q: any) => any
+  filter?: (q: any) => any,
+  orderBy: string = 'id'
 ): Promise<any[]> {
   const pageSize = 1000;
   const out: any[] = [];
   for (let from = 0; ; from += pageSize) {
     let q: any = supabase.from(table).select(columns);
     if (filter) q = filter(q);
-    // Orden estable por id para paginar sin saltar/duplicar filas.
-    q = q.order('id', { ascending: true }).range(from, from + pageSize - 1);
+    // Orden estable para paginar sin saltar ni duplicar filas.
+    q = q.order(orderBy, { ascending: true }).range(from, from + pageSize - 1);
     const { data, error } = await q;
     if (error) throw error;
     const rows = data ?? [];
