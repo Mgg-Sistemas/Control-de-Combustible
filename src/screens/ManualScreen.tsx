@@ -546,10 +546,11 @@ const SECTIONS: Sec[] = [
       { t: 'steps', items: [
         'Ve a la pestaña "🔁 Nota de traslado".',
         'Agrega los materiales con stock e indica la cantidad de cada uno.',
-        'Define el ORIGEN (🚜 máquina + 👷 responsable de dónde SALE) y el DESTINO (🚜 máquina + 👷 responsable a dónde VA). Indica el 📍 lugar/obra a donde va y el ESTADO del material (usado / lleno / dañado). Escribe el motivo si quiere.',
+        'Define el ORIGEN (🚜 máquina, 🚗 vehículo y 👷 responsable de dónde SALE) y el DESTINO (🚜 máquina, 🚗 vehículo y 👷 responsable a dónde VA). Indica el 📍 lugar/obra a donde va y el ESTADO del material (usado / lleno / dañado). Escribe el motivo si quiere.',
         'Toca "🔁 Generar traslado (PDF)": se abre la vista previa con el bloque Origen → Destino y dos firmas (entrega y recibe).',
-        'Al confirmar (Imprimir/Guardar) se descuenta del inventario y queda guardado el traslado, casado con la máquina y el empleado de cada lado.',
+        'Al confirmar (Imprimir/Guardar) se descuenta del inventario y queda guardado el traslado, casado con la máquina, el vehículo y el empleado de cada lado.',
       ] },
+      { t: 'note', text: 'Vehículo en el traslado (09/09/2026): además de la máquina, cada lado del traslado deja elegir un 🚗 vehículo del Catálogo de equipos (pestaña Vehículos), tanto en el ORIGEN como en el DESTINO. Antes solo se podía trasladar entre máquinas y personas, porque los vehículos viven en otra lista. Se pueden elegir máquina y vehículo a la vez: el material montado en una camioneta es las dos cosas, y el PDF muestra las dos líneas. El buscador del apartado encuentra por nombre, placa, marca, modelo, encargado y empresa. Mientras no se corra el SQL de las cuatro columnas nuevas, el traslado se guarda igual y el vehículo queda en el PDF y en el texto del movimiento; lo único que falta es poder consultarlo por vehículo más adelante.' },
       { t: 'p', text: 'Retornar al inventario: en la pestaña 🔁 Nota de traslado, toca "📋 Realizados" para ver los traslados hechos. En cada uno tocas "↩️ Retornar al inventario": indicas el estado con que vuelve (usado/dañado/lleno) y cuánto queda disponible, y esa cantidad REINGRESA al almacén (queda como entrada, sin cambiar el costo promedio).' },
       { t: 'note', text: 'Filtro de traslados: en "📋 Realizados" hay chips para filtrar y saber si RETORNA o no al inventario: Todos · 📦 Sin retornar (aún en destino) · ↩️ Retornados. Así ves rápido cuáles faltan por reingresar.' },
       { t: 'note', text: 'Igual que la nota de entrega: si cancelas la vista previa NO se descuenta nada. La diferencia es que el traslado registra un ORIGEN y un DESTINO (de qué máquina/empleado sale y a cuál llega).' },
