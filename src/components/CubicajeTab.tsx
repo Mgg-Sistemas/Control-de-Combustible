@@ -47,6 +47,25 @@ import { RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
 import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
 
 const CLAVE_MEDIDAS = 'cubicaje.medidas.v1';
+/** Camiones a los que NO se les aplica la medida de la hoja. Ver `apartar`. */
+const CLAVE_APARTADAS = 'cubicaje.apartadas.v1';
+
+/**
+ * CÓMO SE LLAMA UN CAMIÓN EN ESTE APARTADO: su código y su placa, del catálogo.
+ *
+ * ⚠️ Y NUNCA el identificador de la medida. El `ident` de una medida describe
+ *    la TOLVA —«Volteo Toronto Iveco Trakker»—, no al camión que la lleva. Las
+ *    medidas que salen de la hoja de cubicaje traen ahí el nombre del MODELO, y
+ *    como casi toda la flota es del mismo modelo, usarlo para nombrar al camión
+ *    dejaba ochenta y nueve renglones idénticos y sin una sola placa: la lista,
+ *    el histórico y los totales a mano pedían tocar «uno de esos ochenta y
+ *    nueve» sin decir cuál era cuál.
+ *
+ * El serial entra cuando no hay placa: una unidad puede no tenerla cargada, y
+ * ahí el serial es lo único que la distingue de sus gemelas.
+ */
+const nombreCamion = (t: CamionCubicaje) =>
+  `${t.code}${t.plate ? ` · ${t.plate}` : t.serial ? ` · ${t.serial}` : ''}`;
 
 export type CamionCubicaje = {
   id: string;
@@ -71,6 +90,9 @@ export type CubicajeState = {
   sinTabla: boolean;
   guardar: (m: Medida) => Promise<void>;
   borrar: (m: Medida) => Promise<void>;
+  /** Camiones a los que se les apartó la medida de la hoja. */
+  apartadas: string[];
+  restaurarApartadas: () => void;
   modo: ModoVolumen;
   setModo: (m: ModoVolumen) => void;
   totalGlobal: string;
@@ -107,6 +129,21 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
   const [mostrarOcultas, setMostrarOcultas] = useState(false);
   const [cargas, setCargas] = useState<CargaGuardada[]>([]);
   const [leidoLocal, setLeidoLocal] = useState(false);
+  /**
+   * CAMIONES CON LA MEDIDA DE LA HOJA APARTADA.
+   *
+   * ⚠️ Una medida DE LA HOJA no es una fila de la base: se deduce del texto
+   *    del equipo cada vez que se pinta la pantalla. Borrarla hacía un DELETE
+   *    de una fila que no existía —que no falla, simplemente no borra nada— y
+   *    al releer, la hoja la volvía a deducir. El aviso decía «Medida borrada»
+   *    y la unidad seguía ahí: reportado como «no me deja eliminar».
+   *
+   * Apartarla es lo único que significa borrarla: no vuelvas a deducir la
+   * medida de la hoja para este camión. Va en el dispositivo porque no hay
+   * dónde más: la tabla de medidas guarda tolvas reales y su alto, largo y
+   * ancho tienen que ser mayores que cero, así que no admite «ninguna».
+   */
+  const [apartadas, setApartadas] = useState<string[]>([]);
 
   // Las medidas del DISPOSITIVO. Siempre se leen: guardan las unidades medidas
   // a mano (que no tienen ficha) y son el respaldo si falta correr el SQL.
@@ -117,6 +154,11 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
         if (raw) {
           const v = JSON.parse(raw);
           if (Array.isArray(v)) setLocales(v.filter((x) => x && typeof x.id === 'string'));
+        }
+        const rawAp = await AsyncStorage.getItem(CLAVE_APARTADAS);
+        if (rawAp) {
+          const v = JSON.parse(rawAp);
+          if (Array.isArray(v)) setApartadas(v.filter((x) => typeof x === 'string'));
         }
       } catch {}
       // La bandera se levanta pase lo que pase: si se quedara abajo tras un
@@ -131,8 +173,25 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
     AsyncStorage.setItem(CLAVE_MEDIDAS, JSON.stringify(locales)).catch(() => {});
   }, [locales, leidoLocal]);
 
-  const recargarMedidas = useCallback(async () => {
-    setCargando(true);
+  useEffect(() => {
+    if (!leidoLocal) return;
+    AsyncStorage.setItem(CLAVE_APARTADAS, JSON.stringify(apartadas)).catch(() => {});
+  }, [apartadas, leidoLocal]);
+
+  /**
+   * ⚠️ `silencioso` NO es un detalle de estilo.
+   *
+   *    Toda la sub-pestaña se cambia por un spinner mientras `cargando` esté
+   *    arriba. Al releer después de guardar o borrar, la pantalla entera se
+   *    encogía y volvía a crecer, y con ochenta y nueve unidades en la lista eso
+   *    devuelve a quien estaba trabajando al principio de todo. Corregir el alto
+   *    de un camión y aparecer arriba, con la lista igual, se lee como que no se
+   *    guardó nada: reportado como «tampoco me deja modificarlas».
+   *
+   *    El spinner es para la PRIMERA carga, cuando no hay nada que perder.
+   */
+  const recargarMedidas = useCallback(async (silencioso = false) => {
+    if (!silencioso) setCargando(true);
     const { rows, missing } = await listarMedidas();
     setSinTabla(missing);
     setDeLaBase(missing ? [] : rows.map((r) => ({
@@ -143,7 +202,7 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
       modelo: r.modelo ?? '',
       alto: Number(r.alto), largo: Number(r.largo), ancho: Number(r.ancho),
     })));
-    setCargando(false);
+    if (!silencioso) setCargando(false);
   }, []);
 
   useEffect(() => { recargarMedidas(); }, [recargarMedidas]);
@@ -166,7 +225,8 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
         alto: m.alto, largo: m.largo, ancho: m.ancho,
       }, uid);
       if (r.missing) setSinTabla(true);
-      if (!r.error) { await recargarMedidas(); return; }
+      // Guardar una medida de la hoja la CONFIRMA: deja de estar apartada.
+      if (!r.error) { setApartadas((p) => p.filter((x) => x !== m.truckId)); await recargarMedidas(true); return; }
       if (!r.missing) throw new Error(r.error);
     }
     setLocales((prev) => {
@@ -176,10 +236,22 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
     });
   }, [sinTabla, uid, recargarMedidas]);
 
+  /**
+   * ⭐ Una medida DE LA HOJA se APARTA, no se borra: no hay fila que borrar, y
+   *    el DELETE de una fila inexistente no falla — simplemente no hace nada, y
+   *    la hoja la volvía a deducir en cuanto se releía.
+   */
   const borrar = useCallback(async (m: Medida) => {
+    if (m.deLaHoja) {
+      if (m.truckId) setApartadas((p) => (p.includes(m.truckId!) ? p : [...p, m.truckId!]));
+      return;
+    }
     if (m.truckId && !sinTabla) {
       const r = await borrarMedida(m.truckId);
-      if (!r.error) { await recargarMedidas(); return; }
+      // Y al borrar la GUARDADA de un camión que la hoja reconoce, se aparta
+      // también: si no, la de la hoja ocuparía su lugar en el acto y el borrado
+      // se vería como que no ocurrió.
+      if (!r.error) { setApartadas((p) => (p.includes(m.truckId!) ? p : [...p, m.truckId!])); await recargarMedidas(true); return; }
       if (!r.missing) throw new Error(r.error);
     }
     setLocales((prev) => prev.filter((x) => x.id !== m.id));
@@ -205,12 +277,13 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
    *    los dos papeles dirían cosas distintas del mismo camión.
    */
   const medidas = useMemo(() => {
+    const fuera = new Set(apartadas);
     const ids = new Set(deLaBase.map((m) => m.truckId));
     const conLocal = [...deLaBase, ...locales.filter((m) => !m.truckId || !ids.has(m.truckId))];
     const yaTiene = new Set(conLocal.map((m) => m.truckId).filter(Boolean) as string[]);
     const deLaHoja: Medida[] = [];
     for (const t of flota) {
-      if (yaTiene.has(t.id)) continue;
+      if (yaTiene.has(t.id) || fuera.has(t.id)) continue;
       const h = medidaConocida(t.code, t.marca, t.modelo);
       if (!h) continue;
       deLaHoja.push({
@@ -220,7 +293,7 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
       });
     }
     return [...conLocal, ...deLaHoja];
-  }, [deLaBase, locales, flota]);
+  }, [deLaBase, locales, flota, apartadas]);
 
   const porTruck = useMemo(() => {
     const m = new Map<string, Medida>();
@@ -234,8 +307,12 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
     return m;
   }, [cargas]);
 
+  /** Un filtro que no se puede quitar es indistinguible de un dato perdido. */
+  const restaurarApartadas = useCallback(() => setApartadas([]), []);
+
   return {
     medidas, porTruck, cargando, sinTabla, guardar, borrar,
+    apartadas, restaurarApartadas,
     modo, setModo, totalGlobal, setTotalGlobal, manual, setManual, op, setOp,
     mostrarOcultas, setMostrarOcultas, cargas, guardadas, recargarCargas, uid,
   };
@@ -372,7 +449,7 @@ export function CubicajeTab({
     //    guardar se crea la fila de verdad.
     setEditId(ya && !ya.deLaHoja ? ya.id : null);
     // Identificador, marca y modelo salen del catálogo: se leen, no se escriben.
-    setIdent(ya?.ident || `${t.code}${t.plate ? ` · ${t.plate}` : ''}`);
+    setIdent(ya?.ident || nombreCamion(t));
     setMarca(ya?.marca || t.marca || '');
     setModelo(ya?.modelo || t.modelo || '');
     setAlto(ya ? String(ya.alto) : '');
@@ -477,7 +554,9 @@ export function CubicajeTab({
     .filter((t) => (viajesPorCamion.get(t.id) ?? 0) > 0)
     .map((t) => ({
       id: t.id,
-      nombre: cub.porTruck.get(t.id)?.ident || `${t.code}${t.plate ? ` · ${t.plate}` : ''}`,
+      nombre: nombreCamion(t),
+      // La tolva va aparte: dice QUÉ carga, no QUIÉN es.
+      tolva: cub.porTruck.get(t.id)?.ident ?? '',
       viajes: viajesPorCamion.get(t.id) ?? 0,
       medido: cub.porTruck.has(t.id),
     }))
@@ -496,9 +575,13 @@ export function CubicajeTab({
   const paraGuardar = useMemo(() => filasParaGuardar(porViaje, viajesPorDia), [porViaje, viajesPorDia]);
   const conVolumen = paraGuardar.filter((f) => f.m3 > 0).length;
 
+  /**
+   * ⭐ El CATÁLOGO manda. El identificador de la medida solo entra si el camión
+   *    ya no está en el catálogo: ahí es lo único que queda para nombrarlo.
+   */
   const nombreDe = (id: string) => {
-    const t = trucks.find((x) => x.id === id);
-    return cub.porTruck.get(id)?.ident || (t ? `${t.code}${t.plate ? ` · ${t.plate}` : ''}` : id);
+    const t = fichaPorId.get(id);
+    return t ? nombreCamion(t) : (cub.porTruck.get(id)?.ident || id);
   };
 
   const guardarRango = async () => {
@@ -532,7 +615,14 @@ export function CubicajeTab({
     return cub.cargas
       .map((c) => ({
         machinery_id: c.machinery_id,
-        machine_code: c.machine_code,
+        /**
+         * ⚠️ El nombre GUARDADO es una foto del día que se guardó, y las filas
+         *    viejas se guardaron con el nombre de la tolva. Se prefiere el del
+         *    catálogo para que el histórico diga placas sin tener que volver a
+         *    guardar nada; la foto queda de respaldo para un camión que ya no
+         *    esté en el catálogo, que es justo para lo que se tomó.
+         */
+        machine_code: (() => { const t = fichaPorId.get(c.machinery_id); return t ? nombreCamion(t) : c.machine_code; })(),
         jornada: String(c.jornada).slice(0, 10),
         m3: Number(c.m3) || 0,
         viajes: Number(c.viajes) || 0,
@@ -556,22 +646,36 @@ export function CubicajeTab({
     const guardadosDeEse = m.truckId
       ? cub.cargas.filter((c) => c.machinery_id === m.truckId).length
       : 0;
+    const t = m.truckId ? fichaPorId.get(m.truckId) : undefined;
+    /**
+     * ⚠️ Una medida DE LA HOJA no está guardada en ninguna parte: se deduce
+     *    del texto del equipo. «Borrarla» es decirle al sistema que deje de
+     *    deducirla, y eso vale SOLO en este dispositivo. Decir «se le quita a
+     *    todo el mundo» sería mentir sobre el alcance de un borrado.
+     */
     const ok = await confirm({
-      title: 'Borrar la medida de la tolva',
-      message: `${m.ident}. ${m.truckId && !cub.sinTabla
-        ? 'La medida es compartida: se le quita a todo el mundo. '
-        : 'Está guardada solo en este dispositivo. '}`
+      title: m.deLaHoja ? 'Apartar la medida de la hoja' : 'Borrar la medida de la tolva',
+      message: `${t ? nombreCamion(t) : m.ident} · ${m.ident}. `
+        + (m.deLaHoja
+          ? 'Esta medida NO está guardada: sale de la hoja de cubicaje, reconocida por el texto del equipo. '
+            + 'Se deja de aplicar a este camión, y SOLO EN ESTE DISPOSITIVO. Se puede volver a traer desde el aviso de la lista. '
+          : m.truckId && !cub.sinTabla
+            ? 'La medida es compartida: se le quita a todo el mundo. '
+            : 'Está guardada solo en este dispositivo. ')
         + (guardadosDeEse > 0
           ? `Los ${guardadosDeEse} día(s) que ya tiene GUARDADOS en el histórico NO cambian. `
           : '')
         + 'Lo que sí cambia es el cálculo automático por tolva: ese camión queda en 0 m³ hasta que se vuelva a medir.',
-      confirmText: 'Borrar la medida',
+      confirmText: m.deLaHoja ? 'Apartarla' : 'Borrar la medida',
       danger: true,
     });
     if (!ok) return;
     try {
       await cub.borrar(m);
-      toast.success('Medida borrada.');
+      // Si estaba abierta para corregir, se cierra: el formulario de una medida
+      // que ya no existe invita a guardarla de vuelta sin querer.
+      if (abierta === m.id) limpiar();
+      toast.success(m.deLaHoja ? 'Medida de la hoja apartada.' : 'Medida borrada.');
     } catch (e: any) {
       toast.error(String(e?.message ?? e));
     }
@@ -688,7 +792,7 @@ export function CubicajeTab({
               >
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
-                    🚛 {t.code}{t.plate ? ` · ${t.plate}` : t.serial ? ` · ${t.serial}` : ''}
+                    🚛 {nombreCamion(t)}
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 10 }} numberOfLines={1}>
                     {[t.marca, t.modelo].filter(Boolean).join(' ') || 'Sin marca ni modelo en la ficha'} · {t.companyName || 'Sin empresa'}
@@ -797,6 +901,19 @@ export function CubicajeTab({
           placeholderTextColor={colors.muted}
           style={[input, { marginBottom: spacing.xs }]}
         />
+        {cub.apartadas.length > 0 ? (
+          <TouchableOpacity
+            onPress={cub.restaurarApartadas}
+            style={{ marginBottom: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, padding: spacing.sm }}
+          >
+            <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>
+              ↩️ {cub.apartadas.length} medida(s) de la hoja apartada(s) · Toca para traerlas de vuelta
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
+              Apartadas solo en este dispositivo. Esos camiones quedan en 0 m³ por tolva hasta que se midan.
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         {medidasVistas.length === 0 ? (
           <Text style={{ color: colors.muted, fontSize: 12 }}>Todavía no hay ninguna medida. Mide una arriba.</Text>
         ) : (
@@ -807,7 +924,7 @@ export function CubicajeTab({
               const t = m.truckId ? fichaPorId.get(m.truckId) : undefined;
               // El TÍTULO es el CAMIÓN (código y placa), no la tolva: así se
               // distingue una fila de otra cuando hay decenas del mismo modelo.
-              const quien = t ? `${t.code}${t.plate ? ` · ${t.plate}` : t.serial ? ` · ${t.serial}` : ''}` : m.ident;
+              const quien = t ? nombreCamion(t) : m.ident;
               const editando = abierta === m.id;
               return (
                 <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: editando ? colors.surface : 'transparent', borderRadius: editando ? radius.md : 0, marginBottom: editando ? spacing.xs : 0 }}>
@@ -910,7 +1027,7 @@ export function CubicajeTab({
                 <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.text, fontSize: 12 }} numberOfLines={1}>{a.nombre}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 10 }}>{a.viajes} viaje(s){a.medido ? '' : ' · sin medir'}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 10 }} numberOfLines={1}>{a.tolva ? `${a.tolva} · ` : ''}{a.viajes} viaje(s){a.medido ? '' : ' · sin medir'}</Text>
                   </View>
                   <TextInput value={cub.manual[a.id] ?? ''} onChangeText={(v) => cub.setManual(a.id, v)} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={colors.muted} style={[input, { width: 92, paddingVertical: 6, textAlign: 'center' }]} />
                 </View>
