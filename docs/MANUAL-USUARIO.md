@@ -4337,6 +4337,38 @@ catálogo se siga escribiendo igual.
 > catálogo no tiene ninguna columna que diga qué tolva lleva cada máquina. Si una unidad sale con la
 > medida de otra, se corrige aquí mismo y lo corregido manda para siempre.
 
+### 🗑️ Borrar una medida, y dónde quedó la placa (09-sep-2026)
+
+Dos cosas más del mismo apartado.
+
+**La placa sale en todo el apartado, no solo en la lista.** Los totales a mano, el histórico y el
+buscador del catálogo también nombraban al camión con el modelo de la tolva. Ahora los cuatro sitios
+usan **una sola regla**: código, placa y, si no hay placa cargada, serial. El histórico prefiere el
+nombre del catálogo, así que **lo ya guardado también sale con placa** sin tener que volver a guardarlo.
+
+**Borrar una medida de la hoja ahora borra de verdad.** Antes no: la medida de la hoja **no está
+guardada en ninguna parte**, se deduce del texto del equipo cada vez que se pinta la pantalla. El
+borrado buscaba una fila que no existía —y borrar nada no da error— así que el aviso decía *"Medida
+borrada"* y la unidad seguía ahí.
+
+> ⭐ **Ahora se APARTA**, que es lo único que puede significar borrarla: *no vuelvas a aplicarle la
+> medida de la hoja a este camión*. Y eso vale **solo en este dispositivo**, porque no hay dónde más
+> anotarlo: la tabla de medidas guarda tolvas reales, y su alto, largo y ancho tienen que ser mayores
+> que cero. No admite *"ninguna"*.
+
+> ↩️ **Se puede deshacer.** Arriba de la lista aparece un aviso con cuántas hay apartadas y un toque
+> las trae de vuelta. Un filtro que no se puede quitar es indistinguible de un dato perdido.
+
+Y borrar la medida **guardada** de un camión que la hoja reconoce **también lo aparta**: si no, la de
+la hoja ocuparía su lugar en el acto y el borrado se vería igual de inútil. Al **confirmar** o volver a
+medir esa unidad, deja de estar apartada sola.
+
+**Guardar ya no te devuelve al principio de la lista.** Al guardar o borrar, la pestaña entera se
+cambiaba por un cuadro de *"cargando"* y volvía a crecer, y con casi noventa unidades eso te dejaba
+arriba de todo. Corregir el alto del camión ochenta y aparecer en el uno se lee como que **no se
+guardó nada**. El cuadro de carga quedó solo para la **primera** vez que se abre el apartado, cuando no
+hay sitio que perder.
+
 ### 📄 El reporte volumétrico: logos, activas y orden (09-sep-2026)
 
 Tres cambios pedidos sobre el documento *"Análisis Técnico y Capacidad Volumétrica de Flota"*.

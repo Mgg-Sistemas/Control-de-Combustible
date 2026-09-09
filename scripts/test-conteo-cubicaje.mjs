@@ -210,7 +210,7 @@ ok('el listado cambia de título', /tituloListado = porCategoria \? 'Listado por
 const tab = sinComentarios(leer('src/components/CubicajeTab.tsx'));
 ok('Cubicaje cae a la hoja cuando no hay medida', /medidaConocida\(t\.code, t\.marca, t\.modelo\)/.test(tab));
 ok('la de la base gana sobre la del dispositivo', /locales\.filter\(\(m\) => !m\.truckId \|\| !ids\.has\(m\.truckId\)\)/.test(tab));
-ok('y la hoja solo entra si no hay ninguna otra', /if \(yaTiene\.has\(t\.id\)\) continue;/.test(tab));
+ok('y la hoja solo entra si no hay ninguna otra NI se apartó', /if \(yaTiene\.has\(t\.id\) \|\| fuera\.has\(t\.id\)\) continue;/.test(tab));
 // ⚠️ Un número deducido de un nombre parecido no vale lo mismo que uno tomado
 //    con cinta: hay que poder distinguirlos en pantalla.
 ok('se marcan como venidas de la hoja', /deLaHoja: true/.test(tab));
@@ -312,7 +312,7 @@ ok('cancelar cierra la fila', /const limpiar = \(\) => \{\n    setSel\(''\); set
 //    lista salía ochenta y nueve veces igual y sin placa. El título de la fila
 //    tiene que ser el CAMIÓN.
 ok('la lista tiene la ficha del catálogo a mano', /const fichaPorId = useMemo\(\(\) => new Map\(trucks\.map\(\(t\) => \[t\.id, t\]\)\), \[trucks\]\)/.test(tabRaw));
-ok('el título de la fila es código y placa', /const quien = t \? `\$\{t\.code\}\$\{t\.plate \? ` · \$\{t\.plate\}` : t\.serial \? ` · \$\{t\.serial\}` : ''\}` : m\.ident/.test(tabRaw));
+ok('el título de la fila es el camión, por la regla única', /const quien = t \? nombreCamion\(t\) : m\.ident/.test(tabRaw));
 ok('...y se pinta ese, no el de la tolva', /\{m\.truckId \? '\u{1F69B}' : '\u270d\ufe0f'\} \{quien\}/u.test(tabRaw));
 ok('el nombre de la tolva baja al renglón de abajo', /\{m\.ident\} · \{dimsTexto\(m\)\} m/.test(tabRaw));
 
@@ -324,6 +324,111 @@ ok('se pinta la lista filtrada', /\{medidasEnLista\.map\(\(m\) => \{/.test(tabRa
 //    vista no es sacar camiones de la flota.
 ok('los indicadores siguen sobre la flota entera', /kpis\(medidasVistas\.map\(volumenDe\)\)/.test(tabRaw));
 ok('el reporte también', /medidasVistas\s*\n?\s*\.filter\(\(m\) => !m\.truckId \|\| activoPorId/.test(tabRaw));
+
+
+// ── 14) LA PLACA, EN TODO EL APARTADO ──────────────────────────
+// ⚠️ El `ident` de una medida describe la TOLVA —«Volteo Toronto Iveco
+//    Trakker»—, no al camión. Cuatro sitios lo usaban para NOMBRAR al camión, y
+//    con casi toda la flota del mismo modelo eso dejaba renglones idénticos y
+//    sin una sola placa: la lista de medidas, los totales a mano, el histórico
+//    y el buscador del catálogo.
+ok('hay UNA regla para nombrar a un camión', /const nombreCamion = \(t: CamionCubicaje\) =>/.test(tabRaw));
+ok('es código, placa y, si no hay placa, serial',
+  /const nombreCamion[\s\S]{0,120}?`\$\{t\.code\}\$\{t\.plate \? ` · \$\{t\.plate\}` : t\.serial \? ` · \$\{t\.serial\}` : ''\}`/.test(tabRaw));
+
+// ⭐ Y NADIE vuelve a nombrar un camión con el identificador de la medida.
+//    Se cuenta a mano: la única vez que `?.ident` puede nombrar es como respaldo
+//    de un camión que YA NO ESTÁ en el catálogo (`nombreDe`), donde no queda
+//    otra cosa con qué nombrarlo.
+{
+  const limpio = sinComentarios(tabRaw);
+  const usos = (limpio.match(/porTruck\.get\([^)]*\)\?\.ident/g) || []).length;
+  // Quedan DOS, y los dos están justificados: el respaldo de `nombreDe` para
+  // un camión que ya no está en el catálogo, y la etiqueta de la TOLVA de los
+  // totales a mano — que describe qué carga, no quién es.
+  ok(`el ident de la medida ya no nombra camiones (quedan ${usos}: el respaldo y la tolva)`, usos === 2);
+  ok('...y ninguno de los dos rellena un campo `nombre`',
+    !/nombre: [^\n]*porTruck\.get\([^)]*\)\?\.ident/.test(limpio));
+  ok('...y ese uso es el respaldo de nombreDe',
+    /return t \? nombreCamion\(t\) : \(cub\.porTruck\.get\(id\)\?\.ident \|\| id\)/.test(tabRaw));
+  // Ninguno de los cuatro sitios puede volver a armar el nombre a mano.
+  ok('nadie vuelve a pegar código y placa por su cuenta',
+    (limpio.match(/\$\{t\.code\}\$\{t\.plate/g) || []).length === 1);
+}
+
+ok('los totales a mano nombran al camión', /nombre: nombreCamion\(t\),/.test(tabRaw));
+ok('...y la tolva baja de renglón, no desaparece', /tolva: cub\.porTruck\.get\(t\.id\)\?\.ident \?\? '',/.test(tabRaw));
+ok('...y se pinta', /\{a\.tolva \? `\$\{a\.tolva\} · ` : ''\}\{a\.viajes\} viaje\(s\)/.test(tabRaw));
+
+ok('el histórico prefiere el nombre del catálogo',
+  /machine_code: \(\(\) => \{ const t = fichaPorId\.get\(c\.machinery_id\); return t \? nombreCamion\(t\) : c\.machine_code; \}\)\(\)/.test(tabRaw));
+// ⭐ Pero la foto guardada NO se borra: es lo único que queda de un camión que
+//    ya salió del catálogo, y para eso se tomó.
+ok('...sin perder la foto guardada del que ya no está', /: c\.machine_code; \}\)\(\)/.test(tabRaw));
+
+ok('el buscador del catálogo usa la misma regla', /\u{1F69B} \{nombreCamion\(t\)\}/u.test(tabRaw));
+ok('y al medir una unidad nueva también', /setIdent\(ya\?\.ident \|\| nombreCamion\(t\)\)/.test(tabRaw));
+
+// ⭐ La placa tiene que LLEGAR: si el catálogo no la trajera, no habría nada
+//    que mostrar por más que la pantalla la pida.
+{
+  const pantalla = leer('src/screens/ViajesCamionesScreen.tsx');
+  ok('el catálogo trae la placa de la base', /selectAllRows\('machinery', 'id, code, plate, serial/.test(pantalla));
+  ok('...y llega hasta el cubicaje', /id: t\.id, code: t\.code, plate: t\.plate, serial: t\.serial,/.test(pantalla));
+}
+
+
+// ── 15) BORRAR UNA MEDIDA DE LA HOJA ───────────────────────────
+// ⚠️ Una medida DE LA HOJA no es una fila: se DEDUCE del texto del equipo cada
+//    vez que se pinta la pantalla. Borrarla lanzaba un DELETE de una fila que no
+//    existía —que no falla, simplemente no borra nada— y al releer, la hoja la
+//    volvía a deducir. El aviso decía «Medida borrada» y la unidad seguía ahí.
+//    Reportado como «no me deja eliminar las unidades de medidas que ya están».
+ok('una medida de la hoja se APARTA, no se borra',
+  /if \(m\.deLaHoja\) \{\s*\n\s*if \(m\.truckId\) setApartadas/.test(tabRaw));
+ok('...y sale ANTES de tocar la base', (() => {
+  const i = tabRaw.indexOf('const borrar = useCallback');
+  const hoja = tabRaw.indexOf('if (m.deLaHoja) {', i);
+  const del = tabRaw.indexOf('await borrarMedida(m.truckId)', i);
+  return hoja > 0 && del > 0 && hoja < del;
+})());
+ok('la hoja no vuelve a deducir lo apartado', /if \(yaTiene\.has\(t\.id\) \|\| fuera\.has\(t\.id\)\) continue;/.test(tabRaw));
+ok('...y «fuera» son las apartadas', /const fuera = new Set\(apartadas\);/.test(tabRaw));
+ok('la lista se rehace cuando cambian las apartadas', /\}, \[deLaBase, locales, flota, apartadas\]\);/.test(tabRaw));
+
+// ⭐ Borrar la medida GUARDADA de un camión que la hoja reconoce también aparta:
+//    si no, la de la hoja ocupaba su lugar en el acto y el borrado se veía como
+//    que no ocurrió — el mismo síntoma, por el otro camino.
+ok('borrar la guardada también aparta la de la hoja',
+  /if \(!r\.error\) \{ setApartadas\(\(p\) => \(p\.includes\(m\.truckId!\) \? p : \[\.\.\.p, m\.truckId!\]\)\); await recargarMedidas\(true\); return; \}/.test(tabRaw));
+// ⭐ Y guardarla la trae de vuelta: confirmar una medida no puede dejarla apartada.
+ok('confirmar una medida la desaparta', /setApartadas\(\(p\) => p\.filter\(\(x\) => x !== m\.truckId\)\)/.test(tabRaw));
+
+// ⭐ Se puede deshacer. Un filtro que no se puede quitar es indistinguible de un
+//    dato perdido — la misma regla del interruptor de Carbozulia.
+ok('se pueden traer de vuelta', /const restaurarApartadas = useCallback\(\(\) => setApartadas\(\[\]\), \[\]\)/.test(tabRaw));
+ok('...y el aviso lo ofrece en la lista', /Toca para traerlas de vuelta/.test(tabRaw));
+ok('...solo cuando hay alguna apartada', /\{cub\.apartadas\.length > 0 \? \(/.test(tabRaw));
+// ⭐ Y el aviso NO puede decir que se le quita a todo el mundo: es este equipo.
+ok('el aviso no miente sobre el alcance', /SOLO EN ESTE DISPOSITIVO/.test(tabRaw));
+ok('...y el botón dice apartar, no borrar', /confirmText: m\.deLaHoja \? 'Apartarla' : 'Borrar la medida'/.test(tabRaw));
+
+// ── 16) GUARDAR NO PUEDE TUMBAR LA PANTALLA ─────────────────────
+// ⚠️ Toda la sub-pestaña se cambia por un spinner mientras `cargando` esté
+//    arriba. Releer después de guardar encogía la pantalla entera y la volvía a
+//    crecer, devolviendo al principio a quien estaba corrigiendo la fila ochenta.
+//    Corregir un alto y aparecer arriba se lee como que no se guardó nada:
+//    reportado como «tampoco me deja modificarlas».
+ok('recargar puede ser silencioso', /const recargarMedidas = useCallback\(async \(silencioso = false\) => \{\s*\n\s*if \(!silencioso\) setCargando\(true\);/.test(tabRaw));
+ok('...y no baja la bandera que no subió', /if \(!silencioso\) setCargando\(false\);/.test(tabRaw));
+{
+  // La PRIMERA carga sí muestra el spinner: ahí no hay sitio que perder.
+  ok('la primera carga sí lo muestra', /useEffect\(\(\) => \{ recargarMedidas\(\); \}, \[recargarMedidas\]\);/.test(tabRaw));
+  // Y guardar y borrar NO.
+  const limpio2 = sinComentarios(tabRaw);
+  const ruidosas = (limpio2.match(/await recargarMedidas\(\)/g) || []).length;
+  ok(`solo la primera carga tumba la pantalla (quedan ${ruidosas} recargas ruidosas con await)`, ruidosas === 0);
+}
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
