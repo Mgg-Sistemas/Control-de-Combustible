@@ -43,12 +43,11 @@ import {
 import { reporteVolumetricoHtml, type UnidadReporte } from '../lib/reporteVolumetrico';
 import { isVolteoVolqueta } from '../lib/equipos';
 import { medidaConocida } from '../lib/medidasFlota';
+import { leerApartadas, guardarApartadas } from '../lib/cubicajeApartadas';
 import { RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
 import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
 
 const CLAVE_MEDIDAS = 'cubicaje.medidas.v1';
-/** Camiones a los que NO se les aplica la medida de la hoja. Ver `apartar`. */
-const CLAVE_APARTADAS = 'cubicaje.apartadas.v1';
 
 /**
  * CÓMO SE LLAMA UN CAMIÓN EN ESTE APARTADO: su código y su placa, del catálogo.
@@ -159,11 +158,7 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
           const v = JSON.parse(raw);
           if (Array.isArray(v)) setLocales(v.filter((x) => x && typeof x.id === 'string'));
         }
-        const rawAp = await AsyncStorage.getItem(CLAVE_APARTADAS);
-        if (rawAp) {
-          const v = JSON.parse(rawAp);
-          if (Array.isArray(v)) setApartadas(v.filter((x) => typeof x === 'string'));
-        }
+        setApartadas(await leerApartadas());
       } catch {}
       // La bandera se levanta pase lo que pase: si se quedara abajo tras un
       // error de lectura, el efecto de guardar no correría nunca y lo medido
@@ -177,9 +172,15 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
     AsyncStorage.setItem(CLAVE_MEDIDAS, JSON.stringify(locales)).catch(() => {});
   }, [locales, leidoLocal]);
 
+  /**
+   * ⚠️ Se guarda en el módulo COMPARTIDO, no aquí dentro: el conteo de
+   *    Reportes lee la misma lista. Con una copia por pantalla, apartar un
+   *    camión acá lo dejaría saliendo allá y los dos papeles dirían cosas
+   *    distintas del mismo camión.
+   */
   useEffect(() => {
     if (!leidoLocal) return;
-    AsyncStorage.setItem(CLAVE_APARTADAS, JSON.stringify(apartadas)).catch(() => {});
+    guardarApartadas(apartadas);
   }, [apartadas, leidoLocal]);
 
   /**
@@ -291,8 +292,12 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
    */
   const medidas = useMemo(() => {
     const fuera = new Set(apartadas);
-    const ids = new Set(deLaBase.map((m) => m.truckId));
-    const conLocal = [...deLaBase, ...locales.filter((m) => !m.truckId || !ids.has(m.truckId))];
+    // ⭐ Apartar vale también contra una medida GUARDADA. Si solo callara a la
+    //    hoja, apartar un camión ya medido no haría nada visible y el botón
+    //    mentiría.
+    const base = deLaBase.filter((m) => !m.truckId || !fuera.has(m.truckId));
+    const ids = new Set(base.map((m) => m.truckId));
+    const conLocal = [...base, ...locales.filter((m) => !m.truckId || (!ids.has(m.truckId) && !fuera.has(m.truckId)))];
     const yaTiene = new Set(conLocal.map((m) => m.truckId).filter(Boolean) as string[]);
     const deLaHoja: Medida[] = [];
     for (const t of flota) {
@@ -503,6 +508,20 @@ export function CubicajeTab({
 
   const m3Vivo = volumenDe({ alto: num(alto), largo: num(largo), ancho: num(ancho) });
   const puedeGuardar = !!sel && m3Vivo > 0 && (sel !== MANUAL || ident.trim().length > 0) && !ocupado;
+  /**
+   * ¿ESTÁ PIDIENDO DEJARLA SIN MEDIDA?
+   *
+   * ⚠️ Pedido del cliente: «no me deja colocarle la medición en 0». Y no puede:
+   *    una tolva de cero no existe, y la tabla lo prohibe con razón. Pero lo que
+   *    quiere decir con un cero es un hecho REAL — «este camión no tiene medida
+   *    de tolva» — y hasta ahora era indistinguible de «nadie la ha medido»,
+   *    porque la hoja volvía a deducirla sola.
+   *
+   *    Así que escribir un cero deja de ser un error silencioso y pasa a ser
+   *    esa afirmación: el botón cambia y lo dice con todas sus letras.
+   */
+  const pideSinMedida = !!sel && sel !== MANUAL && !ocupado && m3Vivo <= 0
+    && [alto, largo, ancho].some((v) => v.trim() !== '' && num(v) <= 0);
 
   const guardar = async () => {
     if (!puedeGuardar) return;
@@ -655,6 +674,36 @@ export function CubicajeTab({
    *    los días YA GUARDADOS no cambian (lo guardado manda), pero el cálculo
    *    al vuelo de ese camión se va a cero hasta que se vuelva a medir.
    */
+  /**
+   * DEJAR UNA UNIDAD SIN MEDIDA (lo que el cliente escribe como un cero).
+   *
+   * Es lo mismo que apartarla: no se le aplica ninguna medida, ni la guardada
+   * ni la de la hoja, acá y en el conteo de Reportes. Se pregunta igual que un
+   * borrado porque quita un dato que se estaba usando para cobrar.
+   */
+  const dejarSinMedida = async (m: Medida | null) => {
+    const id = m?.truckId ?? (sel && sel !== MANUAL ? sel : null);
+    if (!id) return;
+    const t = fichaPorId.get(id);
+    const ok = await confirm({
+      title: 'Dejar esta unidad sin medida',
+      message: `${t ? nombreCamion(t) : m?.ident ?? 'Esta unidad'}. `
+        + 'Una tolva de cero no existe, así que no se guarda un cero: se marca que ESTE CAMIÓN NO TIENE MEDIDA. '
+        + 'Deja de contar en el cubicaje y sale en blanco en el conteo de equipos. '
+        + 'Se anota SOLO EN ESTE DISPOSITIVO y se puede deshacer desde el aviso de la lista.',
+      confirmText: 'Dejarla sin medida',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await cub.borrar({ ...(m ?? ({} as Medida)), id: m?.id ?? id, truckId: id, deLaHoja: m?.deLaHoja });
+      limpiar();
+      toast.success('Queda sin medida.');
+    } catch (e: any) {
+      toast.error(String(e?.message ?? e));
+    }
+  };
+
   const borrarMedidaDe = async (m: Medida) => {
     const guardadosDeEse = m.truckId
       ? cub.cargas.filter((c) => c.machinery_id === m.truckId).length
@@ -877,18 +926,28 @@ export function CubicajeTab({
                 que no tiene sentido, se ve ANTES de guardarlo. */}
             <View style={{ marginTop: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: m3Vivo > 0 ? colors.brand : colors.border, padding: spacing.sm, alignItems: 'center' }}>
               <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 22 }}>{m3Vivo > 0 ? m3Vivo.toFixed(2) : '—'} m³</Text>
-              <Text style={{ color: colors.muted, fontSize: 11 }}>{m3Vivo > 0 ? etiquetaClase(m3Vivo) : 'Escribe alto, largo y ancho'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>
+                {m3Vivo > 0 ? etiquetaClase(m3Vivo)
+                  : pideSinMedida ? 'Un cero no es una tolva. Se guarda como SIN MEDIDA.'
+                  : 'Escribe alto, largo y ancho'}
+              </Text>
             </View>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={limpiar} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={guardar} disabled={!puedeGuardar} style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
-                  {sel !== MANUAL && cub.porTruck.get(sel)?.deLaHoja ? '✅ Confirmar esta medida' : editId ? '💾 Actualizar medida' : '💾 Guardar medida'}
-                </Text>
-              </TouchableOpacity>
+              {pideSinMedida ? (
+                <TouchableOpacity onPress={() => dejarSinMedida(cub.porTruck.get(sel) ?? null)} style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.warning }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>🚫 Dejar esta unidad sin medida</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={guardar} disabled={!puedeGuardar} style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
+                    {sel !== MANUAL && cub.porTruck.get(sel)?.deLaHoja ? '✅ Confirmar esta medida' : editId ? '💾 Actualizar medida' : '💾 Guardar medida'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         ) : null}
@@ -1005,11 +1064,17 @@ export function CubicajeTab({
                         <TouchableOpacity onPress={limpiar} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={guardar} disabled={!puedeGuardar} style={{ paddingVertical: 8, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}>
-                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
-                            {m.deLaHoja ? '✅ Confirmar' : '💾 Guardar'}
-                          </Text>
-                        </TouchableOpacity>
+                        {pideSinMedida ? (
+                          <TouchableOpacity onPress={() => dejarSinMedida(m)} style={{ paddingVertical: 8, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.warning }}>
+                            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>🚫 Dejar sin medida</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity onPress={guardar} disabled={!puedeGuardar} style={{ paddingVertical: 8, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}>
+                            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                              {m.deLaHoja ? '✅ Confirmar' : '💾 Guardar'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
                   ) : null}
