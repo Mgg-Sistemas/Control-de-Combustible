@@ -200,14 +200,25 @@ ok('el reporte tactico existe', desde >= 0 && bloque.length > 3000);
 ok('* y la rebanada llega hasta el final de la funcion', bloque.includes('exportPdf(renaceShell'));
 
 ok('recibe el alcance', /alcance: AlcanceEmpresas = 'juntas'/.test(bloque));
-ok('* y reparte con la libreria', /repartirPorAlcance\(universo, alcance, nombreEmpresa\)/.test(bloque));
+// Desde el 09-sep-2026 lo que se reparte es `universoEmp`: el universo DESPUES
+// de aplicarle las empresas escogidas a dedo. Si volviera a repartirse el
+// universo pelado, marcar empresas no dejaria fuera a nadie y el filtro seria
+// un boton que no hace nada.
+ok('* y reparte con la libreria', /repartirPorAlcance\(universoEmp, alcance, nombreEmpresa\)/.test(bloque));
+ok('* y lo que reparte ya viene filtrado por empresa',
+  /const universoEmp = empresasSel\.size \? universo\.filter\(\(m\) => empresasSel\.has\(nombreEmpresa\(m\)\)\) : universo;/.test(bloque));
 ok('* la regla ya no esta escrita a mano en la pantalla', !/liccion\|golden/i.test(limpio));
 
-// EL FILTRO EN UN SOLO PUNTO. `universo` solo puede aparecer tres veces: donde
-// se define, donde se reparte, y en el pie que dice "N de M de la flota". Una
-// cuarta seria un resumen calculado sobre la flota entera dentro de un informe
-// filtrado -- justo el "296 arriba, 180 abajo" que se quiere evitar.
-eq('el universo sin filtrar solo se toca en 3 sitios', (bloque.match(/\buniverso\b/g) || []).length, 3);
+// EL FILTRO EN UN SOLO PUNTO. El universo SIN FILTRAR solo puede aparecer donde
+// se define, en las DOS ramas del ternario que le aplica las empresas escogidas,
+// y en el pie que dice "N de M de la flota" (ahi M es la flota entera a
+// proposito: es la comparacion contra el total). Una quinta seria un resumen
+// calculado sobre la flota completa dentro de un informe filtrado -- justo el
+// "296 arriba, 180 abajo" que se quiere evitar.
+eq('el universo sin filtrar solo se toca en 4 sitios', (bloque.match(/\buniverso\b/g) || []).length, 4);
+// Y de ahi en adelante SIEMPRE se trabaja sobre `list`, que es lo repartido.
+ok('el listado sale de lo repartido, no del universo',
+  /const maqList = list\.filter/.test(bloque));
 
 ok('el agrupado pasa por la libreria', /grupoDeEmpresa\(companyOf\(m\), alcance\)/.test(bloque));
 ok('* y el orden tambien', /ordenarGrupos\(\[\.\.\.groups\.keys\(\)\]\)/.test(bloque));
