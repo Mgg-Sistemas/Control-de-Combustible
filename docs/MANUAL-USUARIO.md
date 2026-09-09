@@ -4125,6 +4125,79 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
 
+### 📐 Cubicaje y reporte volumétrico (09-sep-2026)
+
+El panel de la jefa quedó partido en **dos sub-pestañas**: **🚛 Viajes** (todo lo de siempre, y es
+la que abre) y **📐 Cubicaje y volumen**, que es nueva. Sirve para decir **cuántos metros cúbicos**
+cargó cada camión en un día o en un rango, y para armar el reporte quitando y poniendo columnas.
+
+> ⚠️ **Las medidas se guardan en ESTE dispositivo, no en el sistema.** Lo que mida una persona en
+> su computadora **no lo ve otra**, y si se limpian los datos del navegador se pierden. Es el precio
+> de no tocar la base de datos: el apartado **lee** el catálogo de vehículos y **nunca lo modifica**.
+> Una volqueta medida a mano **no se agrega al catálogo**: no aparece en Control de Maquinaria, ni en
+> Mantenimiento, ni le llega a los inspectores. Es el mismo criterio del camión *"fuera de catálogo"*.
+
+**1. Medir una volqueta.** Se elige un camión del catálogo (con su buscador) o **➕ Medir nueva
+volqueta (manual)**. Se llenan **identificador, marca, modelo, alto, largo y ancho** (en metros; la
+**coma decimal vale**: *2,5* se entiende). Los metros cúbicos se calculan **mientras se escribe**
+(alto × largo × ancho) y debajo sale su clasificación:
+
+| Clasificación | Rango |
+|---|---|
+| 🔹 Compacto / Estándar | menos de 18 m³ |
+| 🔸 Media capacidad | de 18 a 25 m³ |
+| 🔶 Gran capacidad | más de 25 m³ |
+
+Al elegir un camión del catálogo, el identificador, la marca y el modelo **vienen de su ficha**. Si
+ya estaba medido, salen sus medidas para corregirlas.
+
+**2. Capacidad de la flota.** Tres tarjetas: **mayor**, **menor** y **promedio**. ⚠️ Las unidades **sin
+medir quedan fuera del cálculo** — contarlas como 0 hundiría el promedio y diría que la flota carga
+menos de lo que carga. Debajo, cuántas unidades hay de cada clasificación.
+
+**3. Unidades medidas.** La lista de lo medido, con sus dimensiones, su clasificación y **cuántos
+viajes tiene en el rango** que esté puesto arriba. Se borran con 🗑️.
+
+**4. Cómo se le cargan los m³ a los viajes.** Se aplica **al mismo rango de fechas** que tengas en
+"Lista completa de viajes" (un día, varios días sueltos o un rango). Hay tres formas:
+
+| Modo | Qué hace |
+|---|---|
+| 📦 **Por capacidad de tolva** | Cada viaje carga lo que mide la tolva. Total = viajes × m³ de la tolva. |
+| ⚖️ **Repartir un total** | Escribes **un** total para todo el rango y se reparte **según cuántos viajes** hizo cada camión: quien hizo más viajes se lleva más. |
+| ✍️ **Total escrito a mano** | Le escribes el total del rango a cada camión. Manda lo que escribas, no la medida. |
+
+Un camión **sin medir** queda en **0 m³** en el modo de tolva: no se le inventa volumen. En "repartir
+un total", si en el rango no hay viajes, todos quedan en cero (no se divide entre cero). Y el
+**céntimo que sobra al redondear** se le suma al camión de más viajes, para que el reporte cierre
+exactamente con el total que escribiste.
+
+**5. Qué sale en el reporte.** En la sub-pestaña **🚛 Viajes**, justo encima del botón de exportar,
+está **🖨️ Qué sale en el reporte** (se despliega). Son interruptores que **solo cambian las
+columnas** del PDF y de la vista previa: **no sacan ni agregan un solo viaje**, el total es el mismo.
+
+- 📐 **Metros cúbicos** — columna de m³ y su sumatoria.
+- 🔢 **Conteo de viajes** — en el resumido, las columnas Día, Noche y Viajes. En el detallado cada
+  línea **es** un viaje, así que ahí este interruptor no hace nada.
+- 🏷️ **Marca y modelo** · 📏 **Alto, largo y ancho** · 🔶 **Clasificación** · 🚗 **Placa / serial**
+  · 👤 **Chofer** · 📝 **Listero** · 🌓 **Turno** · ⚙️ **Estado**.
+
+> ✅ **Sin tocar nada, el reporte sale EXACTAMENTE igual que antes.** Todo lo nuevo (m³, marca y
+> modelo, dimensiones, clasificación) entra **apagado**. Fecha, hora, empresa y camión **no se pueden
+> quitar**: sin ellas la línea no identifica nada.
+
+> ⚠️ **Si apagas el conteo de viajes Y los m³ en el modo resumido**, la tabla queda sin una sola
+> cifra: el botón de exportar **se apaga** y te lo dice. Un reporte que no cuenta nada parece un
+> reporte y no lo es.
+
+El **subtítulo del PDF** deja constancia de con qué modo se calcularon los m³, porque dos reportes del
+mismo rango pueden traer volúmenes distintos y los dos ser correctos.
+
+> 🚫 **Carbozulia Sinotruk (HOWO) no entra en este apartado**, por pedido. No sale en el buscador de
+> medición ni cuenta en los indicadores. **Sus viajes se siguen registrando y contando igual** en el
+> resto del módulo. Hay un interruptor para volver a mostrarla: un filtro que no se puede quitar es
+> indistinguible de un dato que falta.
+
 ### 🧾 Siete arreglos del registro de viajes (02-sep-2026)
 
 #### 1. 🚫 El mismo viaje ya no entra dos veces

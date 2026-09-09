@@ -112,7 +112,11 @@ export function placaDeCamion(t: { plate: string | null; serial: string | null }
 /** `dia + noche` puede ser MENOR que `viajes`: los viajes sin turno conocido
  *  (los viejos, de antes de que se guardara) no se le inventan a ninguno de
  *  los dos. `viajes` es el que manda y el que tiene que cuadrar. */
-export type CamionResumen = { code: string; placa: string; viajes: number; dia: number; noche: number };
+// `key` es la misma clave con la que se agrupó (`claveCamion`): el id del
+// camión, o el centinela del fuera de catálogo. Se expone para que quien
+// pinte el resumen pueda cruzarlo con datos de afuera —hoy los m³ del
+// cubicaje— sin tener que readivinar de qué camión es cada línea.
+export type CamionResumen = { key: string; code: string; placa: string; viajes: number; dia: number; noche: number };
 /**
  * Un GRUPO del resumen. Se llama `EmpresaResumen` por historia: cuando se
  * agrupa por listero, cada uno de estos es un LISTERO y no una empresa. El
@@ -218,6 +222,7 @@ export function resumirViajes(
 
     const ck = claveCamion(r);
     const cam = g.camiones.get(ck) ?? {
+      key: ck,
       code: r.machineCode,
       // Los de fuera de catálogo no tienen placa en el sistema (no hay ficha que
       // consultar): se marcan para que quien lee el reporte sepa que ese camión
