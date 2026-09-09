@@ -28,6 +28,16 @@ export type Medida = {
   alto: number;
   largo: number;
   ancho: number;
+  /**
+   * `true` cuando la medida NO está guardada: sale de la hoja de cubicaje que
+   * entregó el cliente, reconocida por el texto del equipo (`medidasFlota`).
+   *
+   * ⚠️ Se marca para poder DECIRLO en pantalla. Un número deducido de un nombre
+   *    parecido no vale lo mismo que uno tomado con cinta, y quien lee el papel
+   *    tiene derecho a saber cuál es cuál. Al confirmarla se guarda de verdad y
+   *    la marca desaparece.
+   */
+  deLaHoja?: boolean;
 };
 
 /** Dos decimales. Un camión no se mide al milímetro y un m³ con seis decimales

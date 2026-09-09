@@ -1887,7 +1887,15 @@ export default function ViajesCamionesScreen() {
   // y las medidas se perderían justo antes de exportar.
   //
   // ⚠️ NO TOCA LA BASE. El catálogo se lee; las medidas se guardan en el teléfono.
-  const cub = useCubicaje(uid ?? null);
+  const camionesCubicaje = useMemo<CamionCubicaje[]>(
+    () => catalogoTrucks.map((t) => ({
+      id: t.id, code: t.code, plate: t.plate, serial: t.serial,
+      marca: t.marca, modelo: t.modelo, companyName: t.companyName,
+    })),
+    [catalogoTrucks]
+  );
+
+  const cub = useCubicaje(uid ?? null, camionesCubicaje);
   const [panelTab, setPanelTab] = useState<'viajes' | 'cubicaje'>('viajes');
 
   /** Cuántos viajes hizo cada camión del catálogo EN LO QUE HAY FILTRADO. Es la
@@ -1946,14 +1954,6 @@ export default function ViajesCamionesScreen() {
     volumenPorCamion.forEach((v) => { n += v.desactualizados; });
     return n;
   }, [volumenPorCamion]);
-
-  const camionesCubicaje = useMemo<CamionCubicaje[]>(
-    () => catalogoTrucks.map((t) => ({
-      id: t.id, code: t.code, plate: t.plate, serial: t.serial,
-      marca: t.marca, modelo: t.modelo, companyName: t.companyName,
-    })),
-    [catalogoTrucks]
-  );
 
   /** Un resumido sin conteo de viajes Y sin m³ es una tabla de camiones sin una
    *  sola cifra. Se avisa en pantalla y se bloquea la exportación. */
