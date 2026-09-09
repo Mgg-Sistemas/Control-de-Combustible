@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Pressable, Alert } from 'react-native';
 import { supabase, selectAllRows } from '../../lib/supabase';
+import { personalAsignable } from '../../lib/personalAsignable';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
@@ -441,7 +442,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // un ADMIN — mismo criterio que en el teléfono (SupervisorScreen); reasignar
   // (quitarles una máquina y dársela a otro) sigue abierto a cualquier coordinador.
   useEffect(() => {
-    supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name')
+    personalAsignable().then((data) => ({ data })).catch(() => ({ data: [] }))
       .then(({ data }) => setRealInspectors(
         ((data ?? []) as any[])
           .filter((p) => role === 'admin' || !soloAdminPuedeAsignar(p))

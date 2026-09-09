@@ -2659,6 +2659,56 @@ de noche otro; al final de cada uno va su línea de firma.
 > primero un bloque que solo lee y te dice si hace falta o no.)*
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
+> ## 🗄️ Las cuentas ya no se eliminan (09/09/2026)
+>
+> Pedido del cliente: *«en los usuarios, se eliminan, esa opción ya no va: que no se eliminen, que
+> se activen o desactiven, y que se puedan archivar»*. El botón de **Eliminar** desapareció de los
+> dos sitios donde estaba (la lista y el modal de editar).
+>
+> **Por qué.** Hay **33 enlaces** desde otras tablas hacia la cuenta. **Ocho impedían el borrado**
+> (órdenes, despachos, entradas de combustible, traslados, visitas de supervisor), así que el botón
+> a veces simplemente fallaba. Los otros **25 eran peores**: dejaban borrar, y después las nóminas,
+> las reparaciones, la asistencia y las dotaciones se quedaban **sin autor**, sin avisar a nadie.
+>
+> **Ahora hay tres estados, y solo se avanza de uno en uno:**
+>
+> | Estado | Qué significa | Dónde sale |
+> |---|---|---|
+> | **Activa** | Trabaja con normalidad | Apartado **Activos en uso** |
+> | **Inactiva** | Sigue en la lista, apagada | Apartado **Activos en uso** |
+> | **Archivada** | Guarda cuándo, por qué y quién la archivó | Apartado **Archivados** |
+>
+> Para **archivar** a alguien primero hay que **desactivarlo**. Para volver a activar a un
+> archivado, primero **sacarlo del archivo** — y queda **apagado**: encenderlo es otro botón. Son
+> dos pasos en las dos direcciones, a propósito.
+>
+> Archivar **pide un motivo obligatorio**: es lo que va a leer quien busque esa cuenta dentro de un
+> año. La ficha guarda además **cuándo** y **quién** lo hizo.
+>
+> **Nadie puede desactivarse ni archivarse a sí mismo.** Y cada botón **aparece solo donde la
+> acción es legal**: en una cuenta activa el botón de archivar sencillamente no está, así que la
+> regla se ve antes de chocar con ella.
+>
+> Los archivados **tampoco salen ya** en las listas de escoger supervisor o coordinador.
+>
+> *(Requiere correr `01_usuarios_archivar.sql`, que se entrega aparte y **no** va en el
+> repositorio, porque es público.)*
+
+> ### ⚠️ Ojo con «desactivar»
+>
+> Desactivar **ordena la lista**, pero por ahora **no le quita el sistema a nadie**: se revisaron
+> las cuatro puertas de permisos de la base (`current_role`, `is_staff`, `is_admin`,
+> `can_write_module`) y **ninguna mira si la cuenta está encendida**. Es un agujero que **ya
+> existía**, no algo que trajo el archivo.
+>
+> Se cierra corriendo `02_active_manda_de_verdad.sql`, que se entrega aparte y que hay que **leer
+> antes de correr**: en el momento en que se corra, **toda cuenta apagada se queda sin permisos**.
+> El archivo trae primero una consulta que te dice exactamente a quién le va a pasar.
+>
+> Y aun con eso corrido, desactivar **no cierra el login**: la persona puede seguir entrando con su
+> clave y encontrarse el sistema vacío, porque quien mira eso es la capa de permisos, no la de
+> identidad.
+
 > **🔎 El buscador encuentra por cualquier dato (08/09/2026).** Pedido del cliente: *«en el
 > apartado de usuarios, en el buscador, necesito poder buscar también por nombre de usuario, o por
 > nombre de la cuenta o por cédula, porque solo me está dejando buscar por nombre personal»*.
