@@ -430,5 +430,39 @@ ok('...y no baja la bandera que no subió', /if \(!silencioso\) setCargando\(fal
   ok(`solo la primera carga tumba la pantalla (quedan ${ruidosas} recargas ruidosas con await)`, ruidosas === 0);
 }
 
+
+// ── 17) LEER LAS MEDIDAS GUARDADAS ───────────────────────────
+// ⚠️ LA CAUSA DE «CADA QUE LO CAMBIO REGRESA A COMO ESTABA».
+//
+//    `selectAllRows` pagina ordenando por `id`, y `camion_cubicaje` NO TIENE
+//    columna `id`: su clave es el camión, una tolva por camión. La consulta
+//    reventaba entera, el error se tiraba a la basura y la pantalla se quedaba
+//    con CERO medidas guardadas — indistinguible de «todavía no hay ninguna».
+//    Guardar SÍ funcionaba: las filas estaban en la base todo el tiempo. Al
+//    releer, la hoja volvía a deducir la medida vieja y la corrección se veía
+//    deshecha sola.
+const datosRaw = leer('src/lib/cubicajeDatos.ts');
+const supaRaw = leer('src/lib/supabase.ts');
+
+ok('se puede paginar por otra columna', /orderBy: string = 'id'/.test(supaRaw));
+ok('...y se usa la que se pidió', /q\.order\(orderBy, \{ ascending: true \}\)/.test(supaRaw));
+// ⭐ Y el valor por defecto sigue siendo `id`: las otras once tablas que lo
+//    usan sí tienen esa columna y no se pueden tocar.
+ok('por defecto no cambia nada para el resto', /orderBy: string = 'id'/.test(supaRaw) && !/q\.order\('id'/.test(supaRaw));
+
+ok('las medidas se paginan por machinery_id',
+  /selectAllRows\(\s*\n\s*TABLA_MEDIDAS,[\s\S]{0,200}?'machinery_id',\s*\n\s*\)/.test(datosRaw));
+
+// ⭐ Y EL ERROR DE LECTURA DEJA DE TIRARSE A LA BASURA. Es lo que convirtió un
+//    fallo de una línea en tres reportes seguidos de «no me deja editar»:
+//    mirando la pantalla no había forma de saberlo.
+ok('recargar se queda con el error', /const \{ rows, missing, error \} = await listarMedidas\(\);/.test(tabRaw));
+ok('...y lo guarda', /setFalloLeer\(error\);/.test(tabRaw));
+ok('...y lo dice en pantalla', /No se pudieron leer las medidas guardadas/.test(tabRaw));
+// Y avisa de lo único que importa: no se está perdiendo nada, solo no se ve.
+ok('el aviso dice que guardar sí funciona', /Guardar sí funciona: los datos no se están perdiendo/.test(tabRaw));
+ok('...y que lo de abajo sale de la hoja', /sale de la hoja de cubicaje, no de lo guardado/.test(tabRaw));
+ok('el estado del fallo viaja en el hook', /falloLeer: string \| null;/.test(tabRaw));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

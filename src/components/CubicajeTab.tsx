@@ -88,6 +88,8 @@ export type CubicajeState = {
   cargando: boolean;
   /** Falta correr el SQL: se trabaja en modo dispositivo y se dice. */
   sinTabla: boolean;
+  /** Falló LEER las medidas guardadas. Distinto de que no haya ninguna. */
+  falloLeer: string | null;
   guardar: (m: Medida) => Promise<void>;
   borrar: (m: Medida) => Promise<void>;
   /** Camiones a los que se les apartó la medida de la hoja. */
@@ -144,6 +146,8 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
    * ancho tienen que ser mayores que cero, así que no admite «ninguna».
    */
   const [apartadas, setApartadas] = useState<string[]>([]);
+  /** El último error al LEER las medidas, para poder decirlo. Ver `recargarMedidas`. */
+  const [falloLeer, setFalloLeer] = useState<string | null>(null);
 
   // Las medidas del DISPOSITIVO. Siempre se leen: guardan las unidades medidas
   // a mano (que no tienen ficha) y son el respaldo si falta correr el SQL.
@@ -192,7 +196,16 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
    */
   const recargarMedidas = useCallback(async (silencioso = false) => {
     if (!silencioso) setCargando(true);
-    const { rows, missing } = await listarMedidas();
+    const { rows, missing, error } = await listarMedidas();
+    /**
+     * ⚠️ EL ERROR DE LECTURA NO SE PUEDE TIRAR A LA BASURA.
+     *
+     *    Se tiraba, y por eso una consulta rota se veía igual que una tabla
+     *    vacía: las medidas se guardaban bien en la base, la lectura fallaba en
+     *    silencio, la pantalla caía a la hoja y cada corrección «volvía a como
+     *    estaba». Nadie podía saberlo mirando la pantalla.
+     */
+    setFalloLeer(error);
     setSinTabla(missing);
     setDeLaBase(missing ? [] : rows.map((r) => ({
       id: r.machinery_id,
@@ -311,7 +324,7 @@ export function useCubicaje(uid: string | null, flota: CamionCubicaje[] = []): C
   const restaurarApartadas = useCallback(() => setApartadas([]), []);
 
   return {
-    medidas, porTruck, cargando, sinTabla, guardar, borrar,
+    medidas, porTruck, cargando, sinTabla, falloLeer, guardar, borrar,
     apartadas, restaurarApartadas,
     modo, setModo, totalGlobal, setTotalGlobal, manual, setManual, op, setOp,
     mostrarOcultas, setMostrarOcultas, cargas, guardadas, recargarCargas, uid,
@@ -751,6 +764,20 @@ export function CubicajeTab({
         <Card>
           <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>⏳ Falta correr el SQL</Text>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>{AVISO_SIN_SQL}</Text>
+        </Card>
+      ) : null}
+
+      {/* ⚠️ Una lectura rota se veía EXACTAMENTE igual que «todavía no hay
+          medidas». Si no se puede leer, hay que decirlo: lo que se esté viendo
+          sale de la hoja, y toda corrección va a parecer que se deshace sola. */}
+      {cub.falloLeer ? (
+        <Card>
+          <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>⚠️ No se pudieron leer las medidas guardadas</Text>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            Lo que se ve abajo sale de la hoja de cubicaje, no de lo guardado, y una corrección va a
+            parecer que se deshace sola. Guardar sí funciona: los datos no se están perdiendo.
+          </Text>
+          <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>{cub.falloLeer}</Text>
         </Card>
       ) : null}
 

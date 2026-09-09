@@ -54,7 +54,16 @@ export type MedidaGuardada = {
 
 export async function listarMedidas(): Promise<{ rows: MedidaGuardada[]; missing: boolean; error: string | null }> {
   try {
-    const data = await selectAllRows(TABLA_MEDIDAS, 'machinery_id, ident, marca, modelo, alto, largo, ancho, m3, updated_at, updated_by');
+    // ⚠️ `machinery_id` Y NO `id`: esta tabla NO TIENE columna `id` — su clave
+    //    es el camión, una tolva por camión. Con el `id` por defecto la consulta
+    //    revienta entera y la pantalla se queda sin una sola medida, aunque
+    //    estén todas guardadas.
+    const data = await selectAllRows(
+      TABLA_MEDIDAS,
+      'machinery_id, ident, marca, modelo, alto, largo, ancho, m3, updated_at, updated_by',
+      undefined,
+      'machinery_id',
+    );
     return { rows: (data ?? []) as MedidaGuardada[], missing: false, error: null };
   } catch (e: any) {
     const msg = String(e?.message ?? e);
