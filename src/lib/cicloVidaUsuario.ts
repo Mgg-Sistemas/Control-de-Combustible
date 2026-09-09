@@ -24,18 +24,24 @@
 // no hay booleano nuevo. Eso es lo que abarata todo, porque cualquier regla que
 // ya mire `active` deja fuera al archivado sin enterarse de que existe.
 //
-// OJO CON ESTE PROYECTO — LO QUE NO ES COMO EN EL PDF
+// LO QUE HUBO QUE ARREGLAR ANTES — Y YA ESTÁ ARREGLADO
 // ---------------------------------------------------------------------------
 // En el sistema del PDF las nueve funciones de autorización ya miraban `activo`.
 // Aquí NO: `current_role()`, `is_staff()`, `is_admin()` y `can_write_module()`
-// no consultan `profiles.active`, ni lo hace ninguna política RLS ni el login.
-// Hoy un usuario «desactivado» entra igual y conserva todos sus permisos.
-// Eso se cierra aparte, en el SQL 02, porque cambia comportamiento: cualquier
-// cuenta que hoy esté apagada se queda sin permisos en el momento de correrlo.
+// no lo consultaban, ni lo hacía ninguna política RLS ni el login, así que un
+// usuario «desactivado» entraba igual y conservaba todos sus permisos.
 //
-// Mientras ese SQL no se corra, desactivar sirve para ORDENAR la lista, no para
-// quitar permisos. La pantalla lo dice con esas palabras en vez de prometer algo
-// que no cumple.
+// ✅ CORREGIDO Y VERIFICADO EL 09-09-2026. Las cuatro puertas cuelgan de
+// `current_role()`, así que se cerraron todas con una línea: esa función ahora
+// termina en `and p.active`, y una cuenta apagada no tiene rol. Como archivada
+// implica apagada (CHECK `profiles_archivado_apagado`), un archivado tampoco
+// pasa ninguna. Desactivar ya QUITA EL SISTEMA de verdad, no solo ordena la lista.
+//
+// Lo que sigue sin hacer, y hay que decirlo: esto NO cierra el login. La persona
+// puede seguir autenticándose con su clave y encontrarse el sistema vacío,
+// porque quien mira `active` es la capa de permisos y no la de identidad.
+// Tampoco invalida el token que ya tenga en la mano: queda una ventana igual a
+// la vida del JWT.
 
 /** Un perfil, con lo que hace falta para saber en qué estado está. */
 export type CuentaCicloVida = {
