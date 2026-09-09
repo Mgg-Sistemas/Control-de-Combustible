@@ -4,6 +4,7 @@ import { Screen, Card, Loading, EmptyState, SkeletonList } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
+import { personalAsignable } from '../lib/personalAsignable';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
 import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { useAuth } from '../context/AuthContext';
@@ -255,7 +256,7 @@ export default function SupervisionScreen({ navigation }: any) {
   useEffect(() => {
     if (!puedeCoordinar) return;
     (async () => {
-      const { data } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
+      const data = await personalAsignable().catch(() => []);
       // El placeholder "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los
       // puede ASIGNAR un ADMIN — mismo criterio que el teléfono/CheckMaquinaModal; esta
       // pantalla no lo aplicaba (hueco por el que se podía saltar la restricción).
