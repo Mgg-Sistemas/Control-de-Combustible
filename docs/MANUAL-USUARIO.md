@@ -4337,6 +4337,35 @@ catálogo se siga escribiendo igual.
 > catálogo no tiene ninguna columna que diga qué tolva lleva cada máquina. Si una unidad sale con la
 > medida de otra, se corrige aquí mismo y lo corregido manda para siempre.
 
+### 🚫 Dejar una unidad sin medida (09-sep-2026)
+
+**Poner un cero ya significa algo.** Antes el botón de guardar simplemente se apagaba y no decía por
+qué. Es que una tolva de cero por cero no existe, y la base lo prohibe con razón: dos negativos
+multiplicados dan un positivo muy creíble.
+
+Pero lo que se quiere decir con un cero es un hecho **real**: *este camión no tiene medida de tolva*.
+Y eso era indistinguible de *"todavía nadie la ha medido"*, porque la hoja de cubicaje volvía a
+deducirle una medida sola.
+
+> ⭐ Ahora, al escribir un cero en cualquiera de las tres casillas, el botón cambia a **🚫 Dejar sin
+> medida** y el contador de m³ lo explica. Se pregunta antes, como en un borrado, porque quita un dato
+> que se estaba usando para cobrar.
+
+**Y ahora sí sale del conteo de equipos.** Apartar una unidad en Cubicaje no servía de nada en
+*Reportes → Conteo de equipos*: la hoja le volvía a deducir la medida y el papel la seguía imprimiendo,
+así que el botón de apartar parecía no hacer nada. Las dos pantallas leen ahora **la misma lista**.
+
+> ⚠️ **Sale EN BLANCO, no en cero.** Es la misma regla que ya valía para lo que no se reconoce: un
+> cero diría *"ese camión no carga nada"*, y lo cierto es que **no se sabe cuánto carga**. El equipo
+> sigue apareciendo y contando como equipo; lo que desaparece son sus medidas y sus metros cúbicos.
+
+> ⚠️ **Se anota solo en este dispositivo.** La tabla de medidas no admite una fila *"sin medida"*
+> —exige alto, largo y ancho mayores que cero— así que no hay dónde más guardarlo sin un SQL nuevo. Lo
+> que sí está garantizado es que las dos pantallas de este equipo digan lo mismo.
+
+Apartar vale también contra una medida **ya guardada**, no solo contra la de la hoja. Si solo callara
+a la hoja, apartar un camión ya medido no haría nada visible y el botón estaría mintiendo.
+
 ### ✅ Las correcciones ya no se deshacen solas (09-sep-2026)
 
 **El síntoma.** Se corregía una medida, el sistema decía *"Medida guardada"*, y al volver a mirar

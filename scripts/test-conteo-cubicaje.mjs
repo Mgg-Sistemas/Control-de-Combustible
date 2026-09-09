@@ -209,7 +209,7 @@ ok('el listado cambia de título', /tituloListado = porCategoria \? 'Listado por
 // hoja. Si acá fuera otra, los dos papeles dirían cosas distintas.
 const tab = sinComentarios(leer('src/components/CubicajeTab.tsx'));
 ok('Cubicaje cae a la hoja cuando no hay medida', /medidaConocida\(t\.code, t\.marca, t\.modelo\)/.test(tab));
-ok('la de la base gana sobre la del dispositivo', /locales\.filter\(\(m\) => !m\.truckId \|\| !ids\.has\(m\.truckId\)\)/.test(tab));
+ok('la de la base gana sobre la del dispositivo', /locales\.filter\(\(m\) => !m\.truckId \|\| \(!ids\.has\(m\.truckId\) && !fuera\.has\(m\.truckId\)\)\)/.test(tab));
 ok('y la hoja solo entra si no hay ninguna otra NI se apartó', /if \(yaTiene\.has\(t\.id\) \|\| fuera\.has\(t\.id\)\) continue;/.test(tab));
 // ⚠️ Un número deducido de un nombre parecido no vale lo mismo que uno tomado
 //    con cinta: hay que poder distinguirlos en pantalla.
@@ -463,6 +463,57 @@ ok('...y lo dice en pantalla', /No se pudieron leer las medidas guardadas/.test(
 ok('el aviso dice que guardar sí funciona', /Guardar sí funciona: los datos no se están perdiendo/.test(tabRaw));
 ok('...y que lo de abajo sale de la hoja', /sale de la hoja de cubicaje, no de lo guardado/.test(tabRaw));
 ok('el estado del fallo viaja en el hook', /falloLeer: string \| null;/.test(tabRaw));
+
+
+// ── 18) APARTAR VALE EN LAS DOS PANTALLAS ──────────────────────
+// ⚠️ Apartar una unidad en Cubicaje no servía de nada en el conteo de
+//    Reportes: la hoja le volvía a deducir la medida y el papel la seguía
+//    imprimiendo. Reportado como «si lo aparto o le elimino ese registro, la
+//    idea es que no salga para esa parte».
+const apartRaw = leer('src/lib/cubicajeApartadas.ts');
+const repRaw = leer('src/screens/ReportsScreen.tsx');
+
+ok('la lista de apartadas vive en un módulo aparte', /export const CLAVE_APARTADAS = 'cubicaje\.apartadas\.v1'/.test(apartRaw));
+ok('leer no lanza nunca', /catch \{\s*\n?\s*return \[\];/.test(apartRaw));
+ok('guardar tampoco', /catch \{\}/.test(apartRaw));
+
+// ⭐ LAS DOS pantallas leen LA MISMA lista. Dos copias del mismo hecho darían
+//    dos papeles distintos del mismo camión.
+ok('Cubicaje la usa', /import \{ leerApartadas, guardarApartadas \} from '\.\.\/lib\/cubicajeApartadas'/.test(tabRaw));
+ok('...y ya no guarda su propia copia', !/CLAVE_APARTADAS/.test(sinComentarios(tabRaw)));
+ok('el conteo de Reportes la usa', /import \{ leerApartadas \} from '\.\.\/lib\/cubicajeApartadas'/.test(repRaw));
+ok('...y la lee al abrir', /leerApartadas\(\)\.then\(\(ids\) => setApartadas\(new Set\(ids\)\)\)/.test(repRaw));
+
+// ⭐ Y en el conteo, apartada GANA sobre lo guardado y sobre la hoja.
+ok('apartada manda sobre todo en el conteo',
+  /if \(m\.id && apartadas\.has\(m\.id\)\) return null;\s*\n\s*const guardada = m\.id \? medidasPorId\.get/.test(repRaw));
+// ⚠️ Y devuelve null, o sea EN BLANCO — nunca cero. Un cero diría que ese
+//    camión no carga nada, y lo cierto es que no se sabe cuánto carga.
+ok('sale en blanco, no en cero', /apartadas\.has\(m\.id\)\) return null;/.test(repRaw));
+ok('los totales se rehacen al apartar', /\}, \[tipoResultado, medidasPorId, apartadas\]\);/.test(repRaw));
+
+// ⭐ Y en Cubicaje, apartar vale también contra una medida YA GUARDADA: si solo
+//    callara a la hoja, apartar un camión medido no haría nada visible.
+ok('apartar calla también a la medida guardada',
+  /const base = deLaBase\.filter\(\(m\) => !m\.truckId \|\| !fuera\.has\(m\.truckId\)\);/.test(tabRaw));
+ok('...y a la del dispositivo', /!ids\.has\(m\.truckId\) && !fuera\.has\(m\.truckId\)/.test(tabRaw));
+
+// ── 19) UN CERO ES «SIN MEDIDA», NO UN ERROR ───────────────────
+// ⚠️ «No me deja colocarle la medición en 0». Y no puede: una tolva de cero no
+//    existe y la tabla lo prohibe con razón. Pero lo que se quiere decir con un
+//    cero es un hecho REAL —«este camión no tiene medida»— que hasta ahora era
+//    indistinguible de «nadie la ha medido». El cero deja de ser un botón
+//    apagado sin explicación y pasa a ser esa afirmación.
+ok('escribir un cero se reconoce', /const pideSinMedida = !!sel && sel !== MANUAL && !ocupado && m3Vivo <= 0/.test(tabRaw));
+ok('...solo si de verdad escribió un cero, no con los campos en blanco',
+  /\[alto, largo, ancho\]\.some\(\(v\) => v\.trim\(\) !== '' && num\(v\) <= 0\)/.test(tabRaw));
+ok('el botón lo dice en la fila', /🚫 Dejar sin medida/.test(tabRaw));
+ok('...y en el formulario de arriba', /🚫 Dejar esta unidad sin medida/.test(tabRaw));
+ok('y el contador explica qué va a pasar', /Un cero no es una tolva\. Se guarda como SIN MEDIDA\./.test(tabRaw));
+// ⭐ Se pregunta antes: quita un dato que se estaba usando para cobrar.
+ok('se pregunta antes de dejarla sin medida', /title: 'Dejar esta unidad sin medida'/.test(tabRaw));
+ok('...y el aviso no miente sobre el alcance', /Se anota SOLO EN ESTE DISPOSITIVO/.test(tabRaw));
+ok('...ni sobre lo que hace en el conteo', /sale en blanco en el conteo de equipos/.test(tabRaw));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

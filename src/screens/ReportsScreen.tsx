@@ -63,6 +63,7 @@ import {
 import { medidaConocida, NOTA_ORIGEN } from '../lib/medidasFlota';
 import { volumen as volumenTolva, m3Texto } from '../lib/cubicaje';
 import { listarMedidas } from '../lib/cubicajeDatos';
+import { leerApartadas } from '../lib/cubicajeApartadas';
 import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
@@ -650,10 +651,28 @@ export default function ReportsScreen({ route }: any) {
       rows.forEach((r) => m.set(r.machinery_id, { alto: Number(r.alto), largo: Number(r.largo), ancho: Number(r.ancho) }));
       setMedidasPorId(m);
     }).catch(() => {});
+    leerApartadas().then((ids) => setApartadas(new Set(ids))).catch(() => {});
   }, []);
+
+  /**
+   * CAMIONES DEJADOS SIN MEDIDA A PROPÓSITO, desde Cubicaje y volumen.
+   *
+   * ⚠️ Pedido del cliente: «si lo aparto o le elimino ese registro, la idea es
+   *    que no salga para esa parte». Apartar una unidad allá no servía de nada
+   *    acá: la hoja de cubicaje volvía a deducirle la medida y el conteo la
+   *    seguía imprimiendo, así que el botón de apartar parecía no hacer nada.
+   *
+   * ⭐ Se lee la MISMA lista que escribe Cubicaje. Dos copias del mismo hecho
+   *    darían dos papeles distintos del mismo camión.
+   */
+  const [apartadas, setApartadas] = useState<Set<string>>(new Set());
 
   /** La medida de una máquina: primero lo medido, luego la hoja, luego nada. */
   const medidaDeMaquina = (m: { id?: string; code?: string; marca?: string | null; modelo?: string | null }) => {
+    // ⚠️ Apartada = SIN MEDIDA, y eso gana sobre todo lo demás. Sale en blanco,
+    //    que es exactamente lo que ya se hace con lo que no se reconoce: nunca
+    //    en cero, porque un cero diría que ese camión no carga nada.
+    if (m.id && apartadas.has(m.id)) return null;
     const guardada = m.id ? medidasPorId.get(m.id) : undefined;
     if (guardada) return { ...guardada, origen: 'medida' as const };
     const hoja = medidaConocida(m.code, m.marca, m.modelo);
@@ -907,7 +926,7 @@ export default function ReportsScreen({ route }: any) {
       menor: v.length ? Math.min(...v) : 0,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipoResultado, medidasPorId]);
+  }, [tipoResultado, medidasPorId, apartadas]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
