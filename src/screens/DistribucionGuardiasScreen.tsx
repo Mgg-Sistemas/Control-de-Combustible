@@ -13,6 +13,7 @@ import { spacing, radius } from '../theme';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { personalAsignable } from '../lib/personalAsignable';
 import { cmpText } from '../lib/text';
 import { DateField } from '../components/DateField';
 import { generateGuardiasReport, GuardInspector, GuardShift } from '../lib/guardiasReport';
@@ -112,7 +113,7 @@ export default function DistribucionGuardiasScreen() {
     const [m, s, p] = await Promise.all([
       supabase.from('guard_inspector_meta').select('id, inspector_id, inspector_name, cedula, telefono, sector, cargo, grupo'),
       supabase.from('guard_shifts').select('id, inspector_name, from_date, to_date, kind, grupo'),
-      supabase.from('profiles').select('id, full_name, cedula, role').in('role', ['supervisor', 'coordinador_patio']),
+      personalAsignable('id, full_name, cedula, role').then((data) => ({ data })).catch(() => ({ data: [] })),
     ]);
     setMetas(((m.data ?? []) as any[]).sort((a, b) => grupoRank(a.grupo) - grupoRank(b.grupo) || cmpText(a.inspector_name, b.inspector_name)));
     setShifts((s.data ?? []) as any);

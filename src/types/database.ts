@@ -19,6 +19,15 @@ export interface Profile {
   locked_at?: string | null;
   app_role_id?: string | null; // rol dinámico asignado (define qué módulos ve)
   can_audit?: boolean; // puede ver el módulo de Auditoría (bitácora de todos)
+  /** EL ARCHIVO (09-sep-2026). La marca es la FECHA: no hay booleano nuevo.
+   *  Nula = cuenta en uso · con valor = archivada. Una cuenta archivada está
+   *  SIEMPRE inactiva (lo garantiza el CHECK `profiles_archivado_apagado`), que
+   *  es lo que permite que todo lo que ya mira `active` la deje fuera sola.
+   *  Columnas de 01_usuarios_archivar.sql, que se entrega aparte porque el
+   *  repositorio es público. Léelas con src/lib/cicloVidaUsuario.ts. */
+  archivado_en?: string | null;
+  archivado_por?: string | null;   // uuid; el nombre lo resuelve la pantalla
+  archivado_motivo?: string | null;
   created_at: string;
 }
 

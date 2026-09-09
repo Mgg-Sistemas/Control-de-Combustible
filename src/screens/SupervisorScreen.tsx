@@ -6,6 +6,7 @@ import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { personalAsignable } from '../lib/personalAsignable';
 import { norm, cmpText } from '../lib/text';
 import { motivoParada } from '../lib/paradaMotivo';
 import EdificioPicker from '../components/EdificioPicker';
@@ -539,7 +540,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // rol INSPECTOR (interno 'supervisor') o COORDINADOR DE PATIO ('coordinador_patio');
     // nadie más se puede asignar.
     if (puedeCoordinar) {
-      const { data: insp } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
+      const insp = await personalAsignable().catch(() => []);
       // El placeholder "MÁQUINAS FALTANTES" y el inspector REAL "SOS LA GUAIRA" solo los
       // puede ASIGNAR un ADMIN — pedido del cliente 11-ago-2026: coordinadores/analistas
       // pueden REASIGNAR (quitarle a SOS una máquina y dársela a otro) libremente, pero
