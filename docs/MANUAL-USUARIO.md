@@ -4292,6 +4292,76 @@ mismo rango pueden traer volúmenes distintos y los dos ser correctos.
 > resto del módulo. Hay un interruptor para volver a mostrarla: un filtro que no se puede quitar es
 > indistinguible de un dato que falta.
 
+### 📐 Corregir una medida ya cargada (09-sep-2026)
+
+La lista **📋 Unidades medidas** de *📐 Cubicaje y volumen* dejaba borrar pero no corregir: para
+cambiar un número había que volver al buscador de arriba y encontrar el camión otra vez. Con casi
+noventa unidades que se llaman **igual**, eso es rendirse. Cambiaron tres cosas.
+
+**1. Cada fila dice de qué camión es.** El título de la fila es ahora el **código del camión y su
+placa** (o el serial si no tiene placa). El nombre de la tolva —*"Volteo Toronto Iveco Trakker"*— baja
+al renglón de abajo, junto a las medidas.
+
+> ⚠️ **Por qué salían todas iguales.** Una medida que viene de la **hoja de cubicaje** trae como
+> identificador el nombre del **modelo de tolva**, no el del camión. Como casi toda la flota es del
+> mismo modelo, la lista salía ochenta y nueve veces el mismo texto y sin placa. La medida siempre
+> estuvo bien; lo que faltaba era decir **a quién** se le había puesto.
+
+> ℹ️ **Si una fila sale sin placa**, es que esa unidad **no tiene placa cargada en el catálogo**. Se
+> arregla en Control de Maquinaria, no aquí: este apartado **lee** el catálogo y nunca lo modifica.
+
+**2. Se corrige en la fila misma.** Al tocar una fila se abren ahí mismo **Alto, Largo y Ancho**, con
+los m³ recalculándose mientras escribes y los botones **Cancelar** y **Guardar**. No hay que subir a
+ninguna parte. El mismo toque la vuelve a cerrar.
+
+> ⚠️ **Antes esto existía pero no se veía.** Tocar la fila llenaba el formulario de **arriba**, a
+> ochenta filas de distancia, y la pantalla no se movía: desde abajo no ocurría nada visible. El
+> formulario de arriba sigue estando —sirve para **medir una unidad nueva**—, pero corregir una medida
+> ya hecha ya no obliga a buscarla de nuevo.
+
+**3. La lista tiene su propio buscador.** Busca por **código, placa, serial o modelo** dentro de las
+unidades ya medidas.
+
+> ⭐ **El buscador solo cambia lo que se ve, no lo que se cuenta.** Las tarjetas de mayor, menor y
+> promedio y el **reporte volumétrico** siguen saliendo de la flota entera. Filtrar una lista para
+> encontrar un camión no es sacar camiones de la flota, y un promedio que cambiara al escribir en un
+> buscador sería un promedio que no se puede citar.
+
+**Una medida “de la hoja” no está guardada.** Las filas marcadas **⚠️ de la hoja, sin confirmar** son
+las once medidas que entregó el cliente, reconocidas por el texto del equipo. Sirven para el cálculo,
+pero **no están guardadas**: al abrirlas el botón dice **✅ Confirmar**, y al tocarlo se guardan de
+verdad y la marca desaparece. Confirmarlas es lo que hace que **no dependan** de que el texto del
+catálogo se siga escribiendo igual.
+
+> ⚠️ **Vale la pena revisarlas una por una.** Se reconocen **por el texto** del equipo, porque el
+> catálogo no tiene ninguna columna que diga qué tolva lleva cada máquina. Si una unidad sale con la
+> medida de otra, se corrige aquí mismo y lo corregido manda para siempre.
+
+### 📄 El reporte volumétrico: logos, activas y orden (09-sep-2026)
+
+Tres cambios pedidos sobre el documento *"Análisis Técnico y Capacidad Volumétrica de Flota"*.
+
+**Los dos logos en la cabecera.** Van el del **Plan Venezuela Renace** y el de **Golden Touch**, sobre
+una pastilla blanca. La pastilla no es adorno: el membrete es azul marino y el logo del Plan trae su
+texto en azul marino también, así que sin fondo blanco se perdería contra la cabecera.
+
+**Solo las unidades activas.** Una unidad **retirada o en espera de instrucciones** ya no entra. No
+describe la capacidad con la que se cuenta **hoy**, e inflaba el total y el promedio de un documento
+que se entrega para planificar acarreo. El subtelítulo deja constancia de **cuántas quedaron fuera**,
+para que nadie tenga que adivinar por qué el total bajó.
+
+**En el conteo por tipo, orden alfabético y promedios.** En *Reportes → Conteo de equipos*, al ocultar
+el nombre de las empresas la lista ya **no** queda en el orden en que vinieron las empresas: se ordena
+**alfabéticamente por código** en una sola lista corrida. Y el PDF trae un cuadro con **total,
+promedio, mayor y menor** de los metros cúbicos de lo que hayas seleccionado.
+
+> ⚠️ **El promedio excluye lo que no tiene medida.** Contar como cero una unidad sin medir hundiría
+> el promedio y diría que la flota carga menos de lo que carga. El cuadro dice **sobre cuántas
+> unidades** se calculó.
+
+**Agrupar por categoría.** El conteo se puede agrupar **por empresa** (como siempre) o **por
+clasificación** —remoción de escombros y las demás— con un toque, y el PDF sale agrupado igual.
+
 ### 🧾 Siete arreglos del registro de viajes (02-sep-2026)
 
 #### 1. 🚫 El mismo viaje ya no entra dos veces
