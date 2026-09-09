@@ -291,5 +291,39 @@ ok('la papelera sigue', /onPress=\{\(\) => borrarMedidaDe\(m\)\}/.test(tabRaw));
 // Para medir algo que no es volteo ni volqueta hay que poder ver el resto.
 ok('se puede apagar el filtro de solo camiones', /setSoloCamiones\(!soloCamiones\)/.test(tabRaw));
 
+
+// ── 11) CORREGIR SIN SUBIR OCHENTA FILAS ─────────────────────────
+// ⚠️ Tocar la fila llenaba el formulario de ARRIBA, a ochenta filas de
+//    distancia, y la pantalla no se movía: desde abajo no pasaba nada visible.
+//    El cliente lo reportó DOS veces como que «no deja cambiar». El editor
+//    tiene que abrirse donde se tocó.
+ok('hay una fila abierta y se sabe cuál', /const \[abierta, setAbierta\] = useState<string \| null>\(null\)/.test(tabRaw));
+ok('el mismo toque abre y cierra', /setAbierta\(\(prev\) => \(prev === m\.id \? null : m\.id\)\)/.test(tabRaw));
+ok('la fila abierta se reconoce', /const editando = abierta === m\.id/.test(tabRaw));
+// Los tres campos, dentro de la fila y no en el formulario de arriba.
+const bloqueFila = tabRaw.slice(tabRaw.indexOf('const editando = abierta === m.id'));
+ok('los tres campos se abren en la fila', /editando \? \([\s\S]{0,900}?\[\['Alto \(m\)', alto, setAlto\], \['Largo \(m\)', largo, setLargo\], \['Ancho \(m\)', ancho, setAncho\]\]/.test(bloqueFila));
+ok('y guardan con el mismo guardar de siempre', /onPress=\{guardar\} disabled=\{!puedeGuardar\}/.test(bloqueFila));
+ok('cancelar cierra la fila', /const limpiar = \(\) => \{\n    setSel\(''\); setEditId\(null\); setAbierta\(null\);/.test(tabRaw));
+
+// ── 12) QUIÉN ES CADA FILA ───────────────────────────────────
+// ⚠️ Una medida sacada de la hoja trae como identificador el nombre de la
+//    TOLVA, no el del camión. Con ochenta y nueve unidades del mismo modelo la
+//    lista salía ochenta y nueve veces igual y sin placa. El título de la fila
+//    tiene que ser el CAMIÓN.
+ok('la lista tiene la ficha del catálogo a mano', /const fichaPorId = useMemo\(\(\) => new Map\(trucks\.map\(\(t\) => \[t\.id, t\]\)\), \[trucks\]\)/.test(tabRaw));
+ok('el título de la fila es código y placa', /const quien = t \? `\$\{t\.code\}\$\{t\.plate \? ` · \$\{t\.plate\}` : t\.serial \? ` · \$\{t\.serial\}` : ''\}` : m\.ident/.test(tabRaw));
+ok('...y se pinta ese, no el de la tolva', /\{m\.truckId \? '\u{1F69B}' : '\u270d\ufe0f'\} \{quien\}/u.test(tabRaw));
+ok('el nombre de la tolva baja al renglón de abajo', /\{m\.ident\} · \{dimsTexto\(m\)\} m/.test(tabRaw));
+
+// ── 13) BUSCAR DENTRO DE LA LISTA ─────────────────────────────
+ok('la lista de medidas tiene su propio buscador', /const \[buscaMedida, setBuscaMedida\] = useState\(''\)/.test(tabRaw));
+ok('busca por código, placa y serial del camión', /\$\{t\?\.code \?\? ''\} \$\{t\?\.plate \?\? ''\} \$\{t\?\.serial \?\? ''\}/.test(tabRaw));
+ok('se pinta la lista filtrada', /\{medidasEnLista\.map\(\(m\) => \{/.test(tabRaw));
+// ⭐ Y el buscador NO puede cambiar los indicadores ni el reporte: filtrar la
+//    vista no es sacar camiones de la flota.
+ok('los indicadores siguen sobre la flota entera', /kpis\(medidasVistas\.map\(volumenDe\)\)/.test(tabRaw));
+ok('el reporte también', /medidasVistas\s*\n?\s*\.filter\(\(m\) => !m\.truckId \|\| activoPorId/.test(tabRaw));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

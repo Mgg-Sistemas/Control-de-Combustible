@@ -291,6 +291,7 @@ export function CubicajeTab({
   const confirm = useConfirm();
   const [sel, setSel] = useState<string>('');
   const [busca, setBusca] = useState('');
+  const [buscaMedida, setBuscaMedida] = useState('');
   const [ident, setIdent] = useState('');
   const [marca, setMarca] = useState('');
   const [modelo, setModelo] = useState('');
@@ -298,6 +299,16 @@ export function CubicajeTab({
   const [largo, setLargo] = useState('');
   const [ancho, setAncho] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
+  /**
+   * QUE FILA DE «Unidades medidas» está abierta para corregir.
+   *
+   * ⚠️ Antes la corrección solo existía en el formulario de ARRIBA, a ochenta
+   *    filas de distancia. Tocar una fila lo llenaba, pero la pantalla no se
+   *    movía: desde abajo no pasaba nada visible y el cliente lo reportó dos
+   *    veces como que «no deja cambiar». Ahora los tres campos se abren en la
+   *    fila misma, donde se tocó.
+   */
+  const [abierta, setAbierta] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [eje, setEje] = useState<EjeHistorico>('dia');
   const [buscaHist, setBuscaHist] = useState('');
@@ -381,6 +392,8 @@ export function CubicajeTab({
    * Precarga el formulario de arriba con lo que ya tiene. Guardar sobrescribe.
    */
   const editar = (m: Medida) => {
+    // Se abre y se cierra con el mismo toque.
+    setAbierta((prev) => (prev === m.id ? null : m.id));
     setSel(m.truckId ?? MANUAL);
     // Una medida DE LA HOJA no es una fila guardada: no hay nada que actualizar.
     // Se precarga para confirmarla o corregirla, y al guardar se crea la fila.
@@ -394,7 +407,7 @@ export function CubicajeTab({
   };
 
   const limpiar = () => {
-    setSel(''); setEditId(null);
+    setSel(''); setEditId(null); setAbierta(null);
     setIdent(''); setMarca(''); setModelo(''); setAlto(''); setLargo(''); setAncho('');
   };
 
@@ -422,11 +435,36 @@ export function CubicajeTab({
     }
   };
 
+  /**
+   * La ficha del catálogo de cada camión, para poder decir en la lista DE QUÉ
+   * camión es cada medida.
+   *
+   * ⚠️ Una medida sacada de la hoja trae como identificador el nombre de la
+   *    TOLVA («Volteo Toronto Iveco Trakker»), no el del camión. Con ochenta y
+   *    nueve unidades de ese mismo modelo, la lista salía ochenta y nueve veces
+   *    igual y sin placa: no había forma de saber cuál era cuál.
+   */
+  const fichaPorId = useMemo(() => new Map(trucks.map((t) => [t.id, t])), [trucks]);
+
   const idsVisibles = useMemo(() => new Set(visibles.map((t) => t.id)), [visibles]);
   const medidasVistas = useMemo(
     () => cub.medidas.filter((m) => !m.truckId || idsVisibles.has(m.truckId)),
     [cub.medidas, idsVisibles]
   );
+  /**
+   * Lo que se PINTA en la lista. Se separa de `medidasVistas` a propósito: los
+   * indicadores y el reporte siguen saliendo de la flota entera, y no de lo que
+   * quede después de escribir en un buscador.
+   */
+  const medidasEnLista = useMemo(() => {
+    const q = buscaMedida.trim().toLowerCase();
+    if (!q) return medidasVistas;
+    return medidasVistas.filter((m) => {
+      const t = m.truckId ? fichaPorId.get(m.truckId) : undefined;
+      return `${t?.code ?? ''} ${t?.plate ?? ''} ${t?.serial ?? ''} ${m.ident} ${m.marca} ${m.modelo}`
+        .toLowerCase().includes(q);
+    });
+  }, [medidasVistas, buscaMedida, fichaPorId]);
   const k = useMemo(() => kpis(medidasVistas.map(volumenDe)), [medidasVistas]);
 
   /**
@@ -750,36 +788,87 @@ export function CubicajeTab({
 
       <Card>
         <SectionTitle>📋 Unidades medidas ({medidasVistas.length})</SectionTitle>
+        {/* Con ochenta y nueve unidades del mismo modelo, sin buscador la lista
+            no sirve para encontrar una en particular. */}
+        <TextInput
+          value={buscaMedida}
+          onChangeText={setBuscaMedida}
+          placeholder="Buscar en esta lista por código, placa o modelo…"
+          placeholderTextColor={colors.muted}
+          style={[input, { marginBottom: spacing.xs }]}
+        />
         {medidasVistas.length === 0 ? (
           <Text style={{ color: colors.muted, fontSize: 12 }}>Todavía no hay ninguna medida. Mide una arriba.</Text>
         ) : (
           <ScrollView style={{ maxHeight: 300 }} nestedScrollEnabled>
-            {medidasVistas.map((m) => {
+            {medidasEnLista.map((m) => {
               const v = volumenDe(m);
               const viajes = m.truckId ? viajesPorCamion.get(m.truckId) ?? 0 : 0;
+              const t = m.truckId ? fichaPorId.get(m.truckId) : undefined;
+              // El TÍTULO es el CAMIÓN (código y placa), no la tolva: así se
+              // distingue una fila de otra cuando hay decenas del mismo modelo.
+              const quien = t ? `${t.code}${t.plate ? ` · ${t.plate}` : t.serial ? ` · ${t.serial}` : ''}` : m.ident;
+              const editando = abierta === m.id;
               return (
-                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: sel && sel === (m.truckId ?? MANUAL) ? colors.surface : 'transparent' }}>
-                  {/* Toda la fila abre el formulario de arriba con esta medida
-                      cargada. Antes solo estaba la papelera y no había forma de
-                      corregir un número sin volver a buscar el camión. */}
-                  <TouchableOpacity onPress={() => editar(m)} style={{ flex: 1 }} activeOpacity={0.7}>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
-                      {m.truckId ? '🚛' : '✍️'} {m.ident}
-                    </Text>
-                    <Text style={{ color: colors.muted, fontSize: 10 }} numberOfLines={1}>
-                      {[m.marca, m.modelo].filter(Boolean).join(' ') || 'Sin marca ni modelo'} · {dimsTexto(m)} m · {etiquetaClase(v)}
-                      {m.deLaHoja ? ' · ⚠️ de la hoja, sin confirmar' : ''}
-                      {m.truckId ? ` · ${viajes} viaje(s) en el rango` : ' · medida a mano, solo en este dispositivo'}
-                    </Text>
-                    <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '700' }}>✏️ Toca para corregirla</Text>
-                  </TouchableOpacity>
-                  <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{m3Texto(v)}</Text>
-                  <TouchableOpacity onPress={() => editar(m)} style={{ padding: 4 }}>
-                    <Text style={{ fontSize: 14 }}>✏️</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => borrarMedidaDe(m)} style={{ padding: 4 }}>
-                    <Text style={{ fontSize: 14 }}>🗑️</Text>
-                  </TouchableOpacity>
+                <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: editando ? colors.surface : 'transparent', borderRadius: editando ? radius.md : 0, marginBottom: editando ? spacing.xs : 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 7, paddingHorizontal: editando ? spacing.xs : 0 }}>
+                    <TouchableOpacity onPress={() => editar(m)} style={{ flex: 1 }} activeOpacity={0.7}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>
+                        {m.truckId ? '🚛' : '✍️'} {quien}
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 10 }} numberOfLines={1}>
+                        {m.ident} · {dimsTexto(m)} m · {etiquetaClase(v)}
+                        {m.deLaHoja ? ' · ⚠️ de la hoja, sin confirmar' : ''}
+                        {m.truckId ? ` · ${viajes} viaje(s) en el rango` : ' · medida a mano, solo en este dispositivo'}
+                      </Text>
+                      <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '700' }}>
+                        {editando ? '⬆️ Cambia los números aquí abajo' : '✏️ Toca para corregirla'}
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{m3Texto(v)}</Text>
+                    <TouchableOpacity onPress={() => editar(m)} style={{ padding: 4 }}>
+                      <Text style={{ fontSize: 14 }}>{editando ? '✖️' : '✏️'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => borrarMedidaDe(m)} style={{ padding: 4 }}>
+                      <Text style={{ fontSize: 14 }}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* EL EDITOR, EN LA FILA MISMA. El formulario de arriba sigue
+                      existiendo para medir una unidad nueva, pero corregir una
+                      medida ya hecha no puede obligar a subir ochenta filas. */}
+                  {editando ? (
+                    <View style={{ paddingHorizontal: spacing.xs, paddingBottom: spacing.sm }}>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                        {([['Alto (m)', alto, setAlto], ['Largo (m)', largo, setLargo], ['Ancho (m)', ancho, setAncho]] as const).map(([lab, val, set]) => (
+                          <View key={lab} style={{ flex: 1 }}>
+                            <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>{lab}</Text>
+                            <TextInput
+                              value={val}
+                              onChangeText={set as (x: string) => void}
+                              keyboardType="decimal-pad"
+                              placeholder="0,00"
+                              placeholderTextColor={colors.muted}
+                              style={[input, { marginTop: 2, textAlign: 'center', paddingVertical: 6 }]}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16, flex: 1 }}>
+                          {m3Vivo > 0 ? m3Vivo.toFixed(2) : '—'} m³
+                        </Text>
+                        <TouchableOpacity onPress={limpiar} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={guardar} disabled={!puedeGuardar} style={{ paddingVertical: 8, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, opacity: puedeGuardar ? 1 : 0.5 }}>
+                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+                            {m.deLaHoja ? '✅ Confirmar' : '💾 Guardar'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               );
             })}
