@@ -174,9 +174,10 @@ ok('y también acotan el conteo en pantalla',
   /empresasSel\.size \? porEstado\.filter\(\(m\) => empresasSel\.has\(m\.company\)\)/.test(scr));
 ok('vacío significa TODAS', /empresasSel\.size \?/.test(scr));
 
-// El botón no puede emitir una hoja vacía.
+// El botón no puede emitir una hoja vacía. Son DOS maneras de quedarse sin nada:
+// apagar los tres cuadros, o dejar fuera a todas las máquinas (11-sep-2026).
 ok('el botón se apaga si el reporte queda sin nada',
-  /disabled=\{conteoSinContenido\(conteoOpciones\)\}/.test(scr));
+  /disabled=\{conteoSinContenido\(conteoOpciones\) \|\| seleccionVacia\(/.test(scr));
 
 // MachineDetail necesita el id para cruzar con la medida guardada.
 ok('MachineDetail lleva id y marca', /type MachineDetail = \{ id: string;[\s\S]{0,200}?marca: string \| null;/.test(scr));
