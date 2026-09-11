@@ -854,6 +854,13 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 **📅 Por período (nóminas):** calcula y paga por **PRECIO por hora, día o semana**, definido **por
 trabajador**.
 
+> **🔎 Buscador de nóminas (11/09/2026).** Arriba de la lista de nóminas hay un buscador. Escribe
+> lo que estés viendo en la tarjeta y la lista se reduce sola: el **nombre** de la nómina
+> ("carbozulia", "operadores"), el **mes**, una **fecha** tal como sale (`29/08/2026`), el **tipo**
+> ("quincena", "semana") o el **estado** ("pagada", "borrador", "aprobada"). No hace falta poner
+> tildes ni mayúsculas. Si no coincide ninguna lo dice con todas sus letras; borra la búsqueda y
+> vuelven todas. **Buscar no borra ni cambia nada**, solo esconde lo que no estás buscando.
+
 > El personal se paga **siempre por la organización (SOS LA GUAIRA)**, no por contratista.
 > Al crear un período **no se elige empresa**: se carga a **TODO el personal activo** y todo
 > queda bajo **SOS LA GUAIRA**. Así siempre hay a quién ponerle su precio.
@@ -908,9 +915,36 @@ trabajador**.
   **contexto del período** (nombre, tipo, rango de fechas, modo de pago, estado, empresa y el
   filtro de cargo si aplica) y una fila **TOTAL** con fórmulas `SUM`. Este Excel **ya no lista
   tarifas** del empleado (eso se retiró de Empleados, ver 4.6d).
+
+> **🏛️ El Excel del período sale dividido por departamento (11/09/2026).** La hoja ya no es una
+> lista corrida: va **partida en secciones, una por departamento**, en el orden en que se revisa
+> la nómina (primero dirección/gerencia, después administración, y así). Cada sección abre con una
+> **franja azul** que dice el departamento y cuánta gente tiene, su personal va **numerado desde 1**
+> (la columna **Ítem**, nueva, la primera de todas) y **cierra con su propio subtotal**. Al final,
+> el **TOTAL del período suma los subtotales**, no las filas, así que cuadra siempre. Todo son
+> **fórmulas de Excel**: si borras una fila, el subtotal y el total se corrigen solos.
+>
+> - **De dónde sale el departamento de cada quien:** del **🏷️ Tabulador**, que lo guarda **por
+>   CARGO**. Lo escribes **una vez por cargo** y se le aplica a todos los que tengan ese cargo.
+>   Si un cargo no lo tiene puesto, el sistema usa el departamento de la **ficha del empleado**, y
+>   si tampoco hay, lo **deduce del cargo**.
+> - **Si ves "SIN DEPARTAMENTO"** es que a esa gente no se le pudo poner en ninguna sección.
+>   Se arregla en el **🏷️ Tabulador**: abre el cargo, escríbele el departamento y listo — no hay
+>   que tocar a las personas una por una.
+> - **Dos nombres para el mismo departamento no parten la hoja en dos.** Si el tabulador dice
+>   *ALIMENTACIÓN* y alguna ficha dice *COCINA*, todos salen en **una sola sección**, y se llama
+>   como diga el **tabulador**: manda la palabra que usa la empresa. Si renombras un departamento
+>   ahí, el Excel te hace caso.
+> - Si exportas con un **filtro** de departamento o de cargo puesto, el Excel lo **anota arriba**,
+>   para que no se confunda una nómina filtrada con una completa.
 - **💵 Equivalente en Bs (tasa BCV del día):** los **totales de cada período**, el del **período
   abierto** (total/pagado/saldo) y el **de cada persona** muestran también su equivalente en **Bs**
   (con la tasa BCV del día visible).
+- **🏛️ Filtrar por departamento:** encima del filtro de cargo hay otra **lista desplegable con
+  casillas** ("🏛️ Filtrar por departamento"). Tildas **uno o varios departamentos** y la lista de
+  personas, el **⬇️ Reporte PDF** y el **📥 Excel** salen solo de esos. Sin tildar nada = todos.
+  Los dos filtros **se suman**: si tildas el departamento *Administración* y el cargo *Analista*,
+  salen los analistas **de administración**, no todos los analistas ni todo el departamento.
 - **💼 Filtrar por cargo:** dentro del período hay una **lista desplegable con casillas**
   ("💼 Filtrar por cargo"). Tildas uno o varios **cargos** y la **lista de personas** y el
   **⬇️ Reporte PDF** salen **solo de esos cargos**, además **agrupados por cargo** con su
