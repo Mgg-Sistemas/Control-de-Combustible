@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as XLSX from 'xlsx-js-style';
+import { SIN_DEPARTAMENTO } from './nominaDepartamentos';
 
 /**
  * EXPORTACIÓN A EXCEL — Nómina / Pago a personal.
@@ -13,6 +14,12 @@ import * as XLSX from 'xlsx-js-style';
  */
 
 export type PagoPersonalXlsxRow = {
+  // DEPARTAMENTO al que pertenece la persona. Es lo que parte la hoja en
+  // secciones. Viene ya resuelto y ya unificado desde `src/lib/nominaDepartamentos.ts`:
+  // aquí NO se deduce nada ni se corrige ninguna escritura, porque el nombre de
+  // una sección depende de todos los cargos del período, y este archivo solo ve
+  // las filas que le pasan.
+  departamento: string;
   nombre: string;
   cedula: string;
   cargo: string;
@@ -44,7 +51,8 @@ export type PagoPersonalXlsxMeta = {
   modo: string;      // Por hora / Por día / Por semana
   estado: string;    // Borrador / Aprobada / Pagada
   empresa: string;
-  cargoFiltro?: string; // si el reporte respeta un filtro por cargo, se anota aquí
+  cargoFiltro?: string;  // si el reporte respeta un filtro por cargo, se anota aquí
+  deptoFiltro?: string;  // ídem para el filtro por departamento
 };
 
 /** Nombre de archivo válido. */
@@ -80,14 +88,34 @@ const TOTAL_STYLE = {
   font: { bold: true, sz: 11 },
   fill: { patternType: 'solid', fgColor: { rgb: 'EEF2F7' } },
 } as const;
+/** Franja que abre cada DEPARTAMENTO. Mismo azul del encabezado, a lo ancho. */
+const DEPTO_STYLE = {
+  fill: { patternType: 'solid', fgColor: { rgb: '1E3A5F' } },
+  font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 11 },
+  alignment: { horizontal: 'left', vertical: 'center' },
+} as const;
+/** Subtotal de un departamento: gris claro, como la fila TOTAL pero más suave. */
+const SUBTOTAL_STYLE = {
+  font: { bold: true, sz: 10 },
+  fill: { patternType: 'solid', fgColor: { rgb: 'DCE6F1' } },
+} as const;
 const MONEY_FMT = '#,##0.00';
 const QTY_FMT = '#,##0.##';
 
 const COLS = [
+  'Ítem',
   'Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Titular de la cuenta', 'C.I. del titular',
   'Días', 'Noches', 'Horas', 'Semanas',
   'Devengado (US$)', 'Bonos (US$)', 'Deducciones (US$)', 'Total (US$)', 'Pagado (US$)', 'Saldo (US$)',
 ] as const;
+
+// Columnas de texto de cada persona, en el orden de `COLS` después de "Ítem".
+// Se declaran aparte para que la fila de datos no sea una hilera de valores sueltos
+// que hay que contar con el dedo contra el encabezado.
+const COL_ITEM = COLS.indexOf('Ítem');
+const COL_NOMBRE = COLS.indexOf('Nombre completo');
+// Primera columna de cantidad: hasta ahí llega el rótulo de los subtotales.
+const COL_PRIMERA_CANTIDAD = COLS.indexOf('Días');
 
 // ⚠️ Los índices de columna se DEDUCEN de `COLS`, no se escriben a mano. Antes eran
 // listas de números sueltos (`[8,9,10,11,12,13]`) y un `c >= 7` perdido más abajo:
@@ -106,34 +134,98 @@ const FIRST_DATA_ROW = 3; // 0-indexed → fila 4 de Excel
  * Genera y descarga el listado de PAGOS A PERSONAL del período dado: por cada
  * persona, lo trabajado (días/noches/horas/semanas), devengado, bonos,
  * deducciones, total, pagado y saldo — en US$.
+ *
+ * La hoja va PARTIDA POR DEPARTAMENTO, que es como la revisa quien la aprueba:
+ * una franja azul abre cada departamento, su gente se numera desde 1, y cierra
+ * con su propio subtotal. Al final, el TOTAL del período suma esos subtotales.
+ *
+ * ⚠️ EL ORDEN DE LAS SECCIONES LO DECIDE QUIEN LLAMA, no este archivo: los
+ *    departamentos salen en el orden en que aparecen en `rows`. Es a propósito.
+ *    El orden es una regla de negocio —la jerarquía de la empresa— y vive en
+ *    `src/lib/nominaDepartamentos.ts` junto con la unificación de los nombres. Si
+ *    aquí se reordenara por nuestra cuenta, la pantalla y el Excel mostrarían los
+ *    mismos departamentos en distinto orden, y nadie sabría cuál de los dos manda.
  */
 export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: number | null, meta: PagoPersonalXlsxMeta): boolean {
   const wb = XLSX.utils.book_new();
   const nCols = COLS.length;
   const blankRow = (n: number) => new Array(n).fill('');
+  const esNumerica = (c: number) => QTY_COLS.includes(c) || USD_COLS.includes(c);
 
   const aoa: any[][] = [];
   const metaTxt = `${meta.periodo} · ${meta.tipo} · ${meta.desde} → ${meta.hasta} · ${meta.modo} · ${meta.estado} · ${meta.empresa}` +
-    (meta.cargoFiltro ? ` · Cargo(s): ${meta.cargoFiltro}` : '');
+    (meta.cargoFiltro ? ` · Cargo(s): ${meta.cargoFiltro}` : '') +
+    (meta.deptoFiltro ? ` · Departamento(s): ${meta.deptoFiltro}` : '');
   aoa[META_ROW] = ['Período:', metaTxt, ...blankRow(nCols - 2)];
   aoa[1] = blankRow(nCols);
   aoa[HEADER_ROW] = [...COLS];
-  rows.forEach((r, i) => {
-    aoa[FIRST_DATA_ROW + i] = [
-      r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.titular || '', r.cedulaTitular || '',
-      r.dias || 0, r.dias_noche || 0, r.horas || 0, r.semanas || 0,
-      r.devengado || 0, r.bonos || 0, r.deducciones || 0, r.total || 0, r.pagado || 0, r.saldo || 0,
-    ];
+
+  // Agrupa por departamento CONSERVANDO EL ORDEN DE LLEGADA (ver la nota de arriba).
+  const grupos: { depto: string; gente: PagoPersonalXlsxRow[] }[] = [];
+  const porDepto = new Map<string, PagoPersonalXlsxRow[]>();
+  rows.forEach((r) => {
+    const depto = (r.departamento || '').trim() || SIN_DEPARTAMENTO;
+    let gente = porDepto.get(depto);
+    if (!gente) { gente = []; porDepto.set(depto, gente); grupos.push({ depto, gente }); }
+    gente.push(r);
   });
-  const totalRow = FIRST_DATA_ROW + rows.length;
+
+  // Se recorre con un cursor de fila porque cada departamento aporta un número
+  // distinto de filas (franja + su gente + subtotal): no hay cuenta que dé la
+  // posición de una fila sin haber colocado antes todas las anteriores.
+  const filasFranja: number[] = [];
+  const filasDatos: number[] = [];
+  const filasSubtotal: number[] = [];
+  const rangos: [number, number][] = []; // primera y última fila de gente de cada grupo
+  let fila = FIRST_DATA_ROW;
+  for (const g of grupos) {
+    filasFranja.push(fila);
+    aoa[fila] = [`${g.depto} — ${g.gente.length} persona(s)`, ...blankRow(nCols - 1)];
+    fila++;
+    const desde = fila;
+    g.gente.forEach((r, i) => {
+      aoa[fila] = [
+        i + 1, // el ítem REINICIA en 1 en cada departamento, como la nómina de siempre
+        r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.titular || '', r.cedulaTitular || '',
+        r.dias || 0, r.dias_noche || 0, r.horas || 0, r.semanas || 0,
+        r.devengado || 0, r.bonos || 0, r.deducciones || 0, r.total || 0, r.pagado || 0, r.saldo || 0,
+      ];
+      filasDatos.push(fila);
+      fila++;
+    });
+    rangos.push([desde, fila - 1]);
+    aoa[fila] = COLS.map((_h, c) => (c === COL_NOMBRE ? `Subtotal ${g.depto}` : esNumerica(c) ? 0 : ''));
+    filasSubtotal.push(fila);
+    fila++;
+  }
+
+  const totalRow = fila;
   // Se arma DESDE `COLS` para que no se descuadre al agregar columnas (ver nota arriba).
   aoa[totalRow] = COLS.map((_h, c) =>
-    c === 0 ? 'TOTAL'
-    : c === 1 ? `${rows.length} persona(s)`
-    : (QTY_COLS.includes(c) || USD_COLS.includes(c)) ? 0
+    c === COL_ITEM ? 'TOTAL'
+    : c === COL_NOMBRE ? `${rows.length} persona(s)`
+    : esNumerica(c) ? 0
     : '');
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  /**
+   * Pinta una fila DE PUNTA A PUNTA. El estilo en esta librería se pone celda por
+   * celda: no existe pintar una fila entera de un golpe, y si se pinta solo la
+   * celda con texto la franja del departamento sale cortada donde acabó la palabra.
+   *
+   * Las filas de arriba se arman rellenas de cadenas vacías, así que todas sus
+   * celdas existen. El `else` es el seguro para cuando no: a una celda que no
+   * existe no se le puede poner estilo, hay que crearla.
+   */
+  const pintar = (r: number, estilo: any) => {
+    for (let c = 0; c < nCols; c++) {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      const cell = (ws as any)[ref];
+      if (cell) (cell as any).s = { ...(cell as any).s, ...estilo };
+      else (ws as any)[ref] = { t: 's', v: '', s: estilo };
+    }
+  };
 
   // Encabezado de columnas (fila HEADER_ROW).
   for (let c = 0; c < nCols; c++) {
@@ -145,44 +237,51 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   const metaLabelRef = XLSX.utils.encode_cell({ r: META_ROW, c: 0 });
   if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
 
-  // Cantidades trabajadas: formato numérico simple.
-  rows.forEach((_r, i) => {
-    const row = FIRST_DATA_ROW + i;
+  // Cantidades y montos de cada persona: formato numérico.
+  filasDatos.forEach((row) => {
     QTY_COLS.forEach((c) => {
-      const ref = XLSX.utils.encode_cell({ r: row, c });
-      const cell = (ws as any)[ref];
+      const cell = (ws as any)[XLSX.utils.encode_cell({ r: row, c })];
       if (cell) { cell.z = QTY_FMT; cell.t = 'n'; }
     });
-  });
-
-  // Montos US$: formato de número.
-  rows.forEach((_r, i) => {
-    const row = FIRST_DATA_ROW + i;
     USD_COLS.forEach((c) => {
-      const ref = XLSX.utils.encode_cell({ r: row, c });
-      const cell = (ws as any)[ref];
+      const cell = (ws as any)[XLSX.utils.encode_cell({ r: row, c })];
       if (cell) { cell.z = MONEY_FMT; cell.t = 'n'; }
     });
   });
 
-  // Fila de TOTAL: suma de cantidades y US$ (fórmulas, se recalculan solas).
-  if (rows.length) {
-    const firstExcelRow = FIRST_DATA_ROW + 1;
-    const lastExcelRow = FIRST_DATA_ROW + rows.length;
+  // Subtotal de cada departamento: FÓRMULAS sobre su propio rango, no números
+  // calculados aquí. Quien abra el Excel y borre una fila ve el subtotal
+  // corregirse solo, en vez de quedarse con un número que ya no dice la verdad.
+  filasSubtotal.forEach((row, i) => {
+    const [desde, hasta] = rangos[i];
     [...QTY_COLS, ...USD_COLS].forEach((c) => {
-      const colLetter = XLSX.utils.encode_col(c);
-      const ref = XLSX.utils.encode_cell({ r: totalRow, c });
-      (ws as any)[ref] = { t: 'n', z: USD_COLS.includes(c) ? MONEY_FMT : QTY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+      const letra = XLSX.utils.encode_col(c);
+      (ws as any)[XLSX.utils.encode_cell({ r: row, c })] = {
+        t: 'n', z: USD_COLS.includes(c) ? MONEY_FMT : QTY_FMT,
+        f: `SUM(${letra}${desde + 1}:${letra}${hasta + 1})`,
+      };
+    });
+  });
+
+  // TOTAL del período: suma los SUBTOTALES, no las filas de gente. Un SUM del
+  // rango completo contaría a cada persona dos veces, porque los subtotales están
+  // metidos dentro de ese rango.
+  if (filasSubtotal.length) {
+    [...QTY_COLS, ...USD_COLS].forEach((c) => {
+      const letra = XLSX.utils.encode_col(c);
+      const refs = filasSubtotal.map((row) => `${letra}${row + 1}`).join(',');
+      (ws as any)[XLSX.utils.encode_cell({ r: totalRow, c })] = {
+        t: 'n', z: USD_COLS.includes(c) ? MONEY_FMT : QTY_FMT, f: `SUM(${refs})`,
+      };
     });
   }
-  for (let c = 0; c < nCols; c++) {
-    const ref = XLSX.utils.encode_cell({ r: totalRow, c });
-    const cell = (ws as any)[ref];
-    if (cell) (cell as any).s = { ...(cell as any).s, ...TOTAL_STYLE };
-    else (ws as any)[ref] = { t: 's', v: '', s: TOTAL_STYLE };
-  }
+
+  filasFranja.forEach((row) => pintar(row, DEPTO_STYLE));
+  filasSubtotal.forEach((row) => pintar(row, SUBTOTAL_STYLE));
+  pintar(totalRow, TOTAL_STYLE);
 
   ws['!cols'] = [
+    { wch: 6 },
     { wch: 26 }, { wch: 14 }, { wch: 20 }, { wch: 22 }, { wch: 26 }, { wch: 14 },
     { wch: 8 }, { wch: 8 }, { wch: 9 }, { wch: 9 },
     { wch: 13 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
@@ -190,6 +289,10 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   ws['!rows'] = [{ hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
   ws['!merges'] = [
     { s: { r: META_ROW, c: 1 }, e: { r: META_ROW, c: nCols - 1 } },
+    // La franja del departamento ocupa la fila entera; el rótulo del subtotal va
+    // desde el nombre hasta justo antes de la primera cantidad.
+    ...filasFranja.map((r) => ({ s: { r, c: 0 }, e: { r, c: nCols - 1 } })),
+    ...filasSubtotal.map((r) => ({ s: { r, c: COL_NOMBRE }, e: { r, c: COL_PRIMERA_CANTIDAD - 1 } })),
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Pago de personal');
