@@ -60,6 +60,9 @@ import {
   conteoSinContenido, TITULO_COLUMNA, COLUMNA_NUMERICA,
   type OpcionesConteo, type ColumnaConteo,
 } from '../lib/conteoTipoOpciones';
+import {
+  aplicarExclusiones, conteoPorTipo, excluidasEfectivas, rotuloSeleccion, seleccionVacia, textoExclusiones,
+} from '../lib/conteoSeleccionMaquinas';
 import { medidaConocida, NOTA_ORIGEN } from '../lib/medidasFlota';
 import { volumen as volumenTolva, m3Texto } from '../lib/cubicaje';
 import { listarMedidas } from '../lib/cubicajeDatos';
@@ -821,8 +824,20 @@ export default function ReportsScreen({ route }: any) {
   const [tipoEstado, setTipoEstado] = useState<'todas' | 'activas' | 'inactivas'>('todas');
   const toggleTipo = (key: string) =>
     setTiposSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  // ESCOGER MÁQUINAS SUELTAS dentro de los tipos tildados. Se guarda a quién se SACÓ,
+  // no a quién se dejó: con la lista vacía no se excluye a nadie, que es exactamente
+  // lo que hacía el reporte antes de esto. El porqué completo está en
+  // src/lib/conteoSeleccionMaquinas.ts.
+  //
+  // La clave es el `id` de la máquina, NUNCA el código: hay tres equipos llamados
+  // RETROEXCAVADORA, y excluir "por código" sacaría a los tres de un solo toque.
+  const [maqExcluidas, setMaqExcluidas] = useState<Set<string>>(new Set());
+  const [maqOpen, setMaqOpen] = useState(false);
+  const [maqQ, setMaqQ] = useState('');
+  const toggleMaquina = (id: string) =>
+    setMaqExcluidas((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Al reabrir el conteo se limpia la selección/búsqueda/alcance del buscador por tipo.
-  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setTipoEstado('todas'); } }, [conteoPreview]);
+  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setTipoEstado('todas'); setMaqExcluidas(new Set()); setMaqOpen(false); setMaqQ(''); } }, [conteoPreview]);
   // machinesAll acotado al ESTADO elegido (activas/inactivas/todas) para el buscador por tipo.
   const machinesPorEstado = useMemo(() => {
     const src = conteo?.machinesAll ?? [];
@@ -881,11 +896,32 @@ export default function ReportsScreen({ route }: any) {
     const nq = norm(tipoQ.trim());
     return nq ? tipoOpcionesBase.filter((o) => norm(`${o.name} ${o.clas}`).includes(nq)) : tipoOpcionesBase;
   }, [tipoOpcionesBase, tipoQ]);
+  // Las máquinas de los tipos TILDADOS, antes de quitar ninguna a mano. Es la lista
+  // que se ofrece para escoger equipo por equipo, y la base contra la que se cuenta
+  // "N de M": sin ella no se podría decir cuántas se dejaron fuera.
+  const maquinasDeTipos = useMemo(() => {
+    if (!tiposSel.size) return [] as MachineDetail[];
+    return machinesPorEstado
+      .filter((it) => tiposSel.has(tipoKey(it.code)))
+      .slice()
+      .sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || ''));
+  }, [tiposSel, machinesPorEstado]);
+  // Las exclusiones que de verdad cuentan: las guardadas que siguen a la vista. La
+  // regla está explicada en lib/conteoSeleccionMaquinas.
+  const maqFuera = useMemo(
+    () => excluidasEfectivas(maqExcluidas, new Set(maquinasDeTipos.map((m) => m.id))),
+    [maqExcluidas, maquinasDeTipos],
+  );
+
   // Reporte de los tipos TILDADOS: total + desglose por empresa (A→Z) + LISTADO de los
   // equipos seleccionados (código, empresa, serial/placa, estado), acotado al estado elegido.
+  //
+  // ⭐ Aquí, y en ningún otro lado, se quitan las máquinas escogidas a mano. El PDF
+  //    consume ESTE memo tal cual, así que hereda la exclusión sin tener que
+  //    repetirla: el papel no puede listar un equipo que la pantalla no muestra.
   const tipoResultado = useMemo(() => {
     if (!tiposSel.size) return null;
-    const match = machinesPorEstado.filter((it) => tiposSel.has(tipoKey(it.code)));
+    const match = aplicarExclusiones(maquinasDeTipos, maqFuera);
     const byCo = new Map<string, MachineDetail[]>();
     // ⭐ EL ÚNICO PUNTO donde los dos ejes se separan. De acá para abajo el
     //    código es idéntico, y por eso los totales de los dos NO PUEDEN diferir.
@@ -2646,11 +2682,23 @@ export default function ReportsScreen({ route }: any) {
       alert('El reporte quedaría sin listado y sin ningún cuadro. Enciende al menos uno de los tres.');
       return;
     }
+    // Quitar todas las máquinas es un paso legítimo en pantalla (se quitan todas para
+    // después marcar una), pero un conteo de cero equipos no es un informe.
+    if (seleccionVacia(maquinasDeTipos.length, maqFuera.size)) {
+      alert('Dejaste fuera todas las máquinas: el reporte saldría en cero. Marca al menos una en "Escoger máquinas".');
+      return;
+    }
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const o = conteoOpciones;
     const { total, empresas } = tipoResultado;
+    // ⚠️ El conteo de cada tipo sale de las filas QUE SE VAN A LISTAR, no del total
+    //    del tipo. Mientras no se podían sacar máquinas sueltas los dos números eran
+    //    el mismo y daba igual cuál se usara; desde que se pueden, no: el cuadro
+    //    diría 17 y el listado tendría 14, y el pie del cuadro —que suma el total
+    //    real— no cuadraría con sus propias filas.
+    const porTipoListado = conteoPorTipo(empresas.flatMap((e) => e.items), (m) => tipoKey(m.code));
     const sel = [...tiposSel]
-      .map((k) => ({ k, name: tipoMap.get(k)?.name ?? k, count: tipoMap.get(k)?.count ?? 0 }))
+      .map((k) => ({ k, name: tipoMap.get(k)?.name ?? k, count: porTipoListado.get(k) ?? 0 }))
       .sort((a, b) => cmpText(a.name, b.name));
     const estadoLbl = tipoEstado === 'todas' ? 'Todos los estados' : tipoEstado === 'activas' ? 'Solo activas' : 'Solo inactivas';
     const empLbl = empresasSel.size ? `${empresasSel.size} empresa(s) escogida(s)` : 'Todas las empresas';
@@ -2766,6 +2814,7 @@ export default function ReportsScreen({ route }: any) {
         <tr><td><b>Estado</b></td><td>${esc(estadoLbl)}</td></tr>
         <tr><td><b>${porCategoria ? 'Categorías' : 'Empresas'}</b></td><td>${o.sinEmpresas ? `${empresas.length} grupo(s)` : esc(empresas.map((e) => e.company).join(' · ')) || '\u2014'}</td></tr>
         ${clasSel.size ? `<tr><td><b>Categorías filtradas</b></td><td>${esc([...clasSel].join(' · '))}</td></tr>` : ''}
+        ${maqFuera.size ? `<tr><td><b>Equipos excluidos</b></td><td>${esc(textoExclusiones(maquinasDeTipos.length, maqFuera.size))}</td></tr>` : ''}
         <tr><td><b>Se ocultó</b></td><td>${esc(ocultosConteoEnPalabras(o))}</td></tr>
         ${o.sinCubicaje ? '' : `<tr><td><b>Medidas de tolva</b></td><td>${esc(NOTA_ORIGEN)}</td></tr>`}
       </tbody></table>`;
@@ -2804,9 +2853,15 @@ export default function ReportsScreen({ route }: any) {
       ${bloqueListado}
       ${bloqueAlcance}`;
 
+    // El aviso de equipos excluidos va en el MEMBRETE, que siempre se imprime, y no
+    // solo en el cuadro de alcance: ese cuadro se puede apagar con su pastilla, y un
+    // conteo al que le faltan equipos a propósito tiene que decirlo sí o sí. Las
+    // pastillas esconden columnas, no pueden esconder que el número es de una
+    // selección y no de la flota.
+    const exclLbl = maqFuera.size ? ` · ${maqFuera.size} equipo(s) excluido(s)` : '';
     await exportPdf(
-      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body),
-      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${sufijoArchivoConteo(o)}`,
+      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl}${exclLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body),
+      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
     );
   };
 
@@ -3614,6 +3669,91 @@ export default function ReportsScreen({ route }: any) {
                     })
                   )}
                 </ScrollView>
+
+                {/* ESCOGER MÁQUINAS SUELTAS. Tildar un tipo engloba a todas sus
+                    máquinas, que es lo que se quiere casi siempre; esto es para
+                    cuando NO: sacar las dos que están en el taller, o quedarse con
+                    una sola unidad. Va plegado y con todo marcado, así que quien no
+                    lo abra ve el reporte exactamente igual que antes. */}
+                {maquinasDeTipos.length > 0 ? (() => {
+                  const q = norm(maqQ.trim());
+                  const vistas = q
+                    ? maquinasDeTipos.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${m.company} ${m.clas}`).includes(q))
+                    : maquinasDeTipos;
+                  return (
+                    <View style={{ marginTop: spacing.sm }}>
+                      <TouchableOpacity
+                        onPress={() => setMaqOpen((v) => !v)}
+                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: maqFuera.size ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                          🚜 Escoger máquinas ({rotuloSeleccion(maquinasDeTipos.length, maqFuera.size)})
+                        </Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{maqOpen ? '▲' : '▼'}</Text>
+                      </TouchableOpacity>
+                      {maqOpen ? (
+                        <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                            Destilda las que NO quieres en el reporte. Todas marcadas = el conteo completo del tipo, como siempre.
+                          </Text>
+                          <TextInput
+                            value={maqQ}
+                            onChangeText={setMaqQ}
+                            placeholder="🔎 Buscar por código, placa, serial o empresa…"
+                            placeholderTextColor={colors.muted}
+                            style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text }}
+                          />
+                          {/* Las dos acciones trabajan sobre LO QUE SE ESTÁ VIENDO, no
+                              sobre toda la lista: con el buscador puesto, "quitar
+                              todas" tiene que quitar las que están a la vista y no
+                              barrer en silencio las que el buscador escondió. */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                            <TouchableOpacity onPress={() => setMaqExcluidas((prev) => { const n = new Set(prev); vistas.forEach((m) => n.delete(m.id)); return n; })}>
+                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✓ Incluir todas ({vistas.length})</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setMaqExcluidas((prev) => { const n = new Set(prev); vistas.forEach((m) => n.add(m.id)); return n; })}>
+                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Quitar todas ({vistas.length})</Text>
+                            </TouchableOpacity>
+                          </View>
+                          <ScrollView style={{ maxHeight: 260, marginTop: spacing.xs }} nestedScrollEnabled>
+                            {vistas.length === 0 ? (
+                              <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.sm }}>Sin coincidencias.</Text>
+                            ) : (
+                              vistas.map((m) => {
+                                // Tildada = ENTRA. Se muestra al derecho aunque por dentro
+                                // se guarde lo excluido: nadie marca casillas para decir
+                                // "esta no".
+                                const on = !maqFuera.has(m.id);
+                                return (
+                                  <TouchableOpacity key={m.id} onPress={() => toggleMaquina(m.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                                    <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                                      {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      {/* Código + placa/serial: hay tres máquinas llamadas
+                                          RETROEXCAVADORA, y sin el discriminante no se sabe
+                                          cuál se está destildando. */}
+                                      <Text style={{ color: on ? colors.text : colors.muted, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{machineLabel(m) || m.code}</Text>
+                                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
+                                        {m.company}{m.estado === 'activo' ? '' : m.estado === 'inactivo' ? '  ·  INACTIVA' : '  ·  STAND BY'}
+                                      </Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                );
+                              })
+                            )}
+                          </ScrollView>
+                          {maqFuera.size ? (
+                            <Text style={{ color: colors.warning ?? colors.brandText, fontSize: 11, marginTop: spacing.xs, fontWeight: '700' }}>
+                              ⚠️ {textoExclusiones(maquinasDeTipos.length, maqFuera.size)} El PDF lo dice en su encabezado.
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })() : null}
+
                 {tipoResultado ? (
                   <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
                     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
@@ -3736,10 +3876,17 @@ export default function ReportsScreen({ route }: any) {
                         ⚠️ Así el reporte queda sin listado y sin ningún cuadro. Enciende al menos uno de los tres.
                       </Text>
                     ) : null}
+                    {/* Sacar TODAS las máquinas deja el conteo en cero. Se avisa acá,
+                        con el botón apagado, y no al tocarlo. */}
+                    {seleccionVacia(maquinasDeTipos.length, maqFuera.size) ? (
+                      <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>
+                        ⚠️ Dejaste fuera todas las máquinas: el reporte saldría en cero. Marca al menos una en "🚜 Escoger máquinas".
+                      </Text>
+                    ) : null}
                     {/* Botón ARRIBA (antes del listado) para no tener que bajar toda la lista. */}
                     <TouchableOpacity
-                      style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.xs, marginBottom: spacing.xs, opacity: conteoSinContenido(conteoOpciones) ? 0.5 : 1 }]}
-                      disabled={conteoSinContenido(conteoOpciones)}
+                      style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.xs, marginBottom: spacing.xs, opacity: conteoSinContenido(conteoOpciones) || seleccionVacia(maquinasDeTipos.length, maqFuera.size) ? 0.5 : 1 }]}
+                      disabled={conteoSinContenido(conteoOpciones) || seleccionVacia(maquinasDeTipos.length, maqFuera.size)}
                       onPress={downloadTipoCountPdf}
                     >
                       <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>

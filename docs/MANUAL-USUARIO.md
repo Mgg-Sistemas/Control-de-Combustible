@@ -508,6 +508,27 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **número grande** con el **total de equipos** y el **desglose por empresa**. Botón
   **"⬇️ PDF de este conteo"** para imprimir el total, la cantidad por tipo y por empresa.
 
+> **🚜 Escoger máquinas (11/09/2026).** Tildar un tipo mete a **todas** sus máquinas, que es lo
+> que se quiere casi siempre. Para cuando no, debajo de la lista de tipos hay un desplegable
+> **"🚜 Escoger máquinas"** que dice cuántas entran de cuántas hay (por ejemplo *14 de 17*).
+> Ábrelo y verás **una casilla por máquina**, todas marcadas: **destilda las que NO quieres**.
+> Sirve igual para las dos cosas que se necesitan: **dejar fuera** las dos que están en el taller,
+> o **quedarse con una sola** (toca *"✕ Quitar todas"* y marca la que quieras).
+>
+> - Tiene su **propio buscador** por código, placa, serial o empresa, y los botones
+>   *"✓ Incluir todas"* y *"✕ Quitar todas"* trabajan **sobre lo que estés viendo**: con el
+>   buscador puesto, no barren en silencio las que quedaron escondidas.
+> - Cada máquina sale con su **código y su placa o serial**, porque hay varias que se llaman
+>   igual (tres *RETROEXCAVADORA*) y si no, no se sabe cuál estás destildando.
+> - **Todo lo de abajo le hace caso:** el número grande, el total en m³, el promedio, el mayor,
+>   el menor, el listado y el PDF. No hay forma de que el papel liste un equipo que la pantalla
+>   no muestra.
+> - **El PDF avisa que le faltan equipos**, en el encabezado y en el cuadro de alcance, y el
+>   archivo se descarga con otro nombre. Eso **no se puede apagar** con las pastillas de
+>   "¿qué se oculta?": un conteo de una selección no puede parecer un conteo de toda la flota.
+> - Si dejas fuera **todas**, el botón del PDF se apaga y te lo dice: un conteo en cero no es un
+>   informe. Al cerrar y volver a abrir el conteo, todo arranca marcado otra vez.
+
 - **🗺️ Zona real por GPS — igual al Mapa (botón en 📊 Conteo de equipos, 08/08/2026):** el conteo
   normal por zona **reparte 50/50** las máquinas que no tienen GPS cargado (para que el total de
   Este/Oeste cuadre con el total general). Este botón, en cambio, genera un **PDF que solo cuenta
