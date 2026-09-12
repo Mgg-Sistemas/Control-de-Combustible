@@ -161,7 +161,7 @@ export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string;
       <div class="kind" style="margin-top:4mm">INVITADO</div>
       <div class="company" style="font-size:4mm;margin-top:3mm">GOLDEN TOUCH 1127 CA</div>
       <div class="ficha" style="margin-top:5mm"><small>N° DE FICHA</small><b>${esc(a.ficha_number || '----')}</b></div>
-      ${qr ? `<div class="qr" style="margin-top:5mm">${qr}</div><div class="qrlabel">QR de control</div>` : ''}
+      ${qr ? `<div class="qr" style="margin-top:1mm">${qr}</div><div class="qrlabel">QR de control</div>` : ''}
     </div>`;
   }
 
