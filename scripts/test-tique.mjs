@@ -178,7 +178,102 @@ ok('...y NO se ve cuando el viaje no tiene tique', /tieneTique\(row\) \?/.test(s
 // Un viaje que sigue en la cola no puede llegar con folio a la pantalla.
 ok('los viajes en cola se pintan sin folio', (scr.match(/folio: null,/g) || []).length === 2);
 
-// ── 5) EL MANUAL CUENTA LO MISMO ────────────────────────────────────────────
+// ── 5) QUE SALE EN EL TIQUE: LA CONFIGURACION ───────────────────────────────
+const {
+  CONFIG_POR_DEFECTO, CAMPOS_TIQUE, LOGOS_TIQUE, PAPELES, CAMPO_FIJO,
+  normalizarConfig, cambiosRespectoAlDefecto, resumenConfig,
+} = cargar('src/lib/tiqueConfig.ts');
+
+// Los seis que el cliente pidio, y NADA mas. Si esto cambia, el papel de todos
+// cambia de forma sin que nadie lo haya pedido.
+eq('de fabrica salen encendidos exactamente seis datos',
+  Object.keys(CONFIG_POR_DEFECTO.campos).filter((k) => CONFIG_POR_DEFECTO.campos[k]).sort(),
+  ['cdt', 'empresa', 'fecha', 'folio', 'hora', 'placa']);
+eq('y dos logos', Object.keys(CONFIG_POR_DEFECTO.logos).filter((k) => CONFIG_POR_DEFECTO.logos[k]).sort(),
+  ['goldenTouch', 'sos']);
+eq('un tique por hoja carta', CONFIG_POR_DEFECTO.papel, 'carta1');
+eq('sin tocar nada, cero cambios', cambiosRespectoAlDefecto(CONFIG_POR_DEFECTO), 0);
+
+// La pantalla y el papel tienen que ofrecer lo MISMO: un campo que salga en la
+// lista y no en la configuracion es un interruptor que no existe.
+eq('la lista de campos cubre todas las claves',
+  CAMPOS_TIQUE.map((c) => c.k).sort(), Object.keys(CONFIG_POR_DEFECTO.campos).sort());
+eq('y la de logos tambien',
+  LOGOS_TIQUE.map((l) => l.k).sort(), Object.keys(CONFIG_POR_DEFECTO.logos).sort());
+ok('estan los seis papeles, con rollo y con hoja',
+  PAPELES.length === 6 && PAPELES.some((p) => p.k === 'rollo80') && PAPELES.some((p) => p.k === 'carta6'));
+
+// ⭐ EL TROPIEZO QUE YA COSTO UNA PRUEBA EN EL CUBICAJE. Una fila guardada ANTES
+//    de que existiera un campo no trae esa clave. Leerla cruda da `undefined`,
+//    que en un `if` parece apagado pero en un interruptor se ve como una casilla
+//    rota. Tiene que entrar con su valor de fabrica sin pisar lo ya marcado.
+{
+  const vieja = normalizarConfig({ campos: { folio: true, fecha: false }, logos: { sos: false }, papel: 'rollo80' });
+  eq('un campo que no estaba entra con su valor de fabrica', vieja.campos.jornada, false);
+  eq('...y lo que el admin ya habia marcado no se pisa', vieja.campos.fecha, false);
+  eq('...ni sus logos', vieja.logos.sos, false);
+  eq('...ni su papel', vieja.papel, 'rollo80');
+  eq('los logos que no venian toman el de fabrica', vieja.logos.goldenTouch, true);
+}
+
+// ⚠️ EL FOLIO NO SE PUEDE APAGAR. Un tique sin numero no identifica nada y no se
+//    puede reclamar. Ni desde la pantalla ni escribiendo en la tabla a mano.
+eq('el campo fijo es el folio', CAMPO_FIJO, 'folio');
+eq('apagar el folio en la base no apaga el folio',
+  normalizarConfig({ campos: { folio: false } }).campos.folio, true);
+
+// Basura en la tabla no puede dejar la pantalla en blanco.
+eq('sin nada guardado se usa lo de fabrica', normalizarConfig(null), CONFIG_POR_DEFECTO);
+eq('un papel inventado cae al de fabrica', normalizarConfig({ papel: 'papiro' }).papel, 'carta1');
+eq('un campo que no es booleano se ignora', normalizarConfig({ campos: { fecha: 'si' } }).campos.fecha, true);
+
+// El encabezado plegado tiene que decir que hay dentro sin abrirlo.
+ok('el resumen dice datos, logos y papel',
+  /6 dato\(s\) · 2 logo\(s\) · 1 por hoja/.test(resumenConfig(CONFIG_POR_DEFECTO)));
+
+// Guardas sobre la pantalla de configuracion.
+const card = sinComentarios(leer('src/components/TiqueConfigCard.tsx'));
+ok('la configuracion se guarda en la BASE, no en el telefono',
+  /guardarConfigTique\(config, uid\)/.test(card) && !/AsyncStorage|localStorage/.test(card));
+// Guardar en cada clic manda quince escrituras mientras alguien decide, y deja
+// el formato a medio cambiar si se cae la senal en el medio.
+ok('se guarda al tocar Guardar, no a cada clic', /onPress=\{guardar\}/.test(card));
+ok('...y avisa mientras hay cambios sin guardar', /Tienes cambios sin guardar/.test(card));
+ok('la vista previa se arma de la MISMA config', /CAMPOS_TIQUE\.filter\(\(c\) => config\.campos\[c\.k\]\)/.test(card));
+ok('el folio se ve pero no se deja tocar', /c\.k === CAMPO_FIJO \?/.test(card));
+ok('avisa si falta correr el SQL', /Falta correr el SQL de la tiquetera/.test(card));
+ok('y ahi el boton de guardar se apaga', /disabled=\{!sucio \|\| ocupado \|\| sinTabla\}/.test(card));
+ok('la tarjeta esta montada en el panel', /<TiqueConfigCard uid=\{uid\} \/>/.test(scr));
+
+// ⭐ LAS REGLAS SON PURAS Y EL ACCESO A DATOS VA APARTE, igual que el cubicaje.
+//    Si tiqueConfig.ts importara supabase, esta prueba no podria correrlo y las
+//    reglas del papel se quedarian sin red.
+const libConfig = leer('src/lib/tiqueConfig.ts');
+ok('las reglas del tique NO importan nada', !/^\s*import\s/m.test(sinComentarios(libConfig)));
+const datosConfig = sinComentarios(leer('src/lib/tiqueConfigDatos.ts'));
+ok('el acceso a datos solo conoce su tabla', /const TABLA = 'tique_config'/.test(datosConfig));
+ok('...y no escribe en camion_viajes ni en machinery',
+  !/from\('camion_viajes'\)/.test(datosConfig) && !/from\('machinery'\)/.test(datosConfig));
+// Guardar normaliza otra vez: asi el folio no se puede apagar ni mandando la
+// fila a mano desde otro sitio.
+ok('al guardar se vuelve a normalizar', /const limpia = normalizarConfig\(c\);/.test(datosConfig));
+ok('reconoce «esa tabla no existe» por sus tres formas',
+  /42p01/.test(datosConfig) && /pgrst205/.test(datosConfig) && /does not exist/.test(datosConfig));
+
+// ── 6) BORRAR UN VIAJE ──────────────────────────────────────────────────────
+// Pedido del cliente: «no me deja eliminar los viajes, admins deberian poder».
+// El tacho estaba SOLO en la lista completa, asi que quien registraba un viaje
+// de prueba no tenia como quitarlo desde donde lo veia.
+ok('con full se puede borrar desde Mis viajes',
+  /canDelete: canFull && !row\.queued,/.test(scr));
+// ⚠️ Y para el listero sigue apagado: si el pudiera borrar los suyos, podria
+//    sacar trabajo de la jornada que le estan revisando.
+ok('...pero un viaje en cola no, porque todavia no existe en el servidor',
+  /canDelete: canFull && !row\.queued,/.test(scr));
+ok('la lista completa sigue permitiendo borrar',
+  /canEdit: true, canDelete: true, showListero: true/.test(scr));
+
+// ── 7) EL MANUAL CUENTA LO MISMO ────────────────────────────────────────────
 const md = leer('docs/MANUAL-USUARIO.md');
 const ms = leer('src/screens/ManualScreen.tsx');
 ok('el manual .md explica el numero de tique', /Cada viaje tiene su número de tique \(12\/09\/2026\)/.test(md));
@@ -186,6 +281,13 @@ ok('...y avisa que sin senal no hay numero', /Un viaje sin señal NO tiene núme
 ok('...y que los viajes viejos no se numeran', /no tienen número, y no se les va a poner/i.test(md));
 ok('el manual en pantalla tambien lo explica', /CADA VIAJE TIENE SU NÚMERO DE TIQUE \(12\/09\/2026\)/.test(ms));
 ok('...y dice que la placa y la empresa quedan congeladas', /LA PLACA Y LA EMPRESA QUEDAN CONGELADAS EN EL VIAJE/.test(ms));
+ok('el manual .md explica el configurador', /Tú decides qué sale en el tique \(12\/09\/2026\)/.test(md));
+ok('...y avisa que el folio no se quita', /El número del tique no se puede quitar/i.test(md));
+ok('...y que vale para todos, no por telefono', /No es una preferencia de tu teléfono/i.test(md));
+ok('el manual .md explica el borrado desde Mis viajes', /Borrar un viaje desde «Mis viajes» \(12\/09\/2026\)/.test(md));
+ok('...y que para el listero sigue apagado', /Para el listero sigue apagado/i.test(md));
+ok('el manual en pantalla explica el configurador', /TÚ DECIDES QUÉ SALE EN EL TIQUE \(12\/09\/2026\)/.test(ms));
+ok('...y el borrado', /BORRAR UN VIAJE DESDE "MIS VIAJES" \(12\/09\/2026\)/.test(ms));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-tique · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
