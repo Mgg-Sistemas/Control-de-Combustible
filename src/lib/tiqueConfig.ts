@@ -39,25 +39,37 @@ export type TiqueConfig = {
  */
 export const CAMPO_FIJO: ClaveCampo = 'folio';
 
-/** El orden en que salen en la pantalla Y en el papel. Es el mismo a propósito:
- *  configurar en un orden y que imprima en otro es como se pierde la confianza. */
-export const CAMPOS_TIQUE: { k: ClaveCampo; label: string; ayuda?: string }[] = [
-  { k: 'folio',       label: '🎫 Número del tique', ayuda: 'No se puede quitar: sin número el tique no identifica nada.' },
-  { k: 'fecha',       label: '📅 Fecha' },
-  { k: 'hora',        label: '🕐 Hora' },
-  { k: 'placa',       label: '🚗 Placa', ayuda: 'Si el camión no tiene placa cargada, sale su serial.' },
-  { k: 'empresa',     label: '🏢 Empresa' },
-  { k: 'cdt',         label: '🏗️ CDT / obra' },
-  { k: 'jornada',     label: '📆 Jornada', ayuda: 'El día de trabajo, de 7am a 7am. Un viaje de las 2am cuenta para el día anterior.' },
-  { k: 'turno',       label: '🌓 Turno', ayuda: 'Día o noche. No es lo mismo que la jornada.' },
-  { k: 'codigo',      label: '🚜 Equipo' },
-  { k: 'marcaModelo', label: '🏷️ Marca y modelo' },
-  { k: 'serial',      label: '🔧 Serial' },
-  { k: 'chofer',      label: '👤 Chofer' },
-  { k: 'listero',     label: '📝 Listero' },
-  { k: 'm3',          label: '📐 Metros cúbicos', ayuda: 'Sale de lo que se mida en Cubicaje. Hoy es un promedio del día, no una medición de ese viaje.' },
-  { k: 'estado',      label: '⚙️ Estado del camión' },
-  { k: 'nota',        label: '🗒️ Nota' },
+/**
+ * El orden en que salen en la pantalla Y en el papel. Es el mismo a propósito:
+ * configurar en un orden y que imprima en otro es como se pierde la confianza.
+ *
+ * `label` es lo que se lee en la pantalla de configuración, con su emoji.
+ * `corto` es lo que se IMPRIME al lado del dato.
+ *
+ * ⚠️ SON DOS TEXTOS DISTINTOS A PROPÓSITO. Una tiquetera térmica no dibuja
+ *    emojis: los saca como un cuadrito, o como nada, o le come el resto del
+ *    renglón. En pantalla el emoji ayuda a encontrar el interruptor de un
+ *    vistazo; en el papel estorba. Y en un rollo de 58 mm caben unos 32
+ *    caracteres por renglón, así que la etiqueta tiene que ser corta o el dato
+ *    se va a la línea de abajo.
+ */
+export const CAMPOS_TIQUE: { k: ClaveCampo; label: string; corto: string; ayuda?: string }[] = [
+  { k: 'folio',       label: '🎫 Número del tique', corto: 'Tique',   ayuda: 'No se puede quitar: sin número el tique no identifica nada.' },
+  { k: 'fecha',       label: '📅 Fecha',            corto: 'Fecha' },
+  { k: 'hora',        label: '🕐 Hora',             corto: 'Hora' },
+  { k: 'placa',       label: '🚗 Placa',            corto: 'Placa',   ayuda: 'Si el camión no tiene placa cargada, sale su serial.' },
+  { k: 'empresa',     label: '🏢 Empresa',          corto: 'Empresa' },
+  { k: 'cdt',         label: '🏗️ CDT / obra',       corto: 'CDT' },
+  { k: 'jornada',     label: '📆 Jornada',          corto: 'Jornada', ayuda: 'El día de trabajo, de 7am a 7am. Un viaje de las 2am cuenta para el día anterior.' },
+  { k: 'turno',       label: '🌓 Turno',            corto: 'Turno',   ayuda: 'Día o noche. No es lo mismo que la jornada.' },
+  { k: 'codigo',      label: '🚜 Equipo',           corto: 'Equipo' },
+  { k: 'marcaModelo', label: '🏷️ Marca y modelo',   corto: 'Marca' },
+  { k: 'serial',      label: '🔧 Serial',           corto: 'Serial' },
+  { k: 'chofer',      label: '👤 Chofer',           corto: 'Chofer' },
+  { k: 'listero',     label: '📝 Listero',          corto: 'Listero' },
+  { k: 'm3',          label: '📐 Metros cúbicos',   corto: 'Volumen', ayuda: 'Sale de lo que se mida en Cubicaje. Hoy es un promedio del día, no una medición de ese viaje.' },
+  { k: 'estado',      label: '⚙️ Estado del camión', corto: 'Estado' },
+  { k: 'nota',        label: '🗒️ Nota',             corto: 'Nota' },
 ];
 
 export const LOGOS_TIQUE: { k: ClaveLogo; label: string }[] = [
