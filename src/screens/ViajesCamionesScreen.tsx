@@ -53,6 +53,14 @@ import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, eti
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
+import { CONFIG_POR_DEFECTO, PAPELES, type TiqueConfig } from '../lib/tiqueConfig';
+import { leerConfigTique } from '../lib/tiqueConfigDatos';
+import { avisoDeCapacidad, documentoDeTiques, hojasQueSalen, medioDeImpresion, nombreArchivoTiques, type DatosTique, type TiqueParaImprimir } from '../lib/tiqueDocumento';
+import { contarEmisionesPendientes, contarEmisionesPorFolio, flushEmisionesPendientes, nuevoUuid, registrarEmisiones, type EmisionNueva } from '../lib/tiqueEmisiones';
+import { LOGO_DATA_URI } from '../lib/logoData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
+import { RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
+import { BCV_LOGO_DATA_URI } from '../lib/logoBcvData';
 import { Plegable } from '../components/Plegable';
 import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, TURNO_ICONO, TURNO_HORARIO, turnoDeHora, HORA_INICIO_TURNO, Turno, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
@@ -92,6 +100,28 @@ import { desfaseMinutos, avisoDesfase } from '../lib/relojDesfase';
 import { logAudit } from '../lib/audit';
 import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes, nuevoClientActionId, falloDeGuardadoLocal } from '../lib/viajesOfflineQueue';
 import { accionTrasFalloConSenal, motivoLegible } from '../lib/colaOfflinePolicy';
+
+/**
+ * LOS CUATRO LOGOS QUE PUEDE LLEVAR EL TIQUE, ya incrustados como data URI.
+ *
+ * ⚠️ TIENEN QUE IR INCRUSTADOS, NO POR URL. El documento se imprime dentro de un
+ *    iframe sin red propia, y en la tiquetera del CDT puede no haber internet;
+ *    una imagen por URL saldría como un hueco justo en el encabezado del papel
+ *    oficial. Ninguno agranda el paquete: los cuatro ya venían con los reportes
+ *    de esta misma pantalla.
+ */
+const LOGOS_DEL_TIQUE = {
+  sos: LOGO_DATA_URI,
+  goldenTouch: GOLDEN_TOUCH_LOGO_DATA_URI,
+  renace: RENACE_LOGO_DATA_URI,
+  bcv: BCV_LOGO_DATA_URI,
+};
+
+/** Cuántos tiques como máximo se le piden a la base de una sentada para saber
+ *  cuáles ya se entregaron. Por encima de esto la lista es de un mes entero y
+ *  la consulta no vale lo que cuesta: la marca se resuelve igual al imprimir,
+ *  que es el momento en que de verdad importa. Ver `emisionesPorFolio`. */
+const TOPE_FOLIOS_A_CONSULTAR = 600;
 
 // ── Fecha/hora en Caracas (mismas utilidades locales que otras pantallas de
 //    reportes, p. ej. AuditScreen/CoordinadorOperadoresScreen) ──────────────
@@ -2428,6 +2458,280 @@ export default function ViajesCamionesScreen() {
   }
 
   // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
+  // ══ TIQUETERA: IMPRIMIR Y ENTREGAR ═══════════════════════════════════════
+  //
+  // Pedido del cliente: «cuando marcan el viaje, deben dar el ticket, y debe
+  // guardarse tanto lo que marcaron, como los ticket que en teoría imprimieron
+  // o dieron».
+
+  /** El formato del papel. Vive en la base (una sola fila para todo el sistema)
+   *  y se lee acá aparte de la tarjeta de configuración: el listero imprime sin
+   *  abrir esa tarjeta —ni siquiera la ve— y necesita el mismo formato. */
+  const [configTique, setConfigTique] = useState<TiqueConfig>(CONFIG_POR_DEFECTO);
+  const [sinTablaTique, setSinTablaTique] = useState(false);
+  /** Cuántas veces se imprimió cada folio. Vacío NO significa «ninguno»: puede
+   *  ser que la lista sea muy grande y no se haya consultado. Ver `foliosMedidos`. */
+  const [emisionesPorFolio, setEmisionesPorFolio] = useState<Map<string, number>>(new Map());
+  const [foliosMedidos, setFoliosMedidos] = useState<Set<string>>(new Set());
+  /** Constancias que salieron impresas pero no llegaron al servidor. Se muestra
+   *  el número: son papeles entregados que la oficina todavía no ve. */
+  const [tiquesPendientes, setTiquesPendientes] = useState(0);
+  const [imprimiendo, setImprimiendo] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    leerConfigTique().then((r) => {
+      if (!vivo) return;
+      setConfigTique(r.config);
+      setSinTablaTique(r.sinTabla);
+    });
+    return () => { vivo = false; };
+  }, []);
+
+  // Sube lo que quedó esperando señal: al entrar y cada vez que vuelva la
+  // conexión. Sin esto, una constancia apartada en el teléfono se quedaría ahí
+  // hasta que alguien imprimiera otro tique.
+  useEffect(() => {
+    let vivo = true;
+    const intentar = () => {
+      flushEmisionesPendientes()
+        .then(() => contarEmisionesPendientes())
+        .then((n) => { if (vivo) setTiquesPendientes(n); })
+        .catch(() => {});
+    };
+    intentar();
+    const off = onConnectivityChange((online) => { if (online) intentar(); });
+    return () => { vivo = false; off(); };
+  }, []);
+
+  /**
+   * CUÁLES DE LOS QUE SE VEN YA SE ENTREGARON.
+   *
+   * ⚠️ SE CONSULTA CON TOPE. La lista del panel puede ser un mes entero —miles
+   *    de viajes— y preguntar por todos en cada cambio de filtro tumba la
+   *    pantalla en un teléfono con señal de patio. Por encima del tope no se
+   *    consulta y no se pinta la marca: al imprimir se vuelve a preguntar por
+   *    los folios que de verdad van a salir, que es cuando importa.
+   */
+  const foliosVisibles = useMemo(() => {
+    const set = new Set<string>();
+    misViajesDisplay.forEach((r) => { if (tieneTique(r)) set.add(folioDeTique(r)); });
+    filteredRangeRows.forEach((r) => { if (tieneTique(r)) set.add(folioDeTique(r)); });
+    return Array.from(set);
+  }, [misViajesDisplay, filteredRangeRows]);
+
+  const refrescarEmisiones = React.useCallback(async (folios: string[]) => {
+    if (folios.length === 0 || folios.length > TOPE_FOLIOS_A_CONSULTAR) return;
+    const r = await contarEmisionesPorFolio(folios);
+    if (r.sinTabla) { setSinTablaTique(true); return; }
+    // Se MEZCLA con lo que ya se sabía en vez de reemplazar: al imprimir se
+    // refrescan solo los folios impresos, y pisar el mapa entero borraría las
+    // marcas del resto de la lista.
+    setEmisionesPorFolio((prev) => {
+      const m = new Map(prev);
+      folios.forEach((f) => m.set(f, r.porFolio.get(f) ?? 0));
+      return m;
+    });
+    setFoliosMedidos((prev) => {
+      const s2 = new Set(prev);
+      folios.forEach((f) => s2.add(f));
+      return s2;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (foliosVisibles.length === 0 || foliosVisibles.length > TOPE_FOLIOS_A_CONSULTAR) return;
+    let vivo = true;
+    // Se espera un momento: mientras alguien mueve los filtros esto cambiaría
+    // en cada tecla, y son consultas de red.
+    const t = setTimeout(() => { if (vivo) refrescarEmisiones(foliosVisibles); }, 400);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [foliosVisibles, refrescarEmisiones]);
+
+  /** De la lista filtrada del panel, los que de verdad tienen papel que sacar. */
+  const tiquesDeLaLista = useMemo(
+    () => filteredRangeRows.filter((r) => tieneTique(r)),
+    [filteredRangeRows],
+  );
+
+  /** ¿Cuántas veces salió este tique? `null` = no se preguntó (lista muy grande). */
+  const vecesImpreso = (row: DisplayViaje): number | null => {
+    if (!tieneTique(row)) return null;
+    const f = folioDeTique(row);
+    return foliosMedidos.has(f) ? (emisionesPorFolio.get(f) ?? 0) : null;
+  };
+
+  /**
+   * LOS DATOS DE UN VIAJE, LISTOS PARA EL PAPEL.
+   *
+   * ⭐ Se arman TODOS los campos aunque estén apagados. Cuál sale lo decide la
+   *    configuración dentro de `renglonesDelTique`; decidirlo acá también sería
+   *    tener la regla en dos sitios, y el día que se enciendan los metros
+   *    cúbicos habría que acordarse de los dos.
+   *
+   * ⚠️ LA PLACA Y LA EMPRESA SALEN DE LO CONGELADO EN EL VIAJE, no del catálogo
+   *    de hoy. Es la misma regla con la que se pinta la fila en pantalla: el
+   *    papel firmado en el CDT no puede dejar de coincidir con su reimpresión
+   *    porque alguien le corrigió la ficha al camión la semana siguiente.
+   */
+  const datosTiqueDeViaje = (row: DisplayViaje): DatosTique => {
+    const truck = row.machineryId ? truckById.get(row.machineryId) : undefined;
+    const vol = volumenPorCamion.get(claveCamion(row))?.porViaje ?? 0;
+    const marcaModelo = [truck?.marca, truck?.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ');
+    return {
+      folio: folioDeTique(row),
+      fecha: fmtFecha(row.registeredAt),
+      hora: fmtHora(row.registeredAt),
+      // Un camión anotado a mano no tiene ficha: lo único que identifica la
+      // unidad es la seña que escribió el listero, y es mejor que una raya.
+      placa: row.fueraCatalogo ? (row.camionRef ?? null) : placaDeTique(row, truck),
+      empresa: row.fueraCatalogo ? null : empresaDeTique(row, truck),
+      cdt: row.ubicacionNombre ?? (row.ubicacionId ? obraPorId.get(row.ubicacionId)?.nombre ?? null : null),
+      jornada: dmy(jornadaDeFecha(new Date(row.registeredAt))),
+      turno: turnoLabel(turnoDeViaje(row.registeredAt)),
+      codigo: row.machineCode,
+      marcaModelo: marcaModelo || null,
+      serial: truck?.serial ?? null,
+      chofer: row.choferName,
+      listero: row.listeroName,
+      m3: vol > 0 ? `${m3Texto(vol)} m³` : null,
+      estado: row.estadoMaquina,
+      nota: row.note,
+    };
+  };
+
+  /**
+   * IMPRIMIR Y DEJAR CONSTANCIA.
+   *
+   * ⚠️ EL ORDEN NO SE PUEDE INVERTIR: primero se imprime, y SOLO si el usuario
+   *    confirmó en la vista previa se guarda la constancia. Guardar antes
+   *    dejaría anotado como entregado un tique que se canceló, y ese registro
+   *    es la única prueba que va a haber de qué papel salió.
+   *
+   * ⚠️ Y AL REVÉS TAMBIÉN IMPORTA: si el papel salió y el guardado falla, la
+   *    constancia NO se descarta —se aparta en el teléfono y sube sola— porque
+   *    el camionero ya tiene su tique en la mano.
+   */
+  const imprimirTiques = async (rows: DisplayViaje[], origen: 'uno' | 'lote') => {
+    if (imprimiendo) return;
+    const conTique = rows.filter((r) => tieneTique(r) && !r.queued);
+    const sinTique = rows.length - conTique.length;
+    if (conTique.length === 0) {
+      toast.error(
+        rows.length === 1
+          ? 'Ese viaje todavía no tiene número de tique. Los que están en la cola reciben su número cuando suben.'
+          : 'Ninguno de esos viajes tiene número de tique todavía.',
+      );
+      return;
+    }
+    if (sinTablaTique) {
+      toast.error('Falta correr el SQL de la tiquetera. Se podría imprimir, pero la entrega no quedaría guardada.');
+      return;
+    }
+
+    setImprimiendo(true);
+    try {
+      const folios = conTique.map((r) => folioDeTique(r));
+      // Se vuelve a preguntar contra la base y no se usa el mapa de la pantalla:
+      // el mapa puede estar viejo, o no haberse consultado por lista grande, y
+      // marcar «primera vez» un papel que ya se entregó es el error caro.
+      const cuenta = await contarEmisionesPorFolio(folios);
+      if (cuenta.sinTabla) {
+        setSinTablaTique(true);
+        toast.error('Falta correr el SQL de la tiquetera. No se imprimió.');
+        return;
+      }
+      const repetidos = folios.filter((f) => (cuenta.porFolio.get(f) ?? 0) > 0).length;
+      const papelLabel = PAPELES.find((x) => x.k === configTique.papel)?.label ?? configTique.papel;
+      const hojas = hojasQueSalen(conTique.length, configTique.papel);
+      const unidad = configTique.papel.startsWith('rollo') ? 'corte(s) de rollo' : 'hoja(s)';
+
+      const partes = [
+        `Van a salir ${conTique.length} tique(s) en ${hojas} ${unidad} · ${papelLabel}.`,
+      ];
+      if (repetidos > 0) {
+        partes.push(
+          repetidos === conTique.length
+            ? `⚠️ ${repetidos === 1 ? 'Ese tique ya se entregó y va' : `Esos ${repetidos} ya se entregaron y van`} a salir marcado(s) como REIMPRESIÓN.`
+            : `⚠️ ${repetidos} de esos tiques ya se entregaron: esos salen marcados como REIMPRESIÓN.`,
+        );
+      }
+      // ⚠️ Que se entere ACA TAMBIEN, no solo en la tarjeta de configuracion.
+      //    Quien imprime en el CDT no es quien configuro el papel, y el aviso
+      //    de la tarjeta esta en un panel que el listero ni siquiera ve.
+      const apretado = avisoDeCapacidad(configTique);
+      if (apretado) partes.push(apretado);
+      if (sinTique > 0) {
+        partes.push(`${sinTique} viaje(s) quedan fuera porque todavía no tienen número de tique.`);
+      }
+      partes.push('Al confirmar queda registrado quién los entregó y desde dónde.');
+
+      const ok = await confirm({
+        title: origen === 'uno' ? 'Imprimir el tique' : 'Imprimir la tiquetera',
+        message: partes.join('\n\n'),
+        confirmText: '🖨️ Imprimir',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+
+      const tiques: TiqueParaImprimir[] = conTique.map((r) => ({
+        datos: datosTiqueDeViaje(r),
+        reimpresion: (cuenta.porFolio.get(folioDeTique(r)) ?? 0) > 0,
+      }));
+      const html = documentoDeTiques(tiques, configTique, LOGOS_DEL_TIQUE, { titulo: 'Tique de viaje' });
+      const confirmado = await exportPdf(html, nombreArchivoTiques(tiques));
+      // En la web se resuelve `false` si cerró la vista previa sin imprimir. Ese
+      // papel no salió, así que no se entregó nada y no hay nada que anotar.
+      if (!confirmado) return;
+
+      // Un mandado, un número de lote: los tiques que se imprimieron juntos se
+      // pueden volver a encontrar juntos, que es como se reparten y como se
+      // reclaman.
+      const loteId = nuevoUuid();
+      const medio = medioDeImpresion(configTique.papel);
+      const obraMia = miObraId ? obraPorId.get(miObraId) ?? null : null;
+      const nuevas: EmisionNueva[] = conTique.map((r) => ({
+        viajeId: r.id,
+        folio: folioDeTique(r),
+        loteId,
+        medio,
+        // ⚠️ ES EL CDT DE QUIEN IMPRIME, no el del viaje. El cliente pidió que
+        //    quede «el CDT en que imprimieron»; el del viaje ya está guardado en
+        //    el viaje. Cuando la jefa saca un lote desde la oficina no hay CDT, y
+        //    eso también es un dato: ese tique no lo entregó nadie en el patio.
+        ubicacionId: obraMia?.id ?? null,
+        ubicacionNombre: obraMia?.nombre ?? null,
+        emitidoPor: uid || null,
+        emitidoPorNombre: listeroName,
+        clientActionId: `${loteId}:${folioDeTique(r)}`,
+      }));
+
+      const res = await registrarEmisiones(nuevas);
+      if (res.sinTabla) {
+        setSinTablaTique(true);
+        toast.error('El papel salió, pero falta correr el SQL de la tiquetera y la entrega no se pudo guardar.');
+      } else if (res.pendientes > 0) {
+        setTiquesPendientes(await contarEmisionesPendientes());
+        toast.error(
+          res.error
+            ? `El papel salió, pero la entrega no se pudo guardar (${res.error}). Queda apartada y sube sola.`
+            : 'El papel salió. Sin señal para guardar la entrega: queda apartada y sube sola cuando vuelva.',
+        );
+      } else {
+        toast.success(
+          conTique.length === 1
+            ? `Tique ${folios[0]} entregado. Queda registrado.`
+            : `${conTique.length} tiques entregados. Quedan registrados.`,
+        );
+      }
+      await refrescarEmisiones(folios);
+    } catch (e: any) {
+      toast.error(`No se pudo imprimir: ${String(e?.message ?? e)}`);
+    } finally {
+      setImprimiendo(false);
+    }
+  };
+
   const renderRow = (row: DisplayViaje, opts: { canEdit: boolean; canDelete: boolean; showListero?: boolean }) => {
     const isEditing = editing?.id === row.id;
     // ⚠️ QUE SEPA QUE VA A QUEDAR REGISTRADO, ANTES DE GUARDAR.
@@ -2457,6 +2761,7 @@ export default function ViajesCamionesScreen() {
     const placaSerial = row.fueraCatalogo
       ? (row.camionRef ? `Anotado a mano · ${row.camionRef}` : 'Anotado a mano por el listero')
       : `Placa ${placaDeTique(row, truck)} · ${empresaDeTique(row, truck)}`;
+    const impresiones = vecesImpreso(row);
     return (
       <View key={row.id} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2482,6 +2787,15 @@ export default function ViajesCamionesScreen() {
               enseñar un número provisional sería peor que no enseñar ninguno,
               porque alguien lo cantaría y después no existiría. */}
           {tieneTique(row) ? <Badge label={`🎫 ${folioDeTique(row)}`} tone="success" /> : null}
+          {/* ⭐ SI EL PAPEL YA SALIÓ, TIENE QUE VERSE. Volver a imprimir un tique
+              que ya se entregó pone dos papeles con el mismo número en el patio,
+              y al cobrar se cuentan dos viajes donde hubo uno. La marca no
+              impide reimprimir —a veces hace falta— pero obliga a saberlo.
+              Sin marca no significa «no se entregó»: en una lista muy grande no
+              se consulta, y ahí `vecesImpreso` devuelve null. Ver el tope. */}
+          {impresiones != null && impresiones > 0 ? (
+            <Badge label={impresiones > 1 ? `🔁 entregado ×${impresiones}` : '✅ entregado'} tone="muted" />
+          ) : null}
         </View>
         {row.stuck && row.stuckError ? (
           <Text style={{ color: '#B42318', fontSize: 11, fontStyle: 'italic' }}>{motivoLegible(row.stuckError)}</Text>
@@ -2590,6 +2904,21 @@ export default function ViajesCamionesScreen() {
                 </Text>
               </TouchableOpacity>
             ) : null}
+            {/* ⭐ EL PAPEL QUE SE LE DA AL CAMIONERO. Va en la fila del viaje y no
+                en una pantalla aparte porque el momento de entregarlo es este:
+                se marcó el viaje, se imprime, se entrega. Cualquier desvío en el
+                medio termina en un tique que nadie dio.
+
+                Sale para TODO EL QUE VEA LA FILA, no solo para quien puede
+                editar: el listero del CDT es justamente quien entrega, y él no
+                tiene permiso para corregir nada de días viejos. */}
+            {tieneTique(row) && !row.queued ? (
+              <TouchableOpacity onPress={() => imprimirTiques([row], 'uno')} disabled={imprimiendo}>
+                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12.5, opacity: imprimiendo ? 0.5 : 1 }}>
+                  {impresiones != null && impresiones > 0 ? '🔁 Reimprimir tique' : '🖨️ Imprimir tique'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             {opts.canDelete ? (
               <TouchableOpacity onPress={() => onBorrar(row)}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12.5 }}>🗑️ Borrar</Text>
@@ -2638,6 +2967,21 @@ export default function ViajesCamionesScreen() {
           <Text style={{ fontSize: 16 }}>📶</Text>
           <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
             {pendientesVisibles} {pendientesVisibles === 1 ? 'viaje guardado' : 'viajes guardados'} en el teléfono sin subir. Se suben solos al recuperar señal.
+          </Text>
+        </View>
+      ) : null}
+
+      {/* ⭐ TIQUES ENTREGADOS QUE LA OFICINA NO VE TODAVÍA.
+          Va aparte del aviso de viajes sin subir porque son dos cosas distintas
+          y la diferencia importa: allá falta que suba el VIAJE; acá el viaje ya
+          está y lo que falta es la constancia de que el papel se entregó. El
+          camionero ya tiene su tique en la mano. Sube solo al volver la señal. */}
+      {tiquesPendientes > 0 ? (
+        <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.xs }}>
+          <Text style={{ fontSize: 16 }}>🎫</Text>
+          <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
+            {tiquesPendientes} {tiquesPendientes === 1 ? 'tique entregado' : 'tiques entregados'} sin registrar en el
+            servidor. El papel ya salió; la constancia sube sola al recuperar señal.
           </Text>
         </View>
       ) : null}
@@ -3191,7 +3535,7 @@ export default function ViajesCamionesScreen() {
           {/* Qué sale en el tique. Va acá, pegado a las obras, porque las dos
               cosas se configuran una vez y se dejan quietas: la obra de cada
               listero y el formato del papel. */}
-          <TiqueConfigCard uid={uid} />
+          <TiqueConfigCard uid={uid} onGuardado={setConfigTique} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
@@ -3553,9 +3897,41 @@ export default function ViajesCamionesScreen() {
                   ))}
                 </ScrollView>
               ) : (
-                <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
-                  {filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
-                </ScrollView>
+                <View>
+                  {/* ⭐ LA TIQUETERA COMPLETA, DE UNA. El cliente pidió las dos
+                      formas: uno por uno desde la tiquetera en el momento, o un
+                      mandado entero en hojas para repartir después. Este es el
+                      segundo, y sale de la lista TAL COMO ESTÁ FILTRADA: si
+                      filtró por CDT y por día, eso es lo que se imprime, sin
+                      inventar un selector nuevo que después no coincida con lo
+                      que se ve en pantalla. */}
+                  {tiquesDeLaLista.length > 0 ? (
+                    <TouchableOpacity
+                      onPress={() => imprimirTiques(tiquesDeLaLista, 'lote')}
+                      disabled={imprimiendo}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs,
+                        borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand,
+                        paddingVertical: spacing.sm, marginBottom: spacing.sm, opacity: imprimiendo ? 0.5 : 1,
+                      }}
+                    >
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                        {imprimiendo ? 'Preparando…' : `🖨️ Imprimir los ${tiquesDeLaLista.length} tiques de esta lista`}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Que se sepa POR QUÉ quedan viajes fuera. Sin esto, «41 viajes»
+                      arriba y «38 tiques» en el botón parece un error del sistema. */}
+                  {filteredRangeRows.length > tiquesDeLaLista.length ? (
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                      {filteredRangeRows.length - tiquesDeLaLista.length} viaje(s) de esta lista no tienen número de
+                      tique: son anteriores a la tiquetera o todavía no subieron.
+                    </Text>
+                  ) : null}
+                  <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
+                    {filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
+                  </ScrollView>
+                </View>
               )}
             </View>
 
