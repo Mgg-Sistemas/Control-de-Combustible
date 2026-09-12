@@ -64,6 +64,31 @@ export type CamionViajeRow = {
    *  Si mañana se borra la obra del catálogo, `ubicacionId` queda en null pero
    *  este texto sigue diciendo dónde fue ese viaje. */
   ubicacionNombre: string | null;
+  /**
+   * NÚMERO DEL TIQUE (`CDT-000001`). Lo pone la base con un trigger, nunca la
+   * app: dos listeros registrando en el mismo segundo se llevarían el mismo
+   * número si lo calculara el teléfono.
+   *
+   * ⚠️ `null` en los 3.384 viajes ANTERIORES a la tiquetera (19-ago al 1-sep) y
+   *    en cualquiera que todavía esté en la cola offline: el folio existe
+   *    cuando la fila llega al servidor, no antes. Un viaje sin folio no tiene
+   *    tique que entregar, y la pantalla tiene que decirlo, no inventarlo.
+   */
+  folio: string | null;
+  /**
+   * Placa y empresa CONGELADAS al registrar, igual que `listeroName`.
+   *
+   * ⭐ POR QUÉ SE CONGELAN. Antes se resolvían del catálogo cada vez que se
+   *    pintaba un reporte. Si mañana alguien le corrige la placa a un camión,
+   *    un tique reimpreso saldría con una placa DISTINTA a la del papel que ya
+   *    está firmado en el CDT.
+   *
+   * ⚠️ `null` = resolver del catálogo, que es lo que se hacía siempre. Los
+   *    viajes viejos se quedan así a propósito: rellenarlos hacia atrás con la
+   *    ficha de HOY sería afirmar que ese camión tenía esa placa aquel día.
+   */
+  placa: string | null;
+  empresa: string | null;
 };
 
 function mapRow(r: any): CamionViajeRow {
@@ -86,6 +111,9 @@ function mapRow(r: any): CamionViajeRow {
     clientActionId: (r.client_action_id ?? null) as string | null,
     ubicacionId: (r.ubicacion_id ?? null) as string | null,
     ubicacionNombre: (r.ubicacion_nombre ?? null) as string | null,
+    folio: (r.folio ?? null) as string | null,
+    placa: (r.placa_snap ?? null) as string | null,
+    empresa: (r.empresa_snap ?? null) as string | null,
   };
 }
 
@@ -108,8 +136,25 @@ const SELECT_COLS = 'id, machinery_id, machine_code, fuera_catalogo, camion_ref,
  */
 let hayColumnasDeObra: boolean | null = null;
 
+/**
+ * Lo mismo, para las columnas de la TIQUETERA (`05_tiquetera_viajes.sql`).
+ *
+ * Son DOS interruptores y no uno solo a propósito. Las dos migraciones se
+ * corrieron el mismo día, pero en ese orden: hubo —y puede volver a haber, si
+ * alguien restaura un respaldo de esa mañana— una base CON obras y SIN tique.
+ * Con un interruptor único, esa base perdería también las obras, que sí están.
+ */
+let hayColumnasDeTique: boolean | null = null;
+
 const COLS_OBRA = 'ubicacion_id, ubicacion_nombre';
-const colsViaje = () => (hayColumnasDeObra === false ? SELECT_COLS : `${SELECT_COLS}, ${COLS_OBRA}`);
+const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
+
+/** Las columnas que se piden, según lo que se sepa que existe. */
+const colsViaje = () =>
+  [SELECT_COLS,
+   hayColumnasDeObra === false ? null : COLS_OBRA,
+   hayColumnasDeTique === false ? null : COLS_TIQUE,
+  ].filter(Boolean).join(', ');
 
 /** ¿El error es «esa columna no existe»? Solo eso: una tabla que falta es otra cosa. */
 function esColumnaQueFalta(e: any): boolean {
@@ -128,11 +173,27 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
   try {
     const data = await selectAllRows('camion_viajes', colsViaje(), filtro);
     if (hayColumnasDeObra === null) hayColumnasDeObra = true;
+    if (hayColumnasDeTique === null) hayColumnasDeTique = true;
     return data as any[];
   } catch (e: any) {
-    if (hayColumnasDeObra === false || !esColumnaQueFalta(e)) throw e;
+    if (!esColumnaQueFalta(e)) throw e;
+
+    // ESCALÓN 1: sin la tiquetera, que es lo más nuevo. La obra puede estar.
+    if (hayColumnasDeTique !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}`, filtro);
+        hayColumnasDeTique = false;
+        hayColumnasDeObra = true;
+        return data as any[];
+      } catch (e2: any) {
+        if (!esColumnaQueFalta(e2)) throw e2;
+      }
+    }
+
+    // ESCALÓN 2: pelado. Si esto también falla, el problema no eran las columnas.
     const data = await selectAllRows('camion_viajes', SELECT_COLS, filtro);
     hayColumnasDeObra = false;
+    hayColumnasDeTique = false;
     return data as any[];
   }
 }
@@ -140,6 +201,11 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
 /** Para que la pantalla pueda avisar que la obra todavía no está en la base. */
 export function faltaCorrerSqlDeObras(): boolean {
   return hayColumnasDeObra === false;
+}
+
+/** Lo mismo para la tiquetera: sin esto no hay folio que imprimir. */
+export function faltaCorrerSqlDeTique(): boolean {
+  return hayColumnasDeTique === false;
 }
 
 /** Registra un viaje. `registeredAt` ya viene calculado por quien llama (la hora
@@ -165,6 +231,11 @@ export async function registrarViaje(params: {
    *  de la cola offline de antes de esta función no la trae, y eso está bien. */
   ubicacionId?: string | null;
   ubicacionNombre?: string | null;
+  /** Placa y empresa del camión, para CONGELARLAS en el viaje. Ver la nota de
+   *  `CamionViajeRow.placa`. Opcional por lo mismo que la obra: un viaje viejo
+   *  de la cola offline no las trae. */
+  placa?: string | null;
+  empresa?: string | null;
 }): Promise<{ error?: string; missing?: boolean }> {
   // Las dos clases de viaje son EXCLUYENTES y la BD lo exige con un CHECK
   // (`cv_fuera_catalogo_coherente`). Se normaliza acá para que un error de quien
@@ -184,30 +255,50 @@ export async function registrarViaje(params: {
     registered_at: params.registeredAt,
     ...(params.clientActionId ? { client_action_id: params.clientActionId } : {}),
   };
-  const conObra = {
-    ...base,
+  const camposObra = {
     ubicacion_id: params.ubicacionId ?? null,
     ubicacion_nombre: params.ubicacionNombre ?? null,
   };
+  // ⚠️ El `folio` NO va acá. Lo pone la base con su trigger: si lo mandara el
+  //    teléfono, dos listeros que registran en el mismo segundo se llevarían el
+  //    mismo número.
+  const camposTique = {
+    placa_snap: params.placa ?? null,
+    empresa_snap: params.empresa ?? null,
+  };
 
-  // Mismo respaldo que en la lectura: si el `.sql` de obras todavía no se corrió,
-  // el insert con esas dos columnas rebota con 42703 y EL LISTERO NO PODRÍA
-  // REGISTRAR NI UN VIAJE. Se reintenta sin ellas y el viaje entra igual; lo
-  // único que pierde es la obra, que se puede rellenar después.
+  // Mismo respaldo que en la lectura, y por la misma razón: si un `.sql` todavía
+  // no se corrió, el insert con esas columnas rebota con 42703 y EL LISTERO NO
+  // PODRÍA REGISTRAR NI UN VIAJE. Se baja un escalón y se reintenta; el viaje
+  // entra igual y lo único que pierde es lo que esa base todavía no sabe
+  // guardar, que se puede rellenar después.
   //
-  // ⚠️ El `client_action_id` es el MISMO en los dos intentos, así que si el
-  //    primero llegó a entrar, el segundo rebota con 23505 y quien llama ya lee
-  //    eso como «ese viaje ya estaba». No se puede duplicar por reintentar.
-  const primero = hayColumnasDeObra === false
-    ? await supabase.from('camion_viajes').insert(base)
-    : await supabase.from('camion_viajes').insert(conObra);
-  let error = primero.error;
-  if (error && hayColumnasDeObra !== false && esColumnaQueFalta(error)) {
-    const reintento = await supabase.from('camion_viajes').insert(base);
-    if (!reintento.error) hayColumnasDeObra = false;
-    error = reintento.error;
-  } else if (!error && hayColumnasDeObra === null) {
-    hayColumnasDeObra = true;
+  // ⚠️ El `client_action_id` es EL MISMO en todos los intentos, así que si uno
+  //    llegó a entrar, el siguiente rebota con 23505 y quien llama ya lee eso
+  //    como «ese viaje ya estaba». No se puede duplicar por reintentar.
+  const escalones: { cuerpo: Record<string, any>; obra: boolean; tique: boolean }[] = [];
+  if (hayColumnasDeObra !== false && hayColumnasDeTique !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, tique: true });
+  }
+  if (hayColumnasDeObra !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, tique: false });
+  }
+  escalones.push({ cuerpo: base, obra: false, tique: false });
+
+  let error: any = null;
+  for (const paso of escalones) {
+    const r = await supabase.from('camion_viajes').insert(paso.cuerpo);
+    error = r.error;
+    if (!error) {
+      // Solo se AFIRMA lo que este intento acaba de demostrar. Un escalón que
+      // funciona prueba que sus columnas están; no dice nada de las de arriba.
+      if (paso.obra) hayColumnasDeObra = true;
+      if (paso.tique) hayColumnasDeTique = true;
+      else if (paso.obra) hayColumnasDeTique = false;
+      else { hayColumnasDeObra = false; hayColumnasDeTique = false; }
+      return {};
+    }
+    if (!esColumnaQueFalta(error)) break;
   }
   if (error) return { error: error.message, missing: isMissingTable(error.message, (error as any).code) };
   return {};

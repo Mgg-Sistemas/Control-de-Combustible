@@ -48,6 +48,7 @@ import { resumirViajes, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCa
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
 } from '../lib/ubicacionesObra';
+import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique } from '../lib/tique';
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
@@ -836,6 +837,12 @@ export default function ViajesCamionesScreen() {
       // la que tenga el listero al momento de sincronizar.
       ubicacionId: q.payload.ubicacionId ?? null,
       ubicacionNombre: q.payload.ubicacionNombre ?? null,
+      // ⚠️ SIN FOLIO, y no es un olvido: el numero lo pone la base cuando la fila
+      //    llega al servidor. Un viaje que todavia esta en la cola NO tiene tique
+      //    que entregar, y la pantalla lo dice en vez de inventar un numero.
+      folio: null,
+      placa: q.payload.placa ?? null,
+      empresa: q.payload.empresa ?? null,
       queued: true,
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
@@ -859,6 +866,11 @@ export default function ViajesCamionesScreen() {
       // la que tenga el listero al momento de sincronizar.
       ubicacionId: q.payload.ubicacionId ?? null,
       ubicacionNombre: q.payload.ubicacionNombre ?? null,
+      // Sin folio, por lo mismo que los de la cola: el número lo pone la base
+      // cuando la fila llega, y un apartado todavía no llegó.
+      folio: null,
+      placa: q.payload.placa ?? null,
+      empresa: q.payload.empresa ?? null,
       queued: true,
       stuck: true,
       stuckError: q.error,
@@ -996,6 +1008,13 @@ export default function ViajesCamionesScreen() {
         //    dejaría de cuadrar. Se graban las dos cosas —id y nombre— porque el
         //    nombre sobrevive a que la obra se borre del catálogo.
         ...obraParaGrabar(miObraId, obras),
+        // ⭐ Y LA PLACA Y LA EMPRESA POR LO MISMO (12-sep-2026, la tiquetera). El
+        //    tique impreso queda firmado en el CDT con esa placa; si el reporte
+        //    la resolviera del catálogo, corregirle la placa al camión mañana
+        //    haría que una reimpresión no coincida con el papel firmado.
+        //    Un camión fuera de catálogo no tiene ficha: ahí la seña que anotó
+        //    el listero es lo único que hay, y es mejor que nada.
+        ...datosDelCamion(esFuera ? null : selectedTruck, esFuera ? fcRef.trim() : ''),
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
@@ -1449,6 +1468,10 @@ export default function ViajesCamionesScreen() {
           //    esta carga manual lo pone en la obra equivocada — por eso el
           //    aviso de la pantalla dice que conviene cargar el mismo día.
           ...obraParaGrabar(listeros.find((l) => l.id === listero.id)?.ubicacion_id ?? null, obras),
+          // La placa y la empresa SÍ salen de la ficha de hoy, y acá sí es lo
+          // correcto: son datos del camión, no del día. La placa de un camión no
+          // cambia por cargarle un viaje de la semana pasada.
+          ...datosDelCamion(cargaTruck),
           // ⭐⭐ CLAVE ESTABLE, NO UNA NUEVA EN CADA INTENTO (02-sep-2026).
           //
           //    `nuevoClientActionId()` daba una clave distinta en cada pasada, así
@@ -2425,9 +2448,14 @@ export default function ViajesCamionesScreen() {
     const truck = row.machineryId ? truckById.get(row.machineryId) : undefined;
     // Del camión de fuera no hay placa ni serial que buscar: se muestra la seña
     // que escribió el listero, que es lo único que permite identificarlo.
+    //
+    // ⭐ DESDE LA TIQUETERA (12-sep-2026) SE MUESTRA LO QUE VA IMPRESO EN EL
+    //    TIQUE, no lo que diga el catálogo hoy. Si los dos no coinciden porque
+    //    alguien corrigió la ficha después, el papel firmado en el CDT es el que
+    //    manda, y quien mira la pantalla tiene que ver eso y no otra cosa.
     const placaSerial = row.fueraCatalogo
       ? (row.camionRef ? `Anotado a mano · ${row.camionRef}` : 'Anotado a mano por el listero')
-      : [truck?.plate ? `Placa ${truck.plate}` : null, truck?.serial ? `Serial ${truck.serial}` : null].filter(Boolean).join(' · ');
+      : `Placa ${placaDeTique(row, truck)} · ${empresaDeTique(row, truck)}`;
     return (
       <View key={row.id} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2447,6 +2475,12 @@ export default function ViajesCamionesScreen() {
               sabe cuál hay que ir a completar. Ver `CHOFER_SIN_RESPUESTA`. */}
           {esChoferSinConfirmar(row.note) ? <Badge label="👤 chofer sin confirmar" tone="warning" /> : null}
           {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
+          {/* ⭐ EL NÚMERO DEL TIQUE, que es lo que se canta por radio y lo que
+              lleva el papel que firma el CDT. Solo sale si existe: un viaje en
+              cola o anterior a la tiquetera NO tiene tique que entregar, y
+              enseñar un número provisional sería peor que no enseñar ninguno,
+              porque alguien lo cantaría y después no existiría. */}
+          {tieneTique(row) ? <Badge label={`🎫 ${folioDeTique(row)}`} tone="success" /> : null}
         </View>
         {row.stuck && row.stuckError ? (
           <Text style={{ color: '#B42318', fontSize: 11, fontStyle: 'italic' }}>{motivoLegible(row.stuckError)}</Text>

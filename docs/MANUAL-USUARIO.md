@@ -4174,6 +4174,23 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 ### Panel de información (administración)
 
+> **🎫 Cada viaje tiene su número de tique (12/09/2026).** Al registrar un viaje, la base le pone
+> un número correlativo: **CDT-000001**, **CDT-000002** y así. Sale como pastilla verde en la fila
+> del viaje, y es el número que se canta por radio y el que lleva el papel que firma el CDT.
+>
+> **La placa y la empresa quedan congeladas en el viaje.** Antes se buscaban en el catálogo cada
+> vez. Ahora el viaje guarda su propia foto, para que un tique reimpreso diga **exactamente lo
+> mismo** que el papel que ya está firmado, aunque después alguien le corrija la placa a ese camión.
+> Los cuatro camiones sin placa cargada salen con su **serial**, y la empresa sale siempre.
+>
+> ⚠️ **Un viaje sin señal NO tiene número todavía**, y la fila lo dice: el folio lo pone la base
+> cuando el viaje llega al servidor. Mientras el viaje esté en cola no hay tique que entregar. Es a
+> propósito: un número provisional se cantaría por radio y después no existiría.
+>
+> ⚠️ **Los viajes anteriores al 12/09/2026 no tienen número, y no se les va a poner.** Por esos
+> 3.384 viajes nunca se emitió un tique. Numerarlos hacia atrás inventaría papeles que no existieron.
+> El primer viaje que se registre desde ahora es el **CDT-000001**.
+
 > **📋 Todo el panel son desplegables (12/09/2026).** Antes eran seis bloques largos uno detrás
 > de otro y llegar al de abajo era media rueda de ratón; en el teléfono, peor. Ahora cada
 > apartado —**Resumen de hoy**, **Cargar viajes a mano**, **Camiones sin viaje reciente**,
