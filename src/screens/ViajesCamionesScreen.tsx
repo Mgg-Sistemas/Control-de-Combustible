@@ -52,6 +52,7 @@ import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique 
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
+import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { Plegable } from '../components/Plegable';
 import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, TURNO_ICONO, TURNO_HORARIO, turnoDeHora, HORA_INICIO_TURNO, Turno, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
@@ -2738,7 +2739,25 @@ export default function ViajesCamionesScreen() {
           // (React Native renderiza igual todos los hijos, solo los tapaba) y en
           // Android el scroll anidado casi no se puede accionar con el dedo.
           <View>
-            {misViajesDisplay.map((row) => renderRow(row, { canEdit: !row.queued && isEditableByListero(row), canDelete: false }))}
+            {/* ⭐ BORRAR DESDE «MIS VIAJES», PERO SOLO CON FULL (12-sep-2026).
+                Pedido del cliente: «no me deja eliminar los viajes, admins
+                deberían poder eliminar los viajes». Y tenía razón: el tacho
+                estaba solo en «Lista completa de viajes», así que quien
+                registraba un viaje de prueba no tenía cómo quitarlo desde
+                donde lo estaba viendo.
+
+                ⚠️ PARA EL LISTERO SIGUE APAGADO, Y ESO NO SE TOCA. Si él
+                   pudiera borrar los suyos, podría sacar trabajo de la jornada
+                   que le están revisando y nadie se enteraría. Su corrección es
+                   la hora, y nada más.
+
+                ⚠️ Y UN VIAJE EN COLA TAMPOCO SE BORRA ACÁ: todavía no existe en
+                   el servidor, así que `borrarViaje` no tendría qué borrar. Lo
+                   que se ve es una fila local esperando señal. */}
+            {misViajesDisplay.map((row) => renderRow(row, {
+              canEdit: !row.queued && isEditableByListero(row),
+              canDelete: canFull && !row.queued,
+            }))}
           </View>
         )}
       </Card>
@@ -3168,6 +3187,11 @@ export default function ViajesCamionesScreen() {
             onCambioObras={recargarObras}
             onCambioListeros={() => setListerosRecarga((n) => n + 1)}
           />
+
+          {/* Qué sale en el tique. Va acá, pegado a las obras, porque las dos
+              cosas se configuran una vez y se dejan quietas: la obra de cada
+              listero y el formato del papel. */}
+          <TiqueConfigCard uid={uid} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"

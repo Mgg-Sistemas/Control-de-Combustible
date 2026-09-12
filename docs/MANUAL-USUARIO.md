@@ -4191,6 +4191,36 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > 3.384 viajes nunca se emitió un tique. Numerarlos hacia atrás inventaría papeles que no existieron.
 > El primer viaje que se registre desde ahora es el **CDT-000001**.
 
+> **🎫 Tú decides qué sale en el tique (12/09/2026).** En el panel de información, debajo de
+> «Obras y ubicaciones», hay un desplegable nuevo: **🎫 Qué sale en el tique**. Ahí hay **un
+> interruptor por cada dato** (fecha, hora, placa, empresa, CDT, jornada, turno, equipo, marca y
+> modelo, serial, chofer, listero, metros cúbicos, estado y nota), **uno por cada logo** (SOS La
+> Guaira, Golden Touch, Plan Venezuela Renace y BCV) y la opción de **en qué papel** sale: rollo de
+> 80 mm, rollo de 58 mm, o hoja carta con 1, 2, 4 o 6 tiques.
+>
+> **Arriba de los interruptores está la vista previa**, y cambia mientras marcas. Lo que ves ahí es
+> lo que va a salir impreso.
+>
+> **Vale para todos.** No es una preferencia de tu teléfono: lo que marques es lo que imprimen los
+> chamos en el CDT. Por eso se guarda cuando tocas **Guardar** y no a cada clic, y mientras haya
+> cambios sin guardar el título del desplegable te lo dice.
+>
+> **De fábrica salen seis datos**: número del tique, fecha, hora, placa, empresa y CDT. Todo lo demás
+> arranca apagado.
+>
+> ⚠️ **El número del tique no se puede quitar.** La casilla se ve, pero no se mueve: un tique sin
+> número no identifica nada, no se puede cantar por radio y no se puede reclamar.
+
+> **🗑️ Borrar un viaje desde «Mis viajes» (12/09/2026).** El tacho estaba solo en «Lista completa de
+> viajes», así que quien registraba un viaje de prueba no tenía cómo quitarlo desde donde lo estaba
+> viendo. Ahora, **si tienes control total**, el botón de borrar aparece también en tu propia lista.
+>
+> ⚠️ **Para el listero sigue apagado, y eso no cambia.** Si él pudiera borrar los suyos, podría sacar
+> trabajo de la jornada que le están revisando y nadie se enteraría. Lo suyo es corregir la hora.
+>
+> ⚠️ **Un viaje que está esperando señal tampoco se borra ahí**: todavía no existe en el servidor, así
+> que no hay nada que borrar. Lo que ves es una fila local.
+
 > **📋 Todo el panel son desplegables (12/09/2026).** Antes eran seis bloques largos uno detrás
 > de otro y llegar al de abajo era media rueda de ratón; en el teléfono, peor. Ahora cada
 > apartado —**Resumen de hoy**, **Cargar viajes a mano**, **Camiones sin viaje reciente**,
