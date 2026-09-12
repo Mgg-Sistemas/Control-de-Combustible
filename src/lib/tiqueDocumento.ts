@@ -153,6 +153,52 @@ export const PT_MINIMO = 6;
 /** El techo. Más grande no mejora nada y desperdicia papel del rollo. */
 export const PT_MAXIMO = 11;
 
+/** Ancho de la columna de la etiqueta («PLACA», «EMPRESA») en el rollo, y el hueco
+ *  entre etiqueta y valor. Los usan DOS sitios: el CSS que dibuja la fila y la cuenta
+ *  de cuántas líneas ocupa cada valor. Si se separan, la cuenta mide otra fila. */
+export const ANCHO_ETIQUETA_ROLLO_MM = 18;
+export const GAP_FILA_MM = 2;
+
+/**
+ * Ancho promedio de una letra, en «em». Calibrado midiendo en el navegador: a 10 pt en
+ * negrita, «CDT DE PRUEBA» (13 letras) cabe en los 30 mm de la columna y «EMPRESA DE
+ * PRUEBA» (17) no. Se usa un valor un poco ANCHO a propósito: equivocarse para el lado
+ * de «ocupa más» deja unos milímetros de papel en blanco; equivocarse al revés parte
+ * el tique en dos cortes.
+ */
+const ANCHO_LETRA_EM = 0.66;
+
+/**
+ * CUÁNTAS LÍNEAS OCUPA UN VALOR en una columna de cierto ancho.
+ *
+ * Imita cómo corta el navegador: por palabras, y una palabra que no cabe sola se
+ * parte por letras (el CSS lleva `overflow-wrap:anywhere`). No tiene que acertar al
+ * milímetro; tiene que no quedarse corto.
+ */
+export function lineasDelValor(texto: unknown, anchoColumnaMm: number, pt: number): number {
+  const porLinea = Math.max(1, Math.floor(anchoColumnaMm / (pt * PT_A_MM * ANCHO_LETRA_EM)));
+  const palabras = String(texto ?? '').trim().split(/\s+/).filter(Boolean);
+  if (palabras.length === 0) return 1;
+  let lineas = 1;
+  let usadas = 0;
+  for (const p of palabras) {
+    if (p.length > porLinea) {
+      // Palabra más larga que la columna: empieza en línea nueva si la actual no está
+      // vacía, y se reparte en tantas líneas como haga falta.
+      if (usadas > 0) lineas++;
+      const trozos = Math.ceil(p.length / porLinea);
+      lineas += trozos - 1;
+      usadas = p.length - (trozos - 1) * porLinea;
+      continue;
+    }
+    const conEspacio = usadas === 0 ? p.length : usadas + 1 + p.length;
+    if (conEspacio <= porLinea) { usadas = conEspacio; continue; }
+    lineas++;
+    usadas = p.length;
+  }
+  return lineas;
+}
+
 /**
  * ALTO ESTIMADO DE UN TIQUE, en milímetros.
  *
@@ -165,7 +211,7 @@ export const PT_MAXIMO = 11;
 export function altoDelTique(
   base: number,
   renglones: number,
-  opts: { logos: boolean; reimpresion: boolean; rollo: boolean },
+  opts: { logos: boolean; reimpresion: boolean; rollo: boolean; lineasExtra?: number },
 ): number {
   const linea = (pt: number) => pt * 1.35 * PT_A_MM;
   const padding = opts.rollo ? 2 * 2 : 5 * 2;
@@ -175,7 +221,9 @@ export function altoDelTique(
   const rei = opts.reimpresion ? linea(base) + 2 + 2 + 2 : 0;
   const hr = 4;
   const firma = 5 + 6 + linea(base - 2) + 1;
-  const filas = renglones * (linea(base) + 1);
+  // Cada renglón lleva su línea y su medio milímetro arriba y abajo; cada línea de más
+  // de un valor partido suma solo otra línea, sin el relleno.
+  const filas = renglones * (linea(base) + 1) + (opts.lineasExtra ?? 0) * linea(base);
   return padding + logos + titulo + folio + rei + hr + filas + firma;
 }
 
@@ -228,6 +276,15 @@ export function avisoDeCapacidad(c: TiqueConfig): string | null {
     + (alternativa ? ` Prueba con «${label(alternativa)}», o quita datos.` : ' Quita datos o usa un rollo.');
 }
 
+/** Margen de arriba y de abajo de la página del rollo. Va en una constante porque
+ *  lo usan DOS sitios: la regla `@page` y la cuenta del alto de esa página. */
+const MARGEN_PAGINA_ROLLO_MM = 3;
+
+/** Papel de sobra al pie de cada tique de rollo. El alto es una estimación: si se
+ *  quedara corta, el navegador partiría el tique en dos cortes de papel. Ocho
+ *  milímetros de papel en blanco cuestan menos que un tique partido. */
+const HOLGURA_ROLLO_MM = 8;
+
 /**
  * EL CSS DEL DOCUMENTO.
  *
@@ -240,7 +297,7 @@ export function avisoDeCapacidad(c: TiqueConfig): string | null {
  *    recuadro, que es donde tiene que estar para firmar, y en un rollo —donde no
  *    hay alto— queda pegada debajo del último dato.
  */
-function cssComun(papel: PapelTique, base: number): string {
+function cssComun(papel: PapelTique, base: number, altoRolloMm: number | null): string {
   const m = MEDIDAS[papel];
   const rollo = m.rollo;
   const alto = m.altoMm == null ? '' : `height:${m.altoMm.toFixed(2)}mm;`;
@@ -259,8 +316,8 @@ function cssComun(papel: PapelTique, base: number): string {
     '.hr{border:0;border-top:1px solid #000;margin:2mm 0}',
     // El cuerpo es lo que crece: empuja la firma al pie del recuadro.
     '.cuerpo{flex:1 1 auto}',
-    '.fila{display:flex;gap:2mm;align-items:baseline;padding:.5mm 0}',
-    `.k{font-weight:800;text-transform:uppercase;font-size:${(base - 2).toFixed(1)}pt;letter-spacing:.3px;flex:0 0 ${rollo ? '18mm' : '22mm'};color:#333}`,
+    `.fila{display:flex;gap:${GAP_FILA_MM}mm;align-items:baseline;padding:.5mm 0}`,
+    `.k{font-weight:800;text-transform:uppercase;font-size:${(base - 2).toFixed(1)}pt;letter-spacing:.3px;flex:0 0 ${rollo ? ANCHO_ETIQUETA_ROLLO_MM : 22}mm;color:#333}`,
     '.v{flex:1 1 auto;font-weight:700;word-break:break-word;overflow-wrap:anywhere}',
     // El número del tique es lo que se canta por radio y lo que se reclama. Va
     // grande arriba de todo, no perdido entre los demás renglones.
@@ -270,7 +327,15 @@ function cssComun(papel: PapelTique, base: number): string {
     '.firma .linea{border-top:1px solid #000;margin-top:6mm;padding-top:1mm;text-align:center}',
     `.hoja{display:grid;grid-template-columns:repeat(${m.cols},1fr);gap:0;page-break-after:always;break-after:page}`,
     '.hoja:last-child{page-break-after:auto;break-after:auto}',
-    `@page{size:${rollo ? `${papel === 'rollo80' ? 80 : 58}mm auto` : 'letter'};margin:${rollo ? '3mm 4mm' : '10mm'}}`,
+    // ⚠️ EL ROLLO LLEVA ANCHO **Y** ALTO. Estaba `58mm auto`, que no es CSS válido:
+    //    Chromium descartaba la regla entera y armaba el tique en una hoja CARTA.
+    //    RawBT después achicaba esa hoja completa a los 48 mm que pinta la
+    //    tiquetera, la letra quedaba tan chica que el cabezal no la marcaba, y el
+    //    papel salía EN BLANCO. Lo reportó el usuario el 12-sep-2026 con una
+    //    MHT-P11 desde el teléfono, y se comprobó imprimiendo a PDF: la hoja medía
+    //    216 × 279 mm. La sintaxis válida es una o dos longitudes; `auto` solo vale
+    //    solo, y un solo largo sería una hoja cuadrada.
+    `@page{size:${rollo ? `${papel === 'rollo80' ? 80 : 58}mm ${Math.ceil(altoRolloMm ?? 200)}mm` : 'letter'};margin:${rollo ? `${MARGEN_PAGINA_ROLLO_MM}mm 4mm` : '10mm'}}`,
     // En pantalla (la vista previa) se ve como papel sobre una mesa oscura, para
     // que se entienda de un vistazo dónde termina una hoja y empieza la otra.
     `@media screen{body{background:#525659;padding:14px}.hoja{background:#fff;margin:0 auto 14px;padding:${rollo ? '4mm' : '10mm'};width:max-content;box-shadow:0 4px 18px rgba(0,0,0,.35)}}`,
@@ -345,13 +410,30 @@ export function documentoDeTiques(
   const hayLogos = LOGOS_TIQUE.some((l) => c.logos[l.k] && String(uris[l.k] ?? '').trim());
   const hayReimpresion = tiques.some((t) => t.reimpresion === true);
   const { pt } = tamanoQueEntra(c.papel, renglones, { logos: hayLogos, reimpresion: hayReimpresion });
+  // El alto de la página del rollo se calcula con el mismo tamaño de letra que
+  // va a salir impreso. Con otro tamaño, la página y el tique no coincidirían.
+  //
+  // ⚠️ Y CUENTA LAS LÍNEAS PARTIDAS, con los datos de verdad. En el rollo de 58 la columna
+  //    del valor mide 30 mm, y un nombre de empresa o de CDT ya no cabe en una línea.
+  //    Contando solo renglones, el tique de los 16 datos medía 172,5 mm contra 163 de
+  //    página y salía en DOS cortes (medido en el navegador el 12-sep-2026). La página
+  //    es una sola para todo el mandado, así que se usa el tique que más líneas parte.
+  const colValorMm = MEDIDAS[c.papel].anchoMm - ANCHO_ETIQUETA_ROLLO_MM - GAP_FILA_MM;
+  const lineasExtra = MEDIDAS[c.papel].rollo
+    ? Math.max(0, ...tiques.map((t) => renglonesDelTique(t.datos, c)
+      .reduce((suma, r) => suma + lineasDelValor(r.v, colValorMm, pt) - 1, 0)))
+    : 0;
+  const altoRollo = MEDIDAS[c.papel].rollo
+    ? altoDelTique(pt, renglones, { logos: hayLogos, reimpresion: hayReimpresion, rollo: true, lineasExtra })
+      + MARGEN_PAGINA_ROLLO_MM * 2 + HOLGURA_ROLLO_MM
+    : null;
 
   const hojas = enHojas(tiques, c.papel)
     .map((grupo) => `<section class="hoja">${grupo.map((t) => htmlDeUnTique(t, c, uris, opts)).join('')}</section>`)
     .join('');
   // `<title>` vacío para que el navegador no le ponga su propio encabezado a la
   // hoja impresa, igual que en el resto de los documentos del sistema.
-  return `<!doctype html><html><head><meta charset="utf-8"/><title></title><style>${cssComun(c.papel, pt)}</style></head><body>${hojas}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"/><title></title><style>${cssComun(c.papel, pt, altoRollo)}</style></head><body>${hojas}</body></html>`;
 }
 
 /** Nombre sugerido del archivo. Un tique lleva su número; un mandado lleva
