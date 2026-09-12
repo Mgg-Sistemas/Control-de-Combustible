@@ -58,6 +58,12 @@ export type CamionViajeRow = {
   /** Clave de idempotencia del registro. Sirve para saber si una fila que está
    *  en la cola local YA llegó al servidor, y no pintarla dos veces. */
   clientActionId: string | null;
+  /** OBRA donde se registró el viaje. Ver `ubicacionNombre`. */
+  ubicacionId: string | null;
+  /** Nombre de la obra, CONGELADO al registrar (foto, como `listeroName`).
+   *  Si mañana se borra la obra del catálogo, `ubicacionId` queda en null pero
+   *  este texto sigue diciendo dónde fue ese viaje. */
+  ubicacionNombre: string | null;
 };
 
 function mapRow(r: any): CamionViajeRow {
@@ -78,10 +84,63 @@ function mapRow(r: any): CamionViajeRow {
     note: (r.note ?? null) as string | null,
     registeredAt: r.registered_at as string,
     clientActionId: (r.client_action_id ?? null) as string | null,
+    ubicacionId: (r.ubicacion_id ?? null) as string | null,
+    ubicacionNombre: (r.ubicacion_nombre ?? null) as string | null,
   };
 }
 
 const SELECT_COLS = 'id, machinery_id, machine_code, fuera_catalogo, camion_ref, listero_id, listero_name, chofer_name, shift, estado_maquina, note, registered_at, client_action_id';
+
+/**
+ * ── EL MÓDULO TIENE QUE SEGUIR FUNCIONANDO ANTES DE QUE SE CORRA EL SQL ─────
+ *
+ * El código se despliega y el `.sql` de las obras se corre a mano, después. En
+ * ese hueco —minutos u horas— las columnas `ubicacion_id` y `ubicacion_nombre`
+ * NO existen todavía, y PostgREST no las ignora: devuelve 42703 y REVIENTA LA
+ * CONSULTA ENTERA. Sin esto, el listero abriría la pantalla y vería «no hay
+ * viajes» con sus viajes intactos en la base, y no podría registrar ninguno.
+ *
+ * Así que se intenta con las columnas nuevas y, si la base dice que no existen,
+ * se reintenta SIN ellas y se recuerda para el resto de la sesión. En cuanto el
+ * SQL se corra, la próxima sesión las vuelve a pedir.
+ *
+ * `null` = todavía no se sabe · `true` = están · `false` = no están.
+ */
+let hayColumnasDeObra: boolean | null = null;
+
+const COLS_OBRA = 'ubicacion_id, ubicacion_nombre';
+const colsViaje = () => (hayColumnasDeObra === false ? SELECT_COLS : `${SELECT_COLS}, ${COLS_OBRA}`);
+
+/** ¿El error es «esa columna no existe»? Solo eso: una tabla que falta es otra cosa. */
+function esColumnaQueFalta(e: any): boolean {
+  if (e?.code === '42703') return true;
+  return /column .* does not exist|could not find the .*column/i.test(String(e?.message ?? e));
+}
+
+/**
+ * Lee viajes pidiendo las columnas de obra, y si no están, sin ellas.
+ *
+ * El interruptor solo se apaga cuando el SEGUNDO intento funciona: si fallara
+ * también, el problema no eran las columnas y apagarlo dejaría el módulo sin
+ * obras el resto de la sesión por un error que no tenía nada que ver.
+ */
+async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
+  try {
+    const data = await selectAllRows('camion_viajes', colsViaje(), filtro);
+    if (hayColumnasDeObra === null) hayColumnasDeObra = true;
+    return data as any[];
+  } catch (e: any) {
+    if (hayColumnasDeObra === false || !esColumnaQueFalta(e)) throw e;
+    const data = await selectAllRows('camion_viajes', SELECT_COLS, filtro);
+    hayColumnasDeObra = false;
+    return data as any[];
+  }
+}
+
+/** Para que la pantalla pueda avisar que la obra todavía no está en la base. */
+export function faltaCorrerSqlDeObras(): boolean {
+  return hayColumnasDeObra === false;
+}
 
 /** Registra un viaje. `registeredAt` ya viene calculado por quien llama (la hora
  *  REAL del toque en el teléfono) — se inserta TAL CUAL, nunca `now()` del
@@ -102,12 +161,16 @@ export async function registrarViaje(params: {
   note?: string | null;
   registeredAt: string; // ISO
   clientActionId?: string;
+  /** OBRA del listero en el momento de registrar. Opcional: un viaje que salió
+   *  de la cola offline de antes de esta función no la trae, y eso está bien. */
+  ubicacionId?: string | null;
+  ubicacionNombre?: string | null;
 }): Promise<{ error?: string; missing?: boolean }> {
   // Las dos clases de viaje son EXCLUYENTES y la BD lo exige con un CHECK
   // (`cv_fuera_catalogo_coherente`). Se normaliza acá para que un error de quien
   // llama no llegue a la base como una violación de constraint sin explicación.
   const fuera = params.fueraCatalogo === true;
-  const { error } = await supabase.from('camion_viajes').insert({
+  const base = {
     machinery_id: fuera ? null : params.machineryId,
     machine_code: params.machineCode,
     fuera_catalogo: fuera,
@@ -120,7 +183,32 @@ export async function registrarViaje(params: {
     note: params.note ?? null,
     registered_at: params.registeredAt,
     ...(params.clientActionId ? { client_action_id: params.clientActionId } : {}),
-  });
+  };
+  const conObra = {
+    ...base,
+    ubicacion_id: params.ubicacionId ?? null,
+    ubicacion_nombre: params.ubicacionNombre ?? null,
+  };
+
+  // Mismo respaldo que en la lectura: si el `.sql` de obras todavía no se corrió,
+  // el insert con esas dos columnas rebota con 42703 y EL LISTERO NO PODRÍA
+  // REGISTRAR NI UN VIAJE. Se reintenta sin ellas y el viaje entra igual; lo
+  // único que pierde es la obra, que se puede rellenar después.
+  //
+  // ⚠️ El `client_action_id` es el MISMO en los dos intentos, así que si el
+  //    primero llegó a entrar, el segundo rebota con 23505 y quien llama ya lee
+  //    eso como «ese viaje ya estaba». No se puede duplicar por reintentar.
+  const primero = hayColumnasDeObra === false
+    ? await supabase.from('camion_viajes').insert(base)
+    : await supabase.from('camion_viajes').insert(conObra);
+  let error = primero.error;
+  if (error && hayColumnasDeObra !== false && esColumnaQueFalta(error)) {
+    const reintento = await supabase.from('camion_viajes').insert(base);
+    if (!reintento.error) hayColumnasDeObra = false;
+    error = reintento.error;
+  } else if (!error && hayColumnasDeObra === null) {
+    hayColumnasDeObra = true;
+  }
   if (error) return { error: error.message, missing: isMissingTable(error.message, (error as any).code) };
   return {};
 }
@@ -161,11 +249,11 @@ export async function listMisViajesHoy(
   try {
     // PAGINADO: un `.select()` pelado corta en ~1000 filas y, como el orden era
     // descendente, se comía los viajes MÁS VIEJOS del rango sin avisar.
-    const data = await selectAllRows('camion_viajes', SELECT_COLS, (q: any) =>
+    const data = await leerViajes((q: any) =>
       q.eq('listero_id', listeroId)
         .gte('registered_at', desdeISO)
         .lt('registered_at', hastaExclusivoISO));
-    return { rows: (data as any[]).map(mapRow).sort(porFechaDesc), missing: false };
+    return { rows: data.map(mapRow).sort(porFechaDesc), missing: false };
   } catch (e: any) {
     return fallo(e);
   }
@@ -183,14 +271,14 @@ export async function listTodosLosViajes(filtro: {
   machineryIds?: string[];
 }): Promise<{ rows: CamionViajeRow[]; missing: boolean; error?: string }> {
   try {
-    const data = await selectAllRows('camion_viajes', SELECT_COLS, (q: any) => {
+    const data = await leerViajes((q: any) => {
       let qq = q.gte('registered_at', filtro.desdeISO);
       if (filtro.hastaExclusivoISO) qq = qq.lt('registered_at', filtro.hastaExclusivoISO);
       if (filtro.listeroIds && filtro.listeroIds.length > 0) qq = qq.in('listero_id', filtro.listeroIds);
       if (filtro.machineryIds && filtro.machineryIds.length > 0) qq = qq.in('machinery_id', filtro.machineryIds);
       return qq;
     });
-    return { rows: (data as any[]).map(mapRow).sort(porFechaDesc), missing: false };
+    return { rows: data.map(mapRow).sort(porFechaDesc), missing: false };
   } catch (e: any) {
     return fallo(e);
   }
@@ -313,7 +401,7 @@ export async function setAlertaHoras(horas: number, userId: string): Promise<{ e
  * suyo. Si quedara siempre a su nombre, el resumen por listero diría que ella
  * contó viajes en el patio.
  */
-export async function listListeros(): Promise<{ id: string; full_name: string }[]> {
+export async function listListeros(): Promise<{ id: string; full_name: string; ubicacion_id: string | null }[]> {
   const [rolesRes, permsRes] = await Promise.all([
     supabase.from('app_roles').select('id, modules'),
     supabase.from('module_permissions').select('user_id, level').eq('module', 'viajes_camiones').neq('level', 'none'),
@@ -325,21 +413,51 @@ export async function listListeros(): Promise<{ id: string; full_name: string }[
     .map((r: any) => r.id as string);
   const permUserIds = (permsRes.data ?? []).map((p: any) => p.user_id as string);
   if (!roleIds.length && !permUserIds.length) return [];
+  // Mismo respaldo que en los viajes: mientras el `.sql` de obras no se corra,
+  // `profiles.ubicacion_id` no existe y pedirla dejaría a la jefa SIN LISTEROS
+  // en el desplegable de carga manual, que es mucho peor que no saber su obra.
+  const COLS_PERFIL = 'id, full_name, active';
+  const perfiles = async (filtro: (q: any) => any) => {
+    try {
+      const r = await filtro(supabase.from('profiles').select(`${COLS_PERFIL}, ubicacion_id`));
+      if (!r.error) return r;
+      if (!esColumnaQueFalta(r.error)) return r;
+    } catch { /* se reintenta abajo */ }
+    return filtro(supabase.from('profiles').select(COLS_PERFIL));
+  };
   const [byRole, byPerm] = await Promise.all([
-    roleIds.length ? supabase.from('profiles').select('id, full_name, active').in('app_role_id', roleIds) : Promise.resolve({ data: [] as any[], error: null }),
-    permUserIds.length ? supabase.from('profiles').select('id, full_name, active').in('id', permUserIds) : Promise.resolve({ data: [] as any[], error: null }),
+    roleIds.length ? perfiles((q: any) => q.in('app_role_id', roleIds)) : Promise.resolve({ data: [] as any[], error: null }),
+    permUserIds.length ? perfiles((q: any) => q.in('id', permUserIds)) : Promise.resolve({ data: [] as any[], error: null }),
   ]);
   if (byRole.error) throw byRole.error;
   if (byPerm.error) throw byPerm.error;
   const seen = new Set<string>();
-  const out: { id: string; full_name: string }[] = [];
+  const out: { id: string; full_name: string; ubicacion_id: string | null }[] = [];
   [...(byRole.data ?? []), ...(byPerm.data ?? [])].forEach((p: any) => {
     if (p.active === false || seen.has(p.id)) return;
     seen.add(p.id);
-    out.push({ id: p.id, full_name: p.full_name ?? '(sin nombre)' });
+    out.push({ id: p.id, full_name: p.full_name ?? '(sin nombre)', ubicacion_id: (p.ubicacion_id ?? null) as string | null });
   });
   out.sort((a, b) => a.full_name.localeCompare(b.full_name, 'es', { sensitivity: 'base' }));
   return out;
+}
+
+/**
+ * Pone (o quita) la OBRA de un listero. `null` = sin obra asignada.
+ *
+ * ⚠️ SOLO AFECTA A LOS VIAJES QUE VENGAN, nunca a los ya registrados: cada viaje
+ *    se llevó su obra puesta al grabarse. Mover a alguien de obra no puede
+ *    cambiar un reporte que ya se entregó.
+ */
+export async function asignarObraAListero(listeroId: string, ubicacionId: string | null): Promise<{ error?: string; falta?: boolean }> {
+  const { error } = await supabase.from('profiles').update({ ubicacion_id: ubicacionId }).eq('id', listeroId);
+  if (error) {
+    // Se distingue «falta correr el SQL» de cualquier otro fallo: son dos avisos
+    // muy distintos, y el primero lo resuelve el administrador en un minuto.
+    if (esColumnaQueFalta(error)) return { error: error.message, falta: true };
+    return { error: error.message };
+  }
+  return {};
 }
 
 /** Chofer PLANEADO del turno (tabla `machine_operators`, ya administrada por el

@@ -171,8 +171,13 @@ eq('POR DEFECTO el resumido también',
   columnasResumen(OPCIONES_POR_DEFECTO).map((c) => c.head),
   ['Camión', 'Placa / Serial', '☀️ Día', '🌙 Noche', 'Viajes']);
 eq('lo nuevo entra APAGADO',
-  [OPCIONES_POR_DEFECTO.m3, OPCIONES_POR_DEFECTO.marcaModelo, OPCIONES_POR_DEFECTO.dimensiones, OPCIONES_POR_DEFECTO.clasificacion],
-  [false, false, false, false]);
+  [OPCIONES_POR_DEFECTO.m3, OPCIONES_POR_DEFECTO.marcaModelo, OPCIONES_POR_DEFECTO.dimensiones,
+    OPCIONES_POR_DEFECTO.clasificacion, OPCIONES_POR_DEFECTO.ubicacion],
+  [false, false, false, false, false]);
+// La EMPRESA es la excepción, y a propósito: el detallado YA la traía y no se
+// podía quitar. Apagarla por defecto le quitaría una columna al reporte de
+// siempre, que es justo lo que esta sección existe para impedir.
+eq('la empresa arranca ENCENDIDA porque ya estaba', OPCIONES_POR_DEFECTO.empresa, true);
 
 const conM3 = { ...OPCIONES_POR_DEFECTO, m3: true };
 ok('encender m³ agrega su columna al detallado', columnasDetalle(conM3).some((c) => c.key === 'm3'));
@@ -195,15 +200,44 @@ eq('apagar el conteo NO desarma el detallado',
   columnasDetalle({ ...OPCIONES_POR_DEFECTO, viajes: false }).length,
   columnasDetalle(OPCIONES_POR_DEFECTO).length);
 
-const todo = { m3: true, viajes: true, marcaModelo: true, dimensiones: true, clasificacion: true, placa: true, chofer: true, listero: true, turno: true, estado: true };
-eq('con todo encendido, el detallado lleva 13 columnas', columnasDetalle(todo).length, 13);
-eq('y el resumido 9', columnasResumen(todo).length, 9);
-// Fecha, hora, empresa y camión no se pueden quitar: sin ellas la línea no
-// identifica nada. Ningún interruptor debe poder dejar la tabla sin identidad.
-const nada = { m3: false, viajes: false, marcaModelo: false, dimensiones: false, clasificacion: false, placa: false, chofer: false, listero: false, turno: false, estado: false };
+// Se arman DESDE las claves reales, no con una lista escrita a mano: un
+// interruptor nuevo que no se agregara aquí quedaría `undefined` —o sea
+// apagado— y estas cuentas dirían que todo está encendido cuando no lo está.
+// Pasó justo al sumar Empresa y Obra (12-sep-2026).
+const todasLasClaves = Object.keys(OPCIONES_POR_DEFECTO);
+const todo = Object.fromEntries(todasLasClaves.map((k) => [k, true]));
+const nada = Object.fromEntries(todasLasClaves.map((k) => [k, false]));
+eq('hay 12 interruptores', todasLasClaves.length, 12);
+eq('con todo encendido, el detallado lleva 14 columnas', columnasDetalle(todo).length, 14);
+eq('y el resumido 10', columnasResumen(todo, 'listero').length, 10);
+// Fecha, hora y camión no se pueden quitar: sin ellas la línea no identifica
+// nada. Ningún interruptor debe poder dejar la tabla sin identidad. La EMPRESA
+// salió de este mínimo el 12-sep-2026, a pedido del cliente: se puede ocultar.
 eq('ningún interruptor puede dejar el detallado sin identificar la línea',
-  columnasDetalle(nada).map((c) => c.key), ['fecha', 'hora', 'empresa', 'camion']);
+  columnasDetalle(nada).map((c) => c.key), ['fecha', 'hora', 'camion']);
 eq('ni el resumido sin decir de qué camión habla', columnasResumen(nada).map((c) => c.key), ['camion']);
+
+// ── 7b) LA COLUMNA DEL EJE NO SE REPITE EN CADA FILA ───────────────────────
+// Su valor ya está en el encabezado del grupo. Es lo que hace que agrupando por
+// empresa —que es como se abre— el resumido salga idéntico a como salía antes.
+ok('agrupando por empresa, el resumido no repite la empresa',
+  !columnasResumen(OPCIONES_POR_DEFECTO, 'empresa').some((c) => c.key === 'empresa'));
+ok('agrupando por listero, el resumido SÍ dice de qué empresa es cada camión',
+  columnasResumen(OPCIONES_POR_DEFECTO, 'listero').some((c) => c.key === 'empresa'));
+ok('agrupando por obra, también', columnasResumen(OPCIONES_POR_DEFECTO, 'ubicacion').some((c) => c.key === 'empresa'));
+// ⚠️ En el RESUMIDO cada fila es un CAMIÓN, y el mismo camión pudo trabajar en
+//    dos obras dentro del rango: una sola columna de obra tendría que elegir
+//    cuál, y cualquier elección sería falsa la mitad de las veces. Por eso la
+//    obra solo existe en el detallado, donde cada fila ES un viaje.
+ok('el resumido NUNCA lleva columna de obra, ni encendiéndola',
+  !columnasResumen({ ...OPCIONES_POR_DEFECTO, ubicacion: true }, 'listero').some((c) => c.key === 'ubicacion'));
+ok('el detallado sí la lleva al encenderla',
+  columnasDetalle({ ...OPCIONES_POR_DEFECTO, ubicacion: true }, 'listero').some((c) => c.key === 'ubicacion'));
+ok('y no la repite cuando se agrupa por obra',
+  !columnasDetalle({ ...OPCIONES_POR_DEFECTO, ubicacion: true }, 'ubicacion').some((c) => c.key === 'ubicacion'));
+// La empresa se puede apagar, que es lo que se pidió.
+ok('apagar la empresa la quita del detallado',
+  !columnasDetalle({ ...OPCIONES_POR_DEFECTO, empresa: false }).some((c) => c.key === 'empresa'));
 
 // ── 8) LOS VALORES SALEN EN EL ORDEN DE LAS COLUMNAS ────────────────────────
 const cols = columnasDetalle(conM3);
@@ -283,8 +317,14 @@ ok('...y la vista previa usa la MISMA', /volumenPorCamion\.get\(c\.key\)\?\.porV
 
 // El reporte se arma desde las columnas: si alguien vuelve a escribir los <th> a
 // mano, encabezado y celdas se desalinean sin que nada avise.
-ok('el PDF arma sus columnas con columnasDetalle', /columnasDetalle\(op\)/.test(scrS));
-ok('y con columnasResumen', /columnasResumen\(op\)/.test(scrS));
+ok('el PDF arma sus columnas con columnasDetalle', /columnasDetalle\(op, resumenEje\)/.test(scrS));
+ok('y con columnasResumen', /columnasResumen\(op, resumenEje\)/.test(scrS));
+// Desde el 12-sep-2026 las columnas dependen también del EJE: la del eje no se
+// repite en cada fila porque ya está en el encabezado del grupo. Si el PDF
+// dejara de pasarlo, el resumido por empresa volvería a traer la empresa en
+// cada línea y el papel se ensancharía sin motivo.
+ok('...y les pasa el eje, no solo las opciones',
+  /columnasDetalle\(op, resumenEje\)/.test(scrS) && /columnasResumen\(op, resumenEje\)/.test(scrS));
 ok('las celdas salen con valoresEnOrden', (scrS.match(/valoresEnOrden\(/g) ?? []).length >= 2);
 
 // El volumen se calcula sobre LO FILTRADO: si se calculara sobre el rango sin
