@@ -4162,7 +4162,24 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   jornada siga abierta (no puede borrarlo, ni tocar los de otro listero). Si tocó el camión
   equivocado, debe avisarle a su jefa para que lo corrija.
 
-### Panel de la jefa / administración
+### Panel de información (administración)
+
+> **📋 Todo el panel son desplegables (12/09/2026).** Antes eran seis bloques largos uno detrás
+> de otro y llegar al de abajo era media rueda de ratón; en el teléfono, peor. Ahora cada
+> apartado —**Resumen de hoy**, **Cargar viajes a mano**, **Camiones sin viaje reciente**,
+> **Obras y ubicaciones**, **Lista completa de viajes** y **Configuración**— se abre y se cierra
+> con un toque en su título.
+>
+> **Cerrado no es escondido:** cada título dice qué hay dentro sin abrirlo (cuántos camiones,
+> cuántos viajes, a cuántas horas está el aviso), para no tener que abrir los seis a ver cuál
+> tiene lo que buscas.
+>
+> **Arrancan abiertos** el *Resumen de hoy* y la *Lista completa de viajes*, que es lo que se
+> mira todos los días. Y **Camiones sin viaje reciente se abre solo cuando hay alguno**: una
+> alerta que hay que ir a destapar no es una alerta. El pliegue **no se guarda**: al salir y
+> volver, cada apartado arranca igual.
+>
+> (Este panel se llamaba *"Panel de la jefa"*. Es el mismo, con otro nombre.)
 
 - **Resumen de hoy:** ranking de viajes por camión (comparado contra su **meta diaria**, si tiene
   una puesta) y total por listero.
