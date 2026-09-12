@@ -52,7 +52,8 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
   const fichaPdf = async () => {
     if (!ali) return;
     const photoData = await urlToDataUri(ali.photo_url);
-    await exportPdf(fichaAliadoHtml(ali, { photoDataUri: photoData ?? undefined }), `Ficha Aliado - ${fullName(ali)}`);
+    const etq = ali.tipo === 'invitado' ? 'Invitado' : 'Aliado';
+    await exportPdf(fichaAliadoHtml(ali, { photoDataUri: photoData ?? undefined }), `Ficha ${etq} - ${fullName(ali)}`);
   };
 
   const imagenFrente = async () => {
@@ -62,7 +63,7 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
     await exportCardImage({
       styles: carnetAliadoStyles, card: carnetAliadoFront(ali, { photoOverride: photoData ?? undefined, qrSvg: svg }),
       mmW: CARNET_ALIADO_MM.w, mmH: CARNET_ALIADO_MM.h, dpi: 300,
-      fileName: `Carnet Aliado - ${fullName(ali)}`,
+      fileName: `Carnet ${ali.tipo === 'invitado' ? 'Invitado' : 'Aliado'} - ${fullName(ali)}`,
       htmlForFallback: carnetAliadoHtml(ali, { qrSvg: svg, photoOverride: photoData ?? undefined }),
     });
   };
@@ -93,7 +94,7 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
     <Screen bg={FICHA.bg} onRefresh={onRefresh} refreshing={refreshing}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
         <Image source={LOGO} style={{ width: 34, height: 34 }} resizeMode="contain" />
-        <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 15 }}>Carnet de aliado</Text>
+        <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 15 }}>{ali.tipo === 'invitado' ? 'Carnet de invitado' : 'Carnet de aliado'}</Text>
       </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
@@ -107,8 +108,11 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
           )}
           <Text style={{ color: FICHA.brand, fontWeight: '900', fontSize: 14, textAlign: 'center', marginTop: 5, zIndex: 1 }}>{fullName(ali)}</Text>
           <View style={{ backgroundColor: FICHA.brand, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 2, marginTop: 4, zIndex: 1 }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10, letterSpacing: 1 }}>ALIADO</Text>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10, letterSpacing: 1 }}>{ali.tipo === 'invitado' ? 'INVITADO' : 'ALIADO'}</Text>
           </View>
+          {ali.tipo === 'invitado' ? (
+            <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 11, marginTop: 4, textAlign: 'center', zIndex: 1 }}>{ali.organizacion || 'GOLDEN TOUCH 1127'}</Text>
+          ) : null}
           <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 5, zIndex: 1 }}>N° DE FICHA</Text>
           <Text style={{ color: FICHA.brand, fontSize: 20, fontWeight: '900', letterSpacing: 4, zIndex: 1 }}>{ali.ficha_number || '----'}</Text>
           {qrUri ? (

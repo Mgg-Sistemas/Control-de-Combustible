@@ -36,12 +36,18 @@ const FIELDS: Field[] = [
   { key: 'notes', label: 'Notas', type: 'text' },
 ];
 
+// Empresa FIJA de los invitados: su carnet dice INVITADO y lleva este nombre.
+const GOLDEN_TOUCH = 'GOLDEN TOUCH 1127';
+// Invitados: misma información pero SIN el campo organización (es fija).
+const FIELDS_INVITADO: Field[] = FIELDS.filter((f) => f.key !== 'organizacion');
+
 export default function AliadosScreen({ navigation }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const toast = useToast();
   const { data: aliados, loading, refetch } = useTable<Aliado>('aliados', { orderBy: 'first_name' });
   const [query, setQuery] = useState('');
+  const [tab, setTab] = useState<'aliado' | 'invitado'>('aliado');   // apartado activo
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Aliado | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -49,6 +55,7 @@ export default function AliadosScreen({ navigation }: any) {
   const q = norm(query.trim());
   const shown = useMemo(
     () => aliados
+      .filter((a) => (a.tipo ?? 'aliado') === tab)
       .filter((a) =>
         !q ||
         norm(fullName(a)).includes(q) ||
@@ -58,8 +65,11 @@ export default function AliadosScreen({ navigation }: any) {
         norm(a.organizacion).includes(q)
       )
       .sort((a, b) => fullName(a).localeCompare(fullName(b), 'es', { sensitivity: 'base' })),
-    [aliados, q]
+    [aliados, q, tab]
   );
+  const esInvitados = tab === 'invitado';
+  // Tipo del formulario: al editar respeta el del registro; al crear, el apartado activo.
+  const activeTipo: 'aliado' | 'invitado' = editing ? ((editing.tipo as any) ?? 'aliado') : tab;
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (a: Aliado) => { setEditing(a); setFormOpen(true); };
@@ -95,10 +105,22 @@ export default function AliadosScreen({ navigation }: any) {
     <Screen>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <SectionTitle>Aliados</SectionTitle>
+        <SectionTitle>{esInvitados ? 'Invitados' : 'Aliados'}</SectionTitle>
         <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
+          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{esInvitados ? '+ Nuevo invitado' : '+ Nuevo aliado'}</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Apartados: Aliados (normal) e Invitados (carnet INVITADO · GOLDEN TOUCH 1127) */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        {([['aliado', '🤝 Aliados'], ['invitado', '🎫 Invitados']] as const).map(([v, l]) => {
+          const on = tab === v;
+          return (
+            <TouchableOpacity key={v} onPress={() => setTab(v)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: on ? colors.brand : colors.surface, borderWidth: 1, borderColor: on ? colors.brand : colors.border }}>
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{l}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <TextInput
@@ -112,7 +134,7 @@ export default function AliadosScreen({ navigation }: any) {
       {loading && aliados.length === 0 ? (
         <Loading />
       ) : shown.length === 0 ? (
-        <EmptyState title={q ? 'Sin resultados' : 'Sin aliados'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Toca "+ Nuevo" para registrar el primero.'} />
+        <EmptyState title={q ? 'Sin resultados' : (esInvitados ? 'Sin invitados' : 'Sin aliados')} subtitle={q ? 'Prueba con otra búsqueda.' : 'Toca "+ Nuevo" para registrar el primero.'} />
       ) : (
         shown.map((a) => (
           <ExpandableCard
@@ -123,7 +145,7 @@ export default function AliadosScreen({ navigation }: any) {
                   <Image source={{ uri: a.photo_url }} style={{ width: 44, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} resizeMode="cover" />
                 ) : (
                   <View style={{ width: 44, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 24 }}>🤝</Text>
+                    <Text style={{ fontSize: 24 }}>{esInvitados ? '🎫' : '🤝'}</Text>
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
@@ -156,11 +178,13 @@ export default function AliadosScreen({ navigation }: any) {
 
       <RecordForm
         visible={formOpen}
-        title={editing ? `Editar: ${fullName(editing)}` : 'Nuevo aliado'}
+        title={editing ? `Editar: ${fullName(editing)}` : (activeTipo === 'invitado' ? 'Nuevo invitado' : 'Nuevo aliado')}
         table="aliados"
-        fields={FIELDS}
+        fields={activeTipo === 'invitado' ? FIELDS_INVITADO : FIELDS}
         record={editing as any}
         autoUserField="created_by"
+        // Invitado: se fuerza tipo + empresa GOLDEN TOUCH 1127 (aunque no haya campo visible).
+        fixedValues={activeTipo === 'invitado' ? { tipo: 'invitado', organizacion: GOLDEN_TOUCH } : { tipo: 'aliado' }}
         uniqueField={{ key: 'cedula', labelCol: 'cedula', labelName: 'cédula' }}
         allowDelete
         onClose={() => setFormOpen(false)}
