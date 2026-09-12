@@ -357,6 +357,58 @@ ok('...y nombra los tres modos de reparto', /tolva/i.test(md) && /repartir/i.tes
 ok('...y avisa de que las medidas son por dispositivo', /este dispositivo/i.test(md));
 ok('el manual en pantalla también lo explica', /CUBICAJE/.test(ms));
 
+// ── 11b) LOS SEIS APARTADOS SON DESPLEGABLES (12-sep-2026) ──────────────────
+// Pedido del cliente, el mismo que se hizo en la sub-pestaña de viajes. Se
+// CUENTAN en vez de mirar uno: si alguien agrega un bloque nuevo con <Card>
+// suelto, el apartado vuelve a crecer sin que nada avise, que es justo lo que
+// esto vino a arreglar.
+eq('los seis apartados del cubicaje son plegables', (tabS.match(/<Plegable[\s>]/g) || []).length, 6);
+eq('...y ninguno quedó como tarjeta fija con título', (tabS.match(/<SectionTitle>/g) || []).length, 0);
+
+// ⚠️ CERRADO NO ES ESCONDIDO: el encabezado tiene que decir qué hay dentro, o
+//    seis desplegables mudos son una búsqueda a ciegas.
+eq('cada apartado dice qué hay dentro sin abrirlo', (tabS.match(/resumen=/g) || []).length, 6);
+// Los dos que se consultan de un vistazo —los indicadores y la lista— arrancan
+// abiertos. Los cuatro que son formulario o botón, no.
+eq('solo dos arrancan abiertos', (tabS.match(/abiertaPorDefecto(?![=])/g) || []).length, 2);
+ok('los indicadores de la flota arrancan abiertos',
+  /titulo="📊 Capacidad de la flota medida"[\s\S]{0,300}?abiertaPorDefecto/.test(tabS));
+ok('y la lista de unidades medidas también',
+  /titulo="📋 Unidades medidas"[\s\S]{0,400}?abiertaPorDefecto/.test(tabS));
+
+// ⚠️ UNA ADVERTENCIA QUE HAY QUE DESTAPAR NO ADVIERTE. Los dos avisos de arriba
+//    —falta el SQL, falló leer las medidas— siguen siendo tarjetas fijas. Si
+//    alguien los pliega «por consistencia», el usuario deja de enterarse de que
+//    está trabajando contra el dispositivo y no contra la base.
+eq('los avisos de arriba NO se pliegan', (tabS.match(/<Card>/g) || []).length, 3);
+ok('el aviso de que falta el SQL sigue suelto', /<Card>\s*\n\s*<Text[^>]*>\s*⏳ Falta correr el SQL/.test(tabS));
+
+// El encabezado plegado dice cuántas faltan por medir. Si eso se calculara
+// restando, las medidas A MANO —que no tienen camión del catálogo— descontarían
+// unidades que nunca estuvieron en la cuenta y diría que falta menos.
+ok('las que faltan por medir se cuentan contra el catálogo',
+  /visibles\.filter\(\(t\) => !cub\.porTruck\.has\(t\.id\)\)\.length/.test(tabS));
+ok('...y no restando las medidas', !/visibles\.length - medidasVistas\.length/.test(tabS));
+
+// El nombre del modo sale de MODOS: un modo nuevo aparece solo, y renombrar uno
+// no deja el nombre viejo colgado en el encabezado.
+ok('el encabezado del reparto toma el nombre del modo de MODOS',
+  /MODOS\.find\(\(m\) => m\.key === cub\.modo\)\?\.label/.test(tabS));
+
+// El pliegue vive en la pantalla y nada más: recordarlo por dispositivo hace que
+// el mismo apartado se vea distinto en otro teléfono.
+ok('el plegable no guarda el pliegue en ningún lado',
+  !/AsyncStorage|localStorage/.test(leer('src/components/Plegable.tsx')));
+
+// Y el manual lo cuenta, en los dos sitios.
+ok('el manual .md dice que el cubicaje son desplegables',
+  /Cubicaje también son desplegables \(12\/09\/2026\)/.test(md));
+ok('...y que los dos avisos siguen a la vista', /avisos de arriba no se pliegan/i.test(md));
+ok('el manual en pantalla también lo dice',
+  /EL CUBICAJE TAMBIÉN SON DESPLEGABLES \(12\/09\/2026\)/.test(ms));
+ok('...y nombra los dos que arrancan abiertos',
+  /ARRANCAN ABIERTOS Capacidad de la flota medida y Unidades medidas/.test(ms));
+
 
 // ── 12) LO GUARDADO MANDA SOBRE LO CALCULADO ────────────────────────────────
 const {

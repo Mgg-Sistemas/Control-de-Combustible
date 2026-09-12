@@ -4244,9 +4244,25 @@ también lo que ves en pantalla: **lo que se ve es lo que se imprime**.
 
 ### 📐 Cubicaje y reporte volumétrico (09-sep-2026)
 
-El panel de la jefa quedó partido en **dos sub-pestañas**: **🚛 Viajes** (todo lo de siempre, y es
+El panel de información quedó partido en **dos sub-pestañas**: **🚛 Viajes** (todo lo de siempre, y es
 la que abre) y **📐 Cubicaje y volumen**, que es nueva. Sirve para decir **cuántos metros cúbicos**
 cargó cada camión en un día o en un rango, y para armar el reporte quitando y poniendo columnas.
+
+> **📐 Cubicaje también son desplegables (12/09/2026).** Los seis apartados de esta sub-pestaña
+> —**Medir una volqueta**, **Capacidad de la flota medida**, **Unidades medidas**, **Cómo se le
+> cargan los m³ a los viajes**, **Buscar en el histórico** y **Reporte volumétrico de flota**— se
+> abren y se cierran con un toque en su título, igual que los de 🚛 Viajes.
+>
+> **Cerrado no es escondido:** cada título dice qué hay dentro sin abrirlo (cuántas unidades faltan
+> por medir, el promedio de la flota, con qué modo se están repartiendo los m³, cuánto hay guardado
+> en el período).
+>
+> **Arrancan abiertos** *Capacidad de la flota medida* y *Unidades medidas*, que es lo que se mira de
+> un vistazo. El pliegue **no se guarda**: al salir y volver, cada apartado arranca igual.
+>
+> **Los dos avisos de arriba no se pliegan:** el de *"falta correr el SQL"* y el de *"no se pudieron
+> leer las medidas guardadas"* siguen siempre a la vista. Una advertencia que hay que ir a destapar
+> no advierte.
 
 > ✅ **Las medidas y los m³ quedan guardados para todos, y se pueden buscar después.** Requiere correr
 > `03_cubicaje_camiones.sql`, que se entrega aparte y **no** va en el repositorio porque es público.

@@ -1,8 +1,14 @@
 // SUB-PESTAÑA «CUBICAJE Y REPORTE VOLUMÉTRICO» (09-sep-2026).
 //
-// Vive dentro del panel de la jefa de «Ruta de viajes de camiones». Mide la
+// Vive dentro del panel de información de «Ruta de viajes de camiones». Mide la
 // tolva de cada volqueta, guarda los m³ que cargó cada camión día por día, y
 // deja buscar ese histórico por día, por mes o por camión.
+//
+// ⚠️ SUS SEIS APARTADOS SON DESPLEGABLES (12-sep-2026), igual que los de la
+//    sub-pestaña de viajes: ver src/components/Plegable.tsx, que explica por qué
+//    el encabezado tiene que decir qué hay dentro y por qué el pliegue no se
+//    guarda. Los DOS AVISOS de arriba —falta el SQL, falló leer— se quedan
+//    fijos a propósito: una advertencia que hay que ir a destapar no advierte.
 //
 // ⚠️ EL CATÁLOGO DE VEHÍCULOS SE LEE Y NADA MÁS. Acá no hay un solo insert,
 //    update ni delete contra `machinery`. Lo que se escribe son DOS TABLAS
@@ -24,7 +30,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Card, SectionTitle, Loading } from './ui';
+import { Card, Loading } from './ui';
+import { Plegable } from './Plegable';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
@@ -577,6 +584,19 @@ export function CubicajeTab({
   const k = useMemo(() => kpis(medidasVistas.map(volumenDe)), [medidasVistas]);
 
   /**
+   * CUÁNTAS UNIDADES DE LA VISTA SIGUEN SIN MEDIDA.
+   *
+   * ⚠️ NO es `visibles.length - medidasVistas.length`: `medidasVistas` incluye
+   *    las medidas A MANO, que no tienen camión del catálogo detrás. Restando se
+   *    descontarían unidades que nunca estuvieron en `visibles` y el encabezado
+   *    diría que falta menos de lo que falta. Se cuenta contra el catálogo.
+   */
+  const sinMedir = useMemo(
+    () => visibles.filter((t) => !cub.porTruck.has(t.id)).length,
+    [visibles, cub.porTruck]
+  );
+
+  /**
    * A quién se le puede escribir un total a mano: a TODO camión con viajes en
    * el rango, medido o no. Si la lista saliera solo de lo medido, para anotarle
    * 40 m³ a un camión habría que inventarle antes unas medidas de tolva que
@@ -596,6 +616,13 @@ export function CubicajeTab({
     [visibles, viajesPorCamion, cub.porTruck]);
 
   const totalViajes = asignables.reduce((a, b) => a + b.viajes, 0);
+
+  /**
+   * El nombre del modo, para decirlo en el encabezado plegado. Sale de MODOS y
+   * no de un texto escrito acá: un modo nuevo tiene que aparecer solo, y si se
+   * le cambia el nombre no puede quedar uno viejo colgado en el encabezado.
+   */
+  const modoActual = MODOS.find((m) => m.key === cub.modo)?.label ?? 'Sin modo';
 
   // ── GUARDAR EL CÁLCULO DEL RANGO ─────────────────────────────────────────
   const porViaje = useMemo(() => {
@@ -830,8 +857,12 @@ export function CubicajeTab({
         </Card>
       ) : null}
 
-      <Card>
-        <SectionTitle>📐 Medir una volqueta</SectionTitle>
+      <Plegable
+        titulo="📐 Medir una volqueta"
+        resumen={sinMedir > 0
+          ? `${sinMedir} unidad(es) de la vista todavía sin medir`
+          : `Todas las unidades de la vista están medidas · ${medidasVistas.length} medida(s)`}
+      >
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
           {cub.sinTabla
             ? 'Por ahora las medidas se guardan en este dispositivo y no las ve otra persona.'
@@ -951,10 +982,15 @@ export function CubicajeTab({
             </View>
           </View>
         ) : null}
-      </Card>
+      </Plegable>
 
-      <Card>
-        <SectionTitle>📊 Capacidad de la flota medida</SectionTitle>
+      <Plegable
+        titulo="📊 Capacidad de la flota medida"
+        resumen={k.n
+          ? `${k.n} unidad(es) · promedio ${k.promedio.toFixed(2)} m³ · mayor ${k.mayor.toFixed(2)} m³`
+          : 'Todavía no hay ninguna unidad medida'}
+        abiertaPorDefecto
+      >
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
           <Kpi ico="⬆️" titulo="MAYOR" valor={k.n ? k.mayor.toFixed(2) : '—'} />
           <Kpi ico="⬇️" titulo="MENOR" valor={k.n ? k.menor.toFixed(2) : '—'} />
@@ -974,10 +1010,14 @@ export function CubicajeTab({
             );
           })}
         </View>
-      </Card>
+      </Plegable>
 
-      <Card>
-        <SectionTitle>📋 Unidades medidas ({medidasVistas.length})</SectionTitle>
+      <Plegable
+        titulo="📋 Unidades medidas"
+        resumen={`${medidasVistas.length} unidad(es) medida(s)${cub.apartadas.length ? ` · ${cub.apartadas.length} apartada(s)` : ''}`}
+        alerta={cub.apartadas.length > 0}
+        abiertaPorDefecto
+      >
         {/* Con ochenta y nueve unidades del mismo modelo, sin buscador la lista
             no sirve para encontrar una en particular. */}
         <TextInput
@@ -1083,10 +1123,12 @@ export function CubicajeTab({
             })}
           </ScrollView>
         )}
-      </Card>
+      </Plegable>
 
-      <Card>
-        <SectionTitle>🧮 Cómo se le cargan los m³ a los viajes</SectionTitle>
+      <Plegable
+        titulo="🧮 Cómo se le cargan los m³ a los viajes"
+        resumen={`${modoActual} · ${totalViajes} viaje(s) en ${rango.etiqueta}`}
+      >
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
           Se aplica al <Text style={{ fontWeight: '800' }}>mismo rango</Text> que tengas en «Lista completa de viajes»
           ({rango.etiqueta}). Ahí hay {totalViajes} viaje(s) de unidades del catálogo.
@@ -1146,10 +1188,14 @@ export function CubicajeTab({
           Guardar CONGELA estos números por día. Lo guardado manda sobre el cálculo en todos los reportes, para que un
           mes viejo salga siempre igual aunque después se cambie el modo o se corrija una medida.
         </Text>
-      </Card>
+      </Plegable>
 
-      <Card>
-        <SectionTitle>🔎 Buscar en el histórico</SectionTitle>
+      <Plegable
+        titulo="🔎 Buscar en el histórico"
+        resumen={totalHist.viajes > 0
+          ? `${m3Texto(totalHist.m3)} m³ guardados · ${totalHist.viajes} viaje(s) · ${rango.etiqueta}`
+          : `Nada guardado todavía en ${rango.etiqueta}`}
+      >
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
           Sale de lo guardado, en {rango.etiqueta}. Para cambiar el período usa los botones de fecha de «Lista completa
           de viajes» (Hoy · Esta semana · Este mes · Rango libre · Días específicos).
@@ -1220,10 +1266,12 @@ export function CubicajeTab({
             ))}
           </ScrollView>
         ) : null}
-      </Card>
+      </Plegable>
 
-      <Card>
-        <SectionTitle>📄 Reporte volumétrico de flota</SectionTitle>
+      <Plegable
+        titulo="📄 Reporte volumétrico de flota"
+        resumen={`El PDF de análisis técnico · ${k.n} unidad(es) medida(s) entran`}
+      >
         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
           El documento de análisis técnico: tarjetas de mayor, menor y promedio, las tablas con su clasificación por
           color, el análisis logístico y las recomendaciones. Si hay histórico guardado en el período, va incluido.
@@ -1246,7 +1294,7 @@ export function CubicajeTab({
             {ocupado ? 'Generando…' : '📄 Generar reporte volumétrico'}
           </Text>
         </TouchableOpacity>
-      </Card>
+      </Plegable>
     </>
   );
 }
