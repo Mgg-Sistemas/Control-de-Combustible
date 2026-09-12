@@ -4678,6 +4678,58 @@ indistinguibles, y un camión no hace dos viajes en el mismo instante.
 
 **Quitar.** En la lista completa, filtras el día y le das **"🗑️ Borrar"** a los que sobren.
 
+#### 🏗️ Obras y ubicaciones (12/09/2026)
+
+Los listeros trabajan en **obras** distintas —*CDT Parque del Agua*, *SanteDubi*, *CDF*,
+*CDT Playa Escondida*— y ahora el sistema lo sabe, para poder sacar el reporte **por obra**
+además de por empresa y por listero.
+
+**Dónde está:** en el panel de la jefa, tarjeta **"🏗️ Obras y ubicaciones"**, encima de
+*"Lista completa de viajes"*. Solo la ve quien tiene acceso **full** al módulo.
+
+**Qué se puede hacer ahí:**
+
+- **Crear una obra** — escribe el nombre y toca *"+ Crear"*. No deja repetir una que ya exista,
+  aunque se escriba con otras mayúsculas o con espacios de más: *"CDF"* y *"cdf "* son la misma.
+- **Renombrarla** con el lápiz. Los viajes ya registrados **conservan el nombre que tenían**.
+- **Desactivarla** (🚫) — deja de ofrecerse para asignar, pero sus viajes siguen contando. Es lo
+  que conviene hacer con una obra que se cerró.
+- **Borrarla** (🗑️) — pregunta antes. **Los viajes no se borran** y siguen diciendo en qué obra
+  fueron; los listeros que estaban ahí quedan sin obra.
+- **Asignarle una obra a cada listero**, y **moverlo** a otra cuando haga falta. Abajo se lista
+  cada listero con su obra, y los que **no tienen ninguna** salen marcados.
+
+> **⚠️ Mover a un listero de obra NO cambia sus viajes ya registrados.** Cada viaje se guardó con
+> la obra que ese listero tenía **el día que lo registró**. Si el reporte mirara la obra de hoy,
+> mover a alguien cambiaría sus viajes de agosto de sitio y **un informe ya entregado dejaría de
+> cuadrar** con el que se saque mañana del mismo rango. Lo que cambia al moverlo son los viajes
+> **de aquí en adelante**.
+
+> **Los viajes anteriores a esta función salen en "Sin ubicación"**, y es lo correcto: no hay
+> forma de saber en qué obra estaba cada quien en agosto, y rellenarlo con la obra de hoy daría
+> un reporte completo y **falso**. Si necesitas el histórico por obra, se puede rellenar con una
+> corrección puntual en la base de datos, pero hay que decir quién estuvo dónde y desde cuándo.
+
+**El reporte por obra:** en *"Agrupar por"* hay ahora una tercera pastilla, **🏗️ Obra**, junto a
+🏢 Empresa y 👤 Listero. Sale el **resumen por obra**, con su PDF y su propio nombre de archivo.
+Y entre los filtros hay chips de **OBRA**, para pedir una o varias.
+
+> **Agrupar no filtra:** el total es **el mismo** en los tres ejes. Cambiar de eje reparte los
+> mismos viajes de otra manera, no saca ni agrega ninguno.
+
+**Dos columnas nuevas en "🖨️ Qué sale en el reporte":**
+
+- **🏢 Empresa** — ya salía en el detallado y **no se podía quitar**; ahora sí. Viene encendida,
+  así que sin tocar nada el reporte sale igual que antes. Agrupando por listero o por obra,
+  aparece también en el **resumido**, para saber de qué empresa es cada camión.
+- **🏗️ Obra / ubicación** — viene **apagada**, como todo lo nuevo. Enciéndela y el detallado dice
+  en qué obra fue cada viaje. En el **resumido no existe**, a propósito: ahí cada línea es un
+  camión, y el mismo camión pudo trabajar en dos obras dentro del rango.
+
+> **🔎 Y para pedirlo por empresas concretas ya existía:** entre los filtros, encima de CAMIÓN,
+> está **EMPRESA** con un chip por cada una y su cantidad. Solo aparece cuando hay **más de una**
+> empresa en el rango que estés viendo.
+
 #### ✏️ Editar un viaje completo
 
 El botón de la lista completa ahora dice **"✏️ Editar"** (antes *"Editar hora"*) y abre **cuatro**

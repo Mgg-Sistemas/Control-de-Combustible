@@ -1273,6 +1273,8 @@ export function OpcionesReporteBox({
     { k: 'marcaModelo', label: '🏷️ Marca y modelo' },
     { k: 'dimensiones', label: '📏 Alto, largo y ancho' },
     { k: 'clasificacion', label: '🔶 Clasificación por capacidad' },
+    { k: 'empresa', label: '🏢 Empresa', ayuda: modoResumen ? 'De qué empresa es cada camión. No sale si ya estás agrupando por empresa: ahí lo dice el encabezado.' : 'De qué empresa es el camión de esa línea.' },
+    { k: 'ubicacion', label: '🏗️ Obra / ubicación', ayuda: 'En qué obra se registró el viaje. No sale si ya estás agrupando por obra.' },
     { k: 'placa', label: '🚗 Placa / serial' },
     { k: 'chofer', label: '👤 Chofer', ayuda: modoResumen ? 'Solo en el detallado.' : undefined },
     { k: 'listero', label: '📝 Listero', ayuda: modoResumen ? 'Solo en el detallado.' : undefined },

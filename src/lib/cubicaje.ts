@@ -257,6 +257,16 @@ export type OpcionesReporte = {
   listero: boolean;
   turno: boolean;
   estado: boolean;
+  /**
+   * A qué EMPRESA pertenece el camión.
+   *
+   * En el detallado ya salía siempre y no se podía quitar; ahora se puede. En el
+   * resumido es nueva: agrupando por listero o por obra, el papel enseñaba los
+   * camiones sin decir de quién eran.
+   */
+  empresa: boolean;
+  /** En qué OBRA se registró el viaje (la que tenía el listero ese día). */
+  ubicacion: boolean;
 };
 
 /**
@@ -277,19 +287,34 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   listero: true,
   turno: true,
   estado: true,
+  // ENCENDIDA porque el detallado YA traía la empresa y no se podía quitar:
+  // apagarla por defecto le quitaría una columna al reporte de siempre. En el
+  // resumido no aparece salvo que se agrupe por otra cosa (ver `columnasResumen`).
+  empresa: true,
+  // APAGADA porque es nueva. Quien no la encienda saca el mismo papel de ayer.
+  ubicacion: false,
 };
 
 export type ColSpec = { key: string; head: string; num?: boolean };
 
-/** Columnas del reporte DETALLADO (una línea por viaje), en orden. Fecha, hora,
- *  empresa y camión no se pueden quitar: sin ellas la línea no identifica nada. */
-export function columnasDetalle(op: OpcionesReporte): ColSpec[] {
+/**
+ * Columnas del reporte DETALLADO (una línea por viaje), en orden.
+ *
+ * Fecha, hora y camión no se pueden quitar: sin ellas la línea no identifica
+ * nada. La EMPRESA sí se puede desde el 12-sep-2026, a pedido — antes era fija.
+ *
+ * `eje` es por cuál se está agrupando el reporte: la columna de ese eje se omite
+ * porque su valor ya está en el encabezado del grupo y repetirlo en cada fila
+ * solo gasta ancho de página.
+ */
+export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
   const c: ColSpec[] = [
     { key: 'fecha', head: 'Fecha' },
     { key: 'hora', head: 'Hora' },
-    { key: 'empresa', head: 'Empresa' },
-    { key: 'camion', head: 'Camión' },
   ];
+  if (op.empresa) c.push({ key: 'empresa', head: 'Empresa' });
+  c.push({ key: 'camion', head: 'Camión' });
+  if (op.ubicacion && eje !== 'ubicacion') c.push({ key: 'ubicacion', head: 'Obra' });
   if (op.placa) c.push({ key: 'placa', head: 'Placa / Serial' });
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });
@@ -304,8 +329,21 @@ export function columnasDetalle(op: OpcionesReporte): ColSpec[] {
 
 /** Columnas del reporte RESUMIDO (una línea por camión). Apagar «viajes» deja
  *  el reporte puramente volumétrico: camión, medida y m³. */
-export function columnasResumen(op: OpcionesReporte): ColSpec[] {
+export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
   const c: ColSpec[] = [{ key: 'camion', head: 'Camión' }];
+  // La columna del EJE no va: su valor ya está en el encabezado del grupo. Por
+  // eso agrupando por empresa —que es como se abre— el resumido sale idéntico a
+  // como salía antes de que esta columna existiera.
+  //
+  // Un camión pertenece a UNA empresa, así que la columna tiene un valor claro.
+  if (op.empresa && eje !== 'empresa') c.push({ key: 'empresa', head: 'Empresa' });
+  //
+  // ⚠️ Y NO HAY COLUMNA DE OBRA EN EL RESUMIDO, a propósito: cada fila es un
+  //    CAMIÓN, y el mismo camión puede haber hecho viajes en dos obras dentro
+  //    del rango. Poner una sola obra ahí obligaría a elegir cuál mostrar, y
+  //    cualquier elección sería mentira la mitad de las veces. La obra se ve en
+  //    el detallado —donde cada fila ES un viaje— y en el encabezado del grupo
+  //    cuando se agrupa por obra.
   if (op.placa) c.push({ key: 'placa', head: 'Placa / Serial' });
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });
