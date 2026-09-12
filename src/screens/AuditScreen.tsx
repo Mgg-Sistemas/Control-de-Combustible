@@ -9,6 +9,9 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
 import { fieldLabel, changesSummary } from '../lib/auditLabels';
+// Los MÓDULOS son las SECCIONES DE LA APP (Control, Inspecciones, Nómina…), no las
+// tablas de la base. La regla vive en su librería para poder probarla; ver el archivo.
+import { MODULOS_AUDITORIA, etiquetaModulo, etiquetaPastilla, filaEnModulos } from '../lib/auditModulos';
 import {
   cambiosEstadoMaquina, esCambioDeEstadoMaquina, conteoPorEstado, acompanantes,
   TABLAS_CON_ESTADO, CambioEstadoMaquina,
@@ -114,31 +117,14 @@ const TABLE_LABEL: Record<string, string> = {
 };
 const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
 
-// Agrupación de las tablas de negocio en MÓDULOS (áreas para el dueño del negocio,
-// no para un programador): alimenta el filtro "por módulo" y el "agrupar por módulo".
-// Cubre exactamente las tablas que el trigger audit_row() vigila (supabase/audit.sql);
-// si un día se agrega una tabla ahí, agregarla también aquí (si no, cae en "Otro").
-type ModuleDef = { key: string; label: string; icon: string; tables: string[] };
-// ⚠️ SI SE AUDITA UNA TABLA NUEVA, AGRÉGALA ACÁ. Lo que no esté en esta lista cae en
-//    "📁 Otro" y el agrupado por módulo deja de servir. `scripts/test-auditoria-labels.mjs`
-//    verifica que ninguna tabla con trigger de auditoría se quede fuera (20-ago-2026:
-//    faltaban 11 y por eso medio sistema salía como "Otro").
-const MODULES: ModuleDef[] = [
-  { key: 'combustible', label: 'Combustible', icon: '⛽', tables: ['tanks', 'fuel_intakes', 'dispatches', 'transfers', 'authorizations', 'price_tariffs', 'company_price_tariffs', 'stock_movements'] },
-  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs', 'machine_guards', 'service_intervention_types', 'machinery_service_orders', 'machinery_service_parts'] },
-  { key: 'viajes', label: 'Viajes de camiones', icon: '🚛', tables: ['camion_viajes'] },
-  { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments', 'machine_operators', 'machine_inspectors', 'machine_inspections'] },
-  { key: 'nomina', label: 'Nómina y personal', icon: '👷', tables: ['employees', 'payroll_companies', 'attendance', 'uniform_deliveries', 'staff_pay_payments', 'staff_pay_periods', 'payroll_periods', 'aliados'] },
-  { key: 'empresas', label: 'Empresas y facturación', icon: '🏢', tables: ['companies', 'company_payments'] },
-  { key: 'inventario', label: 'Inventario y compras', icon: '📦', tables: ['inventory_items', 'inventory_movements', 'inventory_transfers', 'purchase_orders', 'purchase_requests', 'suppliers'] },
-  { key: 'alimentacion', label: 'Alimentación', icon: '🍽️', tables: ['food_distributions', 'food_company_meals'] },
-  { key: 'obras', label: 'Obras Públicas', icon: '🏗️', tables: ['op_edificio_base', 'op_edificio_removidos'] },
-  { key: 'usuarios', label: 'Usuarios y permisos', icon: '🔑', tables: ['profiles', 'app_roles', 'module_permissions'] },
-  { key: 'avisos', label: 'Avisos del sistema', icon: '🔔', tables: ['notifications', 'notification_reads'] },
-];
-const TABLE_TO_MODULE = new Map<string, ModuleDef>();
-MODULES.forEach((mod) => mod.tables.forEach((t) => TABLE_TO_MODULE.set(t, mod)));
-const moduleOf = (t: string) => TABLE_TO_MODULE.get(t) ?? null;
+// Los MÓDULOS (el filtro "por módulo" y el "agrupar por módulo") viven en
+// `src/lib/auditModulos.ts`. Son las SECCIONES DE LA APP —Catálogo, Control,
+// Inspecciones, Servicio, Nómina…—, no cajones por tabla de base de datos.
+//
+// Antes estaban acá, cortados por tabla, y "Maquinaria y flota" se tragaba el
+// Catálogo, el Control, el Servicio, el Mantenimiento y la flota en un solo
+// grupo (pedido del cliente, 07-sep-2026). Se movieron a la librería para poder
+// probar el reparto por comportamiento: `scripts/test-auditoria-modulos.mjs`.
 
 // Tablas relacionadas con DINERO (pagos, tarifas, compras): cruzan varios módulos, por
 // eso van aparte y alimentan solo el filtro rápido "💰 Solo cambios de dinero".
@@ -156,6 +142,15 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
   JORNADA_INICIO: { icon: '🟢', label: 'inició jornada', color: '#15803D' },
   JORNADA_FIN: { icon: '🏁', label: 'finalizó jornada', color: '#2563EB' },
   PARADA: { icon: '🟡', label: 'marcó PARADA', color: '#D9A200' },
+  // ⭐ La corrección EXCEPCIONAL de un viaje: la que toca un día que ya cerró.
+  //    Sin esta entrada igual se vería (la línea de abajo cae a un genérico con
+  //    la acción en minúsculas), pero el pedido del cliente fue poder
+  //    IDENTIFICARLAS FÁCILMENTE — y con nombre y color propios se encuentran de
+  //    un vistazo entre miles de filas, además de poderse buscar por su texto.
+  //    Ojo: acá NO llegan las correcciones normales del día. Esas las registra
+  //    el trigger `trg_audit` de `camion_viajes` como un UPDATE cualquiera, y se
+  //    dejó así a propósito para no llenar la bitácora de ruido.
+  EDIT_VIAJE_FUERA_JORNADA: { icon: '🚚', label: 'corrigió un viaje de OTRO DÍA', color: '#B45309' },
 };
 // Eventos de la app: el "objeto" de la acción es el detalle (código de máquina),
 // no el nombre de la tabla; y no llevan preposición ("creó Máquina" vs "escaneó CARGADOR 01").
@@ -172,6 +167,18 @@ const ACTION_BUCKETS: { key: string; label: string }[] = [
   { key: 'UPDATE', label: '✏️ Modificó' },
   { key: 'DELETE', label: '🗑️ Eliminó' },
   { key: 'EVENTOS', label: '📋 Eventos de app' },
+  // ⭐ SIN ESTA PASTILLA, LA CORRECCIÓN EXCEPCIONAL SE ESCONDÍA.
+  //
+  //    `actionBucket` devuelve la acción cruda para todo lo que no es evento de
+  //    app, así que estas filas caen en un cajón propio. Si el cajón no está
+  //    listado pasan dos cosas malas a la vez: no hay forma de pedirlas, y —peor—
+  //    al marcar «✏️ Modificó» para buscar ediciones de viajes DESAPARECEN, y
+  //    quien busca ve solo el UPDATE genérico del trigger, que parece rutina.
+  //
+  //    El cliente pidió esto justamente para «poder identificar fácilmente esos
+  //    cambios»: un filtro de un toque es la mitad de esa promesa (la otra mitad
+  //    es que la fila diga qué camión, con su placa).
+  { key: 'EDIT_VIAJE_FUERA_JORNADA', label: '🚚 Viajes de otro día' },
 ];
 
 // Favorito de auditoría: una combinación COMPLETA de filtros guardada con nombre, para
@@ -615,8 +622,8 @@ export default function AuditScreen() {
     if (userFilter !== '__all__' && r.user_name !== userFilter) return false;
     if (tableFilter !== '__all__' && r.table_name !== tableFilter) return false;
     if (moduleFilter.size > 0) {
-      const mod = moduleOf(r.table_name);
-      if (!mod || !moduleFilter.has(mod.key)) return false;
+      // Por (tabla + acción): una JORNADA sobre `machinery` es de Control, no del Catálogo.
+      if (!filaEnModulos(r, moduleFilter)) return false;
     }
     if (actionFilter.size > 0 && !actionFilter.has(actionBucket(r))) return false;
     if (moneyOnly && !MONEY_TABLES.has(r.table_name)) return false;
@@ -647,7 +654,7 @@ export default function AuditScreen() {
   const groupedSections = useMemo(() => {
     if (groupBy === 'none') return null;
     const titleOf = (r: AuditLog): string => {
-      if (groupBy === 'modulo') { const m = moduleOf(r.table_name); return m ? `${m.icon} ${m.label}` : '📁 Otro'; }
+      if (groupBy === 'modulo') return etiquetaModulo(r);
       if (groupBy === 'usuario') return r.user_name || 'Sin usuario (registro antiguo)';
       return dmy(caracasDateISO(r.at));
     };
@@ -708,7 +715,7 @@ export default function AuditScreen() {
       q.trim() ? `Búsqueda: "${q.trim()}"` : '',
       userFilter !== '__all__' ? `Usuario: ${userFilter}` : '',
       tableFilter !== '__all__' ? `Tipo: ${tableLabel(tableFilter)}` : '',
-      moduleFilter.size ? `Módulos: ${MODULES.filter((m) => moduleFilter.has(m.key)).map((m) => m.label).join(', ')}` : '',
+      moduleFilter.size ? `Módulos: ${MODULOS_AUDITORIA.filter((m) => moduleFilter.has(m.key)).map((m) => m.label).join(', ')}` : '',
       actionFilter.size ? `Acciones: ${ACTION_BUCKETS.filter((b) => actionFilter.has(b.key)).map((b) => b.label.replace(/^\S+\s/, '')).join(', ')}` : '',
       moneyOnly ? 'Solo cambios de dinero' : '',
       estadoMaqOnly ? 'Solo estados de máquina (retirada / reactivada / en espera…)' : '',
@@ -1234,8 +1241,16 @@ export default function AuditScreen() {
                   <View>
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>MÓDULO (uno o varios)</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                      {MODULES.map((m) => <Chip key={m.key} label={`${m.icon} ${m.label}`} on={moduleFilter.has(m.key)} onPress={() => toggleModule(m.key)} />)}
+                      {MODULOS_AUDITORIA.map((m) => <Chip key={m.key} label={etiquetaPastilla(m)} on={moduleFilter.has(m.key)} onPress={() => toggleModule(m.key)} />)}
                     </View>
+                    {/* Secciones del menú cuyas tablas todavía no tienen auditoría: la pastilla
+                        está para que la lista sea el menú completo, y avisa para que nadie
+                        crea que "no pasó nada" ahí. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                      Son las mismas secciones del menú. Las que dicen «sin rastro aún» todavía no dejan huella en la
+                      bitácora ({MODULOS_AUDITORIA.filter((m) => m.sinRastro).map((m) => m.label).join(', ')}): no es que no
+                      pasó nada, es que ahí no se registra todavía.
+                    </Text>
                   </View>
 
                   <View>

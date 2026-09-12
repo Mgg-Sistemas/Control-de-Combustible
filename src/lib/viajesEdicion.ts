@@ -268,3 +268,214 @@ export function notaCargaManual(nombre: string): string {
 export function esCargaManual(note: string | null | undefined): boolean {
   return String(note ?? '').startsWith(MARCA_CARGA_MANUAL);
 }
+
+// ============================================================================
+// LA CLAVE QUE IMPIDE EL VIAJE DUPLICADO (02-sep-2026)
+//
+// `client_action_id` tiene un índice ÚNICO en la base: dos filas con la misma
+// clave no pueden existir, y el segundo insert rebota con un 23505 que la app ya
+// sabe leer como «ese viaje ya estaba, no pasa nada».
+//
+// EL PROBLEMA ERA DE DÓNDE SALÍA LA CLAVE. `nuevoClientActionId()` la arma con
+// `Date.now()` + azar, o sea NUEVA EN CADA TOQUE. Así el candado solo servía
+// para los reintentos automáticos del propio código (que reusan la clave), y no
+// para lo que de verdad pasa en el patio:
+//
+//   · el listero toca dos veces porque «no pasó nada» → dos claves distintas,
+//     no chocan, quedan DOS viajes de verdad y nadie avisa;
+//   · la carga a mano de la jefa falla a la mitad, ella vuelve a cargar la misma
+//     tanda → claves nuevas para todos, y los que ya habían entrado se repiten.
+//
+// La clave estable se arma con la INTENCIÓN, no con el reloj: qué camión, quién
+// lo registra y de qué minuto es el viaje. Dos toques del mismo listero, sobre
+// el mismo camión, dentro del mismo minuto, son EL MISMO VIAJE — y la base lo
+// hace cumplir aunque el segundo toque venga de otro teléfono.
+//
+// Es texto legible a propósito (la columna es `text`, sin límite): cuando haya
+// que revisar un duplicado en la base, se lee qué pasó sin descifrar un hash.
+// ============================================================================
+
+/**
+ * Normaliza el código del camión para la clave: sin acentos que dependan del
+ * teclado, sin espacios de más, en mayúsculas. La Ñ se preserva (es parte del
+ * código, no un acento) — mismo criterio que `claveCamion` en `viajesResumen`.
+ */
+function codigoParaClave(code: string): string {
+  // Deliberadamente SIMPLE: sin `String.normalize` (no todos los motores de
+  // React Native lo traen) y sin bytes de control de por medio. El codigo no lo
+  // teclea nadie aca: sale del catalogo (`selectedTruck.code`) tanto en el toque
+  // del listero como en la carga a mano, asi que ya viene identico byte a byte.
+  // Mayusculas y espacios colapsados alcanzan, y no arrastran ninguna
+  // dependencia fragil a una clave que la base va a hacer cumplir para siempre.
+  return String(code ?? '').toUpperCase().trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * La clave de idempotencia de UN viaje, derivada de la intención.
+ *
+ * Sirve igual para el toque del listero en el patio y para cada renglón de una
+ * tanda cargada a mano: en la tanda los horarios van de 5 en 5 minutos, así que
+ * cada viaje cae en un minuto distinto y su clave es distinta — pero volver a
+ * cargar LA MISMA tanda regenera LAS MISMAS claves, y la base rechaza sola los
+ * que ya habían entrado.
+ *
+ * Devuelve cadena vacía si le falta algo esencial: quien llama debe caer
+ * entonces en `nuevoClientActionId()`, porque una clave a medias podría chocar
+ * con la de otro viaje legítimo y hacerlo desaparecer en silencio — que sería
+ * mucho peor que el duplicado que estamos evitando.
+ */
+export function claveViajeEstable(p: {
+  /**
+   * ⚠️⚠️ LA IDENTIDAD DEL CAMIÓN, **NO** SU CÓDIGO. Y no es una sutileza: es la
+   *      diferencia entre evitar un duplicado y BORRAR UN VIAJE REAL.
+   *
+   *      En esta flota casi todos los camiones se llaman igual («Camion Volteo
+   *      Toronto» y parecidos) — por eso el resto del módulo arrastra la placa a
+   *      todas partes. Si acá entrara el código pelado, dos camiones DISTINTOS
+   *      del mismo listero en el mismo minuto darían LA MISMA clave, la base
+   *      rechazaría el segundo por el índice único, y ese viaje —que ocurrió de
+   *      verdad— desaparecería sin que nadie viera un error. En una tanda
+   *      cargada a mano el estropicio es mayor: la tanda entera del segundo
+   *      camión rebota.
+   *
+   *      Manda algo ÚNICO por camión: el `id` del catálogo. Para los de fuera de
+   *      catálogo, que no tienen `id`, el texto que se tecleó ya distingue.
+   */
+  identidadCamion: string;
+  listeroId: string;
+  registeredAtISO: string;
+}): string {
+  const code = codigoParaClave(p.identidadCamion);
+  const listero = String(p.listeroId ?? '').trim();
+  // Al MINUTO: el segundo y los milisegundos son ruido del reloj, no intención.
+  const minuto = String(p.registeredAtISO ?? '').trim().slice(0, 16); // AAAA-MM-DDTHH:MM
+  if (!code || !listero || minuto.length !== 16) return '';
+  return `v1|${code}|${listero}|${minuto}`;
+}
+
+// ============================================================================
+// EDITAR UN VIAJE FUERA DE SU JORNADA (02-sep-2026)
+//
+// Antes: pasadas las 7am no se podía tocar ni un viaje de la noche que acababa
+// de terminar. La corrección de la madrugada se hace POR LA MAÑANA — la regla
+// llegaba tarde justo cuando más falta hacía.
+//
+// Ahora: quien tiene acceso FULL puede corregir cualquier día. Pero eso no puede
+// ser invisible, así que la edición excepcional DEJA RASTRO.
+//
+// ⚠️ SOLO LA EXCEPCIONAL. Las ediciones del día corriente no generan nada: para
+//    eso ya está el trigger `trg_audit` de `camion_viajes`, que registra insert,
+//    update y delete solo. Escribir además desde la app sería duplicar el rastro
+//    y llenar la bitácora de ruido — pedido explícito del cliente: «que no se
+//    dañe ni abuse el módulo de auditoría, y que no se tumbe ni consuma en
+//    exceso». Por eso acá se decide, con una función pura y probada, CUÁNDO vale
+//    la pena escribir una fila.
+// ============================================================================
+
+/** ¿Este viaje cae fuera de la jornada que está corriendo ahora? */
+export function fueraDeJornada(
+  registeredAtISO: string,
+  ventana: { startMs: number; endMs: number },
+): boolean {
+  const t = Date.parse(String(registeredAtISO ?? ''));
+  if (!isFinite(t)) return false;   // sin fecha legible no se acusa a nadie
+  return t < ventana.startMs || t >= ventana.endMs;
+}
+
+/**
+ * ¿Hay que dejar rastro en Auditoría por esta edición?
+ *
+ * Las tres condiciones, y las tres importan:
+ *  1. el viaje es de otra jornada (si es de hoy, el trigger ya lo cubre),
+ *  2. de verdad cambió algo (abrir y cerrar el editor no ensucia la bitácora),
+ *  3. y hubo quien la hiciera.
+ */
+export function requiereRastroDeEdicion(p: {
+  registeredAtAntesISO: string;
+  registeredAtDespuesISO: string;
+  ventana: { startMs: number; endMs: number };
+  huboCambios: boolean;
+}): boolean {
+  if (!p.huboCambios) return false;
+  // Fuera de jornada por donde ESTABA o por donde QUEDA: mover un viaje de hoy
+  // hacia el mes pasado es exactamente el movimiento que hay que poder rastrear.
+  return fueraDeJornada(p.registeredAtAntesISO, p.ventana)
+      || fueraDeJornada(p.registeredAtDespuesISO, p.ventana);
+}
+
+/** La acción con la que sale en Auditoría. Propia, para poder filtrarla de un
+ *  vistazo entre miles de filas. */
+export const ACCION_EDIT_FUERA_JORNADA = 'EDIT_VIAJE_FUERA_JORNADA';
+
+/**
+ * ⭐ LA DECISIÓN Y EL TEXTO, EN UNA SOLA RESPUESTA: o hay rastro que escribir, o
+ *    no hay nada. `null` significa «no escribas nada en Auditoría».
+ *
+ * Por qué existe teniendo ya `requiereRastroDeEdicion` y `detalleRastroEdicion`
+ * por separado: porque cuando la pantalla decide por un lado y arma el texto por
+ * otro, la única forma de comprobar que no audita de más es leer el código con
+ * una expresión regular — y eso es exactamente lo que se rompe cuando alguien
+ * refactoriza bien y deja pasar cuando alguien refactoriza mal (probado: sacar
+ * el `logAudit` fuera del `if` no lo agarraba ninguna guardia de texto).
+ *
+ * Con esto la regla se prueba POR COMPORTAMIENTO: si la función devuelve `null`,
+ * no hay nada que escribir. La pantalla se limita a obedecer, y una sola guardia
+ * corta —que el `logAudit` salga de acá— alcanza.
+ */
+export function rastroDeEdicion(p: {
+  registeredAtAntesISO: string;
+  registeredAtDespuesISO: string;
+  ventana: { startMs: number; endMs: number };
+  huboCambios: boolean;
+  machineCode: string;
+  placa?: string | null;
+  cambios?: string[] | null;
+}): { accion: string; detalle: string } | null {
+  if (!requiereRastroDeEdicion({
+    registeredAtAntesISO: p.registeredAtAntesISO,
+    registeredAtDespuesISO: p.registeredAtDespuesISO,
+    ventana: p.ventana,
+    huboCambios: p.huboCambios,
+  })) return null;
+  return {
+    accion: ACCION_EDIT_FUERA_JORNADA,
+    detalle: detalleRastroEdicion({
+      machineCode: p.machineCode,
+      placa: p.placa,
+      antesISO: p.registeredAtAntesISO,
+      despuesISO: p.registeredAtDespuesISO,
+      cambios: p.cambios,
+    }),
+  };
+}
+
+/**
+ * El texto que se lee en Auditoría. Tiene que bastarse solo: quien lo lee no va
+ * a ir a cruzarlo con otra tabla.
+ */
+export function detalleRastroEdicion(p: {
+  machineCode: string;
+  /**
+   * ⚠️ LA PLACA NO ES UN ADORNO: sin ella el rastro NO IDENTIFICA AL CAMIÓN.
+   *
+   *    En esta flota casi todos se llaman igual («Camion Volteo Toronto»), así
+   *    que una fila que dijera solo el código deja a quien la lee sin saber cuál
+   *    de los treinta fue — y el cliente pidió esto precisamente para «poder
+   *    identificar fácilmente esos cambios». Es la misma trampa que obligó a que
+   *    la clave de idempotencia use la identidad y no el nombre; acá se coló por
+   *    la puerta de al lado. El resto del módulo ya arrastra la placa por esto.
+   */
+  placa?: string | null;
+  antesISO: string;
+  despuesISO: string;
+  cambios?: string[] | null;
+}): string {
+  const soloCode = codigoParaClave(p.machineCode) || '(sin código)';
+  const placa = String(p.placa ?? '').trim();
+  const code = placa ? `${soloCode} · ${placa}` : soloCode;
+  const a = String(p.antesISO ?? '').slice(0, 16).replace('T', ' ');
+  const b = String(p.despuesISO ?? '').slice(0, 16).replace('T', ' ');
+  const movio = a && b && a !== b ? `${a} → ${b}` : (a || b || 'sin fecha');
+  const extra = (p.cambios ?? []).filter(Boolean);
+  return `🚚 ${code} · ${movio}${extra.length ? ` · ${extra.join(', ')}` : ''}`;
+}

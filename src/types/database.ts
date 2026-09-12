@@ -19,6 +19,15 @@ export interface Profile {
   locked_at?: string | null;
   app_role_id?: string | null; // rol dinámico asignado (define qué módulos ve)
   can_audit?: boolean; // puede ver el módulo de Auditoría (bitácora de todos)
+  /** EL ARCHIVO (09-sep-2026). La marca es la FECHA: no hay booleano nuevo.
+   *  Nula = cuenta en uso · con valor = archivada. Una cuenta archivada está
+   *  SIEMPRE inactiva (lo garantiza el CHECK `profiles_archivado_apagado`), que
+   *  es lo que permite que todo lo que ya mira `active` la deje fuera sola.
+   *  Columnas de 01_usuarios_archivar.sql, que se entrega aparte porque el
+   *  repositorio es público. Léelas con src/lib/cicloVidaUsuario.ts. */
+  archivado_en?: string | null;
+  archivado_por?: string | null;   // uuid; el nombre lo resuelve la pantalla
+  archivado_motivo?: string | null;
   created_at: string;
 }
 
@@ -272,9 +281,16 @@ export interface Employee {
   address: string | null;        // dónde vive
   city: string | null;
   state: string | null;          // estado / provincia
+  // Contacto de emergencia nº 1. Se conserva porque lo leen la vista/RPC de nómina y
+  // el PDF de la ficha; la lista COMPLETA vive en `emergency_contacts`.
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   emergency_contact_relation: string | null;
+  /** TODOS los contactos de emergencia, en orden. Columna de
+   *  supabase/empleados_varios_contactos_emergencia.sql. Léela con
+   *  `leerContactos()` de src/lib/contactosEmergencia.ts, que reconstruye el nº 1
+   *  desde las columnas de arriba cuando esta viene vacía. */
+  emergency_contacts?: { nombre: string; telefono: string; parentesco: string }[] | null;
   hire_date: string | null;      // fecha de ingreso
   status: 'activo' | 'inactivo' | 'suspendido';
   /** EMPRESA FILTRO NÓMINA: lista propia de Nómina (tabla `payroll_companies`),
@@ -449,6 +465,13 @@ export interface StaffPayPeriod {
   total_amount: number;
   created_by: string | null;
   created_at: string;
+  /** Quién le cambió el nombre o las fechas por última vez, y cuándo.
+   *  `updated_by_name` es una FOTO: si dan de baja al usuario, el uuid queda en
+   *  null por la FK y el texto sigue diciendo quién fue.
+   *  Todo `null` = nunca se ha editado. */
+  updated_by?: string | null;
+  updated_by_name?: string | null;
+  updated_at?: string | null;
 }
 
 /** Línea por persona. devengado = precio_del_modo × cantidad. total = devengado + Σbonos − Σdeducciones. */
@@ -668,6 +691,7 @@ export interface InventoryMovement {
   order_id: string | null;
   company_id: string | null;
   machinery_id: string | null; // equipo destino de la salida (para el gasto por equipo en Mantenimiento)
+  vehicle_id?: string | null;  // vehículo destino de la salida (supabase/inventory_movements_vehiculo.sql)
   note: string | null;
   employee_ids: string[];                        // empleados que reciben la salida (multi)
   employees_detail: InventoryMovementEmployee[];  // snapshot nombre/cédula/cargo al momento de la salida
@@ -689,10 +713,17 @@ export interface InventoryTransfer {
   company_id: string | null;
   from_machinery_id: string | null;
   from_machinery_label: string | null;
+  /** Vehículo de ORIGEN (tabla vehicles). Columna de inventory_transfers_vehiculo.sql,
+   *  que se entrega aparte porque el repositorio es público. */
+  from_vehicle_id?: string | null;
+  from_vehicle_label?: string | null;
   from_employee_id: string | null;
   from_employee_name: string | null;
   to_machinery_id: string | null;
   to_machinery_label: string | null;
+  /** Vehículo de DESTINO (tabla vehicles). Misma migración que el de origen. */
+  to_vehicle_id?: string | null;
+  to_vehicle_label?: string | null;
   to_employee_id: string | null;
   to_employee_name: string | null;
   to_company_name: string | null;   // empresa destino NO registrada (texto libre)

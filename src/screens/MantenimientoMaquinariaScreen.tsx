@@ -12,6 +12,7 @@ import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
 import { listInspectorAssignments } from '../lib/machineInspectors';
+import { serviciosPorAveria, esReporteViejo, DIAS_REPORTE_VIEJO } from '../lib/machineService';
 import { caracasParts } from '../lib/jornada';
 import { levelMeets } from '../lib/permissions';
 import { useAuth } from '../context/AuthContext';
@@ -86,6 +87,37 @@ export type Seccion = 'mantenimiento' | 'servicio';
 const esPreventiva = (r: Rep) => r.tipo === 'preventivo';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Un grupo de la pestaña Averías: una empresa con sus máquinas y las averías de cada una.
+type AveriaGroup = { company: string; key: string; machines: { code: string; items: Req[]; machinery_id: string; tipo: string | null }[] };
+
+/**
+ * Agrupa averías por empresa → máquina.
+ *
+ * Se sacó del componente porque desde el 01-sep-2026 hay DOS listas que agrupar
+ * exactamente igual (las recientes y las viejas); con una sola función no pueden
+ * quedar distintas con el tiempo.
+ *
+ * `prefijo` es lo que separa las llaves de plegado de las dos listas: la misma
+ * empresa puede tener averías en las dos y, sin él, abrir "Golden Touch" arriba
+ * abriría también la de abajo (`avOpen` se indexa por esta llave).
+ */
+function agruparAveriasPorEmpresa(rows: Req[], prefijo: string): AveriaGroup[] {
+  const byCompany = new Map<string, Map<string, Req[]>>();
+  rows.forEach((r) => {
+    const comp = byCompany.get(r.company) ?? new Map<string, Req[]>();
+    const arr = comp.get(r.code) ?? []; arr.push(r); comp.set(r.code, arr); byCompany.set(r.company, comp);
+  });
+  return Array.from(byCompany.entries())
+    .map(([company, mm]) => ({
+      company,
+      key: `${prefijo}${company}`,
+      machines: Array.from(mm.entries())
+        .map(([code, items]) => ({ code, items, machinery_id: items[0].machinery_id, tipo: items[0]?.tipo ?? null }))
+        .sort((a, b) => cmpText(a.code, b.code)),
+    }))
+    .sort((a, b) => cmpText(a.company, b.company));
+}
 
 /**
  * TALLER DE MAQUINARIA — pantalla compartida por las dos secciones.
@@ -198,6 +230,23 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   // Grupos de empresa colapsados en la pestaña Averías (empresa → abierto/cerrado).
   const [avOpen, setAvOpen] = useState<Record<string, boolean>>({});
 
+  // ── 🧾 ¿el taller YA atendió esta avería? ───────────────────────────────────
+  // id de avería → fecha (AAAA-MM-DD) de la hoja de servicio más reciente. Antes,
+  // para saberlo, había que saltar a "🧾 Servicios", buscar la máquina y volver; y
+  // mirando la avería no había NINGUNA forma de darse cuenta, así que dos personas
+  // podían trabajarla dos veces. Es SOLO LECTURA: enterarse de que ya hay hoja no
+  // cierra la avería ni mueve el estado de nada (eso lo decide quien cierra).
+  const [servicioPorAveria, setServicioPorAveria] = useState<Record<string, string>>({});
+
+  // ── 📦 La raya en la arena: los reportes viejos, plegados ───────────────────
+  // Cerrado por defecto (pedido del cliente, 01-sep-2026): las averías de hace meses
+  // estaban mezcladas con el trabajo del día. No se esconde nada — se abre con un toque.
+  const [viejosOpen, setViejosOpen] = useState(false);
+
+  // ¿La última carga se cayó? Sirve para NO decir "no hay averías" cuando lo que pasó
+  // es que la consulta falló: son dos cosas muy distintas para el encargado.
+  const [cargaFallida, setCargaFallida] = useState(false);
+
   // ── Reporte / Dashboard de averías ──────────────────────────────────────────
   const [gastoByMachine, setGastoByMachine] = useState<Record<string, number>>({});
   // Inspecciones por máquina (para cruzar inspección ↔ avería en el detalle).
@@ -223,22 +272,48 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: mr }, { data: rp }, { data: mac }, { data: profs }, { data: par }] = await Promise.all([
-      // 'MÁQUINA PARADA' es el marcador interno de "parada" (Inspecciones/Control):
-      // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
-      // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
-      // `resolved_at`/`resolved_by`: hacen falta para el HISTORIAL. Antes no se pedían y
-      // una avería marcada como REALIZADO desaparecía de la pantalla sin dejar rastro:
-      // salía de "Averías" (que solo lista pendientes) y el Historial solo mostraba
-      // expedientes de taller (`machinery_repairs`), no averías resueltas.
-      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, resolved_at, resolved_by, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
-      supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
+    setCargaFallida(false);
+    // ⚠️ TODO ADENTRO DE UN try. Antes las cinco consultas se desestructuraban como
+    // `{ data: mr }` — sin mirar `error` ni una sola vez — y `setLoading(false)` corría
+    // igual. Si una se caía (RLS, timeout, sin red) la pantalla decía "Sin averías
+    // pendientes" con toda naturalidad y el encargado se iba a su casa creyendo que no
+    // había trabajo. Una lista vacía y una consulta caída NO son lo mismo, y la
+    // pantalla tiene que poder distinguirlas: mismo patrón que `AsistenciaCamionesScreen`.
+    try {
+    // PAGINADO (`selectAllRows`): PostgREST corta en ~1000 filas y NO avisa de nada.
+    // `maintenance_requests` y `machinery_repairs` acumulan desde el primer día del
+    // sistema, así que hace rato pasaron ese tope: lo que se caía por el borde eran
+    // LAS FILAS MÁS VIEJAS — justo las que la sección "📦 Reportes viejos" existe para
+    // sacar a la luz. Es el mismo helper que ya usaban el reporte de gasto de acá
+    // abajo y Asistencia de camiones, por esta misma razón.
+    //
+    // 'MÁQUINA PARADA' es el marcador interno de "parada" (Inspecciones/Control):
+    // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
+    // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
+    // `resolved_at`/`resolved_by`: hacen falta para el HISTORIAL. Antes no se pedían y
+    // una avería marcada como REALIZADO desaparecía de la pantalla sin dejar rastro:
+    // salía de "Averías" (que solo lista pendientes) y el Historial solo mostraba
+    // expedientes de taller (`machinery_repairs`), no averías resueltas.
+    const [mrRaw, rpRaw, { data: mac, error: eMac }, { data: profs, error: eProf }, { data: par, error: ePar }] = await Promise.all([
+      selectAllRows('maintenance_requests', 'id, machinery_id, material, quantity, notes, status, created_at, resolved_at, resolved_by, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))', (q) => q.neq('material', 'MÁQUINA PARADA')),
+      selectAllRows('machinery_repairs', 'id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, company:company_id(name))'),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
       // Solo el marcador MÁQUINA PARADA pendiente, para el banner de "paradas viejas
       // sin resolver" — consulta chica y separada, no toca la lista de Averías de arriba.
       supabase.from('maintenance_requests').select('id, machinery_id, notes, created_at, machinery:machinery_id(code, company:company_id(name))').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: true }),
     ]);
+    // `selectAllRows` revienta solo cuando falla; las otras tres devuelven el error en
+    // la mano, así que hay que levantarlo a propósito para caer en el `catch`.
+    const eCarga = eMac || eProf || ePar;
+    if (eCarga) throw eCarga;
+    // `selectAllRows` pagina ordenando por `id`, así que el `order('created_at')` que
+    // había antes se pierde. Se reordena acá porque TODA la pantalla da por sentado
+    // que lo más reciente va primero (Averías, Historial, "En reparación" y el aviso
+    // de reparación activa, que se queda con el PRIMER expediente que encuentra).
+    const porFechaDesc = (a: any, b: any) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
+    const mr = (mrRaw ?? []).slice().sort(porFechaDesc);
+    const rp = (rpRaw ?? []).slice().sort(porFechaDesc);
     setParadasViejas((par ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa', created_at: r.created_at, notes: r.notes ?? null })));
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
     const nameById = new Map<string, string>();
@@ -246,7 +321,24 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null, resolved_at: r.resolved_at ?? null, resolvedByName: r.resolved_by ? (nameById.get(r.resolved_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', createdByName: r.created_by ? (nameById.get(r.created_by) ?? null) : null, closedByName: r.closed_by ? (nameById.get(r.closed_by) ?? null) : null })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null, horometro_maint_pending: m.horometro_maint_pending === true })));
-    setLoading(false);
+    // 🧾 ¿cuáles de estas averías ya tienen hoja de servicio? Va DESPUÉS de pintar la
+    // lista y solo con las PENDIENTES: son las únicas que muestran el aviso, y los ids
+    // viajan dentro de la URL del `.in(...)` — mandar también las miles de resueltas
+    // reventaría la consulta por largo sin que nadie viera la diferencia.
+    // El `.catch` es cinturón y tirantes: `serviciosPorAveria` ya devuelve {} si la
+    // consulta trae error, pero si la promesa se RECHAZA (sin red) no puede tumbar una
+    // carga que ya salió bien — el aviso es un lujo, la lista de averías no.
+    const idsPendientes = (mr ?? []).filter((r: any) => r.status === 'pendiente').map((r: any) => r.id as string);
+    setServicioPorAveria(await serviciosPorAveria(supabase, idsPendientes).catch(() => ({})));
+    } catch (e: any) {
+      // Se DICE, y en el cartel de la pantalla, que se queda hasta que lo cierren.
+      // Los datos de la carga anterior se dejan tal cual: media pantalla vieja con un
+      // error a la vista es más honesta que una pantalla en blanco sin explicación.
+      setCargaFallida(true);
+      setNotice(`❌ No se pudo cargar el taller: ${e?.message ?? e}`);
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); }, []);
   useRealtimeRefresh(['maintenance_requests', 'machinery_repairs', 'machinery', 'profiles'], () => { load(); });
@@ -667,19 +759,38 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
   const matchesQ = (...fields: (string | number | null | undefined)[]) =>
     !nq || fields.some((f) => f != null && String(f).trim() !== '' && norm(String(f)).includes(nq));
 
-  // AVERÍAS pendientes por empresa → máquina.
-  const averiaGroups = useMemo(() => {
+  // AVERÍAS pendientes por empresa → máquina, en DOS listas: lo de estos días y lo
+  // que lleva meses sin resolver.
+  //
+  // ⚠️ POR QUÉ EL CORTE VIEJO/RECIENTE VA POR ENCIMA DEL AGRUPADO POR EMPRESA, Y NO
+  //    DENTRO. El agrupado por empresa YA es un plegable. Meter los viejos DENTRO de
+  //    cada empresa daría dos niveles de "▸" que hay que ir abriendo para llegar a una
+  //    avería, y —peor— repartiría los reportes viejos por toda la pantalla en vez de
+  //    juntarlos, que es justo lo que el cliente pidió evitar. Por encima, la pantalla
+  //    se lee de un vistazo: arriba el trabajo de hoy, EXACTAMENTE igual que antes, y
+  //    lo viejo en una sola caja cerrada al final. De regalo, el contador del
+  //    encabezado de empresa ("🛠️ N avería(s)") sigue contando lo que se ve debajo de
+  //    él, que es lo que la gente ya aprendió a leer.
+  //
+  // El corte es POR REPORTE, no por máquina: una misma máquina puede salir arriba con
+  // la avería de ayer y abajo con la de marzo. Es lo correcto — son dos papeles
+  // distintos y cada uno tiene su edad.
+  const { averiaGroups, averiaGroupsViejas, averiasViejasTotal } = useMemo(() => {
     const shown = reqs.filter((r) => r.status === 'pendiente' && matchesQ(
       r.code, r.company, r.tipo, matLabel(r.material), r.notes, r.plate, r.serial,
       r.requestedByName, r.sector, r.parroquia, r.referencia,
     ));
-    const byCompany = new Map<string, Map<string, Req[]>>();
-    shown.forEach((r) => {
-      const comp = byCompany.get(r.company) ?? new Map<string, Req[]>();
-      const arr = comp.get(r.code) ?? []; arr.push(r); comp.set(r.code, arr); byCompany.set(r.company, comp);
-    });
-    return Array.from(byCompany.entries()).map(([company, mm]) => ({ company, machines: Array.from(mm.entries()).map(([code, items]) => ({ code, items, machinery_id: items[0].machinery_id, tipo: items[0]?.tipo ?? null })).sort((a, b) => cmpText(a.code, b.code)) }))
-      .sort((a, b) => cmpText(a.company, b.company));
+    // Un solo "ahora" para toda la partición: si se tomara la hora fila por fila, dos
+    // reportes hechos con segundos de diferencia podrían caer a lados distintos.
+    const ahora = new Date();
+    const recientes: Req[] = [];
+    const viejas: Req[] = [];
+    shown.forEach((r) => (esReporteViejo(r.created_at, ahora) ? viejas : recientes).push(r));
+    return {
+      averiaGroups: agruparAveriasPorEmpresa(recientes, ''),
+      averiaGroupsViejas: agruparAveriasPorEmpresa(viejas, 'viejo·'),
+      averiasViejasTotal: viejas.length,
+    };
   }, [reqs, nq]);
 
   // HORÓMETROS: todas las máquinas activas con sus horas acumuladas y lo que falta
@@ -861,16 +972,20 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
       ) : tab === 'servicios' ? (
         <ServicioRegistroTab machines={machines} reqs={reqs} canWrite={canWrite} uid={uid} />
       ) : tab === 'averias' ? (
-        averiaGroups.length === 0 ? (
-          <EmptyState title="Sin averías pendientes" subtitle={canWrite ? 'Cuando un operador reporte una avería, aparecerá aquí por máquina. También puedes cargarla a mano con “➕ Registrar avería”.' : 'Cuando un operador reporte una avería, aparecerá aquí por máquina.'} />
-        ) : (
-          averiaGroups.map((g) => {
+        (() => {
+          // UN SOLO pintor de grupos para las DOS listas (las de estos días y las
+          // viejas). Lo viejo se aparta, no se recorta: dentro de "📦 Reportes viejos"
+          // la avería se ve con la misma tarjeta, el mismo detalle y los mismos botones
+          // que arriba, porque sigue siendo trabajo pendiente igual que el de hoy.
+          const renderGrupo = (g: AveriaGroup) => {
             // Colapsable: cerrada por defecto; al buscar (nq) se abren todas para no ocultar resultados.
-            const open = !!avOpen[g.company] || !!nq;
+            // La llave lleva prefijo (ver `agruparAveriasPorEmpresa`): la misma empresa
+            // puede aparecer en las dos listas y no pueden plegarse la una a la otra.
+            const open = !!avOpen[g.key] || !!nq;
             const totalAverias = g.machines.reduce((s, mm) => s + mm.items.length, 0);
             return (
-            <View key={g.company}>
-              <TouchableOpacity activeOpacity={0.7} onPress={() => setAvOpen((p) => ({ ...p, [g.company]: !open }))}>
+            <View key={g.key}>
+              <TouchableOpacity activeOpacity={0.7} onPress={() => setAvOpen((p) => ({ ...p, [g.key]: !open }))}>
                 <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                     <Text style={{ color: colors.warning, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
@@ -907,6 +1022,14 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                           <Text style={{ color: colors.text, fontWeight: '700' }}>{matLabel(r.material)}{r.quantity != null ? ` · ${r.quantity.toLocaleString()}` : ''}{r.photo_url ? '  📷' : ''}</Text>
                           {r.notes ? <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{r.notes}</Text> : null}
                           <Text style={{ color: colors.muted, fontSize: 12 }}>👮 Reportó: <Text style={{ color: colors.text, fontWeight: '600' }}>{r.requestedByName || '—'}</Text></Text>
+                          {/* 🧾 El taller ya la trabajó. Es un AVISO, no un estado: la
+                              avería sigue pendiente hasta que alguien la cierre. Sirve
+                              para no volver a mandar a un mecánico a lo mismo, que era
+                              lo que pasaba cuando esto solo se veía saltando a la
+                              pestaña "🧾 Servicios" y volviendo. */}
+                          {servicioPorAveria[r.id] ? (
+                            <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>🧾 Ya tiene hoja de servicio del {fmtDMY(servicioPorAveria[r.id])}</Text>
+                          ) : null}
                           <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{fmtDT(r.created_at)} · ver detalle ›</Text>
                         </TouchableOpacity>
                         {/* Botones APILADOS, no en fila: "✏️ Editar" al lado de
@@ -940,8 +1063,50 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
               }) : null}
             </View>
             );
-          })
-        )
+          };
+
+          // Vacío de verdad vs. carga caída: son dos cosas distintas y hasta hoy se
+          // veían igual. "Sin averías pendientes" es una BUENA noticia; una consulta
+          // que se cayó no lo es, y el encargado tiene que poder distinguirlas.
+          if (averiaGroups.length === 0 && averiaGroupsViejas.length === 0) {
+            return cargaFallida ? (
+              <EmptyState title="No se pudo cargar la lista de averías" subtitle="La consulta falló, así que esto NO quiere decir que no haya trabajo pendiente. Revisa la conexión y vuelve a entrar a la pestaña." />
+            ) : (
+              <EmptyState title="Sin averías pendientes" subtitle={canWrite ? 'Cuando un operador reporte una avería, aparecerá aquí por máquina. También puedes cargarla a mano con “➕ Registrar avería”.' : 'Cuando un operador reporte una avería, aparecerá aquí por máquina.'} />
+            );
+          }
+
+          // Al buscar se abre sola, igual que los grupos de empresa: si el resultado
+          // está en un reporte viejo, esconderlo detrás de un plegable haría creer que
+          // la búsqueda no encontró nada.
+          const viejasAbiertas = viejosOpen || !!nq;
+          return (
+            <>
+              {averiaGroups.map(renderGrupo)}
+              {/* 📦 LOS REPORTES VIEJOS, APARTE (pedido del cliente, 01-sep-2026).
+                  No se borra ni se esconde nada: es la MISMA lista, en una caja
+                  cerrada al final, para que el trabajo del día no venga revuelto con
+                  averías de hace meses. Se abre con un toque y adentro está todo tal
+                  cual. Si no hay ninguna vieja, la caja ni se dibuja. */}
+              {averiaGroupsViejas.length > 0 ? (
+                <View>
+                  <TouchableOpacity activeOpacity={0.7} onPress={() => setViejosOpen((v) => !v)}>
+                    <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.md, borderLeftWidth: 4, borderLeftColor: colors.muted }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 16 }}>{viejasAbiertas ? '▾' : '▸'}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📦 Reportes viejos ({averiasViejasTotal})</Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>Pendientes de hace más de {DIAS_REPORTE_VIEJO} días · siguen abiertos, solo están aparte</Text>
+                        </View>
+                      </View>
+                    </Card>
+                  </TouchableOpacity>
+                  {viejasAbiertas ? averiaGroupsViejas.map(renderGrupo) : null}
+                </View>
+              ) : null}
+            </>
+          );
+        })()
       ) : tab === 'reparacion' ? (
         enReparacion.length === 0 ? (
           <EmptyState title={esServicio ? 'Ninguna máquina en reparación' : 'Ninguna máquina en mantenimiento'} subtitle={esServicio ? 'Usa “🔧 Enviar a reparación” para registrar una salida al taller.' : 'Usa “🧰 Enviar a mantenimiento” cuando le toque el servicio programado a una máquina.'} />

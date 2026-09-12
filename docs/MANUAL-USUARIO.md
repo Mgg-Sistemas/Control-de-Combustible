@@ -387,8 +387,29 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - Elige de la **lista desplegable** la **🏢 empresa** y luego el **🚜 equipo** (se muestra con su
   **serial / placa** para no confundirlo). Puedes escribir para buscarlo.
 - Escribe el **motivo** de la avería (opcional) y toca **⚠️ Marcar averiado**.
-- El equipo queda **No operativa**, **sale del control** y pasa a **"En reparación"** en el módulo
-  **Servicio de Maquinaria**, donde se registra su retorno operativo cuando quede lista.
+- El equipo queda **No operativa**, **sale del control** y se crea el **reporte de avería**, que
+  aparece en la pestaña **⏳ Averías** de **🔧 Servicio de Maquinaria**. Ahí el taller lo **cierra
+  cuando lo atiende**, pero eso **NO vuelve a poner la máquina operativa**: para reactivarla la
+  marcas tú otra vez aquí en el Control, o lo hace el **coordinador desde su panel QR**.
+
+  > **🧹 Ya no se abre un expediente de taller invisible (02/09/2026).** Hasta hoy, marcar un
+  > equipo averiado desde aquí **también** abría por detrás un *expediente de reparación*. Eso tenía
+  > sentido cuando Servicio tenía una pestaña **🔧 En reparación** para gestionarlo — pero esa
+  > pestaña **se quitó el 17 de agosto** a pedido del cliente, y nadie desconectó lo que la
+  > alimentaba. Resultado: durante dos semanas cada marcado dejó un expediente que **no se veía en
+  > ninguna pantalla, que nadie podía cerrar**, y que además dejaba a esa máquina **bloqueada para
+  > mantenimiento preventivo**.
+  >
+  > **La regla que lo ordena:** marcar una máquina averiada es una decisión sobre **la máquina**,
+  > no sobre **el taller**. Aquí se crea el **reporte** y el marcador de parada — que es lo que el
+  > resto del sistema lee — y el expediente de taller nace cuando el taller **recibe** la máquina.
+  >
+  > **En pantalla no cambia nada:** la máquina se sigue viendo averiada y detenida en todas partes,
+  > igual que antes.
+  >
+  > ⚠️ **Los expedientes que ya se crearon siguen ahí.** Esto detiene la sangría, no la limpia. Si
+  > una máquina aparece bloqueada al enviarla a **🧰 Mantenimiento**, avisa: hay que cerrarle el
+  > expediente viejo a mano.
 
 **🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
 - Las máquinas asignadas al inspector **SOS LA GUAIRA** **nunca se muestran como parada ni averiada**:
@@ -487,6 +508,27 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **número grande** con el **total de equipos** y el **desglose por empresa**. Botón
   **"⬇️ PDF de este conteo"** para imprimir el total, la cantidad por tipo y por empresa.
 
+> **🚜 Escoger máquinas (11/09/2026).** Tildar un tipo mete a **todas** sus máquinas, que es lo
+> que se quiere casi siempre. Para cuando no, debajo de la lista de tipos hay un desplegable
+> **"🚜 Escoger máquinas"** que dice cuántas entran de cuántas hay (por ejemplo *14 de 17*).
+> Ábrelo y verás **una casilla por máquina**, todas marcadas: **destilda las que NO quieres**.
+> Sirve igual para las dos cosas que se necesitan: **dejar fuera** las dos que están en el taller,
+> o **quedarse con una sola** (toca *"✕ Quitar todas"* y marca la que quieras).
+>
+> - Tiene su **propio buscador** por código, placa, serial o empresa, y los botones
+>   *"✓ Incluir todas"* y *"✕ Quitar todas"* trabajan **sobre lo que estés viendo**: con el
+>   buscador puesto, no barren en silencio las que quedaron escondidas.
+> - Cada máquina sale con su **código y su placa o serial**, porque hay varias que se llaman
+>   igual (tres *RETROEXCAVADORA*) y si no, no se sabe cuál estás destildando.
+> - **Todo lo de abajo le hace caso:** el número grande, el total en m³, el promedio, el mayor,
+>   el menor, el listado y el PDF. No hay forma de que el papel liste un equipo que la pantalla
+>   no muestra.
+> - **El PDF avisa que le faltan equipos**, en el encabezado y en el cuadro de alcance, y el
+>   archivo se descarga con otro nombre. Eso **no se puede apagar** con las pastillas de
+>   "¿qué se oculta?": un conteo de una selección no puede parecer un conteo de toda la flota.
+> - Si dejas fuera **todas**, el botón del PDF se apaga y te lo dice: un conteo en cero no es un
+>   informe. Al cerrar y volver a abrir el conteo, todo arranca marcado otra vez.
+
 - **🗺️ Zona real por GPS — igual al Mapa (botón en 📊 Conteo de equipos, 08/08/2026):** el conteo
   normal por zona **reparte 50/50** las máquinas que no tienen GPS cargado (para que el total de
   Este/Oeste cuadre con el total general). Este botón, en cambio, genera un **PDF que solo cuenta
@@ -506,7 +548,8 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"INVENTARIO DE
   MAQUINARIA"** en PDF, con el **membrete oficial del Plan Venezuela Renace** (ola tricolor y
-  logotipo). El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
+  logotipo) y, desde el **06/09/2026**, el **logo de Golden Touch** a la izquierda del título.
+  El encabezado trae la **Fecha** (se llena sola) y dos líneas en blanco —**Empresa**
   y **Responsable**— para completar a mano al imprimirlo, porque el reporte cubre a LICCIONE y a
   GOLDEN TOUCH a la vez. Cuenta el **mismo
   universo que el Catálogo** (TODAS las máquinas menos las RETIRADAS). Trae las máquinas **agrupadas
@@ -519,6 +562,47 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **Arriba** trae la cantidad de maquinaria por empresa; cierra con un **conteo por clasificación**.
   El reporte va **100% por empresa** (ya **no** trae los resúmenes por zona Este/Oeste).
   El archivo se descarga como *"Reporte - Inventario de maquinaria"*.
+
+  > **📑 TRES informes, con un solo botón (01/09/2026).** Encima del botón hay una fila de
+  > pastillas: **¿QUÉ EMPRESAS SALEN?** Se escoge una y se descarga. Vale igual con y sin el
+  > switch de **personal**.
+  >
+  > | Pastilla | Qué máquinas salen | Cómo se agrupan |
+  > |---|---|---|
+  > | 🏢 **Solo las nuestras** | Liccione y Golden Touch, nada más | Dos secciones |
+  > | 🤝 **Todas, sin separar** | Todas | Dos secciones: las subcontratadas van dentro de GOLDEN TOUCH |
+  > | 🏗️ **Todas, por empresa** | Todas | Una sección por empresa, con su nombre real |
+  >
+  > **La del medio es la de siempre y viene marcada por defecto**, así que quien no toque nada
+  > sigue sacando el mismo papel de antes.
+  >
+  > **La regla, tal cual se acordó: subcontratada es todo lo que NO sea Liccione ni Golden
+  > Touch** (La Veglia, Costa Brava, y las que vengan). Antes el reporte no sabía distinguirlas:
+  > tenía dos sacos fijos y el de *Golden Touch* se tragaba a todas las demás empresas. Por eso
+  > una máquina de La Veglia salía impresa bajo el nombre de Golden Touch.
+  >
+  > ⚠️ **Esa regla no está en la base de datos, está en el código** — no hay ninguna casilla en
+  > la pantalla de Empresas que diga si una es propia o subcontratada. Si mañana entra otra
+  > empresa propia, hay que avisar para agregarla.
+  >
+  > **Por eso cada PDF cierra con un cuadro «🧾 Alcance de este informe»** que dice cuál de los
+  > tres es, **qué empresas entraron**, **cuáles quedaron fuera** y cuántos equipos trae de la
+  > flota total. Es a propósito: como "propia" se decide por el **nombre** de la empresa, y ese
+  > nombre lo escribió una persona en el catálogo, si alguna está cargada con un error de tipeo
+  > podría caer en el saco equivocado. Ese cuadro lo deja a la vista **en el papel**, en vez de
+  > que se descubra en una reunión.
+  >
+  > **El nombre del archivo también lleva el alcance** (*"…(solo Liccione y Golden Touch)"*,
+  > *"…(todas sin separar)"*, *"…(por empresa)"*). Son tres papeles muy parecidos: si se
+  > llamaran igual, el segundo pisaría al primero en la carpeta de descargas.
+  >
+  > En **🏗️ Todas, por empresa** el orden es: **Liccione**, **Golden Touch**, después las
+  > subcontratadas de la A a la Z, y **«Sin empresa» de último** — ese es el cajón de las
+  > máquinas a las que no les cargaron la empresa en el catálogo, y salen en los informes 2 y 3
+  > pero **no** en «Solo las nuestras».
+  >
+  > Las **camionetas pick-up del módulo de Vehículos** salen en los tres: no tienen empresa
+  > cargada, están a disposición de los encargados de SOS La Guaira.
 
   > **🏷️ Marca y modelo, en su propia columna (31/08/2026):** a pedido del cliente el
   > inventario ahora imprime la **MARCA** y el **MODELO** de cada máquina en una columna aparte,
@@ -535,6 +619,60 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > modelo cargados en su ficha**: no es una falla del reporte, hay que llenarlos en el
   > **Catálogo de maquinaria**. El **tipo** sigue saliendo, en gris, junto al código del equipo.
   > En las **pick-up** se muestra marca y modelo, y si la máquina no los tiene, el tipo.
+
+  > **🚫 ¿Qué se oculta? — pastillas para recortar el inventario, y el logo de Golden Touch
+  > (06/09/2026).** Dos cosas nuevas, a pedido del cliente.
+  >
+  > **Uno, el logo.** El encabezado del inventario ahora lleva el **logo de Golden Touch** (el
+  > isotipo naranja y gris) a la **izquierda** del título *"INVENTARIO DE MAQUINARIA"*; el del
+  > Plan Venezuela Renace y la ola tricolor siguen igual, a la derecha. Sale en los **tres
+  > informes**, con y sin personal. Va **incrustado en el sistema** —no depende de internet ni
+  > de una URL—, igual que el del Plan.
+  >
+  > **Dos, las pastillas.** En 📊 Conteo de equipos, debajo de la fila *¿QUÉ EMPRESAS SALEN?* y
+  > antes de los botones de Ubicaciones tácticas, hay una fila nueva: **¿QUÉ SE OCULTA?**, con
+  > **diez pastillas que se pueden encender varias a la vez** (no son excluyentes como las de
+  > empresas). **Por defecto ninguna está encendida**, así que quien no toque nada saca el mismo
+  > papel de siempre. Debajo dice en criollo qué se va a ocultar antes de descargar (*"Sale
+  > completo."* o *"Se oculta: marca · Este/Oeste."*). Vale igual con y sin el switch de
+  > **personal**.
+  >
+  > | Pastilla | Qué se oculta |
+  > |---|---|
+  > | 🚫 **Marca** | La columna *"Marca / Modelo"* del listado pasa a decir solo *"Modelo"* y muestra solo el modelo |
+  > | 🚫 **Modelo** | Al revés: la columna pasa a decir solo *"Marca"*. **Si se encienden las dos, la columna desaparece** del listado |
+  > | 🚫 **Placa / Serial** | Desaparece la columna *"Placa / Serial"* del listado de maquinaria |
+  > | 🚫 **Ubicaciones** | Desaparece la columna *"Ubicación"* del listado de maquinaria (la de *"Este · Macuto · referencia"* o *"Desplegadas por los sectores estratégicos"*) |
+  > | 🚫 **Este / Oeste** | Desaparecen las columnas 🟢 Este / 🟠 Oeste de *"Cantidad de maquinaria por empresa"* y de *"Total por tipo de maquinaria"* (quedan solo Empresa/Tipo y Cantidad); desaparece la nota de que las volquetas y torontos pernoctan en Camurí Chico (ESTE); en la columna Ubicación de cada máquina ya no sale el *"Este ·"* / *"Oeste ·"* adelante (queda la subzona y la referencia: *"Macuto · Edificio X"*); y con personal, los coordinadores e inspectores salen en **una sola lista**, sin repartir por zona |
+  > | 🚫 **Nombre de empresas** | No sale el nombre de ninguna empresa: desaparece el cuadro *"Cantidad de maquinaria por empresa"* (el total sigue en los cuadros por tipo y por clasificación), el listado sale en **un solo bloque** sin cabeceras por empresa, el título de la sección dice solo *"Maquinaria"*, y el cuadro de alcance dice **cuántas** empresas entraron pero no cuáles. El alcance se describe sin nombrarlas (*"Solo las empresas propias"* / *"Todas las empresas"*), también en el nombre del archivo. **El logo de Golden Touch del membrete se queda**: es un logo, no un nombre, y se pidió aparte |
+  > | 🚫 **Listado por máquina** | **Solo el conteo resumido**: desaparece entera la sección *"Maquinaria por empresa"* (el listado máquina por máquina). Quedan los resúmenes de arriba —cantidad por empresa, total por tipo, cantidad por clasificación— y, con personal, los totales por departamento y los coordinadores e inspectores. Las otras pastillas de columnas dejan de tener efecto porque ya no hay listado |
+  > | 🚫 **Total por tipo** | Desaparece el cuadro *"Total por tipo de maquinaria"* (Jumbo, Payloader… con su Este/Oeste) |
+  > | 🚫 **Cantidad por clasificación** | Desaparece el cuadro *"Cantidad por clasificación"* |
+  > | 🚫 **Alcance del informe** | Desaparece el cuadro *"🧾 Alcance de este informe"* del final. **OJO:** con esta encendida, lo único que sigue diciendo qué se ocultó es el **nombre del archivo** |
+  >
+  > Así, **con las siete primeras encendidas queda solo el total por tipo y la cantidad por
+  > clasificación** (pedido del cliente: *"si desactivo todo, solo me quedaría clasificación y tipo"*);
+  > y con las diez, solo el membrete.
+  >
+  > El membrete ya **no lleva subtítulo** (la línea *"Operación Rescate y Esperanza – La Guaira ·
+  > Todas las empresas · Sin marca…"* que iba bajo *Responsable*): se quitó a pedido del cliente el
+  > 07/09/2026.
+  >
+  > ⚠️ **Los totales no cambian con las pastillas.** Se ocultan columnas, textos o el listado
+  > entero, no máquinas: el número de equipos es el mismo con o sin pastillas.
+  >
+  > **Y la red de seguridad, igual que con el alcance: lo que se ocultó queda escrito en el
+  > papel.** El cuadro «🧾 Alcance de este informe» del final agrega una línea *"Campos ocultos:
+  > marca · Este/Oeste. Los totales son los mismos."* cuando hay algo oculto, y
+  > el **nombre del archivo** lo lleva (p. ej. *"Reporte - Inventario de maquinaria (todas sin
+  > separar) sin marca, sin Este-Oeste"*), para que dos PDF distintos no se pisen en la carpeta
+  > de descargas y nadie confunda un papel recortado con el completo.
+
+  > **🎭 El botón del informe SIMULADO se ocultó (07/09/2026).** A pedido del cliente. Sacaba el
+  > mismo inventario pero con **todas las máquinas operativas** y repartidas **al azar** Este/Oeste,
+  > para presentaciones; al lado del botón real se prestaba a imprimir el papel equivocado. **Solo
+  > se quitó el botón:** el informe sigue armado por dentro y se puede devolver cuando se pida, sin
+  > rehacer nada. Los demás botones y las pastillas quedaron igual.
 
 - **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
   Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
@@ -696,6 +834,32 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > El nombre del período es solo una **etiqueta**: que se llame "Carbozulia" no quiere decir que
 > adentro solo haya gente de Carbozulia.
 
+> **✏️ Cambiarle las fechas a un período (12/09/2026).** Antes, una vez creado el período, el rango
+> quedaba fijo: si la semana terminaba el 13 y no el 12, había que borrarlo y volver a crearlo. Ahora,
+> dentro del período hay un botón **✏️ Editar período** para cambiarle el **nombre** y las **fechas**.
+>
+> **Hace falta control total en Nómina.** No basta con escritura, y es a propósito: mover el rango
+> cambia lo que se le va a pagar a todo el mundo, y quien genera un pago no es necesariamente quien
+> puede redefinir el período. Un **admin** lo tiene por su rol.
+>
+> ⚠️ **Al mover el rango, las cantidades quedan viejas.** Los días, las horas y las semanas de cada
+> persona son las del rango anterior. Por eso, al guardar, **te pregunta si recalcular**. Si dices que
+> no, quedan como estaban y puedes recalcular después con **🔄 Recalcular jornadas**. No se recalcula
+> solo: cambiar en silencio un monto que alguien ya revisó es peor que dejarlo viejo.
+>
+> ⚠️ **Solo mientras el período esté en borrador.** Uno aprobado o pagado está congelado a propósito:
+> es el respaldo de lo que ya se pagó. Para corregirle las fechas, toca **↩ Reabrir**, edítalo, y
+> vuelve a aprobarlo.
+>
+> **Queda constancia de quién lo cambió, en dos sitios.** Dentro del período, debajo del rango, sale
+> en naranja *«✏️ Editado por Fulano el 12/09/2026 a las 14:30»*. Y el cambio entra en **Auditoría**,
+> con el nombre del período, lo que decía antes y lo que dice ahora. Si al usuario lo dan de baja
+> después, la línea del período sigue diciendo quién fue.
+>
+> ⚠️ **Los renglones de cada persona no entran en Auditoría, y es a propósito.** Son casi 5.000 filas
+> que se reescriben enteras cada vez que alguien toca «Recalcular jornadas»: un solo clic dejaría
+> cientos de líneas en la bitácora. Lo que se audita es quién movió el período.
+
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
 > ("manual")) junto al botón **"🔄 Actualizar tasa BCV"**, que refresca la tasa oficial desde
@@ -736,6 +900,13 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 
 **📅 Por período (nóminas):** calcula y paga por **PRECIO por hora, día o semana**, definido **por
 trabajador**.
+
+> **🔎 Buscador de nóminas (11/09/2026).** Arriba de la lista de nóminas hay un buscador. Escribe
+> lo que estés viendo en la tarjeta y la lista se reduce sola: el **nombre** de la nómina
+> ("carbozulia", "operadores"), el **mes**, una **fecha** tal como sale (`29/08/2026`), el **tipo**
+> ("quincena", "semana") o el **estado** ("pagada", "borrador", "aprobada"). No hace falta poner
+> tildes ni mayúsculas. Si no coincide ninguna lo dice con todas sus letras; borra la búsqueda y
+> vuelven todas. **Buscar no borra ni cambia nada**, solo esconde lo que no estás buscando.
 
 > El personal se paga **siempre por la organización (SOS LA GUAIRA)**, no por contratista.
 > Al crear un período **no se elige empresa**: se carga a **TODO el personal activo** y todo
@@ -791,9 +962,36 @@ trabajador**.
   **contexto del período** (nombre, tipo, rango de fechas, modo de pago, estado, empresa y el
   filtro de cargo si aplica) y una fila **TOTAL** con fórmulas `SUM`. Este Excel **ya no lista
   tarifas** del empleado (eso se retiró de Empleados, ver 4.6d).
+
+> **🏛️ El Excel del período sale dividido por departamento (11/09/2026).** La hoja ya no es una
+> lista corrida: va **partida en secciones, una por departamento**, en el orden en que se revisa
+> la nómina (primero dirección/gerencia, después administración, y así). Cada sección abre con una
+> **franja azul** que dice el departamento y cuánta gente tiene, su personal va **numerado desde 1**
+> (la columna **Ítem**, nueva, la primera de todas) y **cierra con su propio subtotal**. Al final,
+> el **TOTAL del período suma los subtotales**, no las filas, así que cuadra siempre. Todo son
+> **fórmulas de Excel**: si borras una fila, el subtotal y el total se corrigen solos.
+>
+> - **De dónde sale el departamento de cada quien:** del **🏷️ Tabulador**, que lo guarda **por
+>   CARGO**. Lo escribes **una vez por cargo** y se le aplica a todos los que tengan ese cargo.
+>   Si un cargo no lo tiene puesto, el sistema usa el departamento de la **ficha del empleado**, y
+>   si tampoco hay, lo **deduce del cargo**.
+> - **Si ves "SIN DEPARTAMENTO"** es que a esa gente no se le pudo poner en ninguna sección.
+>   Se arregla en el **🏷️ Tabulador**: abre el cargo, escríbele el departamento y listo — no hay
+>   que tocar a las personas una por una.
+> - **Dos nombres para el mismo departamento no parten la hoja en dos.** Si el tabulador dice
+>   *ALIMENTACIÓN* y alguna ficha dice *COCINA*, todos salen en **una sola sección**, y se llama
+>   como diga el **tabulador**: manda la palabra que usa la empresa. Si renombras un departamento
+>   ahí, el Excel te hace caso.
+> - Si exportas con un **filtro** de departamento o de cargo puesto, el Excel lo **anota arriba**,
+>   para que no se confunda una nómina filtrada con una completa.
 - **💵 Equivalente en Bs (tasa BCV del día):** los **totales de cada período**, el del **período
   abierto** (total/pagado/saldo) y el **de cada persona** muestran también su equivalente en **Bs**
   (con la tasa BCV del día visible).
+- **🏛️ Filtrar por departamento:** encima del filtro de cargo hay otra **lista desplegable con
+  casillas** ("🏛️ Filtrar por departamento"). Tildas **uno o varios departamentos** y la lista de
+  personas, el **⬇️ Reporte PDF** y el **📥 Excel** salen solo de esos. Sin tildar nada = todos.
+  Los dos filtros **se suman**: si tildas el departamento *Administración* y el cargo *Analista*,
+  salen los analistas **de administración**, no todos los analistas ni todo el departamento.
 - **💼 Filtrar por cargo:** dentro del período hay una **lista desplegable con casillas**
   ("💼 Filtrar por cargo"). Tildas uno o varios **cargos** y la **lista de personas** y el
   **⬇️ Reporte PDF** salen **solo de esos cargos**, además **agrupados por cargo** con su
@@ -1062,6 +1260,22 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > franelas y demás artículos que se le han entregado, con fecha y detalle — lo mismo que muestra la
 > pestaña **"👷 Dotación"** de Inventario (ver 4.8d) pero ya filtrado a esa persona.
 
+> **🚑 Varios contactos de emergencia (08/09/2026).** Antes la ficha tenía **un solo** contacto:
+> tres casillas sueltas (nombre, teléfono y parentesco). Ahora hay una sección propia
+> **"🚑 Contactos de emergencia"** donde se pueden cargar **hasta cinco** por persona, con
+> **➕ Agregar otro contacto** y **🗑 Quitar**. El **primero es el principal**.
+>
+> **A nadie se le borró nada.** Los trabajadores que ya tenían su contacto lo conservan tal cual:
+> pasa a ser el contacto principal, sin que hiciera falta tocar ni una ficha. El principal se sigue
+> guardando donde estaba, así que el **reporte de nómina** y todo lo que ya leía ese dato siguen
+> funcionando igual.
+>
+> Los contactos salen **todos** en la **ficha del trabajador** (la que se abre con 🪪 Ficha o
+> escaneando su carnet) y **todos** en el **PDF de la ficha completa**, uno debajo del otro.
+>
+> El SQL que lo habilita, `supabase/empleados_varios_contactos_emergencia.sql`, **se corrió y se
+> verificó el 08/09/2026**, así que ya se pueden cargar varios contactos.
+
 > **Constancias por empleado:** en cada persona de la lista hay dos botones de constancia.
 > **📄 Const. carnet** es la constancia de **entrega de carnet** (trabajo a destajo; la firma el
 > colaborador). **📃 Constancia de trabajo** es el **formato estándar** dirigido *"A quien pueda
@@ -1221,7 +1435,64 @@ mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — 
 
 ### 4.7b. Servicio de Maquinaria (averías · taller · reporte)
 Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
-**⏳ Averías · 🔧 En reparación · ✓ Historial · 📊 Reporte**.
+**⏳ Averías · 🧾 Servicios · ✓ Historial · 📊 Reporte**.
+
+> **Aquí NO hay pestaña "🔧 En reparación".** Se quitó el **17-ago-2026** a pedido del cliente: el
+> circuito de *enviar a reparación* y *registrar el retorno operativo* vive **solo** en
+> **🧰 Mantenimiento de Maquinaria** (donde la pestaña se llama **🧰 En mantenimiento**). Los
+> expedientes que se abrieron antes se **siguen viendo** en el **✓ Historial** de Servicio.
+
+> **🧩 SON TRES COSAS DISTINTAS, y antes estaban enredadas en una sola (01/09/2026).** Vale la pena
+> leerlo una vez, porque explica todo lo demás:
+>
+> - **La máquina** — *¿está operativa hoy?* La deciden **🛠️ Control de Maquinaria**, el **inspector**
+>   y el **coordinador QR**. **El taller NUNCA la cambia.**
+> - **El reporte / la avería** — *¿alguien la atendió?* Eso **sí** lo puede cerrar el taller.
+> - **El trabajo / la hoja de servicio** — *qué se le hizo.* Es el **registro**, y no cambia nunca.
+>
+> Por eso **cerrar una avería vieja no dice nada** sobre si la máquina sirve hoy — y por eso **ya no
+> da miedo cerrarlas**.
+
+> **✅ AL GUARDAR UN SERVICIO, LA AVERÍA ENLAZADA SE DA POR ATENDIDA (01/09/2026).** En el formulario
+> de **🧾 Servicios**, debajo de la avería que elegiste, hay una **casilla marcada por defecto**: al
+> guardar la hoja, esa avería **queda cerrada**.
+>
+> - **Se puede desmarcar.** El caso para el que existe: **la máquina volvió con el mismo problema**,
+>   así que el trabajo se registra pero la avería **sigue pendiente**.
+> - **NO cambia el estado de la máquina**, con todas sus letras. Si está o no operativa lo sigue
+>   decidiendo **🛠️ Control de Maquinaria**.
+> - **Por qué se hizo:** quedaban **dos botones del mismo módulo con reglas opuestas** — en
+>   **⏳ Averías** el botón **"✓ Realizado"** cerraba la avería, y en **🧾 Servicios** registrar el
+>   trabajo **completo**, con repuestos y fotos, **no**. El mecánico llenaba la hoja entera y la
+>   avería seguía figurando **pendiente**.
+
+> **🔗 YA SE PUEDE ENLAZAR UNA AVERÍA AUNQUE ESTÉ CERRADA (01/09/2026).** Antes el desplegable
+> mostraba **solo las pendientes**, que es justo **al revés del orden real del taller**: el inspector
+> cierra la avería **en campo el martes** y el mecánico se sienta a llenar la hoja **el miércoles** —
+> y para entonces esa avería **ya no aparecía**, la hoja se guardaba **sin enlazar** y el trabajo
+> quedaba **huérfano**. Ahora salen **todas**: primero las pendientes y después las cerradas,
+> **marcadas** como tales. **Enlazar una cerrada no la reabre ni le cambia quién la cerró.**
+
+> **🧾 LA TARJETA DE LA AVERÍA AVISA SI EL TALLER YA LA ATENDIÓ (01/09/2026).** En **⏳ Averías**, la
+> que ya tiene su hoja lo dice en su propia tarjeta: **"🧾 Ya tiene hoja de servicio del …"**. Antes
+> había que **saltar de pestaña, buscarla y volver** — y en la práctica no había forma de saberlo.
+
+> **📦 LOS REPORTES VIEJOS VAN APARTE (01/09/2026).** Las averías de **más de 30 días** salen en una
+> sección **"📦 Reportes viejos"**, **plegada** por defecto (tócala para abrirla). **No se borra ni
+> se esconde nada:** es para que **la lista de hoy sea la lista de hoy**, y para que nadie cierre
+> **por accidente** un reporte de hace meses creyendo que es el de esta mañana.
+
+> **📋 LA LISTA DE AVERÍAS YA NO SE CORTA NI MIENTE (01/09/2026).** Dos cosas que pasaban:
+>
+> - La consulta traía **como mucho 1.000 filas** y **no avisaba**, así que **se perdían las averías
+>   más viejas**. Ahora las trae **todas**.
+> - Si la carga **fallaba**, la pantalla decía **"Sin averías pendientes"** — y el encargado leía que
+>   **no había trabajo** cuando lo que pasó fue que **no cargó**. Ahora **avisa** que no pudo cargar.
+
+> **🚪 EL FORMULARIO DE SERVICIO YA NO TE ENCIERRA (01/09/2026).** Si algo fallaba al guardar,
+> quedaban **bloqueados los dos botones** —**incluido Cancelar**— y la única salida era **recargar la
+> aplicación perdiendo todo lo escrito**. Ahora **Cancelar está disponible siempre**: se guarde o no
+> se guarde, puedes salir.
 
 > **✂️ El PDF ya no imprime lubricación ni horómetro (20-ago-2026):** el cliente revisó el documento
 > real y pidió quitar los dos bloques. En la flota salían casi siempre vacíos
@@ -1415,9 +1686,10 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 > **💰 De dónde sale el gasto:** el dinero que genera cada equipo se toma del **almacén** — los materiales
 > que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en
 > Inventario conviene elegir el **🚜 equipo** destino: así el gasto queda bien atribuido en este reporte.
-- **🔧 En reparación:** máquinas que salieron a reparación **por avería** (correctivas). Las que
-  están en su **servicio programado** no salen aquí, sino en Mantenimiento → 🧰 En mantenimiento.
-- **✓ Historial:** reparaciones correctivas ya cerradas.
+- **✓ Historial:** lo **correctivo** ya cerrado — las **averías resueltas** (con quién la reportó,
+  quién la resolvió y las dos fechas) y las máquinas que en su momento **pasaron por el taller**
+  porque se dañaron. Las de **servicio programado** no salen aquí, sino en Mantenimiento →
+  🧰 En mantenimiento.
 
 **🔴 Paradas viejas sin resolver:** arriba de esta sección aparece un banner rojo cuando una máquina
 lleva **más de 4 horas** marcada **"MÁQUINA PARADA"** sin que nadie la libere. Trae el botón
@@ -1425,17 +1697,20 @@ lleva **más de 4 horas** marcada **"MÁQUINA PARADA"** sin que nadie la libere.
 máquina. Este aviso vive **solo en Servicio**: una parada es una máquina caída, no un mantenimiento
 programado.
 
-**Enviar una máquina a reparación:** toca **"🔧 Enviar a reparación"** (o el botón en la tarjeta de la
-máquina). Indica la **fecha de salida**, el **motivo de la avería** (obligatorio), **por cuánto
-tiempo** (días estimados) y, si quieres, **qué se le va a cambiar**. Se registra como **🔧
-correctivo** y la máquina queda **No operativa** en todo el sistema.
+**Enviar a reparación y registrar el retorno YA NO se hacen aquí.** Los botones
+**"🔧 Enviar a reparación"** y **"✓ Registrar retorno operativo"** viven **solo** en
+**🧰 Mantenimiento de Maquinaria** desde el **17-ago-2026**. Lo que se hace en Servicio es **cerrar
+el reporte de la avería** (**"✓ Realizado"** en su tarjeta, o la **casilla** del formulario de
+**🧾 Servicios**) y **dejar la hoja del trabajo**.
 
-**Registrar el retorno:** cuando vuelve, toca **"✓ Registrar retorno operativo"**, pon **qué se le
-cambió** y la **fecha de retorno**. La máquina vuelve a **Operativa** automáticamente, y se cierran
-tanto el marcador **MÁQUINA PARADA** como las **averías pendientes** de esa máquina.
-
-> El botón **"✓ Registrar retorno operativo"** funciona igual en las dos secciones — la diferencia
-> es solo **cuál** de las dos listas te lo muestra.
+> **⚠️ Esto que decía el manual era mentira, y quedó corregido.** Aquí se leía que al enviar a
+> reparación *"la máquina queda **No operativa** en todo el sistema"* y que al registrar el retorno
+> *"la máquina vuelve a **Operativa** automáticamente"*. **Ninguna de las dos cosas pasa.** Desde el
+> **18-ago-2026 el módulo de Servicio no cambia el estado de ninguna máquina**: quien la pone o la
+> saca de operación es **🛠️ Control de Maquinaria**, o el **coordinador desde su panel QR** — que son
+> los que de verdad la están viendo. Se hizo así **a propósito, a pedido del cliente**: para que una
+> pila de reportes sin cerrar no arrastre el estado de la flota. La **única excepción** es el
+> **horómetro**: **"✓ Confirmar mantenimiento"** sigue reiniciando el conteo, como siempre.
 
 ### 4.8. Operadores
 La lista de operadores. Su vista es **sencilla a propósito**: solo lo que necesitan en el
@@ -2073,8 +2348,10 @@ producto"**. Pide confirmación y borra el producto **y todo su historial** de m
 **Salida** — el documento (nota de salida) que se hace cuando salen materiales:
 1. Ve a la pestaña **"📤 Salida"**.
 2. Busca cada producto y agrégalo; indica la **cantidad** de cada uno.
-3. Elige la **🚜 máquina** (lista desplegable y filtrable) y los **👷 empleados** que reciben
-   (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.
+3. Elige la **🚜 máquina** (lista desplegable y filtrable) **o el 🚗 vehículo** (la lista de la
+   pestaña Vehículos del Catálogo de equipos, filtrable por nombre, placa, marca, modelo, encargado
+   o empresa) y los **👷 empleados** que reciben (lista de la nómina, filtrable, se pueden marcar
+   varios). Escribe el destino/motivo si quiere.
    Elige también la **🏢 empresa registrada** a la que se carga la salida (lista desplegable y
    filtrable): **se guarda en el movimiento** y sale en la nota. (Sigue el campo de empresa **NO
    registrada** en texto libre para casos fuera del sistema.)
@@ -2090,9 +2367,17 @@ producto"**. Pide confirmación y borra el producto **y todo su historial** de m
 > el PDF), lo que alimenta la nueva pestaña **"👷 Dotación"** (ver más abajo) y el historial en su
 > ficha.
 
+> **Vehículo destino (07/09/2026):** debajo de la máquina hay un apartado **🚗 Vehículo** con los
+> vehículos del Catálogo de equipos (pestaña Vehículos). Antes ahí solo salían las máquinas, porque
+> los vehículos viven en otra lista y no aparecían ni buscando la placa. Sirve, por ejemplo, para
+> darle salida a un Starlink que va en una camioneta. El vehículo sale en el PDF (línea
+> **Vehículo:**), queda en el texto del movimiento (`VEHÍCULO: …`) y queda además **vinculado por
+> dentro** (`vehicle_id`): el SQL `supabase/inventory_movements_vehiculo.sql` **se corrió y se
+> verificó el 07/09/2026**. Se puede elegir máquina y vehículo a la vez.
+
 > **IMPORTANTE:** la salida se descuenta del inventario **SOLO cuando confirmas**
 > (Imprimir/Guardar). Si le das **Cancelar** en la vista previa, **no se descuenta nada** y **no
-> se pierde** lo que ya elegiste: productos, cantidades, máquina y empleados quedan tal cual para
+> se pierde** lo que ya elegiste: productos, cantidades, máquina, vehículo y empleados quedan tal cual para
 > seguir editándolos.
 
 **Gastos** — cada material que **sale del almacén es un gasto**. En la pestaña **"💸 Gastos"**
@@ -2194,8 +2479,9 @@ escritura en Compras (o Inventario).
 
 **🔁 Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Tiene dos vistas:
 **🔁 Trasladar** y **📋 Realizados**.
-- **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina + responsable) y el
-  **Destino** (máquina + responsable), el **📍 lugar/obra** a donde va, el **estado del material**
+- **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina, 🚗 vehículo y
+  responsable) y el **Destino** (máquina, 🚗 vehículo y responsable), el **📍 lugar/obra** a donde va,
+  el **estado del material**
   (**usado / lleno / vacío / dañado**) y un motivo opcional. Al **generar**, se abre la vista previa del PDF;
   al **confirmar**, se **descuenta del inventario** y queda guardado el traslado. Si cancelas, no se
   descuenta nada.
@@ -2207,6 +2493,15 @@ escritura en Compras (o Inventario).
 - **📄 Reporte:** el botón **"📄 Reporte"** (arriba, visible en ambas vistas) genera un **PDF con
   todos los traslados** —de cualquier estatus— con fecha, origen → destino, lugar, estado, materiales
   y si ya se **retornaron** o siguen **en destino**.
+
+> **Vehículo en el traslado (09/09/2026):** debajo de cada **🚜 máquina** (la de Origen y la de
+> Destino) hay un apartado **🚗 Vehículo** con los vehículos del **Catálogo de equipos** (pestaña
+> **Vehículos**). Antes solo se podía trasladar entre máquinas y personas, porque los vehículos viven
+> en otra lista. **Se pueden elegir máquina y vehículo a la vez:** material montado en una camioneta
+> es las dos cosas, y el PDF muestra las dos líneas en la caja que corresponda. El buscador encuentra
+> por **nombre, placa, marca, modelo, encargado y empresa**. Mientras no se corra el SQL de las cuatro
+> columnas nuevas, **el traslado se guarda igual y el vehículo queda en el PDF** y en el texto del
+> movimiento; lo único que falta es poder consultarlo por vehículo más adelante.
 
 > **Cédula y cargo del responsable (05/08/2026):** si el responsable de **Origen** y/o **Destino**
 > es un empleado registrado, el PDF de "Nota de traslado" muestra su **C.I. y cargo** debajo del
@@ -2445,6 +2740,78 @@ de noche otro; al final de cada uno va su línea de firma.
 > primero un bloque que solo lee y te dice si hace falta o no.)*
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
+> ## 🗄️ Las cuentas ya no se eliminan (09/09/2026)
+>
+> Pedido del cliente: *«en los usuarios, se eliminan, esa opción ya no va: que no se eliminen, que
+> se activen o desactiven, y que se puedan archivar»*. El botón de **Eliminar** desapareció de los
+> dos sitios donde estaba (la lista y el modal de editar).
+>
+> **Por qué.** Hay **33 enlaces** desde otras tablas hacia la cuenta. **Ocho impedían el borrado**
+> (órdenes, despachos, entradas de combustible, traslados, visitas de supervisor), así que el botón
+> a veces simplemente fallaba. Los otros **25 eran peores**: dejaban borrar, y después las nóminas,
+> las reparaciones, la asistencia y las dotaciones se quedaban **sin autor**, sin avisar a nadie.
+>
+> **Ahora hay tres estados, y solo se avanza de uno en uno:**
+>
+> | Estado | Qué significa | Dónde sale |
+> |---|---|---|
+> | **Activa** | Trabaja con normalidad | Apartado **Activos en uso** |
+> | **Inactiva** | Sigue en la lista, apagada | Apartado **Activos en uso** |
+> | **Archivada** | Guarda cuándo, por qué y quién la archivó | Apartado **Archivados** |
+>
+> Para **archivar** a alguien primero hay que **desactivarlo**. Para volver a activar a un
+> archivado, primero **sacarlo del archivo** — y queda **apagado**: encenderlo es otro botón. Son
+> dos pasos en las dos direcciones, a propósito.
+>
+> Archivar **pide un motivo obligatorio**: es lo que va a leer quien busque esa cuenta dentro de un
+> año. La ficha guarda además **cuándo** y **quién** lo hizo.
+>
+> **Nadie puede desactivarse ni archivarse a sí mismo.** Y cada botón **aparece solo donde la
+> acción es legal**: en una cuenta activa el botón de archivar sencillamente no está, así que la
+> regla se ve antes de chocar con ella.
+>
+> Los archivados **tampoco salen ya** en las listas de escoger supervisor o coordinador.
+>
+> *(`01_usuarios_archivar.sql` **se corrió y se verificó el 09/09/2026**: devolvió las dos
+> funciones, `archivar_usuario` y `desarchivar_usuario`. Ese archivo **no** va en el repositorio,
+> porque es público.)*
+
+> ### ✅ Qué significa «desactivar» (corregido el 09/09/2026)
+>
+> Hasta el 09/09/2026 desactivar **solo ordenaba la lista**: las cuatro puertas de permisos de la
+> base (`current_role`, `is_staff`, `is_admin`, `can_write_module`) **no miraban si la cuenta estaba
+> encendida**, así que un usuario «desactivado» entraba igual y conservaba todo. Era un agujero que
+> ya existía, no algo que trajo el archivo.
+>
+> **Ya está cerrado.** Las cuatro puertas cuelgan de la misma función, así que se arreglaron todas
+> con una línea: una cuenta apagada **no tiene rol**, y por lo tanto no pasa ninguna. Y como
+> archivada implica apagada, un archivado tampoco. **Desactivar ahora sí le quita el sistema a la
+> persona.**
+>
+> **Lo que sigue sin hacer, y hay que decirlo:** desactivar **no cierra el login**. La persona puede
+> seguir entrando con su clave y encontrarse el sistema **vacío**, porque quien mira eso es la capa
+> de permisos, no la de identidad. Tampoco invalida el token que ya tenga en la mano: queda una
+> ventana corta en la que sigue leyendo lo que tenga abierto. Cerrarle la puerta de verdad es otro
+> trabajo, en otra capa.
+
+> **🔎 El buscador encuentra por cualquier dato (08/09/2026).** Pedido del cliente: *«en el
+> apartado de usuarios, en el buscador, necesito poder buscar también por nombre de usuario, o por
+> nombre de la cuenta o por cédula, porque solo me está dejando buscar por nombre personal»*.
+>
+> Tenía razón: el buscador de la lista miraba solo **el nombre de la persona y el rol**. Ahora usa
+> **la misma regla que la Edición masiva**, que ya buscaba por todo. Escribe lo que tengas a mano:
+>
+> | Escribes | Encuentra |
+> |---|---|
+> | `dorianne` o `perez` | por **nombre y apellido** |
+> | `dperez` | por **nombre de usuario** (con el que entra al sistema) |
+> | `87654321`, `87.654.321` o `V-87.654.321` | por **cédula**, con puntos o sin ellos, y sirve un pedazo |
+> | `inspector`, `admin`, `coordinador de patio` | por **rol**, tanto los fijos como los personalizados |
+> | `bloqueado` | los que están **trancados por intentos fallidos** |
+>
+> No distingue mayúsculas ni acentos (*"martinez"* encuentra a *"MARTÍNEZ"*). Como las dos
+> pantallas comparten la regla, lo que encuentras en una lo encuentras en la otra.
+
 **✏️ Edición masiva (21-ago-2026):** en Usuarios, toca **"✏️ Edición masiva → Abrir"** para
 cambiarle el permiso de un módulo a **muchas personas de una sola vez**, en vez de entrar y salir
 de *"Editar"* una por una.
@@ -2625,13 +2992,66 @@ completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 > **🔽 Filtros avanzados (08/08/2026):** junto al buscador hay un botón **"🔽 Filtros"** que abre un
 > panel con **3 pestañas**:
 > - **🔎 Filtrar:** accesos rápidos — **📅 Hoy**, **🗓️ Esta semana**, **🗑️ Solo eliminaciones**,
->   **💰 Solo cambios de dinero** — más selección **múltiple** de **MÓDULO** (⛽ Combustible, 🚜
->   Maquinaria y flota, 📋 Inspecciones y jornadas, 👷 Nómina y personal, 🏢 Empresas y facturación,
->   📦 Inventario y compras, 🍽️ Alimentación, 🔑 Usuarios y permisos) y **tipo de acción** (➕ Creó ·
+>   **💰 Solo cambios de dinero** — más selección **múltiple** de **MÓDULO** (ver el cuadro de
+>   *«Los módulos son las secciones de la app»* más abajo) y **tipo de acción** (➕ Creó ·
 >   ✏️ Modificó · 🗑️ Eliminó · 📋 Eventos de app). Se pueden combinar varios módulos y varias
 >   acciones a la vez, y se suman al buscador de texto y al rango de fechas de arriba.
 > - **📚 Agrupar por:** **Módulo**, **Usuario** o **Día** — en vez de una lista plana, los resultados
 >   salen agrupados con encabezados **plegables** (toca uno para abrir/cerrar ese grupo).
+
+> **🗂️ Los módulos son las SECCIONES de la app (07/09/2026).** Pedido del cliente: *«por módulo
+> me imaginaba a Control, Inspecciones… la idea es que si busco por módulos, pueda ver los cambios
+> que se hicieron en Nómina, o en Inspecciones, o en cualquier otro»*.
+>
+> Antes los módulos estaban cortados **por tabla de base de datos**, en once cajones, y uno solo
+> —*«Maquinaria y flota»*— se tragaba el **Catálogo de equipos**, el **Control de maquinaria**, el
+> **Servicio de averías**, el **Mantenimiento** y la flota. No había forma de preguntar *«¿qué se
+> tocó en Control?»*. Ahora la lista es **el menú de la app, sección por sección**, en el mismo
+> orden y con los mismos nombres:
+>
+> 🛻 Acarreo / Transporte · 🤝 Aliados · 🚚 Asistencia de camiones · 🚜 Catálogo de equipos ·
+> 🍽️ Cocina y distribución de comida · ⛽ Combustible · 🛒 Compras · 🕒 Control de asistencia ·
+> 🕐 Control de maquinaria (jornadas) · 💰 Control de pagos · 🏢 Empresas y tarifas · 🏭 Fabricación ·
+> 📐 Geodesta · 🪖 Inspecciones (rondas de inspectores) · 🔍 Inspecciones de maquinaria · 📦 Inventario ·
+> 🚿 Lavado de maquinaria · 🧰 Mantenimiento de maquinaria · 🧾 Nómina · 🏛️ Obras Públicas ·
+> 👷 Operadores y coordinación · 🔧 Servicio de maquinaria (averías) · 👥 Usuarios y permisos ·
+> 🚛 Viajes de camiones · 🔔 Avisos del sistema.
+>
+> Las secciones que dicen **«sin rastro aún»** (Fabricación, Geodesta, Lavado, Obras Públicas y
+> Avisos) todavía **no dejan huella en la bitácora**: sus tablas no tienen auditoría. La pastilla
+> está para que la lista sea el menú completo, y avisa para que nadie crea que «no pasó nada» ahí.
+> **Margen de ganancia** no tiene pastilla propia: lo que edita es el costo en la **ficha** de la
+> máquina, así que sale en 🚜 Catálogo de equipos. **Reportes** solo lee, no deja rastro.
+>
+> ⚠️ **El hueco del 09/08 al 07/09/2026.** Se comprobó en producción que el día de la caída por
+> los crons la auditoría quedó **apagada en 32 de las 42 tablas**, no solo en las jornadas. Por eso
+> Nómina, Inventario, Compras, Combustible (salvo despachos), las rondas de Inspecciones, las
+> averías, Cocina, Aliados, Empresas, Pagos, Asistencia y los permisos de Usuarios **no tienen
+> nada entre el 09/08 y el 07/09**, y eso no se recupera. El **07/09/2026** se corrió
+> `supabase/auditoria_reencender_tablas_humanas.sql` y se verificó: **42 triggers encendidos**,
+> solo el de las jornadas sigue apagado a propósito (esa tabla tiene su trigger de personas). Desde
+> ese día esas secciones vuelven a grabar. Se midió antes de correrlo: entre 440 y 830 filas por
+> día, un 4 % de lo que tumbó el sistema.
+>
+> **Cómo sabe de qué sección vino.** La bitácora guarda **qué tabla** se tocó, **no de qué
+> pantalla** vino — y a la tabla de máquinas le escriben unas **20 pantallas**. Lo que desempata
+> es la **acción**:
+>
+> | Lo que se hizo | Va al módulo |
+> |---|---|
+> | Inició / finalizó jornada, marcó **PARADA** | 🕐 Control de maquinaria |
+> | Asignó la máquina a un inspector, escaneó su **QR** | 📋 Inspecciones |
+> | Creó, editó o **retiró la ficha** de la máquina | 🚜 Catálogo de equipos |
+> | Escaneó el **carnet** de un empleado | 👥 Nómina y personal |
+> | Entró o salió del sistema | 🔑 Usuarios y permisos |
+>
+> ⚠️ **No se tocó la base de datos:** ni un trigger nuevo, ni una columna, ni una fila de más. Todo
+> se reparte **al momento de mostrarlo**, sobre lo que ya estaba guardado — por eso **lo de antes
+> del 07/09/2026 también sale repartido con las reglas nuevas**, sin tener que volver a guardar nada.
+>
+> **Si ves un solo módulo, revisa los filtros.** Con la pastilla **🚜 Estados de máquina** activa
+> solo pasan retiros, reactivaciones y esperas, que son todos del mismo módulo: es normal que
+> aparezca uno solo. Apágala para ver el resto.
 
 > **🗂️ Agrupar por módulo, a la vista (20-ago-2026).** La fila **"AGRUPAR POR:"** quedó en la
 > pantalla principal, debajo del contador de acciones: **Sin agrupar · 🗂️ Módulo · 👤 Usuario ·
@@ -3712,6 +4132,16 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > *"Fin de contrato"* no tiene meta que cumplir ni está parado: no está. **Sus viajes viejos no se
 > pierden**: si un camión retirado tiene viajes en el rango que estás mirando, su renglón sale igual.
 >
+> **⏳ Y las que esperan instrucciones tampoco (12/09/2026).** Misma regla y mismo motivo: un camión
+> en espera no está trabajando, así que no tiene meta diaria que cumplir, y contarlo en el resumen
+> con 0 viajes dice que la obra rinde menos de lo que rinde. Igual que con las retiradas, **si tiene
+> viajes en el rango su renglón sale**.
+>
+> ⚠️ **Esto es solo el panel. La lista del LISTERO no cambia:** ahí las que esperan instrucciones se
+> siguen ofreciendo, a propósito, desde el 31/08/2026. Un viaje es algo que el listero **vio**, y
+> *"en espera"* es una anotación de otro módulo que puede estar vieja. Si se filtrara también allá,
+> un camión mal marcado dejaría al listero sin manera de anotar viajes que sí ocurrieron.
+>
 > **Y los camiones que el listero «agregó a su lista» ya salen con su placa y su empresa.** Los que
 > se agregan desde el buscador (los que existen en el catálogo pero su código no dice
 > *volteo/volqueta/toronto*) salían en el resumen, en los filtros y en el PDF **sin placa (—) y bajo
@@ -3726,8 +4156,20 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 - **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
   (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
-  que el Catálogo. Si el camión está averiado, parado o retirado, sale un **aviso** antes de
-  registrar (no bloquea, solo confirma).
+  que el Catálogo.
+  >
+  > **⚠️ Corrección (02-sep-2026):** aquí decía que *"si el camión está averiado, parado o retirado
+  > sale un aviso antes de registrar"*. **Eso ya no es cierto, y hay dos cosas distintas mezcladas:**
+  >
+  > - **Averiada, parada o esperando instrucciones → sale en la lista y NO pregunta nada.** Es la
+  >   regla que pediste el 31-ago-2026: *"no importa el estado del camión si está averiado o algo
+  >   por el estilo, si colocan que se hizo un viaje, lo registre"*. El motivo de fondo: un viaje es
+  >   un **hecho observado** —el listero vio entrar el camión— y el estado es una **anotación** de
+  >   otro módulo, que puede estar vieja o mal puesta. Cuando se contradicen, gana lo que se vio.
+  >   (Hay una prueba automática que vigila esta regla para que no se revierta sola.)
+  > - **Retirada → NO sale en la lista del listero.** Eso es otra cosa: son camiones que ya no están
+  >   en la obra (fin de contrato, reemplazo). Cuando salían, se registraban viajes de camiones que
+  >   no existen — *"se están registrando máquinas que no están"*.
 - **Registrar viaje:** un solo botón — **🚛 Registrar viaje**. La hora se toma sola (la del
   teléfono en el momento del toque) y el **chofer** también: es el que el Coordinador de Operadores
   tiene asignado a ese camión en el turno actual (no se escribe a mano).
@@ -3756,7 +4198,120 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   jornada siga abierta (no puede borrarlo, ni tocar los de otro listero). Si tocó el camión
   equivocado, debe avisarle a su jefa para que lo corrija.
 
-### Panel de la jefa / administración
+### Panel de información (administración)
+
+> **🎫 Cada viaje tiene su número de tique (12/09/2026).** Al registrar un viaje, la base le pone
+> un número correlativo: **CDT-000001**, **CDT-000002** y así. Sale como pastilla verde en la fila
+> del viaje, y es el número que se canta por radio y el que lleva el papel que firma el CDT.
+>
+> **La placa y la empresa quedan congeladas en el viaje.** Antes se buscaban en el catálogo cada
+> vez. Ahora el viaje guarda su propia foto, para que un tique reimpreso diga **exactamente lo
+> mismo** que el papel que ya está firmado, aunque después alguien le corrija la placa a ese camión.
+> Los cuatro camiones sin placa cargada salen con su **serial**, y la empresa sale siempre.
+>
+> ⚠️ **Un viaje sin señal NO tiene número todavía**, y la fila lo dice: el folio lo pone la base
+> cuando el viaje llega al servidor. Mientras el viaje esté en cola no hay tique que entregar. Es a
+> propósito: un número provisional se cantaría por radio y después no existiría.
+>
+> ⚠️ **Los viajes anteriores al 12/09/2026 no tienen número, y no se les va a poner.** Por esos
+> 3.384 viajes nunca se emitió un tique. Numerarlos hacia atrás inventaría papeles que no existieron.
+> El primer viaje que se registre desde ahora es el **CDT-000001**.
+
+> **🎫 Tú decides qué sale en el tique (12/09/2026).** En el panel de información, debajo de
+> «Obras y ubicaciones», hay un desplegable nuevo: **🎫 Qué sale en el tique**. Ahí hay **un
+> interruptor por cada dato** (fecha, hora, placa, empresa, CDT, jornada, turno, equipo, marca y
+> modelo, serial, chofer, listero, metros cúbicos, estado y nota), **uno por cada logo** (SOS La
+> Guaira, Golden Touch, Plan Venezuela Renace y BCV) y la opción de **en qué papel** sale: rollo de
+> 80 mm, rollo de 58 mm, o hoja carta con 1, 2, 4 o 6 tiques.
+>
+> **Arriba de los interruptores está la vista previa**, y cambia mientras marcas. Lo que ves ahí es
+> lo que va a salir impreso.
+>
+> **Vale para todos.** No es una preferencia de tu teléfono: lo que marques es lo que imprimen los
+> chamos en el CDT. Por eso se guarda cuando tocas **Guardar** y no a cada clic, y mientras haya
+> cambios sin guardar el título del desplegable te lo dice.
+>
+> **De fábrica salen seis datos**: número del tique, fecha, hora, placa, empresa y CDT. Todo lo demás
+> arranca apagado.
+>
+> ⚠️ **El número del tique no se puede quitar.** La casilla se ve, pero no se mueve: un tique sin
+> número no identifica nada, no se puede cantar por radio y no se puede reclamar.
+
+> **🖨️ Imprimir el tique y entregarlo (12/09/2026).** Ya se puede sacar el papel. En cada viaje que
+> tenga número aparece **🖨️ Imprimir tique**, al lado de Editar y Borrar. Se abre la vista previa,
+> tocas **Imprimir** y sale el papel para dárselo al camionero.
+>
+> **El botón lo tiene todo el que vea la fila**, no solo quien puede editar. El listero del CDT es
+> justamente quien entrega, y él no puede corregir nada de días viejos.
+>
+> **Las dos formas de imprimir, como se pidió:**
+>
+> - **Uno por uno, en el momento**, desde la tiquetera de rollo del CDT. Se marca el viaje, se
+>   imprime, se entrega.
+> - **Toda la tiquetera de una**, en hojas, para repartir después. En «Lista completa de viajes»,
+>   arriba de la lista, está **🖨️ Imprimir los N tiques de esta lista**. Sale **la lista tal como la
+>   tengas filtrada**: si filtraste por CDT y por día, eso es lo que se imprime.
+>
+> **Antes de mandar te dice cuántas hojas van a salir.** Nadie quiere enterarse de que eran sesenta
+> cuando ya están saliendo.
+>
+> **Queda registrado quién lo entregó, cuándo y desde qué CDT.** Es lo que se pidió: no solo lo que
+> marcaron, también los tiques que se dieron. El CDT que se guarda es el **de quien imprime**, no el
+> del viaje; el del viaje ya está guardado en el viaje. Si la jefa saca un lote desde la oficina, ese
+> tique no lo entregó nadie en el patio, y así queda.
+>
+> ⚠️ **Un tique que ya se entregó sale marcado como REIMPRESIÓN**, en letras grandes dentro de un
+> recuadro. Te avisa antes de mandar, y la fila del viaje muestra **✅ entregado** o **🔁 entregado
+> ×2**. Reimprimir se puede —a veces hace falta— pero hay que saberlo: dos papeles con el mismo
+> número en el patio se cuentan como dos viajes al cobrar.
+>
+> ⚠️ **Sin señal el papel sale igual, y la constancia se guarda sola después.** Si se cae la señal
+> justo al imprimir, arriba te aparece «*N tiques entregados sin registrar en el servidor*». No se
+> pierde nada: sube solo cuando vuelva la señal. El camionero ya tiene su papel.
+>
+> **Si cancelas la vista previa no se anota nada**, porque ese papel no salió.
+>
+> ⚠️ **Un viaje sin número no se puede imprimir**, y el botón no aparece. Son los que están en cola
+> sin subir y los anteriores al 12/09/2026. El botón de la lista completa dice cuántos quedan fuera
+> y por qué.
+
+> **📏 Si no caben todos los datos, el sistema achica la letra (12/09/2026).** Con muchos datos
+> encendidos y 4 o 6 tiques por hoja, el recuadro se llena. El tique **no se corta**: la letra se
+> achica sola hasta que entre todo, incluida la línea de la firma.
+>
+> ⚠️ **Cuando ni con la letra más chica alcanza, te avisa** — en «🎫 Qué sale en el tique» y otra vez
+> al imprimir — y te dice **en qué papel sí caben**. Por debajo de cierto tamaño el papel no se lee
+> parado en el patio, así que antes de achicar más se prefiere avisar.
+>
+> Con los seis datos de fábrica entran cómodos en cualquier papel. El aprieto empieza con todos los
+> datos encendidos y 6 por hoja.
+
+> **🗑️ Borrar un viaje desde «Mis viajes» (12/09/2026).** El tacho estaba solo en «Lista completa de
+> viajes», así que quien registraba un viaje de prueba no tenía cómo quitarlo desde donde lo estaba
+> viendo. Ahora, **si tienes control total**, el botón de borrar aparece también en tu propia lista.
+>
+> ⚠️ **Para el listero sigue apagado, y eso no cambia.** Si él pudiera borrar los suyos, podría sacar
+> trabajo de la jornada que le están revisando y nadie se enteraría. Lo suyo es corregir la hora.
+>
+> ⚠️ **Un viaje que está esperando señal tampoco se borra ahí**: todavía no existe en el servidor, así
+> que no hay nada que borrar. Lo que ves es una fila local.
+
+> **📋 Todo el panel son desplegables (12/09/2026).** Antes eran seis bloques largos uno detrás
+> de otro y llegar al de abajo era media rueda de ratón; en el teléfono, peor. Ahora cada
+> apartado —**Resumen de hoy**, **Cargar viajes a mano**, **Camiones sin viaje reciente**,
+> **Obras y ubicaciones**, **Lista completa de viajes** y **Configuración**— se abre y se cierra
+> con un toque en su título.
+>
+> **Cerrado no es escondido:** cada título dice qué hay dentro sin abrirlo (cuántos camiones,
+> cuántos viajes, a cuántas horas está el aviso), para no tener que abrir los seis a ver cuál
+> tiene lo que buscas.
+>
+> **Arrancan abiertos** el *Resumen de hoy* y la *Lista completa de viajes*, que es lo que se
+> mira todos los días. Y **Camiones sin viaje reciente se abre solo cuando hay alguno**: una
+> alerta que hay que ir a destapar no es una alerta. El pliegue **no se guarda**: al salir y
+> volver, cada apartado arranca igual.
+>
+> (Este panel se llamaba *"Panel de la jefa"*. Es el mismo, con otro nombre.)
 
 - **Resumen de hoy:** ranking de viajes por camión (comparado contra su **meta diaria**, si tiene
   una puesta) y total por listero.
@@ -3773,6 +4328,433 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 - **Configuración:** el **umbral de alerta** (horas) y la **meta de viajes diarios** de cada
   camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
+
+### 📐 El PDF del conteo por tipo, con medidas y m³ (09-sep-2026)
+
+En **Reportes → Conteo de equipos → 🔎 Buscar por tipo de equipo**, el botón **«PDF de este conteo»**
+cambió en cuatro cosas.
+
+**1. Mismo membrete que Ubicaciones.** Sale con la plantilla del Plan, no con la hoja simple de antes.
+
+**2. Columnas de cubicaje.** Cada equipo lleva **Alto, Largo, Ancho** y **Volumen (m³)**.
+
+| De dónde sale la medida | Cuándo |
+|---|---|
+| Lo cargado en **Cubicaje y volumen** | Siempre que exista. **Manda sobre todo lo demás.** |
+| La **hoja de cubicaje** del 09/09/2026 (11 unidades) | Cuando no hay medida cargada y la unidad se reconoce |
+| **En blanco** | Cuando no se reconoce |
+
+> ⚠️ **Lo que no se reconoce queda en blanco, a propósito.** Rellenar con un promedio o con un cero
+> sería inventar un número por el que se cobra.
+
+> ⚠️ **Lo medido en el sistema manda sobre la hoja.** Si no, corregir una medida en Cubicaje no cambiaría
+> este reporte y los dos papeles dirían cosas distintas del mismo camión.
+
+Las once de la hoja son: Toronto Trakker, Fiat, Iveco Eurotech, Mitsubishi, Renault Ikemaz, Freightliner,
+Chuto Trakker, Doble Tolva MAX-400, Doble Cajón, Telescópica Eurotech y Sinotruk (HOWO).
+
+> 🚫 **El listado NO lleva columna de clasificación**, se pidió quitarla. El **cuadro** de cantidad por
+> clasificación sí sigue, con su propia pastilla.
+
+**3. ¿Qué se oculta en el PDF?** Pastillas iguales a las de Ubicaciones, **pegadas al botón**: Marca ·
+Modelo · Serial/Placa · Encargado · **Metros cúbicos** · Nombre de empresas · Listado por equipo ·
+Cantidad por tipo · Cantidad por clasificación · Alcance del informe. Se encienden **varias a la vez**,
+ocultan columnas o cuadros pero **nunca equipos**, y los totales no cambian. El nombre del archivo dice
+qué se ocultó, para que dos PDF distintos no se pisen en la carpeta de descargas.
+
+> ⚠️ Si apagas el **listado** y los **dos cuadros** a la vez, el botón se apaga y te lo dice: sería una
+> hoja con membrete y nada más.
+
+**4. Empresas en específico.** En **«¿Qué empresas salen?»**, al elegir *todas* aparece la lista de empresas
+con su cantidad de equipos, para marcar **solo las que quieras**. Sin marcar ninguna salen **todas**, como
+siempre. Vale para el PDF de Ubicaciones tácticas **y** para el conteo por tipo, y lo que marques acota
+también lo que ves en pantalla: **lo que se ve es lo que se imprime**.
+
+> ⚠️ El filtro se aplica **antes** de repartir por alcance, para que el cuadro de «alcance del informe»
+> cuente lo mismo que lista el papel. Aplicándolo después, el papel diría «6 empresas» arriba y listaría 2.
+
+
+### 📐 Cubicaje y reporte volumétrico (09-sep-2026)
+
+El panel de información quedó partido en **dos sub-pestañas**: **🚛 Viajes** (todo lo de siempre, y es
+la que abre) y **📐 Cubicaje y volumen**, que es nueva. Sirve para decir **cuántos metros cúbicos**
+cargó cada camión en un día o en un rango, y para armar el reporte quitando y poniendo columnas.
+
+> **📐 Cubicaje también son desplegables (12/09/2026).** Los seis apartados de esta sub-pestaña
+> —**Medir una volqueta**, **Capacidad de la flota medida**, **Unidades medidas**, **Cómo se le
+> cargan los m³ a los viajes**, **Buscar en el histórico** y **Reporte volumétrico de flota**— se
+> abren y se cierran con un toque en su título, igual que los de 🚛 Viajes.
+>
+> **Cerrado no es escondido:** cada título dice qué hay dentro sin abrirlo (cuántas unidades faltan
+> por medir, el promedio de la flota, con qué modo se están repartiendo los m³, cuánto hay guardado
+> en el período).
+>
+> **Arrancan abiertos** *Capacidad de la flota medida* y *Unidades medidas*, que es lo que se mira de
+> un vistazo. El pliegue **no se guarda**: al salir y volver, cada apartado arranca igual.
+>
+> **Los dos avisos de arriba no se pliegan:** el de *"falta correr el SQL"* y el de *"no se pudieron
+> leer las medidas guardadas"* siguen siempre a la vista. Una advertencia que hay que ir a destapar
+> no advierte.
+
+> ✅ **Las medidas y los m³ quedan guardados para todos, y se pueden buscar después.** Requiere correr
+> `03_cubicaje_camiones.sql`, que se entrega aparte y **no** va en el repositorio porque es público.
+> Crea **dos tablas nuevas** y **no toca ninguna existente**: el catálogo de vehículos se sigue
+> **leyendo** y nunca se modifica.
+>
+> **Mientras ese SQL no se corra**, la pantalla funciona igual pero las medidas se guardan **solo en
+> ese dispositivo** y no hay histórico que buscar. La pantalla lo avisa arriba.
+>
+> Una volqueta medida **a mano** se queda siempre en el dispositivo, incluso con el SQL corrido: la
+> tabla se indexa por el camión del catálogo, y una unidad que no está en el catálogo no tiene con
+> qué indexarse. **No se agrega al catálogo**: no aparece en Control de Maquinaria, ni en
+> Mantenimiento, ni le llega a los inspectores. Es el mismo criterio del camión *"fuera de catálogo"*.
+
+**1. Medir una volqueta.** Se elige un camión del catálogo (con su buscador) o **➕ Medir nueva
+volqueta (manual)**. Se llenan **identificador, marca, modelo, alto, largo y ancho** (en metros; la
+**coma decimal vale**: *2,5* se entiende). Los metros cúbicos se calculan **mientras se escribe**
+(alto × largo × ancho) y debajo sale su clasificación:
+
+| Clasificación | Rango |
+|---|---|
+| 🔹 Compacto / Estándar | menos de 18 m³ |
+| 🔸 Media capacidad | de 18 a 25 m³ |
+| 🔶 Gran capacidad | más de 25 m³ |
+
+Al elegir un camión del catálogo, el identificador, la marca y el modelo **vienen de su ficha**. Si
+ya estaba medido, salen sus medidas para corregirlas.
+
+**2. Capacidad de la flota.** Tres tarjetas: **mayor**, **menor** y **promedio**. ⚠️ Las unidades **sin
+medir quedan fuera del cálculo** — contarlas como 0 hundiría el promedio y diría que la flota carga
+menos de lo que carga. Debajo, cuántas unidades hay de cada clasificación.
+
+**3. Unidades medidas.** La lista de lo medido, con sus dimensiones, su clasificación y **cuántos
+viajes tiene en el rango** que esté puesto arriba. Se borran con 🗑️.
+
+**4. Cómo se le cargan los m³ a los viajes.** Se aplica **al mismo rango de fechas** que tengas en
+"Lista completa de viajes" (un día, varios días sueltos o un rango). Hay tres formas:
+
+| Modo | Qué hace |
+|---|---|
+| 📦 **Por capacidad de tolva** | Cada viaje carga lo que mide la tolva. Total = viajes × m³ de la tolva. |
+| ⚖️ **Repartir un total** | Escribes **un** total para todo el rango y se reparte **según cuántos viajes** hizo cada camión: quien hizo más viajes se lleva más. |
+| ✍️ **Total escrito a mano** | Le escribes el total del rango a cada camión. Manda lo que escribas, no la medida. |
+
+Un camión **sin medir** queda en **0 m³** en el modo de tolva: no se le inventa volumen. En "repartir
+un total", si en el rango no hay viajes, todos quedan en cero (no se divide entre cero). Y el
+**céntimo que sobra al redondear** se le suma al camión de más viajes, para que el reporte cierre
+exactamente con el total que escribiste.
+
+**5. Guardar, que es lo que permite buscar después.** El botón **💾 Guardar el cubicaje de este rango**
+graba **una fila por camión y por jornada**, no un total del rango. Eso es lo que hace posible
+preguntar después *"¿cuánto cargó este camión el 3 de septiembre?"*.
+
+> ⭐ **Lo guardado MANDA sobre el cálculo**, jornada por jornada. Un reporte de un mes viejo tiene que
+> salir **hoy** con los mismos números que salió aquel día. Lo que no se guardó se sigue calculando al
+> vuelo, así que el sistema funciona igual sin haber guardado nada.
+>
+> Las jornadas **sin viajes no se guardan**: una fila en cero diría *"ese día ese camión cargó nada"*,
+> y lo cierto es que ese día no trabajó. Son dos cosas distintas.
+>
+> Si después se le **agregan viajes** a una jornada ya guardada, el sistema **avisa** y sigue mostrando
+> el volumen guardado. No lo corrige solo: cambiaría en silencio un número por el que ya se cobró.
+> Para actualizarlo se vuelve a guardar el rango.
+
+**6. Buscar en el histórico.** La tarjeta **🔎 Buscar en el histórico** consulta lo guardado, con tres
+cortes de un toque: **📅 Por día**, **🗓️ Por mes** y **🚛 Por camión**. Los tres salen de las mismas
+filas, así que los tres suman igual. Hay además un buscador para filtrar por camión.
+
+El **período** es el que tengas puesto en "Lista completa de viajes": Hoy, Esta semana, Este mes,
+Rango libre o Días específicos. En el corte por día sale también el detalle camión por camión, con
+una papelera para borrar el volumen de un día suelto (vuelve a calcularse solo).
+
+**7. El reporte volumétrico.** El botón **📄 Generar reporte volumétrico** saca el documento
+*"Análisis Técnico y Capacidad Volumétrica de Flota"*: cabecera azul, las tres tarjetas de mayor,
+menor y promedio, las tablas con **alto, largo, ancho, volumen y clasificación en pastilla de color**,
+el análisis logístico, las recomendaciones y las notas técnicas. Si hay histórico guardado en el
+período, va incluido como una sección más.
+
+Un interruptor decide si sale **segmentado** (volteos por un lado, volquetas y chutos por otro) o en
+**una sola tabla**. Segmentado por defecto: un volteo rígido anda por 14-17 m³ y un chuto pasa de 21,
+y mezclarlos hace que el promedio no describa a ninguna de las dos familias.
+
+> ⚠️ **El análisis y las recomendaciones NO son texto fijo: se calculan.** Un párrafo escrito a mano
+> que diga *"entre 13,80 y 17,64 m³"* queda mintiendo en cuanto se mida otra unidad, y nadie se acuerda
+> de ir a corregirlo. Los rangos salen de las mismas filas que se imprimieron arriba.
+
+> ⚠️ **El volumen se calcula, no se copia.** El sistema imprime el resultado exacto de
+> alto × largo × ancho. Si un cálculo hecho aparte da otro número, manda el del sistema: se cobra por
+> metro cúbico, y copiar una cifra para que "cuadre" con una hoja anterior es la peor de las dos
+> salidas.
+
+**5. Qué sale en el reporte.** En la sub-pestaña **🚛 Viajes**, justo encima del botón de exportar,
+está **🖨️ Qué sale en el reporte** (se despliega). Son interruptores que **solo cambian las
+columnas** del PDF y de la vista previa: **no sacan ni agregan un solo viaje**, el total es el mismo.
+
+- 📐 **Metros cúbicos** — columna de m³ y su sumatoria.
+- 🔢 **Conteo de viajes** — en el resumido, las columnas Día, Noche y Viajes. En el detallado cada
+  línea **es** un viaje, así que ahí este interruptor no hace nada.
+- 🏷️ **Marca y modelo** · 📏 **Alto, largo y ancho** · 🔶 **Clasificación** · 🚗 **Placa / serial**
+  · 👤 **Chofer** · 📝 **Listero** · 🌓 **Turno** · ⚙️ **Estado**.
+
+> ✅ **Sin tocar nada, el reporte sale EXACTAMENTE igual que antes.** Todo lo nuevo (m³, marca y
+> modelo, dimensiones, clasificación) entra **apagado**. Fecha, hora, empresa y camión **no se pueden
+> quitar**: sin ellas la línea no identifica nada.
+
+> ⚠️ **Si apagas el conteo de viajes Y los m³ en el modo resumido**, la tabla queda sin una sola
+> cifra: el botón de exportar **se apaga** y te lo dice. Un reporte que no cuenta nada parece un
+> reporte y no lo es.
+
+El **subtítulo del PDF** deja constancia de con qué modo se calcularon los m³, porque dos reportes del
+mismo rango pueden traer volúmenes distintos y los dos ser correctos.
+
+> 🚫 **Carbozulia Sinotruk (HOWO) no entra en este apartado**, por pedido. No sale en el buscador de
+> medición ni cuenta en los indicadores. **Sus viajes se siguen registrando y contando igual** en el
+> resto del módulo. Hay un interruptor para volver a mostrarla: un filtro que no se puede quitar es
+> indistinguible de un dato que falta.
+
+### 📐 Corregir una medida ya cargada (09-sep-2026)
+
+La lista **📋 Unidades medidas** de *📐 Cubicaje y volumen* dejaba borrar pero no corregir: para
+cambiar un número había que volver al buscador de arriba y encontrar el camión otra vez. Con casi
+noventa unidades que se llaman **igual**, eso es rendirse. Cambiaron tres cosas.
+
+**1. Cada fila dice de qué camión es.** El título de la fila es ahora el **código del camión y su
+placa** (o el serial si no tiene placa). El nombre de la tolva —*"Volteo Toronto Iveco Trakker"*— baja
+al renglón de abajo, junto a las medidas.
+
+> ⚠️ **Por qué salían todas iguales.** Una medida que viene de la **hoja de cubicaje** trae como
+> identificador el nombre del **modelo de tolva**, no el del camión. Como casi toda la flota es del
+> mismo modelo, la lista salía ochenta y nueve veces el mismo texto y sin placa. La medida siempre
+> estuvo bien; lo que faltaba era decir **a quién** se le había puesto.
+
+> ℹ️ **Si una fila sale sin placa**, es que esa unidad **no tiene placa cargada en el catálogo**. Se
+> arregla en Control de Maquinaria, no aquí: este apartado **lee** el catálogo y nunca lo modifica.
+
+**2. Se corrige en la fila misma.** Al tocar una fila se abren ahí mismo **Alto, Largo y Ancho**, con
+los m³ recalculándose mientras escribes y los botones **Cancelar** y **Guardar**. No hay que subir a
+ninguna parte. El mismo toque la vuelve a cerrar.
+
+> ⚠️ **Antes esto existía pero no se veía.** Tocar la fila llenaba el formulario de **arriba**, a
+> ochenta filas de distancia, y la pantalla no se movía: desde abajo no ocurría nada visible. El
+> formulario de arriba sigue estando —sirve para **medir una unidad nueva**—, pero corregir una medida
+> ya hecha ya no obliga a buscarla de nuevo.
+
+**3. La lista tiene su propio buscador.** Busca por **código, placa, serial o modelo** dentro de las
+unidades ya medidas.
+
+> ⭐ **El buscador solo cambia lo que se ve, no lo que se cuenta.** Las tarjetas de mayor, menor y
+> promedio y el **reporte volumétrico** siguen saliendo de la flota entera. Filtrar una lista para
+> encontrar un camión no es sacar camiones de la flota, y un promedio que cambiara al escribir en un
+> buscador sería un promedio que no se puede citar.
+
+**Una medida “de la hoja” no está guardada.** Las filas marcadas **⚠️ de la hoja, sin confirmar** son
+las once medidas que entregó el cliente, reconocidas por el texto del equipo. Sirven para el cálculo,
+pero **no están guardadas**: al abrirlas el botón dice **✅ Confirmar**, y al tocarlo se guardan de
+verdad y la marca desaparece. Confirmarlas es lo que hace que **no dependan** de que el texto del
+catálogo se siga escribiendo igual.
+
+> ⚠️ **Vale la pena revisarlas una por una.** Se reconocen **por el texto** del equipo, porque el
+> catálogo no tiene ninguna columna que diga qué tolva lleva cada máquina. Si una unidad sale con la
+> medida de otra, se corrige aquí mismo y lo corregido manda para siempre.
+
+### 🚫 Dejar una unidad sin medida (09-sep-2026)
+
+**Poner un cero ya significa algo.** Antes el botón de guardar simplemente se apagaba y no decía por
+qué. Es que una tolva de cero por cero no existe, y la base lo prohibe con razón: dos negativos
+multiplicados dan un positivo muy creíble.
+
+Pero lo que se quiere decir con un cero es un hecho **real**: *este camión no tiene medida de tolva*.
+Y eso era indistinguible de *"todavía nadie la ha medido"*, porque la hoja de cubicaje volvía a
+deducirle una medida sola.
+
+> ⭐ Ahora, al escribir un cero en cualquiera de las tres casillas, el botón cambia a **🚫 Dejar sin
+> medida** y el contador de m³ lo explica. Se pregunta antes, como en un borrado, porque quita un dato
+> que se estaba usando para cobrar.
+
+**Y ahora sí sale del conteo de equipos.** Apartar una unidad en Cubicaje no servía de nada en
+*Reportes → Conteo de equipos*: la hoja le volvía a deducir la medida y el papel la seguía imprimiendo,
+así que el botón de apartar parecía no hacer nada. Las dos pantallas leen ahora **la misma lista**.
+
+> ⚠️ **Sale EN BLANCO, no en cero.** Es la misma regla que ya valía para lo que no se reconoce: un
+> cero diría *"ese camión no carga nada"*, y lo cierto es que **no se sabe cuánto carga**. El equipo
+> sigue apareciendo y contando como equipo; lo que desaparece son sus medidas y sus metros cúbicos.
+
+> ⚠️ **Se anota solo en este dispositivo.** La tabla de medidas no admite una fila *"sin medida"*
+> —exige alto, largo y ancho mayores que cero— así que no hay dónde más guardarlo sin un SQL nuevo. Lo
+> que sí está garantizado es que las dos pantallas de este equipo digan lo mismo.
+
+Apartar vale también contra una medida **ya guardada**, no solo contra la de la hoja. Si solo callara
+a la hoja, apartar un camión ya medido no haría nada visible y el botón estaría mintiendo.
+
+### ✅ Las correcciones ya no se deshacen solas (09-sep-2026)
+
+**El síntoma.** Se corregía una medida, el sistema decía *"Medida guardada"*, y al volver a mirar
+estaba otra vez como antes. Todas las unidades salían marcadas **⚠️ de la hoja, sin confirmar** por
+mucho que se confirmaran.
+
+**La causa.** No era el guardado: **las medidas siempre se guardaron bien**, y estaban en la base todo
+el tiempo. Lo que fallaba era **leerlas de vuelta**. El lector de tablas del sistema recorre las filas
+ordenando por una columna llamada `id`, y la tabla de medidas no tiene esa columna: su clave es el
+camión, porque hay una tolva por camión. La consulta fallaba entera y devolvía cero medidas.
+
+> ⚠️ **Lo que lo volvió invisible.** Ese fallo **se descartaba sin decir nada**, así que una consulta
+> rota se veía exactamente igual que *"todavía no hay ninguna medida"*. La pantalla caía a la hoja de
+> cubicaje, que es lo correcto cuando de verdad no hay nada guardado, y cada corrección parecía
+> deshacerse sola. Mirando la pantalla no había forma de saberlo.
+
+**Qué se arregló.** Las medidas se leen por la columna que sí existe. Y si alguna vez vuelve a
+fallar la lectura, **la pantalla lo dice** con un aviso rojo que aclara lo único que importa en ese
+momento: guardar sigue funcionando y **no se está perdiendo nada**, solo no se está viendo.
+
+> ℹ️ **Ninguna otra pantalla tenía este problema.** Se revisaron las once tablas que se leen igual
+> y todas tienen su columna `id`. Era el único caso.
+
+### 🗑️ Borrar una medida, y dónde quedó la placa (09-sep-2026)
+
+Dos cosas más del mismo apartado.
+
+**La placa sale en todo el apartado, no solo en la lista.** Los totales a mano, el histórico y el
+buscador del catálogo también nombraban al camión con el modelo de la tolva. Ahora los cuatro sitios
+usan **una sola regla**: código, placa y, si no hay placa cargada, serial. El histórico prefiere el
+nombre del catálogo, así que **lo ya guardado también sale con placa** sin tener que volver a guardarlo.
+
+**Borrar una medida de la hoja ahora borra de verdad.** Antes no: la medida de la hoja **no está
+guardada en ninguna parte**, se deduce del texto del equipo cada vez que se pinta la pantalla. El
+borrado buscaba una fila que no existía —y borrar nada no da error— así que el aviso decía *"Medida
+borrada"* y la unidad seguía ahí.
+
+> ⭐ **Ahora se APARTA**, que es lo único que puede significar borrarla: *no vuelvas a aplicarle la
+> medida de la hoja a este camión*. Y eso vale **solo en este dispositivo**, porque no hay dónde más
+> anotarlo: la tabla de medidas guarda tolvas reales, y su alto, largo y ancho tienen que ser mayores
+> que cero. No admite *"ninguna"*.
+
+> ↩️ **Se puede deshacer.** Arriba de la lista aparece un aviso con cuántas hay apartadas y un toque
+> las trae de vuelta. Un filtro que no se puede quitar es indistinguible de un dato perdido.
+
+Y borrar la medida **guardada** de un camión que la hoja reconoce **también lo aparta**: si no, la de
+la hoja ocuparía su lugar en el acto y el borrado se vería igual de inútil. Al **confirmar** o volver a
+medir esa unidad, deja de estar apartada sola.
+
+**Guardar ya no te devuelve al principio de la lista.** Al guardar o borrar, la pestaña entera se
+cambiaba por un cuadro de *"cargando"* y volvía a crecer, y con casi noventa unidades eso te dejaba
+arriba de todo. Corregir el alto del camión ochenta y aparecer en el uno se lee como que **no se
+guardó nada**. El cuadro de carga quedó solo para la **primera** vez que se abre el apartado, cuando no
+hay sitio que perder.
+
+### 📄 El reporte volumétrico: logos, activas y orden (09-sep-2026)
+
+Tres cambios pedidos sobre el documento *"Análisis Técnico y Capacidad Volumétrica de Flota"*.
+
+**Los dos logos en la cabecera.** Van el del **Plan Venezuela Renace** y el de **Golden Touch**, sobre
+una pastilla blanca. La pastilla no es adorno: el membrete es azul marino y el logo del Plan trae su
+texto en azul marino también, así que sin fondo blanco se perdería contra la cabecera.
+
+**Solo las unidades activas.** Una unidad **retirada o en espera de instrucciones** ya no entra. No
+describe la capacidad con la que se cuenta **hoy**, e inflaba el total y el promedio de un documento
+que se entrega para planificar acarreo. El subtelítulo deja constancia de **cuántas quedaron fuera**,
+para que nadie tenga que adivinar por qué el total bajó.
+
+**En el conteo por tipo, orden alfabético y promedios.** En *Reportes → Conteo de equipos*, al ocultar
+el nombre de las empresas la lista ya **no** queda en el orden en que vinieron las empresas: se ordena
+**alfabéticamente por código** en una sola lista corrida. Y el PDF trae un cuadro con **total,
+promedio, mayor y menor** de los metros cúbicos de lo que hayas seleccionado.
+
+> ⚠️ **El promedio excluye lo que no tiene medida.** Contar como cero una unidad sin medir hundiría
+> el promedio y diría que la flota carga menos de lo que carga. El cuadro dice **sobre cuántas
+> unidades** se calculó.
+
+**Agrupar por categoría.** El conteo se puede agrupar **por empresa** (como siempre) o **por
+clasificación** —remoción de escombros y las demás— con un toque, y el PDF sale agrupado igual.
+
+### 🧾 Siete arreglos del registro de viajes (02-sep-2026)
+
+#### 1. 🚫 El mismo viaje ya no entra dos veces
+
+Antes, si el listero tocaba **dos veces** el botón porque *"no pasó nada"*, quedaban **dos viajes de
+verdad** y **nadie avisaba**: el sistema le ponía una marca nueva a cada toque, así que los dos
+entraban como si fueran distintos.
+
+Ahora el viaje se reconoce por **lo que es**: **mismo camión, mismo listero, mismo minuto**. El
+segundo toque **no crea nada**.
+
+> ⚠️ **Si en el segundo toque sale igual el mensaje verde de «registrado», está bien.** Quiere decir
+> que el primero **sí entró**. No hay que volver a tocar, ni reclamar un faltante.
+
+#### 2. ✍️ La carga a mano ya no duplica al reintentar
+
+Antes, si la tanda fallaba a la mitad —el aviso decía *"se cargaron 3 de 5"*— y se volvía a cargar la
+**misma cantidad**, **los 3 que ya habían entrado se repetían** y el camión terminaba con más viajes
+de los que hizo.
+
+Ahora se puede **reintentar sin miedo**: los que ya entraron **se rechazan solos** y solo se cargan
+los que faltaban. Es el mismo candado del punto 1, aplicado **renglón por renglón** de la tanda.
+
+#### 3. ⚠️ La casilla de cantidad SUMA, no fija el total
+
+Hay que decirlo con todas sus letras: el número de **"¿Cuántos viajes?"** **se agrega** a los que el
+camión **ya tiene** ese día — **no fija el total del día**.
+
+| El camión ya tiene | Escribes | Queda con |
+|---|---|---|
+| 3 | 5 | **8** (no 5) |
+
+Antes la etiqueta no lo decía y la cuenta se cuadraba al revés. Ahora **la etiqueta lo dice**, y
+debajo se muestra **cuántos viajes tiene ya** ese camión ese día y **cómo va a quedar** después de
+guardar. Para dejarlo en 5, carga **2**; y si sobran, se borran desde la **lista completa**.
+
+> **Cuándo aparece ese conteo, y cuándo no.** Solo sale si el día que elegiste ya está
+> **cargado en la lista de abajo** (por eso con el filtro en *Hoy* aparece para hoy). Si estás
+> cuadrando un día viejo que no está en el rango cargado, **la línea sencillamente no se muestra**.
+>
+> Es a propósito, y es la parte importante: **preferimos no decir nada antes que decir un número
+> equivocado.** Un «ya tiene 0» falso te haría cargar de más, y eso es peor que no tener el dato.
+> Si quieres que aparezca para un día viejo, primero cambia el **filtro de fechas** de la lista para
+> que incluya ese día.
+
+#### 4. 📋 Corregir viajes de cualquier día, y que quede el rastro (solo FULL)
+
+Antes, **pasadas las 7 de la mañana** ya no se podían tocar los viajes de la noche que acababa de
+terminar — justo cuando se corrigen, porque la corrección de la madrugada se hace **por la mañana**.
+La regla llegaba tarde precisamente cuando más falta hacía.
+
+Ahora quien tiene acceso **Full** puede corregir el viaje **del día que sea**. **Pero queda
+registrado:** esas correcciones excepcionales salen en **📋 Auditoría** (ver 4.13b) con su **propia
+etiqueta**, para poder ubicarlas de un vistazo entre miles de filas — **quién** la hizo, **cuándo**,
+**qué camión** y **de qué fecha a qué fecha** se movió el viaje.
+
+> ⚠️ **Las correcciones normales del día NO generan ese registro especial**, y es **a propósito**: de
+> esas ya queda el **rastro de siempre**, y escribir además una fila aparte llenaría la auditoría de
+> ruido. Abrir **"✏️ Editar"** y cerrarlo **sin cambiar nada** tampoco escribe nada.
+
+#### 5. 👤 El chofer ya no se pierde en silencio
+
+Cuando la red estaba lenta, el sistema **se rendía a los pocos segundos** buscando quién manejaba y
+guardaba el viaje **sin chofer**, sin decir nada. Después nadie sabía si ese camión de verdad andaba
+**sin chofer asignado** o si simplemente **no se pudo averiguar**.
+
+Ahora **las dos cosas se distinguen** y se ven distinto: una es *"no había chofer"* y la otra es
+*"no se pudo averiguar"*. El viaje **entra igual** en los dos casos: un chofer que falta se corrige
+después, un viaje perdido no se recupera.
+
+#### 6. ⏰ Aviso si el teléfono tiene la hora mal
+
+El viaje se guarda con **la hora del teléfono**, y esa hora decide **a qué día y a qué turno**
+pertenece (recuerda: **el día va de 7am a 7am**). Un teléfono con la hora corrida manda los viajes de
+las 6:45am a la **jornada anterior**, y los de las 6:45pm al **turno de día**. No se rompe nada:
+simplemente **aparecen en el día o el turno equivocado**, y el listero jura que los registró.
+
+Ahora, **al entrar a la pantalla**, se compara la hora del teléfono con la del sistema y, si está
+corrida más de unos minutos, sale un aviso que dice si va **adelantado** o **atrasado** y **cuánto**,
+y pide ajustarla.
+
+> ⚠️ **El sistema NO corrige la hora solo.** Sin internet el **único reloj que existe** es el del
+> teléfono — que es justo el caso para el que se hizo el registro sin señal. Hay que arreglarlo **en
+> el teléfono**: lo más seguro es ponerle la hora **en automático**.
+
+#### 7. 💾 Guardar una corrección ya no se puede tocar dos veces
+
+En el editor de un viaje, el botón de guardar **se apaga en cuanto se toca** y hasta que termina.
+Antes se podía tocar de nuevo mientras trabajaba, y la misma corrección salía **dos veces**.
 
 ### 🛡️ La última fuga de viajes, tapada (31-ago-2026)
 
@@ -3860,6 +4842,58 @@ indistinguibles, y un camión no hace dos viajes en el mismo instante.
 > ya existía para las tandas que cruzan las **7am** y se reparten entre dos días.
 
 **Quitar.** En la lista completa, filtras el día y le das **"🗑️ Borrar"** a los que sobren.
+
+#### 🏗️ Obras y ubicaciones (12/09/2026)
+
+Los listeros trabajan en **obras** distintas —*CDT Parque del Agua*, *SanteDubi*, *CDF*,
+*CDT Playa Escondida*— y ahora el sistema lo sabe, para poder sacar el reporte **por obra**
+además de por empresa y por listero.
+
+**Dónde está:** en el panel de la jefa, tarjeta **"🏗️ Obras y ubicaciones"**, encima de
+*"Lista completa de viajes"*. Solo la ve quien tiene acceso **full** al módulo.
+
+**Qué se puede hacer ahí:**
+
+- **Crear una obra** — escribe el nombre y toca *"+ Crear"*. No deja repetir una que ya exista,
+  aunque se escriba con otras mayúsculas o con espacios de más: *"CDF"* y *"cdf "* son la misma.
+- **Renombrarla** con el lápiz. Los viajes ya registrados **conservan el nombre que tenían**.
+- **Desactivarla** (🚫) — deja de ofrecerse para asignar, pero sus viajes siguen contando. Es lo
+  que conviene hacer con una obra que se cerró.
+- **Borrarla** (🗑️) — pregunta antes. **Los viajes no se borran** y siguen diciendo en qué obra
+  fueron; los listeros que estaban ahí quedan sin obra.
+- **Asignarle una obra a cada listero**, y **moverlo** a otra cuando haga falta. Abajo se lista
+  cada listero con su obra, y los que **no tienen ninguna** salen marcados.
+
+> **⚠️ Mover a un listero de obra NO cambia sus viajes ya registrados.** Cada viaje se guardó con
+> la obra que ese listero tenía **el día que lo registró**. Si el reporte mirara la obra de hoy,
+> mover a alguien cambiaría sus viajes de agosto de sitio y **un informe ya entregado dejaría de
+> cuadrar** con el que se saque mañana del mismo rango. Lo que cambia al moverlo son los viajes
+> **de aquí en adelante**.
+
+> **Los viajes anteriores a esta función salen en "Sin ubicación"**, y es lo correcto: no hay
+> forma de saber en qué obra estaba cada quien en agosto, y rellenarlo con la obra de hoy daría
+> un reporte completo y **falso**. Si necesitas el histórico por obra, se puede rellenar con una
+> corrección puntual en la base de datos, pero hay que decir quién estuvo dónde y desde cuándo.
+
+**El reporte por obra:** en *"Agrupar por"* hay ahora una tercera pastilla, **🏗️ Obra**, junto a
+🏢 Empresa y 👤 Listero. Sale el **resumen por obra**, con su PDF y su propio nombre de archivo.
+Y entre los filtros hay chips de **OBRA**, para pedir una o varias.
+
+> **Agrupar no filtra:** el total es **el mismo** en los tres ejes. Cambiar de eje reparte los
+> mismos viajes de otra manera, no saca ni agrega ninguno.
+
+**Dos columnas nuevas en "🖨️ Qué sale en el reporte":**
+
+- **🏢 Empresa** — ya salía en el detallado y **no se podía quitar**; ahora sí. Viene encendida,
+  así que sin tocar nada el reporte sale igual que antes. Agrupando por listero o por obra,
+  aparece también en el **resumido**, para saber de qué empresa es cada camión.
+- **🏗️ Obra / ubicación** — viene **apagada**, como todo lo nuevo. Enciéndela y el detallado dice
+  en qué obra fue cada viaje. En el **resumido no existe**, a propósito: ahí cada línea es un
+  camión, y el mismo camión pudo trabajar en dos obras dentro del rango.
+
+> **🔎 Y para pedirlo por empresas concretas ya existía:** entre los filtros, encima de CAMIÓN,
+> está **EMPRESA** con un chip por cada una y su cantidad. Solo aparece cuando hay **más de una**
+> empresa en el rango que estés viendo.
 
 #### ✏️ Editar un viaje completo
 

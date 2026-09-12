@@ -1331,11 +1331,34 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         })).error
       : null);
     if (eAv) { setAveriaBusy(false); setNotice(`❌ No se pudo registrar la avería: ${eAv.message}`); return; }
-    // 2) Traza de reparación para que Mantenimiento la gestione (retorno operativo).
-    const { error: eRep } = await supabase.from('machinery_repairs').insert({
-      machinery_id: m.id, tipo: 'correctivo', out_at: todayISO(),
-      estimated_note: nota, status: 'en_reparacion', created_by: session?.user?.id ?? null,
-    });
+    // 2) ⛔ ACÁ YA NO SE ABRE EXPEDIENTE DE TALLER. Se quitó el 02-sep-2026.
+    //
+    //    Lo que había: un `insert` en `machinery_repairs` con tipo 'correctivo' y
+    //    status 'en_reparacion', con el comentario «traza de reparación para que
+    //    Mantenimiento la gestione (retorno operativo)». Esa frase dejó de ser
+    //    cierta el 17-ago-2026, cuando el cliente pidió sacar la pestaña
+    //    «🔧 En reparación» del módulo de Servicio. Desde entonces:
+    //
+    //      · Mantenimiento solo lista PREVENTIVOS (`esPreventiva(r) !== esServicio`),
+    //      · Servicio, que es quien mostraría los correctivos, ya no tiene esa
+    //        pestaña — la lista se sigue calculando y no se dibuja en ningún lado,
+    //      · el Historial solo trae los que están en 'operativa',
+    //      · y `openReturn`, la única forma de cerrarlos, vive dentro de la pestaña
+    //        que se quitó.
+    //
+    //    O sea: cada equipo marcado averiado desde acá abría un expediente que NO
+    //    se veía en ninguna pantalla, que NADIE podía cerrar, y que además dejaba a
+    //    esa máquina bloqueada para mantenimiento preventivo para siempre
+    //    (`activeRepairByMachine` no mira el tipo). Dos semanas acumulando.
+    //
+    //    LA REGLA QUE LO ORDENA: marcar una máquina averiada es una decisión sobre
+    //    LA MÁQUINA, no sobre EL TALLER. Acá se crea el REPORTE (paso 1) y el
+    //    marcador de parada (paso 3), que es lo que el resto del sistema lee. El
+    //    expediente de taller debe nacer cuando el taller RECIBE la máquina, y eso
+    //    hoy solo pasa por el envío a mantenimiento preventivo.
+    //
+    //    Nada de lo que se ve en pantalla cambia: la avería y el marcador siguen
+    //    igual, y la máquina se sigue mostrando averiada y detenida en todas partes.
     // 3) Marcador "MÁQUINA PARADA", el SEGUNDO renglón (igual que el teléfono del
     // inspector, SupervisorScreen ~2053): es lo que mantiene la máquina visible como
     // detenida en Inspecciones y en Control, que solo leen maintenance_requests. La
@@ -1359,7 +1382,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     load(true);
     setNotice(
       `🔴 ${m.code} quedó marcada como AVERIADA. Sigue siendo de la flota — para sacarla de servicio está "⛔ Inactiva" en el Catálogo.` +
-      (eRep || eMr ? ' ⚠️ Algo no se pudo registrar completo.' : ' Gestiona su reparación en Servicio de Maquinaria.')
+      // El aviso apunta a la pestaña REAL donde va a aparecer. Antes decía
+      // "gestiona su reparación", que mandaba a una pestaña que no existe.
+      (eMr ? ' ⚠️ Algo no se pudo registrar completo.' : ' Aparece en ⏳ Averías de Servicio de Maquinaria.')
     );
   };
 

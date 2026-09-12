@@ -38,8 +38,30 @@ import {
   InspByShiftEntry,
 } from '../lib/machineLiveStatus';
 import { pdfDocument, exportPdf } from '../lib/pdf';
-import { resumirViajes, SIN_EMPRESA, claveCamion, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { CubicajeTab, OpcionesReporteBox, useCubicaje, type CamionCubicaje } from '../components/CubicajeTab';
+import {
+  repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen,
+  valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
+  volumenConGuardado,
+} from '../lib/cubicaje';
+import { resumirViajes, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import {
+  SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
+} from '../lib/ubicacionesObra';
+import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique } from '../lib/tique';
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
+import { useTable } from '../hooks/useTable';
+import { ObrasListeros } from '../components/ObrasListeros';
+import { TiqueConfigCard } from '../components/TiqueConfigCard';
+import { CONFIG_POR_DEFECTO, PAPELES, type TiqueConfig } from '../lib/tiqueConfig';
+import { leerConfigTique } from '../lib/tiqueConfigDatos';
+import { avisoDeCapacidad, documentoDeTiques, hojasQueSalen, medioDeImpresion, nombreArchivoTiques, type DatosTique, type TiqueParaImprimir } from '../lib/tiqueDocumento';
+import { contarEmisionesPendientes, contarEmisionesPorFolio, flushEmisionesPendientes, nuevoUuid, registrarEmisiones, type EmisionNueva } from '../lib/tiqueEmisiones';
+import { LOGO_DATA_URI } from '../lib/logoData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
+import { RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
+import { BCV_LOGO_DATA_URI } from '../lib/logoBcvData';
+import { Plegable } from '../components/Plegable';
 import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, TURNO_ICONO, TURNO_HORARIO, turnoDeHora, HORA_INICIO_TURNO, Turno, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
@@ -68,11 +90,38 @@ import {
   validarCargaManual,
   notaCargaManual,
   esCargaManual,
+  claveViajeEstable,
+  fueraDeJornada,
+  rastroDeEdicion,
   MAX_CARGA,
   SEPARACION_MIN,
 } from '../lib/viajesEdicion';
+import { desfaseMinutos, avisoDesfase } from '../lib/relojDesfase';
+import { logAudit } from '../lib/audit';
 import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQuarantine, enqueueViaje, flushViajesQueue, retryQuarantinedViajes, nuevoClientActionId, falloDeGuardadoLocal } from '../lib/viajesOfflineQueue';
 import { accionTrasFalloConSenal, motivoLegible } from '../lib/colaOfflinePolicy';
+
+/**
+ * LOS CUATRO LOGOS QUE PUEDE LLEVAR EL TIQUE, ya incrustados como data URI.
+ *
+ * ⚠️ TIENEN QUE IR INCRUSTADOS, NO POR URL. El documento se imprime dentro de un
+ *    iframe sin red propia, y en la tiquetera del CDT puede no haber internet;
+ *    una imagen por URL saldría como un hueco justo en el encabezado del papel
+ *    oficial. Ninguno agranda el paquete: los cuatro ya venían con los reportes
+ *    de esta misma pantalla.
+ */
+const LOGOS_DEL_TIQUE = {
+  sos: LOGO_DATA_URI,
+  goldenTouch: GOLDEN_TOUCH_LOGO_DATA_URI,
+  renace: RENACE_LOGO_DATA_URI,
+  bcv: BCV_LOGO_DATA_URI,
+};
+
+/** Cuántos tiques como máximo se le piden a la base de una sentada para saber
+ *  cuáles ya se entregaron. Por encima de esto la lista es de un mes entero y
+ *  la consulta no vale lo que cuesta: la marca se resuelve igual al imprimir,
+ *  que es el momento en que de verdad importa. Ver `emisionesPorFolio`. */
+const TOPE_FOLIOS_A_CONSULTAR = 600;
 
 // ── Fecha/hora en Caracas (mismas utilidades locales que otras pantallas de
 //    reportes, p. ej. AuditScreen/CoordinadorOperadoresScreen) ──────────────
@@ -113,6 +162,80 @@ function currentJornadaWindow(): { startMs: number; endMs: number } {
   }
   const nextDay = addDaysISO(bDay, 1);
   return { startMs: new Date(`${bDay}T19:00:00-04:00`).getTime(), endMs: new Date(`${nextDay}T07:00:00-04:00`).getTime() };
+}
+
+/**
+ * La ventana de LA JORNADA EN CURSO: 7am a 7am, el DÍA DE TRABAJO completo.
+ *
+ * ⚠️ NO ES LO MISMO QUE `currentJornadaWindow`, aunque el nombre de aquélla lo
+ *    sugiera. Ésa devuelve el TURNO de 12 horas (día o noche) y sirve para
+ *    decidir hasta cuándo el listero puede corregir lo suyo — eso se queda como
+ *    está, es de siempre.
+ *
+ * ⭐ ACÁ HACE FALTA LA JORNADA ENTERA, y la diferencia se ve en el caso más
+ *    común de todos: la jefa cuadrando el día a las 8 de la noche y corrigiendo
+ *    un viaje de las 10 de la mañana DEL MISMO DÍA DE TRABAJO. Con la ventana de
+ *    turno, ese viaje cae "fuera" y se escribía una fila en Auditoría que decía
+ *    «corrigió un viaje de OTRO DÍA». Falso, y encima rutinario: exactamente el
+ *    ruido que el cliente pidió evitar («que no se dañe ni abuse el módulo de
+ *    auditoría»). Y el manual promete lo contrario, que las correcciones
+ *    normales del día no generan ese registro.
+ *
+ *    Además es la regla de la casa: la jornada es el día de trabajo, no el
+ *    calendario ni el turno.
+ */
+function ventanaJornadaEnCurso(): { startMs: number; endMs: number } {
+  const { desdeISO, hastaExclusivoISO } = jornadaWindowISO(caracasBusinessToday());
+  return { startMs: new Date(desdeISO).getTime(), endMs: new Date(hastaExclusivoISO).getTime() };
+}
+
+/**
+ * LA HORA DEL SERVIDOR, PARA PODER CONTRASTAR LA DEL TELÉFONO (02-sep-2026).
+ *
+ * ⚠️ NO SE USA PARA SELLAR NADA. El viaje se sigue sellando con `new Date()`,
+ *    la hora del teléfono, porque el registro sin conexión es la razón de ser de
+ *    este módulo y sin internet el único reloj que existe es ese. Esto sirve
+ *    únicamente para AVISAR cuando el teléfono está corrido — ver `relojDesfase`.
+ *
+ * Sale de la cabecera `Date` de la respuesta, que todo servidor HTTP manda de
+ * todas formas: no hace falta una tabla nueva, ni una función en la base, ni
+ * traer una sola fila (el HEAD no descarga cuerpo).
+ *
+ * ⚠️⚠️ VA CONTRA UNA TABLA, **NO** CONTRA LA RAÍZ DE PostgREST, y esa diferencia
+ *      es la que hace que esto funcione o no en la web. Verificado contra el
+ *      servidor real el 02-sep-2026:
+ *
+ *        · `HEAD /rest/v1/`                  → 401 y SIN `Access-Control-Expose-Headers`
+ *        · `HEAD /rest/v1/camion_viajes?…`   → 200 y expone `Date` entre otras
+ *
+ *      `Date` no es una cabecera «CORS-segura», así que el navegador solo la deja
+ *      leer si el servidor la nombra en `Access-Control-Expose-Headers`. Contra
+ *      la raíz, `res.headers.get('date')` devuelve `null` EN EL NAVEGADOR aunque
+ *      la cabecera viaje por el cable — y como acá «no poder medir» no dice nada
+ *      a propósito, el aviso no salía NUNCA en soslaguaira.com, ni con el reloj
+ *      tres horas corrido. En la app nativa sí funcionaba (no hay CORS), que es
+ *      lo que hacía el fallo tan fácil de no ver.
+ *
+ * `limit=0` no trae ni una fila: solo interesa la cabecera.
+ *
+ * Es UN chequeo al abrir la pantalla, no un latido: con tope de tiempo para que
+ * el wifi del patio (señal sin internet) no deje nada colgado, y devolviendo
+ * `null` ante cualquier tropiezo — no poder medir NO es lo mismo que estar mal,
+ * y de eso se encarga `avisoDesfase`, que ante `null` no dice nada.
+ */
+async function horaDelServidor(): Promise<string | null> {
+  const base = String(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
+  const apikey = String(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '');
+  if (!base || !apikey) return null;
+  try {
+    const res = await Promise.race([
+      fetch(`${base}/rest/v1/camion_viajes?select=id&limit=0`, { method: 'HEAD', headers: { apikey } }),
+      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
+    return res ? res.headers.get('date') : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Camión (fila de `machinery`, filtrada a volteos/volquetas) ─────────────
@@ -160,6 +283,62 @@ type DisplayViaje = CamionViajeRow & { queued?: boolean; stuck?: boolean; stuckE
  *  catálogo. No es un uuid ni existe en `machinery`: solo sirve para que el
  *  flujo de la pantalla sea el mismo. Al guardar se manda `machinery_id = null`. */
 const FUERA_CATALOGO_ID = '__fuera_catalogo__';
+
+/**
+ * QUÉ CAMIÓN ES, PARA LA CLAVE DE IDEMPOTENCIA (02-sep-2026).
+ *
+ * ⚠️ NO se manda el `code` pelado, y es a propósito: en esta flota casi todos
+ *    los camiones se llaman IGUAL («Camion Volteo Toronto» repetido en casi
+ *    toda la flota) — es el motivo de que media pantalla arrastre la placa a
+ *    todos lados para poder distinguirlos. Con el código solo, dos camiones
+ *    DISTINTOS del mismo listero en el mismo minuto darían LA MISMA clave y la
+ *    base rechazaría el segundo como si fuera un doble toque: un viaje real
+ *    perdido en silencio, que es peor que el duplicado que se está evitando. Y
+ *    en la carga a mano sería aún más visible: cargarle la misma tanda a dos
+ *    camiones con el mismo código rebotaría entera la segunda.
+ *
+ *    Con la ficha del camión delante, cada camión tiene su propia clave y la
+ *    idempotencia sigue funcionando igual: el mismo camión, el mismo listero y
+ *    el mismo minuto vuelven a dar exactamente la misma.
+ *
+ * Los camiones de fuera de catálogo no tienen ficha: ahí manda el texto que
+ * escribió el listero, que es todo lo que hay para identificarlos.
+ */
+const identidadParaClave = (t: TruckRow): string =>
+  t.id === FUERA_CATALOGO_ID ? t.code : `${t.id} ${t.code}`;
+
+/**
+ * Lo que devuelve la consulta del chofer cuando SE VENCIÓ EL TIEMPO.
+ *
+ * ⚠️ Hace falta un valor aparte porque `null` YA significa algo: «este camión no
+ *    tiene chofer asignado en este turno». Confundir las dos cosas es justo el
+ *    bug — el viaje se guardaba con el chofer vacío y ese dato queda congelado
+ *    en la fila para siempre, indistinguible de un camión sin chofer de verdad.
+ */
+const CHOFER_SIN_RESPUESTA = '__chofer_sin_respuesta__';
+
+/**
+ * Cuánto se espera por la consulta del chofer antes de seguir sin ella.
+ *
+ * ⚠️ NO SE ALARGA. Existe para que la pantalla no se congele con el wifi del
+ *    patio —señal sin internet, portal cautivo— donde el `fetch` de Supabase se
+ *    queda colgado sin timeout propio. Esperar más no consigue el chofer: solo
+ *    aumenta la ventana en la que el listero se cansa, cierra la app y pierde el
+ *    viaje entero.
+ */
+const TOPE_CHOFER_MS = 4000;
+
+/**
+ * La marca que queda en el viaje cuando NO SE PUDO AVERIGUAR el chofer.
+ *
+ * Va en `note` —la misma columna que usa «Cargado a mano»— porque es lo único
+ * que viaja con la fila hasta el reporte de la jefa. Sin esto, un viaje sin
+ * chofer por un problema de red se ve idéntico a uno de un camión que de verdad
+ * no tiene chofer asignado, y nadie sabe a cuál hay que ir a preguntarle.
+ */
+const MARCA_CHOFER_SIN_CONFIRMAR = 'Chofer sin confirmar';
+const esChoferSinConfirmar = (note: string | null | undefined): boolean =>
+  String(note ?? '').startsWith(MARCA_CHOFER_SIN_CONFIRMAR);
 
 export default function ViajesCamionesScreen() {
   const { colors } = useTheme();
@@ -371,7 +550,8 @@ export default function ViajesCamionesScreen() {
     return [...base, ...sumadas].sort((a, b) => cmpText(a.code, b.code));
   }, [allTrucks, catalogoTrucks, extraTruckIds]);
   /**
-   * La flota que ESTÁ en la obra: los camiones de siempre menos las retiradas.
+   * La flota que ESTÁ en la obra: los camiones de siempre, menos las RETIRADAS y
+   * menos las que están EN ESPERA DE INSTRUCCIONES.
    *
    * Es lo que se le enseña a la jefa. El arreglo del 31-ago sacó las retiradas
    * de la lista del LISTERO, pero en el panel de la jefa seguían en dos sitios:
@@ -379,10 +559,24 @@ export default function ViajesCamionesScreen() {
    * contadas como flota parada. Un camión con "Fin de contrato" no tiene meta
    * que cumplir ni está parado: no está.
    *
-   * Los viajes VIEJOS de un camión ya retirado no se pierden: el resumen suma
+   * ⭐ EN ESPERA ENTRA EN LA MISMA REGLA (12-sep-2026, pedido del cliente: «no
+   *    debe ver las que están esperando instrucciones ni las retiradas»). El
+   *    argumento es idéntico: un camión que espera instrucciones no está
+   *    trabajando, así que no tiene meta diaria que cumplir y contarlo como
+   *    flota con 0 viajes dice que la obra rinde menos de lo que rinde.
+   *
+   * ⚠️ ESTO NO TOCA LA LISTA DEL LISTERO. Ahí las EN ESPERA se siguen ofreciendo
+   *    a propósito (ver la nota larga de `trucksSeleccionables`): un viaje es un
+   *    HECHO OBSERVADO y «en espera» es una anotación de otro módulo que puede
+   *    estar vieja. Si se filtrara también allá, un camión mal marcado dejaría al
+   *    listero sin manera de anotar viajes que sí ocurrieron, que es exactamente
+   *    el bug que se arregló el 31-ago.
+   *
+   * Los viajes de un camión retirado o en espera NO se pierden: el resumen suma
    * ADEMÁS los camiones que aparecen en los viajes del rango (ver `ids`).
    */
-  const camionesEnObra = useMemo(() => allTrucks.filter((t) => !estaRetirada(t)), [allTrucks]);
+  const fueraDeLaObra = (t: TruckRow) => estaRetirada(t) || t.enEspera;
+  const camionesEnObra = useMemo(() => allTrucks.filter((t) => !fueraDeLaObra(t)), [allTrucks]);
   const pickEstadoOptions = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
     // Cuenta sobre la MISMA lista que se va a mostrar: si contara sobre
@@ -425,6 +619,10 @@ export default function ViajesCamionesScreen() {
   const [selectedShift, setSelectedShift] = useState<'day' | 'night'>('day');
   const [selectedChofer, setSelectedChofer] = useState<string | null>(null);
   const [choferLoading, setChoferLoading] = useState(false);
+  /** true = la consulta del chofer NO contestó a tiempo, así que no se sabe si
+   *  este camión tiene chofer o no. Distinto de `selectedChofer === null`, que
+   *  significa «se preguntó y no tiene». Ver `CHOFER_SIN_RESPUESTA`. */
+  const [choferIncierto, setChoferIncierto] = useState(false);
   const [registering, setRegistering] = useState(false);
   /** Guard del doble toque. En un ref porque el state no cambia hasta el próximo
    *  render y dos toques del mismo frame pasarían los dos. */
@@ -446,6 +644,7 @@ export default function ViajesCamionesScreen() {
     setPickOpen(false);
     setSelectedTruck(t);
     setSelectedChofer(null);
+    setChoferIncierto(false);
     const shift = caracasNowShift();
     setSelectedShift(shift);
     // Un camión fuera de catálogo no tiene ficha ni chofer asignado que consultar:
@@ -460,16 +659,25 @@ export default function ViajesCamionesScreen() {
     //    quedaba gris diciendo «Buscando el chofer…» el resto de la sesión y el
     //    listero no podía registrar ni un viaje más. Sin error y sin cola.
     //
-    //    Ahí abajo, al registrar, se vuelve a consultar si cambió el turno; y si
-    //    tampoco contesta, el viaje entra sin chofer. Un chofer que falta se
+    //    Ahí abajo, al registrar, se vuelve a preguntar. Un chofer que falta se
     //    corrige; un viaje perdido no se recupera.
+    //
+    // ⚠️⚠️ PERO EL TOPE YA NO SE TRAGA LA RESPUESTA. Antes, vencido el tiempo,
+    //    esto guardaba `null` — el MISMO valor que significa «se preguntó y este
+    //    camión no tiene chofer asignado»— y el viaje se subía con el chofer
+    //    vacío como si eso fuera un hecho comprobado. Ese dato queda congelado
+    //    en la fila y ya no se recupera: es la explicación más probable de los
+    //    viajes sin chofer del reporte de la jefa. Ahora el vencimiento devuelve
+    //    su propio centinela y la pantalla se acuerda de que NO SABE.
     const chofer = await Promise.race([
       resolveChoferActual(t.id, shift).catch(() => null),
-      new Promise<string | null>((r) => setTimeout(() => r(null), 4000)),
+      new Promise<string | null>((r) => setTimeout(() => r(CHOFER_SIN_RESPUESTA), TOPE_CHOFER_MS)),
     ]);
     if (pedido !== choferPedidoRef.current) return; // llegó tarde: manda el camión de ahora
     setChoferLoading(false);
-    setSelectedChofer(chofer);
+    const sinRespuesta = chofer === CHOFER_SIN_RESPUESTA;
+    setChoferIncierto(sinRespuesta);
+    setSelectedChofer(sinRespuesta ? null : chofer);
   };
 
   // ── CAMIÓN QUE NO ESTÁ EN EL CATÁLOGO ───────────────────────────────────
@@ -533,6 +741,9 @@ export default function ViajesCamionesScreen() {
       operational: true, enEspera: false,
     });
     setSelectedChofer(null);
+    // De un camión anotado a mano no hay chofer que averiguar: sin chofer es un
+    // HECHO, no una consulta que no contestó. Ver `CHOFER_SIN_RESPUESTA`.
+    setChoferIncierto(false);
     setSelectedShift(caracasNowShift());
   };
 
@@ -652,6 +863,17 @@ export default function ViajesCamionesScreen() {
       estadoMaquina: q.payload.estadoMaquina,
       note: q.payload.note ?? null,
       registeredAt: q.payload.registeredAt,
+      // La obra viaja en la cola con el resto del viaje: un viaje que se subió
+      // tres horas después tiene que quedar en la obra donde se registró, no en
+      // la que tenga el listero al momento de sincronizar.
+      ubicacionId: q.payload.ubicacionId ?? null,
+      ubicacionNombre: q.payload.ubicacionNombre ?? null,
+      // ⚠️ SIN FOLIO, y no es un olvido: el numero lo pone la base cuando la fila
+      //    llega al servidor. Un viaje que todavia esta en la cola NO tiene tique
+      //    que entregar, y la pantalla lo dice en vez de inventar un numero.
+      folio: null,
+      placa: q.payload.placa ?? null,
+      empresa: q.payload.empresa ?? null,
       queued: true,
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
@@ -670,6 +892,16 @@ export default function ViajesCamionesScreen() {
       estadoMaquina: q.payload.estadoMaquina,
       note: q.payload.note ?? null,
       registeredAt: q.payload.registeredAt,
+      // La obra viaja en la cola con el resto del viaje: un viaje que se subió
+      // tres horas después tiene que quedar en la obra donde se registró, no en
+      // la que tenga el listero al momento de sincronizar.
+      ubicacionId: q.payload.ubicacionId ?? null,
+      ubicacionNombre: q.payload.ubicacionNombre ?? null,
+      // Sin folio, por lo mismo que los de la cola: el número lo pone la base
+      // cuando la fila llega, y un apartado todavía no llegó.
+      folio: null,
+      placa: q.payload.placa ?? null,
+      empresa: q.payload.empresa ?? null,
       queued: true,
       stuck: true,
       stuckError: q.error,
@@ -728,6 +960,9 @@ export default function ViajesCamionesScreen() {
       const shift = caracasNowShift();
       const esFuera = selectedTruck.id === FUERA_CATALOGO_ID;
       let chofer = selectedChofer;
+      // Arranca donde lo dejó `onSelectTruck`: si aquella consulta no contestó,
+      // esto sigue siendo «no se sabe» mientras no se compruebe otra cosa.
+      let choferSinConfirmar = choferIncierto;
       // ⚠️⚠️ ESTA CONSULTA NO PUEDE FRENAR EL REGISTRO, Y ANTES LO FRENABA.
       //
       //    Iba con `await` pelado y ANTES del `if (!isOnline())` de más abajo:
@@ -741,11 +976,43 @@ export default function ViajesCamionesScreen() {
       //    Ahora tiene tope de tiempo: si no contesta en 4 segundos se sigue con
       //    el chofer que ya se tenía. Un chofer viejo es un dato imperfecto; un
       //    viaje perdido no se recupera.
-      if (!esFuera && shift !== selectedShift) {
-        chofer = await Promise.race([
-          resolveChoferActual(selectedTruck.id, shift),
-          new Promise<string | null>((r) => setTimeout(() => r(selectedChofer), 4000)),
-        ]);
+      //
+      // ⭐ Y AHORA TAMBIÉN SE REINTENTA CUANDO LA PRIMERA CONSULTA NO CONTESTÓ
+      //    (02-sep-2026), no solo cuando cambió el turno: al escoger el camión
+      //    la pantalla acababa de abrirse y la red podía estar peor que ahora, y
+      //    este es el último momento en que el dato todavía se puede averiguar
+      //    —después queda congelado en la fila para siempre—.
+      //
+      // ⚠️ SOLO CON SEÑAL. Sin ella no hay a quién preguntarle, y gastar otros
+      //    cuatro segundos antes de encolar es justo la ventana por la que se
+      //    pierde un viaje si el listero se cansa y cierra la app.
+      if (!esFuera && (shift !== selectedShift || (choferIncierto && isOnline()))) {
+        // ⚠️ El tope sigue devolviendo el chofer que YA SE TENÍA —un dato viejo
+        //    es mejor que ninguno—, pero ahora deja constancia de que ganó ÉL y
+        //    no la consulta. Sin esa marca, «no contestó» y «contestó que este
+        //    camión no tiene chofer» son el mismo `null`, y el viaje se guardaba
+        //    con el chofer vacío como si fuera un hecho comprobado.
+        let vencioElTope = false;
+        try {
+          chofer = await Promise.race([
+            resolveChoferActual(selectedTruck.id, shift),
+            new Promise<string | null>((resolver) => {
+              // `r` no es el `resolve` pelado: anota el vencimiento antes de
+              // devolver lo que ya se tenía.
+              const r = (v: string | null) => { vencioElTope = true; resolver(v); };
+              setTimeout(() => r(selectedChofer), TOPE_CHOFER_MS);
+            }),
+          ]);
+        } catch {
+          // Que la consulta reviente no puede tumbar el registro: se trata igual
+          // que si no hubiera contestado.
+          chofer = selectedChofer;
+          vencioElTope = true;
+        }
+        choferSinConfirmar = vencioElTope;
+        // Si esta vez SÍ contestó, la pantalla deja de estar en duda: el listero
+        // ve el nombre y el próximo toque no vuelve a gastar el tope entero.
+        if (!vencioElTope && choferIncierto) { setChoferIncierto(false); setSelectedChofer(chofer); }
       }
       const payload = {
         // ⭐ Fuera de catálogo: SIN id de máquina. Ese es todo el punto — el camión
@@ -760,14 +1027,50 @@ export default function ViajesCamionesScreen() {
         choferName: chofer,
         shift,
         estadoMaquina: estadoConteo,
-        note: null as string | null,
+        // ⭐ QUE SE VEA QUE NO SE PUDO AVERIGUAR EL CHOFER. Es la única forma de
+        //    que la duda viaje con la fila hasta el reporte: sin la marca, este
+        //    viaje se lee exactamente igual que el de un camión que de verdad no
+        //    tiene chofer asignado, y nadie sabe cuál hay que ir a completar.
+        note: (choferSinConfirmar ? MARCA_CHOFER_SIN_CONFIRMAR : null) as string | null,
         registeredAt,
+        // ⭐ LA OBRA SE CONGELA ACÁ, al registrar, y no se vuelve a mirar. Si el
+        //    reporte leyera la obra que tiene el listero HOY, moverlo de obra
+        //    cambiaría sus viajes de agosto de sitio y un reporte ya entregado
+        //    dejaría de cuadrar. Se graban las dos cosas —id y nombre— porque el
+        //    nombre sobrevive a que la obra se borre del catálogo.
+        ...obraParaGrabar(miObraId, obras),
+        // ⭐ Y LA PLACA Y LA EMPRESA POR LO MISMO (12-sep-2026, la tiquetera). El
+        //    tique impreso queda firmado en el CDT con esa placa; si el reporte
+        //    la resolviera del catálogo, corregirle la placa al camión mañana
+        //    haría que una reimpresión no coincida con el papel firmado.
+        //    Un camión fuera de catálogo no tiene ficha: ahí la seña que anotó
+        //    el listero es lo único que hay, y es mejor que nada.
+        ...datosDelCamion(esFuera ? null : selectedTruck, esFuera ? fcRef.trim() : ''),
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
       //    desde la cola. Sin esto, encolar tras un fallo duplicaría el viaje
       //    cuando el insert sí entró y se perdió la respuesta.
-      const clientActionId = nuevoClientActionId();
+      //
+      // ⭐⭐ Y LA CLAVE SALE DE LA INTENCIÓN, NO DEL RELOJ (02-sep-2026).
+      //    `nuevoClientActionId()` la armaba con `Date.now()` + azar: NUEVA EN
+      //    CADA TOQUE. Así el índice único de `client_action_id` solo servía
+      //    para los reintentos del propio código —que sí reusan la clave— y no
+      //    para lo que de verdad pasa en el patio: el listero toca dos veces
+      //    porque «no pasó nada» y quedan DOS viajes de verdad, sin aviso.
+      //    Con la clave estable el segundo toque rebota con un 23505, que este
+      //    mismo flujo ya lee unas líneas más abajo como «ese viaje ya estaba» y
+      //    responde en verde. Eso es lo correcto: el viaje SÍ quedó registrado.
+      //
+      // ⚠️ Si le faltara algún dato, `claveViajeEstable` devuelve cadena vacía y
+      //    se cae en la de siempre: una clave a medias podría chocar con la de
+      //    OTRO viaje legítimo y hacerlo desaparecer en silencio, que es mucho
+      //    peor que el duplicado que estamos evitando.
+      const clientActionId = claveViajeEstable({
+        identidadCamion: identidadParaClave(selectedTruck),
+        listeroId: uid,
+        registeredAtISO: registeredAt,
+      }) || nuevoClientActionId();
 
       if (!isOnline()) {
         await guardarEnCola(payload, clientActionId,
@@ -824,7 +1127,8 @@ export default function ViajesCamionesScreen() {
   // Los listeros a los que la jefa le puede atribuir un viaje (al cargarlo a
   // mano o al reasignarlo). Solo se leen con nivel full: al listero no le hace
   // falta y sería una consulta de más en el teléfono, que es donde trabaja.
-  const [listeros, setListeros] = useState<{ id: string; full_name: string }[]>([]);
+  const [listeros, setListeros] = useState<{ id: string; full_name: string; ubicacion_id: string | null }[]>([]);
+  const [listerosRecarga, setListerosRecarga] = useState(0);
   useEffect(() => {
     if (!canFull) return;
     let vivo = true;
@@ -834,10 +1138,62 @@ export default function ViajesCamionesScreen() {
       // la hace (que es el valor por defecto de todos modos).
       .catch((e: any) => console.warn('[viajes] no se pudo leer la lista de listeros:', String(e?.message ?? e)));
     return () => { vivo = false; };
-  }, [canFull]);
+  }, [canFull, listerosRecarga]);
+
+  // ── EL CATÁLOGO DE OBRAS ───────────────────────────────────────────────────
+  // Lo lee TODO EL MUNDO, no solo quien administra: el listero necesita saber en
+  // qué obra está para que su viaje se grabe con ella. Es una tabla diminuta —
+  // una fila por obra— así que traerla entera no cuesta nada.
+  //
+  // ⚠️ `errorObras` guarda el fallo en vez de tragárselo. Mientras el `.sql` no
+  //    se haya corrido, esta tabla NO EXISTE, y una lista vacía en silencio se
+  //    lee igual que «todavía no han creado ninguna obra»: nadie sabría que lo
+  //    que falta es correr el SQL.
+  const { data: obrasRaw, error: errorObras, refetch: recargarObras } = useTable<UbicacionObra>('ubicaciones_obra', { orderBy: 'nombre' });
+  const faltaSqlObras = !!errorObras && /does not exist|schema cache|could not find the (table|column)/i.test(errorObras);
+  const obras = useMemo(() => ordenarUbicaciones(obrasRaw ?? []), [obrasRaw]);
+  const obrasActivas = useMemo(() => obras.filter((o) => o.active), [obras]);
+  const obraPorId = useMemo(() => new Map(obras.map((o) => [o.id, o])), [obras]);
+  /**
+   * La obra del listero que está usando la pantalla AHORA MISMO. Es lo que se
+   * graba en cada viaje que registre.
+   *
+   * Se lee de su propio perfil y no de la lista de listeros: esa lista solo se
+   * carga con nivel `full`, y el listero raso —que es justamente quien registra
+   * los viajes— no la tiene. Sacándola de ahí, sus viajes saldrían todos sin
+   * obra y el reporte por obra no serviría para nada.
+   */
+  const [miObraId, setMiObraId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!uid) { setMiObraId(null); return; }
+    let vivo = true;
+    supabase.from('profiles').select('ubicacion_id').eq('id', uid).maybeSingle()
+      .then(({ data, error }) => {
+        if (!vivo) return;
+        // Sin SQL corrido la columna no existe: se sigue sin obra, y el viaje se
+        // registra igual. Es preferible un viaje sin obra a un viaje perdido.
+        if (error) { setMiObraId(null); return; }
+        setMiObraId((data as any)?.ubicacion_id ?? null);
+      });
+    return () => { vivo = false; };
+  }, [uid, listerosRecarga, obrasRaw]);
 
   const isEditableByListero = (row: CamionViajeRow): boolean => {
     if (row.listeroId !== uid) return false;
+    // ⭐ CON ACCESO FULL NO HAY HORA DE CIERRE (02-sep-2026).
+    //
+    //    La regla de «solo dentro de tu jornada» existe para el LISTERO: él
+    //    corrige la hora de un viaje que acaba de dar, y dejarlo tocar días
+    //    viejos sería darle una manera silenciosa de sacar trabajo de la jornada
+    //    que se le está revisando. Pero a quien tiene full le llegaba tarde justo
+    //    cuando más falta hace: a las 7:01am ya no se podía corregir la noche que
+    //    acababa de terminar, y la corrección de la madrugada se hace POR LA
+    //    MAÑANA. En el panel de la jefa esto ya se podía; en su propia lista de
+    //    «mis viajes de hoy», no — la misma persona con dos reglas distintas.
+    //
+    //    No queda invisible: la edición excepcional deja rastro en Auditoría.
+    //    Ver `saveEdit` y `requiereRastroDeEdicion`.
+    if (canFull) return true;
     const { startMs, endMs } = currentJornadaWindow();
     const t = new Date(row.registeredAt).getTime();
     return t >= startMs && t < endMs;
@@ -859,66 +1215,133 @@ export default function ViajesCamionesScreen() {
     });
   };
   const cancelEdit = () => setEditing(null);
+  // Mismo motivo que `registeringRef` y `borrandoRef`: el state no cambia hasta
+  // el próximo render, así que dos toques dentro del mismo frame leen los dos el
+  // mismo cierre y pasan los dos. Acá la ventana ancha es el `confirm` de "esto
+  // cambia de día/turno": mientras el modal se monta, el botón Guardar sigue
+  // habilitado — dos toques ahí eran DOS updates y DOS filas de auditoría.
+  const guardandoEdicionRef = useRef(false);
+  // El ref es el que FRENA (se lee y se escribe sin esperar al re-render, que es
+  // lo que hace falta contra el doble toque). Este estado es solo para que se
+  // VEA: sin el, el boton no cambiaba nada en pantalla y quien tocaba dos veces
+  // no tenia forma de saber que el primer toque habia contado.
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const saveEdit = async () => {
-    if (!editing) return;
-    const row = findRow(editing.id);
-    if (!row) { setEditing(null); return; }
-    const { hh, mm } = normalizarHora(editing.hh, editing.mm);
-    // El listero solo mueve la HORA: la jornada que se manda es la que ya tenía
-    // el viaje. La jefa sí puede haber cambiado el día en el selector.
-    const jornada = canFull ? editing.fecha : jornadaDeFecha(new Date(row.registeredAt));
-    // ⭐ NO SE PUEDE MANDAR UN VIAJE AL FUTURO, ni por acá. La carga manual ya lo
-    //    prohíbe; sin esto se prohibía por una puerta y se permitía por la otra,
-    //    y un viaje con fecha de mañana envenena la alerta de "camión sin viaje"
-    //    (le da horas negativas y ese camión no vuelve a salir en la lista).
-    if (canFull && jornada > caracasBusinessToday()) {
-      toast.error('Esa fecha todavía no llega. Un viaje no puede quedar en el futuro.');
-      return;
-    }
-    const newIso = isoDeJornadaHora(jornada, hh, mm);
-
-    // ⚠️ Cambiar fecha u hora puede MUDAR EL VIAJE DE DÍA o DE TURNO sin que
-    //    nadie lo pida (el corte del negocio son las 7am, y el turno las 7pm).
-    //    No se bloquea —a veces es justo lo que se quiere corregir— pero se
-    //    pregunta antes, porque si no el viaje se "desaparece" de la lista al
-    //    guardar y no hay manera de entender por qué. Ver `viajesEdicion.ts`.
-    //
-    // ⚠️ Se compara POR MINUTO, no por instante: el viaje de campo trae segundos
-    //    y el formulario solo llega al minuto, así que comparar los instantes
-    //    daba "cambió" SIEMPRE y abrir/guardar sin tocar nada movía el viaje.
-    const cambioDeInstante = !mismoMinuto(newIso, row.registeredAt);
-    if (cambioDeInstante) {
-      const avisos = avisosDeCambio(row.registeredAt, newIso);
-      if (avisos.length > 0) {
-        const ok = await confirm(`${avisos.join('\n\n')}\n\n¿Lo dejas así?`);
-        if (!ok) return;
+    if (!editing || guardandoEdicionRef.current) return;
+    guardandoEdicionRef.current = true;
+    setGuardandoEdicion(true);
+    try {
+      const row = findRow(editing.id);
+      if (!row) { setEditing(null); return; }
+      const { hh, mm } = normalizarHora(editing.hh, editing.mm);
+      // El listero solo mueve la HORA: la jornada que se manda es la que ya tenía
+      // el viaje. La jefa sí puede haber cambiado el día en el selector.
+      const jornada = canFull ? editing.fecha : jornadaDeFecha(new Date(row.registeredAt));
+      // ⭐ NO SE PUEDE MANDAR UN VIAJE AL FUTURO, ni por acá. La carga manual ya lo
+      //    prohíbe; sin esto se prohibía por una puerta y se permitía por la otra,
+      //    y un viaje con fecha de mañana envenena la alerta de "camión sin viaje"
+      //    (le da horas negativas y ese camión no vuelve a salir en la lista).
+      if (canFull && jornada > caracasBusinessToday()) {
+        toast.error('Esa fecha todavía no llega. Un viaje no puede quedar en el futuro.');
+        return;
       }
-    }
+      const newIso = isoDeJornadaHora(jornada, hh, mm);
 
-    const cambios: Parameters<typeof editarViaje>[1] = {};
-    if (cambioDeInstante) cambios.registeredAtISO = newIso;
-    if (canFull) {
-      const choferNuevo = editing.chofer.trim() || null;
-      if (choferNuevo !== (row.choferName ?? null)) cambios.choferName = choferNuevo;
-      if (editing.listeroId && editing.listeroId !== row.listeroId) {
-        const nuevo = listeros.find((l) => l.id === editing.listeroId);
-        // Sin nombre no se reasigna: `listero_name` es lo que sale en el reporte
-        // y dejarlo desactualizado mostraría al listero VIEJO con el id del nuevo.
-        if (!nuevo) { toast.error('No se pudo identificar a ese listero. Refresca la pantalla.'); return; }
-        const ok = await confirm(`El viaje va a quedar a nombre de ${nuevo.full_name} en vez de ${row.listeroName}. Deja de contar para uno y cuenta para el otro en el resumen por listero. ¿Lo cambias?`);
-        if (!ok) return;
-        cambios.listeroId = nuevo.id;
-        cambios.listeroName = nuevo.full_name;
+      // ⚠️ Cambiar fecha u hora puede MUDAR EL VIAJE DE DÍA o DE TURNO sin que
+      //    nadie lo pida (el corte del negocio son las 7am, y el turno las 7pm).
+      //    No se bloquea —a veces es justo lo que se quiere corregir— pero se
+      //    pregunta antes, porque si no el viaje se "desaparece" de la lista al
+      //    guardar y no hay manera de entender por qué. Ver `viajesEdicion.ts`.
+      //
+      // ⚠️ Se compara POR MINUTO, no por instante: el viaje de campo trae segundos
+      //    y el formulario solo llega al minuto, así que comparar los instantes
+      //    daba "cambió" SIEMPRE y abrir/guardar sin tocar nada movía el viaje.
+      const cambioDeInstante = !mismoMinuto(newIso, row.registeredAt);
+      if (cambioDeInstante) {
+        const avisos = avisosDeCambio(row.registeredAt, newIso);
+        if (avisos.length > 0) {
+          const ok = await confirm(`${avisos.join('\n\n')}\n\n¿Lo dejas así?`);
+          if (!ok) return;
+        }
       }
-    }
-    if (Object.keys(cambios).length === 0) { setEditing(null); return; }
 
-    const { error } = await editarViaje(editing.id, cambios);
-    if (error) { toast.error(error); return; }
-    setEditing(null);
-    toast.success('Viaje actualizado.');
-    loadMisViajes();
-    if (canFull) { loadRangeRows(); loadResumen(); }
+      const cambios: Parameters<typeof editarViaje>[1] = {};
+      // Qué cambió, en palabras, para el rastro de Auditoría. Se arma con LO
+      // MISMO que decide qué se manda a la base: si algún día divergen, la
+      // bitácora contaría una historia distinta de la que quedó en la fila.
+      const queCambio: string[] = [];
+      if (cambioDeInstante) { cambios.registeredAtISO = newIso; queCambio.push('hora'); }
+      if (canFull) {
+        const choferNuevo = editing.chofer.trim() || null;
+        if (choferNuevo !== (row.choferName ?? null)) {
+          cambios.choferName = choferNuevo;
+          queCambio.push(`chofer: ${row.choferName || 'sin chofer'} → ${choferNuevo || 'sin chofer'}`);
+        }
+        if (editing.listeroId && editing.listeroId !== row.listeroId) {
+          const nuevo = listeros.find((l) => l.id === editing.listeroId);
+          // Sin nombre no se reasigna: `listero_name` es lo que sale en el reporte
+          // y dejarlo desactualizado mostraría al listero VIEJO con el id del nuevo.
+          if (!nuevo) { toast.error('No se pudo identificar a ese listero. Refresca la pantalla.'); return; }
+          const ok = await confirm(`El viaje va a quedar a nombre de ${nuevo.full_name} en vez de ${row.listeroName}. Deja de contar para uno y cuenta para el otro en el resumen por listero. ¿Lo cambias?`);
+          if (!ok) return;
+          cambios.listeroId = nuevo.id;
+          cambios.listeroName = nuevo.full_name;
+          queCambio.push(`lo registró: ${row.listeroName} → ${nuevo.full_name}`);
+        }
+      }
+      if (Object.keys(cambios).length === 0) { setEditing(null); return; }
+
+      const { error } = await editarViaje(editing.id, cambios);
+      if (error) { toast.error(error); return; }
+
+      // ⭐⭐ RASTRO DE LA EDICIÓN EXCEPCIONAL (02-sep-2026).
+      //
+      //    Ahora que quien tiene full puede corregir CUALQUIER día, esa puerta no
+      //    puede quedar sin testigo: tocar la noche del mes pasado no se parece
+      //    en nada a corregirle la hora al viaje que se acaba de dar.
+      //
+      // ⚠️ PERO SOLO LA EXCEPCIONAL. Las ediciones del día corriente NO escriben
+      //    nada desde acá: ya las cubre el trigger `trg_audit` de `camion_viajes`,
+      //    y duplicar el rastro llenaría la bitácora de ruido. Es pedido explícito
+      //    del cliente: «que no se dañe ni abuse el módulo de auditoría, y que no
+      //    se tumbe ni consuma en exceso». Quién decide es `requiereRastroDeEdicion`,
+      //    que está probada aparte — acá no se rehace ese criterio.
+      //
+      // Sin `await` a propósito, igual que en el resto de la app: la bitácora es
+      // secundaria y `logAudit` nunca lanza. Que la auditoría vaya lenta no puede
+      // dejar a la jefa mirando un botón que no responde.
+      // La placa se busca en el catálogo porque NO viaja en la fila del viaje.
+      // Sin ella el rastro diría «CAMION VOLTEO TORONTO» y no serviría para
+      // identificar cuál de los treinta fue. Para los de fuera de catálogo no hay
+      // catálogo que consultar: ahí la seña que anotó el listero es lo único que
+      // distingue, y es justo para lo que existe ese campo.
+      const camionDeLaFila = row.machineryId ? truckById.get(row.machineryId) : undefined;
+      // ⭐ QUIÉN DECIDE NO ES ESTA PANTALLA. `rastroDeEdicion` devuelve `null`
+      //    cuando no hay nada que escribir, y ese `null` es toda la protección
+      //    contra llenar la bitácora de ruido — pedido del cliente: «que no se
+      //    dañe ni abuse el módulo de auditoría». Acá solo se obedece.
+      const rastro = rastroDeEdicion({
+        registeredAtAntesISO: row.registeredAt,
+        registeredAtDespuesISO: cambios.registeredAtISO ?? row.registeredAt,
+        ventana: ventanaJornadaEnCurso(),
+        huboCambios: queCambio.length > 0,
+        machineCode: row.machineCode,
+        placa: camionDeLaFila?.plate || camionDeLaFila?.serial || row.camionRef,
+        cambios: queCambio,
+      });
+      // Sin `await` a propósito: la bitácora es secundaria y `logAudit` nunca
+      // lanza. Que la auditoría vaya lenta no puede dejar a la jefa mirando un
+      // botón que no responde.
+      if (rastro) logAudit(rastro.accion as any, 'camion_viajes', editing.id, rastro.detalle);
+
+      setEditing(null);
+      toast.success('Viaje actualizado.');
+      loadMisViajes();
+      if (canFull) { loadRangeRows(); loadResumen(); }
+    } finally {
+      guardandoEdicionRef.current = false;
+      setGuardandoEdicion(false);
+    }
   };
 
   // Mismo motivo que `registeringRef`: el state no cambia hasta el próximo
@@ -1048,7 +1471,8 @@ export default function ViajesCamionesScreen() {
       if (!ok) return;
 
       const nota = notaCargaManual(fullName || '');
-      let hechos = 0;
+      let hechos = 0;      // entraron AHORA
+      let yaEstaban = 0;   // rebotaron por clave repetida: ya estaban de antes
       let ultimoError = '';
       for (const iso of horarios) {
         const { error } = await registrarViaje({
@@ -1066,21 +1490,85 @@ export default function ViajesCamionesScreen() {
           estadoMaquina: null,
           note: nota,
           registeredAt: iso,
-          clientActionId: nuevoClientActionId(),
+          // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
+          // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
+          // que ella estuvo en el patio.
+          //
+          // ⚠️ Es su obra de HOY, que es lo único que se sabe: de un día pasado
+          //    no hay registro de dónde estaba. Si lo movieron desde entonces,
+          //    esta carga manual lo pone en la obra equivocada — por eso el
+          //    aviso de la pantalla dice que conviene cargar el mismo día.
+          ...obraParaGrabar(listeros.find((l) => l.id === listero.id)?.ubicacion_id ?? null, obras),
+          // La placa y la empresa SÍ salen de la ficha de hoy, y acá sí es lo
+          // correcto: son datos del camión, no del día. La placa de un camión no
+          // cambia por cargarle un viaje de la semana pasada.
+          ...datosDelCamion(cargaTruck),
+          // ⭐⭐ CLAVE ESTABLE, NO UNA NUEVA EN CADA INTENTO (02-sep-2026).
+          //
+          //    `nuevoClientActionId()` daba una clave distinta en cada pasada, así
+          //    que si la tanda fallaba a la mitad y la jefa volvía a cargar la
+          //    misma cantidad, los que YA habían entrado se repetían: el camión
+          //    terminaba con el doble de viajes y no había forma de saber cuáles
+          //    sobraban. La única salida era contarlos a ojo y borrarlos a mano.
+          //
+          //    Con la clave derivada de la intención, recargar la MISMA tanda
+          //    regenera LAS MISMAS claves y el índice único de la base rechaza
+          //    solo los que ya estaban. Los horarios van de 5 en 5 minutos, así
+          //    que dentro de una tanda cada viaje cae en un minuto distinto y
+          //    tiene su propia clave: no se pisan entre ellos.
+          //
+          // ⚠️ El listero de la clave es el ELEGIDO (`listero.id`), no el usuario
+          //    que está cargando: es el que va a quedar en la fila, y usar otro
+          //    haría que la misma tanda atribuida a la misma persona diera claves
+          //    distintas según quién estuviera sentado frente a la pantalla.
+          clientActionId: claveViajeEstable({
+            identidadCamion: identidadParaClave(cargaTruck),
+            listeroId: listero.id,
+            registeredAtISO: iso,
+          }) || nuevoClientActionId(),
         });
-        if (error) { ultimoError = error; break; }
-        hechos++;
+        if (!error) { hechos++; continue; }
+        // ⭐⭐ EL DUPLICADO NO ES UN FALLO: ES LA CLAVE ESTABLE HACIENDO SU TRABAJO.
+        //
+        //    Este `continue` es lo que hace que la promesa del aviso de abajo sea
+        //    verdad. Cuando la tanda se recarga —que es justo lo que se le pide a
+        //    la jefa cuando falla a la mitad— los renglones que YA entraron
+        //    rebotan con un 23505. Tratarlos como error y cortar el bucle dejaba
+        //    el peor de los mundos: cero cargados, el texto crudo de Postgres en
+        //    inglés en pantalla, y los que faltaban sin entrar NUNCA. La única
+        //    salida habría sido cambiar la hora de arranque, y eso no se lo dice
+        //    nadie.
+        //
+        //    Los otros dos caminos ya sabían leerlo así: el registro en el patio
+        //    (`accionTrasFalloConSenal` → `ya_estaba`) y la cola offline
+        //    (`decidirAccionCola` → `exito`). Éste era el único que faltaba.
+        if (accionTrasFalloConSenal(error) === 'ya_estaba') { yaEstaban++; continue; }
+        ultimoError = error; break;
       }
       // Se dice EXACTAMENTE cuántos entraron. Un fallo a mitad de camino dejaba
       // la mitad cargada, y anunciar "listo" haría que se cargara otra vez.
+      //
+      // ⭐ Y ahora se puede DECIR QUÉ HACER. Antes el aviso terminaba en «cargar
+      //    de nuevo los duplicaría», que dejaba a la jefa sin salida más que
+      //    contar y borrar a mano. Con la clave estable, repetir la MISMA tanda
+      //    es seguro: los que ya entraron rebotan solos.
+      // Los que ya estaban se DICEN aparte. Si se sumaran a `hechos`, recargar
+      // una tanda entera anunciaría "10 viajes cargados" sin haber creado uno
+      // solo, y la jefa no tendría forma de saber si su reintento sirvió.
+      const yaTxt = yaEstaban ? ` (${yaEstaban} ya estaba${yaEstaban === 1 ? '' : 'n'} de antes)` : '';
       if (ultimoError) {
         toast.error(
-          hechos === 0
+          hechos === 0 && yaEstaban === 0
             ? `No se pudo cargar ninguno (${motivoLegible(ultimoError)}).`
-            : `Se cargaron ${hechos} de ${horarios.length} y falló el siguiente (${motivoLegible(ultimoError)}). Revisa la lista antes de reintentar: cargar de nuevo los duplicaría.`,
+            : `Se cargaron ${hechos} de ${horarios.length}${yaTxt} y falló el siguiente (${motivoLegible(ultimoError)}). Vuelve a cargar la MISMA tanda —mismo camión, misma fecha, misma hora de arranque y mismo listero— y solo entrarán los que faltan.`,
         );
+      } else if (hechos === 0 && yaEstaban > 0) {
+        // Recargar una tanda que ya estaba completa. No es un error, pero decir
+        // "0 cargados" a secas parecería una falla: se explica por qué.
+        toast.success(`Esos ${yaEstaban} viaje(s) ya estaban cargados. No se duplicó ninguno.`);
+        setCargaCantidad('1');
       } else {
-        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}.`);
+        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}.`);
         setCargaCantidad('1');
       }
       loadRangeRows();
@@ -1236,6 +1724,10 @@ export default function ViajesCamionesScreen() {
   //    LA JEFA; la vista del listero no lo lleva — él ya ve el turno escrito en
   //    cada uno de sus viajes y no tiene nada que filtrar.
   const [filterTurnoSel, setFilterTurnoSel] = useState<Map<string, string>>(new Map());
+  // ⭐ OBRA / UBICACIÓN. A diferencia de la empresa, esta SÍ viaja en la fila del
+  //    viaje (`ubicacion_id` + `ubicacion_nombre`), congelada al registrarlo: es
+  //    la obra donde estaba el listero ESE DÍA, no donde esté hoy.
+  const [filterUbicacionSel, setFilterUbicacionSel] = useState<Map<string, string>>(new Map());
   // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
   // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje.
   const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen'>('detallado');
@@ -1247,12 +1739,14 @@ export default function ViajesCamionesScreen() {
   // "Agrupar por" del informe por jornada en ReportsScreen.
   const [resumenEje, setResumenEje] = useState<EjeResumen>('empresa');
   const porListero = resumenEje === 'listero';
+  const porUbicacion = resumenEje === 'ubicacion';
   const toggleEn = (set: React.Dispatch<React.SetStateAction<Map<string, string>>>) =>
     (id: string, label: string) => set((prev) => { const n = new Map(prev); n.has(id) ? n.delete(id) : n.set(id, label); return n; });
   const toggleFilterListero = toggleEn(setFilterListeroSel);
   const toggleFilterTruck = toggleEn(setFilterTruckSel);
   const toggleFilterCompany = toggleEn(setFilterCompanySel);
   const toggleFilterTurno = toggleEn(setFilterTurnoSel);
+  const toggleFilterUbicacion = toggleEn(setFilterUbicacionSel);
   const toggleDia = (iso: string) => setDiasSel((prev) => { const n = new Set(prev); n.has(iso) ? n.delete(iso) : n.add(iso); return n; });
 
   // ⚠️ De NEGOCIO, no de calendario: a las 3 de la mañana la jornada en curso
@@ -1345,6 +1839,57 @@ export default function ViajesCamionesScreen() {
     return rangeRows;
   }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado]);
 
+  // ── CUÁNTOS VIAJES TIENE YA ESE CAMIÓN EN ESA JORNADA (02-sep-2026) ───────
+  //
+  // La casilla de la carga a mano decía «¿CUÁNTOS VIAJES?», que se lee como
+  // «cuántos hubo ese día». Y el campo NO fija el total: SUMA. Quien quería
+  // dejar un camión en 8 escribía 8 sobre uno que ya tenía 3 y lo dejaba en 11,
+  // sin que nada se lo dijera hasta ir a contar la lista.
+  //
+  // ⚠️ NO SE LE PREGUNTA A LA BASE. Los viajes ya están cargados en la pantalla
+  //    —el resumen de hoy y la lista del rango de la jefa—, y una consulta por
+  //    cada tecleo del formulario sería peso puro en un teléfono.
+  //
+  // ⚠️ Y POR ESO PUEDE DEVOLVER `null`: si la jornada elegida no cae dentro de lo
+  //    que se leyó, NO SE SABE. Pintar un 0 en ese caso sería inventar el dato
+  //    justo con la misma confianza que el rótulo que estamos corrigiendo.
+  const cargaYaEnJornada = useMemo<number | null>(() => {
+    if (!cargaTruck || !/^\d{4}-\d{2}-\d{2}$/.test(cargaFecha)) return null;
+    // La lista del rango es la que puede cubrir días viejos; el resumen solo sabe
+    // de hoy. Sirve cualquiera de las dos, siempre que de verdad abarque ese día
+    // y no venga de una consulta que falló (ahí las filas son las de antes).
+    const cubreRango = !rangeDesactualizado && !rangoInvalido && !sinDiasMarcados && !rangeError
+      && cargaFecha >= rangeBounds.desde && cargaFecha <= rangeBounds.hasta;
+    const filas = cubreRango
+      ? rangeRows
+      : (cargaFecha === todayISO && !resumenError ? resumenRows : null);
+    if (!filas) return null;
+    return filas.filter(
+      (r) => r.machineryId === cargaTruck.id && jornadaDeFecha(new Date(r.registeredAt)) === cargaFecha
+    ).length;
+  }, [cargaTruck, cargaFecha, rangeRows, rangeDesactualizado, rangoInvalido, sinDiasMarcados,
+      rangeError, rangeBounds, resumenRows, resumenError, todayISO]);
+
+  /** Cómo queda el camión si se carga la tanda tal como está escrita. `null`
+   *  mientras la cantidad no sea usable: no se promete un total con la casilla a
+   *  medio escribir (ni con una que la validación va a rechazar igual). */
+  const cargaQuedaraEn = useMemo<number | null>(() => {
+    if (cargaYaEnJornada === null) return null;
+    const n = parseInt(cargaCantidad, 10);
+    if (!Number.isFinite(n) || n < 1 || n > MAX_CARGA) return null;
+    return cargaYaEnJornada + n;
+  }, [cargaYaEnJornada, cargaCantidad]);
+
+  /** La frase completa, o `null` si no hay nada honesto que decir. */
+  const cargaConteoTexto = useMemo<string | null>(() => {
+    if (cargaYaEnJornada === null) return null;
+    const ya = cargaYaEnJornada === 0
+      ? 'Ese camión todavía no tiene viajes en esa jornada.'
+      : `Ese camión ya tiene ${cargaYaEnJornada} ${cargaYaEnJornada === 1 ? 'viaje' : 'viajes'} en esa jornada.`;
+    if (cargaQuedaraEn === null) return ya;
+    return `${ya} ${cargaQuedaraEn === 1 ? 'Quedará' : 'Quedarán'} ${cargaQuedaraEn}.`;
+  }, [cargaYaEnJornada, cargaQuedaraEn]);
+
   // Empresa de un viaje: la del camión que lo hizo. Los camiones sin empresa
   // asignada caen en una sola cubeta, para que no desaparezcan del filtro.
   const companyOfRow = (r: CamionViajeRow) => {
@@ -1371,17 +1916,22 @@ export default function ViajesCamionesScreen() {
    * cuando un listero se apellida igual que una empresa. El turno no lleva
    * ícono acá porque su etiqueta ya trae el suyo (☀️/🌙).
    */
-  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '' };
+  const ICONO_EJE: Record<EjeFiltro, string> = { listero: '👤 ', empresa: '🏢 ', camion: '🚜 ', turno: '', ubicacion: '🏗️ ' };
 
   const clavesDe = (r: CamionViajeRow): ClavesViaje => ({
     listero: r.listeroId,
     empresa: companyOfRow(r).key,
     camion: claveCamion(r),
     turno: turnoDeViaje(r.registeredAt),
+    // ⚠️ La MISMA función que usa el resumen para agrupar. Si el filtro calculara
+    //    la clave por su cuenta, marcar una obra en los chips podría dejar fuera
+    //    viajes que el resumen sí cuenta en esa obra, y los dos números del mismo
+    //    papel no cuadrarían.
+    ubicacion: claveUbicacionViaje({ ubicacionId: r.ubicacionId, ubicacionName: r.ubicacionNombre }),
   });
   const seleccion: SeleccionFiltros = useMemo(
-    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel }),
-    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel]
+    () => ({ listero: filterListeroSel, empresa: filterCompanySel, camion: filterTruckSel, turno: filterTurnoSel, ubicacion: filterUbicacionSel }),
+    [filterListeroSel, filterCompanySel, filterTruckSel, filterTurnoSel, filterUbicacionSel]
   );
   const listeroOptions = useMemo(
     () => opcionesDeEje(dateScopedRows, 'listero', clavesDe, (r) => ({ id: r.listeroId, label: r.listeroName }), seleccion, cmpText),
@@ -1443,6 +1993,23 @@ export default function ViajesCamionesScreen() {
     [dateScopedRows, seleccion, truckById]
   );
 
+  // Las OBRAS que aparecen en los viajes del rango. Salen de los viajes y no del
+  // catálogo: una obra recién creada, sin un solo viaje, no tiene por qué
+  // ofrecerse como filtro — marcarla dejaría la lista vacía sin explicar nada.
+  const ubicacionOptions = useMemo(
+    () => opcionesDeEje(dateScopedRows, 'ubicacion', clavesDe,
+      (r) => ({
+        id: claveUbicacionViaje({ ubicacionId: r.ubicacionId, ubicacionName: r.ubicacionNombre }),
+        label: r.ubicacionNombre || SIN_UBICACION_LABEL,
+      }), seleccion, cmpText),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateScopedRows, seleccion, truckById]
+  );
+  const ubicacionOptionsVisibles = useMemo(
+    () => filtrarOpciones(ubicacionOptions, busqFiltros, filterUbicacionSel, norm),
+    [ubicacionOptions, busqFiltros, filterUbicacionSel]
+  );
+
   const filteredRangeRows = useMemo(
     () => dateScopedRows.filter((r) => pasaFiltros(clavesDe(r), seleccion)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1478,6 +2045,91 @@ export default function ViajesCamionesScreen() {
     () => resumirViajes(filasResumen, (id) => truckById.get(id), resumenEje),
     [filasResumen, truckById, resumenEje]
   );
+
+  // ── CUBICAJE: METROS CÚBICOS POR CAMIÓN (09-sep-2026) ────────────────────
+  //
+  // Todo el estado vive en un hook aparte (src/components/CubicajeTab.tsx) porque
+  // lo necesitan las DOS sub-pestañas: se mide en «Cubicaje» y se imprime desde
+  // «Viajes». Si viviera dentro del componente, cambiar de pestaña lo desmontaría
+  // y las medidas se perderían justo antes de exportar.
+  //
+  // ⚠️ NO TOCA LA BASE. El catálogo se lee; las medidas se guardan en el teléfono.
+  const camionesCubicaje = useMemo<CamionCubicaje[]>(
+    () => catalogoTrucks.map((t) => ({
+      id: t.id, code: t.code, plate: t.plate, serial: t.serial,
+      marca: t.marca, modelo: t.modelo, companyName: t.companyName,
+      // Activa = operativa y NO en espera de instrucciones. Mismo criterio que
+      // el conteo de Reportes, para que los dos papeles cuenten igual.
+      activo: t.operational !== false && !t.enEspera,
+    })),
+    [catalogoTrucks]
+  );
+
+  const cub = useCubicaje(uid ?? null, camionesCubicaje);
+  const [panelTab, setPanelTab] = useState<'viajes' | 'cubicaje'>('viajes');
+
+  /** Cuántos viajes hizo cada camión del catálogo EN LO QUE HAY FILTRADO. Es la
+   *  base de los tres modos de reparto: respeta el rango y los filtros de
+   *  arriba, así que el volumen nunca cubre un período distinto al del reporte. */
+  const viajesPorCamion = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of filteredRangeRows) if (r.machineryId) m.set(r.machineryId, (m.get(r.machineryId) ?? 0) + 1);
+    return m;
+  }, [filteredRangeRows]);
+
+  /** Los mismos viajes, abiertos POR JORNADA. Es lo que permite guardar el
+   *  volumen día por día y, después, buscarlo por un día, por un mes o por un
+   *  rango. Sin este corte solo se podría guardar un total del rango entero. */
+  const viajesPorDia = useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const r of filteredRangeRows) {
+      if (!r.machineryId) continue;
+      const j = jornadaDeFecha(new Date(r.registeredAt));
+      const d = m.get(r.machineryId) ?? new Map<string, number>();
+      d.set(j, (d.get(j) ?? 0) + 1);
+      m.set(r.machineryId, d);
+    }
+    return m;
+  }, [filteredRangeRows]);
+
+  /** m³ de cada camión en el rango, según el modo elegido. `porViaje` sale del
+   *  total y no al revés: así la columna de cada línea y la sumatoria del pie no
+   *  pueden dejar de cuadrar. */
+  const volumenCalculado = useMemo(() => {
+    const filas = Array.from(viajesPorCamion.entries()).map(([key, viajes]) => {
+      const md = cub.porTruck.get(key);
+      return { key, viajes, m3Tolva: md ? volumenDe(md) : 0, manual: cubNum(cub.manual[key]) };
+    });
+    return repartirVolumen(cub.modo, filas, cubNum(cub.totalGlobal));
+  }, [viajesPorCamion, cub.porTruck, cub.modo, cub.manual, cub.totalGlobal]);
+
+  /**
+   * ⭐ LO GUARDADO MANDA, jornada por jornada.
+   *
+   * Un reporte de un mes viejo tiene que salir HOY con los mismos números que
+   * salió aquel día. Si mandara el cálculo, cambiar el modo o corregir una
+   * medida reescribiría el pasado en silencio y dos impresiones del mismo mes
+   * no coincidirían. Lo que no se guardó se sigue calculando al vuelo.
+   */
+  const volumenPorCamion = useMemo(() => {
+    const pv = new Map<string, number>();
+    volumenCalculado.forEach((v, id) => pv.set(id, v.porViaje));
+    return volumenConGuardado(pv, viajesPorDia, cub.guardadas);
+  }, [volumenCalculado, viajesPorDia, cub.guardadas]);
+
+  /** Días guardados a los que hoy les corresponden otros viajes. No se corrige
+   *  solo: se avisa. Corregirlo en silencio cambiaría un número ya cobrado. */
+  const diasDesactualizados = useMemo(() => {
+    let n = 0;
+    volumenPorCamion.forEach((v) => { n += v.desactualizados; });
+    return n;
+  }, [volumenPorCamion]);
+
+  /** Un resumido sin conteo de viajes Y sin m³ es una tabla de camiones sin una
+   *  sola cifra. Se avisa en pantalla y se bloquea la exportación. */
+  const avisoReporte = reporteSinCifras(cub.op, reporteModo === 'resumen')
+    ? '⚠️ Con «Conteo de viajes» y «Metros cúbicos» apagados, el resumido queda sin ninguna cifra. Enciende al menos uno.'
+    : null;
 
   // Viajes cuya columna `shift` contradice a su hora — pasa al corregir una hora
   // cruzando las 7am o las 7pm. No se corrige solo: se DICE, para que nadie
@@ -1525,6 +2177,12 @@ export default function ViajesCamionesScreen() {
       toast.error('Los viajes de ese rango todavía se están cargando. Espera a que termine.');
       return;
     }
+    // Un resumido con el conteo de viajes Y los m³ apagados es una tabla de
+    // camiones sin una sola cifra: parece un reporte y no dice nada.
+    if (reporteSinCifras(cub.op, reporteModo === 'resumen')) {
+      toast.error('El resumido quedaría sin ninguna cifra. Enciende «Conteo de viajes» o «Metros cúbicos» en «Qué sale en el reporte».');
+      return;
+    }
     setShareBusy(true);
     try {
       const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1551,6 +2209,7 @@ export default function ViajesCamionesScreen() {
         filterTruckSel.size ? `Camiones: ${esc(Array.from(filterTruckSel.values()).join(', '))}` : null,
         filterListeroSel.size ? `Listeros: ${esc(Array.from(filterListeroSel.values()).join(', '))}` : null,
         filterTurnoSel.size ? `Turno: ${esc(Array.from(filterTurnoSel.values()).join(', '))}` : null,
+        filterUbicacionSel.size ? `Obras: ${esc(Array.from(filterUbicacionSel.values()).join(', '))}` : null,
       ].filter(Boolean).join(' · ');
 
       // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
@@ -1560,40 +2219,132 @@ export default function ViajesCamionesScreen() {
       //    El HTML es UNO SOLO para los dos ejes: lo único que cambia son los
       //    rótulos. Si se partiera en dos plantillas, cualquier arreglo futuro
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
-      const icoGrupo = porListero ? '👤' : '🏢';
-      const palabraGrupo = porListero ? 'listero(s)' : 'empresa(s)';
+      // Los tres ejes se rotulan desde un solo sitio: dos ternarios encadenados en
+      // cada punto del PDF acabarian discrepando entre si.
+      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : '🏢';
+      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : 'empresa(s)';
       // Un 0 en una columna de números se lee peor que un guion: la fila del
       // camión que solo trabaja de día queda limpia en vez de arrastrar un
       // «0» en la de noche.
       const num = (n: number) => (n > 0 ? String(n) : '—');
-      const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${resumenViajes.total} viaje(s) · ${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}
-          <br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span></p>
-        ${resumenViajes.empresas.map((e) => `
-          <h3>${icoGrupo} ${esc(e.name)} — ${e.total} viaje(s) · ${e.camiones.length} camión(es) · ${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}</h3>
-          <table>
-            <thead><tr><th>Camión</th><th>Placa / Serial</th><th style="text-align:right">☀️ Día</th><th style="text-align:right">🌙 Noche</th><th style="text-align:right">Viajes</th></tr></thead>
-            <tbody>
-              ${e.camiones.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.placa)}</td><td style="text-align:right">${num(c.dia)}</td><td style="text-align:right">${num(c.noche)}</td><td style="text-align:right"><b>${c.viajes}</b></td></tr>`).join('')}
-            </tbody>
-            <tfoot><tr><td colspan="2"><b>Total ${esc(e.name)}</b></td><td style="text-align:right"><b>${num(e.dia)}</b></td><td style="text-align:right"><b>${num(e.noche)}</b></td><td style="text-align:right"><b>${e.total}</b></td></tr></tfoot>
-          </table>`).join('')}`;
 
-      // ── DETALLADO: como siempre, pero ahora CON empresa y placa en cada línea.
-      const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)</p>
+      // ── QUÉ COLUMNAS LLEVA ESTE REPORTE (09-sep-2026) ──────────────────
+      //
+      // Las columnas ya no están escritas a mano en el HTML: las decide
+      // `columnasDetalle`/`columnasResumen` a partir de los interruptores de
+      // «Qué sale en el reporte», y `valoresEnOrden` toma de cada fila justo
+      // esas y en ese orden. Así encabezado, celdas y pie no pueden
+      // desalinearse: los tres salen de la MISMA lista.
+      //
+      // ⚠️ Con todo por defecto, las columnas son EXACTAMENTE las de siempre.
+      const op = cub.op;
+      const medidaDe = (id: string | null | undefined) => (id ? cub.porTruck.get(id) : undefined);
+      // Marca y modelo salen de la ficha del catálogo; si no los tiene, de lo que
+      // se escribió al medir. Nunca al revés: manda el catálogo.
+      const marcaModeloDe = (id: string | null | undefined) => {
+        const t = id ? truckById.get(id) : undefined;
+        const m = medidaDe(id);
+        return [t?.marca || m?.marca, t?.modelo || m?.modelo].filter(Boolean).join(' ') || '—';
+      };
+      const dimsDe = (id: string | null | undefined) => dimsTexto(medidaDe(id)) || '—';
+      const claseDe = (id: string | null | undefined) => {
+        const m = medidaDe(id);
+        return m ? etiquetaClase(volumenDe(m)) : '—';
+      };
+      // ⚠️ El m³ de una línea del RESUMIDO es `porViaje × sus viajes`, NO el total
+      //    del camión. Agrupando por listero un mismo camión aparece bajo cada
+      //    listero que lo registró: con el total entero en cada uno, el reporte
+      //    sumaría el mismo volumen dos y tres veces.
+      const porViajeDe = (key: string) => volumenPorCamion.get(key)?.porViaje ?? 0;
+      const m3Fila = (key: string, viajes: number) => redondear(porViajeDe(key) * viajes);
+      const totalM3 = sumaVolumen(volumenPorCamion);
+
+      /** Arma una tabla con las columnas visibles. `pie` ya viene con su HTML
+       *  hecho (lleva <b>), así que NO se escapa: lo arma este mismo archivo. */
+      const tabla = (
+        cols: { key: string; head: string; num?: boolean }[],
+        filas: string[][],
+        pie: string[],
+      ) => {
+        const al = (i: number) => (cols[i]?.num ? ' style="text-align:right"' : '');
+        return `
         <table>
-          <thead><tr><th>Fecha</th><th>Hora</th><th>Empresa</th><th>Camión</th><th>Placa / Serial</th><th>Chofer</th><th>Listero</th><th>Turno</th><th>Estado</th></tr></thead>
+          <thead><tr>${cols.map((c, i) => `<th${al(i)}>${esc(c.head)}</th>`).join('')}</tr></thead>
           <tbody>
-            ${filteredRangeRows
-              .map(
-                (r) =>
-                  `<tr><td>${esc(fmtFecha(r.registeredAt))}</td><td>${esc(fmtHora(r.registeredAt))}</td><td>${esc(companyOfRow(r).name)}</td><td>${esc(r.machineCode)}</td><td>${esc(placaDe(r))}</td><td>${esc(r.choferName ?? '—')}</td><td>${esc(r.listeroName)}</td><td>${esc(TURNO_NOMBRE[turnoDeViaje(r.registeredAt)])}</td><td>${esc(r.estadoMaquina ?? '—')}</td></tr>`
-              )
-              .join('')}
+            ${filas.map((f) => `<tr>${f.map((v, i) => `<td${al(i)}>${esc(v)}</td>`).join('')}</tr>`).join('')}
           </tbody>
-          <tfoot><tr><td colspan="9">Total: ${filteredRangeRows.length} viajes</td></tr></tfoot>
+          <tfoot><tr>${pie.map((v, i) => `<td${al(i)}>${v}</td>`).join('')}</tr></tfoot>
         </table>`;
+      };
+
+      // ── RESUMIDO (globalizado): total de viajes por camión, agrupado por
+      //    empresa O POR LISTERO, con el total de cada grupo y el total general.
+      //    Sin una línea por viaje — es justo lo contrario del detallado.
+      //
+      //    El HTML es UNO SOLO para los dos ejes: lo único que cambia son los
+      //    rótulos. Si se partiera en dos plantillas, cualquier arreglo futuro
+      //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
+      // El eje decide qué columna sobra: la suya ya está en el encabezado del grupo.
+      const colsR = columnasResumen(op, resumenEje);
+      const bodyResumen = `
+        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}
+          ${op.viajes ? `<br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span>` : ''}</p>
+        ${resumenViajes.empresas.map((e) => {
+          const g3 = redondear(e.camiones.reduce((a, c) => a + m3Fila(c.key, c.viajes), 0));
+          const cab = [
+            op.viajes ? `${e.total} viaje(s)` : null,
+            `${e.camiones.length} camión(es)`,
+            op.viajes ? `${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}` : null,
+            op.m3 ? `${m3Texto(g3)} m³` : null,
+          ].filter(Boolean).join(' · ');
+          const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
+            camion: c.code,
+            placa: c.placa,
+            marcaModelo: marcaModeloDe(c.key),
+            dims: dimsDe(c.key),
+            clase: claseDe(c.key),
+            dia: num(c.dia),
+            noche: num(c.noche),
+            viajes: String(c.viajes),
+            m3: m3Texto(m3Fila(c.key, c.viajes)),
+          }));
+          const pie = colsR.map((c, i) => (
+            i === 0 ? `<b>Total ${esc(e.name)}</b>`
+              : c.key === 'dia' ? `<b>${num(e.dia)}</b>`
+              : c.key === 'noche' ? `<b>${num(e.noche)}</b>`
+              : c.key === 'viajes' ? `<b>${e.total}</b>`
+              : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>` : ''
+          ));
+          return `<h3>${icoGrupo} ${esc(e.name)} — ${cab}</h3>${tabla(colsR, filas, pie)}`;
+        }).join('')}`;
+
+      // ── DETALLADO: una línea por viaje, con las columnas que estén encendidas.
+      const colsD = columnasDetalle(op, resumenEje);
+      const filasD = filteredRangeRows.map((r) => valoresEnOrden(colsD, {
+        fecha: fmtFecha(r.registeredAt),
+        hora: fmtHora(r.registeredAt),
+        empresa: companyOfRow(r).name,
+        camion: r.machineCode,
+        // El nombre GRABADO en el viaje, no el del catálogo de hoy: si la obra se
+        // renombró o se borró, el papel tiene que seguir diciendo dónde fue.
+        ubicacion: r.ubicacionNombre || SIN_UBICACION_LABEL,
+        placa: placaDe(r),
+        marcaModelo: marcaModeloDe(r.machineryId),
+        dims: dimsDe(r.machineryId),
+        m3: m3Texto(r.machineryId ? porViajeDe(r.machineryId) : 0),
+        clase: claseDe(r.machineryId),
+        chofer: r.choferName ?? '—',
+        listero: r.listeroName,
+        turno: TURNO_NOMBRE[turnoDeViaje(r.registeredAt)],
+        estado: r.estadoMaquina ?? '—',
+      }));
+      const pieD = colsD.map((c, i) => (
+        i === 0 ? `<b>Total: ${filteredRangeRows.length} viajes</b>`
+          : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>` : ''
+      ));
+      const bodyDetalle = `
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}</p>
+        ${tabla(colsD, filasD, pieD)}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
       // de día 7am–7pm más turno de noche 7pm–7am. Se dice en el subtítulo para
@@ -1601,9 +2352,12 @@ export default function ViajesCamionesScreen() {
       const corte = 'por jornada (7am a 7am), no por día de calendario';
       const html = pdfDocument({
         title: reporteModo === 'resumen'
-          ? (porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
+          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
           : 'Viajes de camiones',
-        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}`,
+        // El modo de volumen va en el subtítulo: dos reportes del mismo rango
+        // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
+        // y sin decirlo uno de los dos parece un error de cálculo.
+        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
@@ -1615,7 +2369,9 @@ export default function ViajesCamionesScreen() {
       // ⚠️ El nombre TIENE que decir por dónde se partió: dos PDF del mismo día
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
-      const sufijo = reporteModo === 'resumen' ? (porListero ? 'resumen por listero ' : 'resumen por camion ') : '';
+      const sufijo = reporteModo === 'resumen'
+        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : 'resumen por camion ')
+        : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
     } catch (e: any) {
       // Sin este catch, un fallo de exportPdf dejaba el botón como si nada y la
@@ -1625,6 +2381,32 @@ export default function ViajesCamionesScreen() {
       setShareBusy(false);
     }
   };
+
+  // ── EL RELOJ DEL TELÉFONO, CONTRASTADO CON EL DEL SERVIDOR (02-sep-2026) ──
+  //
+  // El viaje se sella con `new Date()`, y esa hora decide dos cosas que después
+  // nadie puede corregir a ojo: a qué JORNADA pertenece (el día va de 7am a 7am)
+  // y a qué TURNO (el turno se deduce de la hora). Un teléfono corrido media
+  // hora manda los viajes de las 6:45am a la jornada anterior y los de las
+  // 6:45pm al turno de día. No revienta nada: simplemente salen en el día
+  // equivocado, y el listero jura que los registró.
+  //
+  // ⚠️ ESTO SOLO AVISA. NO cambia la hora con la que se sella el viaje: el
+  //    registro sin conexión depende del reloj del teléfono, que sin internet es
+  //    el único que hay. Lo que se corrige es el reloj, no el dato.
+  //
+  // UNA vez al abrir, no un latido: el reloj no se descuadra a media jornada, y
+  // este módulo trabaja en teléfonos con la señal justa. Si no se puede medir
+  // (sin internet), `avisoDesfase` devuelve `null` y no se dice nada — no saber
+  // no es lo mismo que estar mal.
+  const [avisoReloj, setAvisoReloj] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    horaDelServidor()
+      .then((iso) => { if (vivo) setAvisoReloj(avisoDesfase(desfaseMinutos(iso))); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
 
   // ── Carga inicial + tiempo real ─────────────────────────────────────────
   useEffect(() => {
@@ -1676,14 +2458,310 @@ export default function ViajesCamionesScreen() {
   }
 
   // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
+  // ══ TIQUETERA: IMPRIMIR Y ENTREGAR ═══════════════════════════════════════
+  //
+  // Pedido del cliente: «cuando marcan el viaje, deben dar el ticket, y debe
+  // guardarse tanto lo que marcaron, como los ticket que en teoría imprimieron
+  // o dieron».
+
+  /** El formato del papel. Vive en la base (una sola fila para todo el sistema)
+   *  y se lee acá aparte de la tarjeta de configuración: el listero imprime sin
+   *  abrir esa tarjeta —ni siquiera la ve— y necesita el mismo formato. */
+  const [configTique, setConfigTique] = useState<TiqueConfig>(CONFIG_POR_DEFECTO);
+  const [sinTablaTique, setSinTablaTique] = useState(false);
+  /** Cuántas veces se imprimió cada folio. Vacío NO significa «ninguno»: puede
+   *  ser que la lista sea muy grande y no se haya consultado. Ver `foliosMedidos`. */
+  const [emisionesPorFolio, setEmisionesPorFolio] = useState<Map<string, number>>(new Map());
+  const [foliosMedidos, setFoliosMedidos] = useState<Set<string>>(new Set());
+  /** Constancias que salieron impresas pero no llegaron al servidor. Se muestra
+   *  el número: son papeles entregados que la oficina todavía no ve. */
+  const [tiquesPendientes, setTiquesPendientes] = useState(0);
+  const [imprimiendo, setImprimiendo] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    leerConfigTique().then((r) => {
+      if (!vivo) return;
+      setConfigTique(r.config);
+      setSinTablaTique(r.sinTabla);
+    });
+    return () => { vivo = false; };
+  }, []);
+
+  // Sube lo que quedó esperando señal: al entrar y cada vez que vuelva la
+  // conexión. Sin esto, una constancia apartada en el teléfono se quedaría ahí
+  // hasta que alguien imprimiera otro tique.
+  useEffect(() => {
+    let vivo = true;
+    const intentar = () => {
+      flushEmisionesPendientes()
+        .then(() => contarEmisionesPendientes())
+        .then((n) => { if (vivo) setTiquesPendientes(n); })
+        .catch(() => {});
+    };
+    intentar();
+    const off = onConnectivityChange((online) => { if (online) intentar(); });
+    return () => { vivo = false; off(); };
+  }, []);
+
+  /**
+   * CUÁLES DE LOS QUE SE VEN YA SE ENTREGARON.
+   *
+   * ⚠️ SE CONSULTA CON TOPE. La lista del panel puede ser un mes entero —miles
+   *    de viajes— y preguntar por todos en cada cambio de filtro tumba la
+   *    pantalla en un teléfono con señal de patio. Por encima del tope no se
+   *    consulta y no se pinta la marca: al imprimir se vuelve a preguntar por
+   *    los folios que de verdad van a salir, que es cuando importa.
+   */
+  const foliosVisibles = useMemo(() => {
+    const set = new Set<string>();
+    misViajesDisplay.forEach((r) => { if (tieneTique(r)) set.add(folioDeTique(r)); });
+    filteredRangeRows.forEach((r) => { if (tieneTique(r)) set.add(folioDeTique(r)); });
+    return Array.from(set);
+  }, [misViajesDisplay, filteredRangeRows]);
+
+  const refrescarEmisiones = React.useCallback(async (folios: string[]) => {
+    if (folios.length === 0 || folios.length > TOPE_FOLIOS_A_CONSULTAR) return;
+    const r = await contarEmisionesPorFolio(folios);
+    if (r.sinTabla) { setSinTablaTique(true); return; }
+    // Se MEZCLA con lo que ya se sabía en vez de reemplazar: al imprimir se
+    // refrescan solo los folios impresos, y pisar el mapa entero borraría las
+    // marcas del resto de la lista.
+    setEmisionesPorFolio((prev) => {
+      const m = new Map(prev);
+      folios.forEach((f) => m.set(f, r.porFolio.get(f) ?? 0));
+      return m;
+    });
+    setFoliosMedidos((prev) => {
+      const s2 = new Set(prev);
+      folios.forEach((f) => s2.add(f));
+      return s2;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (foliosVisibles.length === 0 || foliosVisibles.length > TOPE_FOLIOS_A_CONSULTAR) return;
+    let vivo = true;
+    // Se espera un momento: mientras alguien mueve los filtros esto cambiaría
+    // en cada tecla, y son consultas de red.
+    const t = setTimeout(() => { if (vivo) refrescarEmisiones(foliosVisibles); }, 400);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [foliosVisibles, refrescarEmisiones]);
+
+  /** De la lista filtrada del panel, los que de verdad tienen papel que sacar. */
+  const tiquesDeLaLista = useMemo(
+    () => filteredRangeRows.filter((r) => tieneTique(r)),
+    [filteredRangeRows],
+  );
+
+  /** ¿Cuántas veces salió este tique? `null` = no se preguntó (lista muy grande). */
+  const vecesImpreso = (row: DisplayViaje): number | null => {
+    if (!tieneTique(row)) return null;
+    const f = folioDeTique(row);
+    return foliosMedidos.has(f) ? (emisionesPorFolio.get(f) ?? 0) : null;
+  };
+
+  /**
+   * LOS DATOS DE UN VIAJE, LISTOS PARA EL PAPEL.
+   *
+   * ⭐ Se arman TODOS los campos aunque estén apagados. Cuál sale lo decide la
+   *    configuración dentro de `renglonesDelTique`; decidirlo acá también sería
+   *    tener la regla en dos sitios, y el día que se enciendan los metros
+   *    cúbicos habría que acordarse de los dos.
+   *
+   * ⚠️ LA PLACA Y LA EMPRESA SALEN DE LO CONGELADO EN EL VIAJE, no del catálogo
+   *    de hoy. Es la misma regla con la que se pinta la fila en pantalla: el
+   *    papel firmado en el CDT no puede dejar de coincidir con su reimpresión
+   *    porque alguien le corrigió la ficha al camión la semana siguiente.
+   */
+  const datosTiqueDeViaje = (row: DisplayViaje): DatosTique => {
+    const truck = row.machineryId ? truckById.get(row.machineryId) : undefined;
+    const vol = volumenPorCamion.get(claveCamion(row))?.porViaje ?? 0;
+    const marcaModelo = [truck?.marca, truck?.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ');
+    return {
+      folio: folioDeTique(row),
+      fecha: fmtFecha(row.registeredAt),
+      hora: fmtHora(row.registeredAt),
+      // Un camión anotado a mano no tiene ficha: lo único que identifica la
+      // unidad es la seña que escribió el listero, y es mejor que una raya.
+      placa: row.fueraCatalogo ? (row.camionRef ?? null) : placaDeTique(row, truck),
+      empresa: row.fueraCatalogo ? null : empresaDeTique(row, truck),
+      cdt: row.ubicacionNombre ?? (row.ubicacionId ? obraPorId.get(row.ubicacionId)?.nombre ?? null : null),
+      jornada: dmy(jornadaDeFecha(new Date(row.registeredAt))),
+      turno: turnoLabel(turnoDeViaje(row.registeredAt)),
+      codigo: row.machineCode,
+      marcaModelo: marcaModelo || null,
+      serial: truck?.serial ?? null,
+      chofer: row.choferName,
+      listero: row.listeroName,
+      m3: vol > 0 ? `${m3Texto(vol)} m³` : null,
+      estado: row.estadoMaquina,
+      nota: row.note,
+    };
+  };
+
+  /**
+   * IMPRIMIR Y DEJAR CONSTANCIA.
+   *
+   * ⚠️ EL ORDEN NO SE PUEDE INVERTIR: primero se imprime, y SOLO si el usuario
+   *    confirmó en la vista previa se guarda la constancia. Guardar antes
+   *    dejaría anotado como entregado un tique que se canceló, y ese registro
+   *    es la única prueba que va a haber de qué papel salió.
+   *
+   * ⚠️ Y AL REVÉS TAMBIÉN IMPORTA: si el papel salió y el guardado falla, la
+   *    constancia NO se descarta —se aparta en el teléfono y sube sola— porque
+   *    el camionero ya tiene su tique en la mano.
+   */
+  const imprimirTiques = async (rows: DisplayViaje[], origen: 'uno' | 'lote') => {
+    if (imprimiendo) return;
+    const conTique = rows.filter((r) => tieneTique(r) && !r.queued);
+    const sinTique = rows.length - conTique.length;
+    if (conTique.length === 0) {
+      toast.error(
+        rows.length === 1
+          ? 'Ese viaje todavía no tiene número de tique. Los que están en la cola reciben su número cuando suben.'
+          : 'Ninguno de esos viajes tiene número de tique todavía.',
+      );
+      return;
+    }
+    if (sinTablaTique) {
+      toast.error('Falta correr el SQL de la tiquetera. Se podría imprimir, pero la entrega no quedaría guardada.');
+      return;
+    }
+
+    setImprimiendo(true);
+    try {
+      const folios = conTique.map((r) => folioDeTique(r));
+      // Se vuelve a preguntar contra la base y no se usa el mapa de la pantalla:
+      // el mapa puede estar viejo, o no haberse consultado por lista grande, y
+      // marcar «primera vez» un papel que ya se entregó es el error caro.
+      const cuenta = await contarEmisionesPorFolio(folios);
+      if (cuenta.sinTabla) {
+        setSinTablaTique(true);
+        toast.error('Falta correr el SQL de la tiquetera. No se imprimió.');
+        return;
+      }
+      const repetidos = folios.filter((f) => (cuenta.porFolio.get(f) ?? 0) > 0).length;
+      const papelLabel = PAPELES.find((x) => x.k === configTique.papel)?.label ?? configTique.papel;
+      const hojas = hojasQueSalen(conTique.length, configTique.papel);
+      const unidad = configTique.papel.startsWith('rollo') ? 'corte(s) de rollo' : 'hoja(s)';
+
+      const partes = [
+        `Van a salir ${conTique.length} tique(s) en ${hojas} ${unidad} · ${papelLabel}.`,
+      ];
+      if (repetidos > 0) {
+        partes.push(
+          repetidos === conTique.length
+            ? `⚠️ ${repetidos === 1 ? 'Ese tique ya se entregó y va' : `Esos ${repetidos} ya se entregaron y van`} a salir marcado(s) como REIMPRESIÓN.`
+            : `⚠️ ${repetidos} de esos tiques ya se entregaron: esos salen marcados como REIMPRESIÓN.`,
+        );
+      }
+      // ⚠️ Que se entere ACA TAMBIEN, no solo en la tarjeta de configuracion.
+      //    Quien imprime en el CDT no es quien configuro el papel, y el aviso
+      //    de la tarjeta esta en un panel que el listero ni siquiera ve.
+      const apretado = avisoDeCapacidad(configTique);
+      if (apretado) partes.push(apretado);
+      if (sinTique > 0) {
+        partes.push(`${sinTique} viaje(s) quedan fuera porque todavía no tienen número de tique.`);
+      }
+      partes.push('Al confirmar queda registrado quién los entregó y desde dónde.');
+
+      const ok = await confirm({
+        title: origen === 'uno' ? 'Imprimir el tique' : 'Imprimir la tiquetera',
+        message: partes.join('\n\n'),
+        confirmText: '🖨️ Imprimir',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+
+      const tiques: TiqueParaImprimir[] = conTique.map((r) => ({
+        datos: datosTiqueDeViaje(r),
+        reimpresion: (cuenta.porFolio.get(folioDeTique(r)) ?? 0) > 0,
+      }));
+      const html = documentoDeTiques(tiques, configTique, LOGOS_DEL_TIQUE, { titulo: 'Tique de viaje' });
+      const confirmado = await exportPdf(html, nombreArchivoTiques(tiques));
+      // En la web se resuelve `false` si cerró la vista previa sin imprimir. Ese
+      // papel no salió, así que no se entregó nada y no hay nada que anotar.
+      if (!confirmado) return;
+
+      // Un mandado, un número de lote: los tiques que se imprimieron juntos se
+      // pueden volver a encontrar juntos, que es como se reparten y como se
+      // reclaman.
+      const loteId = nuevoUuid();
+      const medio = medioDeImpresion(configTique.papel);
+      const obraMia = miObraId ? obraPorId.get(miObraId) ?? null : null;
+      const nuevas: EmisionNueva[] = conTique.map((r) => ({
+        viajeId: r.id,
+        folio: folioDeTique(r),
+        loteId,
+        medio,
+        // ⚠️ ES EL CDT DE QUIEN IMPRIME, no el del viaje. El cliente pidió que
+        //    quede «el CDT en que imprimieron»; el del viaje ya está guardado en
+        //    el viaje. Cuando la jefa saca un lote desde la oficina no hay CDT, y
+        //    eso también es un dato: ese tique no lo entregó nadie en el patio.
+        ubicacionId: obraMia?.id ?? null,
+        ubicacionNombre: obraMia?.nombre ?? null,
+        emitidoPor: uid || null,
+        emitidoPorNombre: listeroName,
+        clientActionId: `${loteId}:${folioDeTique(r)}`,
+      }));
+
+      const res = await registrarEmisiones(nuevas);
+      if (res.sinTabla) {
+        setSinTablaTique(true);
+        toast.error('El papel salió, pero falta correr el SQL de la tiquetera y la entrega no se pudo guardar.');
+      } else if (res.pendientes > 0) {
+        setTiquesPendientes(await contarEmisionesPendientes());
+        toast.error(
+          res.error
+            ? `El papel salió, pero la entrega no se pudo guardar (${res.error}). Queda apartada y sube sola.`
+            : 'El papel salió. Sin señal para guardar la entrega: queda apartada y sube sola cuando vuelva.',
+        );
+      } else {
+        toast.success(
+          conTique.length === 1
+            ? `Tique ${folios[0]} entregado. Queda registrado.`
+            : `${conTique.length} tiques entregados. Quedan registrados.`,
+        );
+      }
+      await refrescarEmisiones(folios);
+    } catch (e: any) {
+      toast.error(`No se pudo imprimir: ${String(e?.message ?? e)}`);
+    } finally {
+      setImprimiendo(false);
+    }
+  };
+
   const renderRow = (row: DisplayViaje, opts: { canEdit: boolean; canDelete: boolean; showListero?: boolean }) => {
     const isEditing = editing?.id === row.id;
+    // ⚠️ QUE SEPA QUE VA A QUEDAR REGISTRADO, ANTES DE GUARDAR.
+    //
+    //    Desde que quien tiene full puede corregir cualquier día, esa corrección
+    //    deja rastro en Auditoría. Enterarse después, revisando la bitácora, no
+    //    es lo mismo que saberlo mientras se decide: el aviso convierte el
+    //    rastro en algo aceptado y no en algo que a uno le hicieron a la espalda.
+    //
+    //    Se usa el MISMO criterio con el que `saveEdit` decide escribir la fila
+    //    —fuera de jornada por donde ESTABA o por donde va a QUEDAR— para que no
+    //    haya ni un aviso sin rastro ni un rastro sin aviso.
+    const edicionExcepcional = isEditing && canFull && editing != null && (() => {
+      const ventana = ventanaJornadaEnCurso();
+      const { hh, mm } = normalizarHora(editing.hh, editing.mm);
+      return fueraDeJornada(row.registeredAt, ventana)
+        || fueraDeJornada(isoDeJornadaHora(editing.fecha, hh, mm), ventana);
+    })();
     const truck = row.machineryId ? truckById.get(row.machineryId) : undefined;
     // Del camión de fuera no hay placa ni serial que buscar: se muestra la seña
     // que escribió el listero, que es lo único que permite identificarlo.
+    //
+    // ⭐ DESDE LA TIQUETERA (12-sep-2026) SE MUESTRA LO QUE VA IMPRESO EN EL
+    //    TIQUE, no lo que diga el catálogo hoy. Si los dos no coinciden porque
+    //    alguien corrigió la ficha después, el papel firmado en el CDT es el que
+    //    manda, y quien mira la pantalla tiene que ver eso y no otra cosa.
     const placaSerial = row.fueraCatalogo
       ? (row.camionRef ? `Anotado a mano · ${row.camionRef}` : 'Anotado a mano por el listero')
-      : [truck?.plate ? `Placa ${truck.plate}` : null, truck?.serial ? `Serial ${truck.serial}` : null].filter(Boolean).join(' · ');
+      : `Placa ${placaDeTique(row, truck)} · ${empresaDeTique(row, truck)}`;
+    const impresiones = vecesImpreso(row);
     return (
       <View key={row.id} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1698,7 +2776,26 @@ export default function ViajesCamionesScreen() {
               un listero tocó en el patio: el reporte tiene que poder responder
               «¿esto lo contó alguien, o lo cuadraron después?». */}
           {esCargaManual(row.note) ? <Badge label="✍️ cargado a mano" tone="warning" /> : null}
+          {/* ⚠️ NO ES LO MISMO «no tiene chofer» que «no se pudo averiguar». Sin
+              esta marca los dos casos se ven idénticos en el reporte y nadie
+              sabe cuál hay que ir a completar. Ver `CHOFER_SIN_RESPUESTA`. */}
+          {esChoferSinConfirmar(row.note) ? <Badge label="👤 chofer sin confirmar" tone="warning" /> : null}
           {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
+          {/* ⭐ EL NÚMERO DEL TIQUE, que es lo que se canta por radio y lo que
+              lleva el papel que firma el CDT. Solo sale si existe: un viaje en
+              cola o anterior a la tiquetera NO tiene tique que entregar, y
+              enseñar un número provisional sería peor que no enseñar ninguno,
+              porque alguien lo cantaría y después no existiría. */}
+          {tieneTique(row) ? <Badge label={`🎫 ${folioDeTique(row)}`} tone="success" /> : null}
+          {/* ⭐ SI EL PAPEL YA SALIÓ, TIENE QUE VERSE. Volver a imprimir un tique
+              que ya se entregó pone dos papeles con el mismo número en el patio,
+              y al cobrar se cuentan dos viajes donde hubo uno. La marca no
+              impide reimprimir —a veces hace falta— pero obliga a saberlo.
+              Sin marca no significa «no se entregó»: en una lista muy grande no
+              se consulta, y ahí `vecesImpreso` devuelve null. Ver el tope. */}
+          {impresiones != null && impresiones > 0 ? (
+            <Badge label={impresiones > 1 ? `🔁 entregado ×${impresiones}` : '✅ entregado'} tone="muted" />
+          ) : null}
         </View>
         {row.stuck && row.stuckError ? (
           <Text style={{ color: '#B42318', fontSize: 11, fontStyle: 'italic' }}>{motivoLegible(row.stuckError)}</Text>
@@ -1711,6 +2808,13 @@ export default function ViajesCamionesScreen() {
         </Text>
         {isEditing ? (
           <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
+            {edicionExcepcional ? (
+              <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.xs }}>
+                <Text style={{ color: '#92400E', fontSize: 11.5, fontWeight: '700' }}>
+                  ⚠️ Este viaje no es de la jornada en curso. Puedes corregirlo igual, pero la corrección queda registrada en Auditoría con tu nombre.
+                </Text>
+              </View>
+            ) : null}
             {/* ⭐ LA FECHA SOLO LA MUEVE LA JEFA. Para el listero no aparece
                 siquiera: él corrige la hora de un viaje que acaba de dar, y
                 dejarle mover el día sería darle una manera silenciosa de sacar
@@ -1783,7 +2887,7 @@ export default function ViajesCamionesScreen() {
               </>
             ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <TouchableOpacity onPress={saveEdit} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.primary }}>
+              <TouchableOpacity onPress={saveEdit} disabled={guardandoEdicion} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.primary, opacity: guardandoEdicion ? 0.6 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>Guardar</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={cancelEdit} style={{ paddingHorizontal: spacing.sm, paddingVertical: 8 }}>
@@ -1797,6 +2901,21 @@ export default function ViajesCamionesScreen() {
               <TouchableOpacity onPress={() => startEdit(row)}>
                 <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12.5 }}>
                   {canFull ? '✏️ Editar' : '✏️ Editar hora'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {/* ⭐ EL PAPEL QUE SE LE DA AL CAMIONERO. Va en la fila del viaje y no
+                en una pantalla aparte porque el momento de entregarlo es este:
+                se marcó el viaje, se imprime, se entrega. Cualquier desvío en el
+                medio termina en un tique que nadie dio.
+
+                Sale para TODO EL QUE VEA LA FILA, no solo para quien puede
+                editar: el listero del CDT es justamente quien entrega, y él no
+                tiene permiso para corregir nada de días viejos. */}
+            {tieneTique(row) && !row.queued ? (
+              <TouchableOpacity onPress={() => imprimirTiques([row], 'uno')} disabled={imprimiendo}>
+                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12.5, opacity: imprimiendo ? 0.5 : 1 }}>
+                  {impresiones != null && impresiones > 0 ? '🔁 Reimprimir tique' : '🖨️ Imprimir tique'}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -1834,11 +2953,35 @@ export default function ViajesCamionesScreen() {
         </View>
       ) : null}
 
+      {/* ⏰ El reloj del teléfono está corrido. Se avisa y ya: la hora del viaje
+          NO se toca (el registro sin conexión depende de ese reloj), lo que hay
+          que arreglar es el teléfono. Ver `horaDelServidor` y `relojDesfase`. */}
+      {avisoReloj ? (
+        <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700' }}>{avisoReloj}</Text>
+        </View>
+      ) : null}
+
       {pendientesVisibles > 0 ? (
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontSize: 16 }}>📶</Text>
           <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
             {pendientesVisibles} {pendientesVisibles === 1 ? 'viaje guardado' : 'viajes guardados'} en el teléfono sin subir. Se suben solos al recuperar señal.
+          </Text>
+        </View>
+      ) : null}
+
+      {/* ⭐ TIQUES ENTREGADOS QUE LA OFICINA NO VE TODAVÍA.
+          Va aparte del aviso de viajes sin subir porque son dos cosas distintas
+          y la diferencia importa: allá falta que suba el VIAJE; acá el viaje ya
+          está y lo que falta es la constancia de que el papel se entregó. El
+          camionero ya tiene su tique en la mano. Sube solo al volver la señal. */}
+      {tiquesPendientes > 0 ? (
+        <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.xs }}>
+          <Text style={{ fontSize: 16 }}>🎫</Text>
+          <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
+            {tiquesPendientes} {tiquesPendientes === 1 ? 'tique entregado' : 'tiques entregados'} sin registrar en el
+            servidor. El papel ya salió; la constancia sube sola al recuperar señal.
           </Text>
         </View>
       ) : null}
@@ -1879,9 +3022,18 @@ export default function ViajesCamionesScreen() {
                 {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].icon} {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].label}
               </Text>
             </View>
+            {/* ⚠️ «No se pudo averiguar» NO es «sin asignar». Antes las dos cosas
+                se leían igual acá y se guardaban igual en la fila: el listero
+                daba por bueno un vacío que en realidad era una consulta que no
+                contestó. Ver `CHOFER_SIN_RESPUESTA`. */}
             <Text style={{ color: colors.muted, fontSize: 13 }}>
-              👤 Chofer del turno {selectedShift === 'night' ? '🌙 noche' : '☀️ día'}: {choferLoading ? 'cargando…' : (selectedChofer ?? 'sin asignar')}
+              👤 Chofer del turno {selectedShift === 'night' ? '🌙 noche' : '☀️ día'}: {choferLoading ? 'cargando…' : choferIncierto ? '❓ no se pudo averiguar' : (selectedChofer ?? 'sin asignar')}
             </Text>
+            {!choferLoading && choferIncierto ? (
+              <Text style={{ color: '#92400E', fontSize: 11.5 }}>
+                Se vuelve a intentar al registrar. Si tampoco se logra, el viaje se guarda igual y queda marcado «chofer sin confirmar» para completarlo después.
+              </Text>
+            ) : null}
             {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
                 cierra el buscador y toca Registrar de una —su trabajo es un
                 toque por camión, lo va a hacer siempre—; si la consulta del
@@ -1931,7 +3083,25 @@ export default function ViajesCamionesScreen() {
           // (React Native renderiza igual todos los hijos, solo los tapaba) y en
           // Android el scroll anidado casi no se puede accionar con el dedo.
           <View>
-            {misViajesDisplay.map((row) => renderRow(row, { canEdit: !row.queued && isEditableByListero(row), canDelete: false }))}
+            {/* ⭐ BORRAR DESDE «MIS VIAJES», PERO SOLO CON FULL (12-sep-2026).
+                Pedido del cliente: «no me deja eliminar los viajes, admins
+                deberían poder eliminar los viajes». Y tenía razón: el tacho
+                estaba solo en «Lista completa de viajes», así que quien
+                registraba un viaje de prueba no tenía cómo quitarlo desde
+                donde lo estaba viendo.
+
+                ⚠️ PARA EL LISTERO SIGUE APAGADO, Y ESO NO SE TOCA. Si él
+                   pudiera borrar los suyos, podría sacar trabajo de la jornada
+                   que le están revisando y nadie se enteraría. Su corrección es
+                   la hora, y nada más.
+
+                ⚠️ Y UN VIAJE EN COLA TAMPOCO SE BORRA ACÁ: todavía no existe en
+                   el servidor, así que `borrarViaje` no tendría qué borrar. Lo
+                   que se ve es una fila local esperando señal. */}
+            {misViajesDisplay.map((row) => renderRow(row, {
+              canEdit: !row.queued && isEditableByListero(row),
+              canDelete: canFull && !row.queued,
+            }))}
           </View>
         )}
       </Card>
@@ -2051,13 +3221,43 @@ export default function ViajesCamionesScreen() {
         </View>
       </Modal>
 
-      {/* ── Panel de la JEFA/ADMIN (nivel full) ─────────────────────────── */}
+      {/* ── Panel de INFORMACIÓN (nivel full) ───────────────────────────── */}
       {canFull ? (
         <>
-          <SectionTitle>📊 Panel de la jefa</SectionTitle>
+          <SectionTitle>📊 Panel de información</SectionTitle>
 
-          <Card>
-            <SectionTitle>Resumen de hoy</SectionTitle>
+          {/* ── SUB-PESTAÑAS (09-sep-2026) ────────────────────────────────
+              ⚠️ La de VIAJES es la que abre por defecto y trae exactamente lo
+                 que había antes, en el mismo orden. El cubicaje es un apartado
+                 nuevo AL LADO, no un cambio de lo que ya se usaba todos los días. */}
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {([['viajes', '🚛 Viajes'], ['cubicaje', '📐 Cubicaje y volumen']] as const).map(([key, label]) => {
+              const on = panelTab === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => setPanelTab(key)}
+                  style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingVertical: 7 }}
+                >
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {panelTab === 'cubicaje' ? (
+            <CubicajeTab
+              cub={cub}
+              trucks={camionesCubicaje}
+              viajesPorCamion={viajesPorCamion}
+              viajesPorDia={viajesPorDia}
+              rango={{ desde: rangeBounds.desde, hasta: rangeBounds.hasta, etiqueta: etiquetaRango }}
+              volumen={volumenPorCamion}
+            />
+          ) : (
+          <>
+
+          <Plegable titulo="📋 Resumen de hoy" resumen={`${resumenPorCamion.length} camión(es) con viajes hoy`} abiertaPorDefecto>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs, fontWeight: '800' }}>POR CAMIÓN</Text>
             {resumenPorCamion.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones registrados.</Text>
@@ -2098,14 +3298,13 @@ export default function ViajesCamionesScreen() {
                 ))}
               </ScrollView>
             )}
-          </Card>
+          </Plegable>
 
           {/* ── CARGAR VIAJES A MANO (solo nivel full) ───────────────────────
               Lo que faltaba para poder cuadrar un día pasado: el botón del
               listero sella la hora del toque, así que nunca sirvió para agregar
               un viaje de anteayer. Borrar ya se podía; agregar, no. */}
-          <Card>
-            <SectionTitle>✍️ Cargar viajes a mano</SectionTitle>
+          <Plegable titulo="✍️ Cargar viajes a mano" resumen="Para completar un día que quedó incompleto">
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
               Para completar un día que quedó incompleto. Los viajes quedan marcados
               como «cargado a mano» para que se distingan de los que se anotaron en el patio.
@@ -2217,7 +3416,11 @@ export default function ViajesCamionesScreen() {
                 </View>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿CUÁNTOS VIAJES?</Text>
+                {/* ⭐ «AGREGAR», no «¿cuántos viajes?». Esta casilla SUMA: no fija
+                    el total del día. Con el rótulo viejo se leía como «cuántos
+                    hubo ese día», y quien quería dejar el camión en 8 escribía 8
+                    sobre los 3 que ya tenía y lo dejaba en 11. */}
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿CUÁNTOS VIAJES AGREGAR?</Text>
                 <TextInput
                   value={cargaCantidad}
                   onChangeText={(t) => setCargaCantidad(t.replace(/[^0-9]/g, '').slice(0, 2))}
@@ -2227,6 +3430,13 @@ export default function ViajesCamionesScreen() {
                 />
               </View>
             </View>
+            {/* La suma, dicha antes de tocar el botón. Solo aparece cuando se
+                puede saber de verdad — ver `cargaYaEnJornada`. */}
+            {cargaConteoTexto ? (
+              <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                🧮 {cargaConteoTexto}
+              </Text>
+            ) : null}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               Si cargas más de uno, se separan {SEPARACION_MIN} minutos a partir de esa hora
               (máximo {MAX_CARGA} por vez). Después le puedes corregir la hora a cada uno.
@@ -2278,10 +3488,14 @@ export default function ViajesCamionesScreen() {
                 {cargaBusy ? 'Cargando…' : '✍️ Cargar viajes'}
               </Text>
             </TouchableOpacity>
-          </Card>
+          </Plegable>
 
-          <Card>
-            <SectionTitle>⚠️ Camiones sin viaje reciente</SectionTitle>
+          <Plegable
+            titulo="⚠️ Camiones sin viaje reciente"
+            resumen={alertaError ? `No se pudo revisar la alerta` : alertList.length ? `${alertList.length} camión(es) llevan más de ${alertaHoras}h sin viaje` : `✅ Todos con viajes recientes`}
+            alerta={!!alertaError || alertList.length > 0}
+            abiertaPorDefecto={!!alertaError || alertList.length > 0}
+          >
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
               Más de {alertaHoras}h sin registrar viaje (no incluye averiados, parados ni retirados).
             </Text>
@@ -2304,10 +3518,30 @@ export default function ViajesCamionesScreen() {
                 ))}
               </ScrollView>
             )}
-          </Card>
+          </Plegable>
 
-          <Card>
-            <SectionTitle>Lista completa de viajes</SectionTitle>
+          {/* Las obras y quién está en cada una. Va ANTES de la lista de viajes
+              porque es lo que hay que tener puesto para que los viajes que se
+              registren hoy salgan con su obra. */}
+          <ObrasListeros
+            obras={obras}
+            listeros={listeros}
+            faltaSql={faltaSqlObras}
+            canFull={canFull}
+            onCambioObras={recargarObras}
+            onCambioListeros={() => setListerosRecarga((n) => n + 1)}
+          />
+
+          {/* Qué sale en el tique. Va acá, pegado a las obras, porque las dos
+              cosas se configuran una vez y se dejan quietas: la obra de cada
+              listero y el formato del papel. */}
+          <TiqueConfigCard uid={uid} onGuardado={setConfigTique} />
+
+          <Plegable
+            titulo="🚛 Lista completa de viajes"
+            resumen={`${filteredRangeRows.length} viaje(s) · ${etiquetaRango}`}
+            abiertaPorDefecto
+          >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {PRESETS.map((p) => {
                 const on = preset === p.key;
@@ -2503,8 +3737,35 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0) ? (
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            {/* OBRA / UBICACIÓN. Solo aparece si hay más de una en el rango o si
+                ya hay alguna marcada: con una sola obra el filtro no filtra nada
+                y solo ocuparía pantalla en el teléfono. Mismo criterio que el de
+                empresa. */}
+            {ubicacionOptionsVisibles.length > 0 && (ubicacionOptions.length > 1 || filterUbicacionSel.size > 0) ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                  OBRA{filterUbicacionSel.size > 0 ? ` (${filterUbicacionSel.size})` : ' (todas)'}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {ubicacionOptionsVisibles.map((o) => {
+                    const on = filterUbicacionSel.has(o.id);
+                    return (
+                      <TouchableOpacity
+                        key={o.id}
+                        onPress={() => toggleFilterUbicacion(o.id, o.label)}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏗️ {o.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>({o.count})</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0) ? (
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -2533,7 +3794,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero']] as const).map(([key, label]) => {
+                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra']] as const).map(([key, label]) => {
                       const on = resumenEje === key;
                       return (
                         <TouchableOpacity
@@ -2587,49 +3848,113 @@ export default function ViajesCamionesScreen() {
                 // Lo mismo que va a salir en el PDF, en pantalla: total general,
                 // total por empresa y el desglose de sus camiones.
                 <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
+                  {/* La vista previa enseña LO MISMO que el PDF: si se apaga el
+                      conteo de viajes, tampoco sale acá — si no, quien lo apaga
+                      lo ve igual en pantalla y concluye que no funcionó. */}
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
-                    TOTAL: {resumenViajes.total} viaje(s) · {resumenViajes.totalCamiones} camión(es)
+                    TOTAL: {cub.op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}{resumenViajes.totalCamiones} camión(es)
+                    {cub.op.m3 ? ` · ${m3Texto(sumaVolumen(volumenPorCamion))} m³` : ''}
                   </Text>
                   {/* El desglose siempre suma el total: `turnoDeViaje` le da turno
                       a TODAS las filas (nunca devuelve null), así que acá no hay
                       caso «sin turno» que contemplar. La librería sí lo admite,
                       para quien la llame con datos de otra procedencia. */}
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                    {resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}
-                  </Text>
+                  {cub.op.viajes ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                      {resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}
+                    </Text>
+                  ) : null}
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porListero ? '👤' : '🏢'} {e.name}</Text>
-                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{e.total} viaje(s)</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : '🏢'} {e.name}</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>
+                          {cub.op.viajes ? `${e.total} viaje(s)` : `${e.camiones.length} camión(es)`}
+                          {cub.op.m3 ? ` · ${m3Texto(redondear(e.camiones.reduce((a, c) => a + (volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes, 0)))} m³` : ''}
+                        </Text>
                       </View>
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>{resumenTurno({ dia: e.dia, noche: e.noche, total: e.total })}</Text>
+                      {cub.op.viajes ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{resumenTurno({ dia: e.dia, noche: e.noche, total: e.total })}</Text>
+                      ) : null}
                       {e.camiones.map((c, i) => (
                         <View key={`${e.key}-${i}`} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3, paddingLeft: spacing.sm }}>
                           <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>🚜 {c.code} · {c.placa}</Text>
-                          <Text style={{ color: colors.muted, fontSize: 11, marginRight: spacing.xs }}>{resumenTurno({ dia: c.dia, noche: c.noche, total: c.viajes })}</Text>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{c.viajes}</Text>
+                          {cub.op.viajes ? (
+                            <Text style={{ color: colors.muted, fontSize: 11, marginRight: spacing.xs }}>{resumenTurno({ dia: c.dia, noche: c.noche, total: c.viajes })}</Text>
+                          ) : null}
+                          {/* La vista previa enseña lo MISMO que va a salir impreso:
+                              el m³ de la línea es por-viaje × sus viajes, igual que
+                              en el PDF, para que no haya dos cuentas distintas. */}
+                          {cub.op.m3 ? (
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, marginRight: spacing.xs }}>
+                              {m3Texto(redondear((volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes))} m³
+                            </Text>
+                          ) : null}
+                          {cub.op.viajes ? <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{c.viajes}</Text> : null}
                         </View>
                       ))}
                     </View>
                   ))}
                 </ScrollView>
               ) : (
-                <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
-                  {filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
-                </ScrollView>
+                <View>
+                  {/* ⭐ LA TIQUETERA COMPLETA, DE UNA. El cliente pidió las dos
+                      formas: uno por uno desde la tiquetera en el momento, o un
+                      mandado entero en hojas para repartir después. Este es el
+                      segundo, y sale de la lista TAL COMO ESTÁ FILTRADA: si
+                      filtró por CDT y por día, eso es lo que se imprime, sin
+                      inventar un selector nuevo que después no coincida con lo
+                      que se ve en pantalla. */}
+                  {tiquesDeLaLista.length > 0 ? (
+                    <TouchableOpacity
+                      onPress={() => imprimirTiques(tiquesDeLaLista, 'lote')}
+                      disabled={imprimiendo}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs,
+                        borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand,
+                        paddingVertical: spacing.sm, marginBottom: spacing.sm, opacity: imprimiendo ? 0.5 : 1,
+                      }}
+                    >
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                        {imprimiendo ? 'Preparando…' : `🖨️ Imprimir los ${tiquesDeLaLista.length} tiques de esta lista`}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Que se sepa POR QUÉ quedan viajes fuera. Sin esto, «41 viajes»
+                      arriba y «38 tiques» en el botón parece un error del sistema. */}
+                  {filteredRangeRows.length > tiquesDeLaLista.length ? (
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                      {filteredRangeRows.length - tiquesDeLaLista.length} viaje(s) de esta lista no tienen número de
+                      tique: son anteriores a la tiquetera o todavía no subieron.
+                    </Text>
+                  ) : null}
+                  <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
+                    {filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
+                  </ScrollView>
+                </View>
               )}
             </View>
 
-            <TouchableOpacity onPress={compartirReporte} disabled={shareBusy} style={[styles.registerBtn, { marginTop: spacing.md, opacity: shareBusy ? 0.6 : 1 }]}>
+            {/* Los interruptores van PEGADOS al botón de exportar, no en la otra
+                sub-pestaña: configurar en un sitio y exportar en otro es como se
+                quedan encendidos los filtros que nadie quería. */}
+            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo === 'resumen'} aviso={avisoReporte} />
+            {cub.op.m3 && diasDesactualizados > 0 ? (
+              <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>
+                ⚠️ {diasDesactualizados} día(s) con m³ guardados tienen HOY otra cantidad de viajes que cuando se
+                guardaron. Sale el volumen guardado, no el recalculado. Para actualizarlo, vuelve a guardar el rango
+                desde 📐 Cubicaje.
+              </Text>
+            ) : null}
+
+            <TouchableOpacity onPress={compartirReporte} disabled={shareBusy || !!avisoReporte} style={[styles.registerBtn, { marginTop: spacing.md, opacity: shareBusy || avisoReporte ? 0.6 : 1 }]}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>
                 {shareBusy ? 'Generando…' : '📤 Compartir / exportar reporte'}
               </Text>
             </TouchableOpacity>
-          </Card>
+          </Plegable>
 
-          <Card>
-            <SectionTitle>Configuración</SectionTitle>
+          <Plegable titulo="⚙️ Configuración" resumen={`Avisar a las ${alertaHoras}h sin viaje`}>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>UMBRAL DE ALERTA (HORAS SIN VIAJE)</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
               <TextInput
@@ -2672,7 +3997,10 @@ export default function ViajesCamionesScreen() {
                 ))}
               </ScrollView>
             )}
-          </Card>
+          </Plegable>
+
+          </>
+          )}
         </>
       ) : null}
 

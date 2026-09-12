@@ -20,6 +20,12 @@ import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BulkPermissionsModal } from '../components/BulkPermissionsModal';
+import { coincideUsuario } from '../lib/usuariosBulk';
+import {
+  CuentaCicloVida, MOTIVO_MINIMO, AVISO_SIN_SQL, estadoDeCuenta, etiquetaEstado, faltaElSql,
+  lineaArchivo, motivoValido, partirUsuarios, puedeActivar, puedeArchivar, puedeDesactivar,
+  puedeDesarchivar, razonNoArchivable,
+} from '../lib/cicloVidaUsuario';
 import { useToast } from '../components/ToastProvider';
 import { passField } from '../lib/fonts';
 import { claveNormalizada } from '../lib/password';
@@ -162,8 +168,13 @@ export default function UsersScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
   const [query, setQuery] = useState('');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [delError, setDelError] = useState<string | null>(null);
+  // CICLO DE VIDA (09-sep-2026): las cuentas ya NO se eliminan. Ver
+  // src/lib/cicloVidaUsuario.ts para el porque (33 claves foraneas: 8 bloqueaban
+  // el borrado y 25 dejaban el historial sin autor, en silencio).
+  const yoId = session?.user?.id ?? null;   // nadie se apaga ni se archiva a sí mismo
+  const [ocupadoId, setOcupadoId] = useState<string | null>(null);
+  const [verArchivo, setVerArchivo] = useState(false);   // pestana En uso | Archivados
+  const [archivando, setArchivando] = useState<Profile | null>(null); // modal del motivo
   const [rolesOpen, setRolesOpen] = useState(false);      // gestor de roles
   const [bulkOpen, setBulkOpen] = useState(false);        // edición masiva de permisos
   const roleName = (id?: string | null) => appRoles.find((r) => r.id === id)?.name ?? null;
@@ -187,10 +198,13 @@ export default function UsersScreen() {
   }
 
   const onlineCount = users.filter((u) => onlineIds.includes(u.id)).length;
-  const q = norm(query.trim());
-  const filtered = !q
-    ? users
-    : users.filter((u) => norm(u.full_name).includes(q) || norm(u.role).includes(q));
+  // La MISMA regla que la edición masiva (`coincideUsuario`): nombre, usuario,
+  // cédula, rol y estado. Antes esta lista tenía su propio filtro de dos campos y
+  // por eso solo encontraba por el nombre de la persona.
+  const filtrados = users.filter((u) => coincideUsuario(u, query, appRoles));
+  // Dos listas, no un filtro: lo archivado no se mezcla con lo que trabaja.
+  const { enUso, archivados } = partirUsuarios(filtrados as CuentaCicloVida[]);
+  const filtered = (verArchivo ? archivados : enUso) as Profile[];
 
   const unlockUser = async (u: Profile) => {
     const { error } = await supabase.from('profiles').update({ locked: false, failed_attempts: 0, locked_at: null }).eq('id', u.id);
@@ -198,20 +212,57 @@ export default function UsersScreen() {
     refetch();
   };
 
-  const removeUser = async (u: Profile) => {
+  const nombreDe = (id: string | null | undefined) =>
+    (id ? (users.find((x) => x.id === id)?.full_name ?? null) : null);
+
+  // ENCENDER / APAGAR: escribe `active` directo. Funciona desde ya, sin SQL.
+  // OJO: mientras no se corra 02_active_manda_de_verdad.sql, apagar ORDENA la
+  // lista pero NO quita permisos, porque ninguna puerta de la base mira `active`.
+  const cambiarEncendido = async (u: Profile, encender: boolean) => {
     const ok = await confirm({
-      title: 'Eliminar usuario',
-      message: `¿Desea eliminar a "${u.full_name ?? 'este usuario'}"? Esta acción no se puede deshacer.`,
-      confirmText: 'Aceptar',
+      title: encender ? 'Activar cuenta' : 'Desactivar cuenta',
+      message: encender
+        ? `¿Activar a "${u.full_name ?? 'esta cuenta'}"? Vuelve a trabajar con normalidad.`
+        : `¿Desactivar a "${u.full_name ?? 'esta cuenta'}"? Se queda sin permisos, pero NO se borra: su historial sigue intacto y se puede volver a activar.`,
+      confirmText: encender ? 'Activar' : 'Desactivar',
       cancelText: 'Cancelar',
-      danger: true,
+      danger: !encender,
     });
     if (!ok) return;
-    setDeletingId(u.id);
-    setDelError(null);
-    const { errorMsg } = await adminInvoke('admin-manage-user', { action: 'delete', id: u.id });
-    setDeletingId(null);
-    if (errorMsg) { setDelError(`${u.full_name ?? 'Usuario'}: ${errorMsg}`); return; }
+    setOcupadoId(u.id);
+    const { error } = await supabase.from('profiles').update({ active: encender }).eq('id', u.id);
+    setOcupadoId(null);
+    if (error) { toast.error(error.message); return; }
+    toast.success(encender ? 'Cuenta activada.' : 'Cuenta desactivada. Sigue en la lista, apagada.');
+    refetch();
+  };
+
+  // ARCHIVAR: pasa por la funcion de la base, que exige el motivo y que la
+  // cuenta YA este apagada. El modal solo recoge el texto.
+  const archivar = async (u: Profile, motivo: string) => {
+    setOcupadoId(u.id);
+    const { error } = await supabase.rpc('archivar_usuario', { p_id: u.id, p_motivo: motivo });
+    setOcupadoId(null);
+    if (error) { toast.error(faltaElSql(error.message) ? AVISO_SIN_SQL : error.message); return; }
+    setArchivando(null);
+    toast.success('Cuenta archivada. Sale de la lista de en uso; su historial no se toca.');
+    refetch();
+  };
+
+  // SACAR DEL ARCHIVO: vuelve INACTIVA, no activa. Reactivarla es otro boton.
+  const desarchivar = async (u: Profile) => {
+    const ok = await confirm({
+      title: 'Sacar del archivo',
+      message: `¿Sacar del archivo a "${u.full_name ?? 'esta cuenta'}"? Vuelve a la lista de en uso, pero APAGADA: activarla es otro paso.`,
+      confirmText: 'Sacar del archivo',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    setOcupadoId(u.id);
+    const { error } = await supabase.rpc('desarchivar_usuario', { p_id: u.id });
+    setOcupadoId(null);
+    if (error) { toast.error(faltaElSql(error.message) ? AVISO_SIN_SQL : error.message); return; }
+    toast.success('Fuera del archivo. Quedo apagada: actívala cuando corresponda.');
     refetch();
   };
 
@@ -258,10 +309,31 @@ export default function UsersScreen() {
         </Card>
       </TouchableOpacity>
 
+      {/* Dos apartados con su propia lista. Lo archivado no se mezcla con lo que
+          trabaja: ese es justamente el punto de archivar. */}
+      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+        {([false, true] as const).map((arch) => (
+          <TouchableOpacity
+            key={String(arch)}
+            onPress={() => setVerArchivo(arch)}
+            style={{
+              flex: 1, alignItems: 'center', borderWidth: 1, borderRadius: radius.md,
+              paddingVertical: spacing.xs,
+              borderColor: verArchivo === arch ? colors.primary : colors.border,
+              backgroundColor: verArchivo === arch ? colors.primary : 'transparent',
+            }}
+          >
+            <Text style={{ fontWeight: '800', fontSize: 13, color: verArchivo === arch ? colors.accentContrast : colors.muted }}>
+              {arch ? `🗄️ Archivados · ${archivados.length}` : `✅ En uso · ${enUso.length}`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔎 Buscar usuario por nombre o rol…"
+        placeholder="🔎 Nombre, usuario, cédula, rol, «bloqueado»…"
         placeholderTextColor={colors.muted}
         style={styles.input}
       />
@@ -269,7 +341,10 @@ export default function UsersScreen() {
       {loading ? (
         <Loading />
       ) : filtered.length === 0 ? (
-        <EmptyState title={query ? 'Sin resultados' : 'Sin usuarios'} subtitle={query ? 'Prueba con otra búsqueda.' : undefined} />
+        <EmptyState
+          title={query ? 'Sin resultados' : verArchivo ? 'El archivo está vacío' : 'Sin usuarios'}
+          subtitle={query ? 'Prueba con otra búsqueda.' : verArchivo ? 'Aquí van las cuentas de quien ya no trabaja. Primero se desactivan y luego se archivan.' : undefined}
+        />
       ) : (
         filtered.map((u) => {
           const online = onlineIds.includes(u.id);
@@ -293,9 +368,21 @@ export default function UsersScreen() {
                     </Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>{u.username ? `👤 ${u.username}` : '⚠️ Sin usuario'}{u.cedula ? ` · C.I. ${u.cedula}` : ''}</Text>
                     {u.locked ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>🔒 BLOQUEADO por intentos fallidos</Text> : null}
+                    {/* La linea que se lee dentro de un ano: cuando, quien y por que. */}
+                    {estadoDeCuenta(u as CuentaCicloVida) === 'archivada' ? (
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                        🗄️ {lineaArchivo(u as CuentaCicloVida, nombreDe((u as any).archivado_por))}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
-                <Badge label={online ? 'En línea' : 'Desconectado'} tone={online ? 'success' : 'muted'} />
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  <Badge label={online ? 'En línea' : 'Desconectado'} tone={online ? 'success' : 'muted'} />
+                  <Badge
+                    label={etiquetaEstado(u as CuentaCicloVida)}
+                    tone={estadoDeCuenta(u as CuentaCicloVida) === 'activa' ? 'success' : 'muted'}
+                  />
+                </View>
               </View>
 
               {/* Rol UNIFICADO: se muestra un solo rol (el especial si lo tiene; si no, su rol base).
@@ -322,25 +409,64 @@ export default function UsersScreen() {
                     <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>🔓 Desbloquear</Text>
                   </TouchableOpacity>
                 ) : null}
-                {!isSelf ? (
+                {/* Cada boton aparece SOLO donde la accion es legal, para que la
+                    regla se vea antes de chocar con ella. Nadie la descubre a
+                    base de mensajes de error. */}
+                {puedeDesactivar(u as CuentaCicloVida, yoId) ? (
                   <TouchableOpacity
-                    onPress={() => removeUser(u)}
-                    disabled={deletingId === u.id}
-                    style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    onPress={() => cambiarEncendido(u, false)}
+                    disabled={ocupadoId === u.id}
+                    style={{ borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
                   >
-                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>
-                      {deletingId === u.id ? 'Eliminando…' : '🗑️ Eliminar'}
-                    </Text>
+                    <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 13 }}>⏸️ Desactivar</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {puedeActivar(u as CuentaCicloVida) ? (
+                  <TouchableOpacity
+                    onPress={() => cambiarEncendido(u, true)}
+                    disabled={ocupadoId === u.id}
+                    style={{ borderWidth: 1, borderColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>▶️ Activar</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {puedeArchivar(u as CuentaCicloVida, yoId) ? (
+                  <TouchableOpacity
+                    onPress={() => setArchivando(u)}
+                    disabled={ocupadoId === u.id}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🗄️ Archivar</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {puedeDesarchivar(u as CuentaCicloVida) ? (
+                  <TouchableOpacity
+                    onPress={() => desarchivar(u)}
+                    disabled={ocupadoId === u.id}
+                    style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>↩️ Sacar del archivo</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
-              {delError && delError.startsWith((u.full_name ?? 'Usuario')) ? (
-                <Text style={{ color: colors.danger, fontSize: 12, marginTop: spacing.xs }}>{delError}</Text>
+              {/* Por que NO se puede archivar todavia. Se dice, no se esconde. */}
+              {!verArchivo && !isSelf && !puedeArchivar(u as CuentaCicloVida, yoId) && estadoDeCuenta(u as CuentaCicloVida) === 'activa' ? (
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                  {razonNoArchivable(u as CuentaCicloVida, yoId)}
+                </Text>
               ) : null}
             </Card>
           );
         })
       )}
+
+      {/* MOTIVO DEL ARCHIVO: obligatorio. Es lo que se lee dentro de un ano. */}
+      <ArchivarModal
+        user={archivando}
+        ocupado={!!archivando && ocupadoId === archivando.id}
+        onCancel={() => setArchivando(null)}
+        onConfirm={(motivo) => { if (archivando) archivar(archivando, motivo); }}
+      />
 
       <NewUserForm visible={formOpen} roles={appRoles} onClose={() => setFormOpen(false)} onSaved={refetch} />
       <EditUserForm
@@ -758,7 +884,6 @@ function EditUserForm({
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [perms, setPerms] = useState<Record<string, PermLevel>>({});
   // Rol UNIFICADO del usuario en edición (rol personalizado si lo tiene; si no, su rol base).
   const [sel, setSel] = useState<RoleSel>({ kind: 'base', role: 'conductor' });
@@ -1077,27 +1202,6 @@ function EditUserForm({
     onClose();
   };
 
-  const remove = async () => {
-    const ok = await confirm({
-      title: 'Eliminar usuario',
-      message: `¿Desea eliminar a "${user.full_name ?? 'este usuario'}"? Esta acción no se puede deshacer.`,
-      confirmText: 'Aceptar',
-      cancelText: 'Cancelar',
-      danger: true,
-    });
-    if (!ok) return;
-    setError(null);
-    setDeleting(true);
-    const { errorMsg } = await adminInvoke('admin-manage-user', { action: 'delete', id: user.id });
-    setDeleting(false);
-    if (errorMsg) {
-      setError(errorMsg);
-      return;
-    }
-    onSaved();
-    onClose();
-  };
-
   return (
     <Modal visible={!!user} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -1238,21 +1342,14 @@ function EditUserForm({
               <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
             </TouchableOpacity>
           </View>
-          {!isSelf ? (
-            <TouchableOpacity
-              style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.danger }}
-              onPress={remove}
-              disabled={deleting}
-            >
-              <Text style={{ color: colors.danger, fontWeight: '700' }}>
-                {deleting ? 'Eliminando…' : '🗑️ Eliminar usuario'}
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center' }}>
-              No puedes eliminar tu propio usuario.
-            </Text>
-          )}
+          {/* Las cuentas ya no se eliminan (09-sep-2026). Se dice por que, en vez
+              de quitar el boton sin explicacion. */}
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center', lineHeight: 16 }}>
+            Las cuentas ya no se eliminan: quedan enlazadas a nóminas, reparaciones, asistencias y
+            dotaciones, y borrarlas dejaba esos registros sin autor.{'\n'}
+            En la lista de usuarios puedes <Text style={{ fontWeight: '800' }}>desactivarla</Text> y luego{' '}
+            <Text style={{ fontWeight: '800' }}>archivarla</Text>.
+          </Text>
           <UnifiedRolePicker
             visible={pickerOpen}
             roles={roles}
@@ -1455,3 +1552,71 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
   },
   btn: { flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center' },
 });
+
+/**
+ * MOTIVO DEL ARCHIVO (09-sep-2026).
+ *
+ * Archivar sin explicación no sirve de nada: el motivo es exactamente lo que va
+ * a leer quien busque esa cuenta dentro de un año. Por eso el botón de confirmar
+ * está apagado hasta que el texto diga algo, y la base lo exige otra vez por su
+ * cuenta (`archivar_usuario` rebota los motivos de menos de 4 letras).
+ */
+function ArchivarModal({ user, ocupado, onCancel, onConfirm }: {
+  user: Profile | null;
+  ocupado: boolean;
+  onCancel: () => void;
+  onConfirm: (motivo: string) => void;
+}) {
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [motivo, setMotivo] = useState('');
+
+  // Cada vez que se abre para otra persona, el campo empieza limpio: un motivo
+  // heredado de la cuenta anterior sería mentira en el expediente.
+  useEffect(() => { setMotivo(''); }, [user?.id]);
+
+  const listo = motivoValido(motivo);
+  return (
+    <Modal visible={!!user} animationType="slide" transparent onRequestClose={onCancel}>
+      <View style={styles.backdrop}>
+        <View style={styles.sheet}>
+          <Text style={[typography.title, { marginBottom: spacing.xs }]}>🗄️ Archivar cuenta</Text>
+          <Text style={{ color: colors.text, fontWeight: '700', marginBottom: spacing.xs }}>
+            {user?.full_name ?? 'Sin nombre'}
+          </Text>
+          <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 17, marginBottom: spacing.sm }}>
+            Sale de la lista de «en uso» y pasa al archivo. No se borra nada: su historial de
+            nóminas, reparaciones y asistencias queda igual, y siempre se puede sacar del archivo.
+          </Text>
+          <Text style={typography.muted}>¿Por qué se archiva? (obligatorio)</Text>
+          <TextInput
+            style={[styles.input, { height: 78, textAlignVertical: 'top' }]}
+            value={motivo}
+            onChangeText={setMotivo}
+            placeholder="Ej. Renunció el 05/09/2026. Entregó equipos."
+            placeholderTextColor={colors.muted}
+            multiline
+            autoFocus
+          />
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            Es lo que va a leer quien busque esta cuenta dentro de un año. Mínimo {MOTIVO_MINIMO} letras.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={onCancel}>
+              <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: listo ? colors.brand : colors.border }]}
+              onPress={() => onConfirm(motivo.trim())}
+              disabled={!listo || ocupado}
+            >
+              <Text style={{ color: listo ? colors.brandContrast : colors.muted, fontWeight: '700' }}>
+                {ocupado ? 'Archivando…' : 'Archivar'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}

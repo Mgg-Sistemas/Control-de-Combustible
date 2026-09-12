@@ -21,8 +21,8 @@
 // `ViajesCamionesScreen` solo le pasa las filas ya filtradas y el catálogo de
 // camiones. Ver `scripts/test-viajes-resumen.mjs`.
 
-/** Por cuál de los dos ejes se parte el resumen. */
-export type EjeResumen = 'empresa' | 'listero';
+/** Por cuál de los tres ejes se parte el resumen. */
+export type EjeResumen = 'empresa' | 'listero' | 'ubicacion';
 
 /** Clave de los camiones sin empresa asignada: van todos a una sola cubeta. */
 export const SIN_EMPRESA = '__sin_empresa__';
@@ -36,6 +36,16 @@ export const SIN_EMPRESA = '__sin_empresa__';
  * filas recibidas. El nombre sigue disponible en `listero_name`.
  */
 export const SIN_LISTERO = '__sin_listero__';
+
+/**
+ * Cubeta de los viajes sin obra: los registrados ANTES de que existieran las
+ * ubicaciones, y los de un listero al que todavía no se le asignó ninguna.
+ *
+ * No se les adivina la obra mirando dónde está su listero HOY: eso diría dónde
+ * está ahora, no dónde estaba cuando hizo el viaje. Un reporte completo y
+ * equivocado es peor que uno incompleto y honesto — el incompleto se nota.
+ */
+export const SIN_UBICACION = '__sin_ubicacion__';
 
 /** Clave de los camiones que el listero anotó a mano por no estar en el catálogo. */
 export const FUERA_CATALOGO = '__fuera_catalogo__';
@@ -52,6 +62,15 @@ export type ViajeMin = {
   fueraCatalogo?: boolean;
   listeroId?: string | null;
   listeroName?: string | null;
+  /**
+   * La OBRA en la que se registró el viaje, tal como quedó grabada en la fila.
+   *
+   * Es una FOTO, no la obra donde está el listero hoy: si se leyera su ficha
+   * actual, moverlo de obra cambiaría el pasado y un reporte ya entregado
+   * dejaría de cuadrar con el de mañana del mismo rango.
+   */
+  ubicacionId?: string | null;
+  ubicacionName?: string | null;
   /**
    * ☀️ día (7am–7pm) o 🌙 noche (7pm–7am).
    *
@@ -112,7 +131,11 @@ export function placaDeCamion(t: { plate: string | null; serial: string | null }
 /** `dia + noche` puede ser MENOR que `viajes`: los viajes sin turno conocido
  *  (los viejos, de antes de que se guardara) no se le inventan a ninguno de
  *  los dos. `viajes` es el que manda y el que tiene que cuadrar. */
-export type CamionResumen = { code: string; placa: string; viajes: number; dia: number; noche: number };
+// `key` es la misma clave con la que se agrupó (`claveCamion`): el id del
+// camión, o el centinela del fuera de catálogo. Se expone para que quien
+// pinte el resumen pueda cruzarlo con datos de afuera —hoy los m³ del
+// cubicaje— sin tener que readivinar de qué camión es cada línea.
+export type CamionResumen = { key: string; code: string; placa: string; viajes: number; dia: number; noche: number };
 /**
  * Un GRUPO del resumen. Se llama `EmpresaResumen` por historia: cuando se
  * agrupa por listero, cada uno de estos es un LISTERO y no una empresa. El
@@ -180,12 +203,72 @@ function etiquetaGrupo(nombres: Map<string, number>, siVacio: string): string {
  *   está en la propia fila del viaje y no se busca en ningún catálogo, así que
  *   ningún viaje puede quedar huérfano.
  */
+/** Cómo se rotula la cubeta de "no tiene" de cada eje. */
+const SIN_NOMBRE: Record<EjeResumen, string> = {
+  empresa: 'Sin empresa',
+  listero: 'Sin listero',
+  ubicacion: 'Sin ubicación',
+};
+
+/** Texto de un nombre listo para agrupar: sin espacios dobles ni de los bordes. */
+const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+
+/**
+ * CLAVE DE LA OBRA DE UN VIAJE. Exportada porque los chips del filtro tienen que
+ * usar EXACTAMENTE la misma, o el reporte y el filtro contarían distinto.
+ *
+ * ⚠️ Se acepta el NOMBRE como clave de repuesto. Borrar una obra del catálogo
+ *    deja `ubicacion_id` en null pero conserva `ubicacion_nombre` (la FK es
+ *    `on delete set null`). Sin este repuesto, borrar una obra mandaría todos
+ *    sus viajes históricos a "Sin ubicación" de golpe, y el reporte del mes
+ *    pasado cambiaría por haber ordenado el catálogo de hoy.
+ */
+export function claveUbicacionViaje(r: { ubicacionId?: string | null; ubicacionName?: string | null }): string {
+  const id = String(r.ubicacionId ?? '').trim();
+  if (id) return id;
+  const nombre = limpio(r.ubicacionName);
+  // El prefijo evita que un nombre suelto choque con el uuid de otra obra.
+  return nombre ? `nombre:${nombre.toLowerCase()}` : SIN_UBICACION;
+}
+
+/**
+ * A qué grupo va un viaje, según el eje elegido.
+ *
+ * Es un `switch` y no un ternario encadenado a propósito: con dos ejes un
+ * booleano alcanzaba, con tres el ternario deja de decir qué pasa si llega un
+ * valor no previsto, y ese viaje se iría callado a la cubeta del eje
+ * equivocado. Aquí, lo no previsto cae en empresa, que es el eje por defecto.
+ */
+function grupoDeViaje(
+  r: ViajeMin,
+  t: CamionMin | undefined,
+  groupBy: EjeResumen,
+): { key: string; name: string } {
+  switch (groupBy) {
+    case 'listero':
+      return {
+        key: String(r.listeroId ?? '').trim() || SIN_LISTERO,
+        name: limpio(r.listeroName) || SIN_NOMBRE.listero,
+      };
+    case 'ubicacion':
+      return {
+        key: claveUbicacionViaje(r),
+        name: limpio(r.ubicacionName) || SIN_NOMBRE.ubicacion,
+      };
+    case 'empresa':
+    default:
+      return {
+        key: t?.companyId ?? SIN_EMPRESA,
+        name: t?.companyName || SIN_NOMBRE.empresa,
+      };
+  }
+}
+
 export function resumirViajes(
   rows: ViajeMin[],
   camionPorId: (id: string) => CamionMin | undefined,
   groupBy: EjeResumen = 'empresa'
 ): ResumenViajes {
-  const porListero = groupBy === 'listero';
   const emp = new Map<string, { key: string; nombres: Map<string, number>; total: number; dia: number; noche: number; camiones: Map<string, CamionResumen> }>();
   let totalDia = 0, totalNoche = 0;
 
@@ -193,14 +276,9 @@ export function resumirViajes(
     // Un camión fuera de catálogo no se busca: no está y nunca va a estar.
     const t = r.machineryId ? camionPorId(r.machineryId) : undefined;
 
-    // El ÚNICO punto donde los dos modos se separan. De acá para abajo el
-    // código es idéntico, y por eso los totales de los dos no pueden diferir.
-    const key = porListero
-      ? (String(r.listeroId ?? '').trim() || SIN_LISTERO)
-      : (t?.companyId ?? SIN_EMPRESA);
-    const name = porListero
-      ? (String(r.listeroName ?? '').replace(/\s+/g, ' ').trim() || 'Sin listero')
-      : (t?.companyName || 'Sin empresa');
+    // El ÚNICO punto donde los tres modos se separan. De acá para abajo el
+    // código es idéntico, y por eso los totales de los tres no pueden diferir.
+    const { key, name } = grupoDeViaje(r, t, groupBy);
 
     // Ni 'day' ni 'night' (viaje viejo, sin turno guardado): no se le regala a
     // ninguno de los dos lados. Mejor que el desglose no sume al total a que
@@ -218,6 +296,7 @@ export function resumirViajes(
 
     const ck = claveCamion(r);
     const cam = g.camiones.get(ck) ?? {
+      key: ck,
       code: r.machineCode,
       // Los de fuera de catálogo no tienen placa en el sistema (no hay ficha que
       // consultar): se marcan para que quien lee el reporte sepa que ese camión
@@ -237,7 +316,7 @@ export function resumirViajes(
   const empresas: EmpresaResumen[] = Array.from(emp.values())
     .map((g) => ({
       key: g.key,
-      name: etiquetaGrupo(g.nombres, porListero ? 'Sin listero' : 'Sin empresa'),
+      name: etiquetaGrupo(g.nombres, SIN_NOMBRE[groupBy] ?? SIN_NOMBRE.empresa),
       total: g.total,
       dia: g.dia,
       noche: g.noche,

@@ -10,9 +10,10 @@ import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
-import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery } from '../types/database';
+import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Vehicle, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
+import { etiquetaVehiculo, textoBusquedaVehiculo, detalleVehiculoNota, ladoTrasladoEnPalabras, PASOS_SIN_MIGRACION, PASOS_SIN_MIGRACION_TRASLADO, quitarColumnas, quitarColumnasFila } from '../lib/salidaVehiculo';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
@@ -1157,6 +1158,9 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  // Vehículos (tabla `vehicles`, la pestaña Vehículos del catálogo): son OTRA tabla, por eso
+  // antes no salían en la nota aunque uno buscara la placa.
+  const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const companyNameById = (id: string | null) => (id ? (companies.find((c) => c.id === id)?.name ?? '') : '');
@@ -1170,6 +1174,9 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const [machineryId, setMachineryId] = useState('');
   const [machineQuery, setMachineQuery] = useState('');
   const [machOpen, setMachOpen] = useState(false);
+  const [vehicleId, setVehicleId] = useState('');
+  const [vehQuery, setVehQuery] = useState('');
+  const [vehOpen, setVehOpen] = useState(false);
   const [empQuery, setEmpQuery] = useState('');
   const [empSel, setEmpSel] = useState<{ id: string; name: string }[]>([]);
   const [empOpen, setEmpOpen] = useState(false);
@@ -1187,6 +1194,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const inCart = (id: string) => cart.find((c) => c.id === id);
   const machineLabel = (m: Machinery) => [m.code, companyNameById(m.company_id) || null, m.plate ? `Placa ${m.plate}` : (m.serial ? `Serial ${m.serial}` : null)].filter(Boolean).join(' · ');
   const machineName = (id: string) => { const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : ''; };
+  const vehicleName = (id: string) => { const v = vehicles.find((x) => x.id === id); return v ? etiquetaVehiculo(v, companyNameById(v.company_id ?? null)) : ''; };
   const empName = (e: Employee) => `${(e as any).first_name ?? ''} ${(e as any).last_name ?? ''}`.trim() || 'Sin nombre';
   const toggleEmp = (e: Employee) => setEmpSel((prev) => prev.some((x) => x.id === (e as any).id) ? prev.filter((x) => x.id !== (e as any).id) : [...prev, { id: (e as any).id, name: empName(e) }]);
 
@@ -1221,6 +1229,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         destino: destino.trim() || null,
         empresa: (companyNameById(salidaCompanyId) || empresaLibre.trim()) || null,
         maquina: machineryId ? machineName(machineryId) : null,
+        vehiculo: vehicleId ? vehicleName(vehicleId) : null,
         empleados: [...empSel.map((e) => e.name), ...(personaLibre.trim() ? [personaLibre.trim()] : [])],
         // Snapshot con cédula/cargo de cada empleado REGISTRADO seleccionado (no aplica a personaLibre).
         empleadosDetalle: empSel.length ? empSel.map((e) => {
@@ -1241,17 +1250,20 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     // 2) CONFIRMADO: registra la salida de cada producto (descuenta del inventario).
     {
       const detalleMaq = machineryId ? ` · ${machineName(machineryId)}` : '';
+      const detalleVeh = detalleVehiculoNota(vehicleId ? vehicleName(vehicleId) : '');
       const empresaRegName = companyNameById(salidaCompanyId);
       const empresaTxt = empresaRegName || empresaLibre.trim();
       const detalleEmp = empresaTxt ? ` · EMPRESA: ${empresaTxt.toUpperCase()}` : '';
       const detallePers = personaLibre.trim() ? ` · RECIBE: ${personaLibre.trim().toUpperCase()}` : '';
       const rows = cart.map((c) => ({
         item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
-        reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}${detalleEmp}${detallePers}`,
+        reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}${detalleVeh}${detalleEmp}${detallePers}`,
         // Empresa REGISTRADA elegida para la salida; si no, la del producto.
         company_id: salidaCompanyId ?? c.company_id, created_by: session?.user?.id ?? null,
         // Equipo destino: para el reporte de gasto por equipo (Mantenimiento).
         machinery_id: machineryId || null,
+        // Vehículo destino (pestaña Vehículos del catálogo). Columna de supabase/inventory_movements_vehiculo.sql.
+        vehicle_id: vehicleId || null,
         // Empleados que reciben (para el historial de dotación por trabajador).
         employee_ids: empSel.map((e) => e.id),
         employees_detail: empSel.map((e) => {
@@ -1259,21 +1271,20 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
           return { id: e.id, name: e.name, cedula: (emp as any)?.cedula ?? null, cargo: (emp as any)?.cargo ?? null };
         }),
       }));
-      let { error } = await supabase.from('inventory_movements').insert(rows);
-      // Si aún no se corrió la migración de machinery_id en movimientos, reintenta sin esa columna.
-      if (error && /machinery_id|column/i.test(error.message)) {
-        const rowsBasic = rows.map(({ machinery_id, ...r }) => r);
-        ({ error } = await supabase.from('inventory_movements').insert(rowsBasic));
-        // Si tampoco existe employee_ids/employees_detail (migración pendiente), reintenta sin esas columnas.
-        if (error && /employee_ids|employees_detail|column/i.test(error.message)) {
-          const rowsSinEmpleados = rowsBasic.map(({ employee_ids, employees_detail, ...r }) => r);
-          ({ error } = await supabase.from('inventory_movements').insert(rowsSinEmpleados));
-        }
+      let filas: Record<string, unknown>[] = rows;
+      let { error } = await supabase.from('inventory_movements').insert(filas);
+      // Si en la base falta alguna columna que llegó por migración (vehicle_id, machinery_id,
+      // employee_ids/employees_detail), reintenta sin ella, de la más nueva a la más vieja.
+      // La lista vive en PASOS_SIN_MIGRACION (src/lib/salidaVehiculo.ts).
+      for (const paso of PASOS_SIN_MIGRACION) {
+        if (!error || !paso.detecta.test(error.message)) break;
+        filas = quitarColumnas(filas, paso.columnas);
+        ({ error } = await supabase.from('inventory_movements').insert(filas));
       }
       if (error) { setBusy(false); return toast.error(error.message); }
     }
     setBusy(false);
-    setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre(''); setSalidaCompanyId(null); setCompanyOpen(false); setCompanyQuery('');
+    setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setVehicleId(''); setVehQuery(''); setVehOpen(false); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre(''); setSalidaCompanyId(null); setCompanyOpen(false); setCompanyQuery('');
     refetch();
     toast.success('Nota generada. La salida se descontó del inventario.');
   };
@@ -1323,6 +1334,36 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
                       <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                         <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{machineLabel(m)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Vehículo: la pestaña Vehículos del catálogo (tabla vehicles). Va aparte de la máquina
+              porque son dos tablas distintas; antes acá solo salían las máquinas. */}
+          <TouchableOpacity onPress={() => setVehOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🚗 Vehículo: <Text style={{ color: vehicleId ? colors.brandText : colors.muted }}>{vehicleId ? vehicleName(vehicleId) : 'elegir…'}</Text></Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{vehOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          {vehOpen ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+              <TextInput value={vehQuery} onChangeText={setVehQuery} placeholder="Filtrar por nombre, placa, marca, modelo, encargado, empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+              {vehicleId ? (
+                <TouchableOpacity onPress={() => setVehicleId('')} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
+              ) : null}
+              <View style={{ maxHeight: 200 }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {vehicles.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: 6 }}>No hay vehículos cargados en el Catálogo de equipos (pestaña Vehículos).</Text>
+                  ) : vehicles.filter((v) => { const s = norm(vehQuery); return !s || norm(textoBusquedaVehiculo(v, companyNameById(v.company_id ?? null))).includes(s); }).map((v) => {
+                    const on = vehicleId === v.id;
+                    return (
+                      <TouchableOpacity key={v.id} onPress={() => { setVehicleId(v.id); setVehOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{etiquetaVehiculo(v, companyNameById(v.company_id ?? null))}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -1451,6 +1492,10 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  // Vehículos (tabla `vehicles`, la pestaña Vehículos del catálogo): son OTRA tabla que
+  // `machinery`, por eso antes no se podía trasladar material a una camioneta.
+  const { data: vehicles } = useTable<Vehicle>('vehicles', { orderBy: 'plate' });
+  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: transfers, refetch: refetchTr } = useTable<InventoryTransfer>('inventory_transfers', { orderBy: 'created_at', ascending: false });
 
@@ -1476,14 +1521,16 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
   // Origen y destino (máquina + empleado responsable de cada lado).
   const [fromMachId, setFromMachId] = useState('');
+  const [fromVehId, setFromVehId] = useState('');
   const [fromEmpId, setFromEmpId] = useState('');
   const [toMachId, setToMachId] = useState('');
+  const [toVehId, setToVehId] = useState('');
   const [toEmpId, setToEmpId] = useState('');
   // Destino NO registrado (texto libre): empresa y/o persona que no están en el sistema.
   // NO se crean como empresa ni empleado, así que NO entran en la nómina.
   const [toEmpresaLibre, setToEmpresaLibre] = useState('');
   const [toPersonaLibre, setToPersonaLibre] = useState('');
-  const [open, setOpen] = useState<string | null>(null); // 'fromMach' | 'fromEmp' | 'toMach' | 'toEmp'
+  const [open, setOpen] = useState<string | null>(null); // 'fromMach' | 'fromVeh' | 'fromEmp' | 'toMach' | 'toVeh' | 'toEmp'
   const [pick, setPick] = useState('');
 
   const nq = norm(q);
@@ -1491,6 +1538,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const inCart = (id: string) => cart.find((c) => c.id === id);
   const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
   const machName = (id: string) => { const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : ''; };
+  const companyNameById = (id: string | null) => (id ? (companies.find((c) => c.id === id)?.name ?? '') : '');
+  const vehName = (id: string) => { const v = vehicles.find((x) => x.id === id); return v ? etiquetaVehiculo(v, companyNameById(v.company_id ?? null)) : ''; };
   const empName = (e: Employee) => `${(e as any).first_name ?? ''} ${(e as any).last_name ?? ''}`.trim() || 'Sin nombre';
   const empNameById = (id: string) => { const e = employees.find((x) => (x as any).id === id); return e ? empName(e) : ''; };
 
@@ -1506,7 +1555,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   // Selector desplegable reutilizable (máquina o empleado).
   const Selector = ({ id, icon, label, valueId, valueText, onPick, options }: {
     id: string; icon: string; label: string; valueId: string; valueText: string;
-    onPick: (v: string) => void; options: { id: string; text: string }[];
+    onPick: (v: string) => void; options: { id: string; text: string; busca?: string }[];
   }) => {
     const isOpen = open === id;
     return (
@@ -1521,7 +1570,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
             {valueId ? <TouchableOpacity onPress={() => { onPick(''); }} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity> : null}
             <View style={{ maxHeight: 200 }}>
               <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                {options.filter((o) => { const s = norm(pick); return !s || norm(o.text).includes(s); }).map((o) => {
+                {options.filter((o) => { const s = norm(pick); return !s || norm(o.busca ?? o.text).includes(s); }).map((o) => {
                   const on = valueId === o.id;
                   return (
                     <TouchableOpacity key={o.id} onPress={() => { onPick(o.id); setOpen(null); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -1539,6 +1588,11 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const machOptions = useMemo(() => machines.map((m) => ({ id: m.id, text: machineLabel(m) })), [machines]);
+  // `busca` lleva marca, modelo, encargado y empresa aunque no se muestren en la fila.
+  const vehOptions = useMemo(() => vehicles.map((v) => {
+    const empresa = companyNameById(v.company_id ?? null);
+    return { id: v.id, text: etiquetaVehiculo(v, empresa), busca: textoBusquedaVehiculo(v, empresa) };
+  }), [vehicles, companies]);
   const empOptions = useMemo(() => employees.map((e) => ({ id: (e as any).id as string, text: empName(e) })), [employees]);
   // Snapshot con cédula/cargo del empleado REGISTRADO de cada lado (no aplica a toPersonaLibre).
   const empDetalleById = (id: string): { name: string; cedula: string | null; cargo: string | null } | null => {
@@ -1549,9 +1603,9 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
   const generar = async () => {
     if (cart.length === 0) return toast.error('Agrega al menos un material al traslado.');
-    if (!fromMachId && !fromEmpId) return toast.error('Indica el origen (máquina o empleado).');
-    if (!toMachId && !toEmpId && !toEmpresaLibre.trim() && !toPersonaLibre.trim())
-      return toast.error('Indica el destino: máquina, empleado, o una empresa/persona no registrada.');
+    if (!fromMachId && !fromVehId && !fromEmpId) return toast.error('Indica el origen (máquina, vehículo o empleado).');
+    if (!toMachId && !toVehId && !toEmpId && !toEmpresaLibre.trim() && !toPersonaLibre.trim())
+      return toast.error('Indica el destino: máquina, vehículo, empleado, o una empresa/persona no registrada.');
     for (const c of cart) {
       if (c.qty <= 0) return toast.error(`Indica la cantidad de "${c.name}".`);
       if (c.qty > c.stock) return toast.error(`No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
@@ -1565,8 +1619,10 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
         fecha: todayDMY(),
         empresa: toEmpresaLibre.trim() || null,
         fromMaquina: fromMachId ? machName(fromMachId) : null,
+        fromVehiculo: fromVehId ? vehName(fromVehId) : null,
         fromEmpleado: fromEmpId ? empNameById(fromEmpId) : null,
         toMaquina: toMachId ? machName(toMachId) : null,
+        toVehiculo: toVehId ? vehName(toVehId) : null,
         toEmpleado: toEmpId ? empNameById(toEmpId) : (toPersonaLibre.trim() || null),
         fromEmpleadoDetalle: fromEmpId ? empDetalleById(fromEmpId) : undefined,
         toEmpleadoDetalle: toEmpId ? empDetalleById(toEmpId) : undefined,
@@ -1579,8 +1635,12 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     }
     if (!confirmado) { setBusy(false); return; }
     // 2) CONFIRMADO: descuenta stock (salida) y guarda el encabezado del traslado.
-    const destinoTxt = toMachId ? machName(toMachId) : toEmpId ? empNameById(toEmpId) : [toPersonaLibre.trim(), toEmpresaLibre.trim() ? `(${toEmpresaLibre.trim()})` : ''].filter(Boolean).join(' ') || '—';
-    const detalle = `${fromMachId ? machName(fromMachId) : (fromEmpId ? empNameById(fromEmpId) : '—')} → ${destinoTxt}`;
+    // Cada lado en una línea: la máquina le gana a la persona (como siempre) y el
+    // vehículo se suma, porque material montado en una camioneta ES las dos cosas.
+    const destinoTxt = ladoTrasladoEnPalabras(toMachId ? machName(toMachId) : '', toVehId ? vehName(toVehId) : '', toEmpId ? empNameById(toEmpId) : '')
+      || [toPersonaLibre.trim(), toEmpresaLibre.trim() ? `(${toEmpresaLibre.trim()})` : ''].filter(Boolean).join(' ') || '—';
+    const origenTxt = ladoTrasladoEnPalabras(fromMachId ? machName(fromMachId) : '', fromVehId ? vehName(fromVehId) : '', fromEmpId ? empNameById(fromEmpId) : '') || '—';
+    const detalle = `${origenTxt} → ${destinoTxt}`;
     const rows = cart.map((c) => ({
       item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
       reason: `NOTA DE TRASLADO · ${detalle}${motivo.trim().toUpperCase() ? ` · ${motivo.trim().toUpperCase()}` : ''}`,
@@ -1591,8 +1651,10 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     const transferPayload: Record<string, any> = {
       company_id: cart[0]?.company_id ?? null,
       from_machinery_id: fromMachId || null, from_machinery_label: fromMachId ? machName(fromMachId) : null,
+      from_vehicle_id: fromVehId || null, from_vehicle_label: fromVehId ? vehName(fromVehId) : null,
       from_employee_id: fromEmpId || null, from_employee_name: fromEmpId ? empNameById(fromEmpId) : null,
       to_machinery_id: toMachId || null, to_machinery_label: toMachId ? machName(toMachId) : null,
+      to_vehicle_id: toVehId || null, to_vehicle_label: toVehId ? vehName(toVehId) : null,
       to_employee_id: toEmpId || null, to_employee_name: toEmpId ? empNameById(toEmpId) : (toPersonaLibre.trim() || null),
       motivo: motivo.trim() || null,
       lugar: lugar.trim().toUpperCase() || null,
@@ -1603,10 +1665,19 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     // Solo se manda to_company_name si hay empresa libre (así los traslados normales
     // no fallan si aún no corriste la migración de esa columna).
     if (toEmpresaLibre.trim()) transferPayload.to_company_name = toEmpresaLibre.trim();
-    const { error: tErr } = await supabase.from('inventory_transfers').insert(transferPayload);
+    // Si a la base le faltan las columnas de vehículo (el SQL se entrega aparte porque
+    // el repositorio es público), se reintenta SIN ellas en vez de perder el traslado:
+    // el vehículo ya quedó en el PDF y en el texto del movimiento.
+    let fila: Record<string, any> = transferPayload;
+    let { error: tErr } = await supabase.from('inventory_transfers').insert(fila);
+    for (const paso of PASOS_SIN_MIGRACION_TRASLADO) {
+      if (!tErr || !paso.columnas.some((c) => c in fila) || !paso.detecta.test(tErr.message)) break;
+      fila = quitarColumnasFila(fila, paso.columnas);
+      ({ error: tErr } = await supabase.from('inventory_transfers').insert(fila));
+    }
     if (tErr) { setBusy(false); return toast.error(tErr.message); }
     setBusy(false);
-    setCart([]); setMotivo(''); setLugar(''); setEstadoMat(''); setFromMachId(''); setFromEmpId(''); setToMachId(''); setToEmpId(''); setToEmpresaLibre(''); setToPersonaLibre('');
+    setCart([]); setMotivo(''); setLugar(''); setEstadoMat(''); setFromMachId(''); setFromVehId(''); setFromEmpId(''); setToMachId(''); setToVehId(''); setToEmpId(''); setToEmpresaLibre(''); setToPersonaLibre('');
     refetch(); refetchTr();
     toast.success('Traslado registrado. La salida se descontó del inventario.');
   };
@@ -1641,8 +1712,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   };
 
   const trasladoLabel = (t: InventoryTransfer) => {
-    const from = t.from_machinery_label || t.from_employee_name || '—';
-    const to = t.to_machinery_label || t.to_employee_name || (t as any).to_company_name || '—';
+    const from = ladoTrasladoEnPalabras(t.from_machinery_label, (t as any).from_vehicle_label, t.from_employee_name) || '—';
+    const to = ladoTrasladoEnPalabras(t.to_machinery_label, (t as any).to_vehicle_label, t.to_employee_name) || (t as any).to_company_name || '—';
     const empresa = (t as any).to_company_name && (t.to_machinery_label || t.to_employee_name) ? ` (${(t as any).to_company_name})` : '';
     return `${from} → ${to}${empresa}`;
   };
@@ -1791,11 +1862,13 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
           {/* ORIGEN */}
           <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>ORIGEN (de dónde sale)</Text>
           <Selector id="fromMach" icon="🚜" label="Máquina origen" valueId={fromMachId} valueText={machName(fromMachId)} onPick={setFromMachId} options={machOptions} />
+          <Selector id="fromVeh" icon="🚗" label="Vehículo origen" valueId={fromVehId} valueText={vehName(fromVehId)} onPick={setFromVehId} options={vehOptions} />
           <Selector id="fromEmp" icon="👷" label="Responsable origen" valueId={fromEmpId} valueText={empNameById(fromEmpId)} onPick={setFromEmpId} options={empOptions} />
 
           {/* DESTINO */}
           <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>DESTINO (a dónde va)</Text>
           <Selector id="toMach" icon="🚜" label="Máquina destino" valueId={toMachId} valueText={machName(toMachId)} onPick={setToMachId} options={machOptions} />
+          <Selector id="toVeh" icon="🚗" label="Vehículo destino" valueId={toVehId} valueText={vehName(toVehId)} onPick={setToVehId} options={vehOptions} />
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>➕ Agregar responsable destino (opcional): la persona que RECIBE en el destino.</Text>
           <Selector id="toEmp" icon="👷" label="Responsable destino" valueId={toEmpId} valueText={empNameById(toEmpId)} onPick={setToEmpId} options={empOptions} />
 

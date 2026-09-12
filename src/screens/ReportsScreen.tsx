@@ -19,6 +19,14 @@ import { exportPdf, dateRangeLabel, REPORT_BRAND } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { BCV_LOGO_DATA_URI } from '../lib/logoBcvData';
 import { RENACE_WAVE_DATA_URI, RENACE_LOGO_DATA_URI } from '../lib/logoRenaceData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from '../lib/logoGoldenTouchData';
+// QUÉ SE OCULTA en el Inventario de maquinaria (marca, modelo, ubicaciones, Este/Oeste).
+// La regla vive en su librería para poder probarla; la pantalla obedece.
+import {
+  OPCIONES_TACTICO_COMPLETO, PASTILLAS_OCULTAR, alcanceSinNombres, alternarOcultar, columnasMaquinaria, marcaModeloDe,
+  ocultosEnPalabras, ocultosLista, sufijoArchivoOcultos, tituloMarcaModelo,
+  ubicacionEnPalabras, type ColumnaMaquinaria, type OpcionesTactico,
+} from '../lib/tacticoOpciones';
 import { COMPANY_NAME } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
@@ -38,7 +46,27 @@ import {
 import { machineLabel } from '../lib/machineLabel';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
+// LOS TRES INFORMES de Ubicaciones tácticas y la regla de quién es "nuestro".
+// Vive en su propia librería para poder probarla de verdad; ver el archivo.
+import {
+  ALCANCES, alcanceInfoDe, grupoDeEmpresa, nombreEmpresa, ordenarGrupos, repartirPorAlcance,
+  type AlcanceEmpresas,
+} from '../lib/empresasPropias';
 import { normalizeDept } from '../lib/personal';
+// El PDF del conteo por tipo: qué se oculta, y las medidas de tolva.
+import {
+  OPCIONES_CONTEO_COMPLETO, PASTILLAS_CONTEO, alternarConteo, columnasConteo,
+  ocultosConteoEnPalabras, sufijoArchivoConteo, tituloMarcaModeloConteo, marcaModeloConteo,
+  conteoSinContenido, TITULO_COLUMNA, COLUMNA_NUMERICA,
+  type OpcionesConteo, type ColumnaConteo,
+} from '../lib/conteoTipoOpciones';
+import {
+  aplicarExclusiones, conteoPorTipo, excluidasEfectivas, rotuloSeleccion, seleccionVacia, textoExclusiones,
+} from '../lib/conteoSeleccionMaquinas';
+import { medidaConocida, NOTA_ORIGEN } from '../lib/medidasFlota';
+import { volumen as volumenTolva, m3Texto } from '../lib/cubicaje';
+import { listarMedidas } from '../lib/cubicajeDatos';
+import { leerApartadas } from '../lib/cubicajeApartadas';
 import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
@@ -304,7 +332,15 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
   .page{position:relative;z-index:1}
   .hd{position:relative;min-height:150px;margin-bottom:6px}
   .hd .wave{position:absolute;top:-6px;right:-12px;width:74%;z-index:0}
-  .hd .tit{position:relative;z-index:1;font-size:31px;line-height:1.12;font-weight:800;color:${RENACE_NAVY};letter-spacing:-.3px;max-width:52%;padding-top:12px}
+  .hd .tit{position:relative;z-index:1;display:flex;align-items:center;gap:14px;font-size:31px;line-height:1.12;font-weight:800;color:${RENACE_NAVY};letter-spacing:-.3px;max-width:58%;padding-top:12px}
+  /* Logo de GOLDEN TOUCH (06-sep-2026), a la izquierda del título. El del Plan
+     sigue a la derecha: se suma, no se reemplaza. El JPG trae fondo de acero, no
+     transparente; por eso las esquinas redondeadas. */
+  .hd .gt{width:76px;height:76px;border-radius:10px;flex:none;object-fit:cover}
+  /* Con el logo, el título arranca 90px más a la derecha y su segunda línea
+     cruza las franjas de la ola (azul marino sobre azul, medido al ancho de
+     carta). Un halo blanco hace que el texto gane sin mover la ola oficial. */
+  .hd .tit span{text-shadow:0 0 6px #fff,0 0 3px #fff,0 0 1px #fff}
   .hd .mark{position:absolute;right:5%;top:2px;width:140px;z-index:2}
   /* La fecha va DEBAJO del logo (el logo mide ~102px de alto): si se sube, se
      encima con la palabra "renace" del logotipo. */
@@ -321,13 +357,13 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
       <div class="hd">
         <img class="wave" src="${RENACE_WAVE_DATA_URI}"/>
         <img class="mark" src="${RENACE_LOGO_DATA_URI}"/>
-        <div class="tit">${title}</div>
+        <div class="tit"><img class="gt" src="${GOLDEN_TOUCH_LOGO_DATA_URI}"/><span>${title}</span></div>
         <div class="fecha"><b>Fecha:</b> ${nowStamp()}</div>
       </div>
       <div class="rule"></div>
       <div class="fld">Empresa:<span>${fields.empresa ?? ''}</span></div>
       <div class="fld">Responsable:<span>${fields.responsable ?? ''}</span></div>
-      <div class="sub">${sub}</div>
+      ${sub ? `<div class="sub">${sub}</div>` : ''}
       ${body}
       <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
     </div>
@@ -544,7 +580,11 @@ export default function ReportsScreen({ route }: any) {
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
   // `tipo` aquí es la CATEGORÍA (equipCategory, ej. "JUMBO"), no la marca/modelo real.
   // `modelo` es machinery.tipo (marca/modelo real, ej. "CAT 320") — se muestra aparte.
-  type MachineDetail = { code: string; serial: string | null; plate: string | null; company: string; tipo: string; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
+  // `id` y `marca` entraron el 09-sep-2026 para el PDF del conteo por tipo: el id
+  // cruza con la medida de tolva guardada en `camion_cubicaje`, y la marca
+  // alimenta la columna «Marca / Modelo». `modelo` sigue siendo `machinery.tipo`,
+  // como siempre — se deja tal cual para no cambiar lo que ya se ve en pantalla.
+  type MachineDetail = { id: string; code: string; serial: string | null; plate: string | null; company: string; tipo: string; marca: string | null; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   // `insDia`/`insNoche`: inspector asignado por turno (machine_inspectors). Se cargan
@@ -558,6 +598,89 @@ export default function ReportsScreen({ route }: any) {
   const [conteoPreview, setConteoPreview] = useState(false);
   // Ubicaciones tácticas: ON = incluye personal (operadores por máquina, coordinadores/inspectores por zona).
   const [tacConPersonal, setTacConPersonal] = useState(false);
+  // Ubicaciones tácticas: cuál de los TRES informes se descarga. Arranca en el de
+  // siempre para que quien no toque nada siga sacando el mismo papel de ayer.
+  const [tacAlcance, setTacAlcance] = useState<AlcanceEmpresas>('juntas');
+  // Ubicaciones tácticas: qué se OCULTA (marca, modelo, ubicaciones, Este/Oeste).
+  // Arranca sin ocultar nada: el papel de siempre.
+  const [tacOpciones, setTacOpciones] = useState<OpcionesTactico>(OPCIONES_TACTICO_COMPLETO);
+  /**
+   * EMPRESAS ESCOGIDAS A DEDO (09-sep-2026).
+   *
+   * Pedido del cliente: al elegir «todas las empresas» poder marcar cuáles
+   * salen. Vacío = TODAS, que es como se comportaba antes: quien no toque nada
+   * sigue sacando el mismo papel.
+   *
+   * ⚠️ Se aplica sobre el UNIVERSO, antes de repartir por alcance, para que el
+   *    cuadro de «alcance del informe» cuente lo mismo que el listado. Filtrando
+   *    después, el papel diría «6 empresas» arriba y listaría 2.
+   */
+  const [empresasSel, setEmpresasSel] = useState<Set<string>>(new Set());
+  const toggleEmpresaSel = (n: string) =>
+    setEmpresasSel((prev) => { const x = new Set(prev); x.has(n) ? x.delete(n) : x.add(n); return x; });
+  /**
+   * POR QUÉ EJE SE PARTE EL CONTEO (09-sep-2026).
+   *
+   * Pedido del cliente: «necesito poder sacar por categoría, que si remoción de
+   * escombros, poder agrupar por esas categorías». La categoría es la
+   * CLASIFICACIÓN de la ficha de la máquina.
+   *
+   * ⚠️ AGRUPAR NO FILTRA. Cambiar el eje reparte los MISMOS equipos de otra
+   *    forma: el total general es idéntico por empresa y por categoría. Quien
+   *    filtra es el selector de abajo.
+   */
+  const [conteoEje, setConteoEje] = useState<'empresa' | 'clasificacion'>('empresa');
+  /** Categorías marcadas. Vacío = todas, igual que las empresas. */
+  const [clasSel, setClasSel] = useState<Set<string>>(new Set());
+  const toggleClasSel = (n: string) =>
+    setClasSel((prev) => { const x = new Set(prev); x.has(n) ? x.delete(n) : x.add(n); return x; });
+
+  /** Qué se oculta en el PDF del conteo por tipo. Por defecto, nada. */
+  const [conteoOpciones, setConteoOpciones] = useState<OpcionesConteo>(OPCIONES_CONTEO_COMPLETO);
+  /**
+   * Medidas de tolva cargadas en «Cubicaje y volumen», por id de máquina.
+   *
+   * ⭐ Lo MEDIDO EN EL SISTEMA MANDA sobre la hoja de semilla (`medidasFlota`).
+   *    Si no, corregir una medida en Cubicaje no cambiaría este reporte y los dos
+   *    papeles dirían cosas distintas del mismo camión.
+   */
+  const [medidasPorId, setMedidasPorId] = useState<Map<string, { alto: number; largo: number; ancho: number }>>(new Map());
+  useEffect(() => {
+    // Si la tabla no existe todavía (SQL sin correr), `listarMedidas` devuelve
+    // `missing` y una lista vacía: el reporte cae a la hoja de semilla y sale
+    // igual. Nunca se queda sin columna.
+    listarMedidas().then(({ rows }) => {
+      const m = new Map<string, { alto: number; largo: number; ancho: number }>();
+      rows.forEach((r) => m.set(r.machinery_id, { alto: Number(r.alto), largo: Number(r.largo), ancho: Number(r.ancho) }));
+      setMedidasPorId(m);
+    }).catch(() => {});
+    leerApartadas().then((ids) => setApartadas(new Set(ids))).catch(() => {});
+  }, []);
+
+  /**
+   * CAMIONES DEJADOS SIN MEDIDA A PROPÓSITO, desde Cubicaje y volumen.
+   *
+   * ⚠️ Pedido del cliente: «si lo aparto o le elimino ese registro, la idea es
+   *    que no salga para esa parte». Apartar una unidad allá no servía de nada
+   *    acá: la hoja de cubicaje volvía a deducirle la medida y el conteo la
+   *    seguía imprimiendo, así que el botón de apartar parecía no hacer nada.
+   *
+   * ⭐ Se lee la MISMA lista que escribe Cubicaje. Dos copias del mismo hecho
+   *    darían dos papeles distintos del mismo camión.
+   */
+  const [apartadas, setApartadas] = useState<Set<string>>(new Set());
+
+  /** La medida de una máquina: primero lo medido, luego la hoja, luego nada. */
+  const medidaDeMaquina = (m: { id?: string; code?: string; marca?: string | null; modelo?: string | null }) => {
+    // ⚠️ Apartada = SIN MEDIDA, y eso gana sobre todo lo demás. Sale en blanco,
+    //    que es exactamente lo que ya se hace con lo que no se reconoce: nunca
+    //    en cero, porque un cero diría que ese camión no carga nada.
+    if (m.id && apartadas.has(m.id)) return null;
+    const guardada = m.id ? medidasPorId.get(m.id) : undefined;
+    if (guardada) return { ...guardada, origen: 'medida' as const };
+    const hoja = medidaConocida(m.code, m.marca, m.modelo);
+    return hoja ? { alto: hoja.alto, largo: hoja.largo, ancho: hoja.ancho, origen: 'hoja' as const } : null;
+  };
   // Filtro por ZONA del conteo: '__all__' (todas), un nombre de zona, o 'Sin zona'.
   const [conteoZona, setConteoZona] = useState<string>('__all__');
   // Filtro por EMPRESA del conteo (multi-selección; vacío = TODAS). Pedido del cliente
@@ -701,13 +824,46 @@ export default function ReportsScreen({ route }: any) {
   const [tipoEstado, setTipoEstado] = useState<'todas' | 'activas' | 'inactivas'>('todas');
   const toggleTipo = (key: string) =>
     setTiposSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  // ESCOGER MÁQUINAS SUELTAS dentro de los tipos tildados. Se guarda a quién se SACÓ,
+  // no a quién se dejó: con la lista vacía no se excluye a nadie, que es exactamente
+  // lo que hacía el reporte antes de esto. El porqué completo está en
+  // src/lib/conteoSeleccionMaquinas.ts.
+  //
+  // La clave es el `id` de la máquina, NUNCA el código: hay tres equipos llamados
+  // RETROEXCAVADORA, y excluir "por código" sacaría a los tres de un solo toque.
+  const [maqExcluidas, setMaqExcluidas] = useState<Set<string>>(new Set());
+  const [maqOpen, setMaqOpen] = useState(false);
+  const [maqQ, setMaqQ] = useState('');
+  const toggleMaquina = (id: string) =>
+    setMaqExcluidas((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Al reabrir el conteo se limpia la selección/búsqueda/alcance del buscador por tipo.
-  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setTipoEstado('todas'); } }, [conteoPreview]);
+  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setTipoEstado('todas'); setMaqExcluidas(new Set()); setMaqOpen(false); setMaqQ(''); } }, [conteoPreview]);
   // machinesAll acotado al ESTADO elegido (activas/inactivas/todas) para el buscador por tipo.
   const machinesPorEstado = useMemo(() => {
     const src = conteo?.machinesAll ?? [];
-    return tipoEstado === 'todas' ? src : src.filter((m) => (tipoEstado === 'activas' ? m.estado === 'activo' : m.estado === 'inactivo'));
-  }, [conteo, tipoEstado]);
+    const porEstado = tipoEstado === 'todas' ? src : src.filter((m) => (tipoEstado === 'activas' ? m.estado === 'activo' : m.estado === 'inactivo'));
+    // Vacío = todas. Se aplica acá y en ningún otro lado, así que lo que se ve en
+    // pantalla y lo que sale impreso son exactamente lo mismo.
+    const porEmpresa = empresasSel.size ? porEstado.filter((m) => empresasSel.has(m.company)) : porEstado;
+    return clasSel.size ? porEmpresa.filter((m) => clasSel.has(m.clas)) : porEmpresa;
+  }, [conteo, tipoEstado, empresasSel, clasSel]);
+
+  /** Las categorías que hay para marcar, con su cantidad. Salen de los datos,
+   *  no de una lista fija: así no se ofrece una categoría sin un solo equipo. */
+  const clasDelConteo = useMemo(() => {
+    const m = new Map<string, number>();
+    (conteo?.machinesAll ?? []).forEach((x) => m.set(x.clas, (m.get(x.clas) ?? 0) + 1));
+    return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+  }, [conteo]);
+
+  /** Las empresas que hay para marcar, con cuántos equipos tiene cada una. Salen
+   *  de los datos, no del catálogo de empresas: así no se ofrece una empresa que
+   *  no tiene ni un equipo en este conteo. */
+  const empresasDelConteo = useMemo(() => {
+    const m = new Map<string, number>();
+    (conteo?.machinesAll ?? []).forEach((x) => m.set(x.company, (m.get(x.company) ?? 0) + 1));
+    return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+  }, [conteo]);
   // Mapa de TIPOS unificados: la clave normaliza el código (mayúsculas, sin acentos y
   // con los espacios colapsados) para que "CAMION VOLTEO TORONTO" y "CAMION  VOLTEO
   // TORONTO " cuenten como UN solo tipo. El nombre visible se muestra limpio.
@@ -740,18 +896,73 @@ export default function ReportsScreen({ route }: any) {
     const nq = norm(tipoQ.trim());
     return nq ? tipoOpcionesBase.filter((o) => norm(`${o.name} ${o.clas}`).includes(nq)) : tipoOpcionesBase;
   }, [tipoOpcionesBase, tipoQ]);
+  // Las máquinas de los tipos TILDADOS, antes de quitar ninguna a mano. Es la lista
+  // que se ofrece para escoger equipo por equipo, y la base contra la que se cuenta
+  // "N de M": sin ella no se podría decir cuántas se dejaron fuera.
+  const maquinasDeTipos = useMemo(() => {
+    if (!tiposSel.size) return [] as MachineDetail[];
+    return machinesPorEstado
+      .filter((it) => tiposSel.has(tipoKey(it.code)))
+      .slice()
+      .sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || ''));
+  }, [tiposSel, machinesPorEstado]);
+  // Las exclusiones que de verdad cuentan: las guardadas que siguen a la vista. La
+  // regla está explicada en lib/conteoSeleccionMaquinas.
+  const maqFuera = useMemo(
+    () => excluidasEfectivas(maqExcluidas, new Set(maquinasDeTipos.map((m) => m.id))),
+    [maqExcluidas, maquinasDeTipos],
+  );
+
   // Reporte de los tipos TILDADOS: total + desglose por empresa (A→Z) + LISTADO de los
   // equipos seleccionados (código, empresa, serial/placa, estado), acotado al estado elegido.
+  //
+  // ⭐ Aquí, y en ningún otro lado, se quitan las máquinas escogidas a mano. El PDF
+  //    consume ESTE memo tal cual, así que hereda la exclusión sin tener que
+  //    repetirla: el papel no puede listar un equipo que la pantalla no muestra.
   const tipoResultado = useMemo(() => {
     if (!tiposSel.size) return null;
-    const match = machinesPorEstado.filter((it) => tiposSel.has(tipoKey(it.code)));
+    const match = aplicarExclusiones(maquinasDeTipos, maqFuera);
     const byCo = new Map<string, MachineDetail[]>();
-    match.forEach((it) => { const l = byCo.get(it.company) ?? []; l.push(it); byCo.set(it.company, l); });
+    // ⭐ EL ÚNICO PUNTO donde los dos ejes se separan. De acá para abajo el
+    //    código es idéntico, y por eso los totales de los dos NO PUEDEN diferir.
+    //    El campo se sigue llamando `company` por historia: agrupando por
+    //    categoría, cada uno de estos grupos es una CLASIFICACIÓN. Renombrarlo
+    //    obligaría a tocar la pantalla, el HTML del PDF y el test sin ganar nada.
+    const ejeDe = (it: MachineDetail) => (conteoEje === 'clasificacion' ? (it.clas || 'Sin clasificación') : it.company);
+    match.forEach((it) => { const k = ejeDe(it); const l = byCo.get(k) ?? []; l.push(it); byCo.set(k, l); });
     const empresas = [...byCo.entries()]
       .map(([company, items]) => ({ company, count: items.length, items: items.slice().sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')) }))
       .sort((a, b) => cmpText(a.company, b.company));
     return { total: match.length, empresas };
-  }, [tiposSel, machinesPorEstado]);
+  }, [tiposSel, machinesPorEstado, conteoEje]);
+
+  /**
+   * VOLUMEN DE LO SELECCIONADO: total, promedio, mayor y menor.
+   *
+   * ⚠️ Se promedia SOBRE LAS UNIDADES MEDIDAS, no sobre todas. Contar como
+   *    cero las que no tienen medida hundiría el promedio y diría que la flota
+   *    carga menos de lo que carga; por eso también se dice CUÁNTAS entraron.
+   *
+   * ⚠️ Sale de las MISMAS filas que imprime el PDF, con la misma precedencia
+   *    (medido → hoja → nada). Si se calculara por otro camino, la pantalla y
+   *    el papel podrían dejar de coincidir.
+   */
+  const volumenSeleccion = useMemo(() => {
+    const items = tipoResultado ? tipoResultado.empresas.flatMap((e) => e.items) : [];
+    const v = items
+      .map((mq) => { const md = medidaDeMaquina(mq); return md ? volumenTolva(md.alto, md.largo, md.ancho) : 0; })
+      .filter((x) => x > 0);
+    const suma = Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100;
+    return {
+      medidos: v.length,
+      total: items.length,
+      suma,
+      promedio: v.length ? Math.round((suma / v.length) * 100) / 100 : 0,
+      mayor: v.length ? Math.max(...v) : 0,
+      menor: v.length ? Math.min(...v) : 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipoResultado, medidasPorId, apartadas]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -1489,7 +1700,7 @@ export default function ReportsScreen({ route }: any) {
   const generateConteo = async () => {
     setLoading(true);
     liveRef.current = generateConteo; // se sincroniza solo cuando se cambia/actualiza una máquina
-    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, tipo, marca, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, company:company_id(name)');
     const all = (mach ?? []) as any[];
     // El CONTEO cuenta SOLO los equipos activos: se excluyen los inactivos
     // (active/operational = false) y los que están en espera (stand by).
@@ -1556,7 +1767,7 @@ export default function ReportsScreen({ route }: any) {
     // Detalle de TODAS las máquinas con su estado (para ver el detalle al tocar una tarjeta).
     const estadoOf = (m: any): 'activo' | 'inactivo' | 'standby' => m.en_espera === true ? 'standby' : (m.active === false || m.operational === false) ? 'inactivo' : 'activo';
     const machinesAll: MachineDetail[] = all
-      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), modelo: (m.tipo && String(m.tipo).trim()) || null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
+      .map((m) => ({ id: String(m.id), code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), marca: (m.marca && String(m.marca).trim()) || null, modelo: (m.tipo && String(m.tipo).trim()) || null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Sector MACRO por máquina para el REPORTE: si tiene GPS, su sector real (Este/Oeste);
     // si NO tiene ubicación, se reparte 50/50 entre Este y Oeste. Esto es SOLO para el
@@ -1852,9 +2063,11 @@ export default function ReportsScreen({ route }: any) {
   };
 
   // conPersonal = incluye personal (operadores/inspectores). ficticio = versión
+  // SIN BOTÓN desde el 07-sep-2026 (el cliente lo mandó a ocultar); el parámetro se
+  // conserva entero para poder devolverlo sin rehacer nada. Ver la nota en la tarjeta.
   // SIMULADA: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
-  const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
+  const downloadTacticalPdf = async (conPersonal = false, ficticio = false, alcance: AlcanceEmpresas = 'juntas', opciones: OpcionesTactico = OPCIONES_TACTICO_COMPLETO) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, tipo, marca, modelo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
@@ -1865,7 +2078,20 @@ export default function ReportsScreen({ route }: any) {
     // (GPS real vs Este/Oeste al azar).
     // TODAS las máquinas disponibles = operational != false (239): incluye las que están
     // esperando instrucciones. Solo se excluyen las RETIRADAS (operational=false).
-    const list = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
+    const universo = ((mach ?? []) as any[]).filter((m) => m.operational !== false);
+    // ⭐ EL ALCANCE SE APLICA ACÁ Y EN NINGÚN OTRO LADO. Todo lo de abajo —el
+    //    resumen por empresa, el de tipo por zona, el conteo por clasificación,
+    //    el de "a cargo de", las pick-up y el listado— sale de `list`. Filtrando
+    //    en un solo punto, los totales de arriba SIEMPRE cuadran con la lista de
+    //    abajo. Si se filtrara solo el listado, el papel diría "296 equipos"
+    //    arriba y listaría 180, que es como se pierde la confianza en un reporte.
+    const soloPropias = alcance === 'propias';
+    // ⚠️ Las empresas marcadas a dedo se aplican SOBRE EL UNIVERSO, antes de
+    //    repartir por alcance: así el cuadro de «alcance del informe» cuenta lo
+    //    mismo que lista el papel. Filtrando después diría «6 empresas» arriba y
+    //    listaría 2, que es como se pierde la confianza en un reporte.
+    const universoEmp = empresasSel.size ? universo.filter((m) => empresasSel.has(nombreEmpresa(m))) : universo;
+    const { list, empresasDentro, empresasFuera } = repartirPorAlcance(universoEmp, alcance, nombreEmpresa);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1906,25 +2132,31 @@ export default function ReportsScreen({ route }: any) {
       const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
       const macro = sec ? (sec.startsWith('Oeste') ? 'Oeste' : 'Este') : '';
       const sub = sec ? sectorLabel(sec).replace(/^(Este|Oeste)\s*·\s*/, '') : '';
-      const parts: string[] = [];
-      if (macro) parts.push(macro);
-      if (sub) parts.push(sub);
-      if (ref) parts.push(ref);
-      // Sin GPS ni referencia: se ubican por defecto en el ESTE, Patio - Camurí Chico (pedido del cliente).
-      return parts.length ? parts.join(' · ') : 'Este · Patio - Camuri Chico';
+      // Sin GPS ni referencia: el patio de Camurí Chico, en el ESTE (pedido del cliente).
+      // Con "sin Este/Oeste" se cae el prefijo; esa regla vive en la librería.
+      return ubicacionEnPalabras({ macro, sub, ref }, opciones);
     };
     // Las camionetas PICK-UP no van en la lista de maquinaria: van en su propia sección
     // (a disposición de los encargados de SOS La Guaira).
     const esPickup = (m: any) => /pick|camioneta/i.test(equipCategory(m.code)) || /pick|camioneta/i.test(String(m.clasificacion ?? ''));
     const pickupMachines = list.filter(esPickup);
     const maqList = list.filter((m) => !esPickup(m));
-    // Agrupar por EMPRESA en DOS grupos: LICCIONE (sus máquinas) y GOLDEN TOUCH (las de
-    // Golden + TODAS las demás empresas). Liccione se reconoce por el nombre de la empresa
-    // supervisora; cualquier otra (o sin empresa) cae en Golden Touch.
-    const grupoEmpresaDe = (m: any) => (/liccion/i.test(companyOf(m)) ? 'LICCIONE' : 'GOLDEN TOUCH');
+    // Cómo se agrupa, según el informe que se pidió:
+    //
+    //  - `porEmpresa` → cada empresa con su nombre de verdad. Una máquina de La
+    //    Veglia sale bajo "LA VEGLIA".
+    //  - los otros dos → los DOS sacos de siempre: LICCIONE (las suyas) y GOLDEN
+    //    TOUCH (las de Golden + todas las demás). En `propias` las demás ya no
+    //    están, así que ese saco trae solo Golden Touch de verdad.
+    const grupoEmpresaDe = (m: any) => grupoDeEmpresa(companyOf(m), alcance);
     const groups = new Map<string, any[]>();
     list.forEach((m) => { const e = grupoEmpresaDe(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); }); // TODA la maquinaria (= Catálogo)
-    const enteNames = ['LICCIONE', 'GOLDEN TOUCH'].filter((g) => groups.has(g)); // Liccione primero; Golden Touch (el resto) después
+    // El ORDEN de las secciones, y también el del resumen de arriba: las nuestras
+    // primero (Liccione, Golden Touch), después las subcontratadas de la A a la Z,
+    // y "Sin empresa" siempre al final — es un cajón de sastre, no una empresa.
+    const enteNames = alcance === 'porEmpresa'
+      ? ordenarGrupos([...groups.keys()])
+      : ['LICCIONE', 'GOLDEN TOUCH'].filter((g) => groups.has(g));
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
     const sortMaq = (a: any, b: any) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? '');
     // Operadores: 2 por máquina de SOS La Guaira (1 turno día + 1 turno noche), en
@@ -1938,35 +2170,60 @@ export default function ReportsScreen({ route }: any) {
         opAssign.set(m, { dia: operadores[(2 * i) % operadores.length], noche: operadores[(2 * i + 1) % operadores.length] });
       });
     }
-    const maquinariaHtml = enteNames.map((ente) => {
-      const showOps = conPersonal;
-      const rows = groups.get(ente)!
+    // ⭐ LAS COLUMNAS DEL LISTADO SALEN DE UNA SOLA LISTA (según qué se oculta y si
+    //    va con personal). El encabezado y cada fila la recorren igual: un <th> sin
+    //    su <td> corre toda la tabla y el PDF sale con la placa debajo de "Marca"
+    //    sin que nadie lo note leyendo el código.
+    //    Anchos fijos en Marca, Placa/Serial y Estado: la plantilla del Plan reparte
+    //    así las columnas y evita que "Ubicación" (texto largo) se coma el resto.
+    const cols = columnasMaquinaria(opciones, conPersonal);
+    const thDe: Record<ColumnaMaquinaria, string> = {
+      n: '<th style="width:30px">Nº</th>',
+      equipo: '<th>Equipo / Tipo</th>',
+      marcaModelo: `<th style="width:120px">${tituloMarcaModelo(opciones) ?? ''}</th>`,
+      placa: '<th style="width:120px">Placa / Serial</th>',
+      ubicacion: '<th>Ubicación</th>',
+      opDia: '<th>Operador (día)</th>',
+      opNoche: '<th>Operador (noche)</th>',
+      estado: '<th style="width:110px">Estado</th>',
+    };
+    // Sin nombres de empresas: UN solo listado con todas, sin cabeceras por empresa.
+    const gruposAImprimir: [string, any[]][] = opciones.sinEmpresas ? [['', list]] : enteNames.map((e) => [e, groups.get(e)!]);
+    const maquinariaHtml = gruposAImprimir.map(([ente, maqs]) => {
+      const rows = maqs
         .slice()
         .sort(sortMaq)
         .map((m, i) => {
           const est = estadoOf(m);
-          const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
-          // MARCA y MODELO son campos propios de la maquina (CAT 320, Komatsu PC200…) y van
-          // en su propia columna. `tipo` es otra cosa (el tipo de equipo) y se queda en la
-          // linea gris junto al codigo, que es donde estaba antes mal rotulado como marca.
-          const marcaModelo = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ');
+          // `tipo` es el tipo de equipo (excavadora, volteo…): va en gris junto al
+          // código. No es la marca, que antes se imprimía ahí mal rotulada.
           const tipoEq = (m.tipo && String(m.tipo).trim()) || '';
           const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ');
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${tipoEq ? ' · ' + esc(tipoEq) : ''}</span></td><td>${esc(marcaModelo || '—')}</td><td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          const tdDe: Record<ColumnaMaquinaria, string> = {
+            n: `<td>${i + 1}</td>`,
+            equipo: `<td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${tipoEq ? ' · ' + esc(tipoEq) : ''}</span></td>`,
+            // MARCA y MODELO (CAT 320, Komatsu PC200…), o la mitad que no se oculta.
+            // Guion si la ficha no los tiene cargados.
+            marcaModelo: `<td>${esc(marcaModeloDe(m, opciones) || '—')}</td>`,
+            placa: `<td style="font-variant-numeric:tabular-nums">${esc(ps || '—')}</td>`,
+            ubicacion: `<td>${esc(ubicOf(m))}</td>`,
+            opDia: `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td>`,
+            opNoche: `<td>${esc(opAssign.get(m)?.noche ?? '—')}</td>`,
+            estado: `<td style="color:${estadoColor(est)};font-weight:700">${est}</td>`,
+          };
+          return `<tr>${cols.map((c) => tdDe[c]).join('')}</tr>`;
         }).join('');
-      const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
-      // Anchos fijos en Placa/Serial y Estado: la plantilla del Plan reparte así las
-      // columnas y evita que "Ubicación" (texto largo) se coma el resto de la fila.
-      return `<div class="ente">🏢 Empresa: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th style="width:120px">Marca / Modelo</th><th style="width:120px">Placa / Serial</th><th>Ubicación</th>${opHead}<th style="width:110px">Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const cabecera = opciones.sinEmpresas ? '🚜 <b>Maquinaria</b>' : `🏢 Empresa: <b>${esc(ente)}</b>`;
+      return `<div class="ente">${cabecera} <span class="cnt-pill">${maqs.length} equipo(s)</span></div>
+        <table class="tac"><thead><tr>${cols.map((c) => thDe[c]).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
     const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
     // Máquinas pick-up + vehículos pick-up en UNA lista, ordenada ALFABÉTICAMENTE (serial/placa). Sin columna de ubicación.
     const pickItems = [
-      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); const mm = [m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo ? String(m.tipo).trim() : ''); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${mm ? ' · 🏷️ ' + esc(mm) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
-      ...vehPickups.map((v) => ({ label: `<b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' })),
+      ...pickupMachines.map((m) => { const ps = [m.plate, m.serial].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · '); const mm = marcaModeloDe(m, opciones) || (m.tipo ? String(m.tipo).trim() : ''); return { label: `<b>${esc(m.code ?? '—')}</b>${ps ? ' · ' + esc(ps) : ''}${mm ? ' · 🏷️ ' + esc(mm) : ''}`, key: String(m.plate || m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) }; }),
+      ...vehPickups.map((v) => { const mm = marcaModeloDe({ marca: v.brand, modelo: v.model }, opciones); return { label: `<b>${esc(v.plate ?? '—')}</b>${mm ? ' · ' + esc(mm) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' }; }),
     ].sort((a, b) => cmpText(a.key, b.key));
     const pickupsHtml = pickItems.length
       ? `<div class="disp">🔰 A disposición de los encargados de <b>SOS LA GUAIRA</b></div>
@@ -1998,10 +2255,20 @@ export default function ReportsScreen({ route }: any) {
     });
     const coTot = { este: 0, oeste: 0 };
     countByCo.forEach((v) => { coTot.este += v.este; coTot.oeste += v.oeste; });
-    const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
-      <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th><th style="width:90px;text-align:right">🟢 Este</th><th style="width:90px;text-align:right">🟠 Oeste</th></tr></thead>
-      <tbody>${['LICCIONE', 'GOLDEN TOUCH'].filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`; }).join('') || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${coTot.este}</td><td style="text-align:right;font-weight:800">${coTot.oeste}</td></tr></tfoot></table>`;
+    // Sin Este/Oeste: las dos columnas de zona no van (queda Empresa/Tipo y Cantidad).
+    // El encabezado y las celdas salen del MISMO interruptor para que no se corran.
+    const zonaTh = (ancho: number) => opciones.sinZona ? '' : `<th style="width:${ancho}px;text-align:right">🟢 Este</th><th style="width:${ancho}px;text-align:right">🟠 Oeste</th>`;
+    const zonaTd = (este: number, oeste: number, negrita = false) => opciones.sinZona ? '' : `<td style="text-align:right${negrita ? ';font-weight:800' : ''}">${este}</td><td style="text-align:right${negrita ? ';font-weight:800' : ''}">${oeste}</td>`;
+    const colspanZona = opciones.sinZona ? 2 : 4;
+    // Sin nombres de empresas: el cuadro por empresa no va (el total sigue en los
+    // cuadros por tipo y por clasificación). Pedido del cliente: con todo apagado
+    // quedan solo esos dos.
+    const resumenCoHtml = opciones.sinEmpresas
+      ? ''
+      : `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
+      <table class="tac"><thead><tr><th>Empresa</th><th style="width:90px;text-align:right">Cantidad</th>${zonaTh(90)}</tr></thead>
+      <tbody>${enteNames.filter((g) => countByCo.has(g)).map((co) => { const v = countByCo.get(co)!; return `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${v.total}</td>${zonaTd(v.este, v.oeste)}</tr>`; }).join('') || `<tr><td colspan="${colspanZona}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td>${zonaTd(coTot.este, coTot.oeste, true)}</tr></tfoot></table>`;
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
       const mac = zonaMacroDe(m);
@@ -2048,11 +2315,11 @@ export default function ReportsScreen({ route }: any) {
     });
     const tipoZTot = { este: 0, oeste: 0 };
     porTipoZona.forEach((v) => { tipoZTot.este += v.este; tipoZTot.oeste += v.oeste; });
-    const resumenTipoZonaHtml = `<div class="sect">🚜 Total por tipo de maquinaria · 🟢 Este / 🟠 Oeste</div>
-      <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:80px;text-align:right">Total</th><th style="width:80px;text-align:right">🟢 Este</th><th style="width:80px;text-align:right">🟠 Oeste</th></tr></thead>
-      <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>`}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td></tr></tfoot></table>
-      <div style="font-size:12px;color:#374151;margin:6px 0 2px 0">🌙 Las <b>VOLQUETAS</b> y los <b>TORONTOS</b> pernoctan en <b>CAMURÍ CHICO (ESTE)</b>; durante el día son desplegados a los sectores que requieran su servicio (<b>ESTE / OESTE</b>).</div>`;
+    const resumenTipoZonaHtml = `<div class="sect">🚜 Total por tipo de maquinaria${opciones.sinZona ? '' : ' · 🟢 Este / 🟠 Oeste'}</div>
+      <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:80px;text-align:right">Total</th>${zonaTh(80)}</tr></thead>
+      <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td>${zonaTd(v.este, v.oeste)}</tr>`).join('') || `<tr><td colspan="${colspanZona}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td>${zonaTd(tipoZTot.este, tipoZTot.oeste, true)}</tr></tfoot></table>${opciones.sinZona ? '' : `
+      <div style="font-size:12px;color:#374151;margin:6px 0 2px 0">🌙 Las <b>VOLQUETAS</b> y los <b>TORONTOS</b> pernoctan en <b>CAMURÍ CHICO (ESTE)</b>; durante el día son desplegados a los sectores que requieran su servicio (<b>ESTE / OESTE</b>).</div>`}`;
     // ── 📍 DESPLIEGUE POR SECTOR (localidad) Y EDIFICIO ─────────────────────────
     // Pedido: ver las UBICACIONES por sector con su ref/edificio y cuántos equipos de cada
     // tipo hay en cada sitio (ej. "3 JUMBO en Caraballeda Este"). La localidad sale del GPS
@@ -2085,7 +2352,7 @@ export default function ReportsScreen({ route }: any) {
     const sinUbicSorted = sinUbicMachines.slice().sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? ''));
     const sinUbicHtml = sinUbicSorted.length
       ? `<div class="ente">📍 <b>DESPLEGADAS POR TODO EL TERRITORIO DE LA GUAIRA</b> <span class="cnt-pill">${sinUbicSorted.length} equipo(s)</span></div>
-         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc([m.marca, m.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || (m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc(marcaModeloDe(m, opciones) || (m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
       : '';
     const despliegueSectorHtml = `<div class="sect">📍 Despliegue por sector y edificio · ubicación al ${new Date().toLocaleString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>`
       + (sectorsSorted.length ? sectorsSorted.map(([secL, g]) => {
@@ -2120,10 +2387,14 @@ export default function ReportsScreen({ route }: any) {
     // Con personal: coordinadores e inspectores repartidos entre ESTE y OESTE (rotación).
     const pickZona = (arr: string[], z: number) => arr.filter((_, i) => i % 2 === z);
     const celda = (arr: string[]) => (arr.length ? arr.map((n) => esc(n)).join('<br/>') : '—');
-    const zonaPersonalHtml = conPersonal
-      ? `<table class="tac"><thead><tr><th style="width:80px">Zona</th><th>Coordinadores</th><th>Inspectores</th></tr></thead>
-         <tbody>${['ESTE', 'OESTE'].map((z, idx) => `<tr><td style="font-weight:700">${z}</td><td>${celda(pickZona(coordinadores, idx))}</td><td>${celda(pickZona(inspectores, idx))}</td></tr>`).join('')}</tbody></table>`
-      : '';
+    const zonaPersonalHtml = !conPersonal
+      ? ''
+      : opciones.sinZona
+        // Sin Este/Oeste: una sola lista, sin repartir por zona.
+        ? `<table class="tac"><thead><tr><th>Coordinadores</th><th>Inspectores</th></tr></thead>
+         <tbody><tr><td>${celda(coordinadores)}</td><td>${celda(inspectores)}</td></tr></tbody></table>`
+        : `<table class="tac"><thead><tr><th style="width:80px">Zona</th><th>Coordinadores</th><th>Inspectores</th></tr></thead>
+         <tbody>${['ESTE', 'OESTE'].map((z, idx) => `<tr><td style="font-weight:700">${z}</td><td>${celda(pickZona(coordinadores, idx))}</td><td>${celda(pickZona(inspectores, idx))}</td></tr>`).join('')}</tbody></table>`;
     // TODO el personal, SOLO TOTALES por departamento (unificado / inferido del cargo).
     const depTot = new Map<string, number>();
     activeEmps.forEach((e) => { const d = normalizeDept(e.department, e.cargo); depTot.set(d, (depTot.get(d) ?? 0) + 1); });
@@ -2132,6 +2403,32 @@ export default function ReportsScreen({ route }: any) {
          <tbody>${[...depTot.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([d, n]) => `<tr><td>${esc(d)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin personal</td></tr>'}</tbody>
          <tfoot><tr><td style="font-weight:800">TOTAL PERSONAL</td><td style="text-align:right;font-weight:800">${activeEmps.length}</td></tr></tfoot></table>`
       : '';
+    // ── EL ALCANCE, EN PALABRAS ────────────────────────────────────────────
+    // Sin nombres de empresas, el alcance se describe sin nombrarlas ("Solo
+    // LICCIONE y GOLDEN TOUCH" los lleva): en el subtítulo, el cuadro y el archivo.
+    const alcanceInfo: { largo: string; archivo: string } = opciones.sinEmpresas ? alcanceSinNombres(alcance) : alcanceInfoDe(alcance);
+    const tituloMaquinaria = opciones.sinEmpresas
+      ? 'Maquinaria'
+      : alcance === 'porEmpresa'
+        ? 'Maquinaria por empresa'
+        : `Maquinaria por empresa (${enteNames.join(' / ') || 'sin empresas'})`;
+    // ⭐ EL PIE QUE DICE QUÉ ENTRÓ Y QUÉ QUEDÓ FUERA.
+    //
+    //    Es la red de seguridad de toda la idea. "Propia" se decide por el NOMBRE
+    //    de la empresa (ver RE_EMPRESA_PROPIA), y ese nombre lo escribió una
+    //    persona en el catálogo: si alguna está cargada como "GOLDENTOUCH" junta,
+    //    o con un error de tipeo, caería en el saco equivocado sin que nadie lo
+    //    note. Imprimiéndolo, se ve en el papel y no en una reunión.
+    const alcanceHtml = `<div class="sect">🧾 Alcance de este informe</div>
+      <div class="box">
+        <div class="kv"><b>${esc(alcanceInfo.largo)}.</b></div>
+        ${ocultosLista(opciones).length ? `<div class="kv"><b>Campos ocultos:</b> ${esc(ocultosLista(opciones).join(' · '))}. Los totales son los mismos.</div>` : ''}
+        ${opciones.sinEmpresas
+          ? `<div class="kv"><b>Empresas incluidas:</b> ${empresasDentro.length}${empresasFuera.length ? ` · <b>dejadas fuera:</b> ${empresasFuera.length}` : ''} (nombres ocultos a propósito).</div>`
+          : `<div class="kv"><b>Empresas incluidas (${empresasDentro.length}):</b> ${esc(empresasDentro.join(' · ')) || '—'}</div>
+        ${empresasFuera.length ? `<div class="kv"><b>Empresas dejadas fuera (${empresasFuera.length}):</b> ${esc(empresasFuera.join(' · '))}</div>` : ''}`}
+        <div class="kv">Equipos en este informe: <b>${list.length}</b>${soloPropias ? ` de ${universo.length} de la flota` : ''}.</div>
+      </div>`;
     const body = `
       <style>
         /* Estilos de la plantilla oficial del Plan: cabecera azul marino, filas
@@ -2152,18 +2449,23 @@ export default function ReportsScreen({ route }: any) {
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       ${resumenCoHtml}
-      ${resumenTipoZonaHtml}
-      ${resumenClasifHtml}
-      <div class="sect">🏢 Maquinaria por empresa (LICCIONE / GOLDEN TOUCH)</div>
-      ${maquinariaHtml}
-      ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
-    const subBase = 'Operación Rescate y Esperanza – La Guaira';
-    const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
-    const fileName = `Reporte - Inventario de maquinaria${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
-    // Membrete del Plan Venezuela Renace. "Empresa" y "Responsable" van como
-    // líneas en blanco (igual que la plantilla oficial): el reporte cubre a
-    // LICCIONE y GOLDEN TOUCH a la vez, así que quien lo imprime las completa.
-    await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', subtitle, body), fileName);
+      ${opciones.sinTipos ? '' : resumenTipoZonaHtml}
+      ${opciones.sinClasificacion ? '' : resumenClasifHtml}
+      ${opciones.sinListado ? '' : `<div class="sect">🏢 ${esc(tituloMaquinaria)}</div>
+      ${maquinariaHtml}`}
+      ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores${opciones.sinZona ? '' : ' por zona'}</div>${zonaPersonalHtml}` : ''}
+      ${opciones.sinAlcance ? '' : alcanceHtml}`;
+    // ⭐ EL ALCANCE —Y LO QUE SE OCULTÓ— VAN EN EL NOMBRE DEL ARCHIVO. Son papeles
+    //    que se parecen mucho: sin esto, dos PDF con el mismo nombre se pisan en la
+    //    carpeta de descargas y nadie sabe cuál está mirando, ni distingue el
+    //    recortado del completo. Antes iba también en el subtítulo del membrete;
+    //    el cliente pidió quitarlo (07-sep-2026), así que con el cuadro de alcance
+    //    también oculto, el nombre del archivo es el ÚNICO rastro.
+    const fileName = `Reporte - Inventario de maquinaria (${alcanceInfo.archivo})${sufijoArchivoOcultos(opciones)}${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    // Membrete del Plan Venezuela Renace, sin subtítulo. "Empresa" y "Responsable"
+    // van como líneas en blanco (igual que la plantilla oficial): el reporte puede
+    // cubrir a varias empresas a la vez, así que quien lo imprime las completa.
+    await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', '', body), fileName);
   };
 
   // Reporte de PERSONAL COMPLETO: MOVIDO a Nómina · Personal → src/lib/personalReport.ts
@@ -2357,58 +2659,210 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('REPORTE DE MAQUINARIA', alcance, body), 'Reportes - Maquinaria');
   };
 
-  // PDF del conteo por tipo TILDADO: total (solo número) + cantidad por tipo y por empresa.
+  /**
+   * PDF DEL CONTEO POR TIPO (rehecho el 09-sep-2026).
+   *
+   * Pedido del cliente: que salga con el MISMO membrete que el reporte de
+   * Ubicaciones tácticas (`renaceShell`, el del Plan), que se le puedan quitar
+   * columnas y cuadros igual que allá, y que traiga el ALTO, el LARGO, el ANCHO
+   * y el VOLUMEN en m³ de cada equipo.
+   *
+   * ⚠️ SIN columna de clasificación en el listado, a pedido expreso. El CUADRO
+   *    de cantidad por clasificación sí sigue, con su propia pastilla.
+   *
+   * ⚠️ Las columnas salen de `columnasConteo`, y el encabezado Y cada fila se
+   *    arman recorriendo ESA MISMA lista. Un `<th>` sin su `<td>` corre la tabla
+   *    entera y el serial sale debajo de «Marca» sin que nadie lo note.
+   */
   const downloadTipoCountPdf = async () => {
     if (!tipoResultado) return;
+    // Con el listado y los dos cuadros apagados queda el membrete y un número:
+    // parece un informe y no dice nada. Mejor decirlo que entregar la hoja vacía.
+    if (conteoSinContenido(conteoOpciones)) {
+      alert('El reporte quedaría sin listado y sin ningún cuadro. Enciende al menos uno de los tres.');
+      return;
+    }
+    // Quitar todas las máquinas es un paso legítimo en pantalla (se quitan todas para
+    // después marcar una), pero un conteo de cero equipos no es un informe.
+    if (seleccionVacia(maquinasDeTipos.length, maqFuera.size)) {
+      alert('Dejaste fuera todas las máquinas: el reporte saldría en cero. Marca al menos una en "Escoger máquinas".');
+      return;
+    }
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const o = conteoOpciones;
     const { total, empresas } = tipoResultado;
+    // ⚠️ El conteo de cada tipo sale de las filas QUE SE VAN A LISTAR, no del total
+    //    del tipo. Mientras no se podían sacar máquinas sueltas los dos números eran
+    //    el mismo y daba igual cuál se usara; desde que se pueden, no: el cuadro
+    //    diría 17 y el listado tendría 14, y el pie del cuadro —que suma el total
+    //    real— no cuadraría con sus propias filas.
+    const porTipoListado = conteoPorTipo(empresas.flatMap((e) => e.items), (m) => tipoKey(m.code));
     const sel = [...tiposSel]
-      .map((k) => ({ k, name: tipoMap.get(k)?.name ?? k, count: tipoMap.get(k)?.count ?? 0 }))
+      .map((k) => ({ k, name: tipoMap.get(k)?.name ?? k, count: porTipoListado.get(k) ?? 0 }))
       .sort((a, b) => cmpText(a.name, b.name));
-    const tipoRows = sel
-      .map((t) => `<tr><td>${esc(t.name)}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
-      .join('');
     const estadoLbl = tipoEstado === 'todas' ? 'Todos los estados' : tipoEstado === 'activas' ? 'Solo activas' : 'Solo inactivas';
-    // Cantidad POR CLASIFICACIÓN de los equipos seleccionados (Excavadora, Volteo… con su
-    // total), A→Z natural. Sale junto al desglose por tipo de equipo.
+    const empLbl = empresasSel.size ? `${empresasSel.size} empresa(s) escogida(s)` : 'Todas las empresas';
+    const clasLbl = clasSel.size ? ` · ${clasSel.size} categoría(s)` : '';
+    // Cómo se nombra el grupo, según el eje. Es lo ÚNICO que cambia entre los
+    // dos: el HTML es el mismo, y por eso los totales no pueden diferir.
+    const porCategoria = conteoEje === 'clasificacion';
+    const icoGrupo = porCategoria ? '\ud83d\udd36' : '\ud83c\udfe2';
+    const tituloListado = porCategoria ? 'Listado por categoría' : 'Listado por empresa';
+
+    // ── Los cuadros de conteo ────────────────────────────────────────────
+    const cuadro = (titulo: string, filas: [string, number][]) => `
+      <h2 style="font-size:14px;color:${RENACE_NAVY};margin:14px 0 4px">${esc(titulo)}</h2>
+      <table><thead><tr><th style="text-align:left">${esc(titulo.replace(/^Cantidad por /, '').replace(/^\w/, (c) => c.toUpperCase()))}</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <tbody>${filas.map(([k, n]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('')
+        || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>`;
+
+    /**
+     * EL PROMEDIO DE LO SELECCIONADO (09-sep-2026, pedido del cliente).
+     *
+     * ⚠️ Se promedia SOBRE LAS UNIDADES MEDIDAS, no sobre todas. Contar como
+     *    cero las que no tienen medida hundiría el promedio y diría que la
+     *    flota carga menos de lo que carga. Por eso el papel dice también
+     *    CUÁNTAS entraron en la cuenta: un promedio sobre 4 de 61 equipos no
+     *    significa lo mismo que uno sobre 61 de 61.
+     */
+    const todos = empresas.flatMap((e) => e.items);
+    const volumenes = todos
+      .map((mq) => { const md = medidaDeMaquina(mq); return md ? volumenTolva(md.alto, md.largo, md.ancho) : 0; })
+      .filter((v) => v > 0);
+    const sumaM3 = Math.round(volumenes.reduce((a, b) => a + b, 0) * 100) / 100;
+    const promM3 = volumenes.length ? Math.round((sumaM3 / volumenes.length) * 100) / 100 : 0;
+    const mayorM3 = volumenes.length ? Math.max(...volumenes) : 0;
+    const menorM3 = volumenes.length ? Math.min(...volumenes) : 0;
+
     const porClasif = new Map<string, number>();
     empresas.forEach((e) => e.items.forEach((m) => {
-      const k = ((m as any).clas && String((m as any).clas).trim()) || 'Sin clasificación';
+      const k = (m.clas && String(m.clas).trim()) || 'Sin clasificación';
       porClasif.set(k, (porClasif.get(k) ?? 0) + 1);
     }));
-    const clasifRows = [...porClasif.entries()]
-      .sort((a, b) => cmpText(a[0], b[0]))
-      .map(([k, n]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`)
-      .join('');
-    // Listado AGRUPADO por empresa: nombre de la máquina, serial/placa y encargado.
-    const listRows = empresas.map((e) => `
-      <tr><td colspan="5" style="background:#eef2f7;font-weight:800;color:#1E3A5F">🏢 ${esc(e.company)}${companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
-      ${e.items.map((m, i) => `<tr>
-        <td style="width:26px;text-align:right;color:#888">${i + 1}</td>
-        <td>${esc(m.code)}</td>
-        <td>${esc(m.modelo || '—')}</td>
-        <td>${esc(m.serial || m.plate || '—')}</td>
-        <td>${esc(m.encargado || '—')}</td>
-      </tr>`).join('')}
-    `).join('');
+
+    const bloqueTipos = o.sinTipos ? '' : cuadro('Cantidad por tipo de equipo', sel.map((t) => [t.name, t.count] as [string, number]));
+    const bloqueClasif = o.sinClasificacion ? '' : cuadro('Cantidad por clasificación',
+      [...porClasif.entries()].sort((a, b) => cmpText(a[0], b[0])));
+
+    // ── El listado, columna por columna ──────────────────────────────────
+    const cols = columnasConteo(o);
+    const titulo = (c: ColumnaConteo) => (c === 'marcaModelo' ? (tituloMarcaModeloConteo(o) ?? '') : TITULO_COLUMNA[c]);
+    const al = (c: ColumnaConteo) => (COLUMNA_NUMERICA[c] ? ' style="text-align:right"' : '');
+    const dec = (n: number) => (Number.isFinite(n) && n > 0 ? n.toFixed(2) : '');
+
+    /** Una celda. `medida` puede ser null: ahí las cuatro del cubicaje van EN
+     *  BLANCO. Poner un cero diría que esa tolva no carga nada. */
+    const celda = (c: ColumnaConteo, m: MachineDetail, i: number): string => {
+      const med = o.sinCubicaje ? null : medidaDeMaquina(m);
+      switch (c) {
+        case 'n': return String(i + 1);
+        case 'equipo': return m.code;
+        case 'marcaModelo': return marcaModeloConteo(m, o) || '\u2014';
+        case 'placa': return m.serial || m.plate || '\u2014';
+        case 'encargado': return m.encargado || '\u2014';
+        case 'alto': return med ? dec(med.alto) : '';
+        case 'largo': return med ? dec(med.largo) : '';
+        case 'ancho': return med ? dec(med.ancho) : '';
+        case 'm3': return med ? m3Texto(volumenTolva(med.alto, med.largo, med.ancho)) : '';
+        default: return '';
+      }
+    };
+
+    const filasDe = (items: MachineDetail[]) =>
+      items.map((m, i) => `<tr>${cols.map((c) => `<td${al(c)}>${esc(celda(c, m, i))}</td>`).join('')}</tr>`).join('');
+
+    const cabecera = `<thead><tr>${cols.map((c) => `<th${al(c)}>${esc(titulo(c))}</th>`).join('')}</tr></thead>`;
+
+    // Sin nombres de empresas, el listado sale en UN solo bloque: si se dejaran
+    // las cabeceras vacías quedarían franjas grises sin texto que se leen como
+    // un error de impresión.
+    /**
+     * ⚠️ SIN NOMBRES DE EMPRESA, EL LISTADO SE REORDENA DE CERO.
+     *
+     * `flatMap` conserva el orden de los GRUPOS: los equipos salían ordenados
+     * dentro de cada empresa, pero la lista completa quedaba a saltos — tres
+     * Toronto, dos Fiat, otra vez Toronto— y sin la cabecera de empresa nada
+     * explicaba por qué. Se ordena el conjunto entero por código, y el serial
+     * desempata para que dos equipos del mismo modelo salgan siempre en el
+     * mismo orden entre una impresión y la siguiente.
+     */
+    const cuerpo = o.sinEmpresas
+      ? filasDe(empresas.flatMap((e) => e.items).slice()
+          .sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')))
+      : empresas.map((e) => `
+          <tr><td colspan="${cols.length}" style="background:#eef2f7;font-weight:800;color:${RENACE_NAVY}">${icoGrupo} ${esc(e.company)}${!porCategoria && companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
+          ${filasDe(e.items)}`).join('');
+
+    const bloqueListado = o.sinListado ? '' : `
+      <h2 style="font-size:14px;color:${RENACE_NAVY};margin:14px 0 4px">${o.sinEmpresas ? 'Listado de equipos' : tituloListado}</h2>
+      <table>${cabecera}<tbody>${cuerpo || `<tr><td colspan="${cols.length}" style="text-align:center">Sin coincidencias</td></tr>`}</tbody>${
+        o.sinCubicaje || !volumenes.length ? '' : `<tfoot><tr>${cols.map((c) => (
+          c === 'n' ? `<td>${total}</td>`
+            : c === 'equipo' ? '<td>TOTAL</td>'
+            : c === 'm3' ? `<td style="text-align:right">${sumaM3.toFixed(2)}</td>`
+            : '<td></td>'
+        )).join('')}</tr></tfoot>`
+      }</table>`;
+
+    // El cuadro del final: de dónde salió cada cosa. Un reporte que esconde algo
+    // sin decirlo miente por omisión.
+    const bloqueAlcance = o.sinAlcance ? '' : `
+      <h2 style="font-size:14px;color:${RENACE_NAVY};margin:14px 0 4px">Alcance de este informe</h2>
+      <table><tbody>
+        <tr><td style="width:38%"><b>Tipos de equipo</b></td><td>${sel.length ? esc(sel.map((t) => t.name).join(' · ')) : '\u2014'}</td></tr>
+        <tr><td><b>Estado</b></td><td>${esc(estadoLbl)}</td></tr>
+        <tr><td><b>${porCategoria ? 'Categorías' : 'Empresas'}</b></td><td>${o.sinEmpresas ? `${empresas.length} grupo(s)` : esc(empresas.map((e) => e.company).join(' · ')) || '\u2014'}</td></tr>
+        ${clasSel.size ? `<tr><td><b>Categorías filtradas</b></td><td>${esc([...clasSel].join(' · '))}</td></tr>` : ''}
+        ${maqFuera.size ? `<tr><td><b>Equipos excluidos</b></td><td>${esc(textoExclusiones(maquinasDeTipos.length, maqFuera.size))}</td></tr>` : ''}
+        <tr><td><b>Se ocultó</b></td><td>${esc(ocultosConteoEnPalabras(o))}</td></tr>
+        ${o.sinCubicaje ? '' : `<tr><td><b>Medidas de tolva</b></td><td>${esc(NOTA_ORIGEN)}</td></tr>`}
+      </tbody></table>`;
+
     const body = `
+      <style>
+        table{width:100%;border-collapse:collapse;margin:2px 0 10px;font-size:11px}
+        th{background:${RENACE_NAVY};color:#fff;text-align:left;padding:6px 8px;font-size:9.5px;font-weight:700;border:1px solid ${RENACE_NAVY}}
+        td{padding:5px 8px;border:1px solid #DDE4EC}
+        tbody tr:nth-child(even) td{background:#F5F8FC}
+        tfoot td{background:#E7EEF6;font-weight:800;color:${RENACE_NAVY}}
+        .summary{display:flex;gap:10px;margin:8px 0 4px}
+        .summary>div{flex:1;border:1px solid #D4DCE5;border-top:3px solid ${RENACE_NAVY};border-radius:4px;padding:9px 8px;text-align:center;background:#FAFBFD}
+        .summary .k{display:block;font-size:8.5px;font-weight:700;color:#68757F;letter-spacing:.3px}
+        .summary b{font-size:19px;color:${RENACE_NAVY}}
+      </style>
       <div class="summary">
-        <div><span class="k">Total de equipos</span><b>${total}</b></div>
-        <div><span class="k">Tipos</span><b>${sel.length}</b></div>
-        <div><span class="k">Empresas</span><b>${empresas.length}</b></div>
+        <div><span class="k">TOTAL DE EQUIPOS</span><b>${total}</b></div>
+        <div><span class="k">TIPOS</span><b>${sel.length}</b></div>
+        ${o.sinEmpresas ? '' : `<div><span class="k">${porCategoria ? 'CATEGORÍAS' : 'EMPRESAS'}</span><b>${empresas.length}</b></div>`}
       </div>
-      <h2>Cantidad por tipo de equipo</h2>
-      <table><thead><tr><th style="text-align:left">Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
-      <tbody>${tipoRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
-      <h2 style="margin-top:16px">Cantidad por clasificación</h2>
-      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
-      <tbody>${clasifRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
-      <h2 style="margin-top:16px">Listado por empresa</h2>
-      <table><thead><tr><th style="text-align:right">#</th><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Encargado</th></tr></thead>
-      <tbody>${listRows || '<tr><td colspan="5" style="text-align:center">Sin coincidencias</td></tr>'}</tbody></table>`;
-    await exportPdf(pdfShell('CANTIDAD POR TIPO DE EQUIPO', `${sel.length} tipo(s) · ${estadoLbl}`, body), 'Reportes - Cantidad por tipo');
+      ${o.sinCubicaje || !volumenes.length ? '' : `
+      <div class="summary">
+        <div><span class="k">VOLUMEN TOTAL</span><b>${sumaM3.toFixed(2)}</b><span class="k">m³</span></div>
+        <div><span class="k">PROMEDIO POR UNIDAD</span><b>${promM3.toFixed(2)}</b><span class="k">m³</span></div>
+        <div><span class="k">MAYOR</span><b>${mayorM3.toFixed(2)}</b><span class="k">m³</span></div>
+        <div><span class="k">MENOR</span><b>${menorM3.toFixed(2)}</b><span class="k">m³</span></div>
+      </div>
+      <p style="margin:2px 0 8px;font-size:10px;color:#68757F">
+        Promedio y totales calculados sobre <b>${volumenes.length}</b> unidad(es) con medida de tolva, de
+        <b>${total}</b> seleccionada(s). Las que no tienen medida quedan fuera de la cuenta: contarlas como
+        cero hundiría el promedio.
+      </p>`}
+      ${bloqueTipos}
+      ${bloqueClasif}
+      ${bloqueListado}
+      ${bloqueAlcance}`;
+
+    // El aviso de equipos excluidos va en el MEMBRETE, que siempre se imprime, y no
+    // solo en el cuadro de alcance: ese cuadro se puede apagar con su pastilla, y un
+    // conteo al que le faltan equipos a propósito tiene que decirlo sí o sí. Las
+    // pastillas esconden columnas, no pueden esconder que el número es de una
+    // selección y no de la flota.
+    const exclLbl = maqFuera.size ? ` · ${maqFuera.size} equipo(s) excluido(s)` : '';
+    await exportPdf(
+      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl}${exclLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body),
+      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
+    );
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
@@ -3038,13 +3492,107 @@ export default function ReportsScreen({ route }: any) {
                 </Text>
                 <Switch value={tacConPersonal} onValueChange={setTacConPersonal} />
               </View>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
+              {/* LOS TRES INFORMES que pidió el cliente (01-sep-2026), con UN SOLO
+                  botón. El alcance se escoge acá y vale igual con y sin personal:
+                  tres botones más habrían dejado seis en la misma tarjeta y nadie
+                  encuentra nada. (El del simulado se ocultó el 07-sep-2026.) */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ EMPRESAS SALEN?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                {ALCANCES.map((a) => {
+                  const on = tacAlcance === a.id;
+                  return (
+                    <TouchableOpacity
+                      key={a.id}
+                      onPress={() => setTacAlcance(a.id)}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{a.chip}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {/* Que diga en criollo qué va a salir ANTES de descargarlo: son tres
+                  papeles muy parecidos y equivocarse cuesta una impresión. */}
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                {ALCANCES.find((a) => a.id === tacAlcance)?.largo}
+              </Text>
+
+              {/* ── EMPRESAS A DEDO (09-sep-2026) ────────────────────────────
+                  Pedido del cliente: al elegir «todas», poder marcar CUÁLES.
+                  Solo sale cuando el alcance es «todas»: con «solo las nuestras»
+                  la lista ya viene decidida y dos filtros encima del mismo dato
+                  se contradicen a la vista.
+                  ⚠️ VACÍO = TODAS. Quien no toque nada saca el papel de siempre. */}
+              {tacAlcance !== 'propias' && empresasDelConteo.length > 0 ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
+                      ¿ALGUNA EMPRESA EN ESPECÍFICO? ({empresasDelConteo.length})
+                    </Text>
+                    {empresasSel.size > 0 ? (
+                      <TouchableOpacity onPress={() => setEmpresasSel(new Set())}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✕ Todas ({empresasSel.size} marcada/s)</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <ScrollView style={{ maxHeight: 132 }} nestedScrollEnabled>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {empresasDelConteo.map((e) => {
+                        const on = empresasSel.has(e.name);
+                        return (
+                          <TouchableOpacity
+                            key={e.name}
+                            onPress={() => toggleEmpresaSel(e.name)}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                          >
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>
+                              {e.name} · {e.count}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                    {empresasSel.size === 0
+                      ? 'Sin marcar ninguna salen TODAS. Marca las que quieras para dejar el resto fuera.'
+                      : `Solo saldrán: ${[...empresasSel].join(' · ')}. Vale para este PDF y para el conteo por tipo de abajo.`}
+                  </Text>
+                </View>
+              ) : null}
+              {/* QUÉ SE OCULTA (06-sep-2026): pastillas que se encienden VARIAS a la vez,
+                  no como las de empresas. Ocultan columnas, textos o cuadros enteros,
+                  nunca máquinas: los totales no cambian. Valen con y sin personal.
+                  La lista vive en PASTILLAS_OCULTAR. */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                {PASTILLAS_OCULTAR.map((p) => {
+                  const on = tacOpciones[p.key];
+                  return (
+                    <TouchableOpacity
+                      key={p.key}
+                      onPress={() => setTacOpciones((o) => alternarOcultar(o, p.key))}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: on ? '#FFFFFF' : colors.text, fontSize: 13, fontWeight: '700' }}>{p.chip}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                {ocultosEnPalabras(tacOpciones)} Los totales no cambian; vale con y sin personal.
+              </Text>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, false, tacAlcance, tacOpciones)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
-              {/* Versión SIMULADA/ficticia: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para presentaciones). */}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true)}>
-                <Text style={{ color: colors.warning, fontWeight: '800' }}>🎭 Ubicaciones tácticas (SIMULADO){tacConPersonal ? ' · con personal' : ''}</Text>
-              </TouchableOpacity>
+              {/* 🎭 EL BOTÓN DEL INFORME SIMULADO SE OCULTÓ (07-sep-2026), a pedido del
+                  cliente: «ocultame ese boton». Sacaba el mismo inventario pero con TODAS
+                  las máquinas operativas y repartidas al azar Este/Oeste, para presentaciones;
+                  al lado del real se prestaba a imprimir el papel equivocado.
+                  El motor sigue entero: `downloadTacticalPdf` mantiene su parámetro
+                  `ficticio`. Para devolverlo, basta un botón que llame
+                  `downloadTacticalPdf(tacConPersonal, true, tacAlcance, tacOpciones)`.
+                  `scripts/test-reporte-tactico-tres-informes.mjs` vigila que no vuelva solo. */}
               {/* Zona 100% real por GPS, igual que el Mapa: sin reparto 50/50 para las máquinas sin GPS. */}
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={downloadConteoZonaMapaPdf}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>🗺️ Zona real por GPS (igual al Mapa)</Text>
@@ -3121,21 +3669,243 @@ export default function ReportsScreen({ route }: any) {
                     })
                   )}
                 </ScrollView>
+
+                {/* ESCOGER MÁQUINAS SUELTAS. Tildar un tipo engloba a todas sus
+                    máquinas, que es lo que se quiere casi siempre; esto es para
+                    cuando NO: sacar las dos que están en el taller, o quedarse con
+                    una sola unidad. Va plegado y con todo marcado, así que quien no
+                    lo abra ve el reporte exactamente igual que antes. */}
+                {maquinasDeTipos.length > 0 ? (() => {
+                  const q = norm(maqQ.trim());
+                  const vistas = q
+                    ? maquinasDeTipos.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${m.company} ${m.clas}`).includes(q))
+                    : maquinasDeTipos;
+                  return (
+                    <View style={{ marginTop: spacing.sm }}>
+                      <TouchableOpacity
+                        onPress={() => setMaqOpen((v) => !v)}
+                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: maqFuera.size ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                          🚜 Escoger máquinas ({rotuloSeleccion(maquinasDeTipos.length, maqFuera.size)})
+                        </Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{maqOpen ? '▲' : '▼'}</Text>
+                      </TouchableOpacity>
+                      {maqOpen ? (
+                        <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                            Destilda las que NO quieres en el reporte. Todas marcadas = el conteo completo del tipo, como siempre.
+                          </Text>
+                          <TextInput
+                            value={maqQ}
+                            onChangeText={setMaqQ}
+                            placeholder="🔎 Buscar por código, placa, serial o empresa…"
+                            placeholderTextColor={colors.muted}
+                            style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text }}
+                          />
+                          {/* Las dos acciones trabajan sobre LO QUE SE ESTÁ VIENDO, no
+                              sobre toda la lista: con el buscador puesto, "quitar
+                              todas" tiene que quitar las que están a la vista y no
+                              barrer en silencio las que el buscador escondió. */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                            <TouchableOpacity onPress={() => setMaqExcluidas((prev) => { const n = new Set(prev); vistas.forEach((m) => n.delete(m.id)); return n; })}>
+                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✓ Incluir todas ({vistas.length})</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setMaqExcluidas((prev) => { const n = new Set(prev); vistas.forEach((m) => n.add(m.id)); return n; })}>
+                              <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Quitar todas ({vistas.length})</Text>
+                            </TouchableOpacity>
+                          </View>
+                          <ScrollView style={{ maxHeight: 260, marginTop: spacing.xs }} nestedScrollEnabled>
+                            {vistas.length === 0 ? (
+                              <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.sm }}>Sin coincidencias.</Text>
+                            ) : (
+                              vistas.map((m) => {
+                                // Tildada = ENTRA. Se muestra al derecho aunque por dentro
+                                // se guarde lo excluido: nadie marca casillas para decir
+                                // "esta no".
+                                const on = !maqFuera.has(m.id);
+                                return (
+                                  <TouchableOpacity key={m.id} onPress={() => toggleMaquina(m.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                                    <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                                      {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      {/* Código + placa/serial: hay tres máquinas llamadas
+                                          RETROEXCAVADORA, y sin el discriminante no se sabe
+                                          cuál se está destildando. */}
+                                      <Text style={{ color: on ? colors.text : colors.muted, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{machineLabel(m) || m.code}</Text>
+                                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
+                                        {m.company}{m.estado === 'activo' ? '' : m.estado === 'inactivo' ? '  ·  INACTIVA' : '  ·  STAND BY'}
+                                      </Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                );
+                              })
+                            )}
+                          </ScrollView>
+                          {maqFuera.size ? (
+                            <Text style={{ color: colors.warning ?? colors.brandText, fontSize: 11, marginTop: spacing.xs, fontWeight: '700' }}>
+                              ⚠️ {textoExclusiones(maquinasDeTipos.length, maqFuera.size)} El PDF lo dice en su encabezado.
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })() : null}
+
                 {tipoResultado ? (
                   <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
                     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
                       <Text style={{ color: colors.brandText, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{tipoResultado.total}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 13 }}>equipo(s) · {tipoResultado.empresas.length} empresa(s)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 13 }}>
+                        equipo(s) · {tipoResultado.empresas.length} {conteoEje === 'clasificacion' ? 'categoría(s)' : 'empresa(s)'}
+                      </Text>
                     </View>
+
+                    {/* El promedio se ve ANTES de imprimir: si el número no cuadra,
+                        se corrige la medida y no se gasta una impresión. */}
+                    {volumenSeleccion.medidos > 0 ? (
+                      <View style={{ marginTop: spacing.xs }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                          {([
+                            ['📦 TOTAL', volumenSeleccion.suma],
+                            ['➗ PROMEDIO', volumenSeleccion.promedio],
+                            ['⬆️ MAYOR', volumenSeleccion.mayor],
+                            ['⬇️ MENOR', volumenSeleccion.menor],
+                          ] as const).map(([lab, val]) => (
+                            <View key={lab} style={{ flex: 1, minWidth: 84, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                              <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>{lab}</Text>
+                              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 16 }}>{val.toFixed(2)}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 10 }}>m³</Text>
+                            </View>
+                          ))}
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                          Sobre <Text style={{ fontWeight: '800' }}>{volumenSeleccion.medidos}</Text> unidad(es) con medida, de{' '}
+                          {volumenSeleccion.total} seleccionada(s). Las que no tienen medida quedan fuera: contarlas como
+                          cero hundiría el promedio.
+                        </Text>
+                      </View>
+                    ) : null}
+                    {/* ── AGRUPAR POR (09-sep-2026) ────────────────────────
+                        Pedido del cliente: poder sacarlo por categoría («remoción
+                        de escombros» y las demás), no solo por empresa.
+                        ⚠️ AGRUPAR NO FILTRA: el total es el mismo por los dos ejes,
+                           solo cambia por dónde se parte el papel. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>AGRUPAR POR</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+                      {([['empresa', '\ud83c\udfe2 Empresa'], ['clasificacion', '\ud83d\udd36 Categoría']] as const).map(([k, label]) => {
+                        const on = conteoEje === k;
+                        return (
+                          <TouchableOpacity key={k} onPress={() => setConteoEje(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      No saca ni agrega ningún equipo: solo cambia si el papel viene partido por empresa o por categoría.
+                      El total es el mismo en los dos.
+                    </Text>
+
+                    {/* Filtro por CATEGORÍA. Vacío = todas, igual que el de empresas. */}
+                    {clasDelConteo.length > 0 ? (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs }}>
+                          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
+                            ¿ALGUNA CATEGORÍA EN ESPECÍFICO? ({clasDelConteo.length})
+                          </Text>
+                          {clasSel.size > 0 ? (
+                            <TouchableOpacity onPress={() => setClasSel(new Set())}>
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800' }}>✕ Todas ({clasSel.size} marcada/s)</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                        <ScrollView style={{ maxHeight: 120 }} nestedScrollEnabled>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                            {clasDelConteo.map((c) => {
+                              const on = clasSel.has(c.name);
+                              return (
+                                <TouchableOpacity
+                                  key={c.name}
+                                  onPress={() => toggleClasSel(c.name)}
+                                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                                >
+                                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.name} · {c.count}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </ScrollView>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+                          {clasSel.size === 0
+                            ? 'Sin marcar ninguna salen TODAS las categorías.'
+                            : `Solo saldrán: ${[...clasSel].join(' · ')}.`}
+                        </Text>
+                      </>
+                    ) : null}
+
+                    {/* ¿QUÉ SE OCULTA? del conteo (09-sep-2026). Mismas pastillas y
+                        mismo comportamiento que las del reporte de Ubicaciones: se
+                        encienden VARIAS a la vez y ocultan columnas o cuadros, nunca
+                        equipos — los totales no cambian. Van PEGADAS a su botón:
+                        configurar en un sitio y exportar en otro es como se quedan
+                        encendidos los filtros que nadie quería. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>¿QUÉ SE OCULTA EN EL PDF?</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                      {PASTILLAS_CONTEO.map((p) => {
+                        const on = conteoOpciones[p.key];
+                        return (
+                          <TouchableOpacity
+                            key={p.key}
+                            onPress={() => setConteoOpciones((x) => alternarConteo(x, p.key))}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                          >
+                            <Text style={{ color: on ? '#FFFFFF' : colors.text, fontSize: 12, fontWeight: '700' }}>{p.chip}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      {ocultosConteoEnPalabras(conteoOpciones)}
+                      {conteoOpciones.sinCubicaje ? '' : ' El alto, el largo y el ancho salen de Cubicaje y volumen; lo que no esté medido ni se reconozca queda EN BLANCO.'}
+                    </Text>
+                    {conteoSinContenido(conteoOpciones) ? (
+                      <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700', marginBottom: spacing.xs }}>
+                        ⚠️ Así el reporte queda sin listado y sin ningún cuadro. Enciende al menos uno de los tres.
+                      </Text>
+                    ) : null}
+                    {/* Sacar TODAS las máquinas deja el conteo en cero. Se avisa acá,
+                        con el botón apagado, y no al tocarlo. */}
+                    {seleccionVacia(maquinasDeTipos.length, maqFuera.size) ? (
+                      <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>
+                        ⚠️ Dejaste fuera todas las máquinas: el reporte saldría en cero. Marca al menos una en "🚜 Escoger máquinas".
+                      </Text>
+                    ) : null}
                     {/* Botón ARRIBA (antes del listado) para no tener que bajar toda la lista. */}
-                    <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.sm, marginBottom: spacing.xs }]} onPress={downloadTipoCountPdf}>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.xs, marginBottom: spacing.xs, opacity: conteoSinContenido(conteoOpciones) || seleccionVacia(maquinasDeTipos.length, maqFuera.size) ? 0.5 : 1 }]}
+                      disabled={conteoSinContenido(conteoOpciones) || seleccionVacia(maquinasDeTipos.length, maqFuera.size)}
+                      onPress={downloadTipoCountPdf}
+                    >
                       <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
                     </TouchableOpacity>
-                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Listado por empresa</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>
+                      {conteoEje === 'clasificacion' ? 'Listado por categoría' : 'Listado por empresa'}
+                    </Text>
+                    {/* De dónde sale el alto/largo/ancho y dónde se cambia. Se dice acá
+                        para que nadie lo busque en esta pantalla: se maneja en Viajes de
+                        camiones → Cubicaje, y esa es la ÚNICA lista de medidas. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      📐 El alto, el largo, el ancho y los m³ se manejan en{' '}
+                      <Text style={{ fontWeight: '800' }}>Viajes de camiones → 📐 Cubicaje y volumen</Text>. Para medir algo que
+                      no sea un volteo o una volqueta, apaga ahí el interruptor «solo camiones».
+                    </Text>
                     {tipoResultado.empresas.map((e) => (
                       <View key={e.company} style={{ marginBottom: spacing.xs }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', flex: 1 }} numberOfLines={1}>🏢 {e.company}</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', flex: 1 }} numberOfLines={1}>{conteoEje === 'clasificacion' ? '\ud83d\udd36' : '\ud83c\udfe2'} {e.company}</Text>
                           <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800' }}>{e.count}</Text>
                         </View>
                         {e.items.map((m, i) => (

@@ -1,8 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
+import {
+  avisoRecalcular, cambiaElRango, hayCambios, limpioNombre, validarPeriodo,
+} from '../lib/periodoNomina';
 import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { exportPagoPersonalXlsx } from '../lib/staffXlsx';
@@ -12,6 +15,7 @@ import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { pasaFiltroEstado, esDesincorporado, EstadoFiltro } from '../lib/staffPayEstado';
 import { grupoApartado, GrupoApartado } from '../lib/nominaGrupos';
+import { mapaDepartamentos, SIN_DEPARTAMENTO } from '../lib/nominaDepartamentos';
 import { levelMeets } from '../lib/permissions';
 import { caracasParts } from '../lib/jornada';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
@@ -34,6 +38,14 @@ const usd = (n: number) => `$${round2(Number(n) || 0).toLocaleString(undefined, 
 const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
 const sumLines = (l: StaffPayLine[]) => (l || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
+/** Fecha y hora de un timestamp, en hora de acá. Para el «editado por X el …». */
+const fmtFechaHora = (iso?: string | null) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} a las ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 function toISO(d: Date): string { return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; }
 function todayISO(): string { return caracasParts(new Date()).iso; }
@@ -94,13 +106,23 @@ type AutoAgg = { diaV: number; nocheV: number; diaAll: number; nocheAll: number;
 
 export default function PagoPersonalScreen() {
   const { colors } = useTheme();
-  const { session, role, moduleLevel } = useAuth();
+  const { session, role, moduleLevel, fullName } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   // Puede generar pagos / editar precios = tiene ESCRITURA o FULL en el módulo Nómina.
   // (Antes se calculaba con el rol base: un usuario con FULL CONTROL en Nómina pero rol
   //  base "analista" quedaba bloqueado y no le salía el botón "Generar pago".)
   const puedeTarifa = levelMeets(moduleLevel('nomina'), 'escritura');
+  /**
+   * CAMBIARLE LAS FECHAS A UN PERÍODO YA CREADO (12-sep-2026).
+   *
+   * Pedido del cliente: «después de que creo un período no lo puedo editar, es
+   * decir cambiarle las fechas… que los que tengan permiso full o admin sí
+   * puedan». Por eso pide FULL y no escritura: mover el rango cambia lo que se
+   * le va a pagar a todo el mundo, y quien genera un pago no es necesariamente
+   * quien puede redefinir el período. Un admin lo tiene por su rol.
+   */
+  const puedeEditarPeriodo = levelMeets(moduleLevel('nomina'), 'full');
   const { rate: bcvRate, date: bcvDate, source: bcvSource, loading: bcvLoading, refresh: refreshBcv } = useBcvRate();
   // Bs equivalente de un monto en US$ (o '' si no hay tasa del día).
   const bsTxt = (usdAmount: number) => (bcvRate ? fmtBs(bsFromUsd(usdAmount, bcvRate)) : '');
@@ -118,6 +140,16 @@ export default function PagoPersonalScreen() {
   // Sin empresa (id null) = personal de la organización → se rotula SOS LA GUAIRA.
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : EMPLEADOR);
 
+  // TABULADOR: de aquí sale el DEPARTAMENTO de cada cargo. Es una tabla chica (una
+  // fila por cargo, no por persona), así que traerla entera sale gratis y evita una
+  // consulta por renglón. La regla de unificación vive en lib/nominaDepartamentos.
+  const { data: tarifas } = useTable<{ cargo: string; departamento: string | null }>('staff_cargo_tariffs', { select: 'cargo, departamento', orderBy: 'cargo' });
+  const depts = useMemo(() => mapaDepartamentos(tarifas ?? []), [tarifas]);
+
+  // Buscador de la LISTA DE NÓMINAS (pestaña "Por período"). Con decenas de nóminas
+  // cargadas, encontrar la del mes pasado era bajar a ojo por toda la lista.
+  const [periodQuery, setPeriodQuery] = useState('');
+
   // Filtro/agrupado por CARGO (el cargo está en cada empleado). Normaliza a MAYÚSCULAS.
   const cargoOf = (cargo?: string | null) => (cargo ?? '').trim().toUpperCase() || 'SIN CARGO';
   // Filtro por cargo (lista desplegable con checks). Vacío = todos.
@@ -126,6 +158,11 @@ export default function PagoPersonalScreen() {
   const [faltantesCount, setFaltantesCount] = useState(0);
   const [cargoOpen, setCargoOpen] = useState(false);
   const toggleCargo = (d: string) => setCargoSel((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
+  // Filtro por DEPARTAMENTO, con las mismas reglas que el de cargo: varios a la vez,
+  // vacío = todos, y se combinan entre sí con Y (departamento Y cargo), no con O.
+  const [deptoSel, setDeptoSel] = useState<Set<string>>(new Set());
+  const [deptoOpen, setDeptoOpen] = useState(false);
+  const toggleDepto = (d: string) => setDeptoSel((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
   // Buscador por nombre + filtro por estado ACTUAL del empleado, dentro de la vista de detalle
   // del período (mismo patrón que PagoPorPersona). Default 'todos': un período ya cerrado tiene
   // sentido verlo completo, incluidos los desincorporados después de cargarlo.
@@ -159,6 +196,10 @@ export default function PagoPersonalScreen() {
   // las dos pestañas nuevas. Se resuelve con la MISMA regla que usa Empleados
   // (`grupoApartado`), a partir de la empresa filtro de nómina y el cargo.
   const [itemEmployeeGrupo, setItemEmployeeGrupo] = useState<Map<string, GrupoApartado>>(new Map());
+  // DEPARTAMENTO de la ficha de cada empleado del período (employees.department).
+  // Es el respaldo de segunda mano: manda lo que diga el tabulador para su cargo, y
+  // esto solo entra cuando el tabulador no tiene nada para ese cargo.
+  const [itemEmployeeDepto, setItemEmployeeDepto] = useState<Map<string, string>>(new Map());
   // ¿Ya llegó el estado de los empleados de este período? Sin esto no se puede
   // distinguir "todavía no cargó" de "este renglón no tiene estado", que es justo
   // lo que rompía el filtro de desincorporados (ver `itemsShown`).
@@ -235,23 +276,27 @@ export default function PagoPersonalScreen() {
     // Estado ACTUAL de los empleados ya incluidos (puede haber cambiado desde que se
     // agregaron al período) → para marcar "Desincorporado" en la lista sin afectar montos.
     const empIds = Array.from(new Set(list.map((i) => i.employee_id).filter((id): id is string => !!id)));
-    // Se traen también `cargo` y la empresa filtro de nómina (embebida por la FK
-    // employees_payroll_company_id_fkey) para poder resolver el GRUPO APARTADO
-    // de cada quien en la misma consulta, sin un viaje extra.
+    // Se traen también `cargo`, el `department` de la ficha y la empresa filtro de
+    // nómina (embebida por la FK employees_payroll_company_id_fkey) para poder
+    // resolver el GRUPO APARTADO y el DEPARTAMENTO de cada quien en la misma
+    // consulta, sin un viaje extra.
     const { data: empStatus } = empIds.length
-      ? await supabase.from('employees').select('id, status, cargo, payroll_company:payroll_company_id(name)').in('id', empIds)
+      ? await supabase.from('employees').select('id, status, cargo, department, payroll_company:payroll_company_id(name)').in('id', empIds)
       : { data: [] as any[] };
     setItemEmployeeStatus(new Map((empStatus ?? []).map((e: any) => [e.id, e.status])));
     const grupos = new Map<string, GrupoApartado>();
+    const deptosFicha = new Map<string, string>();
     (empStatus ?? []).forEach((e: any) => {
       const g = grupoApartado(e.payroll_company?.name, e.cargo);
       if (g) grupos.set(e.id, g);
+      if (e.department) deptosFicha.set(e.id, e.department);
     });
     setItemEmployeeGrupo(grupos);
+    setItemEmployeeDepto(deptosFicha);
     setStatusLoaded(true);
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setItemEmployeeGrupo(new Map()); setStatusLoaded(false); setCargoSel(new Set()); setCargoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setItemEmployeeGrupo(new Map()); setItemEmployeeDepto(new Map()); setStatusLoaded(false); setCargoSel(new Set()); setCargoOpen(false); setDeptoSel(new Set()); setDeptoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
   // El detalle (renglones, abonos y estado de empleados) se carga aparte con
   // supabase.from() directo (no useTable), así que se sincroniza en vivo aquí.
   useRealtimeRefresh(['staff_pay_items', 'staff_pay_payments', 'employees'], () => { if (sel) loadDetail(sel); });
@@ -313,10 +358,17 @@ export default function PagoPersonalScreen() {
   };
 
   // ── Recalcular cantidades automáticas (operadores no ajustados a mano) ───────
-  const recalcularAuto = async () => {
+  const recalcularAuto = async (rango?: { from: string; to: string }) => {
     if (!sel) return;
     setBusy(true);
-    const byCed = await buildAuto(sel.date_from, sel.date_to);
+    // ⚠️ El rango se puede pasar por parámetro, y no es capricho: al cambiarle
+    //    las fechas al período hay que recalcular CON LAS NUEVAS, y `sel` en ese
+    //    momento todavía tiene las viejas porque `setSel` no se ve hasta el
+    //    próximo render. Sin esto, mover una fecha recalculaba contra el rango
+    //    anterior y el total quedaba igual de viejo que antes de tocarla.
+    const desde = rango?.from ?? sel.date_from;
+    const hasta = rango?.to ?? sel.date_to;
+    const byCed = await buildAuto(desde, hasta);
     const updated: StaffPayItem[] = [];
     for (const it of items) {
       if (it.source === 'auto' && !it.overridden) {
@@ -517,6 +569,80 @@ export default function PagoPersonalScreen() {
     setSel({ ...sel, status });
     refetch();
   };
+  // ── EDITAR EL PERÍODO: nombre y fechas (12-sep-2026) ────────────────────────
+  //
+  // ⚠️ SOLO EN BORRADOR, y eso NO es una limitación que se me haya olvidado.
+  //    Un período aprobado o pagado está congelado a propósito: es el respaldo de
+  //    lo que ya se pagó (ver el aviso del candado más abajo, que salió de un
+  //    reporte del cliente del 19-ago). El camino para corregirle las fechas a
+  //    uno cerrado existe y deja rastro: ↩ Reabrir, editar, y volver a aprobar.
+  const [editOpen, setEditOpen] = useState(false);
+  const [eName, setEName] = useState('');
+  const [eFrom, setEFrom] = useState('');
+  const [eTo, setETo] = useState('');
+
+  const abrirEditar = () => {
+    if (!sel) return;
+    setEName(sel.name); setEFrom(sel.date_from); setETo(sel.date_to);
+    setEditOpen(true);
+  };
+
+  const guardarPeriodo = async () => {
+    if (!sel) return;
+    const antes = { name: sel.name, date_from: sel.date_from, date_to: sel.date_to };
+    const ahora = { name: limpioNombre(eName), date_from: eFrom, date_to: eTo };
+    const motivo = validarPeriodo(ahora);
+    if (motivo) return toast.error(motivo);
+    if (!hayCambios(antes, ahora)) { setEditOpen(false); return; }
+
+    setBusy(true);
+    // ⭐ QUIÉN Y CUÁNDO, en la fila misma. El trigger de auditoría también lo
+    //    registra, pero la bitácora hay que ir a buscarla: esto es lo que se ve
+    //    en la pantalla del período, al lado del rango que se cambió.
+    //
+    //    El NOMBRE se guarda como foto además del uuid, igual que en el resto
+    //    del sistema: si mañana dan de baja a esa persona, el uuid queda en null
+    //    por la FK y el texto sigue diciendo quién movió las fechas.
+    const marca = {
+      updated_by: session?.user?.id ?? null,
+      updated_by_name: fullName || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await supabase.from('staff_pay_periods')
+      .update({ name: ahora.name, date_from: ahora.date_from, date_to: ahora.date_to, ...marca })
+      .eq('id', sel.id).select();
+    setBusy(false);
+    if (error) { await confirm({ title: 'No se pudo guardar', message: error.message, confirmText: 'OK', cancelText: '' }); return; }
+    // Mismo motivo que en `setStatus`: si RLS bloquea no llega error, llega una
+    // respuesta sin filas, y sin esto parecería que el botón no hace nada.
+    if (!data || data.length === 0) {
+      await confirm({ title: 'No se pudo guardar', message: 'No tienes permiso para cambiar este período (o ya no existe).', confirmText: 'OK', cancelText: '' });
+      return;
+    }
+    const nuevo = { ...sel, ...ahora, ...marca };
+    setSel(nuevo);
+    setEditOpen(false);
+    refetch();
+
+    // ⭐ LO QUE DE VERDAD IMPORTA DE ESTE CAMBIO. Mover el rango deja las
+    //    cantidades de cada persona describiendo un rango que ya no existe. No
+    //    se recalcula solo —cambiar en silencio un monto que alguien ya revisó
+    //    es peor que dejarlo viejo— pero se pregunta en el momento, que es
+    //    cuando la persona todavía tiene el cambio en la cabeza.
+    if (cambiaElRango(antes, ahora)) {
+      const ok = await confirm({
+        title: 'Cambió el rango de fechas',
+        message: avisoRecalcular(antes, ahora),
+        confirmText: 'Recalcular',
+        cancelText: 'Ahora no',
+      });
+      if (ok) await recalcularAuto({ from: ahora.date_from, to: ahora.date_to });
+      else toast.info('Las cantidades quedaron como estaban. Puedes recalcular cuando quieras con 🔄 Recalcular jornadas.');
+    } else {
+      toast.success('Período actualizado.');
+    }
+  };
+
   const eliminarPeriodo = async () => {
     if (!sel) return;
     const ok = await confirm({ title: 'Eliminar período', message: `¿Eliminar "${sel.name}"? Se borran sus renglones y abonos.`, confirmText: 'Eliminar', cancelText: 'Cancelar' });
@@ -583,11 +709,7 @@ export default function PagoPersonalScreen() {
   // ── PDF: reporte del período ────────────────────────────────────────────────
   const reportePdf = async () => {
     if (!sel) return;
-    // Personal del reporte: si hay selección manual (checkbox), SOLO esos; si no,
-    // respeta el filtro por cargo (vacío = todos) — mismo criterio que el Excel.
-    const base = itemSelIds.size
-      ? items.filter((it) => itemSelIds.has(it.id))
-      : cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
+    const base = baseDocumentos();
     const rowFor = (it: StaffPayItem) => {
       const pagado = paidOf(it.id); const saldo = saldoOf(it);
       const precioCell = sel.mode === 'dia'
@@ -623,9 +745,7 @@ export default function PagoPersonalScreen() {
     const total = round2(base.reduce((s, it) => s + Number(it.total), 0));
     const pagadoT = round2(base.reduce((s, it) => s + paidOf(it.id), 0));
     const saldoT = round2(base.reduce((s, it) => s + saldoOf(it), 0));
-    const filtroNote = itemSelIds.size
-      ? ` · Selección manual (${itemSelIds.size})`
-      : cargoSel.size ? ` · Cargo(s): ${[...cargoSel].sort((a, b) => cmpText(a, b)).join(', ')}` : '';
+    const filtroNote = notaFiltro();
     const html = pdfDocument({
       title: 'Control de pago a personal',
       subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}`,
@@ -651,14 +771,16 @@ export default function PagoPersonalScreen() {
   // eso se ve en "Empleados"). Los montos en Bs son fórmulas referenciando la tasa
   // BCV del día (celda editable). Si hay renglones seleccionados a mano (checkbox),
   // exporta SOLO esos (p. ej. filtrar a "Inactivos/Desincorporados" y seleccionarlos);
-  // si no hay ninguno seleccionado, exporta todos respetando el filtro de cargo (como
-  // ya hacía antes de agregar la selección).
+  // si no hay ninguno seleccionado, exporta todos respetando los filtros (como ya
+  // hacía antes de agregar la selección).
+  //
+  // La hoja sale PARTIDA POR DEPARTAMENTO. El orden de las secciones y el de la gente
+  // dentro de cada una se deciden AQUÍ, no en staffXlsx: ese archivo respeta el orden
+  // en que le llegan las filas, para que la pantalla y el papel no puedan discrepar.
   const exportarExcel = async () => {
     if (!sel) return;
     if (Platform.OS !== 'web') { toast.info('La descarga de Excel se hace desde el navegador (versión web).'); return; }
-    const base = itemSelIds.size
-      ? items.filter((it) => itemSelIds.has(it.id))
-      : cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
+    const base = baseDocumentos();
     // DATOS BANCARIOS: vienen de la ficha de perfil del empleado (employees), no del
     // renglón de nómina — se buscan puntual al exportar. Van los tres que el banco
     // pide para transferir: cuenta, TITULAR y CÉDULA DEL TITULAR. El titular puede ser
@@ -688,8 +810,18 @@ export default function PagoPersonalScreen() {
         cedulaTitular: b.cedula || it.cedula || '',
       };
     };
+    // Ordena por DEPARTAMENTO (jerarquía de la empresa) y, dentro de cada uno, por
+    // nombre. Se ordena antes de exportar porque staffXlsx agrupa respetando el orden
+    // de llegada: si llegara desordenado, el mismo departamento saldría en dos
+    // secciones separadas.
+    const puestoDepto = new Map(depts.orden(base.map(deptoDe)).map((d, i) => [d, i]));
+    const ordenadas = base.slice().sort((a, b) => {
+      const pa = puestoDepto.get(deptoDe(a)) ?? 0, pb = puestoDepto.get(deptoDe(b)) ?? 0;
+      return pa !== pb ? pa - pb : cmpText(a.person_name, b.person_name);
+    });
     const ok = exportPagoPersonalXlsx(
-      base.map((it) => ({
+      ordenadas.map((it) => ({
+        departamento: deptoDe(it),
         nombre: it.person_name, cedula: it.cedula ?? '', cargo: it.cargo ?? '',
         ...bancoDe(it),
         dias: Number(it.dias) || 0, dias_noche: Number(it.dias_noche) || 0, horas: Number(it.horas) || 0, semanas: Number(it.semanas) || 0,
@@ -704,22 +836,36 @@ export default function PagoPersonalScreen() {
         cargoFiltro: itemSelIds.size
           ? `selección manual de ${itemSelIds.size} persona(s)`
           : cargoSel.size ? [...cargoSel].sort((a, b) => cmpText(a, b)).join(', ') : undefined,
+        deptoFiltro: !itemSelIds.size && deptoSel.size ? depts.orden(deptoSel).join(', ') : undefined,
       }
     );
     if (!ok) toast.error('No se pudo generar el Excel.');
   };
 
+  // Buscar una nómina por su nombre, por sus fechas o por su estado. Se busca contra
+  // el mismo texto que la tarjeta muestra —nombre, tipo, rango en dd/mm/aaaa, modo y
+  // estado—, para que valga escribir lo que se está viendo: "quincena", "agosto",
+  // "carbozulia", "pagada" o "29/08/2026".
+  const periodsShown = useMemo(() => {
+    const nq = norm(periodQuery);
+    if (!nq) return periods;
+    return periods.filter((p) => norm([
+      p.name, TYPE_LABEL[p.period_type], fmtDMY(p.date_from), fmtDMY(p.date_to),
+      MODE_LABEL[p.mode], PAGO_STATUS_META[p.status]?.label ?? p.status, companyName(p.company_id),
+    ].join(' ')).includes(nq));
+  }, [periods, periodQuery, companies]);
+
   // Agrupar períodos por empresa.
   const byCompany = useMemo(() => {
     const m = new Map<string, { key: string; name: string; items: StaffPayPeriod[] }>();
-    periods.forEach((p) => {
+    periodsShown.forEach((p) => {
       const k = p.company_id ?? '__none__';
       const g = m.get(k) ?? { key: k, name: companyName(p.company_id), items: [] };
       g.items.push(p);
       m.set(k, g);
     });
     return Array.from(m.values()).sort((a, b) => cmpText(a.name, b.name));
-  }, [periods, companies]);
+  }, [periodsShown, companies]);
 
   const totalPagado = useMemo(() => (sel ? round2(items.reduce((s, it) => s + paidOf(it.id), 0)) : 0), [items, pays, sel]);
   const totalSaldo = useMemo(() => (sel ? round2(items.reduce((s, it) => s + saldoOf(it), 0)) : 0), [items, pays, sel]);
@@ -730,17 +876,61 @@ export default function PagoPersonalScreen() {
     items.forEach((it) => { const d = cargoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
     return [...m.entries()].map(([cargo, count]) => ({ cargo, count })).sort((a, b) => cmpText(a.cargo, b.cargo));
   }, [items]);
+
+  // DEPARTAMENTO de un renglón. El renglón NO lo guarda: `staff_pay_items` congela el
+  // cargo y el precio del día que se cargó la nómina, pero no el departamento. Se
+  // resuelve en vivo con el tabulador (por cargo) y la ficha (por persona).
+  const deptoDe = useCallback(
+    (it: StaffPayItem) => depts.de(it.cargo, it.employee_id ? itemEmployeeDepto.get(it.employee_id) : null),
+    [depts, itemEmployeeDepto],
+  );
+  // Departamentos presentes en el período, en el ORDEN de la jerarquía (no A→Z) para
+  // que el filtro y el Excel se lean igual. El conteo sale de `items` completos, no de
+  // los visibles: un contador que cambia al escribir en el buscador confunde más de lo
+  // que ayuda, porque deja de decir cuánta gente hay en ese departamento.
+  const deptosDisponibles = useMemo(() => {
+    const m = new Map<string, number>();
+    items.forEach((it) => { const d = deptoDe(it); m.set(d, (m.get(d) ?? 0) + 1); });
+    return depts.orden(m.keys()).map((depto) => ({ depto, count: m.get(depto) ?? 0 }));
+  }, [items, deptoDe, depts]);
+
   const itemsShown = useMemo(() => {
     const nq = norm(personaQuery);
     return items
       .filter((it) => !cargoSel.size || cargoSel.has(cargoOf(it.cargo)))
+      .filter((it) => !deptoSel.size || deptoSel.has(deptoDe(it)))
       .filter((it) => !nq || norm(it.person_name).includes(nq))
       // ⚠️ La regla vive en src/lib/staffPayEstado.ts (función pura, con test propio).
       //    NO la reimplementes aquí: el bug del 20-ago-2026 fue exactamente eso —
       //    "sin estado" se trataba como "pasa todos los filtros", así que los renglones
       //    sin ficha salían a la vez en Activos y en Inactivos/Desincorporados.
       .filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo));
-  }, [items, cargoSel, personaQuery, estadoSel, itemEmployeeStatus, itemEmployeeGrupo, statusLoaded]);
+  }, [items, cargoSel, deptoSel, deptoDe, personaQuery, estadoSel, itemEmployeeStatus, itemEmployeeGrupo, statusLoaded]);
+
+  // Personal que sale en los DOCUMENTOS (Excel y reporte PDF): si hay selección manual
+  // (checkbox), solo esos; si no, lo que dejen pasar los filtros de departamento y de
+  // cargo, que se combinan con Y. Vive en un solo sitio a propósito: esta regla estaba
+  // copiada palabra por palabra en el PDF y en el Excel, y con dos copias un filtro
+  // nuevo llega a uno y se olvida en el otro, que es exactamente lo que pasaría ahora
+  // con el de departamento.
+  const baseDocumentos = useCallback(() => (
+    itemSelIds.size
+      ? items.filter((it) => itemSelIds.has(it.id))
+      : items
+        .filter((it) => !deptoSel.size || deptoSel.has(deptoDe(it)))
+        .filter((it) => !cargoSel.size || cargoSel.has(cargoOf(it.cargo)))
+  ), [items, itemSelIds, deptoSel, cargoSel, deptoDe]);
+
+  // Qué filtro se aplicó, escrito al pie del documento. Sin esta nota, una nómina
+  // filtrada y una completa salen idénticas en papel, y no hay cómo saber que falta
+  // gente a propósito.
+  const notaFiltro = useCallback(() => {
+    if (itemSelIds.size) return ` · Selección manual (${itemSelIds.size})`;
+    const partes: string[] = [];
+    if (deptoSel.size) partes.push(`Departamento(s): ${depts.orden(deptoSel).join(', ')}`);
+    if (cargoSel.size) partes.push(`Cargo(s): ${[...cargoSel].sort((a, b) => cmpText(a, b)).join(', ')}`);
+    return partes.length ? ` · ${partes.join(' · ')}` : '';
+  }, [itemSelIds, deptoSel, cargoSel, depts]);
 
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
@@ -814,10 +1004,26 @@ export default function PagoPersonalScreen() {
             Paga por precio por hora, día o semana, definido por trabajador. Se precarga a TODO el personal activo; los operadores cargan sus jornadas solos y al resto se le ajusta a mano.
           </Text>
 
+          {/* Buscador de nóminas. Solo aparece cuando hay más de una: con una sola
+              lista corta estorba más de lo que sirve. */}
+          {periods.length > 1 ? (
+            <TextInput
+              value={periodQuery}
+              onChangeText={setPeriodQuery}
+              placeholder="🔎 Buscar nómina por nombre, fecha o estado…"
+              placeholderTextColor={colors.muted}
+              style={{ ...input, marginBottom: spacing.sm }}
+            />
+          ) : null}
+
           {loading && periods.length === 0 ? (
             <Loading />
           ) : periods.length === 0 ? (
             <EmptyState title="Sin períodos" subtitle="Toca “+ Nuevo” para crear el primer pago a personal." />
+          ) : periodsShown.length === 0 ? (
+            /* Hay nóminas, pero ninguna coincide. Decirlo así —y no "sin períodos"—
+               evita el susto de creer que se borraron. */
+            <EmptyState title="Ninguna nómina coincide" subtitle={`No hay nóminas que digan "${periodQuery.trim()}". Borra la búsqueda para verlas todas.`} />
           ) : (
             byCompany.map((g) => (
               <View key={g.key} style={{ marginBottom: spacing.sm }}>
@@ -924,6 +1130,15 @@ export default function PagoPersonalScreen() {
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyName(sel.company_id)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[sel.period_type]} · {fmtDMY(sel.date_from)} → {fmtDMY(sel.date_to)} · {MODE_LABEL[sel.mode]}{sel.only_validated ? ' · solo validadas' : ''}</Text>
+                {/* ⭐ QUIÉN LE MOVIÓ LAS FECHAS, a la vista y no enterrado en la
+                    bitácora. Sale solo cuando alguien lo editó de verdad: en un
+                    período recién creado esta línea no existe, en vez de decir
+                    «editado por nadie». */}
+                {sel.updated_at ? (
+                  <Text style={{ color: colors.warning, fontSize: 11.5, fontWeight: '700', marginTop: 2 }}>
+                    ✏️ Editado por {sel.updated_by_name || 'un usuario dado de baja'} el {fmtFechaHora(sel.updated_at)}
+                  </Text>
+                ) : null}
                 <View style={{ marginTop: spacing.xs, alignItems: 'flex-start' }}>
                   <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
                 </View>
@@ -940,7 +1155,10 @@ export default function PagoPersonalScreen() {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
                 {sel.status === 'borrador' ? (
                   <>
-                    <TouchableOpacity onPress={recalcularAuto} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                    {/* ⚠️ `() => recalcularAuto()` y no `recalcularAuto` pelado:
+                        `onPress` pasa el evento del toque como primer argumento,
+                        que caería en el parámetro del rango. */}
+                    <TouchableOpacity onPress={() => recalcularAuto()} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{busy ? '…' : '🔄 Recalcular jornadas'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={agregarFaltantes} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
@@ -949,6 +1167,13 @@ export default function PagoPersonalScreen() {
                     <TouchableOpacity onPress={() => abrirAgregarPersona('todos')} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>👤 Agregar persona</Text>
                     </TouchableOpacity>
+                    {/* Cambiarle el nombre o las fechas. Solo con FULL: mover el
+                        rango cambia lo que se le paga a todo el mundo. */}
+                    {puedeEditarPeriodo ? (
+                      <TouchableOpacity onPress={abrirEditar} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar período</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }}>
                       <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
                     </TouchableOpacity>
@@ -971,6 +1196,52 @@ export default function PagoPersonalScreen() {
                   <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>⬇️ Reporte{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* EL EDITOR DEL PERÍODO. Va pegado a los botones, no en un modal
+                  aparte, para que se vea junto al rango que se está cambiando. */}
+              {editOpen ? (
+                <Card>
+                  <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>✏️ Editar período</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre</Text>
+                  <TextInput
+                    value={eName}
+                    onChangeText={setEName}
+                    placeholder='Semana 1 - septiembre'
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 14 }}
+                  />
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Desde</Text>
+                      <DateField value={eFrom} onChange={setEFrom} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hasta</Text>
+                      <DateField value={eTo} onChange={setETo} />
+                    </View>
+                  </View>
+                  {/* Se avisa ANTES de guardar, no después: quien mueve la fecha
+                      tiene que saber que los montos que ve son del rango viejo
+                      mientras todavía está decidiendo. */}
+                  {cambiaElRango({ name: sel.name, date_from: sel.date_from, date_to: sel.date_to }, { name: eName, date_from: eFrom, date_to: eTo }) ? (
+                    <Text style={{ color: colors.warning, fontSize: 11.5, fontWeight: '700', marginTop: spacing.xs }}>
+                      ⚠️ Cambias el rango. Las cantidades de cada persona son del rango anterior; al guardar te pregunto si recalculo.
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                    <TouchableOpacity onPress={() => setEditOpen(false)} disabled={busy} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={guardarPeriodo}
+                      disabled={busy || !hayCambios({ name: sel.name, date_from: sel.date_from, date_to: sel.date_to }, { name: eName, date_from: eFrom, date_to: eTo })}
+                      style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: busy || !hayCambios({ name: sel.name, date_from: sel.date_from, date_to: sel.date_to }, { name: eName, date_from: eFrom, date_to: eTo }) ? 0.5 : 1 }}
+                    >
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{busy ? 'Guardando…' : '💾 Guardar cambios'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+              ) : null}
 
               {/* PERÍODO CERRADO: por qué no se puede tocar nada. Antes los botones de
                   editar / agregar / quitar simplemente NO se dibujaban y no se decía por
@@ -1024,6 +1295,54 @@ export default function PagoPersonalScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Filtro por DEPARTAMENTO: mismo desplegable que el de cargo, y se
+                  combinan con Y. Va PRIMERO porque es el corte más grueso —un
+                  departamento agrupa varios cargos—, así que es por donde se empieza
+                  a filtrar. El orden de la lista es el de la jerarquía, el mismo del
+                  Excel, para que no haya que buscar el mismo departamento en dos
+                  sitios distintos. */}
+              {deptosDisponibles.length > 1 ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => setDeptoOpen((v) => !v)}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                      🏛️ Filtrar por departamento{deptoSel.size > 0 ? ` (${deptoSel.size})` : ' (todos)'}
+                    </Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800' }}>{deptoOpen ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
+                  {deptoOpen ? (
+                    <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                      {deptoSel.size > 0 ? (
+                        <TouchableOpacity onPress={() => setDeptoSel(new Set())} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs }}>
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>✕ Limpiar ({deptoSel.size})</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {deptosDisponibles.map((d) => {
+                        const on = deptoSel.has(d.depto);
+                        return (
+                          <TouchableOpacity key={d.depto} onPress={() => toggleDepto(d.depto)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                              {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                            </View>
+                            <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{d.depto}</Text>
+                            <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>{d.count}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      {/* Quien salga aquí no tiene departamento ni por tabulador ni por
+                          ficha. Se dice dónde se arregla, porque el sitio no es obvio. */}
+                      {deptosDisponibles.some((d) => d.depto === SIN_DEPARTAMENTO) ? (
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                          💡 A los de "{SIN_DEPARTAMENTO}" les falta el departamento en el 🏷️ Tabulador: ponlo una vez por cargo y se acomodan todos.
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
               {/* Filtro por CARGO: lista desplegable con checks.
                   Afecta la lista de abajo Y el reporte PDF. Vacío = todos. */}
