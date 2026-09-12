@@ -95,6 +95,16 @@ export default function AliadosScreen({ navigation }: any) {
     setBusy(null);
   };
 
+  const borrar = async (a: Aliado) => {
+    const etq = (a.tipo ?? 'aliado') === 'invitado' ? 'invitado' : 'aliado';
+    const ok = await confirm({ title: `Eliminar ${etq}`, message: `¿Eliminar a "${fullName(a)}"? Esta acción no se puede deshacer.`, confirmText: 'Eliminar', cancelText: 'Cancelar', danger: true });
+    if (!ok) return;
+    setBusy(a.id + '-del');
+    const { error } = await supabase.from('aliados').delete().eq('id', a.id);
+    if (error) toast.error(error.message); else refetch();
+    setBusy(null);
+  };
+
   const Btn = ({ label, onPress, color, disabled }: { label: string; onPress: () => void; color: string; disabled?: boolean }) => (
     <TouchableOpacity onPress={onPress} disabled={disabled} style={{ flexGrow: 1, flexBasis: 90, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: color, opacity: disabled ? 0.6 : 1 }}>
       <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{label}</Text>
@@ -169,6 +179,7 @@ export default function AliadosScreen({ navigation }: any) {
                   {a.photo_url ? (
                     <Btn label="🗑️ Quitar foto" color="#B91C1C" disabled={busy === a.id + '-photo'} onPress={() => borrarFoto(a)} />
                   ) : null}
+                  <Btn label={busy === a.id + '-del' ? 'Eliminando…' : '🗑️ Eliminar'} color="#991B1B" disabled={busy === a.id + '-del'} onPress={() => borrar(a)} />
                 </View>
               </>
             }
