@@ -102,7 +102,7 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
         {ali.tipo === 'invitado' ? (
           /* INVITADO: logo Golden Touch + INVITADO + empresa + N° de ficha + QR (sin foto ni nombre) */
           <CardFace>
-            <Image source={{ uri: GOLDEN_TOUCH_LOGO }} style={{ width: 120, height: 84, marginTop: 8, zIndex: 1 }} resizeMode="contain" />
+            <Image source={{ uri: GOLDEN_TOUCH_LOGO }} style={{ width: 120, height: 84, marginTop: 26, zIndex: 1 }} resizeMode="contain" />
             <View style={{ backgroundColor: FICHA.brand, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 2, marginTop: 10, zIndex: 1 }}>
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10, letterSpacing: 1 }}>INVITADO</Text>
             </View>

@@ -157,7 +157,7 @@ export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string;
   if (a.tipo === 'invitado') {
     return `<div class="card">
       ${aliadoWave()}
-      <img class="logo" src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="height:22mm;margin-top:6mm"/>
+      <img class="logo" src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="width:42mm;height:auto;max-height:24mm;object-fit:contain;margin-top:12mm"/>
       <div class="kind" style="margin-top:4mm">INVITADO</div>
       <div class="company" style="font-size:4mm;margin-top:3mm">GOLDEN TOUCH 1127 CA</div>
       <div class="ficha" style="margin-top:5mm"><small>N° DE FICHA</small><b>${esc(a.ficha_number || '----')}</b></div>
