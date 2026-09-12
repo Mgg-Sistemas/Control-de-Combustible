@@ -4237,6 +4237,55 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ⚠️ **El número del tique no se puede quitar.** La casilla se ve, pero no se mueve: un tique sin
 > número no identifica nada, no se puede cantar por radio y no se puede reclamar.
 
+> **🖨️ Imprimir el tique y entregarlo (12/09/2026).** Ya se puede sacar el papel. En cada viaje que
+> tenga número aparece **🖨️ Imprimir tique**, al lado de Editar y Borrar. Se abre la vista previa,
+> tocas **Imprimir** y sale el papel para dárselo al camionero.
+>
+> **El botón lo tiene todo el que vea la fila**, no solo quien puede editar. El listero del CDT es
+> justamente quien entrega, y él no puede corregir nada de días viejos.
+>
+> **Las dos formas de imprimir, como se pidió:**
+>
+> - **Uno por uno, en el momento**, desde la tiquetera de rollo del CDT. Se marca el viaje, se
+>   imprime, se entrega.
+> - **Toda la tiquetera de una**, en hojas, para repartir después. En «Lista completa de viajes»,
+>   arriba de la lista, está **🖨️ Imprimir los N tiques de esta lista**. Sale **la lista tal como la
+>   tengas filtrada**: si filtraste por CDT y por día, eso es lo que se imprime.
+>
+> **Antes de mandar te dice cuántas hojas van a salir.** Nadie quiere enterarse de que eran sesenta
+> cuando ya están saliendo.
+>
+> **Queda registrado quién lo entregó, cuándo y desde qué CDT.** Es lo que se pidió: no solo lo que
+> marcaron, también los tiques que se dieron. El CDT que se guarda es el **de quien imprime**, no el
+> del viaje; el del viaje ya está guardado en el viaje. Si la jefa saca un lote desde la oficina, ese
+> tique no lo entregó nadie en el patio, y así queda.
+>
+> ⚠️ **Un tique que ya se entregó sale marcado como REIMPRESIÓN**, en letras grandes dentro de un
+> recuadro. Te avisa antes de mandar, y la fila del viaje muestra **✅ entregado** o **🔁 entregado
+> ×2**. Reimprimir se puede —a veces hace falta— pero hay que saberlo: dos papeles con el mismo
+> número en el patio se cuentan como dos viajes al cobrar.
+>
+> ⚠️ **Sin señal el papel sale igual, y la constancia se guarda sola después.** Si se cae la señal
+> justo al imprimir, arriba te aparece «*N tiques entregados sin registrar en el servidor*». No se
+> pierde nada: sube solo cuando vuelva la señal. El camionero ya tiene su papel.
+>
+> **Si cancelas la vista previa no se anota nada**, porque ese papel no salió.
+>
+> ⚠️ **Un viaje sin número no se puede imprimir**, y el botón no aparece. Son los que están en cola
+> sin subir y los anteriores al 12/09/2026. El botón de la lista completa dice cuántos quedan fuera
+> y por qué.
+
+> **📏 Si no caben todos los datos, el sistema achica la letra (12/09/2026).** Con muchos datos
+> encendidos y 4 o 6 tiques por hoja, el recuadro se llena. El tique **no se corta**: la letra se
+> achica sola hasta que entre todo, incluida la línea de la firma.
+>
+> ⚠️ **Cuando ni con la letra más chica alcanza, te avisa** — en «🎫 Qué sale en el tique» y otra vez
+> al imprimir — y te dice **en qué papel sí caben**. Por debajo de cierto tamaño el papel no se lee
+> parado en el patio, así que antes de achicar más se prefiere avisar.
+>
+> Con los seis datos de fábrica entran cómodos en cualquier papel. El aprieto empieza con todos los
+> datos encendidos y 6 por hoja.
+
 > **🗑️ Borrar un viaje desde «Mis viajes» (12/09/2026).** El tacho estaba solo en «Lista completa de
 > viajes», así que quien registraba un viaje de prueba no tenía cómo quitarlo desde donde lo estaba
 > viendo. Ahora, **si tienes control total**, el botón de borrar aparece también en tu propia lista.
