@@ -38,6 +38,14 @@ const usd = (n: number) => `$${round2(Number(n) || 0).toLocaleString(undefined, 
 const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
 const sumLines = (l: StaffPayLine[]) => (l || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
+/** Fecha y hora de un timestamp, en hora de acá. Para el «editado por X el …». */
+const fmtFechaHora = (iso?: string | null) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} a las ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 function toISO(d: Date): string { return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; }
 function todayISO(): string { return caracasParts(new Date()).iso; }
@@ -98,7 +106,7 @@ type AutoAgg = { diaV: number; nocheV: number; diaAll: number; nocheAll: number;
 
 export default function PagoPersonalScreen() {
   const { colors } = useTheme();
-  const { session, role, moduleLevel } = useAuth();
+  const { session, role, moduleLevel, fullName } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   // Puede generar pagos / editar precios = tiene ESCRITURA o FULL en el módulo Nómina.
@@ -588,8 +596,20 @@ export default function PagoPersonalScreen() {
     if (!hayCambios(antes, ahora)) { setEditOpen(false); return; }
 
     setBusy(true);
+    // ⭐ QUIÉN Y CUÁNDO, en la fila misma. El trigger de auditoría también lo
+    //    registra, pero la bitácora hay que ir a buscarla: esto es lo que se ve
+    //    en la pantalla del período, al lado del rango que se cambió.
+    //
+    //    El NOMBRE se guarda como foto además del uuid, igual que en el resto
+    //    del sistema: si mañana dan de baja a esa persona, el uuid queda en null
+    //    por la FK y el texto sigue diciendo quién movió las fechas.
+    const marca = {
+      updated_by: session?.user?.id ?? null,
+      updated_by_name: fullName || null,
+      updated_at: new Date().toISOString(),
+    };
     const { data, error } = await supabase.from('staff_pay_periods')
-      .update({ name: ahora.name, date_from: ahora.date_from, date_to: ahora.date_to })
+      .update({ name: ahora.name, date_from: ahora.date_from, date_to: ahora.date_to, ...marca })
       .eq('id', sel.id).select();
     setBusy(false);
     if (error) { await confirm({ title: 'No se pudo guardar', message: error.message, confirmText: 'OK', cancelText: '' }); return; }
@@ -599,7 +619,7 @@ export default function PagoPersonalScreen() {
       await confirm({ title: 'No se pudo guardar', message: 'No tienes permiso para cambiar este período (o ya no existe).', confirmText: 'OK', cancelText: '' });
       return;
     }
-    const nuevo = { ...sel, ...ahora };
+    const nuevo = { ...sel, ...ahora, ...marca };
     setSel(nuevo);
     setEditOpen(false);
     refetch();
@@ -1110,6 +1130,15 @@ export default function PagoPersonalScreen() {
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyName(sel.company_id)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[sel.period_type]} · {fmtDMY(sel.date_from)} → {fmtDMY(sel.date_to)} · {MODE_LABEL[sel.mode]}{sel.only_validated ? ' · solo validadas' : ''}</Text>
+                {/* ⭐ QUIÉN LE MOVIÓ LAS FECHAS, a la vista y no enterrado en la
+                    bitácora. Sale solo cuando alguien lo editó de verdad: en un
+                    período recién creado esta línea no existe, en vez de decir
+                    «editado por nadie». */}
+                {sel.updated_at ? (
+                  <Text style={{ color: colors.warning, fontSize: 11.5, fontWeight: '700', marginTop: 2 }}>
+                    ✏️ Editado por {sel.updated_by_name || 'un usuario dado de baja'} el {fmtFechaHora(sel.updated_at)}
+                  </Text>
+                ) : null}
                 <View style={{ marginTop: spacing.xs, alignItems: 'flex-start' }}>
                   <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
                 </View>
