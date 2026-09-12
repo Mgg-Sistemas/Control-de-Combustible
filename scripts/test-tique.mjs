@@ -470,8 +470,73 @@ ok('el documento es uno solo', (docCarta2.match(/<html>/g) || []).length === 1);
 ok('el titulo va vacio', /<title><\/title>/.test(docCarta2));
 
 // ⚠️ UN SOLO TAMANO DE PAPEL POR DOCUMENTO: @page no se puede cambiar a mitad.
-ok('el rollo de 80 pide 80mm de ancho', /@page\{size:80mm auto/.test(documentoDeTiques(tres, cfg({ papel: 'rollo80' }), {})));
-ok('el rollo de 58 pide 58mm', /@page\{size:58mm auto/.test(documentoDeTiques(tres, cfg({ papel: 'rollo58' }), {})));
+// ⚠️ LA PAGINA DEL ROLLO TIENE QUE SER CSS VALIDO. Estaba `size:58mm auto`, que NO
+//    lo es: Chromium descarta la regla entera y arma el tique en una hoja CARTA.
+//    RawBT despues achica esa hoja completa a los 48 mm que pinta la tiquetera, la
+//    letra queda tan chica que el cabezal no la marca, y salian HOJAS EN BLANCO.
+//    Lo reporto el usuario el 12-sep-2026 con una MHT-P11 desde el telefono. Se
+//    comprobo imprimiendo a PDF: con la regla vieja la hoja media 216 x 279 mm.
+const pageDe = (html) => (html.match(/@page\{size:([^;]+);/) || [])[1] || '';
+const paginaValida = (v) => /^\d+(\.\d+)?mm \d+(\.\d+)?mm$/.test(v.trim());
+const p80 = pageDe(documentoDeTiques(tres, cfg({ papel: 'rollo80' }), {}));
+const p58 = pageDe(documentoDeTiques(tres, cfg({ papel: 'rollo58' }), {}));
+ok('el rollo de 80 pide una pagina VALIDA de 80mm de ancho', paginaValida(p80) && p80.startsWith('80mm '));
+ok('el rollo de 58 pide una pagina VALIDA de 58mm de ancho', paginaValida(p58) && p58.startsWith('58mm '));
+ok('ninguna regla de pagina usa auto', !/size:[^;]*auto/.test(documentoDeTiques(tres, cfg({ papel: 'rollo58' }), {})));
+
+// El ALTO sale del calculo del tique. Si fuera un numero fijo, un tique con los 16
+// datos no cabria en su pagina y el navegador lo partiria en dos cortes de papel.
+const { altoDelTique: altoCalc, tamanoQueEntra: tamCalc } = cargar('src/lib/tiqueDocumento.ts');
+const todos58 = normalizarConfig({
+  campos: Object.fromEntries(Object.keys(CONFIG_POR_DEFECTO.campos).map((k) => [k, true])),
+  logos: {}, papel: 'rollo58',
+});
+const altoDe = (v) => Number((v.match(/ (\d+(?:\.\d+)?)mm$/) || [])[1]);
+const altoPocos = altoDe(p58);
+const altoMuchos = altoDe(pageDe(documentoDeTiques(tres, todos58, {})));
+ok('con mas datos la pagina del rollo es mas larga', altoMuchos > altoPocos);
+ok('...y alcanza para el tique calculado mas los margenes',
+  altoMuchos >= altoCalc(tamCalc('rollo58', 16, { logos: false }).pt, 16, { logos: false, reimpresion: false, rollo: true }) + 6);
+
+// ⚠️ EN EL ROLLO LOS VALORES LARGOS SE PARTEN EN DOS LINEAS, y eso tambien ocupa papel.
+//    Se midio en el navegador (12-sep-2026): la columna del valor mide 30 mm en el rollo
+//    de 58, y «EMPRESA DE PRUEBA» ya no cabe en una linea. Con los 16 datos, cuatro
+//    renglones se partian, el tique media 172,5 mm contra 163 de pagina, y salia en DOS
+//    cortes. Con los 6 de fabrica cabia por 3 mm, y solo porque el nombre era corto: un
+//    CDT real como «CDT Parque del Agua» tambien se parte.
+const { lineasDelValor } = cargar('src/lib/tiqueDocumento.ts');
+eq('un valor corto ocupa una linea', lineasDelValor('CDT-000001', 30, 10), 1);
+eq('uno vacio tambien', lineasDelValor('', 30, 10), 1);
+eq('«EMPRESA DE PRUEBA» se parte en dos, como en el navegador', lineasDelValor('EMPRESA DE PRUEBA', 30, 10), 2);
+eq('«Listero de prueba» tambien', lineasDelValor('Listero de prueba', 30, 10), 2);
+ok('una palabra sola mas larga que la columna se corta en varias', lineasDelValor('X'.repeat(40), 30, 10) >= 3);
+ok('con letra mas chica caben mas', lineasDelValor('EMPRESA DE PRUEBA', 30, 6) === 1);
+
+const cortos = { folio: 'CDT-1', fecha: '1', hora: '1', placa: 'X0', empresa: 'A', cdt: 'B', jornada: '1', turno: '1',
+  codigo: 'C', marcaModelo: 'D', serial: 'X1', chofer: 'E', listero: 'F', m3: '1', estado: 'G', nota: 'H' };
+const largos = { ...cortos, empresa: 'EMPRESA DE PRUEBA', codigo: 'CAMION DE PRUEBA', chofer: 'Chofer de prueba', listero: 'Listero de prueba' };
+// Se lee aca y no se usa libDocSC: esa se declara mas abajo, en la seccion 9, y
+// usarla antes revienta la prueba entera con ReferenceError.
+const docSinComentarios = sinComentarios(leer('src/lib/tiqueDocumento.ts'));
+const altoPaginaDe = (datos) => altoDe(pageDe(documentoDeTiques([{ datos }], todos58, {})));
+// Cuatro renglones partidos son cuatro lineas de mas: a 10 pt, unos 19 mm de papel.
+ok('los valores largos alargan la pagina del rollo lo que ocupan de verdad',
+  altoPaginaDe(largos) - altoPaginaDe(cortos) >= 4 * 10 * 1.35 * 25.4 / 72 - 1);
+// En un mandado la pagina es UNA para todos: tiene que alcanzar para el mas largo.
+ok('en un mandado la pagina alcanza para el tique mas largo',
+  altoDe(pageDe(documentoDeTiques([{ datos: cortos }, { datos: largos }], todos58, {}))) >= altoPaginaDe(largos));
+ok('el alto del rollo mira los DATOS de los tiques, no solo cuantos renglones hay',
+  /lineasExtra/.test(docSinComentarios) && /lineasDelValor\(/.test(docSinComentarios));
+// La columna que usa la cuenta es la MISMA que dibuja el CSS: si se separan, miente.
+// Se recorta SOLO el cuerpo de cssComun y, dentro, SOLO la regla de la etiqueta. Mirar
+// el resto del archivo no sirve: la constante tambien aparece en documentoDeTiques, y
+// la guarda seguia pasando con el CSS escrito a mano (lo cazo una prueba de mutacion).
+const inicioCss = docSinComentarios.indexOf('function cssComun');
+const cuerpoCss = docSinComentarios.slice(inicioCss, docSinComentarios.indexOf('\n}\n', inicioCss));
+const reglaEtiqueta = (cuerpoCss.match(/\.k\{[^`]*`/) || [''])[0];
+ok('la cuenta y el CSS usan el mismo ancho de etiqueta',
+  cuerpoCss.length > 200 && /flex:0 0 \$\{rollo \? ANCHO_ETIQUETA_ROLLO_MM/.test(reglaEtiqueta));
+ok('...y el mismo hueco entre etiqueta y valor', /gap:\$\{GAP_FILA_MM\}mm/.test(cuerpoCss));
 ok('la hoja pide carta', /@page\{size:letter/.test(documentoDeTiques(tres, cfg({ papel: 'carta4' }), {})));
 ok('solo hay UNA regla @page', (documentoDeTiques(tres, cfg({ papel: 'carta4' }), {}).match(/@page\{/g) || []).length === 1);
 // En hoja hace falta saber por donde cortar; en rollo corta la maquina.
@@ -589,7 +654,7 @@ ok('...y los dos tiques de la hoja llevan el mismo tamano',
 
 // Guardas sobre el codigo del papel.
 ok('el CSS recibe el tamano ya calculado, no lo elige por su cuenta',
-  /function cssComun\(papel: PapelTique, base: number\)/.test(libDocSC));
+  /function cssComun\(papel: PapelTique, base: number, altoRolloMm: number \| null\)/.test(libDocSC));
 ok('el documento lo calcula antes de armar el CSS',
   /const \{ pt \} = tamanoQueEntra\(c\.papel, renglones/.test(libDocSC));
 // La firma tiene que quedar al pie del recuadro, no pegada al ultimo dato.
@@ -713,6 +778,10 @@ ok('el manual .md explica que la letra se achica sola', /el sistema achica la le
 ok('el manual en pantalla explica como imprimir', /IMPRIMIR EL TIQUE Y ENTREGARLO \(12\/09\/2026\)/.test(ms));
 ok('...y que el CDT que se guarda es el de quien imprime', /EL DE QUIEN IMPRIME/.test(ms));
 ok('el manual en pantalla explica lo de la letra', /ACHICA LA LETRA \(12\/09\/2026\)/.test(ms));
+ok('el manual .md explica como imprimir desde el telefono', /Imprimir desde el teléfono con una tiquetera Bluetooth \(12\/09\/2026\)/.test(md));
+ok('...y que hace falta RawBT', /app puente, \*\*RawBT\*\*/.test(md));
+ok('...y que las hojas en blanco eran del sistema', /hojas en blanco, era un error del sistema/.test(md));
+ok('el manual en pantalla tambien', /IMPRIMIR DESDE EL TELÉFONO CON UNA TIQUETERA BLUETOOTH \(12\/09\/2026\)/.test(ms));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-tique · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
