@@ -51,6 +51,7 @@ export default function AliadosScreen({ navigation }: any) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Aliado | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const q = norm(query.trim());
   const shown = useMemo(
@@ -71,7 +72,23 @@ export default function AliadosScreen({ navigation }: any) {
   // Tipo del formulario: al editar respeta el del registro; al crear, el apartado activo.
   const activeTipo: 'aliado' | 'invitado' = editing ? ((editing.tipo as any) ?? 'aliado') : tab;
 
-  const openNew = () => { setEditing(null); setFormOpen(true); };
+  // Invitado: NO lleva formulario. Se crea directo (sin foto ni datos), la BD le
+  // saca la ficha por secuencia (0001, 0002…) y se abre su carnet para imprimir.
+  const crearInvitado = async () => {
+    setCreating(true);
+    const { data, error } = await supabase.from('aliados')
+      .insert({ tipo: 'invitado', organizacion: GOLDEN_TOUCH, first_name: 'INVITADO', last_name: '', status: 'activo' } as any)
+      .select('id, ficha_number').single();
+    setCreating(false);
+    if (error) {
+      if (/column .*tipo|tipo.* does not exist/i.test(error.message)) { toast.error('Corre "aliados_invitados.sql" en Supabase para habilitar los invitados.'); return; }
+      toast.error(error.message); return;
+    }
+    refetch();
+    toast.success(`Invitado creado · Ficha ${(data as any)?.ficha_number ?? ''}. Toca "🪪 Sacar ficha" para imprimir su carnet.`);
+  };
+
+  const openNew = () => { if (esInvitados) { crearInvitado(); return; } setEditing(null); setFormOpen(true); };
   const openEdit = (a: Aliado) => { setEditing(a); setFormOpen(true); };
 
   const subirFoto = async (a: Aliado) => {
@@ -116,8 +133,8 @@ export default function AliadosScreen({ navigation }: any) {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>{esInvitados ? 'Invitados' : 'Aliados'}</SectionTitle>
-        <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{esInvitados ? '+ Nuevo invitado' : '+ Nuevo aliado'}</Text>
+        <TouchableOpacity onPress={openNew} disabled={creating} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: creating ? 0.6 : 1 }}>
+          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{creating ? 'Creando…' : (esInvitados ? '+ Nuevo invitado' : '+ Nuevo aliado')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -173,13 +190,23 @@ export default function AliadosScreen({ navigation }: any) {
                   {[a.cedula ? `C.I ${a.cedula}` : '', a.blood_type ? `🩸 ${a.blood_type}` : '', a.phone || ''].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-                  <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(a)} />
-                  <Btn label="🪪 Carnet" color="#2563EB" onPress={() => navigation.navigate('AliadoCard', { aliadoId: a.id })} />
-                  <Btn label={busy === a.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === a.id + '-photo'} onPress={() => subirFoto(a)} />
-                  {a.photo_url ? (
-                    <Btn label="🗑️ Quitar foto" color="#B91C1C" disabled={busy === a.id + '-photo'} onPress={() => borrarFoto(a)} />
-                  ) : null}
-                  <Btn label={busy === a.id + '-del' ? 'Eliminando…' : '🗑️ Eliminar'} color="#991B1B" disabled={busy === a.id + '-del'} onPress={() => borrar(a)} />
+                  {(a.tipo ?? 'aliado') === 'invitado' ? (
+                    // Invitado: sin formulario ni foto. Solo sacar su ficha (carnet) o eliminar.
+                    <>
+                      <Btn label="🪪 Sacar ficha" color="#2563EB" onPress={() => navigation.navigate('AliadoCard', { aliadoId: a.id })} />
+                      <Btn label={busy === a.id + '-del' ? 'Eliminando…' : '🗑️ Eliminar'} color="#991B1B" disabled={busy === a.id + '-del'} onPress={() => borrar(a)} />
+                    </>
+                  ) : (
+                    <>
+                      <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(a)} />
+                      <Btn label="🪪 Carnet" color="#2563EB" onPress={() => navigation.navigate('AliadoCard', { aliadoId: a.id })} />
+                      <Btn label={busy === a.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === a.id + '-photo'} onPress={() => subirFoto(a)} />
+                      {a.photo_url ? (
+                        <Btn label="🗑️ Quitar foto" color="#B91C1C" disabled={busy === a.id + '-photo'} onPress={() => borrarFoto(a)} />
+                      ) : null}
+                      <Btn label={busy === a.id + '-del' ? 'Eliminando…' : '🗑️ Eliminar'} color="#991B1B" disabled={busy === a.id + '-del'} onPress={() => borrar(a)} />
+                    </>
+                  )}
                 </View>
               </>
             }
