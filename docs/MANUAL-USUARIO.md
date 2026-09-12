@@ -4106,6 +4106,16 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > *"Fin de contrato"* no tiene meta que cumplir ni está parado: no está. **Sus viajes viejos no se
 > pierden**: si un camión retirado tiene viajes en el rango que estás mirando, su renglón sale igual.
 >
+> **⏳ Y las que esperan instrucciones tampoco (12/09/2026).** Misma regla y mismo motivo: un camión
+> en espera no está trabajando, así que no tiene meta diaria que cumplir, y contarlo en el resumen
+> con 0 viajes dice que la obra rinde menos de lo que rinde. Igual que con las retiradas, **si tiene
+> viajes en el rango su renglón sale**.
+>
+> ⚠️ **Esto es solo el panel. La lista del LISTERO no cambia:** ahí las que esperan instrucciones se
+> siguen ofreciendo, a propósito, desde el 31/08/2026. Un viaje es algo que el listero **vio**, y
+> *"en espera"* es una anotación de otro módulo que puede estar vieja. Si se filtrara también allá,
+> un camión mal marcado dejaría al listero sin manera de anotar viajes que sí ocurrieron.
+>
 > **Y los camiones que el listero «agregó a su lista» ya salen con su placa y su empresa.** Los que
 > se agregan desde el buscador (los que existen en el catálogo pero su código no dice
 > *volteo/volqueta/toronto*) salían en el resumen, en los filtros y en el PDF **sin placa (—) y bajo

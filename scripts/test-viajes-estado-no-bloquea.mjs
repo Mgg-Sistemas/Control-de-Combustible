@@ -58,7 +58,15 @@ const codigo = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*
 //   · RETIRADA -> NO. No es una anotacion dudosa: es un hecho administrativo,
 //     el camion se fue de la obra. No hay viaje observado que lo contradiga.
 //     Si de verdad hubo uno, lo carga la jefa desde "Cargar viajes a mano".
-ok('* las EN ESPERA ya no se filtran', !/allTrucks\.filter\([^)]*enEspera/.test(codigo));
+// ⚠️ El guarda mira la lista DEL LISTERO (`trucksSeleccionables`), no el archivo
+//    entero. Desde el 12-sep-2026 el panel de la JEFA si saca las EN ESPERA
+//    (`fueraDeLaObra`), y un `!/enEspera/` sobre todo el archivo se caeria por
+//    eso, tapando la regla que de verdad importa acá: al listero no se le puede
+//    esconder un camion que el VIO entrar.
+{
+  const listero = codigo.slice(codigo.indexOf('const trucksSeleccionables'), codigo.indexOf('const fueraDeLaObra'));
+  ok('* la lista del LISTERO no filtra las EN ESPERA', listero.length > 0 && !/enEspera/.test(listero));
+}
 ok('* la lista saca las RETIRADAS', /allTrucks\.filter\(\(t\) => !estaRetirada\(t\)\)/.test(codigo));
 ok('* y retirada se define por operational, no por active',
   /const estaRetirada = \(t: TruckRow\) => !t\.operational;/.test(codigo));
