@@ -253,12 +253,32 @@ const lib = sinComentarios(leer('src/lib/camionViajes.ts'));
 ok('la lectura de viajes se reintenta sin las columnas nuevas', /const data = await selectAllRows\('camion_viajes', SELECT_COLS, filtro\)/.test(lib));
 // El REINTENTO, no cualquier insert: sin él, el listero no podría registrar ni
 // un viaje entre el despliegue y el momento en que se corra el SQL.
-ok('el insert se reintenta sin las columnas nuevas',
-  /const reintento = await supabase\.from\('camion_viajes'\)\.insert\(base\);/.test(lib));
+//
+// Desde la tiquetera (12-sep-2026) el reintento es una ESCALERA de tres peldaños
+// —todo, sin tique, pelado— porque hay dos grupos de columnas que pueden faltar
+// por separado. El peldaño de abajo es el que salva al listero.
+ok('el insert baja hasta el cuerpo pelado',
+  /escalones\.push\(\{ cuerpo: base, obra: false, tique: false \}\);/.test(lib));
+ok('...y los tres peldaños salen del MISMO cuerpo base',
+  (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 2);
 ok('el reintento usa la MISMA clave de idempotencia', !/nuevoClientActionId/.test(lib));
 ok('la lista de listeros no se cae sin la columna', /supabase\.from\('profiles'\)\.select\(COLS_PERFIL\)/.test(lib));
-ok('el interruptor solo se apaga si el reintento funciona',
-  /if \(!reintento\.error\) hayColumnasDeObra = false;/.test(lib));
+
+// ⭐ EL GUARDA QUE DE VERDAD IMPORTA: los interruptores solo se tocan DESPUÉS de
+//    que un insert funcionó. Si se apagaran al fallar, un error que no tenía
+//    nada que ver con las columnas dejaría al módulo sin obras ni tique el resto
+//    de la sesión — y los viajes de esa sesión se guardarían sin folio.
+{
+  const i = lib.indexOf('for (const paso of escalones)');
+  const bucle = i >= 0 ? lib.slice(i, lib.indexOf('if (error) return { error: error.message', i)) : '';
+  const iExito = bucle.indexOf('if (!error) {');
+  const iVuelta = bucle.indexOf('return {};');
+  const asignaciones = [...bucle.matchAll(/hayColumnasDe(?:Obra|Tique) = (?:true|false);/g)].map((m) => m.index);
+  ok('los interruptores solo se tocan cuando el insert FUNCIONÓ',
+    bucle.length > 0 && iExito >= 0 && iVuelta > iExito
+    && asignaciones.length >= 4
+    && asignaciones.every((p) => p > iExito && p < iVuelta));
+}
 
 // ── 6b) EL PANEL: nombre nuevo y todo plegable (12-sep-2026) ───────────────
 ok('el panel ya no se llama "de la jefa"', !/Panel de la jefa<\/SectionTitle>/.test(scrCrudo));
