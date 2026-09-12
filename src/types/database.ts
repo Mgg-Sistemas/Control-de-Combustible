@@ -339,7 +339,8 @@ export interface UniformDelivery {
 /** Aliado: contacto/colaborador externo con ficha y carnet propios. */
 export interface Aliado {
   id: string;
-  ficha_number: string | null;   // número de ficha (4 dígitos aleatorio, único)
+  tipo: 'aliado' | 'invitado';   // apartado: aliado normal | invitado (carnet INVITADO, empresa GOLDEN TOUCH 1127)
+  ficha_number: string | null;   // aliado: 4 dígitos aleatorio único; invitado: secuencial 0001, 0002…
   first_name: string;
   last_name: string;
   cedula: string | null;

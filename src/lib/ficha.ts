@@ -84,11 +84,12 @@ export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?:
 /** Ficha COMPLETA de un aliado (todos los datos) en PDF. */
 export function fichaAliadoHtml(a: Aliado, opts?: FichaOpts): string {
   const photo = opts?.photoDataUri || a.photo_url || '';
+  const esInvitado = a.tipo === 'invitado';
   const header = `<div class="fx-head">
       ${photo ? `<img class="fx-photo" src="${photo}"/>` : ''}
       <div class="fx-meta">
         <div class="fx-name">${esc(nombre(a))}</div>
-        <div class="fx-cargo">${esc(a.rol || 'Aliado')}</div>
+        <div class="fx-cargo">${esc(a.rol || (esInvitado ? 'Invitado' : 'Aliado'))}</div>
         ${a.ficha_number ? `<div class="m">N° de ficha: <b>${esc(a.ficha_number)}</b></div>` : ''}
         <div class="m">Estado: <b>${esc(STATUS_LABEL[a.status] ?? a.status ?? '')}</b></div>
       </div>
@@ -104,5 +105,5 @@ export function fichaAliadoHtml(a: Aliado, opts?: FichaOpts): string {
         ['Teléfono', a.phone], ['Correo', a.email], ['Dirección', a.address], ['Ciudad', a.city], ['Estado', a.state],
       ])
     + (a.notes ? `<h3 class="sec">📝 Notas</h3><div class="note">${esc(a.notes)}</div>` : '');
-  return pdfDocument({ title: 'Ficha de aliado', subtitle: nombre(a), body, extraCss: FICHA_CSS });
+  return pdfDocument({ title: esInvitado ? 'Ficha de invitado' : 'Ficha de aliado', subtitle: nombre(a), body, extraCss: FICHA_CSS });
 }

@@ -1425,7 +1425,8 @@ create trigger trg_employee_ficha before insert on public.employees
 -- ============================================================================
 create table if not exists public.aliados (
   id uuid primary key default gen_random_uuid(),
-  ficha_number text,                       -- 4 dígitos ALEATORIO único (no repetible)
+  tipo text not null default 'aliado' check (tipo in ('aliado','invitado')),  -- apartado: aliado | invitado (carnet INVITADO, empresa GOLDEN TOUCH 1127)
+  ficha_number text,                       -- aliado: 4 dígitos ALEATORIO único; invitado: secuencial 0001, 0002…
   first_name text not null,
   last_name text not null,
   cedula text,
@@ -1444,30 +1445,41 @@ create table if not exists public.aliados (
   created_at timestamptz not null default now()
 );
 create unique index if not exists uq_aliados_cedula on public.aliados (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
-create unique index if not exists uq_aliados_ficha  on public.aliados (lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';
+create unique index if not exists uq_aliados_ficha  on public.aliados (coalesce(tipo,'aliado'), lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';
 alter table public.aliados enable row level security;
 -- Lectura pública (el QR de la ficha se abre con sesión anónima, igual que empleados).
 drop policy if exists aliados_read on public.aliados;
 create policy aliados_read on public.aliados for select using (true);
 drop policy if exists aliados_write on public.aliados;
 create policy aliados_write on public.aliados for all to authenticated using (true) with check (true);
--- N° de ficha ALEATORIO de 4 dígitos, ÚNICO (no repetible), asignado al crear.
+-- N° de ficha según el TIPO: invitado = SECUENCIAL (0001, 0002…); aliado =
+-- ALEATORIO de 4 dígitos, ÚNICO. La unicidad es por (tipo, ficha).
 create or replace function public.set_aliado_ficha() returns trigger language plpgsql as $fn$
-declare cand text; tries int := 0;
+declare cand text; tries int := 0; n int;
 begin
   if new.ficha_number is null or btrim(new.ficha_number) = '' then
-    loop
-      cand := lpad((floor(random()*10000))::int::text, 4, '0');
-      exit when not exists (select 1 from public.aliados where ficha_number = cand);
-      tries := tries + 1;
-      if tries > 300 then
-        select lpad(g::text,4,'0') into cand from generate_series(0,9999) g
-          where not exists (select 1 from public.aliados a where a.ficha_number = lpad(g::text,4,'0'))
-          order by g limit 1;
-        exit;
-      end if;
-    end loop;
-    new.ficha_number := cand;
+    if coalesce(new.tipo, 'aliado') = 'invitado' then
+      -- INVITADOS: numeración propia y SECUENCIAL, empezando en 0001.
+      perform pg_advisory_xact_lock(hashtext('aliados_invitado_ficha'));
+      select coalesce(max((regexp_replace(ficha_number, '\D', '', 'g'))::int), 0) + 1
+        into n from public.aliados
+        where coalesce(tipo, 'aliado') = 'invitado' and ficha_number ~ '^[0-9]+$';
+      new.ficha_number := lpad(n::text, 4, '0');
+    else
+      -- ALIADOS: 4 dígitos ALEATORIO único.
+      loop
+        cand := lpad((floor(random()*10000))::int::text, 4, '0');
+        exit when not exists (select 1 from public.aliados where coalesce(tipo,'aliado') <> 'invitado' and ficha_number = cand);
+        tries := tries + 1;
+        if tries > 300 then
+          select lpad(g::text,4,'0') into cand from generate_series(0,9999) g
+            where not exists (select 1 from public.aliados a where coalesce(a.tipo,'aliado') <> 'invitado' and a.ficha_number = lpad(g::text,4,'0'))
+            order by g limit 1;
+          exit;
+        end if;
+      end loop;
+      new.ficha_number := cand;
+    end if;
   end if;
   return new;
 end $fn$;

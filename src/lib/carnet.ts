@@ -95,6 +95,7 @@ export type AliadoCard = {
   cedula?: string | null;
   organizacion?: string | null;
   photo_url?: string | null;
+  tipo?: 'aliado' | 'invitado' | null;  // invitado → carnet dice INVITADO + empresa
 };
 
 export const CARNET_ALIADO_MM = { w: 54, h: 86 };
@@ -108,13 +109,14 @@ export const carnetAliadoStyles = `
   .card{position:relative;width:54mm;height:86mm;background:#fff;border-radius:3mm;overflow:hidden;
     display:flex;flex-direction:column;align-items:center;padding:7mm 4mm 6mm}
   .bg{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0}
-  .logo,.photoBox,.name,.kind,.ficha,.qr,.qrlabel{position:relative;z-index:1}
+  .logo,.photoBox,.name,.kind,.company,.ficha,.qr,.qrlabel{position:relative;z-index:1}
   .logo{height:8mm;width:auto;margin:0 auto 1mm;display:block}
   .photoBox{width:24mm;height:26mm;border-radius:2mm;border:0.5mm solid #16324F;background:#eef2f7;overflow:hidden;display:block}
   .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:13mm;color:#9aa7b6}
   .photo{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
   .name{font-size:3.8mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1.2mm 0 0.4mm}
   .kind{font-size:2.4mm;font-weight:800;color:#fff;background:#16324F;border-radius:1.2mm;padding:0.7mm 3.5mm;letter-spacing:.5mm}
+  .company{font-size:2.6mm;font-weight:800;color:#16324F;text-align:center;margin:1mm 0 0;letter-spacing:.2mm}
   .ficha{margin-top:1mm;text-align:center}
   .ficha small{display:block;font-size:2mm;font-weight:700;color:#5b6b7c;letter-spacing:.3mm}
   .ficha b{font-size:5.5mm;font-weight:900;color:#16324F;letter-spacing:1.2mm}
@@ -150,12 +152,17 @@ export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string;
   const src = opts.photoOverride ?? a.photo_url;
   const photo = src ? `<div class="photoBox"><img class="photo" src="${esc(src)}"/></div>` : `<div class="photoBox ph">👤</div>`;
   const qr = qrToImg(opts.qrSvg);
+  // Invitado: el carnet dice "INVITADO" y lleva la empresa (GOLDEN TOUCH 1127).
+  const esInvitado = a.tipo === 'invitado';
+  const kind = esInvitado ? 'INVITADO' : 'ALIADO';
+  const company = esInvitado ? (a.organizacion || 'GOLDEN TOUCH 1127') : '';
   return `<div class="card">
       ${aliadoWave()}
       <img class="logo" src="${LOGO_DATA_URI}"/>
       ${photo}
       <div class="name">${esc(name)}</div>
-      <div class="kind">ALIADO</div>
+      <div class="kind">${esc(kind)}</div>
+      ${company ? `<div class="company">${esc(company)}</div>` : ''}
       <div class="ficha"><small>N° DE FICHA</small><b>${esc(a.ficha_number || '----')}</b></div>
       ${qr ? `<div class="qr">${qr}</div><div class="qrlabel">QR de acceso y control</div>` : ''}
     </div>`;
