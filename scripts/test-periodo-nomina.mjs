@@ -176,6 +176,29 @@ ok('...y si dicen que no, se avisa que quedaron viejas',
 ok('se detecta el update que no toco ninguna fila',
   /if \(!data \|\| data\.length === 0\) \{[\s\S]{0,300}?No tienes permiso para cambiar este período/.test(scr));
 
+// ── 5b) QUIEN LO EDITO (12-sep-2026) ────────────────────────────────────────
+// Pedido del cliente: «me tienes que guardar y decir quien hizo el cambio,
+// ademas de que se debe guardar en auditoria obviamente».
+ok('se guarda quien edito', /updated_by: session\?\.user\?\.id \?\? null/.test(scr));
+// El NOMBRE va como foto ademas del uuid: si dan de baja al usuario, la FK deja
+// el uuid en null y sin el texto no quedaria de quien fue.
+ok('...y su nombre como foto', /updated_by_name: fullName \|\| null/.test(scr));
+ok('...y cuando', /updated_at: new Date\(\)\.toISOString\(\)/.test(scr));
+ok('la marca viaja en el mismo update que las fechas', /date_to: ahora\.date_to, \.\.\.marca \}/.test(scr));
+// Sin esto la pantalla seguiria mostrando el periodo sin la marca hasta recargar.
+ok('...y queda en lo que se ve al instante', /\{ \.\.\.sel, \.\.\.ahora, \.\.\.marca \}/.test(scr));
+ok('el nombre sale del usuario en sesion', /const \{ session, role, moduleLevel, fullName \} = useAuth\(\);/.test(scr));
+
+// Se ENSEÑA, no solo se guarda: la bitacora hay que ir a buscarla.
+ok('se ve quien lo edito en la ficha del periodo', /Editado por \{sel\.updated_by_name \|\| 'un usuario dado de baja'\}/.test(scr));
+// Y NO se ve en un periodo recien creado: decir «editado por nadie» es peor.
+ok('...y no sale si nunca se edito', /\{sel\.updated_at \?/.test(scr));
+
+// La tabla lleva el trigger generico de auditoria (`audit_row`), que es el
+// mismo de las otras 45 tablas. Se corrio como migracion, no vive en el repo.
+ok('el modulo de auditoria sabe a que modulo pertenece la tabla',
+  /staff_pay_periods: 'nomina'/.test(leer('src/lib/auditModulos.ts')));
+
 // Las reglas son puras: si importaran algo, esta prueba no podria correrlas.
 ok('la libreria del periodo NO importa nada', !/^\s*import\s/m.test(sinComentarios(leer('src/lib/periodoNomina.ts'))));
 
@@ -186,6 +209,10 @@ ok('el manual .md explica que se puede editar', /Cambiarle las fechas a un perí
 ok('...y que pide control total', /control total/i.test(md));
 ok('...y que hay que recalcular', /recalcul/i.test(md));
 ok('el manual en pantalla tambien', /CAMBIARLE LAS FECHAS A UN PERÍODO \(12\/09\/2026\)/.test(ms));
+ok('el manual .md dice que queda constancia de quien', /Queda constancia de quién lo cambió/.test(md));
+ok('...y que entra en auditoria', /entra en \*\*Auditoría\*\*/.test(md));
+ok('...y por que los renglones NO entran', /no entran en Auditoría, y es a propósito/i.test(md));
+ok('el manual en pantalla tambien lo dice', /QUEDA CONSTANCIA DE QUIÉN LO CAMBIÓ/.test(ms));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-periodo-nomina · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

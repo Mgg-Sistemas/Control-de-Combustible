@@ -850,6 +850,15 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > ⚠️ **Solo mientras el período esté en borrador.** Uno aprobado o pagado está congelado a propósito:
 > es el respaldo de lo que ya se pagó. Para corregirle las fechas, toca **↩ Reabrir**, edítalo, y
 > vuelve a aprobarlo.
+>
+> **Queda constancia de quién lo cambió, en dos sitios.** Dentro del período, debajo del rango, sale
+> en naranja *«✏️ Editado por Fulano el 12/09/2026 a las 14:30»*. Y el cambio entra en **Auditoría**,
+> con el nombre del período, lo que decía antes y lo que dice ahora. Si al usuario lo dan de baja
+> después, la línea del período sigue diciendo quién fue.
+>
+> ⚠️ **Los renglones de cada persona no entran en Auditoría, y es a propósito.** Son casi 5.000 filas
+> que se reescriben enteras cada vez que alguien toca «Recalcular jornadas»: un solo clic dejaría
+> cientos de líneas en la bitácora. Lo que se audita es quién movió el período.
 
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
