@@ -518,7 +518,8 @@ export default function ViajesCamionesScreen() {
     return [...base, ...sumadas].sort((a, b) => cmpText(a.code, b.code));
   }, [allTrucks, catalogoTrucks, extraTruckIds]);
   /**
-   * La flota que ESTÁ en la obra: los camiones de siempre menos las retiradas.
+   * La flota que ESTÁ en la obra: los camiones de siempre, menos las RETIRADAS y
+   * menos las que están EN ESPERA DE INSTRUCCIONES.
    *
    * Es lo que se le enseña a la jefa. El arreglo del 31-ago sacó las retiradas
    * de la lista del LISTERO, pero en el panel de la jefa seguían en dos sitios:
@@ -526,10 +527,24 @@ export default function ViajesCamionesScreen() {
    * contadas como flota parada. Un camión con "Fin de contrato" no tiene meta
    * que cumplir ni está parado: no está.
    *
-   * Los viajes VIEJOS de un camión ya retirado no se pierden: el resumen suma
+   * ⭐ EN ESPERA ENTRA EN LA MISMA REGLA (12-sep-2026, pedido del cliente: «no
+   *    debe ver las que están esperando instrucciones ni las retiradas»). El
+   *    argumento es idéntico: un camión que espera instrucciones no está
+   *    trabajando, así que no tiene meta diaria que cumplir y contarlo como
+   *    flota con 0 viajes dice que la obra rinde menos de lo que rinde.
+   *
+   * ⚠️ ESTO NO TOCA LA LISTA DEL LISTERO. Ahí las EN ESPERA se siguen ofreciendo
+   *    a propósito (ver la nota larga de `trucksSeleccionables`): un viaje es un
+   *    HECHO OBSERVADO y «en espera» es una anotación de otro módulo que puede
+   *    estar vieja. Si se filtrara también allá, un camión mal marcado dejaría al
+   *    listero sin manera de anotar viajes que sí ocurrieron, que es exactamente
+   *    el bug que se arregló el 31-ago.
+   *
+   * Los viajes de un camión retirado o en espera NO se pierden: el resumen suma
    * ADEMÁS los camiones que aparecen en los viajes del rango (ver `ids`).
    */
-  const camionesEnObra = useMemo(() => allTrucks.filter((t) => !estaRetirada(t)), [allTrucks]);
+  const fueraDeLaObra = (t: TruckRow) => estaRetirada(t) || t.enEspera;
+  const camionesEnObra = useMemo(() => allTrucks.filter((t) => !fueraDeLaObra(t)), [allTrucks]);
   const pickEstadoOptions = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
     // Cuenta sobre la MISMA lista que se va a mostrar: si contara sobre
