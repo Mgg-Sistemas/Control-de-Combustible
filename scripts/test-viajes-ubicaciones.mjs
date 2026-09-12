@@ -260,6 +260,31 @@ ok('la lista de listeros no se cae sin la columna', /supabase\.from\('profiles'\
 ok('el interruptor solo se apaga si el reintento funciona',
   /if \(!reintento\.error\) hayColumnasDeObra = false;/.test(lib));
 
+// ── 6b) EL PANEL: nombre nuevo y todo plegable (12-sep-2026) ───────────────
+ok('el panel ya no se llama "de la jefa"', !/Panel de la jefa<\/SectionTitle>/.test(scrCrudo));
+ok('se llama Panel de información', scrCrudo.includes('📊 Panel de información'));
+
+// Los SEIS apartados son desplegables. Se cuenta, en vez de mirar uno: si
+// alguien agrega un bloque nuevo con <Card> suelto, el panel vuelve a crecer sin
+// que nada avise, que es justo lo que esto vino a arreglar.
+const plegable = sinComentarios(leer('src/components/Plegable.tsx'));
+eq('los cinco apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 5);
+ok('y el de obras también lo es', /setAbierto\(\(v\) => !v\)/.test(comp));
+ok('ya no quedan tarjetas fijas en el panel',
+  !/\n          <Card>\n            <SectionTitle>/.test(scrCrudo));
+
+// ⚠️ CERRADO NO ES ESCONDIDO: el título tiene que decir qué hay dentro, o una
+//    lista de seis desplegables mudos es una búsqueda a ciegas.
+eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 5);
+ok('el resumen de hoy y la lista completa arrancan abiertos',
+  (scr.match(/abiertaPorDefecto(?![=])/g) || []).length === 2);
+// Una alerta que hay que ir a destapar no es una alerta.
+ok('la alerta de camiones parados se abre sola si hay alguno',
+  /abiertaPorDefecto=\{!!alertaError \|\| alertList\.length > 0\}/.test(scr));
+ok('...y se pinta en color de aviso', /alerta=\{!!alertaError \|\| alertList\.length > 0\}/.test(scr));
+ok('el componente pinta el resumen en aviso cuando toca', /alerta \? colors\.warning : colors\.muted/.test(plegable));
+ok('el pliegue no se guarda en ningún lado', !/AsyncStorage|localStorage/.test(plegable));
+
 // ── 7) EL MANUAL CUENTA LO MISMO ───────────────────────────────────────────
 const md = leer('docs/MANUAL-USUARIO.md');
 const ms = leer('src/screens/ManualScreen.tsx');
@@ -268,6 +293,9 @@ ok('el manual .md dice que mover no cambia el pasado', /NO cambia sus viajes ya 
 ok('el manual .md explica el reporte por obra', /resumen por obra/i.test(md));
 ok('el manual en pantalla lo explica', /OBRAS Y UBICACIONES \(12\/09\/2026\)/.test(ms));
 ok('el manual en pantalla también avisa lo del pasado', /NO CAMBIA SUS VIAJES YA REGISTRADOS/.test(ms));
+ok('el manual .md explica que el panel son desplegables', /Todo el panel son desplegables \(12\/09\/2026\)/.test(md));
+ok('el manual .md usa el nombre nuevo del panel', /### Panel de información \(administración\)/.test(md));
+ok('el manual en pantalla también', /EL PANEL AHORA SON DESPLEGABLES \(12\/09\/2026\)/.test(ms));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-ubicaciones · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

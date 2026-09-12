@@ -51,6 +51,7 @@ import {
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
+import { Plegable } from '../components/Plegable';
 import { turnoDeViaje, desacuerdoDeTurno, turnoLabel, turnoLabelConHorario, leyendaTurnos, TURNO_NOMBRE, TURNO_ICONO, TURNO_HORARIO, turnoDeHora, HORA_INICIO_TURNO, Turno, contarTurnos, resumenTurno, perfilDeTurno, PERFIL_CORTO } from '../lib/viajesTurno';
 import { isOnline, onConnectivityChange } from '../lib/offlineQueue';
 import {
@@ -2808,10 +2809,10 @@ export default function ViajesCamionesScreen() {
         </View>
       </Modal>
 
-      {/* ── Panel de la JEFA/ADMIN (nivel full) ─────────────────────────── */}
+      {/* ── Panel de INFORMACIÓN (nivel full) ───────────────────────────── */}
       {canFull ? (
         <>
-          <SectionTitle>📊 Panel de la jefa</SectionTitle>
+          <SectionTitle>📊 Panel de información</SectionTitle>
 
           {/* ── SUB-PESTAÑAS (09-sep-2026) ────────────────────────────────
               ⚠️ La de VIAJES es la que abre por defecto y trae exactamente lo
@@ -2844,8 +2845,7 @@ export default function ViajesCamionesScreen() {
           ) : (
           <>
 
-          <Card>
-            <SectionTitle>Resumen de hoy</SectionTitle>
+          <Plegable titulo="📋 Resumen de hoy" resumen={`${resumenPorCamion.length} camión(es) con viajes hoy`} abiertaPorDefecto>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs, fontWeight: '800' }}>POR CAMIÓN</Text>
             {resumenPorCamion.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones registrados.</Text>
@@ -2886,14 +2886,13 @@ export default function ViajesCamionesScreen() {
                 ))}
               </ScrollView>
             )}
-          </Card>
+          </Plegable>
 
           {/* ── CARGAR VIAJES A MANO (solo nivel full) ───────────────────────
               Lo que faltaba para poder cuadrar un día pasado: el botón del
               listero sella la hora del toque, así que nunca sirvió para agregar
               un viaje de anteayer. Borrar ya se podía; agregar, no. */}
-          <Card>
-            <SectionTitle>✍️ Cargar viajes a mano</SectionTitle>
+          <Plegable titulo="✍️ Cargar viajes a mano" resumen="Para completar un día que quedó incompleto">
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
               Para completar un día que quedó incompleto. Los viajes quedan marcados
               como «cargado a mano» para que se distingan de los que se anotaron en el patio.
@@ -3077,10 +3076,14 @@ export default function ViajesCamionesScreen() {
                 {cargaBusy ? 'Cargando…' : '✍️ Cargar viajes'}
               </Text>
             </TouchableOpacity>
-          </Card>
+          </Plegable>
 
-          <Card>
-            <SectionTitle>⚠️ Camiones sin viaje reciente</SectionTitle>
+          <Plegable
+            titulo="⚠️ Camiones sin viaje reciente"
+            resumen={alertaError ? `No se pudo revisar la alerta` : alertList.length ? `${alertList.length} camión(es) llevan más de ${alertaHoras}h sin viaje` : `✅ Todos con viajes recientes`}
+            alerta={!!alertaError || alertList.length > 0}
+            abiertaPorDefecto={!!alertaError || alertList.length > 0}
+          >
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
               Más de {alertaHoras}h sin registrar viaje (no incluye averiados, parados ni retirados).
             </Text>
@@ -3103,7 +3106,7 @@ export default function ViajesCamionesScreen() {
                 ))}
               </ScrollView>
             )}
-          </Card>
+          </Plegable>
 
           {/* Las obras y quién está en cada una. Va ANTES de la lista de viajes
               porque es lo que hay que tener puesto para que los viajes que se
@@ -3117,8 +3120,11 @@ export default function ViajesCamionesScreen() {
             onCambioListeros={() => setListerosRecarga((n) => n + 1)}
           />
 
-          <Card>
-            <SectionTitle>Lista completa de viajes</SectionTitle>
+          <Plegable
+            titulo="🚛 Lista completa de viajes"
+            resumen={`${filteredRangeRows.length} viaje(s) · ${etiquetaRango}`}
+            abiertaPorDefecto
+          >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {PRESETS.map((p) => {
                 const on = preset === p.key;
@@ -3497,10 +3503,9 @@ export default function ViajesCamionesScreen() {
                 {shareBusy ? 'Generando…' : '📤 Compartir / exportar reporte'}
               </Text>
             </TouchableOpacity>
-          </Card>
+          </Plegable>
 
-          <Card>
-            <SectionTitle>Configuración</SectionTitle>
+          <Plegable titulo="⚙️ Configuración" resumen={`Avisar a las ${alertaHoras}h sin viaje`}>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>UMBRAL DE ALERTA (HORAS SIN VIAJE)</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
               <TextInput
@@ -3543,7 +3548,7 @@ export default function ViajesCamionesScreen() {
                 ))}
               </ScrollView>
             )}
-          </Card>
+          </Plegable>
 
           </>
           )}
