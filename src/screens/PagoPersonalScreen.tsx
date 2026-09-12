@@ -3,6 +3,9 @@ import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityInd
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
+import {
+  avisoRecalcular, cambiaElRango, hayCambios, limpioNombre, validarPeriodo,
+} from '../lib/periodoNomina';
 import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { exportPagoPersonalXlsx } from '../lib/staffXlsx';
@@ -102,6 +105,16 @@ export default function PagoPersonalScreen() {
   // (Antes se calculaba con el rol base: un usuario con FULL CONTROL en Nómina pero rol
   //  base "analista" quedaba bloqueado y no le salía el botón "Generar pago".)
   const puedeTarifa = levelMeets(moduleLevel('nomina'), 'escritura');
+  /**
+   * CAMBIARLE LAS FECHAS A UN PERÍODO YA CREADO (12-sep-2026).
+   *
+   * Pedido del cliente: «después de que creo un período no lo puedo editar, es
+   * decir cambiarle las fechas… que los que tengan permiso full o admin sí
+   * puedan». Por eso pide FULL y no escritura: mover el rango cambia lo que se
+   * le va a pagar a todo el mundo, y quien genera un pago no es necesariamente
+   * quien puede redefinir el período. Un admin lo tiene por su rol.
+   */
+  const puedeEditarPeriodo = levelMeets(moduleLevel('nomina'), 'full');
   const { rate: bcvRate, date: bcvDate, source: bcvSource, loading: bcvLoading, refresh: refreshBcv } = useBcvRate();
   // Bs equivalente de un monto en US$ (o '' si no hay tasa del día).
   const bsTxt = (usdAmount: number) => (bcvRate ? fmtBs(bsFromUsd(usdAmount, bcvRate)) : '');
@@ -337,10 +350,17 @@ export default function PagoPersonalScreen() {
   };
 
   // ── Recalcular cantidades automáticas (operadores no ajustados a mano) ───────
-  const recalcularAuto = async () => {
+  const recalcularAuto = async (rango?: { from: string; to: string }) => {
     if (!sel) return;
     setBusy(true);
-    const byCed = await buildAuto(sel.date_from, sel.date_to);
+    // ⚠️ El rango se puede pasar por parámetro, y no es capricho: al cambiarle
+    //    las fechas al período hay que recalcular CON LAS NUEVAS, y `sel` en ese
+    //    momento todavía tiene las viejas porque `setSel` no se ve hasta el
+    //    próximo render. Sin esto, mover una fecha recalculaba contra el rango
+    //    anterior y el total quedaba igual de viejo que antes de tocarla.
+    const desde = rango?.from ?? sel.date_from;
+    const hasta = rango?.to ?? sel.date_to;
+    const byCed = await buildAuto(desde, hasta);
     const updated: StaffPayItem[] = [];
     for (const it of items) {
       if (it.source === 'auto' && !it.overridden) {
@@ -541,6 +561,68 @@ export default function PagoPersonalScreen() {
     setSel({ ...sel, status });
     refetch();
   };
+  // ── EDITAR EL PERÍODO: nombre y fechas (12-sep-2026) ────────────────────────
+  //
+  // ⚠️ SOLO EN BORRADOR, y eso NO es una limitación que se me haya olvidado.
+  //    Un período aprobado o pagado está congelado a propósito: es el respaldo de
+  //    lo que ya se pagó (ver el aviso del candado más abajo, que salió de un
+  //    reporte del cliente del 19-ago). El camino para corregirle las fechas a
+  //    uno cerrado existe y deja rastro: ↩ Reabrir, editar, y volver a aprobar.
+  const [editOpen, setEditOpen] = useState(false);
+  const [eName, setEName] = useState('');
+  const [eFrom, setEFrom] = useState('');
+  const [eTo, setETo] = useState('');
+
+  const abrirEditar = () => {
+    if (!sel) return;
+    setEName(sel.name); setEFrom(sel.date_from); setETo(sel.date_to);
+    setEditOpen(true);
+  };
+
+  const guardarPeriodo = async () => {
+    if (!sel) return;
+    const antes = { name: sel.name, date_from: sel.date_from, date_to: sel.date_to };
+    const ahora = { name: limpioNombre(eName), date_from: eFrom, date_to: eTo };
+    const motivo = validarPeriodo(ahora);
+    if (motivo) return toast.error(motivo);
+    if (!hayCambios(antes, ahora)) { setEditOpen(false); return; }
+
+    setBusy(true);
+    const { data, error } = await supabase.from('staff_pay_periods')
+      .update({ name: ahora.name, date_from: ahora.date_from, date_to: ahora.date_to })
+      .eq('id', sel.id).select();
+    setBusy(false);
+    if (error) { await confirm({ title: 'No se pudo guardar', message: error.message, confirmText: 'OK', cancelText: '' }); return; }
+    // Mismo motivo que en `setStatus`: si RLS bloquea no llega error, llega una
+    // respuesta sin filas, y sin esto parecería que el botón no hace nada.
+    if (!data || data.length === 0) {
+      await confirm({ title: 'No se pudo guardar', message: 'No tienes permiso para cambiar este período (o ya no existe).', confirmText: 'OK', cancelText: '' });
+      return;
+    }
+    const nuevo = { ...sel, ...ahora };
+    setSel(nuevo);
+    setEditOpen(false);
+    refetch();
+
+    // ⭐ LO QUE DE VERDAD IMPORTA DE ESTE CAMBIO. Mover el rango deja las
+    //    cantidades de cada persona describiendo un rango que ya no existe. No
+    //    se recalcula solo —cambiar en silencio un monto que alguien ya revisó
+    //    es peor que dejarlo viejo— pero se pregunta en el momento, que es
+    //    cuando la persona todavía tiene el cambio en la cabeza.
+    if (cambiaElRango(antes, ahora)) {
+      const ok = await confirm({
+        title: 'Cambió el rango de fechas',
+        message: avisoRecalcular(antes, ahora),
+        confirmText: 'Recalcular',
+        cancelText: 'Ahora no',
+      });
+      if (ok) await recalcularAuto({ from: ahora.date_from, to: ahora.date_to });
+      else toast.info('Las cantidades quedaron como estaban. Puedes recalcular cuando quieras con 🔄 Recalcular jornadas.');
+    } else {
+      toast.success('Período actualizado.');
+    }
+  };
+
   const eliminarPeriodo = async () => {
     if (!sel) return;
     const ok = await confirm({ title: 'Eliminar período', message: `¿Eliminar "${sel.name}"? Se borran sus renglones y abonos.`, confirmText: 'Eliminar', cancelText: 'Cancelar' });
@@ -1044,7 +1126,10 @@ export default function PagoPersonalScreen() {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
                 {sel.status === 'borrador' ? (
                   <>
-                    <TouchableOpacity onPress={recalcularAuto} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                    {/* ⚠️ `() => recalcularAuto()` y no `recalcularAuto` pelado:
+                        `onPress` pasa el evento del toque como primer argumento,
+                        que caería en el parámetro del rango. */}
+                    <TouchableOpacity onPress={() => recalcularAuto()} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{busy ? '…' : '🔄 Recalcular jornadas'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={agregarFaltantes} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
@@ -1053,6 +1138,13 @@ export default function PagoPersonalScreen() {
                     <TouchableOpacity onPress={() => abrirAgregarPersona('todos')} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>👤 Agregar persona</Text>
                     </TouchableOpacity>
+                    {/* Cambiarle el nombre o las fechas. Solo con FULL: mover el
+                        rango cambia lo que se le paga a todo el mundo. */}
+                    {puedeEditarPeriodo ? (
+                      <TouchableOpacity onPress={abrirEditar} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar período</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }}>
                       <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
                     </TouchableOpacity>
@@ -1075,6 +1167,52 @@ export default function PagoPersonalScreen() {
                   <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>⬇️ Reporte{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* EL EDITOR DEL PERÍODO. Va pegado a los botones, no en un modal
+                  aparte, para que se vea junto al rango que se está cambiando. */}
+              {editOpen ? (
+                <Card>
+                  <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>✏️ Editar período</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre</Text>
+                  <TextInput
+                    value={eName}
+                    onChangeText={setEName}
+                    placeholder='Semana 1 - septiembre'
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 14 }}
+                  />
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Desde</Text>
+                      <DateField value={eFrom} onChange={setEFrom} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hasta</Text>
+                      <DateField value={eTo} onChange={setETo} />
+                    </View>
+                  </View>
+                  {/* Se avisa ANTES de guardar, no después: quien mueve la fecha
+                      tiene que saber que los montos que ve son del rango viejo
+                      mientras todavía está decidiendo. */}
+                  {cambiaElRango({ name: sel.name, date_from: sel.date_from, date_to: sel.date_to }, { name: eName, date_from: eFrom, date_to: eTo }) ? (
+                    <Text style={{ color: colors.warning, fontSize: 11.5, fontWeight: '700', marginTop: spacing.xs }}>
+                      ⚠️ Cambias el rango. Las cantidades de cada persona son del rango anterior; al guardar te pregunto si recalculo.
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                    <TouchableOpacity onPress={() => setEditOpen(false)} disabled={busy} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={guardarPeriodo}
+                      disabled={busy || !hayCambios({ name: sel.name, date_from: sel.date_from, date_to: sel.date_to }, { name: eName, date_from: eFrom, date_to: eTo })}
+                      style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: busy || !hayCambios({ name: sel.name, date_from: sel.date_from, date_to: sel.date_to }, { name: eName, date_from: eFrom, date_to: eTo }) ? 0.5 : 1 }}
+                    >
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{busy ? 'Guardando…' : '💾 Guardar cambios'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+              ) : null}
 
               {/* PERÍODO CERRADO: por qué no se puede tocar nada. Antes los botones de
                   editar / agregar / quitar simplemente NO se dibujaban y no se decía por
