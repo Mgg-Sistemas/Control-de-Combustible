@@ -464,6 +464,13 @@ export interface StaffPayPeriod {
   total_amount: number;
   created_by: string | null;
   created_at: string;
+  /** Quién le cambió el nombre o las fechas por última vez, y cuándo.
+   *  `updated_by_name` es una FOTO: si dan de baja al usuario, el uuid queda en
+   *  null por la FK y el texto sigue diciendo quién fue.
+   *  Todo `null` = nunca se ha editado. */
+  updated_by?: string | null;
+  updated_by_name?: string | null;
+  updated_at?: string | null;
 }
 
 /** Línea por persona. devengado = precio_del_modo × cantidad. total = devengado + Σbonos − Σdeducciones. */
