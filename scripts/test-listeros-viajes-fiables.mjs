@@ -184,8 +184,21 @@ ok('registrar tambien conserva su tope de 4 segundos', /resolveChoferActual\(sel
 }
 
 // ── 7) LAS MAQUINAS QUE NO ESTAN ────────────────────────────────────────────
-// La flota de la jefa: los camiones menos las retiradas.
-ok('existe la lista de los que estan en la obra', /const camionesEnObra = useMemo\(\(\) => allTrucks\.filter\(\(t\) => !estaRetirada\(t\)\)/.test(pantalla));
+// La flota de la jefa: los camiones menos las retiradas y menos las que estan
+// EN ESPERA DE INSTRUCCIONES (12-sep-2026, pedido del cliente). Las dos por el
+// mismo motivo: no estan trabajando, asi que no tienen meta diaria que cumplir y
+// contarlas con 0 viajes dice que la obra rinde menos de lo que rinde.
+ok('existe la lista de los que estan en la obra', /const camionesEnObra = useMemo\(\(\) => allTrucks\.filter\(\(t\) => !fueraDeLaObra\(t\)\)/.test(pantalla));
+ok('* fuera de la obra son las retiradas Y las que esperan instrucciones',
+  /const fueraDeLaObra = \(t: TruckRow\) => estaRetirada\(t\) \|\| t\.enEspera;/.test(pantalla));
+// Y el manual lo cuenta, en los dos sitios. Un cambio de lo que la jefa VE que
+// nadie escribió es un cambio que ella va a reportar como falla.
+ok('* el manual .md lo explica',
+  /Y las que esperan instrucciones tampoco \(12\/09\/2026\)/
+    .test(fs.readFileSync(path.join(ROOT, 'docs/MANUAL-USUARIO.md'), 'utf8')));
+ok('* el manual en pantalla también',
+  /EN EL PANEL, LAS QUE ESPERAN INSTRUCCIONES TAMPOCO SE VEN \(12\/09\/2026\)/
+    .test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')));
 ok('* la meta diaria se pide para esos', /getMetasPorCamion\(camionesEnObra\.map/.test(pantalla));
 ok('* el panel de metas lista esos', /\{camionesEnObra\.map\(\(t\) => \(/.test(pantalla));
 ok('* y el resumen por camion arranca de esos', /new Set<string>\(\[\.\.\.camionesEnObra\.map/.test(pantalla));
