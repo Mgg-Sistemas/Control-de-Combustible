@@ -834,6 +834,23 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > El nombre del período es solo una **etiqueta**: que se llame "Carbozulia" no quiere decir que
 > adentro solo haya gente de Carbozulia.
 
+> **✏️ Cambiarle las fechas a un período (12/09/2026).** Antes, una vez creado el período, el rango
+> quedaba fijo: si la semana terminaba el 13 y no el 12, había que borrarlo y volver a crearlo. Ahora,
+> dentro del período hay un botón **✏️ Editar período** para cambiarle el **nombre** y las **fechas**.
+>
+> **Hace falta control total en Nómina.** No basta con escritura, y es a propósito: mover el rango
+> cambia lo que se le va a pagar a todo el mundo, y quien genera un pago no es necesariamente quien
+> puede redefinir el período. Un **admin** lo tiene por su rol.
+>
+> ⚠️ **Al mover el rango, las cantidades quedan viejas.** Los días, las horas y las semanas de cada
+> persona son las del rango anterior. Por eso, al guardar, **te pregunta si recalcular**. Si dices que
+> no, quedan como estaban y puedes recalcular después con **🔄 Recalcular jornadas**. No se recalcula
+> solo: cambiar en silencio un monto que alguien ya revisó es peor que dejarlo viejo.
+>
+> ⚠️ **Solo mientras el período esté en borrador.** Uno aprobado o pagado está congelado a propósito:
+> es el respaldo de lo que ya se pagó. Para corregirle las fechas, toca **↩ Reabrir**, edítalo, y
+> vuelve a aprobarlo.
+
 > **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
 > con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
 > ("manual")) junto al botón **"🔄 Actualizar tasa BCV"**, que refresca la tasa oficial desde
