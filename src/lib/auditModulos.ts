@@ -151,6 +151,10 @@ const TABLA_A_MODULO: Record<string, string> = {
   profiles: 'usuarios', app_roles: 'usuarios', module_permissions: 'usuarios', feature_toggles: 'usuarios',
   // 🚛 Viajes de camiones
   camion_viajes: 'viajes', camion_viajes_config: 'viajes',
+  // Las OBRAS donde están los listeros. Van con viajes y no con `equipos` ni con
+  // `obras`: es un catálogo propio de este módulo, y no tiene que ver ni con los
+  // `edificios` del inspector ni con las `haul_locations` del acarreo.
+  ubicaciones_obra: 'viajes',
   // 🔔 Avisos
   notifications: 'avisos', notification_reads: 'avisos',
 };

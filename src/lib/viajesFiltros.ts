@@ -38,8 +38,8 @@
  * camión—. Un filtro de turno por fuera se contradiría con los otros tres en
  * cuanto se marcaran juntos.
  */
-export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno';
-export const EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno'] as const;
+export type EjeFiltro = 'listero' | 'empresa' | 'camion' | 'turno' | 'ubicacion';
+export const EJES_FILTRO: readonly EjeFiltro[] = ['listero', 'empresa', 'camion', 'turno', 'ubicacion'] as const;
 
 /** Lo marcado en un eje: id → etiqueta. Vacío = «todos». */
 export type MarcadosEje = ReadonlyMap<string, string>;
@@ -57,7 +57,12 @@ export type OpcionFiltro = { id: string; label: string; count: number };
  */
 export function pasaFiltros(claves: ClavesViaje, sel: SeleccionFiltros, excepto?: EjeFiltro): boolean {
   return EJES_FILTRO.every(
-    (eje) => eje === excepto || sel[eje].size === 0 || sel[eje].has(claves[eje])
+    // `sel[eje]?.size` y no `sel[eje].size`: TypeScript exige el Record completo,
+    // pero un eje NUEVO que un llamador viejo todavía no mande llegaría como
+    // `undefined` y tumbaría el panel entero con un error ilegible. Un eje que
+    // no viene es un eje sin marcar, o sea: no filtra. Pasó al sumar el eje de
+    // OBRA el 12-sep-2026.
+    (eje) => eje === excepto || !sel[eje]?.size || sel[eje].has(claves[eje])
   );
 }
 
@@ -159,7 +164,10 @@ export function marcadosFueraDelRango<R>(
   // una empresa. Quien lo pinta le pone el ícono que corresponda.
   const fuera: Array<{ eje: EjeFiltro; label: string }> = [];
   EJES_FILTRO.forEach((eje) => {
-    sel[eje].forEach((label, id) => { if (!presentes[eje].has(id)) fuera.push({ eje, label }); });
+    // `?.` por lo mismo que en `pasaFiltros`: un eje que un llamador viejo no
+    // manda no puede tumbar el panel. Volvió a pasar al sumar OBRA (12-sep-2026),
+    // que es el quinto eje — exactamente el mismo tropiezo que con el cuarto.
+    sel[eje]?.forEach((label, id) => { if (!presentes[eje].has(id)) fuera.push({ eje, label }); });
   });
   return fuera;
 }
