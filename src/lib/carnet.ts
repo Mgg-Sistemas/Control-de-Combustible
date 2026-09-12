@@ -1,4 +1,5 @@
 import { LOGO_DATA_URI } from './logoData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from './logoGoldenTouchData';
 import type { Employee } from '../types/database';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -146,23 +147,34 @@ function qrToImg(qr?: string): string {
   return q;
 }
 
-/** ÚNICA cara del carnet de aliado: logo + foto + nombre + N° de ficha + QR. */
+/** ÚNICA cara del carnet. Aliado: logo SOS + foto + nombre + N° de ficha + QR.
+ *  Invitado: logo GOLDEN TOUCH + "INVITADO" + empresa + N° de ficha + QR, SIN
+ *  foto ni datos personales (pedido del cliente 12-sep-2026). */
 export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string; qrSvg?: string } = {}): string {
+  const qr = qrToImg(opts.qrSvg);
+
+  // ── INVITADO: solo empresa + N° de ficha (sin foto ni nombre) ──────────────
+  if (a.tipo === 'invitado') {
+    return `<div class="card">
+      ${aliadoWave()}
+      <img class="logo" src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="height:22mm;margin-top:6mm"/>
+      <div class="kind" style="margin-top:4mm">INVITADO</div>
+      <div class="company" style="font-size:4mm;margin-top:3mm">GOLDEN TOUCH 1127 CA</div>
+      <div class="ficha" style="margin-top:5mm"><small>N° DE FICHA</small><b>${esc(a.ficha_number || '----')}</b></div>
+      ${qr ? `<div class="qr" style="margin-top:5mm">${qr}</div><div class="qrlabel">QR de control</div>` : ''}
+    </div>`;
+  }
+
+  // ── ALIADO: carnet normal con foto y nombre ────────────────────────────────
   const name = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim();
   const src = opts.photoOverride ?? a.photo_url;
   const photo = src ? `<div class="photoBox"><img class="photo" src="${esc(src)}"/></div>` : `<div class="photoBox ph">👤</div>`;
-  const qr = qrToImg(opts.qrSvg);
-  // Invitado: el carnet dice "INVITADO" y lleva la empresa (GOLDEN TOUCH 1127).
-  const esInvitado = a.tipo === 'invitado';
-  const kind = esInvitado ? 'INVITADO' : 'ALIADO';
-  const company = esInvitado ? (a.organizacion || 'GOLDEN TOUCH 1127') : '';
   return `<div class="card">
       ${aliadoWave()}
       <img class="logo" src="${LOGO_DATA_URI}"/>
       ${photo}
       <div class="name">${esc(name)}</div>
-      <div class="kind">${esc(kind)}</div>
-      ${company ? `<div class="company">${esc(company)}</div>` : ''}
+      <div class="kind">ALIADO</div>
       <div class="ficha"><small>N° DE FICHA</small><b>${esc(a.ficha_number || '----')}</b></div>
       ${qr ? `<div class="qr">${qr}</div><div class="qrlabel">QR de acceso y control</div>` : ''}
     </div>`;

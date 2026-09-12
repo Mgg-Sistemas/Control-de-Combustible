@@ -37,7 +37,7 @@ const FIELDS: Field[] = [
 ];
 
 // Empresa FIJA de los invitados: su carnet dice INVITADO y lleva este nombre.
-const GOLDEN_TOUCH = 'GOLDEN TOUCH 1127';
+const GOLDEN_TOUCH = 'GOLDEN TOUCH 1127 CA';
 // Invitados: misma información pero SIN el campo organización (es fija).
 const FIELDS_INVITADO: Field[] = FIELDS.filter((f) => f.key !== 'organizacion');
 

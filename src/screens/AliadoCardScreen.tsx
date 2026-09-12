@@ -6,6 +6,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { Aliado } from '../types/database';
 import { qrPngDataUri, aliadoQrUrl } from '../lib/qr';
 import { carnetAliadoHtml, carnetAliadoFront, carnetAliadoStyles, CARNET_ALIADO_MM } from '../lib/carnet';
+import { GOLDEN_TOUCH_LOGO_DATA_URI as GOLDEN_TOUCH_LOGO } from '../lib/logoGoldenTouchData';
 import { fichaAliadoHtml } from '../lib/ficha';
 import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
 import { useTheme } from '../theme/ThemeContext';
@@ -98,28 +99,42 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
       </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
-        {/* Única cara: logo + foto + nombre + N° de ficha + QR */}
-        <CardFace>
-          <Image source={LOGO} style={{ width: 44, height: 30, marginBottom: 4, zIndex: 1 }} resizeMode="contain" />
-          {ali.photo_url ? (
-            <Image source={{ uri: ali.photo_url }} style={{ width: 78, height: 90, borderRadius: 6, borderWidth: 1, borderColor: FICHA.brand, zIndex: 1 }} resizeMode="cover" />
-          ) : (
-            <View style={{ width: 78, height: 90, borderRadius: 6, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}><Text style={{ fontSize: 40 }}>👤</Text></View>
-          )}
-          <Text style={{ color: FICHA.brand, fontWeight: '900', fontSize: 14, textAlign: 'center', marginTop: 5, zIndex: 1 }}>{fullName(ali)}</Text>
-          <View style={{ backgroundColor: FICHA.brand, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 2, marginTop: 4, zIndex: 1 }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10, letterSpacing: 1 }}>{ali.tipo === 'invitado' ? 'INVITADO' : 'ALIADO'}</Text>
-          </View>
-          {ali.tipo === 'invitado' ? (
-            <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 11, marginTop: 4, textAlign: 'center', zIndex: 1 }}>{ali.organizacion || 'GOLDEN TOUCH 1127'}</Text>
-          ) : null}
-          <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 5, zIndex: 1 }}>N° DE FICHA</Text>
-          <Text style={{ color: FICHA.brand, fontSize: 20, fontWeight: '900', letterSpacing: 4, zIndex: 1 }}>{ali.ficha_number || '----'}</Text>
-          {qrUri ? (
-            <Image source={{ uri: qrUri }} style={{ width: 64, height: 64, marginTop: 6, zIndex: 1, backgroundColor: '#fff' }} resizeMode="contain" />
-          ) : null}
-          <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 2, zIndex: 1 }}>QR de acceso y control</Text>
-        </CardFace>
+        {ali.tipo === 'invitado' ? (
+          /* INVITADO: logo Golden Touch + INVITADO + empresa + N° de ficha + QR (sin foto ni nombre) */
+          <CardFace>
+            <Image source={{ uri: GOLDEN_TOUCH_LOGO }} style={{ width: 120, height: 84, marginTop: 8, zIndex: 1 }} resizeMode="contain" />
+            <View style={{ backgroundColor: FICHA.brand, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 2, marginTop: 10, zIndex: 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10, letterSpacing: 1 }}>INVITADO</Text>
+            </View>
+            <Text style={{ color: FICHA.brand, fontWeight: '900', fontSize: 13, marginTop: 8, textAlign: 'center', zIndex: 1 }}>GOLDEN TOUCH 1127 CA</Text>
+            <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 12, zIndex: 1 }}>N° DE FICHA</Text>
+            <Text style={{ color: FICHA.brand, fontSize: 24, fontWeight: '900', letterSpacing: 4, zIndex: 1 }}>{ali.ficha_number || '----'}</Text>
+            {qrUri ? (
+              <Image source={{ uri: qrUri }} style={{ width: 64, height: 64, marginTop: 12, zIndex: 1, backgroundColor: '#fff' }} resizeMode="contain" />
+            ) : null}
+            <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 2, zIndex: 1 }}>QR de control</Text>
+          </CardFace>
+        ) : (
+          /* ALIADO: logo + foto + nombre + N° de ficha + QR */
+          <CardFace>
+            <Image source={LOGO} style={{ width: 44, height: 30, marginBottom: 4, zIndex: 1 }} resizeMode="contain" />
+            {ali.photo_url ? (
+              <Image source={{ uri: ali.photo_url }} style={{ width: 78, height: 90, borderRadius: 6, borderWidth: 1, borderColor: FICHA.brand, zIndex: 1 }} resizeMode="cover" />
+            ) : (
+              <View style={{ width: 78, height: 90, borderRadius: 6, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}><Text style={{ fontSize: 40 }}>👤</Text></View>
+            )}
+            <Text style={{ color: FICHA.brand, fontWeight: '900', fontSize: 14, textAlign: 'center', marginTop: 5, zIndex: 1 }}>{fullName(ali)}</Text>
+            <View style={{ backgroundColor: FICHA.brand, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 2, marginTop: 4, zIndex: 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10, letterSpacing: 1 }}>ALIADO</Text>
+            </View>
+            <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 5, zIndex: 1 }}>N° DE FICHA</Text>
+            <Text style={{ color: FICHA.brand, fontSize: 20, fontWeight: '900', letterSpacing: 4, zIndex: 1 }}>{ali.ficha_number || '----'}</Text>
+            {qrUri ? (
+              <Image source={{ uri: qrUri }} style={{ width: 64, height: 64, marginTop: 6, zIndex: 1, backgroundColor: '#fff' }} resizeMode="contain" />
+            ) : null}
+            <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 2, zIndex: 1 }}>QR de acceso y control</Text>
+          </CardFace>
+        )}
       </View>
 
       <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.md, textAlign: 'center' }}>PDF = ficha completa (todos los datos) · Imagen = carnet (54 × 86 mm · 300 dpi)</Text>
