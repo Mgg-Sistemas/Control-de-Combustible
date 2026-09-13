@@ -2624,12 +2624,19 @@ totales ni cuentan como equipo que trabajó.
 > (lo ya pagado en el rango) y el **TOTAL PENDIENTE** (*total $ − abonado*). El detalle por
 > empresa/máquina y el total general siguen igual, más abajo.
 
-> **Switch 📋 Completo / 🕒 Solo horas (Informe por jornada):** antes de generar —y también en la
-> vista previa, junto a *Descargar PDF*— eliges el **contenido** del PDF. **Completo** es el reporte
-> de siempre (precio/hora, totales `$`, abonos, saldos y fletes). **Solo horas** imprime **todos los
-> datos** (empresas, máquinas, días, horas día/noche/total, y las 🔴 averiadas / 🟡 paradas /
+> **Switch 📋 Completo / 🕒 Solo horas / 📊 % Clasificación (Informe por jornada):** antes de generar
+> —y también en la vista previa, junto a *Descargar PDF*— eliges el **contenido** del PDF. **Completo**
+> es el reporte de siempre (precio/hora, totales `$`, abonos, saldos y fletes). **Solo horas** imprime
+> **todos los datos** (empresas, máquinas, días, horas día/noche/total, y las 🔴 averiadas / 🟡 paradas /
 > ⏳ esperando con su motivo) **pero sin ningún precio ni monto** — para entregar las horas sin
 > mostrar dinero. El archivo sale marcado *"- solo horas"*.
+
+> **📊 % por clasificación (12-sep-2026):** el tercer botón del switch, **📊 % Clasificación**, genera un
+> PDF cortito con **solo** la distribución por clasificación en **base 100 %**: las clasificaciones que
+> **tienen horas**, con sus horas, su monto y el **%** que representa cada una sobre el total a pagar del
+> corte (la fila final suma 100 %). Además, en el reporte **📋 Completo** la tabla *"Total por
+> clasificación"* ahora trae una columna **"%"** con lo que representa cada clasificación. El archivo
+> sale marcado *"- % por clasificacion"*.
 
 > **🧑‍🔧 SACAR LOS REPORTES POR ENCARGADO (21-ago-2026).** Tres reportes que salían solo por
 > empresa ahora se pueden partir por **responsable de la máquina**:

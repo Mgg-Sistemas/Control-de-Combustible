@@ -381,6 +381,12 @@ type DeployData = {
 };
 /** Número con punto de miles (17.075). */
 const fmtMiles = (n: number) => Math.round(n).toLocaleString('de-DE');
+// Modos del Informe por jornada (selector "Contenido del reporte / PDF").
+const JORNADA_MODOS = [
+  { v: 'completo' as const, label: '📋 Completo', desc: 'con precios y montos' },
+  { v: 'horas' as const, label: '🕒 Solo horas', desc: 'todos los datos, sin precios' },
+  { v: 'porcentaje' as const, label: '📊 % Clasificación', desc: 'solo horas, monto y %' },
+];
 /** HTML del infográfico de despliegue de maquinaria (4 láminas landscape). */
 function deployInfographicHtml(d: DeployData): string {
   const { byCo, byTp, inact, totals, periodLabel } = d;
@@ -740,10 +746,16 @@ export default function ReportsScreen({ route }: any) {
   const [roundGroupsEnc, setRoundGroupsEnc] = useState<RoundCompany[]>([]);
   const [roundsGroupBy, setRoundsGroupBy] = useState<'empresa' | 'encargado'>('empresa');
   const [roundsPreview, setRoundsPreview] = useState(false);
-  // Modo del Informe por jornada al IMPRIMIR: 'completo' (el de siempre, con precios y
-  // montos) o 'solo_horas' (todos los datos MENOS el dinero — precio/hora, totales $,
-  // abonos, fletes). Pedido del cliente 21-ago-2026. Solo afecta el PDF, no el cálculo.
-  const [jornadaSoloHoras, setJornadaSoloHoras] = useState(false);
+  // Modo del Informe por jornada al IMPRIMIR (pedido del cliente 21-ago / 12-sep-2026;
+  // solo afecta el PDF, no el cálculo):
+  //  · 'completo'   → el de siempre, con precios y montos (+ columna % por clasificación).
+  //  · 'horas'      → todos los datos MENOS el dinero (precio/hora, totales $, abonos, fletes).
+  //  · 'porcentaje' → SOLO la distribución por clasificación (horas, monto y % en base 100),
+  //                   sin el desglose por máquina ni por empresa.
+  const [jornadaModo, setJornadaModo] = useState<'completo' | 'horas' | 'porcentaje'>('completo');
+  // Compat: buena parte del código (y el buscador "Total por equipo") solo distingue
+  // dinero sí/no; se deriva del modo para no tocar cada referencia.
+  const jornadaSoloHoras = jornadaModo === 'horas';
 
   // ── TOTAL POR EQUIPO (31-ago-2026) ────────────────────────────────────────
   // Pedido del cliente: «buscar por maquinaria en específico, y poder tener un
@@ -1519,9 +1531,14 @@ export default function ReportsScreen({ route }: any) {
     const genAmount = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
     const genFletes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
     const genEquipos = grandMachines;
-    const clasRows = [...clasAgg.entries()]
-      .sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])))
-      .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${nH(a.worked)}</td>${money ? `<td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td>` : ''}</tr>`)
+    // % que representa cada clasificación en base 100: sobre el MONTO cuando hay precios,
+    // o sobre las HORAS en modo "solo horas" (así el % tiene sentido en ambos casos).
+    const pctBase = money ? genAmount : genWorked;
+    const pct = (v: number) => (pctBase > 0 ? `${((v / pctBase) * 100).toFixed(1)}%` : '—');
+    const clasOrdenada = [...clasAgg.entries()]
+      .sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])));
+    const clasRows = clasOrdenada
+      .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${nH(a.worked)}</td>${money ? `<td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td>` : ''}<td style="text-align:right;font-weight:700">${pct(money ? a.amount : a.worked)}</td></tr>`)
       .join('');
     // Por empresa: equipos + FLETES = total a pagar (los fletes del rango se suman aquí).
     const empRows = roundGroups
@@ -1530,14 +1547,27 @@ export default function ReportsScreen({ route }: any) {
     const generalBlockJ = `
       <h2 style="margin-top:20px">Reporte general</h2>
       <h3 style="margin:12px 0 2px">Total por clasificación</h3>
-      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${money ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th>' : ''}</tr></thead>
-      <tbody>${clasRows || `<tr><td colspan="${money ? 5 : 3}" style="text-align:center">Sin datos</td></tr>`}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td>${money ? `<td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td>` : ''}</tr></tfoot></table>
+      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${money ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th>' : ''}<th style="text-align:right">%</th></tr></thead>
+      <tbody>${clasRows || `<tr><td colspan="${money ? 6 : 4}" style="text-align:center">Sin datos</td></tr>`}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td>${money ? `<td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td>` : ''}<td style="text-align:right">${pctBase > 0 ? '100%' : '—'}</td></tr></tfoot></table>
       <h3 style="margin:12px 0 2px">Totales por empresa${money ? ' (equipos + fletes)' : ''}</h3>
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th>${money ? '<th style="text-align:right">Equipos $</th><th style="text-align:right">Fletes $</th><th style="text-align:right">Total a pagar</th>' : ''}</tr></thead>
       <tbody>${empRows || `<tr><td colspan="${money ? 6 : 3}" style="text-align:center">Sin datos</td></tr>`}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td>${money ? `<td style="text-align:right">${usd(genAmount)}</td><td style="text-align:right">${genFletes > 0 ? usd(genFletes) : '—'}</td><td style="text-align:right;font-weight:800">${usd(genAmount + genFletes)}</td>` : ''}</tr></tfoot></table>
       ${money ? '<p class="muted" style="margin-top:6px">El "Total a pagar" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos (un flete no pertenece a una clasificación).</p>' : ''}`;
+    // ── MODO "% POR CLASIFICACIÓN" (12-sep-2026) ──────────────────────────────
+    // Reporte independiente: SOLO la distribución por clasificación en base 100%.
+    // Únicamente clasificaciones CON horas; muestra horas, monto y % (del monto total).
+    const clasPctRows = clasOrdenada
+      .filter(([, a]) => a.worked > 0)
+      .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right">${nH(a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td><td style="text-align:right;font-weight:800">${pct(a.amount)}</td></tr>`)
+      .join('');
+    const porcentajeBlock = `
+      <h2 style="margin-top:8px">Distribución por clasificación · base 100%</h2>
+      <p class="muted" style="margin:2px 0 8px">Cuánto representa cada clasificación (con horas) sobre el total a pagar del corte.</p>
+      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Horas</th><th style="text-align:right">Monto</th><th style="text-align:right">%</th></tr></thead>
+      <tbody>${clasPctRows || '<tr><td colspan="4" style="text-align:center">Sin datos en el rango.</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td><td style="text-align:right">${genAmount > 0 ? '100%' : '—'}</td></tr></tfoot></table>`;
     // Resumen del CORTE (arriba de todo): horas, total $, abonado y pendiente.
     const resumenCard = (label: string, value: string, color: string, bg: string) =>
       `<td style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;background:${bg};vertical-align:top;width:25%">
@@ -1558,7 +1588,16 @@ export default function ReportsScreen({ route }: any) {
         ${resumenCard('Total de equipos', `${grandMachines}`, '#1E3A5F', '#F3F6FB')}
         ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#EEF3FB')}
       </tr></tbody></table>`;
-    const content = `
+    const soloPct = jornadaModo === 'porcentaje';
+    const content = soloPct
+      ? `
+      <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
+        ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#F3F6FB')}
+        ${resumenCard('Total $', usd(grandUSD), '#1E3A5F', '#EEF3FB')}
+      </tr></tbody></table>
+      ${porcentajeBlock}`
+      : `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${resumenTop}
       ${generalBlockJ}
@@ -1569,15 +1608,16 @@ export default function ReportsScreen({ route }: any) {
     const rng = dateRangeLabel(from, to);
     // DOS cortes independientes que se COMBINAN, y los dos tienen que verse en el
     // subtítulo y en el nombre del archivo: cómo está agrupado (empresa/encargado)
-    // y si lleva precios o es "solo horas". Dos PDF del mismo rango partidos
-    // distinto no se pueden llamar igual, o al guardarlos uno pisa al otro.
-    const sufijo = money ? '' : ' - solo horas';
+    // y si lleva precios o es "solo horas" o "% por clasificación". Dos PDF del mismo
+    // rango partidos distinto no se pueden llamar igual, o al guardarlos uno pisa al otro.
+    const sufijo = soloPct ? ' - % por clasificacion' : money ? '' : ' - solo horas';
     const porEnc = roundsGroupBy === 'encargado';
     const jornadaFile = (porEnc
       ? `Reporte por jornada por encargado ${rng}`
       : (roundsCompany ? `Reporte ${roundsCompany} ${rng}` : `Reporte por jornada ${rng}`)) + sufijo;
-    const sub = (porEnc ? 'Por encargado y maquinaria' : 'Por empresa y maquinaria')
-      + (money ? '' : ' · SOLO HORAS (sin precios)');
+    const sub = soloPct
+      ? '% por clasificación · base 100%'
+      : (porEnc ? 'Por encargado y maquinaria' : 'Por empresa y maquinaria') + (money ? '' : ' · SOLO HORAS (sin precios)');
     await exportPdf(pdfShell('INFORME POR JORNADA', sub, content), jornadaFile);
   };
 
@@ -3407,12 +3447,12 @@ export default function ReportsScreen({ route }: any) {
           <View style={{ marginBottom: spacing.sm }}>
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>Contenido del reporte</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              {[{ v: false, label: '📋 Completo', desc: 'con precios y montos' }, { v: true, label: '🕒 Solo horas', desc: 'todos los datos, sin precios' }].map((o) => {
-                const on = jornadaSoloHoras === o.v;
+              {JORNADA_MODOS.map((o) => {
+                const on = jornadaModo === o.v;
                 return (
-                  <TouchableOpacity key={String(o.v)} onPress={() => setJornadaSoloHoras(o.v)} style={{ flex: 1, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{o.label}</Text>
-                    <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10, marginTop: 1 }}>{o.desc}</Text>
+                  <TouchableOpacity key={o.v} onPress={() => setJornadaModo(o.v)} style={{ flex: 1, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: 4, alignItems: 'center' }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12.5, textAlign: 'center' }}>{o.label}</Text>
+                    <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 9.5, marginTop: 1, textAlign: 'center' }}>{o.desc}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -4428,18 +4468,18 @@ export default function ReportsScreen({ route }: any) {
           {/* Contenido del PDF: Completo (con precios) / Solo horas (sin precios). */}
           <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>Contenido del PDF</Text>
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-            {[{ v: false, label: '📋 Completo', desc: 'con precios y montos' }, { v: true, label: '🕒 Solo horas', desc: 'todos los datos, sin precios' }].map((o) => {
-              const on = jornadaSoloHoras === o.v;
+            {JORNADA_MODOS.map((o) => {
+              const on = jornadaModo === o.v;
               return (
-                <TouchableOpacity key={String(o.v)} onPress={() => setJornadaSoloHoras(o.v)} style={{ flex: 1, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{o.label}</Text>
-                  <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 10, marginTop: 1 }}>{o.desc}</Text>
+                <TouchableOpacity key={o.v} onPress={() => setJornadaModo(o.v)} style={{ flex: 1, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: 4, alignItems: 'center' }}>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12.5, textAlign: 'center' }}>{o.label}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 9.5, marginTop: 1, textAlign: 'center' }}>{o.desc}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
-            <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF{jornadaSoloHoras ? ' (solo horas)' : ''}</Text>
+            <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF{jornadaModo === 'horas' ? ' (solo horas)' : jornadaModo === 'porcentaje' ? ' (% clasificación)' : ''}</Text>
           </TouchableOpacity>
 
           {/* ── 🔎 TOTAL POR EQUIPO ─────────────────────────────────────────
