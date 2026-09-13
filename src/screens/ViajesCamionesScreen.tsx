@@ -77,6 +77,7 @@ import {
   setAlertaHoras,
   resolveChoferActual,
   listListeros,
+  type ListeroConRol,
 } from '../lib/camionViajes';
 import {
   normalizarHora,
@@ -1127,7 +1128,7 @@ export default function ViajesCamionesScreen() {
   // Los listeros a los que la jefa le puede atribuir un viaje (al cargarlo a
   // mano o al reasignarlo). Solo se leen con nivel full: al listero no le hace
   // falta y sería una consulta de más en el teléfono, que es donde trabaja.
-  const [listeros, setListeros] = useState<{ id: string; full_name: string; ubicacion_id: string | null }[]>([]);
+  const [listeros, setListeros] = useState<ListeroConRol[]>([]);
   const [listerosRecarga, setListerosRecarga] = useState(0);
   useEffect(() => {
     if (!canFull) return;
@@ -1139,6 +1140,18 @@ export default function ViajesCamionesScreen() {
       .catch((e: any) => console.warn('[viajes] no se pudo leer la lista de listeros:', String(e?.message ?? e)));
     return () => { vivo = false; };
   }, [canFull, listerosRecarga]);
+
+  /**
+   * Solo los que tienen el ROL de listero, para «Listeros y su obra» (13-sep-2026).
+   *
+   * Pedido del cliente. Antes salía ahí todo el que tenía acceso al módulo, y
+   * administradores o almacenistas con permiso aparecían como listeros sin obra.
+   *
+   * ⚠️ SOLO para esa lista. La carga a mano y «Lo registró» siguen usando `listeros`
+   *    completa: un viaje que ya registró alguien sin el rol tiene que seguir
+   *    mostrando a quién pertenece.
+   */
+  const listerosDeRol = useMemo(() => listeros.filter((l) => l.esListero), [listeros]);
 
   // ── EL CATÁLOGO DE OBRAS ───────────────────────────────────────────────────
   // Lo lee TODO EL MUNDO, no solo quien administra: el listero necesita saber en
@@ -3525,7 +3538,7 @@ export default function ViajesCamionesScreen() {
               registren hoy salgan con su obra. */}
           <ObrasListeros
             obras={obras}
-            listeros={listeros}
+            listeros={listerosDeRol}
             faltaSql={faltaSqlObras}
             canFull={canFull}
             onCambioObras={recargarObras}

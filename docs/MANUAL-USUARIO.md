@@ -4891,6 +4891,13 @@ además de por empresa y por listero.
 - **Asignarle una obra a cada listero**, y **moverlo** a otra cuando haga falta. Abajo se lista
   cada listero con su obra, y los que **no tienen ninguna** salen marcados.
 
+> **👤 En la lista solo salen los listeros de verdad (13/09/2026).**
+> Solo salen los usuarios con el **rol de listero**. Antes salía todo el que tenía acceso al
+> módulo, y administradores, almacenistas o usuarios de prueba aparecían como listeros sin obra.
+> Quien entra al módulo por un permiso, sin tener ese rol, lo sigue usando igual, pero no aparece
+> en esta lista. La **carga a mano** y el **«Lo registró»** de cada viaje no cambian: siguen
+> mostrando a todos los que tienen acceso.
+
 > **⚠️ Mover a un listero de obra NO cambia sus viajes ya registrados.** Cada viaje se guardó con
 > la obra que ese listero tenía **el día que lo registró**. Si el reporte mirara la obra de hoy,
 > mover a alguien cambiaría sus viajes de agosto de sitio y **un informe ya entregado dejaría de
