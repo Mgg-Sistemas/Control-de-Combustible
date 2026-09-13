@@ -6,6 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../context/AuthContext';
 import { AppRole, UserRole } from '../types/database';
+import { esRolListero } from '../lib/rolListero';
 import { useTheme } from '../theme/ThemeContext';
 import NotificationBell from '../components/NotificationBell';
 import HeaderSettings, { UpdateAppButton } from '../components/HeaderSettings';
@@ -410,11 +411,10 @@ function AsistenciaStack() {
  *  NO el de lavado, que basta con tenerlo). Es a propósito: `viajes_camiones` lo
  *  puede tener también un coordinador junto con otros módulos, y con la regla
  *  laxa lo encerraríamos en una sola pantalla y perdería todo lo demás. */
-const VIAJES_MODULES = ['viajes_camiones'];
+// La regla vive en `src/lib/rolListero.ts` porque la usa también la lista de
+// «Listeros y su obra»: quien entra a este panel es exactamente quien sale ahí.
 function esRolViajes(appRole: AppRole | null): boolean {
-  const mods = appRole?.modules ?? {};
-  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
-  return activos.length > 0 && activos.every((k) => VIAJES_MODULES.includes(k));
+  return esRolListero(appRole?.modules);
 }
 
 /** Panel del listero: su pantalla de viajes + Manual/Ajustes. Nada más. */
