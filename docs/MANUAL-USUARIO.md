@@ -4161,6 +4161,17 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > viaje reciente"* **sí** sigue sin reclamar por los averiados y retirados, que es lo correcto: una
 > máquina retirada legítimamente no viaja.
 
+> **📷 Escanear el QR del camión (13/09/2026).** Al lado de «🔎 Buscar camión…» hay un botón
+> **📷 Escanear QR**, y otro igual dentro del buscador. Apunta al QR pegado en el camión y queda
+> elegido, con su chofer del turno y su estado, igual que si lo hubieras tocado en la lista.
+> **Escribir la placa sigue funcionando igual**: son dos formas de llegar al mismo sitio.
+>
+> El QR no elige nada en tres casos, y te dice cuál: si no es el QR de una máquina del sistema;
+> si el camión figura **retirado** (tampoco sale en el buscador); o si el **QR está vencido**.
+> Cada QR impreso lleva el serial del camión, y si a esa máquina le cambiaron el serial, el papel
+> viejo deja de valer. Es a propósito: un QR viejo pegado en el camión equivocado registraría
+> viajes al camión que no es. En ese caso, búscalo por escrito y pide un QR nuevo.
+
 - **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
   (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
   que el Catálogo.
