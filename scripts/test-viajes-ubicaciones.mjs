@@ -317,5 +317,36 @@ ok('el manual .md explica que el panel son desplegables', /Todo el panel son des
 ok('el manual .md usa el nombre nuevo del panel', /### Panel de información \(administración\)/.test(md));
 ok('el manual en pantalla también', /EL PANEL AHORA SON DESPLEGABLES \(12\/09\/2026\)/.test(ms));
 
+// ── SOLO LOS DEL ROL LISTERO EN «LISTEROS Y SU OBRA» (13-sep-2026) ──────────
+// Pedido del cliente: «necesito que ahi solo me aparezcan los que tienen el rol de
+// listeros». La lista juntaba a todo el que tenia acceso al modulo: dos admins, un
+// usuario de pruebas y dos almacenistas con permiso full salian como listeros sin obra.
+const rol = cargar('src/lib/rolListero.ts');
+ok('un rol con SOLO viajes es listero', rol.esRolListero({ viajes_camiones: 'escritura' }) === true);
+ok('...aunque tenga otros modulos apagados', rol.esRolListero({ viajes_camiones: 'escritura', compras: 'none' }) === true);
+ok('un rol con viajes y mas modulos NO es listero', rol.esRolListero({ viajes_camiones: 'full', compras: 'full' }) === false);
+ok('un rol sin viajes no es listero', rol.esRolListero({ inventario: 'full' }) === false);
+ok('viajes apagado no es listero', rol.esRolListero({ viajes_camiones: 'none' }) === false);
+ok('sin rol no es listero', rol.esRolListero(null) === false && rol.esRolListero(undefined) === false && rol.esRolListero({}) === false);
+
+// ⭐ LA MISMA REGLA QUE EL MENU. Con dos reglas, alguien podria entrar al panel del
+//    listero y no aparecer para asignarle obra, o aparecer sin ser listero.
+const nav = sinComentarios(leer('src/navigation/index.tsx'));
+ok('el menu usa la regla compartida', /esRolListero\(appRole\?\.modules\)/.test(nav));
+ok('...y ya no tiene su propia copia', !/VIAJES_MODULES/.test(nav));
+ok('la lista marca quien tiene el rol con la MISMA regla', /esRolListero\(r\?\.modules\)/.test(lib) && /esListero: rolesListero\.has\(/.test(lib));
+ok('...y pide el rol de cada perfil', /COLS_PERFIL = 'id, full_name, active, app_role_id'/.test(lib));
+ok('a «Listeros y su obra» le llegan solo los del rol',
+  /listeros=\{listerosDeRol\}/.test(scr) && /listeros\.filter\(\(l\) => l\.esListero\)/.test(scr));
+// ⚠️ Lo demas NO cambia: la carga a mano y «Lo registro» siguen con todos los que
+//    tienen acceso. Un viaje ya registrado por alguien sin el rol tiene que seguir
+//    mostrando a quien pertenece.
+ok('la carga a mano sigue con la lista completa', /listeros\.find\(\(l\) => l\.id === cargaListeroId\)/.test(scr));
+ok('«Lo registro» sigue con la lista completa', /\{listeros\.map\(\(l\) => \{/.test(scr));
+ok('la tarjeta dice que no hay nadie con el rol', compCrudo.includes('No hay usuarios con el rol de listero'));
+ok('...y explica por que falta quien tiene solo permiso', compCrudo.includes('Solo salen los usuarios con el rol de listero'));
+ok('el manual .md lo explica', /Solo salen los usuarios con el \*\*rol de listero\*\*/.test(md));
+ok('el manual en pantalla tambien', /SOLO SALEN LOS USUARIOS CON EL ROL DE LISTERO \(13\/09\/2026\)/.test(ms));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-ubicaciones · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
