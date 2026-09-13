@@ -54,7 +54,7 @@ export async function generateListeroViajesGuide(): Promise<boolean> {
   const step2 = stepSection(2, 'Buscar el camión y leer su estado', 'Escribe la placa o el código y toca el camión de la lista',
     twoCol(
       stepList([
-        'Escribe en el buscador la **placa o el código** del camión (no hace falta el nombre completo).',
+        'Escribe en el buscador la **placa o el código** del camión (no hace falta el nombre completo), **o escanea el QR** pegado en el camión con 📷 Escanear QR: lo elige solo.',
         'Toca el camión en la lista para abrirlo.',
         'Junto al nombre del camión verás un **ícono de estado** — revisa la tabla al lado.',
       ]),

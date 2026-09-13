@@ -53,6 +53,8 @@ import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, eti
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
+import QrScanner from '../components/QrScanner';
+import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
 import { CONFIG_POR_DEFECTO, PAPELES, type TiqueConfig } from '../lib/tiqueConfig';
 import { leerConfigTique } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, documentoDeTiques, hojasQueSalen, medioDeImpresion, nombreArchivoTiques, type DatosTique, type TiqueParaImprimir } from '../lib/tiqueDocumento';
@@ -634,6 +636,26 @@ export default function ViajesCamionesScreen() {
     setPickQuery('');
     setPickEstadoSel(new Set());
     setPickOpen(true);
+  };
+
+  // ══ ESCANEAR EL QR DEL CAMIÓN (13-sep-2026) ═══════════════════════════════
+  //
+  // Pedido del cliente: que el listero pueda escribir la placa O escanear el QR,
+  // «sin que dañe ni rompa nada». El QR es un atajo al mismo toque de la lista:
+  // lo que pasa después —chofer, estado, registrar, cola— es idéntico.
+  const [scanOpen, setScanOpen] = useState(false);
+  // Abrir la cámara CIERRA el buscador. En web dos ventanas encimadas se pelean
+  // por quién queda arriba (gana la última montada), y la cámara tiene que
+  // quedar sola en pantalla.
+  const abrirEscaner = () => { setPickOpen(false); setScanOpen(true); };
+  const onQrDetectado = (texto: string) => {
+    setScanOpen(false);
+    const r = resolverCamionDeQr(texto, catalogoTrucks, trucksSeleccionables);
+    if (!r.ok) { toast.error(MENSAJE_QR[r.motivo]); return; }
+    // Un camión del catálogo que no está en la lista del listero se suma a su
+    // lista, exactamente como hace el buscador cuando lo encuentra por escrito.
+    if (r.fueraDeLista) setExtraTruckIds((prev) => new Set(prev).add(r.ficha.id));
+    onSelectTruck(r.ficha);
   };
   // Qué pedido de chofer es el que vale. Escoger el camión A (consulta lenta) y
   // cambiar al B (rápida) terminaba pintando el chofer de A ENCIMA del de B: la
@@ -3022,11 +3044,17 @@ export default function ViajesCamionesScreen() {
 
       <Card>
         <SectionTitle>Registrar viaje</SectionTitle>
-        <TouchableOpacity onPress={openPicker} style={styles.pickButton}>
-          <Text style={{ color: selectedTruck ? colors.text : colors.muted, fontWeight: '700' }}>
-            {selectedTruck ? `🚜 ${selectedTruck.code}` : '🔎 Buscar camión…'}
-          </Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <TouchableOpacity onPress={openPicker} style={[styles.pickButton, { flex: 1 }]}>
+            <Text style={{ color: selectedTruck ? colors.text : colors.muted, fontWeight: '700' }}>
+              {selectedTruck ? `🚜 ${selectedTruck.code}` : '🔎 Buscar camión…'}
+            </Text>
+          </TouchableOpacity>
+          {/* El QR pegado en el camión: un toque en vez de escribir la placa. */}
+          <TouchableOpacity onPress={abrirEscaner} style={[styles.pickButton, { borderColor: colors.brand }]}>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>📷 Escanear QR</Text>
+          </TouchableOpacity>
+        </View>
 
         {selectedTruck ? (
           <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
@@ -3120,6 +3148,11 @@ export default function ViajesCamionesScreen() {
       </Card>
 
       {/* Selector de camión (mismo estilo del selector "Agregar máquina suelta" de UsersScreen). */}
+      {/* La cámara. Misma pieza que usan las otras pantallas del sistema. */}
+      <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
+        <QrScanner onDetected={onQrDetectado} onClose={() => setScanOpen(false)} />
+      </Modal>
+
       <Modal visible={pickOpen} animationType="slide" transparent onRequestClose={() => setPickOpen(false)}>
         <View style={styles.backdrop}>
           <View style={[styles.sheet, { maxHeight: '82%' }]}>
@@ -3131,6 +3164,9 @@ export default function ViajesCamionesScreen() {
               placeholderTextColor={colors.muted}
               style={styles.input}
             />
+            <TouchableOpacity onPress={abrirEscaner} style={{ marginTop: spacing.xs, paddingVertical: 8, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📷 Escanear el QR del camión</Text>
+            </TouchableOpacity>
             {pickEstadoOptions.length > 1 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
