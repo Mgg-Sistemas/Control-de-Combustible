@@ -4282,6 +4282,26 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > sin subir y los anteriores al 12/09/2026. El botón de la lista completa dice cuántos quedan fuera
 > y por qué.
 
+> **📱 Imprimir desde el teléfono con una tiquetera Bluetooth (12/09/2026).** Una tiquetera de
+> rollo por Bluetooth, como la MHT-P11, no aparece sola en el menú de impresión de Android: habla
+> el idioma de las impresoras de recibos. Hace falta una app puente, **RawBT**.
+>
+> 1. Empareja la tiquetera en el Bluetooth del teléfono. La clave suele ser 1234 o 0000.
+> 2. Instala **RawBT** desde Play Store. En su engranaje elige conexión Bluetooth, la tiquetera,
+>    y papel de 58 mm. Haz una prueba con el lápiz.
+> 3. En los ajustes del teléfono, en Impresión, activa el servicio RawBT.
+> 4. En «🎫 Qué sale en el tique», el papel tiene que decir **Rollo 58 mm**, o 80 mm si la
+>    tiquetera es ancha.
+> 5. En el viaje, toca **🖨️ Imprimir tique**, luego **Imprimir**, elige RawBT en el menú de
+>    Android, y al volver toca **Cerrar**. Ahí queda anotada la entrega.
+>
+> ⚠️ **La versión gratuita de RawBT agrega una línea al pie de cada papel.** Quitarla es un pago
+> de RawBT, no del sistema.
+>
+> ⚠️ **Si antes te salían hojas en blanco, era un error del sistema y ya está corregido.** La
+> página del rollo estaba mal declarada: el navegador la ignoraba y armaba el tique en una hoja
+> carta. RawBT achicaba esa hoja entera al ancho del rollo y la letra quedaba tan chica que la
+> tiquetera no la marcaba. Ahora la página mide lo que mide el tique.
 > **📏 Si no caben todos los datos, el sistema achica la letra (12/09/2026).** Con muchos datos
 > encendidos y 4 o 6 tiques por hoja, el recuadro se llena. El tique **no se corta**: la letra se
 > achica sola hasta que entre todo, incluida la línea de la firma.
