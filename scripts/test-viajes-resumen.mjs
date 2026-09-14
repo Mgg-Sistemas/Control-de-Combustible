@@ -42,7 +42,7 @@ const m = new Module(srcPath);
 m.filename = srcPath;
 m.paths = Module._nodeModulePaths(path.dirname(srcPath));
 m._compile(out, m.filename);
-const { resumirViajes, SIN_EMPRESA, SIN_LISTERO } = m.exports;
+const { resumirViajes, camionesQueSalieron, SIN_EMPRESA, SIN_LISTERO } = m.exports;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -332,6 +332,49 @@ eq('turno · por listero, Junior es todo de dia',
 const sinTurnoDelTodo = resumirViajes([viaje('t1', 'CAMION VOLTEO TORONTO')], cat);
 eq('* turno · un llamador que no manda turno no rompe nada',
   [sinTurnoDelTodo.total, sinTurnoDelTodo.dia, sinTurnoDelTodo.noche], [1, 0, 0]);
+
+// ── SOLO CAMIONES: QUIENES SALIERON, SIN CUANTO (14-sep-2026) ───────────────
+// Pedido del cliente: los camiones que salieron en el rango y con los filtros,
+// sin la cantidad de viajes de cada uno.
+const salidas = [
+  { machineryId: 't1', machineCode: 'CAMION VOLTEO TORONTO', listeroId: 'u1', listeroName: 'Junior', turno: 'day' },
+  { machineryId: 't1', machineCode: 'CAMION VOLTEO TORONTO', listeroId: 'u1', listeroName: 'Junior', turno: 'day' },
+  { machineryId: 't1', machineCode: 'CAMION VOLTEO TORONTO', listeroId: 'u2', listeroName: 'Maria', turno: 'night' },
+  { machineryId: 't2', machineCode: 'CAMION VOLTEO TORONTO', listeroId: 'u2', listeroName: 'Maria', turno: 'day' },
+  { machineryId: 't3', machineCode: 'CHUTO CON VOLQUETA', listeroId: 'u2', listeroName: 'Maria', turno: 'day' },
+  { machineryId: 't4', machineCode: 'CAMION VOLTEO', listeroId: null, listeroName: '', turno: 'day' },
+  { machineryId: null, machineCode: 'VOLTEO 88', fueraCatalogo: true, listeroId: 'u1', listeroName: 'Junior', turno: 'night' },
+];
+const resS = resumirViajes(salidas, cat, 'empresa');
+const sc = camionesQueSalieron(resS);
+eq('* solo camiones · el total es el de camiones distintos del resumido', sc.totalCamiones, resS.totalCamiones);
+eq('solo camiones · no pierde ni agrega ningun camion',
+  sc.grupos.reduce((a, g) => a + g.camiones.length, 0), resS.empresas.reduce((a, e) => a + e.camiones.length, 0));
+// ⭐ Lo que se pidio: ninguna cantidad de viajes, ni por camion ni por grupo.
+ok('* solo camiones · ningun camion trae cuantos viajes hizo',
+  sc.grupos.every((g) => g.camiones.every((c) => !('viajes' in c) && !('dia' in c) && !('noche' in c))));
+ok('solo camiones · ningun grupo trae su total de viajes',
+  sc.grupos.every((g) => !('total' in g) && !('dia' in g) && !('noche' in g)));
+// ⚠️ Ordenado por viajes, el papel «sin cantidades» las seguiria diciendo.
+eq('* solo camiones · los grupos van por nombre y «Sin empresa» al final',
+  sc.grupos.map((g) => g.key), ['costa', 'beraca', SIN_EMPRESA]);
+eq('* solo camiones · dentro del grupo por codigo y despues placa, no por viajes',
+  sc.grupos.find((g) => g.key === 'beraca').camiones.map((c) => c.key), ['t2', 't1']);
+ok('solo camiones · el fuera de catalogo sigue marcado',
+  sc.grupos.find((g) => g.key === SIN_EMPRESA).camiones.some((c) => c.placa === 'FUERA DE CATÁLOGO'));
+// ⚠️ «Sin empresa» va al final POR REGLA, no por casualidad del abecedario: con
+//    una empresa que empieza por Z, ordenar solo por nombre la dejaria despues.
+const catZ = (id) => (id === 'tz' ? { companyId: 'zeta', companyName: 'ZETA TRANSPORTE', plate: null, serial: null } : cat(id));
+const scZ = camionesQueSalieron(resumirViajes(
+  [...salidas, { machineryId: 'tz', machineCode: 'CAMION VOLTEO', listeroId: 'u1', listeroName: 'Junior', turno: 'day' }],
+  catZ, 'empresa'));
+eq('* solo camiones · «Sin empresa» va despues aunque otra empresa empiece por Z',
+  scZ.grupos.map((g) => g.key), ['costa', 'beraca', 'zeta', SIN_EMPRESA]);
+const scL = camionesQueSalieron(resumirViajes(salidas, cat, 'listero'));
+eq('solo camiones · por listero, «Sin listero» al final', scL.grupos[scL.grupos.length - 1].key, SIN_LISTERO);
+eq('solo camiones · agrupar no cambia cuantos camiones salieron', scL.totalCamiones, sc.totalCamiones);
+eq('solo camiones · dice por que eje quedo partido', [sc.groupBy, scL.groupBy], ['empresa', 'listero']);
+eq('solo camiones · sin viajes, sin grupos', camionesQueSalieron(resumirViajes([], cat)).grupos, []);
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-resumen · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

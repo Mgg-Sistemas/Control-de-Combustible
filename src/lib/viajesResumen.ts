@@ -338,3 +338,39 @@ export function resumirViajes(
     groupBy,
   };
 }
+
+// ── SOLO CAMIONES: QUIÉNES SALIERON, SIN CUÁNTO (14-sep-2026) ───────────────
+//
+// Pedido del cliente: un reporte de los camiones que salieron en el rango y con
+// los filtros de la lista completa, SIN la cantidad de viajes de cada uno.
+
+export type CamionSalio = { key: string; code: string; placa: string };
+export type GrupoCamiones = { key: string; name: string; camiones: CamionSalio[] };
+export type CamionesQueSalieron = { grupos: GrupoCamiones[]; totalCamiones: number; groupBy: EjeResumen };
+
+const esCubetaSin = (key: string) => key === SIN_EMPRESA || key === SIN_LISTERO || key === SIN_UBICACION;
+
+/**
+ * La misma lista del resumido, sin ninguna cifra de viajes.
+ *
+ * ⭐ Sale del RESUMEN y no de las filas: así no hay una segunda cuenta que pueda
+ *    dejar fuera un camión que el resumido sí trae. Mismos filtros, mismo eje.
+ *
+ * ⚠️ EL ORDEN ES ALFABÉTICO, no de más viajes a menos. Un papel «sin cantidades»
+ *    ordenado por viajes las sigue diciendo: el primero es el que más trabajó.
+ *    Los grupos «Sin empresa / listero / ubicación» van al final. Dentro de un
+ *    grupo manda el código y después la placa, porque muchos camiones se llaman
+ *    igual y solo la placa los distingue.
+ */
+export function camionesQueSalieron(res: ResumenViajes): CamionesQueSalieron {
+  const grupos = res.empresas
+    .map((g) => ({
+      key: g.key,
+      name: g.name,
+      camiones: g.camiones
+        .map((c) => ({ key: c.key, code: c.code, placa: c.placa }))
+        .sort((a, b) => cmp(a.code, b.code) || cmp(a.placa, b.placa)),
+    }))
+    .sort((a, b) => Number(esCubetaSin(a.key)) - Number(esCubetaSin(b.key)) || cmp(a.name, b.name));
+  return { grupos, totalCamiones: res.totalCamiones, groupBy: res.groupBy };
+}
