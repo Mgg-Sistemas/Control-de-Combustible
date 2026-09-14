@@ -69,8 +69,9 @@ ok('Cocina: si borrar devuelve error, no toca la lista', /const \{ error \} = aw
 
 // ── 3) Obras: renombrar, activar y borrar piden filas y avisan ───────────────
 const obras = sinComentarios(leer('src/components/ObrasListeros.tsx'));
-eq('las tres escrituras de obras piden .select(\'id\')', (obras.match(/from\('ubicaciones_obra'\)\.(update|delete)\([^;]*\.select\('id'\)/g) || []).length, 3);
-eq('...y las tres avisan si no volvió ninguna fila', (obras.match(/if \(!data\?\.length\) \{ toast\.error\(SIN_PERMISO_OBRA\); return; \}/g) || []).length, 3);
+// Renombrar, activar, borrar y (desde el 14-sep) cambiar la zona de pago.
+eq('las cuatro escrituras de obras piden .select(\'id\')', (obras.match(/from\('ubicaciones_obra'\)\.(update|delete)\([^;]*\.select\('id'\)/g) || []).length, 4);
+eq('...y las cuatro avisan si no volvió ninguna fila', (obras.match(/if \(!data\?\.length\) \{ toast\.error\(SIN_PERMISO_OBRA\); return; \}/g) || []).length, 4);
 ok('el aviso dice quién sí puede', /permiso completo de viajes/.test(obras));
 
 // ── 4) Manual ───────────────────────────────────────────────────────────────

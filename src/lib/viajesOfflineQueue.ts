@@ -323,7 +323,8 @@ export async function flushViajesQueue(): Promise<{ synced: number; remaining: n
       // client_action_id estable (= id de la acción en cola): si un replay anterior
       // ya insertó pero se perdió la respuesta, este reintento choca con el índice
       // único y la política lo trata como éxito, en vez de duplicar el viaje.
-      const { error } = await registrarViaje({ ...it.payload, clientActionId: it.id });
+      // `origen: 'cola'`: el viaje se tocó sin señal y sube ahora (14-sep-2026).
+      const { error } = await registrarViaje({ ...it.payload, clientActionId: it.id, origen: 'cola' });
       const accion = decidirAccionCola({ error, intentos: intentosPrevios });
 
       if (accion === 'exito') { resueltos.add(it.id); synced++; cambio = true; continue; }

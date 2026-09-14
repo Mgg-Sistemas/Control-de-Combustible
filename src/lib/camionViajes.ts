@@ -237,6 +237,9 @@ export async function registrarViaje(params: {
    *  de la cola offline no las trae. */
   placa?: string | null;
   empresa?: string | null;
+  /** Cómo entró el viaje (14-sep-2026): tocado en el patio, subido desde la cola sin
+   *  señal, o cargado a mano por la oficina. Si no viene, la base lo deduce. */
+  origen?: 'campo' | 'cola' | 'manual';
 }): Promise<{ error?: string; missing?: boolean }> {
   // Las dos clases de viaje son EXCLUYENTES y la BD lo exige con un CHECK
   // (`cv_fuera_catalogo_coherente`). Se normaliza acá para que un error de quien
@@ -263,9 +266,15 @@ export async function registrarViaje(params: {
   // ⚠️ El `folio` NO va acá. Lo pone la base con su trigger: si lo mandara el
   //    teléfono, dos listeros que registran en el mismo segundo se llevarían el
   //    mismo número.
+  // ⚠️ La EMPRESA (`company_id`) y la ZONA DE PAGO tampoco van acá (14-sep-2026):
+  //    las copia la base al insertar, desde el catálogo y desde la obra, y no se
+  //    pueden cambiar después. Son los datos con los que se cobra: no pueden
+  //    salir del teléfono. El `origen` sí lo manda la app (solo ella sabe si el
+  //    viaje salió de la cola); va con la tiquetera porque se agregó después.
   const camposTique = {
     placa_snap: params.placa ?? null,
     empresa_snap: params.empresa ?? null,
+    ...(params.origen ? { origen: params.origen } : {}),
   };
 
   // Mismo respaldo que en la lectura, y por la misma razón: si un `.sql` todavía
