@@ -126,7 +126,8 @@ type RoundCompany = {
 
 // Reporte de EQUIPOS (pestaña que reemplazó a "Combustible"): listado por empresa
 // con identidad (nombre/marca/modelo/placa/serial), la JORNADA elegida (12 o 24 h)
-// y el PRECIO del tabulador (price_jornada). El monto = precio × (jornada / 12).
+// y el PRECIO POR JORNADA DE 12 H que está en Control (machinery.price_per_hour).
+// El monto = precio × (jornada / 12).
 type Row = {
   company: string;
   code: string;   // nombre del equipo
@@ -134,7 +135,7 @@ type Row = {
   modelo: string;
   plate: string;
   serial: string;
-  price: number;  // precio por jornada (12 h) del tabulador; 0 si el modelo no está tabulado
+  price: number;  // precio por jornada de 12 h (Control de Maquinaria); 0 si el equipo no tiene precio
 };
 
 // Reporte MAQUINARIA (pestaña "fleet"): listado de IDENTIDAD de la maquinaria —
@@ -568,7 +569,7 @@ export default function ReportsScreen({ route }: any) {
   // Reporte de EQUIPOS (pestaña que reemplazó a Combustible): jornada única (12/24 h),
   // columnas conmutables y vista agrupada por empresa o listado general.
   const [eqJornada, setEqJornada] = useState<12 | 24>(12);
-  const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true });
+  const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
   // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
@@ -992,35 +993,23 @@ export default function ReportsScreen({ route }: any) {
   const eqTotalMonto = all.reduce((s, r) => s + eqMonto(r), 0);
 
   // Reporte de EQUIPOS: listado del catálogo (todas menos retiradas) con el PRECIO
-  // del tabulador. El precio de un modelo sale del tabulador POR EMPRESA
-  // (company_price_tariffs) si existe; si no, del tabulador general (price_tariffs).
+  // POR JORNADA DE 12 H que está en Control de Maquinaria — el campo machinery.price_per_hour,
+  // que la app usa como precio por jornada de 12 h (el mismo tabulador de Golden Touch y
+  // Liccione que ya se ve en Control/Jornada). El monto = ese precio × (jornada / 12).
   const generate = async () => {
     setLoading(true);
-    const [machRes, tarGenRes, tarEmpRes] = await Promise.all([
-      selectAllRows('machinery', 'code, marca, modelo, plate, serial, operational, company_id, company:company_id(name)'),
-      supabase.from('price_tariffs').select('modelo, price_jornada'),
-      supabase.from('company_price_tariffs').select('company_id, modelo, price_jornada'),
-    ]);
-    const normModelo = (s: any) => String(s ?? '').trim().toLowerCase();
-    const tarGen = new Map<string, number>();
-    (tarGenRes.data ?? []).forEach((t: any) => tarGen.set(normModelo(t.modelo), Number(t.price_jornada) || 0));
-    const tarEmp = new Map<string, number>();
-    (tarEmpRes.data ?? []).forEach((t: any) => tarEmp.set(`${t.company_id}|${normModelo(t.modelo)}`, Number(t.price_jornada) || 0));
+    const machRes = await selectAllRows('machinery', 'code, marca, modelo, plate, serial, operational, price_per_hour, company:company_id(name)');
     const list: Row[] = (machRes ?? [])
       .filter((m: any) => m.operational !== false) // todas menos las RETIRADAS
-      .map((m: any) => {
-        const mk = normModelo(m.modelo);
-        const price = tarEmp.get(`${m.company_id}|${mk}`) ?? tarGen.get(mk) ?? 0;
-        return {
-          company: m.company?.name ?? 'Sin empresa',
-          code: (m.code && String(m.code).trim()) || '—',
-          marca: (m.marca && String(m.marca).trim()) || '—',
-          modelo: (m.modelo && String(m.modelo).trim()) || '—',
-          plate: (m.plate && String(m.plate).trim()) || '—',
-          serial: (m.serial && String(m.serial).trim()) || '—',
-          price,
-        };
-      });
+      .map((m: any) => ({
+        company: m.company?.name ?? 'Sin empresa',
+        code: (m.code && String(m.code).trim()) || '—',
+        marca: (m.marca && String(m.marca).trim()) || '—',
+        modelo: (m.modelo && String(m.modelo).trim()) || '—',
+        plate: (m.plate && String(m.plate).trim()) || '—',
+        serial: (m.serial && String(m.serial).trim()) || '—',
+        price: m.price_per_hour != null ? Number(m.price_per_hour) : 0, // precio por jornada de 12 h (Control)
+      }));
     // Filtro por empresa (vacío = todas).
     const shown = repCompanies.length ? list.filter((r) => repCompanies.includes(r.company)) : list;
     setRows(shown);
@@ -3034,10 +3023,12 @@ export default function ReportsScreen({ route }: any) {
 
   const downloadPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Cabecera dinámica según las columnas activas.
-    const head = `<tr><th style="text-align:left">Nombre del equipo</th>${eqCols.marca ? '<th style="text-align:left">Marca</th>' : ''}${eqCols.modelo ? '<th style="text-align:left">Modelo</th>' : ''}${eqCols.plate ? '<th style="text-align:left">Placa</th>' : ''}${eqCols.serial ? '<th style="text-align:left">Serial</th>' : ''}<th style="text-align:center">Jornada</th><th style="text-align:right">Precio</th><th style="text-align:right">Monto</th></tr>`;
-    const ncols = 4 + [eqCols.marca, eqCols.modelo, eqCols.plate, eqCols.serial].filter(Boolean).length;
-    const fila = (r: Row) => `<tr><td>${esc(r.code)}</td>${eqCols.marca ? `<td>${esc(r.marca)}</td>` : ''}${eqCols.modelo ? `<td>${esc(r.modelo)}</td>` : ''}${eqCols.plate ? `<td>${esc(r.plate)}</td>` : ''}${eqCols.serial ? `<td>${esc(r.serial)}</td>` : ''}<td style="text-align:center">${eqJornada} h</td><td style="text-align:right">${r.price > 0 ? usd(r.price) : '—'}</td><td style="text-align:right;font-weight:700">${r.price > 0 ? usd(eqMonto(r)) : '—'}</td></tr>`;
+    // Cabecera dinámica según las columnas activas. El nombre del equipo va siempre;
+    // todo lo demás (incluidos precio y monto) se muestra u oculta con su check.
+    const head = `<tr><th style="text-align:left">Nombre del equipo</th>${eqCols.marca ? '<th style="text-align:left">Marca</th>' : ''}${eqCols.modelo ? '<th style="text-align:left">Modelo</th>' : ''}${eqCols.plate ? '<th style="text-align:left">Placa</th>' : ''}${eqCols.serial ? '<th style="text-align:left">Serial</th>' : ''}${eqCols.jornada ? '<th style="text-align:center">Jornada</th>' : ''}${eqCols.precio ? '<th style="text-align:right">Precio</th>' : ''}${eqCols.monto ? '<th style="text-align:right">Monto</th>' : ''}</tr>`;
+    // Nº total de columnas y cuántas quedan a la IZQUIERDA del monto (para los colspan).
+    const ncols = 1 + [eqCols.marca, eqCols.modelo, eqCols.plate, eqCols.serial, eqCols.jornada, eqCols.precio, eqCols.monto].filter(Boolean).length;
+    const fila = (r: Row) => `<tr><td>${esc(r.code)}</td>${eqCols.marca ? `<td>${esc(r.marca)}</td>` : ''}${eqCols.modelo ? `<td>${esc(r.modelo)}</td>` : ''}${eqCols.plate ? `<td>${esc(r.plate)}</td>` : ''}${eqCols.serial ? `<td>${esc(r.serial)}</td>` : ''}${eqCols.jornada ? `<td style="text-align:center">${eqJornada} h</td>` : ''}${eqCols.precio ? `<td style="text-align:right">${r.price > 0 ? usd(r.price) : '—'}</td>` : ''}${eqCols.monto ? `<td style="text-align:right;font-weight:700">${r.price > 0 ? usd(eqMonto(r)) : '—'}</td>` : ''}</tr>`;
     const bloques = eqGroups
       .map((g) => {
         const filas = g.items.map(fila).join('');
@@ -3045,18 +3036,26 @@ export default function ReportsScreen({ route }: any) {
         const titulo = g.company
           ? `<h2 style="margin-top:16px">🏢 ${esc(g.company)} <span style="color:#666;font-weight:400">(${g.items.length} equipo${g.items.length === 1 ? '' : 's'})</span></h2>`
           : `<h2 style="margin-top:8px">Listado general <span style="color:#666;font-weight:400">(${g.items.length} equipo${g.items.length === 1 ? '' : 's'})</span></h2>`;
+        // El pie con el TOTAL solo tiene sentido si la columna Monto está visible.
+        const foot = eqCols.monto
+          ? `<tfoot><tr><td colspan="${ncols - 1}" style="text-align:right;font-weight:800">TOTAL${g.company ? ` ${esc(g.company)}` : ''}</td><td style="text-align:right;font-weight:800">${usd(subMonto)}</td></tr></tfoot>`
+          : '';
         return `${titulo}
           <table><thead>${head}</thead>
           <tbody>${filas || `<tr><td colspan="${ncols}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
-          <tfoot><tr><td colspan="${ncols - 1}" style="text-align:right;font-weight:800">TOTAL${g.company ? ` ${esc(g.company)}` : ''}</td><td style="text-align:right;font-weight:800">${usd(subMonto)}</td></tr></tfoot></table>`;
+          ${foot}</table>`;
       })
       .join('');
+    const conMonto = eqCols.monto;
+    const notaTarifa = eqCols.precio || eqCols.monto
+      ? `<p class="muted" style="margin:4px 0 8px">Precio y monto según el tabulador (precio por jornada de 12 h × ${eqFactor} = jornada de ${eqJornada} h). Los modelos sin tarifa salen con "—".</p>`
+      : '';
     const body = `
-      <div class="muted">Listado de equipos · jornada ${eqJornada} h${repCompanies.length ? ` · ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ''}</div>
-      <p class="muted" style="margin:4px 0 8px">Precio y monto según el tabulador (precio por jornada de 12 h × ${eqFactor} = jornada de ${eqJornada} h). Los modelos sin tarifa salen con "—".</p>
+      <div class="muted">Listado de equipos${eqCols.jornada ? ` · jornada ${eqJornada} h` : ''}${repCompanies.length ? ` · ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ''}</div>
+      ${notaTarifa}
       ${bloques || '<p class="muted">Sin equipos para el filtro elegido.</p>'}
-      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${all.length} equipo(s) · ${usd(eqTotalMonto)}</div>`;
-    await exportPdf(pdfShell('REPORTE DE EQUIPOS', `Listado por ${eqAgrupar === 'general' ? 'listado general' : 'empresa'} · jornada ${eqJornada} h`, body), `Reporte de equipos - jornada ${eqJornada}h`);
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${all.length} equipo(s)${conMonto ? ` · ${usd(eqTotalMonto)}` : ''}</div>`;
+    await exportPdf(pdfShell('REPORTE DE EQUIPOS', `Listado por ${eqAgrupar === 'general' ? 'listado general' : 'empresa'}${eqCols.jornada ? ` · jornada ${eqJornada} h` : ''}`, body), `Reporte de equipos${eqCols.jornada ? ` - jornada ${eqJornada}h` : ''}`);
   };
 
   return (
@@ -3291,9 +3290,9 @@ export default function ReportsScreen({ route }: any) {
                 );
               })}
             </View>
-            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Columnas a mostrar</Text>
+            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Columnas a mostrar (marca lo que quieres imprimir)</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              {([['marca', 'Marca'], ['modelo', 'Modelo'], ['plate', 'Placa'], ['serial', 'Serial']] as const).map(([k, label]) => {
+              {([['marca', 'Marca'], ['modelo', 'Modelo'], ['plate', 'Placa'], ['serial', 'Serial'], ['jornada', 'Jornada'], ['precio', 'Precio'], ['monto', 'Monto']] as const).map(([k, label]) => {
                 const on = eqCols[k];
                 return (
                   <TouchableOpacity key={k} onPress={() => setEqCols((p) => ({ ...p, [k]: !p[k] }))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -4346,10 +4345,12 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text>
                 <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{all.length}</Text>
               </View>
-              <View>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Monto total</Text>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.brandText }}>{usd(eqTotalMonto)}</Text>
-              </View>
+              {eqCols.monto ? (
+                <View>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Monto total</Text>
+                  <Text style={{ fontSize: 20, fontWeight: '700', color: colors.brandText }}>{usd(eqTotalMonto)}</Text>
+                </View>
+              ) : null}
             </View>
           </Card>
 
@@ -4364,20 +4365,25 @@ export default function ReportsScreen({ route }: any) {
                     <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, flex: 1 }} numberOfLines={1}>
                       {g.company ? `🏢 ${g.company}` : '📋 Listado general'} · {g.items.length}
                     </Text>
-                    <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{usd(subMonto)}</Text>
+                    {eqCols.monto ? <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{usd(subMonto)}</Text> : null}
                   </View>
-                  {g.items.map((r, i) => (
-                    <View key={`${r.code}:${r.serial}:${i}`} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, paddingVertical: spacing.xs }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>{r.code}</Text>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{r.price > 0 ? usd(eqMonto(r)) : '—'}</Text>
+                  {g.items.map((r, i) => {
+                    const extra = [
+                      eqCols.marca && r.marca, eqCols.modelo && r.modelo,
+                      eqCols.plate && `Placa ${r.plate}`, eqCols.serial && `Serial ${r.serial}`,
+                      eqCols.jornada && `${eqJornada} h`,
+                      eqCols.precio && (r.price > 0 ? usd(r.price) : 'sin tarifa'),
+                    ].filter(Boolean).join(' · ');
+                    return (
+                      <View key={`${r.code}:${r.serial}:${i}`} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, paddingVertical: spacing.xs }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>{r.code}</Text>
+                          {eqCols.monto ? <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{r.price > 0 ? usd(eqMonto(r)) : '—'}</Text> : null}
+                        </View>
+                        {extra ? <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={2}>{extra}</Text> : null}
                       </View>
-                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={2}>
-                        {[eqCols.marca && r.marca, eqCols.modelo && r.modelo, eqCols.plate && `Placa ${r.plate}`, eqCols.serial && `Serial ${r.serial}`].filter(Boolean).join(' · ')}
-                        {`  ·  ${eqJornada} h · ${r.price > 0 ? usd(r.price) : 'sin tarifa'}`}
-                      </Text>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </Card>
               );
             })
