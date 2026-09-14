@@ -2602,14 +2602,16 @@ retirados) con su **tabulador**. Eliges:
 
 - **Jornada** — **12 o 24 horas**, la coloca el usuario y aplica a todo el reporte
   (12 h = 1 jornada, 24 h = 2 jornadas).
-- **Columnas** a mostrar/ocultar — **Marca, Modelo, Placa, Serial** (el *nombre del equipo* va siempre).
+- **Columnas** a mostrar/ocultar **con check** — **Marca, Modelo, Placa, Serial, Jornada, Precio y Monto**
+  (el *nombre del equipo* va siempre). Así imprimes el reporte **solo con lo que quieres**; si ocultas
+  el **Monto**, también se quitan los totales en dinero.
 - **Vista** — **🏢 Agrupar por empresa** o **📋 Listado general** (todos los equipos juntos, sin empresa).
 - **Empresas** — marca una, varias o todas.
 
-El **precio** sale del **tabulador**: usa la tarifa **por empresa** del modelo si existe
-(*Empresas y tarifas*) y, si no, la tarifa **general**; el **monto = precio × (jornada ÷ 12)**.
-Los modelos sin tarifa salen con **«—»**. Trae **total por empresa** y **total general**, y se
-descarga en **PDF**.
+El **precio** es el **precio por jornada de 12 h que está en Control de Maquinaria** (el mismo
+tabulador de **Golden Touch** y **Liccione** que ya se ve en Control/Jornada); el
+**monto = precio × (jornada ÷ 12)**. Los equipos sin precio salen con **«—»**. Trae
+**total por empresa** y **total general**, y se descarga en **PDF**.
 
 #### 🔎 Total por equipo — buscar UNA máquina (31-ago-2026)
 
