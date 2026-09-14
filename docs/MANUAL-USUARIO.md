@@ -4290,6 +4290,15 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > personas y cuántas reimpresiones. Si alguna entrega de ese tique salió sin señal y todavía
 > está en el teléfono, la ventana lo avisa, porque aún no aparece en la lista.
 
+> **🗑️ Borrar una entrega del historial (14/09/2026).** Quien tiene el nivel completo del módulo
+> ve **«Borrar»** en cada entrega del historial. Borrarla la **tacha**: deja de contar en
+> «entregado ×N», pero sigue en la lista con **quién la borró y a qué hora**. No se puede deshacer,
+> y una entrega ya borrada no se puede volver a borrar.
+>
+> ⚠️ **Si borras un viaje, sus entregas se borran con él**, con el motivo «Viaje borrado». El
+> número de tique de un viaje borrado puede volver a salir en el siguiente viaje: ese viaje nuevo
+> empieza **sin entregas**, y su primer papel sale como primera impresión, no como reimpresión.
+
 > ⚠️ **Sin señal el papel sale igual, y la constancia se guarda sola después.** Si se cae la señal
 > justo al imprimir, arriba te aparece «*N tiques entregados sin registrar en el servidor*». No se
 > pierde nada: sube solo cuando vuelva la señal. El camionero ya tiene su papel.
