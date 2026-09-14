@@ -1,299 +1,239 @@
-import { supabase, selectAllRows } from './supabase';
+import { selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
-import { sectorOf, sectorLabel } from './mapZones';
-import { horasTurnoDelDia, type RondaHoras } from './hours';
+import { computeInspectorData } from './inspectorReport';
+import { assignmentCountsForShift } from './inspectorDaySets';
+import { listInspectorAssignments } from './machineInspectors';
+import {
+  OPCIONES_INSPECTOR_POR_DEFECTO, columnasInspector, tituloColumnaInspector, marcaModeloInspector,
+  estadoComoTarjeta, entraEnLasTarjetas, ordenFilasInspector, resumenEstadosInspector,
+  revisionInspectorTexto, ocultosInspectorEnPalabras, sufijoArchivoInspector,
+  type OpcionesInspector, type ColumnaInspector, type EstadoTarjeta, type ResumenEstados,
+} from './inspectorTrazaColumnas';
 
 /**
- * Reporte "RECORRIDO DEL INSPECTOR" (PDF). Reconstruye la SECUENCIA HORARIA de las
- * revisiones (check-ins) que hizo cada inspector durante un día: a qué hora revisó
- * cada máquina, en qué sector/ubicación estaba, en qué estado la encontró
- * (trabajando / parada / no está), si estaba CERCA del equipo (distancia GPS) y —
- * desde 17-ago-2026 — las HORAS TRABAJADAS de esa máquina ese día (día / noche /
- * trabajadas) más QUIÉN INICIÓ la jornada.
+ * REPORTE POR INSPECTOR (PDF) · Inspecciones → Reportes.
  *
- * Fuente del recorrido: `supervisor_visits` (un registro por check-in). Se filtra por
- * `visit_date` y, opcionalmente, por los inspectores elegidos. Las filas se ordenan por
- * `visited_at` ascendente para leer el recorrido en orden cronológico. El sector se
- * deriva del GPS del inspector (sectorLabel(sectorOf(lat,lng))); si no cae en zona,
- * cae a la referencia de la máquina.
+ * ⭐ CUENTA IGUAL QUE LAS TARJETAS DE INSPECCIONES (14-sep-2026). Pedido del cliente:
+ *    «ese reporte no me refleja la realidad». Hasta ese día salía de los CHECK-IN
+ *    (`supervisor_visits`): solo traía las máquinas que el inspector escaneó, con las
+ *    horas del día completo. Así «Inspector SOS» (72 jornadas, cero check-in) no
+ *    aparecía, y las máquinas de un inspector revisadas por otro salían bajo el otro.
  *
- * POR QUÉ LAS HORAS VAN AQUÍ (pedido del cliente 17-ago-2026): este reporte agrupa por
- * `supervisor_visits.supervisor_name`, que es QUIÉN HIZO EL CHECK-IN DE VERDAD,
- * congelado en el momento de la visita. El Histórico de Jornadas atribuye por la
- * asignación ACTUAL (`machine_inspectors`), así que reescribe el pasado cuando se
- * reasignan máquinas; este documento es históricamente fiel.
+ *    Ahora la columna vertebral son las ASIGNADAS por turno, con los datos de
+ *    `computeInspectorData` —la misma agregación del reporte con firma y del recibo del
+ *    teléfono— y el estado y las exclusiones de las tarjetas (ver
+ *    `inspectorTrazaColumnas.ts`). El check-in queda como columna: hora de la primera
+ *    revisión y, si la hizo otro inspector, su nombre.
  *
- * Fuente de las horas: `machine_rounds` del mismo `round_date`, calculadas con
- * `horasTurnoDelDia` (src/lib/hours.ts) — la FÓRMULA ÚNICA del sistema. NO se
- * reimplementa nada acá: el proyecto ya tuvo un incidente grave por tener 13 fórmulas
- * de horas distintas en 8 archivos (un inspector veía 137,38 h en el teléfono y
- * 35,38 h en la web).
+ * Las horas son las del TURNO (día o noche) calculadas con `horasTurnoDelDia`, la
+ * fórmula única del sistema. No se reimplementa nada acá.
  *
- * ⚠️ REGLA DE ORO DE LOS TOTALES: las filas del recorrido son POR VISITA (una máquina
- * puede revisarse varias veces el mismo día), pero las horas son POR MÁQUINA Y DÍA. Todo
- * total DEDUPLICA por `machinery_id` antes de sumar (`totalesDe`); sumar fila por fila
- * inflaría las horas tantas veces como visitas tenga la máquina.
+ * Las columnas se eligen con pastillas, como el Conteo de equipos. Ocultan columnas,
+ * nunca máquinas: los totales no cambian.
  */
+
+type Turno = 'day' | 'night';
+export type TurnoReporteInspector = Turno | 'both';
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
-/** Horas con 2 decimales, mismo formato numérico que el resto de los PDFs de horas. */
 const h2 = (n: number) => (Number(n) || 0).toFixed(2);
-/** Hora (Caracas) "HH:MM am/pm" de un instante ISO, o '—'. */
-const horaCaracas = (iso: string | null): string => {
-  if (!iso) return '—';
+const horaCaracas = (iso: string): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso)); } catch { return '—'; }
 };
 
-const estadoTxt = (s: any): string => {
-  const v = String(s ?? '').trim();
-  if (v === 'trabajando') return '🟢 Trabajando';
-  if (v === 'parada') return '🟡 Parada';
-  if (v === 'no_esta') return '🔴 No está';
-  return v || '—';
+const ESTADO_TXT: Record<EstadoTarjeta, { txt: string; color: string }> = {
+  averia: { txt: '🔴 Averiada', color: '#B91C1C' },
+  parada: { txt: '🟡 Parada', color: '#B45309' },
+  encurso: { txt: '● En curso', color: '#067647' },
+  cerrada: { txt: '✅ Cerrada', color: '#166534' },
+  pendiente: { txt: '⏳ Pendiente', color: '#6B7280' },
+};
+
+const TURNO_META: Record<Turno, { icon: string; label: string }> = {
+  day: { icon: '☀️', label: 'Turno de día' },
+  night: { icon: '🌙', label: 'Turno de noche' },
 };
 
 /**
- * MARCA / MODELO reales del catálogo. Antes esta celda renderizaba `machine.tipo` bajo
- * el encabezado "Marca/Modelo" — `tipo` es el marca-modelo COMBINADO histórico, no la
- * marca. Ahora se muestran las columnas propias `marca` y `modelo` (las mismas que usa
- * el reporte de Catálogo) y solo se cae a `tipo` cuando la máquina es vieja y todavía
- * no tiene los campos separados llenos.
- */
-const marcaModeloTxt = (m: any): string => {
-  const partes = [m?.marca, m?.modelo].map((x) => String(x ?? '').trim()).filter(Boolean);
-  if (partes.length) return partes.join(' ');
-  const t = String(m?.tipo ?? '').trim();
-  return t || '—';
-};
-
-/** Sector según GPS del inspector; si no hay zona, cae a la referencia de la máquina. */
-const ubicacionTxt = (lat: any, lng: any, machine: any): string => {
-  const lbl = sectorLabel(sectorOf(lat, lng));
-  if (lbl && lbl !== 'Sin zona') return lbl;
-  return (machine?.referencia && String(machine.referencia).trim()) || '—';
-};
-
-/** "✓ (47 m)" si está cerca, "120 m" si no; '—' si no hay distancia. */
-const cercaTxt = (near: any, distanceM: any): string => {
-  if (distanceM == null) return '—';
-  const m = Math.round(Number(distanceM));
-  return near ? `✓ (${m} m)` : `${m} m`;
-};
-
-/** Fila de `machine_rounds` tal como la lee este reporte (horas + traza de quién inició). */
-type RondaDia = RondaHoras & {
-  machinery_id: string;
-  jornada_marked_by?: string | null;
-  status?: string | null;
-};
-
-/** Horas del día de UNA máquina, calculadas UNA SOLA VEZ (nunca por visita). */
-type HorasDia = { dia: number; noche: number; trabajadas: number; iniPor: string; parada: boolean };
-
-/** Totales de un grupo de visitas, con las máquinas contadas UNA SOLA VEZ. */
-type Totales = { maquinas: number; conRonda: number; dia: number; noche: number; trabajadas: number };
-
-/**
- * Genera y exporta el PDF del recorrido del inspector.
- * @param date día ISO "AAAA-MM-DD".
- * @param inspectors nombres de inspectores a incluir (opcional; vacío = todos).
+ * Genera y exporta el PDF.
  * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
  */
-export async function generateInspectorTrazaReport(opts: { date: string; inspectors?: string[] }): Promise<boolean> {
-  const { date, inspectors } = opts;
+export async function generateInspectorTrazaReport(opts: {
+  date: string;
+  turno?: TurnoReporteInspector;
+  inspectors?: string[];
+  opciones?: OpcionesInspector;
+}): Promise<boolean> {
+  const { date } = opts;
+  const turnoPedido: TurnoReporteInspector = opts.turno ?? 'both';
+  const op = opts.opciones ?? OPCIONES_INSPECTOR_POR_DEFECTO;
   const fecha = dmy(date);
-  // UN SOLO "ahora" para todo el documento: `horasTurnoDelDia` lo usa para el cálculo
-  // EN VIVO de las jornadas abiertas. Si cada máquina tomara su propio Date.now(), dos
-  // filas del mismo PDF podrían quedar desfasadas entre sí.
-  const nowMs = Date.now();
+  const filtro = opts.inspectors && opts.inspectors.length ? new Set(opts.inspectors.map((n) => n.trim().toLowerCase())) : null;
 
-  let query = supabase
-    .from('supervisor_visits')
-    .select('supervisor_name, machinery_id, visited_at, status, lat, lng, distance_m, near, machine:machinery_id(code, serial, plate, tipo, marca, modelo, referencia, company:company_id(name))')
-    .eq('visit_date', date);
-  if (inspectors && inspectors.length) query = query.in('supervisor_name', inspectors);
-  const { data } = await query.order('visited_at', { ascending: true });
+  const [{ data }, { rows: asignaciones }, visitas, fichas] = await Promise.all([
+    computeInspectorData(date, null),
+    listInspectorAssignments(),
+    selectAllRows('supervisor_visits', 'supervisor_name, machinery_id, visited_at', (q: any) => q.eq('visit_date', date)),
+    // Marca, modelo y clasificación no vienen en la agregación: se leen del catálogo.
+    selectAllRows('machinery', 'id, marca, modelo, tipo, clasificacion, encargado'),
+  ]);
 
-  const rows = (data ?? []) as any[];
-
-  // ── HORAS DEL DÍA: una entrada POR MÁQUINA (nunca por visita) ──────────────
-  // Se consulta `machine_rounds` del mismo `round_date` solo para las máquinas que
-  // aparecen en el recorrido. Las horas se calculan con `horasTurnoDelDia` (fuente
-  // ÚNICA del sistema) y se guardan en un Map por `machinery_id`: aunque el inspector
-  // haya revisado la misma máquina 5 veces, sus horas se calculan y se cuentan UNA vez.
-  const machineIds = Array.from(new Set(rows.map((r) => String(r.machinery_id ?? '')).filter(Boolean)));
-  const horasByMachine = new Map<string, HorasDia>();
-  if (machineIds.length) {
-    const rondas = (await selectAllRows(
-      'machine_rounds',
-      'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift, jornada_marked_by, status',
-      (q) => q.eq('round_date', date).in('machinery_id', machineIds),
-    )) as RondaDia[];
-    // "Inició": nombre de quien MARCÓ el inicio de la jornada (`jornada_marked_by`
-    // resuelto contra `profiles`) — misma traza y mismo patrón `nameById` que
-    // inspectorReport.ts y porEmpresaReport.ts. Solo se consultan los ids que aparecen.
-    const idsPersona = new Set<string>();
-    rondas.forEach((r) => { if (r.jornada_marked_by) idsPersona.add(r.jornada_marked_by); });
-    const nameById: Record<string, string> = {};
-    if (idsPersona.size) {
-      const { data: profs } = await supabase.from('profiles').select('id, full_name').in('id', [...idsPersona]);
-      ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; });
-    }
-    rondas.forEach((r) => {
-      const id = String(r.machinery_id ?? '');
-      if (!id || horasByMachine.has(id)) return; // una ronda por máquina y día
-      const { dia, noche, trabajadas } = horasTurnoDelDia(r, date, nowMs);
-      horasByMachine.set(id, {
-        dia, noche, trabajadas,
-        iniPor: nameById[r.jornada_marked_by || ''] || '',
-        parada: String(r.status ?? '') === 'parada',
-      });
-    });
-  }
-
-  /**
-   * Totales de un grupo de visitas DEDUPLICANDO por `machinery_id`. Es el único camino
-   * para cualquier total del reporte: las filas son por visita y las horas por máquina,
-   * así que sumar fila por fila multiplicaría las horas por la cantidad de revisiones.
-   * `conRonda` cuenta cuántas de esas máquinas tienen ronda (las que no, no suman nada
-   * y en el detalle salen "—": no es lo mismo "no trabajó" que "no hay dato").
-   */
-  const totalesDe = (visitas: any[]): Totales => {
-    const vistas = new Set<string>();
-    let dia = 0, noche = 0, trabajadas = 0, conRonda = 0;
-    visitas.forEach((v) => {
-      const id = String(v.machinery_id ?? '');
-      if (!id || vistas.has(id)) return;
-      vistas.add(id);
-      const hm = horasByMachine.get(id);
-      if (!hm) return;
-      conRonda += 1;
-      dia += hm.dia; noche += hm.noche; trabajadas += hm.trabajadas;
-    });
-    return { maquinas: vistas.size, conRonda, dia, noche, trabajadas };
-  };
-
-  // Agrupa por inspector (manteniendo el orden cronológico ya aplicado).
-  const porInspector = new Map<string, any[]>();
-  rows.forEach((r) => {
-    const nombre = String(r.supervisor_name ?? '').trim() || 'Sin nombre';
-    if (!porInspector.has(nombre)) porInspector.set(nombre, []);
-    porInspector.get(nombre)!.push(r);
+  const asigPorClave = new Map<string, { shift: Turno; assigned_at?: string | null }>();
+  (asignaciones ?? []).forEach((a: any) => asigPorClave.set(`${a.machinery_id}|${a.shift}`, { shift: a.shift, assigned_at: a.assigned_at ?? null }));
+  const visitasPorMaquina = new Map<string, { nombre: string; at: string }[]>();
+  ((visitas ?? []) as any[]).forEach((v) => {
+    const id = String(v.machinery_id ?? '');
+    if (!id || !v.visited_at) return;
+    const arr = visitasPorMaquina.get(id) ?? [];
+    arr.push({ nombre: String(v.supervisor_name ?? ''), at: String(v.visited_at) });
+    visitasPorMaquina.set(id, arr);
   });
+  const fichaPorId = new Map<string, any>();
+  ((fichas ?? []) as any[]).forEach((f) => fichaPorId.set(String(f.id), f));
 
-  const inspectores = Array.from(porInspector.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  const cols = columnasInspector(op);
+  const turnos: Turno[] = turnoPedido === 'day' ? ['day'] : turnoPedido === 'night' ? ['night'] : ['day', 'night'];
 
-  const tabla = (visitas: any[], t: Totales): string => {
-    const trs = visitas.map((v, i) => {
-      const m = v.machine || {};
-      const hm = horasByMachine.get(String(v.machinery_id ?? ''));
-      // Sin ronda del día → "—" en las tres columnas de horas (y en "Inició"): NO hay
-      // dato, que es distinto de "trabajó 0 horas".
-      const celdaH = (val: number, extraCls = '') =>
-        hm ? `<td class="r${extraCls}">${h2(val)}</td>` : '<td class="r nd">—</td>';
-      // La ronda quedó marcada 'parada' y sin horas → se resalta en ámbar (regla del
-      // sistema "0 horas = parada"), sin inventar un valor distinto de 0.00.
-      const trabCls = hm && hm.parada && hm.trabajadas <= 0 ? ' par' : ' b';
-      return `<tr>
-        <td>${i + 1}</td>
-        <td>${esc(horaCaracas(v.visited_at))}</td>
-        <td><b>${esc(m.code || '—')}</b></td>
-        <td>${esc(marcaModeloTxt(m))}</td>
-        <td>${esc(m.serial || m.plate || '—')}</td>
-        <td>${esc(ubicacionTxt(v.lat, v.lng, m))}</td>
-        <td>${esc(estadoTxt(v.status))}</td>
-        <td>${esc(cercaTxt(v.near, v.distance_m))}</td>
-        ${celdaH(hm?.dia ?? 0)}${celdaH(hm?.noche ?? 0)}${celdaH(hm?.trabajadas ?? 0, trabCls)}
-        <td class="ini">${hm && hm.iniPor ? esc(hm.iniPor) : '—'}</td>
-      </tr>`;
-    }).join('');
-    // Pie con los TOTALES del inspector, ya deduplicados por máquina (ver `totalesDe`).
-    const tfoot = `<tfoot><tr>
-      <td colspan="8">Total · ${t.maquinas} máquina(s) distinta(s) · ${visitas.length} revisión(es)</td>
-      <td class="r b">${h2(t.dia)}</td><td class="r b">${h2(t.noche)}</td><td class="r b">${h2(t.trabajadas)}</td><td></td>
-    </tr></tfoot>`;
-    return `<table class="ir"><thead><tr>
-      <th class="c-num">Nº</th><th class="c-hora">Hora</th><th class="c-maq">Máquina</th><th class="c-mm">Marca/Modelo</th><th class="c-ser">Serial/Placa</th>
-      <th class="c-sec">Sector/Ubicación</th><th class="c-est">Estado</th><th class="c-cer">Cerca</th>
-      <th class="r c-h">Horas<br>día</th><th class="r c-h">Horas<br>noche</th><th class="r c-h">Horas<br>trabajadas</th><th class="c-ini">Inició</th>
-    </tr></thead><tbody>${trs}</tbody>${tfoot}</table>`;
+  type Fila = { estadoTarjeta: EstadoTarjeta; code: string; placa: string; horas: number; celdas: Record<ColumnaInspector, string> };
+
+  const general: ResumenEstados = { asignadas: 0, encurso: 0, cerradas: 0, pendientes: 0, paradas: 0, averiadas: 0, horas: 0 };
+  let inspectoresIncluidos = 0;
+
+  const seccionTurno = (turno: Turno): string => {
+    const tMap = data.get(turno);
+    const meta = TURNO_META[turno];
+    const nombres = [...(tMap?.keys() ?? [])]
+      .filter((n) => !filtro || filtro.has(n.trim().toLowerCase()))
+      .sort(cmpText);
+
+    const bloques = nombres.map((insp) => {
+      const machs = [...(tMap!.get(insp)?.values() ?? [])];
+      const filas: Fila[] = [];
+      machs.forEach((m) => {
+        const estadoTarjeta = estadoComoTarjeta(m);
+        const asig = asigPorClave.get(`${m.id}|${turno}`);
+        const asignacionCuenta = !asig || assignmentCountsForShift(asig, date, turno);
+        const horas = turno === 'day' ? m.dayH : m.nightH;
+        const horasOtroTurno = turno === 'day' ? m.nightH : m.dayH;
+        if (!entraEnLasTarjetas({ estado: estadoTarjeta, asignacionCuenta, horasOtroTurno })) return;
+
+        const ficha = fichaPorId.get(m.id) ?? {};
+        const placa = m.plate || m.serial || '—';
+        const nota = (() => {
+          if (m.incidenteAveria) {
+            const inc = m.incidenteAveria;
+            return `${inc.trabajoHasta ? `trabajó hasta ${inc.trabajoHasta} · ` : ''}${inc.tipo === 'averia' ? '🔧 averiada desde' : '🟡 parada desde'} ${inc.hora}${inc.motivo ? ` · ${inc.motivo}` : ''}`;
+          }
+          if ((m.estado === 'averia' || m.estado === 'parada') && m.motivo) return m.motivo;
+          if (m.estado === 'finalizada' && m.cierreMotivo) return `📝 ${m.cierreMotivo}`;
+          return '—';
+        })();
+        const inicio = [m.iniBy ? `▶️ ${m.iniBy}` : '', m.cierreFinBy ? `🏁 ${m.cierreFinBy}` : ''].filter(Boolean).join(' · ') || '—';
+        const celdas: Record<ColumnaInspector, string> = {
+          n: '',
+          maquina: m.code || '—',
+          marcaModelo: marcaModeloInspector({ marca: ficha.marca, modelo: ficha.modelo, tipo: ficha.tipo ?? m.tipo }, op),
+          placa,
+          empresa: m.company || '—',
+          clasificacion: String(ficha.clasificacion ?? '').trim() || '—',
+          encargado: String(m.encargado ?? ficha.encargado ?? '').trim() || '—',
+          sector: m.sector || '—',
+          edificio: m.edificio || '—',
+          estado: estadoTarjeta,
+          revision: revisionInspectorTexto(visitasPorMaquina.get(m.id) ?? [], insp, horaCaracas),
+          horas: h2(horas),
+          inicio,
+          nota,
+        };
+        filas.push({ estadoTarjeta, code: m.code || '', placa, horas, celdas });
+      });
+      if (!filas.length) return '';
+
+      const ordenadas = ordenFilasInspector(filas);
+      const r = resumenEstadosInspector(ordenadas);
+      inspectoresIncluidos++;
+      general.asignadas += r.asignadas; general.encurso += r.encurso; general.cerradas += r.cerradas;
+      general.pendientes += r.pendientes; general.paradas += r.paradas; general.averiadas += r.averiadas;
+      general.horas = Math.round((general.horas + r.horas) * 100) / 100;
+
+      const thead = cols.map((c) => `<th class="c-${c}${c === 'horas' ? ' r' : ''}">${esc(tituloColumnaInspector(c, op, turno))}</th>`).join('');
+      const tbody = ordenadas.map((f, i) => `<tr>${cols.map((c) => {
+        if (c === 'n') return `<td>${i + 1}</td>`;
+        if (c === 'maquina') return `<td><b>${esc(f.celdas.maquina)}</b></td>`;
+        if (c === 'estado') { const e = ESTADO_TXT[f.estadoTarjeta]; return `<td style="color:${e.color};font-weight:700;white-space:nowrap">${esc(e.txt)}</td>`; }
+        if (c === 'horas') return `<td class="r b">${esc(f.celdas.horas)}</td>`;
+        if (c === 'revision') return `<td class="${f.celdas.revision === 'Sin check-in' ? 'nd' : ''}">${esc(f.celdas.revision)}</td>`;
+        return `<td>${esc(f.celdas[c])}</td>`;
+      }).join('')}</tr>`).join('');
+      const idxHoras = cols.indexOf('horas');
+      const pie = `<tr><td colspan="${idxHoras}">Total · ${r.asignadas} máquina(s)</td><td class="r b">${h2(r.horas)}</td>${cols.length - idxHoras - 1 > 0 ? `<td colspan="${cols.length - idxHoras - 1}"></td>` : ''}</tr>`;
+
+      const chips = [
+        `<span style="color:#067647">● ${r.encurso} en curso</span>`,
+        `<span style="color:#166534">✅ ${r.cerradas} cerrada(s)</span>`,
+        `<span style="color:#6B7280">⏳ ${r.pendientes} pendiente(s)</span>`,
+        `<span style="color:#B45309">🟡 ${r.paradas} parada(s)</span>`,
+        `<span style="color:#B91C1C">🔴 ${r.averiadas} averiada(s)</span>`,
+        `<span style="color:#1E3A5F">🕒 ${h2(r.horas)} h del turno</span>`,
+      ].join(' · ');
+      return `<div class="insp">👷 <b>${esc(insp)}</b> <span class="cnt">${r.asignadas} asignada(s)</span><div class="estres">${chips}</div></div>`
+        + `<table class="ir"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody><tfoot>${pie}</tfoot></table>`;
+    }).filter(Boolean);
+
+    if (!bloques.length) {
+      return `<h2 class="turno">${meta.icon} ${meta.label}</h2><p class="none">${filtro ? 'Sin máquinas asignadas a los inspectores elegidos en este turno.' : 'Sin máquinas asignadas en este turno.'}</p>`;
+    }
+    return `<h2 class="turno">${meta.icon} ${meta.label} <span class="tcnt">${bloques.length} inspector(es)</span></h2>${bloques.join('')}`;
   };
 
-  const secciones = inspectores.map(([nombre, visitas]) => {
-    const t = totalesDe(visitas);
-    const sinRonda = t.maquinas - t.conRonda;
-    const resumen = `<div class="tot-insp">`
-      + `🚜 <b>${t.maquinas}</b> máquina(s) distinta(s) · ☀️ <b>${h2(t.dia)} h</b> día · 🌙 <b>${h2(t.noche)} h</b> noche · 🕒 <b>${h2(t.trabajadas)} h</b> trabajadas`
-      + `<div class="nota">Horas del DÍA COMPLETO de cada máquina (no de la visita). Cada máquina cuenta UNA sola vez${sinRonda > 0 ? ` · ${sinRonda} sin ronda registrada (—)` : ''}.</div>`
-      + `</div>`;
-    // Sin línea de firma, a diferencia del reporte diario: este documento es de
-    // CONSULTA (se saca cualquier día para mirar las horas), no un papel que se
-    // firme en sitio. Decisión expresa del cliente (17-ago-2026).
-    return `<h3>👮 ${esc(nombre)} · ${visitas.length} revisión(es)</h3>${resumen}${tabla(visitas, t)}`;
-  }).join('');
-
-  const totalVisitas = rows.length;
-  const inspectoresCount = inspectores.length;
-  // RESUMEN GENERAL: deduplicado sobre TODAS las visitas del documento. Ojo: si dos
-  // inspectores revisaron la misma máquina, la suma de los totales por inspector es
-  // MAYOR que este general — acá cada máquina cuenta una sola vez en todo el reporte.
-  const tg = totalesDe(rows);
+  const secciones = turnos.map(seccionTurno).join('');
 
   const kpis = `
     <div class="kpis">
-      <div class="kpi"><div class="k">Inspectores</div><div class="v">${inspectoresCount}</div></div>
-      <div class="kpi"><div class="k">Revisiones</div><div class="v">${totalVisitas}</div></div>
-      <div class="kpi"><div class="k">Máquinas distintas</div><div class="v">${tg.maquinas}</div></div>
-      <div class="kpi"><div class="k">Horas día</div><div class="v">${h2(tg.dia)}</div></div>
-      <div class="kpi"><div class="k">Horas noche</div><div class="v">${h2(tg.noche)}</div></div>
-      <div class="kpi ok"><div class="k">Horas trabajadas</div><div class="v">${h2(tg.trabajadas)}</div></div>
+      <div class="kpi"><div class="k">Inspectores</div><div class="v">${inspectoresIncluidos}</div></div>
+      <div class="kpi"><div class="k">Asignadas</div><div class="v">${general.asignadas}</div></div>
+      <div class="kpi ok"><div class="k">En curso</div><div class="v">${general.encurso}</div></div>
+      <div class="kpi"><div class="k">Cerradas</div><div class="v">${general.cerradas}</div></div>
+      <div class="kpi"><div class="k">Pendientes</div><div class="v">${general.pendientes}</div></div>
+      <div class="kpi warn"><div class="k">Paradas</div><div class="v">${general.paradas}</div></div>
+      <div class="kpi warn"><div class="k">Averiadas</div><div class="v">${general.averiadas}</div></div>
+      <div class="kpi ok"><div class="k">Horas del turno</div><div class="v">${h2(general.horas)}</div></div>
     </div>
-    <div class="nota-gen">Las horas salen de la jornada del día de cada máquina (misma fórmula que el Reporte por Empresa
-    y el Control de maquinaria). Cada máquina se cuenta UNA sola vez aunque tenga varias revisiones; si dos inspectores
-    revisaron la misma máquina, ella suma en el total de cada uno pero una sola vez en este resumen general.</div>`;
+    <div class="nota-gen">Cuenta igual que las tarjetas de Inspecciones: las máquinas ASIGNADAS a cada inspector en el turno, con su estado y las horas de ESE turno. La columna Check-in dice a qué hora se revisó y, si lo hizo otro inspector, quién. ${esc(ocultosInspectorEnPalabras(op))}</div>`;
 
   const extraCss = `
-    /* Orientación HORIZONTAL: con las columnas de horas + "Inició" la tabla ya no cabe
-       en vertical (mismo criterio que el Reporte del día por empresa). */
     @page{size:A4 landscape}
-    h3{margin:14px 0 3px;font-size:13px;color:#1E3A5F;padding-bottom:3px;border-bottom:2px solid #1E3A5F}
-    /* table-layout:fixed + anchos en % = la tabla NUNCA se desborda del ancho útil
-       (A4 horizontal − 2 cm de margen); los textos largos parten de línea. */
-    table.ir{width:100%;table-layout:fixed;border-collapse:collapse;margin:4px 0 12px;font-size:9.5px}
-    table.ir th,table.ir td{border:1px solid #ccc;padding:3px 4px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
-    table.ir th{background:#1E3A5F;color:#fff;font-size:9px;line-height:1.15}
-    /* Las 3 columnas de horas van en nowrap (para no partir "0.00"), así que su
-       encabezado TIENE que caber: 8px deja "TRABAJADAS" dentro del 6.5% sin pisar
-       la columna "Inició" de al lado. */
-    table.ir th.c-h{font-size:8px}
+    h2.turno{font-size:14px;color:#1E3A5F;margin:18px 0 6px;padding-bottom:5px;border-bottom:2px solid #1E3A5F}
+    h2.turno .tcnt{font-size:11px;color:#6B7280;font-weight:600}
+    .insp{margin:12px 0 4px;font-size:12px;color:#111;border-left:4px solid #1E3A5F;padding-left:8px}
+    .insp .cnt{background:#EEF2F7;color:#1E3A5F;border-radius:10px;padding:1px 8px;font-size:10.5px;font-weight:700;margin-left:6px}
+    .insp .estres{margin-top:3px;font-size:10px;font-weight:700}
+    table.ir{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:9.5px}
+    table.ir th,table.ir td{border:1px solid #ccc;padding:3px 5px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+    table.ir th{background:#1E3A5F;color:#fff;font-size:9px}
     table.ir td.r,table.ir th.r{text-align:right;white-space:nowrap}
     table.ir td.b{font-weight:800;color:#067647}
     table.ir td.nd{color:#9CA3AF}
-    table.ir td.par{font-weight:800;color:#B45309}
-    table.ir td.ini{font-size:9px;color:#059669;font-weight:700}
     table.ir tfoot td{background:#F1F5F9;font-weight:800;border-top:2px solid #1E3A5F}
-    /* Anchos EXPLÍCITOS que suman 100% (c-h se repite 3 veces: 6.5 × 3 = 19.5). */
-    .c-num{width:2.5%} .c-hora{width:6%} .c-maq{width:8.5%} .c-mm{width:13%} .c-ser{width:10%}
-    .c-sec{width:14.5%} .c-est{width:8.5%} .c-cer{width:5.5%} .c-h{width:6.5%} .c-ini{width:12%}
-    .tot-insp{font-size:10.5px;color:#1E3A5F;background:#F1F5F9;border:1px solid #CBD5E1;border-radius:8px;padding:5px 9px;margin:4px 0 2px}
-    .tot-insp .nota{font-size:8.5px;color:#6B7280;font-weight:400;margin-top:2px;text-transform:none}
-    .nota-gen{font-size:8.5px;color:#6B7280;margin:-6px 0 10px;text-transform:none}
-    .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
-    .kpi{flex:1;min-width:110px;border:1px solid #E5E7EB;border-radius:10px;padding:8px 11px;background:#F8FAFC}
+    .none{color:#6B7280;font-size:12px}
+    .kpis{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px}
+    .kpi{flex:1;min-width:90px;border:1px solid #E5E7EB;border-radius:10px;padding:7px 10px;background:#F8FAFC}
     .kpi .k{font-size:8.5px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
-    .kpi .v{font-size:19px;font-weight:800;color:#1E3A5F;margin-top:2px}
+    .kpi .v{font-size:18px;font-weight:800;color:#1E3A5F;margin-top:2px}
+    .kpi.warn{background:#FEF3F2;border-color:#FECDCA} .kpi.warn .v{color:#B42318}
     .kpi.ok{background:#ECFDF3;border-color:#ABEFC6} .kpi.ok .v{color:#067647}
+    .nota-gen{font-size:8.5px;color:#6B7280;margin:2px 0 10px;text-transform:none}
   `;
 
-  const subtitle = `${fecha} · ${inspectoresCount} inspector(es) · ${totalVisitas} revisión(es) · ${tg.maquinas} máquina(s) · 🕒 ${h2(tg.trabajadas)} h trabajadas`;
-
+  const turnoTxt = turnoPedido === 'day' ? 'turno día ☀️' : turnoPedido === 'night' ? 'turno noche 🌙' : 'ambos turnos ☀️ 🌙';
   const html = pdfDocument({
-    title: 'RECORRIDO DEL INSPECTOR',
-    subtitle,
-    body: rows.length ? (kpis + secciones) : '<p>Sin revisiones para ese día.</p>',
+    title: 'REPORTE POR INSPECTOR',
+    subtitle: `${fecha} · ${turnoTxt} · ${inspectoresIncluidos} inspector(es) · ${general.asignadas} máquina(s) · 🕒 ${h2(general.horas)} h`,
+    body: inspectoresIncluidos ? (kpis + secciones) : `<p class="none">Sin máquinas asignadas para el ${fecha}${turnoPedido === 'both' ? '' : ` (${turnoTxt})`}.</p>`,
     extraCss,
   });
-  return await exportPdf(html, `Recorrido inspector ${fecha}`);
+  const turnoArchivo = turnoPedido === 'day' ? ' dia' : turnoPedido === 'night' ? ' noche' : '';
+  return await exportPdf(html, `Reporte por inspector ${fecha}${turnoArchivo}${sufijoArchivoInspector(op)}`);
 }
