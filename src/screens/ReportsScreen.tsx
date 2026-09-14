@@ -1001,6 +1001,8 @@ export default function ReportsScreen({ route }: any) {
       .map(([company, items]) => ({ company, items: items.sort((a, b) => cmpText(a.code, b.code)) }));
   }, [rows, eqAgrupar, eqOxicorte]);
   const eqTotalMonto = all.reduce((s, r) => s + eqMonto(r), 0);
+  // Equipos SIN precio en Control (price 0): para avisar cuáles faltan por tarifar.
+  const eqSinPrecio = all.filter((r) => r.price <= 0).length;
 
   // Reporte de EQUIPOS: listado del catálogo (todas menos retiradas) con el PRECIO
   // POR JORNADA DE 12 H del módulo de CONTROL. Se toma el ÚLTIMO MONTO aplicado en
@@ -1009,12 +1011,20 @@ export default function ReportsScreen({ route }: any) {
   // (machinery.price_per_hour). El monto = ese precio × (jornada / 12).
   const generate = async () => {
     setLoading(true);
-    const [machRes, roundsRes] = await Promise.all([
-      selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, tipo, operational, price_per_hour, company:company_id(name)'),
+    const [machRes, roundsRes, tarGenRes, tarEmpRes] = await Promise.all([
+      selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, tipo, operational, price_per_hour, company_id, company:company_id(name)'),
       // Últimos montos de Control: precios congelados (>0) de las jornadas, para quedarnos
       // con el más reciente por máquina.
       selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.gt('frozen_price', 0)),
+      // Respaldo: tabulador por modelo (general y por empresa) para que ninguna quede sin precio.
+      supabase.from('price_tariffs').select('modelo, price_jornada'),
+      supabase.from('company_price_tariffs').select('company_id, modelo, price_jornada'),
     ]);
+    const normModelo = (s: any) => String(s ?? '').trim().toLowerCase();
+    const tarGen = new Map<string, number>();
+    (tarGenRes.data ?? []).forEach((t: any) => tarGen.set(normModelo(t.modelo), Number(t.price_jornada) || 0));
+    const tarEmp = new Map<string, number>();
+    (tarEmpRes.data ?? []).forEach((t: any) => tarEmp.set(`${t.company_id}|${normModelo(t.modelo)}`, Number(t.price_jornada) || 0));
     // Detecta equipos de OXICORTE por clasificación / tipo / nombre (varias grafías).
     const esOxicorte = (m: any) => /oxi\s*-?\s*corte|oxicorte/i.test(`${m.clasificacion ?? ''} ${m.tipo ?? ''} ${m.code ?? ''}`);
     // Último frozen_price por máquina (round_date más reciente).
@@ -1029,8 +1039,14 @@ export default function ReportsScreen({ route }: any) {
     const list: Row[] = (machRes ?? [])
       .filter((m: any) => m.operational !== false) // todas menos las RETIRADAS
       .map((m: any) => {
-        const ctrl = lastCtrlPrice.get(m.id)?.price;
-        const price = ctrl != null && ctrl > 0 ? ctrl : (m.price_per_hour != null ? Number(m.price_per_hour) : 0);
+        // Precio por jornada de 12 h, en orden: último monto de Control (frozen) → precio
+        // del catálogo (price_per_hour) → tabulador por empresa → tabulador general.
+        const mk = normModelo(m.modelo);
+        const ctrl = lastCtrlPrice.get(m.id)?.price ?? 0;
+        const catalogo = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
+        const tEmp = tarEmp.get(`${m.company_id}|${mk}`) ?? 0;
+        const tGen = tarGen.get(mk) ?? 0;
+        const price = ctrl > 0 ? ctrl : catalogo > 0 ? catalogo : tEmp > 0 ? tEmp : tGen > 0 ? tGen : 0;
         return {
           company: m.company?.name ?? 'Sin empresa',
           code: (m.code && String(m.code).trim()) || '—',
@@ -3090,10 +3106,16 @@ export default function ReportsScreen({ route }: any) {
         <div style="font-size:10px;color:#555;text-transform:uppercase;font-weight:700;letter-spacing:.3px">${label}</div>
         <div style="font-size:19px;font-weight:800;color:#1E3A5F;margin-top:3px">${value}</div>
       </td>`;
+    const cardWarn = (label: string, value: string) =>
+      `<td style="border:1px solid #f0c0c0;border-radius:8px;padding:10px 12px;background:#FBEEEE;vertical-align:top">
+        <div style="font-size:10px;color:#8a3a3a;text-transform:uppercase;font-weight:700;letter-spacing:.3px">${label}</div>
+        <div style="font-size:19px;font-weight:800;color:#B91C1C;margin-top:3px">${value}</div>
+      </td>`;
     const cardsTop = `<table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
       ${cardTop('Total de equipos', String(all.length))}
       ${eqCols.jornada ? cardTop('Jornada', `${eqJornada} h`) : ''}
       ${conMonto ? cardTop('Monto total', usd(eqTotalMonto)) : ''}
+      ${eqSinPrecio > 0 ? cardWarn('⚠️ Sin precio', String(eqSinPrecio)) : ''}
     </tr></tbody></table>`;
     const body = `
       <div class="muted">Listado de equipos${eqCols.jornada ? ` · jornada ${eqJornada} h` : ''}${repCompanies.length ? ` · ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ''}${eqOxicorte ? '' : ' · sin oxicorte'}</div>
@@ -4412,7 +4434,18 @@ export default function ReportsScreen({ route }: any) {
                   <Text style={{ fontSize: 20, fontWeight: '700', color: colors.brandText }}>{usd(eqTotalMonto)}</Text>
                 </View>
               ) : null}
+              {eqSinPrecio > 0 ? (
+                <View>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>⚠️ Sin precio</Text>
+                  <Text style={{ fontSize: 20, fontWeight: '700', color: colors.danger }}>{eqSinPrecio}</Text>
+                </View>
+              ) : null}
             </View>
+            {eqSinPrecio > 0 ? (
+              <Text style={{ color: colors.danger, fontSize: 11, marginTop: spacing.xs }}>
+                {eqSinPrecio} equipo(s) sin precio en Control ni en el tabulador — cárgales el precio por jornada en Control/Catálogo.
+              </Text>
+            ) : null}
           </Card>
 
           {eqGroups.length === 0 || all.length === 0 ? (
