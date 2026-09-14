@@ -2595,6 +2595,22 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 **empresa**. Al generarlos se abre una **ventana con la vista previa** y los botones
 **🖨️ Imprimir** y **Cancelar**.
 
+#### 🚜 Reporte de equipos (14-sep-2026, reemplazó a ⛽ Combustible)
+
+En la pestaña **🚜 Equipos** sale el **listado de equipos** del catálogo (todos menos los
+retirados) con su **tabulador**. Eliges:
+
+- **Jornada** — **12 o 24 horas**, la coloca el usuario y aplica a todo el reporte
+  (12 h = 1 jornada, 24 h = 2 jornadas).
+- **Columnas** a mostrar/ocultar — **Marca, Modelo, Placa, Serial** (el *nombre del equipo* va siempre).
+- **Vista** — **🏢 Agrupar por empresa** o **📋 Listado general** (todos los equipos juntos, sin empresa).
+- **Empresas** — marca una, varias o todas.
+
+El **precio** sale del **tabulador**: usa la tarifa **por empresa** del modelo si existe
+(*Empresas y tarifas*) y, si no, la tarifa **general**; el **monto = precio × (jornada ÷ 12)**.
+Los modelos sin tarifa salen con **«—»**. Trae **total por empresa** y **total general**, y se
+descarga en **PDF**.
+
 #### 🔎 Total por equipo — buscar UNA máquina (31-ago-2026)
 
 Dentro de **🔧 Jornada**: genera el informe y, en la vista previa, **debajo del botón de descargar**,
