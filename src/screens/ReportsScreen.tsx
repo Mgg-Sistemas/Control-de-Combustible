@@ -570,7 +570,7 @@ export default function ReportsScreen({ route }: any) {
   const [preview, setPreview] = useState(false);
   // Reporte de EQUIPOS (pestaña que reemplazó a Combustible): jornada única (12/24 h),
   // columnas conmutables y vista agrupada por empresa o listado general.
-  const [eqJornada, setEqJornada] = useState<12 | 24>(12);
+  const [eqJornada, setEqJornada] = useState<6 | 12 | 24>(12);
   const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
@@ -3307,7 +3307,7 @@ export default function ReportsScreen({ route }: any) {
           <>
             <Text style={[styles.lbl, { marginTop: spacing.xs }]}>Jornada (la coloca el usuario)</Text>
             <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-              {([12, 24] as const).map((h) => {
+              {([6, 12, 24] as const).map((h) => {
                 const on = eqJornada === h;
                 return (
                   <TouchableOpacity key={h} onPress={() => setEqJornada(h)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
