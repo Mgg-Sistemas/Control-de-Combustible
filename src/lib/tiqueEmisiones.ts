@@ -18,6 +18,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { isOnline, isNetworkErrorMsg } from './offlineQueue';
+import type { EmisionHistorial } from './tiqueHistorial';
 
 const TABLA = 'tique_emisiones';
 const PENDIENTES_KEY = 'tique_emisiones_pendientes_v1';
@@ -127,6 +128,14 @@ async function escribirPendientes(lista: EmisionNueva[]): Promise<void> {
 
 /** Cuántas constancias están esperando señal. La pantalla lo muestra: un número
  *  distinto de cero significa que hay papeles entregados que la oficina no ve. */
+/** Cuántas entregas de ESTE tique siguen en el teléfono sin subir. El historial
+ *  lo avisa: si no, se vería completo y le faltaría justo esa. */
+export async function contarPendientesDeFolio(folio: string): Promise<number> {
+  const f = String(folio ?? '').trim();
+  if (!f) return 0;
+  return (await leerPendientes()).filter((e) => e.folio === f).length;
+}
+
 export async function contarEmisionesPendientes(): Promise<number> {
   return (await leerPendientes()).length;
 }
@@ -235,5 +244,44 @@ export async function contarEmisionesPorFolio(
   } catch (e: any) {
     if (faltaLaTabla(e)) return { porFolio, sinTabla: true };
     return { porFolio, sinTabla: false, error: String(e?.message ?? e) };
+  }
+}
+
+/**
+ * EL HISTORIAL DE UN TIQUE: todas sus entregas, en orden de reloj.
+ *
+ * Pedido del cliente (14-sep-2026): tocar «entregado ×7» y ver quién lo imprimió
+ * o reimprimió y a qué hora.
+ *
+ * ⚠️ Un fallo de lectura se devuelve como error, NUNCA como lista vacía: una lista
+ *    vacía diría que el tique no se entregó, y eso no se sabe.
+ */
+export async function listarEmisionesDeFolio(
+  folio: string,
+): Promise<{ filas: EmisionHistorial[]; sinTabla: boolean; error?: string }> {
+  const f = String(folio ?? '').trim();
+  if (!f) return { filas: [], sinTabla: false };
+  try {
+    const { data, error } = await supabase
+      .from(TABLA)
+      .select('id, folio, reimpresion, medio, emitido_por_nombre, ubicacion_nombre, emitido_at, lote_id')
+      .eq('folio', f)
+      .order('emitido_at', { ascending: true })
+      .limit(500);
+    if (error) throw error;
+    const filas: EmisionHistorial[] = (data ?? []).map((r: any) => ({
+      id: String(r.id),
+      folio: String(r.folio ?? ''),
+      reimpresion: r.reimpresion === true,
+      medio: (r.medio ?? null) as string | null,
+      emitidoPorNombre: (r.emitido_por_nombre ?? null) as string | null,
+      ubicacionNombre: (r.ubicacion_nombre ?? null) as string | null,
+      emitidoAt: String(r.emitido_at),
+      loteId: (r.lote_id ?? null) as string | null,
+    }));
+    return { filas, sinTabla: false };
+  } catch (e: any) {
+    if (faltaLaTabla(e)) return { filas: [], sinTabla: true };
+    return { filas: [], sinTabla: false, error: String(e?.message ?? e) };
   }
 }
