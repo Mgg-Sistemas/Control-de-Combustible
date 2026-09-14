@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, selectAllRows } from './supabase';
 import { FoodDistribution, MealType } from '../types/database';
 
 export type SaveFoodInput = {
@@ -50,13 +50,16 @@ export async function listForEmployeeDay(employeeId: string, date: string): Prom
   return (data ?? []) as FoodDistribution[];
 }
 
-/** Todas las entregas de un día (para el módulo de distribución). */
+/** Todas las entregas de un día o de un rango (más reciente primero).
+ *
+ *  PAGINADO (14-sep-2026): la consulta simple cortaba en 1000 filas y el reporte
+ *  semanal y su PDF salían incompletos sin avisar (una semana ya tuvo 1.259 entregas).
+ *  Si la lectura falla, LANZA: una lista vacía se leía como «no hubo comidas». */
 export async function listFoodByDate(fromDate: string, toDate?: string): Promise<FoodDistribution[]> {
-  let q = supabase.from('food_distributions').select('*').gte('distribution_date', fromDate).order('delivered_at', { ascending: false });
-  if (toDate) q = q.lte('distribution_date', toDate);
-  else q = q.eq('distribution_date', fromDate);
-  const { data } = await q;
-  return (data ?? []) as FoodDistribution[];
+  const rows = (await selectAllRows('food_distributions', '*', (q) =>
+    toDate ? q.gte('distribution_date', fromDate).lte('distribution_date', toDate) : q.eq('distribution_date', fromDate),
+  )) as FoodDistribution[];
+  return rows.sort((a, b) => String(b.delivered_at ?? '').localeCompare(String(a.delivered_at ?? '')));
 }
 
 /** Borra una entrega (por si se registró de más). */

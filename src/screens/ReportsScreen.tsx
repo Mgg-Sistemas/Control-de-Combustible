@@ -46,6 +46,8 @@ import {
 import { machineLabel } from '../lib/machineLabel';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
+import { precioEfectivoJornada } from '../lib/precioHistorial';
+import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
 // LOS TRES INFORMES de Ubicaciones tácticas y la regla de quién es "nuestro".
 // Vive en su propia librería para poder probarla de verdad; ver el archivo.
 import {
@@ -1054,6 +1056,7 @@ export default function ReportsScreen({ route }: any) {
       'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, plate, identifier, tipo, clasificacion, entry_date, price_per_hour, encargado, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
+    const histPrecios = await cargarHistorialPrecios();
     const nowMs = Date.now();
     // Motivo de CIERRE (cierre manual anticipado) por máquina: close_reason del tramo
     // más reciente del rango (machine_work_segments). Se muestra junto a la máquina.
@@ -1112,7 +1115,8 @@ export default function ReportsScreen({ route }: any) {
       if (r.jornada_start_at) { const ms = new Date(r.jornada_start_at).getTime(); if (isFinite(ms)) { cur.js = ms; cur.jsh = r.jornada_shift ?? null; } }
       // Precio efectivo de la ronda: congelado del rango (frozen_price>0) si existe; si no,
       // el precio ACTUAL de la máquina (que ya es "el de la semana pasada" si no lo cambiaste).
-      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0 ? Number(r.frozen_price) : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null);
+      // 14-sep-2026: sin precio congelado, el que regía ESE día (historial), no el de hoy.
+      cur.price = precioEfectivoJornada(r.frozen_price, histPrecios, mm.id, r.round_date, mm.price_per_hour);
       a.byDate.set(r.round_date, cur);
       accs.set(key, a);
     });
