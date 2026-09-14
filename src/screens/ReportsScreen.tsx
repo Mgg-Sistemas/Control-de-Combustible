@@ -138,6 +138,7 @@ type Row = {
   plate: string;
   serial: string;
   price: number;  // precio por jornada de 12 h (Control de Maquinaria); 0 si el equipo no tiene precio
+  oxicorte: boolean; // equipo de oxicorte (por clasificación/nombre) — se puede quitar del reporte
 };
 
 // Reporte MAQUINARIA (pestaña "fleet"): listado de IDENTIDAD de la maquinaria —
@@ -573,6 +574,7 @@ export default function ReportsScreen({ route }: any) {
   const [eqJornada, setEqJornada] = useState<6 | 12 | 24>(12);
   const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
+  const [eqOxicorte, setEqOxicorte] = useState(true); // incluir (true) o quitar (false) los equipos de oxicorte
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
   // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
   const [inspShift, setInspShift] = useState<InspectorShift>('both');
@@ -980,10 +982,13 @@ export default function ReportsScreen({ route }: any) {
   }, [tipoResultado, medidasPorId, apartadas]);
 
   // ── Reporte de EQUIPOS ──────────────────────────────────────────────────────
-  const all = rows ?? [];
-  const eqFactor = eqJornada / 12;                       // 12 h = 1 jornada · 24 h = 2 jornadas
+  const allRaw = rows ?? [];
+  // Con el check de oxicorte apagado, esos equipos se quitan del reporte (y de los totales).
+  const all = eqOxicorte ? allRaw : allRaw.filter((r) => !r.oxicorte);
+  const eqTieneOxicorte = allRaw.some((r) => r.oxicorte);
+  const eqFactor = eqJornada / 12;                       // 6 h = ½ · 12 h = 1 jornada · 24 h = 2
   // r.price es el precio por jornada de 12 h que viene de Control → precio/HORA = ÷ 12.
-  // El monto = precio/hora × horas de la jornada (12 o 24) = r.price × eqFactor.
+  // El monto = precio/hora × horas de la jornada (6/12/24) = r.price × eqFactor.
   const eqPrecioHora = (r: Row) => r.price / 12;
   const eqMonto = (r: Row) => r.price * eqFactor;
   // Agrupado por empresa, o un solo grupo sin empresa (listado general).
@@ -994,7 +999,7 @@ export default function ReportsScreen({ route }: any) {
     return Array.from(m.entries())
       .sort((a, b) => (a[0] === 'Sin empresa' ? 1 : b[0] === 'Sin empresa' ? -1 : cmpText(a[0], b[0])))
       .map(([company, items]) => ({ company, items: items.sort((a, b) => cmpText(a.code, b.code)) }));
-  }, [rows, eqAgrupar]);
+  }, [rows, eqAgrupar, eqOxicorte]);
   const eqTotalMonto = all.reduce((s, r) => s + eqMonto(r), 0);
 
   // Reporte de EQUIPOS: listado del catálogo (todas menos retiradas) con el PRECIO
@@ -1005,11 +1010,13 @@ export default function ReportsScreen({ route }: any) {
   const generate = async () => {
     setLoading(true);
     const [machRes, roundsRes] = await Promise.all([
-      selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, operational, price_per_hour, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, tipo, operational, price_per_hour, company:company_id(name)'),
       // Últimos montos de Control: precios congelados (>0) de las jornadas, para quedarnos
       // con el más reciente por máquina.
       selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.gt('frozen_price', 0)),
     ]);
+    // Detecta equipos de OXICORTE por clasificación / tipo / nombre (varias grafías).
+    const esOxicorte = (m: any) => /oxi\s*-?\s*corte|oxicorte/i.test(`${m.clasificacion ?? ''} ${m.tipo ?? ''} ${m.code ?? ''}`);
     // Último frozen_price por máquina (round_date más reciente).
     const lastCtrlPrice = new Map<string, { date: string; price: number }>();
     (roundsRes ?? []).forEach((r: any) => {
@@ -1032,6 +1039,7 @@ export default function ReportsScreen({ route }: any) {
           plate: (m.plate && String(m.plate).trim()) || '—',
           serial: (m.serial && String(m.serial).trim()) || '—',
           price, // precio por jornada de 12 h: último monto de Control (o catálogo)
+          oxicorte: esOxicorte(m),
         };
       });
     // Filtro por empresa (vacío = todas).
@@ -3076,8 +3084,20 @@ export default function ReportsScreen({ route }: any) {
     const notaTarifa = eqCols.precio || eqCols.monto
       ? `<p class="muted" style="margin:4px 0 8px">Precio/hora del módulo de Control · el monto = precio/hora × ${eqJornada} h. Los equipos sin precio salen con "—".</p>`
       : '';
+    // Tarjetas de resumen ARRIBA del PDF (como el informe por jornada).
+    const cardTop = (label: string, value: string) =>
+      `<td style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;background:#F3F6FB;vertical-align:top">
+        <div style="font-size:10px;color:#555;text-transform:uppercase;font-weight:700;letter-spacing:.3px">${label}</div>
+        <div style="font-size:19px;font-weight:800;color:#1E3A5F;margin-top:3px">${value}</div>
+      </td>`;
+    const cardsTop = `<table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
+      ${cardTop('Total de equipos', String(all.length))}
+      ${eqCols.jornada ? cardTop('Jornada', `${eqJornada} h`) : ''}
+      ${conMonto ? cardTop('Monto total', usd(eqTotalMonto)) : ''}
+    </tr></tbody></table>`;
     const body = `
-      <div class="muted">Listado de equipos${eqCols.jornada ? ` · jornada ${eqJornada} h` : ''}${repCompanies.length ? ` · ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ''}</div>
+      <div class="muted">Listado de equipos${eqCols.jornada ? ` · jornada ${eqJornada} h` : ''}${repCompanies.length ? ` · ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ''}${eqOxicorte ? '' : ' · sin oxicorte'}</div>
+      ${cardsTop}
       ${notaTarifa}
       ${bloques || '<p class="muted">Sin equipos para el filtro elegido.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${all.length} equipo(s)${conMonto ? ` · ${usd(eqTotalMonto)}` : ''}</div>`;
@@ -3340,6 +3360,12 @@ export default function ReportsScreen({ route }: any) {
               })}
             </View>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>El listado general muestra todos los equipos juntos, sin separarlos por empresa.</Text>
+            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Equipos de oxicorte</Text>
+            <TouchableOpacity onPress={() => setEqOxicorte((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderRadius: radius.pill, borderWidth: 1, borderColor: eqOxicorte ? colors.brand : colors.border, backgroundColor: eqOxicorte ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: eqOxicorte ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{eqOxicorte ? '☑' : '☐'}</Text>
+              <Text style={{ color: eqOxicorte ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>🔥 Incluir equipos de oxicorte</Text>
+            </TouchableOpacity>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Desmárcalo para que el reporte salga sin los equipos de oxicorte.</Text>
           </>
         )}
         {mode !== 'fuel' && (
