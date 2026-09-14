@@ -3161,7 +3161,14 @@ export default function ViajesCamionesScreen() {
 
       {/* Selector de camión (mismo estilo del selector "Agregar máquina suelta" de UsersScreen). */}
       {/* Historial de entregas de un tique: se abre tocando «entregado ×N». */}
-      <HistorialTiqueModal folio={historialFolio} onClose={() => setHistorialFolio(null)} />
+      {/* Borrar una entrega es de nivel completo, igual que borrar un viaje. Al
+          borrar se recuenta ese folio para que la pastilla baje en el acto. */}
+      <HistorialTiqueModal
+        folio={historialFolio}
+        puedeBorrar={canFull}
+        onCambio={(f) => refrescarEmisiones([f])}
+        onClose={() => setHistorialFolio(null)}
+      />
 
       {/* La cámara. Misma pieza que usan las otras pantallas del sistema. */}
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>

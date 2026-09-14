@@ -1,7 +1,8 @@
 // HISTORIAL DE ENTREGAS DE UN TIQUE · qué dice cada renglón (14-sep-2026).
 //
 // Pedido del cliente: que la pastilla «entregado ×7», al tocarla, muestre quién
-// imprimió o reimprimió ese tique y a qué hora.
+// imprimió o reimprimió ese tique y a qué hora. Y después: poder borrar una
+// entrega, y que quede quién la borró.
 //
 // ⭐ ESTE ARCHIVO NO TOCA LA BASE NI LA PANTALLA, y no importa nada. Recibe las
 //    filas de `tique_emisiones` y decide el orden y el texto. Así se prueba solo.
@@ -16,18 +17,29 @@ export type EmisionHistorial = {
   ubicacionNombre: string | null;
   emitidoAt: string;
   loteId: string | null;
+  /** Si alguien la borró del historial: cuándo, quién y por qué. */
+  anuladaAt?: string | null;
+  anuladaPorNombre?: string | null;
+  anuladaMotivo?: string | null;
 };
 
 /** Un renglón listo para pintar. */
 export type FilaHistorial = {
   clave: string;
-  n: number;
+  /** La entrega, para poder borrarla. */
+  id: string;
+  /** Número entre las VIGENTES: coincide con el «×N» de la pastilla. Una
+   *  entrega borrada no lleva número, porque ya no cuenta. */
+  n: number | null;
   titulo: string;
   esReimpresion: boolean;
   quien: string;
   cuando: string;
   donde: string;
   medio: string;
+  borrada: boolean;
+  /** «Borrada por … · fecha · motivo», o null si sigue vigente. */
+  borradaTexto: string | null;
 };
 
 export const SIN_NOMBRE = 'Usuario sin nombre';
@@ -42,6 +54,9 @@ const MEDIO: Record<string, string> = {
 };
 
 const limpio = (v: unknown): string => String(v ?? '').trim();
+
+/** ¿La borraron? Lo dice la fecha: la base la pone una sola vez. */
+export const estaBorrada = (e: EmisionHistorial): boolean => limpio(e.anuladaAt) !== '';
 
 /**
  * FECHA Y HORA DE CARACAS, con el mismo formato que el resto de la pantalla.
@@ -74,36 +89,64 @@ function enOrden(filas: readonly EmisionHistorial[]): EmisionHistorial[] {
   });
 }
 
+/** «Borrada por Fulano · 14/09/2026 · 08:12 a. m. · motivo». */
+function textoBorrada(e: EmisionHistorial): string {
+  const partes = [
+    `Borrada por ${limpio(e.anuladaPorNombre) || SIN_NOMBRE}`,
+    fmtFechaHoraCaracas(limpio(e.anuladaAt)),
+  ];
+  const motivo = limpio(e.anuladaMotivo);
+  if (motivo) partes.push(motivo);
+  return partes.join(' · ');
+}
+
 /**
  * LOS RENGLONES DEL HISTORIAL.
  *
  * Si fue reimpresión lo dice la BASE, no la posición: la marca la pone un trigger
  * al guardar, y es la misma que salió impresa en el papel.
+ *
+ * ⭐ Las borradas se QUEDAN en la lista, tachadas y sin número: esconderlas sería
+ *    borrar también quién las borró, que es lo que se pidió ver.
  */
 export function filasDelHistorial(filas: readonly EmisionHistorial[]): FilaHistorial[] {
-  return enOrden(filas).map((e, i) => ({
-    clave: e.id,
-    n: i + 1,
-    titulo: e.reimpresion ? 'Reimpresión' : 'Primera impresión',
-    esReimpresion: e.reimpresion === true,
-    quien: limpio(e.emitidoPorNombre) || SIN_NOMBRE,
-    cuando: fmtFechaHoraCaracas(e.emitidoAt),
-    donde: limpio(e.ubicacionNombre) || SIN_CDT,
-    medio: MEDIO[limpio(e.medio)] ?? 'Sin dato del medio',
-  }));
+  let vigentes = 0;
+  return enOrden(filas).map((e) => {
+    const borrada = estaBorrada(e);
+    if (!borrada) vigentes++;
+    return {
+      clave: e.id,
+      id: e.id,
+      n: borrada ? null : vigentes,
+      titulo: e.reimpresion ? 'Reimpresión' : 'Primera impresión',
+      esReimpresion: e.reimpresion === true,
+      quien: limpio(e.emitidoPorNombre) || SIN_NOMBRE,
+      cuando: fmtFechaHoraCaracas(e.emitidoAt),
+      donde: limpio(e.ubicacionNombre) || SIN_CDT,
+      medio: MEDIO[limpio(e.medio)] ?? 'Sin dato del medio',
+      borrada,
+      borradaTexto: borrada ? textoBorrada(e) : null,
+    };
+  });
 }
 
 /**
  * EL RESUMEN DE ARRIBA: cuántas entregas, cuántas personas, cuántas reimpresiones.
  *
+ * Cuenta solo las VIGENTES, igual que la pastilla; las borradas se nombran al
+ * final para que el número de arriba y el de la lista no parezcan no cuadrar.
+ *
  * La misma persona escrita con otras mayúsculas o espacios cuenta UNA vez: si no,
  * «4 personas» podrían ser dos, y ese número es el que llama la atención.
  */
 export function resumenHistorial(filas: readonly EmisionHistorial[]): string {
-  const n = filas.length;
-  if (n === 0) return 'Todavía no se entregó este tique.';
-  if (n === 1) return '1 entrega: la primera impresión';
-  const personas = new Set(filas.map((e) => limpio(e.emitidoPorNombre).toLowerCase())).size;
-  const reimp = filas.filter((e) => e.reimpresion === true).length;
-  return `${n} entregas · ${personas} ${personas === 1 ? 'persona' : 'personas'} · ${reimp} ${reimp === 1 ? 'reimpresión' : 'reimpresiones'}`;
+  const vigentes = filas.filter((e) => !estaBorrada(e));
+  const borradas = filas.length - vigentes.length;
+  const cola = borradas > 0 ? ` · ${borradas} ${borradas === 1 ? 'borrada' : 'borradas'}` : '';
+  const n = vigentes.length;
+  if (n === 0) return borradas > 0 ? `Ninguna entrega vigente${cola}` : 'Todavía no se entregó este tique.';
+  if (n === 1) return `1 entrega: ${vigentes[0].reimpresion ? 'una reimpresión' : 'la primera impresión'}${cola}`;
+  const personas = new Set(vigentes.map((e) => limpio(e.emitidoPorNombre).toLowerCase())).size;
+  const reimp = vigentes.filter((e) => e.reimpresion === true).length;
+  return `${n} entregas · ${personas} ${personas === 1 ? 'persona' : 'personas'} · ${reimp} ${reimp === 1 ? 'reimpresión' : 'reimpresiones'}${cola}`;
 }

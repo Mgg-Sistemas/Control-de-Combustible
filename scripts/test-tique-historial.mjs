@@ -28,6 +28,8 @@ const ts = require('typescript');
 const Module = require('module');
 
 const leer = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+/** A va antes que B, y los DOS estan. Un indexOf de -1 no puede pasar por «antes». */
+const antesQue = (s, a, b) => { const ia = s.indexOf(a); const ib = s.indexOf(b); return ia >= 0 && ib >= 0 && ia < ib; };
 const sinComentarios = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
 const cacheTs = new Map();
@@ -116,12 +118,37 @@ eq('una sola entrega lo dice claro', resumenHistorial([r1]), '1 entrega: la prim
 eq('sin entregas tambien', resumenHistorial([]), 'Todavía no se entregó este tique.');
 eq('singular bien escrito', resumenHistorial([r1, r2]), '2 entregas · 2 personas · 1 reimpresión');
 
+// ── 4b) BORRAR UNA ENTREGA (14-sep-2026) ────────────────────────────────────
+// ⭐ Borrar es tachar: la borrada sigue en la lista con quien la borro, pero sin
+//    numero, y el numero de las demas coincide con el «×N» de la pastilla.
+const b2 = { ...r2, anuladaAt: '2026-09-14T13:05:00Z', anuladaPorNombre: ' Persona Tres ', anuladaMotivo: 'Viaje borrado' };
+const conBorrada = filasDelHistorial([r1, b2, r3]);
+eq('la borrada se queda en la lista', conBorrada.map((f) => f.clave), ['b', 'a', 'c']);
+eq('...sin numero, y las vigentes siguen 1, 2', conBorrada.map((f) => f.n), [1, null, 2]);
+eq('...marcada como borrada', conBorrada.map((f) => f.borrada), [false, true, false]);
+ok('...dice quien la borro', /Borrada por Persona Tres/.test(conBorrada[1].borradaTexto ?? ''));
+ok('...a que hora de Caracas', /14\/09\/2026/.test(conBorrada[1].borradaTexto ?? '') && /09:05/.test(conBorrada[1].borradaTexto ?? ''));
+ok('...y por que', /Viaje borrado/.test(conBorrada[1].borradaTexto ?? ''));
+eq('una vigente no trae texto de borrada', conBorrada[0].borradaTexto, null);
+eq('trae el id para poder borrarla', conBorrada[2].id, 'c');
+ok('borrada sin nombre lo dice', new RegExp('Borrada por ' + SIN_NOMBRE).test(filasDelHistorial([{ ...b2, anuladaPorNombre: null }])[0].borradaTexto ?? ''));
+eq('una fecha de borrado vacia no la borra', filasDelHistorial([{ ...r1, anuladaAt: '  ' }])[0].borrada, false);
+eq('el resumen cuenta solo las vigentes y nombra las borradas', resumenHistorial([r1, b2, r3]),
+  '2 entregas · 2 personas · 1 reimpresión · 1 borrada');
+eq('todas borradas lo dice', resumenHistorial([b2, { ...r1, anuladaAt: '2026-09-14T13:00:00Z' }]), 'Ninguna entrega vigente · 2 borradas');
+// Si se borro la primera impresion, la que queda es una reimpresion: no se
+// puede decir «la primera impresión» de un papel que dice REIMPRESIÓN.
+eq('si queda una sola y es reimpresion no la llama primera', resumenHistorial([{ ...r1, anuladaAt: '2026-09-14T13:00:00Z' }, r2]),
+  '1 entrega: una reimpresión · 1 borrada');
+
 // ── 5) GUARDAS SOBRE EL CODIGO ──────────────────────────────────────────────
 const lib = leer('src/lib/tiqueHistorial.ts');
 ok('la libreria del historial es pura: no importa nada', !/^\s*import\s/m.test(sinComentarios(lib)));
 
 const em = sinComentarios(leer('src/lib/tiqueEmisiones.ts'));
-const cuerpoListar = em.slice(em.indexOf('export async function listarEmisionesDeFolio'), em.indexOf('export async function listarEmisionesDeFolio') + 1200);
+// Hasta la funcion siguiente, no un largo fijo: un largo fijo se queda corto en
+// cuanto la funcion crece y la guarda falla por el recorte, no por el codigo.
+const cuerpoListar = em.slice(em.indexOf('export async function listarEmisionesDeFolio'), em.indexOf('export async function anularEmision'));
 ok('hay una lectura del historial de un folio', cuerpoListar.length > 200);
 ok('...que filtra por ese folio', /\.eq\('folio', f\)/.test(cuerpoListar));
 ok('...trae quien, cuando, donde y si fue reimpresion',
@@ -129,6 +156,16 @@ ok('...trae quien, cuando, donde y si fue reimpresion',
 ok('...ordenada por la hora de la base', /\.order\('emitido_at', \{ ascending: true \}\)/.test(cuerpoListar));
 ok('...y distingue una tabla que falta de un error', /faltaLaTabla\(e\)/.test(cuerpoListar));
 ok('la constancia sigue siendo de solo leer y agregar', !/\.update\(/.test(em) && !/\.delete\(/.test(em));
+// ⭐ Borrar va por la funcion de la base, que pone el nombre de la sesion.
+ok('borrar una entrega va por la funcion de la base', /\.rpc\('anular_tique_emision'/.test(em));
+// ⚠️ El folio se repite despues de borrar un viaje. Contar por folio a secas le
+//    suma al viaje nuevo las entregas del borrado (paso con CDT-000001: ×13).
+const inicioContar = em.indexOf('export async function contarEmisionesPorFolio');
+const cuerpoContar = em.slice(inicioContar, em.indexOf('export async function listarEmisionesDeFolio'));
+ok('el contador no suma entregas de un viaje borrado', inicioContar >= 0 && /\.not\('viaje_id', 'is', null\)/.test(cuerpoContar));
+ok('...ni las borradas', /\.is\('anulada_at', null\)/.test(cuerpoContar));
+ok('el historial tampoco trae las de un viaje borrado', /\.not\('viaje_id', 'is', null\)/.test(cuerpoListar));
+ok('...pero SI las borradas, con quien las borro', !/\.is\('anulada_at', null\)/.test(cuerpoListar) && /anulada_por_nombre/.test(cuerpoListar));
 
 const comp = sinComentarios(leer('src/components/HistorialTiqueModal.tsx'));
 const compCrudo = leer('src/components/HistorialTiqueModal.tsx');
@@ -142,11 +179,22 @@ ok('...y cuando falla, sin fingir que no hay entregas', /No se pudo leer el hist
 
 const scr = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
 ok('la pastilla de entregado se puede tocar', /onPress=\{\(\) => setHistorialFolio\(folioDeTique\(row\)\)\}/.test(scr));
-ok('la ventana del historial esta montada', /<HistorialTiqueModal folio=\{historialFolio\} onClose=\{\(\) => setHistorialFolio\(null\)\} \/>/.test(scr));
+ok('la ventana del historial esta montada', /<HistorialTiqueModal\s+folio=\{historialFolio\}/.test(scr) && /onClose=\{\(\) => setHistorialFolio\(null\)\}/.test(scr));
+ok('...borrar es de nivel completo, como borrar un viaje', /puedeBorrar=\{canFull\}/.test(scr));
+ok('...y al borrar se recuenta la pastilla', /onCambio=\{\(f\) => refrescarEmisiones\(\[f\]\)\}/.test(scr));
+
+ok('la ventana borra con la libreria', /anularEmision\(f\.id\)/.test(comp));
+ok('...solo despues de confirmar', antesQue(comp, 'await confirm(', 'anularEmision(f.id)') && /if \(!ok\) return;/.test(comp));
+ok('...solo si puede borrar, y nunca una ya borrada', /f\.borrada \? \(/.test(comp) && /\) : puedeBorrar \? \(/.test(comp));
+ok('...sin doble toque', /borrandoRef\.current\) return/.test(comp));
+ok('...vuelve a leer y avisa a la pantalla', /setVuelta\(\(v\) => v \+ 1\)/.test(comp) && /onCambio\?\.\(folio\)/.test(comp));
+ok('...y muestra quien la borro', /f\.borradaTexto/.test(comp));
 
 // ── 6) EL MANUAL ────────────────────────────────────────────────────────────
 ok('el manual .md lo explica', /Ver quién imprimió cada tique \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla tambien', /VER QUIÉN IMPRIMIÓ CADA TIQUE \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('el manual .md explica borrar una entrega', /Borrar una entrega del historial \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('el manual en pantalla tambien', /BORRAR UNA ENTREGA DEL HISTORIAL \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-tique-historial · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

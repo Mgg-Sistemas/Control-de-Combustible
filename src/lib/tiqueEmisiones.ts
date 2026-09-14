@@ -15,6 +15,18 @@
 //    ningún lado. Una constancia que se puede editar después no es constancia.
 //    Por lo mismo NO lleva trigger de auditoría: duplicar un libro en otro libro
 //    solo engorda `audit_log`, que ya viene creciendo.
+//
+// ⭐ BORRAR UNA ENTREGA ES TACHARLA, NO ARRANCAR LA HOJA (14-sep-2026). Pedido del
+//    cliente: poder borrar una entrega del historial y que quede quién la borró.
+//    La fila NO se elimina: la función `anular_tique_emision` le pone fecha,
+//    nombre y motivo, y deja de contar. Es lo único que se le puede cambiar, y
+//    solo una vez. Al borrar un VIAJE, un trigger tacha igual todas sus entregas
+//    con el motivo «Viaje borrado».
+//
+// ⚠️ EL FOLIO SE PUEDE REPETIR entre un viaje borrado y el siguiente (sale de «el
+//    más alto + 1»). Por eso lo que se cuenta son las entregas VIGENTES de un
+//    viaje que EXISTE: las de un viaje borrado quedan con `viaje_id` nulo y no
+//    se le suman al viaje nuevo que heredó el número.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { isOnline, isNetworkErrorMsg } from './offlineQueue';
@@ -233,7 +245,13 @@ export async function contarEmisionesPorFolio(
   try {
     for (let i = 0; i < limpios.length; i += TROZO) {
       const trozo = limpios.slice(i, i + TROZO);
-      const { data, error } = await supabase.from(TABLA).select('folio').in('folio', trozo);
+      // Solo las vigentes de un viaje que existe. Ver la nota de arriba.
+      const { data, error } = await supabase
+        .from(TABLA)
+        .select('folio')
+        .in('folio', trozo)
+        .not('viaje_id', 'is', null)
+        .is('anulada_at', null);
       if (error) throw error;
       (data ?? []).forEach((r: any) => {
         const f = String(r?.folio ?? '').trim();
@@ -264,8 +282,11 @@ export async function listarEmisionesDeFolio(
   try {
     const { data, error } = await supabase
       .from(TABLA)
-      .select('id, folio, reimpresion, medio, emitido_por_nombre, ubicacion_nombre, emitido_at, lote_id')
+      .select('id, folio, reimpresion, medio, emitido_por_nombre, ubicacion_nombre, emitido_at, lote_id, anulada_at, anulada_por_nombre, anulada_motivo')
       .eq('folio', f)
+      // Las borradas SÍ vienen (salen tachadas, con quién las borró), pero no
+      // las de un viaje que ya no existe: esas son de otro viaje con el mismo número.
+      .not('viaje_id', 'is', null)
       .order('emitido_at', { ascending: true })
       .limit(500);
     if (error) throw error;
@@ -278,10 +299,41 @@ export async function listarEmisionesDeFolio(
       ubicacionNombre: (r.ubicacion_nombre ?? null) as string | null,
       emitidoAt: String(r.emitido_at),
       loteId: (r.lote_id ?? null) as string | null,
+      anuladaAt: (r.anulada_at ?? null) as string | null,
+      anuladaPorNombre: (r.anulada_por_nombre ?? null) as string | null,
+      anuladaMotivo: (r.anulada_motivo ?? null) as string | null,
     }));
     return { filas, sinTabla: false };
   } catch (e: any) {
     if (faltaLaTabla(e)) return { filas: [], sinTabla: true };
     return { filas: [], sinTabla: false, error: String(e?.message ?? e) };
+  }
+}
+
+/**
+ * BORRA UNA ENTREGA DEL HISTORIAL (14-sep-2026).
+ *
+ * ⭐ La tacha, no la elimina: la base anota quién la borró (el de la sesión, no un
+ *    nombre que mande el teléfono), cuándo y por qué, y deja de contarla.
+ *
+ * `yaEstaba` = alguien la borró antes (otro teléfono, o un doble toque). No es
+ * un fallo: el resultado que se pedía ya está.
+ */
+export async function anularEmision(
+  id: string,
+  motivo?: string | null,
+): Promise<{ ok: boolean; yaEstaba: boolean; error?: string }> {
+  const limpio = String(id ?? '').trim();
+  if (!limpio) return { ok: false, yaEstaba: false, error: 'Falta la entrega a borrar.' };
+  try {
+    const { data, error } = await supabase.rpc('anular_tique_emision', {
+      p_id: limpio,
+      p_motivo: motivo ?? null,
+    });
+    if (error) throw error;
+    const filas = Array.isArray(data) ? data.length : 0;
+    return { ok: true, yaEstaba: filas === 0 };
+  } catch (e: any) {
+    return { ok: false, yaEstaba: false, error: String(e?.message ?? e) };
   }
 }
