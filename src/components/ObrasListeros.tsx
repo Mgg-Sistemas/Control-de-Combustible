@@ -25,7 +25,7 @@ import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
 import { supabase } from '../lib/supabase';
 import { asignarObraAListero } from '../lib/camionViajes';
-import { nombreLimpio, validarNombre, type UbicacionObra } from '../lib/ubicacionesObra';
+import { etiquetaZonaPago, nombreLimpio, obrasActivasSinZona, validarNombre, ZONAS_PAGO, zonaPagoValida, type UbicacionObra, type ZonaPago } from '../lib/ubicacionesObra';
 
 type Listero = { id: string; full_name: string; ubicacion_id: string | null };
 
@@ -59,6 +59,7 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text } as const;
   const obraPorId = useMemo(() => new Map(obras.map((o) => [o.id, o])), [obras]);
   const sinObra = useMemo(() => listeros.filter((l) => !l.ubicacion_id).length, [listeros]);
+  const sinZona = useMemo(() => obrasActivasSinZona(obras), [obras]);
 
   const crear = async () => {
     const motivo = validarNombre(nueva, obras);
@@ -76,7 +77,7 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
     const motivo = validarNombre(editNombre, obras, o.id);
     if (motivo) { toast.error(motivo); return; }
     setGuardando(true);
-    // `.select('id')` en las tres escrituras de abajo (14-sep-2026): la base ya solo
+    // `.select('id')` en todas las escrituras de obras (14-sep-2026): la base ya solo
     // deja tocar obras a quien tiene permiso completo de viajes, y un cambio
     // rechazado por permisos vuelve SIN error y con 0 filas. Sin esto se avisaba
     // «renombrada» con la obra intacta y la lista quedaba desincronizada.
@@ -96,6 +97,17 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
     if (error) { toast.error(`No se pudo cambiar: ${error.message}`); return; }
     if (!data?.length) { toast.error(SIN_PERMISO_OBRA); return; }
     toast.success(o.active ? 'Obra desactivada: deja de ofrecerse, pero sus viajes siguen.' : 'Obra activada.');
+    onCambioObras();
+  };
+
+  // Zona de pago del CDT (14-sep-2026). Tocar la zona que ya tiene la quita.
+  // Solo afecta a los viajes que entren DESDE AHORA: cada viaje guarda la suya.
+  const cambiarZona = async (o: UbicacionObra, zona: ZonaPago) => {
+    const nueva = zonaPagoValida(o.zona_pago) === zona ? null : zona;
+    const { data, error } = await supabase.from('ubicaciones_obra').update({ zona_pago: nueva }).eq('id', o.id).select('id');
+    if (error) { toast.error(`No se pudo cambiar la zona: ${error.message}`); return; }
+    if (!data?.length) { toast.error(SIN_PERMISO_OBRA); return; }
+    toast.success(`${o.nombre}: ${etiquetaZonaPago(nueva)}. Los viajes ya registrados conservan su zona.`);
     onCambioObras();
   };
 
@@ -134,6 +146,7 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
           🏗️ Obras y ubicaciones{obras.length ? ` · ${obras.length}` : ''}
           {sinObra > 0 ? ` · ${sinObra} listero(s) sin obra` : ''}
+          {sinZona > 0 ? ` · ${sinZona} obra(s) sin zona` : ''}
         </Text>
         <Text style={{ color: colors.brandText, fontWeight: '800' }}>{abierto ? '▲' : '▼'}</Text>
       </TouchableOpacity>
@@ -154,6 +167,11 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
                 Mover a un listero de obra NO cambia sus viajes ya registrados: cada viaje se
                 guardó con la obra que tenía ese día.
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                Zona de pago (Este / Oeste): cada viaje NUEVO guarda la zona de su obra al
+                registrarse. Cambiarla no toca los viajes ya registrados. Toca la zona marcada
+                para quitarla.
               </Text>
 
               {/* ── CREAR ─────────────────────────────────────────────── */}
@@ -202,7 +220,21 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
                               <Text style={{ color: o.active ? colors.text : colors.muted, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>
                                 {o.nombre}{o.active ? '' : '  ·  DESACTIVADA'}
                               </Text>
-                              <Text style={{ color: colors.muted, fontSize: 11 }}>{cuantos} listero(s)</Text>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>{cuantos} listero(s) · Zona: {etiquetaZonaPago(o.zona_pago)}</Text>
+                              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                                {ZONAS_PAGO.map((z) => {
+                                  const marcada = zonaPagoValida(o.zona_pago) === z.key;
+                                  return (
+                                    <TouchableOpacity
+                                      key={z.key}
+                                      onPress={() => cambiarZona(o, z.key)}
+                                      style={{ borderWidth: 1, borderColor: marcada ? colors.brand : colors.border, backgroundColor: marcada ? colors.brand : 'transparent', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 }}
+                                    >
+                                      <Text style={{ color: marcada ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{z.label}</Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
                             </View>
                             <TouchableOpacity onPress={() => { setEditId(o.id); setEditNombre(o.nombre); }}>
                               <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✏️</Text>
