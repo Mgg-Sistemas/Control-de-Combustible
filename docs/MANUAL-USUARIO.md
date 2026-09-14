@@ -2110,8 +2110,8 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 > Se **sincroniza en vivo**. En pantalla ves **inspector → sus máquinas** con **sector, referencia,
 > serial/placa, empresa** y fecha/hora.
 >
-> **Dos reportes en Inspecciones:** (1) **📊 Reporte por inspector** (día/rango, con hora, sector,
-> serial/placa, empresa y **estado** de la máquina); y (2) **📄 Asignaciones por sector** — las
+> **Dos reportes en Inspecciones:** (1) **📊 Reporte por inspector** (un día y turno: las máquinas
+> asignadas con su **estado**, horas del turno, check-in y columnas a elegir); y (2) **📄 Asignaciones por sector** — las
 > máquinas que cada inspector se asignó con el CHECK, **agrupadas por sector**, con **turno ☀️/🌙 +
 > referencia + serial + placa + empresa**, **sin el estado**. El reporte (2) tiene **búsqueda libre**
 > (máquina, placa, serial, empresa, inspector, encargado, edificio) y filtros tipo **check** por
@@ -2178,25 +2178,29 @@ Cada inspector trae un **resumen de cercanía** para saber qué tan confiables f
 informe del día con ese resumen por inspector, el detalle de cada visita (hora, máquina,
 empresa, estado y ubicación) y las jornadas sin validar.
 
-> **📊 Reporte por inspector — "Recorrido del inspector" (PDF):** en **Inspecciones → Reportes →
-> ✅ Máquinas asignadas por inspector** hay un reporte con **📅 un día** y un filtro de inspectores
-> **tipo check** (marcas uno o varios; vacío = todos). Reconstruye el **recorrido** de cada
-> inspector en orden cronológico: **hora de la revisión, máquina, marca/modelo, serial/placa,
-> sector/ubicación, estado** en que la encontró y si estaba **cerca** (distancia GPS).
+> **📊 Reporte por inspector — cuenta como las tarjetas (14/09/2026) (PDF):** en **Inspecciones →
+> Reportes → ✅ Máquinas asignadas por inspector**. Eliges **📅 el día**, **🕒 el turno** (☀️ día,
+> 🌙 noche o ambos; abre en el que corre ahora) y, si quieres, **inspectores tipo check** (vacío =
+> todos).
 >
-> Además trae, en el **mismo documento**, la información de un **reporte diario** (pedido del
-> cliente): **horas de día, horas de noche y horas trabajadas** de cada máquina, y la columna
-> **"Inició"** con el **nombre de quien marcó el inicio de la jornada**. Arriba sale un
-> **resumen general** (inspectores, revisiones, máquinas distintas y horas), y **cada inspector**
-> tiene su propio total (máquinas distintas revisadas, horas de día, de noche y trabajadas).
+> Por cada inspector salen **todas sus máquinas asignadas** en ese turno con su **estado** (● en
+> curso, ✅ cerrada, ⏳ pendiente, 🟡 parada, 🔴 averiada) y las **horas de ese turno**. Son **los
+> mismos números de las tarjetas** de arriba (asignadas, iniciadas, cerradas, pendientes, paradas,
+> averiadas y horas reales), y las horas cuadran con el reporte con firma.
 >
-> **Tres cosas importantes de leer bien:**
-> - Las **horas son del DÍA COMPLETO de la máquina**, no de esa visita. Si el inspector revisó la
->   misma máquina 3 veces, las 3 filas muestran las mismas horas del día.
-> - Por eso **los totales cuentan cada máquina UNA sola vez** (aunque tenga varias revisiones): las
->   horas **no** se suman fila por fila.
-> - Si una máquina **no tiene ronda registrada** ese día, sus horas salen **"—"** (no hay dato), que
->   **no es lo mismo** que trabajar **0,00** horas.
+> - **Check-in:** a qué hora se revisó la máquina por primera vez. Si la revisó **otro inspector**,
+>   dice quién (por ejemplo «10:43 a. m. · nombre del otro inspector»); si hubo más revisiones, cuántas (+2). Una
+>   máquina **sin check-in sale igual**, con «Sin check-in».
+> - **Inició / finalizó:** quién marcó el inicio y quién cerró la jornada. **Motivo:** el de la
+>   avería o la parada, o el del cierre anticipado.
+> - **🖨️ ¿Qué se oculta?** Pastillas como las del Conteo de equipos: **marca, modelo, placa/serial,
+>   empresa, clasificación, encargado, sector, edificio, check-in, inició/finalizó y motivo**. Por
+>   defecto salen todas menos clasificación, encargado y edificio. **Ocultan columnas, nunca
+>   máquinas**: los totales no cambian. Máquina, estado y horas no se pueden quitar.
+>
+> **Por qué cambió:** antes este reporte salía solo de los **check-in**, así que no traía las
+> máquinas que nadie escaneó (el Inspector SOS no aparecía con sus 72 jornadas) y ponía bajo un
+> inspector las máquinas de otro que él revisó. Las horas eran del día completo, no del turno.
 >
 > Las horas se calculan con la **misma fórmula** que el **Reporte del día por empresa** y el
 > **Control de maquinaria**, así que los números **coinciden** entre los tres.
