@@ -1102,7 +1102,7 @@ export default function ViajesCamionesScreen() {
         return;
       }
 
-      const { error } = await registrarViaje({ ...payload, clientActionId });
+      const { error } = await registrarViaje({ ...payload, clientActionId, origen: 'campo' });
       if (!error) {
         toast.success(`Viaje de ${selectedTruck.code} registrado.`);
         loadMisViajes();
@@ -1525,6 +1525,7 @@ export default function ViajesCamionesScreen() {
           //    de hoy sería inventarlo.
           estadoMaquina: null,
           note: nota,
+          origen: 'manual',
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
