@@ -1303,12 +1303,15 @@ export function CubicajeTab({
  *  exportar de la otra sub-pestaña porque es ahí donde se usa: configurar en un
  *  sitio y exportar en otro es como se quedan encendidos los filtros. */
 export function OpcionesReporteBox({
-  op, setOp, modoResumen, aviso,
+  op, setOp, modoResumen, aviso, soloCamiones = false,
 }: {
   op: OpcionesReporte;
   setOp: (k: keyof OpcionesReporte, v: boolean) => void;
   modoResumen: boolean;
   aviso: string | null;
+  /** Reporte «Solo camiones»: el conteo y los m³ no salen, así que sus
+   *  interruptores se esconden. Uno que no hace nada parece roto. */
+  soloCamiones?: boolean;
 }) {
   const { colors } = useTheme();
   const [abierto, setAbierto] = useState(false);
@@ -1340,9 +1343,14 @@ export function OpcionesReporteBox({
       </TouchableOpacity>
       {abierto ? (
         <View style={{ marginTop: spacing.xs }}>
-          {filas.map((f) => (
+          {filas.filter((f) => !(soloCamiones && (f.k === 'm3' || f.k === 'viajes'))).map((f) => (
             <Toggle key={f.k} on={op[f.k]} label={f.label} ayuda={f.ayuda} onPress={() => setOp(f.k, !op[f.k])} />
           ))}
+          {soloCamiones ? (
+            <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
+              En «Solo camiones» no sale ninguna cantidad: ni viajes ni metros cúbicos.
+            </Text>
+          ) : null}
           <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
             Solo cambian las COLUMNAS del PDF y de la vista previa. No sacan ni agregan viajes: el total es el mismo.
           </Text>

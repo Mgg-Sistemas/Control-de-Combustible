@@ -5086,6 +5086,12 @@ Distingue cinco causas, y cada una nombra lo que hay que hacer:
   - por cada **empresa**, su **total de viajes** y cuántos camiones tiene;
   - dentro de cada empresa, el **desglose por camión**: código, placa/serial y **cuántos viajes**
     hizo, de mayor a menor.
+- **🚚 Solo camiones (sin cantidades)** *(14/09/2026)* — la lista de los **camiones que salieron**
+  en las fechas y con los filtros que tengas puestos, **sin cuántos viajes hizo cada uno** y sin
+  metros cúbicos. Se agrupa igual que el resumido (**AGRUPAR POR** empresa, listero u obra), cada
+  grupo dice cuántos camiones tiene y los camiones salen **en orden alfabético** —no de más viajes
+  a menos, que sería volver a decir quién trabajó más—. En «Qué sale en el reporte» puedes sumar
+  marca y modelo, empresa, placa, medidas o clasificación; el conteo y los m³ no salen nunca.
 
 > Sirve para las tres cosas que se piden a diario: **un camión** (márcalo y te dice cuántos viajes
 > hizo), **varios camiones** (marca los que quieras y cada uno sale con su cantidad), o **una

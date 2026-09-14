@@ -40,11 +40,11 @@ import {
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { CubicajeTab, OpcionesReporteBox, useCubicaje, type CamionCubicaje } from '../components/CubicajeTab';
 import {
-  repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen,
+  repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen, columnasCamiones,
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
   volumenConGuardado,
 } from '../lib/cubicaje';
-import { resumirViajes, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { resumirViajes, camionesQueSalieron, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
 } from '../lib/ubicacionesObra';
@@ -1765,8 +1765,10 @@ export default function ViajesCamionesScreen() {
   //    la obra donde estaba el listero ESE DÍA, no donde esté hoy.
   const [filterUbicacionSel, setFilterUbicacionSel] = useState<Map<string, string>>(new Map());
   // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
-  // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje.
-  const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen'>('detallado');
+  // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje ·
+  // 'camiones' = qué camiones salieron, SIN ninguna cantidad (14-sep-2026).
+  const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen' | 'camiones'>('detallado');
+  const soloCamiones = reporteModo === 'camiones';
   // Por cuál eje se parte el resumen (pedido del cliente 22-ago-2026: poder
   // sacarlo también por listero). Va APARTE del modo a propósito: "detallado vs
   // resumido" y "por empresa vs por listero" son dos preguntas distintas, y
@@ -2081,6 +2083,9 @@ export default function ViajesCamionesScreen() {
     () => resumirViajes(filasResumen, (id) => truckById.get(id), resumenEje),
     [filasResumen, truckById, resumenEje]
   );
+  /** «Solo camiones»: los mismos camiones del resumido, sin cantidades y en
+   *  orden alfabético. Ver `camionesQueSalieron`. */
+  const camionesSalieron = useMemo(() => camionesQueSalieron(resumenViajes), [resumenViajes]);
 
   // ── CUBICAJE: METROS CÚBICOS POR CAMIÓN (09-sep-2026) ────────────────────
   //
@@ -2283,6 +2288,12 @@ export default function ViajesCamionesScreen() {
         return [t?.marca || m?.marca, t?.modelo || m?.modelo].filter(Boolean).join(' ') || '—';
       };
       const dimsDe = (id: string | null | undefined) => dimsTexto(medidaDe(id)) || '—';
+      // La empresa de un camión del resumen, por su clave. Uno fuera de catálogo
+      // no tiene ficha: raya, no «Sin empresa», que sería afirmar algo.
+      const empresaDe = (key: string) => {
+        const t = truckById.get(key);
+        return t ? (t.companyName || 'Sin empresa') : '—';
+      };
       const claseDe = (id: string | null | undefined) => {
         const m = medidaDe(id);
         return m ? etiquetaClase(volumenDe(m)) : '—';
@@ -2335,6 +2346,9 @@ export default function ViajesCamionesScreen() {
           ].filter(Boolean).join(' · ');
           const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
             camion: c.code,
+            // Faltaba: con «Empresa» encendida y agrupando por listero u obra,
+            // la columna salía toda en raya.
+            empresa: empresaDe(c.key),
             placa: c.placa,
             marcaModelo: marcaModeloDe(c.key),
             dims: dimsDe(c.key),
@@ -2352,6 +2366,25 @@ export default function ViajesCamionesScreen() {
               : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>` : ''
           ));
           return `<h3>${icoGrupo} ${esc(e.name)} — ${cab}</h3>${tabla(colsR, filas, pie)}`;
+        }).join('')}`;
+
+      // ── SOLO CAMIONES (14-sep-2026): qué camiones salieron, sin cuántos
+      //    viajes hizo cada uno ni m³. Mismos filtros y mismo eje que el resumido.
+      const colsC = columnasCamiones(op, resumenEje);
+      const bodyCamiones = `
+        <p class="tot">${camionesSalieron.totalCamiones} camión(es) · ${camionesSalieron.grupos.length} ${palabraGrupo}</p>
+        ${camionesSalieron.grupos.map((g) => {
+          const filas = g.camiones.map((c, i) => valoresEnOrden(colsC, {
+            n: i + 1,
+            camion: c.code,
+            empresa: empresaDe(c.key),
+            placa: c.placa,
+            marcaModelo: marcaModeloDe(c.key),
+            dims: dimsDe(c.key),
+            clase: claseDe(c.key),
+          }));
+          const pie = colsC.map((_, i) => (i === 1 ? `<b>${g.camiones.length} camión(es)</b>` : ''));
+          return `<h3>${icoGrupo} ${esc(g.name)} — ${g.camiones.length} camión(es)</h3>${tabla(colsC, filas, pie)}`;
         }).join('')}`;
 
       // ── DETALLADO: una línea por viaje, con las columnas que estén encendidas.
@@ -2387,25 +2420,29 @@ export default function ViajesCamionesScreen() {
       // que nadie compare estas cifras contra un conteo hecho por calendario.
       const corte = 'por jornada (7am a 7am), no por día de calendario';
       const html = pdfDocument({
-        title: reporteModo === 'resumen'
+        title: soloCamiones
+          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : 'Camiones que salieron · por empresa')
+          : reporteModo === 'resumen'
           ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
           : 'Viajes de camiones',
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
         // y sin decirlo uno de los dos parece un error de cálculo.
-        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
+        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 && !soloCamiones ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
           tfoot td{background:#e8eef6;font-weight:700}
           h3{margin:14px 0 4px;font-size:13px;color:#16324F;border-bottom:2px solid #16324F;padding-bottom:2px}
           .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}`,
-        body: reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
+        body: soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
       });
       // ⚠️ El nombre TIENE que decir por dónde se partió: dos PDF del mismo día
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
-      const sufijo = reporteModo === 'resumen'
+      const sufijo = soloCamiones
+        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : 'camiones por empresa ')
+        : reporteModo === 'resumen'
         ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : 'resumen por camion ')
         : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
@@ -3844,8 +3881,8 @@ export default function ViajesCamionesScreen() {
             {/* Modo del reporte: viaje por viaje, o globalizado por camión. */}
             <View style={{ marginTop: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>VISTA Y REPORTE</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                {([['detallado', '📋 Detallado (viaje por viaje)'], ['resumen', '📊 Resumido (viajes por camión)']] as const).map(([key, label]) => {
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                {([['detallado', '📋 Detallado (viaje por viaje)'], ['resumen', '📊 Resumido (viajes por camión)'], ['camiones', '🚚 Solo camiones (sin cantidades)']] as const).map(([key, label]) => {
                   const on = reporteModo === key;
                   return (
                     <TouchableOpacity
@@ -3861,7 +3898,7 @@ export default function ViajesCamionesScreen() {
 
               {/* Eje del resumen. Solo tiene sentido en modo resumido: el
                   detallado ya trae una columna "Listero" en cada línea. */}
-              {reporteModo === 'resumen' ? (
+              {reporteModo !== 'detallado' ? (
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
@@ -3915,6 +3952,25 @@ export default function ViajesCamionesScreen() {
                         ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
                         : 'Sin viajes en el rango seleccionado.'}
                 </Text>
+              ) : soloCamiones ? (
+                // Lo mismo que el PDF: qué camiones salieron, sin ninguna cantidad.
+                <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
+                  <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
+                    🚚 {camionesSalieron.totalCamiones} camión(es) salieron
+                  </Text>
+                  {camionesSalieron.grupos.map((g) => (
+                    <View key={g.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={2}>
+                        {porUbicacion ? '🏗️' : porListero ? '👤' : '🏢'} {g.name} · {g.camiones.length} camión(es)
+                      </Text>
+                      {g.camiones.map((c, i) => (
+                        <Text key={`${g.key}-${c.key}`} style={{ color: colors.muted, fontSize: 12, paddingVertical: 3, paddingLeft: spacing.sm }} numberOfLines={1}>
+                          {i + 1}. 🚜 {c.code} · {c.placa}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </ScrollView>
               ) : reporteModo === 'resumen' ? (
                 // Lo mismo que va a salir en el PDF, en pantalla: total general,
                 // total por empresa y el desglose de sus camiones.
@@ -4009,7 +4065,7 @@ export default function ViajesCamionesScreen() {
             {/* Los interruptores van PEGADOS al botón de exportar, no en la otra
                 sub-pestaña: configurar en un sitio y exportar en otro es como se
                 quedan encendidos los filtros que nadie quería. */}
-            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo === 'resumen'} aviso={avisoReporte} />
+            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo !== 'detallado'} soloCamiones={soloCamiones} aviso={avisoReporte} />
             {cub.op.m3 && diasDesactualizados > 0 ? (
               <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>
                 ⚠️ {diasDesactualizados} día(s) con m³ guardados tienen HOY otra cantidad de viajes que cuando se
