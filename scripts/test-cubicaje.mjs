@@ -42,7 +42,7 @@ m.paths = Module._nodeModulePaths(path.dirname(srcPath));
 m._compile(out, m.filename);
 const {
   num, volumen, volumenDe, redondear, clasificar, etiquetaClase, kpis, esUnidadOculta,
-  repartirVolumen, sumaVolumen, columnasDetalle, columnasResumen, valoresEnOrden,
+  repartirVolumen, sumaVolumen, columnasDetalle, columnasResumen, columnasCamiones, valoresEnOrden,
   reporteSinCifras, OPCIONES_POR_DEFECTO, dimsTexto, m3Texto, CLASES, MODOS,
 } = m.exports;
 
@@ -494,6 +494,39 @@ eq('un Toronto lleva su propia etiqueta', pastillaClase(15.84, 'Volteo Toronto I
 eq('bajo 18, un volteo es ESTÁNDAR', pastillaClase(13.93, 'Volteo Fiat', 'volteo').texto, 'ESTÁNDAR');
 eq('bajo 18, una volqueta es COMPACTO', pastillaClase(12.38, 'Volqueta Doble Cajón', 'volqueta').texto, 'COMPACTO');
 eq('sin medir no se clasifica', pastillaClase(0, 'X', 'volteo').texto, 'SIN MEDIR');
+
+// ── SOLO CAMIONES (14-sep-2026) ─────────────────────────────────────────────
+// Pedido del cliente: los camiones que salieron, SIN la cantidad de viajes.
+const colsCam = columnasCamiones({ ...OPCIONES_POR_DEFECTO, viajes: true, m3: true });
+ok('solo camiones · nunca lleva viajes ni m³, aunque esten encendidos',
+  !colsCam.some((c) => ['dia', 'noche', 'viajes', 'm3'].includes(c.key)));
+eq('solo camiones · empieza con el Nº de renglon y el camion', colsCam.slice(0, 2).map((c) => c.key), ['n', 'camion']);
+ok('solo camiones · respeta los demas interruptores',
+  columnasCamiones({ ...OPCIONES_POR_DEFECTO, marcaModelo: true }).some((c) => c.key === 'marcaModelo')
+  && !columnasCamiones({ ...OPCIONES_POR_DEFECTO, placa: false }).some((c) => c.key === 'placa'));
+ok('solo camiones · la empresa sale al agrupar por listero y no al agrupar por empresa',
+  columnasCamiones(OPCIONES_POR_DEFECTO, 'listero').some((c) => c.key === 'empresa')
+  && !columnasCamiones(OPCIONES_POR_DEFECTO, 'empresa').some((c) => c.key === 'empresa'));
+
+ok('solo camiones · es un modo mas del reporte', /useState<'detallado' \| 'resumen' \| 'camiones'>\('detallado'\)/.test(scrS));
+ok('solo camiones · la lista sale del resumido, con los mismos filtros', /camionesQueSalieron\(resumenViajes\)/.test(scrS));
+ok('solo camiones · el PDF usa sus columnas y el eje', /columnasCamiones\(op, resumenEje\)/.test(scrS));
+ok('solo camiones · el PDF usa su cuerpo', /body: soloCamiones \? bodyCamiones :/.test(scrS));
+const iniCam = scrS.indexOf('const bodyCamiones');
+const cuerpoCam = scrS.slice(iniCam, scrS.indexOf('const colsD'));
+ok('solo camiones · el cuerpo del PDF no imprime ninguna cantidad de viajes ni m³',
+  iniCam >= 0 && cuerpoCam.length > 100 && !/viaje/i.test(cuerpoCam) && !/m3Fila|m3Texto|totalM3|\.total\b|\.dia\b|\.noche\b/.test(cuerpoCam));
+ok('solo camiones · el subtitulo no dice el modo de m³', /op\.m3 && !soloCamiones \?/.test(scrS));
+ok('solo camiones · AGRUPAR POR tambien sale en este modo', /reporteModo !== 'detallado' \? \(/.test(scrS));
+const iniPrev = scrS.indexOf(') : soloCamiones ? (');
+const prev = scrS.slice(iniPrev, scrS.indexOf(") : reporteModo === 'resumen' ? (", iniPrev));
+ok('solo camiones · la vista previa tampoco muestra viajes', iniPrev >= 0 && prev.length > 100 && !/c\.viajes|e\.total|resumenTurno|m3Texto/.test(prev));
+ok('solo camiones · el resumido ahora pone la empresa de cada camion', (scrS.match(/empresa: empresaDe\(c\.key\)/g) ?? []).length >= 2);
+const tabCam = sinComentarios(leer('src/components/CubicajeTab.tsx'));
+ok('solo camiones · las opciones esconden el conteo y los m³', /soloCamiones && \(f\.k === 'm3' \|\| f\.k === 'viajes'\)/.test(tabCam)
+  && /soloCamiones=\{soloCamiones\}/.test(scrS));
+ok('solo camiones · el manual .md lo explica', /Solo camiones \(sin cantidades\)\*\* \*\(14\/09\/2026\)\*/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin cantidades\) \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

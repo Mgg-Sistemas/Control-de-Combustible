@@ -40,11 +40,11 @@ import {
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { CubicajeTab, OpcionesReporteBox, useCubicaje, type CamionCubicaje } from '../components/CubicajeTab';
 import {
-  repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen,
+  repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen, columnasCamiones,
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
   volumenConGuardado,
 } from '../lib/cubicaje';
-import { resumirViajes, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { resumirViajes, camionesQueSalieron, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
 } from '../lib/ubicacionesObra';
@@ -53,6 +53,9 @@ import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, eti
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
+import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
+import QrScanner from '../components/QrScanner';
+import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
 import { CONFIG_POR_DEFECTO, PAPELES, type TiqueConfig } from '../lib/tiqueConfig';
 import { leerConfigTique } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, documentoDeTiques, hojasQueSalen, medioDeImpresion, nombreArchivoTiques, type DatosTique, type TiqueParaImprimir } from '../lib/tiqueDocumento';
@@ -77,6 +80,7 @@ import {
   setAlertaHoras,
   resolveChoferActual,
   listListeros,
+  type ListeroConRol,
 } from '../lib/camionViajes';
 import {
   normalizarHora,
@@ -634,6 +638,26 @@ export default function ViajesCamionesScreen() {
     setPickEstadoSel(new Set());
     setPickOpen(true);
   };
+
+  // ══ ESCANEAR EL QR DEL CAMIÓN (13-sep-2026) ═══════════════════════════════
+  //
+  // Pedido del cliente: que el listero pueda escribir la placa O escanear el QR,
+  // «sin que dañe ni rompa nada». El QR es un atajo al mismo toque de la lista:
+  // lo que pasa después —chofer, estado, registrar, cola— es idéntico.
+  const [scanOpen, setScanOpen] = useState(false);
+  // Abrir la cámara CIERRA el buscador. En web dos ventanas encimadas se pelean
+  // por quién queda arriba (gana la última montada), y la cámara tiene que
+  // quedar sola en pantalla.
+  const abrirEscaner = () => { setPickOpen(false); setScanOpen(true); };
+  const onQrDetectado = (texto: string) => {
+    setScanOpen(false);
+    const r = resolverCamionDeQr(texto, catalogoTrucks, trucksSeleccionables);
+    if (!r.ok) { toast.error(MENSAJE_QR[r.motivo]); return; }
+    // Un camión del catálogo que no está en la lista del listero se suma a su
+    // lista, exactamente como hace el buscador cuando lo encuentra por escrito.
+    if (r.fueraDeLista) setExtraTruckIds((prev) => new Set(prev).add(r.ficha.id));
+    onSelectTruck(r.ficha);
+  };
   // Qué pedido de chofer es el que vale. Escoger el camión A (consulta lenta) y
   // cambiar al B (rápida) terminaba pintando el chofer de A ENCIMA del de B: la
   // respuesta vieja llega después y pisa. Y su `setChoferLoading(false)` soltaba
@@ -1127,7 +1151,7 @@ export default function ViajesCamionesScreen() {
   // Los listeros a los que la jefa le puede atribuir un viaje (al cargarlo a
   // mano o al reasignarlo). Solo se leen con nivel full: al listero no le hace
   // falta y sería una consulta de más en el teléfono, que es donde trabaja.
-  const [listeros, setListeros] = useState<{ id: string; full_name: string; ubicacion_id: string | null }[]>([]);
+  const [listeros, setListeros] = useState<ListeroConRol[]>([]);
   const [listerosRecarga, setListerosRecarga] = useState(0);
   useEffect(() => {
     if (!canFull) return;
@@ -1139,6 +1163,18 @@ export default function ViajesCamionesScreen() {
       .catch((e: any) => console.warn('[viajes] no se pudo leer la lista de listeros:', String(e?.message ?? e)));
     return () => { vivo = false; };
   }, [canFull, listerosRecarga]);
+
+  /**
+   * Solo los que tienen el ROL de listero, para «Listeros y su obra» (13-sep-2026).
+   *
+   * Pedido del cliente. Antes salía ahí todo el que tenía acceso al módulo, y
+   * administradores o almacenistas con permiso aparecían como listeros sin obra.
+   *
+   * ⚠️ SOLO para esa lista. La carga a mano y «Lo registró» siguen usando `listeros`
+   *    completa: un viaje que ya registró alguien sin el rol tiene que seguir
+   *    mostrando a quién pertenece.
+   */
+  const listerosDeRol = useMemo(() => listeros.filter((l) => l.esListero), [listeros]);
 
   // ── EL CATÁLOGO DE OBRAS ───────────────────────────────────────────────────
   // Lo lee TODO EL MUNDO, no solo quien administra: el listero necesita saber en
@@ -1729,8 +1765,10 @@ export default function ViajesCamionesScreen() {
   //    la obra donde estaba el listero ESE DÍA, no donde esté hoy.
   const [filterUbicacionSel, setFilterUbicacionSel] = useState<Map<string, string>>(new Map());
   // 'detallado' = una línea por viaje (como siempre) · 'resumen' = cantidad de
-  // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje.
-  const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen'>('detallado');
+  // viajes por camión, agrupada por empresa, sin desglosar viaje por viaje ·
+  // 'camiones' = qué camiones salieron, SIN ninguna cantidad (14-sep-2026).
+  const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen' | 'camiones'>('detallado');
+  const soloCamiones = reporteModo === 'camiones';
   // Por cuál eje se parte el resumen (pedido del cliente 22-ago-2026: poder
   // sacarlo también por listero). Va APARTE del modo a propósito: "detallado vs
   // resumido" y "por empresa vs por listero" son dos preguntas distintas, y
@@ -2045,6 +2083,9 @@ export default function ViajesCamionesScreen() {
     () => resumirViajes(filasResumen, (id) => truckById.get(id), resumenEje),
     [filasResumen, truckById, resumenEje]
   );
+  /** «Solo camiones»: los mismos camiones del resumido, sin cantidades y en
+   *  orden alfabético. Ver `camionesQueSalieron`. */
+  const camionesSalieron = useMemo(() => camionesQueSalieron(resumenViajes), [resumenViajes]);
 
   // ── CUBICAJE: METROS CÚBICOS POR CAMIÓN (09-sep-2026) ────────────────────
   //
@@ -2247,6 +2288,12 @@ export default function ViajesCamionesScreen() {
         return [t?.marca || m?.marca, t?.modelo || m?.modelo].filter(Boolean).join(' ') || '—';
       };
       const dimsDe = (id: string | null | undefined) => dimsTexto(medidaDe(id)) || '—';
+      // La empresa de un camión del resumen, por su clave. Uno fuera de catálogo
+      // no tiene ficha: raya, no «Sin empresa», que sería afirmar algo.
+      const empresaDe = (key: string) => {
+        const t = truckById.get(key);
+        return t ? (t.companyName || 'Sin empresa') : '—';
+      };
       const claseDe = (id: string | null | undefined) => {
         const m = medidaDe(id);
         return m ? etiquetaClase(volumenDe(m)) : '—';
@@ -2299,6 +2346,9 @@ export default function ViajesCamionesScreen() {
           ].filter(Boolean).join(' · ');
           const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
             camion: c.code,
+            // Faltaba: con «Empresa» encendida y agrupando por listero u obra,
+            // la columna salía toda en raya.
+            empresa: empresaDe(c.key),
             placa: c.placa,
             marcaModelo: marcaModeloDe(c.key),
             dims: dimsDe(c.key),
@@ -2316,6 +2366,25 @@ export default function ViajesCamionesScreen() {
               : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>` : ''
           ));
           return `<h3>${icoGrupo} ${esc(e.name)} — ${cab}</h3>${tabla(colsR, filas, pie)}`;
+        }).join('')}`;
+
+      // ── SOLO CAMIONES (14-sep-2026): qué camiones salieron, sin cuántos
+      //    viajes hizo cada uno ni m³. Mismos filtros y mismo eje que el resumido.
+      const colsC = columnasCamiones(op, resumenEje);
+      const bodyCamiones = `
+        <p class="tot">${camionesSalieron.totalCamiones} camión(es) · ${camionesSalieron.grupos.length} ${palabraGrupo}</p>
+        ${camionesSalieron.grupos.map((g) => {
+          const filas = g.camiones.map((c, i) => valoresEnOrden(colsC, {
+            n: i + 1,
+            camion: c.code,
+            empresa: empresaDe(c.key),
+            placa: c.placa,
+            marcaModelo: marcaModeloDe(c.key),
+            dims: dimsDe(c.key),
+            clase: claseDe(c.key),
+          }));
+          const pie = colsC.map((_, i) => (i === 1 ? `<b>${g.camiones.length} camión(es)</b>` : ''));
+          return `<h3>${icoGrupo} ${esc(g.name)} — ${g.camiones.length} camión(es)</h3>${tabla(colsC, filas, pie)}`;
         }).join('')}`;
 
       // ── DETALLADO: una línea por viaje, con las columnas que estén encendidas.
@@ -2351,25 +2420,29 @@ export default function ViajesCamionesScreen() {
       // que nadie compare estas cifras contra un conteo hecho por calendario.
       const corte = 'por jornada (7am a 7am), no por día de calendario';
       const html = pdfDocument({
-        title: reporteModo === 'resumen'
+        title: soloCamiones
+          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : 'Camiones que salieron · por empresa')
+          : reporteModo === 'resumen'
           ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
           : 'Viajes de camiones',
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
         // y sin decirlo uno de los dos parece un error de cálculo.
-        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
+        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 && !soloCamiones ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
           tfoot td{background:#e8eef6;font-weight:700}
           h3{margin:14px 0 4px;font-size:13px;color:#16324F;border-bottom:2px solid #16324F;padding-bottom:2px}
           .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}`,
-        body: reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
+        body: soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
       });
       // ⚠️ El nombre TIENE que decir por dónde se partió: dos PDF del mismo día
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
-      const sufijo = reporteModo === 'resumen'
+      const sufijo = soloCamiones
+        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : 'camiones por empresa ')
+        : reporteModo === 'resumen'
         ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : 'resumen por camion ')
         : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
@@ -2477,6 +2550,9 @@ export default function ViajesCamionesScreen() {
    *  el número: son papeles entregados que la oficina todavía no ve. */
   const [tiquesPendientes, setTiquesPendientes] = useState(0);
   const [imprimiendo, setImprimiendo] = useState(false);
+  /** De qué tique se está mirando el historial de entregas. Null = ventana cerrada.
+   *  Pedido del cliente (14-sep-2026): tocar «entregado ×7» y ver quién y cuándo. */
+  const [historialFolio, setHistorialFolio] = useState<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -2794,7 +2870,15 @@ export default function ViajesCamionesScreen() {
               Sin marca no significa «no se entregó»: en una lista muy grande no
               se consulta, y ahí `vecesImpreso` devuelve null. Ver el tope. */}
           {impresiones != null && impresiones > 0 ? (
-            <Badge label={impresiones > 1 ? `🔁 entregado ×${impresiones}` : '✅ entregado'} tone="muted" />
+            // ⭐ Se toca y abre el historial: quién lo imprimió o reimprimió, y a
+            //    qué hora. La flecha es la seña de que se puede tocar.
+            <TouchableOpacity
+              onPress={() => setHistorialFolio(folioDeTique(row))}
+              accessibilityRole="button"
+              accessibilityLabel={`Ver quién entregó el tique ${folioDeTique(row)}`}
+            >
+              <Badge label={impresiones > 1 ? `🔁 entregado ×${impresiones} ›` : '✅ entregado ›'} tone="muted" />
+            </TouchableOpacity>
           ) : null}
         </View>
         {row.stuck && row.stuckError ? (
@@ -3009,11 +3093,17 @@ export default function ViajesCamionesScreen() {
 
       <Card>
         <SectionTitle>Registrar viaje</SectionTitle>
-        <TouchableOpacity onPress={openPicker} style={styles.pickButton}>
-          <Text style={{ color: selectedTruck ? colors.text : colors.muted, fontWeight: '700' }}>
-            {selectedTruck ? `🚜 ${selectedTruck.code}` : '🔎 Buscar camión…'}
-          </Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <TouchableOpacity onPress={openPicker} style={[styles.pickButton, { flex: 1 }]}>
+            <Text style={{ color: selectedTruck ? colors.text : colors.muted, fontWeight: '700' }}>
+              {selectedTruck ? `🚜 ${selectedTruck.code}` : '🔎 Buscar camión…'}
+            </Text>
+          </TouchableOpacity>
+          {/* El QR pegado en el camión: un toque en vez de escribir la placa. */}
+          <TouchableOpacity onPress={abrirEscaner} style={[styles.pickButton, { borderColor: colors.brand }]}>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>📷 Escanear QR</Text>
+          </TouchableOpacity>
+        </View>
 
         {selectedTruck ? (
           <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
@@ -3107,6 +3197,21 @@ export default function ViajesCamionesScreen() {
       </Card>
 
       {/* Selector de camión (mismo estilo del selector "Agregar máquina suelta" de UsersScreen). */}
+      {/* Historial de entregas de un tique: se abre tocando «entregado ×N». */}
+      {/* Borrar una entrega es de nivel completo, igual que borrar un viaje. Al
+          borrar se recuenta ese folio para que la pastilla baje en el acto. */}
+      <HistorialTiqueModal
+        folio={historialFolio}
+        puedeBorrar={canFull}
+        onCambio={(f) => refrescarEmisiones([f])}
+        onClose={() => setHistorialFolio(null)}
+      />
+
+      {/* La cámara. Misma pieza que usan las otras pantallas del sistema. */}
+      <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
+        <QrScanner onDetected={onQrDetectado} onClose={() => setScanOpen(false)} />
+      </Modal>
+
       <Modal visible={pickOpen} animationType="slide" transparent onRequestClose={() => setPickOpen(false)}>
         <View style={styles.backdrop}>
           <View style={[styles.sheet, { maxHeight: '82%' }]}>
@@ -3118,6 +3223,9 @@ export default function ViajesCamionesScreen() {
               placeholderTextColor={colors.muted}
               style={styles.input}
             />
+            <TouchableOpacity onPress={abrirEscaner} style={{ marginTop: spacing.xs, paddingVertical: 8, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>📷 Escanear el QR del camión</Text>
+            </TouchableOpacity>
             {pickEstadoOptions.length > 1 ? (
               <View style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
@@ -3525,7 +3633,7 @@ export default function ViajesCamionesScreen() {
               registren hoy salgan con su obra. */}
           <ObrasListeros
             obras={obras}
-            listeros={listeros}
+            listeros={listerosDeRol}
             faltaSql={faltaSqlObras}
             canFull={canFull}
             onCambioObras={recargarObras}
@@ -3773,8 +3881,8 @@ export default function ViajesCamionesScreen() {
             {/* Modo del reporte: viaje por viaje, o globalizado por camión. */}
             <View style={{ marginTop: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>VISTA Y REPORTE</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                {([['detallado', '📋 Detallado (viaje por viaje)'], ['resumen', '📊 Resumido (viajes por camión)']] as const).map(([key, label]) => {
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                {([['detallado', '📋 Detallado (viaje por viaje)'], ['resumen', '📊 Resumido (viajes por camión)'], ['camiones', '🚚 Solo camiones (sin cantidades)']] as const).map(([key, label]) => {
                   const on = reporteModo === key;
                   return (
                     <TouchableOpacity
@@ -3790,7 +3898,7 @@ export default function ViajesCamionesScreen() {
 
               {/* Eje del resumen. Solo tiene sentido en modo resumido: el
                   detallado ya trae una columna "Listero" en cada línea. */}
-              {reporteModo === 'resumen' ? (
+              {reporteModo !== 'detallado' ? (
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
@@ -3844,6 +3952,25 @@ export default function ViajesCamionesScreen() {
                         ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
                         : 'Sin viajes en el rango seleccionado.'}
                 </Text>
+              ) : soloCamiones ? (
+                // Lo mismo que el PDF: qué camiones salieron, sin ninguna cantidad.
+                <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
+                  <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
+                    🚚 {camionesSalieron.totalCamiones} camión(es) salieron
+                  </Text>
+                  {camionesSalieron.grupos.map((g) => (
+                    <View key={g.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={2}>
+                        {porUbicacion ? '🏗️' : porListero ? '👤' : '🏢'} {g.name} · {g.camiones.length} camión(es)
+                      </Text>
+                      {g.camiones.map((c, i) => (
+                        <Text key={`${g.key}-${c.key}`} style={{ color: colors.muted, fontSize: 12, paddingVertical: 3, paddingLeft: spacing.sm }} numberOfLines={1}>
+                          {i + 1}. 🚜 {c.code} · {c.placa}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </ScrollView>
               ) : reporteModo === 'resumen' ? (
                 // Lo mismo que va a salir en el PDF, en pantalla: total general,
                 // total por empresa y el desglose de sus camiones.
@@ -3938,7 +4065,7 @@ export default function ViajesCamionesScreen() {
             {/* Los interruptores van PEGADOS al botón de exportar, no en la otra
                 sub-pestaña: configurar en un sitio y exportar en otro es como se
                 quedan encendidos los filtros que nadie quería. */}
-            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo === 'resumen'} aviso={avisoReporte} />
+            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo !== 'detallado'} soloCamiones={soloCamiones} aviso={avisoReporte} />
             {cub.op.m3 && diasDesactualizados > 0 ? (
               <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>
                 ⚠️ {diasDesactualizados} día(s) con m³ guardados tienen HOY otra cantidad de viajes que cuando se

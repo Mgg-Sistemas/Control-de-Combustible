@@ -213,8 +213,13 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
 
               {/* ── QUIÉN ESTÁ DÓNDE ──────────────────────────────────── */}
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md }}>LISTEROS Y SU OBRA</Text>
+              {/* Que se sepa por qué falta alguien que sí entra al módulo. Sin esto,
+                  quien tiene acceso por permiso y no aparece parece un error. */}
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                Solo salen los usuarios con el rol de listero. Quien entra al módulo por un permiso, sin tener ese rol, no aparece aquí.
+              </Text>
               {listeros.length === 0 ? (
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>No hay listeros con acceso al módulo.</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>No hay usuarios con el rol de listero.</Text>
               ) : (
                 <ScrollView style={{ maxHeight: 280, marginTop: 4 }} nestedScrollEnabled>
                   {listeros.map((l) => {

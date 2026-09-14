@@ -1,4 +1,5 @@
 import { supabase, selectAllRows } from './supabase';
+import { esRolListero } from './rolListero';
 
 /**
  * VIAJES DE CAMIONES: bitácora de viajes (regreso/entrada = un viaje) registrada
@@ -492,7 +493,17 @@ export async function setAlertaHoras(horas: number, userId: string): Promise<{ e
  * suyo. Si quedara siempre a su nombre, el resumen por listero diría que ella
  * contó viajes en el patio.
  */
-export async function listListeros(): Promise<{ id: string; full_name: string; ubicacion_id: string | null }[]> {
+/**
+ * Una persona de la lista de listeros.
+ *
+ * `esListero` dice si tiene el ROL de listero. La lista trae además a quien entra al
+ * módulo por un permiso sin tener ese rol, porque la carga a mano y «Lo registró»
+ * los necesitan: un viaje que ya registró un almacenista tiene que seguir mostrando
+ * a quién pertenece. «Listeros y su obra» filtra con este campo.
+ */
+export type ListeroConRol = { id: string; full_name: string; ubicacion_id: string | null; esListero: boolean };
+
+export async function listListeros(): Promise<ListeroConRol[]> {
   const [rolesRes, permsRes] = await Promise.all([
     supabase.from('app_roles').select('id, modules'),
     supabase.from('module_permissions').select('user_id, level').eq('module', 'viajes_camiones').neq('level', 'none'),
@@ -502,12 +513,16 @@ export async function listListeros(): Promise<{ id: string; full_name: string; u
   const roleIds = (rolesRes.data ?? [])
     .filter((r: any) => r?.modules && r.modules['viajes_camiones'] && r.modules['viajes_camiones'] !== 'none')
     .map((r: any) => r.id as string);
+  // Quién tiene el ROL de listero, con la misma regla que el menú. Ver rolListero.ts.
+  const rolesListero = new Set(
+    (rolesRes.data ?? []).filter((r: any) => esRolListero(r?.modules)).map((r: any) => r.id as string),
+  );
   const permUserIds = (permsRes.data ?? []).map((p: any) => p.user_id as string);
   if (!roleIds.length && !permUserIds.length) return [];
   // Mismo respaldo que en los viajes: mientras el `.sql` de obras no se corra,
   // `profiles.ubicacion_id` no existe y pedirla dejaría a la jefa SIN LISTEROS
   // en el desplegable de carga manual, que es mucho peor que no saber su obra.
-  const COLS_PERFIL = 'id, full_name, active';
+  const COLS_PERFIL = 'id, full_name, active, app_role_id';
   const perfiles = async (filtro: (q: any) => any) => {
     try {
       const r = await filtro(supabase.from('profiles').select(`${COLS_PERFIL}, ubicacion_id`));
@@ -523,11 +538,16 @@ export async function listListeros(): Promise<{ id: string; full_name: string; u
   if (byRole.error) throw byRole.error;
   if (byPerm.error) throw byPerm.error;
   const seen = new Set<string>();
-  const out: { id: string; full_name: string; ubicacion_id: string | null }[] = [];
+  const out: ListeroConRol[] = [];
   [...(byRole.data ?? []), ...(byPerm.data ?? [])].forEach((p: any) => {
     if (p.active === false || seen.has(p.id)) return;
     seen.add(p.id);
-    out.push({ id: p.id, full_name: p.full_name ?? '(sin nombre)', ubicacion_id: (p.ubicacion_id ?? null) as string | null });
+    out.push({
+      id: p.id,
+      full_name: p.full_name ?? '(sin nombre)',
+      ubicacion_id: (p.ubicacion_id ?? null) as string | null,
+      esListero: rolesListero.has(p.app_role_id),
+    });
   });
   out.sort((a, b) => a.full_name.localeCompare(b.full_name, 'es', { sensitivity: 'base' }));
   return out;

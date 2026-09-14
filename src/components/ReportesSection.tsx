@@ -9,8 +9,18 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { cmpText, norm } from '../lib/text';
 import { DateField } from './DateField';
 import ReportesHub, { ReportSection } from './ReportesHub';
-import { generateInspectorTrazaReport } from '../lib/inspectorTrazaReport';
+import { generateInspectorTrazaReport, type TurnoReporteInspector } from '../lib/inspectorTrazaReport';
 import { generateHistoricoInspectorReport } from '../lib/historicoInspectorReport';
+import {
+  OPCIONES_INSPECTOR_POR_DEFECTO, PASTILLAS_INSPECTOR, alternarColumna, ocultosInspectorEnPalabras,
+  type OpcionesInspector,
+} from '../lib/inspectorTrazaColumnas';
+
+/** El turno que corre AHORA en Caracas (día 7am–7pm). Es el que abren las tarjetas. */
+function turnoActualCaracas(): 'day' | 'night' {
+  const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Caracas', hour: 'numeric', hour12: false }).format(new Date())) % 24;
+  return h >= 7 && h < 19 ? 'day' : 'night';
+}
 
 function caracasTodayISO(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -23,7 +33,11 @@ type RunnerConfig = {
   title: string;
   mode: 'dia' | 'rango';
   pick?: 'inspectors' | 'operators';   // filtro opcional multi-selección
-  run: (a: { date: string; from: string; to: string; names: string[] }) => Promise<boolean>;
+  /** Pide el turno (día / noche / ambos). */
+  conTurno?: boolean;
+  /** Muestra las pastillas de columnas (como el Conteo de equipos). */
+  conColumnas?: boolean;
+  run: (a: { date: string; from: string; to: string; names: string[]; turno: TurnoReporteInspector; opciones: OpcionesInspector }) => Promise<boolean>;
 };
 
 export default function ReportesSection(props: { navigation?: any }) {
@@ -38,10 +52,15 @@ export default function ReportesSection(props: { navigation?: any }) {
   const [rBusy, setRBusy] = useState(false);
   const [pickList, setPickList] = useState<string[]>([]);
   const [pickLoading, setPickLoading] = useState(false);
+  const [rTurno, setRTurno] = useState<TurnoReporteInspector>(turnoActualCaracas());
+  const [rOpciones, setROpciones] = useState<OpcionesInspector>(OPCIONES_INSPECTOR_POR_DEFECTO);
 
   const openRunner = (cfg: RunnerConfig) => {
     setRunner(cfg);
     setRDate(today); setRFrom(today); setRTo(today); setRNames(new Set());
+    // Abre en el turno que corre ahora, igual que las tarjetas. Las columnas se
+    // conservan entre aperturas: quien ocultó la placa suele quererla oculta otra vez.
+    setRTurno(turnoActualCaracas());
     setPickList([]);
     if (cfg.pick) loadPick(cfg.pick);
   };
@@ -65,7 +84,7 @@ export default function ReportesSection(props: { navigation?: any }) {
     if (!runner || rBusy) return;
     setRBusy(true);
     try {
-      await runner.run({ date: rDate, from: rFrom, to: rTo, names: [...rNames] });
+      await runner.run({ date: rDate, from: rFrom, to: rTo, names: [...rNames], turno: rTurno, opciones: rOpciones });
       setRunner(null);
     } finally { setRBusy(false); }
   };
@@ -78,9 +97,9 @@ export default function ReportesSection(props: { navigation?: any }) {
       cards: [
         {
           key: 'rep-inspector', icon: '📊', title: 'Reporte por inspector',
-          desc: 'Máquinas revisadas por cada inspector en un día, con hora, sector, marca/modelo y las HORAS trabajadas (día, noche y total) de cada máquina, más quién inició la jornada.',
-          fields: ['Hora de la revisión', 'Máquina', 'Marca / modelo', 'Serial / placa', 'Sector', 'Horas día / noche / trabajadas', 'Inició la jornada'],
-          onPress: () => openRunner({ title: 'Reporte por inspector', mode: 'dia', pick: 'inspectors', run: ({ date, names }) => generateInspectorTrazaReport({ date, inspectors: names.length ? names : undefined }) }),
+          desc: 'Las máquinas ASIGNADAS a cada inspector en el turno, con su estado y las horas del turno —los mismos números de las tarjetas de arriba— y la hora del check-in. Eliges qué columnas salen.',
+          fields: ['Día y turno', 'Estado como las tarjetas', 'Horas del turno', 'Check-in', 'Placa · marca/modelo · empresa', 'Columnas a elegir'],
+          onPress: () => openRunner({ title: 'Reporte por inspector', mode: 'dia', pick: 'inspectors', conTurno: true, conColumnas: true, run: ({ date, names, turno, opciones }) => generateInspectorTrazaReport({ date, turno, inspectors: names.length ? names : undefined, opciones }) }),
         },
         {
           key: 'camiones-cal', icon: '📅', title: 'Entrada y salida de camiones',
@@ -146,6 +165,43 @@ export default function ReportesSection(props: { navigation?: any }) {
                   <DateField value={rTo} onChange={setRTo} maxISO={today} />
                 </>
               )}
+
+              {runner?.conTurno ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🕒 Turno</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    {([['day', '☀️ Día'], ['night', '🌙 Noche'], ['both', 'Ambos']] as const).map(([k, label]) => {
+                      const on = rTurno === k;
+                      return (
+                        <TouchableOpacity key={k} onPress={() => setRTurno(k)} style={{ flex: 1, alignItems: 'center', borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary + '18' : colors.surface, borderRadius: radius.pill, paddingVertical: 7 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
+              {runner?.conColumnas ? (
+                <View style={{ marginTop: spacing.md }}>
+                  {/* Mismas pastillas que el Conteo de equipos: se encienden VARIAS a la
+                      vez y ocultan columnas, nunca máquinas. */}
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🖨️ ¿Qué se oculta?</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    {PASTILLAS_INSPECTOR.map((p) => {
+                      const on = rOpciones[p.key];
+                      return (
+                        <TouchableOpacity key={p.key} onPress={() => setROpciones((o) => alternarColumna(o, p.key))} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+                          <Text style={{ color: on ? '#FFFFFF' : colors.text, fontWeight: '700', fontSize: 12 }}>{p.chip}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                    {ocultosInspectorEnPalabras(rOpciones)} Los totales no cambian.
+                  </Text>
+                </View>
+              ) : null}
 
               {runner?.pick ? (
                 <View style={{ marginTop: spacing.md }}>

@@ -12,6 +12,11 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
+import {
+  OPCIONES_ASISTENCIA_POR_DEFECTO, PASTILLAS_ASISTENCIA, alternarAsistencia, columnasAsistencia, estadoAsistencia,
+  marcaModeloAsistencia, ocultosAsistenciaEnPalabras, ordenarCamionesAsistencia, placaAsistencia,
+  sufijoArchivoAsistencia, tituloColumnaAsistencia, type ColumnaAsistencia, type OpcionesAsistencia,
+} from '../lib/camionesAsistenciaColumnas';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { cmpText, norm } from '../lib/text';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
@@ -169,10 +174,10 @@ export default function SupervisionScreen({ navigation }: any) {
   const [loadError, setLoadError] = useState(false);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
-  type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; horoIni: number | null; horoFin: number | null; recordedBy: string | null; lat: number | null; lng: number | null; sector: string | null; referencia: string | null };
+  type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; marca: string | null; modelo: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; horoIni: number | null; horoFin: number | null; recordedBy: string | null; lat: number | null; lng: number | null; sector: string | null; referencia: string | null };
   const [rawRounds, setRawRounds] = useState<RawRound[]>([]);
   // Movimientos de patio de camiones del día (salida al iniciar jornada / entrada al finalizar).
-  type YardLog = { machinery_id: string; code: string; companyName: string; direction: 'entrada' | 'salida'; at: string };
+  type YardLog = { machinery_id: string; code: string; companyName: string; plate: string | null; serial: string | null; marca: string | null; modelo: string | null; direction: 'entrada' | 'salida'; at: string };
   const [yardLogs, setYardLogs] = useState<YardLog[]>([]);
   const [fuelDay, setFuelDay] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en el día
   // Retraso de declaración por máquina (minutos), leído de la columna opcional
@@ -446,7 +451,7 @@ export default function SupervisionScreen({ navigation }: any) {
       listVisits(date),
       supabase
         .from('machine_rounds')
-        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, horometro_inicial, horometro_final, recorded_by, machine:machinery_id(code, serial, plate, encargado, latitude, longitude, sector, referencia, company:company_id(name))')
+        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, horometro_inicial, horometro_final, recorded_by, machine:machinery_id(code, serial, plate, encargado, marca, modelo, latitude, longitude, sector, referencia, company:company_id(name))')
         .eq('round_date', date),
       supabase
         .from('operator_assignments')
@@ -455,7 +460,7 @@ export default function SupervisionScreen({ navigation }: any) {
         .order('started_at', { ascending: true }),
       supabase
         .from('truck_yard_logs')
-        .select('machinery_id, machine_code, direction, created_at, machine:machinery_id(company:company_id(name))')
+        .select('machinery_id, machine_code, direction, created_at, machine:machinery_id(plate, serial, marca, modelo, company:company_id(name))')
         .gte('created_at', `${date}T00:00:00-04:00`)
         .lte('created_at', `${date}T23:59:59.999-04:00`)
         .order('created_at', { ascending: true }),
@@ -491,6 +496,10 @@ export default function SupervisionScreen({ navigation }: any) {
       machinery_id: r.machinery_id as string,
       code: r.machine_code ?? '—',
       companyName: r.machine?.company?.name ?? 'Sin empresa',
+      plate: (r.machine?.plate ?? null) as string | null,
+      serial: (r.machine?.serial ?? null) as string | null,
+      marca: (r.machine?.marca ?? null) as string | null,
+      modelo: (r.machine?.modelo ?? null) as string | null,
       direction: (r.direction === 'entrada' ? 'entrada' : 'salida') as 'entrada' | 'salida',
       at: r.created_at as string,
     })));
@@ -526,6 +535,8 @@ export default function SupervisionScreen({ navigation }: any) {
         serial: (r.machine?.serial ?? null) as string | null,
         plate: (r.machine?.plate ?? null) as string | null,
         encargado: (r.machine?.encargado ?? null) as string | null,
+        marca: (r.machine?.marca ?? null) as string | null,
+        modelo: (r.machine?.modelo ?? null) as string | null,
         startAt: (r.jornada_start_at ?? null) as string | null,
         shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,
         worked: workedOf(r),
@@ -714,52 +725,68 @@ export default function SupervisionScreen({ navigation }: any) {
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
   // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
   const camiones = useMemo(() => {
-    type C = { code: string; companyName: string; salida: string | null; entrada: string | null; jornada: boolean };
+    type C = { code: string; companyName: string; plate: string | null; serial: string | null; marca: string | null; modelo: string | null; salida: string | null; entrada: string | null; jornada: boolean };
     const map = new Map<string, C>();
+    const vacio = (x: { code: string; companyName: string; plate: string | null; serial: string | null; marca: string | null; modelo: string | null }): C =>
+      ({ code: x.code, companyName: x.companyName, plate: x.plate, serial: x.serial, marca: x.marca, modelo: x.modelo, salida: null, entrada: null, jornada: false });
     // Base: JORNADAS de camiones (volteo/toronto/volqueta). Así aparecen aunque su
     // salida/entrada no se haya registrado en el patio (jornadas iniciadas antes).
     rawRounds.filter((r) => isVolteoVolqueta(r.code)).forEach((r) => {
-      const cur = map.get(r.machinery_id) || { code: r.code, companyName: r.companyName, salida: null, entrada: null, jornada: false };
+      const cur = map.get(r.machinery_id) || vacio(r);
       cur.jornada = true;
       if (r.startAt) { if (!cur.salida || r.startAt < cur.salida) cur.salida = r.startAt; } // jornada abierta → salió a esa hora
       cur.code = r.code; cur.companyName = r.companyName;
+      cur.plate = r.plate ?? cur.plate; cur.serial = r.serial ?? cur.serial; cur.marca = r.marca ?? cur.marca; cur.modelo = r.modelo ?? cur.modelo;
       map.set(r.machinery_id, cur);
     });
     // Superpone los movimientos reales de patio (hora exacta de salida/entrada).
     yardLogs.forEach((l) => {
-      const cur = map.get(l.machinery_id) || { code: l.code, companyName: l.companyName, salida: null, entrada: null, jornada: false };
+      const cur = map.get(l.machinery_id) || vacio(l);
       if (l.direction === 'salida') { if (!cur.salida || l.at < cur.salida) cur.salida = l.at; }
       else { if (!cur.entrada || l.at > cur.entrada) cur.entrada = l.at; }
       cur.code = l.code; cur.companyName = l.companyName;
+      cur.plate = l.plate ?? cur.plate; cur.serial = l.serial ?? cur.serial; cur.marca = l.marca ?? cur.marca; cur.modelo = l.modelo ?? cur.modelo;
       map.set(l.machinery_id, cur);
     });
-    return Array.from(map.values()).sort((a, b) => cmpText(a.code, b.code));
+    // Por código y DESPUÉS placa: casi todos se llaman igual, y el Nº del reporte
+    // tiene que caerle siempre al mismo camión.
+    return ordenarCamionesAsistencia(Array.from(map.values()));
   }, [rawRounds, yardLogs]);
   const camPresentes = useMemo(() => camiones.filter((c) => c.salida || c.jornada).length, [camiones]);
+  // Qué columnas lleva el PDF (pastillas, como el Conteo de equipos). Ocultan
+  // columnas, nunca camiones.
+  const [opAsis, setOpAsis] = useState<OpcionesAsistencia>(OPCIONES_ASISTENCIA_POR_DEFECTO);
 
   // 📄 Reporte PDF de asistencia de camiones (salida/entrada del día).
   const reporteCamiones = async () => {
     if (camiones.length === 0) return;
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const filas = camiones.map((c) => {
-      const estado = c.salida && c.entrada ? '🟢 Regresó' : (c.salida || c.jornada) ? '🟠 En obra' : '— sin salida';
-      return `<tr>
-        <td>${esc(c.code)}</td>
-        <td>${esc(c.companyName)}</td>
-        <td>${esc(c.salida ? caracasClock(c.salida) : '—')}</td>
-        <td>${esc(c.entrada ? caracasClock(c.entrada) : '—')}</td>
-        <td>${esc(estado)}</td>
-      </tr>`;
+    // Encabezado y filas salen de la MISMA lista de columnas: no pueden desalinearse.
+    const cols = columnasAsistencia(opAsis);
+    const filas = camiones.map((c, i) => {
+      const valor: Record<ColumnaAsistencia, string> = {
+        n: String(i + 1),
+        camion: c.code,
+        marcaModelo: marcaModeloAsistencia(c, opAsis),
+        placa: placaAsistencia(c),
+        empresa: c.companyName,
+        salida: c.salida ? caracasClock(c.salida) : '—',
+        entrada: c.entrada ? caracasClock(c.entrada) : '—',
+        estado: estadoAsistencia(c),
+      };
+      return `<tr>${cols.map((k) => `<td${k === 'n' ? ' class="n"' : ''}>${esc(valor[k])}</td>`).join('')}</tr>`;
     }).join('');
+    const thead = cols.map((k) => `<th${k === 'n' ? ' class="n"' : ''}>${esc(tituloColumnaAsistencia(k, opAsis))}</th>`).join('');
     const html = pdfDocument({
       title: 'Asistencia de camiones',
       subtitle: `${dmy(date)} · ${camPresentes} con salida (asistencia) de ${camiones.length} con movimiento`,
       extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
+        td.n,th.n{width:28px;text-align:right}
         tr:nth-child(even) td{background:#f4f7fb}`,
-      body: `<table><thead><tr><th>Camión</th><th>Empresa</th><th>Salida</th><th>Entrada</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table>`,
+      body: `<table><thead><tr>${thead}</tr></thead><tbody>${filas}</tbody></table>`,
     });
-    await exportPdf(html, `Asistencia camiones ${dmy(date)}`);
+    await exportPdf(html, `Asistencia camiones ${dmy(date)}${sufijoArchivoAsistencia(opAsis)}`);
   };
 
   // Visitas SIN las de admin (pruebas): así el admin no aparece como inspector.
@@ -1063,16 +1090,37 @@ export default function SupervisionScreen({ navigation }: any) {
             {kpi('Con salida', camPresentes, colors.success)}
             {kpi('Con movimiento', camiones.length, colors.text)}
           </View>
+          {/* ¿QUÉ SE OCULTA? Mismas pastillas que el Conteo de equipos: se encienden
+              VARIAS a la vez y ocultan columnas del PDF, nunca camiones. */}
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA EN EL PDF?</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+            {PASTILLAS_ASISTENCIA.map((p) => {
+              const on = opAsis[p.key];
+              return (
+                <TouchableOpacity key={p.key} onPress={() => setOpAsis((o) => alternarAsistencia(o, p.key))} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? '#FFFFFF' : colors.text, fontSize: 13, fontWeight: '700' }}>{p.chip}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+            {ocultosAsistenciaEnPalabras(opAsis)} Los totales no cambian.
+          </Text>
           <TouchableOpacity onPress={reporteCamiones} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de asistencia de camiones (PDF)</Text>
           </TouchableOpacity>
-          {camiones.map((c) => {
-            const estado = c.salida && c.entrada ? { t: '🟢 Regresó', col: colors.success } : (c.salida || c.jornada) ? { t: '🟠 En obra', col: colors.warning } : { t: '— sin salida', col: colors.muted };
+          {camiones.map((c, i) => {
+            const t = estadoAsistencia(c);
+            const estado = { t, col: t === '🟢 Regresó' ? colors.success : t === '🟠 En obra' ? colors.warning : colors.muted };
+            const detalle = [marcaModeloAsistencia(c, OPCIONES_ASISTENCIA_POR_DEFECTO), placaAsistencia(c)].filter((x) => x !== '—').join(' · ');
             return (
-              <Card key={c.code}>
+              // La clave NO puede ser el código: casi todos se llaman igual y React
+              // mezclaba las tarjetas.
+              <Card key={`${c.code}|${placaAsistencia(c)}|${i}`}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚚 {c.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {c.companyName}</Text></Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>{i + 1}. 🚚 {c.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {c.companyName}</Text></Text>
+                    {detalle ? <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{detalle}</Text> : null}
                     <Text style={{ color: colors.muted, fontSize: 12 }}>🟠 Salida: {c.salida ? caracasClock(c.salida) : '—'} · 🟢 Entrada: {c.entrada ? caracasClock(c.entrada) : '—'}</Text>
                   </View>
                   <Text style={{ color: estado.col, fontWeight: '800', fontSize: 12 }}>{estado.t}</Text>

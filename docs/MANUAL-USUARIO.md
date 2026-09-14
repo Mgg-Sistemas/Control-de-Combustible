@@ -2110,8 +2110,8 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 > Se **sincroniza en vivo**. En pantalla ves **inspector → sus máquinas** con **sector, referencia,
 > serial/placa, empresa** y fecha/hora.
 >
-> **Dos reportes en Inspecciones:** (1) **📊 Reporte por inspector** (día/rango, con hora, sector,
-> serial/placa, empresa y **estado** de la máquina); y (2) **📄 Asignaciones por sector** — las
+> **Dos reportes en Inspecciones:** (1) **📊 Reporte por inspector** (un día y turno: las máquinas
+> asignadas con su **estado**, horas del turno, check-in y columnas a elegir); y (2) **📄 Asignaciones por sector** — las
 > máquinas que cada inspector se asignó con el CHECK, **agrupadas por sector**, con **turno ☀️/🌙 +
 > referencia + serial + placa + empresa**, **sin el estado**. El reporte (2) tiene **búsqueda libre**
 > (máquina, placa, serial, empresa, inspector, encargado, edificio) y filtros tipo **check** por
@@ -2178,25 +2178,38 @@ Cada inspector trae un **resumen de cercanía** para saber qué tan confiables f
 informe del día con ese resumen por inspector, el detalle de cada visita (hora, máquina,
 empresa, estado y ubicación) y las jornadas sin validar.
 
-> **📊 Reporte por inspector — "Recorrido del inspector" (PDF):** en **Inspecciones → Reportes →
-> ✅ Máquinas asignadas por inspector** hay un reporte con **📅 un día** y un filtro de inspectores
-> **tipo check** (marcas uno o varios; vacío = todos). Reconstruye el **recorrido** de cada
-> inspector en orden cronológico: **hora de la revisión, máquina, marca/modelo, serial/placa,
-> sector/ubicación, estado** en que la encontró y si estaba **cerca** (distancia GPS).
+> **📊 Reporte por inspector — cuenta como las tarjetas (14/09/2026) (PDF):** en **Inspecciones →
+> Reportes → ✅ Máquinas asignadas por inspector**. Eliges **📅 el día**, **🕒 el turno** (☀️ día,
+> 🌙 noche o ambos; abre en el que corre ahora) y, si quieres, **inspectores tipo check** (vacío =
+> todos).
 >
-> Además trae, en el **mismo documento**, la información de un **reporte diario** (pedido del
-> cliente): **horas de día, horas de noche y horas trabajadas** de cada máquina, y la columna
-> **"Inició"** con el **nombre de quien marcó el inicio de la jornada**. Arriba sale un
-> **resumen general** (inspectores, revisiones, máquinas distintas y horas), y **cada inspector**
-> tiene su propio total (máquinas distintas revisadas, horas de día, de noche y trabajadas).
+> Por cada inspector salen **todas sus máquinas asignadas** en ese turno con su **estado** (● en
+> curso, ✅ cerrada, ⏳ pendiente, 🟡 parada, 🔴 averiada) y las **horas de ese turno**. Son **los
+> mismos números de las tarjetas** de arriba (asignadas, iniciadas, cerradas, pendientes, paradas,
+> averiadas y horas reales), y las horas cuadran con el reporte con firma.
 >
-> **Tres cosas importantes de leer bien:**
-> - Las **horas son del DÍA COMPLETO de la máquina**, no de esa visita. Si el inspector revisó la
->   misma máquina 3 veces, las 3 filas muestran las mismas horas del día.
-> - Por eso **los totales cuentan cada máquina UNA sola vez** (aunque tenga varias revisiones): las
->   horas **no** se suman fila por fila.
-> - Si una máquina **no tiene ronda registrada** ese día, sus horas salen **"—"** (no hay dato), que
->   **no es lo mismo** que trabajar **0,00** horas.
+> - **Check-in:** a qué hora se revisó la máquina por primera vez. Si la revisó **otro inspector**,
+>   dice quién (por ejemplo «10:43 a. m. · nombre del otro inspector»); si hubo más revisiones, cuántas (+2). Una
+>   máquina **sin check-in sale igual**, con «Sin check-in».
+> - **Inició / finalizó:** quién marcó el inicio y quién cerró la jornada. **Motivo:** el de la
+>   avería o la parada, o el del cierre anticipado.
+> - **🖨️ ¿Qué se oculta?** Pastillas como las del Conteo de equipos: **marca, modelo, placa/serial,
+>   empresa, clasificación, encargado, sector, edificio, check-in, inició/finalizó y motivo**. Por
+>   defecto salen todas menos clasificación, encargado y edificio. **Ocultan columnas, nunca
+>   máquinas**: los totales no cambian. Máquina, estado y horas no se pueden quitar.
+>
+> **Por qué cambió:** antes este reporte salía solo de los **check-in**, así que no traía las
+> máquinas que nadie escaneó (el Inspector SOS no aparecía con sus 72 jornadas) y ponía bajo un
+> inspector las máquinas de otro que él revisó. Las horas eran del día completo, no del turno.
+
+> **🚚 Camiones (asistencia): qué columnas salen (14/09/2026).** En **Inspecciones → 🚚 Camiones
+> (asistencia)**, arriba del botón **📄 Reporte de asistencia de camiones (PDF)**, están las
+> pastillas **¿QUÉ SE OCULTA EN EL PDF?**, iguales a las del Conteo de equipos: **Nº** (el
+> enumerado), **marca**, **modelo**, **placa/serial** y **empresa**. Por defecto sale todo; toca las
+> que quieras quitar. **Camión, salida, entrada y estado** no se pueden quitar, y ocultar columnas
+> no saca ningún camión. Los camiones van por código y, como casi todos se llaman igual, después
+> por placa: así el Nº le toca siempre al mismo camión. La lista de la pantalla ahora también
+> muestra el número, la marca, el modelo y la placa.
 >
 > Las horas se calculan con la **misma fórmula** que el **Reporte del día por empresa** y el
 > **Control de maquinaria**, así que los números **coinciden** entre los tres.
@@ -4161,6 +4174,17 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > viaje reciente"* **sí** sigue sin reclamar por los averiados y retirados, que es lo correcto: una
 > máquina retirada legítimamente no viaja.
 
+> **📷 Escanear el QR del camión (13/09/2026).** Al lado de «🔎 Buscar camión…» hay un botón
+> **📷 Escanear QR**, y otro igual dentro del buscador. Apunta al QR pegado en el camión y queda
+> elegido, con su chofer del turno y su estado, igual que si lo hubieras tocado en la lista.
+> **Escribir la placa sigue funcionando igual**: son dos formas de llegar al mismo sitio.
+>
+> El QR no elige nada en tres casos, y te dice cuál: si no es el QR de una máquina del sistema;
+> si el camión figura **retirado** (tampoco sale en el buscador); o si el **QR está vencido**.
+> Cada QR impreso lleva el serial del camión, y si a esa máquina le cambiaron el serial, el papel
+> viejo deja de valer. Es a propósito: un QR viejo pegado en el camión equivocado registraría
+> viajes al camión que no es. En ese caso, búscalo por escrito y pide un QR nuevo.
+
 - **Buscar camión:** por código, categoría, marca, modelo, placa o serial, con **chips de estado**
   (✅ Operativa · 🔴 Averiada · 🟡 Parada · ⏳ Esperando instrucciones · ⬛ Retirada) — igual criterio
   que el Catálogo.
@@ -4272,6 +4296,27 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ×2**. Reimprimir se puede —a veces hace falta— pero hay que saberlo: dos papeles con el mismo
 > número en el patio se cuentan como dos viajes al cobrar.
 >
+> **🕘 Ver quién imprimió cada tique (14/09/2026).** Toca la pastilla **«entregado ×N»** de
+> cualquier viaje y se abre su historial, en orden: la primera impresión arriba y después cada
+> reimpresión. Cada renglón dice **quién** lo entregó, **fecha y hora de Caracas**, **desde qué
+> CDT** y si fue en tiquetera o en hoja. Arriba sale el resumen: cuántas entregas, cuántas
+> personas y cuántas reimpresiones. Si alguna entrega de ese tique salió sin señal y todavía
+> está en el teléfono, la ventana lo avisa, porque aún no aparece en la lista.
+
+> **🗑️ Borrar una entrega del historial (14/09/2026).** Quien tiene el nivel completo del módulo
+> ve **«Borrar»** en cada entrega del historial. Borrarla la **tacha**: deja de contar en
+> «entregado ×N», pero sigue en la lista con **quién la borró y a qué hora**. No se puede deshacer,
+> y una entrega ya borrada no se puede volver a borrar.
+>
+> ⚠️ **Si borras un viaje, sus entregas se borran con él**, con el motivo «Viaje borrado».
+
+> **🔢 Un número de tique usado no se repite nunca (14/09/2026).** Aunque se borre el viaje, su
+> número **no vuelve a salir**: el siguiente viaje recibe el número que sigue. Por eso en la lista
+> puede faltar algún número (por ejemplo, no hay CDT-000039): es el de un viaje que se borró, y la
+> auditoría dice quién lo borró y a qué hora. Antes de este cambio, borrar el último viaje hacía
+> que el siguiente repitiera su número; los viajes de antes del 14/09/2026 que quedaron con un
+> número repetido solo muestran las entregas de su propio viaje, no las del que se borró.
+
 > ⚠️ **Sin señal el papel sale igual, y la constancia se guarda sola después.** Si se cae la señal
 > justo al imprimir, arriba te aparece «*N tiques entregados sin registrar en el servidor*». No se
 > pierde nada: sube solo cuando vuelva la señal. El camionero ya tiene su papel.
@@ -4891,6 +4936,13 @@ además de por empresa y por listero.
 - **Asignarle una obra a cada listero**, y **moverlo** a otra cuando haga falta. Abajo se lista
   cada listero con su obra, y los que **no tienen ninguna** salen marcados.
 
+> **👤 En la lista solo salen los listeros de verdad (13/09/2026).**
+> Solo salen los usuarios con el **rol de listero**. Antes salía todo el que tenía acceso al
+> módulo, y administradores, almacenistas o usuarios de prueba aparecían como listeros sin obra.
+> Quien entra al módulo por un permiso, sin tener ese rol, lo sigue usando igual, pero no aparece
+> en esta lista. La **carga a mano** y el **«Lo registró»** de cada viaje no cambian: siguen
+> mostrando a todos los que tienen acceso.
+
 > **⚠️ Mover a un listero de obra NO cambia sus viajes ya registrados.** Cada viaje se guardó con
 > la obra que ese listero tenía **el día que lo registró**. Si el reporte mirara la obra de hoy,
 > mover a alguien cambiaría sus viajes de agosto de sitio y **un informe ya entregado dejaría de
@@ -5052,6 +5104,12 @@ Distingue cinco causas, y cada una nombra lo que hay que hacer:
   - por cada **empresa**, su **total de viajes** y cuántos camiones tiene;
   - dentro de cada empresa, el **desglose por camión**: código, placa/serial y **cuántos viajes**
     hizo, de mayor a menor.
+- **🚚 Solo camiones (sin cantidades)** *(14/09/2026)* — la lista de los **camiones que salieron**
+  en las fechas y con los filtros que tengas puestos, **sin cuántos viajes hizo cada uno** y sin
+  metros cúbicos. Se agrupa igual que el resumido (**AGRUPAR POR** empresa, listero u obra), cada
+  grupo dice cuántos camiones tiene y los camiones salen **en orden alfabético** —no de más viajes
+  a menos, que sería volver a decir quién trabajó más—. En «Qué sale en el reporte» puedes sumar
+  marca y modelo, empresa, placa, medidas o clasificación; el conteo y los m³ no salen nunca.
 
 > Sirve para las tres cosas que se piden a diario: **un camión** (márcalo y te dice cuántos viajes
 > hizo), **varios camiones** (marca los que quieras y cada uno sale con su cantidad), o **una

@@ -15,9 +15,24 @@
 //    ningún lado. Una constancia que se puede editar después no es constancia.
 //    Por lo mismo NO lleva trigger de auditoría: duplicar un libro en otro libro
 //    solo engorda `audit_log`, que ya viene creciendo.
+//
+// ⭐ BORRAR UNA ENTREGA ES TACHARLA, NO ARRANCAR LA HOJA (14-sep-2026). Pedido del
+//    cliente: poder borrar una entrega del historial y que quede quién la borró.
+//    La fila NO se elimina: la función `anular_tique_emision` le pone fecha,
+//    nombre y motivo, y deja de contar. Es lo único que se le puede cambiar, y
+//    solo una vez. Al borrar un VIAJE, un trigger tacha igual todas sus entregas
+//    con el motivo «Viaje borrado».
+//
+// ⚠️ HASTA EL 14-sep-2026 EL FOLIO SE REPETÍA entre un viaje borrado y el
+//    siguiente (salía de «el más alto + 1»). Desde ese día lo da un contador de
+//    la base que solo avanza, y un número usado no vuelve a salir. Pero los
+//    folios repetidos de antes siguen ahí: por eso lo que se cuenta son las
+//    entregas VIGENTES de un viaje que EXISTE. Las de un viaje borrado quedan
+//    con `viaje_id` nulo y no se le suman al viaje que repitió el número.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { isOnline, isNetworkErrorMsg } from './offlineQueue';
+import type { EmisionHistorial } from './tiqueHistorial';
 
 const TABLA = 'tique_emisiones';
 const PENDIENTES_KEY = 'tique_emisiones_pendientes_v1';
@@ -127,6 +142,14 @@ async function escribirPendientes(lista: EmisionNueva[]): Promise<void> {
 
 /** Cuántas constancias están esperando señal. La pantalla lo muestra: un número
  *  distinto de cero significa que hay papeles entregados que la oficina no ve. */
+/** Cuántas entregas de ESTE tique siguen en el teléfono sin subir. El historial
+ *  lo avisa: si no, se vería completo y le faltaría justo esa. */
+export async function contarPendientesDeFolio(folio: string): Promise<number> {
+  const f = String(folio ?? '').trim();
+  if (!f) return 0;
+  return (await leerPendientes()).filter((e) => e.folio === f).length;
+}
+
 export async function contarEmisionesPendientes(): Promise<number> {
   return (await leerPendientes()).length;
 }
@@ -224,7 +247,13 @@ export async function contarEmisionesPorFolio(
   try {
     for (let i = 0; i < limpios.length; i += TROZO) {
       const trozo = limpios.slice(i, i + TROZO);
-      const { data, error } = await supabase.from(TABLA).select('folio').in('folio', trozo);
+      // Solo las vigentes de un viaje que existe. Ver la nota de arriba.
+      const { data, error } = await supabase
+        .from(TABLA)
+        .select('folio')
+        .in('folio', trozo)
+        .not('viaje_id', 'is', null)
+        .is('anulada_at', null);
       if (error) throw error;
       (data ?? []).forEach((r: any) => {
         const f = String(r?.folio ?? '').trim();
@@ -235,5 +264,78 @@ export async function contarEmisionesPorFolio(
   } catch (e: any) {
     if (faltaLaTabla(e)) return { porFolio, sinTabla: true };
     return { porFolio, sinTabla: false, error: String(e?.message ?? e) };
+  }
+}
+
+/**
+ * EL HISTORIAL DE UN TIQUE: todas sus entregas, en orden de reloj.
+ *
+ * Pedido del cliente (14-sep-2026): tocar «entregado ×7» y ver quién lo imprimió
+ * o reimprimió y a qué hora.
+ *
+ * ⚠️ Un fallo de lectura se devuelve como error, NUNCA como lista vacía: una lista
+ *    vacía diría que el tique no se entregó, y eso no se sabe.
+ */
+export async function listarEmisionesDeFolio(
+  folio: string,
+): Promise<{ filas: EmisionHistorial[]; sinTabla: boolean; error?: string }> {
+  const f = String(folio ?? '').trim();
+  if (!f) return { filas: [], sinTabla: false };
+  try {
+    const { data, error } = await supabase
+      .from(TABLA)
+      .select('id, folio, reimpresion, medio, emitido_por_nombre, ubicacion_nombre, emitido_at, lote_id, anulada_at, anulada_por_nombre, anulada_motivo')
+      .eq('folio', f)
+      // Las borradas SÍ vienen (salen tachadas, con quién las borró), pero no
+      // las de un viaje que ya no existe: esas son de otro viaje con el mismo número.
+      .not('viaje_id', 'is', null)
+      .order('emitido_at', { ascending: true })
+      .limit(500);
+    if (error) throw error;
+    const filas: EmisionHistorial[] = (data ?? []).map((r: any) => ({
+      id: String(r.id),
+      folio: String(r.folio ?? ''),
+      reimpresion: r.reimpresion === true,
+      medio: (r.medio ?? null) as string | null,
+      emitidoPorNombre: (r.emitido_por_nombre ?? null) as string | null,
+      ubicacionNombre: (r.ubicacion_nombre ?? null) as string | null,
+      emitidoAt: String(r.emitido_at),
+      loteId: (r.lote_id ?? null) as string | null,
+      anuladaAt: (r.anulada_at ?? null) as string | null,
+      anuladaPorNombre: (r.anulada_por_nombre ?? null) as string | null,
+      anuladaMotivo: (r.anulada_motivo ?? null) as string | null,
+    }));
+    return { filas, sinTabla: false };
+  } catch (e: any) {
+    if (faltaLaTabla(e)) return { filas: [], sinTabla: true };
+    return { filas: [], sinTabla: false, error: String(e?.message ?? e) };
+  }
+}
+
+/**
+ * BORRA UNA ENTREGA DEL HISTORIAL (14-sep-2026).
+ *
+ * ⭐ La tacha, no la elimina: la base anota quién la borró (el de la sesión, no un
+ *    nombre que mande el teléfono), cuándo y por qué, y deja de contarla.
+ *
+ * `yaEstaba` = alguien la borró antes (otro teléfono, o un doble toque). No es
+ * un fallo: el resultado que se pedía ya está.
+ */
+export async function anularEmision(
+  id: string,
+  motivo?: string | null,
+): Promise<{ ok: boolean; yaEstaba: boolean; error?: string }> {
+  const limpio = String(id ?? '').trim();
+  if (!limpio) return { ok: false, yaEstaba: false, error: 'Falta la entrega a borrar.' };
+  try {
+    const { data, error } = await supabase.rpc('anular_tique_emision', {
+      p_id: limpio,
+      p_motivo: motivo ?? null,
+    });
+    if (error) throw error;
+    const filas = Array.isArray(data) ? data.length : 0;
+    return { ok: true, yaEstaba: filas === 0 };
+  } catch (e: any) {
+    return { ok: false, yaEstaba: false, error: String(e?.message ?? e) };
   }
 }
