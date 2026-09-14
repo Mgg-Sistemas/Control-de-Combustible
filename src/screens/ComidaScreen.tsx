@@ -68,6 +68,9 @@ export default function ComidaScreen() {
   const [rangeLoading, setRangeLoading] = useState(false);
   const [companyFilter, setCompanyFilter] = useState<string>('all'); // 'all' o company_id
   const [pdfBusy, setPdfBusy] = useState(false);
+  // Lectura fallida: antes la pantalla se quedaba vacía o con datos viejos sin avisar.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [rangeError, setRangeError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +84,9 @@ export default function ComidaScreen() {
       setRows(rr);
       setCompanyMeals(cm);
       setCompanies(((comps ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: c.id, name: c.name })));
+      setLoadError(null);
+    } catch (e: any) {
+      setLoadError(`No se pudieron cargar las comidas del día (${e?.message ?? 'revisa la conexión'}). Desliza hacia abajo para reintentar.`);
     } finally {
       // SIEMPRE se apaga el "cargando", aunque alguna consulta falle (p. ej. sin
       // conexión desde el teléfono): si no, la pantalla se quedaba congelada en el
@@ -100,6 +106,9 @@ export default function ComidaScreen() {
       ]);
       setRangeRows(comp);
       setRangePersons(persons);
+      setRangeError(null);
+    } catch (e: any) {
+      setRangeError(`No se pudieron cargar todas las comidas del rango (${e?.message ?? 'revisa la conexión'}). El reporte no se muestra incompleto: desliza hacia abajo para reintentar.`);
     } finally {
       setRangeLoading(false);
     }
@@ -186,6 +195,8 @@ export default function ComidaScreen() {
 
   // Reporte PDF del control por empresa (rango).
   const downloadRangePdf = async () => {
+    // Con la lectura del rango fallida, el PDF saldría con datos incompletos o viejos.
+    if (rangeError) return;
     setPdfBusy(true);
     try {
       const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
@@ -343,6 +354,11 @@ export default function ComidaScreen() {
   return (
     <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <ConfigBanner />
+      {loadError || rangeError ? (
+        <View style={{ borderWidth: 1, borderColor: '#DC2626', backgroundColor: '#FEF2F2', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ color: '#991B1B', fontWeight: '700' }}>⚠️ {loadError ?? rangeError}</Text>
+        </View>
+      ) : null}
       <SectionTitle>🍽️ Distribución de comida</SectionTitle>
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>

@@ -25,6 +25,8 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { caracasParts } from '../lib/jornada';
 import { freezeOpenJornadaNow } from '../lib/machineRounds';
+import { HistorialPrecios, precioEfectivoJornada, precioVigenteEn } from '../lib/precioHistorial';
+import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
@@ -310,6 +312,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     });
   }, []);
 
+  // Historial de cambios de precio (14-sep-2026): una jornada sin precio congelado se
+  // cobra con el precio que regía ESE día, no con el de hoy. Ver lib/precioHistorial.ts.
+  const [histPrecios, setHistPrecios] = useState<HistorialPrecios>(() => new Map());
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     const ws = weekStartISO(date);
@@ -317,11 +322,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     try {
       // machine_rounds SE PAGINA: una semana ocupada puede pasar de 1000 rondas
       // (PostgREST corta ahí). Sin paginar, faltaban máquinas/horas en pantalla.
-      const [{ data: m }, r, { data: c }, { data: fl }] = await Promise.all([
+      const [{ data: m }, r, { data: c }, { data: fl }, hp] = await Promise.all([
         supabase.from('machinery').select('*').order('code', { ascending: true }),
         selectAllRows('machine_rounds', '*', (q) => q.in('round_date', days)),
         supabase.from('companies').select('id, name'),
         supabase.from('fletes').select('*').in('flete_date', days),
+        cargarHistorialPrecios(),
       ]);
       // Fletes del bloque visible: los de máquina van en su tarjeta; los GENERALES (sin
       // máquina) se agrupan por empresa para mostrarlos en la cabecera de la empresa.
@@ -334,6 +340,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       setFletesByMachine(fmap);
       setFletesGeneral(fgen);
       setMachines((m ?? []) as Machinery[]);
+      setHistPrecios(hp);
       // Combustible surtido por máquina en el rango visible (para mostrar ⛽ L y L/h).
       loadFuelByMachine(days[0], days[days.length - 1]).then(setFuelWeek).catch(() => {});
       // Guardia/militar actual de cada máquina (para mostrarlo en cada ronda).
@@ -538,7 +545,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         row.frozen_price != null && Number(row.frozen_price) > 0
           ? Number(row.frozen_price)
           : machines.find((x) => x.machineId === m.id && x.price != null && Number(x.price) > 0)?.price ??
-            (m.price_per_hour != null ? Number(m.price_per_hour) : 0);
+            (precioVigenteEn(histPrecios, m.id, dISO, m.price_per_hour) ?? 0);
       const entry: ClosureMachine = {
         code: m.code ?? '—',
         machineId: m.id,
@@ -677,7 +684,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           // Precio CONGELADO al momento del cierre: usa el precio por RANGO ya fijado
           // en la jornada (frozen_price) si existe; si no, el precio actual de la máquina.
           // Una vez cerrada, aunque cambie el precio de la máquina, el monto no se mueve.
-          price: (r.frozen_price != null && Number(r.frozen_price) > 0) ? Number(r.frozen_price) : (Number(r.machinery?.price_per_hour) || 0),
+          // Sin precio por rango: el que regía ESE día (historial), no el de hoy.
+          price: precioEfectivoJornada(r.frozen_price, histPrecios, r.machinery?.id, r.round_date, r.machinery?.price_per_hour) ?? 0,
         } as ClosureMachine;
       });
     const uniqueMachines = new Set(snapshot.map((s) => s.machineId || s.serial || s.code)).size;
@@ -725,31 +733,33 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // que los reportes usen ESE precio aunque después cambie el de la máquina. IMPORTANTE:
     // solo rellena las rondas que AÚN no tienen precio congelado (null o 0). Si ya fijaste
     // un precio por rango de fechas para ese corte, se respeta y NO se pisa.
-    const priceByMachine = new Map<string, number>();
-    snapshot.forEach((s) => { if (s.machineId) priceByMachine.set(s.machineId, Number(s.price) || 0); });
-    // OPTIMIZACIÓN: antes se hacía 1 consulta POR máquina EN SECUENCIA → con muchas
-    // máquinas el "Cerrar control" tardaba mucho. Ahora se AGRUPA por precio (las
-    // máquinas con el mismo precio se congelan en una sola consulta con .in(...)) y
-    // todas las consultas corren EN PARALELO. Los ids se trocean para no pasar del
-    // límite de longitud de URL. Mismo resultado, mucho más rápido.
-    const idsByPrice = new Map<number, string[]>();
-    for (const [mid, price] of priceByMachine) {
-      if (!(price > 0)) continue;
-      const arr = idsByPrice.get(price) ?? [];
-      arr.push(mid);
-      idsByPrice.set(price, arr);
-    }
-    const freezeJobs: PromiseLike<any>[] = [];
-    for (const [price, ids] of idsByPrice) {
+    // Precio por (máquina, DÍA) — 14-sep-2026. Con el historial de precios, dos días del
+    // mismo corte pueden tener precios distintos. Antes se tomaba UN precio por máquina y
+    // se estampaba en todo el rango: congelaba con el precio de hoy días en que regía otro.
+    // Se agrupa por precio + día para hacer pocas consultas (ids troceados por el largo de
+    // la URL) y se lanzan de a 20 en paralelo.
+    const idsByPriceDate = new Map<string, { price: number; date: string; ids: string[] }>();
+    snapshot.forEach((s) => {
+      const price = Number(s.price) || 0;
+      if (!s.machineId || !s.date || !(price > 0)) return;
+      const k = `${price}|${s.date}`;
+      const g = idsByPriceDate.get(k) ?? { price, date: s.date, ids: [] };
+      g.ids.push(s.machineId);
+      idsByPriceDate.set(k, g);
+    });
+    const freezeJobs: (() => PromiseLike<any>)[] = [];
+    for (const { price, date, ids } of idsByPriceDate.values()) {
       for (const part of chunk(ids, 100)) {
-        freezeJobs.push(
+        freezeJobs.push(() =>
           supabase.from('machine_rounds').update({ frozen_price: price })
-            .in('machinery_id', part).gte('round_date', from).lte('round_date', to)
+            .in('machinery_id', part).eq('round_date', date)
             .or('frozen_price.is.null,frozen_price.eq.0')
         );
       }
     }
-    await Promise.all(freezeJobs);
+    for (let i = 0; i < freezeJobs.length; i += 20) {
+      await Promise.all(freezeJobs.slice(i, i + 20).map((job) => job()));
+    }
     setClosing(false);
     setNotice(`✅ Control ${rangeTxt} cerrado y guardado en el histórico. El control activo quedó limpio.`);
     load(true);
@@ -840,7 +850,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const tipoOf = (m: ClosureMachine) => (m.machineId ? tipoById.get(m.machineId) : undefined) ?? (m.serial ? tipoBySerial.get(m.serial) : undefined) ?? tipoByCode.get(m.code) ?? null;
     // Si el cierre ya trae el precio CONGELADO, se usa ese (semana cerrada = inmutable);
     // si es un cierre viejo sin precio, se calcula con el precio actual de la máquina.
-    const priceOf = (m: ClosureMachine) => (m.price != null && Number(m.price) > 0 ? Number(m.price) : ((m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0));
+    const priceOf = (m: ClosureMachine) => {
+      if (m.price != null && Number(m.price) > 0) return Number(m.price);
+      const actual = (m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0;
+      // Cierre viejo sin precio: el que regía ese día (historial), no el de hoy.
+      return (m.machineId ? precioVigenteEn(histPrecios, m.machineId, m.date, actual) : actual) ?? 0;
+    };
     const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const rows = machs
       .map((m) => {
@@ -960,10 +975,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     });
     // Precio actual de cada máquina (para las rondas NO cerradas).
     const priceOfMachine = new Map(machines.map((m) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
-    const effectivePrice = (machineryId: string, ownFrozen: any) => {
-      if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
-      return priceOfMachine.get(machineryId) ?? 0;
-    };
+    // Congelado si existe; si no, el que regía ESE día (historial de precios).
+    const effectivePrice = (machineryId: string, ownFrozen: any, fecha: string) =>
+      precioEfectivoJornada(ownFrozen, histPrecios, machineryId, fecha, priceOfMachine.get(machineryId) ?? 0) ?? 0;
     const workedByMachine = new Map<string, number>();
     // Monto por máquina usando el precio EFECTIVO de cada ronda: congelado (frozen_price)
     // del rango si existe; si no, el precio ACTUAL de la máquina (sin arrastre).
@@ -974,7 +988,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       const w = horasTurnoDelDia(b, b.round_date).trabajadas;
       if (w > 0) {
         workedByMachine.set(b.machinery_id, (workedByMachine.get(b.machinery_id) ?? 0) + w);
-        const p = effectivePrice(b.machinery_id, b.frozen_price);
+        const p = effectivePrice(b.machinery_id, b.frozen_price, b.round_date);
         amountByMachine.set(b.machinery_id, (amountByMachine.get(b.machinery_id) ?? 0) + (w / 12) * p);
       }
     });
@@ -1429,7 +1443,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       setPriceFor(null);
       setNotice(priceBlindar
         ? `🔒 Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} BLINDADO en ${m.code} del ${from} al ${to}. Queda fijo para esas fechas y no afecta otros cortes.`
-        : `✅ Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} de ${m.code} actualizado (sin blindar: aplica a fechas sin precio fijo).`);
+        : `✅ Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} de ${m.code} actualizado sin blindar: rige desde la jornada de hoy. Los días anteriores sin precio fijo conservan el precio que tenían.`);
       load(true);
     } catch (err: any) {
       toast.error(err?.message ?? 'No se pudo guardar el precio.');
@@ -1505,11 +1519,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       if (!daySet.has(b.round_date)) return;
       const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
       if (w <= 0) return;
-      const price = b.frozen_price != null && Number(b.frozen_price) > 0 ? Number(b.frozen_price) : (priceOf.get(b.machinery_id) ?? 0);
+      const price = precioEfectivoJornada(b.frozen_price, histPrecios, b.machinery_id, b.round_date, priceOf.get(b.machinery_id) ?? 0) ?? 0;
       map.set(b.machinery_id, (map.get(b.machinery_id) ?? 0) + (w / 12) * price);
     });
     return map;
-  }, [rounds, weekDays, machines]);
+  }, [rounds, weekDays, machines, histPrecios]);
   const enControl = (m: Machinery) => esActiva(m) || conHorasEstaSemana.has(m.id);
   // "Esperando instrucciones" que YA trabajó en este corte se queda EN el control (igual
   // que una retirada/inactiva con horas): sus horas y su pago siguen contando y no se
@@ -2791,8 +2805,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   );
                   // Precio congelado VÁLIDO del cierre (>0); si no lo trae (o es 0), el actual de la máquina.
                   const frozen = g.days.find((d) => d.price != null && Number(d.price) > 0)?.price;
-                  const price = frozen != null ? Number(frozen) : ((g.serial ? priceBySerial.get(g.serial) : undefined) ?? priceByCode.get(g.code) ?? 0);
-                  const amount = (t.worked / 12) * price;
+                  // Cierre viejo sin precio: cada día con el precio que regía ESE día (historial), no el de hoy.
+                  const actual = (g.serial ? priceBySerial.get(g.serial) : undefined) ?? priceByCode.get(g.code) ?? 0;
+                  const precioDia = (d: ClosureMachine) => (d.machineId ? precioVigenteEn(histPrecios, d.machineId, d.date, actual) : actual) ?? 0;
+                  const price = frozen != null ? Number(frozen) : (g.days.length ? precioDia(g.days[g.days.length - 1]) : actual);
+                  const amount = frozen != null
+                    ? (t.worked / 12) * price
+                    : g.days.reduce((s, d) => s + ((Number(d.worked) || 0) / 12) * precioDia(d), 0);
                   const open = !!closureExpanded[g.key];
                   return (
                     <Card key={g.key}>
