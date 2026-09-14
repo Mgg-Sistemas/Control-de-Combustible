@@ -2201,6 +2201,15 @@ empresa, estado y ubicación) y las jornadas sin validar.
 > **Por qué cambió:** antes este reporte salía solo de los **check-in**, así que no traía las
 > máquinas que nadie escaneó (el Inspector SOS no aparecía con sus 72 jornadas) y ponía bajo un
 > inspector las máquinas de otro que él revisó. Las horas eran del día completo, no del turno.
+
+> **🚚 Camiones (asistencia): qué columnas salen (14/09/2026).** En **Inspecciones → 🚚 Camiones
+> (asistencia)**, arriba del botón **📄 Reporte de asistencia de camiones (PDF)**, están las
+> pastillas **¿QUÉ SE OCULTA EN EL PDF?**, iguales a las del Conteo de equipos: **Nº** (el
+> enumerado), **marca**, **modelo**, **placa/serial** y **empresa**. Por defecto sale todo; toca las
+> que quieras quitar. **Camión, salida, entrada y estado** no se pueden quitar, y ocultar columnas
+> no saca ningún camión. Los camiones van por código y, como casi todos se llaman igual, después
+> por placa: así el Nº le toca siempre al mismo camión. La lista de la pantalla ahora también
+> muestra el número, la marca, el modelo y la placa.
 >
 > Las horas se calculan con la **misma fórmula** que el **Reporte del día por empresa** y el
 > **Control de maquinaria**, así que los números **coinciden** entre los tres.
