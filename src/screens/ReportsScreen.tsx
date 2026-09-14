@@ -4357,6 +4357,15 @@ export default function ReportsScreen({ route }: any) {
             <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>Vista previa del reporte</SectionTitle>
+          {/* Botones hasta arriba: para descargar sin bajar por todo el listado. */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setPreview(false)}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]} onPress={downloadPdf}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+            </TouchableOpacity>
+          </View>
           <ReportHeader title="REPORTE DE EQUIPOS" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>
@@ -4375,16 +4384,6 @@ export default function ReportsScreen({ route }: any) {
               ) : null}
             </View>
           </Card>
-
-          {/* Botones arriba: para no tener que bajar hasta el final del listado. */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setPreview(false)}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]} onPress={downloadPdf}>
-              <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
-            </TouchableOpacity>
-          </View>
 
           {eqGroups.length === 0 || all.length === 0 ? (
             <Card><Text style={{ color: colors.muted }}>Sin equipos para el filtro elegido.</Text></Card>
