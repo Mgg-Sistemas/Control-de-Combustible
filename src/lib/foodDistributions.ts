@@ -62,8 +62,15 @@ export async function listFoodByDate(fromDate: string, toDate?: string): Promise
   return rows.sort((a, b) => String(b.delivered_at ?? '').localeCompare(String(a.delivered_at ?? '')));
 }
 
-/** Borra una entrega (por si se registró de más). */
+/** Borra una entrega (por si se registró de más).
+ *
+ *  `.select('id')` para distinguir «borrada» de «no se borró nada» (14-sep-2026):
+ *  la base ya no deja borrar a cualquiera, y un borrado rechazado por permisos
+ *  vuelve SIN error y con 0 filas. Sin esto la pantalla la quitaba de la lista
+ *  aunque siguiera guardada, y la lista quedaba desincronizada con la base. */
 export async function deleteFoodDistribution(id: string): Promise<{ error?: string }> {
-  const { error } = await supabase.from('food_distributions').delete().eq('id', id);
-  return { error: error?.message };
+  const { data, error } = await supabase.from('food_distributions').delete().eq('id', id).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'No se borró: no tienes permiso para borrar esa entrega (solo la cocina que la registró hoy, o quien tenga permiso completo de Comida) o ya no existe.' };
+  return {};
 }

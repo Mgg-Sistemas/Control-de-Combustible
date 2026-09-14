@@ -4346,6 +4346,15 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >
 > ⚠️ **Si borras un viaje, sus entregas se borran con él**, con el motivo «Viaje borrado».
 
+> **🔒 La base ahora protege lo que la pantalla esconde (14/09/2026).** Antes cualquier usuario con
+> sesión podía editar o borrar viajes, cambiar las obras y borrar comidas directo en la base, aunque
+> la pantalla no lo mostrara. Ahora la base lo impide: **borrar viajes y tocar obras** solo con
+> permiso **completo** de viajes; con permiso de **escritura** solo se editan los **viajes propios**;
+> **borrar una comida** solo con permiso completo de Comida o, para la cocina, lo que ella misma
+> registró en las últimas 24 horas. Si la base rechaza un cambio, la pantalla **lo dice** (no lo da
+> por hecho). Además se cerró un hueco por el que se podía escribir **sin iniciar sesión**.
+> Registrar viajes, comidas y jornadas sigue igual para todos.
+
 > **🔢 Un número de tique usado no se repite nunca (14/09/2026).** Aunque se borre el viaje, su
 > número **no vuelve a salir**: el siguiente viaje recibe el número que sigue. Por eso en la lista
 > puede faltar algún número (por ejemplo, no hay CDT-000039): es el de un viaje que se borró, y la

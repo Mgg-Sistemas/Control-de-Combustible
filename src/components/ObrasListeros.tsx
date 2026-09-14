@@ -29,6 +29,9 @@ import { nombreLimpio, validarNombre, type UbicacionObra } from '../lib/ubicacio
 
 type Listero = { id: string; full_name: string; ubicacion_id: string | null };
 
+/** La base rechazó el cambio en silencio (0 filas): permisos, o la obra ya no existe. */
+const SIN_PERMISO_OBRA = 'No se guardó: solo quien tiene permiso completo de viajes puede cambiar las obras, o la obra ya no existe. Refresca la lista.';
+
 type Props = {
   obras: UbicacionObra[];
   listeros: Listero[];
@@ -73,9 +76,14 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
     const motivo = validarNombre(editNombre, obras, o.id);
     if (motivo) { toast.error(motivo); return; }
     setGuardando(true);
-    const { error } = await supabase.from('ubicaciones_obra').update({ nombre: nombreLimpio(editNombre) }).eq('id', o.id);
+    // `.select('id')` en las tres escrituras de abajo (14-sep-2026): la base ya solo
+    // deja tocar obras a quien tiene permiso completo de viajes, y un cambio
+    // rechazado por permisos vuelve SIN error y con 0 filas. Sin esto se avisaba
+    // «renombrada» con la obra intacta y la lista quedaba desincronizada.
+    const { data, error } = await supabase.from('ubicaciones_obra').update({ nombre: nombreLimpio(editNombre) }).eq('id', o.id).select('id');
     setGuardando(false);
     if (error) { toast.error(`No se pudo renombrar: ${error.message}`); return; }
+    if (!data?.length) { toast.error(SIN_PERMISO_OBRA); return; }
     setEditId(null);
     // Se dice lo que NO cambia: quien renombra una obra suele temer haberle
     // movido los viajes de sitio.
@@ -84,8 +92,9 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
   };
 
   const alternarActiva = async (o: UbicacionObra) => {
-    const { error } = await supabase.from('ubicaciones_obra').update({ active: !o.active }).eq('id', o.id);
+    const { data, error } = await supabase.from('ubicaciones_obra').update({ active: !o.active }).eq('id', o.id).select('id');
     if (error) { toast.error(`No se pudo cambiar: ${error.message}`); return; }
+    if (!data?.length) { toast.error(SIN_PERMISO_OBRA); return; }
     toast.success(o.active ? 'Obra desactivada: deja de ofrecerse, pero sus viajes siguen.' : 'Obra activada.');
     onCambioObras();
   };
@@ -99,8 +108,9 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
       '\nSi solo quieres que deje de ofrecerse, mejor DESACTÍVALA.',
     );
     if (!ok) return;
-    const { error } = await supabase.from('ubicaciones_obra').delete().eq('id', o.id);
+    const { data, error } = await supabase.from('ubicaciones_obra').delete().eq('id', o.id).select('id');
     if (error) { toast.error(`No se pudo borrar: ${error.message}`); return; }
+    if (!data?.length) { toast.error(SIN_PERMISO_OBRA); return; }
     toast.success('Obra borrada. Los viajes conservan su nombre.');
     onCambioObras();
     onCambioListeros();
