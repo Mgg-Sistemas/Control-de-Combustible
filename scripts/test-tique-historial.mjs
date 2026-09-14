@@ -193,6 +193,12 @@ ok('...y muestra quien la borro', /f\.borradaTexto/.test(comp));
 // ── 6) EL MANUAL ────────────────────────────────────────────────────────────
 ok('el manual .md lo explica', /Ver quién imprimió cada tique \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla tambien', /VER QUIÉN IMPRIMIÓ CADA TIQUE \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+// ⚠️ Desde el 14-sep-2026 un número usado no se repite. Si el manual volviera a
+//    decir que se repite, la jefa esperaría un número que ya no va a salir.
+ok('el manual .md dice que un numero usado no se repite', /Un número de tique usado no se repite nunca \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md'))
+  && !/puede volver a salir en el siguiente viaje/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('el manual en pantalla tambien', /UN NÚMERO DE TIQUE USADO NO SE REPITE NUNCA \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx'))
+  && !/puede volver a salir en el siguiente viaje/.test(leer('src/screens/ManualScreen.tsx')));
 ok('el manual .md explica borrar una entrega', /Borrar una entrega del historial \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla tambien', /BORRAR UNA ENTREGA DEL HISTORIAL \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 

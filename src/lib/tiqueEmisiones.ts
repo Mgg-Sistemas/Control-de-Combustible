@@ -23,10 +23,12 @@
 //    solo una vez. Al borrar un VIAJE, un trigger tacha igual todas sus entregas
 //    con el motivo «Viaje borrado».
 //
-// ⚠️ EL FOLIO SE PUEDE REPETIR entre un viaje borrado y el siguiente (sale de «el
-//    más alto + 1»). Por eso lo que se cuenta son las entregas VIGENTES de un
-//    viaje que EXISTE: las de un viaje borrado quedan con `viaje_id` nulo y no
-//    se le suman al viaje nuevo que heredó el número.
+// ⚠️ HASTA EL 14-sep-2026 EL FOLIO SE REPETÍA entre un viaje borrado y el
+//    siguiente (salía de «el más alto + 1»). Desde ese día lo da un contador de
+//    la base que solo avanza, y un número usado no vuelve a salir. Pero los
+//    folios repetidos de antes siguen ahí: por eso lo que se cuenta son las
+//    entregas VIGENTES de un viaje que EXISTE. Las de un viaje borrado quedan
+//    con `viaje_id` nulo y no se le suman al viaje que repitió el número.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { isOnline, isNetworkErrorMsg } from './offlineQueue';
