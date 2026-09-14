@@ -124,14 +124,17 @@ type RoundCompany = {
   abonado?: number;         // abonos (pagos) de la empresa dentro del rango del reporte
 };
 
+// Reporte de EQUIPOS (pestaña que reemplazó a "Combustible"): listado por empresa
+// con identidad (nombre/marca/modelo/placa/serial), la JORNADA elegida (12 o 24 h)
+// y el PRECIO del tabulador (price_jornada). El monto = precio × (jornada / 12).
 type Row = {
-  dispatch_date: string;
-  liters: number;
-  asset_kind: string;
-  driver_operator: string | null;
-  asset: string;
-  tank: string;
   company: string;
+  code: string;   // nombre del equipo
+  marca: string;
+  modelo: string;
+  plate: string;
+  serial: string;
+  price: number;  // precio por jornada (12 h) del tabulador; 0 si el modelo no está tabulado
 };
 
 // Reporte MAQUINARIA (pestaña "fleet"): listado de IDENTIDAD de la maquinaria —
@@ -552,13 +555,6 @@ function ReportHeader({ title, colors }: { title: string; colors: AppColors }) {
   );
 }
 
-function totalsBy<T extends string>(rows: Row[], key: (r: Row) => T): { label: T; liters: number }[] {
-  const m = new Map<T, number>();
-  rows.forEach((r) => m.set(key(r), (m.get(key(r)) ?? 0) + r.liters));
-  return Array.from(m.entries())
-    .map(([label, liters]) => ({ label, liters }))
-    .sort((a, b) => b.liters - a.liters);
-}
 
 export default function ReportsScreen({ route }: any) {
   const { colors } = useTheme();
@@ -569,7 +565,11 @@ export default function ReportsScreen({ route }: any) {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  // Reporte de EQUIPOS (pestaña que reemplazó a Combustible): jornada única (12/24 h),
+  // columnas conmutables y vista agrupada por empresa o listado general.
+  const [eqJornada, setEqJornada] = useState<12 | 24>(12);
+  const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true });
+  const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
   // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
   const [inspShift, setInspShift] = useState<InspectorShift>('both');
@@ -976,51 +976,53 @@ export default function ReportsScreen({ route }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipoResultado, medidasPorId, apartadas]);
 
+  // ── Reporte de EQUIPOS ──────────────────────────────────────────────────────
   const all = rows ?? [];
-  const total = all.reduce((s, r) => s + r.liters, 0);
-  const byDay = useMemo(() => totalsBy(all, (r) => r.dispatch_date), [rows]);
-  const byAsset = useMemo(() => totalsBy(all, (r) => r.asset as any).sort((a, b) => cmpText(a.label, b.label)), [rows]);
-  const byCompany = useMemo(() => {
-    const m = new Map<string, { liters: number; assets: Map<string, number> }>();
-    all.forEach((r) => {
-      const c = m.get(r.company) ?? { liters: 0, assets: new Map<string, number>() };
-      c.liters += r.liters;
-      c.assets.set(r.asset, (c.assets.get(r.asset) ?? 0) + r.liters);
-      m.set(r.company, c);
-    });
+  const eqFactor = eqJornada / 12;                       // 12 h = 1 jornada · 24 h = 2 jornadas
+  const eqMonto = (r: Row) => r.price * eqFactor;
+  // Agrupado por empresa, o un solo grupo sin empresa (listado general).
+  const eqGroups = useMemo(() => {
+    if (eqAgrupar === 'general') return [{ company: '', items: [...all].sort((a, b) => cmpText(a.code, b.code)) }];
+    const m = new Map<string, Row[]>();
+    all.forEach((r) => { const a = m.get(r.company) ?? []; a.push(r); m.set(r.company, a); });
     return Array.from(m.entries())
-      .map(([company, v]) => ({
-        company,
-        liters: v.liters,
-        assets: Array.from(v.assets.entries())
-          .map(([asset, liters]) => ({ asset, liters }))
-          .sort((a, b) => cmpText(a.asset, b.asset)),
-      }))
-      .sort((a, b) => (a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : cmpText(a.company, b.company)));
-  }, [rows]);
-  const maxDay = Math.max(1, ...byDay.map((d) => d.liters));
-  const maxAsset = Math.max(1, ...byAsset.map((d) => d.liters));
-  const dayDetail = selectedDay ? all.filter((r) => r.dispatch_date === selectedDay) : [];
+      .sort((a, b) => (a[0] === 'Sin empresa' ? 1 : b[0] === 'Sin empresa' ? -1 : cmpText(a[0], b[0])))
+      .map(([company, items]) => ({ company, items: items.sort((a, b) => cmpText(a.code, b.code)) }));
+  }, [rows, eqAgrupar]);
+  const eqTotalMonto = all.reduce((s, r) => s + eqMonto(r), 0);
 
+  // Reporte de EQUIPOS: listado del catálogo (todas menos retiradas) con el PRECIO
+  // del tabulador. El precio de un modelo sale del tabulador POR EMPRESA
+  // (company_price_tariffs) si existe; si no, del tabulador general (price_tariffs).
   const generate = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('dispatches')
-      .select('dispatch_date, liters, asset_kind, driver_operator, vehicle:vehicle_id(plate), machinery:machinery_id(code, company:company_id(name)), tank:tank_id(name)')
-      .gte('dispatch_date', from)
-      .lte('dispatch_date', to)
-      .order('dispatch_date', { ascending: true });
-    const mapped: Row[] = (data ?? []).map((d: any) => ({
-      dispatch_date: d.dispatch_date,
-      liters: Number(d.liters),
-      asset_kind: d.asset_kind,
-      driver_operator: d.driver_operator,
-      asset: d.vehicle?.plate ?? d.machinery?.code ?? '—',
-      tank: d.tank?.name ?? '—',
-      company: d.machinery?.company?.name ?? (d.vehicle ? 'Vehículos' : 'Sin empresa'),
-    }));
+    const [machRes, tarGenRes, tarEmpRes] = await Promise.all([
+      selectAllRows('machinery', 'code, marca, modelo, plate, serial, operational, company_id, company:company_id(name)'),
+      supabase.from('price_tariffs').select('modelo, price_jornada'),
+      supabase.from('company_price_tariffs').select('company_id, modelo, price_jornada'),
+    ]);
+    const normModelo = (s: any) => String(s ?? '').trim().toLowerCase();
+    const tarGen = new Map<string, number>();
+    (tarGenRes.data ?? []).forEach((t: any) => tarGen.set(normModelo(t.modelo), Number(t.price_jornada) || 0));
+    const tarEmp = new Map<string, number>();
+    (tarEmpRes.data ?? []).forEach((t: any) => tarEmp.set(`${t.company_id}|${normModelo(t.modelo)}`, Number(t.price_jornada) || 0));
+    const list: Row[] = (machRes ?? [])
+      .filter((m: any) => m.operational !== false) // todas menos las RETIRADAS
+      .map((m: any) => {
+        const mk = normModelo(m.modelo);
+        const price = tarEmp.get(`${m.company_id}|${mk}`) ?? tarGen.get(mk) ?? 0;
+        return {
+          company: m.company?.name ?? 'Sin empresa',
+          code: (m.code && String(m.code).trim()) || '—',
+          marca: (m.marca && String(m.marca).trim()) || '—',
+          modelo: (m.modelo && String(m.modelo).trim()) || '—',
+          plate: (m.plate && String(m.plate).trim()) || '—',
+          serial: (m.serial && String(m.serial).trim()) || '—',
+          price,
+        };
+      });
     // Filtro por empresa (vacío = todas).
-    const shown = repCompanies.length ? mapped.filter((r) => repCompanies.includes(r.company)) : mapped;
+    const shown = repCompanies.length ? list.filter((r) => repCompanies.includes(r.company)) : list;
     setRows(shown);
     setLoading(false);
     setPreview(true);
@@ -3031,36 +3033,30 @@ export default function ReportsScreen({ route }: any) {
   };
 
   const downloadPdf = async () => {
-    const dayBars = byDay
-      .map((r) => `<div class="col"><div class="bar" style="height:${Math.round((r.liters / maxDay) * 120)}px"></div><div class="lbl">${fmtDM(r.label)}</div><div class="val">${r.liters.toLocaleString()}</div></div>`)
-      .join('');
-    const assetRows = byAsset
-      .map((r) => `<tr><td>${r.label}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
-      .join('');
-    const companyBlocks = byCompany
-      .map(
-        (c) =>
-          `<h3 style="margin:10px 0 2px">${c.company} — ${c.liters.toLocaleString()} L</h3>` +
-          `<table><tbody>${c.assets
-            .map((a) => `<tr><td>• ${a.asset}</td><td style="text-align:right">${a.liters.toLocaleString()} L</td></tr>`)
-            .join('')}</tbody></table>`
-      )
-      .join('');
-    const dayRows = byDay
-      .map((r) => `<tr><td>${fmtDMY(r.label)}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Cabecera dinámica según las columnas activas.
+    const head = `<tr><th style="text-align:left">Nombre del equipo</th>${eqCols.marca ? '<th style="text-align:left">Marca</th>' : ''}${eqCols.modelo ? '<th style="text-align:left">Modelo</th>' : ''}${eqCols.plate ? '<th style="text-align:left">Placa</th>' : ''}${eqCols.serial ? '<th style="text-align:left">Serial</th>' : ''}<th style="text-align:center">Jornada</th><th style="text-align:right">Precio</th><th style="text-align:right">Monto</th></tr>`;
+    const ncols = 4 + [eqCols.marca, eqCols.modelo, eqCols.plate, eqCols.serial].filter(Boolean).length;
+    const fila = (r: Row) => `<tr><td>${esc(r.code)}</td>${eqCols.marca ? `<td>${esc(r.marca)}</td>` : ''}${eqCols.modelo ? `<td>${esc(r.modelo)}</td>` : ''}${eqCols.plate ? `<td>${esc(r.plate)}</td>` : ''}${eqCols.serial ? `<td>${esc(r.serial)}</td>` : ''}<td style="text-align:center">${eqJornada} h</td><td style="text-align:right">${r.price > 0 ? usd(r.price) : '—'}</td><td style="text-align:right;font-weight:700">${r.price > 0 ? usd(eqMonto(r)) : '—'}</td></tr>`;
+    const bloques = eqGroups
+      .map((g) => {
+        const filas = g.items.map(fila).join('');
+        const subMonto = g.items.reduce((s, r) => s + eqMonto(r), 0);
+        const titulo = g.company
+          ? `<h2 style="margin-top:16px">🏢 ${esc(g.company)} <span style="color:#666;font-weight:400">(${g.items.length} equipo${g.items.length === 1 ? '' : 's'})</span></h2>`
+          : `<h2 style="margin-top:8px">Listado general <span style="color:#666;font-weight:400">(${g.items.length} equipo${g.items.length === 1 ? '' : 's'})</span></h2>`;
+        return `${titulo}
+          <table><thead>${head}</thead>
+          <tbody>${filas || `<tr><td colspan="${ncols}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
+          <tfoot><tr><td colspan="${ncols - 1}" style="text-align:right;font-weight:800">TOTAL${g.company ? ` ${esc(g.company)}` : ''}</td><td style="text-align:right;font-weight:800">${usd(subMonto)}</td></tr></tfoot></table>`;
+      })
       .join('');
     const body = `
-      <div class="muted">Consumo del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
-      <div class="summary"><div><span class="k">Total</span><b>${total.toLocaleString()} L</b></div>
-        <div><span class="k">Despachos</span><b>${all.length}</b></div></div>
-      <h2>Consumo por día</h2>
-      <div class="chart">${dayBars || '<span class="muted">Sin datos</span>'}</div>
-      <table><tbody>${dayRows}</tbody></table>
-      <h2>Consumo por equipo / máquina</h2>
-      <table><thead><tr><th>Equipo/Máquina</th><th style="text-align:right">Litros</th></tr></thead><tbody>${assetRows}</tbody></table>
-      <h2>Consumo por empresa supervisora</h2>
-      ${companyBlocks || '<span class="muted">Sin datos</span>'}`;
-    await exportPdf(pdfShell('REPORTE DE COMBUSTIBLE', 'Consumo de combustible', body), 'Reportes - Combustible');
+      <div class="muted">Listado de equipos · jornada ${eqJornada} h${repCompanies.length ? ` · ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ''}</div>
+      <p class="muted" style="margin:4px 0 8px">Precio y monto según el tabulador (precio por jornada de 12 h × ${eqFactor} = jornada de ${eqJornada} h). Los modelos sin tarifa salen con "—".</p>
+      ${bloques || '<p class="muted">Sin equipos para el filtro elegido.</p>'}
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${all.length} equipo(s) · ${usd(eqTotalMonto)}</div>`;
+    await exportPdf(pdfShell('REPORTE DE EQUIPOS', `Listado por ${eqAgrupar === 'general' ? 'listado general' : 'empresa'} · jornada ${eqJornada} h`, body), `Reporte de equipos - jornada ${eqJornada}h`);
   };
 
   return (
@@ -3070,7 +3066,7 @@ export default function ReportsScreen({ route }: any) {
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm }}>
         {([
-          { v: 'fuel', label: '⛽ Combustible' },
+          { v: 'fuel', label: '🚜 Equipos' },
           { v: 'rounds', label: '🛠️ Jornada' },
           { v: 'fleet', label: '🚜 Maquinaria' },
           { v: 'deploy', label: '🚜 Despliegue' },
@@ -3259,6 +3255,8 @@ export default function ReportsScreen({ route }: any) {
           </View>
         ) : (
         <>
+        {mode !== 'fuel' && (
+        <>
         <Text style={{ color: colors.muted, fontSize: 13 }}>Rango de fechas</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>
@@ -3277,6 +3275,48 @@ export default function ReportsScreen({ route }: any) {
             </TouchableOpacity>
           ))}
         </View>
+        </>
+        )}
+        {/* ── REPORTE DE EQUIPOS: jornada (12/24 h), columnas conmutables y vista ── */}
+        {mode === 'fuel' && (
+          <>
+            <Text style={[styles.lbl, { marginTop: spacing.xs }]}>Jornada (la coloca el usuario)</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {([12, 24] as const).map((h) => {
+                const on = eqJornada === h;
+                return (
+                  <TouchableOpacity key={h} onPress={() => setEqJornada(h)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 14 }}>{h} horas</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Columnas a mostrar</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {([['marca', 'Marca'], ['modelo', 'Modelo'], ['plate', 'Placa'], ['serial', 'Serial']] as const).map(([k, label]) => {
+                const on = eqCols[k];
+                return (
+                  <TouchableOpacity key={k} onPress={() => setEqCols((p) => ({ ...p, [k]: !p[k] }))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Vista</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {([{ v: 'empresa', label: '🏢 Agrupar por empresa' }, { v: 'general', label: '📋 Listado general' }] as const).map((o) => {
+                const on = eqAgrupar === o.v;
+                return (
+                  <TouchableOpacity key={o.v} onPress={() => setEqAgrupar(o.v)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12.5 }}>{o.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>El listado general muestra todos los equipos juntos, sin separarlos por empresa.</Text>
+          </>
+        )}
         {mode !== 'fuel' && (
           <>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
@@ -3482,7 +3522,7 @@ export default function ReportsScreen({ route }: any) {
         >
           <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>
             {mode === 'fuel'
-              ? '📊 Generar reporte de combustible'
+              ? '🚜 Generar reporte de equipos'
               : mode === 'rounds'
               ? '🛠️ Generar reporte de jornada'
               : mode === 'fleet'
@@ -4296,84 +4336,52 @@ export default function ReportsScreen({ route }: any) {
             <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>Vista previa del reporte</SectionTitle>
-          <ReportHeader title="REPORTE DE COMBUSTIBLE" colors={colors} />
+          <ReportHeader title="REPORTE DE EQUIPOS" colors={colors} />
           <Card>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>
+              Jornada {eqJornada} h · {eqAgrupar === 'general' ? 'listado general' : 'por empresa'}
+            </Text>
             <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
               <View>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Total</Text>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{total.toLocaleString()} L</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{all.length}</Text>
               </View>
               <View>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Despachos</Text>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{all.length}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Monto total</Text>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.brandText }}>{usd(eqTotalMonto)}</Text>
               </View>
             </View>
           </Card>
 
-          <Card>
-            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-              Consumo diario (L) · toca un día para ver el detalle
-            </Text>
-            {byDay.length === 0 ? (
-              <Text style={{ color: colors.muted }}>Sin consumos en el rango.</Text>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, height: 160 }}>
-                  {byDay.map((r) => (
-                    <TouchableOpacity key={r.label} onPress={() => setSelectedDay(r.label)} style={{ alignItems: 'center', justifyContent: 'flex-end' }}>
-                      <Text style={{ fontSize: 10, color: colors.text }}>{r.liters.toLocaleString()}</Text>
-                      <View style={{ width: 28, height: Math.max(4, (r.liters / maxDay) * 120), backgroundColor: colors.brand, borderRadius: 4 }} />
-                      <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>{r.label.slice(5)}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-            )}
-          </Card>
-
-          <Card>
-            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>Consumo por equipo / máquina (L)</Text>
-            {byAsset.length === 0 ? (
-              <Text style={{ color: colors.muted }}>Sin datos.</Text>
-            ) : (
-              byAsset.map((r) => (
-                <View key={r.label} style={{ marginBottom: spacing.sm }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{r.label}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>{r.liters.toLocaleString()} L</Text>
+          {eqGroups.length === 0 || all.length === 0 ? (
+            <Card><Text style={{ color: colors.muted }}>Sin equipos para el filtro elegido.</Text></Card>
+          ) : (
+            eqGroups.map((g) => {
+              const subMonto = g.items.reduce((s, r) => s + eqMonto(r), 0);
+              return (
+                <Card key={g.company || 'general'}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                      {g.company ? `🏢 ${g.company}` : '📋 Listado general'} · {g.items.length}
+                    </Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{usd(subMonto)}</Text>
                   </View>
-                  <View style={{ height: 8, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, marginTop: 2 }}>
-                    <View style={{ height: 8, width: `${(r.liters / maxAsset) * 100}%`, backgroundColor: colors.brand, borderRadius: radius.pill }} />
-                  </View>
-                </View>
-              ))
-            )}
-          </Card>
-
-          <Card>
-            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-              Consumo por empresa supervisora
-            </Text>
-            {byCompany.length === 0 ? (
-              <Text style={{ color: colors.muted }}>Sin datos.</Text>
-            ) : (
-              byCompany.map((c) => (
-                <View key={c.company} style={{ marginBottom: spacing.md }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>{c.company}</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>{c.liters.toLocaleString()} L</Text>
-                  </View>
-                  {c.assets.map((a) => (
-                    <View key={a.asset} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: spacing.md }}>
-                      <Text style={{ color: colors.muted, fontSize: 13 }}>• {a.asset}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 13 }}>{a.liters.toLocaleString()} L</Text>
+                  {g.items.map((r, i) => (
+                    <View key={`${r.code}:${r.serial}:${i}`} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, paddingVertical: spacing.xs }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>{r.code}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{r.price > 0 ? usd(eqMonto(r)) : '—'}</Text>
+                      </View>
+                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={2}>
+                        {[eqCols.marca && r.marca, eqCols.modelo && r.modelo, eqCols.plate && `Placa ${r.plate}`, eqCols.serial && `Serial ${r.serial}`].filter(Boolean).join(' · ')}
+                        {`  ·  ${eqJornada} h · ${r.price > 0 ? usd(r.price) : 'sin tarifa'}`}
+                      </Text>
                     </View>
                   ))}
-                </View>
-              ))
-            )}
-          </Card>
+                </Card>
+              );
+            })
+          )}
 
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setPreview(false)}>
@@ -4383,31 +4391,6 @@ export default function ReportsScreen({ route }: any) {
               <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
             </TouchableOpacity>
           </View>
-
-          {/* Detalle del día seleccionado */}
-          <Modal visible={!!selectedDay} animationType="slide" onRequestClose={() => setSelectedDay(null)}>
-            <Screen>
-              <SectionTitle>Detalle del {selectedDay}</SectionTitle>
-              <Card>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>
-                  {dayDetail.length} despacho(s) · {dayDetail.reduce((s, r) => s + r.liters, 0).toLocaleString()} L
-                </Text>
-              </Card>
-              {dayDetail.map((r, i) => (
-                <Card key={i}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ fontWeight: '700', color: colors.text }}>{r.asset}</Text>
-                    <Text style={{ fontWeight: '700', color: colors.text }}>{r.liters.toLocaleString()} L</Text>
-                  </View>
-                  <Text style={{ color: colors.muted, fontSize: 13 }}>{r.asset_kind} · Tanque: {r.tank}</Text>
-                  {r.driver_operator ? <Text style={{ color: colors.muted, fontSize: 13 }}>Operó: {r.driver_operator}</Text> : null}
-                </Card>
-              ))}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand }]} onPress={() => setSelectedDay(null)}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>Volver</Text>
-              </TouchableOpacity>
-            </Screen>
-          </Modal>
         </Screen>
       </Modal>
 
