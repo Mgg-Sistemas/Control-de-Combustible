@@ -4295,9 +4295,14 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > «entregado ×N», pero sigue en la lista con **quién la borró y a qué hora**. No se puede deshacer,
 > y una entrega ya borrada no se puede volver a borrar.
 >
-> ⚠️ **Si borras un viaje, sus entregas se borran con él**, con el motivo «Viaje borrado». El
-> número de tique de un viaje borrado puede volver a salir en el siguiente viaje: ese viaje nuevo
-> empieza **sin entregas**, y su primer papel sale como primera impresión, no como reimpresión.
+> ⚠️ **Si borras un viaje, sus entregas se borran con él**, con el motivo «Viaje borrado».
+
+> **🔢 Un número de tique usado no se repite nunca (14/09/2026).** Aunque se borre el viaje, su
+> número **no vuelve a salir**: el siguiente viaje recibe el número que sigue. Por eso en la lista
+> puede faltar algún número (por ejemplo, no hay CDT-000039): es el de un viaje que se borró, y la
+> auditoría dice quién lo borró y a qué hora. Antes de este cambio, borrar el último viaje hacía
+> que el siguiente repitiera su número; los viajes de antes del 14/09/2026 que quedaron con un
+> número repetido solo muestran las entregas de su propio viaje, no las del que se borró.
 
 > ⚠️ **Sin señal el papel sale igual, y la constancia se guarda sola después.** Si se cae la señal
 > justo al imprimir, arriba te aparece «*N tiques entregados sin registrar en el servidor*». No se
