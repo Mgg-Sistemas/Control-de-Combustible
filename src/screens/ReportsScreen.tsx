@@ -980,6 +980,9 @@ export default function ReportsScreen({ route }: any) {
   // ── Reporte de EQUIPOS ──────────────────────────────────────────────────────
   const all = rows ?? [];
   const eqFactor = eqJornada / 12;                       // 12 h = 1 jornada · 24 h = 2 jornadas
+  // r.price es el precio por jornada de 12 h que viene de Control → precio/HORA = ÷ 12.
+  // El monto = precio/hora × horas de la jornada (12 o 24) = r.price × eqFactor.
+  const eqPrecioHora = (r: Row) => r.price / 12;
   const eqMonto = (r: Row) => r.price * eqFactor;
   // Agrupado por empresa, o un solo grupo sin empresa (listado general).
   const eqGroups = useMemo(() => {
@@ -3044,10 +3047,10 @@ export default function ReportsScreen({ route }: any) {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // Cabecera dinámica según las columnas activas. El nombre del equipo va siempre;
     // todo lo demás (incluidos precio y monto) se muestra u oculta con su check.
-    const head = `<tr><th style="text-align:left">Nombre del equipo</th>${eqCols.marca ? '<th style="text-align:left">Marca</th>' : ''}${eqCols.modelo ? '<th style="text-align:left">Modelo</th>' : ''}${eqCols.plate ? '<th style="text-align:left">Placa</th>' : ''}${eqCols.serial ? '<th style="text-align:left">Serial</th>' : ''}${eqCols.jornada ? '<th style="text-align:center">Jornada</th>' : ''}${eqCols.precio ? '<th style="text-align:right">Precio</th>' : ''}${eqCols.monto ? '<th style="text-align:right">Monto</th>' : ''}</tr>`;
+    const head = `<tr><th style="text-align:left">Nombre del equipo</th>${eqCols.marca ? '<th style="text-align:left">Marca</th>' : ''}${eqCols.modelo ? '<th style="text-align:left">Modelo</th>' : ''}${eqCols.plate ? '<th style="text-align:left">Placa</th>' : ''}${eqCols.serial ? '<th style="text-align:left">Serial</th>' : ''}${eqCols.jornada ? '<th style="text-align:center">Jornada</th>' : ''}${eqCols.precio ? '<th style="text-align:right">Precio/hora</th>' : ''}${eqCols.monto ? '<th style="text-align:right">Monto</th>' : ''}</tr>`;
     // Nº total de columnas y cuántas quedan a la IZQUIERDA del monto (para los colspan).
     const ncols = 1 + [eqCols.marca, eqCols.modelo, eqCols.plate, eqCols.serial, eqCols.jornada, eqCols.precio, eqCols.monto].filter(Boolean).length;
-    const fila = (r: Row) => `<tr><td>${esc(r.code)}</td>${eqCols.marca ? `<td>${esc(r.marca)}</td>` : ''}${eqCols.modelo ? `<td>${esc(r.modelo)}</td>` : ''}${eqCols.plate ? `<td>${esc(r.plate)}</td>` : ''}${eqCols.serial ? `<td>${esc(r.serial)}</td>` : ''}${eqCols.jornada ? `<td style="text-align:center">${eqJornada} h</td>` : ''}${eqCols.precio ? `<td style="text-align:right">${r.price > 0 ? usd(r.price) : '—'}</td>` : ''}${eqCols.monto ? `<td style="text-align:right;font-weight:700">${r.price > 0 ? usd(eqMonto(r)) : '—'}</td>` : ''}</tr>`;
+    const fila = (r: Row) => `<tr><td>${esc(r.code)}</td>${eqCols.marca ? `<td>${esc(r.marca)}</td>` : ''}${eqCols.modelo ? `<td>${esc(r.modelo)}</td>` : ''}${eqCols.plate ? `<td>${esc(r.plate)}</td>` : ''}${eqCols.serial ? `<td>${esc(r.serial)}</td>` : ''}${eqCols.jornada ? `<td style="text-align:center">${eqJornada} h</td>` : ''}${eqCols.precio ? `<td style="text-align:right">${r.price > 0 ? usd(eqPrecioHora(r)) : '—'}</td>` : ''}${eqCols.monto ? `<td style="text-align:right;font-weight:700">${r.price > 0 ? usd(eqMonto(r)) : '—'}</td>` : ''}</tr>`;
     const bloques = eqGroups
       .map((g) => {
         const filas = g.items.map(fila).join('');
@@ -3067,7 +3070,7 @@ export default function ReportsScreen({ route }: any) {
       .join('');
     const conMonto = eqCols.monto;
     const notaTarifa = eqCols.precio || eqCols.monto
-      ? `<p class="muted" style="margin:4px 0 8px">Precio y monto según el tabulador (precio por jornada de 12 h × ${eqFactor} = jornada de ${eqJornada} h). Los modelos sin tarifa salen con "—".</p>`
+      ? `<p class="muted" style="margin:4px 0 8px">Precio/hora del módulo de Control · el monto = precio/hora × ${eqJornada} h. Los equipos sin precio salen con "—".</p>`
       : '';
     const body = `
       <div class="muted">Listado de equipos${eqCols.jornada ? ` · jornada ${eqJornada} h` : ''}${repCompanies.length ? ` · ${repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`}` : ''}</div>
@@ -3311,7 +3314,7 @@ export default function ReportsScreen({ route }: any) {
             </View>
             <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Columnas a mostrar (marca lo que quieres imprimir)</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              {([['marca', 'Marca'], ['modelo', 'Modelo'], ['plate', 'Placa'], ['serial', 'Serial'], ['jornada', 'Jornada'], ['precio', 'Precio'], ['monto', 'Monto']] as const).map(([k, label]) => {
+              {([['marca', 'Marca'], ['modelo', 'Modelo'], ['plate', 'Placa'], ['serial', 'Serial'], ['jornada', 'Jornada'], ['precio', 'Precio/hora'], ['monto', 'Monto']] as const).map(([k, label]) => {
                 const on = eqCols[k];
                 return (
                   <TouchableOpacity key={k} onPress={() => setEqCols((p) => ({ ...p, [k]: !p[k] }))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -4373,6 +4376,16 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </Card>
 
+          {/* Botones arriba: para no tener que bajar hasta el final del listado. */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setPreview(false)}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]} onPress={downloadPdf}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+            </TouchableOpacity>
+          </View>
+
           {eqGroups.length === 0 || all.length === 0 ? (
             <Card><Text style={{ color: colors.muted }}>Sin equipos para el filtro elegido.</Text></Card>
           ) : (
@@ -4391,7 +4404,7 @@ export default function ReportsScreen({ route }: any) {
                       eqCols.marca && r.marca, eqCols.modelo && r.modelo,
                       eqCols.plate && `Placa ${r.plate}`, eqCols.serial && `Serial ${r.serial}`,
                       eqCols.jornada && `${eqJornada} h`,
-                      eqCols.precio && (r.price > 0 ? usd(r.price) : 'sin tarifa'),
+                      eqCols.precio && (r.price > 0 ? `${usd(eqPrecioHora(r))}/h` : 'sin tarifa'),
                     ].filter(Boolean).join(' · ');
                     return (
                       <View key={`${r.code}:${r.serial}:${i}`} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, paddingVertical: spacing.xs }}>
