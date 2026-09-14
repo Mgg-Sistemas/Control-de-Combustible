@@ -357,6 +357,13 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   return c;
 }
 
+/** Columnas del reporte «SOLO CAMIONES» (14-sep-2026): las del resumido con el
+ *  conteo de viajes y los m³ SIEMPRE fuera, estén como estén los interruptores.
+ *  Lleva un Nº de renglón para poder cantar la lista. */
+export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
+  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false }, eje)];
+}
+
 /**
  * Un reporte SIN NADA que contar no se emite.
  *
