@@ -2624,8 +2624,12 @@ retirados) con su **tabulador**. Eliges:
 El **precio/hora** sale del **módulo de Control**: se toma el **último monto** aplicado a cada
 máquina (el **precio congelado más reciente** de sus jornadas **÷ 12 = precio por hora**) y, si
 nunca tuvo jornada con precio, el **precio del catálogo**; el **monto = precio/hora × las horas de
-la jornada** (12 o 24). Los equipos sin ningún precio en Control salen con **«—»**. Trae **total por
-empresa** y **total general**, y se descarga en **PDF**.
+la jornada** (6, 12 o 24). Los equipos sin ningún precio en Control salen con **«—»**. Trae **total por
+empresa** y **total general**, y se descarga en **PDF** (con **tarjetas de resumen arriba**: total de
+equipos, jornada y monto total).
+
+- **Oxicorte** — check **«🔥 Incluir equipos de oxicorte»**: desmárcalo para que el reporte salga
+  **sin** los equipos de oxicorte.
 
 #### 🔎 Total por equipo — buscar UNA máquina (31-ago-2026)
 
