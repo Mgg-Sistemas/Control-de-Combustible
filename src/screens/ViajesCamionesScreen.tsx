@@ -53,6 +53,7 @@ import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, eti
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
+import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
 import { CONFIG_POR_DEFECTO, PAPELES, type TiqueConfig } from '../lib/tiqueConfig';
@@ -2512,6 +2513,9 @@ export default function ViajesCamionesScreen() {
    *  el número: son papeles entregados que la oficina todavía no ve. */
   const [tiquesPendientes, setTiquesPendientes] = useState(0);
   const [imprimiendo, setImprimiendo] = useState(false);
+  /** De qué tique se está mirando el historial de entregas. Null = ventana cerrada.
+   *  Pedido del cliente (14-sep-2026): tocar «entregado ×7» y ver quién y cuándo. */
+  const [historialFolio, setHistorialFolio] = useState<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -2829,7 +2833,15 @@ export default function ViajesCamionesScreen() {
               Sin marca no significa «no se entregó»: en una lista muy grande no
               se consulta, y ahí `vecesImpreso` devuelve null. Ver el tope. */}
           {impresiones != null && impresiones > 0 ? (
-            <Badge label={impresiones > 1 ? `🔁 entregado ×${impresiones}` : '✅ entregado'} tone="muted" />
+            // ⭐ Se toca y abre el historial: quién lo imprimió o reimprimió, y a
+            //    qué hora. La flecha es la seña de que se puede tocar.
+            <TouchableOpacity
+              onPress={() => setHistorialFolio(folioDeTique(row))}
+              accessibilityRole="button"
+              accessibilityLabel={`Ver quién entregó el tique ${folioDeTique(row)}`}
+            >
+              <Badge label={impresiones > 1 ? `🔁 entregado ×${impresiones} ›` : '✅ entregado ›'} tone="muted" />
+            </TouchableOpacity>
           ) : null}
         </View>
         {row.stuck && row.stuckError ? (
@@ -3148,6 +3160,9 @@ export default function ViajesCamionesScreen() {
       </Card>
 
       {/* Selector de camión (mismo estilo del selector "Agregar máquina suelta" de UsersScreen). */}
+      {/* Historial de entregas de un tique: se abre tocando «entregado ×N». */}
+      <HistorialTiqueModal folio={historialFolio} onClose={() => setHistorialFolio(null)} />
+
       {/* La cámara. Misma pieza que usan las otras pantallas del sistema. */}
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
         <QrScanner onDetected={onQrDetectado} onClose={() => setScanOpen(false)} />
