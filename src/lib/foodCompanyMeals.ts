@@ -1,5 +1,5 @@
-import { supabase } from './supabase';
-import { norm } from './text';
+import { supabase, selectAllRows } from './supabase';
+import { cmpText, norm } from './text';
 import { FoodCompanyMeal, MealType } from '../types/database';
 
 // Solo el personal de cocina/alimentación puede ingresar cantidades. Se valida por
@@ -48,41 +48,31 @@ export async function listForCompanyDay(companyId: string, date: string): Promis
   return (data ?? []) as FoodCompanyMeal[];
 }
 
+// ⭐ Las tres lecturas de abajo van PAGINADAS (14-sep-2026): la consulta simple corta en
+//    1000 filas y el reporte salía incompleto sin avisar. El orden se aplica después de
+//    juntar las páginas. Si la lectura falla, LANZAN: una lista vacía se leía como «no
+//    hubo comidas».
+
 /** Todas las comidas por empresa de un día (para el módulo/jefe). */
 export async function listCompanyMealsByDate(date: string): Promise<FoodCompanyMeal[]> {
-  const { data } = await supabase
-    .from('food_company_meals')
-    .select('*')
-    .eq('meal_date', date)
-    .order('company_name', { ascending: true });
-  return (data ?? []) as FoodCompanyMeal[];
+  const rows = (await selectAllRows('food_company_meals', '*', (q) => q.eq('meal_date', date))) as FoodCompanyMeal[];
+  return rows.sort((x, y) => cmpText(x.company_name, y.company_name));
 }
 
 /** Comidas por empresa en un RANGO de fechas (control/asistencia por empresa). */
 export async function listCompanyMealsBetween(from: string, to: string): Promise<FoodCompanyMeal[]> {
   const [a, b] = from <= to ? [from, to] : [to, from];
-  const { data } = await supabase
-    .from('food_company_meals')
-    .select('*')
-    .gte('meal_date', a)
-    .lte('meal_date', b)
-    .order('meal_date', { ascending: true })
-    .order('company_name', { ascending: true });
-  return (data ?? []) as FoodCompanyMeal[];
+  const rows = (await selectAllRows('food_company_meals', '*', (q) => q.gte('meal_date', a).lte('meal_date', b))) as FoodCompanyMeal[];
+  return rows.sort((x, y) => x.meal_date.localeCompare(y.meal_date) || cmpText(x.company_name, y.company_name));
 }
 
 /** Comidas de UNA empresa en un rango de fechas (para su reporte). */
 export async function listForCompanyBetween(companyId: string, from: string, to: string): Promise<FoodCompanyMeal[]> {
   const [a, b] = from <= to ? [from, to] : [to, from];
-  const { data } = await supabase
-    .from('food_company_meals')
-    .select('*')
-    .eq('company_id', companyId)
-    .gte('meal_date', a)
-    .lte('meal_date', b)
-    .order('meal_date', { ascending: false })
-    .order('meal_type', { ascending: true });
-  return (data ?? []) as FoodCompanyMeal[];
+  const rows = (await selectAllRows('food_company_meals', '*', (q) =>
+    q.eq('company_id', companyId).gte('meal_date', a).lte('meal_date', b),
+  )) as FoodCompanyMeal[];
+  return rows.sort((x, y) => y.meal_date.localeCompare(x.meal_date) || String(x.meal_type).localeCompare(String(y.meal_type)));
 }
 
 export type SaveCompanyMealInput = {
