@@ -2608,10 +2608,11 @@ retirados) con su **tabulador**. Eliges:
 - **Vista** — **🏢 Agrupar por empresa** o **📋 Listado general** (todos los equipos juntos, sin empresa).
 - **Empresas** — marca una, varias o todas.
 
-El **precio** es el **precio por jornada de 12 h que está en Control de Maquinaria** (el mismo
-tabulador de **Golden Touch** y **Liccione** que ya se ve en Control/Jornada); el
-**monto = precio × (jornada ÷ 12)**. Los equipos sin precio salen con **«—»**. Trae
-**total por empresa** y **total general**, y se descarga en **PDF**.
+El **precio** es el **precio por jornada de 12 h del módulo de Control**: se toma el **último monto**
+aplicado a cada máquina (el **precio congelado más reciente** de sus jornadas) y, si nunca tuvo
+jornada con precio, el **precio del catálogo**; el **monto = precio × (jornada ÷ 12)**. Los equipos
+sin ningún precio en Control salen con **«—»**. Trae **total por empresa** y **total general**, y se
+descarga en **PDF**.
 
 #### 🔎 Total por equipo — buscar UNA máquina (31-ago-2026)
 

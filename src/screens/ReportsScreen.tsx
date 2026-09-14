@@ -993,23 +993,42 @@ export default function ReportsScreen({ route }: any) {
   const eqTotalMonto = all.reduce((s, r) => s + eqMonto(r), 0);
 
   // Reporte de EQUIPOS: listado del catálogo (todas menos retiradas) con el PRECIO
-  // POR JORNADA DE 12 H que está en Control de Maquinaria — el campo machinery.price_per_hour,
-  // que la app usa como precio por jornada de 12 h (el mismo tabulador de Golden Touch y
-  // Liccione que ya se ve en Control/Jornada). El monto = ese precio × (jornada / 12).
+  // POR JORNADA DE 12 H del módulo de CONTROL. Se toma el ÚLTIMO MONTO aplicado en
+  // Control: el frozen_price (precio congelado) MÁS RECIENTE de cada máquina en sus
+  // jornadas; si nunca tuvo jornada con precio, cae al precio del catálogo
+  // (machinery.price_per_hour). El monto = ese precio × (jornada / 12).
   const generate = async () => {
     setLoading(true);
-    const machRes = await selectAllRows('machinery', 'code, marca, modelo, plate, serial, operational, price_per_hour, company:company_id(name)');
+    const [machRes, roundsRes] = await Promise.all([
+      selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, operational, price_per_hour, company:company_id(name)'),
+      // Últimos montos de Control: precios congelados (>0) de las jornadas, para quedarnos
+      // con el más reciente por máquina.
+      selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.gt('frozen_price', 0)),
+    ]);
+    // Último frozen_price por máquina (round_date más reciente).
+    const lastCtrlPrice = new Map<string, { date: string; price: number }>();
+    (roundsRes ?? []).forEach((r: any) => {
+      const fp = Number(r.frozen_price) || 0;
+      if (fp <= 0) return;
+      const d = String(r.round_date ?? '');
+      const prev = lastCtrlPrice.get(r.machinery_id);
+      if (!prev || d > prev.date) lastCtrlPrice.set(r.machinery_id, { date: d, price: fp });
+    });
     const list: Row[] = (machRes ?? [])
       .filter((m: any) => m.operational !== false) // todas menos las RETIRADAS
-      .map((m: any) => ({
-        company: m.company?.name ?? 'Sin empresa',
-        code: (m.code && String(m.code).trim()) || '—',
-        marca: (m.marca && String(m.marca).trim()) || '—',
-        modelo: (m.modelo && String(m.modelo).trim()) || '—',
-        plate: (m.plate && String(m.plate).trim()) || '—',
-        serial: (m.serial && String(m.serial).trim()) || '—',
-        price: m.price_per_hour != null ? Number(m.price_per_hour) : 0, // precio por jornada de 12 h (Control)
-      }));
+      .map((m: any) => {
+        const ctrl = lastCtrlPrice.get(m.id)?.price;
+        const price = ctrl != null && ctrl > 0 ? ctrl : (m.price_per_hour != null ? Number(m.price_per_hour) : 0);
+        return {
+          company: m.company?.name ?? 'Sin empresa',
+          code: (m.code && String(m.code).trim()) || '—',
+          marca: (m.marca && String(m.marca).trim()) || '—',
+          modelo: (m.modelo && String(m.modelo).trim()) || '—',
+          plate: (m.plate && String(m.plate).trim()) || '—',
+          serial: (m.serial && String(m.serial).trim()) || '—',
+          price, // precio por jornada de 12 h: último monto de Control (o catálogo)
+        };
+      });
     // Filtro por empresa (vacío = todas).
     const shown = repCompanies.length ? list.filter((r) => repCompanies.includes(r.company)) : list;
     setRows(shown);
