@@ -4283,6 +4283,13 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ×2**. Reimprimir se puede —a veces hace falta— pero hay que saberlo: dos papeles con el mismo
 > número en el patio se cuentan como dos viajes al cobrar.
 >
+> **🕘 Ver quién imprimió cada tique (14/09/2026).** Toca la pastilla **«entregado ×N»** de
+> cualquier viaje y se abre su historial, en orden: la primera impresión arriba y después cada
+> reimpresión. Cada renglón dice **quién** lo entregó, **fecha y hora de Caracas**, **desde qué
+> CDT** y si fue en tiquetera o en hoja. Arriba sale el resumen: cuántas entregas, cuántas
+> personas y cuántas reimpresiones. Si alguna entrega de ese tique salió sin señal y todavía
+> está en el teléfono, la ventana lo avisa, porque aún no aparece en la lista.
+
 > ⚠️ **Sin señal el papel sale igual, y la constancia se guarda sola después.** Si se cae la señal
 > justo al imprimir, arriba te aparece «*N tiques entregados sin registrar en el servidor*». No se
 > pierde nada: sube solo cuando vuelva la señal. El camionero ya tiene su papel.
