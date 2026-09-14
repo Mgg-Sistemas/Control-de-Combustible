@@ -16,6 +16,8 @@ import { matchTariffModelo } from '../lib/tariffs';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
+import { precioEfectivoJornada, precioVigenteEn } from '../lib/precioHistorial';
+import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
 
 // ── Utilidades de fecha (semana lunes→domingo, rangos de 7 días) ──────────────
 function toISO(d: Date): string {
@@ -111,6 +113,10 @@ type MachineAgg = {
   nightHours: number; // total horas de turno de noche
   subtotal: number;
   perDay: Record<string, DayInfo>;
+  /** Precio que regía cada día (historial de precios). */
+  pricePerDay: Record<string, number | null>;
+  /** Precio por rango de fechas fijado en el Control para esta semana (manda sobre el del día). */
+  priceRango: number | null;
 };
 
 /**
@@ -161,10 +167,27 @@ function recomputeGroup(g: Group): void {
     ma.hours = hrs;
     ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
     ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
-    ma.subtotal = round2((eff ?? 0) * units); // redondeado SOLO para mostrar por máquina
-    total += (eff ?? 0) * units; // acumula SIN redondear (como el Informe por jornada); se redondea 1 sola vez al final → evita el descuadre de centavos
+    // Precio por DÍA (14-sep-2026): si la semana no usa el precio del cierre ni un precio
+    // por rango, cada día se cobra con el precio que regía ESE día, no con el de hoy.
+    const porDia = !(g.priceMode === 'cierre' && ma.priceFrozen != null) && ma.priceRango == null;
+    let bruto = 0;
+    let sinPrecio = false;
+    if (porDia) {
+      Object.entries(ma.perDay).forEach(([fecha, d]) => {
+        const h = billableHours(d);
+        if (h <= 0) return;
+        const p = ma.pricePerDay[fecha] !== undefined ? ma.pricePerDay[fecha] : eff;
+        if (p == null) sinPrecio = true;
+        bruto += (p ?? 0) * (h / 12);
+      });
+    } else {
+      bruto = (eff ?? 0) * units;
+      sinPrecio = eff == null && hrs > 0;
+    }
+    ma.subtotal = round2(bruto); // redondeado SOLO para mostrar por máquina
+    total += bruto; // acumula SIN redondear (como el Informe por jornada); se redondea 1 sola vez al final → evita el descuadre de centavos
     hoursWorked += hrs;
-    if (eff == null && hrs > 0) noPrice = true;
+    if (sinPrecio) noPrice = true;
   });
   total += Number(g.fletesUSD) || 0; // los fletes/viajes de la semana se cobran también
   g.total = round2(total);
@@ -249,7 +272,7 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   const load = async () => {
     setLoading(true);
-    const [rounds, { data: pays }, { data: prs }, { data: closs }, fletesRows] = await Promise.all([
+    const [rounds, { data: pays }, { data: prs }, { data: closs }, fletesRows, histPrecios] = await Promise.all([
       // Paginado: con >1000 rondas la consulta simple se truncaba y faltaban pagos.
       selectAllRows(
         'machine_rounds',
@@ -259,6 +282,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       supabase.from('payrolls').select('*').order('created_at', { ascending: false }),
       supabase.from('control_closures').select('detail'),
       selectAllRows('fletes', 'viajes, precio, flete_date, company:company_id(name)'),
+      cargarHistorialPrecios(),
     ]);
 
     // Fletes/viajes por empresa+semana → se suman al total a cobrar de esa semana.
@@ -312,7 +336,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         ({ key: k, company, companyId, weekStart, weekEnd: periodEndISO(weekStart), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false, hasFrozen: false, priceMode: 'actual', fletesUSD: 0 } as Group);
       const priceFrozen = frozen.has(`${machineId}|${weekStart}`) ? Number(frozen.get(`${machineId}|${weekStart}`)) : null;
       if (priceFrozen != null) g.hasFrozen = true;
-      const ma = g.machines[machineId] ?? { machine: label, serial, tipo, price, priceCurrent: price, priceFrozen, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
+      const ma = g.machines[machineId] ?? { machine: label, serial, tipo, price, priceCurrent: price, priceFrozen, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {}, pricePerDay: {}, priceRango: null };
       // Por día: turno de día/noche, parada y extras (todo en el registro base).
       const prev = ma.perDay[r.round_date] ?? { stopped: 0, overtime: 0, day: 0, night: 0 };
       ma.perDay[r.round_date] = {
@@ -321,6 +345,9 @@ export default function ControlPagosScreen({ navigation }: any) {
         day: Math.max(prev.day, Number(r.day_hours) || 0),
         night: Math.max(prev.night, Number(r.night_hours) || 0),
       };
+      // Precio que regía ESE día (historial). Solo se usa si la semana no tiene precio
+      // del cierre ni precio por rango (ver recomputeGroup).
+      ma.pricePerDay[r.round_date] = precioVigenteEn(histPrecios, r.machinery?.id, r.round_date, price);
       ma.price = price;
       g.machines[machineId] = ma;
       map.set(k, g);
@@ -334,7 +361,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       // Pagos coincida con los reportes. El corte CERRADO sigue mandando por el cierre.
       Object.entries(g.machines).forEach(([mid, ma]) => {
         const rp = rangePriceWk.get(`${mid}|${g.weekStart}`);
-        if (rp != null && rp > 0) { ma.priceCurrent = rp; ma.price = rp; }
+        if (rp != null && rp > 0) { ma.priceCurrent = rp; ma.price = rp; ma.priceRango = rp; }
       });
       // Por defecto usa el precio ACTUAL/por rango (el MISMO que el Informe por jornada:
       // machine_rounds.frozen_price o price_per_hour). Así Control de Pagos SIEMPRE cuadra
@@ -376,7 +403,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
       cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
       cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
-      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0 ? Number(r.frozen_price) : pph;
+      cur.price = precioEfectivoJornada(r.frozen_price, histPrecios, r.machinery?.id, r.round_date, pph);
       dm.set(r.round_date, cur);
       repDates.set(mid, dm);
     });
@@ -643,7 +670,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       setSyncPreview(null);
       await confirm({
         title: 'Sincronización aplicada',
-        message: `Se actualizaron los precios actuales de ${n} equipo(s). Los cierres anteriores no se tocaron.`,
+        message: `Se actualizaron los precios de ${n} equipo(s). Rigen desde la jornada de hoy: los días anteriores y los cierres conservan el precio que tenían.`,
         confirmText: 'Ok',
       });
       await load();
@@ -824,9 +851,10 @@ export default function ControlPagosScreen({ navigation }: any) {
   // Muestra: horas trabajadas por máquina y por empresa, total a pagar y días transcurridos.
   const CUTOFF_APARTADO = '2026-07-05';
   const openTipoReport = async () => {
-    const [{ data: mach }, rnds] = await Promise.all([
+    const [{ data: mach }, rnds, histPrecios] = await Promise.all([
       supabase.from('machinery').select('id, code, serial, tipo, entry_date, price_per_hour, company:company_id(id, name)'),
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price'),
+      cargarHistorialPrecios(),
     ]);
     const machById = new Map<string, any>();
     (mach ?? []).forEach((m: any) => machById.set(m.id, m));
@@ -839,10 +867,9 @@ export default function ControlPagosScreen({ navigation }: any) {
     // calculaba el monto con el precio ACTUAL sobre el total de horas ya sumado, así que
     // una máquina con jornadas congeladas a otro precio salía con un monto distinto al
     // de COTEJO/Informe por jornada para el mismo período.
-    const effectivePrice = (m: any, ownFrozen: any) => {
-      if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
-      return m.price_per_hour != null ? Number(m.price_per_hour) : 0;
-    };
+    // Congelado si existe; si no, el que regía ESE día (historial de precios).
+    const effectivePrice = (m: any, ownFrozen: any, fecha: string) =>
+      precioEfectivoJornada(ownFrozen, histPrecios, m.id, fecha, m.price_per_hour != null ? Number(m.price_per_hour) : 0) ?? 0;
     type Period = { key: string; label: string; end: string; order: number; companies: Map<string, Map<string, Map<string, { worked: number; amount: number }>>> };
     const periods = new Map<string, Period>();
     for (const r of byMD.values()) {
@@ -850,7 +877,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       if (!m) continue;
       const worked = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
       if (worked <= 0) continue;
-      const amount = round2((worked / 12) * effectivePrice(m, r.frozen_price));
+      const amount = round2((worked / 12) * effectivePrice(m, r.frozen_price, r.round_date));
       let key: string, label: string, end: string, order: number;
       if (r.round_date <= CUTOFF_APARTADO) {
         key = '__apartado__'; label = 'Fecha de llegada → 05/07/2026'; end = CUTOFF_APARTADO; order = 0;

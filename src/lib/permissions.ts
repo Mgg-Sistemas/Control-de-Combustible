@@ -62,7 +62,10 @@ export const MODULES: { key: string; label: string }[] = [
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
  *  Control de Pagos y Usuarios quedan restringidos; el resto abierto (compat.). */
 export function defaultLevel(moduleKey: string): PermLevel {
-  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'viajes_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta' || moduleKey === 'lavado_maquinaria' || moduleKey === 'cuentas') return 'none';
+  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'viajes_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores' || moduleKey === 'coordinacion_operadores' || moduleKey === 'mangueras' || moduleKey === 'fabricacion_planta' || moduleKey === 'acarreo' || moduleKey === 'geodesta' || moduleKey === 'lavado_maquinaria' || moduleKey === 'cuentas' || moduleKey === 'cobro_viajes' || moduleKey === 'horometros') return 'none';
+  // ⭐ 'cobro_viajes' y 'horometros' (14-sep-2026) todavía no existen como módulos: están
+  //    acá ANTES de crearlos para que nazcan CERRADOS. Un módulo nuevo sin fila en
+  //    module_permissions cae en el 'escritura' de abajo, abierto para cualquier usuario.
   return 'escritura';
 }
 

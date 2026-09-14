@@ -476,6 +476,13 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   esas fechas. Si el precio **sube en otra semana, esta no cambia**; y si lo **modificas,
   solo afecta esa semana**. El **Informe por jornada** y **Control de Pagos** usan ese mismo
   precio blindado (el reporte **Maquinaria** no muestra precios ni montos en $ — ver más abajo).
+- **💲 Cambiar un precio ya no reescribe lo pasado (14/09/2026).** Desde hoy el sistema anota
+  cada cambio de precio con la **jornada desde la que rige**. Una jornada **sin precio blindado**
+  se cobra con el precio que tenía **ese día**, no con el de hoy. Si guardas un precio **sin
+  blindar**, rige **desde la jornada de hoy** y los días anteriores conservan el suyo. Lo mismo
+  pasa con **Sincronizar tabulador** en Control de Pagos. Para corregir días que ya pasaron,
+  usa el precio **blindado** con el rango de esas fechas. Los días anteriores al 14/09/2026 no
+  tienen historial: siguen como estaban hasta que alguien cambie el precio.
 - **Si no cambias el precio, se mantiene el de la semana anterior** (arrastre automático):
   una jornada sin precio propio hereda el último precio que pusiste en una fecha anterior
   de esa misma máquina. Solo tocas el precio cuando **cambia**.
@@ -2303,6 +2310,12 @@ flechas ◀ ▶ cambias de día.
 > **"🍽️ Solo comidas"**. Esa empresa aparecerá **únicamente en la distribución de comidas** y
 > **no saldrá en ningún otro** selector, lista ni reporte del sistema (p. ej. **PNB Canica**).
 > Es distinto de **"🚫 Ocultar"**, que la desactiva en todo (incluida la comida).
+
+> **📋 Reportes de comida completos (14/09/2026).** El control por empresa, el reporte por rango y
+> el PDF por empresa leían como máximo **1.000 entregas**: una semana con más salía **incompleta sin
+> avisar** (ya hubo semanas de 1.259). Ahora traen **todas**. Si la lectura falla (por ejemplo, sin
+> señal), la pantalla muestra un **aviso rojo** y el PDF del rango no se genera con datos a medias:
+> desliza hacia abajo para reintentar.
 
 **Control por empresa (asistencia/entrega):** en **Distribución de comida** (jefe) toca la
 pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los atajos *Hoy / 7 días /
