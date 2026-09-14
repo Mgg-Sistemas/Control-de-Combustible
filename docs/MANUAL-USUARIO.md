@@ -2600,8 +2600,8 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 En la pestaña **🚜 Equipos** sale el **listado de equipos** del catálogo (todos menos los
 retirados) con su **tabulador**. Eliges:
 
-- **Jornada** — **12 o 24 horas**, la coloca el usuario y aplica a todo el reporte
-  (12 h = 1 jornada, 24 h = 2 jornadas).
+- **Jornada** — **6, 12 o 24 horas**, la coloca el usuario y aplica a todo el reporte
+  (6 h = media jornada, 12 h = 1 jornada, 24 h = 2 jornadas).
 - **Columnas** a mostrar/ocultar **con check** — **Marca, Modelo, Placa, Serial, Jornada, Precio y Monto**
   (el *nombre del equipo* va siempre). Así imprimes el reporte **solo con lo que quieres**; si ocultas
   el **Monto**, también se quitan los totales en dinero.
