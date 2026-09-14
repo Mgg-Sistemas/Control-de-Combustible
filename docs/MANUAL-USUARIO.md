@@ -2621,12 +2621,14 @@ retirados) con su **tabulador**. Eliges:
 - **Vista** — **🏢 Agrupar por empresa** o **📋 Listado general** (todos los equipos juntos, sin empresa).
 - **Empresas** — marca una, varias o todas.
 
-El **precio/hora** sale del **módulo de Control**: se toma el **último monto** aplicado a cada
-máquina (el **precio congelado más reciente** de sus jornadas **÷ 12 = precio por hora**) y, si
-nunca tuvo jornada con precio, el **precio del catálogo**; el **monto = precio/hora × las horas de
-la jornada** (6, 12 o 24). Los equipos sin ningún precio en Control salen con **«—»**. Trae **total por
-empresa** y **total general**, y se descarga en **PDF** (con **tarjetas de resumen arriba**: total de
-equipos, jornada y monto total).
+El **precio/hora** se busca en este orden: (1) el **último monto de Control** (precio congelado más
+reciente de sus jornadas), (2) el **precio del catálogo** de la máquina, (3) el **tabulador por
+empresa** de su modelo, (4) el **tabulador general** de su modelo — así casi ninguna queda sin
+precio; ese valor **÷ 12 = precio por hora**; el **monto = precio/hora × las horas de la jornada**
+(6, 12 o 24). Si un equipo aún no tiene precio en ninguna de esas fuentes sale con **«—»** y se
+cuenta en el aviso **«⚠️ Sin precio»**. Trae **total por empresa** y **total general**, y se descarga
+en **PDF** (con **tarjetas de resumen arriba**: total de equipos, jornada, monto total y, si aplica,
+«⚠️ Sin precio: N»).
 
 - **Oxicorte** — check **«🔥 Incluir equipos de oxicorte»**: desmárcalo para que el reporte salga
   **sin** los equipos de oxicorte.
