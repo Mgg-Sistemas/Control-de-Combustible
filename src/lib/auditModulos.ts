@@ -155,6 +155,9 @@ const TABLA_A_MODULO: Record<string, string> = {
   // `obras`: es un catálogo propio de este módulo, y no tiene que ver ni con los
   // `edificios` del inspector ni con las `haul_locations` del acarreo.
   ubicaciones_obra: 'viajes',
+  // Pago de viajes (15-sep-2026): tarifas por zona, camiones por viaje y «facturó».
+  // Van con viajes porque ese pago vive en el módulo de Viajes de camiones.
+  viaje_tarifas: 'viajes', machinery_modo_pago: 'viajes', viaje_pago_marcas: 'viajes',
   // 🔔 Avisos
   notifications: 'avisos', notification_reads: 'avisos',
 };
