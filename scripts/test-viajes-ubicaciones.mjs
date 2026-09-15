@@ -231,6 +231,16 @@ ok('el papel deja constancia del filtro de obra', /Obras: \$\{esc\(Array\.from\(
 ok('las columnas reciben el eje', /columnasDetalle\(op, resumenEje\)/.test(scr) && /columnasResumen\(op, resumenEje\)/.test(scr));
 ok('el detallado muestra el nombre GRABADO, no el del catálogo de hoy',
   /ubicacion: r\.ubicacionNombre \|\| SIN_UBICACION_LABEL/.test(scr));
+// ⭐ 15-sep-2026: «Agrupar por obra» separaba bien los viajes (por id) pero rotulaba TODAS
+//    las obras «Sin ubicación», porque la pantalla trae `ubicacionNombre` y el resumen lee
+//    `ubicacionName`. Esto fija el puente, y abajo se muestra lo que pasa sin él.
+ok('⭐ el resumen recibe el NOMBRE de la obra', /ubicacionName: r\.ubicacionNombre \?\? null/.test(scr));
+{
+  const sinPuente = res.resumirViajes([{ machineryId: 'm1', machineCode: 'VOLTEO A', ubicacionId: 'u1', ubicacionNombre: 'CDT Playa Escondida' }], camionPorId, 'ubicacion');
+  const conPuente = res.resumirViajes([{ machineryId: 'm1', machineCode: 'VOLTEO A', ubicacionId: 'u1', ubicacionName: 'CDT Playa Escondida' }], camionPorId, 'ubicacion');
+  eq('sin el puente la obra sale «Sin ubicación» (el error que se vio)', sinPuente.empresas[0].name, 'Sin ubicación');
+  eq('con el puente sale su nombre', conPuente.empresas[0].name, 'CDT Playa Escondida');
+}
 
 // El administrador de obras.
 ok('se pueden crear obras', /from\('ubicaciones_obra'\)\.insert/.test(comp));
@@ -313,6 +323,7 @@ ok('el manual .md dice que mover no cambia el pasado', /NO cambia sus viajes ya 
 ok('el manual .md explica el reporte por obra', /resumen por obra/i.test(md));
 ok('el manual en pantalla lo explica', /OBRAS Y UBICACIONES \(12\/09\/2026\)/.test(ms));
 ok('el manual en pantalla también avisa lo del pasado', /NO CAMBIA SUS VIAJES YA REGISTRADOS/.test(ms));
+ok('los dos manuales cuentan la corrección de «Agrupar por obra»', /Agrupar por obra corregido \(15\/09\/2026\)/.test(md) && /AGRUPAR POR OBRA CORREGIDO \(15\/09\/2026\)/.test(ms));
 ok('el manual .md explica que el panel son desplegables', /Todo el panel son desplegables \(12\/09\/2026\)/.test(md));
 ok('el manual .md usa el nombre nuevo del panel', /### Panel de información \(administración\)/.test(md));
 ok('el manual en pantalla también', /EL PANEL AHORA SON DESPLEGABLES \(12\/09\/2026\)/.test(ms));

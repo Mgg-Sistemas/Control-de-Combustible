@@ -146,7 +146,8 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
         alerta={!!error || tot.pendientes > 0}
       >
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-          Lo que se le paga a cada empresa por los viajes de sus camiones, con la tarifa de la zona del CDT. Se cuenta
+          Lo que se le paga a cada empresa por los viajes de sus camiones, con la tarifa que le toque (la de la zona
+          del CDT, o la especial de su empresa, grupo o camión). Se cuenta
           por jornada (7am a 7am). El pago por viaje arranca el {dmy(INICIO_PAGO_VIAJES)}.
         </Text>
 
