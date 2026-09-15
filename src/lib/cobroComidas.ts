@@ -1,16 +1,20 @@
 // COBRO DE COMIDAS (15-sep-2026). Regla pura, sin imports: la prueba la carga sola.
 //
 // Vive SOLO en Distribución de comida (pestaña Reportes). No cambia cómo registra la
-// cocina ni los conteos: toma lo ya entregado y le pone precio. Tres reglas:
+// cocina ni los conteos: toma lo ya entregado y le pone precio. Cinco reglas:
 //
 //   1) PRECIO por categoría (desayuno, almuerzo, lunch, cena… y las que vengan), igual que
 //      las tarifas de viajes: uno general desde una fecha, o uno BLINDADO a un rango que
 //      manda en esas fechas. Nunca se borran: se anulan. Lo pasado conserva su precio.
 //   2) CUENTA: lo entregado por QR va a la empresa GUARDADA en la entrega. Lo entregado por
 //      carnet va a la empresa de la ficha de la persona; sin empresa en la ficha es nómina
-//      propia; si la ficha no existe o no se pudo leer, queda aparte, a la vista.
-//   3) Lo que no tiene precio ese día NO suma, pero se cuenta como «sin precio» para que
-//      nadie lo pierda de vista.
+//      propia (por departamento); si la ficha no existe o no se pudo leer, queda aparte.
+//   3) Lo que no tiene precio ese día NO suma, pero se cuenta como «sin precio».
+//   4) SE COBRA o CONSUMO INTERNO, por cuenta y desde una fecha (comida_cuentas_config). Sin
+//      configurar: una empresa se cobra y la nómina propia no. Lo interno se valora aparte y
+//      NO suma al total a cobrar.
+//   5) ENCARGADO de cada cuenta, desde una fecha (catálogo `encargados`). El cobro se puede
+//      ver por cuenta o por encargado: el total es el mismo, solo cambia cómo se reparte.
 //
 // El día es el de la entrega (fecha de Caracas), el mismo que usan los reportes de comida.
 
@@ -44,26 +48,54 @@ export type ComidaPersonaCobro = {
   meals: number | string | null;
 };
 
-/** Empresa de la ficha de cada persona: companyId null = nómina propia. */
-export type EmpresaDePersona = { companyId: string | null; companyName: string | null };
+/** Ficha de cada persona: companyId null = nómina propia (con su departamento). */
+export type EmpresaDePersona = { companyId: string | null; companyName: string | null; departamento?: string | null };
+
+/** Empresa (clave = company_id, o el nombre si la entrega no guardó id) o departamento de la nómina propia. */
+export type TipoCuenta = 'empresa' | 'departamento';
+
+/** Una fila del historial de configuración de una cuenta. La última con `desde <= fecha` manda. */
+export type ConfigCuenta = {
+  id?: string;
+  tipo: string;
+  clave: string;
+  desde: string;
+  encargado_id?: string | null;
+  se_cobra: boolean;
+  nota?: string | null;
+  created_at?: string | null;
+  created_by_nombre?: string | null;
+};
+
+/** Cómo se reparte el cobro: por cuenta (empresa / nómina) o por encargado. */
+export type EjeCobro = 'cuenta' | 'encargado';
 
 export const CUENTA_NOMINA = 'nomina';
 export const CUENTA_SIN_FICHA = 'sin_ficha';
 export const SIN_CATEGORIA = 'sin_categoria';
+export const SIN_ENCARGADO = 'sin_encargado';
+export const DEPTO_SIN_NOMBRE = 'SIN DEPARTAMENTO';
 
-export type ItemCobro = { categoria: string; precio: number | null; cantidad: number; monto: number };
+export type ItemCobro = { categoria: string; precio: number | null; cantidad: number; monto: number; seCobra: boolean };
 
 export type CuentaComida = {
-  /** company_id, o el nombre si la entrega no guardó id; o CUENTA_NOMINA / CUENTA_SIN_FICHA. */
+  /** company_id (o nombre), CUENTA_NOMINA, CUENTA_SIN_FICHA; o el id del encargado / SIN_ENCARGADO. */
   clave: string;
   nombre: string;
   comidas: number;
+  /** Comidas con precio que SE COBRAN. */
   cobradas: number;
   sinPrecio: number;
+  /** Lo que se cobra. */
   monto: number;
+  /** Valor del consumo interno (con precio, marcado «no se cobra»): se muestra, no se cobra. */
+  montoInterno: number;
+  comidasInternas: number;
   porQr: number;
   porCarnet: number;
-  /** Agrupado por categoría y precio, ordenado por categoría y fecha de precio. */
+  /** De dónde salen sus comidas: empresas o departamentos, en orden. */
+  detalle: string[];
+  /** Agrupado por categoría, precio y si se cobra. */
   items: ItemCobro[];
 };
 
@@ -73,6 +105,12 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 const redondear = (n: number) => Math.round(n * 100) / 100;
+const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+
+/** Nombre de departamento listo para comparar: sin espacios de más y en mayúsculas. */
+export function normalizarDepartamento(v: unknown): string {
+  return limpio(v).toUpperCase() || DEPTO_SIN_NOMBRE;
+}
 
 /** Precio de una categoría en una fecha: el blindado que la cubre gana; si no, el general de «desde» más reciente. */
 export function precioComidaEn(precios: PrecioComida[] | null | undefined, categoria: unknown, fecha: string): PrecioComida | null {
@@ -113,67 +151,149 @@ export function validarPrecioComida(
   return null;
 }
 
-/** Cuentas de cobro del rango, una por empresa (más nómina propia y sin ficha). Nómina y sin ficha van al final. */
+/** Historial de configuración por cuenta, del más viejo al más nuevo. */
+export type IndiceConfig = Map<string, ConfigCuenta[]>;
+
+const claveDeConfig = (tipo: string, clave: unknown) =>
+  `${tipo}|${tipo === 'departamento' ? normalizarDepartamento(clave) : limpio(clave)}`;
+
+export function indexarConfigCuentas(filas: ConfigCuenta[] | null | undefined): IndiceConfig {
+  const idx: IndiceConfig = new Map();
+  (filas ?? []).forEach((f) => {
+    if (!f || (f.tipo !== 'empresa' && f.tipo !== 'departamento') || !limpio(f.clave) || !dia(f.desde) || typeof f.se_cobra !== 'boolean') return;
+    const k = claveDeConfig(f.tipo, f.clave);
+    const lista = idx.get(k) ?? [];
+    lista.push(f);
+    idx.set(k, lista);
+  });
+  idx.forEach((lista) =>
+    lista.sort((a, b) => dia(a.desde).localeCompare(dia(b.desde)) || String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))),
+  );
+  return idx;
+}
+
+/** La configuración que rige para esa cuenta en esa fecha, o null. */
+export function configCuentaEn(idx: IndiceConfig | null | undefined, tipo: TipoCuenta, clave: unknown, fecha: string): ConfigCuenta | null {
+  if (!idx) return null;
+  const f = dia(fecha);
+  let vigente: ConfigCuenta | null = null;
+  for (const c of idx.get(claveDeConfig(tipo, clave)) ?? []) if (dia(c.desde) <= f) vigente = c;
+  return vigente;
+}
+
+/** Sin configurar: una empresa se cobra; la nómina propia (por departamento) es consumo interno. */
+export function seCobraPorDefecto(tipo: TipoCuenta | null): boolean {
+  return tipo !== 'departamento';
+}
+
+/**
+ * Cuentas de cobro del rango. Con `eje: 'cuenta'` (por defecto) una por empresa, más nómina
+ * propia y sin ficha al final. Con `eje: 'encargado'`, una por encargado, y «Sin encargado»
+ * al final. El total a cobrar es el mismo en los dos ejes.
+ */
 export function calcularCobroComidas(opts: {
   empresas: ComidaEmpresaCobro[] | null | undefined;
   personas: ComidaPersonaCobro[] | null | undefined;
   empresaDePersona: Map<string, EmpresaDePersona>;
   precios: PrecioComida[] | null | undefined;
+  config?: IndiceConfig | null;
+  /** id → nombre del encargado. */
+  encargados?: Map<string, string> | null;
+  eje?: EjeCobro;
 }): CuentaComida[] {
-  const cuentas = new Map<string, CuentaComida & { _items: Map<string, ItemCobro & { _desde: string }> }>();
+  const eje: EjeCobro = opts.eje === 'encargado' ? 'encargado' : 'cuenta';
+  type Acum = CuentaComida & { _orden: number; _items: Map<string, ItemCobro & { _desde: string }>; _detalle: Set<string> };
+  const cuentas = new Map<string, Acum>();
 
-  const sumar = (clave: string, nombre: string, categoria: string | null, fecha: string, cantidad: number, via: 'qr' | 'carnet') => {
-    if (!(cantidad > 0)) return;
+  const sumar = (m: {
+    clave: string; nombre: string; orden: number; tipo: TipoCuenta | null; claveConfig: string; detalle: string;
+    categoria: string | null; fecha: string; cantidad: number; via: 'qr' | 'carnet';
+  }) => {
+    if (!(m.cantidad > 0)) return;
+    const cfg = m.tipo ? configCuentaEn(opts.config, m.tipo, m.claveConfig, m.fecha) : null;
+    const seCobra = cfg ? cfg.se_cobra : seCobraPorDefecto(m.tipo);
+    let { clave, nombre, orden } = m;
+    if (eje === 'encargado') {
+      const id = limpio(cfg?.encargado_id);
+      clave = id || SIN_ENCARGADO;
+      nombre = id ? opts.encargados?.get(id) || 'Encargado sin nombre' : 'Sin encargado asignado';
+      orden = id ? 0 : 1;
+    }
     let c = cuentas.get(clave);
     if (!c) {
-      c = { clave, nombre, comidas: 0, cobradas: 0, sinPrecio: 0, monto: 0, porQr: 0, porCarnet: 0, items: [], _items: new Map() };
+      c = {
+        clave, nombre, comidas: 0, cobradas: 0, sinPrecio: 0, monto: 0, montoInterno: 0, comidasInternas: 0,
+        porQr: 0, porCarnet: 0, detalle: [], items: [], _orden: orden, _items: new Map(), _detalle: new Set(),
+      };
       cuentas.set(clave, c);
     }
-    const cat = categoria || SIN_CATEGORIA;
-    const p = categoria ? precioComidaEn(opts.precios, categoria, fecha) : null;
+    const cat = m.categoria || SIN_CATEGORIA;
+    const p = m.categoria ? precioComidaEn(opts.precios, m.categoria, m.fecha) : null;
     const precio = p ? redondear(num(p.precio)) : null;
-    c.comidas += cantidad;
-    if (via === 'qr') c.porQr += cantidad; else c.porCarnet += cantidad;
-    if (precio === null) c.sinPrecio += cantidad;
-    else { c.cobradas += cantidad; c.monto = redondear(c.monto + cantidad * precio); }
-    const k = `${cat}|${precio ?? '-'}`;
-    const it = c._items.get(k) ?? { categoria: cat, precio, cantidad: 0, monto: 0, _desde: p ? dia(p.desde) : '' };
-    it.cantidad += cantidad;
+    c.comidas += m.cantidad;
+    if (m.via === 'qr') c.porQr += m.cantidad; else c.porCarnet += m.cantidad;
+    c._detalle.add(m.detalle);
+    if (precio === null) c.sinPrecio += m.cantidad;
+    if (!seCobra) c.comidasInternas += m.cantidad;
+    if (precio !== null && seCobra) { c.cobradas += m.cantidad; c.monto = redondear(c.monto + m.cantidad * precio); }
+    if (precio !== null && !seCobra) c.montoInterno = redondear(c.montoInterno + m.cantidad * precio);
+    const k = `${cat}|${precio ?? '-'}|${seCobra ? 1 : 0}`;
+    const it = c._items.get(k) ?? { categoria: cat, precio, cantidad: 0, monto: 0, seCobra, _desde: p ? dia(p.desde) : '' };
+    it.cantidad += m.cantidad;
     it.monto = precio === null ? 0 : redondear(it.cantidad * precio);
     c._items.set(k, it);
   };
 
   for (const e of opts.empresas ?? []) {
     if (!e) continue;
-    const nombre = String(e.company_name ?? '').trim() || 'Empresa sin nombre';
-    sumar(e.company_id || nombre, nombre, e.meal_type, dia(e.meal_date), Math.floor(num(e.delivered)), 'qr');
+    const nombre = limpio(e.company_name) || 'Empresa sin nombre';
+    const clave = e.company_id || nombre;
+    sumar({
+      clave, nombre, orden: 0, tipo: 'empresa', claveConfig: clave, detalle: nombre,
+      categoria: e.meal_type, fecha: dia(e.meal_date), cantidad: Math.floor(num(e.delivered)), via: 'qr',
+    });
   }
 
   for (const r of opts.personas ?? []) {
     if (!r) continue;
     const ficha = r.employee_id ? opts.empresaDePersona.get(r.employee_id) : undefined;
-    let clave = CUENTA_SIN_FICHA;
-    let nombre = 'Por carnet · sin ficha de nómina';
-    if (ficha && ficha.companyId) { clave = ficha.companyId; nombre = ficha.companyName || 'Empresa'; }
-    else if (ficha) { clave = CUENTA_NOMINA; nombre = 'Nómina propia (por carnet)'; }
-    sumar(clave, nombre, r.meal_type, dia(r.distribution_date), Math.floor(num(r.meals)), 'carnet');
+    const base = { categoria: r.meal_type, fecha: dia(r.distribution_date), cantidad: Math.floor(num(r.meals)), via: 'carnet' as const };
+    if (ficha && ficha.companyId) {
+      const nombre = limpio(ficha.companyName) || 'Empresa';
+      sumar({ ...base, clave: ficha.companyId, nombre, orden: 0, tipo: 'empresa', claveConfig: ficha.companyId, detalle: nombre });
+    } else if (ficha) {
+      const depto = normalizarDepartamento(ficha.departamento);
+      sumar({ ...base, clave: CUENTA_NOMINA, nombre: 'Nómina propia (por carnet)', orden: 1, tipo: 'departamento', claveConfig: depto, detalle: depto });
+    } else {
+      sumar({ ...base, clave: CUENTA_SIN_FICHA, nombre: 'Por carnet · sin ficha de nómina', orden: 2, tipo: null, claveConfig: '', detalle: 'Sin ficha' });
+    }
   }
 
-  const orden = (c: CuentaComida) => (c.clave === CUENTA_NOMINA ? 1 : c.clave === CUENTA_SIN_FICHA ? 2 : 0);
   return Array.from(cuentas.values())
-    .map(({ _items, ...c }) => ({
+    .map(({ _items, _detalle, ...c }) => ({
       ...c,
+      detalle: Array.from(_detalle).sort((a, b) => a.localeCompare(b, 'es')),
       items: Array.from(_items.values())
-        .sort((a, b) => a.categoria.localeCompare(b.categoria) || a._desde.localeCompare(b._desde))
+        .sort((a, b) => a.categoria.localeCompare(b.categoria) || Number(b.seCobra) - Number(a.seCobra) || a._desde.localeCompare(b._desde))
         .map(({ _desde, ...it }) => it),
     }))
-    .sort((a, b) => orden(a) - orden(b) || a.nombre.localeCompare(b.nombre, 'es'));
+    .sort((a, b) => a._orden - b._orden || a.nombre.localeCompare(b.nombre, 'es'))
+    .map(({ _orden, ...c }) => c);
 }
 
-/** Suma de todas las cuentas. */
-export function totalCobroComidas(cuentas: CuentaComida[]): { comidas: number; cobradas: number; sinPrecio: number; monto: number } {
+export type TotalCobroComidas = { comidas: number; cobradas: number; sinPrecio: number; monto: number; montoInterno: number; comidasInternas: number };
+
+/** Suma de todas las cuentas. `monto` es lo que se cobra; `montoInterno`, el consumo interno. */
+export function totalCobroComidas(cuentas: CuentaComida[]): TotalCobroComidas {
   return cuentas.reduce(
-    (a, c) => ({ comidas: a.comidas + c.comidas, cobradas: a.cobradas + c.cobradas, sinPrecio: a.sinPrecio + c.sinPrecio, monto: redondear(a.monto + c.monto) }),
-    { comidas: 0, cobradas: 0, sinPrecio: 0, monto: 0 },
+    (a, c) => ({
+      comidas: a.comidas + c.comidas,
+      cobradas: a.cobradas + c.cobradas,
+      sinPrecio: a.sinPrecio + c.sinPrecio,
+      monto: redondear(a.monto + c.monto),
+      montoInterno: redondear(a.montoInterno + c.montoInterno),
+      comidasInternas: a.comidasInternas + c.comidasInternas,
+    }),
+    { comidas: 0, cobradas: 0, sinPrecio: 0, monto: 0, montoInterno: 0, comidasInternas: 0 },
   );
 }

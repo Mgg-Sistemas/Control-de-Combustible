@@ -3,7 +3,8 @@
 // Tarjeta de la pestaña Reportes de Distribución de comida. Usa el MISMO rango y las
 // MISMAS entregas que ya cargó la pantalla, y les pone precio: una cuenta por empresa
 // (lo entregado por QR más lo de su gente por carnet), la nómina propia y lo que no tiene
-// ficha. Tocar una cuenta muestra cuántas comidas de cada tipo, a qué precio y el monto.
+// ficha; o, si se elige, una por ENCARGADO. Lo que no se cobra (consumo interno) se valora
+// aparte y no suma al total a cobrar.
 //
 // ⭐ Solo lee. No cambia cómo registra la cocina ni los conteos de la pantalla.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -17,13 +18,16 @@ import { MEALS } from '../lib/foodCompanyMeals';
 import { FoodCompanyMeal, FoodDistribution } from '../types/database';
 import {
   calcularCobroComidas,
+  indexarConfigCuentas,
   totalCobroComidas,
+  ConfigCuenta,
   CuentaComida,
+  EjeCobro,
   EmpresaDePersona,
   PrecioComida,
   SIN_CATEGORIA,
 } from '../lib/cobroComidas';
-import { cargarEmpresaDePersonas, cargarPreciosComida } from '../lib/cobroComidasDb';
+import { cargarConfigCuentas, cargarEmpresaDePersonas, cargarEncargados, cargarPreciosComida, EncargadoCatalogo } from '../lib/cobroComidasDb';
 
 type Props = {
   desde: string;
@@ -50,15 +54,19 @@ const etiqueta = (k: string) => {
   const m = MEALS.find((x) => x.key === k);
   return m ? `${m.icon} ${m.label}` : k;
 };
+const resumirDetalle = (d: string[]) => (d.length > 4 ? `${d.slice(0, 4).join(', ')} y ${d.length - 4} más` : d.join(', '));
 
 export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, filtroEmpresa, canEdit, usuarioId }: Props) {
   const { colors } = useTheme();
   const [precios, setPrecios] = useState<PrecioComida[] | null>(null);
   const [fichas, setFichas] = useState<Map<string, EmpresaDePersona> | null>(null);
+  const [config, setConfig] = useState<ConfigCuenta[] | null>(null);
+  const [encargados, setEncargados] = useState<EncargadoCatalogo[]>([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [abierta, setAbierta] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [eje, setEje] = useState<EjeCobro>('cuenta');
 
   const idsPersonas = useMemo(
     () => Array.from(new Set(personas.map((p) => p.employee_id).filter(Boolean) as string[])).sort(),
@@ -69,9 +77,16 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      const [p, f] = await Promise.all([cargarPreciosComida(), cargarEmpresaDePersonas(claveIds ? claveIds.split(',') : [])]);
+      const [p, f, c, e] = await Promise.all([
+        cargarPreciosComida(),
+        cargarEmpresaDePersonas(claveIds ? claveIds.split(',') : []),
+        cargarConfigCuentas(),
+        cargarEncargados(),
+      ]);
       setPrecios(p);
       setFichas(f);
+      setConfig(c);
+      setEncargados(e);
       setError(null);
     } catch (e: any) {
       setError(`No se pudo leer el cobro de comidas (${e?.message ?? 'revisa la conexión'}). No se muestran montos a medias: toca «Actualizar».`);
@@ -83,34 +98,45 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
   useEffect(() => { cargar(); }, [cargar]);
 
   const cuentas = useMemo(() => {
-    if (!precios || !fichas || error) return [] as CuentaComida[];
-    const todas = calcularCobroComidas({ empresas, personas, empresaDePersona: fichas, precios });
-    return filtroEmpresa === 'all' ? todas : todas.filter((c) => c.clave === filtroEmpresa);
-  }, [precios, fichas, error, empresas, personas, filtroEmpresa]);
+    if (!precios || !fichas || !config || error) return [] as CuentaComida[];
+    const todas = calcularCobroComidas({
+      empresas,
+      personas,
+      empresaDePersona: fichas,
+      precios,
+      config: indexarConfigCuentas(config),
+      encargados: new Map(encargados.map((e) => [e.id, e.name])),
+      eje,
+    });
+    // El filtro de empresa de la pantalla solo tiene sentido viendo por cuenta.
+    return eje === 'cuenta' && filtroEmpresa !== 'all' ? todas.filter((c) => c.clave === filtroEmpresa) : todas;
+  }, [precios, fichas, config, encargados, error, empresas, personas, filtroEmpresa, eje]);
 
   const tot = useMemo(() => totalCobroComidas(cuentas), [cuentas]);
 
   const descargarPdf = async () => {
     const filas = cuentas.map((c) =>
-      `<tr><td>${esc(c.nombre)}</td><td class="r">${c.porQr || '—'}</td><td class="r">${c.porCarnet || '—'}</td><td class="r">${c.sinPrecio || '—'}</td><td class="r b">${usd(c.monto)}</td></tr>`).join('');
+      `<tr><td>${esc(c.nombre)}</td><td class="r">${c.porQr || '—'}</td><td class="r">${c.porCarnet || '—'}</td><td class="r">${c.sinPrecio || '—'}</td><td class="r">${c.montoInterno ? usd(c.montoInterno) : '—'}</td><td class="r b">${usd(c.monto)}</td></tr>`).join('');
     const detalle = cuentas.map((c) => `
-      <h3>${esc(c.nombre)} — ${usd(c.monto)}</h3>
-      <table><thead><tr><th>Comida</th><th class="r">Cantidad</th><th class="r">Precio</th><th class="r">Monto</th></tr></thead>
-      <tbody>${c.items.map((it) => `<tr><td>${esc(etiqueta(it.categoria))}</td><td class="r">${it.cantidad}</td><td class="r">${it.precio === null ? 'sin precio' : usd(it.precio)}</td><td class="r b">${it.precio === null ? '—' : usd(it.monto)}</td></tr>`).join('')}</tbody></table>`).join('');
+      <h3>${esc(c.nombre)} — ${usd(c.monto)}${c.montoInterno ? ` · interno ${usd(c.montoInterno)}` : ''}</h3>
+      ${c.detalle.length ? `<p class="n">${esc(c.detalle.join(', '))}</p>` : ''}
+      <table><thead><tr><th>Comida</th><th class="r">Cantidad</th><th class="r">Precio</th><th class="r">Monto</th><th>Se cobra</th></tr></thead>
+      <tbody>${c.items.map((it) => `<tr><td>${esc(etiqueta(it.categoria))}</td><td class="r">${it.cantidad}</td><td class="r">${it.precio === null ? 'sin precio' : usd(it.precio)}</td><td class="r b">${it.precio === null ? '—' : usd(it.monto)}</td><td>${it.seCobra ? 'Sí' : 'No (interno)'}</td></tr>`).join('')}</tbody></table>`).join('');
     const html = pdfDocument({
       title: 'Cobro de comidas',
-      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)}`,
+      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · ${eje === 'encargado' ? 'por encargado' : 'por cuenta'}`,
       extraCss: `
         table{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0 10px}
         th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
         td.r,th.r{text-align:right}td.c{text-align:center}td.b{font-weight:700}
         tfoot td{background:#1E3A5F;color:#fff;font-weight:800}
-        h3{font-size:13px;color:#1E3A5F;margin:14px 0 2px}`,
+        h3{font-size:13px;color:#1E3A5F;margin:14px 0 2px}
+        p.n{font-size:10px;color:#666;margin:0 0 4px}`,
       body: `
-        <table><thead><tr><th>Cuenta</th><th class="r">Por QR</th><th class="r">Por carnet</th><th class="r">Sin precio</th><th class="r">Total</th></tr></thead>
-        <tbody>${filas || '<tr><td colspan="5" class="c">Sin comidas en el rango</td></tr>'}</tbody>
-        <tfoot><tr><td>TOTAL A COBRAR</td><td></td><td></td><td class="r">${tot.sinPrecio}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>
+        <table><thead><tr><th>${eje === 'encargado' ? 'Encargado' : 'Cuenta'}</th><th class="r">Por QR</th><th class="r">Por carnet</th><th class="r">Sin precio</th><th class="r">Consumo interno</th><th class="r">A cobrar</th></tr></thead>
+        <tbody>${filas || '<tr><td colspan="6" class="c">Sin comidas en el rango</td></tr>'}</tbody>
+        <tfoot><tr><td>TOTAL</td><td></td><td></td><td class="r">${tot.sinPrecio}</td><td class="r">${usd(tot.montoInterno)}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>
         ${detalle}`,
     });
     await exportPdf(html, `Cobro de comidas ${dmy(desde)} a ${dmy(hasta)}`);
@@ -122,21 +148,37 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
       <Text style={{ color: principal ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
     </TouchableOpacity>
   );
+  const chipEje = (key: EjeCobro, label: string) => {
+    const on = eje === key;
+    return (
+      <TouchableOpacity key={key} onPress={() => { setEje(key); setAbierta(null); }}
+        style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <>
       <Plegable
         titulo="💵 Cobro de comidas"
-        resumen={error ? '⚠️ no se pudo leer' : `${tot.cobradas} comida(s) · ${usd(tot.monto)} · ${dmy(desde)} al ${dmy(hasta)}`}
+        resumen={error ? '⚠️ no se pudo leer' : `${usd(tot.monto)} a cobrar${tot.montoInterno ? ` · interno ${usd(tot.montoInterno)}` : ''} · ${dmy(desde)} al ${dmy(hasta)}`}
         alerta={!!error || tot.sinPrecio > 0}
       >
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
           Lo entregado en el rango de arriba, con el precio de cada comida ese día. Lo que se entregó por QR va a la
-          empresa del QR; lo que se entregó por carnet va a la empresa de la ficha de la persona.
+          empresa del QR; lo que se entregó por carnet va a la empresa de la ficha de la persona. Lo que no se cobra
+          (consumo interno) se muestra aparte y no suma al total.
         </Text>
 
+        <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginBottom: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 12, alignSelf: 'center' }}>Agrupar por:</Text>
+          {chipEje('cuenta', '🏢 Cuenta')}
+          {chipEje('encargado', '👤 Encargado')}
+        </View>
+
         <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
-          {boton('💲 Precios', () => setPanelOpen(true))}
+          {boton('💲 Precios y cuentas', () => setPanelOpen(true))}
           {boton(cargando ? 'Actualizando…' : '↻ Actualizar', cargar, false, cargando)}
           {boton('📄 PDF del cobro', descargarPdf, true, !!error || !cuentas.length)}
         </View>
@@ -150,14 +192,19 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
             <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11, fontWeight: '800' }}>TOTAL A COBRAR</Text>
             <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(tot.monto)}</Text>
             <Text style={{ color: colors.brandContrast, fontSize: 12 }}>
-              {tot.cobradas} comida(s) con precio{tot.sinPrecio ? ` · ⚠️ ${tot.sinPrecio} sin precio` : ''}
+              {tot.cobradas} comida(s) a cobrar{tot.sinPrecio ? ` · ⚠️ ${tot.sinPrecio} sin precio` : ''}
             </Text>
+            {tot.comidasInternas ? (
+              <Text style={{ color: colors.brandContrast, fontSize: 12, marginTop: 2 }}>
+                🏠 Consumo interno (no se cobra): {usd(tot.montoInterno)} · {tot.comidasInternas} comida(s)
+              </Text>
+            ) : null}
           </View>
         )}
 
         {tot.sinPrecio > 0 && !error ? (
           <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
-            Hay comidas sin precio para su fecha: no suman al total. Ponles precio en «💲 Precios».
+            Hay comidas sin precio para su fecha: no suman. Ponles precio en «💲 Precios y cuentas».
           </Text>
         ) : null}
 
@@ -168,22 +215,27 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
               <TouchableOpacity onPress={() => setAbierta(open ? null : c.clave)}
                 style={{ borderWidth: 1, borderColor: c.sinPrecio ? colors.warning : colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>🏢 {c.nombre}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>{eje === 'encargado' ? '👤' : '🏢'} {c.nombre}</Text>
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(c.monto)}</Text>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
                   {c.comidas} comida(s){c.porQr ? ` · ${c.porQr} por QR` : ''}{c.porCarnet ? ` · ${c.porCarnet} por carnet` : ''}
+                  {c.comidasInternas ? ` · 🏠 interno ${usd(c.montoInterno)}` : ''}
                   {c.sinPrecio ? ` · ⚠️ ${c.sinPrecio} sin precio` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
                 </Text>
+                {(eje === 'encargado' || c.detalle.length > 1) && c.detalle.length ? (
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{resumirDetalle(c.detalle)}</Text>
+                ) : null}
               </TouchableOpacity>
               {open ? (
                 <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                  {c.detalle.length > 4 ? <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>{c.detalle.join(', ')}</Text> : null}
                   {c.items.map((it) => (
-                    <View key={`${it.categoria}|${it.precio}`} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                    <View key={`${it.categoria}|${it.precio}|${it.seCobra}`} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
                       <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>
-                        {etiqueta(it.categoria)} · {it.cantidad} × {it.precio === null ? 'sin precio' : usd(it.precio)}
+                        {etiqueta(it.categoria)} · {it.cantidad} × {it.precio === null ? 'sin precio' : usd(it.precio)}{it.seCobra ? '' : '  · 🏠 interno'}
                       </Text>
-                      <Text style={{ color: it.precio === null ? colors.warning : colors.text, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
+                      <Text style={{ color: it.precio === null ? colors.warning : it.seCobra ? colors.text : colors.muted, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
                         {it.precio === null ? '—' : usd(it.monto)}
                       </Text>
                     </View>
