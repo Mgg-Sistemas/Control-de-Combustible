@@ -4986,7 +4986,10 @@ además de por empresa y por listero.
   Desde ese momento **cada viaje nuevo guarda la zona de su obra**, junto con la **empresa del
   camión** y **cómo se registró** (en el patio, desde la cola sin señal o cargado a mano). Esos tres
   datos los pone el sistema al registrar el viaje y **nadie los puede cambiar después**, porque son
-  con los que se va a cobrar. Cambiar la zona de una obra **no toca** los viajes ya registrados.
+  con los que se va a cobrar. Cambiar la zona de una obra **no toca** los viajes que ya tienen zona.
+  **Viajes sin zona (15/09/2026):** si un viaje se registró cuando su obra todavía no tenía zona,
+  la toma **automáticamente** en el momento en que se le asigna la zona a esa obra. Solo aplica a
+  los viajes de esa misma obra registrados desde el 14/09/2026.
   Tocar la zona marcada la quita. Arriba se avisa cuántas obras activas siguen **sin zona**: sus
   viajes nuevos quedan sin zona de pago. Los viajes anteriores al 14/09/2026 no tienen estos datos.
 
