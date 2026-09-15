@@ -99,7 +99,7 @@ const TABLA_A_MODULO: Record<string, string> = {
   // 🚜 Catálogo de equipos: las fichas y su ubicación en el mapa
   machinery: 'equipos', vehicles: 'equipos', machinery_locations: 'equipos', map_zone_offsets: 'equipos',
   // 🍽️ Cocina y distribución de comida
-  food_distributions: 'alimentacion', food_company_meals: 'alimentacion', comida_precios: 'alimentacion',
+  food_distributions: 'alimentacion', food_company_meals: 'alimentacion', comida_precios: 'alimentacion', comida_cuentas_config: 'alimentacion',
   // ⛽ Combustible
   tanks: 'combustible', tank_levels: 'combustible', fuel_intakes: 'combustible', dispatches: 'combustible',
   transfers: 'combustible', authorizations: 'combustible', stock_movements: 'combustible',

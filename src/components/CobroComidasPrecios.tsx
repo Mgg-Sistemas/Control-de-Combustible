@@ -15,6 +15,7 @@ import { onlyDecimal } from '../lib/text';
 import { MEALS } from '../lib/foodCompanyMeals';
 import { precioComidaEn, validarPrecioComida, PrecioComida } from '../lib/cobroComidas';
 import { anularPrecioComida, cargarPreciosComida, crearPrecioComida } from '../lib/cobroComidasDb';
+import { CobroComidasCuentas } from './CobroComidasCuentas';
 
 type Props = {
   visible: boolean;
@@ -38,6 +39,7 @@ const etiqueta = (k: string) => {
 
 export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy, onChanged }: Props) {
   const { colors } = useTheme();
+  const [pestana, setPestana] = useState<'precios' | 'cuentas'>('precios');
   const [precios, setPrecios] = useState<PrecioComida[]>([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,11 +121,19 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
         <TouchableOpacity onPress={onClose} style={{ paddingVertical: spacing.xs, marginBottom: spacing.xs }}>
           <Text style={{ color: colors.brandText, fontWeight: '800' }}>← Volver</Text>
         </TouchableOpacity>
-        <SectionTitle>💲 Precios de comida</SectionTitle>
+        <SectionTitle>💲 Precios y cuentas</SectionTitle>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-          El precio de cada comida para el cobro. Todo cambio rige desde la fecha que elijas y no toca lo anterior.
-          No cambia cómo registra la cocina.
+          El precio de cada comida y, por cuenta, si se cobra y quién es su encargado. Todo cambio rige desde la fecha
+          que elijas y no toca lo anterior. No cambia cómo registra la cocina.
         </Text>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+          <TouchableOpacity onPress={() => setPestana('precios')} style={chip(pestana === 'precios')}>
+            <Text style={chipTxt(pestana === 'precios')}>💲 Precios</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setPestana('cuentas')} style={chip(pestana === 'cuentas')}>
+            <Text style={chipTxt(pestana === 'cuentas')}>👤 Cuentas</Text>
+          </TouchableOpacity>
+        </View>
 
         {error ? (
           <View style={{ borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoftBg, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
@@ -136,6 +146,9 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
           </TouchableOpacity>
         ) : null}
 
+        {pestana === 'cuentas' ? (
+          <CobroComidasCuentas canEdit={canEdit} hoy={hoy} onChanged={onChanged} />
+        ) : (
         <ScrollView style={{ flex: 1 }}>
           <Card>
             <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>Precio vigente hoy ({dmy(hoy)})</Text>
@@ -231,6 +244,7 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
           ))}
           <View style={{ height: spacing.lg }} />
         </ScrollView>
+        )}
       </Screen>
     </Modal>
   );
