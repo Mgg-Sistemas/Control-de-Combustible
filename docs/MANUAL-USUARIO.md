@@ -5033,6 +5033,10 @@ además de por empresa y por listero.
   **Viajes sin zona (15/09/2026):** si un viaje se registró cuando su obra todavía no tenía zona,
   la toma **automáticamente** en el momento en que se le asigna la zona a esa obra. Solo aplica a
   los viajes de esa misma obra registrados desde el 14/09/2026.
+  **Agrupar por obra corregido (15/09/2026):** en la lista completa, **"Agrupar por → 🏗️ Obra"** (en
+  *Resumido*, *Solo camiones* y en el PDF) separaba bien los viajes pero **rotulaba todas las obras "Sin
+  ubicación"**. Ahora cada grupo sale con **el nombre de su obra**; "Sin ubicación" queda solo para los
+  viajes que de verdad no tienen obra. Ningún viaje ni total cambió.
 
 #### 💰 Pago de viajes de camiones (15/09/2026)
 
@@ -5060,6 +5064,18 @@ tiene **permiso completo** del módulo; los listeros no ven montos.
 - **Tarifas:** la vigente hoy de cada zona y el historial. Una tarifa nueva rige **desde la fecha que
   elijas en adelante**; con **"🔒 Blindar a un rango de fechas"** rige **solo en ese rango** y manda sobre la
   general. Cambiar una tarifa **no toca los días anteriores**. No se borra: se **anula** con motivo.
+- **Tarifas especiales (15/09/2026):** al crear una tarifa eliges **a quién aplica**: **🌐 Todos**,
+  **🏢 Una empresa**, **👥 Grupo de camiones** (los que marques, con un nombre; hay atajo **"＋ Solo chutos
+  que se ven"** y puedes **reusar un grupo anterior**) o **🚛 Un camión**. Y la **zona**: **Este**, **Oeste**
+  o **Ambas zonas**. Con fecha **desde** o **🔒 blindada** a un rango, igual que siempre.
+  - Si a un viaje le tocan varias, **manda la más específica**: camión → grupo → empresa → todos. Entre
+    dos del mismo tipo, la **blindada**; si no, la de **fecha más reciente**.
+  - La tarifa de empresa usa la **empresa guardada en el viaje**.
+  - Los **camiones de un grupo se fijan al crearlo**: para cambiarlos, anula la tarifa y crea otra (así lo ya
+    pagado no cambia).
+  - Al elegir un camión o una empresa, abajo dice **cuánto cobra hoy** con lo ya guardado. En el historial
+    puedes filtrar por tipo, y en el detalle de cada viaje sale **"💲 tarifa del camión / del grupo / de la
+    empresa"** cuando usó una especial.
 - **Camiones:** por empresa, cada camión tiene su interruptor **"🚛 Por viaje / ⛔ No entra"** y hay botones
   para toda la empresa (así se quita o se pone un chuto). Rige **desde la fecha elegida**; lo anterior no
   cambia. Un camión sin asignar **no entra** al pago por viaje.

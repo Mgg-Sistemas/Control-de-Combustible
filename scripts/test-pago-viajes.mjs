@@ -110,6 +110,64 @@ eq('la anulada no cuenta', t('este', '2026-09-16'), 'eGen');
 eq('zona inventada: sin tarifa', t('norte', '2026-09-16'), null);
 eq('mayúsculas en la zona', t('OESTE', '2026-09-16'), 'oGen');
 
+// ── 3b) TARIFAS ESPECIALES: empresa, grupo, camión; zona o ambas ────────────
+const T2 = [
+  { id: 'gE', zona: 'este', precio: 21, desde: '2026-09-15', created_at: '2026-09-15T12:00:00Z' },
+  { id: 'emp', alcance: 'empresa', company_id: 'EMPA', zona: null, precio: 25, desde: '2026-09-15', created_at: '2026-09-15T12:01:00Z' },
+  { id: 'grp', alcance: 'grupo', grupo_nombre: 'Chutos', machinery_ids: ['CH', 'CH2'], zona: 'este', precio: 32, desde: '2026-09-15', created_at: '2026-09-15T12:02:00Z' },
+  { id: 'cam', alcance: 'camion', machinery_ids: ['CH'], zona: null, precio: 40, desde: '2026-09-20', created_at: '2026-09-15T12:03:00Z' },
+  { id: 'gBl', zona: 'este', precio: 15, desde: '2026-09-22', hasta: '2026-09-22', created_at: '2026-09-15T12:04:00Z' },
+  { id: 'empBl', alcance: 'empresa', company_id: 'EMPA', zona: 'este', precio: 18, desde: '2026-09-23', hasta: '2026-09-23', created_at: '2026-09-15T12:05:00Z' },
+  { id: 'camVacio', alcance: 'camion', machinery_ids: [], zona: 'este', precio: 99, desde: '2026-09-15', created_at: '2026-09-15T13:00:00Z' },
+  { id: 'rara', alcance: 'flota', zona: 'este', precio: 77, desde: '2026-09-15', created_at: '2026-09-15T13:01:00Z' },
+  { id: 'empB', alcance: 'empresa', company_id: 'EMPB', zona: 'oeste', precio: 47, desde: '2026-09-15', created_at: '2026-09-15T13:02:00Z' },
+  { id: 'camAn', alcance: 'camion', machinery_ids: ['A'], zona: 'este', precio: 88, desde: '2026-09-15', created_at: '2026-09-15T13:03:00Z', anulada_at: '2026-09-15T13:04:00Z' },
+];
+const t2 = (zona, fecha, ctx) => L.tarifaViajeEn(T2, zona, fecha, ctx)?.id ?? null;
+const A_ = { companyId: 'EMPA', machineryId: 'A' };
+const CH_ = { companyId: 'EMPA', machineryId: 'CH' };
+const CH2_ = { companyId: 'EMPA', machineryId: 'CH2' };
+eq('sin contexto: solo la de todos', t2('este', '2026-09-16'), 'gE');
+eq('camión de otra empresa sin especial: la de todos', t2('este', '2026-09-16', { companyId: 'EMPC', machineryId: 'Z' }), 'gE');
+eq('⭐ camión sin camiones y alcance inventado no aplican a nadie', t2('este', '2026-09-16', { companyId: 'EMPC', machineryId: 'Z' }), 'gE');
+eq('empresa en ambas zonas: Este', t2('este', '2026-09-16', A_), 'emp');
+eq('empresa en ambas zonas: Oeste', t2('oeste', '2026-09-16', A_), 'emp');
+eq('la anulada del camión no cuenta', t2('este', '2026-09-16', A_), 'emp');
+eq('⭐ grupo gana a empresa', t2('este', '2026-09-16', CH_), 'grp');
+eq('grupo solo Este: en Oeste cae a la de la empresa', t2('oeste', '2026-09-16', CH_), 'emp');
+eq('⭐ camión gana a grupo desde su fecha', t2('este', '2026-09-20', CH_), 'cam');
+eq('antes de la fecha del camión, el grupo', t2('este', '2026-09-19', CH_), 'grp');
+eq('otro camión del mismo grupo no toma la del camión', t2('este', '2026-09-20', CH2_), 'grp');
+eq('⭐ la blindada de todos no pisa la de la empresa', t2('este', '2026-09-22', A_), 'emp');
+eq('la blindada de todos sí aplica a quien no tiene especial', t2('este', '2026-09-22', { companyId: 'EMPC', machineryId: 'Z' }), 'gBl');
+eq('blindada de empresa manda sobre la de la empresa en su día', t2('este', '2026-09-23', A_), 'empBl');
+eq('el grupo sigue ganando a la blindada de empresa', t2('este', '2026-09-23', CH2_), 'grp');
+eq('empresa Oeste: en Oeste la suya', t2('oeste', '2026-09-16', { companyId: 'EMPB', machineryId: 'B' }), 'empB');
+eq('empresa Oeste: en Este la de todos', t2('este', '2026-09-16', { companyId: 'EMPB', machineryId: 'B' }), 'gE');
+eq('viaje sin empresa guardada: no toma la de ninguna empresa', t2('oeste', '2026-09-16', { companyId: null, machineryId: 'B' }), null);
+eq('una tarifa de alcance inventado, sola, no aplica a nadie',
+  L.tarifaViajeEn(T2.filter((x) => x.id === 'rara'), 'este', '2026-09-16', { companyId: 'EMPA', machineryId: 'A' }), null);
+{
+  const gemela = { zona: 'este', precio: 5, desde: '2026-09-15', created_at: '2026-09-15T12:00:00Z' };
+  eq('empate total: se queda la primera leída (no cambia de una carga a otra)',
+    L.tarifaViajeEn([{ id: 'x1', ...gemela }, { id: 'x2', ...gemela }], 'este', '2026-09-16')?.id, 'x1');
+}
+eq('alcances', [L.alcanceTarifa({}), L.alcanceTarifa({ alcance: 'EMPRESA' }), L.alcanceTarifa({ alcance: 'flota' })], ['general', 'empresa', null]);
+eq('zona de la tarifa', [L.etiquetaZonaTarifa({ zona: 'este' }), L.etiquetaZonaTarifa({ zona: 'oeste' }), L.etiquetaZonaTarifa({ zona: null })], ['Este', 'Oeste', 'Ambas zonas']);
+eq('etiqueta corta', T2.slice(0, 4).map(L.etiquetaAlcanceCorta), ['', 'tarifa de la empresa', 'tarifa del grupo «Chutos»', 'tarifa del camión']);
+
+const base = { zona: 'este', precio: '21', desde: '2026-09-15' };
+eq('ambas zonas vale', L.validarTarifa({ ...base, zona: 'ambas' }), null);
+ok('empresa sin elegir', L.validarTarifa({ ...base, alcance: 'empresa' }));
+eq('empresa elegida', L.validarTarifa({ ...base, alcance: 'empresa', companyId: 'EMPA' }), null);
+ok('un camión sin elegir', L.validarTarifa({ ...base, alcance: 'camion', camiones: [] }));
+ok('dos camiones en «un camión»', L.validarTarifa({ ...base, alcance: 'camion', camiones: ['A', 'B'] }));
+eq('un camión elegido', L.validarTarifa({ ...base, alcance: 'camion', camiones: ['A', 'A'] }), null);
+ok('grupo sin camiones', L.validarTarifa({ ...base, alcance: 'grupo', camiones: [], grupoNombre: 'Chutos' }));
+ok('grupo sin nombre', L.validarTarifa({ ...base, alcance: 'grupo', camiones: ['A'], grupoNombre: ' ' }));
+eq('grupo completo', L.validarTarifa({ ...base, alcance: 'grupo', camiones: ['A', 'CH'], grupoNombre: 'Chutos' }), null);
+ok('alcance inventado', L.validarTarifa({ ...base, alcance: 'flota' }));
+
 eq('tarifa válida', L.validarTarifa({ zona: 'este', precio: '21', desde: '2026-09-15' }), null);
 eq('tarifa con coma', L.validarTarifa({ zona: 'oeste', precio: '47,5', desde: '2026-09-15', hasta: '2026-09-20' }), null);
 ok('sin zona', L.validarTarifa({ zona: '', precio: '21', desde: '2026-09-15' }));
@@ -188,6 +246,20 @@ const conBlindada = L.calcularPagoViajes({
 });
 eq('blindada el 22, general corregida el 25', conBlindada.get('EMPA|2026-09-21').lineas.map((l) => l.monto), [19, 23]);
 
+// El cálculo usa la tarifa especial que le toca a cada viaje (camión y empresa GUARDADA)
+const conEspeciales = L.calcularPagoViajes({
+  viajes: [
+    V('s1'),
+    V('s2', { machinery_id: 'CH', machine_code: 'CHUTO 1' }),
+    V('s3', { machinery_id: 'B', machine_code: 'TORONTO 2', company_id: 'EMPB', zona_pago: 'oeste' }),
+    V('s4', { machinery_id: 'CH', machine_code: 'CHUTO 1', company_id: 'EMPB', zona_pago: 'oeste' }), // el chuto con viaje guardado a otra empresa
+  ],
+  modos: L.indexarModos(['A', 'CH', 'B'].map((m) => ({ machinery_id: m, modo: 'viaje', desde: '2026-09-15', created_at: '1' }))),
+  tarifas: T2, marcas: L.indexarMarcas([]), semanaDe,
+});
+eq('⭐ empresa A: la de la empresa (25) y la del grupo del chuto (32)', conEspeciales.get('EMPA|2026-09-14').lineas.map((l) => [l.viaje.id, l.monto]), [['s1', 25], ['s2', 32]]);
+eq('⭐ empresa B en Oeste: la suya (47), también para el chuto cuyo viaje guardó esa empresa', conEspeciales.get('EMPB|2026-09-14').lineas.map((l) => [l.viaje.id, l.monto]), [['s3', 47], ['s4', 47]]);
+
 // Renglones para los informes: solo lo pagado, por camión, zona y precio
 eq('renglones de EMPRESA A: 2 en Este, 1 en Oeste', L.itemsViajePagados(sav.lineas),
   [{ code: 'TORONTO 1', zona: 'este', precio: 21, viajes: 2 }, { code: 'TORONTO 1', zona: 'oeste', precio: 43, viajes: 1 }]);
@@ -203,8 +275,11 @@ eq('etiquetas de motivo', ['no_facturo', 'sin_zona', 'sin_tarifa', 'sin_empresa'
 const db = sinComentarios(leer('src/lib/pagoViajesDb.ts'));
 ok('las lecturas no se tragan errores', !/catch/.test(db));
 ok('los viajes se leen desde las 7am del inicio', /gte\('registered_at', `\$\{desdeJornada\}T07:00:00-04:00`\)/.test(db));
-eq('las 4 escrituras piden filas de vuelta', (db.match(/\.select\('id'\);/g) || []).length, 4);
-eq('...y avisan si la base las rechazó', (db.match(/if \(!data\?\.length\)/g) || []).length, 4);
+eq('las 3 escrituras directas piden filas de vuelta', (db.match(/\.select\('id'\);/g) || []).length, 3);
+eq('...y avisan si la base las rechazó', (db.match(/if \(!data\?\.length\)/g) || []).length, 3);
+ok('⭐ la tarifa y sus camiones se crean juntos (una transacción)', /rpc\('crear_tarifa_viaje'/.test(db) && !/from\('viaje_tarifa_camiones'\)\.insert/.test(db));
+ok('...y avisa si no volvió nada', /if \(!data\) return \{ error: SIN_PERMISO_PAGO \}/.test(db));
+ok('las tarifas se leen con sus camiones', /camiones:viaje_tarifa_camiones\(machinery_id\)/.test(db));
 ok('el modo nunca pisa: agrega filas', /from\('machinery_modo_pago'\)\.insert\(/.test(db) && !/from\('machinery_modo_pago'\)\.(update|delete|upsert)/.test(db));
 ok('la tarifa se anula, no se borra', /anulada_at: new Date\(\)\.toISOString\(\)/.test(db) && !/from\('viaje_tarifas'\)\.delete/.test(db));
 
@@ -215,6 +290,14 @@ ok('la tarjeta está en el panel de Viajes de camiones, con permiso completo', /
 ok('el resumen cuenta los viajes del rango por jornada', /viajesEnRango\(datos\.viajes, desde, hasta\)/.test(res));
 ok('el resumen nombra la empresa guardada en el viaje', /datos\.empresas\.get\(g\.companyId\)/.test(res));
 ok('abre tarifas y camiones', /<PagoViajesPanel/.test(res));
+const panel = sinComentarios(leer('src/components/PagoViajesPanel.tsx'));
+const tar = sinComentarios(leer('src/components/PagoViajesTarifas.tsx'));
+ok('la ventana usa la pestaña de tarifas', /<PagoViajesTarifas[\s>]/.test(panel));
+ok('la pestaña ofrece los cuatro alcances', ["key: 'general'", "key: 'empresa'", "key: 'grupo'", "key: 'camion'"].every((k) => tar.includes(k)));
+ok('...zona Este, Oeste o ambas', /key: 'ambas'/.test(tar) && /zona === 'ambas' \? null : zona/.test(tar));
+ok('...atajo para elegir solo los chutos', /esChuto/.test(tar) && /Solo chutos/.test(tar));
+ok('...valida antes de guardar', /validarTarifa\(\{ zona, precio, desde, hasta: conHasta \? hasta : null, alcance, companyId, camiones: elegidos, grupoNombre \}\)/.test(tar));
+ok('el detalle dice cuando el viaje usó una tarifa especial', /etiquetaAlcanceCorta\(l\.tarifa\)/.test(sinComentarios(leer('src/components/PagoViajesDetalle.tsx'))));
 ok('muestra el detalle con «facturó»', /<PagoViajesDetalle grupo=\{g\}/.test(res));
 ok('si la lectura falla, lo dice y no muestra montos', /catch \(e: any\) \{\s*setError\(/.test(res) && /if \(!datos \|\| error\) return/.test(res));
 ok('saca PDF del rango', /exportPdf\(html/.test(res));
@@ -229,6 +312,7 @@ const md = leer('docs/MANUAL-USUARIO.md');
 ok('el manual .md lo explica', /Pago de viajes de camiones \(15\/09\/2026\)/.test(md));
 ok('...en Viajes de camiones, no en Control de Pagos', /panel de información → tarjeta \*\*"💰 Pago de viajes"\*\*/.test(md) && !/Control de Pagos → botón \*\*"🚛 Pago de viajes/.test(md));
 ok('el manual en pantalla también', /💰 PAGO DE VIAJES DE CAMIONES \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('los dos manuales explican las tarifas especiales', /Tarifas especiales/.test(md) && /TARIFAS ESPECIALES/.test(leer('src/screens/ManualScreen.tsx')));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-pago-viajes · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

@@ -9,7 +9,7 @@ import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Card } from './ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
-import { etiquetaMotivoSinPago, LineaViaje, PagoViajesGrupo } from '../lib/pagoViajes';
+import { etiquetaAlcanceCorta, etiquetaMotivoSinPago, LineaViaje, PagoViajesGrupo } from '../lib/pagoViajes';
 import { marcarViajePago } from '../lib/pagoViajesDb';
 
 type Props = {
@@ -85,6 +85,9 @@ export function PagoViajesDetalle({ grupo, canEdit, onChanged }: Props) {
                 {sinPago ? etiquetaMotivoSinPago(sinPago) : `${l.zona === 'oeste' ? 'Oeste' : 'Este'} ${usd(l.monto)}`}
               </Text>
             </View>
+            {!sinPago && etiquetaAlcanceCorta(l.tarifa) ? (
+              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>💲 {etiquetaAlcanceCorta(l.tarifa)}</Text>
+            ) : null}
             <Text style={{ color: colors.muted, fontSize: 11 }}>
               Estado del camión: {l.viaje.estado_maquina || 'sin dato'}
               {l.viaje.ubicacion_nombre ? ` · ${l.viaje.ubicacion_nombre}` : ''}
