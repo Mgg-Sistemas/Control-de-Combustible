@@ -80,12 +80,16 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
   // Proveedor nuevo (en línea)
   const [nuevoProv, setNuevoProv] = useState('');
   const [creandoProv, setCreandoProv] = useState(false);
+  const [provQ, setProvQ] = useState('');  // buscador de proveedores
 
   // Selectores (modales) por renglón
   const [pickMachFor, setPickMachFor] = useState<number | null>(null);
   const [machQ, setMachQ] = useState('');
   const [pickInvFor, setPickInvFor] = useState<number | null>(null);
   const [invQ, setInvQ] = useState('');
+  // Desplegable de categoría / tipo de servicio (lista + buscar + crear nuevo)
+  const [catPick, setCatPick] = useState<{ i: number; field: 'categoria' | 'tipo' } | null>(null);
+  const [catQ, setCatQ] = useState('');
 
   const setItem = (i: number, patch: Partial<ServicioItem>) => setItems((prev) => prev.map((it, k) => (k === i ? { ...it, ...patch } : it)));
   const addLine = () => setItems((prev) => [...prev, { ...BLANK }]);
@@ -93,7 +97,7 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
 
   const resetForm = () => {
     setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setServiceDate(todayISO());
-    setNote(''); setItems([{ ...BLANK }]); setFactura(null); setNuevoProv('');
+    setNote(''); setItems([{ ...BLANK }]); setFactura(null); setNuevoProv(''); setProvQ('');
   };
   const abrirNueva = () => { resetForm(); setOpen(true); };
   const abrirEditar = (s: ServicioRecord) => {
@@ -135,6 +139,21 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
     if (nuevosKinds.length) await supabase.from('service_kinds').insert(nuevosKinds.map((name) => ({ name }))).then(() => {}, () => {});
     if (nuevasCats.length) refetchCats();
     if (nuevosKinds.length) refetchKinds();
+  };
+
+  // Elegir/crear una opción del desplegable (categoría o tipo). Si el nombre no
+  // existe aún, lo inserta en el catálogo para que quede disponible de una vez.
+  const elegirOpcion = async (field: 'categoria' | 'tipo', name: string) => {
+    const clean = name.trim().toUpperCase();
+    if (!clean) return;
+    if (catPick) setItem(catPick.i, { [field]: clean } as Partial<ServicioItem>);
+    setCatPick(null); setCatQ('');
+    const tabla = field === 'categoria' ? 'service_categories' : 'service_kinds';
+    const existe = (field === 'categoria' ? cats : kinds).some((o) => norm(o.name) === norm(clean));
+    if (!existe) {
+      await supabase.from(tabla).insert({ name: clean }).then(() => {}, () => {});
+      field === 'categoria' ? refetchCats() : refetchKinds();
+    }
   };
 
   const crear = async () => {
@@ -192,12 +211,6 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
     const list = q ? invItems.filter((it) => norm(it.name).includes(q)) : invItems;
     return list.slice(0, 60);
   }, [invItems, invQ]);
-
-  // Sugerencias de un combobox (categoría/tipo): las que coinciden con lo escrito.
-  const sugerencias = (opciones: { name: string }[], texto: string) => {
-    const q = norm(texto);
-    return opciones.filter((o) => !q || norm(o.name).includes(q)).slice(0, 8);
-  };
 
   const chip = (label: string, on: boolean, onPress: () => void) => (
     <TouchableOpacity onPress={onPress} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -280,9 +293,15 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
 
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Proveedor (opcional · quién prestó el servicio)</Text>
+              <View style={{ marginBottom: spacing.xs }}>{input(provQ, setProvQ, '🔎 Buscar proveedor…')}</View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                 {chip('— Ninguno', !supplier, () => setSupplier(''))}
-                {suppliers.map((s) => chip(s.name, supplier === s.id, () => setSupplier(s.id)))}
+                {(() => {
+                  const q = provQ.trim().toLowerCase();
+                  const shown = q ? suppliers.filter((s) => s.name.toLowerCase().includes(q) || supplier === s.id) : suppliers;
+                  if (q && shown.length === 0) return <Text style={{ color: colors.muted, fontSize: 13, alignSelf: 'center' }}>Sin resultados para “{provQ.trim()}”.</Text>;
+                  return shown.map((s) => chip(s.name, supplier === s.id, () => setSupplier(s.id)));
+                })()}
               </View>
               {canWrite ? (
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
@@ -310,16 +329,16 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
                 </View>
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Categoría del servicio *</Text>
-                {input(it.categoria, (t) => setItem(i, { categoria: t.toUpperCase() }), 'Busca o escribe (mantenimiento de vehículos…)', { autoCapitalize: 'characters' })}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
-                  {sugerencias(cats, it.categoria).map((c) => chip(c.name, norm(c.name) === norm(it.categoria), () => setItem(i, { categoria: c.name })))}
-                </View>
+                <TouchableOpacity onPress={() => { setCatQ(''); setCatPick({ i, field: 'categoria' }); }} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: it.categoria ? colors.text : colors.muted, fontSize: 13, fontWeight: it.categoria ? '700' : '400' }}>{it.categoria || 'Elige o crea la categoría…'}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>▾</Text>
+                </TouchableOpacity>
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3, marginTop: spacing.sm }}>Tipo de servicio</Text>
-                {input(it.tipo, (t) => setItem(i, { tipo: t.toUpperCase() }), 'Elige el tipo (recarga, aceite, limpieza…)', { autoCapitalize: 'characters' })}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
-                  {sugerencias(kinds, it.tipo).map((k) => chip(k.name, norm(k.name) === norm(it.tipo), () => setItem(i, { tipo: k.name })))}
-                </View>
+                <TouchableOpacity onPress={() => { setCatQ(''); setCatPick({ i, field: 'tipo' }); }} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: it.tipo ? colors.text : colors.muted, fontSize: 13, fontWeight: it.tipo ? '700' : '400' }}>{it.tipo || 'Elige o crea el tipo…'}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>▾</Text>
+                </TouchableOpacity>
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3, marginTop: spacing.sm }}>Equipo (opcional · Control de Maquinaria)</Text>
                 <TouchableOpacity onPress={() => { setMachQ(''); setPickMachFor(i); }} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
@@ -417,6 +436,37 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
                 {invFiltrados.length === 0 ? <Text style={{ color: colors.muted, marginTop: spacing.md }}>Sin resultados.</Text> : null}
               </ScrollView>
               <TouchableOpacity onPress={() => setPickInvFor(null)} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
+            </Screen>
+          </Modal>
+
+          {/* Desplegable de CATEGORÍA / TIPO (lista completa + buscar + crear nuevo) */}
+          <Modal visible={catPick !== null} animationType="slide" onRequestClose={() => setCatPick(null)}>
+            <Screen>
+              <SectionTitle>{catPick?.field === 'tipo' ? 'Tipo de servicio' : 'Categoría del servicio'}</SectionTitle>
+              {input(catQ, (t) => setCatQ(t.toUpperCase()), 'Busca o escribe una nueva…', { autoCapitalize: 'characters' })}
+              {(() => {
+                const field = catPick?.field ?? 'categoria';
+                const opciones = field === 'categoria' ? cats : kinds;
+                const q = norm(catQ);
+                const lista = q ? opciones.filter((o) => norm(o.name).includes(q)) : opciones;
+                const hayExacto = opciones.some((o) => norm(o.name) === q);
+                return (
+                  <ScrollView style={{ marginTop: spacing.sm }} keyboardShouldPersistTaps="handled">
+                    {catQ.trim() && !hayExacto ? (
+                      <TouchableOpacity onPress={() => elegirOpcion(field, catQ)} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 14 }}>+ Crear y usar «{catQ.trim()}»</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {lista.map((o) => (
+                      <TouchableOpacity key={o.id} onPress={() => elegirOpcion(field, o.name)} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{o.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {lista.length === 0 && !catQ.trim() ? <Text style={{ color: colors.muted, marginTop: spacing.md }}>Aún no hay opciones. Escribe una arriba para crearla.</Text> : null}
+                  </ScrollView>
+                );
+              })()}
+              <TouchableOpacity onPress={() => setCatPick(null)} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
             </Screen>
           </Modal>
         </Screen>
