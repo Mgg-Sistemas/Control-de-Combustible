@@ -537,6 +537,7 @@ const SECTIONS: Sec[] = [
         '"💲 Precios": el precio de cada comida (desayuno, almuerzo, lunch, cena). Un precio general desde una fecha, o uno 🔒 blindado a un rango que manda solo en esas fechas. No se borran: se anulan con motivo, y los días anteriores conservan su precio.',
       ] },
       { t: 'note', text: 'Una comida sin precio para su fecha no suma al total, pero se cuenta como "sin precio" con aviso amarillo. El cobro solo lee lo entregado: no cambia cómo registra la cocina ni los conteos de la pantalla.' },
+      { t: 'note', text: '👤 CUENTAS: SE COBRA Y ENCARGADO (15/09/2026). En "💲 Precios y cuentas" hay una segunda pestaña, "👤 Cuentas", con cada empresa y cada departamento de la nómina propia. "💵 Se cobra / 🏠 No se cobra": lo que no se cobra es CONSUMO INTERNO, se valora con su precio pero NO suma al "Total a cobrar" y sale aparte en la línea "🏠 Consumo interno"; sin configurar, una empresa se cobra y la nómina propia no. "👤 Encargado": a quién se le cobra esa cuenta, del mismo catálogo de encargados de Mangueras. Todo rige desde la fecha elegida; lo anterior no cambia. En la tarjeta, "Agrupar por: 🏢 Cuenta / 👤 Encargado" reparte el cobro por empresa o por encargado, con el mismo total. LUNCH: desde el 15/09/2026 tiene el mismo precio del desayuno hasta que se defina el suyo.' },
     ],
   },
   {

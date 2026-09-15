@@ -2352,6 +2352,19 @@ Solo la ve quien tiene **permiso completo** en Distribución de comida (la cocin
 
 > El cobro **solo lee** lo entregado: no cambia cómo registra la cocina ni los conteos de la pantalla.
 
+**👤 Cuentas: se cobra y encargado (15/09/2026).** En **"💲 Precios y cuentas"** hay una segunda
+pestaña, **"👤 Cuentas"**, con cada **empresa** y cada **departamento de la nómina propia**:
+- **"💵 Se cobra / 🏠 No se cobra":** lo que no se cobra es **consumo interno**. Se valora con su precio
+  pero **no suma al "Total a cobrar"**: sale aparte, en la línea **"🏠 Consumo interno"**.
+  Sin configurar, una empresa **se cobra** y la **nómina propia no**.
+- **"👤 Encargado":** a quién se le cobra esa cuenta, elegido del **mismo catálogo de encargados de
+  Mangueras**.
+- Todo rige **desde la fecha elegida** arriba; lo anterior no cambia y queda quién lo puso.
+- En la tarjeta, **"Agrupar por: 🏢 Cuenta / 👤 Encargado"** reparte el cobro por empresa o por encargado.
+  El **total es el mismo** en los dos; debajo de cada encargado se ven sus empresas y departamentos.
+- **Lunch:** desde el 15/09/2026 tiene **el mismo precio del desayuno** hasta que se defina el suyo en
+  "💲 Precios".
+
 ### 4.8d. Inventario (materiales, requerimiento y traslados)
 Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
