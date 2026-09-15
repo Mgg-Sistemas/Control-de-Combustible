@@ -107,7 +107,10 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
     const { data, error } = await supabase.from('ubicaciones_obra').update({ zona_pago: nueva }).eq('id', o.id).select('id');
     if (error) { toast.error(`No se pudo cambiar la zona: ${error.message}`); return; }
     if (!data?.length) { toast.error(SIN_PERMISO_OBRA); return; }
-    toast.success(`${o.nombre}: ${etiquetaZonaPago(nueva)}. Los viajes ya registrados conservan su zona.`);
+    // La base completa sola la zona de los viajes de esta obra que no la tenían.
+    toast.success(nueva
+      ? `${o.nombre}: ${etiquetaZonaPago(nueva)}. Los viajes de esta obra que no tenían zona la tomaron; los que ya tenían conservan la suya.`
+      : `${o.nombre}: sin zona. Los viajes ya registrados conservan su zona.`);
     onCambioObras();
   };
 
@@ -170,8 +173,8 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
               </Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
                 Zona de pago (Este / Oeste): cada viaje NUEVO guarda la zona de su obra al
-                registrarse. Cambiarla no toca los viajes ya registrados. Toca la zona marcada
-                para quitarla.
+                registrarse. Si la obra no tenía zona, sus viajes la toman al asignarla. Cambiarla
+                no toca los viajes que ya tienen zona. Toca la zona marcada para quitarla.
               </Text>
 
               {/* ── CREAR ─────────────────────────────────────────────── */}

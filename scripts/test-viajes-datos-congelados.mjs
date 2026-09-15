@@ -96,7 +96,15 @@ ok('tocar la zona marcada la quita', /zonaPagoValida\(o\.zona_pago\) === zona \?
 ok('hay un botón por zona', /ZONAS_PAGO\.map\(/.test(ob) && /onPress=\{\(\) => cambiarZona\(o, z\.key\)\}/.test(ob));
 ok('arriba avisa las obras sin zona', /obrasActivasSinZona\(obras\)/.test(ob) && /obra\(s\) sin zona/.test(ob));
 
+// Viajes sin zona (15-sep-2026): la base les completa la zona al asignarla a su obra;
+// la tarjeta tiene que decirlo, o parece que esos viajes se quedaron sin zona.
+ok('el aviso dice que los viajes sin zona la toman', /Los viajes de esta obra que no tenían zona la tomaron/.test(ob));
+ok('quitar la zona no promete rellenar nada', /: sin zona\. Los viajes ya registrados conservan su zona\./.test(ob));
+ok('la ayuda de la tarjeta lo explica', /Si la obra no tenía zona, sus viajes la toman al asignarla/.test(ob));
+
 // ── 4) MANUAL ───────────────────────────────────────────────────────────────
+ok('el manual .md explica los viajes sin zona', /Viajes sin zona \(15\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('el manual en pantalla también', /VIAJES SIN ZONA \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 ok('el manual .md lo explica', /Marcar la zona de pago de cada obra \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla también', /ZONA DE PAGO DE CADA OBRA \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
