@@ -644,6 +644,39 @@ export interface DirectPurchase {
   created_at: string;
 }
 
+// ── SERVICIOS (submódulo de Compras) ────────────────────────────────────────
+// Un renglón de servicio: categoría + tipo + equipo opcional + cantidad + precio,
+// y OPCIONALMENTE consume un repuesto del inventario (se descuenta del stock).
+export interface ServicioItem {
+  categoria: string;
+  tipo: string;
+  machinery_id: string | null;
+  machine_label: string;          // snapshot: nombre · placa · serial · empresa
+  qty: number;
+  price: number;                  // precio unitario del servicio (para facturar)
+  usa_inventario: boolean;        // true = descuenta un repuesto del inventario
+  item_id: string | null;         // repuesto del inventario (si usa_inventario)
+  item_name: string;
+  detalle: string;
+}
+export interface ServicioRecord {
+  id: string;
+  code: string;                   // SRV-#### (correlativo en la base)
+  company_id: string | null;
+  supplier_id: string | null;
+  service_date: string;
+  items: ServicioItem[];
+  total: number;
+  factura_url: string | null;
+  factura_type: 'image' | 'pdf' | null;
+  factura_name: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+export interface ServiceCategory { id: string; name: string; active: boolean; created_at: string; }
+export interface ServiceKind { id: string; name: string; active: boolean; created_at: string; }
+
 // ── Inventario / Almacén ─────────────────────────────────────────────────────
 export interface InventoryItem {
   id: string;

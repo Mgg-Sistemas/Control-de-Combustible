@@ -10,6 +10,7 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { CuentasTab, CUENTAS_TABS } from './CuentasScreen';
 import { RequerimientoTab } from './RequerimientoTab';
+import { ServiciosTab } from './ServiciosTab';
 import { pickAndUploadDocFile } from '../lib/photo';
 import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel, HoseService, Encargado, HoseEmpresa, DirectPurchase } from '../types/database';
 import { generalCompanies } from '../lib/companies';
@@ -411,7 +412,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const toast = useToast();
   const { data: compras, loading, refetch } = useTable<DirectPurchase>('direct_purchases', { orderBy: 'created_at', ascending: false, realtimeFrom: 'direct_purchases' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
-  const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
+  const { data: suppliers, refetch: refetchSuppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: catalog } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
   const supplierName = (id: string | null) => (id ? suppliers.find((s) => s.id === id)?.name ?? '—' : '—');
@@ -421,6 +422,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const [formKey, setFormKey] = useState(0); // remonta el editor de renglones en cada apertura (limpia texto a medio escribir)
   const [company, setCompany] = useState('');
   const [supplier, setSupplier] = useState('');
+  const [nuevoProv, setNuevoProv] = useState('');       // crear proveedor en línea
+  const [creandoProv, setCreandoProv] = useState(false);
   const [category, setCategory] = useState('repuestos');
   const [note, setNote] = useState('');
   const [items, setItems] = useState<PurchaseLine[]>([{ description: '', qty: 1, unit: '', price: 0 }]);
@@ -433,7 +436,22 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   // Vista de la factura ya cargada (imagen o PDF).
   const [preview, setPreview] = useState<DirectPurchase | null>(null);
 
-  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
+  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setNuevoProv(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
+
+  // Crear un proveedor NUEVO sin salir de la compra (se guarda en `suppliers` y
+  // queda elegido). Antes había que ir a la pestaña Proveedores primero.
+  const crearProveedor = async () => {
+    const nombre = nuevoProv.trim();
+    if (!nombre) return;
+    setCreandoProv(true);
+    const { data, error } = await supabase.from('suppliers').insert({ name: nombre.toUpperCase() }).select('id').single();
+    setCreandoProv(false);
+    if (error) return toast.error(error.message);
+    setNuevoProv('');
+    await refetchSuppliers();
+    if (data?.id) setSupplier(data.id);
+    toast.success('Proveedor creado.');
+  };
 
   const abrirNueva = () => {
     setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote('');
@@ -575,7 +593,16 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
                     </TouchableOpacity>
                   );
                 })}
-                {suppliers.length === 0 ? <Text style={{ color: colors.muted, fontSize: 13 }}>Registra proveedores en su pestaña.</Text> : null}
+                {suppliers.length === 0 ? <Text style={{ color: colors.muted, fontSize: 13 }}>Aún no hay proveedores. Crea uno abajo.</Text> : null}
+              </View>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <TextInput value={nuevoProv} onChangeText={(t) => setNuevoProv(t.toUpperCase())} autoCapitalize="characters" placeholder="Nuevo proveedor…" placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text }} />
+                </View>
+                <TouchableOpacity onPress={crearProveedor} disabled={creandoProv || !nuevoProv.trim()} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center', opacity: creandoProv || !nuevoProv.trim() ? 0.5 : 1 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{creandoProv ? '…' : '+ Crear'}</Text>
+                </TouchableOpacity>
               </View>
             </Card>
             <Card>
@@ -1243,6 +1270,7 @@ export default function ComprasScreen() {
   const TABS = [
     { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
     { key: 'directas', label: 'Compras directas', icon: '🛒' },
+    { key: 'servicios', label: 'Servicios', icon: '🧰' },
     { key: 'ordenes', label: 'Órdenes', icon: '🧾' },
     { key: 'proveedores', label: 'Proveedores', icon: '🏭' },
     { key: 'resumen', label: 'Resumen', icon: '📊' },
@@ -1271,7 +1299,7 @@ export default function ComprasScreen() {
           // `key` fuerza remontar al cambiar de tipo: cada uno arranca con su
           // propio buscador y formulario limpios.
           <CuentasTab key={active} tipo={active} canWrite={cuentasWrite} />
-        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'directas' ? <ComprasDirectasTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : active === 'mangueras' ? <ManguerasAprobarTab canWrite={canWrite} /> : <ProveedoresTab canWrite={canWrite} />}
+        ) : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'directas' ? <ComprasDirectasTab canWrite={canWrite} /> : active === 'servicios' ? <ServiciosTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : active === 'mangueras' ? <ManguerasAprobarTab canWrite={canWrite} /> : <ProveedoresTab canWrite={canWrite} />}
       </View>
     </View>
   );
