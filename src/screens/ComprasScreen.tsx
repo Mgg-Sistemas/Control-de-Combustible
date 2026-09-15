@@ -422,6 +422,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const [formKey, setFormKey] = useState(0); // remonta el editor de renglones en cada apertura (limpia texto a medio escribir)
   const [company, setCompany] = useState('');
   const [supplier, setSupplier] = useState('');
+  const [provQ, setProvQ] = useState('');               // buscador de proveedores
   const [nuevoProv, setNuevoProv] = useState('');       // crear proveedor en línea
   const [creandoProv, setCreandoProv] = useState(false);
   const [category, setCategory] = useState('repuestos');
@@ -436,7 +437,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   // Vista de la factura ya cargada (imagen o PDF).
   const [preview, setPreview] = useState<DirectPurchase | null>(null);
 
-  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setNuevoProv(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
+  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setProvQ(''); setNuevoProv(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
 
   // Crear un proveedor NUEVO sin salir de la compra (se guarda en `suppliers` y
   // queda elegido). Antes había que ir a la pestaña Proveedores primero.
@@ -584,16 +585,23 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Proveedor (a quién se le paga)</Text>
+              <TextInput value={provQ} onChangeText={setProvQ} placeholder="🔎 Buscar proveedor…" placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, color: colors.text, marginBottom: spacing.xs }} />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                {suppliers.map((s) => {
-                  const on = supplier === s.id;
-                  return (
-                    <TouchableOpacity key={s.id} onPress={() => setSupplier(s.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{s.name}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                {suppliers.length === 0 ? <Text style={{ color: colors.muted, fontSize: 13 }}>Aún no hay proveedores. Crea uno abajo.</Text> : null}
+                {(() => {
+                  const q = provQ.trim().toLowerCase();
+                  const shown = q ? suppliers.filter((s) => s.name.toLowerCase().includes(q) || supplier === s.id) : suppliers;
+                  if (suppliers.length === 0) return <Text style={{ color: colors.muted, fontSize: 13 }}>Aún no hay proveedores. Crea uno abajo.</Text>;
+                  if (shown.length === 0) return <Text style={{ color: colors.muted, fontSize: 13 }}>Sin resultados para “{provQ.trim()}”.</Text>;
+                  return shown.map((s) => {
+                    const on = supplier === s.id;
+                    return (
+                      <TouchableOpacity key={s.id} onPress={() => setSupplier(s.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{s.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  });
+                })()}
               </View>
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}>

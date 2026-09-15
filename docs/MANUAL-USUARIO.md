@@ -2483,7 +2483,13 @@ escritura en Compras (o Inventario).
 > **➕ Proveedor nuevo desde la compra (15-sep-2026):** en el formulario de **🛒 Compras directas**
 > (y en **🧰 Servicios**) hay abajo del selector un campo **«Nuevo proveedor…»** con **«+ Crear»**:
 > escribes el nombre, se guarda en `suppliers` y queda elegido — ya no hace falta ir a la pestaña
-> Proveedores primero.
+> Proveedores primero. Como la lista de proveedores es larga, arriba de las opciones hay un
+> **buscador («🔎 Buscar proveedor…»)** que la filtra mientras escribes.
+
+> **🔽 Categoría y Tipo como desplegable (15-sep-2026):** en cada renglón de **🧰 Servicios**,
+> **Categoría** y **Tipo de servicio** se eligen desde una **lista desplegable** (toca el campo y
+> se abre la lista completa con buscador). Si lo que necesitas no está, escríbelo arriba y toca
+> **«+ Crear y usar»**: queda guardado como opción para la próxima vez.
 
 > **🧰 Servicios (15-sep-2026, submódulo de Compras):** para cargar **servicios** (recarga de
 > bombonas, mantenimiento de aires, cambio de aceite, cambio de pieza…). En **Compras → «🧰
