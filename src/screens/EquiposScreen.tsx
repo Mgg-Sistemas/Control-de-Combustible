@@ -495,8 +495,15 @@ export default function EquiposScreen({ navigation, route }: any) {
     : tapaFilter === 'sin' ? !m.con_tapa
     : tapaFilter === 'doble' ? (!!m.con_tapa && !!m.tapa_doble)
     : (!!m.con_tapa && !m.tapa_doble); // 'sencilla'
+  // Lo que se busca además de los datos propios de la ficha: marca, modelo y los
+  // inspectores (☀️ día / 🌙 noche y el del último check-in), que viven en otras tablas.
+  // Lo usan los DOS buscadores (catálogo y detalle por estado), para que busquen igual (15-sep-2026).
+  const extrasBusqueda = (m: Machinery) => [
+    (m as any).marca, (m as any).modelo,
+    inspectors[m.id]?.name, inspByShift[m.id]?.day, inspByShift[m.id]?.night,
+  ];
   const machineryList = machinery.data.filter(
-    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, edificioLabel((m as any).referencia), companyName(m.company_id), tapaLabelOf(m)])
+    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, edificioLabel((m as any).referencia), companyName(m.company_id), tapaLabelOf(m), ...extrasBusqueda(m)])
   );
   // Opciones del filtro por la dimensión activa (Modelo/Clasificación), con conteo.
   const typeOptions = useMemo(() => {
@@ -593,7 +600,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // referencia y nombre de empresa). Vacío = toda la lista.
   const detailNq = norm(detailQuery.trim());
   const detailFiltered = detailNq
-    ? detailList.filter((m) => [m.code, (m as any).description, m.plate, m.serial, m.identifier, (m as any).grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, companyName(m.company_id)]
+    ? detailList.filter((m) => [m.code, (m as any).description, m.plate, m.serial, m.identifier, (m as any).grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, companyName(m.company_id), ...extrasBusqueda(m)]
         .filter(Boolean).some((v: any) => norm(v).includes(detailNq)))
     : detailList;
 
@@ -1925,7 +1932,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="🔎 Buscar por código, placa, serial, identificador o empresa…"
+          placeholder="🔎 Buscar por código, placa, serial, empresa, encargado, inspector, marca o modelo…"
           placeholderTextColor={colors.muted}
           style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
         />
@@ -2413,7 +2420,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
               empresa, edificio, tipo, clasificación, parroquia, sector…). */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔎</Text>
-            <TextInput value={detailQuery} onChangeText={setDetailQuery} placeholder="Buscar: código, placa, serial, encargado, empresa, edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
+            <TextInput value={detailQuery} onChangeText={setDetailQuery} placeholder="Buscar: código, placa, serial, encargado, inspector, marca, modelo, empresa, edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
             {detailQuery ? <TouchableOpacity onPress={() => setDetailQuery('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
           </View>
           {detailList.length === 0 ? (

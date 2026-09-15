@@ -123,6 +123,12 @@ Cuando una máquina o un vehículo **carga** combustible:
 Es la lista de **todas las máquinas**. Cada una tiene su ficha: nombre, empresa, foto,
 serial y estado.
 
+> **🔎 Buscador del catálogo (15/09/2026):** además de **código, placa, serial, identificador y
+> empresa**, ahora encuentra una máquina por su **encargado**, su **inspector** (el de ☀️ día, el de
+> 🌙 noche o el del último check-in), su **marca** o su **modelo**. Busca igual en el catálogo y en
+> el detalle que se abre al tocar **Operativas / Averiadas / Esperando / Retiradas**. No distingue
+> mayúsculas ni acentos, y combina con los filtros de empresa, clasificación y tapa.
+
 > **📍 Ubicación vinculada al SECTOR del GPS (22-ago-2026):** en el **Catálogo** y en
 > **Inspecciones**, la ubicación de una máquina **con GPS** es el **sector real** donde cae — el
 > nombre del **polígono** que la contiene en el mapa (ej. **"📍 Este · Caraballeda"**), calculado
