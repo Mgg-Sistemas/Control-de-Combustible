@@ -5005,6 +5005,46 @@ además de por empresa y por listero.
   fueron; los listeros que estaban ahí quedan sin obra.
 - **Asignarle una obra a cada listero**, y **moverlo** a otra cuando haga falta. Abajo se lista
   cada listero con su obra, y los que **no tienen ninguna** salen marcados.
+- **🧭 Marcar la zona de pago de cada obra (14/09/2026)** con los botones **Este** y **Oeste**.
+  Desde ese momento **cada viaje nuevo guarda la zona de su obra**, junto con la **empresa del
+  camión** y **cómo se registró** (en el patio, desde la cola sin señal o cargado a mano). Esos tres
+  datos los pone el sistema al registrar el viaje y **nadie los puede cambiar después**, porque son
+  con los que se va a cobrar. Cambiar la zona de una obra **no toca** los viajes que ya tienen zona.
+  **Viajes sin zona (15/09/2026):** si un viaje se registró cuando su obra todavía no tenía zona,
+  la toma **automáticamente** en el momento en que se le asigna la zona a esa obra. Solo aplica a
+  los viajes de esa misma obra registrados desde el 14/09/2026.
+
+#### 💰 Pago de viajes de camiones (15/09/2026)
+
+Desde el **15/09/2026** los camiones de la lista de viajes se le pagan a su empresa **por viaje**, con
+la tarifa de la **zona del CDT** (Este u Oeste). Todo vive **en este módulo**: no toca las jornadas, ni
+Control de Maquinaria, ni Control de Pagos.
+
+**Dónde:** Viajes de camiones → panel de información → tarjeta **"💰 Pago de viajes"**. Solo la ve quien
+tiene **permiso completo** del módulo; los listeros no ven montos.
+
+**Lo que hay que pagar**
+- Elige el **rango de fechas** (o los atajos *Esta semana*, *Semana pasada* y *Hoy*). Se cuenta por
+  **jornada** (7am a 7am).
+- Sale **cada empresa** con sus viajes pagados, los que **no facturaron**, los que quedaron **sin pagar** y
+  su **total**; arriba, el **total a pagar** del rango.
+- Toca una empresa para ver el pago **por camión** y la lista de **viajes** con su tique, zona, tarifa,
+  quién lo registró y el **estado en que estaba el camión** (solo una observación: no decide el pago).
+- Cada viaje **se paga**, salvo que lo marques **"✗ No facturó"** con un motivo; se quita con
+  **"✓ Volver a facturar"**, y queda quién la puso.
+- La empresa que cobra es **la guardada en el viaje**. Un viaje **sin zona**, **sin tarifa** o de un camión
+  **fuera del catálogo** sale como **"sin pagar"**, para que no se pierda.
+- **📄 PDF** saca el total por empresa y el detalle por camión del rango.
+
+**⚙️ Tarifas y camiones**
+- **Tarifas:** la vigente hoy de cada zona y el historial. Una tarifa nueva rige **desde la fecha que
+  elijas en adelante**; con **"🔒 Blindar a un rango de fechas"** rige **solo en ese rango** y manda sobre la
+  general. Cambiar una tarifa **no toca los días anteriores**. No se borra: se **anula** con motivo.
+- **Camiones:** por empresa, cada camión tiene su interruptor **"🚛 Por viaje / ⛔ No entra"** y hay botones
+  para toda la empresa (así se quita o se pone un chuto). Rige **desde la fecha elegida**; lo anterior no
+  cambia. Un camión sin asignar **no entra** al pago por viaje.
+  Tocar la zona marcada la quita. Arriba se avisa cuántas obras activas siguen **sin zona**: sus
+  viajes nuevos quedan sin zona de pago. Los viajes anteriores al 14/09/2026 no tienen estos datos.
 
 > **👤 En la lista solo salen los listeros de verdad (13/09/2026).**
 > Solo salen los usuarios con el **rol de listero**. Antes salía todo el que tenía acceso al
