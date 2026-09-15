@@ -40,8 +40,8 @@ export type UbicacionObra = {
 /**
  * ZONA DE PAGO de una obra/CDT (14-sep-2026).
  *
- * Pedido del cliente: los camiones que van a un CDT del ESTE cobran 30 $ por viaje y
- * los del OESTE 50 $. La zona la dice el CDT, no el camión.
+ * Pedido del cliente: los camiones cobran por viaje una tarifa distinta según el CDT
+ * sea del ESTE o del OESTE. La zona la dice el CDT, no el camión.
  *
  * ⭐ La zona se COPIA en cada viaje al registrarlo, y la copia la BASE (no el
  *    teléfono). Cambiar la zona de una obra afecta solo a los viajes que entren
