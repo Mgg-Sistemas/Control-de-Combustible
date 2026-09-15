@@ -2078,7 +2078,10 @@ export default function ViajesCamionesScreen() {
   // `resumirViajes` es una función pura SIN imports (a propósito, ver su
   // cabecera), así que no puede deducir el turno sola: se lo damos ya masticado.
   const filasResumen = useMemo(
-    () => filteredRangeRows.map((r) => ({ ...r, turno: turnoDeViaje(r.registeredAt) })),
+    // ⚠️ `ubicacionName` a mano: la fila de la pantalla lo trae como `ubicacionNombre` y
+    //    el resumen lo lee como `ubicacionName`. Sin esto, «Agrupar por obra» separaba bien
+    //    los viajes (por id) pero rotulaba todas las obras «Sin ubicación» (15-sep-2026).
+    () => filteredRangeRows.map((r) => ({ ...r, ubicacionName: r.ubicacionNombre ?? null, turno: turnoDeViaje(r.registeredAt) })),
     [filteredRangeRows]
   );
   const resumenViajes = useMemo(
