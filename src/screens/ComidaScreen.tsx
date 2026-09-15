@@ -150,6 +150,11 @@ export default function ComidaScreen() {
     return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [rangePersons]);
   const rangePersonsTotal = useMemo(() => rangePersons.reduce((a, r) => a + (Number(r.meals) || 0), 0), [rangePersons]);
+  const rangePersonsByMeal = useMemo(() => {
+    const by: Record<string, number> = {};
+    rangePersons.forEach((r) => { if (r.meal_type) by[r.meal_type] = (by[r.meal_type] || 0) + (Number(r.meals) || 0); });
+    return by;
+  }, [rangePersons]);
 
   // Empresas presentes en el rango (para el filtro).
   const rangeCompanies = useMemo(() => {
@@ -237,7 +242,7 @@ export default function ComidaScreen() {
               </tr>`).join('')}
             <tr class="tot">
               <td class="l">TOTAL</td><td></td>
-              ${MEALS.map(() => '<td></td>').join('')}
+              ${MEALS.map((m) => `<td>${rangePersonsByMeal[m.key] || 0}</td>`).join('')}
               <td class="b">${rangePersonsTotal}</td><td></td>
             </tr>
           </tbody>
@@ -440,7 +445,7 @@ export default function ComidaScreen() {
                 {kpi('Total', rangeTotals.total + rangePersonsTotal, colors.success)}
               </View>
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                {MEALS.map((m) => kpi(m.label, rangeTotals.by[m.key] || 0, colors.text))}
+                {MEALS.map((m) => kpi(m.label, (rangeTotals.by[m.key] || 0) + (rangePersonsByMeal[m.key] || 0), colors.text))}
               </View>
             </Card>
 
