@@ -2460,6 +2460,29 @@ escritura en Compras (o Inventario).
 > último es el que quita la cuenta por pagar, y va después porque reemplaza funciones de los
 > otros dos.)*
 
+> **➕ Proveedor nuevo desde la compra (15-sep-2026):** en el formulario de **🛒 Compras directas**
+> (y en **🧰 Servicios**) hay abajo del selector un campo **«Nuevo proveedor…»** con **«+ Crear»**:
+> escribes el nombre, se guarda en `suppliers` y queda elegido — ya no hace falta ir a la pestaña
+> Proveedores primero.
+
+> **🧰 Servicios (15-sep-2026, submódulo de Compras):** para cargar **servicios** (recarga de
+> bombonas, mantenimiento de aires, cambio de aceite, cambio de pieza…). En **Compras → «🧰
+> Servicios»** toca **«+ Nuevo»**, elige **empresa** y (opcional) **proveedor**, y agrega uno o
+> varios servicios. Cada uno lleva:
+>
+> - **Categoría** (mantenimiento de vehículos, recarga de bombonas, mantenimiento de A/C…) y
+>   **Tipo** (recarga, cambio de aceite, mantenimiento de limpieza, cambio de pieza…) — **listas
+>   que se guardan solas**: la primera vez las escribes y quedan para elegirlas después.
+> - **Equipo** opcional del catálogo (buscador por **nombre, placa, serial, marca, modelo o
+>   empresa**; al elegirlo se ve su placa/serial/empresa).
+> - **Cantidad** y **precio**.
+> - Check **«📦 usa un repuesto del inventario»**: si lo marcas, eliges el repuesto y se
+>   **descuenta del stock** al guardar; si no aplica (ej. limpieza de A/C) lo dejas sin marcar y
+>   **no toca el inventario**.
+>
+> Se puede adjuntar la factura, trae total y **«✏️ Editar»** (al editar se re-sincroniza el
+> descuento de inventario). *(Requiere `supabase/servicios.sql`.)*
+
 > **Cambiar estado a mano (04/08/2026):** quien tenga **todos los permisos de Inventario** (o sea
 > administrador) puede tocar el mismo **badge de estado** (arriba a la derecha de cada
 > requerimiento, ej. "APROBADO") para desplegar "Cambiar a: Pendiente/Aprobado/Rechazado/Recibido"
