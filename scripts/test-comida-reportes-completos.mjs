@@ -155,9 +155,18 @@ ok('una lectura buena limpia el aviso', /setLoadError\(null\);/.test(scr) && /se
 ok('el aviso sale en pantalla', /\{loadError \?\? rangeError\}/.test(scr));
 ok('el PDF del rango no se arma con datos a medias', /const downloadRangePdf = async \(\) => \{\s*if \(rangeError\) return;/.test(scr));
 
+// ── Cuadros por comida del rango: empresa + carnet (15-sep-2026) ────────────
+// Antes sumaban solo por empresa: 158 en total pero 21+29+0+0 = 50, y la cena de carnet en 0.
+ok('las entregas por persona se cuentan por comida', /const rangePersonsByMeal = useMemo\(\(\) => \{[\s\S]*?rangePersons\.forEach\(\(r\) => \{ if \(r\.meal_type\) by\[r\.meal_type\] = \(by\[r\.meal_type\] \|\| 0\) \+ \(Number\(r\.meals\) \|\| 0\); \}\);/.test(scr));
+ok('los cuadros por comida suman empresa y persona', /MEALS\.map\(\(m\) => kpi\(m\.label, \(rangeTotals\.by\[m\.key\] \|\| 0\) \+ \(rangePersonsByMeal\[m\.key\] \|\| 0\)/.test(scr));
+ok('...y ya no muestran solo lo de empresa', !/kpi\(m\.label, rangeTotals\.by\[m\.key\] \|\| 0,/.test(scr));
+ok('el PDF por persona trae el total por comida', /MEALS\.map\(\(m\) => `<td>\$\{rangePersonsByMeal\[m\.key\] \|\| 0\}<\/td>`\)/.test(scr));
+
 // ── Manual ──────────────────────────────────────────────────────────────────
 ok('el manual .md lo explica', /Reportes de comida completos \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla también', /REPORTES DE COMIDA COMPLETOS \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('el manual .md explica los cuadros por comida', /Comidas por tiempo en Reportes \(15\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('el manual en pantalla también', /COMIDAS POR TIEMPO EN REPORTES \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-reportes-completos · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
