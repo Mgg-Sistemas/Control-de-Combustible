@@ -2323,6 +2323,12 @@ flechas ◀ ▶ cambias de día.
 > señal), la pantalla muestra un **aviso rojo** y el PDF del rango no se genera con datos a medias:
 > desliza hacia abajo para reintentar.
 
+> **🍽️ Comidas por tiempo en Reportes (15/09/2026).** Los cuadros **Desayuno / Almuerzo / Lunch /
+> Cena** del rango contaban solo lo entregado **por empresa** y dejaban fuera las entregas **por
+> carnet**, así que no cuadraban con el **Total** (por ejemplo, la cena en 0). Ahora suman las dos,
+> igual que en **Por día**. En el PDF, la fila TOTAL de las entregas por persona también muestra cuánto
+> fue de cada comida.
+
 **Control por empresa (asistencia/entrega):** en **Distribución de comida** (jefe) toca la
 pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los atajos *Hoy / 7 días /
 30 días*) y verás:
