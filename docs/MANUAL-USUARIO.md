@@ -2326,6 +2326,26 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
   cada comida, la hora y quién lo registró.
 - Botón **"📄 Descargar reporte PDF"** para imprimir/llevar el control por empresa del rango.
 
+#### 💵 Cobro de comidas (15/09/2026)
+Debajo del botón del PDF, en la pestaña **"📊 Reportes"**, está la tarjeta **"💵 Cobro de comidas"**.
+Solo la ve quien tiene **permiso completo** en Distribución de comida (la cocina no ve montos).
+- Usa **el mismo rango de fechas y el mismo filtro de empresa** de arriba: no hay que elegirlos otra vez.
+- **Una cuenta por empresa**: lo que se le entregó **por QR** más lo que comió **su gente por carnet**
+  (la empresa sale de la **ficha de nómina** de cada persona).
+- **Nómina propia (por carnet):** las personas cuya ficha no tiene empresa.
+- **Por carnet · sin ficha de nómina:** entregas de personas cuya ficha ya no existe; quedan aparte,
+  a la vista, en vez de cargárselas a alguien.
+- Tocar una cuenta muestra **cuántas comidas de cada tipo, a qué precio y el monto**.
+- **"📄 PDF del cobro"** descarga el total por cuenta y el detalle.
+- **"💲 Precios"**: el precio de cada comida (desayuno, almuerzo, lunch, cena). Como las tarifas de
+  viajes: un precio **general desde una fecha**, o uno **🔒 blindado** a un rango que manda solo en
+  esas fechas. Los precios **no se borran, se anulan** con motivo, y los días anteriores **conservan
+  su precio**.
+- Una comida **sin precio** para su fecha **no suma** al total, pero se cuenta como **"sin precio"**
+  con aviso amarillo para que no se pierda.
+
+> El cobro **solo lee** lo entregado: no cambia cómo registra la cocina ni los conteos de la pantalla.
+
 ### 4.8d. Inventario (materiales, requerimiento y traslados)
 Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo

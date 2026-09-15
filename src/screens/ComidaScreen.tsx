@@ -14,6 +14,9 @@ import { LOGO_DATA_URI } from '../lib/logoData';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { useAuth } from '../context/AuthContext';
+import { levelMeets } from '../lib/permissions';
+import { CobroComidasResumen } from '../components/CobroComidasResumen';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -51,6 +54,9 @@ function startOfMonthISO(iso: string): string {
  */
 export default function ComidaScreen() {
   const { colors } = useTheme();
+  const { session, moduleLevel } = useAuth();
+  // El cobro (montos y precios) solo lo ve quien tiene permiso completo de Comida.
+  const canCobro = levelMeets(moduleLevel('comida'), 'full');
   const [mode, setMode] = useState<'dia' | 'control'>('dia');
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
@@ -441,6 +447,21 @@ export default function ComidaScreen() {
             <TouchableOpacity onPress={downloadRangePdf} disabled={pdfBusy} style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: pdfBusy ? 0.6 : 1 }}>
               <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{pdfBusy ? 'Generando…' : '📄 Descargar reporte PDF'}</Text>
             </TouchableOpacity>
+
+            {/* Cobro de comidas: el mismo rango y las mismas entregas, con precio. Con la lectura
+                del rango fallida no se muestra: cobraría con datos a medias. */}
+            {canCobro && !rangeError ? (
+              <CobroComidasResumen
+                desde={from}
+                hasta={to}
+                hoy={caracasToday()}
+                empresas={rangeRows}
+                personas={rangePersons}
+                filtroEmpresa={companyFilter}
+                canEdit={canCobro}
+                usuarioId={session?.user?.id ?? null}
+              />
+            ) : null}
 
             {/* Resumen por empresa */}
             {rangeByCompany.length > 0 ? (
