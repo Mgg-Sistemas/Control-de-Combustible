@@ -53,6 +53,7 @@ import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, eti
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
+import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
@@ -3645,6 +3646,10 @@ export default function ViajesCamionesScreen() {
               cosas se configuran una vez y se dejan quietas: la obra de cada
               listero y el formato del papel. */}
           <TiqueConfigCard uid={uid} onGuardado={setConfigTique} />
+
+          {/* Lo que hay que pagarle a cada empresa por los viajes de sus camiones
+              (15-sep-2026). Vive acá y solo acá: no toca jornadas ni Control de Pagos. */}
+          <PagoViajesResumen canEdit={canFull} usuarioId={uid || null} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"

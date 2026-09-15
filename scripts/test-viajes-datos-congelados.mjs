@@ -1,8 +1,8 @@
 /*
  * Test: cada viaje nuevo guarda su EMPRESA, su ZONA DE PAGO y su ORIGEN (14-sep-2026).
  *
- * Punto 0 del plan de cobro por viaje. El cliente decidió que la zona (Este 30 $ /
- * Oeste 50 $) sale del CDT/obra del viaje. Sin guardar estos datos AL REGISTRAR, el
+ * Punto 0 del plan de cobro por viaje. El cliente decidió que la zona (Este u Oeste,
+ * cada una con su tarifa) sale del CDT/obra del viaje. Sin guardar estos datos AL REGISTRAR, el
  * cobro tendría que leer la empresa y la zona de HOY, y un camión que cambió de dueño
  * o una obra que cambió de zona reescribirían lo ya viajado.
  *
