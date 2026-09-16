@@ -681,6 +681,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > separar) sin marca, sin Este-Oeste"*), para que dos PDF distintos no se pisen en la carpeta
   > de descargas y nadie confunda un papel recortado con el completo.
 
+  > **🏷️ ¿Qué logos salen? — elige los logos del membrete (16/09/2026).** En **📊 Conteo de equipos**,
+  > debajo de *"¿Qué empresas salen?"*, hay una fila **¿QUÉ LOGOS SALEN?** con cuatro checks:
+  > ☑ **SOS La Guaira** · ☑ **Golden Touch** · ☑ **Venezuela Renace** · ☐ **BCV**. Cada uno prende o
+  > apaga SU logo en el membrete del *"INVENTARIO DE MAQUINARIA"*: SOS y Golden Touch van a la
+  > izquierda del título; *"Venezuela Renace"* es todo el branding del Plan (ola tricolor, logotipo y
+  > marca de agua) — si lo apagas, el título usa todo el ancho; BCV agrega el logo del Banco Central.
+  > Por defecto vienen SOS + Golden Touch + Venezuela Renace (BCV apagado). Debajo dice cuáles saldrán.
+
   > **🎭 El botón del informe SIMULADO se ocultó (07/09/2026).** A pedido del cliente. Sacaba el
   > mismo inventario pero con **todas las máquinas operativas** y repartidas **al azar** Este/Oeste,
   > para presentaciones; al lado del botón real se prestaba a imprimir el papel equivocado. **Solo

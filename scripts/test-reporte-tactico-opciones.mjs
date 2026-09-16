@@ -240,7 +240,7 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
   ok('* y el cuadro de alcance dice cuantas, no cuales', /\$\{opciones\.sinEmpresas\s*\? `<div class="kv"><b>Empresas incluidas:<\/b> \$\{empresasDentro\.length\}[^\n]*nombres ocultos a propósito/.test(bloque));
   ok('* lo oculto va al nombre del archivo', /sufijoArchivoOcultos\(opciones\)/.test(bloque));
   // El subtitulo se quito a pedido del cliente (07-sep-2026): el membrete va sin el.
-  ok('⭐ el subtitulo ya no sale', !/const subtitle = /.test(bloque) && /renaceShell\('INVENTARIO DE<br\/>MAQUINARIA', '', body\)/.test(bloque));
+  ok('⭐ el subtitulo ya no sale', !/const subtitle = /.test(bloque) && /renaceShell\('INVENTARIO DE<br\/>MAQUINARIA', '', body[,)]/.test(bloque));
   ok('* el membrete no pinta un subtitulo vacio', /\$\{sub \? `<div class="sub">\$\{sub\}<\/div>` : ''\}/.test(vivo));
   ok('⭐ el cuadro de alcance obedece a su pastilla', /\n\s*\$\{opciones\.sinAlcance \? '' : alcanceHtml\}`;/.test(bloque));
   ok('* y al cuadro de alcance, solo si hay algo oculto', /\$\{ocultosLista\(opciones\)\.length \? `<div class="kv"><b>Campos ocultos:<\/b> \$\{esc\(ocultosLista\(opciones\)\.join\(' · '\)\)\}/.test(bloque));
@@ -263,9 +263,13 @@ console.log('QUE SE OCULTA EN EL INVENTARIO DE MAQUINARIA\n');
   ok('el membrete del Plan existe', shell.length > 500);
   const hd = (shell.match(/<div class="hd">[\s\S]*?<div class="rule">/) || [''])[0];
   ok('* el encabezado existe', hd.length > 100);
-  ok('⭐ lleva el logo de Golden Touch a la izquierda del titulo, en el encabezado',
-    /<div class="tit"><img class="gt" src="\$\{GOLDEN_TOUCH_LOGO_DATA_URI\}"\/><span>\$\{title\}<\/span><\/div>/.test(hd));
-  ok('⭐ y SIGUE llevando el del Plan (ola y logotipo) en el encabezado', /class="wave" src="\$\{RENACE_WAVE_DATA_URI\}"/.test(hd) && /class="mark" src="\$\{RENACE_LOGO_DATA_URI\}"/.test(hd));
+  // 16-sep-2026: los logos se prenden/apagan con un check. El título compone los
+  // logos de la izquierda (leftLogos) + el título; Golden Touch es uno de ellos.
+  ok('⭐ el encabezado compone los logos de la izquierda y el titulo',
+    /<div class="tit\$\{L\.renace \? '' : ' full'\}">\$\{leftLogos\}<span>\$\{title\}<\/span><\/div>/.test(hd));
+  ok('⭐ Golden Touch es uno de esos logos (con su check L.golden)',
+    /L\.golden \? `<img class="gt" src="\$\{GOLDEN_TOUCH_LOGO_DATA_URI\}"\/>`/.test(shell));
+  ok('⭐ y SIGUE llevando el del Plan (ola y logotipo), con su check L.renace', /class="wave" src="\$\{RENACE_WAVE_DATA_URI\}"/.test(hd) && /class="mark" src="\$\{RENACE_LOGO_DATA_URI\}"/.test(hd));
   ok('* la marca de agua sigue siendo la del Plan', /<img class="wm" src="\$\{RENACE_LOGO_DATA_URI\}"\/>/.test(shell));
   ok('* y Golden Touch no se cuela debajo del encabezado', !/GOLDEN_TOUCH/.test(shell.slice(shell.indexOf('<div class="rule">'))));
   ok('* el titulo lleva halo blanco para ganarle a las franjas de la ola', /\.hd \.tit span\{text-shadow:[^}]*#fff/.test(shell));

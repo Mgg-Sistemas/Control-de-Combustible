@@ -329,7 +329,18 @@ function pdfShell(title: string, sub: string, body: string): string {
 // va con la marca del Plan. Los dos logos salen de la plantilla oficial en PDF
 // (ver src/lib/logoRenaceData.ts).
 const RENACE_NAVY = '#1F3864';
-function renaceShell(title: string, sub: string, body: string, fields: { empresa?: string; responsable?: string } = {}): string {
+// Qué logos salen en el membrete del INVENTARIO/CONTEO. El usuario los prende y
+// apaga con un check por reporte. Por omisión = como salía siempre (Golden Touch
+// + Venezuela Renace), para no cambiar los otros reportes que usan este membrete.
+export type ReporteLogos = { sos?: boolean; golden?: boolean; renace?: boolean; bcv?: boolean };
+function renaceShell(title: string, sub: string, body: string, fields: { empresa?: string; responsable?: string } = {}, logos: ReporteLogos = {}): string {
+  const L = { sos: logos.sos ?? false, golden: logos.golden ?? true, renace: logos.renace ?? true, bcv: logos.bcv ?? false };
+  // Logos que van a la IZQUIERDA del título (en el orden pedido: SOS, Golden, BCV).
+  const leftLogos = [
+    L.sos ? `<img class="lgo" src="${LOGO_DATA_URI}"/>` : '',
+    L.golden ? `<img class="gt" src="${GOLDEN_TOUCH_LOGO_DATA_URI}"/>` : '',
+    L.bcv ? `<img class="lgo" src="${BCV_LOGO_DATA_URI}"/>` : '',
+  ].join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
   @page{size:letter;margin:14mm 12mm}
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -344,6 +355,11 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
      sigue a la derecha: se suma, no se reemplaza. El JPG trae fondo de acero, no
      transparente; por eso las esquinas redondeadas. */
   .hd .gt{width:76px;height:76px;border-radius:10px;flex:none;object-fit:cover}
+  /* Otros logos de la izquierda (SOS, BCV): fondo blanco y "contain" para no
+     recortarlos. El de Golden (.gt) va con "cover" por su fondo de acero. */
+  .hd .lgo{width:76px;height:76px;border-radius:10px;flex:none;object-fit:contain;background:#fff;padding:4px}
+  /* Sin la ola del Plan, el título puede usar todo el ancho. */
+  .hd .tit.full{max-width:100%}
   /* Con el logo, el título arranca 90px más a la derecha y su segunda línea
      cruza las franjas de la ola (azul marino sobre azul, medido al ancho de
      carta). Un halo blanco hace que el texto gane sin mover la ola oficial. */
@@ -359,12 +375,11 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
   .sub{font-size:11px;color:#6B7280;margin:6px 0 2px}
   .foot{margin-top:18px;padding-top:8px;border-top:1px solid #E5E7EB;text-align:center;color:#9CA3AF;font-size:10px}
   </style></head><body>
-    <img class="wm" src="${RENACE_LOGO_DATA_URI}"/>
+    ${L.renace ? `<img class="wm" src="${RENACE_LOGO_DATA_URI}"/>` : ''}
     <div class="page">
       <div class="hd">
-        <img class="wave" src="${RENACE_WAVE_DATA_URI}"/>
-        <img class="mark" src="${RENACE_LOGO_DATA_URI}"/>
-        <div class="tit"><img class="gt" src="${GOLDEN_TOUCH_LOGO_DATA_URI}"/><span>${title}</span></div>
+        ${L.renace ? `<img class="wave" src="${RENACE_WAVE_DATA_URI}"/><img class="mark" src="${RENACE_LOGO_DATA_URI}"/>` : ''}
+        <div class="tit${L.renace ? '' : ' full'}">${leftLogos}<span>${title}</span></div>
         <div class="fecha"><b>Fecha:</b> ${nowStamp()}</div>
       </div>
       <div class="rule"></div>
@@ -615,6 +630,15 @@ export default function ReportsScreen({ route }: any) {
   // Ubicaciones tácticas: qué se OCULTA (marca, modelo, ubicaciones, Este/Oeste).
   // Arranca sin ocultar nada: el papel de siempre.
   const [tacOpciones, setTacOpciones] = useState<OpcionesTactico>(OPCIONES_TACTICO_COMPLETO);
+  // Ubicaciones tácticas: qué LOGOS salen en el membrete (cada uno con su check).
+  // Arranca con SOS + Golden Touch + Venezuela Renace; BCV apagado.
+  const [tacLogos, setTacLogos] = useState<ReporteLogos>({ sos: true, golden: true, renace: true, bcv: false });
+  const LOGOS_TAC: { key: keyof ReporteLogos; label: string }[] = [
+    { key: 'sos', label: 'SOS La Guaira' },
+    { key: 'golden', label: 'Golden Touch' },
+    { key: 'renace', label: 'Venezuela Renace' },
+    { key: 'bcv', label: 'BCV' },
+  ];
   /**
    * EMPRESAS ESCOGIDAS A DEDO (09-sep-2026).
    *
@@ -2546,7 +2570,7 @@ export default function ReportsScreen({ route }: any) {
     // Membrete del Plan Venezuela Renace, sin subtítulo. "Empresa" y "Responsable"
     // van como líneas en blanco (igual que la plantilla oficial): el reporte puede
     // cubrir a varias empresas a la vez, así que quien lo imprime las completa.
-    await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', '', body), fileName);
+    await exportPdf(renaceShell('INVENTARIO DE<br/>MAQUINARIA', '', body, {}, tacLogos), fileName);
   };
 
   // Reporte de PERSONAL COMPLETO: MOVIDO a Nómina · Personal → src/lib/personalReport.ts
@@ -3713,6 +3737,26 @@ export default function ReportsScreen({ route }: any) {
                   </Text>
                 </View>
               ) : null}
+              {/* ¿QUÉ LOGOS SALEN? (16-sep-2026): cada logo del membrete se prende o
+                  apaga con su check. Vale para el PDF de Ubicaciones tácticas. */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ LOGOS SALEN?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                {LOGOS_TAC.map((lg) => {
+                  const on = tacLogos[lg.key] ?? false;
+                  return (
+                    <TouchableOpacity
+                      key={lg.key}
+                      onPress={() => setTacLogos((o) => ({ ...o, [lg.key]: !(o[lg.key] ?? false) }))}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+                Marca los logos que quieres en el membrete del PDF. Salen: {LOGOS_TAC.filter((l) => tacLogos[l.key]).map((l) => l.label).join(' · ') || 'ninguno'}.
+              </Text>
               {/* QUÉ SE OCULTA (06-sep-2026): pastillas que se encienden VARIAS a la vez,
                   no como las de empresas. Ocultan columnas, textos o cuadros enteros,
                   nunca máquinas: los totales no cambian. Valen con y sin personal.

@@ -238,7 +238,7 @@ ok('* y va dentro del cuerpo del PDF (salvo que se oculte a proposito)', /\$\{op
 
 // El subtitulo del membrete se quito a pedido del cliente (07-sep-2026): el
 // alcance queda en el cuadro del final y en el nombre del archivo.
-ok('el subtitulo ya no sale (se quito a pedido del cliente)', !/const subtitle = /.test(bloque) && /renaceShell\('INVENTARIO DE<br\/>MAQUINARIA', '', body\)/.test(bloque));
+ok('el subtitulo ya no sale (se quito a pedido del cliente)', !/const subtitle = /.test(bloque) && /renaceShell\('INVENTARIO DE<br\/>MAQUINARIA', '', body[,)]/.test(bloque));
 ok('* y el nombre del archivo tambien', /Inventario de maquinaria \(\$\{alcanceInfo\.archivo\}\)/.test(bloque));
 
 // ── 7) LOS BOTONES ──────────────────────────────────────────────────────────
