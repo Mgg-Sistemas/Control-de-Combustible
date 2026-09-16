@@ -14,10 +14,10 @@ import { DateField } from './DateField';
 import { PagoViajesTarifas } from './PagoViajesTarifas';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
-import { isVolteoVolqueta } from '../lib/equipos';
+import { esCamionDeViajes } from '../lib/equipos';
 import { cmpText } from '../lib/text';
 import { filaModoEn, indexarModos, jornadaDeInstante, ModoPago, ModoPagoFila, TarifaViaje } from '../lib/pagoViajes';
-import { asignarModoPago, cargarMaquinasActivas, cargarModosPago, cargarTarifasViaje, CamionCatalogo } from '../lib/pagoViajesDb';
+import { asignarModoPago, cargarMaquinasCatalogo, cargarModosPago, cargarTarifasViaje, CamionCatalogo } from '../lib/pagoViajesDb';
 
 type Props = {
   visible: boolean;
@@ -53,7 +53,7 @@ export function PagoViajesPanel({ visible, onClose, canEdit, usuarioId, onChange
     setCargando(true);
     setError(null);
     try {
-      const [t, m, maq] = await Promise.all([cargarTarifasViaje(), cargarModosPago(), cargarMaquinasActivas()]);
+      const [t, m, maq] = await Promise.all([cargarTarifasViaje(), cargarModosPago(), cargarMaquinasCatalogo()]);
       setTarifas(t);
       setModos(m);
       setMaquinas(maq);
@@ -73,10 +73,12 @@ export function PagoViajesPanel({ visible, onClose, canEdit, usuarioId, onChange
   const camiones = useMemo(() => {
     const q = filtro.trim().toLowerCase();
     return maquinas
-      .filter((m) => isVolteoVolqueta(m.code))
+      // Camiones del pago (incluye chutos), y las máquinas dadas de baja solo si ya
+      // tienen historial: si no, no habría manera de sacarlas del pago.
+      .filter((m) => esCamionDeViajes(m.code) && (m.activa || (idxModos.get(m.id)?.length ?? 0) > 0))
       .filter((m) => !q || `${m.code} ${m.plate ?? ''} ${m.serial ?? ''} ${m.company}`.toLowerCase().includes(q))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
-  }, [maquinas, filtro]);
+  }, [maquinas, filtro, idxModos]);
 
   const porEmpresa = useMemo(() => {
     const m = new Map<string, CamionCatalogo[]>();
@@ -182,7 +184,7 @@ export function PagoViajesPanel({ visible, onClose, canEdit, usuarioId, onChange
                     return (
                       <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4 }}>
                         <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{c.code}{c.plate ? ` · ${c.plate}` : c.serial ? ` · ${c.serial}` : ''}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{c.code}{c.plate ? ` · ${c.plate}` : c.serial ? ` · ${c.serial}` : ''}{c.activa ? '' : ' · 🚫 de baja'}</Text>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>
                             {fila ? `${porViaje ? 'Por viaje' : 'No entra'} desde ${dmy(fila.desde)}${fila.created_by_nombre ? ` · ${fila.created_by_nombre}` : ''}` : 'Sin asignar · no entra'}
                           </Text>

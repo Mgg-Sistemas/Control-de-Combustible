@@ -39,6 +39,26 @@ export function isVolteoVolqueta(code: string): boolean {
   return c.includes('volteo') || c.includes('volqueta') || c.includes('toronto');
 }
 
+/** Señas de un chuto (la misma familia que `segmentoDe` en cubicaje.ts). */
+const SENAS_CHUTO = ['chuto', 'batea', 'lowboy', 'low boy', 'tolva', 'semirremolque'];
+
+/**
+ * ¿Esta máquina puede entrar al PAGO POR VIAJE?
+ *
+ * ⭐ Es MÁS ANCHA que `isVolteoVolqueta` a propósito: el listero puede anotarle viajes a
+ *    cualquier máquina del catálogo (el buscador de ViajesCamionesScreen ofrece las que no
+ *    están en su lista), y un «CHUTO CON BATEA» hace viajes igual que un volteo. Con la
+ *    regla angosta esos viajes no se podían pagar NI se veían: no había manera de marcar
+ *    el camión «por viaje» y el cálculo los descartaba.
+ *
+ * ⚠️ No se amplía `isVolteoVolqueta` porque esa decide la lista del listero, la asistencia
+ *    de camiones, la supervisión y el cubicaje: meterle un lowboy cambiaría cuatro pantallas.
+ */
+export function esCamionDeViajes(code: string): boolean {
+  const c = (code || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return isVolteoVolqueta(code) || SENAS_CHUTO.some((s) => c.includes(s));
+}
+
 // ── Zona / ubicación a disposición ──────────────────────────────────────────
 // La zona es un campo propio de la máquina (machinery.zona): Gobernación, FANB,
 // CVM, Zona Este… El vacío/nulo se muestra como "Sin zona".

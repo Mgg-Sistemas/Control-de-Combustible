@@ -227,7 +227,7 @@ ok('⭐ camión por jornada no entra al pago por viaje', !Array.from(grupos.valu
 ok('⭐ regresado a jornada el 21: ese viaje no entra', !grupos.has('EMPA|2026-09-21'));
 ok('chuto quitado no entra', !Array.from(grupos.values()).some((g) => g.lineas.some((l) => l.viaje.id === 'v9')));
 const sinEmp = grupos.get('|2026-09-14');
-eq('fuera de catálogo: aparece sin empresa, pendiente, 0 $', [sinEmp?.viajes, sinEmp?.pendientes, sinEmp?.montoUSD, sinEmp?.lineas[0].motivoSinPago], [1, 1, 0, 'sin_empresa']);
+eq('fuera de catálogo: aparece, pendiente, 0 $ y lo dice', [sinEmp?.viajes, sinEmp?.pendientes, sinEmp?.montoUSD, sinEmp?.lineas[0].motivoSinPago], [1, 1, 0, 'fuera_catalogo']);
 eq('otra empresa, otro grupo', grupos.get('EMPB|2026-09-14')?.montoUSD, 21);
 
 // Un camión puesto por viaje ANTES del 15: lo anterior al inicio igual no se paga por viaje
@@ -269,7 +269,7 @@ eq('viajes del 15 al 16 por jornada (la madrugada del 16 es del 15)',
   ['v1', 'v10', 'v11', 'v2', 'v3', 'v4', 'v5', 'v7', 'v9'].filter((id) => id !== 'v11').sort());
 eq('rango vacío fuera de fechas', L.viajesEnRango(viajes, '2026-10-01', '2026-10-02'), []);
 
-eq('etiquetas de motivo', ['no_facturo', 'sin_zona', 'sin_tarifa', 'sin_empresa', null].map(L.etiquetaMotivoSinPago), ['No facturó', 'Sin zona', 'Sin tarifa', 'Sin empresa', '']);
+eq('etiquetas de motivo', ['no_facturo', 'sin_zona', 'sin_tarifa', 'sin_empresa', 'fuera_catalogo', null].map(L.etiquetaMotivoSinPago), ['No facturó', 'Sin zona', 'Sin tarifa', 'Sin empresa', 'Camión fuera del catálogo', '']);
 
 // ── 6) LA BASE ──────────────────────────────────────────────────────────────
 const db = sinComentarios(leer('src/lib/pagoViajesDb.ts'));
@@ -313,6 +313,81 @@ ok('el manual .md lo explica', /Pago de viajes de camiones \(15\/09\/2026\)/.tes
 ok('...en Viajes de camiones, no en Control de Pagos', /panel de información → tarjeta \*\*"💰 Pago de viajes"\*\*/.test(md) && !/Control de Pagos → botón \*\*"🚛 Pago de viajes/.test(md));
 ok('el manual en pantalla también', /💰 PAGO DE VIAJES DE CAMIONES \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 ok('los dos manuales explican las tarifas especiales', /Tarifas especiales/.test(md) && /TARIFAS ESPECIALES/.test(leer('src/screens/ManualScreen.tsx')));
+
+// ── 9) REVISIÓN DEL 16-SEP-2026 ─────────────────────────────────────────────
+// Lo que encontró la auditoría: los chutos no se podían administrar, los viajes de un
+// camión fuera del pago desaparecían, y algunos desempates dependían del orden de lectura.
+
+// 9a) Qué máquina puede entrar al pago (más ancha que la lista del listero).
+const EQ = cargar('src/lib/equipos.ts');
+eq('camiones del pago: volteos, volquetas, toronto Y chutos',
+  ['CAMION VOLTEO 1', 'CHUTO CON VOLQUETA 3', 'TORONTO 5', 'CHUTO CON BATEA 2', 'CHUTO CON LOWBOY 1', 'CHUTO 7'].map(EQ.esCamionDeViajes),
+  [true, true, true, true, true, true]);
+eq('...pero no el resto de la maquinaria', ['EXCAVADORA 1', 'PAYLOADER 2', 'JUMBO 3'].map(EQ.esCamionDeViajes), [false, false, false]);
+eq('⭐ la lista del listero NO cambia (sigue angosta)', ['CHUTO CON BATEA 2', 'CHUTO CON LOWBOY 1'].map(EQ.isVolteoVolqueta), [false, false]);
+
+// 9b) Camiones con viajes que no entran al pago: ya no desaparecen.
+const fueraPago = L.viajesFueraDelPago({ viajes, modos: modos2 });
+eq('salen los que registraron viajes sin estar en el pago',
+  fueraPago.map((c) => [c.code, c.viajes, c.sinConfigurar]),
+  [['CHUTO 1', 1, false], ['TORONTO 1', 1, false], ['TORONTO 9', 1, true]]);
+// De TORONTO 1 solo cuenta el viaje del 21, cuando ya lo habían regresado a jornada:
+// sus 5 viajes de la semana del 14 sí están en el pago y no se repiten acá.
+eq('⭐ del camión que está por viaje solo salen los viajes de cuando ya no lo estaba',
+  fueraPago.find((c) => c.code === 'TORONTO 1')?.viajes, 1);
+eq('el de fuera del catálogo tampoco: ese ya sale en el pago', fueraPago.filter((c) => c.code === 'CAMION X'), []);
+eq('sin viajes: lista vacía', L.viajesFueraDelPago({ viajes: [], modos: modos2 }), []);
+
+// 9c) La marca a mano manda sobre el resto de los motivos.
+const sinEmpNoFact = L.calcularPagoViajes({
+  viajes: [V('n1', { company_id: null })],
+  modos: modos2,
+  tarifas,
+  marcas: L.indexarMarcas([{ id: 'm1', viaje_id: 'n1', facturable: false, created_at: '2026-09-15T15:00:00Z' }]),
+  semanaDe,
+});
+const gNoFact = Array.from(sinEmpNoFact.values())[0];
+eq('⭐ marcado «no facturó» y sin empresa: manda la marca',
+  [gNoFact.lineas[0].motivoSinPago, gNoFact.noFacturados, gNoFact.pendientes], ['no_facturo', 1, 0]);
+
+// 9d) Desempates que antes dependían del orden en que la base devolviera las filas.
+const dosMarcas = [
+  { id: 'm-a', viaje_id: 'x1', facturable: true, created_at: '2026-09-15T15:00:00Z' },
+  { id: 'm-b', viaje_id: 'x1', facturable: false, created_at: '2026-09-15T15:00:00Z' },
+];
+eq('⭐ dos marcas a la misma hora: el mismo resultado en cualquier orden',
+  [L.viajeFacturable(L.indexarMarcas(dosMarcas), 'x1'), L.viajeFacturable(L.indexarMarcas([...dosMarcas].reverse()), 'x1')],
+  [false, false]);
+const dosModos = [
+  { id: 'f-a', machinery_id: 'D', modo: 'viaje', desde: '2026-09-15', created_at: '2026-09-15T12:00:00Z' },
+  { id: 'f-b', machinery_id: 'D', modo: 'jornada', desde: '2026-09-15', created_at: '2026-09-15T12:00:00Z' },
+];
+eq('⭐ dos modos del mismo día y hora: el mismo resultado en cualquier orden',
+  [L.modoPagoEn(L.indexarModos(dosModos), 'D', '2026-09-16'), L.modoPagoEn(L.indexarModos([...dosModos].reverse()), 'D', '2026-09-16')],
+  ['jornada', 'jornada']);
+
+// 9e) El desglose del PDF agrupa por máquina, no por código repetido.
+const mismoCodigo = L.calcularPagoViajes({
+  viajes: [V('c1', { machinery_id: 'A', machine_code: 'TORONTO 1' }), V('c2', { machinery_id: 'B', machine_code: 'TORONTO 1' })],
+  modos: modos2, tarifas, marcas: L.indexarMarcas([]), semanaDe,
+});
+eq('⭐ dos camiones con el mismo código son dos renglones, no uno',
+  L.itemsViajePagados(Array.from(mismoCodigo.values())[0].lineas).map((i) => [i.code, i.viajes]),
+  [['TORONTO 1', 1], ['TORONTO 1', 1]]);
+
+// 9f) Las pantallas.
+ok('la pestaña Camiones usa la regla ancha (chutos incluidos)', /esCamionDeViajes\(m\.code\)/.test(panel) && !/isVolteoVolqueta/.test(panel));
+ok('...y deja quitar del pago a una máquina dada de baja que ya tenía historial', /m\.activa \|\| \(idxModos\.get\(m\.id\)\?\.length \?\? 0\) > 0/.test(panel));
+ok('el buscador de tarifas también ve los chutos', /m\.activa && esCamionDeViajes\(m\.code\)/.test(tar) && !/isVolteoVolqueta/.test(tar));
+ok('la ayuda del alcance «un camión» explica lo de ambas zonas', /Ambas zonas.*sin tocar el de las zonas/.test(tar));
+ok('el catálogo del pago trae también las inactivas, marcadas', /activa: m\.active !== false/.test(db) && !/q\.eq\('active', true\)/.test(db));
+ok('el resumen muestra los camiones que no entran al pago', /viajesFueraDelPago\(\{ viajes: viajesEnRango/.test(res) && /no entran al pago/.test(res));
+ok('...y el PDF también', /Camiones que no entran al pago/.test(res));
+ok('el resumen desglosa por qué quedaron sin pagar', /etiquetaMotivoSinPago\(m\)\.toLowerCase\(\)/.test(res));
+ok('un rango anterior al arranque lo dice claro', /rangoAntesDelInicio/.test(res));
+
+ok('el manual .md explica la revisión', /Chutos y camiones que no entran al pago \(16\/09\/2026\)/.test(md));
+ok('el manual en pantalla también', /CHUTOS Y CAMIONES QUE NO ENTRAN AL PAGO \(16\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-pago-viajes · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
