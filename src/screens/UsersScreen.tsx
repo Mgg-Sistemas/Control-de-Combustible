@@ -51,6 +51,11 @@ import {
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio', 'coordinador_inspectores'];
 
+// En ILIKE los caracteres `%` `_` `\` son comodines. Para comparar un USUARIO de
+// forma EXACTA (sin distinguir mayúsculas) con .ilike(), hay que escaparlos; si no,
+// un username con `_` o `%` haría match falso con otros y saldría "ya existe".
+const likeExacto = (s: string) => s.replace(/[\\%_]/g, '\\$&');
+
 // Escalera de niveles (acumulativa): none < lectura < escritura < full.
 const LADDER: PermLevel[] = ['none', 'lectura', 'escritura', 'full'];
 const RANK: Record<PermLevel, number> = { none: 0, lectura: 1, escritura: 2, full: 3 };
@@ -748,7 +753,7 @@ function NewUserForm({
       if (dup && dup.length) { setError('Ya existe un usuario con esa cédula.'); return; }
     }
     // No permitir dos personas con el mismo usuario (sin distinguir mayúsculas).
-    const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', un).limit(1);
+    const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', likeExacto(un)).limit(1);
     if (dupU && dupU.length) { setError('Ya existe ese usuario. Elige otro.'); return; }
     setSaving(true);
     // Rol UNIFICADO: si es un rol personalizado, el usuario se crea con un rol base
@@ -1190,7 +1195,7 @@ function EditUserForm({
     if (!un) { setSaving(false); setError('El USUARIO es obligatorio (con él inicia sesión).'); return; }
     // No permitir que el USUARIO choque con OTRA persona (case-insensitive, excluye al
     // propio). Aviso amigable ANTES del índice único de la BD (que también lo bloquea).
-    const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', un).neq('id', user.id).limit(1);
+    const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', likeExacto(un)).neq('id', user.id).limit(1);
     if (dupU && dupU.length) { setSaving(false); setError('Ya existe otro usuario con ese "Usuario". Elige otro.'); return; }
     const { error: ciErr } = await supabase.from('profiles').update({ cedula: ci, username: un }).eq('id', user.id);
     setSaving(false);
