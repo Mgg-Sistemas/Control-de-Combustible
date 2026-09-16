@@ -123,6 +123,12 @@ Cuando una máquina o un vehículo **carga** combustible:
 Es la lista de **todas las máquinas**. Cada una tiene su ficha: nombre, empresa, foto,
 serial y estado.
 
+> **🔎 Buscador del catálogo (15/09/2026):** además de **código, placa, serial, identificador y
+> empresa**, ahora encuentra una máquina por su **encargado**, su **inspector** (el de ☀️ día, el de
+> 🌙 noche o el del último check-in), su **marca** o su **modelo**. Busca igual en el catálogo y en
+> el detalle que se abre al tocar **Operativas / Averiadas / Esperando / Retiradas**. No distingue
+> mayúsculas ni acentos, y combina con los filtros de empresa, clasificación y tapa.
+
 > **📍 Ubicación vinculada al SECTOR del GPS (22-ago-2026):** en el **Catálogo** y en
 > **Inspecciones**, la ubicación de una máquina **con GPS** es el **sector real** donde cae — el
 > nombre del **polígono** que la contiene en el mapa (ej. **"📍 Este · Caraballeda"**), calculado
@@ -2317,6 +2323,12 @@ flechas ◀ ▶ cambias de día.
 > señal), la pantalla muestra un **aviso rojo** y el PDF del rango no se genera con datos a medias:
 > desliza hacia abajo para reintentar.
 
+> **🍽️ Comidas por tiempo en Reportes (15/09/2026).** Los cuadros **Desayuno / Almuerzo / Lunch /
+> Cena** del rango contaban solo lo entregado **por empresa** y dejaban fuera las entregas **por
+> carnet**, así que no cuadraban con el **Total** (por ejemplo, la cena en 0). Ahora suman las dos,
+> igual que en **Por día**. En el PDF, la fila TOTAL de las entregas por persona también muestra cuánto
+> fue de cada comida.
+
 **Control por empresa (asistencia/entrega):** en **Distribución de comida** (jefe) toca la
 pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los atajos *Hoy / 7 días /
 30 días*) y verás:
@@ -2345,6 +2357,19 @@ Solo la ve quien tiene **permiso completo** en Distribución de comida (la cocin
   con aviso amarillo para que no se pierda.
 
 > El cobro **solo lee** lo entregado: no cambia cómo registra la cocina ni los conteos de la pantalla.
+
+**👤 Cuentas: se cobra y encargado (15/09/2026).** En **"💲 Precios y cuentas"** hay una segunda
+pestaña, **"👤 Cuentas"**, con cada **empresa** y cada **departamento de la nómina propia**:
+- **"💵 Se cobra / 🏠 No se cobra":** lo que no se cobra es **consumo interno**. Se valora con su precio
+  pero **no suma al "Total a cobrar"**: sale aparte, en la línea **"🏠 Consumo interno"**.
+  Sin configurar, una empresa **se cobra** y la **nómina propia no**.
+- **"👤 Encargado":** a quién se le cobra esa cuenta, elegido del **mismo catálogo de encargados de
+  Mangueras**.
+- Todo rige **desde la fecha elegida** arriba; lo anterior no cambia y queda quién lo puso.
+- En la tarjeta, **"Agrupar por: 🏢 Cuenta / 👤 Encargado"** reparte el cobro por empresa o por encargado.
+  El **total es el mismo** en los dos; debajo de cada encargado se ven sus empresas y departamentos.
+- **Lunch:** desde el 15/09/2026 tiene **el mismo precio del desayuno** hasta que se defina el suyo en
+  "💲 Precios".
 
 ### 4.8d. Inventario (materiales, requerimiento y traslados)
 Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
@@ -5039,6 +5064,10 @@ además de por empresa y por listero.
   **Viajes sin zona (15/09/2026):** si un viaje se registró cuando su obra todavía no tenía zona,
   la toma **automáticamente** en el momento en que se le asigna la zona a esa obra. Solo aplica a
   los viajes de esa misma obra registrados desde el 14/09/2026.
+  **Agrupar por obra corregido (15/09/2026):** en la lista completa, **"Agrupar por → 🏗️ Obra"** (en
+  *Resumido*, *Solo camiones* y en el PDF) separaba bien los viajes pero **rotulaba todas las obras "Sin
+  ubicación"**. Ahora cada grupo sale con **el nombre de su obra**; "Sin ubicación" queda solo para los
+  viajes que de verdad no tienen obra. Ningún viaje ni total cambió.
 
 #### 💰 Pago de viajes de camiones (15/09/2026)
 
@@ -5066,6 +5095,27 @@ tiene **permiso completo** del módulo; los listeros no ven montos.
 - **Tarifas:** la vigente hoy de cada zona y el historial. Una tarifa nueva rige **desde la fecha que
   elijas en adelante**; con **"🔒 Blindar a un rango de fechas"** rige **solo en ese rango** y manda sobre la
   general. Cambiar una tarifa **no toca los días anteriores**. No se borra: se **anula** con motivo.
+- **Tarifas especiales (15/09/2026):** al crear una tarifa eliges **a quién aplica**: **🌐 Todos**,
+  **🏢 Una empresa**, **👥 Grupo de camiones** (los que marques, con un nombre; hay atajo **"＋ Solo chutos
+  que se ven"** y puedes **reusar un grupo anterior**) o **🚛 Un camión**. Y la **zona**: **Este**, **Oeste**
+  o **Ambas zonas**. Con fecha **desde** o **🔒 blindada** a un rango, igual que siempre.
+  - Si a un viaje le tocan varias, **manda la más específica**: camión → grupo → empresa → todos. Entre
+    dos del mismo tipo, la **blindada**; si no, la de **fecha más reciente**.
+  - La tarifa de empresa usa la **empresa guardada en el viaje**.
+  - Los **camiones de un grupo se fijan al crearlo**: para cambiarlos, anula la tarifa y crea otra (así lo ya
+    pagado no cambia).
+  - Al elegir un camión o una empresa, abajo dice **cuánto cobra hoy** con lo ya guardado. En el historial
+    puedes filtrar por tipo, y en el detalle de cada viaje sale **"💲 tarifa del camión / del grupo / de la
+    empresa"** cuando usó una especial.
+> **🚛 Chutos y camiones que no entran al pago (16/09/2026).** La pestaña **Camiones** y el buscador
+> de las tarifas solo mostraban volteos, volquetas y toronto, así que a un **chuto con batea o con
+> lowboy** no había manera de ponerlo «por viaje» ni darle tarifa propia, y sus viajes **no se pagaban
+> ni aparecían** en ninguna parte. Ahora salen todos los camiones (chutos incluidos), y también las
+> máquinas **dadas de baja que ya estaban en el pago**, para poder sacarlas. Además, la tarjeta y el
+> PDF traen un bloque **"🚫 Camiones que no entran al pago"** con los viajes que quedaron por fuera, y
+> el **"sin pagar"** ahora dice el motivo (sin zona, sin tarifa, sin empresa o fuera del catálogo).
+> Un viaje marcado **"✗ No facturó"** cuenta como tal aunque además le falte la empresa.
+
 - **Camiones:** por empresa, cada camión tiene su interruptor **"🚛 Por viaje / ⛔ No entra"** y hay botones
   para toda la empresa (así se quita o se pone un chuto). Rige **desde la fecha elegida**; lo anterior no
   cambia. Un camión sin asignar **no entra** al pago por viaje.

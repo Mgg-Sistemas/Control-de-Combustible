@@ -4,7 +4,9 @@
 // VIAJE, con la tarifa de la zona del CDT. Vive SOLO en el módulo de Viajes de camiones:
 // no toca jornadas, Control de Maquinaria ni Control de Pagos. Tres reglas:
 //   · Los precios se cambian como en jornada: un precio GENERAL desde una fecha en
-//     adelante, o uno BLINDADO a un rango de fechas que manda sobre el general.
+//     adelante, o uno BLINDADO a un rango de fechas que manda sobre el general. Una
+//     tarifa puede ser para todos, para una empresa, para un grupo de camiones o para
+//     un solo camión, en una zona o en ambas: manda la más específica (tarifaViajeEn).
 //   · Cada camión se pone o se quita del pago por viaje, con fecha (p. ej. los chutos).
 //     Un camión sin asignar no entra al pago por viaje.
 //   · El estado del camión no decide nada: cada viaje se paga salvo que alguien lo
@@ -17,9 +19,20 @@ export const INICIO_PAGO_VIAJES = '2026-09-15';
 export type ZonaPagoViaje = 'este' | 'oeste';
 export type ModoPago = 'jornada' | 'viaje';
 
+/** A quién le toca una tarifa, de la menos a la más específica. */
+export type AlcanceTarifa = 'general' | 'empresa' | 'grupo' | 'camion';
+export const ALCANCES_TARIFA: AlcanceTarifa[] = ['general', 'empresa', 'grupo', 'camion'];
+
 export type TarifaViaje = {
   id: string;
-  zona: string;
+  /** 'este' / 'oeste'; null = ambas zonas. */
+  zona: string | null;
+  /** Sin dato = general (las tarifas anteriores a los alcances). */
+  alcance?: string | null;
+  company_id?: string | null;
+  grupo_nombre?: string | null;
+  /** Camiones de una tarifa de grupo o de camión (fijados al crearla). */
+  machinery_ids?: string[] | null;
   precio: number | string;
   desde: string;
   hasta?: string | null;
@@ -66,7 +79,7 @@ export type ViajePago = {
 };
 
 /** Por qué un viaje de un camión por viaje no suma dinero. */
-export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa';
+export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa' | 'fuera_catalogo';
 
 export type LineaViaje = {
   viaje: ViajePago;
@@ -134,8 +147,13 @@ export function indexarModos(filas: ModoPagoFila[] | null | undefined): IndiceMo
     lista.push(f);
     idx.set(f.machinery_id, lista);
   });
+  // El id desempata: dos filas del mismo día y la misma hora daban un ganador distinto
+  // según el orden en que las devolviera la base, y eso decide si el camión cobra.
   idx.forEach((lista) =>
-    lista.sort((a, b) => dia(a.desde).localeCompare(dia(b.desde)) || String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))),
+    lista.sort((a, b) =>
+      dia(a.desde).localeCompare(dia(b.desde))
+      || String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))
+      || String(a.id ?? '').localeCompare(String(b.id ?? ''))),
   );
   return idx;
 }
@@ -154,39 +172,68 @@ export function modoPagoEn(idx: IndiceModos | null | undefined, machineryId: str
   return filaModoEn(idx, machineryId, fecha)?.modo === 'viaje' ? 'viaje' : 'jornada';
 }
 
+/** Alcance de una tarifa; sin dato = general; uno inventado = null (no aplica a nadie). */
+export function alcanceTarifa(t: { alcance?: unknown } | null | undefined): AlcanceTarifa | null {
+  const a = String(t?.alcance ?? '').trim().toLowerCase() || 'general';
+  return (ALCANCES_TARIFA as string[]).includes(a) ? (a as AlcanceTarifa) : null;
+}
+
+const NIVEL_ALCANCE: Record<AlcanceTarifa, number> = { general: 1, empresa: 2, grupo: 3, camion: 4 };
+
+/** Camión y empresa (la GUARDADA en el viaje) para elegir las tarifas especiales. */
+export type ContextoTarifa = { machineryId?: string | null; companyId?: string | null };
+
+/** ¿La tarifa le toca a un viaje de esa zona, camión y empresa? (sin mirar fechas ni precio) */
+export function tarifaAplica(t: TarifaViaje, zona: ZonaPagoViaje, ctx?: ContextoTarifa | null): boolean {
+  const sinZona = t.zona == null || String(t.zona).trim() === '';
+  if (!sinZona && zonaViajeValida(t.zona) !== zona) return false;
+  switch (alcanceTarifa(t)) {
+    case 'general': return true;
+    case 'empresa': return !!ctx?.companyId && t.company_id === ctx.companyId;
+    case 'grupo':
+    case 'camion': return !!ctx?.machineryId && (t.machinery_ids ?? []).includes(ctx.machineryId);
+    default: return false;
+  }
+}
+
+const compararClaves = (a: (string | number)[], b: (string | number)[]) => {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
+  return 0;
+};
+
 /**
- * Tarifa de una zona en una jornada.
- *   · La BLINDADA (con `hasta`) que cubre la fecha manda sobre la general; entre dos
- *     blindadas que se pisan, la última que se guardó.
- *   · Si no hay blindada, la GENERAL con el `desde` más reciente; con el mismo `desde`,
- *     la última que se guardó.
- *   · Las anuladas no cuentan.
+ * Tarifa de un viaje en una jornada. Entre las que le tocan (zona, camión, empresa):
+ *   1. Manda la MÁS ESPECÍFICA: camión → grupo → empresa → todos.
+ *   2. Del mismo alcance, la BLINDADA (con `hasta`) que cubre la fecha; entre dos
+ *      blindadas, la última que se guardó.
+ *   3. Si no hay blindada, la de `desde` más reciente; con el mismo `desde`, la última guardada.
+ *   · Las anuladas y las de precio 0 no cuentan. Sin `ctx` solo cuentan las de todos.
  */
-export function tarifaViajeEn(tarifas: TarifaViaje[] | null | undefined, zona: unknown, fecha: string): TarifaViaje | null {
+export function tarifaViajeEn(tarifas: TarifaViaje[] | null | undefined, zona: unknown, fecha: string, ctx?: ContextoTarifa | null): TarifaViaje | null {
   const z = zonaViajeValida(zona);
   const f = dia(fecha);
   if (!z || !f) return null;
-  let blindada: TarifaViaje | null = null;
-  let general: TarifaViaje | null = null;
-  const at = (t: TarifaViaje) => String(t.created_at ?? '');
+  let mejor: TarifaViaje | null = null;
+  let claveMejor: (string | number)[] = [];
   for (const t of tarifas ?? []) {
-    if (!t || t.anulada_at || zonaViajeValida(t.zona) !== z || !(num(t.precio) > 0)) continue;
+    if (!t || t.anulada_at || !(num(t.precio) > 0) || !tarifaAplica(t, z, ctx)) continue;
     const desde = dia(t.desde);
     if (!desde || desde > f) continue;
     const hasta = t.hasta ? dia(t.hasta) : '';
-    if (hasta) {
-      if (f > hasta) continue;
-      if (!blindada || at(t) > at(blindada)) blindada = t;
-    } else if (!general || desde > dia(general.desde) || (desde === dia(general.desde) && at(t) > at(general))) {
-      general = t;
-    }
+    if (hasta && f > hasta) continue;
+    const clave = [NIVEL_ALCANCE[alcanceTarifa(t) as AlcanceTarifa], hasta ? 1 : 0, hasta ? '' : desde, String(t.created_at ?? '')];
+    if (!mejor || compararClaves(clave, claveMejor) > 0) { mejor = t; claveMejor = clave; }
   }
-  return blindada ?? general;
+  return mejor;
 }
 
 /** Revisa una tarifa antes de guardarla. Devuelve el motivo del rechazo o null. */
-export function validarTarifa(t: { zona: unknown; precio: unknown; desde: unknown; hasta?: unknown }): string | null {
-  if (!zonaViajeValida(t.zona)) return 'Elige la zona (Este u Oeste).';
+export function validarTarifa(t: {
+  zona: unknown; precio: unknown; desde: unknown; hasta?: unknown;
+  alcance?: unknown; companyId?: unknown; camiones?: unknown[] | null; grupoNombre?: unknown;
+}): string | null {
+  const zona = String(t.zona ?? '').trim().toLowerCase();
+  if (zona !== 'ambas' && !zonaViajeValida(zona)) return 'Elige la zona (Este, Oeste o ambas).';
   const p = Number(String(t.precio ?? '').replace(',', '.'));
   if (!Number.isFinite(p) || p <= 0) return 'Escribe un precio mayor que 0.';
   const desde = dia(t.desde);
@@ -194,7 +241,30 @@ export function validarTarifa(t: { zona: unknown; precio: unknown; desde: unknow
   const hasta = t.hasta ? dia(t.hasta) : '';
   if (hasta && !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return 'La fecha «hasta» no es válida.';
   if (hasta && hasta < desde) return 'La fecha «hasta» no puede ser anterior a «desde».';
+  const alcance = alcanceTarifa({ alcance: t.alcance });
+  if (!alcance) return 'Elige a quién aplica la tarifa.';
+  const camiones = Array.from(new Set((t.camiones ?? []).map((c) => String(c ?? '')).filter(Boolean)));
+  if (alcance === 'empresa' && !String(t.companyId ?? '').trim()) return 'Elige la empresa.';
+  if (alcance === 'camion' && camiones.length !== 1) return 'Elige el camión.';
+  if (alcance === 'grupo' && !camiones.length) return 'Elige los camiones del grupo.';
+  if (alcance === 'grupo' && String(t.grupoNombre ?? '').trim().length < 2) return 'Ponle nombre al grupo (p. ej. «Chutos de la empresa»).';
   return null;
+}
+
+/** «Este», «Oeste» o «Ambas zonas». */
+export function etiquetaZonaTarifa(t: { zona?: unknown }): string {
+  const z = zonaViajeValida(t.zona);
+  return z === 'oeste' ? 'Oeste' : z === 'este' ? 'Este' : 'Ambas zonas';
+}
+
+/** Texto corto de una tarifa especial para el detalle del viaje; vacío si es de todos. */
+export function etiquetaAlcanceCorta(t: TarifaViaje | null | undefined): string {
+  switch (t ? alcanceTarifa(t) : null) {
+    case 'empresa': return 'tarifa de la empresa';
+    case 'grupo': return `tarifa del grupo «${t?.grupo_nombre ?? ''}»`;
+    case 'camion': return 'tarifa del camión';
+    default: return '';
+  }
 }
 
 /** Última marca de cada viaje. */
@@ -202,10 +272,13 @@ export type IndiceMarcas = Map<string, MarcaViaje>;
 
 export function indexarMarcas(filas: MarcaViaje[] | null | undefined): IndiceMarcas {
   const idx: IndiceMarcas = new Map();
+  // Clave con el id: con dos marcas de la misma hora, mandaba la que llegara de última y
+  // el mismo viaje salía «facturó» o «no facturó» según el orden de lectura.
+  const clave = (m: MarcaViaje) => `${String(m.created_at ?? '')}|${String(m.id ?? '')}`;
   (filas ?? []).forEach((m) => {
     if (!m?.viaje_id || typeof m.facturable !== 'boolean') return;
     const prev = idx.get(m.viaje_id);
-    if (!prev || String(m.created_at ?? '') >= String(prev.created_at ?? '')) idx.set(m.viaje_id, m);
+    if (!prev || clave(m) >= clave(prev)) idx.set(m.viaje_id, m);
   });
   return idx;
 }
@@ -242,12 +315,16 @@ export function calcularPagoViajes(opts: {
     if (!fuera && modoPagoEn(opts.modos, v.machinery_id, jornada) !== 'viaje') return;
 
     const zona = zonaViajeValida(v.zona_pago);
-    const tarifa = zona ? tarifaViajeEn(opts.tarifas, zona, jornada) : null;
+    const tarifa = zona ? tarifaViajeEn(opts.tarifas, zona, jornada, { machineryId: v.machinery_id, companyId: v.company_id }) : null;
     const marca = opts.marcas.get(v.id) ?? null;
     const facturable = marca ? marca.facturable : true;
     let motivoSinPago: MotivoSinPago | null = null;
-    if (!v.company_id) motivoSinPago = 'sin_empresa';
-    else if (!facturable) motivoSinPago = 'no_facturo';
+    // La marca a mano manda: si alguien dijo «no facturó», ese es el motivo, aunque además
+    // le falte la empresa. Antes salía en «sin pagar» y el jefe no encontraba su marca.
+    if (!facturable) motivoSinPago = 'no_facturo';
+    // Un camión fuera del catálogo no está inscrito en el pago: se ve, pero no se paga solo.
+    else if (fuera) motivoSinPago = 'fuera_catalogo';
+    else if (!v.company_id) motivoSinPago = 'sin_empresa';
     else if (!zona) motivoSinPago = 'sin_zona';
     else if (!tarifa) motivoSinPago = 'sin_tarifa';
     const precio = tarifa ? num(tarifa.precio) : 0;
@@ -296,7 +373,9 @@ export function itemsViajePagados(lineas: LineaViaje[] | null | undefined): Item
   (lineas ?? []).forEach((l) => {
     if (!(l.monto > 0) || !l.zona) return;
     const code = l.viaje.machine_code ?? '—';
-    const k = `${code}|${l.zona}|${l.precio}`;
+    // Agrupa por MÁQUINA, no por código: dos camiones con el mismo código salían en un solo
+    // renglón en el PDF y en dos en pantalla.
+    const k = `${l.viaje.machinery_id ?? `code:${code}`}|${l.zona}|${l.precio}`;
     const it = m.get(k) ?? { code, zona: l.zona, precio: l.precio, viajes: 0 };
     it.viajes += 1;
     m.set(k, it);
@@ -319,6 +398,50 @@ export function etiquetaMotivoSinPago(m: MotivoSinPago | null): string {
     case 'sin_zona': return 'Sin zona';
     case 'sin_tarifa': return 'Sin tarifa';
     case 'sin_empresa': return 'Sin empresa';
+    case 'fuera_catalogo': return 'Camión fuera del catálogo';
     default: return '';
   }
+}
+
+/** Un camión que hizo viajes sin estar en el pago por viaje. */
+export type CamionSinPagoViaje = {
+  machineryId: string;
+  code: string;
+  companyId: string | null;
+  viajes: number;
+  /** Nunca se le asignó modo (vs. se le quitó a propósito). */
+  sinConfigurar: boolean;
+};
+
+/**
+ * Camiones que REGISTRARON viajes en el rango pero no entran al pago por viaje.
+ *
+ * ⭐ El cálculo los descarta en silencio y esos viajes no salen en ninguna pantalla: ni
+ *    pagados, ni «sin pagar». Así el jefe ve lo que se está quedando por fuera y decide.
+ */
+export function viajesFueraDelPago(opts: {
+  viajes: ViajePago[] | null | undefined;
+  modos: IndiceModos;
+  desde?: string;
+}): CamionSinPagoViaje[] {
+  const desde = opts.desde ?? INICIO_PAGO_VIAJES;
+  const m = new Map<string, CamionSinPagoViaje>();
+  (opts.viajes ?? []).forEach((v) => {
+    if (!v?.id || !v.machinery_id || v.fuera_catalogo) return;
+    const jornada = jornadaDeInstante(v.registered_at);
+    if (!jornada || jornada < desde) return;
+    const fila = filaModoEn(opts.modos, v.machinery_id, jornada);
+    if (fila?.modo === 'viaje') return;
+    const c = m.get(v.machinery_id) ?? {
+      machineryId: v.machinery_id,
+      code: v.machine_code ?? '—',
+      companyId: v.company_id ?? null,
+      viajes: 0,
+      sinConfigurar: true,
+    };
+    c.viajes += 1;
+    if (fila) c.sinConfigurar = false;
+    m.set(v.machinery_id, c);
+  });
+  return Array.from(m.values()).sort((a, b) => b.viajes - a.viajes || a.code.localeCompare(b.code, 'es', { numeric: true }));
 }

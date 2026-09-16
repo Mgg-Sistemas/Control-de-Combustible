@@ -1,5 +1,5 @@
 import { supabase, selectAllRows } from './supabase';
-import { INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, TarifaViaje, ViajePago } from './pagoViajes';
+import { AlcanceTarifa, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, TarifaViaje, ViajePago } from './pagoViajes';
 
 // Lecturas y escrituras del pago de viajes. Las reglas de dinero viven en
 // `pagoViajes.ts`; acá solo se habla con la base.
@@ -46,15 +46,29 @@ export async function cargarModosPago(): Promise<ModoPagoFila[]> {
   return (await selectAllRows('machinery_modo_pago', 'id, machinery_id, modo, desde, nota, created_at, created_by_nombre')) as ModoPagoFila[];
 }
 
+/** Tarifas con sus camiones (los de grupo o de camión). */
 export async function cargarTarifasViaje(): Promise<TarifaViaje[]> {
-  return (await selectAllRows('viaje_tarifas', 'id, zona, precio, desde, hasta, nota, created_at, created_by_nombre, anulada_at, anulada_motivo')) as TarifaViaje[];
+  const rows = await selectAllRows(
+    'viaje_tarifas',
+    'id, zona, precio, desde, hasta, nota, created_at, created_by_nombre, anulada_at, anulada_motivo, alcance, company_id, grupo_nombre, camiones:viaje_tarifa_camiones(machinery_id)',
+  );
+  return (rows as any[]).map(({ camiones, ...t }) => ({
+    ...t,
+    machinery_ids: ((camiones ?? []) as { machinery_id: string }[]).map((c) => c.machinery_id),
+  })) as TarifaViaje[];
 }
 
-export type CamionCatalogo = { id: string; code: string; plate: string | null; serial: string | null; companyId: string | null; company: string };
+export type CamionCatalogo = { id: string; code: string; plate: string | null; serial: string | null; companyId: string | null; company: string; activa: boolean };
 
-/** Máquinas activas del catálogo (la pantalla filtra cuáles son camiones). */
-export async function cargarMaquinasActivas(): Promise<CamionCatalogo[]> {
-  const rows = await selectAllRows('machinery', 'id, code, plate, serial, company_id, company:company_id(name)', (q: any) => q.eq('active', true));
+/**
+ * Catálogo para el pago: la pantalla filtra cuáles son camiones (`esCamionDeViajes`).
+ *
+ * ⭐ Trae TAMBIÉN las inactivas, marcadas con `activa: false`. Antes se pedían solo las
+ *    activas, y un camión que ya estaba en el pago y luego se dio de baja seguía cobrando
+ *    sin que nadie pudiera quitarlo: no salía en la pestaña Camiones.
+ */
+export async function cargarMaquinasCatalogo(): Promise<CamionCatalogo[]> {
+  const rows = await selectAllRows('machinery', 'id, code, plate, serial, active, company_id, company:company_id(name)');
   return (rows as any[]).map((m) => ({
     id: m.id,
     code: m.code ?? '—',
@@ -62,16 +76,31 @@ export async function cargarMaquinasActivas(): Promise<CamionCatalogo[]> {
     serial: m.serial ?? null,
     companyId: m.company_id ?? null,
     company: m.company?.name ?? 'Sin empresa',
+    activa: m.active !== false,
   }));
 }
 
-export async function crearTarifaViaje(t: { zona: string; precio: number; desde: string; hasta?: string | null; nota?: string | null }): Promise<{ error?: string }> {
-  const { data, error } = await supabase
-    .from('viaje_tarifas')
-    .insert({ zona: t.zona, precio: t.precio, desde: t.desde, hasta: t.hasta || null, nota: t.nota?.trim() || null })
-    .select('id');
-  if (error) return { error: error.message };
-  if (!data?.length) return { error: SIN_PERMISO_PAGO };
+/**
+ * Crea una tarifa y, si es de grupo o de camión, sus camiones, en UNA sola transacción
+ * (función `crear_tarifa_viaje`): nunca queda una tarifa de grupo sin camiones.
+ */
+export async function crearTarifaViaje(t: {
+  zona: string | null; precio: number; desde: string; hasta?: string | null; nota?: string | null;
+  alcance?: AlcanceTarifa; companyId?: string | null; grupoNombre?: string | null; camiones?: string[];
+}): Promise<{ error?: string }> {
+  const { data, error } = await supabase.rpc('crear_tarifa_viaje', {
+    p_zona: t.zona || null,
+    p_precio: t.precio,
+    p_desde: t.desde,
+    p_hasta: t.hasta || null,
+    p_nota: t.nota?.trim() || null,
+    p_alcance: t.alcance ?? 'general',
+    p_company_id: t.alcance === 'empresa' ? t.companyId || null : null,
+    p_grupo_nombre: t.alcance === 'grupo' ? t.grupoNombre?.trim() || null : null,
+    p_camiones: t.alcance === 'grupo' || t.alcance === 'camion' ? t.camiones ?? [] : [],
+  });
+  if (error) return { error: error.code === '42501' ? SIN_PERMISO_PAGO : error.message };
+  if (!data) return { error: SIN_PERMISO_PAGO };
   return {};
 }
 
