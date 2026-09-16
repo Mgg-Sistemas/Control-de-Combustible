@@ -47,6 +47,7 @@ import {
 import { resumirViajes, camionesQueSalieron, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
+  avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
 } from '../lib/ubicacionesObra';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique } from '../lib/tique';
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
@@ -1140,7 +1141,7 @@ export default function ViajesCamionesScreen() {
   //    viaje no es corregirlo, es otro viaje. Para eso se borra este y se carga
   //    el bueno, y así la auditoría conserva las dos cosas por separado.
   const [editing, setEditing] = useState<
-    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string } | null
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string } | null
   >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
@@ -1249,6 +1250,7 @@ export default function ViajesCamionesScreen() {
       mm: pad2(p.minute),
       chofer: row.choferName ?? '',
       listeroId: row.listeroId,
+      ubicacionId: row.ubicacionId ?? '',
     });
   };
   const cancelEdit = () => setEditing(null);
@@ -1324,6 +1326,18 @@ export default function ViajesCamionesScreen() {
           cambios.listeroId = nuevo.id;
           cambios.listeroName = nuevo.full_name;
           queCambio.push(`lo registró: ${row.listeroName} → ${nuevo.full_name}`);
+        }
+        // ⭐ CDT DE ESTE VIAJE (16-sep-2026). Cambia SOLO esta fila: los demás viajes
+        //    del camión o del listero no se tocan, y lo ya registrado sigue igual.
+        //    La base pone el nombre y la zona de pago del CDT nuevo, y rechaza el
+        //    cambio si no viene de quien tiene permiso completo.
+        if (editing.ubicacionId && editing.ubicacionId !== (row.ubicacionId ?? '')) {
+          const obra = obraPorId.get(editing.ubicacionId);
+          if (!obra) { toast.error('Ese CDT ya no existe. Refresca la pantalla.'); return; }
+          const ok = await confirm(`${avisoCambioCdt(row.ubicacionNombre, obra)}\n\n¿Lo cambias?`);
+          if (!ok) return;
+          cambios.ubicacionId = obra.id;
+          queCambio.push(`CDT: ${row.ubicacionNombre || SIN_UBICACION_LABEL} → ${obra.nombre}`);
         }
       }
       if (Object.keys(cambios).length === 0) { setEditing(null); return; }
@@ -1422,6 +1436,8 @@ export default function ViajesCamionesScreen() {
   const [cargaCantidad, setCargaCantidad] = useState('1');
   const [cargaChofer, setCargaChofer] = useState('');
   const [cargaListeroId, setCargaListeroId] = useState<string>('');
+  /** CDT de la carga manual. '' = el del listero a cuyo nombre queda (lo de antes). */
+  const [cargaUbicacionId, setCargaUbicacionId] = useState<string>('');
   const [cargaBusy, setCargaBusy] = useState(false);
   const cargaBusyRef = useRef(false);
 
@@ -1478,6 +1494,8 @@ export default function ViajesCamionesScreen() {
       // Por defecto el viaje queda a nombre de quien lo carga. Se puede atribuir a
       // otro listero para que el resumen por listero siga diciendo la verdad.
       const listero = listeros.find((l) => l.id === cargaListeroId) ?? { id: uid, full_name: listeroName };
+      // CDT de la tanda: el que se eligió; si no se eligió, el del listero (como antes).
+      const obraCarga = obraParaGrabar(cargaUbicacionId || (listeros.find((l) => l.id === listero.id)?.ubicacion_id ?? null), obras);
       const horarios = horariosDeCarga(cargaFecha, hh, mm, cantidad);
       // ⚠️ Una tanda puede DESBORDARSE a la jornada siguiente (empezar 6:50am y
       //    cargar cuatro deja dos de cada lado de las 7). No se prohíbe, pero se
@@ -1502,7 +1520,7 @@ export default function ViajesCamionesScreen() {
           `Se van a agregar ${cantidad} viaje(s) al camión ${cargaTruck.code} el ${dmy(cargaFecha)}, ` +
           `desde las ${pad2(hh)}:${pad2(mm)}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}` +
           `${turnos.length === 1 ? ` (turno de ${TURNO_NOMBRE[turnoElegido].toLowerCase()})` : ''}, ` +
-          `a nombre de ${listero.full_name}.\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
+          `a nombre de ${listero.full_name}, en ${obraCarga.ubicacionNombre ? `el CDT «${obraCarga.ubicacionNombre}»` : 'ningún CDT (sin ubicación)'}.\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
         confirmText: 'Cargar',
       });
       if (!ok) return;
@@ -1536,7 +1554,7 @@ export default function ViajesCamionesScreen() {
           //    no hay registro de dónde estaba. Si lo movieron desde entonces,
           //    esta carga manual lo pone en la obra equivocada — por eso el
           //    aviso de la pantalla dice que conviene cargar el mismo día.
-          ...obraParaGrabar(listeros.find((l) => l.id === listero.id)?.ubicacion_id ?? null, obras),
+          ...obraCarga,
           // La placa y la empresa SÍ salen de la ficha de hoy, y acá sí es lo
           // correcto: son datos del camión, no del día. La placa de un camión no
           // cambia por cargarle un viaje de la semana pasada.
@@ -2894,6 +2912,7 @@ export default function ViajesCamionesScreen() {
           {fmtFecha(row.registeredAt)} · {fmtHora(row.registeredAt)} · {turnoLabel(turnoDeViaje(row.registeredAt))}
           {row.choferName ? ` · 👤 ${row.choferName}` : ''}
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
+          {row.ubicacionNombre ? ` · 🏗️ ${row.ubicacionNombre}` : ''}
         </Text>
         {isEditing ? (
           <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
@@ -2971,6 +2990,34 @@ export default function ViajesCamionesScreen() {
                         );
                       })}
                     </ScrollView>
+                  </View>
+                ) : null}
+                {obras.length > 0 ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>CDT / UBICACIÓN DE ESTE VIAJE</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                      {cdtsParaElegir(obras, editing.ubicacionId).map((o) => {
+                        const activo = editing.ubicacionId === o.id;
+                        return (
+                          <TouchableOpacity
+                            key={o.id}
+                            onPress={() => setEditing((e) => (e ? { ...e, ubicacionId: o.id } : e))}
+                            style={{
+                              paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                              borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                              backgroundColor: activo ? colors.primary : colors.surface,
+                            }}
+                          >
+                            <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                              🏗️ {o.nombre} · {zonaPagoValida(o.zona_pago) ? etiquetaZonaPago(o.zona_pago) : 'sin zona'}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                      {editing.ubicacionId ? 'Solo cambia este viaje; con el CDT cambia la zona con la que se paga.' : 'Este viaje no tiene CDT: elige a dónde fue.'}
+                    </Text>
                   </View>
                 ) : null}
               </>
@@ -3584,6 +3631,34 @@ export default function ViajesCamionesScreen() {
                       >
                         <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
                           👤 {l.full_name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : null}
+
+            {obras.length > 0 ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                  CDT / UBICACIÓN (por defecto, el del listero)
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                  {[{ id: '', nombre: 'El del listero', zona_pago: null, active: true } as UbicacionObra, ...cdtsParaElegir(obras, cargaUbicacionId)].map((o) => {
+                    const activo = cargaUbicacionId === o.id;
+                    return (
+                      <TouchableOpacity
+                        key={o.id || '__del_listero__'}
+                        onPress={() => setCargaUbicacionId(o.id)}
+                        style={{
+                          paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                          borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                          backgroundColor: activo ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          {o.id ? `🏗️ ${o.nombre} · ${zonaPagoValida(o.zona_pago) ? etiquetaZonaPago(o.zona_pago) : 'sin zona'}` : '📍 El del listero'}
                         </Text>
                       </TouchableOpacity>
                     );

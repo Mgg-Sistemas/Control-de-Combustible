@@ -5004,6 +5004,19 @@ Quien tenga **Full control** en este módulo puede arreglar **cualquier dato de 
 el día que sea**. Antes solo se podía **borrar** y **corregir la hora dentro del mismo día**: no había
 manera de agregar un viaje a una fecha pasada, porque el botón del listero sella la hora del toque.
 
+> **🏗️ Elegir el CDT de un viaje (16/09/2026, solo permiso completo).**
+> - **Al cargar a mano:** en **"✍️ Cargar viajes a mano"** hay una fila **"CDT / UBICACIÓN"**. Por
+>   defecto queda **📍 El del listero** (como antes); toca otro CDT para que la tanda quede ahí. La
+>   confirmación dice en qué CDT quedan.
+> - **Corregir un viaje ya registrado:** en la lista de viajes toca **"✏️ Editar"** en ese viaje, elige
+>   el CDT en **"CDT / UBICACIÓN DE ESTE VIAJE"** y guarda. Antes de guardar te dice de dónde a dónde
+>   pasa y con qué **zona de pago** queda (la zona la pone el CDT: si pasas un viaje de un CDT del Este
+>   a uno del Oeste, se paga como Oeste).
+> - **Lo que fue, fue:** cambiar el CDT de un viaje toca **solo ese viaje**. Los demás viajes del camión
+>   o del listero, y todo lo ya registrado, siguen donde estaban; y el cambio queda en **Auditoría**.
+>   Mover a un listero de obra tampoco mueve sus viajes viejos.
+> - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
+
 **Agregar.** Tarjeta **"✍️ Cargar viajes a mano"** en el panel de la jefa:
 
 | Campo | Qué hace |
