@@ -79,7 +79,7 @@ export type ViajePago = {
 };
 
 /** Por qué un viaje de un camión por viaje no suma dinero. */
-export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa';
+export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa' | 'fuera_catalogo';
 
 export type LineaViaje = {
   viaje: ViajePago;
@@ -147,8 +147,13 @@ export function indexarModos(filas: ModoPagoFila[] | null | undefined): IndiceMo
     lista.push(f);
     idx.set(f.machinery_id, lista);
   });
+  // El id desempata: dos filas del mismo día y la misma hora daban un ganador distinto
+  // según el orden en que las devolviera la base, y eso decide si el camión cobra.
   idx.forEach((lista) =>
-    lista.sort((a, b) => dia(a.desde).localeCompare(dia(b.desde)) || String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))),
+    lista.sort((a, b) =>
+      dia(a.desde).localeCompare(dia(b.desde))
+      || String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))
+      || String(a.id ?? '').localeCompare(String(b.id ?? ''))),
   );
   return idx;
 }
@@ -267,10 +272,13 @@ export type IndiceMarcas = Map<string, MarcaViaje>;
 
 export function indexarMarcas(filas: MarcaViaje[] | null | undefined): IndiceMarcas {
   const idx: IndiceMarcas = new Map();
+  // Clave con el id: con dos marcas de la misma hora, mandaba la que llegara de última y
+  // el mismo viaje salía «facturó» o «no facturó» según el orden de lectura.
+  const clave = (m: MarcaViaje) => `${String(m.created_at ?? '')}|${String(m.id ?? '')}`;
   (filas ?? []).forEach((m) => {
     if (!m?.viaje_id || typeof m.facturable !== 'boolean') return;
     const prev = idx.get(m.viaje_id);
-    if (!prev || String(m.created_at ?? '') >= String(prev.created_at ?? '')) idx.set(m.viaje_id, m);
+    if (!prev || clave(m) >= clave(prev)) idx.set(m.viaje_id, m);
   });
   return idx;
 }
@@ -311,8 +319,12 @@ export function calcularPagoViajes(opts: {
     const marca = opts.marcas.get(v.id) ?? null;
     const facturable = marca ? marca.facturable : true;
     let motivoSinPago: MotivoSinPago | null = null;
-    if (!v.company_id) motivoSinPago = 'sin_empresa';
-    else if (!facturable) motivoSinPago = 'no_facturo';
+    // La marca a mano manda: si alguien dijo «no facturó», ese es el motivo, aunque además
+    // le falte la empresa. Antes salía en «sin pagar» y el jefe no encontraba su marca.
+    if (!facturable) motivoSinPago = 'no_facturo';
+    // Un camión fuera del catálogo no está inscrito en el pago: se ve, pero no se paga solo.
+    else if (fuera) motivoSinPago = 'fuera_catalogo';
+    else if (!v.company_id) motivoSinPago = 'sin_empresa';
     else if (!zona) motivoSinPago = 'sin_zona';
     else if (!tarifa) motivoSinPago = 'sin_tarifa';
     const precio = tarifa ? num(tarifa.precio) : 0;
@@ -361,7 +373,9 @@ export function itemsViajePagados(lineas: LineaViaje[] | null | undefined): Item
   (lineas ?? []).forEach((l) => {
     if (!(l.monto > 0) || !l.zona) return;
     const code = l.viaje.machine_code ?? '—';
-    const k = `${code}|${l.zona}|${l.precio}`;
+    // Agrupa por MÁQUINA, no por código: dos camiones con el mismo código salían en un solo
+    // renglón en el PDF y en dos en pantalla.
+    const k = `${l.viaje.machinery_id ?? `code:${code}`}|${l.zona}|${l.precio}`;
     const it = m.get(k) ?? { code, zona: l.zona, precio: l.precio, viajes: 0 };
     it.viajes += 1;
     m.set(k, it);
@@ -384,6 +398,50 @@ export function etiquetaMotivoSinPago(m: MotivoSinPago | null): string {
     case 'sin_zona': return 'Sin zona';
     case 'sin_tarifa': return 'Sin tarifa';
     case 'sin_empresa': return 'Sin empresa';
+    case 'fuera_catalogo': return 'Camión fuera del catálogo';
     default: return '';
   }
+}
+
+/** Un camión que hizo viajes sin estar en el pago por viaje. */
+export type CamionSinPagoViaje = {
+  machineryId: string;
+  code: string;
+  companyId: string | null;
+  viajes: number;
+  /** Nunca se le asignó modo (vs. se le quitó a propósito). */
+  sinConfigurar: boolean;
+};
+
+/**
+ * Camiones que REGISTRARON viajes en el rango pero no entran al pago por viaje.
+ *
+ * ⭐ El cálculo los descarta en silencio y esos viajes no salen en ninguna pantalla: ni
+ *    pagados, ni «sin pagar». Así el jefe ve lo que se está quedando por fuera y decide.
+ */
+export function viajesFueraDelPago(opts: {
+  viajes: ViajePago[] | null | undefined;
+  modos: IndiceModos;
+  desde?: string;
+}): CamionSinPagoViaje[] {
+  const desde = opts.desde ?? INICIO_PAGO_VIAJES;
+  const m = new Map<string, CamionSinPagoViaje>();
+  (opts.viajes ?? []).forEach((v) => {
+    if (!v?.id || !v.machinery_id || v.fuera_catalogo) return;
+    const jornada = jornadaDeInstante(v.registered_at);
+    if (!jornada || jornada < desde) return;
+    const fila = filaModoEn(opts.modos, v.machinery_id, jornada);
+    if (fila?.modo === 'viaje') return;
+    const c = m.get(v.machinery_id) ?? {
+      machineryId: v.machinery_id,
+      code: v.machine_code ?? '—',
+      companyId: v.company_id ?? null,
+      viajes: 0,
+      sinConfigurar: true,
+    };
+    c.viajes += 1;
+    if (fila) c.sinConfigurar = false;
+    m.set(v.machinery_id, c);
+  });
+  return Array.from(m.values()).sort((a, b) => b.viajes - a.viajes || a.code.localeCompare(b.code, 'es', { numeric: true }));
 }

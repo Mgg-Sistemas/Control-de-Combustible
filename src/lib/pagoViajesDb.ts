@@ -58,11 +58,17 @@ export async function cargarTarifasViaje(): Promise<TarifaViaje[]> {
   })) as TarifaViaje[];
 }
 
-export type CamionCatalogo = { id: string; code: string; plate: string | null; serial: string | null; companyId: string | null; company: string };
+export type CamionCatalogo = { id: string; code: string; plate: string | null; serial: string | null; companyId: string | null; company: string; activa: boolean };
 
-/** Máquinas activas del catálogo (la pantalla filtra cuáles son camiones). */
-export async function cargarMaquinasActivas(): Promise<CamionCatalogo[]> {
-  const rows = await selectAllRows('machinery', 'id, code, plate, serial, company_id, company:company_id(name)', (q: any) => q.eq('active', true));
+/**
+ * Catálogo para el pago: la pantalla filtra cuáles son camiones (`esCamionDeViajes`).
+ *
+ * ⭐ Trae TAMBIÉN las inactivas, marcadas con `activa: false`. Antes se pedían solo las
+ *    activas, y un camión que ya estaba en el pago y luego se dio de baja seguía cobrando
+ *    sin que nadie pudiera quitarlo: no salía en la pestaña Camiones.
+ */
+export async function cargarMaquinasCatalogo(): Promise<CamionCatalogo[]> {
+  const rows = await selectAllRows('machinery', 'id, code, plate, serial, active, company_id, company:company_id(name)');
   return (rows as any[]).map((m) => ({
     id: m.id,
     code: m.code ?? '—',
@@ -70,6 +76,7 @@ export async function cargarMaquinasActivas(): Promise<CamionCatalogo[]> {
     serial: m.serial ?? null,
     companyId: m.company_id ?? null,
     company: m.company?.name ?? 'Sin empresa',
+    activa: m.active !== false,
   }));
 }
 

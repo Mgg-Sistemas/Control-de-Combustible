@@ -11,7 +11,7 @@ import { Card } from './ui';
 import { DateField } from './DateField';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
-import { isVolteoVolqueta } from '../lib/equipos';
+import { esCamionDeViajes } from '../lib/equipos';
 import { cmpText, onlyDecimal } from '../lib/text';
 import {
   alcanceTarifa,
@@ -38,7 +38,7 @@ const ALCANCES: { key: AlcanceTarifa; label: string; ayuda: string }[] = [
   { key: 'general', label: '🌐 Todos', ayuda: 'Para todos los camiones por viaje que no tengan una tarifa especial.' },
   { key: 'empresa', label: '🏢 Una empresa', ayuda: 'Solo para los viajes de esa empresa.' },
   { key: 'grupo', label: '👥 Grupo de camiones', ayuda: 'Solo para los camiones que elijas (p. ej. los chutos de una empresa).' },
-  { key: 'camion', label: '🚛 Un camión', ayuda: 'Solo para ese camión.' },
+  { key: 'camion', label: '🚛 Un camión', ayuda: 'Solo para ese camión. Con «Ambas zonas» le fijas su precio por viaje vaya al Este o al Oeste, sin tocar el de las zonas.' },
 ];
 type ZonaForm = 'este' | 'oeste' | 'ambas';
 const ZONAS: { key: ZonaForm; label: string }[] = [
@@ -78,7 +78,7 @@ export function PagoViajesTarifas({ tarifas, maquinas, cargando, canEdit, usuari
   const [filtroHist, setFiltroHist] = useState<'todas' | AlcanceTarifa>('todas');
 
   const catalogo = useMemo(
-    () => maquinas.filter((m) => isVolteoVolqueta(m.code)).sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code)),
+    () => maquinas.filter((m) => m.activa && esCamionDeViajes(m.code)).sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code)),
     [maquinas],
   );
   const porId = useMemo(() => new Map(maquinas.map((m) => [m.id, m])), [maquinas]);
