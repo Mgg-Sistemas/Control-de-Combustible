@@ -5107,6 +5107,15 @@ tiene **permiso completo** del módulo; los listeros no ven montos.
   - Al elegir un camión o una empresa, abajo dice **cuánto cobra hoy** con lo ya guardado. En el historial
     puedes filtrar por tipo, y en el detalle de cada viaje sale **"💲 tarifa del camión / del grupo / de la
     empresa"** cuando usó una especial.
+> **🚛 Chutos y camiones que no entran al pago (16/09/2026).** La pestaña **Camiones** y el buscador
+> de las tarifas solo mostraban volteos, volquetas y toronto, así que a un **chuto con batea o con
+> lowboy** no había manera de ponerlo «por viaje» ni darle tarifa propia, y sus viajes **no se pagaban
+> ni aparecían** en ninguna parte. Ahora salen todos los camiones (chutos incluidos), y también las
+> máquinas **dadas de baja que ya estaban en el pago**, para poder sacarlas. Además, la tarjeta y el
+> PDF traen un bloque **"🚫 Camiones que no entran al pago"** con los viajes que quedaron por fuera, y
+> el **"sin pagar"** ahora dice el motivo (sin zona, sin tarifa, sin empresa o fuera del catálogo).
+> Un viaje marcado **"✗ No facturó"** cuenta como tal aunque además le falte la empresa.
+
 - **Camiones:** por empresa, cada camión tiene su interruptor **"🚛 Por viaje / ⛔ No entra"** y hay botones
   para toda la empresa (así se quita o se pone un chuto). Rige **desde la fecha elegida**; lo anterior no
   cambia. Un camión sin asignar **no entra** al pago por viaje.

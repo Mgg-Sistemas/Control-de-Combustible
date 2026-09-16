@@ -18,12 +18,15 @@ import { cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   calcularPagoViajes,
+  etiquetaMotivoSinPago,
   indexarMarcas,
   indexarModos,
   INICIO_PAGO_VIAJES,
   itemsViajePagados,
   jornadaDeInstante,
   viajesEnRango,
+  viajesFueraDelPago,
+  MotivoSinPago,
   PagoViajesGrupo,
 } from '../lib/pagoViajes';
 import { cargarDatosPagoViajes, DatosPagoViajes } from '../lib/pagoViajesDb';
@@ -90,7 +93,35 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
     { monto: 0, viajes: 0, pagados: 0, noFacturados: 0, pendientes: 0 },
   ), [empresas]);
 
+  // Por qué quedaron sin pagar (sin zona, sin tarifa, sin empresa…): «N sin pagar» a secas
+  // no dice qué arreglar. Los «no facturó» van aparte, que esos son a propósito.
+  const motivos = useMemo(() => {
+    const m = new Map<MotivoSinPago, number>();
+    empresas.forEach(({ g }) => g.lineas.forEach((l) => {
+      if (l.motivoSinPago && l.motivoSinPago !== 'no_facturo') m.set(l.motivoSinPago, (m.get(l.motivoSinPago) ?? 0) + 1);
+    }));
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+  }, [empresas]);
+
+  // Camiones que hicieron viajes SIN estar en el pago: el cálculo los descarta y no
+  // aparecerían en ninguna parte.
+  const fueraDelPago = useMemo(() => {
+    if (!datos || error) return [];
+    return viajesFueraDelPago({ viajes: viajesEnRango(datos.viajes, desde, hasta), modos: indexarModos(datos.modos) });
+  }, [datos, error, desde, hasta]);
+  const viajesFuera = useMemo(() => fueraDelPago.reduce((a, c) => a + c.viajes, 0), [fueraDelPago]);
+
   const rangoInvalido = hasta < desde;
+  const rangoAntesDelInicio = hasta < INICIO_PAGO_VIAJES;
+
+  /** «2 sin tarifa · 1 sin zona» de un grupo. */
+  const motivosDe = (g: PagoViajesGrupo) => {
+    const m = new Map<MotivoSinPago, number>();
+    g.lineas.forEach((l) => {
+      if (l.motivoSinPago && l.motivoSinPago !== 'no_facturo') m.set(l.motivoSinPago, (m.get(l.motivoSinPago) ?? 0) + 1);
+    });
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${etiquetaMotivoSinPago(k).toLowerCase()}`).join(' · ');
+  };
 
   const descargarPdf = async () => {
     const filas = empresas.map(({ nombre, g }) =>
@@ -100,8 +131,13 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
       return `<h3>${esc(nombre)} — ${usd(g.montoUSD)}</h3>
         <table><thead><tr><th>Camión</th><th>Zona</th><th class="r">Viajes</th><th class="r">Tarifa</th><th class="r">Monto</th></tr></thead>
         <tbody>${items.map((it) => `<tr><td>${esc(it.code)}</td><td>${it.zona === 'oeste' ? 'Oeste' : 'Este'}</td><td class="r">${it.viajes}</td><td class="r">${usd(it.precio)}</td><td class="r b">${usd(it.viajes * it.precio)}</td></tr>`).join('') || '<tr><td colspan="5" class="c">Sin viajes pagados</td></tr>'}</tbody></table>
-        ${g.noFacturados || g.pendientes ? `<p class="n">${g.noFacturados ? `${g.noFacturados} viaje(s) marcados «no facturó». ` : ''}${g.pendientes ? `${g.pendientes} viaje(s) sin pagar (sin zona, sin tarifa o sin empresa).` : ''}</p>` : ''}`;
+        ${g.noFacturados || g.pendientes ? `<p class="n">${g.noFacturados ? `${g.noFacturados} viaje(s) marcados «no facturó». ` : ''}${g.pendientes ? `${g.pendientes} viaje(s) sin pagar: ${motivosDe(g)}.` : ''}</p>` : ''}`;
     }).join('');
+    // Camiones con viajes que no entran al pago: lo que NO se está pagando.
+    const fuera = fueraDelPago.length ? `
+      <h3>🚫 Camiones que no entran al pago (${viajesFuera} viaje(s))</h3>
+      <table><thead><tr><th>Camión</th><th>Empresa</th><th class="r">Viajes</th><th>Situación</th></tr></thead>
+      <tbody>${fueraDelPago.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.companyId ? datos?.empresas.get(c.companyId) ?? 'Empresa' : 'Sin empresa')}</td><td class="r">${c.viajes}</td><td>${c.sinConfigurar ? 'Nunca se puso en el pago' : 'Se le quitó el pago por viaje'}</td></tr>`).join('')}</tbody></table>` : '';
     const html = pdfDocument({
       title: 'Pago de viajes de camiones',
       subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)`,
@@ -117,6 +153,7 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
         <table><thead><tr><th>Empresa</th><th class="r">Viajes pagados</th><th class="r">No facturó</th><th class="r">Sin pagar</th><th class="r">Total</th></tr></thead>
         <tbody>${filas || '<tr><td colspan="5" class="c">Sin viajes en el rango</td></tr>'}</tbody>
         <tfoot><tr><td>TOTAL A PAGAR</td><td class="r">${tot.pagados}</td><td class="r">${tot.noFacturados}</td><td class="r">${tot.pendientes}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>
+        ${fuera}
         ${detalle}`,
     });
     await exportPdf(html, `Pago de viajes ${dmy(desde)} a ${dmy(hasta)}`);
@@ -187,12 +224,36 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
             <Text style={{ color: colors.brandContrast, fontSize: 12 }}>
               {tot.pagados} viaje(s) pagados{tot.noFacturados ? ` · ${tot.noFacturados} no facturó` : ''}{tot.pendientes ? ` · ${tot.pendientes} sin pagar` : ''}
             </Text>
+            {motivos.length ? (
+              <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11 }}>
+                Sin pagar: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPago(m).toLowerCase()}`).join(' · ')}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {!error && fueraDelPago.length ? (
+          <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+            <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 13 }}>
+              🚫 {viajesFuera} viaje(s) de camiones que no entran al pago
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+              No suman ni salen arriba. Para pagarlos, ponlos «🚛 Por viaje» en «⚙️ Tarifas y camiones».
+            </Text>
+            {fueraDelPago.map((c) => (
+              <Text key={c.machineryId} style={{ color: colors.text, fontSize: 12 }}>
+                • {c.code} · {c.companyId ? datos?.empresas.get(c.companyId) ?? 'Empresa' : 'Sin empresa'} · {c.viajes} viaje(s)
+                <Text style={{ color: colors.muted }}>{c.sinConfigurar ? ' · nunca se puso en el pago' : ' · se le quitó el pago por viaje'}</Text>
+              </Text>
+            ))}
           </View>
         ) : null}
 
         {!error && !cargando && datos && !empresas.length && !rangoInvalido ? (
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
-            No hay viajes para pagar en ese rango. Revisa que los camiones estén marcados «por viaje» en «⚙️ Tarifas y camiones».
+            {rangoAntesDelInicio
+              ? `No hay nada que pagar: el pago por viaje arranca el ${dmy(INICIO_PAGO_VIAJES)} y el rango que elegiste es anterior.`
+              : 'No hay viajes para pagar en ese rango. Revisa que los camiones estén marcados «por viaje» en «⚙️ Tarifas y camiones».'}
           </Text>
         ) : null}
 
