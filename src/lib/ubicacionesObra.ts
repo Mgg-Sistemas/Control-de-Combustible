@@ -153,6 +153,31 @@ export function obraParaGrabar(
   return { ubicacionId: id, ubicacionNombre: u ? u.nombre : null };
 }
 
+/**
+ * CDTs que se ofrecen al elegir a dónde fue un viaje: los activos, más el que ya
+ * tenga el viaje aunque esté desactivado (si no, abrir la corrección lo haría
+ * desaparecer del selector y parecería que el viaje no tenía CDT).
+ */
+export function cdtsParaElegir(catalogo: UbicacionObra[], actualId?: string | null): UbicacionObra[] {
+  return ordenarUbicaciones(catalogo.filter((o) => o.active || (!!actualId && o.id === actualId)));
+}
+
+/**
+ * Lo que se le pregunta a quien cambia el CDT de UN viaje ya registrado (16-sep-2026).
+ *
+ * ⭐ Solo cambia ESE viaje: los demás viajes, del mismo camión o del mismo listero,
+ *    siguen donde estaban. Y la zona de pago del viaje pasa a ser la del CDT nuevo
+ *    (la pone la base), así que hay que decirlo: cambia con qué tarifa se paga.
+ */
+export function avisoCambioCdt(nombreAntes: string | null | undefined, nuevo: UbicacionObra): string {
+  const antes = nombreLimpio(nombreAntes) || SIN_UBICACION_LABEL;
+  const zona = zonaPagoValida(nuevo.zona_pago);
+  const pago = zona
+    ? `Se le paga con la zona de «${nuevo.nombre}»: ${etiquetaZonaPago(zona)}.`
+    : `⚠️ «${nuevo.nombre}» no tiene zona de pago: el viaje queda «sin pagar» hasta que le pongas zona a ese CDT.`;
+  return `El viaje pasa de «${antes}» a «${nuevo.nombre}».\n\n${pago}\n\nSolo cambia este viaje: los demás siguen donde estaban.`;
+}
+
 /*
  * ⚠️ LA CLAVE CON LA QUE SE AGRUPA UN VIAJE POR OBRA **NO** VIVE AQUÍ.
  *    Vive en `claveUbicacionViaje` de src/lib/viajesResumen.ts, que es donde se

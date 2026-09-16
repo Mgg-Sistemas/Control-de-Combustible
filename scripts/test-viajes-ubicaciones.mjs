@@ -217,10 +217,11 @@ ok('limpiar filtros también limpia la obra', /setFilterUbicacionSel\(new Map\(\
 ok('el filtro usa la MISMA clave que el resumen', /ubicacion: claveUbicacionViaje\(/.test(scr));
 
 // ⭐ LA FOTO. Si esto se rompiera, mover a un listero reescribiría su pasado.
-eq('la obra se graba en el viaje al registrarlo', (scr.match(/\.\.\.obraParaGrabar\(/g) || []).length, 2);
+eq('la obra se graba en el viaje al registrarlo', (scr.match(/\.\.\.obraParaGrabar\(/g) || []).length, 1);
 ok('el listero registra con SU obra', /\.\.\.obraParaGrabar\(miObraId, obras\)/.test(scr));
-ok('la carga manual usa la obra del listero elegido, no la de la jefa',
-  /obraParaGrabar\(listeros\.find\(\(l\) => l\.id === listero\.id\)\?\.ubicacion_id/.test(scr));
+ok('la carga manual graba la obra en cada viaje', /\.\.\.obraCarga,/.test(scr));
+ok('la carga manual usa por defecto la obra del listero elegido, no la de la jefa',
+  /obraParaGrabar\(cargaUbicacionId \|\| \(listeros\.find\(\(l\) => l\.id === listero\.id\)\?\.ubicacion_id \?\? null\), obras\)/.test(scr));
 ok('el reporte NO mira la ficha de hoy', !/miObraId.*resumirViajes|resumirViajes.*miObraId/.test(scr));
 
 // El PDF: rótulos del tercer eje y el filtro anotado.
@@ -358,6 +359,40 @@ ok('la tarjeta dice que no hay nadie con el rol', compCrudo.includes('No hay usu
 ok('...y explica por que falta quien tiene solo permiso', compCrudo.includes('Solo salen los usuarios con el rol de listero'));
 ok('el manual .md lo explica', /Solo salen los usuarios con el \*\*rol de listero\*\*/.test(md));
 ok('el manual en pantalla tambien', /SOLO SALEN LOS USUARIOS CON EL ROL DE LISTERO \(13\/09\/2026\)/.test(ms));
+
+// ── ELEGIR EL CDT DE UN VIAJE (16-sep-2026) ─────────────────────────────────
+// Pedido del cliente: quien tiene permiso completo elige el CDT en la carga manual
+// y lo corrige en un viaje ya registrado. «Lo que fue, fue»: cambiar el CDT de un
+// viaje toca SOLO esa fila; lo demás no se mueve.
+const O = (id, nombre, active = true, zona_pago = null) => ({ id, nombre, active, zona_pago });
+const catCdt = [O('b', 'CDT Beta', true, 'oeste'), O('a', 'CDT Alfa', true, 'este'), O('z', 'CDT Cerrado', false, 'este')];
+eq('se ofrecen los CDT activos, en orden', ub.cdtsParaElegir(catCdt).map((o) => o.id), ['a', 'b']);
+eq('...y el desactivado que ya tiene el viaje, al final', ub.cdtsParaElegir(catCdt, 'z').map((o) => o.id), ['a', 'b', 'z']);
+ok('el aviso dice de dónde a dónde', ub.avisoCambioCdt('CDT Alfa', catCdt[0]).includes('«CDT Alfa» a «CDT Beta»'));
+ok('...con qué zona se va a pagar', ub.avisoCambioCdt('CDT Alfa', catCdt[0]).includes('zona de «CDT Beta»: Oeste'));
+ok('...y que solo cambia ese viaje', ub.avisoCambioCdt('CDT Alfa', catCdt[0]).includes('Solo cambia este viaje'));
+ok('un viaje sin CDT se nombra «Sin ubicación»', ub.avisoCambioCdt(null, catCdt[1]).includes(`«${ub.SIN_UBICACION_LABEL}» a «CDT Alfa»`));
+ok('un CDT sin zona avisa que el viaje queda sin pagar', ub.avisoCambioCdt('CDT Alfa', O('s', 'CDT Nuevo')).includes('no tiene zona de pago'));
+
+ok('corregir un viaje manda el CDT nuevo a la base', /if \(cambios\.ubicacionId\) patch\.ubicacion_id = cambios\.ubicacionId;/.test(lib));
+ok('...y NO manda nombre ni zona: los pone la base', !/patch\.ubicacion_nombre|patch\.zona_pago/.test(lib));
+ok('la corrección arranca con el CDT que ya tenía el viaje', /ubicacionId: row\.ubicacionId \?\? '',/.test(scr));
+ok('⭐ solo quien tiene full ve y cambia el CDT', (() => {
+  // El selector vive dentro del bloque {canFull ? (<> … </>) : null} de la edición,
+  // el mismo del chofer: entre «Sin chofer anotado» y el cierre de ese bloque.
+  const i = scr.indexOf('CDT / UBICACIÓN DE ESTE VIAJE');
+  const chofer = scr.indexOf('placeholder="Sin chofer anotado"');
+  const cierre = chofer < 0 ? -1 : chofer + scr.slice(chofer).search(/<\/>\s*\) : null\}/);
+  return i > chofer && chofer > 0 && cierre > i;
+})());
+ok('⭐ pregunta antes, con el aviso de zona', /confirm\(`\$\{avisoCambioCdt\(row\.ubicacionNombre, obra\)\}/.test(scr));
+ok('...cambia solo si eligió otro', /editing\.ubicacionId && editing\.ubicacionId !== \(row\.ubicacionId \?\? ''\)/.test(scr));
+ok('...y queda en el rastro de la edición', /queCambio\.push\(`CDT: /.test(scr));
+ok('la carga manual ofrece elegir CDT', /CDT \/ UBICACIÓN \(por defecto, el del listero\)/.test(scr) && /setCargaUbicacionId\(o\.id\)/.test(scr));
+ok('...y la confirmación dice en qué CDT quedan', /en \$\{obraCarga\.ubicacionNombre \?/.test(scr));
+ok('cada viaje muestra su CDT en la lista', /row\.ubicacionNombre \? ` · 🏗️ \$\{row\.ubicacionNombre\}` : ''/.test(scr));
+ok('el manual .md lo explica', /Elegir el CDT de un viaje \(16\/09\/2026/.test(md));
+ok('el manual en pantalla también', /ELEGIR EL CDT DE UN VIAJE \(16\/09\/2026/.test(ms));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-ubicaciones · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

@@ -405,6 +405,9 @@ export type CambiosViaje = {
   listeroName?: string;
   shift?: 'day' | 'night' | null;
   note?: string | null;
+  /** Otro CDT para ESTE viaje. La base pone el nombre y la zona de pago del CDT
+   *  nuevo, y solo lo acepta de quien tiene permiso completo de viajes. */
+  ubicacionId?: string;
 };
 
 /**
@@ -420,6 +423,7 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
   if (cambios.listeroName !== undefined) patch.listero_name = cambios.listeroName;
   if (cambios.shift !== undefined) patch.shift = cambios.shift;
   if (cambios.note !== undefined) patch.note = cambios.note;
+  if (cambios.ubicacionId) patch.ubicacion_id = cambios.ubicacionId;
   // Un update vacío en PostgREST devuelve la fila sin cambiar nada: parecería
   // que se guardó algo. Mejor decirlo.
   if (Object.keys(patch).length === 0) return { error: 'No cambiaste nada.' };
