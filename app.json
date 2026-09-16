@@ -18,7 +18,8 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "SOS LA GUAIRA"
     },
     "plugins": [
       "expo-sharing",
