@@ -2310,15 +2310,26 @@ flechas ◀ ▶ cambias de día.
    no aparecen**.
 2. La cocina **escanea el QR** de la empresa (con la **cámara del teléfono** O desde el botón
    **"Escanear carnet"** dentro de su propia pantalla de Cocina) → se abre la pantalla de comidas
-   del día de esa empresa.
+   del día de esa empresa. El **mismo QR se puede escanear varias veces** en el día.
 3. Se **verifica** con su carnet/cédula (solo **cargo de cocina/alimentación**).
-4. Toca uno de los **4 botones grandes**: **Desayuno, Almuerzo, Lunch o Cena** (cada uno **1 sola vez
-   por día** por empresa).
-5. El sistema **sugiere** el total = **máquinas de la empresa × 2 + 15**; el cocinero escribe
-   cuántas comidas **entregó realmente** y registra.
+4. Toca un botón: **Desayuno, Almuerzo, Lunch, Cena** o **🧾 Otros**. Escribe los **platos** que surtió
+   y el **costo por plato en $**; se muestra el **total en $ y en Bs** a la **tasa BCV** del día.
+   Toca **"Sumar entrega"**.
+5. Se puede registrar **cuantas veces** haga falta: **cada entrega se suma** (ya **no** hay tope por
+   número de máquinas ni "1 vez por día"). El **sugerido** máquinas × 2 + 15 queda solo de referencia.
 
-> Queda guardado con la **empresa**, la **cantidad**, la **hora** y **quién** la registró.
-> Ese registro **ES el control de asistencia/entrega** de la empresa.
+> **🧾 Otros (17/09/2026):** platos extra con costo (bolsa de hielo, refresco, postre…). El **nombre**
+> del plato es un **catálogo reusable**: la primera vez lo escribes y queda guardado; luego lo eliges
+> de la **lista desplegable** y **solo cambias el costo**. El nombre **sale en el PDF** (sección
+> "Detalle de Otros por plato").
+
+> **💵 Costo y conversión $/Bs (17/09/2026):** cada entrega (las 4 comidas y Otros) lleva un costo por
+> plato en **$**; al registrar se ve el total en **$ y en Bs** a la **tasa del BCV** del día (la misma
+> del inventario, automática y ajustable). El resumen del día y el **PDF** muestran el costo total.
+
+> Queda guardado con la **empresa**, la **cantidad**, el **costo**, la **hora** y **quién** la registró;
+> en **"Entregas de hoy"** ves cada una y puedes **borrar con 🗑️** si te equivocaste. Es el
+> **control de asistencia/entrega** de la empresa.
 
 > **Empresa "solo comidas":** en **Empresas** (admin) puedes marcar una empresa como
 > **"🍽️ Solo comidas"**. Esa empresa aparecerá **únicamente en la distribución de comidas** y

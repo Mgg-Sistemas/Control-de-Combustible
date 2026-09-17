@@ -929,9 +929,10 @@ export interface FoodDistribution {
   created_at: string;
 }
 
-export type MealType = 'desayuno' | 'almuerzo' | 'lunch' | 'cena';
+export type MealType = 'desayuno' | 'almuerzo' | 'lunch' | 'cena' | 'otros';
 
-/** Comida entregada a una EMPRESA en un día (desayuno/almuerzo/lunch/cena), 1 vez por día. */
+/** Comida entregada a una EMPRESA en un día. Ahora se pueden registrar VARIAS
+ *  entregas por comida/día (se suman); cada renglón lleva su costo por plato ($). */
 export interface FoodCompanyMeal {
   id: string;
   company_id: string | null;
@@ -940,7 +941,9 @@ export interface FoodCompanyMeal {
   meal_date: string;           // día (ISO Caracas)
   machines: number;            // nº de máquinas de la empresa al registrar
   suggested: number;           // sugerido = máquinas × 2 + 15
-  delivered: number;           // lo que el cocinero entregó realmente
+  delivered: number;           // platos entregados en ESTA distribución
+  unit_cost: number;           // costo por plato en $ (se ve también en Bs al cambio)
+  item_label: string | null;   // nombre del plato (para OTROS); null en las 4 fijas
   delivered_at: string;        // hora de entrega (ISO UTC)
   note: string | null;
   created_by: string | null;

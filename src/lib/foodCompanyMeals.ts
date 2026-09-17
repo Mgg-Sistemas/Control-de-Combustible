@@ -18,7 +18,15 @@ export const MEALS: { key: MealType; label: string; icon: string; color: string 
   { key: 'cena', label: 'Cena', icon: '🌙', color: '#7C3AED' },
 ];
 
-export const mealLabel = (k: MealType) => MEALS.find((m) => m.key === k)?.label ?? k;
+/** Plato EXTRA "Otros" (17-sep-2026): platos que carga el usuario, con su costo.
+ *  Va aparte de MEALS para no meterlo en el flujo por persona ni en los KPIs base. */
+export const OTROS_MEAL: { key: MealType; label: string; icon: string; color: string } =
+  { key: 'otros', label: 'Otros', icon: '🧾', color: '#DB2777' };
+
+/** Las comidas de la DISTRIBUCIÓN POR EMPRESA: las 4 fijas + Otros. */
+export const COMPANY_MEALS = [...MEALS, OTROS_MEAL];
+
+export const mealLabel = (k: MealType) => COMPANY_MEALS.find((m) => m.key === k)?.label ?? k;
 
 /** Total sugerido de comidas = (máquinas de la empresa × 2) + 15. */
 export const suggestedMeals = (machines: number) => Math.max(0, Number(machines) || 0) * 2 + 15;
@@ -83,14 +91,16 @@ export type SaveCompanyMealInput = {
   machines: number;
   suggested: number;
   delivered: number;
+  unitCost?: number;        // costo por plato en $ (0 si no lleva costo)
+  itemLabel?: string | null; // nombre del plato (para OTROS)
   note?: string | null;
   createdBy?: string | null;
   createdByName?: string | null;
   createdByCargo?: string | null;
 };
 
-/** Registra la comida de una empresa. Si ya existe (misma empresa/comida/día),
- *  devuelve un error claro (la restricción única lo impide: 1 vez por día). */
+/** Registra UNA distribución de comida de una empresa. Ya NO es única por día:
+ *  se pueden registrar varias y se suman (cada una es un renglón con su costo). */
 export async function saveCompanyMeal(input: SaveCompanyMealInput): Promise<{ data: FoodCompanyMeal | null; error?: string }> {
   const { data, error } = await supabase
     .from('food_company_meals')
@@ -102,6 +112,8 @@ export async function saveCompanyMeal(input: SaveCompanyMealInput): Promise<{ da
       machines: input.machines,
       suggested: input.suggested,
       delivered: input.delivered,
+      unit_cost: Math.max(0, Number(input.unitCost) || 0),
+      item_label: (input.itemLabel ?? '').trim() || null,
       note: (input.note ?? '').trim() || null,
       created_by: input.createdBy ?? null,
       created_by_name: input.createdByName ?? null,
@@ -109,9 +121,30 @@ export async function saveCompanyMeal(input: SaveCompanyMealInput): Promise<{ da
     })
     .select()
     .single();
-  if (error) {
-    const dup = error.code === '23505' || /duplicate|unique/i.test(error.message);
-    return { data: null, error: dup ? 'Esa comida ya se registró hoy para esta empresa.' : error.message };
-  }
+  if (error) return { data: null, error: error.message };
   return { data: (data as FoodCompanyMeal) ?? null };
+}
+
+// ── CATÁLOGO de platos OTROS (bolsa de hielo, refresco, postre…) ──────────────
+export type FoodExtraItem = { id: string; name: string };
+
+/** Lista los nombres de platos OTROS guardados (A→Z). */
+export async function listExtraItems(): Promise<FoodExtraItem[]> {
+  const { data } = await supabase.from('food_extra_items').select('id, name').eq('active', true).order('name');
+  return (data ?? []) as FoodExtraItem[];
+}
+
+/** Guarda un plato OTROS nuevo (si no existe). No pisa el existente. */
+export async function saveExtraItem(name: string): Promise<void> {
+  const clean = (name ?? '').trim();
+  if (!clean) return;
+  await supabase.from('food_extra_items').insert({ name: clean }).then(() => {}, () => {});
+}
+
+/** Borra una distribución (por si se registró de más). */
+export async function deleteCompanyMeal(id: string): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('food_company_meals').delete().eq('id', id).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'No se borró: no tienes permiso o ya no existe.' };
+  return {};
 }
