@@ -55,7 +55,7 @@ const ok = (name, cond) => eq(name, !!cond, true);
 
 const L = cargar('src/lib/pagoViajes.ts');
 ok('la librería no importa nada', !/^\s*import\s/m.test(sinComentarios(leer('src/lib/pagoViajes.ts'))));
-eq('arranca el 15-sep-2026', L.INICIO_PAGO_VIAJES, '2026-09-15');
+eq('arranca el 14-sep-2026 (pedido del 17-sep)', L.INICIO_PAGO_VIAJES, '2026-09-14');
 
 // ── 1) JORNADA ──────────────────────────────────────────────────────────────
 eq('8am Caracas es de ese día', L.jornadaDeInstante('2026-09-15T08:00:00-04:00'), '2026-09-15');
@@ -194,7 +194,7 @@ const viajes = [
   V('v3'), // le quitaron la marca
   V('v4', { zona_pago: 'oeste', registered_at: '2026-09-16T06:30:00-04:00', estado_maquina: 'averiada' }), // madrugada del 16 = jornada 15; averiado igual se paga
   V('v5', { zona_pago: null }), // sin zona
-  V('v6', { registered_at: '2026-09-15T06:00:00-04:00' }), // jornada 14: antes del inicio
+  V('v6', { registered_at: '2026-09-14T06:00:00-04:00' }), // jornada 13: antes del inicio (14-sep)
   V('v7', { machinery_id: 'Z', machine_code: 'TORONTO 9' }), // camión por jornada: no entra
   V('v8', { registered_at: '2026-09-21T10:00:00-04:00', company_id: 'EMPA' }), // A ya está por jornada el 21
   V('v9', { machinery_id: 'CH', machine_code: 'CHUTO 1' }), // chuto quitado: no entra
@@ -222,7 +222,7 @@ eq('motivo del sin zona', sav.lineas.find((l) => l.viaje.id === 'v5').motivoSinP
 eq('por camión: 3 pagados (2 Este, 1 Oeste), 1 no facturó, 1 pendiente, 85 $',
   sav.porCamion.map((c) => [c.code, c.viajes, c.pagados, c.este, c.oeste, c.noFacturados, c.pendientes, c.monto]),
   [['TORONTO 1', 5, 3, 2, 1, 1, 1, 85]]);
-ok('antes del 15 no entra', !Array.from(grupos.values()).some((g) => g.lineas.some((l) => l.viaje.id === 'v6')));
+ok('antes del inicio (14) no entra', !Array.from(grupos.values()).some((g) => g.lineas.some((l) => l.viaje.id === 'v6')));
 ok('⭐ camión por jornada no entra al pago por viaje', !Array.from(grupos.values()).some((g) => g.lineas.some((l) => l.viaje.id === 'v7')));
 ok('⭐ regresado a jornada el 21: ese viaje no entra', !grupos.has('EMPA|2026-09-21'));
 ok('chuto quitado no entra', !Array.from(grupos.values()).some((g) => g.lineas.some((l) => l.viaje.id === 'v9')));
@@ -230,13 +230,13 @@ const sinEmp = grupos.get('|2026-09-14');
 eq('fuera de catálogo: aparece, pendiente, 0 $ y lo dice', [sinEmp?.viajes, sinEmp?.pendientes, sinEmp?.montoUSD, sinEmp?.lineas[0].motivoSinPago], [1, 1, 0, 'fuera_catalogo']);
 eq('otra empresa, otro grupo', grupos.get('EMPB|2026-09-14')?.montoUSD, 21);
 
-// Un camión puesto por viaje ANTES del 15: lo anterior al inicio igual no se paga por viaje
+// Un camión puesto por viaje ANTES del 14: lo anterior al inicio igual no se paga por viaje
 const previo = L.calcularPagoViajes({
-  viajes: [V('p1', { registered_at: '2026-09-14T10:00:00-04:00' }), V('p2', { registered_at: '2026-09-15T10:00:00-04:00' })],
+  viajes: [V('p1', { registered_at: '2026-09-13T10:00:00-04:00' }), V('p2', { registered_at: '2026-09-15T10:00:00-04:00' })],
   modos: L.indexarModos([{ machinery_id: 'A', modo: 'viaje', desde: '2026-09-01', created_at: '1' }]),
   tarifas, marcas: L.indexarMarcas([]), semanaDe,
 });
-eq('⭐ antes del 15 no entra aunque el camión ya estuviera por viaje', Array.from(previo.values()).flatMap((g) => g.lineas.map((l) => l.viaje.id)), ['p2']);
+eq('⭐ antes del 14 no entra aunque el camión ya estuviera por viaje', Array.from(previo.values()).flatMap((g) => g.lineas.map((l) => l.viaje.id)), ['p2']);
 
 // Una tarifa blindada cambia solo su rango
 const conBlindada = L.calcularPagoViajes({
@@ -312,6 +312,8 @@ const md = leer('docs/MANUAL-USUARIO.md');
 ok('el manual .md lo explica', /Pago de viajes de camiones \(15\/09\/2026\)/.test(md));
 ok('...en Viajes de camiones, no en Control de Pagos', /panel de información → tarjeta \*\*"💰 Pago de viajes"\*\*/.test(md) && !/Control de Pagos → botón \*\*"🚛 Pago de viajes/.test(md));
 ok('el manual en pantalla también', /💰 PAGO DE VIAJES DE CAMIONES \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('los dos manuales dicen que arranca el 14/09', /Arranca el 14\/09\/2026/.test(md) && /ARRANCA EL 14\/09\/2026/.test(leer('src/screens/ManualScreen.tsx')));
+ok('la tarjeta toma la fecha de arranque de la regla, no escrita a mano', /arranca el \{dmy\(INICIO_PAGO_VIAJES\)\}/.test(leer('src/components/PagoViajesResumen.tsx')));
 ok('los dos manuales explican las tarifas especiales', /Tarifas especiales/.test(md) && /TARIFAS ESPECIALES/.test(leer('src/screens/ManualScreen.tsx')));
 
 // ── 9) REVISIÓN DEL 16-SEP-2026 ─────────────────────────────────────────────

@@ -1,6 +1,6 @@
 // PAGO DE VIAJES DE CAMIONES (15-sep-2026).
 //
-// Pedido del cliente: desde el 15-sep-2026 los camiones se le pagan a su empresa POR
+// Pedido del cliente: desde el 14-sep-2026 los camiones se le pagan a su empresa POR
 // VIAJE, con la tarifa de la zona del CDT. Vive SOLO en el módulo de Viajes de camiones:
 // no toca jornadas, Control de Maquinaria ni Control de Pagos. Tres reglas:
 //   · Los precios se cambian como en jornada: un precio GENERAL desde una fecha en
@@ -14,7 +14,8 @@
 //
 // ⭐ SIN IMPORTS, a propósito: se prueba sola (scripts/test-pago-viajes.mjs).
 
-export const INICIO_PAGO_VIAJES = '2026-09-15';
+// Arrancaba el 15-sep; el 17-sep el cliente pidió que las tarifas rijan desde el 14-sep.
+export const INICIO_PAGO_VIAJES = '2026-09-14';
 
 export type ZonaPagoViaje = 'este' | 'oeste';
 export type ModoPago = 'jornada' | 'viaje';

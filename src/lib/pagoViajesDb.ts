@@ -23,7 +23,7 @@ export type DatosPagoViajes = {
   empresas: Map<string, string>;
 };
 
-/** Viajes desde el inicio del pago (jornada del 15-sep a las 7am), modos, tarifas, marcas y empresas. */
+/** Viajes desde el inicio del pago (jornada del 14-sep a las 7am), modos, tarifas, marcas y empresas. */
 export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_VIAJES): Promise<DatosPagoViajes> {
   const [viajes, modos, tarifas, marcas, empresas] = await Promise.all([
     selectAllRows('camion_viajes', COLS_VIAJE, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`)),
