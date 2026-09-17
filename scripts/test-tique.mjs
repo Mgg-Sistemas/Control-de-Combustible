@@ -337,7 +337,7 @@ ok('la lista completa sigue permitiendo borrar',
 // Pedido del cliente: «cuando marcan el viaje, deben dar el ticket».
 const {
   renglonesDelTique, documentoDeTiques, htmlDeUnTique, enHojas, hojasQueSalen,
-  medioDeImpresion, nombreArchivoTiques, escapar, MEDIDAS, SIN_DATO_PAPEL,
+  medioDeImpresion, medioParaLaBase, nombreArchivoTiques, escapar, MEDIDAS, SIN_DATO_PAPEL,
 } = cargar('src/lib/tiqueDocumento.ts');
 
 const cfg = (extra) => normalizarConfig({ ...CONFIG_POR_DEFECTO, ...extra });
@@ -446,7 +446,14 @@ eq('uno solo es una hoja', hojasQueSalen(1, 'carta6'), 1);
 
 // «Lo saco la ticketera en el momento» y «lo sacaron en hoja para repartir
 // despues» son dos formas distintas de entregar, y hay que poder distinguirlas.
-eq('el rollo se anota como ticketera', medioDeImpresion('rollo58'), 'ticketera');
+// ⚠️ «tiquetera» CON Q: es el valor que admite la columna `medio` de la base, no un
+//    rótulo. El 17-sep-2026 un renombrado de textos lo cambió a «ticketera» y la base
+//    rechazó TODAS las entregas: desde el CDT-000419 no se registró ni una. En pantalla
+//    se lee «En ticketera»; acá se comprueba lo que se GUARDA.
+eq('⭐ el rollo se guarda con el valor de la base', medioDeImpresion('rollo58'), 'tiquetera');
+eq('...y la hoja igual que siempre', medioDeImpresion('carta'), 'hoja');
+eq('⭐ lo que quedó atrapado con el valor malo se traduce al subir', medioParaLaBase('ticketera'), 'tiquetera');
+eq('...y lo demás pasa tal cual', [medioParaLaBase('hoja'), medioParaLaBase('imagen')], ['hoja', 'imagen']);
 eq('la carta se anota como hoja', medioDeImpresion('carta4'), 'hoja');
 
 // Las opciones que pidio el cliente siguen existiendo.

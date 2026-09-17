@@ -110,9 +110,28 @@ export function tiquesPorHoja(papel: PapelTique): number {
  * hoja para repartir después» son dos formas distintas de entregar, y cuando
  * falte un ticket la primera pregunta va a ser cuál de las dos fue.
  */
-export function medioDeImpresion(papel: PapelTique): 'ticketera' | 'hoja' {
-  return MEDIDAS[papel]?.rollo ? 'ticketera' : 'hoja';
+export function medioDeImpresion(papel: PapelTique): 'tiquetera' | 'hoja' {
+  // ⚠️⚠️ «tiquetera» CON Q ES UN VALOR DE LA BASE, NO UN TEXTO DE PANTALLA. Es lo
+  //     que admite la columna `medio` de `tique_emisiones`. El 17-sep-2026 se
+  //     renombró «tique» → «ticket» en todo lo que se lee y este valor se fue en el
+  //     mismo saco: la base rechazó TODAS las entregas y desde el CDT-000419 no se
+  //     registró ni una. En pantalla se muestra «En ticketera» (tiqueHistorial.ts);
+  //     acá va lo que la base entiende. NO renombrar.
+  return MEDIDAS[papel]?.rollo ? 'tiquetera' : 'hoja';
 }
+
+/**
+ * RESCATE DE LAS ENTREGAS ATRAPADAS EL 17-sep-2026.
+ *
+ * Ese día el renombrado de textos («tique» → «ticket») se llevó también este valor, y
+ * la base rechazó cada entrega: los papeles salieron y las constancias quedaron en la
+ * cola del teléfono, reintentando para siempre contra un valor que la base nunca va a
+ * aceptar. Se traduce al subir, así esas suban solas en cuanto se abra la pantalla.
+ *
+ * No se quita cuando ya no queden: es una línea, y evita que un respaldo viejo del
+ * teléfono reviva el problema.
+ */
+export const medioParaLaBase = (m: string): string => (m === 'ticketera' ? 'tiquetera' : m);
 
 /** Cuántas hojas van a salir de la impresora. Se le dice ANTES de mandar: nadie
  *  quiere enterarse de que eran 60 hojas cuando ya están saliendo. */
