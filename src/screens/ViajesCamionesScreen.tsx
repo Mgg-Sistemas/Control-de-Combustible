@@ -1678,8 +1678,12 @@ export default function ViajesCamionesScreen() {
   // casi toda la flota) — sin placa/serial no se puede distinguir uno de otro
   // en estas listas, así que se arrastran también aquí.
   const resumenPorCamion = useMemo(() => {
+    // ⭐ El CATÁLOGO COMPLETO, no `allTrucks`: desde que el admin puede quitar una máquina
+    //    de la lista (17-sep-2026), esa máquina sale de `allTrucks` pero SUS VIAJES DE HOY
+    //    siguen contando acá — y sin su ficha la fila salía sin placa, con treinta camiones
+    //    llamados igual. Mismo criterio que `truckById`.
     const infoOf = new Map<string, { code: string; plate: string | null; serial: string | null }>();
-    allTrucks.forEach((t) => infoOf.set(t.id, { code: t.code, plate: t.plate, serial: t.serial }));
+    catalogoTrucks.forEach((t) => infoOf.set(t.id, { code: t.code, plate: t.plate, serial: t.serial }));
     // Se cuenta por CLAVE, no por id: los camiones fuera de catálogo no tienen id
     // y si se agruparan por `null` saldrían todos sumados como uno solo
     // (ver `claveCamion` en src/lib/viajesResumen.ts, que es la única verdad).
@@ -1707,7 +1711,7 @@ export default function ViajesCamionesScreen() {
     });
     arr.sort((a, b) => b.count - a.count || cmpText(a.code, b.code));
     return arr;
-  }, [resumenRows, allTrucks, camionesEnObra, metasByTruck]);
+  }, [resumenRows, catalogoTrucks, camionesEnObra, metasByTruck]);
 
   const resumenPorListero = useMemo(() => {
     const m = new Map<string, { name: string; count: number }>();
