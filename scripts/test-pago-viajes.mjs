@@ -380,7 +380,7 @@ eq('⭐ dos camiones con el mismo código son dos renglones, no uno',
 // 9f) Las pantallas.
 ok('la pestaña Camiones usa la regla ancha (chutos incluidos)', /esCamionDeViajes\(m\.code\)/.test(panel) && !/isVolteoVolqueta/.test(panel));
 ok('...y deja quitar del pago a una máquina dada de baja que ya tenía historial', /m\.activa \|\| \(idxModos\.get\(m\.id\)\?\.length \?\? 0\) > 0/.test(panel));
-ok('el buscador de tarifas también ve los chutos', /m\.activa && esCamionDeViajes\(m\.code\)/.test(tar) && !/isVolteoVolqueta/.test(tar));
+ok('el buscador de tarifas también ve los chutos', /m\.activa && \(esCamionDeViajes\(m\.code\)/.test(tar) && !/isVolteoVolqueta/.test(tar));
 ok('la ayuda del alcance «un camión» explica lo de ambas zonas', /Ambas zonas.*sin tocar el de las zonas/.test(tar));
 ok('el catálogo del pago trae también las inactivas, marcadas', /activa: m\.active !== false/.test(db) && !/q\.eq\('active', true\)/.test(db));
 ok('el resumen muestra los camiones que no entran al pago', /viajesFueraDelPago\(\{ viajes: viajesEnRango/.test(res) && /no entran al pago/.test(res));

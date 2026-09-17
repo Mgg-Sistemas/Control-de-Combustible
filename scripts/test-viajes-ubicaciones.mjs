@@ -299,14 +299,15 @@ ok('se llama Panel de información', scrCrudo.includes('📊 Panel de informaci�
 // alguien agrega un bloque nuevo con <Card> suelto, el panel vuelve a crecer sin
 // que nada avise, que es justo lo que esto vino a arreglar.
 const plegable = sinComentarios(leer('src/components/Plegable.tsx'));
-eq('los cinco apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 5);
+// Seis desde el 17-sep: se sumó «🚜 Máquinas que salen en Viajes» (solo admin).
+eq('los seis apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 6);
 ok('y el de obras también lo es', /setAbierto\(\(v\) => !v\)/.test(comp));
 ok('ya no quedan tarjetas fijas en el panel',
   !/\n          <Card>\n            <SectionTitle>/.test(scrCrudo));
 
 // ⚠️ CERRADO NO ES ESCONDIDO: el título tiene que decir qué hay dentro, o una
 //    lista de seis desplegables mudos es una búsqueda a ciegas.
-eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 5);
+eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 6);
 ok('el resumen de hoy y la lista completa arrancan abiertos',
   (scr.match(/abiertaPorDefecto(?![=])/g) || []).length === 2);
 // Una alerta que hay que ir a destapar no es una alerta.

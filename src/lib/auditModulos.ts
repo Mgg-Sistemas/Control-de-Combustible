@@ -157,7 +157,7 @@ const TABLA_A_MODULO: Record<string, string> = {
   ubicaciones_obra: 'viajes',
   // Pago de viajes (15-sep-2026): tarifas por zona, camiones por viaje y «facturó».
   // Van con viajes porque ese pago vive en el módulo de Viajes de camiones.
-  viaje_tarifas: 'viajes', machinery_modo_pago: 'viajes', viaje_pago_marcas: 'viajes',
+  viaje_tarifas: 'viajes', machinery_modo_pago: 'viajes', viaje_pago_marcas: 'viajes', viajes_lista_camiones: 'viajes',
   // 🔔 Avisos
   notifications: 'avisos', notification_reads: 'avisos',
 };

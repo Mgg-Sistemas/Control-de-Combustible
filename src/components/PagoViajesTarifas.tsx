@@ -26,6 +26,8 @@ import { anularTarifaViaje, crearTarifaViaje, CamionCatalogo } from '../lib/pago
 type Props = {
   tarifas: TarifaViaje[];
   maquinas: CamionCatalogo[];
+  /** Máquinas que el admin puso a mano en Viajes: se pueden elegir aunque su código no sea de camión. */
+  puestasEnViajes?: Set<string>;
   cargando: boolean;
   canEdit: boolean;
   usuarioId: string | null;
@@ -55,7 +57,7 @@ const usd = (n: unknown) => `$${Number(n || 0).toLocaleString(undefined, { minim
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const esChuto = (code: string) => norm(code).trim().startsWith('chuto');
 
-export function PagoViajesTarifas({ tarifas, maquinas, cargando, canEdit, usuarioId, hoy, onChanged }: Props) {
+export function PagoViajesTarifas({ tarifas, maquinas, puestasEnViajes, cargando, canEdit, usuarioId, hoy, onChanged }: Props) {
   const { colors } = useTheme();
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -78,8 +80,8 @@ export function PagoViajesTarifas({ tarifas, maquinas, cargando, canEdit, usuari
   const [filtroHist, setFiltroHist] = useState<'todas' | AlcanceTarifa>('todas');
 
   const catalogo = useMemo(
-    () => maquinas.filter((m) => m.activa && esCamionDeViajes(m.code)).sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code)),
-    [maquinas],
+    () => maquinas.filter((m) => m.activa && (esCamionDeViajes(m.code) || !!puestasEnViajes?.has(m.id))).sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code)),
+    [maquinas, puestasEnViajes],
   );
   const porId = useMemo(() => new Map(maquinas.map((m) => [m.id, m])), [maquinas]);
   const nombreEmpresa = useMemo(() => {
