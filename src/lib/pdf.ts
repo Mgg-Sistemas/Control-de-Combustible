@@ -302,6 +302,26 @@ function sanitizeFileName(name?: string): string {
  * "🖨️ Imprimir" y "Cancelar". El documento se renderiza en un iframe visible
  * (con su logo y estilos); solo al tocar Imprimir se abre el diálogo de la
  * impresora. Reemplaza el salto directo al diálogo del navegador.
+ *
+ * ⭐⭐ RESUELVE `true` EN CUANTO SALE EL PAPEL, NO AL CERRAR LA VENTANA
+ *     (17-sep-2026). Antes solo resolvía dentro de `cleanup()`, o sea cuando el
+ *     usuario cerraba la vista previa. Quien imprimía y se iba —cerrar la
+ *     pestaña, volver atrás, o que el teléfono matara el navegador— dejaba esta
+ *     promesa colgada PARA SIEMPRE, y lo que venía después nunca corría.
+ *
+ *     En los tickets de viaje eso es plata: el papel salió, el camionero se lo
+ *     llevó, y la constancia de entrega no se escribió nunca. Pasó con los
+ *     CDT-000419, 420 y 421 (reportados el 17-sep-2026), tres seguidos, que es
+ *     justo la seña de una tanda impresa y abandonada sin cerrar la ventana.
+ *
+ * ⭐ Y TAMBIÉN CUENTA LA IMPRESIÓN DEL NAVEGADOR (Ctrl+P o su menú): el evento
+ *    `beforeprint` del documento avisa igual. Antes, imprimir por esa vía se
+ *    contaba como CANCELADO —la app solo miraba su propio botón— y el papel
+ *    salía sin quedar registrado.
+ *
+ * La ventana NO se cierra sola al imprimir: quien manda a la impresora muchas
+ * veces necesita verla otra vez (se quedó sin papel, salió torcido). Cerrarla
+ * solo deja de tener efecto sobre lo que ya se resolvió.
  */
 function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -376,6 +396,17 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
     // quien llama NO ejecute efectos (p. ej. descontar del inventario).
     let printed = false;
     let closed = false;
+    // Se resuelve UNA sola vez: al imprimir (por el botón o por el navegador) o
+    // al cerrar sin imprimir. Sin este candado, cerrar después de imprimir
+    // resolvería una promesa ya resuelta —inofensivo— o, peor, al revés.
+    let resuelta = false;
+    const confirmarImpreso = () => {
+      printed = true;
+      btnCancel.textContent = 'Cerrar';
+      if (resuelta) return;
+      resuelta = true;
+      resolve(true);
+    };
 
     /**
      * ⭐ ESCRIBIR EL DOCUMENTO **DESPUÉS** DE QUE LA VENTANA SE HAYA PINTADO.
@@ -412,6 +443,16 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
       if (!closed) barTitle.textContent = 'Vista previa del documento';
     };
 
+    // Ctrl+P (o el menú del navegador) sobre la vista previa: el documento avisa
+    // con `beforeprint` y cuenta igual que el botón. Se engancha al iframe y, de
+    // repuesto, a la ventana principal —según el navegador, el evento le llega a
+    // una o a la otra.
+    try {
+      cw.addEventListener('beforeprint', () => { if (!closed) confirmarImpreso(); });
+    } catch (e) { /* navegador que no lo expone: queda el botón, como antes */ }
+    const onBeforePrint = () => { if (!closed) confirmarImpreso(); };
+    try { (globalThis as any).addEventListener?.('beforeprint', onBeforePrint); } catch (e) {}
+
     barTitle.textContent = 'Preparando la vista previa…';
     const raf: any = (globalThis as any).requestAnimationFrame;
     if (typeof raf === 'function') raf(() => raf(escribirDocumento));
@@ -420,7 +461,10 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
       if (closed) return;
       closed = true;
       try { d.removeEventListener('keydown', onKey); } catch (e) {}
+      try { (globalThis as any).removeEventListener?.('beforeprint', onBeforePrint); } catch (e) {}
       try { overlay.remove(); } catch (e) {}
+      if (resuelta) return; // ya se confirmó al imprimir
+      resuelta = true;
       resolve(printed);
     };
     const onKey = (ev: any) => { if (ev.key === 'Escape') cleanup(); };
@@ -474,10 +518,8 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
         if (closed) return; // cerró la ventana mientras cargaban las fotos
         cw.focus();
         cw.print();
-        // El usuario mandó a imprimir/guardar: queda CONFIRMADO. Al cerrar la
-        // vista previa se resolverá `true`. Cambiamos "Cancelar" por "Cerrar".
-        printed = true;
-        btnCancel.textContent = 'Cerrar';
+        // El papel salió: se confirma YA, sin esperar a que cierre la ventana.
+        confirmarImpreso();
       } catch (e) {
         // ignorar
       }
