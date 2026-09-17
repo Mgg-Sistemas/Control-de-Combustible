@@ -93,7 +93,10 @@ ok('⭐ la lista del listero obedece el ajuste', /\.filter\(\(m\) => saleEnViaje
 ok('...y ya no usa la regla sola', !/isVolteoVolqueta\(m\.code/.test(scr));
 ok('el buscador tampoco ofrece la que el admin quitó', /ajustesLista\.get\(t\.id\)\?\.visible !== false/.test(scr));
 ok('si la lectura de ajustes falla, se quedan los últimos que se leyeron', /if \(!ajLista\.error\) \{\s*ajustesListaRef\.current = indexarAjustesLista\(ajLista\.filas\);/.test(scr));
-ok('⭐ la tarjeta es solo del admin', /\{role === 'admin' \? \(\s*<Plegable\s*titulo="🚜 Máquinas que salen en Viajes"/.test(scr));
+// 17-sep (tarde): el cliente pidió que también la tenga quien tiene permiso completo,
+// no solo el admin. `canFull` incluye al admin (moduleLevel le da 'full' siempre).
+ok('⭐ la tarjeta es de quien tiene permiso completo (incluye al admin)', /\{canFull \? \(\s*<Plegable\s*titulo="🚜 Máquinas que salen en Viajes"/.test(scr));
+ok('...y ya no la reserva al rol admin', !/role === 'admin'/.test(scr));
 ok('...trabaja sobre el catálogo completo y recarga la lista al cambiar', /<ListaCamionesViajes\s*catalogo=\{catalogoTrucks\}\s*ajustes=\{ajustesLista\}\s*faltaSql=\{faltaSqlLista\}\s*onChanged=\{loadTrucks\}/.test(scr));
 
 const comp = sinComentarios(leer('src/components/ListaCamionesViajes.tsx'));

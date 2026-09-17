@@ -5025,7 +5025,7 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
-> **🚜 Máquinas que salen en Viajes (17/09/2026, solo administrador).** En el panel de información hay
+> **🚜 Máquinas que salen en Viajes (17/09/2026, permiso completo en este módulo).** En el panel de información hay
 > un apartado **"🚜 Máquinas que salen en Viajes"**. Ahí decides qué máquinas le salen al listero para
 > registrar viajes:
 > - Lo **automático** es por el código (volteo, volqueta, toronto), como siempre.

@@ -1,4 +1,4 @@
-// QUÉ MÁQUINAS SALEN EN VIAJES DE CAMIONES (17-sep-2026). Solo el ADMIN.
+// QUÉ MÁQUINAS SALEN EN VIAJES DE CAMIONES (17-sep-2026). Permiso COMPLETO en Viajes.
 //
 // Vive en el panel de información de Viajes de camiones. Por cada máquina del catálogo
 // dice si le sale al listero y deja ponerla o quitarla, o volver a lo automático (la
