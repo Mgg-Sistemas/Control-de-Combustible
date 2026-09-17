@@ -1,7 +1,7 @@
-// HISTORIAL DE ENTREGAS DE UN TIQUE · la ventana (14-sep-2026).
+// HISTORIAL DE ENTREGAS DE UN TICKET · la ventana (14-sep-2026).
 //
 // Pedido del cliente: que la pastilla «entregado ×7», al tocarla, muestre quién
-// imprimió o reimprimió ese tique y a qué hora. Y poder borrar una entrega,
+// imprimió o reimprimió ese ticket y a qué hora. Y poder borrar una entrega,
 // quedando quién la borró.
 //
 // ⭐ BORRAR ES TACHAR. La ventana no cambia filas: llama a `anularEmision`, que le
@@ -52,7 +52,7 @@ export function HistorialTiqueModal({
     setCargando(true);
     setError(null);
     setPendientes(0);
-    // Otro tique: se limpia. El mismo tique después de borrar: se deja lo que
+    // Otro ticket: se limpia. El mismo ticket después de borrar: se deja lo que
     // se ve mientras relee, para que la lista no parpadee.
     if (ultimoFolioRef.current !== folio) { setFilas([]); setResumen(''); }
     ultimoFolioRef.current = folio;
@@ -60,8 +60,8 @@ export function HistorialTiqueModal({
       .then(([r, p]) => {
         if (!vivo) return;
         // ⚠️ Un fallo de lectura NO se muestra como «no hay entregas». Sería
-        //    decirle a la jefa que un tique no se entregó cuando no se sabe.
-        if (r.sinTabla) setError('Falta correr el SQL de la tiquetera.');
+        //    decirle a la jefa que un ticket no se entregó cuando no se sabe.
+        if (r.sinTabla) setError('Falta correr el SQL de la ticketera.');
         else if (r.error) setError(r.error);
         setFilas(filasDelHistorial(r.filas));
         setResumen(resumenHistorial(r.filas));
@@ -76,7 +76,7 @@ export function HistorialTiqueModal({
     if (!folio || borrandoRef.current) return;
     const ok = await confirm({
       title: 'Borrar entrega',
-      message: `¿Borrar la entrega del ${f.cuando} (${f.quien}) del tique ${folio}? Deja de contar, pero queda tachada en el historial con tu nombre. No se puede deshacer.`,
+      message: `¿Borrar la entrega del ${f.cuando} (${f.quien}) del ticket ${folio}? Deja de contar, pero queda tachada en el historial con tu nombre. No se puede deshacer.`,
       confirmText: 'Borrar',
       danger: true,
     });
@@ -99,7 +99,7 @@ export function HistorialTiqueModal({
     <Modal visible={!!folio} animationType="slide" transparent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' }}>
         <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '82%' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>🎫 Entregas del tique {folio}</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>🎫 Entregas del ticket {folio}</Text>
           {!cargando && !error ? (
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{resumen}</Text>
           ) : null}
@@ -107,7 +107,7 @@ export function HistorialTiqueModal({
           {pendientes > 0 ? (
             <View style={{ borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, padding: spacing.sm, marginTop: spacing.sm }}>
               <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 12 }}>
-                ⏳ {pendientes} {pendientes === 1 ? 'entrega de este tique está' : 'entregas de este tique están'} en este teléfono sin subir. Todavía no salen en la lista; suben solas al volver la señal.
+                ⏳ {pendientes} {pendientes === 1 ? 'entrega de este ticket está' : 'entregas de este ticket están'} en este teléfono sin subir. Todavía no salen en la lista; suben solas al volver la señal.
               </Text>
             </View>
           ) : null}
@@ -137,7 +137,7 @@ export function HistorialTiqueModal({
                       onPress={() => onBorrarEntrega(f)}
                       disabled={borrandoId !== null}
                       accessibilityRole="button"
-                      accessibilityLabel={`Borrar la entrega ${f.n ?? ''} del tique ${folio}`}
+                      accessibilityLabel={`Borrar la entrega ${f.n ?? ''} del ticket ${folio}`}
                       style={{ alignSelf: 'flex-start', marginTop: 4 }}
                     >
                       <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>

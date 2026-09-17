@@ -1,8 +1,8 @@
 /*
- * Test del HISTORIAL DE ENTREGAS de un tique (14-sep-2026).
+ * Test del HISTORIAL DE ENTREGAS de un ticket (14-sep-2026).
  *
  * Pedido del cliente: que la pastilla «entregado ×7», al tocarla, muestre quien
- * imprimio o reimprimio ese tique y a que hora.
+ * imprimio o reimprimio ese ticket y a que hora.
  *
  * Lo que fija, y por que duele si se rompe:
  *   · el orden es el del RELOJ — el numero 1 es la primera impresion; si el orden
@@ -10,11 +10,11 @@
  *   · la hora es la de CARACAS — un historial en UTC dice que alguien imprimio a
  *     las 12 lo que imprimio a las 8, y ese es justo el dato que se va a discutir
  *   · la misma persona escrita con otras mayusculas cuenta UNA vez
- *   · un tique sin CDT lo DICE, no deja un hueco que parezca un error
+ *   · un ticket sin CDT lo DICE, no deja un hueco que parezca un error
  *
  * Sin framework (el repo no tiene): transpila el .ts en memoria con `typescript`.
  *
- *   node scripts/test-tique-historial.mjs
+ *   node scripts/test-ticket-historial.mjs
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -68,8 +68,8 @@ const {
 } = cargar('src/lib/tiqueHistorial.ts');
 
 // Nombres inventados. Las horas estan en UTC; Caracas es UTC-4.
-const r1 = { id: 'b', folio: 'CDT-000001', reimpresion: false, medio: 'tiquetera', emitidoPorNombre: 'Persona Uno', ubicacionNombre: null, emitidoAt: '2026-09-12T21:25:00Z', loteId: 'l1' };
-const r2 = { id: 'a', folio: 'CDT-000001', reimpresion: true, medio: 'tiquetera', emitidoPorNombre: 'Persona Dos', ubicacionNombre: 'CDT de prueba', emitidoAt: '2026-09-13T18:16:00Z', loteId: 'l2' };
+const r1 = { id: 'b', folio: 'CDT-000001', reimpresion: false, medio: 'ticketera', emitidoPorNombre: 'Persona Uno', ubicacionNombre: null, emitidoAt: '2026-09-12T21:25:00Z', loteId: 'l1' };
+const r2 = { id: 'a', folio: 'CDT-000001', reimpresion: true, medio: 'ticketera', emitidoPorNombre: 'Persona Dos', ubicacionNombre: 'CDT de prueba', emitidoAt: '2026-09-13T18:16:00Z', loteId: 'l2' };
 const r3 = { id: 'c', folio: 'CDT-000001', reimpresion: true, medio: 'hoja', emitidoPorNombre: '  persona dos ', ubicacionNombre: 'CDT de prueba', emitidoAt: '2026-09-14T12:12:00Z', loteId: 'l3' };
 
 // ── 1) EL ORDEN ─────────────────────────────────────────────────────────────
@@ -93,11 +93,11 @@ ok('y se puede distinguir sin leer el texto', filas[0].esReimpresion === false &
 eq('dice quien', filas[1].quien, 'Persona Dos');
 eq('...sin los espacios que traiga', filas[2].quien, 'persona dos');
 eq('sin nombre lo dice', filasDelHistorial([{ ...r1, emitidoPorNombre: '' }])[0].quien, SIN_NOMBRE);
-// ⚠️ Un tique sin CDT lo DICE: quien imprimio no tenia obra asignada, o lo saco
+// ⚠️ Un ticket sin CDT lo DICE: quien imprimio no tenia obra asignada, o lo saco
 //    desde la oficina. Un hueco en blanco parece un error del sistema.
 eq('sin CDT lo dice', filas[0].donde, SIN_CDT);
 eq('con CDT lo nombra', filas[1].donde, 'CDT de prueba');
-eq('en tiquetera', filas[0].medio, 'En tiquetera');
+eq('en ticketera', filas[0].medio, 'En ticketera');
 eq('en hoja', filas[2].medio, 'En hoja');
 eq('un medio desconocido no se inventa', filasDelHistorial([{ ...r1, medio: 'fax' }])[0].medio, 'Sin dato del medio');
 
@@ -115,7 +115,7 @@ eq('una fecha rota no revienta', fmtFechaHoraCaracas('no-es-fecha'), '—');
 eq('el resumen cuenta entregas, personas y reimpresiones', resumenHistorial([r1, r2, r3]),
   '3 entregas · 2 personas · 2 reimpresiones');
 eq('una sola entrega lo dice claro', resumenHistorial([r1]), '1 entrega: la primera impresión');
-eq('sin entregas tambien', resumenHistorial([]), 'Todavía no se entregó este tique.');
+eq('sin entregas tambien', resumenHistorial([]), 'Todavía no se entregó este ticket.');
 eq('singular bien escrito', resumenHistorial([r1, r2]), '2 entregas · 2 personas · 1 reimpresión');
 
 // ── 4b) BORRAR UNA ENTREGA (14-sep-2026) ────────────────────────────────────
@@ -173,7 +173,7 @@ ok('la ventana lee el historial del folio', /listarEmisionesDeFolio\(folio\)/.te
 ok('...y lo arma con la libreria', /filasDelHistorial\(r\.filas\)/.test(comp) && /resumenHistorial\(r\.filas\)/.test(comp));
 // ⚠️ Una entrega que salio sin senal todavia no esta en la base. Si la ventana no
 //    lo dijera, el historial se veria completo y le faltaria justo esa.
-ok('...y avisa si hay entregas de ese tique sin subir en el telefono', /contarPendientesDeFolio\(folio\)/.test(comp) && /sin subir/.test(compCrudo));
+ok('...y avisa si hay entregas de ese ticket sin subir en el telefono', /contarPendientesDeFolio\(folio\)/.test(comp) && /sin subir/.test(compCrudo));
 ok('dice cuando esta cargando', /Leyendo el historial/.test(compCrudo));
 ok('...y cuando falla, sin fingir que no hay entregas', /No se pudo leer el historial/.test(compCrudo));
 
@@ -191,16 +191,16 @@ ok('...vuelve a leer y avisa a la pantalla', /setVuelta\(\(v\) => v \+ 1\)/.test
 ok('...y muestra quien la borro', /f\.borradaTexto/.test(comp));
 
 // ── 6) EL MANUAL ────────────────────────────────────────────────────────────
-ok('el manual .md lo explica', /Ver quién imprimió cada tique \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
-ok('el manual en pantalla tambien', /VER QUIÉN IMPRIMIÓ CADA TIQUE \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('el manual .md lo explica', /Ver quién imprimió cada ticket \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('el manual en pantalla tambien', /VER QUIÉN IMPRIMIÓ CADA TICKET \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 // ⚠️ Desde el 14-sep-2026 un número usado no se repite. Si el manual volviera a
 //    decir que se repite, la jefa esperaría un número que ya no va a salir.
-ok('el manual .md dice que un numero usado no se repite', /Un número de tique usado no se repite nunca \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md'))
+ok('el manual .md dice que un numero usado no se repite', /Un número de ticket usado no se repite nunca \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md'))
   && !/puede volver a salir en el siguiente viaje/.test(leer('docs/MANUAL-USUARIO.md')));
-ok('el manual en pantalla tambien', /UN NÚMERO DE TIQUE USADO NO SE REPITE NUNCA \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx'))
+ok('el manual en pantalla tambien', /UN NÚMERO DE TICKET USADO NO SE REPITE NUNCA \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx'))
   && !/puede volver a salir en el siguiente viaje/.test(leer('src/screens/ManualScreen.tsx')));
 ok('el manual .md explica borrar una entrega', /Borrar una entrega del historial \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla tambien', /BORRAR UNA ENTREGA DEL HISTORIAL \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
-console.log(`\n${fail === 0 ? '✅' : '❌'} test-tique-historial · ${pass} ok · ${fail} fallando`);
+console.log(`\n${fail === 0 ? '✅' : '❌'} test-ticket-historial · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

@@ -1,4 +1,4 @@
-// CONSTANCIA DE LOS TIQUES ENTREGADOS (12-sep-2026).
+// CONSTANCIA DE LOS TICKETS ENTREGADOS (12-sep-2026).
 //
 // Pedido del cliente: «cuando marcan el viaje, deben dar el ticket, y debe
 // guardarse tanto lo que marcaron (que ya lo hace), como los ticket que en
@@ -38,8 +38,8 @@ const TABLA = 'tique_emisiones';
 const PENDIENTES_KEY = 'tique_emisiones_pendientes_v1';
 
 /** Cómo salió el papel. `imagen` está previsto en la base pero todavía no se usa
- *  desde la app: se reserva para cuando se pueda mandar el tique por WhatsApp. */
-export type MedioTique = 'tiquetera' | 'hoja' | 'imagen';
+ *  desde la app: se reserva para cuando se pueda mandar el ticket por WhatsApp. */
+export type MedioTique = 'ticketera' | 'hoja' | 'imagen';
 
 export type EmisionNueva = {
   /** null solo si el viaje se borró entre imprimir y guardar. La constancia
@@ -47,7 +47,7 @@ export type EmisionNueva = {
    *  ya está en la calle aunque el viaje se haya anulado. */
   viajeId: string | null;
   folio: string;
-  /** Todos los tiques de un mismo mandado comparten este número. Un tique suelto
+  /** Todos los tickets de un mismo mandado comparten este número. Un ticket suelto
    *  también lleva el suyo: un mandado de uno sigue siendo un mandado. */
   loteId: string;
   medio: MedioTique;
@@ -79,7 +79,7 @@ function yaEstaba(e: any): boolean {
  * `lote_id` es una columna `uuid`, así que no vale cualquier texto. Se usa
  * `crypto.randomUUID` donde exista y una versión 4 a mano donde no — en
  * Android/iOS el navegador embebido no siempre la trae, y en un teléfono viejo
- * tampoco. Para agrupar un mandado de tiques, `Math.random` alcanza de sobra:
+ * tampoco. Para agrupar un mandado de tickets, `Math.random` alcanza de sobra:
  * no es una clave de seguridad, es un número de fajo.
  */
 export function nuevoUuid(): string {
@@ -116,9 +116,9 @@ function aFila(e: EmisionNueva) {
 // ── LO QUE NO PUDO SUBIR ────────────────────────────────────────────────────
 //
 // ⚠️ EL PAPEL YA SALIÓ. Cuando la impresión funciona pero el guardado no, la
-//    constancia no se puede perder: el camionero ya tiene su tique en la mano.
+//    constancia no se puede perder: el camionero ya tiene su ticket en la mano.
 //    Se aparta en el teléfono y se sube sola cuando vuelva la señal. Es una
-//    lista chiquita a propósito —son los tiques de un rato sin señal— así que
+//    lista chiquita a propósito —son los tickets de un rato sin señal— así que
 //    no lleva ni cuarentena ni reintentos contados como la cola de viajes.
 
 async function leerPendientes(): Promise<EmisionNueva[]> {
@@ -142,7 +142,7 @@ async function escribirPendientes(lista: EmisionNueva[]): Promise<void> {
 
 /** Cuántas constancias están esperando señal. La pantalla lo muestra: un número
  *  distinto de cero significa que hay papeles entregados que la oficina no ve. */
-/** Cuántas entregas de ESTE tique siguen en el teléfono sin subir. El historial
+/** Cuántas entregas de ESTE ticket siguen en el teléfono sin subir. El historial
  *  lo avisa: si no, se vería completo y le faltaría justo esa. */
 export async function contarPendientesDeFolio(folio: string): Promise<number> {
   const f = String(folio ?? '').trim();
@@ -180,10 +180,10 @@ export async function flushEmisionesPendientes(): Promise<{ subidas: number; que
 }
 
 /**
- * GUARDA LA CONSTANCIA DE LOS TIQUES QUE ACABAN DE SALIR.
+ * GUARDA LA CONSTANCIA DE LOS TICKETS QUE ACABAN DE SALIR.
  *
  * Se llama DESPUÉS de que el usuario confirmó la impresión, nunca antes: un
- * tique que se canceló en la vista previa no se entregó, y anotarlo como
+ * ticket que se canceló en la vista previa no se entregó, y anotarlo como
  * entregado sería mentir en el único registro que hay.
  */
 export async function registrarEmisiones(
@@ -224,9 +224,9 @@ export async function registrarEmisiones(
 }
 
 /**
- * CUÁNTAS VECES SE IMPRIMIÓ CADA TIQUE.
+ * CUÁNTAS VECES SE IMPRIMIÓ CADA TICKET.
  *
- * ⭐ Es lo que permite avisar ANTES de mandar: «este tique ya se entregó, lo que
+ * ⭐ Es lo que permite avisar ANTES de mandar: «este ticket ya se entregó, lo que
  *    va a salir es una reimpresión». Sin esto, alguien reimprime sin querer y
  *    quedan dos papeles con el mismo número en el patio; el que cobra ve dos.
  *
@@ -268,13 +268,13 @@ export async function contarEmisionesPorFolio(
 }
 
 /**
- * EL HISTORIAL DE UN TIQUE: todas sus entregas, en orden de reloj.
+ * EL HISTORIAL DE UN TICKET: todas sus entregas, en orden de reloj.
  *
  * Pedido del cliente (14-sep-2026): tocar «entregado ×7» y ver quién lo imprimió
  * o reimprimió y a qué hora.
  *
  * ⚠️ Un fallo de lectura se devuelve como error, NUNCA como lista vacía: una lista
- *    vacía diría que el tique no se entregó, y eso no se sabe.
+ *    vacía diría que el ticket no se entregó, y eso no se sabe.
  */
 export async function listarEmisionesDeFolio(
   folio: string,

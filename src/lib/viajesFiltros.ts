@@ -204,19 +204,19 @@ export function etiquetaRangoViajes(
 }
 
 /*
- * ── BUSCAR UN VIAJE POR SU NÚMERO DE TIQUE (17-sep-2026) ───────────────────
+ * ── BUSCAR UN VIAJE POR SU NÚMERO DE TICKET (17-sep-2026) ───────────────────
  *
  * Pedido del cliente: con el número que va impreso en el papel (CDT-000410),
  * llegar al viaje. El mismo buscador que ya filtraba las pastillas ahora
- * también recorta la lista cuando lo escrito ES un número de tique.
+ * también recorta la lista cuando lo escrito ES un número de ticket.
  *
- * ⭐ SOLO cuando lo escrito parece un tique: puros dígitos, o empieza por
+ * ⭐ SOLO cuando lo escrito parece un ticket: puros dígitos, o empieza por
  *    «CDT». Si no, buscar "TORONTO" o el nombre de un listero dejaría la lista
  *    en cero, que es lo contrario de lo que se pidió.
  *
- * ⚠️ El tique se busca DENTRO DEL RANGO DE FECHAS elegido: un tique de otro mes
+ * ⚠️ El ticket se busca DENTRO DEL RANGO DE FECHAS elegido: un ticket de otro mes
  *    no aparece hasta ampliar el rango. La pantalla lo dice cuando no encuentra
- *    nada, porque si no parece que el tique no existe.
+ *    nada, porque si no parece que el ticket no existe.
  */
 
 /** Deja solo letras y números, en mayúsculas: «cdt-000410» y «CDT 000410» son lo mismo. */
@@ -224,7 +224,7 @@ const soloAlfaNum = (s: unknown): string => String(s ?? '').toUpperCase().replac
 const soloDigitos = (s: unknown): string => String(s ?? '').replace(/[^0-9]/g, '');
 
 /**
- * ¿Lo escrito es una búsqueda de tique? Devuelve el texto normalizado, o null.
+ * ¿Lo escrito es una búsqueda de ticket? Devuelve el texto normalizado, o null.
  * Vale «191», «000191», «CDT-000191» y «cdt 191».
  */
 export function tiqueBuscado(texto: unknown): string | null {
@@ -242,7 +242,7 @@ export function tiqueBuscado(texto: unknown): string | null {
  *
  * ⚠️ Se probó con «contiene» y estaba mal: escribir «19» devolvía CDT-000191,
  *    CDT-001900 y CDT-000019 juntos. En una pantalla desde la que se reimprime
- *    un tique y se cobra, parecerse no alcanza.
+ *    un ticket y se cobra, parecerse no alcanza.
  *
  * Escribiendo el folio con su «CDT» sí se admite un pedazo («CDT0004»), porque
  * ahí quien busca ya está escribiendo el folio y espera ver los que empiezan igual.
@@ -250,7 +250,7 @@ export function tiqueBuscado(texto: unknown): string | null {
 export function coincideTique(folio: unknown, buscado: string | null): boolean {
   if (!buscado) return true;
   const f = soloAlfaNum(folio);
-  if (!f) return false; // un viaje sin tique nunca es el tique que se busca
+  if (!f) return false; // un viaje sin ticket nunca es el ticket que se busca
   const dF = soloDigitos(f), dB = soloDigitos(buscado);
   if (/^[0-9]+$/.test(buscado)) return !!dF && !!dB && Number(dF) === Number(dB);
   return f.includes(buscado) || (!!dF && !!dB && Number(dF) === Number(dB));

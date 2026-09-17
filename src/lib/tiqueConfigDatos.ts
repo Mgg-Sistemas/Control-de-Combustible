@@ -1,4 +1,4 @@
-// QUÉ SALE EN EL TIQUE · el acceso a la base (12-sep-2026).
+// QUÉ SALE EN EL TICKET · el acceso a la base (12-sep-2026).
 //
 // Va aparte de `tiqueConfig.ts` a propósito, igual que `cubicajeDatos.ts` está
 // aparte de `cubicaje.ts`: las REGLAS son puras y se prueban solas, sin red y

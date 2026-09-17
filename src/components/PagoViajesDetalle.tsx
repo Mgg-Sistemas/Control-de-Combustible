@@ -1,7 +1,7 @@
 // Detalle del PAGO DE VIAJES de una empresa en el rango elegido (15-sep-2026).
 //
 // Va dentro de la tarjeta «💰 Pago de viajes» de Viajes de camiones. Muestra cuánto se paga por
-// viajes, el resumen por camión y cada viaje con su tique, su zona, su tarifa y el
+// viajes, el resumen por camión y cada viaje con su ticket, su zona, su tarifa y el
 // ESTADO en que estaba el camión, que es solo una observación: no decide el pago.
 // Lo que decide es la marca «facturó / no facturó», que se pone y se quita.
 import React, { useState } from 'react';
