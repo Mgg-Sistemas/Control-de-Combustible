@@ -52,7 +52,7 @@ import {
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
 } from '../lib/ubicacionesObra';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique } from '../lib/tique';
-import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
+import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
@@ -2086,10 +2086,14 @@ export default function ViajesCamionesScreen() {
     [ubicacionOptions, busqFiltros, filterUbicacionSel]
   );
 
+  // ⭐ BUSCAR POR NÚMERO DE TIQUE (17-sep-2026). Lo escrito en el buscador recorta
+  //    la lista SOLO si parece un tique (dígitos o CDT-…); ver `tiqueBuscado`. Si no,
+  //    sigue haciendo lo de siempre: esconder pastillas que no coinciden.
+  const busqTique = useMemo(() => tiqueBuscado(busqFiltros), [busqFiltros]);
   const filteredRangeRows = useMemo(
-    () => dateScopedRows.filter((r) => pasaFiltros(clavesDe(r), seleccion)),
+    () => dateScopedRows.filter((r) => pasaFiltros(clavesDe(r), seleccion) && coincideTique(r.folio, busqTique)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dateScopedRows, seleccion, truckById]
+    [dateScopedRows, seleccion, truckById, busqTique]
   );
   // Filtros marcados que no le tocan a NINGÚN viaje del rango — casi siempre uno
   // que quedó puesto de otro día. Es la explicación concreta de una lista vacía.
@@ -3821,17 +3825,23 @@ export default function ViajesCamionesScreen() {
               <TextInput
                 value={busqFiltros}
                 onChangeText={setBusqFiltros}
-                placeholder="🔎 Buscar camión por placa, listero o empresa…"
+                placeholder="🔎 Buscar por N.º de tique (191 o CDT-000191), placa, listero o empresa…"
                 placeholderTextColor={colors.muted}
                 style={[styles.input]}
                 autoCorrect={false}
               />
               {busqFiltros.trim() ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                  <Text style={{ color: colors.muted, fontSize: 11, flexShrink: 1 }}>
-                    {ocultasPorBusqueda > 0
-                      ? `${ocultasPorBusqueda} opción(es) ocultas por la búsqueda. Las que tengas marcadas siguen a la vista.`
-                      : 'Ninguna opción quedó fuera de la búsqueda.'}
+                  {/* ⚠️ El tique se busca DENTRO DEL RANGO elegido. Sin decirlo, un tique
+                      de otro mes parece no existir y alguien iría a buscarlo a la base. */}
+                  <Text style={{ color: busqTique && filteredRangeRows.length === 0 ? colors.warning : colors.muted, fontSize: 11, flexShrink: 1 }}>
+                    {busqTique
+                      ? (filteredRangeRows.length > 0
+                        ? `🎫 Tique ${busqFiltros.trim()}: ${filteredRangeRows.length} viaje(s) en este rango.`
+                        : `🎫 Ningún viaje con el tique ${busqFiltros.trim()} en ${etiquetaRango}. Amplía el rango de fechas para buscarlo en otros días.`)
+                      : ocultasPorBusqueda > 0
+                        ? `${ocultasPorBusqueda} opción(es) ocultas por la búsqueda. Las que tengas marcadas siguen a la vista.`
+                        : 'Ninguna opción quedó fuera de la búsqueda.'}
                   </Text>
                   <TouchableOpacity onPress={() => setBusqFiltros('')}>
                     <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>

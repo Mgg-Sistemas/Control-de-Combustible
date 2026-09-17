@@ -5025,6 +5025,17 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
+> **🎫 Buscar un viaje por su número de tique (17/09/2026).** En **"🚛 Lista completa de viajes"**, el
+> buscador que ya filtraba camión, listero y empresa ahora **también encuentra un viaje por el número
+> del tique**. Escribe **191**, **000191** o **CDT-000191**: da igual con ceros o sin ellos. La lista
+> queda solo con ese viaje, y desde ahí puedes **editarlo, reimprimir el tique o borrarlo**.
+> - El número es **exacto**: escribir «19» **no** trae el 191. Es a propósito, porque desde esta
+>   pantalla se reimprime el tique y se cobra: parecerse no alcanza.
+> - **Se busca dentro del rango de fechas que tengas puesto.** Si el tique es de otro día, no aparece:
+>   la pantalla te lo dice y solo hay que ampliar el rango (o usar **Este mes** / **Rango libre**).
+> - Escribir una placa, un listero o una empresa sigue haciendo lo de siempre: esconder las pastillas
+>   que no coinciden, sin recortar la lista.
+
 > **🚜 Máquinas que salen en Viajes (17/09/2026, permiso completo en este módulo).** En el panel de información hay
 > un apartado **"🚜 Máquinas que salen en Viajes"**. Ahí decides qué máquinas le salen al listero para
 > registrar viajes:
