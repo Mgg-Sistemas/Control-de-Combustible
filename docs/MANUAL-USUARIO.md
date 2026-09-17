@@ -5036,6 +5036,17 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
+> **🚜 Máquinas que salen en Viajes (17/09/2026, permiso completo en este módulo).** En el panel de información hay
+> un apartado **"🚜 Máquinas que salen en Viajes"**. Ahí decides qué máquinas le salen al listero para
+> registrar viajes:
+> - Lo **automático** es por el código (volteo, volqueta, toronto), como siempre.
+> - **"🚫 Quitar de Viajes"** la saca de la lista del listero y del buscador; **"✅ Poner en Viajes"** la
+>   agrega aunque su código no sea de camión. Lo que pongas o quites a mano **manda**, y queda con tu nombre.
+> - **"↺ Volver a lo automático"** deshace el ajuste.
+> - Arriba filtras por **✅ Salen**, **🚫 No salen** y **✋ Cambiadas a mano**; el buscador busca en todo el catálogo.
+> - Quitar una máquina **no borra sus viajes ya registrados ni la saca del pago**. Una máquina que pongas a
+>   mano también aparece en **💰 Pago de viajes → Camiones** y en las tarifas, para poder pagarla.
+
 **Agregar.** Tarjeta **"✍️ Cargar viajes a mano"** en el panel de la jefa:
 
 | Campo | Qué hace |
@@ -5103,7 +5114,11 @@ además de por empresa y por listero.
 
 #### 💰 Pago de viajes de camiones (15/09/2026)
 
-Desde el **15/09/2026** los camiones de la lista de viajes se le pagan a su empresa **por viaje**, con
+> **📅 Arranca el 14/09/2026 (cambio del 17/09/2026).** El pago por viaje y sus tarifas ahora cuentan
+> **desde la jornada del 14/09/2026** (antes, desde el 15). Los viajes del 14 ya salen en la tarjeta con
+> su tarifa.
+
+Desde el **14/09/2026** los camiones de la lista de viajes se le pagan a su empresa **por viaje**, con
 la tarifa de la **zona del CDT** (Este u Oeste). Todo vive **en este módulo**: no toca las jornadas, ni
 Control de Maquinaria, ni Control de Pagos.
 
