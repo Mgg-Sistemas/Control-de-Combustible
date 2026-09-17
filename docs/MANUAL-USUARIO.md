@@ -4437,6 +4437,13 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ×2**. Reimprimir se puede —a veces hace falta— pero hay que saberlo: dos papeles con el mismo
 > número en el patio se cuentan como dos viajes al cobrar.
 >
+> **🐞 Arreglado 17/09/2026 · tickets que salieron sin quedar registrados.** Si imprimías y te
+> ibas **sin cerrar la vista previa** (cerrar la pestaña, volver atrás, o que el teléfono matara el
+> navegador), el papel salía pero la entrega **no se guardaba nunca**: el ticket quedaba como no
+> entregado. Pasó con los **CDT-000419, 420 y 421**. Ahora la entrega se registra **en el momento en
+> que sale el papel**, sin esperar a que cierres la ventana, y también cuenta si imprimes con
+> **Ctrl+P** o desde el menú del navegador. Cancelar sigue sin registrar nada, porque ese papel no salió.
+
 > **🕘 Ver quién imprimió cada ticket (14/09/2026).** Toca la pastilla **«entregado ×N»** de
 > cualquier viaje y se abre su historial, en orden: la primera impresión arriba y después cada
 > reimpresión. Cada renglón dice **quién** lo entregó, **fecha y hora de Caracas**, **desde qué
