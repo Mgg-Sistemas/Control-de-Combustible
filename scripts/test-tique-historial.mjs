@@ -68,8 +68,10 @@ const {
 } = cargar('src/lib/tiqueHistorial.ts');
 
 // Nombres inventados. Las horas estan en UTC; Caracas es UTC-4.
-const r1 = { id: 'b', folio: 'CDT-000001', reimpresion: false, medio: 'ticketera', emitidoPorNombre: 'Persona Uno', ubicacionNombre: null, emitidoAt: '2026-09-12T21:25:00Z', loteId: 'l1' };
-const r2 = { id: 'a', folio: 'CDT-000001', reimpresion: true, medio: 'ticketera', emitidoPorNombre: 'Persona Dos', ubicacionNombre: 'CDT de prueba', emitidoAt: '2026-09-13T18:16:00Z', loteId: 'l2' };
+// ⚠️ `medio` llega COMO ESTÁ EN LA BASE: «tiquetera» con Q. En pantalla se lee
+//    «En ticketera». Ver la nota de `medioDeImpresion` (incidente 17-sep-2026).
+const r1 = { id: 'b', folio: 'CDT-000001', reimpresion: false, medio: 'tiquetera', emitidoPorNombre: 'Persona Uno', ubicacionNombre: null, emitidoAt: '2026-09-12T21:25:00Z', loteId: 'l1' };
+const r2 = { id: 'a', folio: 'CDT-000001', reimpresion: true, medio: 'tiquetera', emitidoPorNombre: 'Persona Dos', ubicacionNombre: 'CDT de prueba', emitidoAt: '2026-09-13T18:16:00Z', loteId: 'l2' };
 const r3 = { id: 'c', folio: 'CDT-000001', reimpresion: true, medio: 'hoja', emitidoPorNombre: '  persona dos ', ubicacionNombre: 'CDT de prueba', emitidoAt: '2026-09-14T12:12:00Z', loteId: 'l3' };
 
 // ── 1) EL ORDEN ─────────────────────────────────────────────────────────────

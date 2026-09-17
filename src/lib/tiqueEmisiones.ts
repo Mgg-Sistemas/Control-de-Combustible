@@ -33,13 +33,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { isOnline, isNetworkErrorMsg } from './offlineQueue';
 import type { EmisionHistorial } from './tiqueHistorial';
+import { medioParaLaBase } from './tiqueDocumento';
 
 const TABLA = 'tique_emisiones';
 const PENDIENTES_KEY = 'tique_emisiones_pendientes_v1';
 
 /** Cómo salió el papel. `imagen` está previsto en la base pero todavía no se usa
- *  desde la app: se reserva para cuando se pueda mandar el ticket por WhatsApp. */
-export type MedioTique = 'ticketera' | 'hoja' | 'imagen';
+ *  desde la app: se reserva para cuando se pueda mandar el ticket por WhatsApp.
+ *
+ *  ⚠️ Son VALORES DE LA BASE (columna `medio`), no rótulos: «tiquetera» va con Q.
+ *     Ver la nota de `medioDeImpresion` en tiqueDocumento.ts — incidente 17-sep-2026. */
+export type MedioTique = 'tiquetera' | 'hoja' | 'imagen';
 
 export type EmisionNueva = {
   /** null solo si el viaje se borró entre imprimir y guardar. La constancia
@@ -101,7 +105,7 @@ function aFila(e: EmisionNueva) {
     viaje_id: e.viajeId,
     folio: e.folio,
     lote_id: e.loteId,
-    medio: e.medio,
+    medio: medioParaLaBase(e.medio),
     ubicacion_id: e.ubicacionId,
     ubicacion_nombre: e.ubicacionNombre,
     emitido_por: e.emitidoPor,
