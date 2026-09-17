@@ -5092,7 +5092,11 @@ además de por empresa y por listero.
 
 #### 💰 Pago de viajes de camiones (15/09/2026)
 
-Desde el **15/09/2026** los camiones de la lista de viajes se le pagan a su empresa **por viaje**, con
+> **📅 Arranca el 14/09/2026 (cambio del 17/09/2026).** El pago por viaje y sus tarifas ahora cuentan
+> **desde la jornada del 14/09/2026** (antes, desde el 15). Los viajes del 14 ya salen en la tarjeta con
+> su tarifa.
+
+Desde el **14/09/2026** los camiones de la lista de viajes se le pagan a su empresa **por viaje**, con
 la tarifa de la **zona del CDT** (Este u Oeste). Todo vive **en este módulo**: no toca las jornadas, ni
 Control de Maquinaria, ni Control de Pagos.
 
