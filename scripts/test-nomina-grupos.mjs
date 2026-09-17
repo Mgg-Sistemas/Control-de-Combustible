@@ -147,6 +147,36 @@ eq('nadie en dos grupos', enDosGrupos, 0);
 const invisibles = muestra.filter((e) => !PESTANAS.some((f) => p(f, e))).length;
 eq('nadie invisible', invisibles, 0);
 
+// ── AGRUPAR LA LISTA POR CARGO (17-sep-2026) ───────────────────────────────
+// Pedido del cliente: «quiero filtrar por cargo… y agrupar también por cargo».
+// Lo que duele si se rompe: que la suma de los grupos NO sea el total de arriba.
+// Sería una plantilla que esconde gente sin decirlo.
+const { agruparPorCargo } = loadTs(path.join(ROOT, 'src/lib/empleadosAgrupar.ts'));
+const cmpEs = (a, b) => String(a).localeCompare(String(b), 'es');
+const gente = [
+  { n: 'ana', c: 'OBRERO' }, { n: 'beto', c: 'OPERADOR' }, { n: 'caro', c: 'OBRERO' },
+  { n: 'dani', c: 'CHOFER' }, { n: 'eva', c: 'OBRERO' }, { n: 'fabi', c: 'OPERADOR' },
+];
+const grupos = agruparPorCargo(gente, (e) => e.c, cmpEs);
+eq('un grupo por cargo', grupos.length, 3);
+eq('* primero el cargo con mas gente', grupos.map((g) => g.cargo), ['OBRERO', 'OPERADOR', 'CHOFER']);
+eq('* la suma de los grupos es la lista entera', grupos.reduce((t, g) => t + g.empleados.length, 0), gente.length);
+eq('cada quien en su grupo', grupos[0].empleados.map((e) => e.n), ['ana', 'caro', 'eva']);
+// A igualdad de cantidad manda el alfabeto: sin esto el orden dependia de en que
+// orden llegaran los empleados, y la pantalla se reordenaba sola al refrescar.
+const empate = agruparPorCargo([{ c: 'ZAPATERO' }, { c: 'ALBANIL' }], (e) => e.c, cmpEs);
+eq('empatados, alfabetico', empate.map((g) => g.cargo), ['ALBANIL', 'ZAPATERO']);
+eq('lista vacia, ningun grupo', agruparPorCargo([], (e) => e.c, cmpEs).length, 0);
+eq('no muta la lista que recibe', gente.length, 6);
+
+// La pantalla: el agrupado sale de `shown`, o sea DESPUES de todos los filtros.
+const pant = fs.readFileSync(path.join(ROOT, 'src/screens/EmpleadosScreen.tsx'), 'utf8');
+eq('* agrupa lo mismo que lista', /agruparPorCargo\(shown, cargoLabel, cmpText\)/.test(pant), true);
+eq('se puede cambiar entre lista y por cargo', /setAgrupar\('cargo'\)/.test(pant) && /Lista/.test(pant), true);
+eq('el cargo se elige en una lista con su cantidad', /Todos los cargos/.test(pant), true);
+eq('el manual lo explica', /Agrupar por cargo \(17\/09\/2026/.test(fs.readFileSync(path.join(ROOT, 'docs/MANUAL-USUARIO.md'), 'utf8')), true);
+eq('el manual en pantalla tambien', /AGRUPAR POR CARGO \(17\/09\/2026/.test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')), true);
+
 console.log('\n🏢  Grupos apartados de nómina (CARBOZULIA · SEGURIDAD)');
 console.log(`   ${pass} OK · ${fail} fallo(s)`);
 if (fail) {

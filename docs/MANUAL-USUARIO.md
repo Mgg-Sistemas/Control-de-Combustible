@@ -1231,6 +1231,16 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > filtro de una vez, sin recargar. Las que salen con **"· 0"** ya existen pero todavía no tienen a
 > nadie asignado: recién creada, es lo normal.
 
+> **🏷️ Agrupar por cargo (17/09/2026).** Los filtros quedaron ordenados de arriba hacia abajo:
+> **Estado** (Todos / Activos / Inactivos / Otro, y **aparte** Carbozulia y Seguridad) → **Empresa
+> nómina** → **Orden y Ver** → **Cargo**.
+> - En la línea **«Orden / Ver»** eliges **📋 Lista** (como siempre) o **🏷️ Por cargo**: la misma
+>   gente, repartida bajo un título por cargo con su cantidad. Primero los cargos con más personas.
+> - El apartado **🏷️ Cargo** ahora es una **lista de todos los cargos**, uno por línea, con su
+>   cantidad a la derecha y su buscador. Marca los que quieras (se combinan con el estado y la
+>   empresa) y el **📊 Reporte** sale con lo seleccionado.
+> - La suma de los grupos es siempre el total de la lista: agrupar **reparte**, no esconde a nadie.
+
 > **🏢 CARBOZULIA Y SEGURIDAD TIENEN SU PROPIA PESTAÑA (29-ago-2026).** En la línea de **Estado**
 > hay dos chips nuevos al final: **Carbozulia** y **Seguridad**. Esa gente **ya no se mezcla** con
 > el resto de la plantilla: **no** aparece ni se cuenta en **Todos**, **Activos**, **Inactivos** ni
