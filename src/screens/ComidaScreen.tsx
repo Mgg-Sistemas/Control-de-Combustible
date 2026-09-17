@@ -4,7 +4,8 @@ import { Screen, Card, SectionTitle, Loading, EmptyState, SkeletonList } from '.
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { listFoodByDate } from '../lib/foodDistributions';
-import { listCompanyMealsByDate, listCompanyMealsBetween, MEALS, mealLabel } from '../lib/foodCompanyMeals';
+import { listCompanyMealsByDate, listCompanyMealsBetween, MEALS, COMPANY_MEALS, mealLabel } from '../lib/foodCompanyMeals';
+import { fmtUsd } from '../lib/bcv';
 import { FoodDistribution, FoodCompanyMeal } from '../types/database';
 import { supabase } from '../lib/supabase';
 import { cmpText } from '../lib/text';
@@ -271,14 +272,22 @@ export default function ComidaScreen() {
     }
   };
 
-  // Agrupa las comidas por empresa → { desayuno, almuerzo, lunch, cena }.
+  // Agrupa las comidas por empresa, SUMANDO las varias entregas del día por comida
+  // (17-sep-2026: ya no es 1 por día; se acumulan) + costo en $.
   const companyGroups = useMemo(() => {
-    const map = new Map<string, { name: string; meals: Partial<Record<string, FoodCompanyMeal>>; total: number }>();
+    type Sum = { delivered: number; count: number; lastAt: string; usd: number };
+    const map = new Map<string, { name: string; meals: Record<string, Sum>; total: number }>();
     companyMeals.forEach((cm) => {
       const k = cm.company_id ?? cm.company_name;
       if (!map.has(k)) map.set(k, { name: cm.company_name, meals: {}, total: 0 });
       const g = map.get(k)!;
-      g.meals[cm.meal_type] = cm;
+      const cur = g.meals[cm.meal_type] || { delivered: 0, count: 0, lastAt: '', usd: 0 };
+      cur.delivered += Number(cm.delivered) || 0;
+      cur.count += 1;
+      const at = String(cm.delivered_at ?? '');
+      if (at > cur.lastAt) cur.lastAt = at;
+      cur.usd += (Number(cm.delivered) || 0) * (Number((cm as any).unit_cost) || 0);
+      g.meals[cm.meal_type] = cur;
       g.total += Number(cm.delivered) || 0;
     });
     return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
@@ -618,14 +627,14 @@ export default function ComidaScreen() {
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.name}</Text>
               <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{g.total} comida(s)</Text>
             </View>
-            {MEALS.map((mt) => {
+            {COMPANY_MEALS.map((mt) => {
               const cm = g.meals[mt.key];
               return (
                 <View key={mt.key} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                   <Text style={{ color: colors.text, fontSize: 13 }}>{mt.icon} {mt.label}</Text>
-                  {cm ? (
+                  {cm && cm.delivered > 0 ? (
                     <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'right', flex: 1, marginLeft: spacing.sm }}>
-                      <Text style={{ color: colors.success, fontWeight: '800' }}>{cm.delivered}</Text> entregadas · sug. {cm.suggested} · {caracasClock(cm.delivered_at)}{cm.created_by_name ? ` · ${cm.created_by_name}` : ''}
+                      <Text style={{ color: colors.success, fontWeight: '800' }}>{cm.delivered}</Text> entregadas{cm.usd > 0 ? ` · ${fmtUsd(cm.usd)}` : ''} · {cm.count} entrega(s){cm.lastAt ? ` · ${caracasClock(cm.lastAt)}` : ''}
                     </Text>
                   ) : (
                     <Text style={{ color: colors.muted, fontSize: 12 }}>—</Text>
