@@ -1,7 +1,7 @@
-// HISTORIAL DE ENTREGAS DE UN TIQUE · qué dice cada renglón (14-sep-2026).
+// HISTORIAL DE ENTREGAS DE UN TICKET · qué dice cada renglón (14-sep-2026).
 //
 // Pedido del cliente: que la pastilla «entregado ×7», al tocarla, muestre quién
-// imprimió o reimprimió ese tique y a qué hora. Y después: poder borrar una
+// imprimió o reimprimió ese ticket y a qué hora. Y después: poder borrar una
 // entrega, y que quede quién la borró.
 //
 // ⭐ ESTE ARCHIVO NO TOCA LA BASE NI LA PANTALLA, y no importa nada. Recibe las
@@ -48,7 +48,7 @@ export const SIN_NOMBRE = 'Usuario sin nombre';
 export const SIN_CDT = 'Sin CDT asignado';
 
 const MEDIO: Record<string, string> = {
-  tiquetera: 'En tiquetera',
+  ticketera: 'En ticketera',
   hoja: 'En hoja',
   imagen: 'Como imagen',
 };
@@ -63,7 +63,7 @@ export const estaBorrada = (e: EmisionHistorial): boolean => limpio(e.anuladaAt)
  *
  * ⚠️ LA ZONA HORARIA VA ESCRITA, no se toma la del teléfono. Un historial en UTC
  *    dice que alguien imprimió a mediodía lo que imprimió a las 8 de la mañana, y
- *    la hora es justo el dato que se va a discutir cuando falte un tique.
+ *    la hora es justo el dato que se va a discutir cuando falte un ticket.
  */
 export function fmtFechaHoraCaracas(iso: string): string {
   const d = new Date(iso);
@@ -144,7 +144,7 @@ export function resumenHistorial(filas: readonly EmisionHistorial[]): string {
   const borradas = filas.length - vigentes.length;
   const cola = borradas > 0 ? ` · ${borradas} ${borradas === 1 ? 'borrada' : 'borradas'}` : '';
   const n = vigentes.length;
-  if (n === 0) return borradas > 0 ? `Ninguna entrega vigente${cola}` : 'Todavía no se entregó este tique.';
+  if (n === 0) return borradas > 0 ? `Ninguna entrega vigente${cola}` : 'Todavía no se entregó este ticket.';
   if (n === 1) return `1 entrega: ${vigentes[0].reimpresion ? 'una reimpresión' : 'la primera impresión'}${cola}`;
   const personas = new Set(vigentes.map((e) => limpio(e.emitidoPorNombre).toLowerCase())).size;
   const reimp = vigentes.filter((e) => e.reimpresion === true).length;

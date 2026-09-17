@@ -265,11 +265,11 @@ ok('la lectura de viajes se reintenta sin las columnas nuevas', /const data = aw
 // El REINTENTO, no cualquier insert: sin él, el listero no podría registrar ni
 // un viaje entre el despliegue y el momento en que se corra el SQL.
 //
-// Desde la tiquetera (12-sep-2026) el reintento es una ESCALERA de tres peldaños
-// —todo, sin tique, pelado— porque hay dos grupos de columnas que pueden faltar
+// Desde la ticketera (12-sep-2026) el reintento es una ESCALERA de tres peldaños
+// —todo, sin ticket, pelado— porque hay dos grupos de columnas que pueden faltar
 // por separado. El peldaño de abajo es el que salva al listero.
 ok('el insert baja hasta el cuerpo pelado',
-  /escalones\.push\(\{ cuerpo: base, obra: false, tique: false \}\);/.test(lib));
+  /escalones\.push\(\{ cuerpo: base, obra: false, ticket: false \}\);/.test(lib));
 ok('...y los tres peldaños salen del MISMO cuerpo base',
   (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 2);
 ok('el reintento usa la MISMA clave de idempotencia', !/nuevoClientActionId/.test(lib));
@@ -277,7 +277,7 @@ ok('la lista de listeros no se cae sin la columna', /supabase\.from\('profiles'\
 
 // ⭐ EL GUARDA QUE DE VERDAD IMPORTA: los interruptores solo se tocan DESPUÉS de
 //    que un insert funcionó. Si se apagaran al fallar, un error que no tenía
-//    nada que ver con las columnas dejaría al módulo sin obras ni tique el resto
+//    nada que ver con las columnas dejaría al módulo sin obras ni ticket el resto
 //    de la sesión — y los viajes de esa sesión se guardarían sin folio.
 {
   const i = lib.indexOf('for (const paso of escalones)');

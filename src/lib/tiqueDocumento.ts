@@ -1,4 +1,4 @@
-// EL TIQUE IMPRESO · el papel que se le entrega al camionero (12-sep-2026).
+// EL TICKET IMPRESO · el papel que se le entrega al camionero (12-sep-2026).
 //
 // Pedido del cliente: «cuando marcan el viaje, deben dar el ticket», y que el
 // papel traiga la placa, la empresa y el CDT donde lo imprimieron.
@@ -6,12 +6,12 @@
 // ⭐ ESTE ARCHIVO NO TOCA LA BASE NI LA PANTALLA. Recibe datos ya resueltos y
 //    devuelve HTML. Así se prueba entero sin red y sin navegador, que es lo
 //    único que permite verificar un papel que en producción sale de una
-//    tiquetera térmica que nadie de nosotros tiene enfrente.
+//    ticketera térmica que nadie de nosotros tiene enfrente.
 //
 // ⚠️ LO QUE ENTRA ES TEXTO DE CAMPO Y VA A UN DOCUMENTO. La nota y el nombre del
 //    chofer los escribe una persona en un teléfono; si trae un `<` el documento
-//    se rompe callado y el tique sale a medias o en blanco. Todo pasa por
-//    `escapar()`, sin excepción. No es paranoia de seguridad: es que un tique
+//    se rompe callado y el ticket sale a medias o en blanco. Todo pasa por
+//    `escapar()`, sin excepción. No es paranoia de seguridad: es que un ticket
 //    en blanco no se nota hasta que ya se entregó.
 import {
   CAMPOS_TIQUE, LOGOS_TIQUE, PAPELES,
@@ -22,13 +22,13 @@ import {
  *  llama ya decidió cómo se escribe una fecha y cuántos decimales lleva un m³. */
 export type DatosTique = Partial<Record<ClaveCampo, string | null>>;
 
-/** Un tique con lo que hace falta saber ADEMÁS de sus datos para imprimirlo. */
+/** Un ticket con lo que hace falta saber ADEMÁS de sus datos para imprimirlo. */
 export type TiqueParaImprimir = {
   datos: DatosTique;
   /**
    * ⚠️ ESTO TIENE QUE SALIR EN EL PAPEL, no solo en la base.
    *
-   * Si un tique se imprime dos veces existen DOS papeles con el mismo número
+   * Si un ticket se imprime dos veces existen DOS papeles con el mismo número
    * dando vueltas por el CDT, y al cobrar los dos se cuentan como dos viajes.
    * La base ya sabe cuál es la reimpresión, pero la base no está en el patio.
    * El papel tiene que decirlo solo.
@@ -63,12 +63,12 @@ export function escapar(v: unknown): string {
  * ⭐ ESTA ES LA ÚNICA FUENTE. La usa el papel Y la usa la vista previa de la
  *    pantalla de configuración. Si fueran dos listas, el admin marcaría los
  *    checks mirando una cosa y saldría impresa otra, y se daría cuenta cuando
- *    ya hubiera entregado doscientos tiques.
+ *    ya hubiera entregado doscientos tickets.
  *
  * ⚠️ UN CAMPO ENCENDIDO SIN DATO SALE CON RAYA, NO DESAPARECE. Y es a propósito,
  *    por dos motivos. Uno: el admin encendió ese check, así que quiere ver ese
  *    renglón; si le molesta ver «NOTA —» lo apaga, que para eso está el check.
- *    Dos: con 2, 4 o 6 tiques por hoja los recuadros tienen que medir todos
+ *    Dos: con 2, 4 o 6 tickets por hoja los recuadros tienen que medir todos
  *    igual o las líneas de corte dejan de cuadrar entre columnas.
  */
 export function renglonesDelTique(d: DatosTique, c: TiqueConfig): { k: string; v: string }[] {
@@ -80,12 +80,12 @@ export function renglonesDelTique(d: DatosTique, c: TiqueConfig): { k: string; v
 /**
  * LAS MEDIDAS DE CADA PAPEL.
  *
- * `porHoja` es cuántos tiques entran en una página. En rollo es 1 y no es una
- * simplificación: una tiquetera corta al final de cada página, así que un tique
+ * `porHoja` es cuántos tickets entran en una página. En rollo es 1 y no es una
+ * simplificación: una ticketera corta al final de cada página, así que un ticket
  * por página ES el corte entre un camionero y el siguiente.
  *
  * `anchoMm` de los rollos es el papel MENOS los márgenes de impresión (80→72,
- * 58→50). Poner el ancho completo hace que la tiquetera coma el borde derecho
+ * 58→50). Poner el ancho completo hace que la ticketera coma el borde derecho
  * de cada renglón, y eso se descubre imprimiendo, no leyendo.
  */
 export const MEDIDAS: Record<PapelTique, { porHoja: number; rollo: boolean; anchoMm: number; altoMm: number | null; cols: number }> = {
@@ -98,7 +98,7 @@ export const MEDIDAS: Record<PapelTique, { porHoja: number; rollo: boolean; anch
   carta6:  { porHoja: 6, rollo: false, anchoMm: 98,  altoMm: 259 / 3,   cols: 2 },
 };
 
-/** Cuántos tiques entran en una página con este papel. */
+/** Cuántos tickets entran en una página con este papel. */
 export function tiquesPorHoja(papel: PapelTique): number {
   return MEDIDAS[papel]?.porHoja ?? 1;
 }
@@ -106,12 +106,12 @@ export function tiquesPorHoja(papel: PapelTique): number {
 /**
  * CÓMO SE IMPRIMIÓ, para la constancia que queda en la base.
  *
- * No es cosmético: «lo sacó la tiquetera en el momento» y «lo sacaron en una
+ * No es cosmético: «lo sacó la ticketera en el momento» y «lo sacaron en una
  * hoja para repartir después» son dos formas distintas de entregar, y cuando
- * falte un tique la primera pregunta va a ser cuál de las dos fue.
+ * falte un ticket la primera pregunta va a ser cuál de las dos fue.
  */
-export function medioDeImpresion(papel: PapelTique): 'tiquetera' | 'hoja' {
-  return MEDIDAS[papel]?.rollo ? 'tiquetera' : 'hoja';
+export function medioDeImpresion(papel: PapelTique): 'ticketera' | 'hoja' {
+  return MEDIDAS[papel]?.rollo ? 'ticketera' : 'hoja';
 }
 
 /** Cuántas hojas van a salir de la impresora. Se le dice ANTES de mandar: nadie
@@ -133,11 +133,11 @@ export function enHojas<T>(lista: T[], papel: PapelTique): T[][] {
 
 // ── CUÁNTO ENTRA EN EL PAPEL ────────────────────────────────────────────────
 //
-// ⭐ ESTA SECCIÓN EXISTE POR UN TIQUE CORTADO. Mirando el papel de prueba
+// ⭐ ESTA SECCIÓN EXISTE POR UN TICKET CORTADO. Mirando el papel de prueba
 //    apareció lo que ninguna prueba de texto iba a ver: con los 16 datos
 //    encendidos y 4 por hoja, el recuadro se llenaba y el navegador cortaba lo
 //    que sobraba — se perdían el estado, la nota Y la línea de la firma. Un
-//    tique sin firma no sirve para lo que se hizo, y peor todavía: se cortaba
+//    ticket sin firma no sirve para lo que se hizo, y peor todavía: se cortaba
 //    EN SILENCIO, así que nadie se enteraba hasta tener el fajo en la mano.
 //
 // La salida no es «que quepa a la fuerza» ni «que se corte»: es CALCULAR el
@@ -164,7 +164,7 @@ export const GAP_FILA_MM = 2;
  * negrita, «CDT DE PRUEBA» (13 letras) cabe en los 30 mm de la columna y «EMPRESA DE
  * PRUEBA» (17) no. Se usa un valor un poco ANCHO a propósito: equivocarse para el lado
  * de «ocupa más» deja unos milímetros de papel en blanco; equivocarse al revés parte
- * el tique en dos cortes.
+ * el ticket en dos cortes.
  */
 const ANCHO_LETRA_EM = 0.66;
 
@@ -200,7 +200,7 @@ export function lineasDelValor(texto: unknown, anchoColumnaMm: number, pt: numbe
 }
 
 /**
- * ALTO ESTIMADO DE UN TIQUE, en milímetros.
+ * ALTO ESTIMADO DE UN TICKET, en milímetros.
  *
  * ⚠️ ES UNA ESTIMACIÓN Y ESTÁ HECHA PARA QUEDARSE CORTA. Cada pedazo se calcula
  *    con su tamaño de letra por su interlineado más su margen, igual que en el
@@ -236,7 +236,7 @@ function altoLogoMm(base: number, rollo: boolean): number {
 /**
  * EL TAMAÑO DE LETRA MÁS GRANDE CON EL QUE TODAVÍA ENTRA TODO.
  *
- * En rollo la hoja no tiene fondo —el tique termina donde termina— así que no
+ * En rollo la hoja no tiene fondo —el ticket termina donde termina— así que no
  * hay nada que ajustar: va el tamaño cómodo y listo. En hoja el recuadro mide
  * lo que mide, y ahí sí hay que buscar.
  */
@@ -272,7 +272,7 @@ export function avisoDeCapacidad(c: TiqueConfig): string | null {
     (MEDIDAS[p].porHoja < MEDIDAS[c.papel].porHoja || MEDIDAS[p].altoMm! > MEDIDAS[c.papel].altoMm!)
     && tamanoQueEntra(p, renglones, { logos, reimpresion: true }).entra);
   const label = (p: PapelTique) => PAPELES.find((x) => x.k === p)?.label ?? p;
-  return `⚠️ Con ${renglones} dato(s) no caben en «${label(c.papel)}»: el tique saldría cortado.`
+  return `⚠️ Con ${renglones} dato(s) no caben en «${label(c.papel)}»: el ticket saldría cortado.`
     + (alternativa ? ` Prueba con «${label(alternativa)}», o quita datos.` : ' Quita datos o usa un rollo.');
 }
 
@@ -280,16 +280,16 @@ export function avisoDeCapacidad(c: TiqueConfig): string | null {
  *  lo usan DOS sitios: la regla `@page` y la cuenta del alto de esa página. */
 const MARGEN_PAGINA_ROLLO_MM = 3;
 
-/** Papel de sobra al pie de cada tique de rollo. El alto es una estimación: si se
- *  quedara corta, el navegador partiría el tique en dos cortes de papel. Ocho
- *  milímetros de papel en blanco cuestan menos que un tique partido. */
+/** Papel de sobra al pie de cada ticket de rollo. El alto es una estimación: si se
+ *  quedara corta, el navegador partiría el ticket en dos cortes de papel. Ocho
+ *  milímetros de papel en blanco cuestan menos que un ticket partido. */
 const HOLGURA_ROLLO_MM = 8;
 
 /**
  * EL CSS DEL DOCUMENTO.
  *
  * Recibe el tamaño de letra YA CALCULADO por `tamanoQueEntra`, en vez de fijarlo
- * acá: si el CSS eligiera por su cuenta, el cálculo que decide si el tique entra
+ * acá: si el CSS eligiera por su cuenta, el cálculo que decide si el ticket entra
  * estaría mirando un tamaño distinto del que sale impreso.
  *
  * ⚠️ EL CUERPO CRECE Y LA FIRMA QUEDA ABAJO. El recuadro es una columna flex con
@@ -319,7 +319,7 @@ function cssComun(papel: PapelTique, base: number, altoRolloMm: number | null): 
     `.fila{display:flex;gap:${GAP_FILA_MM}mm;align-items:baseline;padding:.5mm 0}`,
     `.k{font-weight:800;text-transform:uppercase;font-size:${(base - 2).toFixed(1)}pt;letter-spacing:.3px;flex:0 0 ${rollo ? ANCHO_ETIQUETA_ROLLO_MM : 22}mm;color:#333}`,
     '.v{flex:1 1 auto;font-weight:700;word-break:break-word;overflow-wrap:anywhere}',
-    // El número del tique es lo que se canta por radio y lo que se reclama. Va
+    // El número del ticket es lo que se canta por radio y lo que se reclama. Va
     // grande arriba de todo, no perdido entre los demás renglones.
     `.folio{text-align:center;font-weight:900;font-size:${(base + 6).toFixed(1)}pt;letter-spacing:1px;margin:1mm 0 2mm}`,
     `.rei{text-align:center;font-weight:900;font-size:${base}pt;letter-spacing:1px;border:2px solid #000;padding:1mm;margin:0 0 2mm;text-transform:uppercase}`,
@@ -328,9 +328,9 @@ function cssComun(papel: PapelTique, base: number, altoRolloMm: number | null): 
     `.hoja{display:grid;grid-template-columns:repeat(${m.cols},1fr);gap:0;page-break-after:always;break-after:page}`,
     '.hoja:last-child{page-break-after:auto;break-after:auto}',
     // ⚠️ EL ROLLO LLEVA ANCHO **Y** ALTO. Estaba `58mm auto`, que no es CSS válido:
-    //    Chromium descartaba la regla entera y armaba el tique en una hoja CARTA.
+    //    Chromium descartaba la regla entera y armaba el ticket en una hoja CARTA.
     //    RawBT después achicaba esa hoja completa a los 48 mm que pinta la
-    //    tiquetera, la letra quedaba tan chica que el cabezal no la marcaba, y el
+    //    ticketera, la letra quedaba tan chica que el cabezal no la marcaba, y el
     //    papel salía EN BLANCO. Lo reportó el usuario el 12-sep-2026 con una
     //    MHT-P11 desde el teléfono, y se comprobó imprimiendo a PDF: la hoja medía
     //    216 × 279 mm. La sintaxis válida es una o dos longitudes; `auto` solo vale
@@ -346,8 +346,8 @@ function cssComun(papel: PapelTique, base: number, altoRolloMm: number | null): 
  * EL ENCABEZADO DEL PAPEL: los logos que el admin dejó encendidos.
  *
  * ⚠️ Un logo encendido cuyo archivo no llegó NO deja un hueco ni un icono roto:
- *    simplemente no sale. Un cuadrito con una cruz en un tique oficial hace
- *    dudar del tique entero.
+ *    simplemente no sale. Un cuadrito con una cruz en un ticket oficial hace
+ *    dudar del ticket entero.
  */
 function logosHtml(c: TiqueConfig, uris: Partial<Record<ClaveLogo, string>>): string {
   const imgs = LOGOS_TIQUE
@@ -358,7 +358,7 @@ function logosHtml(c: TiqueConfig, uris: Partial<Record<ClaveLogo, string>>): st
 }
 
 /**
- * UN TIQUE.
+ * UN TICKET.
  *
  * El folio sale DOS veces a propósito: grande arriba, para cantarlo y para
  * encontrarlo en un fajo de cincuenta, y en su renglón, para que la lectura de
@@ -377,7 +377,7 @@ export function htmlDeUnTique(
   return [
     '<div class="tq">',
     logosHtml(c, uris),
-    `<div class="tit">${escapar(opts?.titulo ?? 'Tique de viaje')}</div>`,
+    `<div class="tit">${escapar(opts?.titulo ?? 'Ticket de viaje')}</div>`,
     opts?.subtitulo ? `<div class="sub">${escapar(opts.subtitulo)}</div>` : '',
     folio ? `<div class="folio">${escapar(folio)}</div>` : '',
     t.reimpresion ? '<div class="rei">Reimpresión</div>' : '',
@@ -389,7 +389,7 @@ export function htmlDeUnTique(
 }
 
 /**
- * EL DOCUMENTO COMPLETO, con todos los tiques que se van a imprimir de una.
+ * EL DOCUMENTO COMPLETO, con todos los tickets que se van a imprimir de una.
  *
  * ⚠️ UN SOLO TAMAÑO DE PAPEL POR DOCUMENTO. `@page` no se puede cambiar a mitad
  *    de documento, así que el papel es el que diga la configuración y punto. Es
@@ -397,30 +397,30 @@ export function htmlDeUnTique(
  *    que nadie quiera hacer.
  */
 export function documentoDeTiques(
-  tiques: TiqueParaImprimir[],
+  tickets: TiqueParaImprimir[],
   c: TiqueConfig,
   uris: Partial<Record<ClaveLogo, string>>,
   opts?: { titulo?: string; subtitulo?: string },
 ): string {
-  // ⚠️ EL TAMAÑO SE CALCULA PARA EL PEOR TIQUE DEL MANDADO, no para cada uno.
+  // ⚠️ EL TAMAÑO SE CALCULA PARA EL PEOR TICKET DEL MANDADO, no para cada uno.
   //    Si hay UNA reimpresión, su recuadro es más alto que el de los demás; con
-  //    un tamaño por tique, dos papeles de la misma hoja saldrían con letras
+  //    un tamaño por ticket, dos papeles de la misma hoja saldrían con letras
   //    distintas y el fajo parecería armado a pedazos. Uno solo para todos.
   const renglones = renglonesDelTique({}, c).length;
   const hayLogos = LOGOS_TIQUE.some((l) => c.logos[l.k] && String(uris[l.k] ?? '').trim());
-  const hayReimpresion = tiques.some((t) => t.reimpresion === true);
+  const hayReimpresion = tickets.some((t) => t.reimpresion === true);
   const { pt } = tamanoQueEntra(c.papel, renglones, { logos: hayLogos, reimpresion: hayReimpresion });
   // El alto de la página del rollo se calcula con el mismo tamaño de letra que
-  // va a salir impreso. Con otro tamaño, la página y el tique no coincidirían.
+  // va a salir impreso. Con otro tamaño, la página y el ticket no coincidirían.
   //
   // ⚠️ Y CUENTA LAS LÍNEAS PARTIDAS, con los datos de verdad. En el rollo de 58 la columna
   //    del valor mide 30 mm, y un nombre de empresa o de CDT ya no cabe en una línea.
-  //    Contando solo renglones, el tique de los 16 datos medía 172,5 mm contra 163 de
+  //    Contando solo renglones, el ticket de los 16 datos medía 172,5 mm contra 163 de
   //    página y salía en DOS cortes (medido en el navegador el 12-sep-2026). La página
-  //    es una sola para todo el mandado, así que se usa el tique que más líneas parte.
+  //    es una sola para todo el mandado, así que se usa el ticket que más líneas parte.
   const colValorMm = MEDIDAS[c.papel].anchoMm - ANCHO_ETIQUETA_ROLLO_MM - GAP_FILA_MM;
   const lineasExtra = MEDIDAS[c.papel].rollo
-    ? Math.max(0, ...tiques.map((t) => renglonesDelTique(t.datos, c)
+    ? Math.max(0, ...tickets.map((t) => renglonesDelTique(t.datos, c)
       .reduce((suma, r) => suma + lineasDelValor(r.v, colValorMm, pt) - 1, 0)))
     : 0;
   const altoRollo = MEDIDAS[c.papel].rollo
@@ -428,7 +428,7 @@ export function documentoDeTiques(
       + MARGEN_PAGINA_ROLLO_MM * 2 + HOLGURA_ROLLO_MM
     : null;
 
-  const hojas = enHojas(tiques, c.papel)
+  const hojas = enHojas(tickets, c.papel)
     .map((grupo) => `<section class="hoja">${grupo.map((t) => htmlDeUnTique(t, c, uris, opts)).join('')}</section>`)
     .join('');
   // `<title>` vacío para que el navegador no le ponga su propio encabezado a la
@@ -436,9 +436,9 @@ export function documentoDeTiques(
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title><style>${cssComun(c.papel, pt, altoRollo)}</style></head><body>${hojas}</body></html>`;
 }
 
-/** Nombre sugerido del archivo. Un tique lleva su número; un mandado lleva
+/** Nombre sugerido del archivo. Un ticket lleva su número; un mandado lleva
  *  cuántos son, porque los números no caben y el primero no representa al resto. */
-export function nombreArchivoTiques(tiques: TiqueParaImprimir[]): string {
-  if (tiques.length === 1) return `tique-${limpio(tiques[0]?.datos?.folio) || 'sin-numero'}`;
-  return `tiques-${tiques.length}`;
+export function nombreArchivoTiques(tickets: TiqueParaImprimir[]): string {
+  if (tickets.length === 1) return `ticket-${limpio(tickets[0]?.datos?.folio) || 'sin-numero'}`;
+  return `tickets-${tickets.length}`;
 }

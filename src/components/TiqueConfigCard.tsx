@@ -1,11 +1,11 @@
-// QUÉ SALE EN EL TIQUE · la pantalla de configuración (12-sep-2026).
+// QUÉ SALE EN EL TICKET · la pantalla de configuración (12-sep-2026).
 //
 // Pedido del cliente: «un chek para cada cosa, placa, modelo, todo lo que deba
 // llevar el ticket, yo pueda activar o desactivar para que cuando lo impriman le
 // salga o no les salga».
 //
 // ⚠️ LA VISTA PREVIA NO ES ADORNO. Sin ella, la única manera de saber cómo quedó
-//    el tique es imprimir uno y mirarlo, y eso son diez viajes al patio. El
+//    el ticket es imprimir uno y mirarlo, y eso son diez viajes al patio. El
 //    ejemplo de la derecha se arma con LAS MISMAS funciones que arman el papel,
 //    así que lo que se ve es lo que sale.
 //
@@ -32,12 +32,12 @@ import { avisoDeCapacidad, renglonesDelTique } from '../lib/tiqueDocumento';
  * Un viaje de mentira para la vista previa.
  *
  * ⚠️ LA PLACA Y EL SERIAL SON INVENTADOS, Y TIENEN QUE SEGUIR SIÉNDOLO. Dos
- *    motivos: uno, que nadie confunda el ejemplo con un tique de verdad; dos,
+ *    motivos: uno, que nadie confunda el ejemplo con un ticket de verdad; dos,
  *    que ESTE REPOSITORIO ES PÚBLICO y una placa o un serial de la flota acá
  *    quedan publicados. Se escriben con pura X y ceros para que se reconozcan
  *    de un vistazo. Lo vigila `scripts/test-tique.mjs`.
  *
- * ⚠️ ACÁ SOLO VAN LOS VALORES. Las etiquetas («Tique», «Placa»…) salen de
+ * ⚠️ ACÁ SOLO VAN LOS VALORES. Las etiquetas («Ticket», «Placa»…) salen de
  *    `CAMPOS_TIQUE`, las mismas que imprime el papel, y el orden lo decide
  *    `renglonesDelTique`. Cuando el ejemplo traía sus propias etiquetas eran
  *    DOS listas que había que acordarse de mover juntas, y ese es justo el
@@ -79,7 +79,7 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
       setGuardado(r.config);
       setSinTabla(r.sinTabla);
       setCargando(false);
-      if (r.error) toast.error(`No se pudo leer la configuración del tique: ${r.error}`);
+      if (r.error) toast.error(`No se pudo leer la configuración del ticket: ${r.error}`);
     });
     return () => { vivo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,20 +96,20 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
     setOcupado(true);
     const r = await guardarConfigTique(config, uid);
     setOcupado(false);
-    if (r.sinTabla) { setSinTabla(true); toast.error('Falta correr el SQL de la tiquetera. La configuración no se guardó.'); return; }
+    if (r.sinTabla) { setSinTabla(true); toast.error('Falta correr el SQL de la ticketera. La configuración no se guardó.'); return; }
     if (r.error) { toast.error(`No se pudo guardar: ${r.error}`); return; }
     setGuardado(config);
     // La pantalla de viajes tiene su propia copia para poder imprimir sin abrir
-    // esta tarjeta. Si no se le avisa, el primer tique después de cambiar el
+    // esta tarjeta. Si no se le avisa, el primer ticket después de cambiar el
     // formato sale con el formato viejo y parece que el guardado no funcionó.
     onGuardado?.(config);
-    toast.success('Listo. Los tiques van a salir así desde ahora.');
+    toast.success('Listo. Los tickets van a salir así desde ahora.');
   };
 
   const enRollo = config.papel === 'rollo80' || config.papel === 'rollo58';
   const renglones = useMemo(() => renglonesDelTique(EJEMPLO, config), [config]);
   /**
-   * ⚠️ ESTE AVISO EXISTE POR UN TIQUE CORTADO.
+   * ⚠️ ESTE AVISO EXISTE POR UN TICKET CORTADO.
    *
    *    Con los datos encendidos y 4 o 6 por hoja, el recuadro se llena y lo
    *    que sobra se pierde: primero la nota, después el estado, después la
@@ -122,13 +122,13 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
 
   return (
     <Plegable
-      titulo="🎫 Qué sale en el tique"
+      titulo="🎫 Qué sale en el ticket"
       resumen={cargando ? 'Leyendo la configuración…' : sucio ? '⚠️ Tienes cambios sin guardar' : aviso ? 'No caben todos los datos en ese papel' : resumenConfig(config)}
       alerta={sucio || sinTabla || !!aviso}
     >
       {sinTabla ? (
         <View style={{ borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, padding: spacing.sm, marginBottom: spacing.sm }}>
-          <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>⏳ Falta correr el SQL de la tiquetera</Text>
+          <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>⏳ Falta correr el SQL de la ticketera</Text>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
             Puedes mirar cómo quedaría, pero lo que marques no se guarda todavía.
           </Text>
@@ -227,7 +227,7 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
           style={{ flex: 2, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand, opacity: !sucio || ocupado || sinTabla ? 0.5 : 1 }}
         >
           <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>
-            {ocupado ? 'Guardando…' : '💾 Guardar lo que sale en el tique'}
+            {ocupado ? 'Guardando…' : '💾 Guardar lo que sale en el ticket'}
           </Text>
         </TouchableOpacity>
       </View>

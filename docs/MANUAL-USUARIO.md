@@ -4362,29 +4362,29 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 ### Panel de información (administración)
 
-> **🎫 Cada viaje tiene su número de tique (12/09/2026).** Al registrar un viaje, la base le pone
+> **🎫 Cada viaje tiene su número de ticket (12/09/2026).** Al registrar un viaje, la base le pone
 > un número correlativo: **CDT-000001**, **CDT-000002** y así. Sale como pastilla verde en la fila
 > del viaje, y es el número que se canta por radio y el que lleva el papel que firma el CDT.
 >
 > **La placa y la empresa quedan congeladas en el viaje.** Antes se buscaban en el catálogo cada
-> vez. Ahora el viaje guarda su propia foto, para que un tique reimpreso diga **exactamente lo
+> vez. Ahora el viaje guarda su propia foto, para que un ticket reimpreso diga **exactamente lo
 > mismo** que el papel que ya está firmado, aunque después alguien le corrija la placa a ese camión.
 > Los cuatro camiones sin placa cargada salen con su **serial**, y la empresa sale siempre.
 >
 > ⚠️ **Un viaje sin señal NO tiene número todavía**, y la fila lo dice: el folio lo pone la base
-> cuando el viaje llega al servidor. Mientras el viaje esté en cola no hay tique que entregar. Es a
+> cuando el viaje llega al servidor. Mientras el viaje esté en cola no hay ticket que entregar. Es a
 > propósito: un número provisional se cantaría por radio y después no existiría.
 >
 > ⚠️ **Los viajes anteriores al 12/09/2026 no tienen número, y no se les va a poner.** Por esos
-> 3.384 viajes nunca se emitió un tique. Numerarlos hacia atrás inventaría papeles que no existieron.
+> 3.384 viajes nunca se emitió un ticket. Numerarlos hacia atrás inventaría papeles que no existieron.
 > El primer viaje que se registre desde ahora es el **CDT-000001**.
 
-> **🎫 Tú decides qué sale en el tique (12/09/2026).** En el panel de información, debajo de
-> «Obras y ubicaciones», hay un desplegable nuevo: **🎫 Qué sale en el tique**. Ahí hay **un
+> **🎫 Tú decides qué sale en el ticket (12/09/2026).** En el panel de información, debajo de
+> «Obras y ubicaciones», hay un desplegable nuevo: **🎫 Qué sale en el ticket**. Ahí hay **un
 > interruptor por cada dato** (fecha, hora, placa, empresa, CDT, jornada, turno, equipo, marca y
 > modelo, serial, chofer, listero, metros cúbicos, estado y nota), **uno por cada logo** (SOS La
 > Guaira, Golden Touch, Plan Venezuela Renace y BCV) y la opción de **en qué papel** sale: rollo de
-> 80 mm, rollo de 58 mm, o hoja carta con 1, 2, 4 o 6 tiques.
+> 80 mm, rollo de 58 mm, o hoja carta con 1, 2, 4 o 6 tickets.
 >
 > **Arriba de los interruptores está la vista previa**, y cambia mientras marcas. Lo que ves ahí es
 > lo que va a salir impreso.
@@ -4393,14 +4393,14 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > chamos en el CDT. Por eso se guarda cuando tocas **Guardar** y no a cada clic, y mientras haya
 > cambios sin guardar el título del desplegable te lo dice.
 >
-> **De fábrica salen seis datos**: número del tique, fecha, hora, placa, empresa y CDT. Todo lo demás
+> **De fábrica salen seis datos**: número del ticket, fecha, hora, placa, empresa y CDT. Todo lo demás
 > arranca apagado.
 >
-> ⚠️ **El número del tique no se puede quitar.** La casilla se ve, pero no se mueve: un tique sin
+> ⚠️ **El número del ticket no se puede quitar.** La casilla se ve, pero no se mueve: un ticket sin
 > número no identifica nada, no se puede cantar por radio y no se puede reclamar.
 
-> **🖨️ Imprimir el tique y entregarlo (12/09/2026).** Ya se puede sacar el papel. En cada viaje que
-> tenga número aparece **🖨️ Imprimir tique**, al lado de Editar y Borrar. Se abre la vista previa,
+> **🖨️ Imprimir el ticket y entregarlo (12/09/2026).** Ya se puede sacar el papel. En cada viaje que
+> tenga número aparece **🖨️ Imprimir ticket**, al lado de Editar y Borrar. Se abre la vista previa,
 > tocas **Imprimir** y sale el papel para dárselo al camionero.
 >
 > **El botón lo tiene todo el que vea la fila**, no solo quien puede editar. El listero del CDT es
@@ -4408,30 +4408,30 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >
 > **Las dos formas de imprimir, como se pidió:**
 >
-> - **Uno por uno, en el momento**, desde la tiquetera de rollo del CDT. Se marca el viaje, se
+> - **Uno por uno, en el momento**, desde la ticketera de rollo del CDT. Se marca el viaje, se
 >   imprime, se entrega.
-> - **Toda la tiquetera de una**, en hojas, para repartir después. En «Lista completa de viajes»,
->   arriba de la lista, está **🖨️ Imprimir los N tiques de esta lista**. Sale **la lista tal como la
+> - **Toda la ticketera de una**, en hojas, para repartir después. En «Lista completa de viajes»,
+>   arriba de la lista, está **🖨️ Imprimir los N tickets de esta lista**. Sale **la lista tal como la
 >   tengas filtrada**: si filtraste por CDT y por día, eso es lo que se imprime.
 >
 > **Antes de mandar te dice cuántas hojas van a salir.** Nadie quiere enterarse de que eran sesenta
 > cuando ya están saliendo.
 >
 > **Queda registrado quién lo entregó, cuándo y desde qué CDT.** Es lo que se pidió: no solo lo que
-> marcaron, también los tiques que se dieron. El CDT que se guarda es el **de quien imprime**, no el
+> marcaron, también los tickets que se dieron. El CDT que se guarda es el **de quien imprime**, no el
 > del viaje; el del viaje ya está guardado en el viaje. Si la jefa saca un lote desde la oficina, ese
-> tique no lo entregó nadie en el patio, y así queda.
+> ticket no lo entregó nadie en el patio, y así queda.
 >
-> ⚠️ **Un tique que ya se entregó sale marcado como REIMPRESIÓN**, en letras grandes dentro de un
+> ⚠️ **Un ticket que ya se entregó sale marcado como REIMPRESIÓN**, en letras grandes dentro de un
 > recuadro. Te avisa antes de mandar, y la fila del viaje muestra **✅ entregado** o **🔁 entregado
 > ×2**. Reimprimir se puede —a veces hace falta— pero hay que saberlo: dos papeles con el mismo
 > número en el patio se cuentan como dos viajes al cobrar.
 >
-> **🕘 Ver quién imprimió cada tique (14/09/2026).** Toca la pastilla **«entregado ×N»** de
+> **🕘 Ver quién imprimió cada ticket (14/09/2026).** Toca la pastilla **«entregado ×N»** de
 > cualquier viaje y se abre su historial, en orden: la primera impresión arriba y después cada
 > reimpresión. Cada renglón dice **quién** lo entregó, **fecha y hora de Caracas**, **desde qué
-> CDT** y si fue en tiquetera o en hoja. Arriba sale el resumen: cuántas entregas, cuántas
-> personas y cuántas reimpresiones. Si alguna entrega de ese tique salió sin señal y todavía
+> CDT** y si fue en ticketera o en hoja. Arriba sale el resumen: cuántas entregas, cuántas
+> personas y cuántas reimpresiones. Si alguna entrega de ese ticket salió sin señal y todavía
 > está en el teléfono, la ventana lo avisa, porque aún no aparece en la lista.
 
 > **🗑️ Borrar una entrega del historial (14/09/2026).** Quien tiene el nivel completo del módulo
@@ -4450,7 +4450,7 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > por hecho). Además se cerró un hueco por el que se podía escribir **sin iniciar sesión**.
 > Registrar viajes, comidas y jornadas sigue igual para todos.
 
-> **🔢 Un número de tique usado no se repite nunca (14/09/2026).** Aunque se borre el viaje, su
+> **🔢 Un número de ticket usado no se repite nunca (14/09/2026).** Aunque se borre el viaje, su
 > número **no vuelve a salir**: el siguiente viaje recibe el número que sigue. Por eso en la lista
 > puede faltar algún número (por ejemplo, no hay CDT-000039): es el de un viaje que se borró, y la
 > auditoría dice quién lo borró y a qué hora. Antes de este cambio, borrar el último viaje hacía
@@ -4458,7 +4458,7 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > número repetido solo muestran las entregas de su propio viaje, no las del que se borró.
 
 > ⚠️ **Sin señal el papel sale igual, y la constancia se guarda sola después.** Si se cae la señal
-> justo al imprimir, arriba te aparece «*N tiques entregados sin registrar en el servidor*». No se
+> justo al imprimir, arriba te aparece «*N tickets entregados sin registrar en el servidor*». No se
 > pierde nada: sube solo cuando vuelva la señal. El camionero ya tiene su papel.
 >
 > **Si cancelas la vista previa no se anota nada**, porque ese papel no salió.
@@ -4467,31 +4467,31 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > sin subir y los anteriores al 12/09/2026. El botón de la lista completa dice cuántos quedan fuera
 > y por qué.
 
-> **📱 Imprimir desde el teléfono con una tiquetera Bluetooth (12/09/2026).** Una tiquetera de
+> **📱 Imprimir desde el teléfono con una ticketera Bluetooth (12/09/2026).** Una ticketera de
 > rollo por Bluetooth, como la MHT-P11, no aparece sola en el menú de impresión de Android: habla
 > el idioma de las impresoras de recibos. Hace falta una app puente, **RawBT**.
 >
-> 1. Empareja la tiquetera en el Bluetooth del teléfono. La clave suele ser 1234 o 0000.
-> 2. Instala **RawBT** desde Play Store. En su engranaje elige conexión Bluetooth, la tiquetera,
+> 1. Empareja la ticketera en el Bluetooth del teléfono. La clave suele ser 1234 o 0000.
+> 2. Instala **RawBT** desde Play Store. En su engranaje elige conexión Bluetooth, la ticketera,
 >    y papel de 58 mm. Haz una prueba con el lápiz.
 > 3. En los ajustes del teléfono, en Impresión, activa el servicio RawBT.
-> 4. En «🎫 Qué sale en el tique», el papel tiene que decir **Rollo 58 mm**, o 80 mm si la
->    tiquetera es ancha.
-> 5. En el viaje, toca **🖨️ Imprimir tique**, luego **Imprimir**, elige RawBT en el menú de
+> 4. En «🎫 Qué sale en el ticket», el papel tiene que decir **Rollo 58 mm**, o 80 mm si la
+>    ticketera es ancha.
+> 5. En el viaje, toca **🖨️ Imprimir ticket**, luego **Imprimir**, elige RawBT en el menú de
 >    Android, y al volver toca **Cerrar**. Ahí queda anotada la entrega.
 >
 > ⚠️ **La versión gratuita de RawBT agrega una línea al pie de cada papel.** Quitarla es un pago
 > de RawBT, no del sistema.
 >
 > ⚠️ **Si antes te salían hojas en blanco, era un error del sistema y ya está corregido.** La
-> página del rollo estaba mal declarada: el navegador la ignoraba y armaba el tique en una hoja
+> página del rollo estaba mal declarada: el navegador la ignoraba y armaba el ticket en una hoja
 > carta. RawBT achicaba esa hoja entera al ancho del rollo y la letra quedaba tan chica que la
-> tiquetera no la marcaba. Ahora la página mide lo que mide el tique.
+> ticketera no la marcaba. Ahora la página mide lo que mide el ticket.
 > **📏 Si no caben todos los datos, el sistema achica la letra (12/09/2026).** Con muchos datos
-> encendidos y 4 o 6 tiques por hoja, el recuadro se llena. El tique **no se corta**: la letra se
+> encendidos y 4 o 6 tickets por hoja, el recuadro se llena. El ticket **no se corta**: la letra se
 > achica sola hasta que entre todo, incluida la línea de la firma.
 >
-> ⚠️ **Cuando ni con la letra más chica alcanza, te avisa** — en «🎫 Qué sale en el tique» y otra vez
+> ⚠️ **Cuando ni con la letra más chica alcanza, te avisa** — en «🎫 Qué sale en el ticket» y otra vez
 > al imprimir — y te dice **en qué papel sí caben**. Por debajo de cierto tamaño el papel no se lee
 > parado en el patio, así que antes de achicar más se prefiere avisar.
 >
@@ -5036,13 +5036,13 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
-> **🎫 Buscar un viaje por su número de tique (17/09/2026).** En **"🚛 Lista completa de viajes"**, el
+> **🎫 Buscar un viaje por su número de ticket (17/09/2026).** En **"🚛 Lista completa de viajes"**, el
 > buscador que ya filtraba camión, listero y empresa ahora **también encuentra un viaje por el número
-> del tique**. Escribe **191**, **000191** o **CDT-000191**: da igual con ceros o sin ellos. La lista
-> queda solo con ese viaje, y desde ahí puedes **editarlo, reimprimir el tique o borrarlo**.
+> del ticket**. Escribe **191**, **000191** o **CDT-000191**: da igual con ceros o sin ellos. La lista
+> queda solo con ese viaje, y desde ahí puedes **editarlo, reimprimir el ticket o borrarlo**.
 > - El número es **exacto**: escribir «19» **no** trae el 191. Es a propósito, porque desde esta
->   pantalla se reimprime el tique y se cobra: parecerse no alcanza.
-> - **Se busca dentro del rango de fechas que tengas puesto.** Si el tique es de otro día, no aparece:
+>   pantalla se reimprime el ticket y se cobra: parecerse no alcanza.
+> - **Se busca dentro del rango de fechas que tengas puesto.** Si el ticket es de otro día, no aparece:
 >   la pantalla te lo dice y solo hay que ampliar el rango (o usar **Este mes** / **Rango libre**).
 > - Escribir una placa, un listero o una empresa sigue haciendo lo de siempre: esconder las pastillas
 >   que no coinciden, sin recortar la lista.
@@ -5141,7 +5141,7 @@ tiene **permiso completo** del módulo; los listeros no ven montos.
   **jornada** (7am a 7am).
 - Sale **cada empresa** con sus viajes pagados, los que **no facturaron**, los que quedaron **sin pagar** y
   su **total**; arriba, el **total a pagar** del rango.
-- Toca una empresa para ver el pago **por camión** y la lista de **viajes** con su tique, zona, tarifa,
+- Toca una empresa para ver el pago **por camión** y la lista de **viajes** con su ticket, zona, tarifa,
   quién lo registró y el **estado en que estaba el camión** (solo una observación: no decide el pago).
 - Cada viaje **se paga**, salvo que lo marques **"✗ No facturó"** con un motivo; se quita con
   **"✓ Volver a facturar"**, y queda quién la puso.

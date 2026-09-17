@@ -1,4 +1,4 @@
-// QUÉ SALE EN EL TIQUE · configuración (12-sep-2026).
+// QUÉ SALE EN EL TICKET · configuración (12-sep-2026).
 //
 // Pedido del cliente: «ese ticket yo le pueda quitar o colocar cualquier logo, y
 // colocar o quitar cualquier información que quiera que le salga, dejarlo
@@ -7,7 +7,7 @@
 // ⭐ LA CONFIGURACIÓN VIVE EN LA BASE, NO EN EL TELÉFONO. Es una sola fila para
 //    todo el sistema (`tique_config`, con `id boolean` y su check, así que no
 //    puede haber dos ni por error). Lo que marca el admin es lo que imprimen los
-//    chamos en el CDT: si viviera en cada dispositivo, dos tiques del mismo día
+//    chamos en el CDT: si viviera en cada dispositivo, dos tickets del mismo día
 //    saldrían distintos según quién los imprimió, y nadie sabría cuál es el
 //    formato bueno.
 //
@@ -32,7 +32,7 @@ export type TiqueConfig = {
 /**
  * ⚠️ EL FOLIO NO SE PUEDE APAGAR, y es lo único que no.
  *
- * Un tique sin número no identifica nada: no se puede cantar por radio, no se
+ * Un ticket sin número no identifica nada: no se puede cantar por radio, no se
  * puede reclamar y no se puede cruzar con el viaje. El cliente pidió «un chek
  * para cada cosa» y en todo lo demás lo tiene; acá la casilla se ve, se explica
  * y no se deja tocar, que es más honesto que esconderla.
@@ -46,7 +46,7 @@ export const CAMPO_FIJO: ClaveCampo = 'folio';
  * `label` es lo que se lee en la pantalla de configuración, con su emoji.
  * `corto` es lo que se IMPRIME al lado del dato.
  *
- * ⚠️ SON DOS TEXTOS DISTINTOS A PROPÓSITO. Una tiquetera térmica no dibuja
+ * ⚠️ SON DOS TEXTOS DISTINTOS A PROPÓSITO. Una ticketera térmica no dibuja
  *    emojis: los saca como un cuadrito, o como nada, o le come el resto del
  *    renglón. En pantalla el emoji ayuda a encontrar el interruptor de un
  *    vistazo; en el papel estorba. Y en un rollo de 58 mm caben unos 32
@@ -54,7 +54,7 @@ export const CAMPO_FIJO: ClaveCampo = 'folio';
  *    se va a la línea de abajo.
  */
 export const CAMPOS_TIQUE: { k: ClaveCampo; label: string; corto: string; ayuda?: string }[] = [
-  { k: 'folio',       label: '🎫 Número del tique', corto: 'Tique',   ayuda: 'No se puede quitar: sin número el tique no identifica nada.' },
+  { k: 'folio',       label: '🎫 Número del ticket', corto: 'Ticket',   ayuda: 'No se puede quitar: sin número el ticket no identifica nada.' },
   { k: 'fecha',       label: '📅 Fecha',            corto: 'Fecha' },
   { k: 'hora',        label: '🕐 Hora',             corto: 'Hora' },
   { k: 'placa',       label: '🚗 Placa',            corto: 'Placa',   ayuda: 'Si el camión no tiene placa cargada, sale su serial.' },
@@ -80,10 +80,10 @@ export const LOGOS_TIQUE: { k: ClaveLogo; label: string }[] = [
 ];
 
 export const PAPELES: { k: PapelTique; label: string; ayuda: string }[] = [
-  { k: 'rollo80', label: 'Rollo 80 mm', ayuda: 'Tiquetera de rollo ancha, la más común. Sin página: el tique termina donde termina.' },
-  { k: 'rollo58', label: 'Rollo 58 mm', ayuda: 'Tiquetera de rollo angosta. Caben menos datos por renglón.' },
-  { k: 'carta1',  label: '1 por hoja',  ayuda: 'Impresora normal, un tique por página.' },
-  { k: 'carta2',  label: '2 por hoja',  ayuda: 'Impresora normal, dos tiques por página.' },
+  { k: 'rollo80', label: 'Rollo 80 mm', ayuda: 'Ticketera de rollo ancha, la más común. Sin página: el ticket termina donde termina.' },
+  { k: 'rollo58', label: 'Rollo 58 mm', ayuda: 'Ticketera de rollo angosta. Caben menos datos por renglón.' },
+  { k: 'carta1',  label: '1 por hoja',  ayuda: 'Impresora normal, un ticket por página.' },
+  { k: 'carta2',  label: '2 por hoja',  ayuda: 'Impresora normal, dos tickets por página.' },
   { k: 'carta4',  label: '4 por hoja',  ayuda: 'Impresora normal, cuatro por página.' },
   { k: 'carta6',  label: '6 por hoja',  ayuda: 'Impresora normal, seis por página. Salen chiquitos.' },
 ];
@@ -105,7 +105,7 @@ const esPapel = (v: unknown): v is PapelTique => PAPELES.some((p) => p.k === v);
  * NORMALIZA LO QUE VENGA DE LA BASE.
  *
  * ⚠️ ESTO NO ES DEFENSA PARANOICA, ES EL CASO NORMAL. Cada vez que se agregue un
- *    campo nuevo al tique, las filas ya guardadas NO van a tener esa clave, y
+ *    campo nuevo al ticket, las filas ya guardadas NO van a tener esa clave, y
  *    leerlas crudas daría `undefined` — que en un `if` se comporta como apagado
  *    pero en un interruptor se ve como una casilla rota. Se mezcla sobre los
  *    valores por defecto para que la clave nueva entre con su valor de fábrica y
@@ -130,7 +130,7 @@ export function normalizarConfig(bruto: any): TiqueConfig {
     });
   }
   // El folio manda sobre lo guardado: si una fila vieja lo trae apagado —o
-  // alguien lo apaga escribiendo en la tabla— el tique saldría sin número.
+  // alguien lo apaga escribiendo en la tabla— el ticket saldría sin número.
   campos[CAMPO_FIJO] = true;
   return { campos, logos, papel: esPapel(bruto?.papel) ? bruto.papel : CONFIG_POR_DEFECTO.papel };
 }
