@@ -66,14 +66,14 @@ export type CamionViajeRow = {
    *  este texto sigue diciendo dónde fue ese viaje. */
   ubicacionNombre: string | null;
   /**
-   * NÚMERO DEL TIQUE (`CDT-000001`). Lo pone la base con un trigger, nunca la
+   * NÚMERO DEL TICKET (`CDT-000001`). Lo pone la base con un trigger, nunca la
    * app: dos listeros registrando en el mismo segundo se llevarían el mismo
    * número si lo calculara el teléfono.
    *
-   * ⚠️ `null` en los 3.384 viajes ANTERIORES a la tiquetera (19-ago al 1-sep) y
+   * ⚠️ `null` en los 3.384 viajes ANTERIORES a la ticketera (19-ago al 1-sep) y
    *    en cualquiera que todavía esté en la cola offline: el folio existe
    *    cuando la fila llega al servidor, no antes. Un viaje sin folio no tiene
-   *    tique que entregar, y la pantalla tiene que decirlo, no inventarlo.
+   *    ticket que entregar, y la pantalla tiene que decirlo, no inventarlo.
    */
   folio: string | null;
   /**
@@ -81,7 +81,7 @@ export type CamionViajeRow = {
    *
    * ⭐ POR QUÉ SE CONGELAN. Antes se resolvían del catálogo cada vez que se
    *    pintaba un reporte. Si mañana alguien le corrige la placa a un camión,
-   *    un tique reimpreso saldría con una placa DISTINTA a la del papel que ya
+   *    un ticket reimpreso saldría con una placa DISTINTA a la del papel que ya
    *    está firmado en el CDT.
    *
    * ⚠️ `null` = resolver del catálogo, que es lo que se hacía siempre. Los
@@ -138,11 +138,11 @@ const SELECT_COLS = 'id, machinery_id, machine_code, fuera_catalogo, camion_ref,
 let hayColumnasDeObra: boolean | null = null;
 
 /**
- * Lo mismo, para las columnas de la TIQUETERA (`05_tiquetera_viajes.sql`).
+ * Lo mismo, para las columnas de la TICKETERA (`05_tiquetera_viajes.sql`).
  *
  * Son DOS interruptores y no uno solo a propósito. Las dos migraciones se
  * corrieron el mismo día, pero en ese orden: hubo —y puede volver a haber, si
- * alguien restaura un respaldo de esa mañana— una base CON obras y SIN tique.
+ * alguien restaura un respaldo de esa mañana— una base CON obras y SIN ticket.
  * Con un interruptor único, esa base perdería también las obras, que sí están.
  */
 let hayColumnasDeTique: boolean | null = null;
@@ -179,7 +179,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
   } catch (e: any) {
     if (!esColumnaQueFalta(e)) throw e;
 
-    // ESCALÓN 1: sin la tiquetera, que es lo más nuevo. La obra puede estar.
+    // ESCALÓN 1: sin la ticketera, que es lo más nuevo. La obra puede estar.
     if (hayColumnasDeTique !== false) {
       try {
         const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}`, filtro);
@@ -204,7 +204,7 @@ export function faltaCorrerSqlDeObras(): boolean {
   return hayColumnasDeObra === false;
 }
 
-/** Lo mismo para la tiquetera: sin esto no hay folio que imprimir. */
+/** Lo mismo para la ticketera: sin esto no hay folio que imprimir. */
 export function faltaCorrerSqlDeTique(): boolean {
   return hayColumnasDeTique === false;
 }
@@ -270,7 +270,7 @@ export async function registrarViaje(params: {
   //    las copia la base al insertar, desde el catálogo y desde la obra, y no se
   //    pueden cambiar después. Son los datos con los que se cobra: no pueden
   //    salir del teléfono. El `origen` sí lo manda la app (solo ella sabe si el
-  //    viaje salió de la cola); va con la tiquetera porque se agregó después.
+  //    viaje salió de la cola); va con la ticketera porque se agregó después.
   const camposTique = {
     placa_snap: params.placa ?? null,
     empresa_snap: params.empresa ?? null,
@@ -286,14 +286,14 @@ export async function registrarViaje(params: {
   // ⚠️ El `client_action_id` es EL MISMO en todos los intentos, así que si uno
   //    llegó a entrar, el siguiente rebota con 23505 y quien llama ya lee eso
   //    como «ese viaje ya estaba». No se puede duplicar por reintentar.
-  const escalones: { cuerpo: Record<string, any>; obra: boolean; tique: boolean }[] = [];
+  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean }[] = [];
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, tique: true });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true });
   }
   if (hayColumnasDeObra !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, tique: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false });
   }
-  escalones.push({ cuerpo: base, obra: false, tique: false });
+  escalones.push({ cuerpo: base, obra: false, ticket: false });
 
   let error: any = null;
   for (const paso of escalones) {
@@ -303,7 +303,7 @@ export async function registrarViaje(params: {
       // Solo se AFIRMA lo que este intento acaba de demostrar. Un escalón que
       // funciona prueba que sus columnas están; no dice nada de las de arriba.
       if (paso.obra) hayColumnasDeObra = true;
-      if (paso.tique) hayColumnasDeTique = true;
+      if (paso.ticket) hayColumnasDeTique = true;
       else if (paso.obra) hayColumnasDeTique = false;
       else { hayColumnasDeObra = false; hayColumnasDeTique = false; }
       return {};

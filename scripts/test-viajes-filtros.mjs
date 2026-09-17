@@ -223,20 +223,20 @@ eq('ocho dias todavia se listan uno por uno',
   et(true, '2026-08-01', '2026-08-08', ['2026-08-01', '2026-08-02', '2026-08-03', '2026-08-04',
     '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08']).startsWith('8 jornadas sueltas: '), true);
 
-// ── BUSCAR POR NÚMERO DE TIQUE (17-sep-2026) ────────────────────────────────
+// ── BUSCAR POR NÚMERO DE TICKET (17-sep-2026) ────────────────────────────────
 // Pedido del cliente: con el número del papel (CDT-000410) llegar al viaje.
 // Lo que duele si se rompe: que buscar un nombre o una placa deje la lista en
 // CERO, o que un número encuentre el viaje equivocado y se cobre o se reimprima
-// un tique que no era.
-eq('puros dígitos es un tique', tiqueBuscado('191'), '191');
+// un ticket que no era.
+eq('puros dígitos es un ticket', tiqueBuscado('191'), '191');
 eq('con ceros también', tiqueBuscado('000191'), '000191');
 eq('el folio entero también', tiqueBuscado('CDT-000191'), 'CDT000191');
 eq('en minúsculas y con espacios', tiqueBuscado(' cdt 000191 '), 'CDT000191');
-eq('* un nombre NO es un tique', tiqueBuscado('ELY'), null);
+eq('* un nombre NO es un ticket', tiqueBuscado('ELY'), null);
 eq('* una placa tampoco', tiqueBuscado('A74AB3P'), null);
 eq('* ni el nombre de un camión', tiqueBuscado('TORONTO'), null);
 eq('vacío no es búsqueda', tiqueBuscado('  '), null);
-eq('«CDT» solo, sin número, no es tique', tiqueBuscado('CDT'), null);
+eq('«CDT» solo, sin número, no es ticket', tiqueBuscado('CDT'), null);
 
 const busca = (q) => tiqueBuscado(q);
 eq('⭐ el número encuentra el folio sin escribir los ceros', coincideTique('CDT-000191', busca('191')), true);
@@ -245,21 +245,21 @@ eq('⭐ y con el folio entero', coincideTique('CDT-000191', busca('cdt-000191'))
 eq('* otro número no coincide', coincideTique('CDT-000191', busca('1910')), false);
 eq('* ni uno parecido', coincideTique('CDT-000191', busca('19')), false);
 eq('un pedazo del folio sí sirve de repuesto', coincideTique('CDT-000410', busca('CDT0004')), true);
-eq('⭐ un viaje SIN tique nunca es el tique buscado', coincideTique(null, busca('191')), false);
+eq('⭐ un viaje SIN ticket nunca es el ticket buscado', coincideTique(null, busca('191')), false);
 eq('sin búsqueda, pasan todos', coincideTique('CDT-000191', null), true);
-eq('...incluidos los que no tienen tique', coincideTique(null, null), true);
+eq('...incluidos los que no tienen ticket', coincideTique(null, null), true);
 
-// La pantalla: la lista obedece al tique, y el buscador de pastillas sigue igual.
+// La pantalla: la lista obedece al ticket, y el buscador de pastillas sigue igual.
 const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-eq('⭐ la lista completa filtra por tique', /pasaFiltros\(clavesDe\(r\), seleccion\) && coincideTique\(r\.folio, busqTique\)/.test(scr), true);
+eq('⭐ la lista completa filtra por ticket', /pasaFiltros\(clavesDe\(r\), seleccion\) && coincideTique\(r\.folio, busqTique\)/.test(scr), true);
 eq('...y se recalcula al escribir', /\[dateScopedRows, seleccion, truckById, busqTique\]/.test(scr), true);
-eq('el buscador dice que también busca tiques', /Buscar por N\.º de tique/.test(scr), true);
+eq('el buscador dice que también busca tickets', /Buscar por N\.º de ticket/.test(scr), true);
 eq('⭐ si no lo encuentra, dice que amplíe el rango', /Amplía el rango de fechas/.test(scr), true);
 const md = fs.readFileSync(path.join(ROOT, 'docs/MANUAL-USUARIO.md'), 'utf8');
-eq('el manual .md lo explica', /Buscar un viaje por su n.mero de tique \(17\/09\/2026/.test(md), true);
+eq('el manual .md lo explica', /Buscar un viaje por su n.mero de ticket \(17\/09\/2026/.test(md), true);
 eq('el manual en pantalla también',
-  /BUSCAR UN VIAJE POR SU N.MERO DE TIQUE \(17\/09\/2026/.test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')), true);
+  /BUSCAR UN VIAJE POR SU N.MERO DE TICKET \(17\/09\/2026/.test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')), true);
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-filtros · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

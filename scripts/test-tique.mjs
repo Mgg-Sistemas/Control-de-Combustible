@@ -1,18 +1,18 @@
 /*
- * Test de la TIQUETERA DE VIAJES (12-sep-2026).
+ * Test de la TICKETERA DE VIAJES (12-sep-2026).
  *
- * Pedido del cliente: que al marcar el viaje se de un tique, que traiga la
+ * Pedido del cliente: que al marcar el viaje se de un ticket, que traiga la
  * PLACA, la EMPRESA y el CDT donde se imprimio, y que quede constancia de los
- * tiques que se entregaron.
+ * tickets que se entregaron.
  *
  * Lo que fija, y por que duele si se rompe:
- *   · el FOLIO no se inventa nunca — un viaje en cola o anterior a la tiquetera
- *     NO tiene tique, y mostrar un numero provisional hace que alguien lo cante
+ *   · el FOLIO no se inventa nunca — un viaje en cola o anterior a la ticketera
+ *     NO tiene ticket, y mostrar un numero provisional hace que alguien lo cante
  *     por radio y despues no exista
  *   · manda LO CONGELADO sobre el catalogo — el papel firmado en el CDT no puede
  *     dejar de coincidir con su reimpresion porque alguien corrigio una ficha
  *   · la placa cae al SERIAL — cuatro camiones de la flota no tienen placa y el
- *     cliente pidio que la placa salga en el tique
+ *     cliente pidio que la placa salga en el ticket
  *   · el insert baja de escalon si falta una columna — si no, entre el
  *     despliegue y el SQL el listero no podria registrar NI UN VIAJE
  *
@@ -93,7 +93,7 @@ eq('un camion con placa congela su placa',
   { placa: 'A31KM7B', empresa: 'GOLDEN TOUCH 1127 CA' });
 
 // Cuatro camiones de la flota no tienen placa cargada (177 viajes entre ellos) y
-// el cliente pidio que la placa salga en el tique. Con el serial el papel sigue
+// el cliente pidio que la placa salga en el ticket. Con el serial el papel sigue
 // identificando la unidad; con una raya no identifica nada.
 eq('sin placa cae al serial',
   datosDelCamion({ plate: null, serial: 'X1111X1111', companyName: 'COSTA BRAVA' }),
@@ -127,7 +127,7 @@ eq('manda lo congelado sobre el catalogo',
 eq('...y tambien con la empresa',
   empresaDeTique({ empresa: 'EMPRESA DE ENTONCES' }, FICHA), 'EMPRESA DE ENTONCES');
 
-// Los viajes anteriores a la tiquetera no congelaron nada: ahi si manda el
+// Los viajes anteriores a la ticketera no congelaron nada: ahi si manda el
 // catalogo, que es lo que se hacia siempre.
 eq('un viaje viejo se resuelve del catalogo', placaDeTique({}, FICHA), 'NUEVA123');
 eq('...y su empresa tambien', empresaDeTique({}, FICHA), 'EMPRESA DE HOY');
@@ -149,7 +149,7 @@ eq('un viaje con folio lo muestra', folioDeTique({ folio: 'CDT-000418' }), 'CDT-
 ok('...y se puede imprimir', tieneTique({ folio: 'CDT-000418' }) === true);
 
 // ⚠️ Un viaje en la cola offline todavia NO llego al servidor, y el folio lo pone
-//    la base. No hay tique que entregar. Si la pantalla mostrara un numero
+//    la base. No hay ticket que entregar. Si la pantalla mostrara un numero
 //    provisional, alguien lo cantaria por radio y despues no existiria.
 eq('un viaje sin folio lo dice, no inventa un numero', folioDeTique({}), SIN_TIQUE);
 eq('...ni con folio vacio', folioDeTique({ folio: '  ' }), SIN_TIQUE);
@@ -179,31 +179,31 @@ ok('...pero si manda la placa y la empresa congeladas',
   /placa_snap: params\.placa \?\? null/.test(lib) && /empresa_snap: params\.empresa \?\? null/.test(lib));
 
 // Las tres columnas nuevas se leen, y con su respaldo por si el SQL no se corrio.
-ok('se piden las columnas del tique', /COLS_TIQUE = 'folio, placa_snap, empresa_snap'/.test(lib));
-ok('hay interruptor propio para la tiquetera', /let hayColumnasDeTique: boolean \| null = null;/.test(lib));
-// Dos interruptores y no uno: hubo una base CON obras y SIN tique, y con un
+ok('se piden las columnas del ticket', /COLS_TIQUE = 'folio, placa_snap, empresa_snap'/.test(lib));
+ok('hay interruptor propio para la ticketera', /let hayColumnasDeTique: boolean \| null = null;/.test(lib));
+// Dos interruptores y no uno: hubo una base CON obras y SIN ticket, y con un
 // interruptor unico esa base perderia tambien las obras, que si estan.
 ok('...separado del de las obras', /let hayColumnasDeObra: boolean \| null = null;/.test(lib));
 ok('la lectura baja un escalon antes de rendirse',
   /selectAllRows\('camion_viajes', `\$\{SELECT_COLS\}, \$\{COLS_OBRA\}`, filtro\)/.test(lib));
-ok('la pantalla puede avisar que falta el SQL del tique', /export function faltaCorrerSqlDeTique/.test(lib));
+ok('la pantalla puede avisar que falta el SQL del ticket', /export function faltaCorrerSqlDeTique/.test(lib));
 
 // Los DOS caminos por los que entra un viaje congelan la placa y la empresa. Si
-// solo lo hiciera uno, la mitad de los tiques saldria sin placa.
+// solo lo hiciera uno, la mitad de los tickets saldria sin placa.
 eq('los dos caminos de registro congelan placa y empresa',
   (scr.match(/\.\.\.datosDelCamion\(/g) || []).length, 2);
 
 // La fila del listero muestra lo que va IMPRESO, no lo que diga el catalogo hoy.
-ok('la fila muestra la placa y la empresa del tique',
+ok('la fila muestra la placa y la empresa del ticket',
   /Placa \$\{placaDeTique\(row, truck\)\} · \$\{empresaDeTique\(row, truck\)\}/.test(scr));
 ok('el folio se ve como pastilla', /tieneTique\(row\) \? <Badge label=\{`🎫 \$\{folioDeTique\(row\)\}`\}/.test(scr));
 // Y NO se ve cuando no existe: es la mitad del guarda anterior, y la que duele.
-ok('...y NO se ve cuando el viaje no tiene tique', /tieneTique\(row\) \?/.test(scr) && !/folioDeTique\(row\) \|\|/.test(scr));
+ok('...y NO se ve cuando el viaje no tiene ticket', /tieneTique\(row\) \?/.test(scr) && !/folioDeTique\(row\) \|\|/.test(scr));
 
 // Un viaje que sigue en la cola no puede llegar con folio a la pantalla.
 ok('los viajes en cola se pintan sin folio', (scr.match(/folio: null,/g) || []).length === 2);
 
-// ── 5) QUE SALE EN EL TIQUE: LA CONFIGURACION ───────────────────────────────
+// ── 5) QUE SALE EN EL TICKET: LA CONFIGURACION ───────────────────────────────
 const {
   CONFIG_POR_DEFECTO, CAMPOS_TIQUE, LOGOS_TIQUE, PAPELES, CAMPO_FIJO,
   normalizarConfig, cambiosRespectoAlDefecto, resumenConfig,
@@ -216,7 +216,7 @@ eq('de fabrica salen encendidos exactamente seis datos',
   ['cdt', 'empresa', 'fecha', 'folio', 'hora', 'placa']);
 eq('y dos logos', Object.keys(CONFIG_POR_DEFECTO.logos).filter((k) => CONFIG_POR_DEFECTO.logos[k]).sort(),
   ['goldenTouch', 'sos']);
-eq('un tique por hoja carta', CONFIG_POR_DEFECTO.papel, 'carta1');
+eq('un ticket por hoja carta', CONFIG_POR_DEFECTO.papel, 'carta1');
 eq('sin tocar nada, cero cambios', cambiosRespectoAlDefecto(CONFIG_POR_DEFECTO), 0);
 
 // La pantalla y el papel tienen que ofrecer lo MISMO: un campo que salga en la
@@ -241,7 +241,7 @@ ok('estan los seis papeles, con rollo y con hoja',
   eq('los logos que no venian toman el de fabrica', vieja.logos.goldenTouch, true);
 }
 
-// ⚠️ EL FOLIO NO SE PUEDE APAGAR. Un tique sin numero no identifica nada y no se
+// ⚠️ EL FOLIO NO SE PUEDE APAGAR. Un ticket sin numero no identifica nada y no se
 //    puede reclamar. Ni desde la pantalla ni escribiendo en la tabla a mano.
 eq('el campo fijo es el folio', CAMPO_FIJO, 'folio');
 eq('apagar el folio en la base no apaga el folio',
@@ -266,7 +266,7 @@ ok('se guarda al tocar Guardar, no a cada clic', /onPress=\{guardar\}/.test(card
 ok('...y avisa mientras hay cambios sin guardar', /Tienes cambios sin guardar/.test(card));
 // ⭐ LA VISTA PREVIA Y EL PAPEL SE ARMAN CON LA MISMA FUNCION. Si fueran dos
 //    listas, el admin marcaria los checks mirando una cosa y saldria impresa
-//    otra, y se daria cuenta cuando ya hubiera entregado doscientos tiques.
+//    otra, y se daria cuenta cuando ya hubiera entregado doscientos tickets.
 ok('la vista previa se arma con el MISMO armador que el papel',
   /renglonesDelTique\(EJEMPLO, config\)/.test(card));
 ok('...y ya no tiene su propia lista de campos',
@@ -293,11 +293,11 @@ ok('...y TODOS son inventados, ninguno de la flota', serialesEscritos.every(seri
 // inventado a mano: si esta linea pasara, la guarda no estaria mirando nada.
 ok('la guarda cazaria uno con forma de serial de verdad', !serialInventado('Q9876Z5432'));
 ok('el folio se ve pero no se deja tocar', /c\.k === CAMPO_FIJO \?/.test(card));
-ok('avisa si falta correr el SQL', /Falta correr el SQL de la tiquetera/.test(card));
+ok('avisa si falta correr el SQL', /Falta correr el SQL de la ticketera/.test(card));
 ok('y ahi el boton de guardar se apaga', /disabled=\{!sucio \|\| ocupado \|\| sinTabla\}/.test(card));
 ok('la tarjeta esta montada en el panel', /<TiqueConfigCard uid=\{uid\}/.test(scr));
 // ⚠️ Al cambiar el formato, la pantalla que IMPRIME tiene que enterarse. Sin
-//    este aviso el primer tique despues de guardar sale con el formato viejo y
+//    este aviso el primer ticket despues de guardar sale con el formato viejo y
 //    parece que el guardado no funciono.
 ok('...y le avisa a la pantalla cuando se guarda',
   /<TiqueConfigCard uid=\{uid\} onGuardado=\{setConfigTique\} \/>/.test(scr));
@@ -308,7 +308,7 @@ ok('la tarjeta llama a onGuardado despues de guardar bien',
 //    Si tiqueConfig.ts importara supabase, esta prueba no podria correrlo y las
 //    reglas del papel se quedarian sin red.
 const libConfig = leer('src/lib/tiqueConfig.ts');
-ok('las reglas del tique NO importan nada', !/^\s*import\s/m.test(sinComentarios(libConfig)));
+ok('las reglas del ticket NO importan nada', !/^\s*import\s/m.test(sinComentarios(libConfig)));
 const datosConfig = sinComentarios(leer('src/lib/tiqueConfigDatos.ts'));
 ok('el acceso a datos solo conoce su tabla', /const TABLA = 'tique_config'/.test(datosConfig));
 ok('...y no escribe en camion_viajes ni en machinery',
@@ -354,7 +354,7 @@ const ENCENDIDO = (k) => cfg({ campos: { ...CONFIG_POR_DEFECTO.campos, [k]: true
 // Los seis de fabrica, en el orden en que estan en CAMPOS_TIQUE.
 eq('el papel de fabrica trae los seis campos que pidio el cliente',
   renglonesDelTique(DATOS, CONFIG_POR_DEFECTO).map((r) => r.k),
-  ['Tique', 'Fecha', 'Hora', 'Placa', 'Empresa', 'CDT']);
+  ['Ticket', 'Fecha', 'Hora', 'Placa', 'Empresa', 'CDT']);
 
 // Apagar un check tiene que quitar el renglon del PAPEL, no solo de la pantalla.
 ok('apagar la placa la saca del papel',
@@ -363,25 +363,25 @@ ok('apagar la placa la saca del papel',
 //    impide normalizarConfig, que es por donde pasa TODA config antes de
 //    llegar al papel: la lee de la base y la vuelve a limpiar al guardarla.
 ok('el folio no se puede apagar ni desde la BD',
-  renglonesDelTique(DATOS, APAGADO('folio'))[0].k === 'Tique');
+  renglonesDelTique(DATOS, APAGADO('folio'))[0].k === 'Ticket');
 ok('...y lo que lo impide es normalizarConfig, no el papel',
   normalizarConfig({ campos: { folio: false } }).campos.folio === true);
 
 // ⚠️ UNA CLAVE QUE NO EXISTE ES UN CAMPO APAGADO, no uno encendido.
 //    Una fila guardada ANTES de que se agregara un campo no trae esa clave. Si
 //    el papel la tratara como encendida, el dia que se agregue el campo 17
-//    todos los tiques ya configurados empezarian a sacar un renglon nuevo con
+//    todos los tickets ya configurados empezarian a sacar un renglon nuevo con
 //    una raya, sin que nadie lo haya pedido. Es el caso normal, no el raro.
 eq('una clave que falta no saca renglon',
   renglonesDelTique(DATOS, { campos: { folio: true }, logos: {}, papel: 'carta1' }).map((r) => r.k),
-  ['Tique']);
+  ['Ticket']);
 
 // Encender la jornada la trae al papel: es lo que el cliente pidio agregar.
 ok('la jornada se puede encender',
   renglonesDelTique(DATOS, ENCENDIDO('jornada')).some((r) => r.k === 'Jornada'));
 
 // ⚠️ UN CAMPO ENCENDIDO SIN DATO SALE CON RAYA, NO DESAPARECE. Con 2, 4 o 6
-//    tiques por hoja los recuadros tienen que medir todos igual, o las lineas
+//    tickets por hoja los recuadros tienen que medir todos igual, o las lineas
 //    de corte dejan de cuadrar entre columnas.
 eq('un campo encendido sin dato sale con raya',
   renglonesDelTique({ folio: 'CDT-1' }, CONFIG_POR_DEFECTO).map((r) => r.v),
@@ -390,11 +390,11 @@ eq('...y un dato en blanco tambien',
   renglonesDelTique({ folio: 'X', fecha: '   ' }, CONFIG_POR_DEFECTO)[1].v, SIN_DATO_PAPEL);
 
 // La cantidad de renglones NO cambia con los datos: solo con la configuracion.
-ok('todos los tiques miden lo mismo aunque falten datos',
+ok('todos los tickets miden lo mismo aunque falten datos',
   renglonesDelTique({}, CONFIG_POR_DEFECTO).length === renglonesDelTique(DATOS, CONFIG_POR_DEFECTO).length);
 
 // ⭐ LA NOTA Y EL CHOFER LOS ESCRIBE UNA PERSONA EN UN TELEFONO. Un '<' suelto
-//    rompe el documento callado y el tique sale a medias o en blanco, y eso no
+//    rompe el documento callado y el ticket sale a medias o en blanco, y eso no
 //    se nota hasta que ya se entrego.
 eq('escapa los cinco de siempre',
   escapar('<b>&"' + String.fromCharCode(39)), '&lt;b&gt;&amp;&quot;&#39;');
@@ -423,56 +423,56 @@ const URIS = { sos: 'data:image/png;base64,AAA', goldenTouch: 'data:image/png;ba
 const conLogos = htmlDeUnTique({ datos: DATOS }, CONFIG_POR_DEFECTO, URIS);
 ok('salen los logos encendidos', (conLogos.match(/<img /g) || []).length === 2);
 ok('no sale el que esta apagado', !/CCC/.test(conLogos));
-// ⚠️ Un cuadrito con una cruz en un tique oficial hace dudar del tique entero.
+// ⚠️ Un cuadrito con una cruz en un ticket oficial hace dudar del ticket entero.
 ok('un logo encendido sin archivo NO deja un icono roto',
   !/<img /.test(htmlDeUnTique({ datos: DATOS }, CONFIG_POR_DEFECTO, {})));
 ok('...y si no hay ninguno, tampoco queda el hueco',
   !/class="logos"/.test(htmlDeUnTique({ datos: DATOS }, CONFIG_POR_DEFECTO, {})));
 
 // ── El papel y cuantos entran ──
-eq('rollo: un tique por corte', enHojas([1, 2, 3], 'rollo80').length, 3);
+eq('rollo: un ticket por corte', enHojas([1, 2, 3], 'rollo80').length, 3);
 eq('carta1: una hoja cada uno', enHojas([1, 2, 3], 'carta1').length, 3);
 eq('carta2: dos por hoja', enHojas([1, 2, 3], 'carta2'), [[1, 2], [3]]);
 eq('carta4: cuatro por hoja', enHojas([1, 2, 3, 4, 5], 'carta4'), [[1, 2, 3, 4], [5]]);
 eq('carta6: seis por hoja', enHojas([1, 2, 3, 4, 5, 6, 7], 'carta6'), [[1, 2, 3, 4, 5, 6], [7]]);
-eq('sin tiques no hay hojas', enHojas([], 'carta6'), []);
+eq('sin tickets no hay hojas', enHojas([], 'carta6'), []);
 
 // Se le dice ANTES de mandar: nadie quiere enterarse de que eran 60 hojas
 // cuando ya estan saliendo.
-eq('20 tiques de 6 por hoja son 4 hojas', hojasQueSalen(20, 'carta6'), 4);
-eq('12 tiques de 6 por hoja son 2 hojas justas', hojasQueSalen(12, 'carta6'), 2);
+eq('20 tickets de 6 por hoja son 4 hojas', hojasQueSalen(20, 'carta6'), 4);
+eq('12 tickets de 6 por hoja son 2 hojas justas', hojasQueSalen(12, 'carta6'), 2);
 eq('ninguno son cero hojas', hojasQueSalen(0, 'carta2'), 0);
 eq('uno solo es una hoja', hojasQueSalen(1, 'carta6'), 1);
 
-// «Lo saco la tiquetera en el momento» y «lo sacaron en hoja para repartir
+// «Lo saco la ticketera en el momento» y «lo sacaron en hoja para repartir
 // despues» son dos formas distintas de entregar, y hay que poder distinguirlas.
-eq('el rollo se anota como tiquetera', medioDeImpresion('rollo58'), 'tiquetera');
+eq('el rollo se anota como ticketera', medioDeImpresion('rollo58'), 'ticketera');
 eq('la carta se anota como hoja', medioDeImpresion('carta4'), 'hoja');
 
 // Las opciones que pidio el cliente siguen existiendo.
 ok('estan los seis papeles', Object.keys(MEDIDAS).length === 6);
-ok('los rollos no tienen alto fijo: el tique termina donde termina',
+ok('los rollos no tienen alto fijo: el ticket termina donde termina',
   MEDIDAS.rollo80.altoMm === null && MEDIDAS.rollo58.altoMm === null);
 ok('las hojas si, para que las lineas de corte cuadren',
   MEDIDAS.carta4.altoMm > 0 && MEDIDAS.carta6.altoMm > 0);
 // El ancho del rollo es el papel MENOS los margenes: con el ancho completo la
-// tiquetera come el borde derecho de cada renglon.
+// ticketera come el borde derecho de cada renglon.
 ok('el ancho del rollo descuenta los margenes',
   MEDIDAS.rollo80.anchoMm < 80 && MEDIDAS.rollo58.anchoMm < 58);
 
 // ── El documento entero ──
 const tres = [{ datos: DATOS }, { datos: { ...DATOS, folio: 'CDT-2' } }, { datos: { ...DATOS, folio: 'CDT-3' } }];
 const docCarta2 = documentoDeTiques(tres, cfg({ papel: 'carta2' }), URIS);
-eq('tres tiques de dos por hoja son dos hojas', (docCarta2.match(/class="hoja"/g) || []).length, 2);
-eq('...y los tres tiques estan', (docCarta2.match(/class="tq"/g) || []).length, 3);
+eq('tres tickets de dos por hoja son dos hojas', (docCarta2.match(/class="hoja"/g) || []).length, 2);
+eq('...y los tres tickets estan', (docCarta2.match(/class="tq"/g) || []).length, 3);
 ok('el documento es uno solo', (docCarta2.match(/<html>/g) || []).length === 1);
 // El titulo vacio evita que el navegador imprima su propio encabezado arriba.
 ok('el titulo va vacio', /<title><\/title>/.test(docCarta2));
 
 // ⚠️ UN SOLO TAMANO DE PAPEL POR DOCUMENTO: @page no se puede cambiar a mitad.
 // ⚠️ LA PAGINA DEL ROLLO TIENE QUE SER CSS VALIDO. Estaba `size:58mm auto`, que NO
-//    lo es: Chromium descarta la regla entera y arma el tique en una hoja CARTA.
-//    RawBT despues achica esa hoja completa a los 48 mm que pinta la tiquetera, la
+//    lo es: Chromium descarta la regla entera y arma el ticket en una hoja CARTA.
+//    RawBT despues achica esa hoja completa a los 48 mm que pinta la ticketera, la
 //    letra queda tan chica que el cabezal no la marca, y salian HOJAS EN BLANCO.
 //    Lo reporto el usuario el 12-sep-2026 con una MHT-P11 desde el telefono. Se
 //    comprobo imprimiendo a PDF: con la regla vieja la hoja media 216 x 279 mm.
@@ -484,7 +484,7 @@ ok('el rollo de 80 pide una pagina VALIDA de 80mm de ancho', paginaValida(p80) &
 ok('el rollo de 58 pide una pagina VALIDA de 58mm de ancho', paginaValida(p58) && p58.startsWith('58mm '));
 ok('ninguna regla de pagina usa auto', !/size:[^;]*auto/.test(documentoDeTiques(tres, cfg({ papel: 'rollo58' }), {})));
 
-// El ALTO sale del calculo del tique. Si fuera un numero fijo, un tique con los 16
+// El ALTO sale del calculo del ticket. Si fuera un numero fijo, un ticket con los 16
 // datos no cabria en su pagina y el navegador lo partiria en dos cortes de papel.
 const { altoDelTique: altoCalc, tamanoQueEntra: tamCalc } = cargar('src/lib/tiqueDocumento.ts');
 const todos58 = normalizarConfig({
@@ -495,13 +495,13 @@ const altoDe = (v) => Number((v.match(/ (\d+(?:\.\d+)?)mm$/) || [])[1]);
 const altoPocos = altoDe(p58);
 const altoMuchos = altoDe(pageDe(documentoDeTiques(tres, todos58, {})));
 ok('con mas datos la pagina del rollo es mas larga', altoMuchos > altoPocos);
-ok('...y alcanza para el tique calculado mas los margenes',
+ok('...y alcanza para el ticket calculado mas los margenes',
   altoMuchos >= altoCalc(tamCalc('rollo58', 16, { logos: false }).pt, 16, { logos: false, reimpresion: false, rollo: true }) + 6);
 
 // ⚠️ EN EL ROLLO LOS VALORES LARGOS SE PARTEN EN DOS LINEAS, y eso tambien ocupa papel.
 //    Se midio en el navegador (12-sep-2026): la columna del valor mide 30 mm en el rollo
 //    de 58, y «EMPRESA DE PRUEBA» ya no cabe en una linea. Con los 16 datos, cuatro
-//    renglones se partian, el tique media 172,5 mm contra 163 de pagina, y salia en DOS
+//    renglones se partian, el ticket media 172,5 mm contra 163 de pagina, y salia en DOS
 //    cortes. Con los 6 de fabrica cabia por 3 mm, y solo porque el nombre era corto: un
 //    CDT real como «CDT Parque del Agua» tambien se parte.
 const { lineasDelValor } = cargar('src/lib/tiqueDocumento.ts');
@@ -523,9 +523,9 @@ const altoPaginaDe = (datos) => altoDe(pageDe(documentoDeTiques([{ datos }], tod
 ok('los valores largos alargan la pagina del rollo lo que ocupan de verdad',
   altoPaginaDe(largos) - altoPaginaDe(cortos) >= 4 * 10 * 1.35 * 25.4 / 72 - 1);
 // En un mandado la pagina es UNA para todos: tiene que alcanzar para el mas largo.
-ok('en un mandado la pagina alcanza para el tique mas largo',
+ok('en un mandado la pagina alcanza para el ticket mas largo',
   altoDe(pageDe(documentoDeTiques([{ datos: cortos }, { datos: largos }], todos58, {}))) >= altoPaginaDe(largos));
-ok('el alto del rollo mira los DATOS de los tiques, no solo cuantos renglones hay',
+ok('el alto del rollo mira los DATOS de los tickets, no solo cuantos renglones hay',
   /lineasExtra/.test(docSinComentarios) && /lineasDelValor\(/.test(docSinComentarios));
 // La columna que usa la cuenta es la MISMA que dibuja el CSS: si se separan, miente.
 // Se recorta SOLO el cuerpo de cssComun y, dentro, SOLO la regla de la etiqueta. Mirar
@@ -543,8 +543,8 @@ ok('solo hay UNA regla @page', (documentoDeTiques(tres, cfg({ papel: 'carta4' })
 ok('la hoja lleva linea de corte', /border:1px dashed/.test(documentoDeTiques(tres, cfg({ papel: 'carta4' }), {})));
 ok('el rollo no', !/border:1px dashed/.test(documentoDeTiques(tres, cfg({ papel: 'rollo80' }), {})));
 
-eq('un tique suelto lleva su numero en el archivo', nombreArchivoTiques([{ datos: DATOS }]), 'tique-CDT-000418');
-eq('un mandado lleva cuantos son', nombreArchivoTiques(tres), 'tiques-3');
+eq('un ticket suelto lleva su numero en el archivo', nombreArchivoTiques([{ datos: DATOS }]), 'ticket-CDT-000418');
+eq('un mandado lleva cuantos son', nombreArchivoTiques(tres), 'tickets-3');
 
 // ── 9) GUARDAS SOBRE EL PAPEL Y LA CONSTANCIA ───────────────────────────────
 const libDoc = leer('src/lib/tiqueDocumento.ts');
@@ -580,7 +580,7 @@ ok('sin tabla no se aparta nada en el telefono',
 
 // ── 8b) QUE NO SE CORTE EL PAPEL ────────────────────────────────────────────
 //
-// ⭐ ESTA SECCION EXISTE POR UN TIQUE CORTADO DE VERDAD. Con los 16 datos
+// ⭐ ESTA SECCION EXISTE POR UN TICKET CORTADO DE VERDAD. Con los 16 datos
 //    encendidos y 4 por hoja, el recuadro se llenaba y el navegador se comia lo
 //    que sobraba: se perdian el estado, la nota Y la linea de la firma. Se veia
 //    mirando el papel; ninguna prueba de texto lo iba a ver. Ahora la letra se
@@ -608,14 +608,14 @@ ok('los logos tambien',
   altoDelTique(10, 10, { logos: true, reimpresion: false, rollo: false })
   > altoDelTique(10, 10, { logos: false, reimpresion: false, rollo: false }));
 
-// En rollo no hay fondo de hoja: el tique termina donde termina, asi que no se
+// En rollo no hay fondo de hoja: el ticket termina donde termina, asi que no se
 // achica nada y va el tamano comodo.
 eq('en rollo no hace falta achicar', tamanoQueEntra('rollo80', 16, { logos: true }).pt, PT_MAXIMO);
 ok('...y siempre entra', tamanoQueEntra('rollo58', 16, { logos: true }).entra === true);
 
 // ⭐ LO QUE ARREGLA EL BUG: con todo encendido y 4 por hoja tiene que entrar.
 const c4 = tamanoQueEntra('carta4', 16, { logos: true, reimpresion: true });
-ok('con los 16 datos y 4 por hoja el tique ENTRA', c4.entra === true);
+ok('con los 16 datos y 4 por hoja el ticket ENTRA', c4.entra === true);
 ok('...achicando la letra, no cortando', c4.pt < PT_MAXIMO && c4.pt >= PT_MINIMO);
 // El alto calculado con ese tamano tiene que caber de verdad en el recuadro.
 ok('y el calculo cuadra con la medida del recuadro',
@@ -639,8 +639,8 @@ ok('...y dice cuantos datos son', /16 dato/.test(avisa));
 // La pregunta que viene enseguida es «entonces cual uso»: se contesta sola.
 ok('...y en que papel si caben', /4 por hoja/.test(avisa));
 
-// El documento elige el tamano para el PEOR tique del mandado: con un tamano por
-// tique, dos papeles de la misma hoja saldrian con letras distintas.
+// El documento elige el tamano para el PEOR ticket del mandado: con un tamano por
+// ticket, dos papeles de la misma hoja saldrian con letras distintas.
 const conRei = documentoDeTiques(
   [{ datos: DATOS }, { datos: DATOS, reimpresion: true }],
   normalizarConfig({ ...TODOS, papel: 'carta2' }), {});
@@ -649,7 +649,7 @@ const sinRei = documentoDeTiques(
   normalizarConfig({ ...TODOS, papel: 'carta2' }), {});
 const ptDe = (html) => Number((html.match(/font-size:([\d.]+)pt;line-height/) || [])[1]);
 ok('una reimpresion en el mandado achica TODO el mandado', ptDe(conRei) < ptDe(sinRei));
-ok('...y los dos tiques de la hoja llevan el mismo tamano',
+ok('...y los dos tickets de la hoja llevan el mismo tamano',
   (conRei.match(/font-size:[\d.]+pt;line-height/g) || []).length === 1);
 
 // Guardas sobre el codigo del papel.
@@ -672,7 +672,7 @@ const scrSC = sinComentarios(scr);
 
 // ⭐ EL GUARDA MAS IMPORTANTE DE LA SECCION. Primero se imprime; SOLO si el
 //    usuario confirmo en la vista previa se guarda la constancia. Al reves,
-//    quedaria anotado como entregado un tique que se cancelo, y ese registro es
+//    quedaria anotado como entregado un ticket que se cancelo, y ese registro es
 //    la unica prueba de que papel salio.
 const cuerpoImprimir = scrSC.slice(
   scrSC.indexOf('const imprimirTiques = async'),
@@ -706,7 +706,7 @@ ok('y lo que ya salio se marca como reimpresion en el papel',
   /reimpresion: \(cuenta\.porFolio\.get\(folioDeTique\(r\)\) \?\? 0\) > 0/.test(cuerpoImprimir));
 ok('se le avisa ANTES de mandar', /REIMPRESI/.test(cuerpoImprimir));
 
-// Un viaje en cola no tiene folio: no hay tique que entregar.
+// Un viaje en cola no tiene folio: no hay ticket que entregar.
 ok('no se imprime lo que todavia no subio', /tieneTique\(r\) && !r\.queued/.test(cuerpoImprimir));
 // Un mandado, un numero de lote: los que salieron juntos se encuentran juntos.
 ok('todos los del mandado comparten lote', /const loteId = nuevoUuid\(\);/.test(cuerpoImprimir));
@@ -724,13 +724,13 @@ ok('...y suben solas al volver la senal',
   /onConnectivityChange\(\(online\) => \{ if \(online\) intentar\(\); \}\)/.test(scrSC));
 
 // El boton va en la fila del viaje: se marca, se imprime, se entrega.
-ok('cada viaje con tique tiene su boton de imprimir',
+ok('cada viaje con ticket tiene su boton de imprimir',
   /onPress=\{\(\) => imprimirTiques\(\[row\], 'uno'\)\}/.test(scrSC));
 // ⚠️ Sale para todo el que vea la fila, no solo para quien puede editar: el
 //    listero del CDT es justamente quien entrega y no puede corregir nada.
 ok('el boton NO depende del permiso de editar ni de borrar',
   /\{tieneTique\(row\) && !row\.queued \?/.test(scrSC));
-ok('y dice si es reimpresion', /Reimprimir tique/.test(scrSC));
+ok('y dice si es reimpresion', /Reimprimir ticket/.test(scrSC));
 // La segunda forma que pidio el cliente: un mandado entero para repartir.
 ok('se puede imprimir la lista completa de una',
   /onPress=\{\(\) => imprimirTiques\(tiquesDeLaLista, 'lote'\)\}/.test(scrSC));
@@ -747,41 +747,41 @@ ok('...y por encima del tope no se consulta',
 ok('sin medir no se pinta la marca',
   /foliosMedidos\.has\(f\) \? \(emisionesPorFolio\.get\(f\) \?\? 0\) : null/.test(scrSC));
 
-// Los logos van incrustados: en la tiquetera del CDT puede no haber internet.
+// Los logos van incrustados: en la ticketera del CDT puede no haber internet.
 ok('los logos van incrustados, no por URL',
   /sos: LOGO_DATA_URI/.test(scrSC) && !/https?:\/\/[^\s'"]*logo/i.test(scrSC));
 
 // ── 7) EL MANUAL CUENTA LO MISMO ────────────────────────────────────────────
 const md = leer('docs/MANUAL-USUARIO.md');
 const ms = leer('src/screens/ManualScreen.tsx');
-ok('el manual .md explica el numero de tique', /Cada viaje tiene su número de tique \(12\/09\/2026\)/.test(md));
+ok('el manual .md explica el numero de ticket', /Cada viaje tiene su número de ticket \(12\/09\/2026\)/.test(md));
 ok('...y avisa que sin senal no hay numero', /Un viaje sin señal NO tiene número todavía/i.test(md));
 ok('...y que los viajes viejos no se numeran', /no tienen número, y no se les va a poner/i.test(md));
-ok('el manual en pantalla tambien lo explica', /CADA VIAJE TIENE SU NÚMERO DE TIQUE \(12\/09\/2026\)/.test(ms));
+ok('el manual en pantalla tambien lo explica', /CADA VIAJE TIENE SU NÚMERO DE TICKET \(12\/09\/2026\)/.test(ms));
 ok('...y dice que la placa y la empresa quedan congeladas', /LA PLACA Y LA EMPRESA QUEDAN CONGELADAS EN EL VIAJE/.test(ms));
-ok('el manual .md explica el configurador', /Tú decides qué sale en el tique \(12\/09\/2026\)/.test(md));
-ok('...y avisa que el folio no se quita', /El número del tique no se puede quitar/i.test(md));
+ok('el manual .md explica el configurador', /Tú decides qué sale en el ticket \(12\/09\/2026\)/.test(md));
+ok('...y avisa que el folio no se quita', /El número del ticket no se puede quitar/i.test(md));
 ok('...y que vale para todos, no por telefono', /No es una preferencia de tu teléfono/i.test(md));
 ok('el manual .md explica el borrado desde Mis viajes', /Borrar un viaje desde «Mis viajes» \(12\/09\/2026\)/.test(md));
 ok('...y que para el listero sigue apagado', /Para el listero sigue apagado/i.test(md));
-ok('el manual en pantalla explica el configurador', /TÚ DECIDES QUÉ SALE EN EL TIQUE \(12\/09\/2026\)/.test(ms));
+ok('el manual en pantalla explica el configurador', /TÚ DECIDES QUÉ SALE EN EL TICKET \(12\/09\/2026\)/.test(ms));
 ok('...y el borrado', /BORRAR UN VIAJE DESDE "MIS VIAJES" \(12\/09\/2026\)/.test(ms));
 
 // El manual tiene que contar lo que se puede hacer HOY, no lo que se podra.
-ok('el manual .md explica como imprimir el tique', /Imprimir el tique y entregarlo \(12\/09\/2026\)/.test(md));
+ok('el manual .md explica como imprimir el ticket', /Imprimir el ticket y entregarlo \(12\/09\/2026\)/.test(md));
 ok('...y las dos formas que pidio el cliente',
-  /Uno por uno, en el momento/.test(md) && /Toda la tiquetera de una/.test(md));
+  /Uno por uno, en el momento/.test(md) && /Toda la ticketera de una/.test(md));
 ok('...y que la reimpresion sale marcada', /sale marcado como REIMPRESI/.test(md));
 ok('...y que sin senal el papel sale igual', /Sin señal el papel sale igual/.test(md));
 ok('...y que si cancela no se anota nada', /Si cancelas la vista previa no se anota nada/.test(md));
 ok('el manual .md explica que la letra se achica sola', /el sistema achica la letra \(12\/09\/2026\)/.test(md));
-ok('el manual en pantalla explica como imprimir', /IMPRIMIR EL TIQUE Y ENTREGARLO \(12\/09\/2026\)/.test(ms));
+ok('el manual en pantalla explica como imprimir', /IMPRIMIR EL TICKET Y ENTREGARLO \(12\/09\/2026\)/.test(ms));
 ok('...y que el CDT que se guarda es el de quien imprime', /EL DE QUIEN IMPRIME/.test(ms));
 ok('el manual en pantalla explica lo de la letra', /ACHICA LA LETRA \(12\/09\/2026\)/.test(ms));
-ok('el manual .md explica como imprimir desde el telefono', /Imprimir desde el teléfono con una tiquetera Bluetooth \(12\/09\/2026\)/.test(md));
+ok('el manual .md explica como imprimir desde el telefono', /Imprimir desde el teléfono con una ticketera Bluetooth \(12\/09\/2026\)/.test(md));
 ok('...y que hace falta RawBT', /app puente, \*\*RawBT\*\*/.test(md));
 ok('...y que las hojas en blanco eran del sistema', /hojas en blanco, era un error del sistema/.test(md));
-ok('el manual en pantalla tambien', /IMPRIMIR DESDE EL TELÉFONO CON UNA TIQUETERA BLUETOOTH \(12\/09\/2026\)/.test(ms));
+ok('el manual en pantalla tambien', /IMPRIMIR DESDE EL TELÉFONO CON UNA TICKETERA BLUETOOTH \(12\/09\/2026\)/.test(ms));
 
-console.log(`\n${fail === 0 ? '✅' : '❌'} test-tique · ${pass} ok · ${fail} fallando`);
+console.log(`\n${fail === 0 ? '✅' : '❌'} test-ticket · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

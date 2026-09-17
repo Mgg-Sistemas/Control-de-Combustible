@@ -110,10 +110,10 @@ import { QueuedViaje, QuarantinedViaje, subscribeViajesQueue, subscribeViajesQua
 import { accionTrasFalloConSenal, motivoLegible } from '../lib/colaOfflinePolicy';
 
 /**
- * LOS CUATRO LOGOS QUE PUEDE LLEVAR EL TIQUE, ya incrustados como data URI.
+ * LOS CUATRO LOGOS QUE PUEDE LLEVAR EL TICKET, ya incrustados como data URI.
  *
  * ⚠️ TIENEN QUE IR INCRUSTADOS, NO POR URL. El documento se imprime dentro de un
- *    iframe sin red propia, y en la tiquetera del CDT puede no haber internet;
+ *    iframe sin red propia, y en la ticketera del CDT puede no haber internet;
  *    una imagen por URL saldría como un hueco justo en el encabezado del papel
  *    oficial. Ninguno agranda el paquete: los cuatro ya venían con los reportes
  *    de esta misma pantalla.
@@ -125,7 +125,7 @@ const LOGOS_DEL_TIQUE = {
   bcv: BCV_LOGO_DATA_URI,
 };
 
-/** Cuántos tiques como máximo se le piden a la base de una sentada para saber
+/** Cuántos tickets como máximo se le piden a la base de una sentada para saber
  *  cuáles ya se entregaron. Por encima de esto la lista es de un mes entero y
  *  la consulta no vale lo que cuesta: la marca se resuelve igual al imprimir,
  *  que es el momento en que de verdad importa. Ver `emisionesPorFolio`. */
@@ -913,7 +913,7 @@ export default function ViajesCamionesScreen() {
       ubicacionId: q.payload.ubicacionId ?? null,
       ubicacionNombre: q.payload.ubicacionNombre ?? null,
       // ⚠️ SIN FOLIO, y no es un olvido: el numero lo pone la base cuando la fila
-      //    llega al servidor. Un viaje que todavia esta en la cola NO tiene tique
+      //    llega al servidor. Un viaje que todavia esta en la cola NO tiene ticket
       //    que entregar, y la pantalla lo dice en vez de inventar un numero.
       folio: null,
       placa: q.payload.placa ?? null,
@@ -1083,8 +1083,8 @@ export default function ViajesCamionesScreen() {
         //    dejaría de cuadrar. Se graban las dos cosas —id y nombre— porque el
         //    nombre sobrevive a que la obra se borre del catálogo.
         ...obraParaGrabar(miObraId, obras),
-        // ⭐ Y LA PLACA Y LA EMPRESA POR LO MISMO (12-sep-2026, la tiquetera). El
-        //    tique impreso queda firmado en el CDT con esa placa; si el reporte
+        // ⭐ Y LA PLACA Y LA EMPRESA POR LO MISMO (12-sep-2026, la ticketera). El
+        //    ticket impreso queda firmado en el CDT con esa placa; si el reporte
         //    la resolviera del catálogo, corregirle la placa al camión mañana
         //    haría que una reimpresión no coincida con el papel firmado.
         //    Un camión fuera de catálogo no tiene ficha: ahí la seña que anotó
@@ -2090,8 +2090,8 @@ export default function ViajesCamionesScreen() {
     [ubicacionOptions, busqFiltros, filterUbicacionSel]
   );
 
-  // ⭐ BUSCAR POR NÚMERO DE TIQUE (17-sep-2026). Lo escrito en el buscador recorta
-  //    la lista SOLO si parece un tique (dígitos o CDT-…); ver `tiqueBuscado`. Si no,
+  // ⭐ BUSCAR POR NÚMERO DE TICKET (17-sep-2026). Lo escrito en el buscador recorta
+  //    la lista SOLO si parece un ticket (dígitos o CDT-…); ver `tiqueBuscado`. Si no,
   //    sigue haciendo lo de siempre: esconder pastillas que no coinciden.
   const busqTique = useMemo(() => tiqueBuscado(busqFiltros), [busqFiltros]);
   const filteredRangeRows = useMemo(
@@ -2580,7 +2580,7 @@ export default function ViajesCamionesScreen() {
   }
 
   // ── Fila de viaje (reutilizada por "Mis viajes de hoy" y "Lista completa"). ─
-  // ══ TIQUETERA: IMPRIMIR Y ENTREGAR ═══════════════════════════════════════
+  // ══ TICKETERA: IMPRIMIR Y ENTREGAR ═══════════════════════════════════════
   //
   // Pedido del cliente: «cuando marcan el viaje, deben dar el ticket, y debe
   // guardarse tanto lo que marcaron, como los ticket que en teoría imprimieron
@@ -2599,7 +2599,7 @@ export default function ViajesCamionesScreen() {
    *  el número: son papeles entregados que la oficina todavía no ve. */
   const [tiquesPendientes, setTiquesPendientes] = useState(0);
   const [imprimiendo, setImprimiendo] = useState(false);
-  /** De qué tique se está mirando el historial de entregas. Null = ventana cerrada.
+  /** De qué ticket se está mirando el historial de entregas. Null = ventana cerrada.
    *  Pedido del cliente (14-sep-2026): tocar «entregado ×7» y ver quién y cuándo. */
   const [historialFolio, setHistorialFolio] = useState<string | null>(null);
 
@@ -2615,7 +2615,7 @@ export default function ViajesCamionesScreen() {
 
   // Sube lo que quedó esperando señal: al entrar y cada vez que vuelva la
   // conexión. Sin esto, una constancia apartada en el teléfono se quedaría ahí
-  // hasta que alguien imprimiera otro tique.
+  // hasta que alguien imprimiera otro ticket.
   useEffect(() => {
     let vivo = true;
     const intentar = () => {
@@ -2679,7 +2679,7 @@ export default function ViajesCamionesScreen() {
     [filteredRangeRows],
   );
 
-  /** ¿Cuántas veces salió este tique? `null` = no se preguntó (lista muy grande). */
+  /** ¿Cuántas veces salió este ticket? `null` = no se preguntó (lista muy grande). */
   const vecesImpreso = (row: DisplayViaje): number | null => {
     if (!tieneTique(row)) return null;
     const f = folioDeTique(row);
@@ -2730,12 +2730,12 @@ export default function ViajesCamionesScreen() {
    *
    * ⚠️ EL ORDEN NO SE PUEDE INVERTIR: primero se imprime, y SOLO si el usuario
    *    confirmó en la vista previa se guarda la constancia. Guardar antes
-   *    dejaría anotado como entregado un tique que se canceló, y ese registro
+   *    dejaría anotado como entregado un ticket que se canceló, y ese registro
    *    es la única prueba que va a haber de qué papel salió.
    *
    * ⚠️ Y AL REVÉS TAMBIÉN IMPORTA: si el papel salió y el guardado falla, la
    *    constancia NO se descarta —se aparta en el teléfono y sube sola— porque
-   *    el camionero ya tiene su tique en la mano.
+   *    el camionero ya tiene su ticket en la mano.
    */
   const imprimirTiques = async (rows: DisplayViaje[], origen: 'uno' | 'lote') => {
     if (imprimiendo) return;
@@ -2744,13 +2744,13 @@ export default function ViajesCamionesScreen() {
     if (conTique.length === 0) {
       toast.error(
         rows.length === 1
-          ? 'Ese viaje todavía no tiene número de tique. Los que están en la cola reciben su número cuando suben.'
-          : 'Ninguno de esos viajes tiene número de tique todavía.',
+          ? 'Ese viaje todavía no tiene número de ticket. Los que están en la cola reciben su número cuando suben.'
+          : 'Ninguno de esos viajes tiene número de ticket todavía.',
       );
       return;
     }
     if (sinTablaTique) {
-      toast.error('Falta correr el SQL de la tiquetera. Se podría imprimir, pero la entrega no quedaría guardada.');
+      toast.error('Falta correr el SQL de la ticketera. Se podría imprimir, pero la entrega no quedaría guardada.');
       return;
     }
 
@@ -2763,7 +2763,7 @@ export default function ViajesCamionesScreen() {
       const cuenta = await contarEmisionesPorFolio(folios);
       if (cuenta.sinTabla) {
         setSinTablaTique(true);
-        toast.error('Falta correr el SQL de la tiquetera. No se imprimió.');
+        toast.error('Falta correr el SQL de la ticketera. No se imprimió.');
         return;
       }
       const repetidos = folios.filter((f) => (cuenta.porFolio.get(f) ?? 0) > 0).length;
@@ -2772,13 +2772,13 @@ export default function ViajesCamionesScreen() {
       const unidad = configTique.papel.startsWith('rollo') ? 'corte(s) de rollo' : 'hoja(s)';
 
       const partes = [
-        `Van a salir ${conTique.length} tique(s) en ${hojas} ${unidad} · ${papelLabel}.`,
+        `Van a salir ${conTique.length} ticket(s) en ${hojas} ${unidad} · ${papelLabel}.`,
       ];
       if (repetidos > 0) {
         partes.push(
           repetidos === conTique.length
-            ? `⚠️ ${repetidos === 1 ? 'Ese tique ya se entregó y va' : `Esos ${repetidos} ya se entregaron y van`} a salir marcado(s) como REIMPRESIÓN.`
-            : `⚠️ ${repetidos} de esos tiques ya se entregaron: esos salen marcados como REIMPRESIÓN.`,
+            ? `⚠️ ${repetidos === 1 ? 'Ese ticket ya se entregó y va' : `Esos ${repetidos} ya se entregaron y van`} a salir marcado(s) como REIMPRESIÓN.`
+            : `⚠️ ${repetidos} de esos tickets ya se entregaron: esos salen marcados como REIMPRESIÓN.`,
         );
       }
       // ⚠️ Que se entere ACA TAMBIEN, no solo en la tarjeta de configuracion.
@@ -2787,29 +2787,29 @@ export default function ViajesCamionesScreen() {
       const apretado = avisoDeCapacidad(configTique);
       if (apretado) partes.push(apretado);
       if (sinTique > 0) {
-        partes.push(`${sinTique} viaje(s) quedan fuera porque todavía no tienen número de tique.`);
+        partes.push(`${sinTique} viaje(s) quedan fuera porque todavía no tienen número de ticket.`);
       }
       partes.push('Al confirmar queda registrado quién los entregó y desde dónde.');
 
       const ok = await confirm({
-        title: origen === 'uno' ? 'Imprimir el tique' : 'Imprimir la tiquetera',
+        title: origen === 'uno' ? 'Imprimir el ticket' : 'Imprimir la ticketera',
         message: partes.join('\n\n'),
         confirmText: '🖨️ Imprimir',
         cancelText: 'Cancelar',
       });
       if (!ok) return;
 
-      const tiques: TiqueParaImprimir[] = conTique.map((r) => ({
+      const tickets: TiqueParaImprimir[] = conTique.map((r) => ({
         datos: datosTiqueDeViaje(r),
         reimpresion: (cuenta.porFolio.get(folioDeTique(r)) ?? 0) > 0,
       }));
-      const html = documentoDeTiques(tiques, configTique, LOGOS_DEL_TIQUE, { titulo: 'Tique de viaje' });
-      const confirmado = await exportPdf(html, nombreArchivoTiques(tiques));
+      const html = documentoDeTiques(tickets, configTique, LOGOS_DEL_TIQUE, { titulo: 'Ticket de viaje' });
+      const confirmado = await exportPdf(html, nombreArchivoTiques(tickets));
       // En la web se resuelve `false` si cerró la vista previa sin imprimir. Ese
       // papel no salió, así que no se entregó nada y no hay nada que anotar.
       if (!confirmado) return;
 
-      // Un mandado, un número de lote: los tiques que se imprimieron juntos se
+      // Un mandado, un número de lote: los tickets que se imprimieron juntos se
       // pueden volver a encontrar juntos, que es como se reparten y como se
       // reclaman.
       const loteId = nuevoUuid();
@@ -2823,7 +2823,7 @@ export default function ViajesCamionesScreen() {
         // ⚠️ ES EL CDT DE QUIEN IMPRIME, no el del viaje. El cliente pidió que
         //    quede «el CDT en que imprimieron»; el del viaje ya está guardado en
         //    el viaje. Cuando la jefa saca un lote desde la oficina no hay CDT, y
-        //    eso también es un dato: ese tique no lo entregó nadie en el patio.
+        //    eso también es un dato: ese ticket no lo entregó nadie en el patio.
         ubicacionId: obraMia?.id ?? null,
         ubicacionNombre: obraMia?.nombre ?? null,
         emitidoPor: uid || null,
@@ -2834,7 +2834,7 @@ export default function ViajesCamionesScreen() {
       const res = await registrarEmisiones(nuevas);
       if (res.sinTabla) {
         setSinTablaTique(true);
-        toast.error('El papel salió, pero falta correr el SQL de la tiquetera y la entrega no se pudo guardar.');
+        toast.error('El papel salió, pero falta correr el SQL de la ticketera y la entrega no se pudo guardar.');
       } else if (res.pendientes > 0) {
         setTiquesPendientes(await contarEmisionesPendientes());
         toast.error(
@@ -2845,8 +2845,8 @@ export default function ViajesCamionesScreen() {
       } else {
         toast.success(
           conTique.length === 1
-            ? `Tique ${folios[0]} entregado. Queda registrado.`
-            : `${conTique.length} tiques entregados. Quedan registrados.`,
+            ? `Ticket ${folios[0]} entregado. Queda registrado.`
+            : `${conTique.length} tickets entregados. Quedan registrados.`,
         );
       }
       await refrescarEmisiones(folios);
@@ -2879,8 +2879,8 @@ export default function ViajesCamionesScreen() {
     // Del camión de fuera no hay placa ni serial que buscar: se muestra la seña
     // que escribió el listero, que es lo único que permite identificarlo.
     //
-    // ⭐ DESDE LA TIQUETERA (12-sep-2026) SE MUESTRA LO QUE VA IMPRESO EN EL
-    //    TIQUE, no lo que diga el catálogo hoy. Si los dos no coinciden porque
+    // ⭐ DESDE LA TICKETERA (12-sep-2026) SE MUESTRA LO QUE VA IMPRESO EN EL
+    //    TICKET, no lo que diga el catálogo hoy. Si los dos no coinciden porque
     //    alguien corrigió la ficha después, el papel firmado en el CDT es el que
     //    manda, y quien mira la pantalla tiene que ver eso y no otra cosa.
     const placaSerial = row.fueraCatalogo
@@ -2906,13 +2906,13 @@ export default function ViajesCamionesScreen() {
               sabe cuál hay que ir a completar. Ver `CHOFER_SIN_RESPUESTA`. */}
           {esChoferSinConfirmar(row.note) ? <Badge label="👤 chofer sin confirmar" tone="warning" /> : null}
           {row.stuck ? <Badge label="⚠️ no subió" tone="danger" /> : row.queued ? <Badge label="📤 pendiente" tone="warning" /> : null}
-          {/* ⭐ EL NÚMERO DEL TIQUE, que es lo que se canta por radio y lo que
+          {/* ⭐ EL NÚMERO DEL TICKET, que es lo que se canta por radio y lo que
               lleva el papel que firma el CDT. Solo sale si existe: un viaje en
-              cola o anterior a la tiquetera NO tiene tique que entregar, y
+              cola o anterior a la ticketera NO tiene ticket que entregar, y
               enseñar un número provisional sería peor que no enseñar ninguno,
               porque alguien lo cantaría y después no existiría. */}
           {tieneTique(row) ? <Badge label={`🎫 ${folioDeTique(row)}`} tone="success" /> : null}
-          {/* ⭐ SI EL PAPEL YA SALIÓ, TIENE QUE VERSE. Volver a imprimir un tique
+          {/* ⭐ SI EL PAPEL YA SALIÓ, TIENE QUE VERSE. Volver a imprimir un ticket
               que ya se entregó pone dos papeles con el mismo número en el patio,
               y al cobrar se cuentan dos viajes donde hubo uno. La marca no
               impide reimprimir —a veces hace falta— pero obliga a saberlo.
@@ -2924,7 +2924,7 @@ export default function ViajesCamionesScreen() {
             <TouchableOpacity
               onPress={() => setHistorialFolio(folioDeTique(row))}
               accessibilityRole="button"
-              accessibilityLabel={`Ver quién entregó el tique ${folioDeTique(row)}`}
+              accessibilityLabel={`Ver quién entregó el ticket ${folioDeTique(row)}`}
             >
               <Badge label={impresiones > 1 ? `🔁 entregado ×${impresiones} ›` : '✅ entregado ›'} tone="muted" />
             </TouchableOpacity>
@@ -3069,7 +3069,7 @@ export default function ViajesCamionesScreen() {
             {/* ⭐ EL PAPEL QUE SE LE DA AL CAMIONERO. Va en la fila del viaje y no
                 en una pantalla aparte porque el momento de entregarlo es este:
                 se marcó el viaje, se imprime, se entrega. Cualquier desvío en el
-                medio termina en un tique que nadie dio.
+                medio termina en un ticket que nadie dio.
 
                 Sale para TODO EL QUE VEA LA FILA, no solo para quien puede
                 editar: el listero del CDT es justamente quien entrega, y él no
@@ -3077,7 +3077,7 @@ export default function ViajesCamionesScreen() {
             {tieneTique(row) && !row.queued ? (
               <TouchableOpacity onPress={() => imprimirTiques([row], 'uno')} disabled={imprimiendo}>
                 <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12.5, opacity: imprimiendo ? 0.5 : 1 }}>
-                  {impresiones != null && impresiones > 0 ? '🔁 Reimprimir tique' : '🖨️ Imprimir tique'}
+                  {impresiones != null && impresiones > 0 ? '🔁 Reimprimir ticket' : '🖨️ Imprimir ticket'}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -3133,16 +3133,16 @@ export default function ViajesCamionesScreen() {
         </View>
       ) : null}
 
-      {/* ⭐ TIQUES ENTREGADOS QUE LA OFICINA NO VE TODAVÍA.
+      {/* ⭐ TICKETS ENTREGADOS QUE LA OFICINA NO VE TODAVÍA.
           Va aparte del aviso de viajes sin subir porque son dos cosas distintas
           y la diferencia importa: allá falta que suba el VIAJE; acá el viaje ya
           está y lo que falta es la constancia de que el papel se entregó. El
-          camionero ya tiene su tique en la mano. Sube solo al volver la señal. */}
+          camionero ya tiene su ticket en la mano. Sube solo al volver la señal. */}
       {tiquesPendientes > 0 ? (
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.xs }}>
           <Text style={{ fontSize: 16 }}>🎫</Text>
           <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
-            {tiquesPendientes} {tiquesPendientes === 1 ? 'tique entregado' : 'tiques entregados'} sin registrar en el
+            {tiquesPendientes} {tiquesPendientes === 1 ? 'ticket entregado' : 'tickets entregados'} sin registrar en el
             servidor. El papel ya salió; la constancia sube sola al recuperar señal.
           </Text>
         </View>
@@ -3275,7 +3275,7 @@ export default function ViajesCamionesScreen() {
       </Card>
 
       {/* Selector de camión (mismo estilo del selector "Agregar máquina suelta" de UsersScreen). */}
-      {/* Historial de entregas de un tique: se abre tocando «entregado ×N». */}
+      {/* Historial de entregas de un ticket: se abre tocando «entregado ×N». */}
       {/* Borrar una entrega es de nivel completo, igual que borrar un viaje. Al
           borrar se recuenta ese folio para que la pastilla baje en el acto. */}
       <HistorialTiqueModal
@@ -3746,7 +3746,7 @@ export default function ViajesCamionesScreen() {
             onCambioListeros={() => setListerosRecarga((n) => n + 1)}
           />
 
-          {/* Qué sale en el tique. Va acá, pegado a las obras, porque las dos
+          {/* Qué sale en el ticket. Va acá, pegado a las obras, porque las dos
               cosas se configuran una vez y se dejan quietas: la obra de cada
               listero y el formato del papel. */}
           <TiqueConfigCard uid={uid} onGuardado={setConfigTique} />
@@ -3829,20 +3829,20 @@ export default function ViajesCamionesScreen() {
               <TextInput
                 value={busqFiltros}
                 onChangeText={setBusqFiltros}
-                placeholder="🔎 Buscar por N.º de tique (191 o CDT-000191), placa, listero o empresa…"
+                placeholder="🔎 Buscar por N.º de ticket (191 o CDT-000191), placa, listero o empresa…"
                 placeholderTextColor={colors.muted}
                 style={[styles.input]}
                 autoCorrect={false}
               />
               {busqFiltros.trim() ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                  {/* ⚠️ El tique se busca DENTRO DEL RANGO elegido. Sin decirlo, un tique
+                  {/* ⚠️ El ticket se busca DENTRO DEL RANGO elegido. Sin decirlo, un ticket
                       de otro mes parece no existir y alguien iría a buscarlo a la base. */}
                   <Text style={{ color: busqTique && filteredRangeRows.length === 0 ? colors.warning : colors.muted, fontSize: 11, flexShrink: 1 }}>
                     {busqTique
                       ? (filteredRangeRows.length > 0
-                        ? `🎫 Tique ${busqFiltros.trim()}: ${filteredRangeRows.length} viaje(s) en este rango.`
-                        : `🎫 Ningún viaje con el tique ${busqFiltros.trim()} en ${etiquetaRango}. Amplía el rango de fechas para buscarlo en otros días.`)
+                        ? `🎫 Ticket ${busqFiltros.trim()}: ${filteredRangeRows.length} viaje(s) en este rango.`
+                        : `🎫 Ningún viaje con el ticket ${busqFiltros.trim()} en ${etiquetaRango}. Amplía el rango de fechas para buscarlo en otros días.`)
                       : ocultasPorBusqueda > 0
                         ? `${ocultasPorBusqueda} opción(es) ocultas por la búsqueda. Las que tengas marcadas siguen a la vista.`
                         : 'Ninguna opción quedó fuera de la búsqueda.'}
@@ -4141,8 +4141,8 @@ export default function ViajesCamionesScreen() {
                 </ScrollView>
               ) : (
                 <View>
-                  {/* ⭐ LA TIQUETERA COMPLETA, DE UNA. El cliente pidió las dos
-                      formas: uno por uno desde la tiquetera en el momento, o un
+                  {/* ⭐ LA TICKETERA COMPLETA, DE UNA. El cliente pidió las dos
+                      formas: uno por uno desde la ticketera en el momento, o un
                       mandado entero en hojas para repartir después. Este es el
                       segundo, y sale de la lista TAL COMO ESTÁ FILTRADA: si
                       filtró por CDT y por día, eso es lo que se imprime, sin
@@ -4159,16 +4159,16 @@ export default function ViajesCamionesScreen() {
                       }}
                     >
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
-                        {imprimiendo ? 'Preparando…' : `🖨️ Imprimir los ${tiquesDeLaLista.length} tiques de esta lista`}
+                        {imprimiendo ? 'Preparando…' : `🖨️ Imprimir los ${tiquesDeLaLista.length} tickets de esta lista`}
                       </Text>
                     </TouchableOpacity>
                   ) : null}
                   {/* Que se sepa POR QUÉ quedan viajes fuera. Sin esto, «41 viajes»
-                      arriba y «38 tiques» en el botón parece un error del sistema. */}
+                      arriba y «38 tickets» en el botón parece un error del sistema. */}
                   {filteredRangeRows.length > tiquesDeLaLista.length ? (
                     <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
                       {filteredRangeRows.length - tiquesDeLaLista.length} viaje(s) de esta lista no tienen número de
-                      tique: son anteriores a la tiquetera o todavía no subieron.
+                      ticket: son anteriores a la ticketera o todavía no subieron.
                     </Text>
                   ) : null}
                   <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
