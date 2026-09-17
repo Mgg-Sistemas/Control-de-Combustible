@@ -47,8 +47,11 @@ export const SIN_NOMBRE = 'Usuario sin nombre';
  *  un hueco en blanco parece un error del sistema. */
 export const SIN_CDT = 'Sin CDT asignado';
 
+// ⚠️ La CLAVE es el valor guardado en la base («tiquetera» con Q); el rótulo de la
+//    derecha sí es lo que se lee. Ver la nota de `medioDeImpresion` en
+//    tiqueDocumento.ts: el 17-sep-2026 renombrar la clave rompió el registro entero.
 const MEDIO: Record<string, string> = {
-  ticketera: 'En ticketera',
+  tiquetera: 'En ticketera',
   hoja: 'En hoja',
   imagen: 'Como imagen',
 };
