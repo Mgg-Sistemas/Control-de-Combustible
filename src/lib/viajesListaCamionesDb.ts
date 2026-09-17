@@ -2,9 +2,10 @@ import { supabase, selectAllRows } from './supabase';
 import type { AjusteListaViajes } from './viajesListaCamiones';
 
 // Lecturas y escrituras de los ajustes de la lista de Viajes (tabla `viajes_lista_camiones`).
-// Solo el ADMIN escribe (lo exige la base); todos leen, porque la lista del listero lo usa.
+// Escribe quien tiene permiso COMPLETO en Viajes de camiones (lo exige la base, 17-sep-2026);
+// todos leen, porque la lista del listero lo usa.
 
-export const SIN_PERMISO_LISTA = 'No se guardó: solo el administrador puede cambiar qué máquinas salen en Viajes.';
+export const SIN_PERMISO_LISTA = 'No se guardó: hace falta permiso completo en Viajes de camiones para cambiar qué máquinas salen.';
 
 const esTablaQueFalta = (e: any) =>
   e?.code === '42P01' || e?.code === 'PGRST205' || /does not exist|schema cache|could not find the table/i.test(String(e?.message ?? ''));
@@ -24,7 +25,7 @@ export async function cargarAjustesListaViajes(): Promise<{ filas: AjusteListaVi
 }
 
 /**
- * `visible` true/false = ajuste del admin; null = quitar el ajuste y volver a la regla
+ * `visible` true/false = ajuste a mano; null = quitar el ajuste y volver a la regla
  * automática. Pide filas de vuelta: un rechazo por permisos vuelve sin error y con 0 filas.
  */
 export async function guardarAjusteListaViajes(machineryId: string, visible: boolean | null): Promise<{ error?: string }> {
