@@ -9,6 +9,7 @@ import { norm, cmpText } from '../lib/text';
 import { coincideEmpleado } from '../lib/empleadosBuscar';
 import { canonicalCargo } from '../lib/cargos';
 import { grupoApartado, pasaFiltroEstado, FiltroEstado } from '../lib/nominaGrupos';
+import { agruparPorCargo } from '../lib/empleadosAgrupar';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
@@ -101,6 +102,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const [statusFilter, setStatusFilter] = useState<FiltroEstado>('todos'); // estado del empleado (+ grupos apartados)
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
+  const [agrupar, setAgrupar] = useState<'no' | 'cargo'>('no'); // ver la plantilla repartida por cargo
   const [cargoQ, setCargoQ] = useState(''); // buscador dentro de la lista de cargos
   // Filtro por EMPRESA (pedido del cliente 20-ago-2026). La clave es el `company_id`;
   // los que no tienen contratista van bajo SIN_EMPRESA = SOS LA GUAIRA (el empleador).
@@ -220,6 +222,10 @@ export default function EmpleadosScreen({ navigation }: any) {
       }),
     [baseFiltered, cargoSel, sortDir]
   );
+
+  // Los grupos salen de `shown`, o sea DESPUÉS de todos los filtros: lo que se ve
+  // agrupado es exactamente lo que se ve en lista, repartido.
+  const gruposCargo = useMemo(() => agruparPorCargo(shown, cargoLabel, cmpText), [shown]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (e: Employee) => { setEditing(e); setFormOpen(true); };
@@ -493,7 +499,17 @@ export default function EmpleadosScreen({ navigation }: any) {
         {/* Carbozulia y Seguridad van APARTE (pedido del cliente 29-ago-2026): no se
             cuentan ni salen en Todos/Activos/Inactivos/Otro, cada uno tiene su chip.
             Van de últimos para no mover de sitio los cuatro de siempre. */}
-        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro], ['carbozulia', 'Carbozulia', statusCounts.carbozulia], ['seguridad', 'Seguridad', statusCounts.seguridad]] as const).map(([key, label, n]) => {
+        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro], ['__aparte__', '', 0], ['carbozulia', 'Carbozulia', statusCounts.carbozulia], ['seguridad', 'Seguridad', statusCounts.seguridad]] as const).map(([key, label, n]) => {
+          // Los dos grupos apartados no son un estado: son plantillas propias que NO se
+          // cuentan en Todos/Activos/Inactivos/Otro. Sin este rótulo en medio, las seis
+          // pastillas se leían como seis estados y nadie entendía por qué no sumaban.
+          if (key === '__aparte__') {
+            return (
+              <Text key="aparte" style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginLeft: spacing.xs }}>
+                · aparte:
+              </Text>
+            );
+          }
           const on = statusFilter === key;
           const tint = key === 'todos' ? colors.brand
             : key === 'carbozulia' ? '#7C3AED'
@@ -601,8 +617,8 @@ export default function EmpleadosScreen({ navigation }: any) {
         </Card>
       ) : null}
 
-      {/* Orden alfabético por nombre */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
+      {/* Orden alfabético por nombre · y si la lista se reparte por cargo */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Orden:</Text>
         {([['az', 'A → Z'], ['za', 'Z → A']] as const).map(([key, label]) => {
           const on = sortDir === key;
@@ -610,6 +626,19 @@ export default function EmpleadosScreen({ navigation }: any) {
             <TouchableOpacity
               key={key}
               onPress={() => setSortDir(key)}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
+            >
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+        <Text style={{ color: colors.muted, fontSize: 12, marginLeft: spacing.sm, marginRight: spacing.xs }}>Ver:</Text>
+        {([['no', '📋 Lista'], ['cargo', '🏷️ Por cargo']] as const).map(([key, label]) => {
+          const on = agrupar === key;
+          return (
+            <TouchableOpacity
+              key={key}
+              onPress={() => setAgrupar(key)}
               style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
             >
               <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
@@ -624,7 +653,7 @@ export default function EmpleadosScreen({ navigation }: any) {
           <TouchableOpacity onPress={() => setCargosOpen((v) => !v)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🏷️ Cargo: </Text>
             <Text style={{ color: cargoSel.size ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
-              {cargoSel.size === 0 ? 'Todos' : Array.from(cargoSel).sort().join(', ')}
+              {cargoSel.size === 0 ? `Todos · ${cargoCounts.length} cargo(s)` : `${cargoSel.size} cargo(s): ${Array.from(cargoSel).sort().join(', ')}`}
             </Text>
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>{cargosOpen ? '▲' : '▼'}</Text>
           </TouchableOpacity>
@@ -635,30 +664,49 @@ export default function EmpleadosScreen({ navigation }: any) {
         {cargosOpen ? (
           <View style={{ marginTop: spacing.sm }}>
             <TextInput value={cargoQ} onChangeText={setCargoQ} placeholder="🔎 Buscar cargo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }} />
-            <ScrollView style={{ maxHeight: 240 }} keyboardShouldPersistTaps="handled">
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                <TouchableOpacity
-                  onPress={() => setCargoSel(new Set())}
-                  style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: cargoSel.size === 0 ? colors.brand : colors.border, backgroundColor: cargoSel.size === 0 ? colors.brand : colors.surface }}
-                >
-                  <Text style={{ color: cargoSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos · {baseFiltered.length}</Text>
-                </TouchableOpacity>
-                {cargoCounts.filter(([cargo]) => !cargoQ.trim() || norm(cargo).includes(norm(cargoQ))).map(([cargo, n]) => {
-                  const on = cargoSel.has(cargo);
-                  return (
-                    <TouchableOpacity
-                      key={cargo}
-                      onPress={() => setCargoSel((prev) => { const s = new Set(prev); if (s.has(cargo)) s.delete(cargo); else s.add(cargo); return s; })}
-                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
-                    >
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{cargo} · {n}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+            {/* ⭐ LISTA, no pastillas (17-sep-2026). Los cargos son nombres largos
+                («AUXILIAR ADMINISTRATIVO DE ALMACEN») y en pastillas envueltas no se
+                podía recorrer la lista con la vista ni ver de un golpe cuáles hay.
+                Una fila por cargo, con su marca y su cantidad a la derecha. */}
+            <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity
+                onPress={() => setCargoSel(new Set())}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: cargoSel.size === 0 ? colors.surfaceAlt : 'transparent', borderRadius: radius.sm }}
+              >
+                <Text style={{ color: cargoSel.size === 0 ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 13 }}>{cargoSel.size === 0 ? '◉' : '○'}</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }}>Todos los cargos</Text>
+                <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>{baseFiltered.length}</Text>
+              </TouchableOpacity>
+              {cargoCounts.filter(([cargo]) => !cargoQ.trim() || norm(cargo).includes(norm(cargoQ))).map(([cargo, n]) => {
+                const on = cargoSel.has(cargo);
+                return (
+                  <TouchableOpacity
+                    key={cargo}
+                    onPress={() => setCargoSel((prev) => { const s = new Set(prev); if (s.has(cargo)) s.delete(cargo); else s.add(cargo); return s; })}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.surfaceAlt : 'transparent', borderRadius: radius.sm }}
+                  >
+                    <Text style={{ color: on ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 13 }}>{on ? '☑' : '☐'}</Text>
+                    <Text style={{ color: on ? colors.brandText : colors.text, fontWeight: on ? '800' : '600', fontSize: 13, flex: 1 }} numberOfLines={2}>{cargo}</Text>
+                    <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>{n}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              {cargoQ.trim() && cargoCounts.filter(([cargo]) => norm(cargo).includes(norm(cargoQ))).length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: spacing.sm }}>Ningún cargo se llama así.</Text>
+              ) : null}
             </ScrollView>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+              {cargoSel.size > 0 ? (
+                <TouchableOpacity onPress={() => setCargoSel(new Set())} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger }}>
+                  <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕ Quitar los {cargoSel.size} cargo(s)</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity onPress={() => { setAgrupar('cargo'); setCargosOpen(false); }} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>🏷️ Ver la lista agrupada por cargo</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
-              Busca y marca varios cargos (operadores, obreros…). El botón 📊 Reporte genera el listado de lo seleccionado + resumen por cargo.
+              Marca uno o varios cargos (operadores, obreros…). El botón 📊 Reporte genera el listado de lo seleccionado + resumen por cargo.
             </Text>
           </View>
         ) : (
@@ -673,7 +721,17 @@ export default function EmpleadosScreen({ navigation }: any) {
       ) : shown.length === 0 ? (
         <EmptyState title={q ? 'Sin resultados' : 'Sin empleados'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Toca "+ Nuevo" para registrar el primero.'} />
       ) : (
-        shown.map((e) => (
+        (agrupar === 'cargo' ? gruposCargo : [{ cargo: '', empleados: shown }]).map((g) => (
+          <View key={g.cargo || '__lista__'}>
+            {/* Cabecera del grupo. La suma de las cabeceras es el total de arriba:
+                `agruparPorCargo` reparte la lista, no la filtra. */}
+            {agrupar === 'cargo' ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>🏷️ {g.cargo}</Text>
+                <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>{g.empleados.length}</Text>
+              </View>
+            ) : null}
+            {g.empleados.map((e) => (
                 <ExpandableCard
                   key={e.id}
                   summary={
@@ -722,6 +780,8 @@ export default function EmpleadosScreen({ navigation }: any) {
                     </>
                   }
                 />
+            ))}
+          </View>
         ))
       )}
 
