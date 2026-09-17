@@ -18,6 +18,7 @@ import { esCamionDeViajes } from '../lib/equipos';
 import { cmpText } from '../lib/text';
 import { filaModoEn, indexarModos, jornadaDeInstante, ModoPago, ModoPagoFila, TarifaViaje } from '../lib/pagoViajes';
 import { asignarModoPago, cargarMaquinasCatalogo, cargarModosPago, cargarTarifasViaje, CamionCatalogo } from '../lib/pagoViajesDb';
+import { cargarAjustesListaViajes } from '../lib/viajesListaCamionesDb';
 
 type Props = {
   visible: boolean;
@@ -44,6 +45,8 @@ export function PagoViajesPanel({ visible, onClose, canEdit, usuarioId, onChange
   const [tarifas, setTarifas] = useState<TarifaViaje[]>([]);
   const [modos, setModos] = useState<ModoPagoFila[]>([]);
   const [maquinas, setMaquinas] = useState<CamionCatalogo[]>([]);
+  // Máquinas que el admin PUSO a mano en Viajes: también se pueden meter al pago.
+  const [puestasEnViajes, setPuestasEnViajes] = useState<Set<string>>(new Set());
 
   // Camiones
   const [fechaModo, setFechaModo] = useState(hoy);
@@ -53,7 +56,8 @@ export function PagoViajesPanel({ visible, onClose, canEdit, usuarioId, onChange
     setCargando(true);
     setError(null);
     try {
-      const [t, m, maq] = await Promise.all([cargarTarifasViaje(), cargarModosPago(), cargarMaquinasCatalogo()]);
+      const [t, m, maq, aj] = await Promise.all([cargarTarifasViaje(), cargarModosPago(), cargarMaquinasCatalogo(), cargarAjustesListaViajes()]);
+      if (!aj.error) setPuestasEnViajes(new Set(aj.filas.filter((f) => f.visible).map((f) => f.machinery_id)));
       setTarifas(t);
       setModos(m);
       setMaquinas(maq);
@@ -75,10 +79,10 @@ export function PagoViajesPanel({ visible, onClose, canEdit, usuarioId, onChange
     return maquinas
       // Camiones del pago (incluye chutos), y las máquinas dadas de baja solo si ya
       // tienen historial: si no, no habría manera de sacarlas del pago.
-      .filter((m) => esCamionDeViajes(m.code) && (m.activa || (idxModos.get(m.id)?.length ?? 0) > 0))
+      .filter((m) => (esCamionDeViajes(m.code) || puestasEnViajes.has(m.id)) && (m.activa || (idxModos.get(m.id)?.length ?? 0) > 0))
       .filter((m) => !q || `${m.code} ${m.plate ?? ''} ${m.serial ?? ''} ${m.company}`.toLowerCase().includes(q))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
-  }, [maquinas, filtro, idxModos]);
+  }, [maquinas, filtro, idxModos, puestasEnViajes]);
 
   const porEmpresa = useMemo(() => {
     const m = new Map<string, CamionCatalogo[]>();
@@ -140,6 +144,7 @@ export function PagoViajesPanel({ visible, onClose, canEdit, usuarioId, onChange
           <PagoViajesTarifas
             tarifas={tarifas}
             maquinas={maquinas}
+            puestasEnViajes={puestasEnViajes}
             cargando={cargando}
             canEdit={canEdit}
             usuarioId={usuarioId}

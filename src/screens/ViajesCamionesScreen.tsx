@@ -27,7 +27,9 @@ import { levelMeets } from '../lib/permissions';
 import { norm, cmpText } from '../lib/text';
 import { caracasParts } from '../lib/jornada';
 import { caracasNowShift, caracasBusinessToday, jornadaWindowISO, jornadaDeFecha } from '../lib/caracasDay';
-import { isVolteoVolqueta } from '../lib/equipos';
+import { indexarAjustesLista, saleEnViajes, type IndiceAjustesLista } from '../lib/viajesListaCamiones';
+import { cargarAjustesListaViajes } from '../lib/viajesListaCamionesDb';
+import { ListaCamionesViajes } from '../components/ListaCamionesViajes';
 import {
   fetchAveriaCat,
   fetchJornadaCat,
@@ -348,7 +350,7 @@ const esChoferSinConfirmar = (note: string | null | undefined): boolean =>
 
 export default function ViajesCamionesScreen() {
   const { colors } = useTheme();
-  const { session, fullName, moduleLevel } = useAuth();
+  const { session, fullName, moduleLevel, role } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -381,6 +383,12 @@ export default function ViajesCamionesScreen() {
   // Máquinas del catálogo que el listero SUMÓ A SU LISTA desde el buscador.
   // Solo viven en esta pantalla: no se escribe nada en `machinery`.
   const [extraTruckIds, setExtraTruckIds] = useState<Set<string>>(new Set());
+  // Máquinas que el ADMIN puso o quitó de la lista a mano (17-sep-2026). Manda sobre la
+  // regla del código. Ver src/lib/viajesListaCamiones.ts. El ref guarda los últimos que
+  // se pudieron leer: si una lectura falla, la lista no vuelve de golpe a lo automático.
+  const [ajustesLista, setAjustesLista] = useState<IndiceAjustesLista>(new Map());
+  const [faltaSqlLista, setFaltaSqlLista] = useState(false);
+  const ajustesListaRef = useRef<IndiceAjustesLista>(new Map());
   const [averiaCat, setAveriaCat] = useState<Record<string, AveriaEntry>>({});
   const [jornadaCat, setJornadaCat] = useState<Record<string, JornadaEntry>>({});
   const [inspByShift, setInspByShift] = useState<Record<string, InspByShiftEntry>>({});
@@ -423,14 +431,21 @@ export default function ViajesCamionesScreen() {
     //    (ReportsScreen, InspectionsSummary, HistoricoJornadas…). El orden por
     //    código se hace acá abajo con `cmpText`, porque `selectAllRows` pagina
     //    por id y no admite un `.order()` propio.
-    const [cat, aCat, jCat, iShift] = await Promise.all([
+    const [cat, aCat, jCat, iShift, ajLista] = await Promise.all([
       selectAllRows('machinery', 'id, code, plate, serial, clasificacion, marca, modelo, company_id, operational, en_espera, company:company_id(name)', (q: any) => q.eq('active', true))
         .then((rows: any[]) => ({ rows, error: null as string | null }))
         .catch((e: any) => ({ rows: [] as any[], error: String(e?.message ?? e) })),
       fetchAveriaCat(),
       fetchJornadaCat(),
       fetchInspByShift(),
+      cargarAjustesListaViajes(),
     ]);
+    if (!ajLista.error) {
+      ajustesListaRef.current = indexarAjustesLista(ajLista.filas);
+      setAjustesLista(ajustesListaRef.current);
+      setFaltaSqlLista(ajLista.falta);
+    }
+    const ajustes = ajustesListaRef.current;
     const data = cat.rows;
     const error = cat.error ? { message: cat.error } : null;
     setTrucksLoading(false);
@@ -465,7 +480,8 @@ export default function ViajesCamionesScreen() {
     setCatalogoTrucks([...catalogo].sort((a, b) => cmpText(a.code, b.code)));
     setAllTrucks(
       ((data ?? []) as any[])
-        .filter((m) => isVolteoVolqueta(m.code || ''))
+        // El ajuste del admin manda; sin ajuste, la regla de siempre (volteo/volqueta/toronto).
+        .filter((m) => saleEnViajes(m.code || '', ajustes.get(m.id)))
         .map((m) => ({
           id: m.id as string,
           code: m.code ?? '—',
@@ -614,12 +630,14 @@ export default function ViajesCamionesScreen() {
         (t) =>
           !yaOfrecidas.has(t.id) &&
           !estaRetirada(t) &&
+          // La que el admin QUITÓ de Viajes tampoco se ofrece por el buscador.
+          ajustesLista.get(t.id)?.visible !== false &&
           [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName]
             .some((f) => f != null && norm(String(f)).includes(nqPick))
       )
       .sort((a, b) => cmpText(a.code, b.code))
       .slice(0, 30);
-  }, [nqPick, catalogoTrucks, trucksSeleccionables]);
+  }, [nqPick, catalogoTrucks, trucksSeleccionables, ajustesLista]);
 
   const [selectedTruck, setSelectedTruck] = useState<TruckRow | null>(null);
   const [selectedShift, setSelectedShift] = useState<'day' | 'night'>('day');
@@ -4164,6 +4182,20 @@ export default function ViajesCamionesScreen() {
               </Text>
             </TouchableOpacity>
           </Plegable>
+
+          {role === 'admin' ? (
+            <Plegable
+              titulo="🚜 Máquinas que salen en Viajes"
+              resumen={faltaSqlLista ? 'Falta crear la tabla en la base' : `${allTrucks.length} le salen al listero · solo admin`}
+            >
+              <ListaCamionesViajes
+                catalogo={catalogoTrucks}
+                ajustes={ajustesLista}
+                faltaSql={faltaSqlLista}
+                onChanged={loadTrucks}
+              />
+            </Plegable>
+          ) : null}
 
           <Plegable titulo="⚙️ Configuración" resumen={`Avisar a las ${alertaHoras}h sin viaje`}>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>UMBRAL DE ALERTA (HORAS SIN VIAJE)</Text>

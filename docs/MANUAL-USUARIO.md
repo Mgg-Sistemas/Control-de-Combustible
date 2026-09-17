@@ -5025,6 +5025,17 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
+> **🚜 Máquinas que salen en Viajes (17/09/2026, solo administrador).** En el panel de información hay
+> un apartado **"🚜 Máquinas que salen en Viajes"**. Ahí decides qué máquinas le salen al listero para
+> registrar viajes:
+> - Lo **automático** es por el código (volteo, volqueta, toronto), como siempre.
+> - **"🚫 Quitar de Viajes"** la saca de la lista del listero y del buscador; **"✅ Poner en Viajes"** la
+>   agrega aunque su código no sea de camión. Lo que pongas o quites a mano **manda**, y queda con tu nombre.
+> - **"↺ Volver a lo automático"** deshace el ajuste.
+> - Arriba filtras por **✅ Salen**, **🚫 No salen** y **✋ Cambiadas a mano**; el buscador busca en todo el catálogo.
+> - Quitar una máquina **no borra sus viajes ya registrados ni la saca del pago**. Una máquina que pongas a
+>   mano también aparece en **💰 Pago de viajes → Camiones** y en las tarifas, para poder pagarla.
+
 **Agregar.** Tarjeta **"✍️ Cargar viajes a mano"** en el panel de la jefa:
 
 | Campo | Qué hace |
