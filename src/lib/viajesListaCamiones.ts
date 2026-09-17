@@ -3,11 +3,11 @@ import { isVolteoVolqueta } from './equipos';
 /**
  * QUÉ MÁQUINAS SALEN EN LA LISTA DE VIAJES DE CAMIONES (17-sep-2026).
  *
- * Pedido del cliente: «como admin poder quitarle o colocarle máquinas a ese módulo…
+ * Pedido del cliente: «poder quitarle o colocarle máquinas a ese módulo…
  * si quiero que vean más o que vean menos». Hasta ahora la lista la decidía SOLO el
  * texto del código (`isVolteoVolqueta`: volteo, volqueta, toronto).
  *
- * ⭐ El ajuste del admin MANDA; sin ajuste, sigue la regla del código. Así nada cambia
+ * ⭐ El ajuste a mano MANDA; sin ajuste, sigue la regla del código. Así nada cambia
  *    para las máquinas que nadie tocó, y un ajuste se puede deshacer («volver a lo
  *    automático») sin tener que recordar cómo estaba.
  *

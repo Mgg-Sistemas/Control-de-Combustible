@@ -350,7 +350,7 @@ const esChoferSinConfirmar = (note: string | null | undefined): boolean =>
 
 export default function ViajesCamionesScreen() {
   const { colors } = useTheme();
-  const { session, fullName, moduleLevel, role } = useAuth();
+  const { session, fullName, moduleLevel } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -4183,10 +4183,10 @@ export default function ViajesCamionesScreen() {
             </TouchableOpacity>
           </Plegable>
 
-          {role === 'admin' ? (
+          {canFull ? (
             <Plegable
               titulo="🚜 Máquinas que salen en Viajes"
-              resumen={faltaSqlLista ? 'Falta crear la tabla en la base' : `${allTrucks.length} le salen al listero · solo admin`}
+              resumen={faltaSqlLista ? 'Falta crear la tabla en la base' : `${allTrucks.length} le salen al listero`}
             >
               <ListaCamionesViajes
                 catalogo={catalogoTrucks}
