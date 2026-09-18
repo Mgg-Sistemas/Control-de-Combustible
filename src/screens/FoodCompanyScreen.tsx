@@ -175,13 +175,23 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
     setSaving(false);
     if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); if (error) load(); return; }
     // Guarda el nombre del plato OTROS en el catálogo (se elige de la lista luego).
+    // ⚠️ El aviso se ACUMULA y se pinta al final: si se pintara acá, la línea de
+    //    éxito de abajo lo borraría y el fallo del catálogo pasaría invisible.
+    let avisoPlato = '';
     if (mealFor === 'otros' && itemLabel.trim()) {
       const yaEsta = extraItems.some((e) => norm(e.name) === norm(itemLabel));
-      if (!yaEsta) { await saveExtraItem(itemLabel); listExtraItems().then(setExtraItems); }
+      // La entrega YA se guardó; si el nombre del plato no entra en el catálogo
+      // no se pierde nada (queda en `item_label` de la entrega), pero se avisa:
+      // antes este error se tragaba y el plato simplemente no aparecía después.
+      if (!yaEsta) {
+        const { error: errPlato } = await saveExtraItem(itemLabel);
+        if (errPlato) avisoPlato = ` ⚠️ El plato «${itemLabel.trim()}» no se pudo agregar al catálogo (${errPlato}).`;
+        listExtraItems().then(setExtraItems);
+      }
     }
     setMeals((prev) => [...prev, data]);
     setMealFor(null);
-    setNotice(`✅ ${mealLabel(mealFor)}${mealFor === 'otros' && itemLabel.trim() ? ` (${itemLabel.trim()})` : ''}: +${q} plato(s)${uc > 0 ? ` · ${fmtUsd(totUsd)}` : ''} para ${companyName}.`);
+    setNotice(`✅ ${mealLabel(mealFor)}${mealFor === 'otros' && itemLabel.trim() ? ` (${itemLabel.trim()})` : ''}: +${q} plato(s)${uc > 0 ? ` · ${fmtUsd(totUsd)}` : ''} para ${companyName}.${avisoPlato}`);
   };
 
   // Elegir un plato OTROS del catálogo: fija el nombre y reusa su último costo de hoy.

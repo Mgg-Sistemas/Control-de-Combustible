@@ -153,14 +153,22 @@ ok('el día fallido se avisa', /catch \(e: any\) \{\s*setLoadError\(/.test(scr))
 ok('el rango fallido se avisa', /catch \(e: any\) \{\s*setRangeError\(/.test(scr));
 ok('una lectura buena limpia el aviso', /setLoadError\(null\);/.test(scr) && /setRangeError\(null\);/.test(scr));
 ok('el aviso sale en pantalla', /\{loadError \?\? rangeError\}/.test(scr));
-ok('el PDF del rango no se arma con datos a medias', /const downloadRangePdf = async \(\) => \{\s*if \(rangeError\) return;/.test(scr));
+// 18-sep-2026: el PDF dejó de ser un botón suelto y pasó a <ComidaReporteModal>.
+// La regla que protegía esta línea NO cambió —con el rango a medias no se saca
+// papel—, solo cambió cómo se aplica: ahora el botón no se puede tocar.
+ok('el PDF del rango no se arma con datos a medias', /onPress=\{\(\) => setReporteOpen\(true\)\}\s*disabled=\{!!rangeError\}/.test(scr));
 
 // ── Cuadros por comida del rango: empresa + carnet (15-sep-2026) ────────────
 // Antes sumaban solo por empresa: 158 en total pero 21+29+0+0 = 50, y la cena de carnet en 0.
 ok('las entregas por persona se cuentan por comida', /const rangePersonsByMeal = useMemo\(\(\) => \{[\s\S]*?rangePersons\.forEach\(\(r\) => \{ if \(r\.meal_type\) by\[r\.meal_type\] = \(by\[r\.meal_type\] \|\| 0\) \+ \(Number\(r\.meals\) \|\| 0\); \}\);/.test(scr));
 ok('los cuadros por comida suman empresa y persona', /MEALS\.map\(\(m\) => kpi\(m\.label, \(rangeTotals\.by\[m\.key\] \|\| 0\) \+ \(rangePersonsByMeal\[m\.key\] \|\| 0\)/.test(scr));
 ok('...y ya no muestran solo lo de empresa', !/kpi\(m\.label, rangeTotals\.by\[m\.key\] \|\| 0,/.test(scr));
-ok('el PDF por persona trae el total por comida', /MEALS\.map\(\(m\) => `<td>\$\{rangePersonsByMeal\[m\.key\] \|\| 0\}<\/td>`\)/.test(scr));
+// El total por comida del cuadro de personas ahora lo arma `cuadroGrupos` en
+// comidaReporteHtml.ts (con su pie de tabla), y lo comprueba de verdad
+// scripts/test-comida-reporte.mjs sobre el HTML generado, que es mejor que un
+// regex sobre la pantalla. Acá solo se vigila que ese cuadro siga existiendo.
+const htmlRep = sinComentarios(leer('src/lib/comidaReporteHtml.ts'));
+ok('el PDF por persona trae el total por comida', /cat\.forEach\(\(m\) => pie\.push/.test(htmlRep));
 
 // ── Manual ──────────────────────────────────────────────────────────────────
 ok('el manual .md lo explica', /Reportes de comida completos \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
