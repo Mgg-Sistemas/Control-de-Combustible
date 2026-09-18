@@ -10,7 +10,8 @@ import { FoodDistribution, FoodCompanyMeal } from '../types/database';
 import { supabase } from '../lib/supabase';
 import { cmpText } from '../lib/text';
 import { comidaQrUrl, qrPngDataUri } from '../lib/qr';
-import { exportCardImage, exportPdf } from '../lib/pdf';
+// Solo la imagen del QR: el PDF ahora lo arma <ComidaReporteModal>.
+import { exportCardImage } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
@@ -18,6 +19,11 @@ import { spacing, radius } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { levelMeets } from '../lib/permissions';
 import { CobroComidasResumen } from '../components/CobroComidasResumen';
+import { ComidaEditor } from '../components/ComidaEditor';
+import { ComidaMovimientos } from '../components/ComidaMovimientos';
+import { ComidaReporteModal } from '../components/ComidaReporteModal';
+import { cargarPreciosComida } from '../lib/cobroComidasDb';
+import { PrecioComida } from '../lib/cobroComidas';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -55,9 +61,12 @@ function startOfMonthISO(iso: string): string {
  */
 export default function ComidaScreen() {
   const { colors } = useTheme();
-  const { session, moduleLevel } = useAuth();
+  const { session, moduleLevel, fullName } = useAuth();
   // El cobro (montos y precios) solo lo ve quien tiene permiso completo de Comida.
+  // El MISMO nivel manda para corregir el histórico (18-sep-2026): quien ya puede
+  // ver y poner precios es quien responde por lo que se cobra.
   const canCobro = levelMeets(moduleLevel('comida'), 'full');
+  const canEditar = canCobro;
   const [mode, setMode] = useState<'dia' | 'control'>('dia');
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
@@ -74,7 +83,12 @@ export default function ComidaScreen() {
   const [rangePersons, setRangePersons] = useState<FoodDistribution[]>([]); // entregas individuales del rango
   const [rangeLoading, setRangeLoading] = useState(false);
   const [companyFilter, setCompanyFilter] = useState<string>('all'); // 'all' o company_id
-  const [pdfBusy, setPdfBusy] = useState(false);
+  // Reporte con opciones (18-sep-2026): el modal con filtros y pastillas.
+  const [reporteOpen, setReporteOpen] = useState(false);
+  // Los precios viven acá para que el PDF cobre EXACTAMENTE lo mismo que muestra
+  // la tarjeta de cobro. Dos maneras de calcular la misma plata es como se
+  // termina discutiendo una factura.
+  const [precios, setPrecios] = useState<PrecioComida[] | null>(null);
   // Lectura fallida: antes la pantalla se quedaba vacía o con datos viejos sin avisar.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -121,6 +135,15 @@ export default function ComidaScreen() {
     }
   }, [from, to]);
   useEffect(() => { if (mode === 'control') loadRange(); }, [mode, loadRange]);
+
+  // Los precios se leen una sola vez, y solo si se pueden ver: sin permiso
+  // completo el reporte sale sin montos y esta consulta no haría falta.
+  useEffect(() => {
+    if (!canCobro) return;
+    // Que fallen los precios no puede tumbar la pantalla: el reporte sale sin
+    // montos y el resto sigue funcionando.
+    cargarPreciosComida().then(setPrecios, () => setPrecios(null));
+  }, [canCobro]);
 
   // TIEMPO REAL: cuando la cocina registra/borra una comida (por persona o por
   // empresa), esta pantalla se actualiza sola, sin tener que refrescar a mano.
@@ -205,72 +228,10 @@ export default function ComidaScreen() {
 
   const shiftRange = (delta: number) => { setFrom(addDaysISO(from, delta)); setTo(addDaysISO(to, delta)); };
 
-  // Reporte PDF del control por empresa (rango).
-  const downloadRangePdf = async () => {
-    // Con la lectura del rango fallida, el PDF saldría con datos incompletos o viejos.
-    if (rangeError) return;
-    setPdfBusy(true);
-    try {
-      const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
-      const mealHeads = MEALS.map((m) => `<th>${esc(m.label)}</th>`).join('');
-      const bodyRows = rangeByCompany.map((g) => `
-        <tr>
-          <td class="l">${esc(g.name)}</td>
-          ${MEALS.map((m) => `<td>${g.by[m.key] || 0}</td>`).join('')}
-          <td class="b">${g.total}</td>
-          <td>${g.days.size}</td>
-        </tr>`).join('');
-      const totalRow = `
-        <tr class="tot">
-          <td class="l">TOTAL</td>
-          ${MEALS.map((m) => `<td>${rangeTotals.by[m.key] || 0}</td>`).join('')}
-          <td class="b">${rangeTotals.total}</td>
-          <td></td>
-        </tr>`;
-      // Tabla POR PERSONA (solo cuando se ven todas las empresas y hay entregas individuales).
-      const personaTable = (companyFilter === 'all' && rangeByPerson.length > 0) ? `
-        <h2>👤 Entregas por persona</h2>
-        <table>
-          <thead><tr><th class="l">Persona</th><th>Cédula</th>${mealHeads}<th>Total</th><th>Días</th></tr></thead>
-          <tbody>
-            ${rangeByPerson.map((p) => `
-              <tr>
-                <td class="l">${esc(p.name)}</td>
-                <td>${esc(p.cedula || '—')}</td>
-                ${MEALS.map((m) => `<td>${p.by[m.key] || 0}</td>`).join('')}
-                <td class="b">${p.total}</td>
-                <td>${p.days.size}</td>
-              </tr>`).join('')}
-            <tr class="tot">
-              <td class="l">TOTAL</td><td></td>
-              ${MEALS.map((m) => `<td>${rangePersonsByMeal[m.key] || 0}</td>`).join('')}
-              <td class="b">${rangePersonsTotal}</td><td></td>
-            </tr>
-          </tbody>
-        </table>` : '';
-      const html = `
-        <style>
-          *{font-family:Arial,Helvetica,sans-serif}
-          h1{font-size:18px;margin:0 0 2px} h2{font-size:14px;margin:18px 0 6px;color:#16324F}
-          .sub{color:#555;font-size:12px;margin:0 0 12px}
-          table{border-collapse:collapse;width:100%;font-size:12px}
-          th,td{border:1px solid #ccc;padding:6px 8px;text-align:center}
-          th{background:#16324F;color:#fff} td.l{text-align:left} td.b{font-weight:800}
-          tr.tot td{background:#EAF1FB;font-weight:800}
-        </style>
-        <h1>🍽️ Control de entregas de comida</h1>
-        <p class="sub">${esc(rangeCompanyName)} · ${esc(niceDay(from))} a ${esc(niceDay(to))}</p>
-        <h2>🏢 Entregas por empresa</h2>
-        <table>
-          <thead><tr><th class="l">Empresa</th>${mealHeads}<th>Total</th><th>Días</th></tr></thead>
-          <tbody>${bodyRows}${totalRow}</tbody>
-        </table>
-        ${personaTable}`;
-      await exportPdf(html, `Control comida - ${rangeCompanyName} (${from} a ${to})`);
-    } finally {
-      setPdfBusy(false);
-    }
-  };
+  // ⚠️ EL PDF VIEJO SE FUE (18-sep-2026). Era un botón sin opciones que armaba su
+  //    propio HTML sin membrete, distinto a todos los demás papeles del sistema.
+  //    Lo reemplaza <ComidaReporteModal>, que saca EL MISMO papel por defecto
+  //    (`OPCIONES_COMIDA_COMO_ANTES`) y encima deja filtrar y quitar columnas.
 
   // Agrupa las comidas por empresa, SUMANDO las varias entregas del día por comida
   // (17-sep-2026: ya no es 1 por día; se acumulan) + costo en $.
@@ -458,9 +419,18 @@ export default function ComidaScreen() {
               </View>
             </Card>
 
-            <TouchableOpacity onPress={downloadRangePdf} disabled={pdfBusy} style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: pdfBusy ? 0.6 : 1 }}>
-              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{pdfBusy ? 'Generando…' : '📄 Descargar reporte PDF'}</Text>
+            {/* Con la lectura del rango fallida no se ofrece el PDF: saldría con
+                datos incompletos o viejos y nadie lo notaría al leerlo. */}
+            <TouchableOpacity
+              onPress={() => setReporteOpen(true)}
+              disabled={!!rangeError}
+              style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: rangeError ? 0.5 : 1 }}
+            >
+              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>📄 Reporte PDF (con opciones)</Text>
             </TouchableOpacity>
+            <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center' }}>
+              Elige empresa, persona, comida y fechas · con monto o sin monto · quita las columnas que no quieras.
+            </Text>
 
             {/* Cobro de comidas: el mismo rango y las mismas entregas, con precio. Con la lectura
                 del rango fallida no se muestra: cobraría con datos a medias. */}
@@ -476,6 +446,10 @@ export default function ComidaScreen() {
                 usuarioId={session?.user?.id ?? null}
               />
             ) : null}
+
+            {/* Quién agregó, corrigió o borró comidas en estas fechas. Solo con
+                permiso completo: la bitácora dice nombres. */}
+            {canEditar ? <ComidaMovimientos desde={from} hasta={to} /> : null}
 
             {/* Resumen por empresa */}
             {rangeByCompany.length > 0 ? (
@@ -586,6 +560,21 @@ export default function ComidaScreen() {
         </View>
       </Card>
 
+      {/* Agregar y corregir las comidas de ESTE día, sea hoy o cualquier día
+          pasado. Va acá arriba, pegado a la fecha: configurar en un sitio y
+          corregir en otro es como se termina corrigiendo el día equivocado. */}
+      {canEditar ? (
+        <ComidaEditor
+          fecha={date}
+          hoy={caracasToday()}
+          entregasEmpresa={companyMeals}
+          entregasPersona={rows}
+          empresas={companies}
+          usuario={{ id: session?.user?.id ?? null, nombre: fullName }}
+          onCambio={load}
+        />
+      ) : null}
+
       <TouchableOpacity
         onPress={() => setQrOpen((v) => !v)}
         style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
@@ -670,6 +659,20 @@ export default function ComidaScreen() {
       <View style={{ height: spacing.xl }} />
       </>
       )}
+
+      {/* El reporte con opciones. Recibe lo que la pantalla YA trajo del rango:
+          así el papel y lo que se ve arriba nunca pueden discrepar. */}
+      <ComidaReporteModal
+        visible={reporteOpen}
+        onClose={() => setReporteOpen(false)}
+        entregasEmpresa={rangeRows}
+        entregasPersona={rangePersons}
+        precios={precios}
+        puedeVerMontos={canCobro}
+        desdeInicial={from}
+        hastaInicial={to}
+        hoy={caracasToday()}
+      />
     </Screen>
   );
 }

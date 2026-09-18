@@ -100,6 +100,9 @@ const TABLA_A_MODULO: Record<string, string> = {
   machinery: 'equipos', vehicles: 'equipos', machinery_locations: 'equipos', map_zone_offsets: 'equipos',
   // 🍽️ Cocina y distribución de comida
   food_distributions: 'alimentacion', food_company_meals: 'alimentacion', comida_precios: 'alimentacion', comida_cuentas_config: 'alimentacion',
+  // El catálogo de platos «Otros»: el «nuevo modo de comida» que pidió el
+  // cliente poder rastrear (18-sep-2026). Sin esto caía en «📁 Otro».
+  food_extra_items: 'alimentacion',
   // ⛽ Combustible
   tanks: 'combustible', tank_levels: 'combustible', fuel_intakes: 'combustible', dispatches: 'combustible',
   transfers: 'combustible', authorizations: 'combustible', stock_movements: 'combustible',

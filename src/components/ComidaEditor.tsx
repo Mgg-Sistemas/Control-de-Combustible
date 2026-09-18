@@ -1,0 +1,395 @@
+// CORREGIR LAS COMIDAS DE UN DÍA (18-sep-2026).
+//
+// Pedido del cliente: poder agregar comidas en cualquier día, corregir una
+// cantidad que faltó o que sobró, y modificar el histórico de cualquier empresa
+// o persona, DESDE EL TELÉFONO.
+//
+// Vive dentro de «Distribución de comida», en la pestaña «📅 Por día», que ya
+// dejaba pararse en cualquier día pasado. Antes esa pestaña era de pura lectura:
+// no tenía un solo botón de escribir.
+//
+// ⚠️ SOLO CON PERMISO COMPLETO DE COMIDA. La cocina sigue registrando lo suyo
+//    del día por el QR y el carnet; esto es la corrección del jefe.
+//
+// ⚠️ PENSADO PARA PANTALLA ANGOSTA, como todo el sistema: nada de columnas
+//    fijas. Botonera con `flexWrap`, formulario en hoja inferior con su propio
+//    scroll, y el teclado numérico donde va un número. No hay breakpoints
+//    porque en este proyecto no existen: la maquetación es fluida.
+import React, { useMemo, useState } from 'react';
+import { Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Plegable } from './Plegable';
+import { useTheme } from '../theme/ThemeContext';
+import { spacing, radius } from '../theme';
+import { useConfirm } from './ConfirmProvider';
+import { COMPANY_MEALS, MEALS, mealLabel } from '../lib/foodCompanyMeals';
+import { FoodCompanyMeal, FoodDistribution, MealType } from '../types/database';
+import {
+  validarCambioEmpresa, validarCambioPersona, validarAltaEmpresa, validarAltaPersona,
+  resumenCambioEmpresa, resumenCambioPersona,
+} from '../lib/comidaEditar';
+import {
+  agregarEntregaEmpresa, agregarEntregaPersona, borrarEntregaEmpresa, borrarEntregaPersona,
+  buscarEmpleados, corregirEntregaEmpresa, corregirEntregaPersona,
+} from '../lib/comidaEditarDb';
+
+type Empresa = { id: string; name: string };
+
+type Props = {
+  /** El día que se está viendo (ISO Caracas). */
+  fecha: string;
+  hoy: string;
+  entregasEmpresa: FoodCompanyMeal[];
+  entregasPersona: FoodDistribution[];
+  empresas: Empresa[];
+  usuario: { id: string | null; nombre: string | null };
+  /** Se llama después de guardar o borrar, para que la pantalla recargue. */
+  onCambio: () => void;
+};
+
+type Formulario =
+  | { modo: 'alta-empresa' }
+  | { modo: 'alta-persona' }
+  | { modo: 'editar-empresa'; fila: FoodCompanyMeal }
+  | { modo: 'editar-persona'; fila: FoodDistribution };
+
+const hora = (iso: unknown) => {
+  const d = new Date(String(iso ?? ''));
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(d);
+};
+const diaLargo = (iso: string) =>
+  new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', weekday: 'long', day: '2-digit', month: 'long' }).format(new Date(iso + 'T12:00:00'));
+
+export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, empresas, usuario, onCambio }: Props) {
+  const { colors } = useTheme();
+  const confirm = useConfirm();
+
+  const [form, setForm] = useState<Formulario | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  // Campos del formulario (los comparten el alta y la edición: son los mismos).
+  const [empresaId, setEmpresaId] = useState('');
+  const [comida, setComida] = useState<MealType>('almuerzo');
+  const [cantidad, setCantidad] = useState('');
+  const [costo, setCosto] = useState('');
+  const [plato, setPlato] = useState('');
+  const [nota, setNota] = useState('');
+  // Buscador de personas.
+  const [busca, setBusca] = useState('');
+  const [encontrados, setEncontrados] = useState<{ id: string; nombre: string; cedula: string | null }[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [persona, setPersona] = useState<{ id: string; nombre: string; cedula: string | null } | null>(null);
+
+  const total = entregasEmpresa.length + entregasPersona.length;
+  const esHoy = fecha === hoy;
+
+  const abrir = (f: Formulario) => {
+    setAviso(null);
+    setBusca(''); setEncontrados([]); setPersona(null);
+    if (f.modo === 'alta-empresa') {
+      setEmpresaId(''); setComida('almuerzo'); setCantidad(''); setCosto(''); setPlato(''); setNota('');
+    } else if (f.modo === 'alta-persona') {
+      setComida('almuerzo'); setCantidad('1'); setNota('');
+    } else if (f.modo === 'editar-empresa') {
+      setEmpresaId(f.fila.company_id ?? '');
+      setComida(f.fila.meal_type);
+      setCantidad(String(f.fila.delivered ?? ''));
+      setCosto(String(Number(f.fila.unit_cost) || 0));
+      setPlato(f.fila.item_label ?? '');
+      setNota(f.fila.note ?? '');
+    } else {
+      setComida((f.fila.meal_type ?? 'almuerzo') as MealType);
+      setCantidad(String(f.fila.meals ?? ''));
+      setNota(f.fila.note ?? '');
+    }
+    setForm(f);
+  };
+
+  const cerrar = () => { setForm(null); setAviso(null); };
+
+  const buscarPersona = async (t: string) => {
+    setBusca(t);
+    setPersona(null);
+    if (t.trim().length < 2) { setEncontrados([]); return; }
+    setBuscando(true);
+    try { setEncontrados(await buscarEmpleados(t)); } finally { setBuscando(false); }
+  };
+
+  const guardar = async () => {
+    if (!form) return;
+    setGuardando(true);
+    setAviso(null);
+    try {
+      if (form.modo === 'alta-empresa') {
+        const emp = empresas.find((e) => e.id === empresaId);
+        const v = validarAltaEmpresa(
+          { companyId: empresaId, companyName: emp?.name, mealType: comida, mealDate: fecha, cantidad, costo, plato, nota },
+          hoy,
+        );
+        if (!v.ok) { setAviso('❌ ' + v.error); return; }
+        const { error } = await agregarEntregaEmpresa(v.patch, usuario);
+        if (error) { setAviso('❌ ' + error); return; }
+        setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.companyName}.`);
+        onCambio(); cerrar(); return;
+      }
+
+      if (form.modo === 'alta-persona') {
+        const v = validarAltaPersona(
+          { employeeId: persona?.id, employeeName: persona?.nombre, cedula: persona?.cedula, mealType: comida, distributionDate: fecha, cantidad, nota },
+          hoy,
+        );
+        if (!v.ok) { setAviso('❌ ' + v.error); return; }
+        const { error } = await agregarEntregaPersona(v.patch, usuario);
+        if (error) { setAviso('❌ ' + error); return; }
+        setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.employeeName}.`);
+        onCambio(); cerrar(); return;
+      }
+
+      if (form.modo === 'editar-empresa') {
+        const v = validarCambioEmpresa(form.fila, { cantidad, costo, plato, nota });
+        if (!v.ok) { setAviso('❌ ' + v.error); return; }
+        const { error } = await corregirEntregaEmpresa(form.fila.id, v.patch);
+        if (error) { setAviso('❌ ' + error); return; }
+        setAviso(resumenCambioEmpresa(form.fila, v.patch));
+        onCambio(); cerrar(); return;
+      }
+
+      const v = validarCambioPersona(form.fila, { cantidad, nota });
+      if (!v.ok) { setAviso('❌ ' + v.error); return; }
+      const { error } = await corregirEntregaPersona(form.fila.id, v.patch);
+      if (error) { setAviso('❌ ' + error); return; }
+      setAviso(resumenCambioPersona(form.fila, v.patch));
+      onCambio(); cerrar();
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const borrar = async (via: 'empresa' | 'persona', id: string, que: string) => {
+    const ok = await confirm({
+      title: '¿Borrar esta entrega?',
+      message: `Se va a borrar ${que}.\n\nQueda registrado quién la borró y cuándo, con todos sus datos, en «🕵️ Quién tocó las comidas».`,
+      confirmText: 'Sí, borrar',
+      danger: true,
+    });
+    if (!ok) return;
+    const { error } = via === 'empresa' ? await borrarEntregaEmpresa(id) : await borrarEntregaPersona(id);
+    setAviso(error ? '❌ ' + error : '✅ Entrega borrada. Quedó el registro de quién la borró.');
+    if (!error) onCambio();
+  };
+
+  // ── Piezas de la interfaz ────────────────────────────────────────────────
+  const boton = (texto: string, onPress: () => void, color: string, contraste: string, deshabilitado = false) => (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={deshabilitado}
+      style={{ flexGrow: 1, minWidth: 150, backgroundColor: color, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center', opacity: deshabilitado ? 0.5 : 1 }}
+    >
+      <Text style={{ color: contraste, fontWeight: '800', fontSize: 13 }}>{texto}</Text>
+    </TouchableOpacity>
+  );
+
+  const pastilla = (texto: string, encendida: boolean, onPress: () => void) => (
+    <TouchableOpacity
+      key={texto}
+      onPress={onPress}
+      style={{ borderRadius: radius.pill, borderWidth: 1.5, borderColor: encendida ? colors.brand : colors.border, backgroundColor: encendida ? colors.brand : colors.surface, paddingHorizontal: spacing.md, paddingVertical: 6 }}
+    >
+      <Text style={{ color: encendida ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{texto}</Text>
+    </TouchableOpacity>
+  );
+
+  const campo = (etiqueta: string, valor: string, onChange: (v: string) => void, opts: { numerico?: boolean; placeholder?: string } = {}) => (
+    <View style={{ marginTop: spacing.sm }}>
+      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>{etiqueta}</Text>
+      <TextInput
+        value={valor}
+        onChangeText={onChange}
+        placeholder={opts.placeholder}
+        placeholderTextColor={colors.muted}
+        keyboardType={opts.numerico ? 'numeric' : 'default'}
+        style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, backgroundColor: colors.surface, fontSize: 15 }}
+      />
+    </View>
+  );
+
+  const renglon = (
+    clave: string, icono: string, titulo: string, detalle: string,
+    onEditar: () => void, onBorrar: () => void,
+  ) => (
+    <View key={clave} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+      <View style={{ flex: 1, minWidth: 160 }}>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{icono} {titulo}</Text>
+        <Text style={{ color: colors.muted, fontSize: 11 }}>{detalle}</Text>
+      </View>
+      <TouchableOpacity onPress={onEditar} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>✏️ Corregir</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onBorrar} style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const tituloForm = useMemo(() => {
+    if (!form) return '';
+    if (form.modo === 'alta-empresa') return '➕ Agregar comida a una empresa';
+    if (form.modo === 'alta-persona') return '➕ Agregar comida a una persona';
+    if (form.modo === 'editar-empresa') return '✏️ Corregir la entrega de la empresa';
+    return '✏️ Corregir la entrega de la persona';
+  }, [form]);
+
+  const esEmpresa = form?.modo === 'alta-empresa' || form?.modo === 'editar-empresa';
+  const esAlta = form?.modo === 'alta-empresa' || form?.modo === 'alta-persona';
+
+  return (
+    <Plegable
+      titulo="✏️ Agregar o corregir las comidas de este día"
+      resumen={`${total} entrega(s) el ${diaLargo(fecha)}${esHoy ? '' : ' · día pasado'}`}
+    >
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+        Se puede agregar lo que faltó y corregir lo que se pasó, en este día o en cualquier día anterior.
+        Todo cambio queda registrado con tu nombre y la hora en «🕵️ Quién tocó las comidas».
+      </Text>
+
+      {aviso ? (
+        <Text style={{ color: aviso.startsWith('❌') ? colors.danger : colors.success, fontSize: 12, fontWeight: '700', marginBottom: spacing.sm }}>{aviso}</Text>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {boton('➕ A una empresa', () => abrir({ modo: 'alta-empresa' }), colors.brand, colors.brandContrast)}
+        {boton('➕ A una persona', () => abrir({ modo: 'alta-persona' }), colors.accent, colors.accentContrast)}
+      </View>
+
+      {entregasEmpresa.length === 0 && entregasPersona.length === 0 ? (
+        <Text style={{ color: colors.muted, fontSize: 12 }}>Este día no tiene ninguna entrega registrada todavía.</Text>
+      ) : null}
+
+      {entregasEmpresa.map((r) =>
+        renglon(
+          'e' + r.id,
+          '🏢',
+          `${r.company_name} · ${mealLabel(r.meal_type)}${r.item_label ? ` (${r.item_label})` : ''}`,
+          `${r.delivered} plato(s)${Number(r.unit_cost) > 0 ? ` · $${Number(r.unit_cost)} c/u` : ''}${hora(r.delivered_at) ? ` · ${hora(r.delivered_at)}` : ''}${r.created_by_name ? ` · por ${r.created_by_name}` : ''}`,
+          () => abrir({ modo: 'editar-empresa', fila: r }),
+          () => borrar('empresa', r.id, `${r.delivered} ${mealLabel(r.meal_type)} de ${r.company_name}`),
+        ),
+      )}
+
+      {entregasPersona.map((r) =>
+        renglon(
+          'p' + r.id,
+          '👤',
+          `${r.employee_name} · ${r.meal_type ? mealLabel(r.meal_type) : 'sin comida marcada'}`,
+          `${r.meals} comida(s)${hora(r.delivered_at) ? ` · ${hora(r.delivered_at)}` : ''}${r.created_by_name ? ` · por ${r.created_by_name}` : ''}`,
+          () => abrir({ modo: 'editar-persona', fila: r }),
+          () => borrar('persona', r.id, `${r.meals} ${r.meal_type ? mealLabel(r.meal_type) : 'comida(s)'} de ${r.employee_name}`),
+        ),
+      )}
+
+      {/* Formulario en HOJA INFERIOR: el mismo patrón del modal de reportes, que
+          es el que ya funciona bien en el teléfono. */}
+      <Modal visible={!!form} transparent animationType="slide" onRequestClose={cerrar}>
+        <Pressable onPress={cerrar} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '90%', padding: spacing.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{tituloForm}</Text>
+              <TouchableOpacity onPress={cerrar} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+              Día: <Text style={{ color: colors.text, fontWeight: '800', textTransform: 'capitalize' }}>{diaLargo(fecha)}</Text>
+              {esHoy ? '' : ' (día pasado)'}
+            </Text>
+
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {/* Empresa: solo al dar de alta. Mover una entrega de empresa es
+                  borrarla y hacerla de nuevo, para que quede el rastro. */}
+              {form?.modo === 'alta-empresa' ? (
+                <View style={{ marginTop: spacing.xs }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>EMPRESA</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    {empresas.map((e) => pastilla(e.name, empresaId === e.id, () => setEmpresaId(e.id)))}
+                  </View>
+                </View>
+              ) : null}
+
+              {form?.modo === 'editar-empresa' ? (
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', marginTop: spacing.xs }}>
+                  🏢 {form.fila.company_name}
+                  <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>  · la empresa y el día no se cambian: para eso, borra y vuelve a agregar</Text>
+                </Text>
+              ) : null}
+
+              {form?.modo === 'editar-persona' ? (
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', marginTop: spacing.xs }}>
+                  👤 {form.fila.employee_name}
+                  <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>  · la persona y el día no se cambian</Text>
+                </Text>
+              ) : null}
+
+              {/* Buscador de personas, solo al dar de alta. */}
+              {form?.modo === 'alta-persona' ? (
+                <>
+                  {campo('PERSONA (nombre, apellido o cédula)', busca, buscarPersona, { placeholder: 'Escribe al menos 2 letras…' })}
+                  {buscando ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Buscando…</Text> : null}
+                  {persona ? (
+                    <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800', marginTop: spacing.xs }}>
+                      ✅ {persona.nombre}{persona.cedula ? ` · C.I ${persona.cedula}` : ''}
+                    </Text>
+                  ) : (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                      {encontrados.map((p) =>
+                        pastilla(`${p.nombre}${p.cedula ? ` · ${p.cedula}` : ''}`, false, () => { setPersona(p); setEncontrados([]); }),
+                      )}
+                    </View>
+                  )}
+                </>
+              ) : null}
+
+              {/* Comida: al dar de alta se elige; al corregir se muestra, porque
+                  cambiar de comida es otra entrega distinta. */}
+              {esAlta ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>COMIDA</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    {(form?.modo === 'alta-empresa' ? COMPANY_MEALS : MEALS).map((m) =>
+                      pastilla(`${m.icon} ${m.label}`, comida === m.key, () => setComida(m.key)),
+                    )}
+                  </View>
+                </View>
+              ) : (
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
+                  Comida: <Text style={{ color: colors.text, fontWeight: '800' }}>{mealLabel(comida)}</Text> · para cambiarla, borra y vuelve a agregar
+                </Text>
+              )}
+
+              {campo(esEmpresa ? 'CUÁNTOS PLATOS' : 'CUÁNTAS COMIDAS', cantidad, setCantidad, { numerico: true, placeholder: '0' })}
+
+              {esEmpresa ? campo('COSTO POR PLATO EN $ (opcional)', costo, setCosto, { numerico: true, placeholder: '0,00' }) : null}
+              {esEmpresa && comida === 'otros' ? campo('QUÉ FUE (postre, hielo, refresco…)', plato, setPlato, { placeholder: 'Nombre del plato' }) : null}
+
+              {campo('NOTA (opcional)', nota, setNota, { placeholder: 'Por qué se corrigió, por ejemplo' })}
+
+              {aviso ? (
+                <Text style={{ color: aviso.startsWith('❌') ? colors.danger : colors.success, fontSize: 12, fontWeight: '700', marginTop: spacing.sm }}>{aviso}</Text>
+              ) : null}
+
+              <TouchableOpacity
+                onPress={guardar}
+                disabled={guardando}
+                style={{ marginTop: spacing.lg, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center', opacity: guardando ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 14 }}>{guardando ? 'Guardando…' : '💾 Guardar'}</Text>
+              </TouchableOpacity>
+              <View style={{ height: spacing.xl }} />
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </Plegable>
+  );
+}

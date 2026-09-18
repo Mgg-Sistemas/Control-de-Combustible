@@ -1,0 +1,367 @@
+/*
+ * Test del REPORTE DE COMIDAS CON OPCIONES (18-sep-2026).
+ *
+ * Pedido del cliente: imprimir el PDF para empresa, para personas, para el día
+ * que filtre, para un tipo de comida, o varias cosas a la vez; con monto y sin
+ * monto; y poder quitarle o ponerle partes al papel con un solo botón, como en
+ * reportes/conteo de equipos.
+ *
+ * Lo que fija, que es donde de verdad se rompe esto:
+ *   · una lista de filtro VACÍA significa «todas», no «ninguna»
+ *   · las PASTILLAS ocultan columnas y cuadros, y los TOTALES NO CAMBIAN
+ *   · los FILTROS sí cambian los totales, y el papel escribe cuáles fueron
+ *   · con monto y sin monto: el $ desaparece de TODAS las tablas, no de una
+ *   · el precio manda sobre el costo escrito, y lo que no tiene ninguno de los
+ *     dos NO suma cero en silencio: cuenta como «sin precio» y se dice
+ *   · cabecera y filas tienen SIEMPRE el mismo número de columnas (un <th> sin
+ *     su <td> corre la tabla entera y sale la cédula debajo de «Almuerzo»)
+ *   · el nombre del archivo no lleva «/» (no se puede guardar)
+ *   · la librería de opciones no importa nada (para poder probarla sola)
+ *
+ * Sin framework (el repo no tiene): transpila los .ts en memoria.
+ *
+ *   node scripts/test-comida-reporte.mjs
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
+const require = createRequire(path.join(ROOT, 'package.json'));
+const ts = require('typescript');
+const Module = require('module');
+
+// Los .ts se cargan en memoria, y los `import './otro'` entre ellos se resuelven
+// solos (con caché, para que dos archivos que importen el mismo tercero compartan
+// la misma copia, igual que en la app).
+const cache = new Map();
+function loadTs(rel) {
+  const abs = path.isAbsolute(rel) ? rel : path.join(ROOT, rel);
+  if (cache.has(abs)) return cache.get(abs);
+  const out = ts.transpileModule(fs.readFileSync(abs, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, esModuleInterop: true },
+  }).outputText;
+  const m = new Module(abs);
+  m.filename = abs;
+  m.paths = Module._nodeModulePaths(path.dirname(abs));
+  cache.set(abs, m.exports);
+  const orig = m.require.bind(m);
+  m.require = (id) => (id.startsWith('.') ? loadTs(path.join(path.dirname(abs), id) + '.ts') : orig(id));
+  m._compile(out, m.filename);
+  cache.set(abs, m.exports);
+  return m.exports;
+}
+
+let pass = 0, fail = 0;
+const failures = [];
+const eq = (name, got, want) => {
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) pass++; else { fail++; failures.push(`✗ ${name}\n    obtenido: ${g}\n    esperado: ${w}`); }
+};
+const ok = (name, cond) => eq(name, !!cond, true);
+
+const OPC = loadTs('src/lib/comidaReporteOpciones.ts');
+const REP = loadTs('src/lib/comidaReporte.ts');
+const HTML = loadTs('src/lib/comidaReporteHtml.ts');
+
+// ── 0) LA LIBRERÍA DE OPCIONES NO IMPORTA NADA ──────────────────────────────
+{
+  const src = fs.readFileSync(path.join(ROOT, 'src/lib/comidaReporteOpciones.ts'), 'utf8');
+  ok('⭐ comidaReporteOpciones.ts no importa nada (se prueba sola)', !/^\s*import\s/m.test(src));
+  ok('todas las banderas empiezan por «sin»', Object.keys(OPC.OPCIONES_COMIDA_COMPLETO).every((k) => k.startsWith('sin')));
+  ok('cada pastilla tiene key, chip, largo y archivo',
+    OPC.PASTILLAS_COMIDA.every((p) => p.key && p.chip && p.largo && p.archivo));
+  ok('⭐ hay una pastilla por CADA bandera (ninguna queda sin botón)',
+    Object.keys(OPC.OPCIONES_COMIDA_COMPLETO).every((k) => OPC.PASTILLAS_COMIDA.some((p) => p.key === k)));
+  ok('⭐ ningún nombre de archivo lleva «/» (no se podría guardar)',
+    OPC.PASTILLAS_COMIDA.every((p) => !p.archivo.includes('/')));
+  ok('el papel completo no oculta nada', !OPC.hayAlgoOcultoComida(OPC.OPCIONES_COMIDA_COMPLETO));
+  eq('y lo dice en criollo', OPC.ocultosComidaEnPalabras(OPC.OPCIONES_COMIDA_COMPLETO), 'Sale completo.');
+  eq('sin nada oculto, el archivo no lleva sufijo', OPC.sufijoArchivoComida(OPC.OPCIONES_COMIDA_COMPLETO), '');
+}
+
+// ── 1) ALTERNAR ES INMUTABLE ────────────────────────────────────────────────
+{
+  const a = OPC.OPCIONES_COMIDA_COMPLETO;
+  const b = OPC.alternarComida(a, 'sinMontos');
+  eq('alternar enciende', b.sinMontos, true);
+  eq('...y no toca el original', a.sinMontos, false);
+  eq('alternar dos veces vuelve al principio', OPC.alternarComida(b, 'sinMontos').sinMontos, false);
+  ok('con algo oculto lo dice', OPC.ocultosComidaEnPalabras(b).includes('los montos en $'));
+  ok('...y avisa que los totales no cambian', OPC.ocultosComidaEnPalabras(b).includes('Los totales no cambian'));
+  eq('el archivo lleva el sufijo', OPC.sufijoArchivoComida(b), ' sin montos');
+}
+
+// ── 2) EL PAPEL «COMO ANTES» ────────────────────────────────────────────────
+{
+  const o = OPC.OPCIONES_COMIDA_COMO_ANTES;
+  ok('⭐ por defecto sale como el reporte viejo: sin montos', o.sinMontos);
+  ok('...sin el detalle entrega por entrega', o.sinDetalle);
+  ok('...pero CON el cuadro por empresa', !o.sinEmpresas);
+  ok('...y CON el cuadro por persona', !o.sinPersonas);
+  ok('no queda sin contenido', !OPC.comidaSinContenido(o));
+}
+
+// ── 3) EL PAPEL VACÍO SE AVISA ──────────────────────────────────────────────
+{
+  const o = { ...OPC.OPCIONES_COMIDA_COMPLETO, sinEmpresas: true, sinPersonas: true, sinComidas: true, sinDetalle: true };
+  ok('⭐ con los cuatro cuadros apagados, el papel no se emite', OPC.comidaSinContenido(o));
+  ok('con tres apagados todavía se emite', !OPC.comidaSinContenido({ ...o, sinDetalle: false }));
+}
+
+// ── DATOS DE MENTIRA (empresas y nombres inventados) ────────────────────────
+const EMPRESAS = [
+  { id: 'e1', nombre: 'EMPRESA UNO' },
+  { id: 'e2', nombre: 'EMPRESA DOS' },
+];
+const entregasEmpresa = [
+  { id: 'a1', company_id: 'e1', company_name: 'EMPRESA UNO', meal_type: 'desayuno', meal_date: '2026-09-14', delivered: 10, unit_cost: 0, delivered_at: '2026-09-14T11:00:00Z', created_by_name: 'Cocina 1', note: '' },
+  { id: 'a2', company_id: 'e1', company_name: 'EMPRESA UNO', meal_type: 'almuerzo', meal_date: '2026-09-14', delivered: 20, unit_cost: 0, delivered_at: '2026-09-14T16:00:00Z', created_by_name: 'Cocina 1', note: 'tarde' },
+  { id: 'a3', company_id: 'e2', company_name: 'EMPRESA DOS', meal_type: 'almuerzo', meal_date: '2026-09-15', delivered: 5, unit_cost: 0, delivered_at: '2026-09-15T16:00:00Z', created_by_name: 'Cocina 2', note: '' },
+  // OTROS: no tiene precio de categoría, pero sí costo escrito al registrar.
+  { id: 'a4', company_id: 'e2', company_name: 'EMPRESA DOS', meal_type: 'otros', item_label: 'Postre', meal_date: '2026-09-15', delivered: 4, unit_cost: 2, delivered_at: '2026-09-15T17:00:00Z', created_by_name: 'Cocina 2', note: '' },
+];
+const entregasPersona = [
+  { id: 'p1', employee_id: 'x1', employee_name: 'Persona Uno', cedula: '111', meal_type: 'desayuno', distribution_date: '2026-09-14', meals: 1, delivered_at: '2026-09-14T11:05:00Z', created_by_name: 'Cocina 1', note: '' },
+  { id: 'p2', employee_id: 'x2', employee_name: 'Persona Dos', cedula: '222', meal_type: 'cena', distribution_date: '2026-09-15', meals: 2, delivered_at: '2026-09-15T23:00:00Z', created_by_name: 'Cocina 2', note: '' },
+];
+// Precios inventados: los reales NO van al repositorio (es público).
+const precios = [
+  { id: 'pr1', categoria: 'desayuno', precio: 1, desde: '2026-09-01', hasta: null },
+  { id: 'pr2', categoria: 'almuerzo', precio: 2, desde: '2026-09-01', hasta: null },
+  // A propósito SIN precio de cena: para probar el «sin precio».
+];
+const TODO = { ...REP.FILTRO_COMIDA_TODO, desde: '2026-09-14', hasta: '2026-09-15' };
+const todas = { empresas: entregasEmpresa, personas: entregasPersona };
+
+// ── 4) LISTA VACÍA = TODAS ──────────────────────────────────────────────────
+{
+  const r = REP.filtrarComidas(todas, TODO);
+  eq('⭐ sin elegir nada entran TODAS las de empresa', r.empresas.length, 4);
+  eq('⭐ ...y todas las de persona', r.personas.length, 2);
+  ok('no queda vacío', !REP.filtroSinEntregas(r));
+}
+
+// ── 5) CADA FILTRO ──────────────────────────────────────────────────────────
+{
+  eq('por empresa', REP.filtrarComidas(todas, { ...TODO, empresas: ['e2'] }).empresas.map((r) => r.id), ['a3', 'a4']);
+  eq('por comida', REP.filtrarComidas(todas, { ...TODO, comidas: ['almuerzo'] }).empresas.map((r) => r.id), ['a2', 'a3']);
+  eq('...y la misma comida recorta las personas', REP.filtrarComidas(todas, { ...TODO, comidas: ['almuerzo'] }).personas.length, 0);
+  eq('por varias comidas a la vez', REP.filtrarComidas(todas, { ...TODO, comidas: ['desayuno', 'cena'] }).empresas.map((r) => r.id), ['a1']);
+  eq('por persona', REP.filtrarComidas(todas, { ...TODO, personas: ['x2'] }).personas.map((r) => r.id), ['p2']);
+  eq('por día', REP.filtrarComidas(todas, { ...TODO, desde: '2026-09-14', hasta: '2026-09-14' }).empresas.map((r) => r.id), ['a1', 'a2']);
+  eq('solo lo de empresa', REP.filtrarComidas(todas, { ...TODO, conPersonas: false }).personas.length, 0);
+  eq('solo lo de carnet', REP.filtrarComidas(todas, { ...TODO, conEmpresas: false }).empresas.length, 0);
+  eq('⭐ dos filtros a la vez se cruzan', REP.filtrarComidas(todas, { ...TODO, empresas: ['e1'], comidas: ['almuerzo'] }).empresas.map((r) => r.id), ['a2']);
+  ok('⭐ un filtro imposible avisa que no queda nada',
+    REP.filtroSinEntregas(REP.filtrarComidas(todas, { ...TODO, empresas: ['no-existe'], conPersonas: false })));
+}
+
+// ── 6) LA PLATA ─────────────────────────────────────────────────────────────
+{
+  const g = REP.agruparEmpresas(entregasEmpresa, precios);
+  const uno = g.find((x) => x.clave === 'e1');
+  eq('empresa uno: 10 desayunos a 1 + 20 almuerzos a 2 = 50', uno.monto, 50);
+  eq('...30 comidas', uno.total, 30);
+  eq('...sin nada sin precio', uno.sinPrecio, 0);
+
+  const dos = g.find((x) => x.clave === 'e2');
+  eq('⭐ OTROS usa el costo escrito cuando no hay precio de categoría: 5×$2 + 4×$2 = 18', dos.monto, 18);
+
+  const gp = REP.agruparPersonas(entregasPersona, precios);
+  const p2 = gp.find((x) => x.clave === 'x2');
+  eq('⭐ la cena no tiene precio: no suma', p2.monto, 0);
+  eq('⭐ ...y se cuenta como «sin precio», no como cero en silencio', p2.sinPrecio, 2);
+
+  const t = REP.totalesDeGrupos(g, gp);
+  eq('total de comidas', t.total, 42);
+  // 50 (empresa uno) + 18 (empresa dos) + 1 (un desayuno por carnet) = 69.
+  eq('total de plata', t.monto, 69);
+  eq('total sin precio', t.sinPrecio, 2);
+  eq('empresas contadas', t.empresas, 2);
+  eq('personas contadas', t.personas, 2);
+}
+
+// ── 7) LAS PASTILLAS NO CAMBIAN LOS TOTALES ─────────────────────────────────
+{
+  const e = REP.filtrarComidas(todas, TODO);
+  const gE = REP.agruparEmpresas(e.empresas, precios);
+  const gP = REP.agruparPersonas(e.personas, precios);
+  const t = REP.totalesDeGrupos(gE, gP);
+  const base = {
+    filtro: TODO, comidas: [{ key: 'desayuno', label: 'Desayuno' }, { key: 'almuerzo', label: 'Almuerzo' }, { key: 'lunch', label: 'Lunch' }, { key: 'cena', label: 'Cena' }, { key: 'otros', label: 'Otros' }],
+    gruposEmpresas: gE, gruposPersonas: gP, cedulas: REP.cedulasPorClave(e.personas),
+    lineas: REP.lineasDetalle(e, precios), totales: t, nombres: {},
+  };
+  const completo = HTML.cuerpoReporteComida({ ...base, opciones: OPC.OPCIONES_COMIDA_COMPLETO });
+  ok('⭐ el total sale en el papel completo', completo.includes('>42<') || completo.includes('42'));
+
+  // Se enciende CADA pastilla, una por una, y el total tiene que seguir ahí.
+  OPC.PASTILLAS_COMIDA.forEach((p) => {
+    const o = OPC.alternarComida(OPC.OPCIONES_COMIDA_COMPLETO, p.key);
+    const cuerpo = HTML.cuerpoReporteComida({ ...base, opciones: o });
+    ok(`⭐ con «${p.chip}» el total de comidas sigue diciendo 42`, cuerpo.includes('42'));
+  });
+}
+
+// ── 8) CON MONTO Y SIN MONTO ────────────────────────────────────────────────
+{
+  const e = REP.filtrarComidas(todas, TODO);
+  const gE = REP.agruparEmpresas(e.empresas, precios);
+  const gP = REP.agruparPersonas(e.personas, precios);
+  const base = {
+    filtro: TODO, comidas: [{ key: 'desayuno', label: 'Desayuno' }, { key: 'almuerzo', label: 'Almuerzo' }, { key: 'cena', label: 'Cena' }, { key: 'otros', label: 'Otros' }],
+    gruposEmpresas: gE, gruposPersonas: gP, cedulas: REP.cedulasPorClave(e.personas),
+    lineas: REP.lineasDetalle(e, precios), totales: REP.totalesDeGrupos(gE, gP), nombres: {},
+  };
+  const con = HTML.cuerpoReporteComida({ ...base, opciones: OPC.OPCIONES_COMIDA_COMPLETO });
+  const sin = HTML.cuerpoReporteComida({ ...base, opciones: { ...OPC.OPCIONES_COMIDA_COMPLETO, sinMontos: true } });
+  ok('con monto: hay signos de dólar', con.includes('$'));
+  ok('⭐ SIN monto: no queda ni un solo $ en TODO el papel', !sin.includes('$'));
+  ok('⭐ sin monto: tampoco el encabezado «Monto ($)»', !sin.includes('Monto'));
+  ok('sin monto: las cantidades siguen', sin.includes('42'));
+  ok('sin monto: el alcance lo dice', sin.includes('SIN montos'));
+}
+
+// ── 9) CABECERA Y FILAS CUADRAN SIEMPRE ─────────────────────────────────────
+//
+// Es el error que no se ve hasta que el cliente lee el papel: un <th> de más
+// corre TODA la tabla y la cédula aparece debajo de «Almuerzo».
+{
+  const e = REP.filtrarComidas(todas, TODO);
+  const gE = REP.agruparEmpresas(e.empresas, precios);
+  const gP = REP.agruparPersonas(e.personas, precios);
+  const cat = [{ key: 'desayuno', label: 'Desayuno' }, { key: 'almuerzo', label: 'Almuerzo' }, { key: 'cena', label: 'Cena' }, { key: 'otros', label: 'Otros' }];
+  const base = {
+    filtro: TODO, comidas: cat, gruposEmpresas: gE, gruposPersonas: gP,
+    cedulas: REP.cedulasPorClave(e.personas), lineas: REP.lineasDetalle(e, precios),
+    totales: REP.totalesDeGrupos(gE, gP), nombres: {},
+  };
+
+  // Se prueban TODAS las combinaciones de las pastillas que mueven columnas.
+  const mueven = ['sinMontos', 'sinDias', 'sinCedula', 'sinQuien', 'sinHora', 'sinNotas'];
+  let combinaciones = 0, descuadres = 0;
+  for (let mask = 0; mask < (1 << mueven.length); mask++) {
+    const o = { ...OPC.OPCIONES_COMIDA_COMPLETO };
+    mueven.forEach((k, i) => { o[k] = !!(mask & (1 << i)); });
+    const cuerpo = HTML.cuerpoReporteComida({ ...base, opciones: o });
+    combinaciones++;
+    // Cada <table>: el nº de <th> tiene que ser el nº de <td> de cada <tr>.
+    for (const tabla of cuerpo.split('<table>').slice(1)) {
+      const nTh = (tabla.match(/<th /g) ?? []).length;
+      for (const tr of tabla.split('<tr').slice(2)) {
+        const nTd = (tr.match(/<td /g) ?? []).length;
+        if (nTd > 0 && nTd !== nTh) descuadres++;
+      }
+    }
+  }
+  eq('se probaron las 64 combinaciones de columnas', combinaciones, 64);
+  eq('⭐ NINGUNA fila queda descuadrada con su cabecera', descuadres, 0);
+}
+
+// ── 9b) EL PIE DE CADA CUADRO SUMA POR COMIDA ───────────────────────────────
+//
+// Lo traía el reporte viejo y no se puede perder: el cliente lee esa fila para
+// cuadrar cuántos desayunos se entregaron en total.
+{
+  const e = REP.filtrarComidas(todas, TODO);
+  const gE = REP.agruparEmpresas(e.empresas, precios);
+  const gP = REP.agruparPersonas(e.personas, precios);
+  const cat = [{ key: 'desayuno', label: 'Desayuno' }, { key: 'almuerzo', label: 'Almuerzo' }, { key: 'cena', label: 'Cena' }, { key: 'otros', label: 'Otros' }];
+  const cuerpo = HTML.cuerpoReporteComida({
+    filtro: TODO, opciones: OPC.OPCIONES_COMIDA_COMPLETO, comidas: cat,
+    gruposEmpresas: gE, gruposPersonas: gP, cedulas: REP.cedulasPorClave(e.personas),
+    lineas: REP.lineasDetalle(e, precios), totales: REP.totalesDeGrupos(gE, gP), nombres: {},
+  });
+  const pies = cuerpo.split('tr class="tot"').slice(1);
+  ok('⭐ hay un pie de TOTAL en cada cuadro (comidas, empresas y personas)', pies.length >= 3);
+  // En el cuadro de personas: 1 desayuno y 2 cenas.
+  const piePersonas = pies[pies.length - 1];
+  ok('⭐ el pie de personas suma el desayuno', piePersonas.includes('<b>1</b>'));
+  ok('⭐ ...y las cenas', piePersonas.includes('<b>2</b>'));
+  ok('...y dice TOTAL', piePersonas.includes('TOTAL'));
+}
+
+// ── 10) EL CUADRO DE ALCANCE ────────────────────────────────────────────────
+{
+  const nombres = {
+    empresas: new Map(EMPRESAS.map((e) => [e.id, e.nombre])),
+    personas: new Map([['x2', 'Persona Dos']]),
+    comidas: new Map([['almuerzo', 'Almuerzo']]),
+  };
+  const todo = REP.alcanceEnPalabras(TODO, nombres);
+  ok('sin filtros dice «todas» de empresas', todo.some((l) => l === 'Empresas: todas.'));
+  ok('...y de personas', todo.some((l) => l === 'Personas: todas.'));
+  ok('...y de comidas', todo.some((l) => l === 'Comidas: todas.'));
+
+  const filtrado = REP.alcanceEnPalabras({ ...TODO, empresas: ['e2'], comidas: ['almuerzo'] }, nombres);
+  ok('⭐ con filtro escribe el NOMBRE, no la clave', filtrado.some((l) => l.includes('EMPRESA DOS')));
+  ok('...y no la clave cruda', !filtrado.some((l) => l.includes('e2')));
+  ok('nombra la comida', filtrado.some((l) => l.includes('Almuerzo')));
+
+  const nada = REP.alcanceEnPalabras({ ...TODO, conEmpresas: false, conPersonas: false }, nombres);
+  ok('⭐ sin QR ni carnet, avisa que el papel sale vacío', nada.some((l) => l.includes('vacío')));
+}
+
+// ── 11) EL LISTADO ENTREGA POR ENTREGA ──────────────────────────────────────
+{
+  const e = REP.filtrarComidas(todas, TODO);
+  const l = REP.lineasDetalle(e, precios);
+  eq('entran las 6 entregas', l.length, 6);
+  ok('⭐ ordenado por día', l.every((x, i) => i === 0 || l[i - 1].fecha <= x.fecha));
+  ok('distingue empresa de persona', l.some((x) => x.via === 'empresa') && l.some((x) => x.via === 'persona'));
+  const postre = l.find((x) => x.plato === 'Postre');
+  ok('el plato de OTROS lleva su nombre', !!postre);
+  eq('...con su monto', postre.monto, 8);
+  const cena = l.find((x) => x.comida === 'cena');
+  ok('⭐ la cena sin precio se marca, no sale en $0,00', cena.conPrecio === false);
+}
+
+// ── 12) NOMBRE DEL ARCHIVO ──────────────────────────────────────────────────
+{
+  const n1 = HTML.nombreArchivoComida({ desde: '2026-09-14', hasta: '2026-09-14' }, '');
+  ok('un solo día no repite la fecha', n1 === 'Comidas 14-09-2026');
+  const n2 = HTML.nombreArchivoComida({ desde: '2026-09-14', hasta: '2026-09-15' }, ' sin montos');
+  ok('rango con sufijo', n2.includes('a 15-09-2026') && n2.endsWith('sin montos'));
+  ok('⭐ NUNCA lleva «/» (no se podría guardar el archivo)', !n1.includes('/') && !n2.includes('/'));
+  eq('subtítulo de un día', HTML.subtituloReporteComida({ desde: '2026-09-14', hasta: '2026-09-14' }), 'Día 14/09/2026');
+  eq('subtítulo de rango', HTML.subtituloReporteComida({ desde: '2026-09-14', hasta: '2026-09-15' }), 'Del 14/09/2026 al 15/09/2026');
+}
+
+// ── 13) EL HTML NO SE ROMPE CON & < > ───────────────────────────────────────
+//
+// Pasó de verdad con «INGENIERIA & LOGISTICA …»: un & sin escapar rompía el
+// documento y no descargaba nada.
+{
+  const sucias = [{ id: 'z', company_id: 'z', company_name: 'UNO & DOS <S.A>', meal_type: 'almuerzo', meal_date: '2026-09-14', delivered: 1, unit_cost: 0, note: 'a<b' }];
+  const g = REP.agruparEmpresas(sucias, precios);
+  const cuerpo = HTML.cuerpoReporteComida({
+    filtro: TODO, opciones: OPC.OPCIONES_COMIDA_COMPLETO, comidas: [{ key: 'almuerzo', label: 'Almuerzo' }],
+    gruposEmpresas: g, gruposPersonas: [], lineas: REP.lineasDetalle({ empresas: sucias, personas: [] }, precios),
+    totales: REP.totalesDeGrupos(g, []), nombres: {},
+  });
+  ok('⭐ el & del nombre sale escapado', cuerpo.includes('UNO &amp; DOS &lt;S.A&gt;'));
+  ok('...y no crudo', !cuerpo.includes('UNO & DOS'));
+}
+
+// ── 14) CLAVES: el id manda, el nombre es el respaldo ───────────────────────
+{
+  eq('empresa con id usa el id', REP.claveEmpresa({ company_id: 'e9', company_name: 'X' }), 'e9');
+  eq('empresa vieja sin id usa el nombre', REP.claveEmpresa({ company_id: null, company_name: 'X' }), 'X');
+  eq('persona con ficha usa la ficha', REP.clavePersona({ employee_id: 'x9', cedula: '1', employee_name: 'A' }), 'x9');
+  eq('persona sin ficha usa la cédula', REP.clavePersona({ employee_id: null, cedula: '1', employee_name: 'A' }), '1');
+  eq('y sin cédula, el nombre', REP.clavePersona({ employee_id: null, cedula: null, employee_name: 'A' }), 'A');
+}
+
+// ── 15) LA HORA VA EN CARACAS, NO EN UTC ────────────────────────────────────
+{
+  // 2026-09-14T15:30:00Z son las 11:30 a. m. en Caracas (UTC−4).
+  const h = REP.horaCaracas('2026-09-14T15:30:00Z');
+  ok(`⭐ la hora se escribe en Caracas, no en UTC (salió «${h}»)`, h.includes('11:30'));
+  eq('una hora inválida no revienta', REP.horaCaracas('nada'), '');
+}
+
+console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-reporte · ${pass} ok · ${fail} fallando`);
+if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

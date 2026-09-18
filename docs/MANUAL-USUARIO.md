@@ -2365,7 +2365,62 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
 - **Resumen por empresa**: cuánto entregó cada empresa por tiempo de comida y en cuántos días.
 - Al elegir **una empresa** (filtro de arriba): su **historial día por día** con lo entregado en
   cada comida, la hora y quién lo registró.
-- Botón **"📄 Descargar reporte PDF"** para imprimir/llevar el control por empresa del rango.
+- Botón **"📄 Reporte PDF (con opciones)"** para imprimir/llevar el control del rango.
+
+#### ✏️ Corregir comidas de cualquier día (18/09/2026)
+En la pestaña **"📅 Por día"**, quien tiene **permiso COMPLETO** en Distribución de comida ve la
+tarjeta **"✏️ Agregar o corregir las comidas de este día"**. Funciona desde el teléfono.
+
+Sirve para el día que se esté viendo, **sea hoy o cualquier día anterior**: párate en la fecha con
+las flechas ◀ ▶ y desde ahí puedes:
+
+- **Agregar** lo que faltó, a una **empresa** o a una **persona**.
+- **Corregir** la cantidad, el costo por plato, el nombre del plato (en «Otros») o la nota.
+- **Borrar** una entrega que se registró de más.
+
+La cocina **no cambia**: sigue registrando lo del día por el QR y el carnet.
+
+> ⚠️ **Lo que NO se puede cambiar al corregir:** la empresa, la persona, el día y cuál comida es.
+> Para eso se **borra** la entrega y se **vuelve a agregar**, así queda el borrado y el alta por
+> separado en la bitácora, en vez de una entrega que cambió de dueño sin que se note.
+
+> ⚠️ Una persona **no puede tener dos veces la misma comida el mismo día**. Si hace falta cambiar
+> esa cantidad, se **corrige** la entrega que ya está; el sistema lo explica si se intenta agregar.
+
+#### 🕵️ Quién tocó las comidas (18/09/2026)
+En la pestaña **"📊 Reportes"**, la tarjeta **"🕵️ Quién tocó las comidas"** muestra todo lo que se
+agregó, corrigió o borró en las fechas del rango: **quién** fue, **a qué hora** y **qué era**.
+
+- De un **borrado** quedan todos los datos de lo que se borró: cuántos platos, de qué empresa o
+  persona, y de qué día.
+- De una **corrección** queda el *«platos: 12 → 9»*.
+- También queda quién **crea un plato nuevo** de «Otros».
+- Se filtra por **🗑️ Borrados**, **✏️ Correcciones** o **➕ Agregados**.
+
+#### 📄 Reporte PDF con opciones (18/09/2026)
+El botón del PDF abre una ventana con **todo lo que se puede elegir**, y funciona igual desde el
+teléfono. Hay dos bloques, y hacen cosas distintas:
+
+**Arriba — QUÉ ENTRA (cambia los totales):**
+
+- Las **fechas**.
+- Si entra lo entregado **por QR de empresa**, lo entregado **por carnet**, o las dos cosas.
+- Cuáles **comidas** (desayuno, almuerzo, lunch, cena, otros).
+- Cuáles **empresas** y cuáles **personas**.
+
+Se pueden marcar **varias a la vez**, y dejarlo **en blanco quiere decir «todas»**.
+
+**Abajo — QUÉ SE OCULTA (no cambia los totales):** las pastillas **🚫**, iguales a las del *Conteo
+de equipos*, para quitarle al papel los montos, un cuadro entero, la cédula, la hora, quién registró
+o las notas.
+
+Antes de generar, un recuadro dice **cuántas comidas y cuánto** va a salir. Y el propio PDF trae al
+final un cuadro de **«Alcance»** con los filtros que se usaron, para poder revisarlo después.
+
+> 💲 **Con monto y sin monto:** la pastilla **"🚫 Montos ($)"** saca la misma hoja **sin una sola
+> cifra en $**, para lo que se entrega a quien no debe ver precios. Quien **no** tiene permiso
+> completo en Distribución de comida la saca **siempre** sin montos. Una comida **sin precio** ese
+> día no suma, y el papel lo dice en vez de poner $0,00.
 
 #### 💵 Cobro de comidas (15/09/2026)
 Debajo del botón del PDF, en la pestaña **"📊 Reportes"**, está la tarjeta **"💵 Cobro de comidas"**.
