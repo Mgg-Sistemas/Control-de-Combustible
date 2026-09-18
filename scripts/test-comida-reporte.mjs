@@ -168,11 +168,11 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   eq('...sin nada sin precio', uno.sinPrecio, 0);
 
   const dos = g.find((x) => x.clave === 'e2');
-  // ⭐ Corregido el 18-sep tras la revisión: el costo escrito al registrar NO se
-  //    usa. OTROS no tiene precio de categoría → «sin precio», IGUAL que la
-  //    tarjeta de cobro. Solo suma el almuerzo: 5 × $2.
-  eq('⭐ OTROS sin precio de categoría NO toma el costo escrito (igual que la tarjeta)', dos.monto, 10);
-  eq('⭐ ...y sus 4 platos cuentan como «sin precio»', dos.sinPrecio, 4);
+  // ⭐ 18-sep, decisión del cliente: OTROS se cobra con el costo por plato que
+  //    escribió la cocina, IGUAL que la tarjeta de cobro (los dos usan
+  //    `precioDeEntrega`). 5 almuerzos × $2 + 4 postres × $2 = 18.
+  eq('⭐ OTROS toma el costo por plato de la cocina (igual que la tarjeta)', dos.monto, 18);
+  eq('⭐ ...y ya no cuenta como «sin precio»', dos.sinPrecio, 0);
 
   const gp = REP.agruparPersonas(entregasPersona, precios);
   const p2 = gp.find((x) => x.clave === 'x2');
@@ -181,10 +181,10 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
 
   const t = REP.totalesDeGrupos(g, gp);
   eq('total de comidas', t.total, 42);
-  // 50 (empresa uno) + 10 (empresa dos) + 1 (un desayuno por carnet) = 61.
-  eq('total de plata', t.monto, 61);
-  // 4 platos de OTROS + 2 cenas.
-  eq('total sin precio', t.sinPrecio, 6);
+  // 50 (empresa uno) + 18 (empresa dos) + 1 (un desayuno por carnet) = 69.
+  eq('total de plata', t.monto, 69);
+  // Solo las 2 cenas: OTROS ya tiene su costo.
+  eq('total sin precio', t.sinPrecio, 2);
   eq('empresas contadas', t.empresas, 2);
   eq('personas contadas', t.personas, 2);
 }
@@ -319,7 +319,7 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   ok('distingue empresa de persona', l.some((x) => x.via === 'empresa') && l.some((x) => x.via === 'persona'));
   const postre = l.find((x) => x.plato === 'Postre');
   ok('el plato de OTROS lleva su nombre', !!postre);
-  ok('⭐ ...y sale «sin precio», no con su costo escrito', postre.conPrecio === false);
+  ok('⭐ ...y sale con el costo por plato de la cocina', postre.conPrecio === true && postre.monto === 8);
   const cena = l.find((x) => x.comida === 'cena');
   ok('⭐ la cena sin precio se marca, no sale en $0,00', cena.conPrecio === false);
 }

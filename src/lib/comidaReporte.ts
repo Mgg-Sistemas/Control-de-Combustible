@@ -22,7 +22,7 @@
 //
 // Prueba: scripts/test-comida-reporte.mjs
 
-import { precioComidaEn, PrecioComida } from './cobroComidas';
+import { precioDeEntrega, PrecioComida } from './cobroComidas';
 
 /** Una entrega por QR de empresa (food_company_meals). */
 export type EntregaEmpresa = {
@@ -161,19 +161,16 @@ export function filtrarComidas(
 // ── LA PLATA ────────────────────────────────────────────────────────────────
 //
 // ⭐ LA MISMA REGLA QUE LA TARJETA DE COBRO, AL PIE DE LA LETRA
-//    (`calcularCobroComidas` en cobroComidas.ts): el precio de la categoría en
-//    la fecha de la entrega, REDONDEADO a centavos ANTES de multiplicar, por la
-//    cantidad ENTERA. Un precio de $0 cuenta como precio (es «gratis», no «sin
-//    precio»). Dos maneras de calcular la misma plata es como se termina
+//    (`calcularCobroComidas` en cobroComidas.ts): los dos llaman a
+//    `precioDeEntrega`, REDONDEADO a centavos ANTES de multiplicar, por la
+//    cantidad ENTERA. Dos maneras de calcular la misma plata es como se termina
 //    discutiendo una factura: el papel y la tarjeta tienen que dar lo mismo.
 //
-// ⚠️ NO SE USA EL COSTO ESCRITO AL REGISTRAR (`unit_cost`), a propósito. La
-//    primera versión lo usaba de respaldo y la revisión lo cazó: el papel ponía
-//    plata donde la tarjeta decía «sin precio» (los platos OTROS, un precio
-//    anulado, los días antes del primer precio). Si los OTROS se tienen que
-//    cobrar por su costo escrito, hay que cambiarlo en LOS DOS sitios a la vez
-//    (`calcularCobroComidas` y `montoCon`, acá abajo) — y es una decisión de
-//    plata, que toma el cliente. La prueba compara los dos cálculos.
+// ⭐ EL COSTO ESCRITO AL REGISTRAR (`unit_cost`) SOLO CUENTA EN «OTROS»
+//    (18-sep-2026, decisión del cliente). En las cuatro comidas fijas manda la
+//    tabla de precios, y un precio anulado o un día antes del primer precio sigue
+//    siendo «sin precio» aunque la cocina haya escrito un costo. La regla vive en
+//    UN solo sitio (`precioDeEntrega`) y la prueba compara los dos cálculos.
 //
 // ⚠️ Una entrega sin precio NO suma cero en silencio: suma «sin precio», y el
 //    papel lo dice. Un monto que se come las comidas sin precio es una factura
@@ -185,17 +182,18 @@ export function filtrarComidas(
 
 export type MontoEntrega = { monto: number; conPrecio: boolean; precioUnitario: number };
 
-function montoCon(cantidad: unknown, categoria: unknown, fecha: unknown, precios: PrecioComida[] | null | undefined): MontoEntrega {
+function montoCon(
+  cantidad: unknown, categoria: unknown, fecha: unknown, precios: PrecioComida[] | null | undefined, costoEscrito?: unknown,
+): MontoEntrega {
   const cant = Math.floor(num(cantidad));
   const cat = limpio(categoria);
-  const p = cat ? precioComidaEn(precios, cat, dia(fecha)) : null;
+  const p = cat ? precioDeEntrega(precios, cat, dia(fecha), costoEscrito) : null;
   if (!p) return { monto: 0, conPrecio: false, precioUnitario: 0 };
-  const unit = redondear(num(p.precio));
-  return { monto: redondear(cant * unit), conPrecio: true, precioUnitario: unit };
+  return { monto: redondear(cant * p.precio), conPrecio: true, precioUnitario: p.precio };
 }
 
 export function montoDeEmpresa(r: EntregaEmpresa, precios: PrecioComida[] | null | undefined): MontoEntrega {
-  return montoCon(r.delivered, r.meal_type, r.meal_date, precios);
+  return montoCon(r.delivered, r.meal_type, r.meal_date, precios, r.unit_cost);
 }
 
 export function montoDePersona(r: EntregaPersona, precios: PrecioComida[] | null | undefined): MontoEntrega {
