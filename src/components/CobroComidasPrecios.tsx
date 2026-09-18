@@ -161,6 +161,11 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
                 </Text>
               );
             })}
+            {/* Quien busca aquí el precio de «Otros» no lo va a encontrar: se dice dónde está. */}
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
+              🧾 Otros (hielo, refresco, postre…) no lleva precio aquí: cada plato se cobra con el costo por plato que
+              escribe la cocina al registrarlo.
+            </Text>
           </Card>
 
           {canEdit ? (

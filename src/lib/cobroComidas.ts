@@ -10,6 +10,9 @@
 //      carnet va a la empresa de la ficha de la persona; sin empresa en la ficha es nómina
 //      propia (por departamento); si la ficha no existe o no se pudo leer, queda aparte.
 //   3) Lo que no tiene precio ese día NO suma, pero se cuenta como «sin precio».
+//      ⭐ Los platos de «OTROS» (hielo, refresco, postre…) no tienen precio en la tabla:
+//      se cobran con el COSTO POR PLATO que escribió la cocina al registrarlos (ver
+//      `precioDeEntrega`). Sin costo escrito, «sin precio» como cualquier otra.
 //   4) SE COBRA o CONSUMO INTERNO, por cuenta y desde una fecha (comida_cuentas_config). Sin
 //      configurar: una empresa se cobra y la nómina propia no. Lo interno se valora aparte y
 //      NO suma al total a cobrar.
@@ -38,6 +41,10 @@ export type ComidaEmpresaCobro = {
   meal_type: string | null;
   meal_date: string;
   delivered: number | string | null;
+  /** Costo por plato escrito al registrar. Solo se usa en los platos de «Otros». */
+  unit_cost?: number | string | null;
+  /** Nombre del plato de «Otros» (bolsa de hielo, refresco…). */
+  item_label?: string | null;
 };
 
 /** Entrega por carnet (food_distributions). */
@@ -73,10 +80,24 @@ export type EjeCobro = 'cuenta' | 'encargado';
 export const CUENTA_NOMINA = 'nomina';
 export const CUENTA_SIN_FICHA = 'sin_ficha';
 export const SIN_CATEGORIA = 'sin_categoria';
+/** Los platos extra de la distribución por empresa. Ver `precioDeEntrega`. */
+export const CATEGORIA_OTROS = 'otros';
 export const SIN_ENCARGADO = 'sin_encargado';
 export const DEPTO_SIN_NOMBRE = 'SIN DEPARTAMENTO';
 
-export type ItemCobro = { categoria: string; precio: number | null; cantidad: number; monto: number; seCobra: boolean };
+/** De dónde salió el precio: la tabla de «Precios y cuentas» o el costo por plato de la cocina. */
+export type FuentePrecio = 'tabla' | 'cocina';
+
+export type ItemCobro = {
+  categoria: string;
+  /** Nombre del plato, solo en «Otros». */
+  plato: string | null;
+  precio: number | null;
+  fuente: FuentePrecio | null;
+  cantidad: number;
+  monto: number;
+  seCobra: boolean;
+};
 
 export type CuentaComida = {
   /** company_id (o nombre), CUENTA_NOMINA, CUENTA_SIN_FICHA; o el id del encargado / SIN_ENCARGADO. */
@@ -133,6 +154,36 @@ export function precioComidaEn(precios: PrecioComida[] | null | undefined, categ
     }
   }
   return blindado ?? general;
+}
+
+/**
+ * PRECIO DE UNA ENTREGA (18-sep-2026): la regla ÚNICA que usan la tarjeta de cobro y el
+ * reporte PDF con opciones (`montoCon` en comidaReporte.ts). Dos maneras de calcular
+ * la misma plata es como se termina discutiendo una factura.
+ *
+ *   · Desayuno, almuerzo, lunch y cena: el precio de «Precios y cuentas» en su fecha. El
+ *     costo que escribe la cocina en estas NO manda: el precio lo pone quien cobra.
+ *   · «Otros»: el COSTO POR PLATO que escribió la cocina. Cada plato vale distinto (una
+ *     bolsa de hielo no cuesta lo que un refresco) y la tabla no tiene dónde ponerles
+ *     precio. El reporte por empresa de la cocina ya los sumaba así; hasta hoy la tarjeta
+ *     de cobro decía «sin precio» y los dos papeles no daban lo mismo.
+ *
+ * Un costo en 0 (la cocina lo dejó en blanco) es «sin precio»: no suma y se avisa.
+ * Redondeado a centavos ANTES de multiplicar, igual que el de la tabla.
+ */
+export function precioDeEntrega(
+  precios: PrecioComida[] | null | undefined,
+  categoria: unknown,
+  fecha: string,
+  costoEscrito?: unknown,
+): { precio: number; fuente: FuentePrecio; desde: string } | null {
+  const c = String(categoria ?? '');
+  if (c === CATEGORIA_OTROS) {
+    const u = redondear(num(costoEscrito));
+    return u > 0 ? { precio: u, fuente: 'cocina', desde: '' } : null;
+  }
+  const p = precioComidaEn(precios, c, fecha);
+  return p ? { precio: redondear(num(p.precio)), fuente: 'tabla', desde: dia(p.desde) } : null;
 }
 
 /** Revisa un precio antes de guardarlo. Devuelve el motivo del rechazo o null. */
@@ -208,6 +259,8 @@ export function calcularCobroComidas(opts: {
   const sumar = (m: {
     clave: string; nombre: string; orden: number; tipo: TipoCuenta | null; claveConfig: string; detalle: string;
     categoria: string | null; fecha: string; cantidad: number; via: 'qr' | 'carnet';
+    /** Solo las entregas por QR: costo por plato y nombre del plato de «Otros». */
+    costo?: unknown; plato?: unknown;
   }) => {
     if (!(m.cantidad > 0)) return;
     const cfg = m.tipo ? configCuentaEn(opts.config, m.tipo, m.claveConfig, m.fecha) : null;
@@ -228,8 +281,9 @@ export function calcularCobroComidas(opts: {
       cuentas.set(clave, c);
     }
     const cat = m.categoria || SIN_CATEGORIA;
-    const p = m.categoria ? precioComidaEn(opts.precios, m.categoria, m.fecha) : null;
-    const precio = p ? redondear(num(p.precio)) : null;
+    const pe = m.categoria ? precioDeEntrega(opts.precios, m.categoria, m.fecha, m.costo) : null;
+    const precio = pe ? pe.precio : null;
+    const plato = cat === CATEGORIA_OTROS ? limpio(m.plato) || null : null;
     c.comidas += m.cantidad;
     if (m.via === 'qr') c.porQr += m.cantidad; else c.porCarnet += m.cantidad;
     c._detalle.add(m.detalle);
@@ -237,8 +291,12 @@ export function calcularCobroComidas(opts: {
     if (!seCobra) c.comidasInternas += m.cantidad;
     if (precio !== null && seCobra) { c.cobradas += m.cantidad; c.monto = redondear(c.monto + m.cantidad * precio); }
     if (precio !== null && !seCobra) c.montoInterno = redondear(c.montoInterno + m.cantidad * precio);
-    const k = `${cat}|${precio ?? '-'}|${seCobra ? 1 : 0}`;
-    const it = c._items.get(k) ?? { categoria: cat, precio, cantidad: 0, monto: 0, seCobra, _desde: p ? dia(p.desde) : '' };
+    // Los platos de «Otros» van uno por nombre (y por costo): «4 bolsas de hielo» dice
+    // qué se cobra; «4 otros» no.
+    const k = `${cat}|${(plato ?? '').toLowerCase()}|${precio ?? '-'}|${seCobra ? 1 : 0}`;
+    const it = c._items.get(k) ?? {
+      categoria: cat, plato, precio, fuente: pe ? pe.fuente : null, cantidad: 0, monto: 0, seCobra, _desde: pe ? pe.desde : '',
+    };
     it.cantidad += m.cantidad;
     it.monto = precio === null ? 0 : redondear(it.cantidad * precio);
     c._items.set(k, it);
@@ -251,6 +309,7 @@ export function calcularCobroComidas(opts: {
     sumar({
       clave, nombre, orden: 0, tipo: 'empresa', claveConfig: clave, detalle: nombre,
       categoria: e.meal_type, fecha: dia(e.meal_date), cantidad: Math.floor(num(e.delivered)), via: 'qr',
+      costo: e.unit_cost, plato: e.item_label,
     });
   }
 
@@ -274,7 +333,8 @@ export function calcularCobroComidas(opts: {
       ...c,
       detalle: Array.from(_detalle).sort((a, b) => a.localeCompare(b, 'es')),
       items: Array.from(_items.values())
-        .sort((a, b) => a.categoria.localeCompare(b.categoria) || Number(b.seCobra) - Number(a.seCobra) || a._desde.localeCompare(b._desde))
+        .sort((a, b) => a.categoria.localeCompare(b.categoria) || (a.plato ?? '').localeCompare(b.plato ?? '', 'es')
+          || Number(b.seCobra) - Number(a.seCobra) || a._desde.localeCompare(b._desde))
         .map(({ _desde, ...it }) => it),
     }))
     .sort((a, b) => a._orden - b._orden || a.nombre.localeCompare(b.nombre, 'es'))

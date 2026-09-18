@@ -2424,8 +2424,8 @@ final un cuadro de **«Alcance»** con los filtros que se usaron, para poder rev
 
 La columna se llama **«Valor»**: es cantidad × el **mismo precio de la tarjeta de cobro**, así que
 los dos dan igual. No es lo que se cobra: eso, sin el consumo interno, sale en **«📄 PDF del
-cobro»**. Los platos de **«Otros»** salen **«sin precio»**, igual que en la tarjeta, mientras no
-tengan un precio en **«💲 Precios»**.
+cobro»**. Los platos de **«Otros»** valen su **costo por plato**, el que escribió la cocina, igual
+que en la tarjeta.
 
 > 🏢 **PDF de una sola empresa:** si arriba tienes elegida una empresa, el reporte arranca con **esa
 > empresa sola y sin lo entregado por carnet**, para que la hoja que se le da a esa empresa no lleve
@@ -2451,6 +2451,17 @@ Solo la ve quien tiene **permiso completo** en Distribución de comida (la cocin
   su precio**.
 - Una comida **sin precio** para su fecha **no suma** al total, pero se cuenta como **"sin precio"**
   con aviso amarillo para que no se pierda.
+
+> 🧾 **«Otros» se cobra con el costo por plato (18/09/2026).** Los platos de **«Otros»** (bolsa de
+> hielo, refresco, postre…) no llevan precio en **"💲 Precios"**: cada uno se cobra con el **costo
+> por plato que escribe la cocina** al registrarlo. Es el mismo número que ya sumaba el reporte por
+> empresa de la cocina.
+> - Al tocar una cuenta, cada plato sale en su renglón **con su nombre**:
+>   «🧾 Otros · Bolsa de hielo · 4 × $1,50 (costo de la cocina)».
+> - Un plato de «Otros» que quedó **sin costo** no suma, y el aviso amarillo dice dónde corregirlo:
+>   **"📅 Por día" → "✏️ Agregar o corregir las comidas de este día"**.
+> - Las cuatro comidas fijas (desayuno, almuerzo, lunch y cena) siguen tomando el precio de
+>   **"💲 Precios"**, aunque la cocina escriba otro costo.
 
 > El cobro **solo lee** lo entregado: no cambia cómo registra la cocina ni los conteos de la pantalla.
 
