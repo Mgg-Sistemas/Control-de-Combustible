@@ -28,6 +28,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { COMPANY_MEALS } from '../lib/foodCompanyMeals';
 import { FoodCompanyMeal, FoodDistribution } from '../types/database';
 import { PrecioComida } from '../lib/cobroComidas';
+import { PlatoCatalogo, resolverPlatos } from '../lib/comidaPlatos';
 import {
   OPCIONES_COMIDA_COMO_ANTES, PASTILLAS_COMIDA, alternarComida, comidaSinContenido,
   ocultosComidaEnPalabras, sufijoArchivoComida, OpcionesComida,
@@ -46,6 +47,8 @@ type Props = {
   entregasPersona: FoodDistribution[];
   /** Precios vigentes, para los montos. Null = todavía no cargaron. */
   precios: PrecioComida[] | null;
+  /** Catálogo de platos de «Otros»: el precio de un plato sale de su nombre (el mismo de la tarjeta de cobro). */
+  platos: PlatoCatalogo[] | null;
   /** Si no se pueden ver montos, la pastilla de montos se fuerza encendida. */
   puedeVerMontos: boolean;
   desdeInicial: string;
@@ -58,9 +61,11 @@ type Props = {
 const CATALOGO_COMIDAS = COMPANY_MEALS.map((m) => ({ key: String(m.key), label: m.label }));
 
 export function ComidaReporteModal({
-  visible, onClose, entregasEmpresa, entregasPersona, precios, puedeVerMontos, desdeInicial, hastaInicial, hoy, empresaInicial,
+  visible, onClose, entregasEmpresa, entregasPersona, precios, platos, puedeVerMontos, desdeInicial, hastaInicial, hoy, empresaInicial,
 }: Props) {
   const { colors } = useTheme();
+  // El mismo «nombre del plato → su precio» que usa la tarjeta de cobro.
+  const platoAPrecio = useMemo(() => resolverPlatos(platos), [platos]);
 
   const [desde, setDesde] = useState(desdeInicial);
   const [hasta, setHasta] = useState(hastaInicial);
@@ -161,10 +166,10 @@ export function ComidaReporteModal({
   // botón que produce una hoja vacía se toca dos veces y se pierde la confianza.
   const previo = useMemo(() => {
     const e = filtrarComidas({ empresas: entregasEmpresa, personas: entregasPersona }, filtro);
-    const gE = agruparEmpresas(e.empresas, precios);
+    const gE = agruparEmpresas(e.empresas, precios, platoAPrecio);
     const gP = agruparPersonas(e.personas, precios);
     return { e, gE, gP, totales: totalesDeGrupos(gE, gP), vacio: filtroSinEntregas(e) };
-  }, [entregasEmpresa, entregasPersona, filtro, precios]);
+  }, [entregasEmpresa, entregasPersona, filtro, precios, platoAPrecio]);
 
   const alternarEn = (set: Set<string>, poner: (s: Set<string>) => void, clave: string) => {
     const n = new Set(set);
@@ -187,7 +192,7 @@ export function ComidaReporteModal({
         gruposPersonas: gP,
         cedulas: cedulasPorClave(e.personas),
         // Solo se arma si va a salir: con miles de entregas es lo más pesado.
-        lineas: opcionesReales.sinDetalle ? [] : lineasDetalle(e, precios),
+        lineas: opcionesReales.sinDetalle ? [] : lineasDetalle(e, precios, platoAPrecio),
         totales: previo.totales,
         nombres,
       });
@@ -323,6 +328,13 @@ export function ComidaReporteModal({
               ))}
             </View>
 
+            {/* Sin el catálogo de platos, los de «Otros» saldrían con el costo de la
+                cocina aunque tengan precio propio: el papel no daría lo de la tarjeta. */}
+            {puedeVerMontos && !opcionesReales.sinMontos && precios !== null && platos === null ? (
+              <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
+                ⚠️ No se pudo leer la lista de platos: los de «Otros» saldrían con el costo de la cocina y no con su precio. Cierra, desliza hacia abajo para recargar y vuelve a abrir.
+              </Text>
+            ) : null}
             {/* Con permiso y sin precios leídos, un papel «con montos» saldría todo
                 «sin precio» y parecería que las comidas no valen nada. */}
             {puedeVerMontos && !opcionesReales.sinMontos && precios === null ? (

@@ -5,6 +5,11 @@
 // esas fechas. Nunca se borran: se anulan. Lo pasado conserva su precio.
 //
 // La regla (qué precio rige) vive en src/lib/cobroComidas.ts.
+//
+// 18-sep-2026: tercera pestaña «🧾 Platos» (CobroComidasPlatos.tsx) para crear platos
+// además de las cuatro comidas, con precio obligatorio. El precio de un plato se pone
+// y se cambia AQUÍ, en «💲 Precios», igual que el de una comida: su categoría es
+// `plato_…` (ver src/lib/comidaPlatos.ts).
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Screen, SectionTitle, Card } from './ui';
@@ -15,7 +20,10 @@ import { onlyDecimal } from '../lib/text';
 import { MEALS } from '../lib/foodCompanyMeals';
 import { precioComidaEn, validarPrecioComida, PrecioComida } from '../lib/cobroComidas';
 import { anularPrecioComida, cargarPreciosComida, crearPrecioComida } from '../lib/cobroComidasDb';
+import { PlatoCatalogo, categoriaDePlato, esCategoriaDePlato, nombreDeCategoria, ordenarPlatos, platoActivo } from '../lib/comidaPlatos';
+import { cargarPlatos } from '../lib/comidaPlatosDb';
 import { CobroComidasCuentas } from './CobroComidasCuentas';
+import { CobroComidasPlatos } from './CobroComidasPlatos';
 
 type Props = {
   visible: boolean;
@@ -32,15 +40,21 @@ const dmy = (iso?: string | null) => {
   return y && m && d ? `${d}/${m}/${y}` : '—';
 };
 const usd = (n: unknown) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const etiqueta = (k: string) => {
+const etiquetaCon = (platos: PlatoCatalogo[]) => (k: string) => {
   const m = MEALS.find((x) => x.key === k);
-  return m ? `${m.icon} ${m.label}` : k;
+  if (m) return `${m.icon} ${m.label}`;
+  if (esCategoriaDePlato(k)) return `🧾 ${nombreDeCategoria(platos, k) ?? 'Plato sin nombre'}`;
+  return k;
 };
 
 export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy, onChanged }: Props) {
   const { colors } = useTheme();
-  const [pestana, setPestana] = useState<'precios' | 'cuentas'>('precios');
+  const [pestana, setPestana] = useState<'precios' | 'platos' | 'cuentas'>('precios');
   const [precios, setPrecios] = useState<PrecioComida[]>([]);
+  const [platos, setPlatos] = useState<PlatoCatalogo[]>([]);
+  const etiqueta = useMemo(() => etiquetaCon(platos), [platos]);
+  // Los platos de la lista, para las pastillas de «Nuevo precio» y «Precio vigente».
+  const platosEnLista = useMemo(() => ordenarPlatos(platos).filter(platoActivo), [platos]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -60,7 +74,9 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
     setCargando(true);
     setError(null);
     try {
-      setPrecios(await cargarPreciosComida());
+      const [p, pl] = await Promise.all([cargarPreciosComida(), cargarPlatos()]);
+      setPrecios(p);
+      setPlatos(pl);
     } catch (e: any) {
       setError(`No se pudieron leer los precios (${e?.message ?? 'revisa la conexión'}).`);
     } finally {
@@ -82,7 +98,10 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
 
   const guardar = async () => {
     setAviso(null);
-    const motivo = validarPrecioComida({ categoria, precio, desde, hasta: conHasta ? hasta : null }, MEALS.map((m) => m.key));
+    // Válidas: las cuatro comidas y TODOS los platos (también un quitado de la lista,
+    // que puede necesitar precio para sus entregas viejas).
+    const validas = [...MEALS.map((m) => m.key as string), ...platos.map((p) => categoriaDePlato(p.id)).filter(Boolean)];
+    const motivo = validarPrecioComida({ categoria, precio, desde, hasta: conHasta ? hasta : null }, validas);
     if (motivo) { setAviso(`❌ ${motivo}`); return; }
     setGuardando(true);
     const { error: err } = await crearPrecioComida({
@@ -123,12 +142,15 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
         </TouchableOpacity>
         <SectionTitle>💲 Precios y cuentas</SectionTitle>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-          El precio de cada comida y, por cuenta, si se cobra y quién es su encargado. Todo cambio rige desde la fecha
-          que elijas y no toca lo anterior. No cambia cómo registra la cocina.
+          El precio de cada comida y de cada plato, los platos que se entregan además de las cuatro comidas y, por
+          cuenta, si se cobra y quién es su encargado. Todo cambio rige desde la fecha que elijas y no toca lo anterior.
         </Text>
         <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
           <TouchableOpacity onPress={() => setPestana('precios')} style={chip(pestana === 'precios')}>
             <Text style={chipTxt(pestana === 'precios')}>💲 Precios</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setPestana('platos')} style={chip(pestana === 'platos')}>
+            <Text style={chipTxt(pestana === 'platos')}>🧾 Platos</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setPestana('cuentas')} style={chip(pestana === 'cuentas')}>
             <Text style={chipTxt(pestana === 'cuentas')}>👤 Cuentas</Text>
@@ -148,6 +170,19 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
 
         {pestana === 'cuentas' ? (
           <CobroComidasCuentas canEdit={canEdit} hoy={hoy} onChanged={onChanged} />
+        ) : pestana === 'platos' ? (
+          <ScrollView style={{ flex: 1 }}>
+            <CobroComidasPlatos
+              canEdit={canEdit}
+              hoy={hoy}
+              precios={precios}
+              platos={platos}
+              cargando={cargando}
+              onCambio={async () => { await cargar(); onChanged(); }}
+              onPonerPrecio={(cat) => { setAviso(null); setCategoria(cat); setPestana('precios'); }}
+            />
+            <View style={{ height: spacing.lg }} />
+          </ScrollView>
         ) : (
         <ScrollView style={{ flex: 1 }}>
           <Card>
@@ -161,10 +196,20 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
                 </Text>
               );
             })}
-            {/* Quien busca aquí el precio de «Otros» no lo va a encontrar: se dice dónde está. */}
+            {/* Los platos también: «todos deben tener precio», y el que falta se ve en amarillo. */}
+            {platosEnLista.map((pl) => {
+              const cat = categoriaDePlato(pl.id);
+              const p = precioComidaEn(precios, cat, hoy);
+              return (
+                <Text key={pl.id} style={{ color: colors.text, fontSize: 13 }}>
+                  🧾 {pl.name}: <Text style={{ fontWeight: '800', color: p ? colors.text : colors.warning }}>{p ? usd(p.precio) : 'sin precio'}</Text>
+                  {p ? <Text style={{ color: colors.muted }}>{p.hasta ? `  · blindado ${dmy(p.desde)} → ${dmy(p.hasta)}` : `  · desde ${dmy(p.desde)}`}</Text> : null}
+                </Text>
+              );
+            })}
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
-              🧾 Otros (hielo, refresco, postre…) no lleva precio aquí: cada plato se cobra con el costo por plato que
-              escribe la cocina al registrarlo.
+              🧾 Los platos se crean, se renombran y se quitan en la pestaña «🧾 Platos». Uno sin precio se cobra con el
+              costo por plato que escribe la cocina hasta que se lo pongas.
             </Text>
           </Card>
 
@@ -177,7 +222,19 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
                     <Text style={chipTxt(categoria === m.key)}>{m.icon} {m.label}</Text>
                   </TouchableOpacity>
                 ))}
+                {platosEnLista.map((pl) => {
+                  const cat = categoriaDePlato(pl.id);
+                  return (
+                    <TouchableOpacity key={pl.id} onPress={() => setCategoria(cat)} style={chip(categoria === cat)}>
+                      <Text style={chipTxt(categoria === cat)}>🧾 {pl.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
+              {/* Un plato quitado de la lista no tiene pastilla: se dice cuál quedó elegido. */}
+              <Text style={{ color: colors.text, fontSize: 12, marginBottom: spacing.xs }}>
+                Precio para: <Text style={{ fontWeight: '800' }}>{etiqueta(categoria)}</Text>
+              </Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Precio por comida ($)</Text>
               <TextInput value={precio} onChangeText={(v) => setPrecio(onlyDecimal(v))} keyboardType="numeric" inputMode="decimal" placeholder="0,00" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Desde</Text>

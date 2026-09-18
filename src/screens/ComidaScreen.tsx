@@ -24,6 +24,8 @@ import { ComidaMovimientos } from '../components/ComidaMovimientos';
 import { ComidaReporteModal } from '../components/ComidaReporteModal';
 import { cargarPreciosComida } from '../lib/cobroComidasDb';
 import { PrecioComida } from '../lib/cobroComidas';
+import { PlatoCatalogo } from '../lib/comidaPlatos';
+import { cargarPlatos } from '../lib/comidaPlatosDb';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -89,6 +91,11 @@ export default function ComidaScreen() {
   // la tarjeta de cobro. Dos maneras de calcular la misma plata es como se
   // termina discutiendo una factura.
   const [precios, setPrecios] = useState<PrecioComida[] | null>(null);
+  // El catálogo de platos de «Otros» (18-sep-2026): el precio de un plato sale de su
+  // nombre, así que el PDF necesita el MISMO catálogo que la tarjeta de cobro. También
+  // lo usan el editor (pastillas para elegir el plato) y la bitácora (nombre del plato
+  // en vez de «plato_…»). Null = no se pudo leer.
+  const [platos, setPlatos] = useState<PlatoCatalogo[] | null>(null);
   // Lectura fallida: antes la pantalla se quedaba vacía o con datos viejos sin avisar.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
@@ -155,6 +162,18 @@ export default function ComidaScreen() {
     try { setPrecios(await cargarPreciosComida()); } catch { setPrecios(null); }
   }, [canCobro]);
   useEffect(() => { cargarPrecios(); }, [cargarPrecios]);
+  const cargarPlatosCatalogo = useCallback(async () => {
+    try { setPlatos(await cargarPlatos()); } catch { setPlatos(null); }
+  }, []);
+  useEffect(() => { cargarPlatosCatalogo(); }, [cargarPlatosCatalogo]);
+  // ⚠️ El reporte vuelve a leer precios y platos AL ABRIRSE: si se acaba de crear un
+  //    plato o cambiar un precio en «💲 Precios y cuentas» (que vive en la tarjeta de
+  //    cobro), el papel tiene que cobrar lo mismo que la tarjeta ya muestra.
+  const abrirReporte = () => {
+    cargarPrecios();
+    cargarPlatosCatalogo();
+    setReporteOpen(true);
+  };
 
   // TIEMPO REAL: cuando la cocina registra/borra una comida (por persona o por
   // empresa), esta pantalla se actualiza sola, sin tener que refrescar a mano.
@@ -166,7 +185,7 @@ export default function ComidaScreen() {
   // Pull-to-refresh: recarga el día actual y, si está en modo "control", también el rango.
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([load(), mode === 'control' ? loadRange() : Promise.resolve(), cargarPrecios()]);
+    await Promise.all([load(), mode === 'control' ? loadRange() : Promise.resolve(), cargarPrecios(), cargarPlatosCatalogo()]);
     setRefreshing(false);
   };
 
@@ -444,7 +463,7 @@ export default function ComidaScreen() {
             {/* Con la lectura del rango fallida no se ofrece el PDF: saldría con
                 datos incompletos o viejos y nadie lo notaría al leerlo. */}
             <TouchableOpacity
-              onPress={() => setReporteOpen(true)}
+              onPress={abrirReporte}
               disabled={!!rangeError}
               style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: rangeError ? 0.5 : 1 }}
             >
@@ -471,7 +490,7 @@ export default function ComidaScreen() {
 
             {/* Quién agregó, corrigió o borró comidas en estas fechas. Solo con
                 permiso completo: la bitácora dice nombres. */}
-            {canEditar ? <ComidaMovimientos desde={from} hasta={to} /> : null}
+            {canEditar ? <ComidaMovimientos desde={from} hasta={to} platos={platos} /> : null}
 
             {/* Resumen por empresa */}
             {rangeByCompany.length > 0 ? (
@@ -593,7 +612,8 @@ export default function ComidaScreen() {
           entregasPersona={rows}
           empresas={companies}
           usuario={{ id: session?.user?.id ?? null, nombre: fullName }}
-          onCambio={() => load(true)}
+          platos={platos}
+          onCambio={() => { load(true); cargarPlatosCatalogo(); }}
         />
       ) : null}
 
@@ -690,6 +710,7 @@ export default function ComidaScreen() {
         entregasEmpresa={rangeRows}
         entregasPersona={rangePersons}
         precios={precios}
+        platos={platos}
         puedeVerMontos={canCobro}
         desdeInicial={from}
         hastaInicial={to}
