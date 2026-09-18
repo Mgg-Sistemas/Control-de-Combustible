@@ -14,7 +14,7 @@ import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
 import {
   OPCIONES_ASISTENCIA_POR_DEFECTO, PASTILLAS_ASISTENCIA, alternarAsistencia, columnasAsistencia, estadoAsistencia,
-  marcaModeloAsistencia, ocultosAsistenciaEnPalabras, ordenarCamionesAsistencia, placaAsistencia,
+  armarAsistenciaCamiones, marcaModeloAsistencia, ocultosAsistenciaEnPalabras, placaAsistencia,
   sufijoArchivoAsistencia, tituloColumnaAsistencia, type ColumnaAsistencia, type OpcionesAsistencia,
 } from '../lib/camionesAsistenciaColumnas';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
@@ -723,36 +723,19 @@ export default function SupervisionScreen({ navigation }: any) {
   }, [assigns]);
 
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
-  // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
-  const camiones = useMemo(() => {
-    type C = { code: string; companyName: string; plate: string | null; serial: string | null; marca: string | null; modelo: string | null; salida: string | null; entrada: string | null; jornada: boolean };
-    const map = new Map<string, C>();
-    const vacio = (x: { code: string; companyName: string; plate: string | null; serial: string | null; marca: string | null; modelo: string | null }): C =>
-      ({ code: x.code, companyName: x.companyName, plate: x.plate, serial: x.serial, marca: x.marca, modelo: x.modelo, salida: null, entrada: null, jornada: false });
-    // Base: JORNADAS de camiones (volteo/toronto/volqueta). Así aparecen aunque su
-    // salida/entrada no se haya registrado en el patio (jornadas iniciadas antes).
-    rawRounds.filter((r) => isVolteoVolqueta(r.code)).forEach((r) => {
-      const cur = map.get(r.machinery_id) || vacio(r);
-      cur.jornada = true;
-      if (r.startAt) { if (!cur.salida || r.startAt < cur.salida) cur.salida = r.startAt; } // jornada abierta → salió a esa hora
-      cur.code = r.code; cur.companyName = r.companyName;
-      cur.plate = r.plate ?? cur.plate; cur.serial = r.serial ?? cur.serial; cur.marca = r.marca ?? cur.marca; cur.modelo = r.modelo ?? cur.modelo;
-      map.set(r.machinery_id, cur);
-    });
-    // Superpone los movimientos reales de patio (hora exacta de salida/entrada).
-    yardLogs.forEach((l) => {
-      const cur = map.get(l.machinery_id) || vacio(l);
-      if (l.direction === 'salida') { if (!cur.salida || l.at < cur.salida) cur.salida = l.at; }
-      else { if (!cur.entrada || l.at > cur.entrada) cur.entrada = l.at; }
-      cur.code = l.code; cur.companyName = l.companyName;
-      cur.plate = l.plate ?? cur.plate; cur.serial = l.serial ?? cur.serial; cur.marca = l.marca ?? cur.marca; cur.modelo = l.modelo ?? cur.modelo;
-      map.set(l.machinery_id, cur);
-    });
-    // Por código y DESPUÉS placa: casi todos se llaman igual, y el Nº del reporte
-    // tiene que caerle siempre al mismo camión.
-    return ordenarCamionesAsistencia(Array.from(map.values()));
-  }, [rawRounds, yardLogs]);
-  const camPresentes = useMemo(() => camiones.filter((c) => c.salida || c.jornada).length, [camiones]);
+  // ENTRADA (al finalizar). Ordenado A→Z por código.
+  //
+  // ⭐ 18-sep-2026: entran SOLO los camiones con horas en Control o con la jornada
+  //    abierta (`armarAsistenciaCamiones`, en la librería). Un movimiento de patio
+  //    solo pone la hora exacta: un camión al que le quitaron las horas en Control
+  //    ya no sale aunque tenga salida registrada. Ver el porqué en la librería.
+  const camiones = useMemo(
+    () => armarAsistenciaCamiones(rawRounds.filter((r) => isVolteoVolqueta(r.code)), yardLogs),
+    [rawRounds, yardLogs],
+  );
+  // Con hora de salida registrada (jornada abierta o patio). Los que tienen horas
+  // cargadas a mano en Control, sin jornada, cuentan «con movimiento» pero no acá.
+  const camPresentes = useMemo(() => camiones.filter((c) => c.salida).length, [camiones]);
   // Qué columnas lleva el PDF (pastillas, como el Conteo de equipos). Ocultan
   // columnas, nunca camiones.
   const [opAsis, setOpAsis] = useState<OpcionesAsistencia>(OPCIONES_ASISTENCIA_POR_DEFECTO);
@@ -1083,13 +1066,16 @@ export default function SupervisionScreen({ navigation }: any) {
       {/* ── 🚚 CAMIONES (ASISTENCIA): salida al iniciar jornada / entrada al finalizar ── */}
       {secHead('camiones', '🚚 Camiones (asistencia)')}
       {secClosed.has('camiones') ? null : camiones.length === 0 ? (
-        <EmptyState title="Sin movimiento de camiones" subtitle="La asistencia se toma sola: al INICIAR la jornada de un camión se registra su SALIDA y al FINALIZAR su ENTRADA." />
+        <EmptyState title="Sin movimiento de camiones" subtitle="La asistencia se toma sola: al INICIAR la jornada de un camión se registra su SALIDA y al FINALIZAR su ENTRADA. Un camión con 0 horas en Control no sale aquí." />
       ) : (
         <>
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
             {kpi('Con salida', camPresentes, colors.success)}
             {kpi('Con movimiento', camiones.length, colors.text)}
           </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+            Salen los camiones con horas en Control ese día o con la jornada abierta. Un camión al que le dejaron 0 horas no sale, aunque tenga salida de patio.
+          </Text>
           {/* ¿QUÉ SE OCULTA? Mismas pastillas que el Conteo de equipos: se encienden
               VARIAS a la vez y ocultan columnas del PDF, nunca camiones. */}
           <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA EN EL PDF?</Text>

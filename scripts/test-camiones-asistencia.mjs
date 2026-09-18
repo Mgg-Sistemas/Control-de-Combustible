@@ -94,6 +94,61 @@ const orden = L.ordenarCamionesAsistencia([
 ]);
 eq('orden por código y después placa', orden.map((c) => c.plate ?? c.serial), ['P-020', 'P-300', 'S-9', 'P-100']);
 
+// ── QUIÉN ENTRA A LA ASISTENCIA (18-sep-2026, «debería ser la B») ──────────
+//
+// Un camión al que le quitaron las horas en Control NO sale, aunque tenga salida
+// de patio: el inspector le inició la jornada, el camión no salió, le dejaron 0 h.
+// Si siguiera en la lista, el reporte diría que hizo viajes.
+{
+  eq('con horas entra', L.entraEnAsistencia({ worked: 3, startAt: null }), true);
+  eq('⭐ jornada abierta (0 h hasta que cierre) entra', L.entraEnAsistencia({ worked: 0, startAt: '2026-09-18T11:00:00Z' }), true);
+  eq('⭐ 0 horas y jornada cerrada NO entra', L.entraEnAsistencia({ worked: 0, startAt: null }), false);
+  eq('sin jornada no entra', L.entraEnAsistencia(null), false);
+  eq('las horas pueden venir como texto', L.entraEnAsistencia({ worked: '2.5', startAt: null }), true);
+
+  const T = (id, extra = {}) => ({ machinery_id: id, code: 'CAMION VOLTEO TORONTO', companyName: 'SAVANNA', plate: 'P-' + id, startAt: null, worked: 0, ...extra });
+  const S = (id, at, extra = {}) => ({ machinery_id: id, direction: 'salida', at, ...extra });
+  const E = (id, at) => ({ machinery_id: id, direction: 'entrada', at });
+
+  // El caso del cliente: lo iniciaron (quedó la salida de patio), no salió, 0 h.
+  const quitado = L.armarAsistenciaCamiones([T('a')], [S('a', '2026-09-18T11:00:00Z')]);
+  eq('⭐ 0 h en Control + salida de patio = NO sale', quitado.length, 0);
+
+  // El mismo camión con horas: sale, y el patio le pone la hora exacta.
+  const conHoras = L.armarAsistenciaCamiones([T('a', { worked: 8 })], [S('a', '2026-09-18T11:00:00Z'), E('a', '2026-09-18T20:00:00Z')]);
+  eq('con horas sale, con salida y entrada del patio', conHoras.map((c) => [c.salida, c.entrada, c.jornada]), [['2026-09-18T11:00:00Z', '2026-09-18T20:00:00Z', true]]);
+  eq('...y su estado es Regresó', L.estadoAsistencia(conHoras[0]), '🟢 Regresó');
+
+  // En obra ahora mismo: 0 h todavía, jornada abierta. Sale, con la hora del patio
+  // si es más temprana que la del inicio.
+  const enObra = L.armarAsistenciaCamiones([T('b', { startAt: '2026-09-18T11:05:00Z' })], [S('b', '2026-09-18T11:00:00Z')]);
+  eq('⭐ jornada abierta sale aunque tenga 0 h', enObra.length, 1);
+  eq('...con la salida más temprana', enObra[0].salida, '2026-09-18T11:00:00Z');
+  eq('...en obra', L.estadoAsistencia(enObra[0]), '🟠 En obra');
+
+  // Un movimiento de patio SOLO (sin jornada) no abre fila.
+  eq('⭐ patio sin jornada no abre fila', L.armarAsistenciaCamiones([], [S('c', '2026-09-18T11:00:00Z'), E('c', '2026-09-18T20:00:00Z')]).length, 0);
+
+  // Horas cargadas a mano en Control, sin jornada ni patio: sale, sin hora de salida.
+  const aMano = L.armarAsistenciaCamiones([T('d', { worked: 12 })], []);
+  eq('horas a mano: sale sin hora de salida', [aMano.length, aMano[0].salida, aMano[0].entrada], [1, null, null]);
+
+  // Dos rondas del mismo camión el mismo día se juntan en una fila.
+  const dos = L.armarAsistenciaCamiones([T('e', { worked: 6 }), T('e', { worked: 0, startAt: '2026-09-18T23:00:00Z' })], [E('e', '2026-09-18T18:00:00Z')]);
+  eq('dos rondas del mismo camión: una fila', dos.length, 1);
+  eq('...con la salida de la jornada abierta y la entrada del patio', [dos[0].salida, dos[0].entrada], ['2026-09-18T23:00:00Z', '2026-09-18T18:00:00Z']);
+
+  // Varios camiones: entran los que corresponde, ordenados.
+  const varios = L.armarAsistenciaCamiones(
+    [T('z', { worked: 1, plate: 'P-9' }), T('y', { worked: 0 }), T('x', { worked: 0, startAt: '2026-09-18T11:00:00Z', plate: 'P-1' })],
+    [S('y', '2026-09-18T11:00:00Z')],
+  );
+  eq('⭐ solo entran los que tienen horas o jornada abierta, en orden', varios.map((c) => c.plate), ['P-1', 'P-9']);
+  // El patio completa placa/marca si la jornada no la trajo.
+  const datos = L.armarAsistenciaCamiones([T('f', { worked: 2, plate: null })], [S('f', '2026-09-18T11:00:00Z', { plate: 'P-F', marca: 'IVECO' })]);
+  eq('el patio completa placa y marca', [datos[0].plate, datos[0].marca], ['P-F', 'IVECO']);
+}
+
 // ── GUARDAS SOBRE LA PANTALLA ───────────────────────────────────────────────
 const scr = sinComentarios(leer('src/screens/SupervisionScreen.tsx'));
 const ini = scr.indexOf('const reporteCamiones = async');
@@ -103,7 +158,11 @@ ok('...para el encabezado y para las filas', /cols\.map\(\(k\) => `<th/.test(cue
 ok('...con el estado de la librería', /estadoAsistencia\(c\)/.test(cuerpo));
 ok('el nombre del archivo dice lo oculto', /Asistencia camiones \$\{dmy\(date\)\}\$\{sufijoArchivoAsistencia\(opAsis\)\}/.test(scr));
 ok('la pantalla muestra las pastillas', /PASTILLAS_ASISTENCIA\.map/.test(scr) && /alternarAsistencia\(o, p\.key\)/.test(scr));
-ok('la lista se ordena por código y placa', /return ordenarCamionesAsistencia\(Array\.from\(map\.values\(\)\)\)/.test(scr));
+ok('la lista se ordena por código y placa (en la librería)', /return ordenarCamionesAsistencia\(Array\.from\(map\.values\(\)\)\)/.test(sinComentarios(leer('src/lib/camionesAsistenciaColumnas.ts'))));
+ok('⭐ la pantalla arma la lista con la regla de la librería', /armarAsistenciaCamiones\(rawRounds\.filter\(\(r\) => isVolteoVolqueta\(r\.code\)\), yardLogs\)/.test(scr));
+ok('...y ya no abre filas por movimientos de patio', !/yardLogs\.forEach/.test(scr));
+ok('«Con salida» cuenta los que tienen hora de salida', /camiones\.filter\(\(c\) => c\.salida\)\.length/.test(scr));
+ok('la pantalla avisa que 0 horas en Control no sale', /Un camión al que le dejaron 0 horas no sale/.test(scr));
 ok('la lista de la pantalla usa la misma regla de estado', /const t = estadoAsistencia\(c\);/.test(scr));
 ok('se leen marca y modelo de las jornadas', /machine:machinery_id\(code, serial, plate, encargado, marca, modelo,/.test(scr));
 ok('...y de los movimientos de patio', /machine:machinery_id\(plate, serial, marca, modelo, company:company_id\(name\)\)/.test(scr));
@@ -112,6 +171,8 @@ ok('la tarjeta no usa el código como clave', !/<Card key=\{c\.code\}>/.test(scr
 // ── MANUAL ──────────────────────────────────────────────────────────────────
 ok('el manual .md lo explica', /Camiones \(asistencia\): qué columnas salen \(14\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla también', /CAMIONES \(ASISTENCIA\): QUÉ COLUMNAS SALEN \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('el manual .md explica que sin horas no sale', /Camiones \(asistencia\): sin horas en Control no sale \(18\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('el manual en pantalla también', /CAMIONES \(ASISTENCIA\): SIN HORAS EN CONTROL NO SALE \(18\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-camiones-asistencia · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
