@@ -11,15 +11,21 @@
 //    no deje leer la bitácora todavía (falta correr el .sql de esta tanda). Se
 //    dicen las dos cosas: un «sin movimientos» falso haría creer que nadie borró
 //    nada, que es justo lo contrario de lo que se pidió.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { Plegable } from './Plegable';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { cargarMovimientosComida } from '../lib/comidaEditarDb';
-import { MovimientoComida, movimientosDeComida, resumenMovimientos, soloDelTipo } from '../lib/comidaMovimientos';
+import { FilaAuditoria, MovimientoComida, movimientosDeComida, resumenMovimientos, soloDelTipo } from '../lib/comidaMovimientos';
+import { PlatoCatalogo, nombreDeCategoria } from '../lib/comidaPlatos';
 
-type Props = { desde: string; hasta: string };
+type Props = {
+  desde: string;
+  hasta: string;
+  /** Para decir «Precio de 🧾 Postre» y no «Precio de plato_3f2a…». */
+  platos?: PlatoCatalogo[] | null;
+};
 
 type Filtro = 'todo' | MovimientoComida['tipo'];
 
@@ -30,9 +36,14 @@ const PASTILLAS: { key: Filtro; label: string }[] = [
   { key: 'alta', label: '➕ Agregados' },
 ];
 
-export function ComidaMovimientos({ desde, hasta }: Props) {
+export function ComidaMovimientos({ desde, hasta, platos }: Props) {
   const { colors } = useTheme();
-  const [movs, setMovs] = useState<MovimientoComida[] | null>(null);
+  // Se guardan las filas crudas: el renglón se vuelve a armar cuando llega el catálogo de platos.
+  const [filas, setFilas] = useState<FilaAuditoria[] | null>(null);
+  const movs = useMemo(
+    () => (filas ? movimientosDeComida(filas, (c) => nombreDeCategoria(platos, c)) : null),
+    [filas, platos],
+  );
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [filtro, setFiltro] = useState<Filtro>('todo');
@@ -40,10 +51,10 @@ export function ComidaMovimientos({ desde, hasta }: Props) {
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      setMovs(movimientosDeComida(await cargarMovimientosComida(desde, hasta)));
+      setFilas((await cargarMovimientosComida(desde, hasta)) as FilaAuditoria[]);
       setError(null);
     } catch (e: any) {
-      setMovs(null);
+      setFilas(null);
       setError(e?.message ?? 'No se pudo leer la bitácora.');
     } finally {
       setCargando(false);

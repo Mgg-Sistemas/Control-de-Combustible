@@ -30,6 +30,8 @@ import {
   SIN_CATEGORIA,
 } from '../lib/cobroComidas';
 import { cargarConfigCuentas, cargarEmpresaDePersonas, cargarEncargados, cargarPreciosComida, EncargadoCatalogo } from '../lib/cobroComidasDb';
+import { PlatoCatalogo, resolverPlatos } from '../lib/comidaPlatos';
+import { cargarPlatos } from '../lib/comidaPlatosDb';
 
 type Props = {
   desde: string;
@@ -58,15 +60,18 @@ const etiqueta = (k: string) => {
 };
 /** «🧾 Otros · Bolsa de hielo»: sin el nombre, «4 otros» no dice qué se cobra. */
 const etiquetaItem = (it: ItemCobro) => `${etiqueta(it.categoria)}${it.plato ? ` · ${it.plato}` : ''}`;
-/** El precio de «Otros» lo escribió la cocina, no sale de la tabla: se dice. */
+/** Cuando el precio de un plato de «Otros» lo escribió la cocina (no tiene precio propio), se dice. */
 const precioItem = (it: ItemCobro) =>
   it.precio === null
-    ? (it.categoria === CATEGORIA_OTROS ? 'sin costo por plato' : 'sin precio')
+    ? 'sin precio'
     : `${usd(it.precio)}${it.fuente === 'cocina' ? ' (costo de la cocina)' : ''}`;
-const sinPrecioDe = (cuentas: CuentaComida[], otros: boolean) =>
-  cuentas.reduce((a, c) => a + c.items
-    .filter((it) => it.precio === null && (it.categoria === CATEGORIA_OTROS) === otros)
-    .reduce((s, it) => s + it.cantidad, 0), 0);
+/** Cuántas comidas de los renglones que cumplen `cond`, y de qué platos. */
+const contarItems = (cuentas: CuentaComida[], cond: (it: ItemCobro) => boolean) => {
+  let n = 0;
+  const platos = new Set<string>();
+  cuentas.forEach((c) => c.items.filter(cond).forEach((it) => { n += it.cantidad; if (it.plato) platos.add(it.plato); }));
+  return { n, platos: Array.from(platos).sort((a, b) => a.localeCompare(b, 'es')) };
+};
 const resumirDetalle = (d: string[]) => (d.length > 4 ? `${d.slice(0, 4).join(', ')} y ${d.length - 4} más` : d.join(', '));
 
 export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, filtroEmpresa, canEdit, usuarioId }: Props) {
@@ -75,6 +80,7 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
   const [fichas, setFichas] = useState<Map<string, EmpresaDePersona> | null>(null);
   const [config, setConfig] = useState<ConfigCuenta[] | null>(null);
   const [encargados, setEncargados] = useState<EncargadoCatalogo[]>([]);
+  const [platos, setPlatos] = useState<PlatoCatalogo[] | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [abierta, setAbierta] = useState<string | null>(null);
@@ -90,13 +96,15 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      const [p, f, c, e] = await Promise.all([
+      const [p, f, c, e, pl] = await Promise.all([
         cargarPreciosComida(),
         cargarEmpresaDePersonas(claveIds ? claveIds.split(',') : []),
         cargarConfigCuentas(),
         cargarEncargados(),
+        cargarPlatos(),
       ]);
       setPrecios(p);
+      setPlatos(pl);
       setFichas(f);
       setConfig(c);
       setEncargados(e);
@@ -111,7 +119,8 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
   useEffect(() => { cargar(); }, [cargar]);
 
   const cuentas = useMemo(() => {
-    if (!precios || !fichas || !config || error) return [] as CuentaComida[];
+    // Sin los platos no se sabe el precio de «Otros»: nada de montos a medias.
+    if (!precios || !fichas || !config || !platos || error) return [] as CuentaComida[];
     const todas = calcularCobroComidas({
       empresas,
       personas,
@@ -120,16 +129,20 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
       config: indexarConfigCuentas(config),
       encargados: new Map(encargados.map((e) => [e.id, e.name])),
       eje,
+      platoAPrecio: resolverPlatos(platos),
     });
     // El filtro de empresa de la pantalla solo tiene sentido viendo por cuenta.
     return eje === 'cuenta' && filtroEmpresa !== 'all' ? todas.filter((c) => c.clave === filtroEmpresa) : todas;
-  }, [precios, fichas, config, encargados, error, empresas, personas, filtroEmpresa, eje]);
+  }, [precios, fichas, config, platos, encargados, error, empresas, personas, filtroEmpresa, eje]);
 
   const tot = useMemo(() => totalCobroComidas(cuentas), [cuentas]);
   // Dos avisos distintos porque se arreglan en sitios distintos: a una comida fija le
   // falta el precio en la tabla; a un plato de «Otros», el costo que escribe la cocina.
-  const sinPrecioFijas = useMemo(() => sinPrecioDe(cuentas, false), [cuentas]);
-  const sinCostoOtros = useMemo(() => sinPrecioDe(cuentas, true), [cuentas]);
+  const sinPrecioFijas = useMemo(() => contarItems(cuentas, (it) => it.precio === null && it.categoria !== CATEGORIA_OTROS).n, [cuentas]);
+  // «Todos deben tener precio»: un plato de «Otros» sin precio propio se cobra con el
+  // costo de la cocina, pero se avisa igual, con su nombre, para que se lo pongan.
+  const otrosConCostoCocina = useMemo(() => contarItems(cuentas, (it) => it.fuente === 'cocina'), [cuentas]);
+  const otrosSinNada = useMemo(() => contarItems(cuentas, (it) => it.precio === null && it.categoria === CATEGORIA_OTROS), [cuentas]);
 
   const descargarPdf = async () => {
     const filas = cuentas.map((c) =>
@@ -180,13 +193,13 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
       <Plegable
         titulo="💵 Cobro de comidas"
         resumen={error ? '⚠️ no se pudo leer' : `${usd(tot.monto)} a cobrar${tot.montoInterno ? ` · interno ${usd(tot.montoInterno)}` : ''} · ${dmy(desde)} al ${dmy(hasta)}`}
-        alerta={!!error || tot.sinPrecio > 0}
+        alerta={!!error || tot.sinPrecio > 0 || otrosConCostoCocina.n > 0}
       >
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
           Lo entregado en el rango de arriba, con el precio de cada comida ese día. Lo que se entregó por QR va a la
           empresa del QR; lo que se entregó por carnet va a la empresa de la ficha de la persona. Lo que no se cobra
-          (consumo interno) se muestra aparte y no suma al total. Los platos de «Otros» se cobran con el costo
-          por plato que escribió la cocina al registrarlos.
+          (consumo interno) se muestra aparte y no suma al total. Los platos de «Otros» se cobran con su precio de
+          «🧾 Platos»; si todavía no tienen, con el costo por plato que escribió la cocina.
         </Text>
 
         <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginBottom: spacing.sm }}>
@@ -225,10 +238,18 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
             Hay {sinPrecioFijas} comida(s) sin precio para su fecha: no suman. Ponles precio en «💲 Precios y cuentas».
           </Text>
         ) : null}
-        {sinCostoOtros > 0 && !error ? (
+        {otrosSinNada.n > 0 && !error ? (
           <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
-            Hay {sinCostoOtros} plato(s) de «Otros» sin costo por plato: no suman. Corrígeles el costo en «📅 Por día» →
-            «✏️ Agregar o corregir las comidas de este día».
+            Hay {otrosSinNada.n} plato(s) de «Otros» sin precio ni costo de la cocina: no suman
+            {otrosSinNada.platos.length ? ` (${otrosSinNada.platos.join(', ')})` : ''}. Ponles precio en «💲 Precios y cuentas» →
+            «🧾 Platos».
+          </Text>
+        ) : null}
+        {otrosConCostoCocina.n > 0 && !error ? (
+          <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
+            {otrosConCostoCocina.n} plato(s) de «Otros» sin precio propio se están cobrando con el costo que escribió la
+            cocina{otrosConCostoCocina.platos.length ? ` (${otrosConCostoCocina.platos.join(', ')})` : ''}. Ponles precio en
+            «💲 Precios y cuentas» → «🧾 Platos».
           </Text>
         ) : null}
 

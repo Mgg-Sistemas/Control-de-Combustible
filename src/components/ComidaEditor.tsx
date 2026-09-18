@@ -31,6 +31,8 @@ import {
   agregarEntregaEmpresa, agregarEntregaPersona, borrarEntregaEmpresa, borrarEntregaPersona,
   buscarEmpleados, corregirEntregaEmpresa, corregirEntregaPersona,
 } from '../lib/comidaEditarDb';
+import { saveExtraItem } from '../lib/foodCompanyMeals';
+import { PlatoCatalogo, normPlato, ordenarPlatos, platoActivo, platoConNombre } from '../lib/comidaPlatos';
 
 type Empresa = { id: string; name: string };
 
@@ -42,6 +44,8 @@ type Props = {
   entregasPersona: FoodDistribution[];
   empresas: Empresa[];
   usuario: { id: string | null; nombre: string | null };
+  /** Catálogo de platos de «Otros» (pestaña «🧾 Platos»), para elegir el plato con un toque. */
+  platos?: PlatoCatalogo[] | null;
   /** Se llama después de guardar o borrar, para que la pantalla recargue. */
   onCambio: () => void;
 };
@@ -60,7 +64,18 @@ const hora = (iso: unknown) => {
 const diaLargo = (iso: string) =>
   new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', weekday: 'long', day: '2-digit', month: 'long' }).format(new Date(iso + 'T12:00:00'));
 
-export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, empresas, usuario, onCambio }: Props) {
+/**
+ * Un plato escrito a mano que no está en la lista se agrega a ella, igual que cuando
+ * lo escribe la cocina: así aparece en «🧾 Platos» (en amarillo, sin precio) y alguien
+ * se lo pone. Si falla, la entrega ya quedó guardada con su nombre: solo se avisa.
+ */
+async function anotarPlatoNuevo(nombre: string | null | undefined, platos: PlatoCatalogo[] | null | undefined): Promise<string> {
+  if (!nombre || platoConNombre(platos, nombre)) return '';
+  const { error } = await saveExtraItem(nombre);
+  return error ? ` (El plato «${nombre}» no se pudo agregar a la lista de platos: ${error}.)` : ` «${nombre}» quedó en la lista de platos sin precio: pónselo en «🧾 Platos».`;
+}
+
+export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, empresas, usuario, platos, onCambio }: Props) {
   const { colors } = useTheme();
   const confirm = useConfirm();
 
@@ -136,7 +151,8 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         if (!v.ok) { setAviso('❌ ' + v.error); return; }
         const { error } = await agregarEntregaEmpresa(v.patch, usuario, esHoy ? new Date().toISOString() : undefined);
         if (error) { setAviso('❌ ' + error); onCambio(); return; }
-        setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.companyName}.`);
+        const avisoPlato = await anotarPlatoNuevo(v.patch.plato, platos);
+        setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)}${v.patch.plato ? ` (${v.patch.plato})` : ''} a ${v.patch.companyName}.${avisoPlato}`);
         onCambio(); cerrarTrasGuardar(); return;
       }
 
@@ -159,7 +175,8 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         // Un rechazo puede ser que OTRO la borró mientras tanto: se recarga para
         // que la lista deje de ofrecer una entrega que ya no existe.
         if (error) { setAviso('❌ ' + error); onCambio(); return; }
-        setAviso(resumenCambioEmpresa(form.fila, v.patch));
+        const avisoPlato = form.fila.meal_type === 'otros' ? await anotarPlatoNuevo(v.patch.plato, platos) : '';
+        setAviso(resumenCambioEmpresa(form.fila, v.patch) + avisoPlato);
         onCambio(); cerrarTrasGuardar(); return;
       }
 
@@ -250,6 +267,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
 
   const esEmpresa = form?.modo === 'alta-empresa' || form?.modo === 'editar-empresa';
   const esAlta = form?.modo === 'alta-empresa' || form?.modo === 'alta-persona';
+  const platosEnLista = ordenarPlatos(platos).filter(platoActivo);
 
   return (
     <Plegable
@@ -389,6 +407,18 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
               {esEmpresa && (comida === 'otros' || (form?.modo === 'editar-empresa' && !!form.fila.item_label))
                 ? campo(comida === 'otros' ? 'QUÉ FUE (postre, hielo, refresco…)' : 'NOMBRE DEL PLATO (bórralo si no corresponde)', plato, setPlato, { placeholder: 'Nombre del plato' })
                 : null}
+              {/* Los platos de la lista, con un toque: escribirlo a mano es como terminan
+                  «Bolsa de yelo» y «bolsa hielo» siendo dos platos con dos precios. */}
+              {esEmpresa && comida === 'otros' && platosEnLista.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                  {platosEnLista.map((p) => pastilla(`🧾 ${p.name}`, normPlato(p.name) === normPlato(plato), () => setPlato(p.name)))}
+                </View>
+              ) : null}
+              {esEmpresa && comida === 'otros' ? (
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                  Si el plato tiene precio en «🧾 Platos», se cobra ese precio; el costo de aquí cuenta solo mientras no lo tenga.
+                </Text>
+              ) : null}
 
               {campo('NOTA (opcional)', nota, setNota, { placeholder: 'Por qué se corrigió, por ejemplo' })}
 

@@ -2424,8 +2424,8 @@ final un cuadro de **«Alcance»** con los filtros que se usaron, para poder rev
 
 La columna se llama **«Valor»**: es cantidad × el **mismo precio de la tarjeta de cobro**, así que
 los dos dan igual. No es lo que se cobra: eso, sin el consumo interno, sale en **«📄 PDF del
-cobro»**. Los platos de **«Otros»** valen su **costo por plato**, el que escribió la cocina, igual
-que en la tarjeta.
+cobro»**. Los platos de **«Otros»** valen su precio de **«🧾 Platos»** (o, mientras no tengan, el
+costo que escribió la cocina), igual que en la tarjeta.
 
 > 🏢 **PDF de una sola empresa:** si arriba tienes elegida una empresa, el reporte arranca con **esa
 > empresa sola y sin lo entregado por carnet**, para que la hoja que se le da a esa empresa no lleve
@@ -2452,16 +2452,29 @@ Solo la ve quien tiene **permiso completo** en Distribución de comida (la cocin
 - Una comida **sin precio** para su fecha **no suma** al total, pero se cuenta como **"sin precio"**
   con aviso amarillo para que no se pierda.
 
-> 🧾 **«Otros» se cobra con el costo por plato (18/09/2026).** Los platos de **«Otros»** (bolsa de
-> hielo, refresco, postre…) no llevan precio en **"💲 Precios"**: cada uno se cobra con el **costo
-> por plato que escribe la cocina** al registrarlo. Es el mismo número que ya sumaba el reporte por
-> empresa de la cocina.
-> - Al tocar una cuenta, cada plato sale en su renglón **con su nombre**:
->   «🧾 Otros · Bolsa de hielo · 4 × $1,50 (costo de la cocina)».
-> - Un plato de «Otros» que quedó **sin costo** no suma, y el aviso amarillo dice dónde corregirlo:
->   **"📅 Por día" → "✏️ Agregar o corregir las comidas de este día"**.
-> - Las cuatro comidas fijas (desayuno, almuerzo, lunch y cena) siguen tomando el precio de
->   **"💲 Precios"**, aunque la cocina escriba otro costo.
+#### 🧾 Platos (18/09/2026)
+En **"💲 Precios y cuentas"** hay una pestaña **"🧾 Platos"** para lo que se entrega además de
+desayuno, almuerzo, lunch y cena (postre, jugo, bolsa de hielo…). Son los mismos platos que la
+cocina elige en **"🧾 Otros"**. Solo con **permiso completo**.
+- **"➕ Crear plato":** nombre y precio, **los dos obligatorios**, y desde qué fecha rige. Si ya hay
+  un plato con ese nombre (por ejemplo, uno que inventó la cocina), **no se crea otro**: se le pone
+  el precio. El plato le sale de una vez a la cocina en "🧾 Otros" y en "✏️ Agregar o corregir".
+- **"💲 Precio":** lleva a la pestaña "💲 Precios" con el plato elegido. Se cambia igual que el de
+  una comida: desde una fecha o 🔒 blindado a un rango; no se borra, se anula, y lo pasado conserva
+  su precio.
+- **"✏️ Nombre":** corrige el nombre en la lista **y en las entregas ya registradas** con ese
+  nombre, para que los reportes viejos digan lo mismo. Pide un segundo toque. Si la base no deja
+  corregir todas las entregas, no cambia nada.
+- **"🚫 Quitar de la lista":** deja de salirle a la cocina, pero **no se borra**: sus entregas viejas
+  se siguen viendo y cobrando. **"↩️ Devolver a la lista"** lo trae de vuelta.
+
+> **Qué precio se cobra en «Otros»:** el del plato en "🧾 Platos". Mientras un plato no tenga precio
+> (por ejemplo, uno que la cocina escribió a mano), se cobra con el **costo por plato que escribió la
+> cocina**, y la tarjeta de cobro lo avisa en amarillo **con su nombre** para que se lo pongas. Sin
+> precio ni costo, no suma. Al tocar una cuenta, cada plato sale en su renglón con su nombre. Las
+> cuatro comidas fijas siguen tomando su precio de "💲 Precios", aunque la cocina escriba otro costo.
+> En **"🕵️ Quién tocó las comidas"** queda quién creó un plato, quién le cambió el nombre o el precio
+> y quién lo quitó de la lista.
 
 > El cobro **solo lee** lo entregado: no cambia cómo registra la cocina ni los conteos de la pantalla.
 

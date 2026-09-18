@@ -225,7 +225,7 @@ const HOY = '2026-09-18';
 
   const scr = sinComentarios(fs.readFileSync(path.join(ROOT, 'src/screens/ComidaScreen.tsx'), 'utf8'));
   ok('⭐ la carga del día tiene modo silencioso', /const load = useCallback\(async \(silencioso = false\) => \{\s*if \(!silencioso\) setLoading\(true\);/.test(scr));
-  ok('⭐ el editor recarga en silencio (sin desmontarse)', /onCambio=\{\(\) => load\(true\)\}/.test(scr));
+  ok('⭐ el editor recarga en silencio (sin desmontarse)', /onCambio=\{\(\) => \{ load\(true\); cargarPlatosCatalogo\(\); \}\}/.test(scr));
   ok('⭐ el tiempo real también recarga en silencio', /useRealtimeRefresh\(\['food_distributions', 'food_company_meals'\], \(\) => \{\s*load\(true\);/.test(scr));
 }
 
