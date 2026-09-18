@@ -113,3 +113,89 @@ export function ordenarCamionesAsistencia<T extends { code: string; plate?: stri
   const cmp = (a: string, b: string) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true });
   return [...lista].sort((a, b) => cmp(a.code, b.code) || cmp(placaAsistencia(a), placaAsistencia(b)));
 }
+
+// ── QUIÉN ENTRA A LA ASISTENCIA (18-sep-2026) ───────────────────────────────
+//
+// Decisión del cliente («debería ser la B»): un camión al que le QUITARON LAS HORAS
+// en Control NO sale en la asistencia de ese día, aunque tenga una salida de patio.
+// El caso real: el inspector le inicia la jornada (eso registra la SALIDA del patio),
+// el camión en realidad no salió, y en Control le dejan 0 horas. Ese camión no hizo
+// viajes: si siguiera en la asistencia, el reporte diría que sí.
+//
+// ⚠️ La jornada ABIERTA cuenta como «con horas»: las horas se suman al CERRAR, así
+//    que un camión que está en obra ahora mismo tiene 0 h hasta la tarde. Si se
+//    mirara solo el número, los «🟠 En obra» desaparecerían del reporte del día.
+//    Por lo mismo, quitarle las horas en Control a una jornada que sigue abierta no
+//    lo saca: al cerrarse vuelve a sumar. Hay que cerrarla (o marcarla Pendiente en
+//    Inspecciones) y después dejarla en 0.
+
+export type JornadaCamion = {
+  machinery_id: string;
+  code: string;
+  companyName: string;
+  plate?: string | null;
+  serial?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  /** Inicio de la jornada si sigue abierta (ISO); null si ya cerró. */
+  startAt: string | null;
+  /** Horas de día + noche registradas en Control. */
+  worked: number;
+};
+
+export type MovimientoPatio = {
+  machinery_id: string;
+  plate?: string | null;
+  serial?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  direction: 'entrada' | 'salida';
+  at: string;
+};
+
+export type CamionAsistencia = {
+  code: string;
+  companyName: string;
+  plate: string | null;
+  serial: string | null;
+  marca: string | null;
+  modelo: string | null;
+  salida: string | null;
+  entrada: string | null;
+  jornada: boolean;
+};
+
+/** Entra si tiene horas en Control ese día o su jornada sigue abierta. */
+export function entraEnAsistencia(j: { worked?: unknown; startAt?: unknown } | null | undefined): boolean {
+  if (!j) return false;
+  return (Number(j.worked) || 0) > 0 || !!j.startAt;
+}
+
+/**
+ * La lista de la asistencia del día: una fila por camión CON JORNADA (ver arriba),
+ * con la salida y la entrada exactas del patio cuando las hay. Un movimiento de
+ * patio de un camión sin jornada con horas NO abre fila.
+ */
+export function armarAsistenciaCamiones(jornadas: readonly JornadaCamion[], patio: readonly MovimientoPatio[]): CamionAsistencia[] {
+  const map = new Map<string, CamionAsistencia>();
+  jornadas.filter(entraEnAsistencia).forEach((r) => {
+    const cur = map.get(r.machinery_id) ?? {
+      code: r.code, companyName: r.companyName, plate: null, serial: null, marca: null, modelo: null,
+      salida: null, entrada: null, jornada: true,
+    };
+    // Jornada abierta: salió a esa hora (hasta que el patio diga la exacta).
+    if (r.startAt && (!cur.salida || r.startAt < cur.salida)) cur.salida = r.startAt;
+    cur.plate = r.plate ?? cur.plate; cur.serial = r.serial ?? cur.serial;
+    cur.marca = r.marca ?? cur.marca; cur.modelo = r.modelo ?? cur.modelo;
+    map.set(r.machinery_id, cur);
+  });
+  patio.forEach((l) => {
+    const cur = map.get(l.machinery_id);
+    if (!cur) return; // sin jornada con horas no entra (ver arriba)
+    if (l.direction === 'salida') { if (!cur.salida || l.at < cur.salida) cur.salida = l.at; }
+    else if (!cur.entrada || l.at > cur.entrada) cur.entrada = l.at;
+    cur.plate = l.plate ?? cur.plate; cur.serial = l.serial ?? cur.serial;
+    cur.marca = l.marca ?? cur.marca; cur.modelo = l.modelo ?? cur.modelo;
+  });
+  return ordenarCamionesAsistencia(Array.from(map.values()));
+}
