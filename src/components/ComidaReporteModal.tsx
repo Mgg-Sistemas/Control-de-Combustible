@@ -33,7 +33,7 @@ import {
   ocultosComidaEnPalabras, sufijoArchivoComida, OpcionesComida,
 } from '../lib/comidaReporteOpciones';
 import {
-  FiltroComida, agruparEmpresas, agruparPersonas, alcanceEnPalabras, cedulasPorClave,
+  FiltroComida, acotarFiltro, agruparEmpresas, agruparPersonas, alcanceEnPalabras, cedulasPorClave,
   claveEmpresa, clavePersona, filtrarComidas, filtroSinEntregas, lineasDetalle, totalesDeGrupos,
 } from '../lib/comidaReporte';
 import { CSS_REPORTE_COMIDA, cuerpoReporteComida, nombreArchivoComida, subtituloReporteComida } from '../lib/comidaReporteHtml';
@@ -51,12 +51,14 @@ type Props = {
   desdeInicial: string;
   hastaInicial: string;
   hoy: string;
+  /** El filtro de empresa de la pantalla: 'all' o la clave de una empresa. */
+  empresaInicial: string;
 };
 
 const CATALOGO_COMIDAS = COMPANY_MEALS.map((m) => ({ key: String(m.key), label: m.label }));
 
 export function ComidaReporteModal({
-  visible, onClose, entregasEmpresa, entregasPersona, precios, puedeVerMontos, desdeInicial, hastaInicial, hoy,
+  visible, onClose, entregasEmpresa, entregasPersona, precios, puedeVerMontos, desdeInicial, hastaInicial, hoy, empresaInicial,
 }: Props) {
   const { colors } = useTheme();
 
@@ -70,11 +72,31 @@ export function ComidaReporteModal({
   const [opciones, setOpciones] = useState<OpcionesComida>(OPCIONES_COMIDA_COMO_ANTES);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [notaCarnet, setNotaCarnet] = useState(false);
 
-  // Cuando la pantalla cambia de rango, el modal arranca en el mismo rango.
+  // Al ABRIR, el modal arranca con lo que muestra la pantalla: el mismo rango y,
+  // si arriba hay una empresa elegida, esa empresa sola y SIN lo de carnet.
+  //
+  // ⚠️ Es lo que hacía el PDF viejo, y la revisión lo cazó cuando se perdió: con
+  //    la pantalla filtrada en una empresa, el papel salía con TODAS las empresas
+  //    y la lista de personas con cédula. Esa hoja se le entrega a la empresa:
+  //    no puede llevar lo que comieron las demás ni los datos de terceros.
+  //
+  //    Las selecciones se limpian cada vez: una marca que sobrevive de la vez
+  //    anterior filtra sin verse (su empresa puede ya no estar en el rango).
   React.useEffect(() => {
-    if (visible) { setDesde(desdeInicial); setHasta(hastaInicial); setAviso(null); }
-  }, [visible, desdeInicial, hastaInicial]);
+    if (!visible) return;
+    setDesde(desdeInicial);
+    setHasta(hastaInicial);
+    setAviso(null);
+    setNotaCarnet(false);
+    setPersonasSel(new Set());
+    setComidasSel(new Set());
+    const unaEmpresa = empresaInicial && empresaInicial !== 'all';
+    setEmpresasSel(unaEmpresa ? new Set([empresaInicial]) : new Set());
+    setConEmpresas(true);
+    setConPersonas(!unaEmpresa);
+  }, [visible, desdeInicial, hastaInicial, empresaInicial]);
 
   // Sin permiso de cobro no hay montos posibles: la pastilla queda encendida y
   // no se puede apagar, en vez de sacar un papel con todo en $0,00.
@@ -96,13 +118,38 @@ export function ComidaReporteModal({
     return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
   }, [entregasPersona]);
 
-  const filtro: FiltroComida = useMemo(() => ({
-    desde, hasta,
-    empresas: Array.from(empresasSel),
-    personas: Array.from(personasSel),
-    comidas: Array.from(comidasSel),
-    conEmpresas, conPersonas,
-  }), [desde, hasta, empresasSel, personasSel, comidasSel, conEmpresas, conPersonas]);
+  // ⚠️ El filtro se ACOTA a lo cargado ANTES de usarse (`acotarFiltro`): en la PC
+  //    la fecha se puede escribir fuera del calendario, y el papel no puede
+  //    decir «del 1 al 18» con un solo día adentro.
+  const filtro: FiltroComida = useMemo(() => acotarFiltro(
+    {
+      desde, hasta,
+      empresas: Array.from(empresasSel),
+      personas: Array.from(personasSel),
+      comidas: Array.from(comidasSel),
+      conEmpresas, conPersonas,
+    },
+    {
+      desde: desdeInicial,
+      hasta: hastaInicial < hoy ? hastaInicial : hoy,
+      empresas: empresasDisponibles.map((e) => e.id),
+      personas: personasDisponibles.map((p) => p.id),
+    },
+  ), [desde, hasta, empresasSel, personasSel, comidasSel, conEmpresas, conPersonas, desdeInicial, hastaInicial, hoy, empresasDisponibles, personasDisponibles]);
+
+  // Elegir una EMPRESA apaga lo de carnet la primera vez: las entregas por
+  // carnet no dicen de qué empresa son, y dejarlas encendidas metería en el papel
+  // de esa empresa lo que comió todo el mundo. Se avisa, y se puede volver a
+  // encender.
+  const alternarEmpresa = (clave: string) => {
+    const n = new Set(empresasSel);
+    if (n.has(clave)) n.delete(clave); else n.add(clave);
+    if (empresasSel.size === 0 && n.size > 0 && conPersonas && personasSel.size === 0) {
+      setConPersonas(false);
+      setNotaCarnet(true);
+    }
+    setEmpresasSel(n);
+  };
 
   const nombres = useMemo(() => ({
     empresas: new Map(empresasDisponibles.map((e) => [e.id, e.name])),
@@ -139,7 +186,8 @@ export function ComidaReporteModal({
         gruposEmpresas: gE,
         gruposPersonas: gP,
         cedulas: cedulasPorClave(e.personas),
-        lineas: lineasDetalle(e, precios),
+        // Solo se arma si va a salir: con miles de entregas es lo más pesado.
+        lineas: opcionesReales.sinDetalle ? [] : lineasDetalle(e, precios),
         totales: previo.totales,
         nombres,
       });
@@ -203,8 +251,13 @@ export function ComidaReporteModal({
             {rotulo('🍽️ Qué entra')}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {casilla('qr', '🏢 Entregas por empresa (QR)', conEmpresas, () => setConEmpresas((v) => !v))}
-              {casilla('carnet', '👤 Entregas por carnet', conPersonas, () => setConPersonas((v) => !v))}
+              {casilla('carnet', '👤 Entregas por carnet', conPersonas, () => { setConPersonas((v) => !v); setNotaCarnet(false); })}
             </View>
+            {notaCarnet || (!conPersonas && empresasSel.size > 0) ? (
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                Con una empresa elegida, lo de carnet queda fuera: las entregas por carnet no dicen de qué empresa son, y el papel de esa empresa llevaría lo que comió todo el mundo. Enciéndelo si de verdad lo quieres.
+              </Text>
+            ) : null}
 
             {rotulo('🍳 Comidas (vacío = todas)')}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
@@ -218,7 +271,7 @@ export function ComidaReporteModal({
                 {rotulo(`🏢 Empresas (vacío = todas · ${empresasDisponibles.length})`)}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                   {empresasDisponibles.map((e) =>
-                    casilla('e' + e.id, e.name, empresasSel.has(e.id), () => alternarEn(empresasSel, setEmpresasSel, e.id)),
+                    casilla('e' + e.id, e.name, empresasSel.has(e.id), () => alternarEmpresa(e.id)),
                   )}
                 </View>
               </>

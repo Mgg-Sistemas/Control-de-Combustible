@@ -2422,6 +2422,18 @@ final un cuadro de **«Alcance»** con los filtros que se usaron, para poder rev
 > completo en Distribución de comida la saca **siempre** sin montos. Una comida **sin precio** ese
 > día no suma, y el papel lo dice en vez de poner $0,00.
 
+La columna se llama **«Valor»**: es cantidad × el **mismo precio de la tarjeta de cobro**, así que
+los dos dan igual. No es lo que se cobra: eso, sin el consumo interno, sale en **«📄 PDF del
+cobro»**. Los platos de **«Otros»** salen **«sin precio»**, igual que en la tarjeta, mientras no
+tengan un precio en **«💲 Precios»**.
+
+> 🏢 **PDF de una sola empresa:** si arriba tienes elegida una empresa, el reporte arranca con **esa
+> empresa sola y sin lo entregado por carnet**, para que la hoja que se le da a esa empresa no lleve
+> lo que comieron las demás ni las cédulas de otras personas. Al marcar una empresa dentro de la
+> ventana pasa lo mismo, y se avisa; lo de carnet se puede volver a encender. Las fechas de la
+> ventana solo se pueden **achicar** dentro del rango de arriba: aunque se escriba otra a mano, el
+> papel se queda en lo que la pantalla cargó.
+
 #### 💵 Cobro de comidas (15/09/2026)
 Debajo del botón del PDF, en la pestaña **"📊 Reportes"**, está la tarjeta **"💵 Cobro de comidas"**.
 Solo la ve quien tiene **permiso completo** en Distribución de comida (la cocina no ve montos).

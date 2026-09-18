@@ -105,6 +105,41 @@ const entreFechas = (f: string, desde: string, hasta: string): boolean => {
 const pasa = (lista: string[] | null | undefined, clave: string): boolean =>
   !lista || lista.length === 0 || lista.includes(clave);
 
+/**
+ * EL FILTRO, ACOTADO A LO QUE DE VERDAD SE CARGÓ.
+ *
+ * ⚠️ El papel solo puede hablar de lo que la pantalla trajo. Dos formas de que
+ *    dijera otra cosa, las dos encontradas al revisar (18-sep-2026):
+ *
+ *    · FECHAS: en la PC el campo de fecha deja ESCRIBIR una fuera del rango (el
+ *      navegador marca `min`/`max` como inválido pero no corrige el valor). El
+ *      papel decía «del 1 al 18» con un solo día adentro. Por eso las fechas se
+ *      recortan ACÁ, no en el calendario: una fecha vacía (el «Borrar» del
+ *      selector de Android, o a medio escribir) vale como el borde cargado.
+ *
+ *    · SELECCIONES: una empresa marcada que ya no está en lo cargado seguía
+ *      filtrando, sin verse y sin poder desmarcarse. Se descarta lo que no está.
+ */
+export function acotarFiltro(
+  f: FiltroComida,
+  cargado: { desde: string; hasta: string; empresas: string[]; personas: string[] },
+): FiltroComida {
+  const d = dia(f.desde);
+  const h = dia(f.hasta);
+  let desde = d && d >= cargado.desde && d <= cargado.hasta ? d : cargado.desde;
+  let hasta = h && h <= cargado.hasta && h >= cargado.desde ? h : cargado.hasta;
+  if (desde > hasta) [desde, hasta] = [hasta, desde];
+  const empresasOk = new Set(cargado.empresas);
+  const personasOk = new Set(cargado.personas);
+  return {
+    ...f,
+    desde,
+    hasta,
+    empresas: f.empresas.filter((k) => empresasOk.has(k)),
+    personas: f.personas.filter((k) => personasOk.has(k)),
+  };
+}
+
 /** Las entregas que entran en el papel, ya filtradas por todo. */
 export function filtrarComidas(
   entregas: { empresas?: EntregaEmpresa[] | null; personas?: EntregaPersona[] | null },
@@ -125,32 +160,46 @@ export function filtrarComidas(
 
 // ── LA PLATA ────────────────────────────────────────────────────────────────
 //
-// ⭐ EL PRECIO DE LA CATEGORÍA MANDA, y es el mismo que usa la tarjeta de cobro
-//    (`precioComidaEn`). El costo escrito al registrar (`unit_cost`) es el
-//    RESPALDO, y existe por los platos OTROS: postres, hielo, refrescos… que no
-//    tienen precio de categoría porque el precio se escribe plato por plato.
+// ⭐ LA MISMA REGLA QUE LA TARJETA DE COBRO, AL PIE DE LA LETRA
+//    (`calcularCobroComidas` en cobroComidas.ts): el precio de la categoría en
+//    la fecha de la entrega, REDONDEADO a centavos ANTES de multiplicar, por la
+//    cantidad ENTERA. Un precio de $0 cuenta como precio (es «gratis», no «sin
+//    precio»). Dos maneras de calcular la misma plata es como se termina
+//    discutiendo una factura: el papel y la tarjeta tienen que dar lo mismo.
 //
-// ⚠️ Una entrega SIN ninguno de los dos NO suma cero: suma «sin precio», y el
-//    papel lo dice. Un monto que se come en silencio las comidas sin precio es
-//    una factura corta, y la corrige el cliente, no el sistema.
+// ⚠️ NO SE USA EL COSTO ESCRITO AL REGISTRAR (`unit_cost`), a propósito. La
+//    primera versión lo usaba de respaldo y la revisión lo cazó: el papel ponía
+//    plata donde la tarjeta decía «sin precio» (los platos OTROS, un precio
+//    anulado, los días antes del primer precio). Si los OTROS se tienen que
+//    cobrar por su costo escrito, hay que cambiarlo en LOS DOS sitios a la vez
+//    (`calcularCobroComidas` y `montoCon`, acá abajo) — y es una decisión de
+//    plata, que toma el cliente. La prueba compara los dos cálculos.
+//
+// ⚠️ Una entrega sin precio NO suma cero en silencio: suma «sin precio», y el
+//    papel lo dice. Un monto que se come las comidas sin precio es una factura
+//    corta, y la corrige el cliente, no el sistema.
+//
+// ⚠️ Esto es el VALOR de lo entregado, no lo que se COBRA: la tarjeta además
+//    separa el consumo interno (nómina propia que no se cobra). Lo cobrable, por
+//    cuenta, sale en «📄 PDF del cobro». Por eso la columna dice «Valor».
 
 export type MontoEntrega = { monto: number; conPrecio: boolean; precioUnitario: number };
 
-export function montoDeEmpresa(r: EntregaEmpresa, precios: PrecioComida[] | null | undefined): MontoEntrega {
-  const cant = num(r.delivered);
-  const p = precioComidaEn(precios, limpio(r.meal_type), dia(r.meal_date));
-  const unit = p ? num(p.precio) : num(r.unit_cost);
-  if (!(unit > 0)) return { monto: 0, conPrecio: false, precioUnitario: 0 };
+function montoCon(cantidad: unknown, categoria: unknown, fecha: unknown, precios: PrecioComida[] | null | undefined): MontoEntrega {
+  const cant = Math.floor(num(cantidad));
+  const cat = limpio(categoria);
+  const p = cat ? precioComidaEn(precios, cat, dia(fecha)) : null;
+  if (!p) return { monto: 0, conPrecio: false, precioUnitario: 0 };
+  const unit = redondear(num(p.precio));
   return { monto: redondear(cant * unit), conPrecio: true, precioUnitario: unit };
 }
 
-/** Por carnet no hay costo escrito: solo manda el precio de la categoría. */
+export function montoDeEmpresa(r: EntregaEmpresa, precios: PrecioComida[] | null | undefined): MontoEntrega {
+  return montoCon(r.delivered, r.meal_type, r.meal_date, precios);
+}
+
 export function montoDePersona(r: EntregaPersona, precios: PrecioComida[] | null | undefined): MontoEntrega {
-  const cant = num(r.meals);
-  const p = precioComidaEn(precios, limpio(r.meal_type), dia(r.distribution_date));
-  const unit = p ? num(p.precio) : 0;
-  if (!(unit > 0)) return { monto: 0, conPrecio: false, precioUnitario: 0 };
-  return { monto: redondear(cant * unit), conPrecio: true, precioUnitario: unit };
+  return montoCon(r.meals, r.meal_type, r.distribution_date, precios);
 }
 
 // ── LOS AGRUPADOS ───────────────────────────────────────────────────────────

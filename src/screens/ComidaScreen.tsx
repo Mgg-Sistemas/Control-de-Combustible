@@ -124,8 +124,11 @@ export default function ComidaScreen() {
   useEffect(() => { load(); }, [load]);
 
   // Carga del control por rango (solo en modo control): comidas por empresa + entregas por persona.
-  const loadRange = useCallback(async () => {
-    setRangeLoading(true);
+  // Mismo `silencioso` que `load`: con el «cargando» del rango se desmontaban la
+  // tarjeta de cobro y la de «🕵️ Quién tocó las comidas» (se plegaban y perdían
+  // su filtro) con cada escaneo de la cocina en hora de comida.
+  const loadRange = useCallback(async (silencioso = false) => {
+    if (!silencioso) setRangeLoading(true);
     try {
       const [comp, persons] = await Promise.all([
         listCompanyMealsBetween(from, to),
@@ -157,7 +160,7 @@ export default function ComidaScreen() {
   // empresa), esta pantalla se actualiza sola, sin tener que refrescar a mano.
   useRealtimeRefresh(['food_distributions', 'food_company_meals'], () => {
     load(true);
-    if (mode === 'control') loadRange();
+    if (mode === 'control') loadRange(true);
   });
 
   // Pull-to-refresh: recarga el día actual y, si está en modo "control", también el rango.
@@ -222,12 +225,23 @@ export default function ComidaScreen() {
   }, [rangeFiltered]);
 
   // Historial día por día (solo cuando hay UNA empresa elegida) → { fecha: {meal: cm} }.
+  // ⚠️ Desde el 17-sep una comida puede tener VARIAS entregas el mismo día (se
+  //    acumulan), y desde el 18-sep «Agregar lo que faltó» crea otra fila más.
+  //    Antes esto guardaba UNA fila por comida y día —la última leída— y el
+  //    historial mostraba 5 platos donde se entregaron 20 + 5. Ahora suma.
+  type DiaComida = { delivered: number; entregas: number; lastAt: string; quien: string | null };
   const rangeHistory = useMemo(() => {
     if (companyFilter === 'all') return [];
-    const map = new Map<string, Partial<Record<string, FoodCompanyMeal>>>();
+    const map = new Map<string, Record<string, DiaComida>>();
     rangeFiltered.forEach((r) => {
       if (!map.has(r.meal_date)) map.set(r.meal_date, {});
-      map.get(r.meal_date)![r.meal_type] = r;
+      const dia = map.get(r.meal_date)!;
+      const cur = dia[r.meal_type] ?? { delivered: 0, entregas: 0, lastAt: '', quien: null };
+      cur.delivered += Number(r.delivered) || 0;
+      cur.entregas += 1;
+      const at = String(r.delivered_at ?? '');
+      if (at >= cur.lastAt) { cur.lastAt = at; cur.quien = r.created_by_name ?? cur.quien; }
+      dia[r.meal_type] = cur;
     });
     return Array.from(map, ([d, meals]) => ({ date: d, meals })).sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [rangeFiltered, companyFilter]);
@@ -506,21 +520,21 @@ export default function ComidaScreen() {
               <>
                 <SectionTitle>📅 Historial día por día · {rangeCompanyName}</SectionTitle>
                 {rangeHistory.map((h) => {
-                  const dayTotal = MEALS.reduce((a, m) => a + (Number(h.meals[m.key]?.delivered) || 0), 0);
+                  const dayTotal = COMPANY_MEALS.reduce((a, m) => a + (h.meals[m.key]?.delivered || 0), 0);
                   return (
                     <Card key={h.date}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, textTransform: 'capitalize' }}>{niceDay(h.date)}</Text>
                         <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{dayTotal} comida(s)</Text>
                       </View>
-                      {MEALS.map((m) => {
+                      {COMPANY_MEALS.map((m) => {
                         const cm = h.meals[m.key];
                         return (
                           <View key={m.key} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                             <Text style={{ color: colors.text, fontSize: 13 }}>{m.icon} {m.label}</Text>
                             {cm ? (
                               <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'right', flex: 1, marginLeft: spacing.sm }}>
-                                <Text style={{ color: colors.success, fontWeight: '800' }}>{cm.delivered}</Text> entregadas · sug. {cm.suggested} · {caracasClock(cm.delivered_at)}{cm.created_by_name ? ` · ${cm.created_by_name}` : ''}
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{cm.delivered}</Text> entregadas{cm.entregas > 1 ? ` · ${cm.entregas} entregas` : ''}{cm.lastAt ? ` · ${caracasClock(cm.lastAt)}` : ''}{cm.quien ? ` · ${cm.quien}` : ''}
                               </Text>
                             ) : (
                               <Text style={{ color: colors.muted, fontSize: 12 }}>— sin registrar</Text>
@@ -680,6 +694,7 @@ export default function ComidaScreen() {
         desdeInicial={from}
         hastaInicial={to}
         hoy={caracasToday()}
+        empresaInicial={companyFilter}
       />
     </Screen>
   );

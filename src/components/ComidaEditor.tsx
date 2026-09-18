@@ -134,8 +134,8 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
           hoy,
         );
         if (!v.ok) { setAviso('❌ ' + v.error); return; }
-        const { error } = await agregarEntregaEmpresa(v.patch, usuario);
-        if (error) { setAviso('❌ ' + error); return; }
+        const { error } = await agregarEntregaEmpresa(v.patch, usuario, esHoy ? new Date().toISOString() : undefined);
+        if (error) { setAviso('❌ ' + error); onCambio(); return; }
         setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.companyName}.`);
         onCambio(); cerrarTrasGuardar(); return;
       }
@@ -146,8 +146,8 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
           hoy,
         );
         if (!v.ok) { setAviso('❌ ' + v.error); return; }
-        const { error } = await agregarEntregaPersona(v.patch, usuario);
-        if (error) { setAviso('❌ ' + error); return; }
+        const { error } = await agregarEntregaPersona(v.patch, usuario, esHoy ? new Date().toISOString() : undefined);
+        if (error) { setAviso('❌ ' + error); onCambio(); return; }
         setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.employeeName}.`);
         onCambio(); cerrarTrasGuardar(); return;
       }
@@ -156,7 +156,9 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         const v = validarCambioEmpresa(form.fila, { cantidad, costo, plato, nota });
         if (!v.ok) { setAviso('❌ ' + v.error); return; }
         const { error } = await corregirEntregaEmpresa(form.fila.id, v.patch);
-        if (error) { setAviso('❌ ' + error); return; }
+        // Un rechazo puede ser que OTRO la borró mientras tanto: se recarga para
+        // que la lista deje de ofrecer una entrega que ya no existe.
+        if (error) { setAviso('❌ ' + error); onCambio(); return; }
         setAviso(resumenCambioEmpresa(form.fila, v.patch));
         onCambio(); cerrarTrasGuardar(); return;
       }
@@ -164,7 +166,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
       const v = validarCambioPersona(form.fila, { cantidad, nota });
       if (!v.ok) { setAviso('❌ ' + v.error); return; }
       const { error } = await corregirEntregaPersona(form.fila.id, v.patch);
-      if (error) { setAviso('❌ ' + error); return; }
+      if (error) { setAviso('❌ ' + error); onCambio(); return; }
       setAviso(resumenCambioPersona(form.fila, v.patch));
       onCambio(); cerrarTrasGuardar();
     } finally {
@@ -342,6 +344,9 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                 <>
                   {campo('PERSONA (nombre, apellido o cédula)', busca, buscarPersona, { placeholder: 'Escribe al menos 2 letras…' })}
                   {buscando ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Buscando…</Text> : null}
+                  {!buscando && !persona && busca.trim().length >= 2 && encontrados.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>No se encontró a nadie con eso. Prueba con el apellido o la cédula.</Text>
+                  ) : null}
                   {persona ? (
                     <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800', marginTop: spacing.xs }}>
                       ✅ {persona.nombre}{persona.cedula ? ` · C.I ${persona.cedula}` : ''}
@@ -363,7 +368,12 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>COMIDA</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                     {(form?.modo === 'alta-empresa' ? COMPANY_MEALS : MEALS).map((m) =>
-                      pastilla(`${m.icon} ${m.label}`, comida === m.key, () => setComida(m.key)),
+                      pastilla(`${m.icon} ${m.label}`, comida === m.key, () => {
+                        setComida(m.key);
+                        // El nombre del plato es solo de «Otros»: al cambiar de comida
+                        // se vacía, para que no se pegue a un almuerzo.
+                        if (m.key !== 'otros') setPlato('');
+                      }),
                     )}
                   </View>
                 </View>
@@ -376,7 +386,9 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
               {campo(esEmpresa ? 'CUÁNTOS PLATOS' : 'CUÁNTAS COMIDAS', cantidad, setCantidad, { numerico: true, placeholder: '0' })}
 
               {esEmpresa ? campo('COSTO POR PLATO EN $ (opcional)', costo, setCosto, { numerico: true, placeholder: '0,00' }) : null}
-              {esEmpresa && comida === 'otros' ? campo('QUÉ FUE (postre, hielo, refresco…)', plato, setPlato, { placeholder: 'Nombre del plato' }) : null}
+              {esEmpresa && (comida === 'otros' || (form?.modo === 'editar-empresa' && !!form.fila.item_label))
+                ? campo(comida === 'otros' ? 'QUÉ FUE (postre, hielo, refresco…)' : 'NOMBRE DEL PLATO (bórralo si no corresponde)', plato, setPlato, { placeholder: 'Nombre del plato' })
+                : null}
 
               {campo('NOTA (opcional)', nota, setNota, { placeholder: 'Por qué se corrigió, por ejemplo' })}
 

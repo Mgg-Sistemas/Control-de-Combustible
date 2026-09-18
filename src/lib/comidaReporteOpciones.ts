@@ -177,7 +177,7 @@ export const TITULO_EMPRESA: Record<ColumnaEmpresa, string> = {
   empresa: 'Empresa',
   comidas: 'Comidas',      // se expande a una columna por tiempo de comida
   total: 'Total',
-  monto: 'Monto ($)',
+  monto: 'Valor ($)',
   dias: 'Días',
 };
 
@@ -187,7 +187,7 @@ export const TITULO_PERSONA: Record<ColumnaPersona, string> = {
   cedula: 'Cédula',
   comidas: 'Comidas',
   total: 'Total',
-  monto: 'Monto ($)',
+  monto: 'Valor ($)',
   dias: 'Días',
 };
 
@@ -197,7 +197,7 @@ export const TITULO_DETALLE: Record<ColumnaDetalle, string> = {
   quienRecibe: 'Empresa / Persona',
   comida: 'Comida',
   cantidad: 'Cantidad',
-  monto: 'Monto ($)',
+  monto: 'Valor ($)',
   quien: 'Registró',
   nota: 'Nota',
 };

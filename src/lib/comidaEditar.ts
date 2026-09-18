@@ -183,7 +183,11 @@ export function validarAltaEmpresa(
   const costo = txtCosto === '' ? 0 : leerDecimal(txtCosto);
   if (costo === null || costo < 0) return { ok: false, error: 'El costo por plato no se entiende. Escribe solo números, con coma para los centavos (por ejemplo 4,50).' };
 
-  const plato = limpio(escrito.plato) || null;
+  // ⚠️ El nombre del plato SOLO va en «Otros». El formulario comparte el campo
+  //    entre las comidas y solo lo esconde: quien escribía «Hielo», se arrepentía
+  //    y elegía Almuerzo guardaba un «Almuerzo (Hielo)» que después no se podía
+  //    limpiar (encontrado al revisar, 18-sep-2026).
+  const plato = mealType === 'otros' ? limpio(escrito.plato) || null : null;
   // El nombre del plato es lo ÚNICO que distingue un «Otros» de otro en el
   // papel: sin él, tres renglones de «Otros» a precios distintos no se explican.
   if (mealType === 'otros' && !plato) return { ok: false, error: 'Para «Otros» escribe qué fue (postre, hielo, refresco…).' };

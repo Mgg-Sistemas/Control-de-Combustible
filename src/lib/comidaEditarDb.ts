@@ -14,6 +14,7 @@
 //    `comidaMovimientos.ts` y el que ve la pantalla de Auditoría.
 
 import { supabase } from './supabase';
+import { norm } from './text';
 import { AltaEmpresa, AltaPersona, CambioEmpresa, CambioPersona, mensajeDeError } from './comidaEditar';
 import { FilaAuditoria, TABLAS_COMIDA } from './comidaMovimientos';
 import { FoodCompanyMeal, FoodDistribution } from '../types/database';
@@ -59,6 +60,8 @@ export async function corregirEntregaPersona(id: string, patch: CambioPersona): 
 export async function agregarEntregaEmpresa(
   a: AltaEmpresa,
   autor: { id: string | null; nombre: string | null },
+  /** La hora de verdad, cuando se sabe (una entrega de HOY). */
+  entregadaAt?: string,
 ): Promise<Resultado<FoodCompanyMeal>> {
   const { data, error } = await supabase
     .from('food_company_meals')
@@ -72,10 +75,10 @@ export async function agregarEntregaEmpresa(
       delivered: a.cantidad,
       unit_cost: a.costo,
       item_label: a.plato,
-      // La hora de una entrega vieja no se sabe: se marca al mediodía de ese día
+      // La hora de una entrega VIEJA no se sabe: se marca al mediodía de ese día
       // para que caiga dentro de su jornada y no se vea como una entrega de
-      // madrugada que nadie hizo. La nota dice que se cargó a mano.
-      delivered_at: `${a.mealDate}T12:00:00-04:00`,
+      // madrugada que nadie hizo. Si es de HOY, va la hora de verdad.
+      delivered_at: entregadaAt ?? `${a.mealDate}T12:00:00-04:00`,
       note: a.nota,
       created_by: autor.id,
       created_by_name: autor.nombre,
@@ -91,6 +94,7 @@ export async function agregarEntregaEmpresa(
 export async function agregarEntregaPersona(
   a: AltaPersona,
   autor: { id: string | null; nombre: string | null },
+  entregadaAt?: string,
 ): Promise<Resultado<FoodDistribution>> {
   const { data, error } = await supabase
     .from('food_distributions')
@@ -101,7 +105,7 @@ export async function agregarEntregaPersona(
       meals: a.cantidad,
       meal_type: a.mealType,
       distribution_date: a.distributionDate,
-      delivered_at: `${a.distributionDate}T12:00:00-04:00`,
+      delivered_at: entregadaAt ?? `${a.distributionDate}T12:00:00-04:00`,
       note: a.nota,
       created_by: autor.id,
       created_by_name: autor.nombre,
@@ -162,17 +166,31 @@ export async function cargarMovimientosComida(desde: string, hasta: string, tope
 }
 
 /** Empleados para el buscador del alta por persona (activos, A→Z). */
+//
+// ⚠️ «Juan Pérez» no aparecía: la base busca UNA palabra en nombre, apellido o
+//    cédula, y «juan pérez» no está entero en ninguno de los tres. Ahora se busca
+//    por la palabra más larga y el resto se exige acá, sin importar el orden.
+//    Las comas y paréntesis se quitan: rompen el `or(...)` de PostgREST.
 export async function buscarEmpleados(texto: string, limite = 25): Promise<{ id: string; nombre: string; cedula: string | null }[]> {
-  const t = String(texto ?? '').trim();
-  if (t.length < 2) return [];
+  const palabras = String(texto ?? '').toLowerCase().replace(/[,()%*]/g, ' ').split(/\s+/).filter(Boolean);
+  if (palabras.join('').length < 2) return [];
+  const clave = [...palabras].sort((a, b) => b.length - a.length)[0];
   const { data } = await supabase
     .from('employees')
     .select('id, first_name, last_name, cedula')
-    .or(`first_name.ilike.%${t}%,last_name.ilike.%${t}%,cedula.ilike.%${t}%`)
-    .limit(limite);
-  return ((data ?? []) as any[]).map((e) => ({
-    id: e.id,
-    nombre: `${e.first_name ?? ''} ${e.last_name ?? ''}`.replace(/\s+/g, ' ').trim(),
-    cedula: e.cedula ?? null,
-  }));
+    .or(`first_name.ilike.%${clave}%,last_name.ilike.%${clave}%,cedula.ilike.%${clave}%`)
+    .limit(200);
+  // Mismo criterio de comparación que el resto del sistema (sin tildes, sin mayúsculas).
+  const sinTilde = (v: string) => norm(v);
+  return ((data ?? []) as any[])
+    .map((e) => ({
+      id: e.id as string,
+      nombre: `${e.first_name ?? ''} ${e.last_name ?? ''}`.replace(/\s+/g, ' ').trim(),
+      cedula: (e.cedula ?? null) as string | null,
+    }))
+    .filter((e) => {
+      const todo = sinTilde(`${e.nombre} ${e.cedula ?? ''}`);
+      return palabras.every((p) => todo.includes(sinTilde(p)));
+    })
+    .slice(0, limite);
 }

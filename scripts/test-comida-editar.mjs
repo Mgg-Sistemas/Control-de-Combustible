@@ -135,6 +135,11 @@ const HOY = '2026-09-18';
   eq('⭐ «Otros» sin nombre del plato no se puede', otrosSinNombre.ok, false);
   ok('...y explica qué escribir', otrosSinNombre.error.includes('postre'));
 
+  // ⭐ Encontrado al revisar: el campo del plato se escondía pero no se vaciaba,
+  //    y un «Hielo» abandonado quedaba pegado a un almuerzo.
+  const almuerzoConPlato = E.validarAltaEmpresa({ ...base, mealType: 'almuerzo', plato: 'Hielo', mealDate: HOY }, HOY);
+  eq('⭐ un plato escrito y abandonado NO se pega a un almuerzo', almuerzoConPlato.patch.plato, null);
+
   const otros = E.validarAltaEmpresa({ ...base, mealType: 'otros', plato: 'Hielo', costo: '1,25', mealDate: HOY }, HOY);
   ok('«Otros» con nombre sí', otros.ok);
   eq('...con su costo leído a la venezolana', otros.patch.costo, 1.25);

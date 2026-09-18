@@ -168,7 +168,11 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   eq('...sin nada sin precio', uno.sinPrecio, 0);
 
   const dos = g.find((x) => x.clave === 'e2');
-  eq('⭐ OTROS usa el costo escrito cuando no hay precio de categoría: 5×$2 + 4×$2 = 18', dos.monto, 18);
+  // ⭐ Corregido el 18-sep tras la revisión: el costo escrito al registrar NO se
+  //    usa. OTROS no tiene precio de categoría → «sin precio», IGUAL que la
+  //    tarjeta de cobro. Solo suma el almuerzo: 5 × $2.
+  eq('⭐ OTROS sin precio de categoría NO toma el costo escrito (igual que la tarjeta)', dos.monto, 10);
+  eq('⭐ ...y sus 4 platos cuentan como «sin precio»', dos.sinPrecio, 4);
 
   const gp = REP.agruparPersonas(entregasPersona, precios);
   const p2 = gp.find((x) => x.clave === 'x2');
@@ -177,9 +181,10 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
 
   const t = REP.totalesDeGrupos(g, gp);
   eq('total de comidas', t.total, 42);
-  // 50 (empresa uno) + 18 (empresa dos) + 1 (un desayuno por carnet) = 69.
-  eq('total de plata', t.monto, 69);
-  eq('total sin precio', t.sinPrecio, 2);
+  // 50 (empresa uno) + 10 (empresa dos) + 1 (un desayuno por carnet) = 61.
+  eq('total de plata', t.monto, 61);
+  // 4 platos de OTROS + 2 cenas.
+  eq('total sin precio', t.sinPrecio, 6);
   eq('empresas contadas', t.empresas, 2);
   eq('personas contadas', t.personas, 2);
 }
@@ -314,7 +319,7 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   ok('distingue empresa de persona', l.some((x) => x.via === 'empresa') && l.some((x) => x.via === 'persona'));
   const postre = l.find((x) => x.plato === 'Postre');
   ok('el plato de OTROS lleva su nombre', !!postre);
-  eq('...con su monto', postre.monto, 8);
+  ok('⭐ ...y sale «sin precio», no con su costo escrito', postre.conPrecio === false);
   const cena = l.find((x) => x.comida === 'cena');
   ok('⭐ la cena sin precio se marca, no sale en $0,00', cena.conPrecio === false);
 }
@@ -373,6 +378,102 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   ok('⭐ «desde» no puede ir antes de lo cargado', /value=\{desde\} onChange=\{setDesde\} minISO=\{desdeInicial\}/.test(modal));
   ok('⭐ «hasta» no puede ir después de lo cargado', /value=\{hasta\}[^\n]*maxISO=\{hastaInicial < hoy \? hastaInicial : hoy\}/.test(modal));
   ok('avisa si los precios no se leyeron', /precios === null/.test(modal));
+  // El calendario solo no alcanza: en la PC la fecha se ESCRIBE. El filtro que
+  // llega al papel pasa por `acotarFiltro` (probado abajo con datos).
+  ok('⭐ el filtro del modal pasa por acotarFiltro', /useMemo\(\(\) => acotarFiltro\(/.test(modal));
+  ok('⭐ hereda la empresa elegida en la pantalla', /empresaInicial && empresaInicial !== 'all'/.test(modal));
+  ok('⭐ con una empresa de la pantalla, arranca SIN lo de carnet', /setConPersonas\(!unaEmpresa\)/.test(modal));
+  ok('⭐ elegir una empresa en el modal apaga lo de carnet', /const alternarEmpresa[\s\S]*?setConPersonas\(false\)/.test(modal));
+  ok('las selecciones se limpian al abrir', /setPersonasSel\(new Set\(\)\);\s*setComidasSel\(new Set\(\)\);/.test(modal));
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ComidaScreen.tsx'), 'utf8');
+  ok('⭐ la pantalla le pasa su filtro de empresa al modal', /empresaInicial=\{companyFilter\}/.test(scr));
+}
+
+// ── 17) ACOTAR EL FILTRO A LO CARGADO (con datos, no con regex) ─────────────
+//
+// Lo encontró la revisión probándolo en Chrome: un <input type=date> con min y
+// max deja ESCRIBIR una fecha fuera; el navegador la marca inválida pero la manda.
+{
+  const cargado = { desde: '2026-09-14', hasta: '2026-09-18', empresas: ['e1', 'e2'], personas: ['x1'] };
+  const base = { ...REP.FILTRO_COMIDA_TODO };
+  const a1 = REP.acotarFiltro({ ...base, desde: '2026-09-01', hasta: '2026-09-18' }, cargado);
+  eq('⭐ una fecha escrita ANTES de lo cargado vuelve al borde', a1.desde, '2026-09-14');
+  const a2 = REP.acotarFiltro({ ...base, desde: '2026-09-14', hasta: '2026-12-31' }, cargado);
+  eq('⭐ una fecha escrita DESPUÉS de lo cargado vuelve al borde', a2.hasta, '2026-09-18');
+  const a3 = REP.acotarFiltro({ ...base, desde: '', hasta: '' }, cargado);
+  eq('⭐ fechas vacías (el «Borrar» del selector) valen como los bordes', [a3.desde, a3.hasta], ['2026-09-14', '2026-09-18']);
+  const a4 = REP.acotarFiltro({ ...base, desde: '2026-09-15', hasta: '2026-09-16' }, cargado);
+  eq('achicar dentro de lo cargado se respeta', [a4.desde, a4.hasta], ['2026-09-15', '2026-09-16']);
+  const a5 = REP.acotarFiltro({ ...base, desde: '2026-09-17', hasta: '2026-09-15' }, cargado);
+  eq('al revés se ordena', [a5.desde, a5.hasta], ['2026-09-15', '2026-09-17']);
+  const a6 = REP.acotarFiltro({ ...base, desde: '2026-09-14', hasta: '2026-09-18', empresas: ['e1', 'vieja'], personas: ['nadie'] }, cargado);
+  eq('⭐ una empresa marcada que ya no está en lo cargado se descarta', a6.empresas, ['e1']);
+  eq('⭐ lo mismo con las personas (no filtra escondida)', a6.personas, []);
+  // Y el subtítulo del papel dice el rango ACOTADO, no el escrito.
+  eq('⭐ el papel no puede decir «del 01/09» si solo cargó desde el 14', HTML.subtituloReporteComida(a1), 'Del 14/09/2026 al 18/09/2026');
+}
+
+// ── 18) LA MISMA PLATA QUE LA TARJETA DE COBRO ──────────────────────────────
+//
+// El papel y la tarjeta tienen que dar lo mismo. La tarjeta reparte en «se
+// cobra» y «consumo interno»; el papel da el VALOR, que es la suma de las dos.
+{
+  const COBRO = loadTs('src/lib/cobroComidas.ts');
+  const preciosRaros = [
+    { id: 'q1', categoria: 'desayuno', precio: 1.005, desde: '2026-09-01', hasta: null },   // se redondea antes
+    { id: 'q2', categoria: 'almuerzo', precio: 0, desde: '2026-09-01', hasta: null },       // gratis ≠ sin precio
+    { id: 'q3', categoria: 'almuerzo', precio: 3, desde: '2026-09-15', hasta: '2026-09-15' }, // blindado
+  ];
+  const fichas = new Map([['x1', { companyId: null, companyName: null, departamento: 'COCINA' }], ['x2', { companyId: 'e1', companyName: 'EMPRESA UNO' }]]);
+  const cuentas = COBRO.calcularCobroComidas({ empresas: entregasEmpresa, personas: entregasPersona, empresaDePersona: fichas, precios: preciosRaros });
+  const tc = COBRO.totalCobroComidas(cuentas);
+  const gE = REP.agruparEmpresas(entregasEmpresa, preciosRaros);
+  const gP = REP.agruparPersonas(entregasPersona, preciosRaros);
+  const tp = REP.totalesDeGrupos(gE, gP);
+  eq('⭐ VALOR del papel = lo que se cobra + consumo interno de la tarjeta', tp.monto, Math.round((tc.monto + tc.montoInterno) * 100) / 100);
+  eq('⭐ las comidas sin precio cuentan igual en los dos', tp.sinPrecio, tc.sinPrecio);
+  eq('⭐ y el total de comidas también', tp.total, tc.comidas);
+}
+
+// ── 19) UNA COMIDA FUERA DEL CATÁLOGO TIENE SU COLUMNA ──────────────────────
+//
+// Una entrega por carnet sin comida marcada suma en el Total de la fila. Sin su
+// columna, la fila no cuadraba (3 + 2 + 0 + 0 = 6).
+{
+  const raras = [{ id: 'r1', employee_id: 'x9', employee_name: 'Persona Rara', cedula: '9', meal_type: null, distribution_date: '2026-09-14', meals: 1 }];
+  const gP = REP.agruparPersonas(raras, precios);
+  const cuerpo = HTML.cuerpoReporteComida({
+    filtro: TODO, opciones: OPC.OPCIONES_COMIDA_COMPLETO,
+    comidas: [{ key: 'desayuno', label: 'Desayuno' }], gruposEmpresas: [], gruposPersonas: gP,
+    cedulas: REP.cedulasPorClave(raras), lineas: [], totales: REP.totalesDeGrupos([], gP), nombres: {},
+  });
+  ok('⭐ la comida sin marcar tiene su columna en el cuadro de personas', cuerpo.includes('>Sin comida<'));
+}
+
+// ── 20) EL DETALLE TIENE TOPE Y LO DICE ─────────────────────────────────────
+{
+  const muchas = Array.from({ length: HTML.TOPE_DETALLE + 7 }, (_, i) => ({
+    fecha: '2026-09-14', hora: '', quienRecibe: 'P' + i, via: 'persona', comida: 'desayuno', plato: '',
+    cantidad: 1, monto: 0, conPrecio: false, quien: '', nota: '',
+  }));
+  const cuerpo = HTML.cuerpoReporteComida({
+    filtro: TODO, opciones: OPC.OPCIONES_COMIDA_COMPLETO, comidas: [{ key: 'desayuno', label: 'Desayuno' }],
+    gruposEmpresas: [], gruposPersonas: [], lineas: muchas, totales: REP.totalesDeGrupos([], []), nombres: {},
+  });
+  // Solo el cuerpo de la tabla: la fila de encabezado no es una entrega.
+  const filas = (cuerpo.split('Entrega por entrega')[1].split('<tbody>')[1].match(/<tr>/g) ?? []).length;
+  eq('⭐ no pinta más filas que el tope', filas, HTML.TOPE_DETALLE);
+  ok('⭐ y dice cuántas quedaron fuera', cuerpo.includes('quedaron fuera 7'));
+  ok('el título dice el total real', cuerpo.includes(`Entrega por entrega (${HTML.TOPE_DETALLE + 7})`));
+}
+
+// ── 21) LA COLUMNA DICE «VALOR», NO «MONTO» ─────────────────────────────────
+//
+// Es el valor de lo entregado, no lo que se cobra (la tarjeta separa el consumo
+// interno). Llamarlo «Monto» invitaba a cobrarlo tal cual.
+{
+  ok('las tres tablas titulan «Valor ($)»',
+    OPC.TITULO_EMPRESA.monto === 'Valor ($)' && OPC.TITULO_PERSONA.monto === 'Valor ($)' && OPC.TITULO_DETALLE.monto === 'Valor ($)');
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-reporte · ${pass} ok · ${fail} fallando`);

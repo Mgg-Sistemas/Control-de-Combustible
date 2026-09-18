@@ -60,6 +60,14 @@ function cuadroGrupos(
   cedulas?: Map<string, string>,
 ): string {
   if (!grupos.length) return '';
+  // ⚠️ Una comida que NO está en el catálogo (una entrega por carnet sin comida
+  //    marcada, o un tipo raro) igual suma en el Total de la fila. Sin su propia
+  //    columna, la fila no cuadraba: 3 + 2 + 0 + 0 = 6. Se le abre una columna al
+  //    final, con su nombre crudo, para que se vea qué quedó mal marcado.
+  const extras = Array.from(new Set(grupos.flatMap((g) => Object.keys(g.porComida))))
+    .filter((k) => !cat.some((m) => m.key === k))
+    .sort();
+  cat = [...cat, ...extras.map((k) => ({ key: k, label: k === 'sin_comida' ? 'Sin comida' : k }))];
   const cols: (ColumnaEmpresa | ColumnaPersona)[] = quien === 'empresa' ? columnasEmpresa(o) : columnasPersona(o);
   const TIT: Record<string, string> = quien === 'empresa' ? TITULO_EMPRESA : (TITULO_PERSONA as Record<string, string>);
   const NUM: Record<string, boolean> = quien === 'empresa' ? NUMERICA_EMPRESA : (NUMERICA_PERSONA as Record<string, boolean>);
@@ -122,8 +130,21 @@ function cuadroPorComida(t: TotalesComida, cat: CatalogoComidas): string {
   return `<h2>🍽️ Cantidad por comida</h2>${tabla(['Comida', 'Cantidad'], [false, true], filas, pie)}`;
 }
 
-function cuadroDetalle(lineas: LineaDetalle[], o: OpcionesComida, cat: CatalogoComidas): string {
-  if (!lineas.length) return '';
+/**
+ * TOPE DEL LISTADO ENTREGA POR ENTREGA.
+ *
+ * Un mes trae miles de entregas por carnet (una semana ya tuvo 1.259), y un
+ * documento de 20 mil filas cuelga la vista previa en el navegador del teléfono.
+ * Pasado el tope se cortan las filas del DETALLE —nunca los cuadros ni los
+ * totales, que siguen contando todo— y el papel dice cuántas quedaron fuera.
+ * Es el mismo criterio del PDF de Auditoría (tope de 1.500, avisado).
+ */
+export const TOPE_DETALLE = 3000;
+
+function cuadroDetalle(todas: LineaDetalle[], o: OpcionesComida, cat: CatalogoComidas): string {
+  if (!todas.length) return '';
+  const lineas = todas.slice(0, TOPE_DETALLE);
+  const fuera = todas.length - lineas.length;
   const cols = columnasDetalle(o);
   const titulos = cols.map((c) => TITULO_DETALLE[c]);
   const numericas = cols.map((c) => !!NUMERICA_DETALLE[c]);
@@ -137,7 +158,10 @@ function cuadroDetalle(lineas: LineaDetalle[], o: OpcionesComida, cat: CatalogoC
     if (c === 'quien') return { txt: escapar(l.quien || '—') };
     return { txt: escapar(l.nota || '') };
   }));
-  return `<h2>🧾 Entrega por entrega (${lineas.length})</h2>${tabla(titulos, numericas, filas)}`;
+  const aviso = fuera > 0
+    ? `<p class="sub warn">⚠️ Se muestran las primeras ${TOPE_DETALLE} de ${todas.length} entregas: quedaron fuera ${fuera}. Los cuadros y los totales de arriba sí cuentan todas. Para verlas, achica el rango o filtra por empresa, persona o comida.</p>`
+    : '';
+  return `<h2>🧾 Entrega por entrega (${todas.length})</h2>${aviso}${tabla(titulos, numericas, filas)}`;
 }
 
 function cuadroAlcance(f: FiltroComida, o: OpcionesComida, t: TotalesComida, nombres: Parameters<typeof alcanceEnPalabras>[1]): string {
@@ -147,6 +171,7 @@ function cuadroAlcance(f: FiltroComida, o: OpcionesComida, t: TotalesComida, nom
     extra.push(`${t.sinPrecio} comida(s) sin precio ese día: se cuentan, pero NO suman al monto.`);
   }
   if (o.sinMontos) extra.push('Este papel salió SIN montos, a pedido.');
+  else extra.push('El valor es cantidad × precio de ese día, el mismo de la tarjeta de cobro. Lo que se COBRA por cuenta (sin el consumo interno) sale en «PDF del cobro».');
   return `<h2>🔎 Alcance de este informe</h2>
     <p class="sub">Lo que se pidió, para que el total se pueda revisar después:</p>
     <ul>${[...lineas, ...extra].map((s) => `<li>${escapar(s)}</li>`).join('')}</ul>`;
@@ -185,7 +210,7 @@ export function cuerpoReporteComida(d: DatosReporteComida): string {
   partes.push(`<div class="kpis">
     Comidas entregadas: <b>${t.total}</b> ·
     Empresas: <b>${t.empresas}</b> ·
-    Personas: <b>${t.personas}</b>${o.sinMontos ? '' : ` · Monto: <b>${usd(t.monto)}</b>`}
+    Personas: <b>${t.personas}</b>${o.sinMontos ? '' : ` · Valor: <b>${usd(t.monto)}</b>`}
   </div>`);
 
   if (!o.sinComidas) partes.push(cuadroPorComida(t, d.comidas));
