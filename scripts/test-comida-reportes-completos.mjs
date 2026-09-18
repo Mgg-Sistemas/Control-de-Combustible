@@ -156,7 +156,7 @@ ok('el aviso sale en pantalla', /\{loadError \?\? rangeError\}/.test(scr));
 // 18-sep-2026: el PDF dejó de ser un botón suelto y pasó a <ComidaReporteModal>.
 // La regla que protegía esta línea NO cambió —con el rango a medias no se saca
 // papel—, solo cambió cómo se aplica: ahora el botón no se puede tocar.
-ok('el PDF del rango no se arma con datos a medias', /onPress=\{\(\) => setReporteOpen\(true\)\}\s*disabled=\{!!rangeError\}/.test(scr));
+ok('el PDF del rango no se arma con datos a medias', /onPress=\{abrirReporte\}\s*disabled=\{!!rangeError\}/.test(scr));
 
 // ── Cuadros por comida del rango: empresa + carnet (15-sep-2026) ────────────
 // Antes sumaban solo por empresa: 158 en total pero 21+29+0+0 = 50, y la cena de carnet en 0.

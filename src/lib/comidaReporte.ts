@@ -166,11 +166,13 @@ export function filtrarComidas(
 //    cantidad ENTERA. Dos maneras de calcular la misma plata es como se termina
 //    discutiendo una factura: el papel y la tarjeta tienen que dar lo mismo.
 //
-// ⭐ EL COSTO ESCRITO AL REGISTRAR (`unit_cost`) SOLO CUENTA EN «OTROS»
-//    (18-sep-2026, decisión del cliente). En las cuatro comidas fijas manda la
-//    tabla de precios, y un precio anulado o un día antes del primer precio sigue
-//    siendo «sin precio» aunque la cocina haya escrito un costo. La regla vive en
-//    UN solo sitio (`precioDeEntrega`) y la prueba compara los dos cálculos.
+// ⭐ EL COSTO ESCRITO AL REGISTRAR (`unit_cost`) SOLO CUENTA EN «OTROS», y solo
+//    mientras el plato no tenga precio propio en la tabla (18-sep-2026, decisión del
+//    cliente). En las cuatro comidas fijas manda la tabla de precios, y un precio
+//    anulado o un día antes del primer precio sigue siendo «sin precio» aunque la
+//    cocina haya escrito un costo. La regla vive en UN solo sitio
+//    (`precioDeEntrega`) y la prueba compara los dos cálculos. `platoAPrecio` es
+//    el mismo que recibe la tarjeta (`resolverPlatos` en comidaPlatos.ts).
 //
 // ⚠️ Una entrega sin precio NO suma cero en silencio: suma «sin precio», y el
 //    papel lo dice. Un monto que se come las comidas sin precio es una factura
@@ -182,18 +184,23 @@ export function filtrarComidas(
 
 export type MontoEntrega = { monto: number; conPrecio: boolean; precioUnitario: number };
 
+/** Del nombre del plato de «Otros» a su categoría de precio. */
+export type PlatoAPrecio = ((nombre: unknown) => string | null) | null | undefined;
+
 function montoCon(
-  cantidad: unknown, categoria: unknown, fecha: unknown, precios: PrecioComida[] | null | undefined, costoEscrito?: unknown,
+  cantidad: unknown, categoria: unknown, fecha: unknown, precios: PrecioComida[] | null | undefined,
+  costoEscrito?: unknown, categoriaPlato?: string | null,
 ): MontoEntrega {
   const cant = Math.floor(num(cantidad));
   const cat = limpio(categoria);
-  const p = cat ? precioDeEntrega(precios, cat, dia(fecha), costoEscrito) : null;
+  const p = cat ? precioDeEntrega(precios, cat, dia(fecha), costoEscrito, categoriaPlato) : null;
   if (!p) return { monto: 0, conPrecio: false, precioUnitario: 0 };
   return { monto: redondear(cant * p.precio), conPrecio: true, precioUnitario: p.precio };
 }
 
-export function montoDeEmpresa(r: EntregaEmpresa, precios: PrecioComida[] | null | undefined): MontoEntrega {
-  return montoCon(r.delivered, r.meal_type, r.meal_date, precios, r.unit_cost);
+export function montoDeEmpresa(r: EntregaEmpresa, precios: PrecioComida[] | null | undefined, platoAPrecio?: PlatoAPrecio): MontoEntrega {
+  const catPlato = limpio(r.meal_type) === 'otros' && platoAPrecio ? platoAPrecio(r.item_label) : null;
+  return montoCon(r.delivered, r.meal_type, r.meal_date, precios, r.unit_cost, catPlato);
 }
 
 export function montoDePersona(r: EntregaPersona, precios: PrecioComida[] | null | undefined): MontoEntrega {
@@ -247,10 +254,10 @@ function armarGrupos<T>(
     .sort((a, b) => cmp(a.nombre, b.nombre));
 }
 
-export function agruparEmpresas(filas: EntregaEmpresa[], precios: PrecioComida[] | null | undefined): GrupoComida[] {
+export function agruparEmpresas(filas: EntregaEmpresa[], precios: PrecioComida[] | null | undefined, platoAPrecio?: PlatoAPrecio): GrupoComida[] {
   return armarGrupos(
     filas, claveEmpresa, (r) => limpio(r.company_name), (r) => limpio(r.meal_type),
-    (r) => num(r.delivered), (r) => dia(r.meal_date), (r) => montoDeEmpresa(r, precios),
+    (r) => num(r.delivered), (r) => dia(r.meal_date), (r) => montoDeEmpresa(r, precios, platoAPrecio),
   );
 }
 
@@ -321,10 +328,11 @@ export function horaCaracas(iso: unknown): string {
 export function lineasDetalle(
   entregas: { empresas: EntregaEmpresa[]; personas: EntregaPersona[] },
   precios: PrecioComida[] | null | undefined,
+  platoAPrecio?: PlatoAPrecio,
 ): LineaDetalle[] {
   const filas: LineaDetalle[] = [];
   entregas.empresas.forEach((r) => {
-    const m = montoDeEmpresa(r, precios);
+    const m = montoDeEmpresa(r, precios, platoAPrecio);
     filas.push({
       fecha: dia(r.meal_date), hora: horaCaracas(r.delivered_at), quienRecibe: limpio(r.company_name) || '—',
       via: 'empresa', comida: limpio(r.meal_type), plato: limpio(r.item_label), cantidad: num(r.delivered),

@@ -112,8 +112,11 @@ const valorAntes = (c: Record<string, any> | null | undefined, campo: string): u
   return v;
 };
 
+/** De la categoría `plato_…` de un precio al nombre del plato (lo arma comidaPlatos.ts). */
+export type NombreCategoria = ((categoria: string) => string | null) | null | undefined;
+
 /** El nombre que se lee en el renglón, por tabla. */
-function tituloDe(f: FilaAuditoria): string {
+function tituloDe(f: FilaAuditoria, nombreCategoria?: NombreCategoria): string {
   const c = f.changes;
   const t = limpio(f.table_name);
   const leer = (campo: string) => valorDespues(c, campo) ?? valorAntes(c, campo);
@@ -141,7 +144,11 @@ function tituloDe(f: FilaAuditoria): string {
   }
 
   if (t === 'comida_precios') {
-    const cat = limpio(leer('categoria')) || 'comida';
+    // El precio de un plato se guarda como `plato_…` (la columna no admite su
+    // nombre): sin traducirlo, la bitácora diría «Precio de plato_3f2a…».
+    const raw = limpio(leer('categoria'));
+    const nombre = raw ? nombreCategoria?.(raw) : null;
+    const cat = nombre ? `🧾 ${nombre}` : raw.startsWith('plato_') ? 'un plato' : raw || 'comida';
     const p = leer('precio');
     return `💲 Precio de ${cat}${p !== undefined && p !== null ? ` · $${p}` : ''}`;
   }
@@ -158,7 +165,7 @@ const CAMPO: Record<string, string> = {
   delivered: 'platos', meals: 'comidas', unit_cost: 'costo por plato', item_label: 'nombre del plato',
   note: 'nota', meal_type: 'comida', meal_date: 'día', distribution_date: 'día',
   company_name: 'empresa', employee_name: 'persona', cedula: 'cédula', name: 'nombre',
-  active: 'activo', precio: 'precio', categoria: 'categoría', desde: 'desde', hasta: 'hasta',
+  active: 'en la lista de la cocina', precio: 'precio', categoria: 'categoría', desde: 'desde', hasta: 'hasta',
   se_cobra: 'se cobra', encargado_id: 'encargado', anulada_at: 'anulada',
 };
 
@@ -193,7 +200,7 @@ const VERBO: Record<string, { verbo: string; icono: string; tipo: MovimientoComi
  * escritura de unas 34 tablas de todo el sistema, y sin este filtro la tarjeta
  * mostraría jornadas y despachos de combustible.
  */
-export function movimientosDeComida(filas: readonly FilaAuditoria[] | null | undefined): MovimientoComida[] {
+export function movimientosDeComida(filas: readonly FilaAuditoria[] | null | undefined, nombreCategoria?: NombreCategoria): MovimientoComida[] {
   return (filas ?? [])
     .filter((f) => (TABLAS_COMIDA as readonly string[]).includes(limpio(f.table_name)))
     .map((f, i) => {
@@ -205,7 +212,7 @@ export function movimientosDeComida(filas: readonly FilaAuditoria[] | null | und
         verbo: v.verbo,
         quien: limpio(f.user_name) || SIN_NOMBRE,
         cuando: fechaHoraCaracas(f.at),
-        titulo: tituloDe(f),
+        titulo: tituloDe(f, nombreCategoria),
         detalle: detalleDe(f),
         at: String(f.at ?? ''),
       };

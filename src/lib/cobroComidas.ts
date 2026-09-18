@@ -10,9 +10,10 @@
 //      carnet va a la empresa de la ficha de la persona; sin empresa en la ficha es nómina
 //      propia (por departamento); si la ficha no existe o no se pudo leer, queda aparte.
 //   3) Lo que no tiene precio ese día NO suma, pero se cuenta como «sin precio».
-//      ⭐ Los platos de «OTROS» (hielo, refresco, postre…) no tienen precio en la tabla:
-//      se cobran con el COSTO POR PLATO que escribió la cocina al registrarlos (ver
-//      `precioDeEntrega`). Sin costo escrito, «sin precio» como cualquier otra.
+//      ⭐ Los platos de «OTROS» (hielo, refresco, postre…) tienen su propio precio en la
+//      tabla (pestaña «🧾 Platos»); mientras no lo tengan, se cobran con el COSTO POR
+//      PLATO que escribió la cocina (ver `precioDeEntrega`). Sin ninguno de los dos,
+//      «sin precio» como cualquier otra.
 //   4) SE COBRA o CONSUMO INTERNO, por cuenta y desde una fecha (comida_cuentas_config). Sin
 //      configurar: una empresa se cobra y la nómina propia no. Lo interno se valora aparte y
 //      NO suma al total a cobrar.
@@ -163,10 +164,13 @@ export function precioComidaEn(precios: PrecioComida[] | null | undefined, categ
  *
  *   · Desayuno, almuerzo, lunch y cena: el precio de «Precios y cuentas» en su fecha. El
  *     costo que escribe la cocina en estas NO manda: el precio lo pone quien cobra.
- *   · «Otros»: el COSTO POR PLATO que escribió la cocina. Cada plato vale distinto (una
- *     bolsa de hielo no cuesta lo que un refresco) y la tabla no tiene dónde ponerles
- *     precio. El reporte por empresa de la cocina ya los sumaba así; hasta hoy la tarjeta
- *     de cobro decía «sin precio» y los dos papeles no daban lo mismo.
+ *   · «Otros», en este orden:
+ *       1) el precio del PLATO en la tabla (pestaña «🧾 Platos»), en su fecha.
+ *          `categoriaPlato` es su categoría `plato_…` (ver comidaPlatos.ts); la
+ *          encuentra quien llama, porque la entrega solo guarda el nombre.
+ *       2) si el plato todavía no tiene precio, el COSTO POR PLATO que escribió la
+ *          cocina. Así los platos que la cocina inventa al registrar se cobran igual
+ *          mientras alguien les pone precio (y la tarjeta avisa que les falta).
  *
  * Un costo en 0 (la cocina lo dejó en blanco) es «sin precio»: no suma y se avisa.
  * Redondeado a centavos ANTES de multiplicar, igual que el de la tabla.
@@ -176,9 +180,12 @@ export function precioDeEntrega(
   categoria: unknown,
   fecha: string,
   costoEscrito?: unknown,
+  categoriaPlato?: string | null,
 ): { precio: number; fuente: FuentePrecio; desde: string } | null {
   const c = String(categoria ?? '');
   if (c === CATEGORIA_OTROS) {
+    const pp = categoriaPlato ? precioComidaEn(precios, categoriaPlato, fecha) : null;
+    if (pp) return { precio: redondear(num(pp.precio)), fuente: 'tabla', desde: dia(pp.desde) };
     const u = redondear(num(costoEscrito));
     return u > 0 ? { precio: u, fuente: 'cocina', desde: '' } : null;
   }
@@ -251,6 +258,12 @@ export function calcularCobroComidas(opts: {
   /** id → nombre del encargado. */
   encargados?: Map<string, string> | null;
   eje?: EjeCobro;
+  /**
+   * Del nombre del plato de «Otros» escrito en la entrega a su categoría de precio
+   * (`resolverPlatos` en comidaPlatos.ts). Sin esto, «Otros» se cobra solo con el
+   * costo de la cocina.
+   */
+  platoAPrecio?: ((nombre: unknown) => string | null) | null;
 }): CuentaComida[] {
   const eje: EjeCobro = opts.eje === 'encargado' ? 'encargado' : 'cuenta';
   type Acum = CuentaComida & { _orden: number; _items: Map<string, ItemCobro & { _desde: string }>; _detalle: Set<string> };
@@ -281,7 +294,8 @@ export function calcularCobroComidas(opts: {
       cuentas.set(clave, c);
     }
     const cat = m.categoria || SIN_CATEGORIA;
-    const pe = m.categoria ? precioDeEntrega(opts.precios, m.categoria, m.fecha, m.costo) : null;
+    const catPlato = cat === CATEGORIA_OTROS && opts.platoAPrecio ? opts.platoAPrecio(m.plato) : null;
+    const pe = m.categoria ? precioDeEntrega(opts.precios, m.categoria, m.fecha, m.costo, catPlato) : null;
     const precio = pe ? pe.precio : null;
     const plato = cat === CATEGORIA_OTROS ? limpio(m.plato) || null : null;
     c.comidas += m.cantidad;
