@@ -205,5 +205,41 @@ const HOY = '2026-09-18';
   ok('⭐ no se inventa columnas que no existen (updated_at / updated_by)', !/updated_at|updated_by/.test(db));
 }
 
+// ── 10) DESPUÉS DE GUARDAR SE VE QUE SE GUARDÓ ──────────────────────────────
+//
+// Dos fallos encontrados al revisar (18-sep-2026), los dos con el mismo síntoma:
+// quien corregía nunca veía el «✅ guardado».
+//   · `cerrar()` limpiaba el aviso en el mismo instante en que se escribía.
+//   · `load()` ponía la pantalla en esqueleto, que DESMONTA la tarjeta; y el
+//     tiempo real hacía lo mismo al enterarse del propio cambio.
+{
+  const sinComentarios = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const editor = sinComentarios(fs.readFileSync(path.join(ROOT, 'src/components/ComidaEditor.tsx'), 'utf8'));
+  ok('⭐ tras guardar se cierra SIN borrar el aviso', /const cerrarTrasGuardar = \(\) => setForm\(null\);/.test(editor));
+  ok('⭐ ...y ningún guardado usa el cerrar que limpia', !/onCambio\(\);\s*cerrar\(\)/.test(editor));
+
+  const scr = sinComentarios(fs.readFileSync(path.join(ROOT, 'src/screens/ComidaScreen.tsx'), 'utf8'));
+  ok('⭐ la carga del día tiene modo silencioso', /const load = useCallback\(async \(silencioso = false\) => \{\s*if \(!silencioso\) setLoading\(true\);/.test(scr));
+  ok('⭐ el editor recarga en silencio (sin desmontarse)', /onCambio=\{\(\) => load\(true\)\}/.test(scr));
+  ok('⭐ el tiempo real también recarga en silencio', /useRealtimeRefresh\(\['food_distributions', 'food_company_meals'\], \(\) => \{\s*load\(true\);/.test(scr));
+}
+
+// ── 11) LOS FINALES DE LÍNEA NO SE TOCAN ────────────────────────────────────
+//
+// El 18-sep-2026 una edición con Python convirtió ComidaScreen y FoodCompanyScreen
+// enteros a CRLF: 2.400 líneas de «cambios» que no cambiaban nada y que habrían
+// chocado con cualquier trabajo de la compañera en esos archivos. El repo va en LF.
+{
+  const tocados = [
+    'src/screens/ComidaScreen.tsx', 'src/screens/FoodCompanyScreen.tsx',
+    'src/components/ComidaEditor.tsx', 'src/components/ComidaReporteModal.tsx', 'src/components/ComidaMovimientos.tsx',
+    'src/lib/comidaEditar.ts', 'src/lib/comidaEditarDb.ts', 'src/lib/comidaMovimientos.ts',
+    'src/lib/comidaReporte.ts', 'src/lib/comidaReporteHtml.ts', 'src/lib/comidaReporteOpciones.ts',
+    'scripts/test-comida-reporte.mjs', 'scripts/test-comida-reportes-completos.mjs',
+  ];
+  const conCrlf = tocados.filter((f) => fs.readFileSync(path.join(ROOT, f), 'utf8').includes('\r\n'));
+  eq('⭐ ningún archivo del módulo quedó en CRLF', conCrlf, []);
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-editar · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

@@ -93,8 +93,14 @@ export default function ComidaScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // ⚠️ `silencioso` (18-sep-2026): recarga SIN pasar por el esqueleto. El
+  //    esqueleto reemplaza la pantalla entera y DESMONTA las tarjetas: después de
+  //    cada corrección, la de «✏️ Agregar o corregir» se plegaba y su aviso de
+  //    «✅ guardado» desaparecía. El tiempo real hacía lo mismo al enterarse del
+  //    propio cambio. El esqueleto queda solo para la primera carga y el cambio
+  //    de día, que es cuando de verdad no hay nada que mostrar.
+  const load = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     try {
       const [rr, cm, { data: comps }] = await Promise.all([
         listFoodByDate(date),
@@ -136,26 +142,28 @@ export default function ComidaScreen() {
   }, [from, to]);
   useEffect(() => { if (mode === 'control') loadRange(); }, [mode, loadRange]);
 
-  // Los precios se leen una sola vez, y solo si se pueden ver: sin permiso
-  // completo el reporte sale sin montos y esta consulta no haría falta.
-  useEffect(() => {
+  // Los precios se leen al entrar y al deslizar para recargar (si alguien los
+  // cambió en «💲 Precios y cuentas», el PDF los toma sin salir de la pantalla).
+  // Solo si se pueden ver: sin permiso completo el reporte sale sin montos.
+  const cargarPrecios = useCallback(async () => {
     if (!canCobro) return;
-    // Que fallen los precios no puede tumbar la pantalla: el reporte sale sin
-    // montos y el resto sigue funcionando.
-    cargarPreciosComida().then(setPrecios, () => setPrecios(null));
+    // Que fallen los precios no puede tumbar la pantalla: queda en null, y el
+    // modal del reporte avisa antes de sacar un papel con montos a medias.
+    try { setPrecios(await cargarPreciosComida()); } catch { setPrecios(null); }
   }, [canCobro]);
+  useEffect(() => { cargarPrecios(); }, [cargarPrecios]);
 
   // TIEMPO REAL: cuando la cocina registra/borra una comida (por persona o por
   // empresa), esta pantalla se actualiza sola, sin tener que refrescar a mano.
   useRealtimeRefresh(['food_distributions', 'food_company_meals'], () => {
-    load();
+    load(true);
     if (mode === 'control') loadRange();
   });
 
   // Pull-to-refresh: recarga el día actual y, si está en modo "control", también el rango.
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([load(), mode === 'control' ? loadRange() : Promise.resolve()]);
+    await Promise.all([load(), mode === 'control' ? loadRange() : Promise.resolve(), cargarPrecios()]);
     setRefreshing(false);
   };
 
@@ -571,7 +579,7 @@ export default function ComidaScreen() {
           entregasPersona={rows}
           empresas={companies}
           usuario={{ id: session?.user?.id ?? null, nombre: fullName }}
-          onCambio={load}
+          onCambio={() => load(true)}
         />
       ) : null}
 

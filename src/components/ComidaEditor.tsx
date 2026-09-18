@@ -106,7 +106,13 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
     setForm(f);
   };
 
+  // Cerrar a mano (✕ o tocar fuera) limpia el aviso: un error viejo del
+  // formulario no tiene que quedar pegado en la tarjeta.
   const cerrar = () => { setForm(null); setAviso(null); };
+  // ⚠️ Después de GUARDAR se cierra SIN limpiar el aviso. Si se usara `cerrar`,
+  //    el «✅ Agregado…» se borraba en el mismo instante en que se escribía y
+  //    quien corrigió nunca veía que se guardó.
+  const cerrarTrasGuardar = () => setForm(null);
 
   const buscarPersona = async (t: string) => {
     setBusca(t);
@@ -131,7 +137,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         const { error } = await agregarEntregaEmpresa(v.patch, usuario);
         if (error) { setAviso('❌ ' + error); return; }
         setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.companyName}.`);
-        onCambio(); cerrar(); return;
+        onCambio(); cerrarTrasGuardar(); return;
       }
 
       if (form.modo === 'alta-persona') {
@@ -143,7 +149,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         const { error } = await agregarEntregaPersona(v.patch, usuario);
         if (error) { setAviso('❌ ' + error); return; }
         setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.employeeName}.`);
-        onCambio(); cerrar(); return;
+        onCambio(); cerrarTrasGuardar(); return;
       }
 
       if (form.modo === 'editar-empresa') {
@@ -152,7 +158,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         const { error } = await corregirEntregaEmpresa(form.fila.id, v.patch);
         if (error) { setAviso('❌ ' + error); return; }
         setAviso(resumenCambioEmpresa(form.fila, v.patch));
-        onCambio(); cerrar(); return;
+        onCambio(); cerrarTrasGuardar(); return;
       }
 
       const v = validarCambioPersona(form.fila, { cantidad, nota });
@@ -160,7 +166,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
       const { error } = await corregirEntregaPersona(form.fila.id, v.patch);
       if (error) { setAviso('❌ ' + error); return; }
       setAviso(resumenCambioPersona(form.fila, v.patch));
-      onCambio(); cerrar();
+      onCambio(); cerrarTrasGuardar();
     } finally {
       setGuardando(false);
     }

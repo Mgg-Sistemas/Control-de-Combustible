@@ -363,5 +363,17 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   eq('una hora inválida no revienta', REP.horaCaracas('nada'), '');
 }
 
+// ── 16) EL MODAL NO DEJA AMPLIAR LAS FECHAS ─────────────────────────────────
+//
+// El modal filtra sobre lo que la pantalla YA cargó. Si dejara ampliar las
+// fechas, el papel diría «del 1 al 30» con solo una semana adentro: incompleto y
+// sin que nadie lo notara al leerlo. El calendario solo deja achicar.
+{
+  const modal = fs.readFileSync(path.join(ROOT, 'src/components/ComidaReporteModal.tsx'), 'utf8');
+  ok('⭐ «desde» no puede ir antes de lo cargado', /value=\{desde\} onChange=\{setDesde\} minISO=\{desdeInicial\}/.test(modal));
+  ok('⭐ «hasta» no puede ir después de lo cargado', /value=\{hasta\}[^\n]*maxISO=\{hastaInicial < hoy \? hastaInicial : hoy\}/.test(modal));
+  ok('avisa si los precios no se leyeron', /precios === null/.test(modal));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-reporte · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

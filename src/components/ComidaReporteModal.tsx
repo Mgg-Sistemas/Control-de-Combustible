@@ -187,12 +187,17 @@ export function ComidaReporteModal({
           </View>
 
           <ScrollView keyboardShouldPersistTaps="handled">
+            {/* ⚠️ LAS FECHAS NO PUEDEN SALIRSE DE LO QUE LA PANTALLA CARGÓ. El
+                modal filtra sobre las entregas ya traídas del rango de arriba: si
+                dejara ampliar las fechas, el papel saldría INCOMPLETO diciendo
+                «del 1 al 30» con solo una semana adentro, y nadie lo notaría al
+                leerlo. Por eso el calendario solo deja achicar, nunca ampliar. */}
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>DESDE</Text>
-            <DateField value={desde} onChange={setDesde} maxISO={hasta} />
+            <DateField value={desde} onChange={setDesde} minISO={desdeInicial} maxISO={hasta} />
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 2 }}>HASTA</Text>
-            <DateField value={hasta} onChange={setHasta} maxISO={hoy} />
+            <DateField value={hasta} onChange={setHasta} minISO={desde} maxISO={hastaInicial < hoy ? hastaInicial : hoy} />
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
-              Solo entra lo que la pantalla ya trajo. Si necesitas otras fechas, cámbialas primero en el rango de arriba y vuelve a abrir esto.
+              Aquí solo se puede achicar el rango. Para otras fechas, cámbialas primero en el rango de arriba y vuelve a abrir esto.
             </Text>
 
             {rotulo('🍽️ Qué entra')}
@@ -265,6 +270,13 @@ export function ComidaReporteModal({
               ))}
             </View>
 
+            {/* Con permiso y sin precios leídos, un papel «con montos» saldría todo
+                «sin precio» y parecería que las comidas no valen nada. */}
+            {puedeVerMontos && !opcionesReales.sinMontos && precios === null ? (
+              <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700', marginTop: spacing.xs }}>
+                ⚠️ No se pudieron leer los precios: los montos saldrían como «sin precio». Cierra, desliza hacia abajo para recargar y vuelve a abrir, o enciende «🚫 Montos ($)».
+              </Text>
+            ) : null}
             {sinContenido ? (
               <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700', marginTop: spacing.xs }}>
                 ⚠️ Así el reporte queda sin ningún cuadro y sin listado. Enciende al menos uno.
