@@ -125,10 +125,10 @@ eq('empresa A: cobradas', A.cobradas, 17);
 eq('empresa A: monto = 12×7 + 4×3 + 1×12', A.monto, 108);
 eq('empresa A: sin configurar se cobra todo', [A.montoInterno, A.comidasInternas], [0, 0]);
 eq('empresa A: detalle por comida y precio', A.items, [
-  { categoria: 'almuerzo', precio: 12, cantidad: 1, monto: 12, seCobra: true },
-  { categoria: 'desayuno', precio: 7, cantidad: 12, monto: 84, seCobra: true },
-  { categoria: 'desayuno', precio: 3, cantidad: 4, monto: 12, seCobra: true },
-  { categoria: 'lunch', precio: null, cantidad: 6, monto: 0, seCobra: true },
+  { categoria: 'almuerzo', plato: null, precio: 12, fuente: 'tabla', cantidad: 1, monto: 12, seCobra: true },
+  { categoria: 'desayuno', plato: null, precio: 7, fuente: 'tabla', cantidad: 12, monto: 84, seCobra: true },
+  { categoria: 'desayuno', plato: null, precio: 3, fuente: 'tabla', cantidad: 4, monto: 12, seCobra: true },
+  { categoria: 'lunch', plato: null, precio: null, fuente: null, cantidad: 6, monto: 0, seCobra: true },
 ]);
 
 const V = cuenta('EMPRESA VIEJA');
@@ -204,8 +204,8 @@ eq('por cuenta: orden', porCuenta.map((c) => c.nombre), ['APOYO', 'EMPRESA A', '
 eq('⭐ empresa A: se cobra hasta el 14 y es interna desde el 15 (QR y su gente por carnet)',
   [pc('EMPA').comidas, pc('EMPA').monto, pc('EMPA').montoInterno, pc('EMPA').comidasInternas], [16, 30, 18, 6]);
 eq('empresa A: el mismo precio se separa en cobrado e interno', pc('EMPA').items, [
-  { categoria: 'desayuno', precio: 3, cantidad: 10, monto: 30, seCobra: true },
-  { categoria: 'desayuno', precio: 3, cantidad: 6, monto: 18, seCobra: false },
+  { categoria: 'desayuno', plato: null, precio: 3, fuente: 'tabla', cantidad: 10, monto: 30, seCobra: true },
+  { categoria: 'desayuno', plato: null, precio: 3, fuente: 'tabla', cantidad: 6, monto: 18, seCobra: false },
 ]);
 eq('APOYO: la configuración del mismo día guardada después (interna)', [pc('GNB').monto, pc('GNB').montoInterno], [0, 12]);
 eq('⭐ nómina: operaciones se cobra desde el 15; lo demás interno', [pc(L.CUENTA_NOMINA).monto, pc(L.CUENTA_NOMINA).montoInterno, pc(L.CUENTA_NOMINA).cobradas], [3, 9, 1]);
@@ -222,6 +222,55 @@ eq('sin encargado: lo que no tiene encargado en su fecha', [pe(L.SIN_ENCARGADO).
   [16, 30, 18, ['APOYO', 'EMPRESA A', 'OPERACIONES DE MAQUINARIA', 'SIN DEPARTAMENTO']]);
 eq('⭐ el total por encargado es el mismo que por cuenta', L.totalCobroComidas(porEnc), tCuenta);
 eq('encargado sin nombre en el catálogo', L.calcularCobroComidas({ ...base2, eje: 'encargado', encargados: new Map() })[0].nombre, 'Encargado sin nombre');
+
+// ── 4b) «OTROS» SE COBRA CON EL COSTO POR PLATO DE LA COCINA (18-sep-2026) ───
+//
+// Antes salía «sin precio» y no sumaba, mientras el reporte por empresa de la
+// cocina sí los sumaba con su costo: dos papeles con cifras distintas. Además la
+// línea decía «4 otros» sin decir qué eran.
+{
+  const P3 = [{ id: 'd', categoria: 'desayuno', precio: 4, desde: '2026-09-01' }];
+  eq('otros: el costo por plato escrito (con coma)', L.precioDeEntrega(P3, 'otros', '2026-09-18', '1,5'), { precio: 1.5, fuente: 'cocina', desde: '' });
+  eq('otros: se redondea a centavos antes de multiplicar', L.precioDeEntrega(P3, 'otros', '2026-09-18', 1.234)?.precio, 1.23);
+  eq('otros con costo 0 (la cocina lo dejó en blanco): sin precio', L.precioDeEntrega(P3, 'otros', '2026-09-18', 0), null);
+  eq('otros sin costo escrito: sin precio', L.precioDeEntrega(P3, 'otros', '2026-09-18', null), null);
+  eq('⭐ una comida fija NO toma el costo de la cocina: manda la tabla', L.precioDeEntrega(P3, 'desayuno', '2026-09-18', 99), { precio: 4, fuente: 'tabla', desde: '2026-09-01' });
+  eq('⭐ ...ni siquiera cuando la tabla no le tiene precio', L.precioDeEntrega(P3, 'cena', '2026-09-18', 99), null);
+
+  const emp3 = [
+    { company_id: 'C', company_name: 'CARBO', meal_type: 'desayuno', meal_date: '2026-09-18', delivered: 8, unit_cost: 99 },
+    { company_id: 'C', company_name: 'CARBO', meal_type: 'otros', item_label: 'Bolsa de hielo', meal_date: '2026-09-18', delivered: 3, unit_cost: 1.5 },
+    { company_id: 'C', company_name: 'CARBO', meal_type: 'otros', item_label: ' bolsa de  hielo ', meal_date: '2026-09-18', delivered: 1, unit_cost: '1.5' },
+    { company_id: 'C', company_name: 'CARBO', meal_type: 'otros', item_label: 'Refresco', meal_date: '2026-09-18', delivered: 2, unit_cost: 0 },
+  ];
+  const [c3] = L.calcularCobroComidas({ empresas: emp3, personas: [], empresaDePersona: new Map(), precios: P3 });
+  eq('⭐ 8 desayunos × 4 (tabla, no el 99 escrito) + 4 hielos × 1,50 = 38', c3.monto, 38);
+  eq('...el refresco sin costo no suma, pero se cuenta', [c3.sinPrecio, c3.comidas, c3.cobradas], [2, 14, 12]);
+  eq('⭐ cada plato de Otros en su renglón, con su nombre y de dónde sale el precio', c3.items, [
+    { categoria: 'desayuno', plato: null, precio: 4, fuente: 'tabla', cantidad: 8, monto: 32, seCobra: true },
+    { categoria: 'otros', plato: 'Bolsa de hielo', precio: 1.5, fuente: 'cocina', cantidad: 4, monto: 6, seCobra: true },
+    { categoria: 'otros', plato: 'Refresco', precio: null, fuente: null, cantidad: 2, monto: 0, seCobra: true },
+  ]);
+
+  const cfg3 = L.indexarConfigCuentas([{ tipo: 'empresa', clave: 'C', desde: '2026-09-01', se_cobra: false }]);
+  const [i3] = L.calcularCobroComidas({ empresas: emp3, personas: [], empresaDePersona: new Map(), precios: P3, config: cfg3 });
+  eq('⭐ en una cuenta de consumo interno, Otros se valora aparte y no se cobra', [i3.monto, i3.montoInterno], [0, 38]);
+
+  const [d3] = L.calcularCobroComidas({
+    empresas: [
+      { company_id: 'C', company_name: 'CARBO', meal_type: 'otros', item_label: 'Hielo', meal_date: '2026-09-17', delivered: 2, unit_cost: 1 },
+      { company_id: 'C', company_name: 'CARBO', meal_type: 'otros', item_label: 'Hielo', meal_date: '2026-09-18', delivered: 2, unit_cost: 2 },
+    ],
+    personas: [], empresaDePersona: new Map(), precios: P3,
+  });
+  eq('el mismo plato a dos costos: dos renglones, bien sumados', [d3.items.length, d3.monto], [2, 6]);
+
+  const [n3] = L.calcularCobroComidas({
+    empresas: [], personas: [{ employee_id: 'z', meal_type: 'otros', distribution_date: '2026-09-18', meals: 1 }],
+    empresaDePersona: new Map([['z', { companyId: 'C', companyName: 'CARBO' }]]), precios: P3,
+  });
+  eq('un «otros» por carnet no trae costo escrito: sin precio', [n3.monto, n3.sinPrecio], [0, 1]);
+}
 
 // ── 5) DÓNDE VIVE Y QUIÉN LO VE ──────────────────────────────────────────────
 const pantalla = sinComentarios(leer('src/screens/ComidaScreen.tsx'));
@@ -241,6 +290,13 @@ ok('la tarjeta calcula con la configuración de cuentas', /config: indexarConfig
 ok('...se puede agrupar por encargado', /chipEje\('encargado'/.test(resumen) && /\beje,\s*\n\s*\}\)/.test(resumen));
 ok('...el filtro de empresa solo aplica viendo por cuenta', /eje === 'cuenta' && filtroEmpresa !== 'all'/.test(resumen));
 ok('...y muestra el consumo interno aparte', /Consumo interno \(no se cobra\)/.test(resumen));
+ok('la tarjeta nombra el plato de Otros', /etiquetaItem\(it\)/.test(resumen));
+ok('...dice cuándo el precio lo escribió la cocina', /costo de la cocina/.test(resumen));
+ok('...y avisa aparte lo de Otros sin costo, sin mandar a «Precios» (ahí no se puede)', /sin costo por plato: no suman/.test(resumen));
+const repLib = sinComentarios(leer('src/lib/comidaReporte.ts'));
+ok('⭐ el reporte PDF usa la MISMA regla de precio que la tarjeta', /precioDeEntrega\(precios, cat, dia\(fecha\), costoEscrito\)/.test(repLib) && !/precioComidaEn/.test(repLib));
+ok('...y le pasa el costo de la cocina a las entregas por QR', /montoCon\(r\.delivered, r\.meal_type, r\.meal_date, precios, r\.unit_cost\)/.test(repLib));
+ok('la ventana de precios dice dónde está el precio de Otros', /no lleva precio aquí/.test(precios));
 ok('la ventana de precios tiene la pestaña de cuentas', /<CobroComidasCuentas[\s>]/.test(precios));
 ok('la pestaña de cuentas guarda con fecha desde', /guardarConfigCuentas\(\[\{ tipo: f\.tipo, clave: f\.clave, desde: fecha, encargadoId, seCobra \}\]\)/.test(cuentasUi));
 ok('...usa la misma regla para mostrar lo vigente', /configCuentaEn\(idx, f\.tipo, f\.clave, fecha\)/.test(cuentasUi) && /seCobraPorDefecto\(f\.tipo\)/.test(cuentasUi));
@@ -258,6 +314,9 @@ ok('auditoría agrupa comida_precios en alimentación', /comida_precios:\s*'alim
 ok('...y comida_cuentas_config también', /comida_cuentas_config:\s*'alimentacion'/.test(aud));
 ok('manual (md) explica el cobro', /Cobro de comidas \(15\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('manual (app) explica el cobro', /COBRO DE COMIDAS \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('manual (md) explica que «Otros» se cobra con el costo por plato', /«Otros» se cobra con el costo por plato \(18\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+ok('manual (app) explica que «Otros» se cobra con el costo por plato', /"OTROS" SE COBRA CON EL COSTO POR PLATO \(18\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+ok('⭐ ningún manual sigue diciendo que «Otros» sale «sin precio»', !/Otros.{0,20}salen.{0,4}«?"?sin precio/.test(leer('docs/MANUAL-USUARIO.md') + leer('src/screens/ManualScreen.tsx')));
 ok('manual (md) explica cuentas y encargados', /Cuentas: se cobra y encargado \(15\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('manual (app) también', /CUENTAS: SE COBRA Y ENCARGADO \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 

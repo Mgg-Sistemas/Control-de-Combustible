@@ -14,15 +14,17 @@ import { CobroComidasPrecios } from './CobroComidasPrecios';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { MEALS } from '../lib/foodCompanyMeals';
+import { COMPANY_MEALS } from '../lib/foodCompanyMeals';
 import { FoodCompanyMeal, FoodDistribution } from '../types/database';
 import {
   calcularCobroComidas,
   indexarConfigCuentas,
   totalCobroComidas,
   ConfigCuenta,
+  CATEGORIA_OTROS,
   CuentaComida,
   EjeCobro,
+  ItemCobro,
   EmpresaDePersona,
   PrecioComida,
   SIN_CATEGORIA,
@@ -51,9 +53,20 @@ const dmy = (iso: string) => {
 const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const etiqueta = (k: string) => {
   if (k === SIN_CATEGORIA) return 'Sin comida marcada';
-  const m = MEALS.find((x) => x.key === k);
+  const m = COMPANY_MEALS.find((x) => x.key === k);
   return m ? `${m.icon} ${m.label}` : k;
 };
+/** «🧾 Otros · Bolsa de hielo»: sin el nombre, «4 otros» no dice qué se cobra. */
+const etiquetaItem = (it: ItemCobro) => `${etiqueta(it.categoria)}${it.plato ? ` · ${it.plato}` : ''}`;
+/** El precio de «Otros» lo escribió la cocina, no sale de la tabla: se dice. */
+const precioItem = (it: ItemCobro) =>
+  it.precio === null
+    ? (it.categoria === CATEGORIA_OTROS ? 'sin costo por plato' : 'sin precio')
+    : `${usd(it.precio)}${it.fuente === 'cocina' ? ' (costo de la cocina)' : ''}`;
+const sinPrecioDe = (cuentas: CuentaComida[], otros: boolean) =>
+  cuentas.reduce((a, c) => a + c.items
+    .filter((it) => it.precio === null && (it.categoria === CATEGORIA_OTROS) === otros)
+    .reduce((s, it) => s + it.cantidad, 0), 0);
 const resumirDetalle = (d: string[]) => (d.length > 4 ? `${d.slice(0, 4).join(', ')} y ${d.length - 4} más` : d.join(', '));
 
 export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, filtroEmpresa, canEdit, usuarioId }: Props) {
@@ -113,6 +126,10 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
   }, [precios, fichas, config, encargados, error, empresas, personas, filtroEmpresa, eje]);
 
   const tot = useMemo(() => totalCobroComidas(cuentas), [cuentas]);
+  // Dos avisos distintos porque se arreglan en sitios distintos: a una comida fija le
+  // falta el precio en la tabla; a un plato de «Otros», el costo que escribe la cocina.
+  const sinPrecioFijas = useMemo(() => sinPrecioDe(cuentas, false), [cuentas]);
+  const sinCostoOtros = useMemo(() => sinPrecioDe(cuentas, true), [cuentas]);
 
   const descargarPdf = async () => {
     const filas = cuentas.map((c) =>
@@ -121,7 +138,7 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
       <h3>${esc(c.nombre)} — ${usd(c.monto)}${c.montoInterno ? ` · interno ${usd(c.montoInterno)}` : ''}</h3>
       ${c.detalle.length ? `<p class="n">${esc(c.detalle.join(', '))}</p>` : ''}
       <table><thead><tr><th>Comida</th><th class="r">Cantidad</th><th class="r">Precio</th><th class="r">Monto</th><th>Se cobra</th></tr></thead>
-      <tbody>${c.items.map((it) => `<tr><td>${esc(etiqueta(it.categoria))}</td><td class="r">${it.cantidad}</td><td class="r">${it.precio === null ? 'sin precio' : usd(it.precio)}</td><td class="r b">${it.precio === null ? '—' : usd(it.monto)}</td><td>${it.seCobra ? 'Sí' : 'No (interno)'}</td></tr>`).join('')}</tbody></table>`).join('');
+      <tbody>${c.items.map((it) => `<tr><td>${esc(etiquetaItem(it))}</td><td class="r">${it.cantidad}</td><td class="r">${esc(precioItem(it))}</td><td class="r b">${it.precio === null ? '—' : usd(it.monto)}</td><td>${it.seCobra ? 'Sí' : 'No (interno)'}</td></tr>`).join('')}</tbody></table>`).join('');
     const html = pdfDocument({
       title: 'Cobro de comidas',
       subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · ${eje === 'encargado' ? 'por encargado' : 'por cuenta'}`,
@@ -168,7 +185,8 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
           Lo entregado en el rango de arriba, con el precio de cada comida ese día. Lo que se entregó por QR va a la
           empresa del QR; lo que se entregó por carnet va a la empresa de la ficha de la persona. Lo que no se cobra
-          (consumo interno) se muestra aparte y no suma al total.
+          (consumo interno) se muestra aparte y no suma al total. Los platos de «Otros» se cobran con el costo
+          por plato que escribió la cocina al registrarlos.
         </Text>
 
         <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginBottom: spacing.sm }}>
@@ -202,9 +220,15 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
           </View>
         )}
 
-        {tot.sinPrecio > 0 && !error ? (
+        {sinPrecioFijas > 0 && !error ? (
           <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
-            Hay comidas sin precio para su fecha: no suman. Ponles precio en «💲 Precios y cuentas».
+            Hay {sinPrecioFijas} comida(s) sin precio para su fecha: no suman. Ponles precio en «💲 Precios y cuentas».
+          </Text>
+        ) : null}
+        {sinCostoOtros > 0 && !error ? (
+          <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
+            Hay {sinCostoOtros} plato(s) de «Otros» sin costo por plato: no suman. Corrígeles el costo en «📅 Por día» →
+            «✏️ Agregar o corregir las comidas de este día».
           </Text>
         ) : null}
 
@@ -231,9 +255,9 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
                 <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
                   {c.detalle.length > 4 ? <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>{c.detalle.join(', ')}</Text> : null}
                   {c.items.map((it) => (
-                    <View key={`${it.categoria}|${it.precio}|${it.seCobra}`} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                    <View key={`${it.categoria}|${it.plato ?? ''}|${it.precio}|${it.seCobra}`} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
                       <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>
-                        {etiqueta(it.categoria)} · {it.cantidad} × {it.precio === null ? 'sin precio' : usd(it.precio)}{it.seCobra ? '' : '  · 🏠 interno'}
+                        {etiquetaItem(it)} · {it.cantidad} × {precioItem(it)}{it.seCobra ? '' : '  · 🏠 interno'}
                       </Text>
                       <Text style={{ color: it.precio === null ? colors.warning : it.seCobra ? colors.text : colors.muted, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
                         {it.precio === null ? '—' : usd(it.monto)}
