@@ -134,11 +134,23 @@ export async function listExtraItems(): Promise<FoodExtraItem[]> {
   return (data ?? []) as FoodExtraItem[];
 }
 
-/** Guarda un plato OTROS nuevo (si no existe). No pisa el existente. */
-export async function saveExtraItem(name: string): Promise<void> {
+/**
+ * Guarda un plato OTROS nuevo (si no existe). No pisa el existente.
+ *
+ * ⚠️ ANTES SE TRAGABA TODOS LOS ERRORES (`.then(()=>{}, ()=>{})`), incluido el
+ *    rechazo por permisos: quien creaba un plato veía que se guardaba y no se
+ *    guardaba nada. Ahora devuelve el motivo y quien llama decide si lo muestra.
+ *    El único error que sigue siendo «normal» es el 23505: el índice único sobre
+ *    `lower(name)` es justo lo que impide dos platos con el mismo nombre, así
+ *    que chocar contra él significa «ya estaba», no «falló».
+ */
+export async function saveExtraItem(name: string): Promise<{ error?: string }> {
   const clean = (name ?? '').trim();
-  if (!clean) return;
-  await supabase.from('food_extra_items').insert({ name: clean }).then(() => {}, () => {});
+  if (!clean) return {};
+  const { error } = await supabase.from('food_extra_items').insert({ name: clean });
+  if (!error) return {};
+  const dup = (error as any).code === '23505' || /duplicate|unique/i.test(error.message);
+  return dup ? {} : { error: error.message };
 }
 
 /** Borra una distribución (por si se registró de más). */
