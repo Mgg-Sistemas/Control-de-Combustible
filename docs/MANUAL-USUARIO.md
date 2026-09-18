@@ -2241,6 +2241,17 @@ empresa, estado y ubicación) y las jornadas sin validar.
 > no saca ningún camión. Los camiones van por código y, como casi todos se llaman igual, después
 > por placa: así el Nº le toca siempre al mismo camión. La lista de la pantalla ahora también
 > muestra el número, la marca, el modelo y la placa.
+
+> **🚚 Camiones (asistencia): sin horas en Control no sale (18/09/2026).** En la asistencia salen
+> los camiones que ese día tienen **horas en Control** o la **jornada abierta** («🟠 En obra»). Un
+> camión al que le dejaron **0 horas en Control no sale**, aunque tenga registrada una salida de
+> patio: si el inspector le inició la jornada pero el camión en realidad no salió, con dejarlo en 0
+> en Control desaparece de la asistencia de ese día y no cuenta como que hizo viajes.
+> - **Ojo:** si la jornada **sigue abierta**, quitarle las horas en Control no la cierra, y al
+>   cerrarse (a mano o sola a las 7) vuelve a sumar. Para anularla, márcala **"Pendiente"** en
+>   Inspecciones (o finalízala) y después déjala en 0 en Control.
+> - **"Con salida"** cuenta los camiones con hora de salida registrada; **"Con movimiento"**, todos
+>   los que tienen horas o jornada abierta.
 >
 > Las horas se calculan con la **misma fórmula** que el **Reporte del día por empresa** y el
 > **Control de maquinaria**, así que los números **coinciden** entre los tres.
