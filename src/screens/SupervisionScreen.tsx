@@ -15,6 +15,7 @@ import { isVolteoVolqueta } from '../lib/equipos';
 import {
   OPCIONES_ASISTENCIA_POR_DEFECTO, PASTILLAS_ASISTENCIA, alternarAsistencia, columnasAsistencia, estadoAsistencia,
   armarAsistenciaCamiones, marcaModeloAsistencia, ocultosAsistenciaEnPalabras, placaAsistencia,
+  ALCANCES_ASISTENCIA, filtrarAsistencia, subtituloAsistencia, type AlcanceAsistencia,
   sufijoArchivoAsistencia, tituloColumnaAsistencia, type ColumnaAsistencia, type OpcionesAsistencia,
 } from '../lib/camionesAsistenciaColumnas';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
@@ -736,17 +737,21 @@ export default function SupervisionScreen({ navigation }: any) {
   // Con hora de salida registrada (jornada abierta o patio). Los que tienen horas
   // cargadas a mano en Control, sin jornada, cuentan «con movimiento» pero no acá.
   const camPresentes = useMemo(() => camiones.filter((c) => c.salida).length, [camiones]);
+  // ⭐ Qué camiones salen en la lista y en el PDF (19-sep-2026): todos los que tienen
+  //    movimiento (lo de siempre) o solo los que tienen salida registrada.
+  const [alcanceAsis, setAlcanceAsis] = useState<AlcanceAsistencia>('movimiento');
+  const camionesVista = useMemo(() => filtrarAsistencia(camiones, alcanceAsis), [camiones, alcanceAsis]);
   // Qué columnas lleva el PDF (pastillas, como el Conteo de equipos). Ocultan
   // columnas, nunca camiones.
   const [opAsis, setOpAsis] = useState<OpcionesAsistencia>(OPCIONES_ASISTENCIA_POR_DEFECTO);
 
   // 📄 Reporte PDF de asistencia de camiones (salida/entrada del día).
   const reporteCamiones = async () => {
-    if (camiones.length === 0) return;
+    if (camionesVista.length === 0) return;
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // Encabezado y filas salen de la MISMA lista de columnas: no pueden desalinearse.
     const cols = columnasAsistencia(opAsis);
-    const filas = camiones.map((c, i) => {
+    const filas = camionesVista.map((c, i) => {
       const valor: Record<ColumnaAsistencia, string> = {
         n: String(i + 1),
         camion: c.code,
@@ -762,14 +767,15 @@ export default function SupervisionScreen({ navigation }: any) {
     const thead = cols.map((k) => `<th${k === 'n' ? ' class="n"' : ''}>${esc(tituloColumnaAsistencia(k, opAsis))}</th>`).join('');
     const html = pdfDocument({
       title: 'Asistencia de camiones',
-      subtitle: `${dmy(date)} · ${camPresentes} con salida (asistencia) de ${camiones.length} con movimiento`,
+      subtitle: `${dmy(date)} · ${subtituloAsistencia(alcanceAsis, camPresentes, camiones.length)}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
         td.n,th.n{width:28px;text-align:right}
         tr:nth-child(even) td{background:#f4f7fb}`,
       body: `<table><thead><tr>${thead}</tr></thead><tbody>${filas}</tbody></table>`,
     });
-    await exportPdf(html, `Asistencia camiones ${dmy(date)}${sufijoArchivoAsistencia(opAsis)}`);
+    const sufijoAlcance = ALCANCES_ASISTENCIA.find((a) => a.key === alcanceAsis)?.archivo ?? '';
+    await exportPdf(html, `Asistencia camiones ${dmy(date)}${sufijoAlcance}${sufijoArchivoAsistencia(opAsis)}`);
   };
 
   // Visitas SIN las de admin (pruebas): así el admin no aparece como inspector.
@@ -1076,6 +1082,22 @@ export default function SupervisionScreen({ navigation }: any) {
           <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
             Salen los camiones con horas en Control ese día o con la jornada abierta. Un camión al que le dejaron 0 horas no sale, aunque tenga salida de patio.
           </Text>
+          {/* ¿QUÉ CAMIONES SALEN? Esto SÍ cambia cuántos salen (las pastillas de abajo, no). */}
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ CAMIONES SALEN EN LA LISTA Y EN EL PDF?</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+            {ALCANCES_ASISTENCIA.map((a) => {
+              const on = alcanceAsis === a.key;
+              const n = a.key === 'salida' ? camPresentes : camiones.length;
+              return (
+                <TouchableOpacity key={a.key} onPress={() => setAlcanceAsis(a.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{a.chip} ({n})</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+            «Con salida»: alguien les inició la jornada o pasaron por el patio. El resto de «con movimiento» solo tiene horas en Control (las 12 h que el sistema pone solo a las 7:05 p. m. a lo que nadie inició, u horas cargadas a mano) y sale «— sin salida».
+          </Text>
           {/* ¿QUÉ SE OCULTA? Mismas pastillas que el Conteo de equipos: se encienden
               VARIAS a la vez y ocultan columnas del PDF, nunca camiones. */}
           <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>¿QUÉ SE OCULTA EN EL PDF?</Text>
@@ -1095,7 +1117,10 @@ export default function SupervisionScreen({ navigation }: any) {
           <TouchableOpacity onPress={reporteCamiones} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de asistencia de camiones (PDF)</Text>
           </TouchableOpacity>
-          {camiones.map((c, i) => {
+          {camionesVista.length === 0 ? (
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>Ningún camión con salida registrada este día.</Text>
+          ) : null}
+          {camionesVista.map((c, i) => {
             const t = estadoAsistencia(c);
             const estado = { t, col: t === '🟢 Regresó' ? colors.success : t === '🟠 En obra' ? colors.warning : colors.muted };
             const detalle = [marcaModeloAsistencia(c, OPCIONES_ASISTENCIA_POR_DEFECTO), placaAsistencia(c)].filter((x) => x !== '—').join(' · ');
