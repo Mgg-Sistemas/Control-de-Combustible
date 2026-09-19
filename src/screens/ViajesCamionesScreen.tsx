@@ -279,6 +279,18 @@ const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 
 //    aparte — ver la nota larga de `trucksSeleccionables`.
 const ESTADO_ADVERSO: EstadoConteo[] = ['averiada', 'parada', 'retirada', 'espera'];
 
+/**
+ * ⭐ «⚠️ CAMIONES SIN VIAJE RECIENTE» ESTÁ OCULTO, NO ELIMINADO (19-sep-2026).
+ *
+ * El cliente pidió OCULTAR el apartado. Todo su código sigue acá, intacto: el
+ * apartado, su umbral de horas en Configuración, su cálculo y su consulta. Con el
+ * interruptor en `false` no se pinta NI consulta la base (la consulta traía 7 días
+ * de viajes cada vez que alguien registraba uno: escondida no tiene por qué correr).
+ *
+ * Para volver a mostrarlo: poner `true`. No hay que tocar nada más.
+ */
+const MOSTRAR_SIN_VIAJE_RECIENTE = false;
+
 type Preset = 'hoy' | 'semana' | 'mes' | 'rango' | 'dias';
 
 // `queued` = guardado en el teléfono, esperando señal (normal, ámbar).
@@ -1728,13 +1740,13 @@ export default function ViajesCamionesScreen() {
   const [alertaHorasInput, setAlertaHorasInput] = useState('6');
   const [lastTripByTruck, setLastTripByTruck] = useState<Record<string, string>>({});
   const loadAlertaCfg = async () => {
-    if (!canFull) return;
+    if (!canFull || !MOSTRAR_SIN_VIAJE_RECIENTE) return;
     const h = await getAlertaHoras();
     setAlertaHorasState(h);
     setAlertaHorasInput(String(h));
   };
   const loadAlerta = async () => {
-    if (!canFull) return;
+    if (!canFull || !MOSTRAR_SIN_VIAJE_RECIENTE) return;
     const lookbackHours = Math.max(168, alertaHoras * 3);
     const desdeISO = new Date(Date.now() - lookbackHours * 3600000).toISOString();
     // El tope es MAÑANA, no "ahora": `registered_at` lo pone el reloj del
@@ -3770,6 +3782,8 @@ export default function ViajesCamionesScreen() {
             </TouchableOpacity>
           </Plegable>
 
+          {/* OCULTO, no eliminado: ver MOSTRAR_SIN_VIAJE_RECIENTE arriba. */}
+          {MOSTRAR_SIN_VIAJE_RECIENTE ? (
           <Plegable
             titulo="⚠️ Camiones sin viaje reciente"
             resumen={alertaError ? `No se pudo revisar la alerta` : alertList.length ? `${alertList.length} camión(es) llevan más de ${alertaHoras}h sin viaje` : `✅ Todos con viajes recientes`}
@@ -3799,6 +3813,7 @@ export default function ViajesCamionesScreen() {
               </ScrollView>
             )}
           </Plegable>
+          ) : null}
 
           {/* Las obras y quién está en cada una. Va ANTES de la lista de viajes
               porque es lo que hay que tener puesto para que los viajes que se
@@ -4321,7 +4336,10 @@ export default function ViajesCamionesScreen() {
             </Plegable>
           ) : null}
 
-          <Plegable titulo="⚙️ Configuración" resumen={`Avisar a las ${alertaHoras}h sin viaje`}>
+          <Plegable titulo="⚙️ Configuración" resumen={MOSTRAR_SIN_VIAJE_RECIENTE ? `Avisar a las ${alertaHoras}h sin viaje` : 'Meta de viajes diarios por camión'}>
+            {/* El umbral solo sirve para el apartado oculto: se esconde con él. */}
+            {MOSTRAR_SIN_VIAJE_RECIENTE ? (
+            <>
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>UMBRAL DE ALERTA (HORAS SIN VIAJE)</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
               <TextInput
@@ -4334,8 +4352,10 @@ export default function ViajesCamionesScreen() {
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Guardar</Text>
               </TouchableOpacity>
             </View>
+            </>
+            ) : null}
 
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>META DE VIAJES DIARIOS POR CAMIÓN</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: MOSTRAR_SIN_VIAJE_RECIENTE ? spacing.md : 0, marginBottom: spacing.xs }}>META DE VIAJES DIARIOS POR CAMIÓN</Text>
             {camionesEnObra.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
             ) : (

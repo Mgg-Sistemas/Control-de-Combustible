@@ -314,6 +314,14 @@ ok('el resumen de hoy y la lista completa arrancan abiertos',
 ok('la alerta de camiones parados se abre sola si hay alguno',
   /abiertaPorDefecto=\{!!alertaError \|\| alertList\.length > 0\}/.test(scr));
 ok('...y se pinta en color de aviso', /alerta=\{!!alertaError \|\| alertList\.length > 0\}/.test(scr));
+// ⭐ 19-sep-2026: el cliente pidió OCULTAR el apartado, no eliminarlo. El código sigue
+//    (las dos guardas de arriba lo prueban) detrás de un interruptor apagado.
+ok('⭐ «Camiones sin viaje reciente» está oculto con un interruptor, no borrado', /const MOSTRAR_SIN_VIAJE_RECIENTE = false;/.test(scr));
+ok('...el apartado solo se pinta con el interruptor encendido', /\{MOSTRAR_SIN_VIAJE_RECIENTE \? \(\s*<Plegable\s*titulo="⚠️ Camiones sin viaje reciente"/.test(scr));
+ok('...su umbral en Configuración también', /\{MOSTRAR_SIN_VIAJE_RECIENTE \? \(\s*<>\s*<Text[^>]*>UMBRAL DE ALERTA/.test(scr));
+ok('⭐ ...y oculto NO consulta la base', /const loadAlertaCfg = async \(\) => \{\s*if \(!canFull \|\| !MOSTRAR_SIN_VIAJE_RECIENTE\) return;/.test(scr) && /const loadAlerta = async \(\) => \{\s*if \(!canFull \|\| !MOSTRAR_SIN_VIAJE_RECIENTE\) return;/.test(scr));
+ok('Configuración conserva la meta de viajes diarios', /META DE VIAJES DIARIOS POR CAMIÓN/.test(scr));
+ok('los manuales dicen que está oculto, no eliminado', /está OCULTO desde el 19\/09\/2026/.test(leer('docs/MANUAL-USUARIO.md')) && /ESTÁ OCULTO \(19\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 ok('el componente pinta el resumen en aviso cuando toca', /alerta \? colors\.warning : colors\.muted/.test(plegable));
 ok('el pliegue no se guarda en ningún lado', !/AsyncStorage|localStorage/.test(plegable));
 
