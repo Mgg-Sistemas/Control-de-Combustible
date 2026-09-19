@@ -5485,6 +5485,17 @@ Distingue cinco causas, y cada una nombra lo que hay que hacer:
   a menos, que sería volver a decir quién trabajó más—. En «Qué sale en el reporte» puedes sumar
   marca y modelo, empresa, placa, medidas o clasificación; el conteo y los m³ no salen nunca.
 
+> **🗂️ El detallado también se parte, y «Todos» en cada fila (19/09/2026).**
+> - En **📋 Detallado (viaje por viaje)** ahora también está **AGRUPAR POR**: **📄 Sin agrupar** (la
+>   lista de siempre), **🏢 Empresa**, **👤 Listero** u **🏗️ Obra**. La lista de la pantalla y el PDF
+>   salen partidos en grupos, cada uno con su título, su cantidad de viajes y su total (y sus m³ si
+>   están encendidos). El total general es el mismo.
+> - Para sacar **solo algunas** empresas, obras o listeros, márcalos en las filas de filtros de
+>   arriba: cada fila deja marcar **varias a la vez**, y la pastilla nueva **«Todos / Todas»** (la
+>   primera de cada fila) vuelve a traerlas todas sin tocar las otras filas.
+> - Ejemplo: marca dos empresas en EMPRESA, elige Detallado y AGRUPAR POR Obra, y el PDF trae solo
+>   los viajes de esas dos empresas, partidos por obra. El nombre del archivo dice por dónde se partió.
+
 > Sirve para las tres cosas que se piden a diario: **un camión** (márcalo y te dice cuántos viajes
 > hizo), **varios camiones** (marca los que quieras y cada uno sale con su cantidad), o **una
 > empresa completa** (márcala y salen todos sus camiones, el número global de la empresa y el
