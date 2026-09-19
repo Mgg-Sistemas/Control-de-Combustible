@@ -46,7 +46,7 @@ import {
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
   volumenConGuardado,
 } from '../lib/cubicaje';
-import { resumirViajes, camionesQueSalieron, SIN_EMPRESA, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
@@ -1818,6 +1818,10 @@ export default function ViajesCamionesScreen() {
   // cada modo. Solo se muestra cuando el modo es 'resumen', igual que el
   // "Agrupar por" del informe por jornada en ReportsScreen.
   const [resumenEje, setResumenEje] = useState<EjeResumen>('empresa');
+  // ⭐ El DETALLADO también se puede partir (19-sep-2026). Va en su propio estado y
+  //    arranca «sin agrupar»: quien saca el detallado de siempre no debe encontrarlo
+  //    cambiado por haber mirado antes el resumido por obra.
+  const [detalleEje, setDetalleEje] = useState<EjeResumen | 'ninguno'>('ninguno');
   const porListero = resumenEje === 'listero';
   const porUbicacion = resumenEje === 'ubicacion';
   const toggleEn = (set: React.Dispatch<React.SetStateAction<Map<string, string>>>) =>
@@ -1827,6 +1831,26 @@ export default function ViajesCamionesScreen() {
   const toggleFilterCompany = toggleEn(setFilterCompanySel);
   const toggleFilterTurno = toggleEn(setFilterTurnoSel);
   const toggleFilterUbicacion = toggleEn(setFilterUbicacionSel);
+  /**
+   * ⭐ La pastilla «Todos / Todas» de cada fila de filtros (19-sep-2026).
+   *
+   * Las filas YA dejaban marcar varias a la vez, pero nada lo decía, y para volver a
+   * «todas» en UNA sola fila había que desmarcar una por una (o «Limpiar filtros», que
+   * borra las cinco). Encendida = no hay nada marcado en esa fila = salen todas.
+   * Tocarla desmarca esa fila y no toca las demás.
+   */
+  const chipTodos = (label: string, sel: Map<string, string>, limpiar: React.Dispatch<React.SetStateAction<Map<string, string>>>) => {
+    const on = sel.size === 0;
+    return (
+      <TouchableOpacity
+        key="__todos__"
+        onPress={() => limpiar(new Map())}
+        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
+      >
+        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{label}</Text>
+      </TouchableOpacity>
+    );
+  };
   const toggleDia = (iso: string) => setDiasSel((prev) => { const n = new Set(prev); n.has(iso) ? n.delete(iso) : n.add(iso); return n; });
 
   // ⚠️ De NEGOCIO, no de calendario: a las 3 de la mañana la jornada en curso
@@ -2132,6 +2156,26 @@ export default function ViajesCamionesScreen() {
     () => resumirViajes(filasResumen, (id) => truckById.get(id), resumenEje),
     [filasResumen, truckById, resumenEje]
   );
+  /** El grupo de un viaje en el eje pedido. Las MISMAS claves que usan los filtros
+   *  (`clavesDe`) y el resumido: si el detallado agrupara por su cuenta, una obra
+   *  podría traer distinta cantidad de viajes en un papel y en el otro. */
+  const grupoDeViaje = (r: CamionViajeRow, eje: EjeResumen): { key: string; name: string } => {
+    if (eje === 'listero') return { key: r.listeroId || SIN_LISTERO, name: r.listeroName || 'Sin listero' };
+    if (eje === 'ubicacion') {
+      return {
+        key: claveUbicacionViaje({ ubicacionId: r.ubicacionId, ubicacionName: r.ubicacionNombre }),
+        name: r.ubicacionNombre || SIN_UBICACION_LABEL,
+      };
+    }
+    return companyOfRow(r);
+  };
+  /** El detallado partido por empresa, listero u obra; null = una sola lista. */
+  const gruposDetalle = useMemo(
+    () => (detalleEje === 'ninguno' ? null : agruparDetalle(filteredRangeRows, (r) => grupoDeViaje(r, detalleEje))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filteredRangeRows, detalleEje, truckById]
+  );
+
   /** «Solo camiones»: los mismos camiones del resumido, sin cantidades y en
    *  orden alfabético. Ver `camionesQueSalieron`. */
   const camionesSalieron = useMemo(() => camionesQueSalieron(resumenViajes), [resumenViajes]);
@@ -2437,8 +2481,13 @@ export default function ViajesCamionesScreen() {
         }).join('')}`;
 
       // ── DETALLADO: una línea por viaje, con las columnas que estén encendidas.
-      const colsD = columnasDetalle(op, resumenEje);
-      const filasD = filteredRangeRows.map((r) => valoresEnOrden(colsD, {
+      // ⚠️ El eje del DETALLADO es el suyo (`detalleEje`), no el del resumido. Antes se
+      //    le pasaba `resumenEje`: quien había mirado el resumido «por obra» sacaba
+      //    después el detallado SIN la columna Obra (la librería la omite porque la da
+      //    por puesta en el encabezado del grupo) y sin ningún encabezado que la dijera.
+      const ejeD: EjeResumen = detalleEje === 'ninguno' ? 'empresa' : detalleEje;
+      const colsD = columnasDetalle(op, ejeD);
+      const filaD = (r: CamionViajeRow) => valoresEnOrden(colsD, {
         fecha: fmtFecha(r.registeredAt),
         hora: fmtHora(r.registeredAt),
         empresa: companyOfRow(r).name,
@@ -2455,14 +2504,28 @@ export default function ViajesCamionesScreen() {
         listero: r.listeroName,
         turno: TURNO_NOMBRE[turnoDeViaje(r.registeredAt)],
         estado: r.estadoMaquina ?? '—',
-      }));
+      });
+      const filasD = filteredRangeRows.map(filaD);
       const pieD = colsD.map((c, i) => (
         i === 0 ? `<b>Total: ${filteredRangeRows.length} viajes</b>`
           : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>` : ''
       ));
+      // m³ de un grupo: la suma de lo que vale cada uno de SUS viajes. El total general
+      // sigue siendo el de siempre (arriba); el del grupo es su parte.
+      const m3DeFilas = (fs: CamionViajeRow[]) => redondear(fs.reduce((a, r) => a + (r.machineryId ? porViajeDe(r.machineryId) : 0), 0));
+      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : '🏢';
+      const cuerpoD = gruposDetalle
+        ? gruposDetalle.map((g) => {
+          const pieG = colsD.map((c, i) => (
+            i === 0 ? `<b>${g.filas.length} viaje(s)</b>`
+              : c.key === 'm3' ? `<b>${m3Texto(m3DeFilas(g.filas))}</b>` : ''
+          ));
+          return `<h3>${icoD} ${esc(g.name)} — ${g.filas.length} viaje(s)</h3>${tabla(colsD, g.filas.map(filaD), pieG)}`;
+        }).join('')
+        : tabla(colsD, filasD, pieD);
       const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}</p>
-        ${tabla(colsD, filasD, pieD)}`;
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}</p>
+        ${cuerpoD}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
       // de día 7am–7pm más turno de noche 7pm–7am. Se dice en el subtítulo para
@@ -2473,6 +2536,9 @@ export default function ViajesCamionesScreen() {
           ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : 'Camiones que salieron · por empresa')
           : reporteModo === 'resumen'
           ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
+          : detalleEje === 'ubicacion' ? 'Viajes de camiones · detallado por obra'
+          : detalleEje === 'listero' ? 'Viajes de camiones · detallado por listero'
+          : detalleEje === 'empresa' ? 'Viajes de camiones · detallado por empresa'
           : 'Viajes de camiones',
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
@@ -2493,7 +2559,7 @@ export default function ViajesCamionesScreen() {
         ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : 'camiones por empresa ')
         : reporteModo === 'resumen'
         ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : 'resumen por camion ')
-        : '';
+        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
     } catch (e: any) {
       // Sin este catch, un fallo de exportPdf dejaba el botón como si nada y la
@@ -3854,6 +3920,10 @@ export default function ViajesCamionesScreen() {
               ) : null}
             </View>
 
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
+              Toca una o varias pastillas de cada fila para sacar solo esas; «Todos» vuelve a traerlas todas. La lista y el PDF salen con lo que esté marcado.
+            </Text>
+
             {/* ⭐ TURNO. Va primero de los cuatro filtros porque es el corte más
                 grueso: día o noche parte la jornada en dos mitades, y las otras
                 tres preguntas (quién, de qué empresa, cuál camión) casi siempre
@@ -3864,6 +3934,7 @@ export default function ViajesCamionesScreen() {
                   TURNO{filterTurnoSel.size > 0 ? ` (${filterTurnoSel.size})` : ' (los dos)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Los dos', filterTurnoSel, setFilterTurnoSel)}
                   {turnoOptions.map((o) => {
                     const on = filterTurnoSel.has(o.id);
                     return (
@@ -3898,6 +3969,7 @@ export default function ViajesCamionesScreen() {
                   LISTERO{filterListeroSel.size > 0 ? ` (${filterListeroSel.size})` : ' (todos)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todos', filterListeroSel, setFilterListeroSel)}
                   {listeroOptionsVisibles.map((o) => {
                     const on = filterListeroSel.has(o.id);
                     return (
@@ -3921,6 +3993,7 @@ export default function ViajesCamionesScreen() {
                   EMPRESA{filterCompanySel.size > 0 ? ` (${filterCompanySel.size})` : ' (todas)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todas', filterCompanySel, setFilterCompanySel)}
                   {companyOptionsVisibles.map((o) => {
                     const on = filterCompanySel.has(o.id);
                     return (
@@ -3944,6 +4017,7 @@ export default function ViajesCamionesScreen() {
                   CAMIÓN{filterTruckSel.size > 0 ? ` (${filterTruckSel.size})` : ' (todos)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todos', filterTruckSel, setFilterTruckSel)}
                   {truckOptionsVisibles.map((o) => {
                     const on = filterTruckSel.has(o.id);
                     return (
@@ -3971,6 +4045,7 @@ export default function ViajesCamionesScreen() {
                   OBRA{filterUbicacionSel.size > 0 ? ` (${filterUbicacionSel.size})` : ' (todas)'}
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {chipTodos('Todas', filterUbicacionSel, setFilterUbicacionSel)}
                   {ubicacionOptionsVisibles.map((o) => {
                     const on = filterUbicacionSel.has(o.id);
                     return (
@@ -4035,7 +4110,30 @@ export default function ViajesCamionesScreen() {
                     No saca ni agrega ningún viaje: solo cambia si el reporte viene partido por empresa o por quien registró. El total general es el mismo en los dos.
                   </Text>
                 </View>
-              ) : null}
+              ) : (
+                // ⭐ El detallado también se parte (19-sep-2026). «Sin agrupar» es la lista
+                //    de siempre: una sola tabla, viaje por viaje.
+                <View style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra']] as const).map(([key, label]) => {
+                      const on = detalleEje === key;
+                      return (
+                        <TouchableOpacity
+                          key={key}
+                          onPress={() => setDetalleEje(key)}
+                          style={{ flexGrow: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 6 }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                    No saca ni agrega ningún viaje: la lista y el PDF salen partidos por empresa, por listero o por obra, cada grupo con su total. El total general es el mismo.
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={{ marginTop: spacing.sm }}>
@@ -4172,7 +4270,19 @@ export default function ViajesCamionesScreen() {
                     </Text>
                   ) : null}
                   <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled>
-                    {filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
+                    {gruposDetalle
+                      ? gruposDetalle.map((g) => (
+                        <View key={g.key}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, marginTop: spacing.xs, marginBottom: 2 }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                              {detalleEje === 'ubicacion' ? '🏗️' : detalleEje === 'listero' ? '👤' : '🏢'} {g.name}
+                            </Text>
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{g.filas.length} viaje(s)</Text>
+                          </View>
+                          {g.filas.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
+                        </View>
+                      ))
+                      : filteredRangeRows.map((row) => renderRow(row, { canEdit: true, canDelete: true, showListero: true }))}
                   </ScrollView>
                 </View>
               )}
