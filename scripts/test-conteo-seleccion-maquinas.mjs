@@ -191,5 +191,53 @@ ok('el manual .md dice que ese aviso no se puede apagar',
   /no se puede apagar\*\* con las pastillas/.test(md));
 ok('el manual en pantalla lo explica', /ESCOGER MÁQUINAS SUELTAS \(11\/09\/2026\)/.test(ms));
 
+// ── EL MEMO SE ENTERA DE LO DESTILDADO (19-sep-2026) ────────────────────────
+//
+// El error del cliente: «son 15 seleccionados de 18, pero aun así me salen los 18 en
+// el reporte». `tipoResultado` aplicaba bien las exclusiones, pero su lista de
+// dependencias no tenía ni `maqFuera` ni `maquinasDeTipos`: al destildar una máquina
+// React no lo recalculaba, y el número grande, los m³ y el PDF seguían con el
+// resultado viejo. El rótulo «15 de 18» sí cambiaba, y por eso se notaba el descuadre.
+{
+  const ini = scr.indexOf('const tipoResultado = useMemo(');
+  const fin = scr.indexOf('const volumenSeleccion = useMemo(', ini);
+  const memo = scr.slice(ini, fin);
+  const deps = (memo.match(/\}, \[([^\]]*)\]\);/) || [])[1] || '';
+  ok('⭐ el conteo se recalcula al destildar una máquina', /\bmaqFuera\b/.test(deps));
+  ok('⭐ ...y al cambiar la lista de máquinas de los tipos', /\bmaquinasDeTipos\b/.test(deps));
+  ok('...sin perder las que ya tenía', /\btiposSel\b/.test(deps) && /\bconteoEje\b/.test(deps));
+  // Todo lo que el memo USA tiene que estar en sus dependencias.
+  ok('usa exactamente lo que declara', /aplicarExclusiones\(maquinasDeTipos, maqFuera\)/.test(memo));
+  // Y lo que cuelga de él (los m³ de la pantalla) depende de él, no de una copia.
+  ok('los m³ salen del mismo resultado', /\}, \[tipoResultado, medidasPorId, apartadas\]\);/.test(scr));
+}
+
+// ── EL LOGO DE GOLDEN TOUCH NO SE RECORTA (19-sep-2026) ─────────────────────
+//
+// El archivo del logo se cambió el 12-sep por uno ANCHO (520×186). El membrete lo
+// seguía forzando a un cuadrado con "cover", que le recortaba los lados.
+{
+  const gt = (scr.match(/\.hd \.gt\{([^}]*)\}/) || [])[1] || '';
+  ok('⭐ el logo no se recorta: nada de "cover"', gt.length > 0 && !/object-fit:cover/.test(gt) && /object-fit:contain/.test(gt));
+  ok('⭐ manda el alto y el ancho sale solo (no es un cuadrado fijo)', /height:\d+px/.test(gt) && /width:auto/.test(gt));
+  const vol = sinComentarios(leer('src/lib/reporteVolumetrico.ts'));
+  const gtVol = (vol.match(/\.cab-logos \.gt\{([^}]*)\}/) || [])[1] || '';
+  ok('en el reporte volumétrico tampoco va en un cuadrado', /width:auto/.test(gtVol) && !/width:46px/.test(gtVol));
+  // El logo de verdad es ancho: si alguien lo vuelve a cambiar por uno cuadrado, esto
+  // sigue pasando (contain no recorta nada), que es justo la idea.
+  const uri = leer('src/lib/logoGoldenTouchData.ts').match(/data:image\/jpeg;base64,([A-Za-z0-9+\/=]+)/);
+  const b = Buffer.from(uri[1], 'base64');
+  let ancho = 0, alto = 0;
+  for (let i = 2; i < b.length;) {
+    if (b[i] !== 0xFF) { i++; continue; }
+    const mk = b[i + 1];
+    if (mk >= 0xC0 && mk <= 0xC3) { alto = b.readUInt16BE(i + 5); ancho = b.readUInt16BE(i + 7); break; }
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  ok('el logo incrustado es apaisado (por eso no cabía en un cuadrado)', ancho > alto * 2);
+}
+ok('el manual .md cuenta la corrección', /Conteo de equipos: lo destildado ya no sale \(19\/09\/2026\)/.test(md));
+ok('el manual en pantalla también', /CONTEO DE EQUIPOS: LO DESTILDADO YA NO SALE \(19\/09\/2026\)/.test(ms));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-seleccion-maquinas · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

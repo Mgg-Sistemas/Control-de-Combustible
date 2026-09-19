@@ -196,7 +196,9 @@ const CSS = `
      marino y el membrete es azul marino tambien, asi que sin ella el logotipo
      se pierde dentro de la franja. */
   .cab-logos .lg{background:#fff;border-radius:6px;padding:4px;object-fit:contain}
-  .cab-logos .gt{width:46px;height:46px}
+  /* El logo de Golden Touch es ANCHO desde el 12-sep-2026 (520×186): metido en un
+     cuadrado de 46 quedaba de 16px de alto, ilegible. Manda el alto; el ancho sale solo. */
+  .cab-logos .gt{height:46px;width:auto;max-width:136px}
   .cab-logos .pv{width:78px;height:46px}
   .cab h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.2px}
   .cab .sub{margin-top:5px;font-size:11px;color:#B9C9DA}
