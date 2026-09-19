@@ -97,7 +97,15 @@ export function placaAsistencia(m: { plate?: unknown; serial?: unknown }): strin
   return limpio(m?.plate) || limpio(m?.serial) || '—';
 }
 
-/** Estado del día. Es la MISMA regla en la lista de la pantalla y en el PDF. */
+/**
+ * Estado del día. Es la MISMA regla en la lista de la pantalla y en el PDF.
+ *
+ * `jornada` = la jornada sigue ABIERTA. Un camión con horas pero sin salida ni
+ * jornada abierta es «— sin salida»: casi siempre son las 12 h que el sistema pone
+ * solo a las 7:05 p. m. a las máquinas que nadie inició (`auto_iniciar_dia_12h`), o
+ * horas cargadas a mano en Control. Hasta el 19-sep-2026 salían «🟠 En obra», que
+ * decía que el camión estaba en la calle sin que nadie lo hubiera visto salir.
+ */
 export function estadoAsistencia(c: { salida: string | null; entrada: string | null; jornada: boolean }): string {
   if (c.salida && c.entrada) return '🟢 Regresó';
   if (c.salida || c.jornada) return '🟠 En obra';
@@ -181,8 +189,10 @@ export function armarAsistenciaCamiones(jornadas: readonly JornadaCamion[], pati
   jornadas.filter(entraEnAsistencia).forEach((r) => {
     const cur = map.get(r.machinery_id) ?? {
       code: r.code, companyName: r.companyName, plate: null, serial: null, marca: null, modelo: null,
-      salida: null, entrada: null, jornada: true,
+      salida: null, entrada: null, jornada: false,
     };
+    // Jornada ABIERTA (ver `estadoAsistencia`): tener horas no es estar en obra.
+    if (r.startAt) cur.jornada = true;
     // Jornada abierta: salió a esa hora (hasta que el patio diga la exacta).
     if (r.startAt && (!cur.salida || r.startAt < cur.salida)) cur.salida = r.startAt;
     cur.plate = r.plate ?? cur.plate; cur.serial = r.serial ?? cur.serial;
@@ -198,4 +208,34 @@ export function armarAsistenciaCamiones(jornadas: readonly JornadaCamion[], pati
     cur.marca = l.marca ?? cur.marca; cur.modelo = l.modelo ?? cur.modelo;
   });
   return ordenarCamionesAsistencia(Array.from(map.values()));
+}
+
+// ── QUÉ CAMIONES SALEN EN EL PAPEL (19-sep-2026) ────────────────────────────
+//
+// Pedido del cliente: poder imprimir solo los que tienen SALIDA (los que alguien
+// inició o que pasaron por el patio) o todos los que tienen MOVIMIENTO (además, los
+// que solo tienen horas: las 12 h automáticas o las cargadas a mano en Control).
+//
+// ⚠️ A diferencia de las pastillas de columnas, ESTO SÍ cambia cuántos camiones
+//    salen. Por eso el papel lo dice en el subtítulo y en el nombre del archivo.
+
+export type AlcanceAsistencia = 'movimiento' | 'salida';
+
+export const ALCANCES_ASISTENCIA: { key: AlcanceAsistencia; chip: string; archivo: string }[] = [
+  { key: 'movimiento', chip: '🚚 Todos con movimiento', archivo: '' },
+  { key: 'salida', chip: '🟠 Solo con salida', archivo: ' solo con salida' },
+];
+
+/** ¿Tiene hora de salida registrada (jornada abierta o paso por el patio)? */
+export const tieneSalida = (c: { salida?: string | null }): boolean => !!c.salida;
+
+export function filtrarAsistencia<T extends { salida?: string | null }>(lista: readonly T[], alcance: AlcanceAsistencia): T[] {
+  return alcance === 'salida' ? lista.filter(tieneSalida) : [...lista];
+}
+
+/** El subtítulo del PDF: dice cuántos salen y de cuántos, para que un papel corto no parezca el completo. */
+export function subtituloAsistencia(alcance: AlcanceAsistencia, conSalida: number, conMovimiento: number): string {
+  return alcance === 'salida'
+    ? `SOLO CON SALIDA: ${conSalida} camión(es) con salida registrada, de ${conMovimiento} con movimiento`
+    : `${conSalida} con salida (asistencia) de ${conMovimiento} con movimiento`;
 }
