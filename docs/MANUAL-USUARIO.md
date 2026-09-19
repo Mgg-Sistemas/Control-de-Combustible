@@ -4667,17 +4667,23 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 - **Resumen de hoy:** ranking de viajes por camión (comparado contra su **meta diaria**, si tiene
   una puesta) y total por listero.
-- ~~**⚠️ Camiones sin viaje reciente**~~ — **se quitó el 19/09/2026**, a pedido, junto con su
-  «umbral de alerta (horas sin viaje)» de Configuración. El panel queda con cinco apartados. No se
-  borró ningún viaje ni ningún dato: solo dejó de mostrarse ese aviso. Para ver qué camiones no han
-  hecho viajes, usa la **Lista completa de viajes** con **🚚 Solo camiones** del día.
+- 🙈 **«Camiones sin viaje reciente» está OCULTO desde el 19/09/2026**, a pedido, junto con su
+  «umbral de alerta» de Configuración. **Oculto, no eliminado:** todo sigue en el sistema y se
+  puede volver a mostrar cuando se pida, sin perder nada (ni viajes, ni metas, ni el umbral
+  guardado). Mientras está oculto tampoco consulta la base. Para ver qué camiones no han hecho
+  viajes, usa la **Lista completa de viajes** con **🚚 Solo camiones** del día. Lo que hacía:
+- **⚠️ Camiones sin viaje reciente:** aviso dentro de la pantalla (no es notificación push) cuando
+  un camión lleva más del **umbral configurado** (arranca en 6 horas, se ajusta en
+  "Configuración") sin registrar viaje — no incluye camiones averiados, parados o retirados, que
+  legítimamente no viajan.
 - **✍️ Cargar viajes a mano:** agregar viajes a **cualquier camión, en el día que sea** (31-ago-2026,
   ver abajo).
 - **Lista completa:** todos los viajes de todos los listeros, filtrable por **empresa**, por
   **listero**, por **camión** y por rango de fecha (Hoy / Esta semana / Este mes / Rango libre /
   Días específicos). Desde ahí puede **editar o borrar cualquier viaje** — el borrado
   queda igual en la auditoría (ver 4.13b), no se pierde el rastro.
-- **Configuración:** la **meta de viajes diarios** de cada camión, editable en cualquier momento.
+- **Configuración:** el **umbral de alerta** (horas) y la **meta de viajes diarios** de cada
+  camión, ambos editables en cualquier momento.
 - **Compartir / exportar reporte** del rango filtrado, en PDF, igual que el resto del sistema.
 
 ### 📐 El PDF del conteo por tipo, con medidas y m³ (09-sep-2026)
