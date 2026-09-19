@@ -7,8 +7,8 @@
 //     viaje (con hora capturada en el teléfono, funciona offline) y ver/editar
 //     (solo la HORA, solo dentro de su jornada actual) sus propios viajes de hoy.
 //   · full: ADEMÁS (full incluye escritura) el panel de la JEFA/ADMIN — resumen
-//     por camión/listero, lista completa filtrable con edición/borrado,
-//     configuración de metas,
+//     por camión/listero, alerta de camiones sin viaje reciente, lista completa
+//     filtrable con edición/borrado, configuración de metas y umbral de alerta,
 //     y exportar el reporte del rango filtrado.
 // Pedido del cliente 12-ago-2026.
 import React, { useEffect, useMemo, useState, useRef } from 'react';
@@ -80,6 +80,8 @@ import {
   borrarViaje,
   getMetasPorCamion,
   setMetaCamion,
+  getAlertaHoras,
+  setAlertaHoras,
   resolveChoferActual,
   listListeros,
   type ListeroConRol,
@@ -264,9 +266,18 @@ type TruckRow = {
 // tal cual para dar la MISMA experiencia visual en el buscador de camión.
 type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera';
 const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'retirada', 'espera'];
-// (Hasta el 19-sep-2026 había acá una lista ESTADO_ADVERSO: solo servía para la
-//  alerta «Camiones sin viaje reciente», que se quitó a pedido del cliente. El
-//  estado del camión NO frena el registro desde el 31-ago-2026.)
+// Estados "adversos": disparan el aviso no bloqueante al registrar un viaje Y
+// se EXCLUYEN de la alerta de "camión sin viaje" (legítimamente no viajan).
+// 'espera' entró el 18-ago-2026: una máquina EN ESPERA DE INSTRUCCIONES está
+// congelada por completo (no se le inicia jornada ni se le surte), así que
+// legítimamente no viaja — reclamarle "sin viaje reciente" a la jefa era ruido.
+//
+// ⚠️ HOY ESTA LISTA SOLO SIRVE PARA ESA ALERTA. El 31-ago-2026 se quitó su uso
+//    en el REGISTRO: ni esconde el camión del buscador ni pide confirmación
+//    antes de guardar (el cliente pidió que el estado no frene al listero). La
+//    única exclusión que quedó en el buscador es la de las RETIRADAS, y se hace
+//    aparte — ver la nota larga de `trucksSeleccionables`.
+const ESTADO_ADVERSO: EstadoConteo[] = ['averiada', 'parada', 'retirada', 'espera'];
 
 type Preset = 'hoy' | 'semana' | 'mes' | 'rango' | 'dias';
 
@@ -1648,6 +1659,7 @@ export default function ViajesCamionesScreen() {
   const [metasByTruck, setMetasByTruck] = useState<Record<string, number | null>>({});
   /** Errores de lectura del panel: se muestran en vez de fingir que no hay datos. */
   const [resumenError, setResumenError] = useState<string | null>(null);
+  const [alertaError, setAlertaError] = useState<string | null>(null);
   const loadResumen = async () => {
     if (!canFull) return;
     const { rows, error } = await listTodosLosViajes(jornadaWindowISO(caracasBusinessToday()));
@@ -1711,9 +1723,64 @@ export default function ViajesCamionesScreen() {
     return Array.from(m.values()).sort((a, b) => b.count - a.count || cmpText(a.name, b.name));
   }, [resumenRows]);
 
-  // ⚠️ La alerta «Camiones sin viaje reciente» se QUITÓ el 19-sep-2026, a pedido del
-  //    cliente, con su umbral de horas y su consulta (traía 7 días de viajes cada vez
-  //    que alguien registraba uno). Si vuelve a hacer falta, está en el historial de git.
+  // Alerta de camiones sin viaje reciente.
+  const [alertaHoras, setAlertaHorasState] = useState(6);
+  const [alertaHorasInput, setAlertaHorasInput] = useState('6');
+  const [lastTripByTruck, setLastTripByTruck] = useState<Record<string, string>>({});
+  const loadAlertaCfg = async () => {
+    if (!canFull) return;
+    const h = await getAlertaHoras();
+    setAlertaHorasState(h);
+    setAlertaHorasInput(String(h));
+  };
+  const loadAlerta = async () => {
+    if (!canFull) return;
+    const lookbackHours = Math.max(168, alertaHoras * 3);
+    const desdeISO = new Date(Date.now() - lookbackHours * 3600000).toISOString();
+    // El tope es MAÑANA, no "ahora": `registered_at` lo pone el reloj del
+    // TELÉFONO, y acotar con "ahora" dejaba fuera el viaje de un aparato
+    // adelantado unos minutos. Pero quitarlo del todo era peor: un solo viaje
+    // con fecha futura da horas NEGATIVAS y ese camión no vuelve a salir en la
+    // alerta NUNCA. Un día de margen cubre el reloj corrido sin abrir esa puerta.
+    const hastaExclusivoISO = new Date(Date.now() + 86400000).toISOString();
+    const { rows, error } = await listTodosLosViajes({ desdeISO, hastaExclusivoISO });
+    // ⚠️ Si la consulta falló, NO se pinta la alerta: con `last` vacío, TODOS
+    //    los camiones dan "sin viaje reciente" y la jefa recibe una alarma falsa
+    //    de flota entera parada. Mejor no decir nada que decir una barbaridad.
+    setAlertaError(error ?? null);
+    if (error) return;
+    const last: Record<string, string> = {};
+    // `rows` ya viene ordenado registered_at desc: la primera aparición de cada
+    // camión es su viaje MÁS RECIENTE.
+    // Los fuera de catálogo NO entran a esta alerta: es "camiones de la flota sin
+    // viaje reciente", y un camión prestado que se anotó una vez no está parado,
+    // simplemente ya no está. Meterlo daría una alarma que nadie puede atender.
+    rows.forEach((r) => { if (r.machineryId && !last[r.machineryId]) last[r.machineryId] = r.registeredAt; });
+    setLastTripByTruck(last);
+  };
+  const alertList = useMemo(() => {
+    const now = nowTick;
+    return allTrucks
+      .filter((t) => !ESTADO_ADVERSO.includes(truckEstadoConteo(t)))
+      .map((t) => {
+        const last = lastTripByTruck[t.id] ?? null;
+        const hrs = last ? (now - new Date(last).getTime()) / 3600000 : Infinity;
+        return { truck: t, hrs, last };
+      })
+      .filter((x) => x.hrs > alertaHoras)
+      .sort((a, b) => b.hrs - a.hrs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTrucks, lastTripByTruck, alertaHoras, averiaCat, jornadaCat, inspByShift, nowTick]);
+
+  const saveAlertaHoras = async () => {
+    const n = Number(alertaHorasInput.replace(',', '.'));
+    if (!Number.isFinite(n) || n <= 0) { toast.error('Ingresa un número de horas válido.'); return; }
+    const { error } = await setAlertaHoras(n, uid);
+    if (error) { toast.error(error); return; }
+    setAlertaHorasState(n);
+    toast.success('Umbral de alerta actualizado.');
+    loadAlerta();
+  };
 
   // Lista completa filtrable.
   const [preset, setPreset] = useState<Preset>('hoy');
@@ -2533,13 +2600,17 @@ export default function ViajesCamionesScreen() {
   useEffect(() => {
     loadTrucks();
     if (canWrite) loadMisViajes();
-    if (canFull) loadResumen();
+    if (canFull) { loadAlertaCfg(); loadResumen(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canWrite, canFull, uid]);
+  useEffect(() => {
+    if (canFull) loadAlerta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canFull, alertaHoras]);
   useRealtimeRefresh(['camion_viajes', 'machine_operators', 'machinery'], () => {
     loadTrucks();
     if (canWrite) loadMisViajes();
-    if (canFull) { loadResumen(); loadRangeRows(); }
+    if (canFull) { loadResumen(); loadAlerta(); loadRangeRows(); }
   });
 
   const [refreshing, setRefreshing] = useState(false);
@@ -2548,7 +2619,7 @@ export default function ViajesCamionesScreen() {
     try {
       await loadTrucks();
       if (canWrite) await loadMisViajes();
-      if (canFull) { await loadResumen(); await loadRangeRows(); }
+      if (canFull) { await loadResumen(); await loadAlerta(); await loadRangeRows(); }
     } finally {
       // Sin el `finally`, una sola consulta colgada (el wifi del patio otra vez)
       // dejaba el "deslizar para refrescar" girando hasta cerrar la app.
@@ -3699,6 +3770,35 @@ export default function ViajesCamionesScreen() {
             </TouchableOpacity>
           </Plegable>
 
+          <Plegable
+            titulo="⚠️ Camiones sin viaje reciente"
+            resumen={alertaError ? `No se pudo revisar la alerta` : alertList.length ? `${alertList.length} camión(es) llevan más de ${alertaHoras}h sin viaje` : `✅ Todos con viajes recientes`}
+            alerta={!!alertaError || alertList.length > 0}
+            abiertaPorDefecto={!!alertaError || alertList.length > 0}
+          >
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+              Más de {alertaHoras}h sin registrar viaje (no incluye averiados, parados ni retirados).
+            </Text>
+            {alertList.length === 0 ? (
+              <Text style={{ color: alertaError ? colors.danger : colors.success, fontWeight: '700' }}>{alertaError ? `⚠️ No se pudo revisar la alerta (${motivoLegible(alertaError)}). No se sabe si hay camiones parados.` : '✅ Todos los camiones tienen viajes recientes.'}</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled>
+                {alertList.map((x) => (
+                  <View key={x.truck.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                    <View style={{ flexShrink: 1 }}>
+                      <Text style={{ color: colors.text }}>🚜 {x.truck.code}</Text>
+                      {(x.truck.plate || x.truck.serial) ? (
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{[x.truck.plate ? `Placa ${x.truck.plate}` : null, x.truck.serial ? `Serial ${x.truck.serial}` : null].filter(Boolean).join(' · ')}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={{ color: colors.danger, fontWeight: '700' }}>
+                      {x.last ? `${Math.floor(x.hrs)}h sin viaje` : 'sin viajes registrados'}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </Plegable>
 
           {/* Las obras y quién está en cada una. Va ANTES de la lista de viajes
               porque es lo que hay que tener puesto para que los viajes que se
@@ -4221,8 +4321,21 @@ export default function ViajesCamionesScreen() {
             </Plegable>
           ) : null}
 
-          <Plegable titulo="⚙️ Configuración" resumen="Meta de viajes diarios por camión">
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>META DE VIAJES DIARIOS POR CAMIÓN</Text>
+          <Plegable titulo="⚙️ Configuración" resumen={`Avisar a las ${alertaHoras}h sin viaje`}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>UMBRAL DE ALERTA (HORAS SIN VIAJE)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <TextInput
+                value={alertaHorasInput}
+                onChangeText={setAlertaHorasInput}
+                keyboardType="numeric"
+                style={[styles.input, { flex: 1 }]}
+              />
+              <TouchableOpacity onPress={saveAlertaHoras} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primary }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>META DE VIAJES DIARIOS POR CAMIÓN</Text>
             {camionesEnObra.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
             ) : (
