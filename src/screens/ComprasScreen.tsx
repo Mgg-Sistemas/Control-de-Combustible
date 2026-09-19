@@ -17,19 +17,14 @@ import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { norm, cmpText } from '../lib/text';
+import { leerNumero } from '../lib/numeros';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Acepta punto O coma como separador decimal (12,50 y 12.50 valen igual). Si vienen
 // los dos, el ÚLTIMO manda como decimal y el otro se trata como separador de miles
 // (1.234,56 y 1,234.56). Tolera texto intermedio al escribir ("12," -> 12).
-function parseNum(t: string): number {
-  let s = String(t ?? '').replace(/[^0-9.,\-]/g, '');
-  const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
-  if (lc > -1 && ld > -1) s = lc > ld ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-  else if (lc > -1) s = s.replace(',', '.');
-  const n = Number(s);
-  return isFinite(n) ? n : 0;
-}
+// 19-sep-2026: la regla vive en src/lib/numeros.ts, una sola para todo Compras.
+const parseNum = leerNumero;
 const nowISO = () => new Date().toISOString();
 const linesTotal = (items: PurchaseLine[]) => (items || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
 
