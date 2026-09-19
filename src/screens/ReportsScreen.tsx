@@ -352,9 +352,12 @@ function renaceShell(title: string, sub: string, body: string, fields: { empresa
   .hd .wave{position:absolute;top:-6px;right:-12px;width:74%;z-index:0}
   .hd .tit{position:relative;z-index:1;display:flex;align-items:center;gap:14px;font-size:31px;line-height:1.12;font-weight:800;color:${RENACE_NAVY};letter-spacing:-.3px;max-width:58%;padding-top:12px}
   /* Logo de GOLDEN TOUCH (06-sep-2026), a la izquierda del título. El del Plan
-     sigue a la derecha: se suma, no se reemplaza. El JPG trae fondo de acero, no
-     transparente; por eso las esquinas redondeadas. */
-  .hd .gt{width:76px;height:76px;border-radius:10px;flex:none;object-fit:cover}
+     sigue a la derecha: se suma, no se reemplaza.
+     ⚠️ 19-sep-2026: el archivo del logo se cambió el 12-sep por uno ANCHO (emblema +
+     nombre, 520×186, fondo blanco). Acá seguía forzado a un cuadrado de 76×76 con
+     "cover", que le recortaba los lados: se veía picado. Ahora manda el ALTO y el
+     ancho sale solo, con "contain": pase lo que pase con el archivo, no se recorta. */
+  .hd .gt{height:58px;width:auto;max-width:170px;border-radius:6px;flex:none;object-fit:contain;background:#fff}
   /* Otros logos de la izquierda (SOS, BCV): fondo blanco y "contain" para no
      recortarlos. El de Golden (.gt) va con "cover" por su fondo de acero. */
   .hd .lgo{width:76px;height:76px;border-radius:10px;flex:none;object-fit:contain;background:#fff;padding:4px}
@@ -975,7 +978,12 @@ export default function ReportsScreen({ route }: any) {
       .map(([company, items]) => ({ company, count: items.length, items: items.slice().sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')) }))
       .sort((a, b) => cmpText(a.company, b.company));
     return { total: match.length, empresas };
-  }, [tiposSel, machinesPorEstado, conteoEje]);
+    // ⚠️ `maquinasDeTipos` y `maqFuera` TIENEN que estar acá. Hasta el 19-sep-2026
+    //    faltaban: al destildar una máquina el rótulo decía «15 de 18» (ese sí se
+    //    recalculaba) pero este memo se quedaba con el resultado viejo, y el número
+    //    grande, los m³ y el PDF seguían con las 18. Solo se «arreglaba» al tocar otra
+    //    cosa (el estado o el «Agrupar por»), así que pasaba por intermitente.
+  }, [tiposSel, machinesPorEstado, conteoEje, maquinasDeTipos, maqFuera]);
 
   /**
    * VOLUMEN DE LO SELECCIONADO: total, promedio, mayor y menor.
