@@ -299,21 +299,24 @@ ok('se llama Panel de información', scrCrudo.includes('📊 Panel de informaci�
 // alguien agrega un bloque nuevo con <Card> suelto, el panel vuelve a crecer sin
 // que nada avise, que es justo lo que esto vino a arreglar.
 const plegable = sinComentarios(leer('src/components/Plegable.tsx'));
-// Seis desde el 17-sep: se sumó «🚜 Máquinas que salen en Viajes» (solo admin).
-eq('los seis apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 6);
+// Seis desde el 17-sep (se sumó «🚜 Máquinas que salen en Viajes», solo admin); cinco
+// desde el 19-sep: se quitó «Camiones sin viaje reciente» a pedido del cliente.
+eq('los cinco apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 5);
 ok('y el de obras también lo es', /setAbierto\(\(v\) => !v\)/.test(comp));
 ok('ya no quedan tarjetas fijas en el panel',
   !/\n          <Card>\n            <SectionTitle>/.test(scrCrudo));
 
 // ⚠️ CERRADO NO ES ESCONDIDO: el título tiene que decir qué hay dentro, o una
 //    lista de seis desplegables mudos es una búsqueda a ciegas.
-eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 6);
+// Eran 6 hasta el 19-sep-2026: se quitó «Camiones sin viaje reciente» a pedido del cliente.
+eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 5);
 ok('el resumen de hoy y la lista completa arrancan abiertos',
   (scr.match(/abiertaPorDefecto(?![=])/g) || []).length === 2);
-// Una alerta que hay que ir a destapar no es una alerta.
-ok('la alerta de camiones parados se abre sola si hay alguno',
-  /abiertaPorDefecto=\{!!alertaError \|\| alertList\.length > 0\}/.test(scr));
-ok('...y se pinta en color de aviso', /alerta=\{!!alertaError \|\| alertList\.length > 0\}/.test(scr));
+// ⭐ La alerta «Camiones sin viaje reciente» se quitó el 19-sep-2026 (pedido del cliente).
+ok('⭐ el apartado «Camiones sin viaje reciente» ya no está', !/Camiones sin viaje reciente"/.test(scr) && !/alertList|alertaError|loadAlerta\b/.test(scr));
+ok('...ni su umbral en Configuración', !/UMBRAL DE ALERTA/.test(scr) && !/getAlertaHoras|setAlertaHoras/.test(scr));
+ok('...ni la consulta de 7 días que lo alimentaba con cada viaje', !/lookbackHours/.test(scr));
+ok('Configuración conserva la meta de viajes diarios', /META DE VIAJES DIARIOS POR CAMIÓN/.test(scr));
 ok('el componente pinta el resumen en aviso cuando toca', /alerta \? colors\.warning : colors\.muted/.test(plegable));
 ok('el pliegue no se guarda en ningún lado', !/AsyncStorage|localStorage/.test(plegable));
 
