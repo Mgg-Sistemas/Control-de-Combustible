@@ -25,17 +25,12 @@ import { generalCompanies } from '../lib/companies';
 import { pickAndUploadDocFile } from '../lib/photo';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
-import { cmpText, norm } from '../lib/text';
+import { cmpText, norm, onlyDecimal } from '../lib/text';
+import { leerNumero, textoDeCampo } from '../lib/numeros';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-function parseNum(t: string): number {
-  let s = String(t ?? '').replace(/[^0-9.,\-]/g, '');
-  const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
-  if (lc > -1 && ld > -1) s = lc > ld ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-  else if (lc > -1) s = s.replace(',', '.');
-  const n = Number(s);
-  return isFinite(n) ? n : 0;
-}
+// 19-sep-2026: la regla de lectura vive en src/lib/numeros.ts, una sola para todo Compras.
+const parseNum = leerNumero;
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const itemsTotal = (items: ServicioItem[]) => (items || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
 
@@ -92,18 +87,32 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
   const [catQ, setCatQ] = useState('');
 
   const setItem = (i: number, patch: Partial<ServicioItem>) => setItems((prev) => prev.map((it, k) => (k === i ? { ...it, ...patch } : it)));
+  // ⭐ Texto crudo de cantidad y precio MIENTRAS se escribe (19-sep-2026). El renglón
+  //    guarda el número; si el campo se pintara con String(numero), al teclear «12,» el
+  //    número es 12, el campo se repinta «12» y la coma desaparece: no se podía escribir
+  //    ningún decimal, ni con punto ni con coma. Mismo arreglo que el editor de renglones
+  //    de Compras directas.
+  const [crudo, setCrudo] = useState<Record<string, string>>({});
+  const claveCrudo = (i: number, f: 'qty' | 'price') => `${i}:${f}`;
+  const onNumero = (i: number, f: 'qty' | 'price', t: string) => {
+    const limpio = onlyDecimal(t);
+    setCrudo((r) => ({ ...r, [claveCrudo(i, f)]: limpio }));
+    setItem(i, { [f]: parseNum(limpio) } as Partial<ServicioItem>);
+  };
   const addLine = () => setItems((prev) => [...prev, { ...BLANK }]);
-  const removeLine = (i: number) => setItems((prev) => (prev.length <= 1 ? prev : prev.filter((_, k) => k !== i)));
+  // Al quitar un renglón los índices se corren: el texto crudo ya no corresponde.
+  const removeLine = (i: number) => { setCrudo({}); setItems((prev) => (prev.length <= 1 ? prev : prev.filter((_, k) => k !== i))); };
 
   const resetForm = () => {
     setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setServiceDate(todayISO());
-    setNote(''); setItems([{ ...BLANK }]); setFactura(null); setNuevoProv(''); setProvQ('');
+    setNote(''); setItems([{ ...BLANK }]); setCrudo({}); setFactura(null); setNuevoProv(''); setProvQ('');
   };
   const abrirNueva = () => { resetForm(); setOpen(true); };
   const abrirEditar = (s: ServicioRecord) => {
     setEditingId(s.id); setCompany(s.company_id ?? ''); setSupplier(s.supplier_id ?? '');
     setServiceDate(String(s.service_date ?? todayISO()).slice(0, 10)); setNote(s.note ?? '');
     setItems((s.items && s.items.length ? s.items : [{ ...BLANK }]).map((it) => ({ ...BLANK, ...it })));
+    setCrudo({});
     setFactura(s.factura_url ? { url: s.factura_url, kind: (s.factura_type as any) ?? 'image', name: s.factura_name ?? 'factura' } : null);
     setOpen(true);
   };
@@ -351,11 +360,11 @@ export function ServiciosTab({ canWrite }: { canWrite: boolean }) {
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Cantidad</Text>
-                    {input(String(it.qty), (t) => setItem(i, { qty: parseNum(t) }), '1', { keyboardType: 'numeric' })}
+                    {input(textoDeCampo(crudo[claveCrudo(i, 'qty')], it.qty), (t) => onNumero(i, 'qty', t), '1', { keyboardType: 'decimal-pad', inputMode: 'decimal' })}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 3 }}>Precio unit.</Text>
-                    {input(String(it.price), (t) => setItem(i, { price: parseNum(t) }), '0', { keyboardType: 'numeric' })}
+                    {input(textoDeCampo(crudo[claveCrudo(i, 'price')], it.price), (t) => onNumero(i, 'price', t), '0', { keyboardType: 'decimal-pad', inputMode: 'decimal' })}
                   </View>
                 </View>
 

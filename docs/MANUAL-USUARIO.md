@@ -2647,6 +2647,17 @@ escritura en Compras (o Inventario).
 > se abre la lista completa con buscador). Si lo que necesitas no está, escríbelo arriba y toca
 > **«+ Crear y usar»**: queda guardado como opción para la próxima vez.
 
+> **🔢 Punto o coma en Compras (19/09/2026).** En todo Compras (**Requerimiento, Compras directas,
+> Servicios, Órdenes y Cuentas**) las cantidades, precios y montos se pueden escribir **con punto o
+> con coma**, y valen igual: **12,50 = 12.50**.
+> - Si escribes los dos, el **último** es el decimal y el otro separa miles: 1.234,56 = 1,234.56.
+> - Un solo signo es decimal: **«1.500» es uno y medio**, no mil quinientos; para mil quinientos
+>   escribe 1500. Mira el **total del renglón** mientras escribes: ahí se ve lo que el sistema leyó.
+> - Se corrigieron dos fallas: en **🧰 Servicios** el campo no dejaba escribir ni el punto ni la coma
+>   (se borraban al teclear); y en **Requerimiento** y **Cuentas** la coma se perdía, así que
+>   «12,50» se guardaba como **1250**. Lo ya guardado no cambia: si cargaste montos con coma en
+>   Requerimiento o Cuentas antes de esta fecha, revísalos.
+
 > **🧰 Servicios (15-sep-2026, submódulo de Compras):** para cargar **servicios** (recarga de
 > bombonas, mantenimiento de aires, cambio de aceite, cambio de pieza…). En **Compras → «🧰
 > Servicios»** toca **«+ Nuevo»**, elige **empresa** y (opcional) **proveedor**, y agrega uno o
