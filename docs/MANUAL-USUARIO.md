@@ -521,6 +521,15 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **número grande** con el **total de equipos** y el **desglose por empresa**. Botón
   **"⬇️ PDF de este conteo"** para imprimir el total, la cantidad por tipo y por empresa.
 
+> **🛠️ Conteo de equipos: lo destildado ya no sale (19/09/2026).** Se corrigió una falla: al
+> destildar máquinas en **"🚜 Escoger máquinas"** el rótulo decía bien *"15 de 18"*, pero el número
+> grande, los m³ y el **PDF seguían con las 18**. El conteo no se enteraba del cambio hasta que se
+> tocaba otra cosa (el estado o "Agrupar por"), por eso a veces parecía funcionar. Ahora se
+> recalcula en el acto: lo que destildas deja de contar y no sale en el PDF.
+> También se arregló el **logo de Golden Touch** del membrete, que salía **recortado por los lados**:
+> el logo nuevo es ancho (emblema + nombre + RIF) y se estaba metiendo a la fuerza en un cuadrado.
+> Ahora sale completo, acá y en el reporte volumétrico.
+
 > **🚜 Escoger máquinas (11/09/2026).** Tildar un tipo mete a **todas** sus máquinas, que es lo
 > que se quiere casi siempre. Para cuando no, debajo de la lista de tipos hay un desplegable
 > **"🚜 Escoger máquinas"** que dice cuántas entran de cuántas hay (por ejemplo *14 de 17*).
