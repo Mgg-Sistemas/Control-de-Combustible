@@ -317,14 +317,14 @@ ok('...y la vista previa usa la MISMA', /volumenPorCamion\.get\(c\.key\)\?\.porV
 
 // El reporte se arma desde las columnas: si alguien vuelve a escribir los <th> a
 // mano, encabezado y celdas se desalinean sin que nada avise.
-ok('el PDF arma sus columnas con columnasDetalle', /columnasDetalle\(op, resumenEje\)/.test(scrS));
+ok('el PDF arma sus columnas con columnasDetalle', /columnasDetalle\(op, ejeD\)/.test(scrS));
 ok('y con columnasResumen', /columnasResumen\(op, resumenEje\)/.test(scrS));
 // Desde el 12-sep-2026 las columnas dependen también del EJE: la del eje no se
 // repite en cada fila porque ya está en el encabezado del grupo. Si el PDF
 // dejara de pasarlo, el resumido por empresa volvería a traer la empresa en
 // cada línea y el papel se ensancharía sin motivo.
 ok('...y les pasa el eje, no solo las opciones',
-  /columnasDetalle\(op, resumenEje\)/.test(scrS) && /columnasResumen\(op, resumenEje\)/.test(scrS));
+  /columnasDetalle\(op, ejeD\)/.test(scrS) && /columnasResumen\(op, resumenEje\)/.test(scrS));
 ok('las celdas salen con valoresEnOrden', (scrS.match(/valoresEnOrden\(/g) ?? []).length >= 2);
 
 // El volumen se calcula sobre LO FILTRADO: si se calculara sobre el rango sin

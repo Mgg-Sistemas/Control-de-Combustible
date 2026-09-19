@@ -229,7 +229,7 @@ ok('el PDF rotula la obra', /porUbicacion \? '🏗️'/.test(scrCrudo));
 ok('...y la cuenta en obras', /porUbicacion \? 'obra\(s\)'/.test(scr));
 ok('el nombre del archivo dice el eje', /resumen por obra /.test(scr));
 ok('el papel deja constancia del filtro de obra', /Obras: \$\{esc\(Array\.from\(filterUbicacionSel\.values\(\)\)/.test(scr));
-ok('las columnas reciben el eje', /columnasDetalle\(op, resumenEje\)/.test(scr) && /columnasResumen\(op, resumenEje\)/.test(scr));
+ok('las columnas reciben el eje', /columnasDetalle\(op, ejeD\)/.test(scr) && /columnasResumen\(op, resumenEje\)/.test(scr));
 ok('el detallado muestra el nombre GRABADO, no el del catálogo de hoy',
   /ubicacion: r\.ubicacionNombre \|\| SIN_UBICACION_LABEL/.test(scr));
 // ⭐ 15-sep-2026: «Agrupar por obra» separaba bien los viajes (por id) pero rotulaba TODAS

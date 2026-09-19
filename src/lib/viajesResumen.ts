@@ -374,3 +374,34 @@ export function camionesQueSalieron(res: ResumenViajes): CamionesQueSalieron {
     .sort((a, b) => Number(esCubetaSin(a.key)) - Number(esCubetaSin(b.key)) || cmp(a.name, b.name));
   return { grupos, totalCamiones: res.totalCamiones, groupBy: res.groupBy };
 }
+
+// ── EL DETALLADO, PARTIDO POR EMPRESA / LISTERO / OBRA (19-sep-2026) ────────
+//
+// Pedido del cliente: que la lista completa (viaje por viaje) también se pueda sacar
+// por empresa, por obra o por listero. El resumido y el de «solo camiones» ya se
+// partían; el detallado era una sola tabla larga.
+//
+// ⭐ NO CUENTA NADA: solo reparte las filas que recibe, sin perder ni repetir
+//    ninguna. La suma de los grupos es siempre el total de la lista, con los mismos
+//    filtros. Dentro de cada grupo las filas conservan el orden en que venían.
+//
+// Los grupos van por nombre (A→Z) y los «Sin empresa / listero / ubicación» al
+// final, igual que en el resumido y en «solo camiones».
+
+export type GrupoDetalle<T> = { key: string; name: string; filas: T[] };
+
+export function agruparDetalle<T>(
+  filas: readonly T[] | null | undefined,
+  grupoDe: (r: T) => { key: string; name: string },
+): GrupoDetalle<T>[] {
+  const map = new Map<string, GrupoDetalle<T>>();
+  for (const r of filas ?? []) {
+    const g = grupoDe(r);
+    const key = String(g?.key ?? '');
+    let cur = map.get(key);
+    if (!cur) { cur = { key, name: String(g?.name ?? '').trim() || '—', filas: [] }; map.set(key, cur); }
+    cur.filas.push(r);
+  }
+  return Array.from(map.values())
+    .sort((a, b) => Number(esCubetaSin(a.key)) - Number(esCubetaSin(b.key)) || cmp(a.name, b.name));
+}
