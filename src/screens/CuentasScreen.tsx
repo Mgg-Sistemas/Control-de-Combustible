@@ -34,6 +34,7 @@ import { reciboCuentaHtml } from '../lib/reciboCuenta';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { matchNorm, norm, cmpText } from '../lib/text';
+import { leerNumero } from '../lib/numeros';
 
 // Grado de prioridad (opcional). Orden de urgencia: alta > media > baja > (sin).
 type Prioridad = 'alta' | 'media' | 'baja';
@@ -45,7 +46,9 @@ const PRIORIDAD_INFO: Record<Prioridad, { label: string; tone: 'danger' | 'warni
 const PRIORIDAD_RANK: Record<Prioridad, number> = { alta: 0, media: 1, baja: 2 };
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+// ⚠️ 19-sep-2026: antes botaba la coma («100,50» se guardaba como 10050). Ahora punto
+//    y coma valen igual; la regla vive en src/lib/numeros.ts.
+const parseNum = leerNumero;
 const nowISO = () => new Date().toISOString();
 
 // ── Fechas ───────────────────────────────────────────────────────────────────
