@@ -112,11 +112,12 @@ ok('el estado se sigue calculando para cada camion', codigo.includes('truckEstad
 ok('* y se sigue congelando en el viaje', codigo.includes('estadoMaquina: estadoConteo'));
 ok('* el chip de estado sigue en el buscador', codigo.includes('ESTADO_CONTEO_META[truckEstadoConteo(t)]'));
 
-// -- 4) LA ALERTA DE "CAMION SIN VIAJES" SI SIGUE EXCLUYENDOLOS --------------
-// Es otro uso, y es el correcto: reclamarle a la jefa que una maquina RETIRADA
-// no viajo es ruido. Si alguien borra ESTADO_ADVERSO entero, esto lo agarra.
-ok('* la alerta sigue sin reclamar por camiones averiados/retirados',
-  /!ESTADO_ADVERSO\.includes\(truckEstadoConteo\(t\)\)/.test(codigo));
+// -- 4) LA ALERTA DE "CAMION SIN VIAJES" SE QUITO (19-sep-2026) --------------
+// Era el unico uso que le quedaba a ESTADO_ADVERSO (excluir averiados y retirados
+// de esa alerta). El cliente pidio quitar el apartado entero, asi que la lista se
+// fue con el. Lo que NO puede volver es que el estado frene el registro (arriba).
+ok('* la alerta de camiones sin viaje ya no existe, ni su lista de estados',
+  !/const ESTADO_ADVERSO\b/.test(codigo) && !/alertList/.test(codigo));
 
 // -- 5) ESTE MODULO NO LE TOCA EL ESTADO A NINGUNA MAQUINA -------------------
 // Lo mas importante de todo. Registrar un viaje contra un camion averiado NO lo
