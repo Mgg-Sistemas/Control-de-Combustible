@@ -4667,6 +4667,11 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 
 - **Resumen de hoy:** ranking de viajes por camión (comparado contra su **meta diaria**, si tiene
   una puesta) y total por listero.
+- 🙈 **«Camiones sin viaje reciente» está OCULTO desde el 19/09/2026**, a pedido, junto con su
+  «umbral de alerta» de Configuración. **Oculto, no eliminado:** todo sigue en el sistema y se
+  puede volver a mostrar cuando se pida, sin perder nada (ni viajes, ni metas, ni el umbral
+  guardado). Mientras está oculto tampoco consulta la base. Para ver qué camiones no han hecho
+  viajes, usa la **Lista completa de viajes** con **🚚 Solo camiones** del día. Lo que hacía:
 - **⚠️ Camiones sin viaje reciente:** aviso dentro de la pantalla (no es notificación push) cuando
   un camión lleva más del **umbral configurado** (arranca en 6 horas, se ajusta en
   "Configuración") sin registrar viaje — no incluye camiones averiados, parados o retirados, que
