@@ -2252,6 +2252,16 @@ empresa, estado y ubicación) y las jornadas sin validar.
 >   Inspecciones (o finalízala) y después déjala en 0 en Control.
 > - **"Con salida"** cuenta los camiones con hora de salida registrada; **"Con movimiento"**, todos
 >   los que tienen horas o jornada abierta.
+
+> **🚚 Camiones (asistencia): solo con salida o todos (19/09/2026).** Arriba de las pastillas de
+> columnas está **¿QUÉ CAMIONES SALEN EN LA LISTA Y EN EL PDF?**, con dos opciones y cuántos trae
+> cada una: **🚚 Todos con movimiento** (lo que salía siempre) y **🟠 Solo con salida**.
+> - **Con salida** son los camiones a los que alguien les inició la jornada o que pasaron por el patio.
+> - El resto de «con movimiento» solo tiene horas en Control: las **12 horas que el sistema pone
+>   solo a las 7:05 p. m.** a las máquinas de día que nadie inició, u horas cargadas a mano. Esos
+>   ahora salen con estado **«— sin salida»** (antes decían «En obra», como si estuvieran en la calle).
+> - La opción cambia la lista de la pantalla y el PDF. El papel corto lo dice en el subtítulo
+>   («SOLO CON SALIDA: 19 de 52») y en el nombre del archivo.
 >
 > Las horas se calculan con la **misma fórmula** que el **Reporte del día por empresa** y el
 > **Control de maquinaria**, así que los números **coinciden** entre los tres.
