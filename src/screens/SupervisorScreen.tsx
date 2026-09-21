@@ -25,6 +25,7 @@ import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, business
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { paradaShiftOf } from '../lib/inspectorDaySets';
+import { SosAutomatizacionCard } from '../components/SosAutomatizacionCard';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { notifyAdmins } from '../lib/notify';
@@ -2498,6 +2499,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   return (
     <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
+      {/* Solo administradores (la tarjeta se esconde sola, y la base no le da la fila a
+          nadie más): encender o apagar la automatización del Inspector SOS. */}
+      <SosAutomatizacionCard />
       {pendingSync > 0 ? (
         <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ fontSize: 16 }}>📶</Text>
