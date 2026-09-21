@@ -6,7 +6,15 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { FoodDistribution, MealType } from '../types/database';
-import { saveFoodDistribution, listForEmployeeDay, deleteFoodDistribution } from '../lib/foodDistributions';
+import { saveFoodDistribution, listForEmployeeDay, listForContactoDay, deleteFoodDistribution } from '../lib/foodDistributions';
+import { levelMeets } from '../lib/permissions';
+import {
+  ContactoCocina, CobrarA,
+  cobrarAEfectivo, contactoActivo, contactoConCedula, formatearCedula, nombreDeContacto,
+  normalizarCedula, validarCantidadComidas,
+} from '../lib/comidaContactos';
+import { cargarContactos } from '../lib/comidaContactosDb';
+import { ContactoCocinaForm } from '../components/ContactoCocinaForm';
 import { MEALS, mealLabel } from '../lib/foodCompanyMeals';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId, parseComidaId } from './ScanQrScreen';
@@ -51,7 +59,21 @@ function servingByTime(): MealType {
   return h < 11 ? 'desayuno' : h < 15 ? 'almuerzo' : h < 18 ? 'lunch' : 'cena';
 }
 
-type Person = { id: string; name: string; cedula: string | null; cargo: string | null; photo_url: string | null; companyName: string };
+// Una persona en el mostrador. Puede venir de la NÓMINA (por su carnet) o de la
+// AGENDA DE COCINA (21-sep-2026). Es el mismo tipo a propósito: la pantalla la
+// atiende igual; lo que cambia es a qué columna va su entrega y si paga.
+type Person = {
+  id: string;
+  name: string;
+  cedula: string | null;
+  cargo: string | null;
+  photo_url: string | null;
+  companyName: string;
+  /** Con esto puesto, es un contacto de cocina y NO de nómina. */
+  contactoId?: string | null;
+  /** A quién se le cobra lo que pida. Se congela en cada entrega. */
+  cobrarA?: CobrarA;
+};
 
 /**
  * Vista de COCINA: reparte la comida. Escanea el carnet de la persona (o la
@@ -60,8 +82,12 @@ type Person = { id: string; name: string; cedula: string | null; cargo: string |
  */
 export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation }: { initialEmployeeId?: string; onConsumed?: () => void; navigation?: any } = {}) {
   const { colors } = useTheme();
-  const { session, signOut } = useAuth();
+  const { session, signOut, moduleLevel } = useAuth();
   const uid = session?.user?.id ?? '';
+  // Crear contactos es de «escritura o full en Distribución de comida» (decisión del
+  // cliente, 21-sep-2026). Verificarse con el carnet de cocina habilita a REPARTIR,
+  // que es otra cosa: quien reparte no necesariamente da de alta gente nueva.
+  const puedeCrearContactos = levelMeets(moduleLevel('comida'), 'escritura');
   const today = caracasToday();
   const consumedRef = React.useRef(false);
 
@@ -86,6 +112,18 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   const [served, setServed] = useState(0); // contador de esta sesión
   // Conteo del día por comida (TODAS las personas repartidas hoy), en vivo.
   const [dayCounts, setDayCounts] = useState<Record<string, number>>({});
+  // ── AGENDA DE COCINA (21-sep-2026) ────────────────────────────────────────
+  // Se lee entera y se guarda acá: es una tabla chica y así la búsqueda por cédula
+  // no consulta la base en cada tecla. `sinTablaContactos` = falta correr el SQL;
+  // en ese caso la pantalla sigue funcionando para todo lo de nómina.
+  const [contactos, setContactos] = useState<ContactoCocina[]>([]);
+  const [sinTablaContactos, setSinTablaContactos] = useState(false);
+  const [empresas, setEmpresas] = useState<{ id: string; name: string }[]>([]);
+  const [formAbierto, setFormAbierto] = useState(false);
+  // La cédula que se buscó y no apareció en ningún lado: con ella se abre el alta.
+  const [cedulaNoHallada, setCedulaNoHallada] = useState('');
+  // Cuántas comidas pide el contacto de una. Los de nómina siguen siendo 1 por día.
+  const [cantidad, setCantidad] = useState('1');
   // Modo de entrega: torniquete (registra la comida fija de la sesión) o
   // "elegir por persona" (al escanear abre a la persona y el cocinero elige la
   // comida — p. ej. alguien que llega a almorzar a las 4pm).
@@ -98,6 +136,25 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     setLoading(false);
   }, [uid]);
   React.useEffect(() => { loadMyName(); }, [loadMyName]);
+
+  // La agenda y las empresas, una vez al entrar. Si falla, NO se deja la lista vacía
+  // en silencio: una agenda vacía haría que alguien diera de alta otra vez a quien ya
+  // está registrado, que es justo lo que esta agenda existe para evitar.
+  const loadAgenda = React.useCallback(async () => {
+    try {
+      const [ag, comps] = await Promise.all([
+        cargarContactos(),
+        supabase.from('companies').select('id, name, hidden').order('name', { ascending: true }),
+      ]);
+      setContactos(ag.contactos);
+      setSinTablaContactos(ag.sinTabla);
+      setEmpresas(((comps.data ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: String(c.id), name: String(c.name ?? '') })));
+    } catch {
+      setSinTablaContactos(false);
+      setNotice('⚠️ No se pudo leer la agenda de cocina. Busca por cédula igual, pero no des de alta a nadie hasta que vuelva: podrías duplicarlo.');
+    }
+  }, []);
+  React.useEffect(() => { loadAgenda(); }, [loadAgenda]);
 
   // Conteo del día por comida: cuenta food_distributions de HOY agrupadas por tipo.
   // Se refresca al abrir y en tiempo real (ver useRealtimeRefresh más abajo), así
@@ -137,7 +194,14 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   // también se actualiza sola.
   useRealtimeRefresh(['food_distributions'], () => {
     loadDayCounts();
-    if (person) listForEmployeeDay(person.id, today).then(setTodayList);
+    // ⚠️ Un contacto se busca por SU columna. Con `listForEmployeeDay` la lista del
+    //    contacto abierto se vaciaba sola al llegar cualquier cambio de otro equipo,
+    //    porque su id no es un `employee_id` y la consulta volvía sin nada.
+    if (!person) return;
+    const leer = person.contactoId
+      ? listForContactoDay(person.contactoId, today)
+      : listForEmployeeDay(person.id, today);
+    leer.then(setTodayList);
   });
 
   const openPerson = async (employeeId: string) => {
@@ -170,15 +234,57 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     onConsumed?.();
   }, [initialEmployeeId, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Abre a un CONTACTO de la agenda: mismo mostrador, otra columna. */
+  const abrirContacto = async (c: ContactoCocina) => {
+    setScanOpen(false);
+    setNotice(null);
+    setCedulaNoHallada('');
+    setCantidad('1');
+    const emp = c.company_id ? empresas.find((e) => e.id === c.company_id)?.name ?? 'Empresa' : null;
+    const p: Person = {
+      id: c.id,
+      name: nombreDeContacto(c),
+      cedula: c.cedula ? formatearCedula(c.cedula) : null,
+      cargo: null,
+      photo_url: null,
+      companyName: emp ?? 'Por su cuenta',
+      contactoId: c.id,
+      cobrarA: cobrarAEfectivo(c),
+    };
+    setPerson(p);
+    setTodayList(await listForContactoDay(c.id, today));
+    if (!contactoActivo(c)) {
+      setNotice(`⚠️ ${p.name} está quitado de la lista. Se le puede entregar igual, pero devuélvelo a la lista desde Distribución de comida.`);
+    }
+  };
+
+  // ── BUSCAR POR CÉDULA: primero la nómina, después la agenda ───────────────
+  //
+  // ⚠️ EL ORDEN NO ES CAPRICHO. Quien está en la nómina se atiende por su carnet:
+  //    su comida tiene que ir a la cuenta de su departamento o de su empresa, que es
+  //    como se viene cobrando. Solo si NO está en nómina se mira la agenda de cocina.
   const buscarPorCedula = async () => {
     const ci = cedula.trim();
     if (ci.length < 5) { setNotice('❌ Escribe la cédula completa.'); return; }
-    setSearching(true); setNotice(null);
-    const { data } = await supabase.from('employees').select('id').eq('cedula', ci).limit(1);
+    setSearching(true); setNotice(null); setCedulaNoHallada('');
+    // `.eq` exacto para la nómina, como hasta hoy; si no cae, se prueba por los
+    // dígitos, porque en `employees` la cédula está escrita de mil maneras.
+    const { data } = await supabase.from('employees').select('id, cedula').eq('cedula', ci).limit(1);
+    let emp: any = data && data[0];
+    if (!emp) {
+      const { data: parecidas } = await supabase
+        .from('employees').select('id, cedula').ilike('cedula', `%${ci.slice(-7)}%`).limit(50);
+      emp = (parecidas as any[] | null)?.find((e) => normalizarCedula(e?.cedula) === normalizarCedula(ci));
+    }
     setSearching(false);
-    const emp = data && data[0];
-    if (emp) { setCedula(''); scanChoose ? openPerson((emp as any).id) : quickDeliver((emp as any).id); }
-    else setNotice('❌ No hay ninguna persona con esa cédula.');
+    if (emp) { setCedula(''); scanChoose ? openPerson(emp.id) : quickDeliver(emp.id); return; }
+    const c = contactoConCedula(contactos, ci);
+    if (c) { setCedula(''); abrirContacto(c); return; }
+    // No está en ningún lado. Se ofrece darlo de alta con esa misma cédula ya puesta.
+    setCedulaNoHallada(ci);
+    setNotice(puedeCrearContactos
+      ? `❌ No hay nadie con la cédula ${formatearCedula(ci)}. Si no es de nómina, regístralo como persona nueva.`
+      : `❌ No hay nadie con la cédula ${formatearCedula(ci)}. Si no es de nómina, pídele a la oficina que lo registre en Distribución de comida.`);
   };
 
   // ── Entrega RÁPIDA (torniquete): al escanear el carnet, registra la comida que
@@ -261,13 +367,26 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   const registrarMeal = async (mealType: MealType) => {
     if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
     if (!person) return;
-    if (doneMeal(mealType)) { setNotice(`ℹ️ ${mealLabel(mealType)} ya se registró hoy para ${person.name}.`); return; }
+    const esContacto = !!person.contactoId;
+    // ⚠️ EL CANDADO DE «UNA POR DÍA» ES SOLO PARA LA NÓMINA. Un contacto paga lo que
+    //    pide: puede llevarse 8 almuerzos y volver a mediodía por el suyo. Se le avisa
+    //    que ya pasó, pero no se le tranca (decisión del cliente, 21-sep-2026).
+    if (!esContacto && doneMeal(mealType)) { setNotice(`ℹ️ ${mealLabel(mealType)} ya se registró hoy para ${person.name}.`); return; }
+    let cuantas = 1;
+    if (esContacto) {
+      const motivo = validarCantidadComidas(cantidad);
+      if (motivo) { setNotice(`❌ ${motivo}`); return; }
+      cuantas = Number(String(cantidad).replace(',', '.'));
+    }
     setSavingMeal(mealType); setNotice(null);
     const { data, error } = await saveFoodDistribution({
-      employeeId: person.id,
+      // O es de nómina, o es de la agenda: nunca las dos columnas a la vez.
+      employeeId: esContacto ? null : person.id,
+      contactoId: person.contactoId ?? null,
+      cobrarA: esContacto ? (person.cobrarA ?? 'independiente') : null,
       employeeName: person.name,
       cedula: person.cedula,
-      meals: 1,
+      meals: cuantas,
       mealType,
       distributionDate: today,
       note: '',
@@ -277,8 +396,11 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     setSavingMeal(null);
     if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
     setTodayList((prev) => [data, ...prev]);
-    setDayCounts((c) => ({ ...c, [mealType]: (c[mealType] || 0) + 1 }));
-    setNotice(`✅ ${mealLabel(mealType)} registrado para ${person.name} · ${caracasClock(data.delivered_at)}.`);
+    const puestas = Number(data.meals) || 1;
+    setDayCounts((c) => ({ ...c, [mealType]: (c[mealType] || 0) + puestas }));
+    setNotice(puestas > 1
+      ? `✅ ${puestas} ${mealLabel(mealType)}(s) registrados para ${person.name} · ${caracasClock(data.delivered_at)}.`
+      : `✅ ${mealLabel(mealType)} registrado para ${person.name} · ${caracasClock(data.delivered_at)}.`);
   };
 
   const borrar = async (id: string) => {
@@ -431,6 +553,31 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
               <Text style={{ color: colors.text, fontWeight: '700' }}>{searching ? '…' : (scanChoose ? 'Abrir' : 'Entregar')}</Text>
             </TouchableOpacity>
           </View>
+
+          {/* ── PERSONA NUEVA (21-sep-2026) ──────────────────────────────────
+              Quien no es de nómina y viene a comprar comida se registra acá, en
+              una agenda que solo usa Cocina. La cédula que se acaba de buscar sin
+              éxito entra ya puesta en el formulario: nadie la va a escribir dos
+              veces con la cola esperando. */}
+          {sinTablaContactos ? (
+            <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.sm }}>
+              ⚠️ La agenda de personas que compran comida todavía no está creada en la base. Avisa al administrador.
+            </Text>
+          ) : puedeCrearContactos ? (
+            <TouchableOpacity
+              onPress={() => { setNotice(null); setFormAbierto(true); }}
+              style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                ➕ Persona nueva{cedulaNoHallada ? ` · ${formatearCedula(cedulaNoHallada)}` : ''}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
+              ¿Alguien que no es de nómina viene a comprar comida? La oficina lo registra en Distribución de comida
+              y después aparece acá por su cédula.
+            </Text>
+          )}
         </Card>
       ) : null}
 
@@ -451,31 +598,74 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
                 <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>{person.name}</Text>
                 {person.cargo ? <Text style={{ color: colors.muted, fontSize: 12, textTransform: 'uppercase' }}>{person.cargo}</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{person.cedula ? `C.I ${person.cedula} · ` : ''}{person.companyName}</Text>
+                {person.contactoId ? (
+                  <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800', marginTop: 2 }}>
+                    📇 Contacto de cocina · se le cobra a {person.cobrarA === 'empresa' ? person.companyName : 'él mismo'}
+                  </Text>
+                ) : null}
               </View>
             </View>
           </Card>
 
           <Card>
-            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Marca la comida que se le entrega (1 vez por día cada una):</Text>
+            {person.contactoId ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                  ¿Cuántas comidas pide? Después toca cuál es:
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => setCantidad((v) => String(Math.max(1, (Number(v) || 1) - 1)))}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>−</Text>
+                  </TouchableOpacity>
+                  <TextInput
+                    value={cantidad}
+                    onChangeText={(t) => setCantidad(t.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    inputMode="numeric"
+                    style={[input, { flex: 1, textAlign: 'center', fontWeight: '900', fontSize: 18 }]}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setCantidad((v) => String((Number(v) || 0) + 1))}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Marca la comida que se le entrega (1 vez por día cada una):</Text>
+            )}
             <View style={{ gap: spacing.sm }}>
               {MEALS.map((mt) => {
                 const done = doneMeal(mt.key);
                 const busy = savingMeal === mt.key;
+                // Un contacto NUNCA se tranca: se le avisa que ya pasó y él decide.
+                const trancado = !person.contactoId && !!done;
                 return (
                   <TouchableOpacity
                     key={mt.key}
                     onPress={() => registrarMeal(mt.key)}
-                    disabled={!!done || busy}
-                    style={{ borderRadius: radius.md, padding: spacing.md, backgroundColor: done ? colors.surfaceAlt : mt.color, borderWidth: done ? 1 : 0, borderColor: colors.border, opacity: busy ? 0.6 : 1 }}
+                    disabled={trancado || busy}
+                    style={{ borderRadius: radius.md, padding: spacing.md, backgroundColor: trancado ? colors.surfaceAlt : mt.color, borderWidth: trancado ? 1 : 0, borderColor: colors.border, opacity: busy ? 0.6 : 1 }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Text style={{ color: done ? colors.text : '#fff', fontWeight: '900', fontSize: 18 }}>{mt.icon} {mt.label}</Text>
-                      {done ? (
-                        <Text style={{ color: colors.success, fontWeight: '900', fontSize: 13 }}>✅ {caracasClock(done.delivered_at)}</Text>
+                      <Text style={{ color: trancado ? colors.text : '#fff', fontWeight: '900', fontSize: 18 }}>{mt.icon} {mt.label}</Text>
+                      {trancado ? (
+                        <Text style={{ color: colors.success, fontWeight: '900', fontSize: 13 }}>✅ {caracasClock(done!.delivered_at)}</Text>
                       ) : (
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{busy ? 'Guardando…' : 'Marcar ›'}</Text>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
+                          {busy ? 'Guardando…' : person.contactoId ? `Entregar ${Number(cantidad) || 1} ›` : 'Marcar ›'}
+                        </Text>
                       )}
                     </View>
+                    {person.contactoId && done ? (
+                      <Text style={{ color: '#fff', fontSize: 11, marginTop: 2, opacity: 0.9 }}>
+                        Ya se llevó {mealLabel(mt.key)} hoy ({caracasClock(done.delivered_at)}). Se le puede entregar de nuevo.
+                      </Text>
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -508,6 +698,26 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       {/* Seguridad: iniciar sesión con huella (disponible para todos los usuarios). */}
       <SectionTitle>Seguridad</SectionTitle>
       <BiometricToggle />
+
+      {/* El alta de una persona nueva. El MISMO formulario que usa la oficina en
+          «📇 Contactos»: si fueran dos, uno pediría distinto que el otro. */}
+      <ContactoCocinaForm
+        visible={formAbierto}
+        onClose={() => setFormAbierto(false)}
+        contactos={contactos}
+        empresas={empresas}
+        cedulaInicial={cedulaNoHallada || cedula}
+        canEdit={puedeCrearContactos}
+        quien={{ id: uid || null, nombre: cook?.name || myName || null }}
+        onGuardado={async (c) => {
+          setFormAbierto(false);
+          setCedula('');
+          await loadAgenda();
+          await abrirContacto(c);
+          setNotice(`✅ ${nombreDeContacto(c)} quedó registrado. Ya se le puede entregar.`);
+        }}
+        onYaExiste={(c) => { setFormAbierto(false); setCedula(''); abrirContacto(c); }}
+      />
 
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>

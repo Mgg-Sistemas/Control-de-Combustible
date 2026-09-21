@@ -45,6 +45,8 @@ type Props = {
   filtroEmpresa: string;
   canEdit: boolean;
   usuarioId: string | null;
+  /** Nombre de quien usa la pantalla: queda en el contacto de cocina que cree. */
+  usuarioNombre?: string | null;
 };
 
 const usd = (n: number) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -74,7 +76,7 @@ const contarItems = (cuentas: CuentaComida[], cond: (it: ItemCobro) => boolean) 
 };
 const resumirDetalle = (d: string[]) => (d.length > 4 ? `${d.slice(0, 4).join(', ')} y ${d.length - 4} más` : d.join(', '));
 
-export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, filtroEmpresa, canEdit, usuarioId }: Props) {
+export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, filtroEmpresa, canEdit, usuarioId, usuarioNombre }: Props) {
   const { colors } = useTheme();
   const [precios, setPrecios] = useState<PrecioComida[] | null>(null);
   const [fichas, setFichas] = useState<Map<string, EmpresaDePersona> | null>(null);
@@ -297,6 +299,7 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
         onClose={() => setPanelOpen(false)}
         canEdit={canEdit}
         usuarioId={usuarioId}
+        usuarioNombre={usuarioNombre}
         hoy={hoy}
         onChanged={cargar}
       />
