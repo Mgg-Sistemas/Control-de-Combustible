@@ -35,9 +35,10 @@ import {
 } from '../lib/comidaReporteOpciones';
 import {
   FiltroComida, acotarFiltro, agruparEmpresas, agruparPersonas, alcanceEnPalabras, cedulasPorClave,
+  comidasDeContactosACobrarA, cuentaDeContacto, esDeContacto,
   claveEmpresa, clavePersona, filtrarComidas, filtroSinEntregas, lineasDetalle, totalesDeGrupos,
 } from '../lib/comidaReporte';
-import { CSS_REPORTE_COMIDA, cuerpoReporteComida, nombreArchivoComida, subtituloReporteComida } from '../lib/comidaReporteHtml';
+import { CSS_REPORTE_COMIDA, cuerpoReporteComida, nombreArchivoComida, tituloReporteComida, subtituloReporteComida } from '../lib/comidaReporteHtml';
 
 type Props = {
   visible: boolean;
@@ -74,6 +75,9 @@ export function ComidaReporteModal({
   const [comidasSel, setComidasSel] = useState<Set<string>>(new Set());
   const [conEmpresas, setConEmpresas] = useState(true);
   const [conPersonas, setConPersonas] = useState(true);
+  // Tercer interruptor (21-sep-2026): las entregas a contactos de cocina. Arranca
+  // encendido como los otros dos: «lo que no se tocó, entra».
+  const [conContactos, setConContactos] = useState(true);
   const [opciones, setOpciones] = useState<OpcionesComida>(OPCIONES_COMIDA_COMO_ANTES);
   const [ocupado, setOcupado] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -101,6 +105,10 @@ export function ComidaReporteModal({
     setEmpresasSel(unaEmpresa ? new Set([empresaInicial]) : new Set());
     setConEmpresas(true);
     setConPersonas(!unaEmpresa);
+    // Con una empresa elegida los contactos quedan fuera por el MISMO motivo que el
+    // carnet: van en el cuadro de personas, con nombre y cédula, y esa hoja se le
+    // entrega a la empresa. Lo que sus contactos le cargan a ella se avisa aparte.
+    setConContactos(!unaEmpresa);
   }, [visible, desdeInicial, hastaInicial, empresaInicial]);
 
   // Sin permiso de cobro no hay montos posibles: la pastilla queda encendida y
@@ -117,11 +125,18 @@ export function ComidaReporteModal({
     return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
   }, [entregasEmpresa]);
 
+  // Solo se ofrecen las personas de los interruptores ENCENDIDOS: ofrecer a alguien
+  // que el papel no va a traer es invitar a sacar una hoja vacía. Los contactos van
+  // marcados con 📇 para no confundirlos con la gente de nómina.
   const personasDisponibles = useMemo(() => {
     const m = new Map<string, string>();
-    entregasPersona.forEach((r) => m.set(clavePersona(r), r.employee_name));
+    entregasPersona.forEach((r) => {
+      const contacto = esDeContacto(r);
+      if (contacto ? !conContactos : !conPersonas) return;
+      m.set(clavePersona(r), `${contacto ? '📇 ' : ''}${r.employee_name}`);
+    });
     return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
-  }, [entregasPersona]);
+  }, [entregasPersona, conPersonas, conContactos]);
 
   // ⚠️ El filtro se ACOTA a lo cargado ANTES de usarse (`acotarFiltro`): en la PC
   //    la fecha se puede escribir fuera del calendario, y el papel no puede
@@ -132,7 +147,7 @@ export function ComidaReporteModal({
       empresas: Array.from(empresasSel),
       personas: Array.from(personasSel),
       comidas: Array.from(comidasSel),
-      conEmpresas, conPersonas,
+      conEmpresas, conPersonas, conContactos,
     },
     {
       desde: desdeInicial,
@@ -140,7 +155,7 @@ export function ComidaReporteModal({
       empresas: empresasDisponibles.map((e) => e.id),
       personas: personasDisponibles.map((p) => p.id),
     },
-  ), [desde, hasta, empresasSel, personasSel, comidasSel, conEmpresas, conPersonas, desdeInicial, hastaInicial, hoy, empresasDisponibles, personasDisponibles]);
+  ), [desde, hasta, empresasSel, personasSel, comidasSel, conEmpresas, conPersonas, conContactos, desdeInicial, hastaInicial, hoy, empresasDisponibles, personasDisponibles]);
 
   // Elegir una EMPRESA apaga lo de carnet la primera vez: las entregas por
   // carnet no dicen de qué empresa son, y dejarlas encendidas metería en el papel
@@ -149,8 +164,9 @@ export function ComidaReporteModal({
   const alternarEmpresa = (clave: string) => {
     const n = new Set(empresasSel);
     if (n.has(clave)) n.delete(clave); else n.add(clave);
-    if (empresasSel.size === 0 && n.size > 0 && conPersonas && personasSel.size === 0) {
+    if (empresasSel.size === 0 && n.size > 0 && (conPersonas || conContactos) && personasSel.size === 0) {
       setConPersonas(false);
+      setConContactos(false);
       setNotaCarnet(true);
     }
     setEmpresasSel(n);
@@ -168,8 +184,15 @@ export function ComidaReporteModal({
     const e = filtrarComidas({ empresas: entregasEmpresa, personas: entregasPersona }, filtro);
     const gE = agruparEmpresas(e.empresas, precios, platoAPrecio);
     const gP = agruparPersonas(e.personas, precios);
-    return { e, gE, gP, totales: totalesDeGrupos(gE, gP), vacio: filtroSinEntregas(e) };
-  }, [entregasEmpresa, entregasPersona, filtro, precios, platoAPrecio]);
+    return {
+      e, gE, gP, totales: totalesDeGrupos(gE, gP), vacio: filtroSinEntregas(e),
+      // ¿El papel es de UN contacto? Entonces se encabeza como su cuenta.
+      cuenta: cuentaDeContacto(e),
+      // Comidas de contactos que se le cobran a la(s) empresa(s) elegida(s) y que este
+      // papel NO trae: la tarjeta de cobro sí se las suma, y hay que decirlo.
+      deContactosFuera: conContactos ? 0 : comidasDeContactosACobrarA(entregasPersona, filtro),
+    };
+  }, [entregasEmpresa, entregasPersona, filtro, precios, platoAPrecio, conContactos]);
 
   const alternarEn = (set: Set<string>, poner: (s: Set<string>) => void, clave: string) => {
     const n = new Set(set);
@@ -195,14 +218,15 @@ export function ComidaReporteModal({
         lineas: opcionesReales.sinDetalle ? [] : lineasDetalle(e, precios, platoAPrecio),
         totales: previo.totales,
         nombres,
+        cuentaContacto: previo.cuenta,
       });
       const html = pdfDocument({
-        title: '🍽️ Control de entregas de comida',
+        title: tituloReporteComida(previo.cuenta),
         subtitle: subtituloReporteComida(filtro),
         body: cuerpo,
         extraCss: CSS_REPORTE_COMIDA,
       });
-      await exportPdf(html, nombreArchivoComida(filtro, sufijoArchivoComida(opcionesReales)));
+      await exportPdf(html, nombreArchivoComida(filtro, sufijoArchivoComida(opcionesReales), previo.cuenta));
     } catch (err: any) {
       setAviso('❌ No se pudo armar el reporte: ' + (err?.message ?? 'revisa la conexión'));
     } finally {
@@ -226,7 +250,7 @@ export function ComidaReporteModal({
   );
 
   const sinContenido = comidaSinContenido(opcionesReales);
-  const noSePuede = sinContenido || previo.vacio || (!conEmpresas && !conPersonas);
+  const noSePuede = sinContenido || previo.vacio || (!conEmpresas && !conPersonas && !conContactos);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -257,7 +281,19 @@ export function ComidaReporteModal({
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {casilla('qr', '🏢 Entregas por empresa (QR)', conEmpresas, () => setConEmpresas((v) => !v))}
               {casilla('carnet', '👤 Entregas por carnet', conPersonas, () => { setConPersonas((v) => !v); setNotaCarnet(false); })}
+              {casilla('contactos', '📇 Contactos de cocina', conContactos, () => { setConContactos((v) => !v); setNotaCarnet(false); })}
             </View>
+            {previo.cuenta ? (
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>
+                📇 Este papel es de una sola persona: sale encabezado como {previo.cuenta.aEmpresa.length === 0 ? 'la cuenta' : 'las comidas'} de {previo.cuenta.nombre}.
+                {previo.cuenta.aEmpresa.length > 0 ? ' Parte se le cobra a su empresa, y el papel lo dice arriba.' : ''}
+              </Text>
+            ) : null}
+            {previo.deContactosFuera > 0 ? (
+              <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
+                ⚠️ {previo.deContactosFuera} comida(s) de contactos de cocina se le cobran a lo elegido y NO van en este papel. La tarjeta «💵 Cobro de comidas» sí se las suma a la empresa: si necesitas verlas acá, enciende «📇 Contactos de cocina».
+              </Text>
+            ) : null}
             {notaCarnet || (!conPersonas && empresasSel.size > 0) ? (
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
                 Con una empresa elegida, lo de carnet queda fuera: las entregas por carnet no dicen de qué empresa son, y el papel de esa empresa llevaría lo que comió todo el mundo. Enciéndelo si de verdad lo quieres.
@@ -282,7 +318,7 @@ export function ComidaReporteModal({
               </>
             ) : null}
 
-            {conPersonas && personasDisponibles.length > 0 ? (
+            {(conPersonas || conContactos) && personasDisponibles.length > 0 ? (
               <>
                 {rotulo(`👤 Personas (vacío = todas · ${personasDisponibles.length})`)}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>

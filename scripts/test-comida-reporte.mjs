@@ -306,8 +306,12 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   ok('...y no la clave cruda', !filtrado.some((l) => l.includes('e2')));
   ok('nombra la comida', filtrado.some((l) => l.includes('Almuerzo')));
 
-  const nada = REP.alcanceEnPalabras({ ...TODO, conEmpresas: false, conPersonas: false }, nombres);
-  ok('⭐ sin QR ni carnet, avisa que el papel sale vacío', nada.some((l) => l.includes('vacío')));
+  // Desde el 21-sep-2026 son TRES interruptores: el papel sale vacío con los tres apagados.
+  const nada = REP.alcanceEnPalabras({ ...TODO, conEmpresas: false, conPersonas: false, conContactos: false }, nombres);
+  ok('⭐ sin QR, ni carnet, ni contactos, avisa que el papel sale vacío', nada.some((l) => l.includes('vacío')));
+  const soloContactos = REP.alcanceEnPalabras({ ...TODO, conEmpresas: false, conPersonas: false }, nombres);
+  ok('⭐ con solo contactos encendido NO dice vacío, dice qué entra', !soloContactos.some((l) => l.includes('vacío')) && soloContactos.some((l) => /SOLO.*contactos de cocina/.test(l)));
+  ok('con los tres encendidos dice que entra todo', REP.alcanceEnPalabras(TODO, nombres).some((l) => /Entra todo/.test(l)));
 }
 
 // ── 11) EL LISTADO ENTREGA POR ENTREGA ──────────────────────────────────────
@@ -474,6 +478,78 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
 {
   ok('las tres tablas titulan «Valor ($)»',
     OPC.TITULO_EMPRESA.monto === 'Valor ($)' && OPC.TITULO_PERSONA.monto === 'Valor ($)' && OPC.TITULO_DETALLE.monto === 'Valor ($)');
+}
+
+// ── 20) CONTACTOS DE COCINA EN EL PAPEL (Fase 2, 21-sep-2026) ───────────────
+{
+  const leer = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  const sinComentarios = (t) => t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const COBRO = loadTs('src/lib/cobroComidas.ts');
+  const P2 = [{ id: 'p1', categoria: 'almuerzo', precio: 4, desde: '2026-09-01', hasta: null }];
+  const F = { ...REP.FILTRO_COMIDA_TODO, desde: '2026-09-14', hasta: '2026-09-15' };
+  const nomina = { id: 'n1', employee_id: 'x1', employee_name: 'Persona Nomina', cedula: '111', meal_type: 'almuerzo', distribution_date: '2026-09-14', meals: 1 };
+  const kInd = { id: 'c1', employee_id: null, contacto_id: 'k1', cobrar_a: 'independiente', employee_name: 'Ana Rojas', cedula: 'V-11.111.111', meal_type: 'almuerzo', distribution_date: '2026-09-14', meals: 3 };
+  // La misma Ana, otro día, con la cédula escrita distinto: sigue siendo UNA persona.
+  const kInd2 = { ...kInd, id: 'c2', cedula: '11111111', distribution_date: '2026-09-15', meals: 2 };
+  const kEmp = { id: 'c3', employee_id: null, contacto_id: 'k2', cobrar_a: 'empresa', contacto_company_id: 'e1', contacto_company_nombre: 'EMPRESA UNO', employee_name: 'Beto Mora', cedula: '222', meal_type: 'almuerzo', distribution_date: '2026-09-14', meals: 5 };
+  const qr = { id: 'q1', company_id: 'e1', company_name: 'EMPRESA UNO', meal_type: 'almuerzo', meal_date: '2026-09-14', delivered: 10 };
+  const todas = [nomina, kInd, kInd2, kEmp];
+
+  eq('⭐ el contacto manda en la clave, antes que la ficha y la cédula', REP.clavePersona({ contacto_id: 'k1', employee_id: 'x9', cedula: '1', employee_name: 'n' }), 'k1');
+  eq('una fila de nómina conserva su clave de siempre', REP.clavePersona(nomina), 'x1');
+  eq('⭐ la misma persona con la cédula escrita distinto es UN renglón', REP.agruparPersonas([kInd, kInd2], P2).length, 1);
+
+  const claves = (f) => REP.filtrarComidas({ empresas: [qr], personas: todas }, f).personas.map((r) => r.id);
+  eq('con todo encendido entran todos', claves(F), ['n1', 'c1', 'c2', 'c3']);
+  eq('⭐ sin «carnet» se va la nómina y los contactos SIGUEN', claves({ ...F, conPersonas: false }), ['c1', 'c2', 'c3']);
+  eq('⭐ sin «contactos» se van los contactos y la nómina SIGUE', claves({ ...F, conContactos: false }), ['n1']);
+  // ⭐ Quien arma un filtro sin conocer el campo nuevo no puede perder a los contactos.
+  const viejo = { ...F }; delete viejo.conContactos;
+  eq('⭐ un filtro sin el campo nuevo los deja entrar', claves(viejo), ['n1', 'c1', 'c2', 'c3']);
+
+  // LA CUENTA DE UNA PERSONA
+  const soloAna = REP.filtrarComidas({ empresas: [qr], personas: todas }, { ...F, conEmpresas: false, conPersonas: false, personas: ['k1'] });
+  const cAna = REP.cuentaDeContacto(soloAna);
+  eq('⭐ un papel con un solo contacto es SU cuenta', [cAna?.nombre, cAna?.independiente, cAna?.aEmpresa.length], ['Ana Rojas', 5, 0]);
+  eq('...y se titula «Cuenta de comidas»', HTML.tituloReporteComida(cAna), '🍽️ Cuenta de comidas · Ana Rojas');
+  ok('...y el archivo lleva su nombre', /Ana Rojas/.test(HTML.nombreArchivoComida(F, '', cAna)));
+  eq('sin cuenta, el título de siempre', HTML.tituloReporteComida(null), '🍽️ Control de entregas de comida');
+  eq('con dos personas no es la cuenta de nadie', REP.cuentaDeContacto({ empresas: [], personas: [kInd, kEmp] }), null);
+  eq('con nómina adentro tampoco', REP.cuentaDeContacto({ empresas: [], personas: [kInd, nomina] }), null);
+  eq('con algo de empresas tampoco', REP.cuentaDeContacto({ empresas: [qr], personas: [kInd] }), null);
+
+  // ⭐ EL PAPEL NO PUEDE COBRARLE A LA PERSONA LO QUE PAGA SU EMPRESA.
+  const cBeto = REP.cuentaDeContacto({ empresas: [], personas: [kEmp, { ...kInd, contacto_id: 'k2', id: 'c9', meals: 1 }] });
+  eq('⭐ lo que paga la empresa se cuenta aparte', [cBeto.independiente, cBeto.aEmpresa], [1, [{ empresa: 'EMPRESA UNO', comidas: 5 }]]);
+  ok('⭐ ...y entonces el papel NO se llama «Cuenta»', !/Cuenta/.test(HTML.tituloReporteComida(cBeto)) && /Comidas de Beto Mora/.test(HTML.tituloReporteComida(cBeto)));
+  const cuerpo = HTML.cuerpoReporteComida({
+    filtro: F, opciones: OPC.OPCIONES_COMIDA_COMPLETO, comidas: [{ key: 'almuerzo', label: 'Almuerzo' }],
+    gruposEmpresas: [], gruposPersonas: REP.agruparPersonas([kEmp], P2), lineas: [], totales: REP.totalesDeGrupos([], REP.agruparPersonas([kEmp], P2)),
+    cuentaContacto: cBeto,
+  });
+  ok('⭐ ...y el recuadro dice cuántas son de la empresa', /se le cobran a <b>EMPRESA UNO<\/b>/.test(cuerpo) && /<b>5<\/b>/.test(cuerpo));
+
+  // EL PAPEL DE UNA EMPRESA AVISA LO QUE NO TRAE
+  eq('⭐ avisa las comidas de contactos cobradas a la empresa elegida', REP.comidasDeContactosACobrarA(todas, { ...F, empresas: ['e1'] }), 5);
+  eq('...solo de ESA empresa', REP.comidasDeContactosACobrarA(todas, { ...F, empresas: ['otra'] }), 0);
+  eq('...y sin empresa elegida no hay nada que avisar', REP.comidasDeContactosACobrarA(todas, F), 0);
+
+  // ⭐ PARIDAD: el papel y la tarjeta siguen dando lo mismo CON contactos adentro.
+  const fichas = new Map([['x1', { companyId: null, companyName: null, departamento: 'COCINA' }]]);
+  const tc = COBRO.totalCobroComidas(COBRO.calcularCobroComidas({ empresas: [qr], personas: todas, empresaDePersona: fichas, precios: P2 }));
+  const tp = REP.totalesDeGrupos(REP.agruparEmpresas([qr], P2), REP.agruparPersonas(todas, P2));
+  eq('⭐ con contactos, VALOR del papel = cobro + interno de la tarjeta', tp.monto, Math.round((tc.monto + tc.montoInterno) * 100) / 100);
+  eq('⭐ ...y el total de comidas también', tp.total, tc.comidas);
+
+  const modal = sinComentarios(leer('src/components/ComidaReporteModal.tsx'));
+  ok('el modal tiene la tercera casilla', /casilla\('contactos', '📇 Contactos de cocina', conContactos,/.test(modal));
+  ok('⭐ arranca encendida, como las otras dos', /const \[conContactos, setConContactos\] = useState\(true\)/.test(modal));
+  ok('⭐ con una empresa elegida se apaga junto con el carnet', /setConPersonas\(!unaEmpresa\);\s*setConContactos\(!unaEmpresa\);/.test(modal));
+  ok('⭐ con los tres apagados no deja generar', /\(!conEmpresas && !conPersonas && !conContactos\)/.test(modal));
+  ok('el filtro lleva el interruptor y el memo se entera', /conEmpresas, conPersonas, conContactos,\s*\}/.test(modal) && /conPersonas, conContactos, desdeInicial/.test(modal));
+  ok('solo ofrece personas de los interruptores encendidos', /if \(contacto \? !conContactos : !conPersonas\) return;/.test(modal));
+  const pantalla = sinComentarios(leer('src/screens/ComidaScreen.tsx'));
+  ok('⭐ la pantalla agrupa igual que el papel', /const k = r\.contacto_id \?\? r\.employee_id \?\? \(r\.cedula \|\| r\.employee_name\);/.test(pantalla) && /const k = r\.contacto_id \?\? r\.employee_id \?\? r\.employee_name;/.test(pantalla));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-reporte · ${pass} ok · ${fail} fallando`);

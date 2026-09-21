@@ -2550,6 +2550,28 @@ reescribe la factura del mes pasado que ya se mandó.
 Distribución de comida. Si los usuarios de cocina no lo tienen, van a **ver** a los contactos y
 poder **entregarles** comida, pero el botón "➕ Persona nueva" no les sale: los da de alta la oficina.
 
+**Cómo se cobran y cómo sacar su factura (21/09/2026).** En la tarjeta **"💵 Cobro de comidas"**:
+- El contacto que **paga él** sale como **una cuenta propia, con su nombre** y el ícono 📇, entre las
+  empresas y la nómina. Se cobra siempre; no se configura en "👤 Cuentas" ni se le pone encargado
+  (viendo "por encargado" cae en *Sin encargado asignado*).
+- El contacto que **se le cobra a su empresa** **se suma a la cuenta de esa empresa**, junto con lo
+  que ella recibió por QR y por carnet, y su nombre sale en el detalle. Si esa empresa está marcada
+  "no se cobra", lo de su contacto tampoco se cobra.
+- **Cada entrega guarda a quién se le cobró y a cuál empresa**, con el nombre que tenía ese día.
+  Cambiarle mañana la empresa o el interruptor a un contacto **no mueve lo ya entregado**.
+- Nada se cobra dos veces: cada comida va a **una sola** cuenta.
+
+Para la **factura en PDF**, en **"📄 Reporte"** hay una tercera casilla en "Qué entra":
+**"📇 Contactos de cocina"**, junto a "Entregas por empresa (QR)" y "Entregas por carnet".
+- **La de todos los contactos:** deja encendida solo esa casilla.
+- **La de una persona:** además, elígela en "Personas" (los contactos van marcados con 📇). El papel
+  sale encabezado **"Cuenta de comidas · Su nombre"**, con su cédula, y el archivo lleva su nombre.
+- Si a esa persona **parte se le cobra a su empresa**, el papel **no se llama "Cuenta"**: se llama
+  "Comidas de…" y arriba dice cuántas paga la empresa y cuántas paga ella, para no cobrarle de más.
+- **El papel de una empresa** no trae a sus contactos (llevan nombre y cédula, y esa hoja se le
+  entrega a la empresa). Si hay comidas de contactos cobradas a ella, **el reporte lo avisa en
+  amarillo** con la cantidad: la tarjeta de cobro sí se las suma.
+
 **Nunca se borra un contacto.** Se **quita de la lista** (pide un segundo toque) y deja de salirle a
 la cocina; **"↩️ Devolver"** lo trae de vuelta. Sus entregas y su cuenta se conservan siempre.
 

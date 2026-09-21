@@ -212,9 +212,19 @@ const TODOS = [ana, beto, caro, dani];
   const fd = sinComentarios(leer('src/lib/foodDistributions.ts'));
   // ⭐ LA REGRESIÓN QUE DEJARÍA A LA COCINA SIN REGISTRAR NADA. Mientras el SQL no
   //    corra, esas columnas no existen y PostgREST rechaza el insert ENTERO.
+  // Las CUATRO columnas de contacto van dentro del mismo «solo si hay contacto»: fuera
+  // de ese bloque, el insert de nómina no puede nombrar ninguna.
+  const bloque = (fd.match(/\.\.\.\(input\.contactoId \? \{([\s\S]*?)\} : \{\}\),/) || [])[1] || '';
   ok('⭐ las columnas de contacto solo se mandan si hay contacto',
-    /\.\.\.\(input\.contactoId \? \{ contacto_id: input\.contactoId, cobrar_a: input\.cobrarA \?\? null \} : \{\}\)/.test(fd));
-  ok('...y nunca sueltas en el insert', !/^\s*contacto_id: input\.contactoId,\s*$/m.test(fd));
+    /contacto_id: input\.contactoId,/.test(bloque) && /cobrar_a: input\.cobrarA \?\? null,/.test(bloque)
+    && /contacto_company_id:/.test(bloque) && /contacto_company_nombre:/.test(bloque));
+  ok('...y nunca sueltas en el insert', !/contacto_|cobrar_a:/.test(fd.replace(bloque, '').split('.insert({')[1].split('.select()')[0]));
+  // ⭐ LA EMPRESA TAMBIÉN SE CONGELA (Fase 2). Si solo se congelara «a la empresa» pero
+  //    no CUÁL, cambiarle la empresa al contacto mudaría sus entregas viejas de factura.
+  ok('⭐ la empresa se congela solo cuando se le cobra a ella',
+    /contacto_company_id: input\.cobrarA === 'empresa' \? \(input\.contactoCompanyId \?\? null\) : null,/.test(bloque));
+  ok('⭐ la cocina manda la empresa del contacto al registrar',
+    /contactoCompanyId: esContacto \? \(person\.companyId \?\? null\) : null,/.test(sinComentarios(leer('src/screens/CocinaScreen.tsx'))));
   ok('las entregas de un contacto se leen por SU columna', /\.eq\('contacto_id', contactoId\)/.test(fd));
   ok('falta el SQL se dice con esas palabras', /sql-comida-contactos-2026-09-21\.sql/.test(fd));
 
