@@ -5,6 +5,15 @@ export type SaveFoodInput = {
   employeeId: string | null;
   employeeName: string;
   cedula?: string | null;
+  /** Contacto de cocina al que se le entrega (21-sep-2026). Va en vez de
+   *  `employeeId`, nunca junto con él: o es de nómina, o es de la agenda.
+   *  `employeeName` y `cedula` se llenan IGUAL con sus datos, para que las
+   *  listas y los reportes que ya existen lo muestren sin cambiarles nada. */
+  contactoId?: string | null;
+  /** A quién se le cobra ESTA entrega. Se congela acá con lo que diga la ficha
+   *  del contacto en este momento: si viviera solo en la ficha, cambiarle el
+   *  interruptor después reescribiría facturas ya entregadas. */
+  cobrarA?: 'empresa' | 'independiente' | null;
   meals: number;
   mealType?: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
   distributionDate: string;   // día ISO (Caracas)
@@ -22,6 +31,14 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
       employee_id: input.employeeId,
       employee_name: input.employeeName,
       cedula: (input.cedula ?? '').trim() || null,
+      // ⚠️ LAS COLUMNAS DE CONTACTO SOLO SE MANDAN SI HAY CONTACTO, y es a
+      //    propósito. Mientras no se corra `sql-comida-contactos-2026-09-21.sql`
+      //    esas columnas NO existen, y PostgREST rechaza el insert entero con
+      //    «column not found in schema cache». Mandarlas siempre dejaría a la
+      //    cocina sin poder registrar NI UNA comida hasta que alguien corriera
+      //    el SQL. Así, lo de nómina sigue funcionando igual que ayer y lo único
+      //    que falla es justo lo que necesita la tabla nueva.
+      ...(input.contactoId ? { contacto_id: input.contactoId, cobrar_a: input.cobrarA ?? null } : {}),
       meals: input.meals,
       meal_type: input.mealType ?? null,
       distribution_date: input.distributionDate,
@@ -34,9 +51,33 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
     .single();
   if (error) {
     const dup = (error as any).code === '23505' || /duplicate|unique/i.test(error.message);
-    return { data: null, error: dup ? 'Esa comida ya se registró hoy para esta persona.' : error.message };
+    if (dup) return { data: null, error: 'Esa comida ya se registró hoy para esta persona.' };
+    // Falta el SQL de contactos: sin esto el aviso sería «column contacto_id does
+    // not exist», que no le dice a nadie qué hacer.
+    if (input.contactoId && /contacto_id|cobrar_a|schema cache/i.test(error.message)) {
+      return { data: null, error: 'Falta correr el SQL de contactos de cocina en Supabase (sql-comida-contactos-2026-09-21.sql). Avisa al administrador.' };
+    }
+    return { data: null, error: error.message };
   }
   return { data: (data as FoodDistribution) ?? null };
+}
+
+/** Entregas de un CONTACTO de cocina en un día (más reciente primero).
+ *
+ *  Va aparte de `listForEmployeeDay` porque la clave es otra columna. Y a
+ *  diferencia de la de nómina, esta lista NO sirve para trancar: un contacto
+ *  puede pedir la misma comida dos veces en el día (paga él). Es para MOSTRAR
+ *  lo que ya se llevó, y avisar antes de repetir sin querer. */
+export async function listForContactoDay(contactoId: string, date: string): Promise<FoodDistribution[]> {
+  const { data, error } = await supabase
+    .from('food_distributions')
+    .select('*')
+    .eq('contacto_id', contactoId)
+    .eq('distribution_date', date)
+    .order('delivered_at', { ascending: false });
+  // Sin la columna todavía (falta el SQL) no hay entregas de contactos que mostrar.
+  if (error) return [];
+  return (data ?? []) as FoodDistribution[];
 }
 
 /** Entregas de comida de una persona en un día (más reciente primero). */

@@ -2508,6 +2508,54 @@ cocina elige en **"🧾 Otros"**. Solo con **permiso completo**.
 
 > El cobro **solo lee** lo entregado: no cambia cómo registra la cocina ni los conteos de la pantalla.
 
+#### 📇 Contactos de cocina (21/09/2026)
+Para la gente que **viene a comprar comida y no es de nómina**: un vecino, alguien de una empresa
+que todavía no tiene carnet, una cuadrilla que pide ocho almuerzos. Se registran en una **agenda que
+solo usa Comida**: no entran en nómina, ni en asistencia, ni en carnets, ni en usuarios.
+
+**Dónde se registran.** En dos sitios, con el mismo formulario:
+- **Desde Cocina**, cuando la persona está parada en el mostrador: se busca su cédula, y si no
+  aparece sale el botón **"➕ Persona nueva"** con esa cédula ya puesta.
+- **Desde Distribución de comida**, en **"💲 Precios y cuentas" → "📇 Contactos"**, para corregir,
+  buscar y administrar.
+
+**Qué se le pide.** Nombre, apellido y cédula. El **teléfono, el segundo teléfono y la empresa se
+pueden dejar vacíos** y no reclama nada.
+
+**Si no tiene la cédula a mano** se marca la casilla **"No la tiene a la mano"**. Entonces hace falta
+**al menos un teléfono** —algo tiene que servir para reconocerlo la próxima vez— y queda marcado
+**⚠️ sin cédula**. Arriba de la lista sale cuántos están así, para completarlos cuando vuelvan.
+
+**No se puede duplicar a nadie.** Mientras se escribe la cédula, el sistema busca **en la nómina y en
+la agenda a la vez**:
+- **Si ya es de nómina**, no deja crear el contacto: esa persona se atiende **con su carnet**, y su
+  comida va a la cuenta que ya tiene.
+- **Si ya es un contacto**, abre ese en vez de crear otro.
+- Si hay alguien con **el mismo nombre o el mismo teléfono**, lo muestra y pide un **segundo toque**
+  para guardar.
+- Los puntos y la V no importan: **V-12.345.678** y **12345678** son la misma persona, y la base no
+  deja meter las dos.
+
+**Cuántas comidas.** Igual que una empresa: se pone la cantidad y se toca la comida. Y **sin el
+candado de "una por día"** que rige para el carnet de nómina: un contacto paga lo que pide, puede
+llevarse ocho almuerzos y volver a mediodía por el suyo. Se le avisa que ya pasó, pero no se le tranca.
+
+**A quién se le cobra.** Si el contacto tiene empresa, lo que pida **se le cobra a esa empresa**. Con
+**"👤 Que pague él"** se cambia a que pague el contacto. Lo importante: **lo ya entregado no cambia
+nunca**. Cada entrega guarda a quién se le cobró en el momento, así que cambiar el interruptor hoy no
+reescribe la factura del mes pasado que ya se mandó.
+
+**Quién puede.** Crear y corregir contactos es de quien tenga **escritura o permiso completo** en
+Distribución de comida. Si los usuarios de cocina no lo tienen, van a **ver** a los contactos y
+poder **entregarles** comida, pero el botón "➕ Persona nueva" no les sale: los da de alta la oficina.
+
+**Nunca se borra un contacto.** Se **quita de la lista** (pide un segundo toque) y deja de salirle a
+la cocina; **"↩️ Devolver"** lo trae de vuelta. Sus entregas y su cuenta se conservan siempre.
+
+> **⚠️ Hace falta correr un SQL** (`sql-comida-contactos-2026-09-21.sql`). Mientras no se corra, la
+> pestaña lo dice y **todo lo demás del módulo funciona igual que siempre**: la cocina sigue
+> registrando la comida de la nómina sin ningún cambio.
+
 **👤 Cuentas: se cobra y encargado (15/09/2026).** En **"💲 Precios y cuentas"** hay una segunda
 pestaña, **"👤 Cuentas"**, con cada **empresa** y cada **departamento de la nómina propia**:
 - **"💵 Se cobra / 🏠 No se cobra":** lo que no se cobra es **consumo interno**. Se valora con su precio

@@ -231,7 +231,10 @@ const platoAPrecio = PL.resolverPlatos(platos);
 
   const precios2 = sinComentarios(leer('src/components/CobroComidasPrecios.tsx'));
   ok('«Precios y cuentas» tiene la pestaña 🧾 Platos', /setPestana\('platos'\)/.test(precios2) && /<CobroComidasPlatos[\s>]/.test(precios2));
-  ok('...lee precios y platos juntos', /Promise\.all\(\[cargarPreciosComida\(\), cargarPlatos\(\)\]\)/.test(precios2));
+  // Una sola lectura para todo lo que la pantalla necesita. Si se separaran, una
+  // pestaña se abriría vacía la primera vez y parecería que no hay nada cargado.
+  // 21-sep-2026: se le sumaron la agenda de contactos y las empresas.
+  ok('...lee precios y platos juntos', /const \[p, pl, ag, comps\] = await Promise\.all\(\[\s*cargarPreciosComida\(\),\s*cargarPlatos\(\),/.test(precios2));
   ok('...acepta precio para cualquier plato', /platos\.map\(\(p\) => categoriaDePlato\(p\.id\)\)/.test(precios2));
   ok('...y muestra los platos en «Precio vigente hoy»', /platosEnLista\.map\(\(pl\) => \{\s*const cat = categoriaDePlato\(pl\.id\);\s*const p = precioComidaEn\(precios, cat, hoy\)/.test(precios2));
 

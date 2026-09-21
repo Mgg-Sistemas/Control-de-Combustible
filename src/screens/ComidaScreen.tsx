@@ -485,6 +485,7 @@ export default function ComidaScreen() {
                 filtroEmpresa={companyFilter}
                 canEdit={canCobro}
                 usuarioId={session?.user?.id ?? null}
+                usuarioNombre={fullName ?? null}
               />
             ) : null}
 
