@@ -417,6 +417,22 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > una máquina aparece bloqueada al enviarla a **🧰 Mantenimiento**, avisa: hay que cerrarle el
   > expediente viejo a mano.
 
+> **🤖 Automatización del Inspector SOS: encender y apagar (21/09/2026).** Solo la ven los
+> **administradores**, arriba de Inspecciones.
+> El *Inspector SOS LA GUAIRA* **no es una persona**: es el usuario del sistema que cubre las máquinas
+> que se quedan sin inspector de verdad. Su automatización son procesos que, sin que nadie toque
+> nada, les **inician la jornada** a las 7am y a las 7pm, se la reabren cada 10 minutos y les **llenan
+> el turno completo** (y las 12 horas de las 7:05pm).
+> - **🟢 Encendida** (como siempre): todo eso sigue pasando.
+> - **⏸️ Apagada:** sus máquinas **dejan de iniciar jornada y de sumar horas solas**; solo cuentan
+>   las que una persona inicie.
+> - **Apagar pide dos toques**, porque esas horas son las que se le pagan a las empresas. Encender es
+>   de uno. Hace efecto en el próximo ciclo (máximo 10 minutos). Queda quién lo cambió y cuándo.
+> - **Lo que NO cambia:** las jornadas ya abiertas se **cierran normal** (si no, quedarían sumando
+>   horas para siempre); las máquinas sin inspector se le siguen asignando; y sus máquinas siguen
+>   saliendo como **"trabajando"**, nunca paradas ni averiadas.
+> - Quien no es administrador **no puede verlo ni cambiarlo**: lo impide la base, no solo la pantalla.
+
 **🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
 - Las máquinas asignadas al inspector **SOS LA GUAIRA** **nunca se muestran como parada ni averiada**:
   siempre cuentan como **trabajando** y sus horas paradas se cuentan como **trabajadas** — en el
