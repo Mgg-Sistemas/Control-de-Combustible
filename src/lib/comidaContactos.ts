@@ -16,17 +16,18 @@
 //    comparara el texto escrito, la misma persona entraría tres veces y su factura
 //    saldría partida en tres pedazos.
 //
-// ⚠️ PERO NO SE PUEDE TRANCAR LA COLA DE LA COMIDA. Quien llega sin la cédula encima
-//    se registra igual, marcando «no la tiene a la mano»; entonces el teléfono pasa a
-//    ser obligatorio (algo tiene que servir de llave) y el contacto queda con la marca
-//    ⚠️ sin cédula hasta que alguien la complete. Ver `sinCedula` y `contarSinCedula`.
+// ⚠️ LA CÉDULA NO SE NEGOCIA (decisión del cliente, 21-sep-2026). Se había propuesto
+//    una salida de emergencia —«no la tiene a la mano» + teléfono como llave— y el
+//    cliente la descartó: «la cédula para esos contactos de cocina que sea obligatoria».
+//    La BASE también la exige (`cedula not null` + al menos 5 dígitos), así que no
+//    depende de que esta pantalla la pida bien: por ahí no entra nadie sin ella.
 
 /** Una fila de `comida_contactos`. */
 export type ContactoCocina = {
   id: string;
   nombre: string;
   apellido: string;
-  /** Tal como se escribió («V-12.345.678»). null = se registró sin ella. */
+  /** Tal como se escribió («V-12.345.678»). Siempre está: la base la exige. */
   cedula: string | null;
   telefono1: string | null;
   telefono2: string | null;
@@ -108,14 +109,6 @@ export function nombreDeContacto(c: ContactoCocina | null | undefined): string {
 
 /** Activo = sale en la lista de la cocina. Sin el dato, se toma como activo. */
 export const contactoActivo = (c: ContactoCocina) => c?.activo !== false;
-
-/** Se registró sin cédula: hay que completarla. */
-export const sinCedula = (c: ContactoCocina) => !normalizarCedula(c?.cedula);
-
-/** Cuántos contactos de la lista están esperando su cédula. */
-export function contarSinCedula(contactos: readonly ContactoCocina[] | null | undefined): number {
-  return (contactos ?? []).filter((c) => c && contactoActivo(c) && sinCedula(c)).length;
-}
 
 /**
  * A QUIÉN SE LE COBRA DE VERDAD.
@@ -229,8 +222,6 @@ export type DatosContacto = {
   nombre?: unknown;
   apellido?: unknown;
   cedula?: unknown;
-  /** El usuario marcó «no la tiene a la mano». Entonces el teléfono es obligatorio. */
-  sinCedula?: boolean;
   telefono1?: unknown;
   telefono2?: unknown;
   companyId?: unknown;
@@ -268,22 +259,16 @@ export function validarContacto(
   if (nombre.length > MAX_NOMBRE_CONTACTO) return `El nombre es muy largo (máximo ${MAX_NOMBRE_CONTACTO} letras).`;
   if (apellido.length > MAX_NOMBRE_CONTACTO) return `El apellido es muy largo (máximo ${MAX_NOMBRE_CONTACTO} letras).`;
 
+  // ⭐ LA CÉDULA SIEMPRE. Es la única llave contra los duplicados, y la base la exige
+  //    igual: pedirla acá es para decirlo en criollo, no para que sea la única barrera.
   const cedula = normalizarCedula(datos.cedula);
-  if (datos.sinCedula) {
-    // La salida de emergencia tiene precio: sin cédula, el teléfono es la única llave
-    // que queda para no duplicar a la persona la próxima vez que venga.
-    if (!normalizarTelefono(datos.telefono1) && !normalizarTelefono(datos.telefono2)) {
-      return 'Sin cédula hace falta al menos un teléfono: es lo único que queda para reconocerlo la próxima vez.';
-    }
-  } else {
-    if (!cedula) return 'Escribe la cédula. Si no la tiene a la mano, marca la casilla.';
-    if (cedula.length < MIN_DIGITOS_CEDULA) return 'La cédula está incompleta.';
-    const otro = contactoConCedula(contactos, cedula);
-    if (otro && otro.id !== idPropio) {
-      return contactoActivo(otro)
-        ? `Ya hay un contacto con esa cédula: ${nombreDeContacto(otro)}.`
-        : `Ya hay un contacto con esa cédula, ${nombreDeContacto(otro)}, quitado de la lista: devuélvelo a la lista en vez de crear otro.`;
-    }
+  if (!cedula) return 'Escribe la cédula.';
+  if (cedula.length < MIN_DIGITOS_CEDULA) return 'La cédula está incompleta.';
+  const otro = contactoConCedula(contactos, cedula);
+  if (otro && otro.id !== idPropio) {
+    return contactoActivo(otro)
+      ? `Ya hay un contacto con esa cédula: ${nombreDeContacto(otro)}.`
+      : `Ya hay un contacto con esa cédula, ${nombreDeContacto(otro)}, quitado de la lista: devuélvelo a la lista en vez de crear otro.`;
   }
 
   const t1 = motivoTelefono(datos.telefono1, 'teléfono');

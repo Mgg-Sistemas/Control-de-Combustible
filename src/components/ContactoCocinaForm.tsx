@@ -23,6 +23,9 @@ import {
   contactoActivo, formatearCedula, limpiarTexto, mensajeDeHallazgo, nombreDeContacto,
   normalizarCedula, posiblesDuplicados, validarContacto,
 } from '../lib/comidaContactos';
+// ⭐ La cédula es OBLIGATORIA (decisión del cliente, 21-sep-2026). No hay casilla de
+//    «no la tiene a la mano»: sin cédula no se registra a nadie, y la base lo exige
+//    igual, así que por acá tampoco puede colarse.
 import { actualizarContacto, crearContacto, reconocerCedula } from '../lib/comidaContactosDb';
 
 type Props = {
@@ -52,7 +55,6 @@ export function ContactoCocinaForm({
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
   const [cedula, setCedula] = useState('');
-  const [sinCed, setSinCed] = useState(false);
   const [tel1, setTel1] = useState('');
   const [tel2, setTel2] = useState('');
   const [companyId, setCompanyId] = useState('');
@@ -72,7 +74,6 @@ export function ContactoCocinaForm({
     setNombre(contacto?.nombre ?? '');
     setApellido(contacto?.apellido ?? '');
     setCedula(contacto?.cedula ?? cedulaInicial ?? '');
-    setSinCed(editando ? !normalizarCedula(contacto?.cedula) : false);
     setTel1(contacto?.telefono1 ?? '');
     setTel2(contacto?.telefono2 ?? '');
     setCompanyId(contacto?.company_id ?? '');
@@ -89,7 +90,7 @@ export function ContactoCocinaForm({
   //    y el aviso hablaría de una cédula que ya nadie está escribiendo.
   const turno = useRef(0);
   useEffect(() => {
-    if (!visible || sinCed) { setHallazgo(null); setRevisando(false); return; }
+    if (!visible) { setHallazgo(null); setRevisando(false); return; }
     const d = normalizarCedula(cedula);
     // La cédula que ya tenía el contacto que se corrige no se revisa contra sí misma.
     if (d.length < 5 || (editando && d === normalizarCedula(contacto?.cedula))) {
@@ -110,12 +111,12 @@ export function ContactoCocinaForm({
       }
     }, 450);
     return () => clearTimeout(t);
-  }, [visible, cedula, sinCed, contactos, editando, contacto]);
+  }, [visible, cedula, contactos, editando, contacto]);
 
   const yaEsContacto = hallazgo?.tipo === 'contacto' ? hallazgo.contacto : null;
   const esDeNomina = hallazgo?.tipo === 'nomina';
 
-  const datos = { nombre, apellido, cedula, sinCedula: sinCed, telefono1: tel1, telefono2: tel2, companyId, nota };
+  const datos = { nombre, apellido, cedula, telefono1: tel1, telefono2: tel2, companyId, nota };
   const parecidos = useMemo(
     () => posiblesDuplicados({ nombre, apellido, telefono1: tel1, telefono2: tel2 }, contactos, contacto?.id ?? null),
     [nombre, apellido, tel1, tel2, contactos, contacto],
@@ -202,22 +203,10 @@ export function ContactoCocinaForm({
 
             <Text style={rotulo}>Cédula</Text>
             <TextInput
-              value={cedula} onChangeText={setCedula} style={[campo, sinCed ? { opacity: 0.4 } : null]}
+              value={cedula} onChangeText={setCedula} style={campo}
               placeholder="V-12.345.678" placeholderTextColor={colors.muted}
-              editable={!sinCed} keyboardType="default" autoCapitalize="characters"
+              keyboardType="default" autoCapitalize="characters"
             />
-            <TouchableOpacity
-              onPress={() => { setSinCed((v) => !v); setAviso(null); }}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}
-            >
-              <Text style={{ fontSize: 16 }}>{sinCed ? '☑️' : '⬜'}</Text>
-              <Text style={{ color: colors.text, fontSize: 13 }}>No la tiene a la mano</Text>
-            </TouchableOpacity>
-            {sinCed ? (
-              <Text style={{ color: colors.warning, fontSize: 12, marginBottom: spacing.xs }}>
-                Sin cédula hace falta un teléfono, y queda marcado ⚠️ sin cédula hasta que alguien la complete.
-              </Text>
-            ) : null}
 
             {revisando ? (
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Revisando la cédula…</Text>
@@ -293,7 +282,7 @@ export function ContactoCocinaForm({
                 >
                   <Text style={{ color: colors.text, fontSize: 13 }}>
                     • <Text style={{ fontWeight: '700' }}>{nombreDeContacto(c)}</Text>
-                    {c.cedula ? ` · ${formatearCedula(c.cedula)}` : ' · ⚠️ sin cédula'}
+                    {c.cedula ? ` · ${formatearCedula(c.cedula)}` : ''}
                     {c.telefono1 ? ` · ${limpiarTexto(c.telefono1)}` : ''}
                     {contactoActivo(c) ? '' : ' · quitado de la lista'}
                   </Text>

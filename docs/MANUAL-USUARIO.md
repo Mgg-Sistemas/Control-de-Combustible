@@ -2522,9 +2522,10 @@ solo usa Comida**: no entran en nómina, ni en asistencia, ni en carnets, ni en 
 **Qué se le pide.** Nombre, apellido y cédula. El **teléfono, el segundo teléfono y la empresa se
 pueden dejar vacíos** y no reclama nada.
 
-**Si no tiene la cédula a mano** se marca la casilla **"No la tiene a la mano"**. Entonces hace falta
-**al menos un teléfono** —algo tiene que servir para reconocerlo la próxima vez— y queda marcado
-**⚠️ sin cédula**. Arriba de la lista sale cuántos están así, para completarlos cuando vuelvan.
+**La cédula es obligatoria y no hay forma de saltársela.** Es la única llave que impide que la misma
+persona entre dos o tres veces y su cuenta salga partida en pedazos. **La base también la exige**, así
+que no depende de que la pantalla la pida bien: sin cédula no se registra a nadie, ni desde Cocina,
+ni desde la oficina, ni por ningún otro lado.
 
 **No se puede duplicar a nadie.** Mientras se escribe la cédula, el sistema busca **en la nómina y en
 la agenda a la vez**:
