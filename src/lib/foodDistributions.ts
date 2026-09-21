@@ -14,6 +14,13 @@ export type SaveFoodInput = {
    *  del contacto en este momento: si viviera solo en la ficha, cambiarle el
    *  interruptor después reescribiría facturas ya entregadas. */
   cobrarA?: 'empresa' | 'independiente' | null;
+  /** CUÁL empresa, congelada igual que `cobrarA` (21-sep-2026). Sin esto, cambiarle
+   *  la empresa al contacto mañana mudaría sus entregas viejas a la factura de la
+   *  empresa nueva. Va el id Y el nombre, como `empresa_snap` en los viajes: el papel
+   *  ya entregado no cambia porque renombren o borren la empresa. Solo con
+   *  `cobrarA = 'empresa'`. */
+  contactoCompanyId?: string | null;
+  contactoCompanyNombre?: string | null;
   meals: number;
   mealType?: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
   distributionDate: string;   // día ISO (Caracas)
@@ -38,7 +45,12 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
       //    cocina sin poder registrar NI UNA comida hasta que alguien corriera
       //    el SQL. Así, lo de nómina sigue funcionando igual que ayer y lo único
       //    que falla es justo lo que necesita la tabla nueva.
-      ...(input.contactoId ? { contacto_id: input.contactoId, cobrar_a: input.cobrarA ?? null } : {}),
+      ...(input.contactoId ? {
+        contacto_id: input.contactoId,
+        cobrar_a: input.cobrarA ?? null,
+        contacto_company_id: input.cobrarA === 'empresa' ? (input.contactoCompanyId ?? null) : null,
+        contacto_company_nombre: input.cobrarA === 'empresa' ? ((input.contactoCompanyNombre ?? '').trim() || null) : null,
+      } : {}),
       meals: input.meals,
       meal_type: input.mealType ?? null,
       distribution_date: input.distributionDate,
@@ -54,7 +66,7 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
     if (dup) return { data: null, error: 'Esa comida ya se registró hoy para esta persona.' };
     // Falta el SQL de contactos: sin esto el aviso sería «column contacto_id does
     // not exist», que no le dice a nadie qué hacer.
-    if (input.contactoId && /contacto_id|cobrar_a|schema cache/i.test(error.message)) {
+    if (input.contactoId && /contacto_|cobrar_a|schema cache/i.test(error.message)) {
       return { data: null, error: 'Falta correr el SQL de contactos de cocina en Supabase (sql-comida-contactos-2026-09-21.sql). Avisa al administrador.' };
     }
     return { data: null, error: error.message };

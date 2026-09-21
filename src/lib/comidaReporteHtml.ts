@@ -20,7 +20,7 @@ import {
   NUMERICA_EMPRESA, NUMERICA_PERSONA, NUMERICA_DETALLE,
   ColumnaEmpresa, ColumnaPersona, ColumnaDetalle,
 } from './comidaReporteOpciones';
-import { FiltroComida, GrupoComida, LineaDetalle, TotalesComida, alcanceEnPalabras } from './comidaReporte';
+import { CuentaDeContacto, FiltroComida, GrupoComida, LineaDetalle, TotalesComida, alcanceEnPalabras } from './comidaReporte';
 
 export const escapar = (v: unknown): string =>
   String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -187,6 +187,8 @@ const CSS = `
   .warn{color:#B45309}
   ul{margin:4px 0 0 16px;padding:0;font-size:11px} li{margin-bottom:2px}
   .kpis{font-size:12px;margin:2px 0 8px}
+  .cc{font-size:12px;border:1px solid #1E3A5F;border-radius:6px;padding:6px 9px;margin:2px 0 8px}
+  .cc-aviso{margin-top:4px;color:#8a4b00}
   .kpis b{font-size:14px}
 `;
 
@@ -200,12 +202,29 @@ export type DatosReporteComida = {
   lineas: LineaDetalle[];
   totales: TotalesComida;
   nombres?: Parameters<typeof alcanceEnPalabras>[1];
+  /** El papel es de UN contacto de cocina: se encabeza con sus datos (ver `cuentaDeContacto`). */
+  cuentaContacto?: CuentaDeContacto | null;
 };
+
+/**
+ * El recuadro que abre el papel de UN contacto: quién es, y —si aplica— cuánto de lo
+ * que sigue NO lo paga él sino su empresa. Sin ese aviso, un papel que se llama «su
+ * cuenta» le cobraría lo que quedó a nombre de la empresa.
+ */
+function cuadroCuentaContacto(c: CuentaDeContacto): string {
+  const deEmpresa = c.aEmpresa.reduce((a, x) => a + x.comidas, 0);
+  const aviso = deEmpresa === 0 ? '' : `<div class="cc-aviso">⚠️ De las comidas de este papel, ${c.aEmpresa
+    .map((x) => `<b>${x.comidas}</b> se le cobran a <b>${escapar(x.empresa)}</b>`).join(' y ')}${c.independiente
+    ? `; las otras <b>${c.independiente}</b> las paga ${escapar(c.nombre)}` : `: ${escapar(c.nombre)} no paga ninguna`}.</div>`;
+  return `<div class="cc">📇 Contacto de cocina: <b>${escapar(c.nombre)}</b>${c.cedula ? ` · C.I ${escapar(c.cedula)}` : ''}${aviso}</div>`;
+}
 
 /** El cuerpo del documento. El membrete lo pone `pdfDocument`. */
 export function cuerpoReporteComida(d: DatosReporteComida): string {
   const { opciones: o, totales: t } = d;
   const partes: string[] = [];
+
+  if (d.cuentaContacto) partes.push(cuadroCuentaContacto(d.cuentaContacto));
 
   partes.push(`<div class="kpis">
     Comidas entregadas: <b>${t.total}</b> ·
@@ -224,13 +243,27 @@ export function cuerpoReporteComida(d: DatosReporteComida): string {
 
 export const CSS_REPORTE_COMIDA = CSS;
 
+/**
+ * Título del membrete. El de siempre, salvo que el papel sea de UN contacto.
+ *
+ * ⚠️ «Cuenta de comidas» SOLO si todo lo del papel lo paga esa persona. Si parte se le
+ *    cobró a su empresa, el papel se llama «Comidas de…» y el recuadro de arriba dice
+ *    cuánto es de quién: un papel llamado «cuenta» es un papel con el que se cobra.
+ */
+export function tituloReporteComida(c?: CuentaDeContacto | null): string {
+  if (!c) return '🍽️ Control de entregas de comida';
+  return c.aEmpresa.length === 0 ? `🍽️ Cuenta de comidas · ${c.nombre}` : `🍽️ Comidas de ${c.nombre}`;
+}
+
 /** Subtítulo del membrete: el rango, en criollo. */
 export function subtituloReporteComida(f: FiltroComida): string {
   return f.desde === f.hasta ? `Día ${dmy(f.desde)}` : `Del ${dmy(f.desde)} al ${dmy(f.hasta)}`;
 }
 
 /** Nombre del archivo, con el sufijo de lo que se ocultó (lo pone quien llama). */
-export function nombreArchivoComida(f: FiltroComida, sufijo: string): string {
+export function nombreArchivoComida(f: FiltroComida, sufijo: string, c?: CuentaDeContacto | null): string {
   const rango = f.desde === f.hasta ? dmy(f.desde) : `${dmy(f.desde)} a ${dmy(f.hasta)}`;
-  return `Comidas ${rango}${sufijo}`.replace(/\//g, '-');
+  // Con el nombre: las cuentas de dos personas del mismo rango no se pisan en Descargas.
+  const quien = c ? ` ${c.nombre.replace(/[\\/:*?"<>|]/g, ' ')}` : '';
+  return `Comidas${quien} ${rango}${sufijo}`.replace(/\//g, '-');
 }

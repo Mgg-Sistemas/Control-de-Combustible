@@ -51,6 +51,11 @@ export type EntregaPersona = {
   note?: string | null;
   delivered_at?: string | null;
   created_by_name?: string | null;
+  // Contactos de cocina (21-sep-2026). Las filas de nómina no los traen.
+  contacto_id?: string | null;
+  cobrar_a?: string | null;
+  contacto_company_id?: string | null;
+  contacto_company_nombre?: string | null;
 };
 
 /**
@@ -69,13 +74,27 @@ export type FiltroComida = {
   comidas: string[];
   /** ¿Entran las entregas por QR de empresa? */
   conEmpresas: boolean;
-  /** ¿Entran las entregas por carnet? */
+  /** ¿Entran las entregas por carnet (nómina)? */
   conPersonas: boolean;
+  /**
+   * ¿Entran las entregas a contactos de cocina? (21-sep-2026)
+   *
+   * ⚠️ OPCIONAL, Y SIN PONER VALE «SÍ». Se lee siempre como `conContactos !== false`.
+   *    Es la misma regla de la casa —«lo que no se tocó, entra»— y además hace que
+   *    todo el que arma un filtro sin conocer este campo siga sacando el papel
+   *    completo, en vez de perder a los contactos sin enterarse.
+   */
+  conContactos?: boolean;
 };
 
 export const FILTRO_COMIDA_TODO: FiltroComida = {
-  desde: '', hasta: '', empresas: [], personas: [], comidas: [], conEmpresas: true, conPersonas: true,
+  desde: '', hasta: '', empresas: [], personas: [], comidas: [], conEmpresas: true, conPersonas: true, conContactos: true,
 };
+
+/** ¿Esta entrega es de un contacto de cocina (y no de un carnet de nómina)? */
+export const esDeContacto = (r: EntregaPersona | null | undefined): boolean => !!String(r?.contacto_id ?? '').trim();
+/** ¿El filtro deja entrar a los contactos? Sin el dato, sí. */
+export const entranContactos = (f: FiltroComida): boolean => f.conContactos !== false;
 
 const num = (v: unknown) => {
   const n = Number(String(v ?? '').replace(',', '.'));
@@ -89,9 +108,17 @@ const redondear = (n: number) => Math.round(n * 100) / 100;
  *  lo guardó, el nombre hace de clave (es lo que ya hace la pantalla). */
 export const claveEmpresa = (r: EntregaEmpresa): string => limpio(r.company_id) || limpio(r.company_name);
 
-/** Clave con la que se agrupa una persona: ficha, cédula o nombre, en ese orden. */
+/**
+ * Clave con la que se agrupa una persona: contacto, ficha, cédula o nombre, en ese orden.
+ *
+ * ⭐ EL CONTACTO VA PRIMERO (21-sep-2026). Es su identidad de verdad: si a alguien le
+ *    corrigen la cédula o el nombre en la agenda, sus entregas viejas (que guardaron
+ *    lo escrito ese día) seguirían agrupándose por el texto viejo y su cuenta saldría
+ *    partida en dos renglones. Las filas de nómina no traen `contacto_id`, así que
+ *    para ellas la clave es exactamente la de siempre.
+ */
 export const clavePersona = (r: EntregaPersona): string =>
-  limpio(r.employee_id) || limpio(r.cedula) || limpio(r.employee_name);
+  limpio(r.contacto_id) || limpio(r.employee_id) || limpio(r.cedula) || limpio(r.employee_name);
 
 const entreFechas = (f: string, desde: string, hasta: string): boolean => {
   if (!f) return false;
@@ -150,8 +177,11 @@ export function filtrarComidas(
       && pasa(f.empresas, claveEmpresa(r))
       && pasa(f.comidas, limpio(r.meal_type)),
   );
-  const personas = !f.conPersonas ? [] : (entregas.personas ?? []).filter(
-    (r) => entreFechas(dia(r.distribution_date), f.desde, f.hasta)
+  // Las dos clases viven en la misma tabla (`food_distributions`) y en el mismo cuadro
+  // del papel, pero cada una tiene su interruptor: el carnet de nómina y el contacto.
+  const personas = (entregas.personas ?? []).filter(
+    (r) => (esDeContacto(r) ? entranContactos(f) : f.conPersonas)
+      && entreFechas(dia(r.distribution_date), f.desde, f.hasta)
       && pasa(f.personas, clavePersona(r))
       && pasa(f.comidas, limpio(r.meal_type)),
   );
@@ -368,10 +398,17 @@ export function alcanceEnPalabras(
   const nombrar = (claves: string[], m: Map<string, string> | undefined) =>
     claves.map((k) => m?.get(k) || k).join(', ');
 
-  if (!f.conEmpresas && !f.conPersonas) l.push('⚠️ No se pidió ni lo de empresas ni lo de personas: el papel sale vacío.');
-  if (f.conEmpresas && f.conPersonas) l.push('Entra lo entregado por QR de empresa y por carnet.');
-  else if (f.conEmpresas) l.push('Entra SOLO lo entregado por QR de empresa.');
-  else if (f.conPersonas) l.push('Entra SOLO lo entregado por carnet (personas).');
+  // Tres interruptores (21-sep-2026). Se nombran los que ENTRAN: con tres banderas ya
+  // no alcanza con un «y», y una frase que calle a los contactos diría que el papel
+  // trae menos (o más) de lo que trae.
+  const entran = [
+    f.conEmpresas ? 'por QR de empresa' : '',
+    f.conPersonas ? 'por carnet' : '',
+    entranContactos(f) ? 'a contactos de cocina' : '',
+  ].filter(Boolean);
+  if (entran.length === 0) l.push('⚠️ No se pidió ni lo de empresas, ni lo de carnet, ni lo de contactos: el papel sale vacío.');
+  else if (entran.length === 3) l.push('Entra todo: lo entregado por QR de empresa, por carnet y a contactos de cocina.');
+  else l.push(`Entra SOLO lo entregado ${entran.join(' y ')}.`);
 
   l.push(f.empresas.length ? `Empresas: solo ${nombrar(f.empresas, nombres.empresas)}.` : 'Empresas: todas.');
   l.push(f.personas.length ? `Personas: solo ${nombrar(f.personas, nombres.personas)}.` : 'Personas: todas.');
@@ -380,6 +417,77 @@ export function alcanceEnPalabras(
 }
 
 /** ¿El filtro dejó el papel sin una sola entrega? Para avisarlo antes de generar. */
+/**
+ * ¿EL PAPEL ES DE UN SOLO CONTACTO? Entonces es «su cuenta» (21-sep-2026).
+ *
+ * Pedido del cliente: «sacar una factura completa con todas esas personas, o por
+ * persona». Se mira LO QUE ENTRÓ al papel, no lo que se marcó: si todas las entregas
+ * son del mismo contacto y no hay nada de empresas, el papel es de esa persona.
+ *
+ * ⚠️ `aEmpresa` EXISTE PARA NO MENTIR. El papel da el valor de lo que esa persona se
+ *    llevó, pero una parte puede habérsele cobrado a su empresa (quedó así en cada
+ *    entrega). Un papel titulado «Cuenta de Fulano» que incluya, callado, lo que paga
+ *    su empresa, le cobraría a Fulano lo que no debe. Por eso se cuenta aparte y quien
+ *    arma el papel lo dice.
+ */
+export type CuentaDeContacto = {
+  contactoId: string;
+  nombre: string;
+  cedula: string;
+  /** Comidas que paga él. */
+  independiente: number;
+  /** Comidas que se le cobraron a una empresa, por empresa. */
+  aEmpresa: { empresa: string; comidas: number }[];
+};
+
+export function cuentaDeContacto(e: { empresas: EntregaEmpresa[]; personas: EntregaPersona[] }): CuentaDeContacto | null {
+  if (e.empresas.length > 0 || e.personas.length === 0) return null;
+  const id = limpio(e.personas[0].contacto_id);
+  if (!id || e.personas.some((r) => limpio(r.contacto_id) !== id)) return null;
+  let independiente = 0;
+  const porEmpresa = new Map<string, number>();
+  let nombre = '';
+  let cedula = '';
+  e.personas.forEach((r) => {
+    const n = Math.floor(num(r.meals));
+    nombre = nombre || limpio(r.employee_name);
+    cedula = cedula || limpio(r.cedula);
+    if (r.cobrar_a === 'empresa' && limpio(r.contacto_company_nombre)) {
+      const emp = limpio(r.contacto_company_nombre);
+      porEmpresa.set(emp, (porEmpresa.get(emp) ?? 0) + n);
+    } else independiente += n;
+  });
+  return {
+    contactoId: id,
+    nombre: nombre || 'Contacto sin nombre',
+    cedula,
+    independiente,
+    aEmpresa: Array.from(porEmpresa, ([empresa, comidas]) => ({ empresa, comidas })).sort((a, b) => a.empresa.localeCompare(b.empresa, 'es')),
+  };
+}
+
+/**
+ * Las comidas de contactos que se le cobran a una empresa, dentro de lo cargado. El
+ * papel de UNA empresa no las trae (van en el cuadro de personas, que ese papel apaga
+ * para no llevarle a la empresa los datos de terceros), pero la tarjeta de cobro SÍ se
+ * las suma a su cuenta. Quien saca el papel de la empresa tiene que saberlo, o la hoja
+ * y el cobro no le van a cuadrar.
+ */
+export function comidasDeContactosACobrarA(
+  personas: EntregaPersona[] | null | undefined,
+  f: FiltroComida,
+): number {
+  // Solo las de las empresas ELEGIDAS: sin empresas elegidas el papel no es «de una
+  // empresa» y este aviso no tiene nada que decir.
+  if (f.empresas.length === 0) return 0;
+  return (personas ?? [])
+    .filter((r) => esDeContacto(r) && r.cobrar_a === 'empresa'
+      && f.empresas.includes(limpio(r.contacto_company_id))
+      && entreFechas(dia(r.distribution_date), f.desde, f.hasta)
+      && pasa(f.comidas, limpio(r.meal_type)))
+    .reduce((a, r) => a + Math.floor(num(r.meals)), 0);
+}
+
 export function filtroSinEntregas(e: { empresas: EntregaEmpresa[]; personas: EntregaPersona[] }): boolean {
   return e.empresas.length === 0 && e.personas.length === 0;
 }

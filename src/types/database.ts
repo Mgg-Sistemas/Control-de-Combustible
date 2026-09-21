@@ -925,6 +925,9 @@ export interface FoodDistribution {
   contacto_id?: string | null;
   /** A quién se le cobró ESTA entrega, congelado al registrarla. Null = nómina. */
   cobrar_a?: 'empresa' | 'independiente' | null;
+  /** La empresa a la que se le cobró, congelada (id y nombre). Solo con cobrar_a = 'empresa'. */
+  contacto_company_id?: string | null;
+  contacto_company_nombre?: string | null;
   meals: number;
   meal_type: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
   delivered_at: string;        // hora de entrega (ISO UTC)

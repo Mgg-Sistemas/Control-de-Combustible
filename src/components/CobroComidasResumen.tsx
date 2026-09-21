@@ -148,7 +148,7 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
 
   const descargarPdf = async () => {
     const filas = cuentas.map((c) =>
-      `<tr><td>${esc(c.nombre)}</td><td class="r">${c.porQr || '—'}</td><td class="r">${c.porCarnet || '—'}</td><td class="r">${c.sinPrecio || '—'}</td><td class="r">${c.montoInterno ? usd(c.montoInterno) : '—'}</td><td class="r b">${usd(c.monto)}</td></tr>`).join('');
+      `<tr><td>${esc(c.nombre)}</td><td class="r">${c.porQr || '—'}</td><td class="r">${c.porCarnet || '—'}</td><td class="r">${c.porContacto || '—'}</td><td class="r">${c.sinPrecio || '—'}</td><td class="r">${c.montoInterno ? usd(c.montoInterno) : '—'}</td><td class="r b">${usd(c.monto)}</td></tr>`).join('');
     const detalle = cuentas.map((c) => `
       <h3>${esc(c.nombre)} — ${usd(c.monto)}${c.montoInterno ? ` · interno ${usd(c.montoInterno)}` : ''}</h3>
       ${c.detalle.length ? `<p class="n">${esc(c.detalle.join(', '))}</p>` : ''}
@@ -166,9 +166,9 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
         h3{font-size:13px;color:#1E3A5F;margin:14px 0 2px}
         p.n{font-size:10px;color:#666;margin:0 0 4px}`,
       body: `
-        <table><thead><tr><th>${eje === 'encargado' ? 'Encargado' : 'Cuenta'}</th><th class="r">Por QR</th><th class="r">Por carnet</th><th class="r">Sin precio</th><th class="r">Consumo interno</th><th class="r">A cobrar</th></tr></thead>
-        <tbody>${filas || '<tr><td colspan="6" class="c">Sin comidas en el rango</td></tr>'}</tbody>
-        <tfoot><tr><td>TOTAL</td><td></td><td></td><td class="r">${tot.sinPrecio}</td><td class="r">${usd(tot.montoInterno)}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>
+        <table><thead><tr><th>${eje === 'encargado' ? 'Encargado' : 'Cuenta'}</th><th class="r">Por QR</th><th class="r">Por carnet</th><th class="r">Contactos</th><th class="r">Sin precio</th><th class="r">Consumo interno</th><th class="r">A cobrar</th></tr></thead>
+        <tbody>${filas || '<tr><td colspan="7" class="c">Sin comidas en el rango</td></tr>'}</tbody>
+        <tfoot><tr><td>TOTAL</td><td></td><td></td><td></td><td class="r">${tot.sinPrecio}</td><td class="r">${usd(tot.montoInterno)}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>
         ${detalle}`,
     });
     await exportPdf(html, `Cobro de comidas ${dmy(desde)} a ${dmy(hasta)}`);
@@ -199,7 +199,8 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
       >
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
           Lo entregado en el rango de arriba, con el precio de cada comida ese día. Lo que se entregó por QR va a la
-          empresa del QR; lo que se entregó por carnet va a la empresa de la ficha de la persona. Lo que no se cobra
+          empresa del QR; lo que se entregó por carnet va a la empresa de la ficha de la persona; y lo de un 📇 contacto
+          de cocina va a su empresa o a su propia cuenta, según como quedó en cada entrega. Lo que no se cobra
           (consumo interno) se muestra aparte y no suma al total. Los platos de «Otros» se cobran con su precio de
           «🧾 Platos»; si todavía no tienen, con el costo por plato que escribió la cocina.
         </Text>
@@ -262,11 +263,11 @@ export function CobroComidasResumen({ desde, hasta, hoy, empresas, personas, fil
               <TouchableOpacity onPress={() => setAbierta(open ? null : c.clave)}
                 style={{ borderWidth: 1, borderColor: c.sinPrecio ? colors.warning : colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>{eje === 'encargado' ? '👤' : '🏢'} {c.nombre}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>{eje === 'encargado' ? '👤' : c.clase === 'contacto' ? '📇' : '🏢'} {c.nombre}</Text>
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(c.monto)}</Text>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {c.comidas} comida(s){c.porQr ? ` · ${c.porQr} por QR` : ''}{c.porCarnet ? ` · ${c.porCarnet} por carnet` : ''}
+                  {c.comidas} comida(s){c.porQr ? ` · ${c.porQr} por QR` : ''}{c.porCarnet ? ` · ${c.porCarnet} por carnet` : ''}{c.porContacto ? ` · ${c.porContacto} a contactos` : ''}
                   {c.comidasInternas ? ` · 🏠 interno ${usd(c.montoInterno)}` : ''}
                   {c.sinPrecio ? ` · ⚠️ ${c.sinPrecio} sin precio` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
                 </Text>
