@@ -22,7 +22,6 @@ import {
   indexarMarcas,
   indexarModos,
   INICIO_PAGO_VIAJES,
-  itemsViajePagados,
   jornadaDeInstante,
   viajesEnRango,
   viajesFueraDelPago,
@@ -30,10 +29,17 @@ import {
   PagoViajesGrupo,
 } from '../lib/pagoViajes';
 import { cargarDatosPagoViajes, DatosPagoViajes } from '../lib/pagoViajesDb';
+import {
+  CSS_PAGO_VIAJES, EjePago, OPCIONES_PAGO_COMO_ANTES, OpcionesPagoViajes, PASTILLAS_PAGO,
+  acotarFiltroPago, alternarPago, cuerpoPagoViajes, empresasDisponibles, filtrarLineasPago, lineasDeGrupos,
+  obrasDisponibles, ocultosPagoEnPalabras, sufijoArchivoPago, totalDeLineas,
+} from '../lib/pagoViajesReporte';
 
 type Props = {
   canEdit: boolean;
   usuarioId: string | null;
+  /** id del camión → m³ de UN viaje, de Cubicaje. Solo para la columna opcional del PDF. */
+  m3PorViaje?: Map<string, number> | null;
 };
 
 const usd = (n: number) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -49,7 +55,7 @@ const sumarDias = (iso: string, n: number) => {
 const lunesDe = (iso: string) => sumarDias(iso, -((new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7));
 const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
+export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const { colors } = useTheme();
   const hoy = jornadaDeInstante(new Date().toISOString());
   const [desde, setDesde] = useState(() => lunesDe(hoy));
@@ -59,6 +65,13 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [abierta, setAbierta] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  // ── Opciones del PDF (21-sep-2026) ── por empresa(s), por obra(s), agrupado por
+  //    empresa o por obra, y las pastillas 🚫. Filtran SOLO el papel: la tarjeta de
+  //    arriba sigue mostrando el pago completo del rango, y el papel dice que está filtrado.
+  const [empresasSel, setEmpresasSel] = useState<Set<string>>(new Set());
+  const [obrasSel, setObrasSel] = useState<Set<string>>(new Set());
+  const [ejePdf, setEjePdf] = useState<EjePago>('empresa');
+  const [opcionesPdf, setOpcionesPdf] = useState<OpcionesPagoViajes>(OPCIONES_PAGO_COMO_ANTES);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -111,53 +124,64 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
   }, [datos, error, desde, hasta]);
   const viajesFuera = useMemo(() => fueraDelPago.reduce((a, c) => a + c.viajes, 0), [fueraDelPago]);
 
+  // Todo sale de LAS MISMAS líneas de la tarjeta: el papel no recalcula un centavo.
+  const lineasTodas = useMemo(() => lineasDeGrupos(empresas.map((e) => e.g)), [empresas]);
+  const empresasPdf = useMemo(() => empresasDisponibles(lineasTodas, datos?.empresas), [lineasTodas, datos]);
+  const obrasPdf = useMemo(() => obrasDisponibles(lineasTodas), [lineasTodas]);
+  // Acotado a lo que hay en el rango: una obra marcada que ya no está no puede seguir
+  // filtrando sin verse.
+  const filtroPdf = useMemo(
+    () => acotarFiltroPago({ empresas: Array.from(empresasSel), obras: Array.from(obrasSel) }, { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id) }),
+    [empresasSel, obrasSel, empresasPdf, obrasPdf],
+  );
+  const lineasPdf = useMemo(() => filtrarLineasPago(lineasTodas, filtroPdf), [lineasTodas, filtroPdf]);
+  const totPdf = useMemo(() => totalDeLineas(lineasPdf), [lineasPdf]);
+  const pdfFiltrado = filtroPdf.empresas.length > 0 || filtroPdf.obras.length > 0;
+
   const rangoInvalido = hasta < desde;
   const rangoAntesDelInicio = hasta < INICIO_PAGO_VIAJES;
 
-  /** «2 sin tarifa · 1 sin zona» de un grupo. */
-  const motivosDe = (g: PagoViajesGrupo) => {
-    const m = new Map<MotivoSinPago, number>();
-    g.lineas.forEach((l) => {
-      if (l.motivoSinPago && l.motivoSinPago !== 'no_facturo') m.set(l.motivoSinPago, (m.get(l.motivoSinPago) ?? 0) + 1);
-    });
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${etiquetaMotivoSinPago(k).toLowerCase()}`).join(' · ');
-  };
-
   const descargarPdf = async () => {
-    const filas = empresas.map(({ nombre, g }) =>
-      `<tr><td>${esc(nombre)}</td><td class="r">${g.pagados}</td><td class="r">${g.noFacturados || '—'}</td><td class="r">${g.pendientes || '—'}</td><td class="r b">${usd(g.montoUSD)}</td></tr>`).join('');
-    const detalle = empresas.map(({ nombre, g }) => {
-      const items = itemsViajePagados(g.lineas);
-      return `<h3>${esc(nombre)} — ${usd(g.montoUSD)}</h3>
-        <table><thead><tr><th>Camión</th><th>Zona</th><th class="r">Viajes</th><th class="r">Tarifa</th><th class="r">Monto</th></tr></thead>
-        <tbody>${items.map((it) => `<tr><td>${esc(it.code)}</td><td>${it.zona === 'oeste' ? 'Oeste' : 'Este'}</td><td class="r">${it.viajes}</td><td class="r">${usd(it.precio)}</td><td class="r b">${usd(it.viajes * it.precio)}</td></tr>`).join('') || '<tr><td colspan="5" class="c">Sin viajes pagados</td></tr>'}</tbody></table>
-        ${g.noFacturados || g.pendientes ? `<p class="n">${g.noFacturados ? `${g.noFacturados} viaje(s) marcados «no facturó». ` : ''}${g.pendientes ? `${g.pendientes} viaje(s) sin pagar: ${motivosDe(g)}.` : ''}</p>` : ''}`;
-    }).join('');
-    // Camiones con viajes que no entran al pago: lo que NO se está pagando.
-    const fuera = fueraDelPago.length ? `
+    // Camiones con viajes que no entran al pago: lo que NO se está pagando. Solo en el
+    // papel SIN filtrar: esa lista es de todo el rango, y en el papel de una obra o de
+    // una empresa hablaría de camiones que no tienen nada que ver.
+    const fuera = !pdfFiltrado && fueraDelPago.length ? `
       <h3>🚫 Camiones que no entran al pago (${viajesFuera} viaje(s))</h3>
       <table><thead><tr><th>Camión</th><th>Empresa</th><th class="r">Viajes</th><th>Situación</th></tr></thead>
       <tbody>${fueraDelPago.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.companyId ? datos?.empresas.get(c.companyId) ?? 'Empresa' : 'Sin empresa')}</td><td class="r">${c.viajes}</td><td>${c.sinConfigurar ? 'Nunca se puso en el pago' : 'Se le quitó el pago por viaje'}</td></tr>`).join('')}</tbody></table>` : '';
     const html = pdfDocument({
       title: 'Pago de viajes de camiones',
-      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)`,
-      extraCss: `
-        table{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0 10px}
-        th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}
-        th{background:#1E3A5F;color:#fff}
-        td.r,th.r{text-align:right}td.c{text-align:center}td.b{font-weight:700}
-        tfoot td{background:#1E3A5F;color:#fff;font-weight:800}
-        h3{font-size:13px;color:#1E3A5F;margin:14px 0 2px}
-        p.n{font-size:10px;color:#666;margin:0 0 8px}`,
-      body: `
-        <table><thead><tr><th>Empresa</th><th class="r">Viajes pagados</th><th class="r">No facturó</th><th class="r">Sin pagar</th><th class="r">Total</th></tr></thead>
-        <tbody>${filas || '<tr><td colspan="5" class="c">Sin viajes en el rango</td></tr>'}</tbody>
-        <tfoot><tr><td>TOTAL A PAGAR</td><td class="r">${tot.pagados}</td><td class="r">${tot.noFacturados}</td><td class="r">${tot.pendientes}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>
-        ${fuera}
-        ${detalle}`,
+      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}`,
+      extraCss: CSS_PAGO_VIAJES,
+      body: cuerpoPagoViajes({
+        lineas: lineasPdf,
+        eje: ejePdf,
+        filtro: filtroPdf,
+        // Un papel filtrado SIEMPRE dice que lo está, aunque hayan apagado el alcance:
+        // un total parcial que se lee como el pago completo es el error más caro posible.
+        opciones: pdfFiltrado ? { ...opcionesPdf, sinAlcance: false } : opcionesPdf,
+        nombresEmpresa: datos?.empresas ?? new Map(),
+        fichas: datos?.fichas,
+        m3PorViaje,
+        etiquetaMotivo: etiquetaMotivoSinPago,
+        htmlFueraDelPago: fuera,
+      }),
     });
-    await exportPdf(html, `Pago de viajes ${dmy(desde)} a ${dmy(hasta)}`);
+    await exportPdf(html, `Pago de viajes ${dmy(desde)} a ${dmy(hasta)}${sufijoArchivoPago(filtroPdf, ejePdf, opcionesPdf)}`.replace(/\//g, '-'));
   };
+
+  const alternarSel = (set: Set<string>, poner: (x: Set<string>) => void, k: string) => {
+    const n = new Set(set);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    poner(n);
+  };
+  const pastilla = (key: string, label: string, on: boolean, onPress: () => void) => (
+    <TouchableOpacity key={key} onPress={onPress}
+      style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+    </TouchableOpacity>
+  );
+  const rotuloPdf = (t: string) => <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 4 }}>{t}</Text>;
 
   const atajo = (label: string, d: string, h: string) => {
     const on = desde === d && hasta === h;
@@ -208,8 +232,58 @@ export function PagoViajesResumen({ canEdit, usuarioId }: Props) {
         <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: spacing.sm }}>
           {boton('⚙️ Tarifas y camiones', () => setPanelOpen(true))}
           {boton(cargando ? 'Actualizando…' : '↻ Actualizar', cargar, false, cargando)}
-          {boton('📄 PDF', descargarPdf, true, !!error || rangoInvalido || !empresas.length)}
+          {boton('📄 PDF', descargarPdf, true, !!error || rangoInvalido || !lineasPdf.length)}
         </View>
+
+        {!error && empresas.length ? (
+          <Plegable
+            titulo="📄 Opciones del PDF"
+            resumen={`${pdfFiltrado ? 'filtrado · ' : ''}${totPdf.pagados} viaje(s) · ${usd(totPdf.monto)} · por ${ejePdf === 'obra' ? 'obra' : 'empresa'}`}
+            alerta={pdfFiltrado}
+          >
+            <Text style={{ color: colors.muted, fontSize: 12 }}>
+              Esto cambia SOLO el papel. Lo de arriba sigue siendo el pago completo del rango. Sin marcar nada, entran todas.
+            </Text>
+
+            {rotuloPdf('AGRUPAR POR')}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {pastilla('eje-e', '🏢 Empresa', ejePdf === 'empresa', () => setEjePdf('empresa'))}
+              {pastilla('eje-o', '📍 Obra / ubicación', ejePdf === 'obra', () => setEjePdf('obra'))}
+            </View>
+
+            {rotuloPdf(`📍 OBRAS (vacío = todas · ${obrasPdf.length})`)}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {pastilla('o-todas', '✅ Todas', filtroPdf.obras.length === 0, () => setObrasSel(new Set()))}
+              {obrasPdf.map((x) => pastilla('o' + x.id, `${x.name} (${x.viajes})`, filtroPdf.obras.includes(x.id), () => alternarSel(obrasSel, setObrasSel, x.id)))}
+            </View>
+
+            {rotuloPdf(`🏢 EMPRESAS (vacío = todas · ${empresasPdf.length})`)}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {pastilla('e-todas', '✅ Todas', filtroPdf.empresas.length === 0, () => setEmpresasSel(new Set()))}
+              {empresasPdf.map((x) => pastilla('e' + x.id, `${x.name} (${x.viajes})`, filtroPdf.empresas.includes(x.id), () => alternarSel(empresasSel, setEmpresasSel, x.id)))}
+            </View>
+
+            {rotuloPdf('🖨️ ¿QUÉ SE OCULTA EN EL PDF?')}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {PASTILLAS_PAGO.map((p) => pastilla('p' + p.key, p.chip, opcionesPdf[p.key], () => setOpcionesPdf((o) => alternarPago(o, p.key))))}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Encendida = NO sale. {ocultosPagoEnPalabras(opcionesPdf)} Ocultar no cambia el total; filtrar sí.
+            </Text>
+
+            <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: pdfFiltrado ? colors.warning : colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                Va a salir: {totPdf.pagados} viaje(s) pagados · {usd(totPdf.monto)}
+              </Text>
+              {pdfFiltrado ? (
+                <Text style={{ color: colors.warning, fontSize: 12 }}>
+                  ⚠️ Filtrado: es una parte de los {usd(tot.monto)} del rango, y el papel lo dice. La lista de camiones que no entran al pago solo sale en el papel sin filtrar.
+                </Text>
+              ) : null}
+              {!lineasPdf.length ? <Text style={{ color: colors.danger, fontSize: 12 }}>Con ese filtro no hay ningún viaje: no se puede sacar el papel.</Text> : null}
+            </View>
+          </Plegable>
+        ) : null}
 
         {error ? (
           <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerSoftBg, borderRadius: radius.md, padding: spacing.sm }}>
