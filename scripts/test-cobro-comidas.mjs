@@ -320,5 +320,62 @@ ok('⭐ ningún manual sigue diciendo que «Otros» sale «sin precio»', !/Otro
 ok('manual (md) explica cuentas y encargados', /Cuentas: se cobra y encargado \(15\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('manual (app) también', /CUENTAS: SE COBRA Y ENCARGADO \(15\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
+// ── CONTACTOS DE COCINA EN EL COBRO (Fase 2, 21-sep-2026) ───────────────────
+{
+  const deContactos = [
+    // paga ella: 3 desayunos del 14-sep a 9
+    { employee_id: null, contacto_id: 'k1', cobrar_a: 'independiente', employee_name: 'Ana Rojas', meal_type: 'desayuno', distribution_date: '2026-09-14', meals: 3 },
+    // se le cobra a EMPRESA A: 2 desayunos a 9
+    { employee_id: null, contacto_id: 'k2', cobrar_a: 'empresa', contacto_company_id: 'EMPA', contacto_company_nombre: 'EMPRESA A', employee_name: 'Beto Mora', meal_type: 'desayuno', distribution_date: '2026-09-14', meals: 2 },
+    // decía «empresa» pero la entrega no guardó cuál: no puede quedar sin cobrar
+    { employee_id: null, contacto_id: 'k3', cobrar_a: 'empresa', contacto_company_id: null, employee_name: 'Caro Díaz', meal_type: 'desayuno', distribution_date: '2026-09-14', meals: 1 },
+  ];
+  const conK = (extra = {}) => L.calcularCobroComidas({ empresas, personas: [...personas, ...deContactos], empresaDePersona: fichas, precios: P, ...extra });
+  const K = conK();
+  const de = (lista, k) => lista.find((c) => c.clave === k);
+
+  eq('⭐ orden: empresas, contactos, nómina, sin ficha', K.map((c) => c.clave),
+    ['EMPA', 'EMPRESA VIEJA', 'contacto:k1', 'contacto:k3', L.CUENTA_NOMINA, L.CUENTA_SIN_FICHA]);
+  const ana = de(K, 'contacto:k1');
+  eq('⭐ el contacto independiente tiene SU cuenta, con su nombre', [ana.nombre, ana.comidas, ana.monto, ana.porContacto, ana.clase], ['Ana Rojas', 3, 27, 3, 'contacto']);
+  eq('...y se cobra (no es consumo interno)', [ana.cobradas, ana.montoInterno], [3, 0]);
+  eq('⭐ el cobrado a su empresa NO abre cuenta propia', de(K, 'contacto:k2'), undefined);
+  eq('⭐ ...se funde en la cuenta de la empresa: una sola EMPRESA A', K.filter((c) => c.nombre === 'EMPRESA A').length, 1);
+  eq('⭐ ...y le suma exactamente lo suyo', [de(K, 'EMPA').monto - A.monto, de(K, 'EMPA').comidas - A.comidas, de(K, 'EMPA').porContacto], [18, 2, 2]);
+  ok('...con su nombre en el detalle de la empresa', de(K, 'EMPA').detalle.some((d) => /Beto Mora/.test(d)));
+  eq('⭐ «empresa» sin empresa guardada: a su propia cuenta, cobrada', [de(K, 'contacto:k3')?.monto, de(K, 'contacto:k3')?.cobradas], [9, 1]);
+  // ⭐ NINGÚN contacto cae ya en el saco de «sin ficha».
+  eq('⭐ el saco «sin ficha» no recibe a ningún contacto', de(K, L.CUENTA_SIN_FICHA).comidas, cuenta(L.CUENTA_SIN_FICHA).comidas);
+  // ⭐ NADA SE COBRA DOS VECES: el total sube exactamente lo que valen esas 6 comidas.
+  eq('⭐ el total sube exactamente lo de los contactos', [L.totalCobroComidas(K).monto - L.totalCobroComidas(C).monto, L.totalCobroComidas(K).comidas - L.totalCobroComidas(C).comidas], [54, 6]);
+  // Las filas de nómina no cambian en nada por convivir con contactos.
+  eq('⭐ la nómina queda idéntica', JSON.stringify(de(K, L.CUENTA_NOMINA)), JSON.stringify(cuenta(L.CUENTA_NOMINA)));
+
+  // La empresa marcada «no se cobra» arrastra lo de su contacto; el independiente no.
+  const cfgNo = L.indexarConfigCuentas([{ id: 'x', tipo: 'empresa', clave: 'EMPA', desde: '2026-09-01', se_cobra: false, encargado_id: null }]);
+  const KN = conK({ config: cfgNo });
+  eq('⭐ si la empresa no se cobra, lo de su contacto tampoco', [de(KN, 'EMPA').monto, de(KN, 'EMPA').montoInterno - 18 >= 0], [0, true]);
+  eq('...pero el contacto independiente se sigue cobrando', de(KN, 'contacto:k1').monto, 27);
+
+  // Un contacto NO se configura: `comida_cuentas_config` tiene un CHECK con 'empresa' y
+  // 'departamento'. Una fila con otro tipo se descarta, y el contacto se cobra igual.
+  const cfgRara = L.indexarConfigCuentas([{ id: 'y', tipo: 'contacto', clave: 'k1', desde: '2026-09-01', se_cobra: false, encargado_id: null }]);
+  eq('⭐ una config de tipo «contacto» no existe: se sigue cobrando', de(conK({ config: cfgRara }), 'contacto:k1').monto, 27);
+  ok('⭐ TipoCuenta sigue siendo solo lo que admite la base', /export type TipoCuenta = 'empresa' \| 'departamento';/.test(leer('src/lib/cobroComidas.ts')));
+
+  // Eje por encargado: el independiente no tiene encargado posible.
+  const KE = conK({ eje: 'encargado' });
+  eq('por encargado, el total es el mismo', L.totalCobroComidas(KE).monto, L.totalCobroComidas(K).monto);
+  ok('...y el independiente cae en «sin encargado»', de(KE, L.SIN_ENCARGADO).comidas >= 4);
+
+  const src = sinComentarios(leer('src/lib/cobroComidas.ts'));
+  ok('⭐ la rama del contacto va ANTES de buscar la ficha', src.indexOf('const contactoId = limpio(r.contacto_id);') > 0 && src.indexOf('const contactoId = limpio(r.contacto_id);') < src.indexOf('const ficha = r.employee_id'));
+  ok('⭐ ...y termina en continue: una sola suma por fila', /clase: 'contacto' \}\);\s*\}\s*continue;/.test(src));
+  ok('⭐ la clave de la empresa es su id, la misma del QR', /sumar\(\{ \.\.\.baseC, clave: empresaId, nombre, orden: 0, tipo: 'empresa', claveConfig: empresaId,/.test(src));
+  const resumen2 = sinComentarios(leer('src/components/CobroComidasResumen.tsx'));
+  ok('la tarjeta pinta al contacto con su ícono y cuenta sus comidas', /c\.clase === 'contacto' \? '📇'/.test(resumen2) && /c\.porContacto \?/.test(resumen2));
+  ok('el PDF del cobro tiene la columna de contactos y el pie cuadra', /<th class="r">Contactos<\/th>/.test(resumen2) && /colspan="7"/.test(resumen2));
+}
+
 console.log(`\nCobro de comidas: ${pass} ok, ${fail} fallas`);
 if (fail) { console.log(failures.join('\n')); process.exit(1); }

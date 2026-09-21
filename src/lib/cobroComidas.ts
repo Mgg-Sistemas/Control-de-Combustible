@@ -54,6 +54,18 @@ export type ComidaPersonaCobro = {
   meal_type: string | null;
   distribution_date: string;
   meals: number | string | null;
+  // ── Contactos de cocina (21-sep-2026) ──
+  // Todo lo que el cobro necesita de un contacto viaja EN LA ENTREGA, congelado al
+  // registrarla: a quién se le cobró, cuál empresa y cómo se llamaba. Por eso este
+  // cálculo no consulta la agenda: cambiarle la empresa o el interruptor a un contacto
+  // hoy no puede mover una entrega ya cobrada. Todos opcionales: las filas de nómina
+  // (y los llamadores viejos) no los traen y se comportan igual que siempre.
+  contacto_id?: string | null;
+  cobrar_a?: string | null;
+  contacto_company_id?: string | null;
+  contacto_company_nombre?: string | null;
+  /** Nombre de quien recibió. Para un contacto, es el nombre de su cuenta. */
+  employee_name?: string | null;
 };
 
 /** Ficha de cada persona: companyId null = nómina propia (con su departamento). */
@@ -80,6 +92,13 @@ export type EjeCobro = 'cuenta' | 'encargado';
 
 export const CUENTA_NOMINA = 'nomina';
 export const CUENTA_SIN_FICHA = 'sin_ficha';
+/**
+ * Prefijo de la clave de la cuenta propia de un contacto de cocina: `contacto:<id>`.
+ * Con prefijo para que jamás se confunda con el id de una empresa (las claves de
+ * cuenta se comparan contra el filtro de empresa de la pantalla).
+ */
+export const PREFIJO_CUENTA_CONTACTO = 'contacto:';
+export const claveCuentaContacto = (contactoId: unknown): string => PREFIJO_CUENTA_CONTACTO + String(contactoId ?? '').trim();
 export const SIN_CATEGORIA = 'sin_categoria';
 /** Los platos extra de la distribución por empresa. Ver `precioDeEntrega`. */
 export const CATEGORIA_OTROS = 'otros';
@@ -115,6 +134,15 @@ export type CuentaComida = {
   comidasInternas: number;
   porQr: number;
   porCarnet: number;
+  /** Comidas entregadas a contactos de cocina (no son ni QR ni carnet de nómina). */
+  porContacto: number;
+  /**
+   * 'contacto' = la cuenta propia de un contacto de cocina. Es solo para pintarla
+   * (su ícono, su rótulo). NO es un `TipoCuenta`: esos son los tipos que admite la
+   * tabla `comida_cuentas_config` (tiene un CHECK con 'empresa' y 'departamento'), y
+   * un contacto independiente no se configura: paga lo que pide, siempre.
+   */
+  clase?: 'contacto';
   /** De dónde salen sus comidas: empresas o departamentos, en orden. */
   detalle: string[];
   /** Agrupado por categoría, precio y si se cobra. */
@@ -271,7 +299,8 @@ export function calcularCobroComidas(opts: {
 
   const sumar = (m: {
     clave: string; nombre: string; orden: number; tipo: TipoCuenta | null; claveConfig: string; detalle: string;
-    categoria: string | null; fecha: string; cantidad: number; via: 'qr' | 'carnet';
+    categoria: string | null; fecha: string; cantidad: number; via: 'qr' | 'carnet' | 'contacto';
+    clase?: 'contacto';
     /** Solo las entregas por QR: costo por plato y nombre del plato de «Otros». */
     costo?: unknown; plato?: unknown;
   }) => {
@@ -289,8 +318,10 @@ export function calcularCobroComidas(opts: {
     if (!c) {
       c = {
         clave, nombre, comidas: 0, cobradas: 0, sinPrecio: 0, monto: 0, montoInterno: 0, comidasInternas: 0,
-        porQr: 0, porCarnet: 0, detalle: [], items: [], _orden: orden, _items: new Map(), _detalle: new Set(),
+        porQr: 0, porCarnet: 0, porContacto: 0, detalle: [], items: [], _orden: orden, _items: new Map(), _detalle: new Set(),
       };
+      // Solo en el eje por cuenta: en el eje por encargado la cuenta es del encargado.
+      if (m.clase && eje === 'cuenta') c.clase = m.clase;
       cuentas.set(clave, c);
     }
     const cat = m.categoria || SIN_CATEGORIA;
@@ -299,7 +330,9 @@ export function calcularCobroComidas(opts: {
     const precio = pe ? pe.precio : null;
     const plato = cat === CATEGORIA_OTROS ? limpio(m.plato) || null : null;
     c.comidas += m.cantidad;
-    if (m.via === 'qr') c.porQr += m.cantidad; else c.porCarnet += m.cantidad;
+    if (m.via === 'qr') c.porQr += m.cantidad;
+    else if (m.via === 'contacto') c.porContacto += m.cantidad;
+    else c.porCarnet += m.cantidad;
     c._detalle.add(m.detalle);
     if (precio === null) c.sinPrecio += m.cantidad;
     if (!seCobra) c.comidasInternas += m.cantidad;
@@ -329,6 +362,31 @@ export function calcularCobroComidas(opts: {
 
   for (const r of opts.personas ?? []) {
     if (!r) continue;
+    // ── CONTACTO DE COCINA (21-sep-2026) ── va ANTES de buscar la ficha: un contacto
+    //    no tiene `employee_id`, y sin esta rama caía en «sin ficha de nómina», todos
+    //    revueltos en un solo saco donde no se sabía a quién cobrarle cuánto.
+    //
+    // ⚠️ UNA SOLA LLAMADA A `sumar` POR FILA, pase lo que pase: o va a la empresa, o va
+    //    a su cuenta. Nunca a las dos — eso sería cobrar la misma comida dos veces.
+    const contactoId = limpio(r.contacto_id);
+    if (contactoId) {
+      const baseC = { categoria: r.meal_type, fecha: dia(r.distribution_date), cantidad: Math.floor(num(r.meals)), via: 'contacto' as const };
+      const persona = limpio(r.employee_name) || 'Contacto sin nombre';
+      const empresaId = limpio(r.contacto_company_id);
+      if (r.cobrar_a === 'empresa' && empresaId) {
+        // A SU EMPRESA: misma clave que las entregas por QR y por carnet de esa empresa
+        // (el `company_id`), así se funde en UNA cuenta y hereda su «se cobra» y su
+        // encargado. Con otra clave saldría la misma empresa dos veces en la tarjeta.
+        const nombre = limpio(r.contacto_company_nombre) || 'Empresa';
+        sumar({ ...baseC, clave: empresaId, nombre, orden: 0, tipo: 'empresa', claveConfig: empresaId, detalle: `📇 ${persona}` });
+      } else {
+        // POR SU CUENTA — también si decía «empresa» pero la entrega no guardó cuál:
+        // sin empresa no hay a quién pasarle la cuenta, y dejarla en el aire sería
+        // comida sin cobrar. `tipo: null` = se cobra siempre y no se configura.
+        sumar({ ...baseC, clave: claveCuentaContacto(contactoId), nombre: persona, orden: 0.5, tipo: null, claveConfig: '', detalle: 'Contacto de cocina', clase: 'contacto' });
+      }
+      continue;
+    }
     const ficha = r.employee_id ? opts.empresaDePersona.get(r.employee_id) : undefined;
     const base = { categoria: r.meal_type, fecha: dia(r.distribution_date), cantidad: Math.floor(num(r.meals)), via: 'carnet' as const };
     if (ficha && ficha.companyId) {

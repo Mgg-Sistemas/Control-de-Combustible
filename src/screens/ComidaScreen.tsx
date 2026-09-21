@@ -193,7 +193,9 @@ export default function ComidaScreen() {
   const rangeByPerson = useMemo(() => {
     const map = new Map<string, { name: string; cedula: string; total: number; by: Record<string, number>; days: Set<string> }>();
     rangePersons.forEach((r) => {
-      const k = r.employee_id ?? (r.cedula || r.employee_name);
+      // El contacto de cocina primero, igual que `clavePersona` del reporte: si la
+      // pantalla y el papel agruparan distinto, no cuadrarían entre sí.
+      const k = r.contacto_id ?? r.employee_id ?? (r.cedula || r.employee_name);
       if (!map.has(k)) map.set(k, { name: r.employee_name, cedula: (r as any).cedula ?? '', total: 0, by: {}, days: new Set() });
       const g = map.get(k)!;
       const n = Number(r.meals) || 0;
@@ -338,7 +340,7 @@ export default function ComidaScreen() {
   const byPerson = useMemo(() => {
     const map = new Map<string, { name: string; total: number; items: FoodDistribution[] }>();
     rows.forEach((r) => {
-      const k = r.employee_id ?? r.employee_name;
+      const k = r.contacto_id ?? r.employee_id ?? r.employee_name;
       if (!map.has(k)) map.set(k, { name: r.employee_name, total: 0, items: [] });
       const g = map.get(k)!;
       g.total += Number(r.meals) || 0;

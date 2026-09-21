@@ -73,6 +73,8 @@ type Person = {
   contactoId?: string | null;
   /** A quién se le cobra lo que pida. Se congela en cada entrega. */
   cobrarA?: CobrarA;
+  /** Su empresa HOY. Se congela en la entrega junto con `cobrarA`. */
+  companyId?: string | null;
 };
 
 /**
@@ -250,6 +252,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       companyName: emp ?? 'Por su cuenta',
       contactoId: c.id,
       cobrarA: cobrarAEfectivo(c),
+      companyId: c.company_id ?? null,
     };
     setPerson(p);
     setTodayList(await listForContactoDay(c.id, today));
@@ -384,6 +387,8 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       employeeId: esContacto ? null : person.id,
       contactoId: person.contactoId ?? null,
       cobrarA: esContacto ? (person.cobrarA ?? 'independiente') : null,
+      contactoCompanyId: esContacto ? (person.companyId ?? null) : null,
+      contactoCompanyNombre: esContacto && person.companyId ? person.companyName : null,
       employeeName: person.name,
       cedula: person.cedula,
       meals: cuantas,
