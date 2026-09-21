@@ -59,6 +59,11 @@ export type EmisionNueva = {
   ubicacionNombre: string | null;
   emitidoPor: string | null;
   emitidoPorNombre: string;
+  /** La hora en que se tocó «Imprimir», tomada en el teléfono. Sin esto la hora la
+   *  pone la base al LLEGAR la fila, y una entrega apartada sin señal quedaba con la
+   *  hora en que subió —a veces horas después—. `created_at` sigue diciendo cuándo
+   *  llegó. Opcional: las apartadas antes de este cambio no lo traen. */
+  emitidoAt?: string;
   /** Clave de idempotencia. Si el mismo papel se reintenta al volver la señal, la
    *  base lo rechaza por `uq_tique_emisiones_client_action` y no se duplica. */
   clientActionId: string;
@@ -111,6 +116,8 @@ function aFila(e: EmisionNueva) {
     emitido_por: e.emitidoPor,
     emitido_por_nombre: e.emitidoPorNombre,
     client_action_id: e.clientActionId,
+    // Solo si viene: sin él la base pone su `now()`, como siempre.
+    ...(e.emitidoAt ? { emitido_at: e.emitidoAt } : {}),
     // `reimpresion` NO se manda: lo decide el trigger `marcar_reimpresion_tique`
     // mirando si ya hay una fila con ese folio. Calcularlo acá haría que dos
     // dispositivos imprimiendo a la vez se declararan los dos «primera vez».

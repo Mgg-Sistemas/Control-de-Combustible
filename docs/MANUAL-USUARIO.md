@@ -4662,6 +4662,11 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > entregado. Pasó con los **CDT-000419, 420 y 421**. Ahora la entrega se registra **en el momento en
 > que sale el papel**, sin esperar a que cierres la ventana, y también cuenta si imprimes con
 > **Ctrl+P** o desde el menú del navegador. Cancelar sigue sin registrar nada, porque ese papel no salió.
+>
+> **🕐 La hora es la del botón (21/09/2026).** La hora que queda en el historial del ticket es la del
+> momento en que tocaste **Imprimir**, tomada en tu teléfono. Antes la ponía el servidor al recibir
+> la entrega: si imprimías **sin señal**, la entrega subía después y quedaba con la hora en que
+> subió, no con la que salió el papel. Ahora queda la del botón aunque suba horas más tarde.
 
 > **🕘 Ver quién imprimió cada ticket (14/09/2026).** Toca la pastilla **«entregado ×N»** de
 > cualquier viaje y se abre su historial, en orden: la primera impresión arriba y después cada
