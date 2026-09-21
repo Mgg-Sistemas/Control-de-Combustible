@@ -166,5 +166,19 @@ const cerrar = async (nav) => { nav.porTexto('Cancelar')?.onclick?.(); await tic
   eq('y no se cuenta dos veces', estado.veces, 1);
 }
 
+// ── 5) ⭐ LA HORA DE LA ENTREGA ES LA DEL BOTÓN, NO LA DE LA SUBIDA (21-sep-2026) ──
+//
+// La base pone `emitido_at = now()` al LLEGAR la fila. Una entrega apartada sin señal
+// subía horas después y quedaba con esa hora. Ahora la hora se toma al confirmarse la
+// impresión y viaja con la entrega.
+{
+  const fsx = await import('node:fs');
+  const lib = fsx.readFileSync(new URL('../src/lib/tiqueEmisiones.ts', import.meta.url), 'utf8');
+  const pan = fsx.readFileSync(new URL('../src/screens/ViajesCamionesScreen.tsx', import.meta.url), 'utf8');
+  eq('⭐ la hora viaja con la entrega (también con la apartada sin señal)', /\.\.\.\(e\.emitidoAt \? \{ emitido_at: e\.emitidoAt \} : \{\}\)/.test(lib), true);
+  eq('⭐ se toma apenas se confirma, antes de cualquier espera de red', /if \(!confirmado\) return;[\s\S]{0,420}const emitidoAt = new Date\(\)\.toISOString\(\);[\s\S]*?await registrarEmisiones\(nuevas\)/.test(pan), true);
+  eq('...y va en cada entrega del mandado', /emitidoPorNombre: listeroName,\s*emitidoAt,/.test(pan), true);
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-imprimir-confirma · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

@@ -2893,6 +2893,10 @@ export default function ViajesCamionesScreen() {
       // En la web se resuelve `false` si cerró la vista previa sin imprimir. Ese
       // papel no salió, así que no se entregó nada y no hay nada que anotar.
       if (!confirmado) return;
+      // ⚠️ LA HORA ES LA DEL BOTÓN. `exportPdf` resuelve en el instante en que se toca
+      //    «Imprimir»; se anota acá, antes de cualquier espera de red, y viaja con la
+      //    entrega aunque quede apartada sin señal y suba horas después.
+      const emitidoAt = new Date().toISOString();
 
       // Un mandado, un número de lote: los tickets que se imprimieron juntos se
       // pueden volver a encontrar juntos, que es como se reparten y como se
@@ -2913,6 +2917,7 @@ export default function ViajesCamionesScreen() {
         ubicacionNombre: obraMia?.nombre ?? null,
         emitidoPor: uid || null,
         emitidoPorNombre: listeroName,
+        emitidoAt,
         clientActionId: `${loteId}:${folioDeTique(r)}`,
       }));
 
