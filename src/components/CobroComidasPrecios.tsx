@@ -22,14 +22,20 @@ import { precioComidaEn, validarPrecioComida, PrecioComida } from '../lib/cobroC
 import { anularPrecioComida, cargarPreciosComida, crearPrecioComida } from '../lib/cobroComidasDb';
 import { PlatoCatalogo, categoriaDePlato, esCategoriaDePlato, nombreDeCategoria, ordenarPlatos, platoActivo } from '../lib/comidaPlatos';
 import { cargarPlatos } from '../lib/comidaPlatosDb';
+import { ContactoCocina } from '../lib/comidaContactos';
+import { cargarContactos } from '../lib/comidaContactosDb';
+import { supabase } from '../lib/supabase';
 import { CobroComidasCuentas } from './CobroComidasCuentas';
 import { CobroComidasPlatos } from './CobroComidasPlatos';
+import { CobroComidasContactos } from './CobroComidasContactos';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   canEdit: boolean;
   usuarioId: string | null;
+  /** Nombre de quien está usando la pantalla: queda en el contacto que cree. */
+  usuarioNombre?: string | null;
   hoy: string;
   /** Se llama después de guardar algo, para que el cobro recalcule. */
   onChanged: () => void;
@@ -47,11 +53,17 @@ const etiquetaCon = (platos: PlatoCatalogo[]) => (k: string) => {
   return k;
 };
 
-export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy, onChanged }: Props) {
+export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, usuarioNombre, hoy, onChanged }: Props) {
   const { colors } = useTheme();
-  const [pestana, setPestana] = useState<'precios' | 'platos' | 'cuentas'>('precios');
+  const [pestana, setPestana] = useState<'precios' | 'platos' | 'contactos' | 'cuentas'>('precios');
   const [precios, setPrecios] = useState<PrecioComida[]>([]);
   const [platos, setPlatos] = useState<PlatoCatalogo[]>([]);
+  // La agenda de cocina (21-sep-2026) y las empresas a las que se les puede asignar
+  // un contacto. `sinTablaContactos` = falta correr el SQL: la pestaña lo dice y el
+  // resto del módulo sigue funcionando igual.
+  const [contactos, setContactos] = useState<ContactoCocina[]>([]);
+  const [empresas, setEmpresas] = useState<{ id: string; name: string }[]>([]);
+  const [sinTablaContactos, setSinTablaContactos] = useState(false);
   const etiqueta = useMemo(() => etiquetaCon(platos), [platos]);
   // Los platos de la lista, para las pastillas de «Nuevo precio» y «Precio vigente».
   const platosEnLista = useMemo(() => ordenarPlatos(platos).filter(platoActivo), [platos]);
@@ -74,9 +86,20 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
     setCargando(true);
     setError(null);
     try {
-      const [p, pl] = await Promise.all([cargarPreciosComida(), cargarPlatos()]);
+      // La agenda va en el MISMO Promise.all: si fuera una lectura aparte, la pestaña
+      // de contactos se abriría vacía la primera vez y parecería que no hay nadie.
+      const [p, pl, ag, comps] = await Promise.all([
+        cargarPreciosComida(),
+        cargarPlatos(),
+        cargarContactos(),
+        // Solo empresas visibles: a una empresa oculta no se le asigna a nadie.
+        supabase.from('companies').select('id, name, hidden').order('name', { ascending: true }),
+      ]);
       setPrecios(p);
       setPlatos(pl);
+      setContactos(ag.contactos);
+      setSinTablaContactos(ag.sinTabla);
+      setEmpresas(((comps.data ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: String(c.id), name: String(c.name ?? '') })));
     } catch (e: any) {
       setError(`No se pudieron leer los precios (${e?.message ?? 'revisa la conexión'}).`);
     } finally {
@@ -152,6 +175,9 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
           <TouchableOpacity onPress={() => setPestana('platos')} style={chip(pestana === 'platos')}>
             <Text style={chipTxt(pestana === 'platos')}>🧾 Platos</Text>
           </TouchableOpacity>
+          <TouchableOpacity onPress={() => setPestana('contactos')} style={chip(pestana === 'contactos')}>
+            <Text style={chipTxt(pestana === 'contactos')}>📇 Contactos</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => setPestana('cuentas')} style={chip(pestana === 'cuentas')}>
             <Text style={chipTxt(pestana === 'cuentas')}>👤 Cuentas</Text>
           </TouchableOpacity>
@@ -170,6 +196,19 @@ export function CobroComidasPrecios({ visible, onClose, canEdit, usuarioId, hoy,
 
         {pestana === 'cuentas' ? (
           <CobroComidasCuentas canEdit={canEdit} hoy={hoy} onChanged={onChanged} />
+        ) : pestana === 'contactos' ? (
+          <ScrollView style={{ flex: 1 }}>
+            <CobroComidasContactos
+              canEdit={canEdit}
+              contactos={contactos}
+              empresas={empresas}
+              cargando={cargando}
+              sinTabla={sinTablaContactos}
+              quien={{ id: usuarioId, nombre: usuarioNombre }}
+              onCambio={async () => { await cargar(); onChanged(); }}
+            />
+            <View style={{ height: spacing.lg }} />
+          </ScrollView>
         ) : pestana === 'platos' ? (
           <ScrollView style={{ flex: 1 }}>
             <CobroComidasPlatos

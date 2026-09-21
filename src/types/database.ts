@@ -919,6 +919,12 @@ export interface FoodDistribution {
   employee_id: string | null;
   employee_name: string;
   cedula: string | null;
+  /** Contacto de cocina (21-sep-2026). Va en vez de `employee_id`: o la persona
+   *  es de nómina, o es de la agenda de cocina. `employee_name` y `cedula` se
+   *  llenan igual en los dos casos. */
+  contacto_id?: string | null;
+  /** A quién se le cobró ESTA entrega, congelado al registrarla. Null = nómina. */
+  cobrar_a?: 'empresa' | 'independiente' | null;
   meals: number;
   meal_type: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
   delivered_at: string;        // hora de entrega (ISO UTC)
