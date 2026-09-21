@@ -20,8 +20,8 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import {
   ContactoCocina,
-  buscarContactos, cobrarAEfectivo, contactoActivo, contarSinCedula, formatearCedula,
-  limpiarTexto, nombreDeContacto, ordenarContactos, sinCedula,
+  buscarContactos, cobrarAEfectivo, contactoActivo, formatearCedula,
+  limpiarTexto, nombreDeContacto, ordenarContactos,
 } from '../lib/comidaContactos';
 import { cambiarCobrarA, cambiarListaContacto } from '../lib/comidaContactosDb';
 import { ContactoCocinaForm } from './ContactoCocinaForm';
@@ -61,7 +61,6 @@ export function CobroComidasContactos({ canEdit, contactos, empresas, cargando, 
 
   const enLista = contactos.filter(contactoActivo).length;
   const quitados = contactos.length - enLista;
-  const faltanCedulas = contarSinCedula(contactos);
 
   const abrirNuevo = () => { setEditando(null); setFormAbierto(true); setAviso(null); };
   const abrirEditar = (c: ContactoCocina) => { setEditando(c); setFormAbierto(true); setAviso(null); };
@@ -170,12 +169,6 @@ export function CobroComidasContactos({ canEdit, contactos, empresas, cargando, 
             </TouchableOpacity>
           ) : null}
         </View>
-
-        {faltanCedulas ? (
-          <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.sm }}>
-            ⚠️ {faltanCedulas} contacto(s) sin cédula. Compleméntala cuando vuelvan: sin ella se pueden duplicar.
-          </Text>
-        ) : null}
       </Card>
 
       {aviso ? (
@@ -212,7 +205,7 @@ export function CobroComidasContactos({ canEdit, contactos, empresas, cargando, 
                 {nombreDeContacto(c)}{activo ? '' : ' · quitado de la lista'}
               </Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                {sinCedula(c) ? '⚠️ sin cédula' : formatearCedula(c.cedula)}
+                {formatearCedula(c.cedula)}
                 {c.telefono1 ? ` · ${limpiarTexto(c.telefono1)}` : ''}
                 {c.telefono2 ? ` · ${limpiarTexto(c.telefono2)}` : ''}
               </Text>

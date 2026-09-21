@@ -11,7 +11,7 @@
  *   · la misma cédula escrita de otra manera es la MISMA persona (si no, la factura
  *     de alguien sale partida en tres pedazos y nadie sabe cuál cobrar)
  *   · quien ya está en la nómina NO se registra como contacto: se atiende con su carnet
- *   · sin cédula hace falta un teléfono, y queda marcado (si no, se duplica solo)
+ *   · la cédula es OBLIGATORIA, acá y en la base (sin ella la gente se duplica sola)
  *   · sin empresa se cobra al contacto, diga lo que diga su ficha
  *   · el buscador encuentra por los dígitos, que es como la gente busca de verdad
  *   · un contacto puede pedir VARIAS comidas y repetir en el día; la nómina no
@@ -68,7 +68,7 @@ const C = loadTs('src/lib/comidaContactos.ts');
 // Gente inventada para las pruebas.
 const ana = { id: 'c1', nombre: 'Ana', apellido: 'Rojas', cedula: 'V-11.111.111', telefono1: '04121111111', telefono2: null, company_id: null, cobrar_a: 'empresa', activo: true };
 const beto = { id: 'c2', nombre: 'Beto', apellido: 'Mora', cedula: '22222222', telefono1: null, telefono2: null, company_id: 'emp-1', cobrar_a: 'empresa', activo: true };
-const caro = { id: 'c3', nombre: 'Caro', apellido: 'Díaz', cedula: null, telefono1: '04143333333', telefono2: null, company_id: 'emp-1', cobrar_a: 'independiente', activo: true };
+const caro = { id: 'c3', nombre: 'Caro', apellido: 'Díaz', cedula: 'V-33.333.333', telefono1: '04143333333', telefono2: null, company_id: 'emp-1', cobrar_a: 'independiente', activo: true };
 const dani = { id: 'c4', nombre: 'Dani', apellido: 'Luna', cedula: 'E-44444444', telefono1: null, telefono2: null, company_id: null, cobrar_a: 'empresa', activo: false };
 const TODOS = [ana, beto, caro, dani];
 
@@ -135,12 +135,14 @@ const TODOS = [ana, beto, caro, dani];
   eq('⭐ el teléfono no se exige', C.validarContacto({ ...base, telefono1: '', telefono2: '' }, TODOS), null);
   eq('⭐ la empresa tampoco', C.validarContacto({ ...base, companyId: '' }, TODOS), null);
 
-  // La salida de emergencia, con su precio.
-  ok('⭐ sin cédula hace falta un teléfono', /teléfono/i.test(C.validarContacto({ ...base, cedula: '', sinCedula: true }, TODOS)));
-  eq('...y con teléfono sí se puede', C.validarContacto({ ...base, cedula: '', sinCedula: true, telefono1: '04129999999' }, TODOS), null);
-  eq('...vale también si está en el segundo', C.validarContacto({ ...base, cedula: '', sinCedula: true, telefono2: '02129999999' }, TODOS), null);
-  // Sin cédula NO se compara contra las cédulas de los demás: no hay con qué.
-  eq('sin cédula no se choca con la cédula de otro', C.validarContacto({ ...base, cedula: 'V-11.111.111', sinCedula: true, telefono1: '04129999999' }, TODOS), null);
+  // ⭐ LA CÉDULA SÍ, SIEMPRE (decisión del cliente, 21-sep-2026). Se había propuesto una
+  //    salida —casilla «no la tiene a la mano» + teléfono como llave— y la descartó. Estas
+  //    guardas existen para que no se reintroduzca sin darse cuenta.
+  ok('⭐ no hay forma de saltarse la cédula con un teléfono',
+    !!C.validarContacto({ ...base, cedula: '', telefono1: '04129999999', telefono2: '02129999999' }, TODOS));
+  ok('⭐ ni con una bandera que diga que no la tiene', !!C.validarContacto({ ...base, cedula: '', sinCedula: true, telefono1: '04129999999' }, TODOS));
+  ok('⭐ ni dejándola en blanco a secas', !!C.validarContacto({ ...base, cedula: '   ' }, TODOS));
+  ok('...y el aviso no manda a marcar ninguna casilla', !/casilla/i.test(C.validarContacto({ ...base, cedula: '' }, TODOS)));
 
   ok('un teléfono con letras no pasa', /números/i.test(C.validarContacto({ ...base, telefono1: '0412-ABC' }, TODOS)));
   ok('un teléfono a medias no pasa', /incompleto/i.test(C.validarContacto({ ...base, telefono1: '0412' }, TODOS)));
@@ -187,9 +189,9 @@ const TODOS = [ana, beto, caro, dani];
 {
   eq('los de la lista primero, y ordenados', C.ordenarContactos(TODOS).map((c) => c.id), ['c1', 'c2', 'c3', 'c4']);
   ok('el quitado de la lista se reconoce', !C.contactoActivo(dani) && C.contactoActivo(ana));
-  ok('sin cédula se reconoce', C.sinCedula(caro) && !C.sinCedula(ana));
-  // El quitado de la lista no se cuenta: no se le va a pedir la cédula a quien no viene.
-  eq('⭐ se cuentan los de la lista sin cédula', C.contarSinCedula(TODOS), 1);
+  // Con la cédula obligatoria ya no hay nada que «completar después»: esos ayudantes
+  // se quitaron para que no quede código muerto prometiendo algo que no puede pasar.
+  ok('⭐ ya no existen los ayudantes de «sin cédula»', C.sinCedula === undefined && C.contarSinCedula === undefined);
   eq('nombre completo listo para imprimir', C.nombreDeContacto(beto), 'Beto Mora');
   eq('sin nombre no se imprime vacío', C.nombreDeContacto({ nombre: '', apellido: '' }), 'Sin nombre');
 }
@@ -241,6 +243,9 @@ const TODOS = [ana, beto, caro, dani];
   const form = sinComentarios(leer('src/components/ContactoCocinaForm.tsx'));
   // ⭐ PEDIDO TEXTUAL: «que sea opcional sin que diga que es opcional».
   ok('⭐ en el formulario no aparece la palabra «opcional»', !/opcional/i.test(form));
+  // ⭐ Y la casilla de escape NO vuelve: ni el interruptor, ni el campo apagado.
+  ok('⭐ el formulario no tiene casilla de «no la tiene a la mano»', !/No la tiene a la mano/.test(form) && !/setSinCed/.test(form));
+  ok('...y el campo de la cédula nunca se apaga', !/editable=\{!sinCed\}/.test(form));
   ok('la cédula se revisa con espera y con turno', /setTimeout\(/.test(form) && /turno\.current === mio/.test(form));
   ok('⭐ si no se pudo consultar la nómina, NO se dice «libre»', /if \(turno\.current === mio\) setHallazgo\(null\)/.test(form));
   ok('estando en nómina el botón de guardar no se puede tocar', /disabled=\{guardando \|\| esDeNomina/.test(form));
@@ -251,7 +256,7 @@ const TODOS = [ana, beto, caro, dani];
   ok('la pestaña tiene buscador', /buscarContactos\(contactos, busqueda\)/.test(tab));
   ok('⭐ quitar de la lista pide confirmación', /confirmarQuitar !== c\.id/.test(tab));
   ok('⭐ no hay forma de borrar un contacto desde la pantalla', !/borrarContacto|\.delete\(/.test(tab));
-  ok('avisa cuántos están sin cédula', /contarSinCedula\(contactos\)/.test(tab));
+  ok('⭐ la pestaña ya no promete completar cédulas después', !/contarSinCedula|sin cédula/i.test(tab));
   ok('cambiar a quién se le cobra dice que lo viejo no cambia', /Lo ya entregado no cambia/.test(tab));
 
   const precios = sinComentarios(leer('src/components/CobroComidasPrecios.tsx'));
