@@ -5350,6 +5350,31 @@ además de por empresa y por listero.
 
 #### 💰 Pago de viajes de camiones (15/09/2026)
 
+> **📄 PDF del pago de viajes: por obra, por empresa y con opciones (21/09/2026).** Debajo de los
+> botones de la tarjeta hay un plegable **"📄 Opciones del PDF"**:
+> - **Agrupar por:** 🏢 **Empresa** (como siempre) o 📍 **Obra / ubicación**. Por obra, el resumen y
+>   cada bloque del papel son de una obra (CDT), con su total. **El total es el mismo** agrupe como
+>   agrupe: cada viaje va a un solo bloque.
+> - **📍 Obras** y **🏢 Empresas:** toca las que quieras y **sale solo eso**; se pueden marcar varias y
+>   cruzar (una empresa en una obra). **Sin marcar nada entran todas**; "✅ Todas" limpia la selección.
+>   Cada una muestra cuántos viajes tiene en el rango. "Sin obra" también se puede elegir.
+> - **🖨️ ¿Qué se oculta?** Las mismas pastillas del Conteo de equipos: Marca, Modelo, Serial / Placa,
+>   Encargado, Metros cúbicos, Nombre de empresas, Listado por equipo, Cantidad por tipo, Cantidad
+>   por zona y Alcance del informe. **Encendida = NO sale.** El papel arranca **igual al de siempre**:
+>   lo nuevo (marca, modelo, placa, encargado, m³, los cuadros por tipo y por zona, y el alcance)
+>   viene oculto y se enciende tocando su pastilla.
+> - **Ocultar no cambia el total; filtrar sí.** Abajo dice **"Va a salir: N viajes · $X"** antes de
+>   descargar. Si filtraste, avisa en amarillo que es una parte del rango, y **el papel siempre lleva
+>   el cuadro de alcance diciendo que está FILTRADO**, aunque lo hayas apagado: un total parcial no
+>   puede leerse como el pago completo.
+> - **"Nombre de empresas" oculto:** salen como *Empresa 1, Empresa 2…* (en el mismo orden que con
+>   nombres, para poder cruzar dos papeles) y el nombre no aparece en ninguna parte de la hoja.
+> - Los **m³** salen de Cubicaje (los de un viaje del camión × sus viajes); un camión sin medir sale
+>   con raya. La **placa** es la que el viaje guardó ese día. La lista de *camiones que no entran al
+>   pago* solo sale en el papel **sin filtrar**.
+> - Esto cambia **solo el papel**: la tarjeta de arriba sigue mostrando el pago completo del rango, y
+>   el PDF sale de esas mismas cifras, así que no puede dar un monto distinto al de la pantalla.
+
 > **📅 Arranca el 14/09/2026 (cambio del 17/09/2026).** El pago por viaje y sus tarifas ahora cuentan
 > **desde la jornada del 14/09/2026** (antes, desde el 15). Los viajes del 14 ya salen en la tarjeta con
 > su tarifa.

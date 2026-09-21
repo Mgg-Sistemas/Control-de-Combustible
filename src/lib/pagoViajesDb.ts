@@ -21,16 +21,23 @@ export type DatosPagoViajes = {
   marcas: MarcaViaje[];
   /** id → nombre de la empresa, para mostrar la empresa GUARDADA en cada viaje. */
   empresas: Map<string, string>;
+  /**
+   * id del camión → lo que el catálogo sabe y el viaje no guarda (marca, modelo, placa,
+   * serial, encargado). Solo para las columnas opcionales del PDF (21-sep-2026): NO
+   * entra en ningún cálculo de plata.
+   */
+  fichas: Map<string, { marca: string | null; modelo: string | null; placa: string | null; serial: string | null; encargado: string | null }>;
 };
 
 /** Viajes desde el inicio del pago (jornada del 14-sep a las 7am), modos, tarifas, marcas y empresas. */
 export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_VIAJES): Promise<DatosPagoViajes> {
-  const [viajes, modos, tarifas, marcas, empresas] = await Promise.all([
+  const [viajes, modos, tarifas, marcas, empresas, maquinas] = await Promise.all([
     selectAllRows('camion_viajes', COLS_VIAJE, (q: any) => q.gte('registered_at', `${desdeJornada}T07:00:00-04:00`)),
     cargarModosPago(),
     cargarTarifasViaje(),
     selectAllRows('viaje_pago_marcas', 'id, viaje_id, facturable, motivo, created_at, created_by_nombre'),
     selectAllRows('companies', 'id, name'),
+    selectAllRows('machinery', 'id, marca, modelo, plate, serial, encargado'),
   ]);
   return {
     viajes: viajes as ViajePago[],
@@ -38,6 +45,9 @@ export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_V
     tarifas,
     marcas: marcas as MarcaViaje[],
     empresas: new Map((empresas as any[]).map((c) => [c.id as string, String(c.name ?? '')])),
+    fichas: new Map((maquinas as any[]).map((m) => [m.id as string, {
+      marca: m.marca ?? null, modelo: m.modelo ?? null, placa: m.plate ?? null, serial: m.serial ?? null, encargado: m.encargado ?? null,
+    }])),
   };
 }
 

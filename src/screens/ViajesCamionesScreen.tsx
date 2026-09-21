@@ -2263,6 +2263,13 @@ export default function ViajesCamionesScreen() {
     return volumenConGuardado(pv, viajesPorDia, cub.guardadas);
   }, [volumenCalculado, viajesPorDia, cub.guardadas]);
 
+  /** id del camión → m³ de un viaje, para la columna opcional del PDF de pagos. */
+  const m3PorViajePago = useMemo(() => {
+    const m = new Map<string, number>();
+    volumenPorCamion.forEach((v, id) => m.set(id, v.porViaje));
+    return m;
+  }, [volumenPorCamion]);
+
   /** Días guardados a los que hoy les corresponden otros viajes. No se corrige
    *  solo: se avisa. Corregirlo en silencio cambiaría un número ya cobrado. */
   const diasDesactualizados = useMemo(() => {
@@ -3834,7 +3841,7 @@ export default function ViajesCamionesScreen() {
 
           {/* Lo que hay que pagarle a cada empresa por los viajes de sus camiones
               (15-sep-2026). Vive acá y solo acá: no toca jornadas ni Control de Pagos. */}
-          <PagoViajesResumen canEdit={canFull} usuarioId={uid || null} />
+          <PagoViajesResumen canEdit={canFull} usuarioId={uid || null} m3PorViaje={m3PorViajePago} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
