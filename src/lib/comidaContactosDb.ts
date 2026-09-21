@@ -54,7 +54,7 @@ function aFila(d: DatosContacto) {
   return {
     nombre: limpiarTexto(d.nombre),
     apellido: limpiarTexto(d.apellido),
-    cedula: d.sinCedula ? null : (limpiarTexto(d.cedula) || null),
+    cedula: limpiarTexto(d.cedula) || null,
     telefono1: limpiarTexto(d.telefono1) || null,
     telefono2: limpiarTexto(d.telefono2) || null,
     company_id: limpiarTexto(d.companyId) || null,
@@ -128,9 +128,11 @@ function motivoDeError(e: any): string {
   if (String(e.code ?? '') === '23505') {
     return 'Ya hay un contacto con esa cédula. Búscalo en la lista en vez de crear otro.';
   }
-  if (String(e.code ?? '') === '23514') {
-    return 'Faltan datos: sin cédula hace falta al menos un teléfono.';
-  }
+  // 23514 = un CHECK de la base. Para esta tabla, el que salta de verdad es el de la
+  // cédula: sin ella, o con menos de 5 dígitos, no se registra a nadie.
+  if (String(e.code ?? '') === '23514') return 'Escribe una cédula completa: es obligatoria.';
+  // 23502 = NOT NULL. Es la misma cédula, vista desde la otra columna.
+  if (String(e.code ?? '') === '23502') return 'Escribe la cédula: es obligatoria.';
   if (faltaLaTablaContactos(e)) return SIN_TABLA_CONTACTOS;
   return String(e.message ?? e);
 }
