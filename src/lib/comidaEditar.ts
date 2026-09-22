@@ -202,13 +202,22 @@ export function validarAltaEmpresa(
 }
 
 export type AltaPersona = {
-  employeeId: string;
+  /** De nómina. null cuando es un contacto de cocina: nunca los dos. */
+  employeeId: string | null;
   employeeName: string;
   cedula: string | null;
   mealType: string;
   distributionDate: string;
   cantidad: number;
   nota: string | null;
+  // ── Contacto de cocina (22-sep-2026) ── igual que al registrar desde Cocina: a
+  // quién se le cobra y cuál empresa se CONGELAN en la entrega, y el plato solo
+  // va en «Otros». Sin esto, «no puedo agregar días anteriores a esas personas».
+  contactoId?: string | null;
+  cobrarA?: 'empresa' | 'independiente' | null;
+  contactoCompanyId?: string | null;
+  contactoCompanyNombre?: string | null;
+  itemLabel?: string | null;
 };
 
 /**
@@ -221,18 +230,27 @@ export type AltaPersona = {
  *    corrige que lo suyo es EDITAR la entrega que ya está, no crear otra.
  */
 export function validarAltaPersona(
-  escrito: { employeeId?: unknown; employeeName?: unknown; cedula?: unknown; mealType?: unknown; distributionDate?: unknown; cantidad?: unknown; nota?: unknown },
+  escrito: {
+    employeeId?: unknown; employeeName?: unknown; cedula?: unknown; mealType?: unknown; distributionDate?: unknown; cantidad?: unknown; nota?: unknown;
+    contactoId?: unknown; cobrarA?: unknown; contactoCompanyId?: unknown; contactoCompanyNombre?: unknown; plato?: unknown;
+  },
   hoy: string,
 ): Validacion<AltaPersona> {
   const employeeId = limpio(escrito.employeeId);
+  const contactoId = limpio(escrito.contactoId);
   const employeeName = limpio(escrito.employeeName);
-  if (!employeeId || !employeeName) return { ok: false, error: 'Elige a la persona.' };
+  if ((!employeeId && !contactoId) || !employeeName) return { ok: false, error: 'Elige a la persona.' };
+  // O es de nómina, o es de la agenda de cocina: las dos columnas a la vez no existen.
+  if (employeeId && contactoId) return { ok: false, error: 'Una persona es de nómina o de la agenda de cocina, no de las dos.' };
 
   const mealType = limpio(escrito.mealType);
   if (!mealType) return { ok: false, error: 'Elige cuál comida es (desayuno, almuerzo, lunch o cena).' };
-  // «Otros» es un plato que se le carga a una EMPRESA, con su costo. Por carnet
-  // no existe: la pantalla de cocina solo ofrece las cuatro.
-  if (mealType === 'otros') return { ok: false, error: '«Otros» se registra a una empresa, no a una persona.' };
+  // «Otros» (hielo, vasos…) es de EMPRESAS y, desde el 22-sep-2026, de CONTACTOS de
+  // cocina, por el precio del catálogo. Por carnet de nómina sigue sin existir.
+  if (mealType === 'otros' && !contactoId) return { ok: false, error: '«Otros» se registra a una empresa o a un contacto de cocina, no a alguien de nómina.' };
+  // Y el plato SOLO va en «Otros»: es lo único que distingue un «Otros» de otro.
+  const plato = mealType === 'otros' ? limpio(escrito.plato) || null : null;
+  if (mealType === 'otros' && !plato) return { ok: false, error: 'Para «Otros» elige el plato (bolsa de hielo, vasos…).' };
 
   const distributionDate = limpio(escrito.distributionDate).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(distributionDate)) return { ok: false, error: 'La fecha no se entiende.' };
@@ -242,11 +260,22 @@ export function validarAltaPersona(
   if (cantidad === null) return { ok: false, error: 'Escribe cuántas comidas, en número entero desde 1.' };
   if (cantidad > MAX_CANTIDAD) return { ok: false, error: `Esa cantidad es demasiado grande (el tope es ${MAX_CANTIDAD}). Revisa el número.` };
 
+  // A quién se le cobra, congelado como lo hace Cocina: «empresa» solo si de verdad
+  // hay una empresa; si no, paga él aunque su ficha diga otra cosa.
+  const empresaId = limpio(escrito.contactoCompanyId);
+  const cobrarA: 'empresa' | 'independiente' | null = !contactoId ? null
+    : (limpio(escrito.cobrarA) === 'empresa' && empresaId ? 'empresa' : 'independiente');
+
   return {
     ok: true,
     patch: {
-      employeeId, employeeName, cedula: limpio(escrito.cedula) || null,
+      employeeId: contactoId ? null : employeeId, employeeName, cedula: limpio(escrito.cedula) || null,
       mealType, distributionDate, cantidad, nota: limpio(escrito.nota) || null,
+      contactoId: contactoId || null,
+      cobrarA,
+      contactoCompanyId: cobrarA === 'empresa' ? empresaId : null,
+      contactoCompanyNombre: cobrarA === 'empresa' ? limpio(escrito.contactoCompanyNombre) || null : null,
+      itemLabel: plato,
     },
   };
 }

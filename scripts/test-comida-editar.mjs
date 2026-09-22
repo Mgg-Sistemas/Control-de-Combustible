@@ -154,10 +154,52 @@ const HOY = '2026-09-18';
   eq('...guarda la cédula', a.patch.cedula, '111');
 
   ok('sin persona no se puede', !E.validarAltaPersona({ ...base, employeeId: '', distributionDate: HOY }, HOY).ok);
-  const otros = E.validarAltaPersona({ ...base, mealType: 'otros', distributionDate: HOY }, HOY);
-  eq('⭐ «Otros» no existe por carnet: es un plato que se le carga a una empresa', otros.ok, false);
-  ok('...y lo explica', otros.error.includes('empresa'));
+  const otros = E.validarAltaPersona({ ...base, mealType: 'otros', plato: 'Hielo', distributionDate: HOY }, HOY);
+  eq('⭐ «Otros» no existe por carnet de nómina: es de empresas y de contactos', otros.ok, false);
+  ok('...y lo explica', otros.error.includes('nómina'));
+  eq('una persona de nómina no lleva columnas de contacto', [a.patch.contactoId, a.patch.cobrarA, a.patch.itemLabel], [null, null, null]);
   ok('mañana tampoco', !E.validarAltaPersona({ ...base, distributionDate: '2026-09-19' }, HOY).ok);
+}
+
+// ── 6b) AGREGAR A UN CONTACTO DE COCINA EN CUALQUIER DÍA (22-sep-2026) ──────
+//
+// «No puedo agregar días anteriores a esas personas»: el editor solo buscaba en
+// nómina. Ahora un contacto entra por SU columna, con a quién se le cobra
+// congelado, y se le puede cargar «Otros» por el precio del catálogo.
+{
+  const k = { contactoId: 'k1', employeeName: 'Ana Rojas', cedula: 'V-111', mealType: 'cena', cantidad: '3', distributionDate: '2026-09-14' };
+  const a = E.validarAltaPersona(k, HOY);
+  ok('⭐ un contacto se puede agregar en un día pasado', a.ok);
+  eq('⭐ va por su columna, sin employee_id', [a.patch.employeeId, a.patch.contactoId], [null, 'k1']);
+  eq('sin empresa paga él, aunque no se diga', a.patch.cobrarA, 'independiente');
+  eq('...y no arrastra empresa', [a.patch.contactoCompanyId, a.patch.contactoCompanyNombre], [null, null]);
+
+  const e = E.validarAltaPersona({ ...k, cobrarA: 'empresa', contactoCompanyId: 'E1', contactoCompanyNombre: 'EMPRESA UNO' }, HOY);
+  eq('⭐ con empresa se congela a quién se le cobra y cuál', [e.patch.cobrarA, e.patch.contactoCompanyId, e.patch.contactoCompanyNombre], ['empresa', 'E1', 'EMPRESA UNO']);
+  eq('⭐ «empresa» sin empresa guardada = paga él (nunca en el aire)', E.validarAltaPersona({ ...k, cobrarA: 'empresa' }, HOY).patch.cobrarA, 'independiente');
+
+  const h = E.validarAltaPersona({ ...k, mealType: 'otros', plato: 'Bolsa de hielo' }, HOY);
+  ok('⭐ a un contacto SÍ se le carga «Otros»', h.ok);
+  eq('...con su plato', h.patch.itemLabel, 'Bolsa de hielo');
+  const sinPlato = E.validarAltaPersona({ ...k, mealType: 'otros' }, HOY);
+  eq('⭐ «Otros» sin plato no pasa', sinPlato.ok, false);
+  ok('...y dice qué falta', sinPlato.error.includes('plato'));
+  eq('el plato NO se pega a una cena', E.validarAltaPersona({ ...k, plato: 'Hielo' }, HOY).patch.itemLabel, null);
+  eq('⭐ nómina y contacto a la vez: no', E.validarAltaPersona({ ...k, employeeId: 'x1' }, HOY).ok, false);
+  ok('sin nombre tampoco', !E.validarAltaPersona({ ...k, employeeName: '' }, HOY).ok);
+
+  const sinComentarios = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const db = sinComentarios(fs.readFileSync(path.join(ROOT, 'src/lib/comidaEditarDb.ts'), 'utf8'));
+  ok('⭐ el editor busca en nómina Y en la agenda a la vez', /Promise\.all\(\[\s*buscarEmpleados\(texto, limite\),\s*buscarContactosComida\(texto, limite\)\.catch/.test(db));
+  ok('⭐ las columnas de contacto solo se mandan si hay contacto', /\.\.\.\(a\.contactoId \? \{[\s\S]*?contacto_id: a\.contactoId,[\s\S]*?\} : \{\}\)/.test(db));
+  ok('⭐ y el plato solo viaja en «Otros»', /\.\.\.\(a\.mealType === 'otros' \? \{ item_label: a\.itemLabel \?\? null \} : \{\}\)/.test(db));
+  ok('solo contactos activos', /\.filter\(contactoActivo\)/.test(db));
+  const editor = sinComentarios(fs.readFileSync(path.join(ROOT, 'src/components/ComidaEditor.tsx'), 'utf8'));
+  ok('⭐ la pantalla usa el buscador doble', /buscarPersonasComida\(t, empresas\)/.test(editor) && !/buscarEmpleados\(/.test(editor));
+  ok('⭐ a un contacto se le ofrece «Otros»; a nómina no', /form\?\.modo === 'alta-empresa' \|\| persona\?\.tipo === 'contacto' \? COMPANY_MEALS : MEALS/.test(editor));
+  ok('⭐ el contacto elige el plato de la LISTA, no lo escribe', /esContactoOtros/.test(editor) && !/esContactoOtros \? campo\(/.test(editor));
+  ok('cambiar a alguien de nómina baja «Otros»', /if \(p\.tipo !== 'contacto' && comida === 'otros'\) \{ setComida\('almuerzo'\); setPlato\(''\); \}/.test(editor));
+  ok('un contacto sale marcado con 📇', /p\.tipo === 'contacto' \? '📇 ' : ''/.test(editor));
 }
 
 // ── 7) LOS RECHAZOS DE LA BASE, EN CRIOLLO ──────────────────────────────────

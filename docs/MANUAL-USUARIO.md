@@ -2433,6 +2433,15 @@ La cocina **no cambia**: sigue registrando lo del día por el QR y el carnet.
 > ⚠️ Una persona **no puede tener dos veces la misma comida el mismo día**. Si hace falta cambiar
 > esa cantidad, se **corrige** la entrega que ya está; el sistema lo explica si se intenta agregar.
 
+> **📇 Contactos de cocina en días anteriores (22/09/2026).** Antes el buscador de "➕ A una
+> persona" solo encontraba gente de **nómina**, y a un contacto de cocina no se le podía agregar
+> nada de un día pasado. Ahora el buscador trae **la nómina y la agenda de cocina a la vez**; los
+> contactos salen marcados con **📇** y, al elegir uno, dice **a quién se le cobra** (a él o a su
+> empresa), igual que en Cocina. A un contacto también se le puede cargar **🧾 Otros** (hielo,
+> vasos…) eligiendo el plato de la lista: se cobra al **precio del catálogo**, como todo lo suyo. A
+> alguien de nómina "Otros" no le sale. Lo agregado en un día pasado entra en su cuenta y en su PDF
+> igual que lo registrado ese día.
+
 #### 🕵️ Quién tocó las comidas (18/09/2026)
 En la pestaña **"📊 Reportes"**, la tarjeta **"🕵️ Quién tocó las comidas"** muestra todo lo que se
 agregó, corrigió o borró en las fechas del rango: **quién** fue, **a qué hora** y **qué era**.
