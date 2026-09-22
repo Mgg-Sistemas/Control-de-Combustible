@@ -109,7 +109,11 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   const f16 = fila('m3', '2026-09-16');
   eq('⭐ sin GPS en ninguna parte pero CON edificio: vale el edificio (228 renglones del 22-sep)', [f16.sector, f16.sinUbicacion, f16.sectorOrigen], ['PATIO', false, 'edificio']);
   const f16b = fila('m4', '2026-09-16');
-  eq('⭐ sin GPS y sin edificio: ahí sí «sin ubicación», y contado', [f16b.sector, f16b.sinUbicacion, f16b.sectorOrigen], ['Sin ubicación', true, 'ninguno']);
+  // «Que no quede en blanco ni ubicaciones, ni edificios» (cliente, 22-sep-2026): la
+  // que no tiene NADA se reparte entre los sitios que ya salen en el informe.
+  eq('⭐ sin GPS y sin edificio: se reparte, no queda en blanco', [f16b.sinUbicacion, f16b.sectorOrigen], [false, 'repartido']);
+  ok('...y el sector repartido es uno real del informe', ['Este · Caraballeda', 'Este · Camurí Chico', 'PATIO'].includes(f16b.sector));
+  ok('...y le queda un edificio, no una raya', f16b.edificio !== '—' && f16b.edificioRepartido === true);
   ok('⭐ el del DÍA manda sobre todo', fila('m1', '2026-09-15').sector === 'Este · Caraballeda' && fila('m1', '2026-09-15').sectorDesde === '' && fila('m1', '2026-09-15').sectorOrigen === 'dia');
 
   // ⭐ «Si este día no tuvieron ubicación pero el día de mañana sí, colócale esa, no la última» (22-sep).
@@ -131,7 +135,7 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   eq('⭐ antes del cambio vale el «de»', fila('m1', '2026-09-14').edificio, 'OBRA VIEJA');
   eq('⭐ desde el cambio vale el «a»', fila('m1', '2026-09-15').edificio, 'OBRA NUEVA');
   eq('sin bitácora de la máquina: la ficha de hoy, marcada', [fila('m3', '2026-09-16').edificio, fila('m3', '2026-09-16').edificioArrastrado], ['PATIO', true]);
-  eq('sin bitácora ni ficha: raya', [fila('m2', '2026-09-14').edificio, fila('m2', '2026-09-14').edificioArrastrado], ['—', false]);
+  eq('sin bitácora ni ficha, el edificio se reparte (ya no hay raya)', [fila('m2', '2026-09-14').edificio !== '—', fila('m2', '2026-09-14').edificioRepartido], [true, true]);
   const sinBit = U.armarUbicaciones({ ...base, cambios: [], hayBitacora: false });
   eq('⭐ sin bitácora (no se pudo leer) m1 sale con la ficha de hoy y marcado', [sinBit.find((f) => f.maquina.id === 'm1').edificio, sinBit.find((f) => f.maquina.id === 'm1').edificioArrastrado], ['OBRA HOY', true]);
 }
@@ -155,8 +159,8 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
 {
   const r = U.resumenUbicaciones(filas);
   eq('cuenta máquinas, días, renglones y horas', [r.maquinas, r.dias, r.filas, r.horas], [4, 3, 5, 24]);
-  eq('⭐ cuenta sin ubicación y completadas (la del edificio cuenta como completada)', [r.sinUbicacion, r.arrastradas], [1, 2]);
-  eq('sectores por horas', r.sectores.map((s) => s.nombre), ['Este · Caraballeda', 'Este · Camurí Chico', 'Fuera de zona', 'PATIO', 'Sin ubicación']);
+  eq('⭐ ya nadie queda sin ubicación; las completadas se cuentan', [r.sinUbicacion, r.arrastradas], [0, 3]);
+  eq('sectores por horas, ya sin el cajón «Sin ubicación»', r.sectores.map((s) => s.nombre), ['Este · Caraballeda', 'Este · Camurí Chico', 'Fuera de zona', 'PATIO']);
   const r2 = U.resumenUbicaciones(U.armarUbicaciones({ ...base, maquinas: [M1, M2, { ...M3, sectorActual: 'Oeste · Catia La Mar' }] }));
   eq('la del catálogo cuenta como completada, no como sin ubicación', [r2.sinUbicacion, r2.arrastradas], [0, 2]);
 }
@@ -185,14 +189,18 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   ok('⭐ la celda tomada del día siguiente lo dice', /Este · Camurí Chico<br\/><span class="ub-arr">registrada el 15\/09\/2026<\/span>/.test(h));
   const hMix = U.cuerpoUbicaciones({ desde: base.desde, hasta: base.hasta, filas: U.armarUbicaciones({ ...base, puntos: [{ machineryId: 'm1', at: '2026-09-10T12:00:00-04:00', sector: 'Este · Macuto' }], maquinas: [M1, { ...M2, sectorActual: 'Oeste · Aeropuerto' }, { ...M3, sectorActual: 'Oeste · Catia La Mar' }] }), opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true });
   ok('⭐ «desde el» y «ubicación actual» según el caso, y ya no hay «sin ubicación»', /Este · Macuto<br\/><span class="ub-arr">desde el 10\/09\/2026<\/span>/.test(hMix) && /Oeste · Catia La Mar<br\/><span class="ub-arr">ubicación actual<\/span>/.test(hMix) && !/Sin ubicación/.test(hMix));
-  ok('⭐ «sin ubicación» en rojo', /<span class="ub-sin">Sin ubicación<\/span>/.test(h));
+  ok('⭐ ninguna celda dice «sin ubicación»', !/Sin ubicación/.test(h) && !/class="ub-sin"/.test(h));
+  ok('...y ninguna fila queda sin edificio', U.armarUbicaciones(base).every((f) => f.edificio !== '—'));
   ok('el edificio arrastrado lleva *', /PATIO \*/.test(h));
-  ok('el resumen cuenta', /<b>1<\/b>sin ubicación/.test(h) && /<b>2<\/b>ubicación completada/.test(h) && /<b>24 h<\/b>/.test(h));
+  ok('el resumen cuenta', !/sin ubicación/.test(h) && /<b>24 h<\/b>/.test(h));
   ok('el cuadro «dónde trabajaron» está', /<h3>Dónde trabajaron<\/h3>/.test(h) && /Este · Caraballeda/.test(h));
   const oculto = papel({ opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinHoras: true, sinSector: true, sinAlcance: true } });
   ok('⭐ ocultar horas y sector los quita del papel, no las máquinas', !/Total h/.test(oculto) && !/Dónde trabajaron/.test(oculto) && /RETROEXCAVADORA/.test(oculto) && /COMPRESOR/.test(oculto) && !/Alcance del informe/.test(oculto));
   const filtrado = papel({ alcance: { empresas: ['EMPRESA ALFA'], clasificaciones: [], maquinas: ['RETROEXCAVADORA · AA1'] } });
-  ok('el alcance nombra lo filtrado', /Empresas: solo EMPRESA ALFA/.test(filtrado) && /Máquinas: RETROEXCAVADORA · AA1/.test(filtrado));
+  // «Que no me diga lo que no estoy seleccionando o lo que sí» (cliente, 22-sep-2026).
+  ok('el alcance NO nombra filtros', !/Empresas:/.test(filtrado) && !/Máquinas:/.test(filtrado) && !/Clasificación:/.test(filtrado));
+  ok('el alcance NO nombra las columnas ocultas', !/No sale:/.test(filtrado) && !/Sale completo/.test(filtrado));
+  ok('el alcance sí trae el rango y el reparto', /Del \d\d\/\d\d\/\d{4} al \d\d\/\d\d\/\d{4} · \d+ día/.test(filtrado) && /(ESTE|OESTE): \d+ máquina/.test(filtrado));
   ok('⭐ sin bitácora, el papel lo dice', /bitácora de edificios no se pudo leer/.test(papel({ hayBitacora: false })));
   ok('vacío no revienta', /Sin registros en el rango/.test(U.cuerpoUbicaciones({ desde: '2026-01-01', hasta: '2026-01-02', filas: [], opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true })));
   ok('sin HTML crudo de los datos', !/<script/.test(U.cuerpoUbicaciones({ desde: base.desde, hasta: base.hasta, filas: U.armarUbicaciones({ ...base, maquinas: [{ ...M1, code: '<script>x</script>' }] }), opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true })));
