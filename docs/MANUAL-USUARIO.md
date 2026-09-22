@@ -5902,3 +5902,62 @@ Es normal: se acomoda a la pantalla. Funciona igual en ambos.
 
 > Este manual es general y se irá ampliando con las secciones nuevas (empleados y fichas,
 > nómina, compras, inventario y ganancias) a medida que estén listas.
+
+### 4.28. Ventas (material, servicios, factura y nota de entrega)
+
+Módulo para **vender**: material que sale del inventario y servicios. Se llega por
+**Más → 💰 Ventas** y tiene cuatro pestañas: **💰 Ventas**, **📊 Historial**,
+**👥 Clientes** y **🧰 Servicios**. *(Requiere correr `supabase/ventas.sql`.)*
+
+**Registrar una venta:**
+1. En **💰 Ventas** toca **"＋ Nueva venta"** y elige el **cliente** (buscador por nombre,
+   cédula, RIF, teléfono, correo o dirección).
+2. Marca con un check qué documento se emite: **🧾 Factura** o **📄 Nota de entrega**. Las
+   **dos llevan precio**; la nota de entrega no es documento fiscal. Cada una lleva su
+   **correlativo propio** (FAC-0001 / NE-0001).
+3. Agrega renglones: **"＋ 📦 Material"** trae el producto del **inventario** con su
+   **precio referencial** (el costo promedio) ya cargado —y **se puede cambiar**— y te
+   muestra la existencia disponible. **"＋ 🧰 Servicio"** lo trae del catálogo.
+4. Marca o desmarca **"Cobrar IVA (16%)"**: el IVA es **opcional en cada venta**. Apagado,
+   el precio es el total.
+5. Elige la condición: **🟢 Contado** (con su método de pago) o **🟠 Crédito**.
+6. Toca **"Registrar venta"**: el material se **descuenta del inventario** y el sistema
+   ofrece **imprimir** el documento.
+
+> **💵 Métodos de pago:** Bolívares (efectivo), Transferencia, Pago móvil, Zelle, USDT y
+> Dólares (efectivo). Los montos van en **$** y siempre se ve el **equivalente en Bs** con
+> la **tasa del BCV** del día (la misma del inventario). Con *Bolívares* o *Pago móvil* se
+> ve directo cuánto cobrar en Bs. La tasa usada **queda guardada en la venta**: si mañana
+> cambia el dólar, el papel ya impreso **no** cambia de monto.
+
+> **🟠 Ventas a crédito:** generan **solas** una **cuenta por cobrar** a ese cliente en el
+> módulo de **Cuentas** (con su concepto, el número del documento y el monto), donde se le
+> registran los abonos como a cualquier otra. Si luego editas la venta, la cuenta se ajusta
+> sola; si la pasas a contado, la cuenta queda **anulada** (no se borra: se conserva por
+> auditoría).
+
+> **👥 Clientes — una cédula o RIF no entra dos veces.** Cada cliente se guarda con su
+> **letra** (V, E, J, G o P) y sus números. El sistema **avisa antes de guardar** si ese
+> documento ya existe y **dice a nombre de quién**, y la base lo impide además por su
+> cuenta. **"V-12.345.678", "V12345678" y "v 12345678" son la misma persona**: se comparan
+> solo los dígitos, así que no se cuelan duplicados por escribirlo distinto. Se puede marcar
+> **"🏭 También es proveedor"**. El buscador busca por **todas** las características.
+
+> **🧰 Servicios — se llenan solos.** La primera vez que vendes un servicio que no está, lo
+> escribes en el selector y tocas **"＋ Crear"**: queda guardado con su precio referencial y
+> la próxima vez lo eliges de la **lista buscable** (por nombre, descripción o precio).
+> También se administran desde la pestaña **🧰 Servicios**. El precio del catálogo es
+> **solo la referencia**: en cada venta se puede cambiar.
+
+> **📊 Historial.** Todas las ventas, filtrables por **rango de fechas** y por **todas las
+> características**: texto libre (cliente, documento, renglón vendido, método…), tipo de
+> documento, condición (contado/crédito), método de pago y cliente. Arriba los **totales**
+> (ventas, total, contado y crédito) y abajo el detalle **agrupado por cliente**, con lo que
+> se le ha vendido a cada quien y cuánto de eso es a crédito. Todo se descarga en **PDF**.
+
+> **🖨️ El documento.** Factura y nota de entrega salen con el logo, un **sello grande** que
+> dice cuál de las dos es (para no confundirlas de un vistazo), el número, los datos del
+> cliente, la tabla de renglones con cantidad/unidad/precio/total, el subtotal, el IVA (si
+> lleva), el **TOTAL en $** y su **equivalente en Bs** con la tasa usada, la condición de
+> pago y **dos firmas** (entregado por / recibido conforme). Se reimprime cuando quieras
+> desde la lista de ventas.

@@ -68,6 +68,7 @@ export const MODULOS_AUDITORIA: ModuloAuditoria[] = [
   { key: 'operadores', label: 'Operadores y coordinación', icon: '👷' },
   { key: 'servicio', label: 'Servicio de maquinaria (averías)', icon: '🔧' },
   { key: 'usuarios', label: 'Usuarios y permisos', icon: '👥' },
+  { key: 'ventas', label: 'Ventas', icon: '🛍️', sinRastro: true },
   { key: 'viajes', label: 'Viajes de camiones', icon: '🚛' },
   { key: 'avisos', label: 'Avisos del sistema', icon: '🔔', sinRastro: true },
 ];
@@ -109,6 +110,8 @@ const TABLA_A_MODULO: Record<string, string> = {
   // 🛒 Compras: pedidos, órdenes, proveedores y cuentas
   purchase_orders: 'compras', purchase_requests: 'compras', suppliers: 'compras',
   direct_purchases: 'compras', inventory_requirements: 'compras', cuentas: 'compras', cuenta_abonos: 'compras',
+  // 💰 Ventas: la venta, su cliente y el catálogo de servicios que se vende
+  sales: 'ventas', sales_clients: 'ventas', sales_services: 'ventas',
   // 🕒 Control de asistencia (el carnet del personal)
   attendance: 'asistencia',
   // 🕐 Control de maquinaria: la jornada de cada máquina y su cierre
