@@ -178,14 +178,20 @@ alter table public.cuentas
   add column if not exists sale_id   uuid references public.sales(id) on delete set null;
 create index if not exists cuentas_client_idx on public.cuentas (client_id);
 
+-- ⚠️ El check VIGENTE no es el del archivo original de Cuentas: `mangueras_empresa_propia.sql`
+--    ya lo había relajado para admitir una POR COBRAR identificada por NOMBRE LIBRE
+--    (`contraparte`), con company_id NULL — así las carga Mangueras. Si acá se exigiera
+--    "empresa O cliente", esas filas quedarían fuera y el ALTER reventaría con
+--    "is violated by some row". Así que se CONSERVA esa rama y solo se SUMA la del cliente.
+alter table public.cuentas add column if not exists contraparte text;  -- por si no se corrió Mangueras
+
 alter table public.cuentas drop constraint if exists cuentas_contraparte_segun_tipo;
 alter table public.cuentas add constraint cuentas_contraparte_segun_tipo check (
   (tipo = 'por_pagar'
      and supplier_id is not null and company_id is null and client_id is null)
   or
   (tipo = 'por_cobrar' and supplier_id is null
-     and ( (company_id is not null and client_id is null)
-        or (client_id  is not null and company_id is null) ))
+     and (company_id is not null or contraparte is not null or client_id is not null))
 );
 
 -- ── 6b) La venta a CRÉDITO genera su cuenta por cobrar, sola ─────────────────
