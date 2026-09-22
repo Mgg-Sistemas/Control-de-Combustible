@@ -307,10 +307,10 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         renglon(
           'p' + r.id,
           '👤',
-          `${r.employee_name} · ${r.meal_type ? mealLabel(r.meal_type) : 'sin comida marcada'}`,
+          `${r.employee_name} · ${r.meal_type ? mealLabel(r.meal_type) : 'sin comida marcada'}${r.item_label ? ` (${r.item_label})` : ''}`,
           `${r.meals} comida(s)${hora(r.delivered_at) ? ` · ${hora(r.delivered_at)}` : ''}${r.created_by_name ? ` · por ${r.created_by_name}` : ''}`,
           () => abrir({ modo: 'editar-persona', fila: r }),
-          () => borrar('persona', r.id, `${r.meals} ${r.meal_type ? mealLabel(r.meal_type) : 'comida(s)'} de ${r.employee_name}`),
+          () => borrar('persona', r.id, `${r.meals} ${r.item_label ? r.item_label : r.meal_type ? mealLabel(r.meal_type) : 'comida(s)'} de ${r.employee_name}`),
         ),
       )}
 

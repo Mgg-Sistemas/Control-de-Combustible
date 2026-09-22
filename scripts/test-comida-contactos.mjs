@@ -274,10 +274,31 @@ const TODOS = [ana, beto, caro, dani];
   ok('la agenda se lee junto con los precios, no aparte', /cargarContactos\(\),/.test(precios));
 }
 
+// ── 11b) «OTROS» SOLO PARA CONTACTOS (22-sep-2026) ───────────────────────────
+{
+  const coc = sinComentarios(leer('src/screens/CocinaScreen.tsx'));
+  ok('⭐ el bloque de Otros solo se pinta a un contacto', /\{person\.contactoId \? \(\s*<View[^>]*>\s*<Text[^>]*>\{OTROS_MEAL\.icon\} \{OTROS_MEAL\.label\}/.test(coc));
+  ok('⭐ y aunque llegara, a la nómina no se le registra', /if \(mealType === 'otros' && \(!esContacto \|\| !nombrePlato\)\)/.test(coc));
+  ok('⭐ el plato se ELIGE del catálogo, no se escribe', /platos\.map\(\(pl\) =>/.test(coc) && !/setPlatoEscrito|placeholder="Plato"/.test(coc));
+  ok('solo los platos activos, ordenados', /setPlatos\(ordenarPlatos\(pl\.filter\(platoActivo\)\)\)/.test(coc));
+  ok('si el catálogo falla, la cocina sigue repartiendo', /cargarPlatos\(\)\.catch\(\(\) => \[\]/.test(coc));
+  ok('el plato viaja solo en Otros', /itemLabel: mealType === 'otros' \? nombrePlato : null/.test(coc));
+  ok('la lista de hoy dice cuál plato fue', /d\.meal_type === 'otros' \? \(d\.item_label \|\| 'Otros'\)/.test(coc));
+  ok('la nómina sigue con sus cuatro botones', /\{MEALS\.map\(\(mt\) => \{\s*const done = doneMeal\(mt\.key\);/.test(coc));
+
+  const fd = sinComentarios(leer('src/lib/foodDistributions.ts'));
+  ok('⭐ item_label solo se manda con contacto Y con Otros (no rompe la nómina sin el SQL)', /\.\.\.\(input\.contactoId \? \{[\s\S]*?\.\.\.\(input\.mealType === 'otros' \? \{ item_label:/.test(fd));
+  ok('si falta el SQL de Otros, el aviso dice cuál', /sql-comida-contactos-otros-2026-09-22\.sql/.test(fd));
+  ok('el tipo lleva la columna', /item_label\?: string \| null;/.test(leer('src/types/database.ts')));
+  ok('el editor muestra el plato de la entrega de un contacto', /\$\{r\.item_label \? ` \(\$\{r\.item_label\}\)` : ''\}/.test(leer('src/components/ComidaEditor.tsx')));
+}
+
 // ── 12) MANUALES ─────────────────────────────────────────────────────────────
 {
   ok('manual (md) explica los contactos', /📇 Contactos de cocina \(21\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app) explica los contactos', /📇 CONTACTOS DE COCINA \(21\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (md) explica Otros para contactos', /🧾 Hielo, vasos y otros platos para un contacto \(22\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) explica Otros para contactos', /📇 CONTACTOS · HIELO, VASOS Y OTROS PLATOS \(22\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-contactos · ${pass} ok · ${fail} fallando`);

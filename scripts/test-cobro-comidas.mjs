@@ -377,5 +377,34 @@ ok('manual (app) también', /CUENTAS: SE COBRA Y ENCARGADO \(15\/09\/2026\)/.tes
   ok('el PDF del cobro tiene la columna de contactos y el pie cuadra', /<th class="r">Contactos<\/th>/.test(resumen2) && /colspan="7"/.test(resumen2));
 }
 
+// ── «OTROS» PARA CONTACTOS: SE COBRA POR EL CATÁLOGO (22-sep-2026) ──────────
+//
+// Niliany no podía cobrarle bolsas de hielo a un particular: «Otros» solo existía
+// por empresa. Decisión del cliente: el precio es el del catálogo de platos (el
+// mismo que pagan las empresas) y esto es SOLO para contactos.
+{
+  const PH = [
+    { id: 'd', categoria: 'desayuno', precio: 4, desde: '2026-09-01' },
+    { id: 'h', categoria: 'plato_hielo', precio: 2.5, desde: '2026-09-01' },
+  ];
+  const aPrecio = (n) => (String(n ?? '').trim().toLowerCase() === 'bolsa de hielo' ? 'plato_hielo' : null);
+  const hielo = [
+    { employee_id: null, contacto_id: 'k1', cobrar_a: 'independiente', employee_name: 'Ana Rojas', meal_type: 'desayuno', distribution_date: '2026-09-22', meals: 1 },
+    { employee_id: null, contacto_id: 'k1', cobrar_a: 'independiente', employee_name: 'Ana Rojas', meal_type: 'otros', item_label: 'Bolsa de hielo', distribution_date: '2026-09-22', meals: 4 },
+    { employee_id: null, contacto_id: 'k1', cobrar_a: 'independiente', employee_name: 'Ana Rojas', meal_type: 'otros', item_label: 'Vasos', distribution_date: '2026-09-22', meals: 2 },
+  ];
+  const [h] = L.calcularCobroComidas({ empresas: [], personas: hielo, empresaDePersona: new Map(), precios: PH, platoAPrecio: aPrecio });
+  eq('⭐ 1 desayuno × 4 + 4 hielos × 2,50 = 14, en la cuenta del contacto', [h.clave, h.monto, h.comidas, h.cobradas], ['contacto:k1', 14, 7, 5]);
+  eq('⭐ el hielo sale en su renglón, con su nombre y precio de la TABLA', h.items.find((i) => i.plato === 'Bolsa de hielo'), { categoria: 'otros', plato: 'Bolsa de hielo', precio: 2.5, fuente: 'tabla', cantidad: 4, monto: 10, seCobra: true });
+  eq('un plato sin precio en el catálogo se cuenta y se avisa, no se inventa', [h.sinPrecio, h.items.find((i) => i.plato === 'Vasos')?.precio], [2, null]);
+  // A su empresa: el hielo se le suma a la empresa, como el resto de lo suyo.
+  const [e] = L.calcularCobroComidas({ empresas: [], personas: [{ ...hielo[1], cobrar_a: 'empresa', contacto_company_id: 'EMPA', contacto_company_nombre: 'EMPRESA A' }], empresaDePersona: new Map(), precios: PH, platoAPrecio: aPrecio });
+  eq('⭐ cobrado a su empresa, el hielo va a la cuenta de la empresa', [e.clave, e.monto], ['EMPA', 10]);
+  // Sin el catálogo (platoAPrecio ausente) no hay costo de cocina que lo salve: sin precio.
+  const [s] = L.calcularCobroComidas({ empresas: [], personas: [hielo[1]], empresaDePersona: new Map(), precios: PH });
+  eq('sin catálogo, el hielo del contacto queda sin precio (nunca inventa un costo)', [s.monto, s.sinPrecio], [0, 4]);
+  ok('⭐ la rama del contacto manda el plato', /via: 'contacto' as const, plato: r\.item_label \}/.test(sinComentarios(leer('src/lib/cobroComidas.ts'))));
+}
+
 console.log(`\nCobro de comidas: ${pass} ok, ${fail} fallas`);
 if (fail) { console.log(failures.join('\n')); process.exit(1); }

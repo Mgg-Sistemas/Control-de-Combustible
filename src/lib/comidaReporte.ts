@@ -56,6 +56,8 @@ export type EntregaPersona = {
   cobrar_a?: string | null;
   contacto_company_id?: string | null;
   contacto_company_nombre?: string | null;
+  /** Plato de «Otros» de un contacto (22-sep-2026). Las filas de nómina nunca lo traen. */
+  item_label?: string | null;
 };
 
 /**
@@ -233,8 +235,11 @@ export function montoDeEmpresa(r: EntregaEmpresa, precios: PrecioComida[] | null
   return montoCon(r.delivered, r.meal_type, r.meal_date, precios, r.unit_cost, catPlato);
 }
 
-export function montoDePersona(r: EntregaPersona, precios: PrecioComida[] | null | undefined): MontoEntrega {
-  return montoCon(r.meals, r.meal_type, r.distribution_date, precios);
+export function montoDePersona(r: EntregaPersona, precios: PrecioComida[] | null | undefined, platoAPrecio?: PlatoAPrecio): MontoEntrega {
+  // El «Otros» de un contacto (22-sep-2026) vale lo que diga el catálogo de platos, igual
+  // que el de una empresa. Sin costo escrito: por carnet nunca lo hubo.
+  const catPlato = limpio(r.meal_type) === 'otros' && platoAPrecio ? platoAPrecio(r.item_label) : null;
+  return montoCon(r.meals, r.meal_type, r.distribution_date, precios, undefined, catPlato);
 }
 
 // ── LOS AGRUPADOS ───────────────────────────────────────────────────────────
@@ -291,10 +296,10 @@ export function agruparEmpresas(filas: EntregaEmpresa[], precios: PrecioComida[]
   );
 }
 
-export function agruparPersonas(filas: EntregaPersona[], precios: PrecioComida[] | null | undefined): GrupoComida[] {
+export function agruparPersonas(filas: EntregaPersona[], precios: PrecioComida[] | null | undefined, platoAPrecio?: PlatoAPrecio): GrupoComida[] {
   return armarGrupos(
     filas, clavePersona, (r) => limpio(r.employee_name), (r) => limpio(r.meal_type),
-    (r) => num(r.meals), (r) => dia(r.distribution_date), (r) => montoDePersona(r, precios),
+    (r) => num(r.meals), (r) => dia(r.distribution_date), (r) => montoDePersona(r, precios, platoAPrecio),
   );
 }
 
@@ -370,10 +375,10 @@ export function lineasDetalle(
     });
   });
   entregas.personas.forEach((r) => {
-    const m = montoDePersona(r, precios);
+    const m = montoDePersona(r, precios, platoAPrecio);
     filas.push({
       fecha: dia(r.distribution_date), hora: horaCaracas(r.delivered_at), quienRecibe: limpio(r.employee_name) || '—',
-      via: 'persona', comida: limpio(r.meal_type), plato: '', cantidad: num(r.meals),
+      via: 'persona', comida: limpio(r.meal_type), plato: limpio(r.item_label), cantidad: num(r.meals),
       monto: m.monto, conPrecio: m.conPrecio, quien: limpio(r.created_by_name), nota: limpio(r.note),
     });
   });
