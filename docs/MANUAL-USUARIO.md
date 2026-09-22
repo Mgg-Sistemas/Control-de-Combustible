@@ -5415,6 +5415,9 @@ además de por empresa y por listero.
 >   descargar. Si filtraste, avisa en amarillo que es una parte del rango, y **el papel siempre lleva
 >   el cuadro de alcance diciendo que está FILTRADO**, aunque lo hayas apagado: un total parcial no
 >   puede leerse como el pago completo.
+> - **Columna "Empresa" en el listado por equipo (22/09/2026):** cada camión dice **a qué empresa
+>   pertenece** (la que tenía el día del viaje), al lado de su código. Sale siempre; agrupando por obra
+>   es lo que dice de quién es cada camión. Se esconde junto con la pastilla "Nombre de empresas".
 > - **"Nombre de empresas" oculto:** salen como *Empresa 1, Empresa 2…* (en el mismo orden que con
 >   nombres, para poder cruzar dos papeles) y el nombre no aparece en ninguna parte de la hoja.
 > - Los **m³** salen de Cubicaje (los de un viaje del camión × sus viajes); un camión sin medir sale
