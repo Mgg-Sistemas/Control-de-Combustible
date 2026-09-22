@@ -27,7 +27,7 @@ const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 export async function cargarDatosUbicaciones(desde: string, hasta: string): Promise<DatosUbicaciones> {
   const hastaFin = `${hasta}T23:59:59.999-04:00`;
   const [maqs, pts, vis, ron, cam] = await Promise.all([
-    selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, referencia, company:company_id(name)'),
+    selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, referencia, latitude, longitude, company:company_id(name)'),
     selectAllRows('machinery_locations', 'machinery_id, latitude, longitude, recorded_at', (q: any) => q.lte('recorded_at', hastaFin).not('latitude', 'is', null)),
     selectAllRows('supervisor_visits', 'machinery_id, visit_date, visited_at, supervisor_name, status', (q: any) => q.gte('visit_date', desde).lte('visit_date', hasta)),
     selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, status, inspector_day, inspector_night', (q: any) => q.gte('round_date', desde).lte('round_date', hasta)),
@@ -37,6 +37,8 @@ export async function cargarDatosUbicaciones(desde: string, hasta: string): Prom
     id: String(m.id), code: limpio(m.code) || '—', marca: limpio(m.marca), modelo: limpio(m.modelo),
     placa: limpio(m.plate) || limpio(m.serial), empresa: limpio(m.company?.name) || 'Sin empresa',
     clasificacion: limpio(m.clasificacion) || 'Sin clasificación', referenciaActual: limpio(m.referencia),
+    // El GPS de HOY del catálogo: el último recurso cuando la máquina no tiene ni un punto en el historial.
+    sectorActual: m.latitude != null && m.longitude != null ? (() => { const s = sectorOf(Number(m.latitude), Number(m.longitude)); return s ? sectorLabel(s) : 'Fuera de zona'; })() : null,
   }));
   const puntos: PuntoGps[] = (pts as any[]).map((p) => {
     const s = sectorOf(Number(p.latitude), Number(p.longitude));
