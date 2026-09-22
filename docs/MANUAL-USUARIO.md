@@ -3250,9 +3250,14 @@ empresa.
   ("… - CATIA LA MAR" es Oeste, "PATIO - CAMURI CHICO" es Este); si la obra no nombra su área,
   del **cardinal que tienen ahí las demás máquinas** con GPS en esa misma obra; y de último, de la
   columna **Sector de la ficha** del Catálogo, pero solo si dice Este u Oeste (hay fichas con "CDF"
-  o "Escuela Naval" escritas ahí, y eso no es un cardinal). Lo que no se puede resolver sale en rojo
-  y el alcance cuenta cuántos renglones son: la idea es que **todas las máquinas tengan cardinal**,
-  así que si ves un "—" hay que arreglar el edificio o el GPS de esa máquina.
+  o "Escuela Naval" escritas ahí, y eso no es un cardinal). Y si nada de eso resuelve, **al azar**:
+  ninguna máquina queda sin cardinal (pedido del 22/09). Es un azar estable, la misma máquina cae
+  siempre del mismo lado; la celda dice "al azar" y el alcance cuenta cuántas fueron así. Si quieres
+  que una de esas salga en su lado real, ponle el edificio en el Catálogo o guárdale la ubicación.
+- **Alcance del informe (corto desde el 22/09):** rango, empresas y filtros, y cuántas máquinas hay
+  al **ESTE** y al **OESTE** con sus áreas ("ESTE: 61 máquina(s) · Camurí Chico, Caraballeda…").
+  Las leyendas de las celdas ("registrada el DD/MM", "según edificio/obra", "al azar") ya no van en
+  el papel: están aquí arriba.
 - **Edificio / obra:** el que el inspector eligió de la lista, **vigente ese día** según la bitácora.
   Existe desde el 06/08/2026 (con un hueco la semana del 10 al 16 de agosto). Una máquina sin
   cambios en la bitácora sale con el edificio de hoy, marcado con **\***.
