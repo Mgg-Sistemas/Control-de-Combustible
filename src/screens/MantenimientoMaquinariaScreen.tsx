@@ -20,6 +20,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import ServicioRegistroTab from './ServicioRegistroTab';
+import InformeTecnicoTab from './InformeTecnicoTab';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -58,7 +59,7 @@ type Mach = { id: string; code: string; tipo: string | null; clasificacion: stri
 // (machine_rounds). Se muestra en la pestaña Horómetros junto a las horas acumuladas.
 type HoroRound = { reading: number | null; at: string | null; operator: string | null; inicial: number | null; final: number | null; photo: string | null };
 
-type Tab = 'averias' | 'reparacion' | 'historial' | 'horometros' | 'reporte' | 'servicios';
+type Tab = 'averias' | 'reparacion' | 'historial' | 'horometros' | 'reporte' | 'servicios' | 'informe';
 
 // ── LAS DOS SECCIONES ────────────────────────────────────────────────────────
 // El taller se ve en dos apartados separados, porque son dos trabajos distintos
@@ -876,7 +877,7 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
             arregla, queda el registro en el Historial. MANTENIMIENTO conserva su
             pestaña de taller intacta (es su forma de trabajar el preventivo). */}
         {((esServicio
-          ? [['averias', `⏳ Averías (${pendientes})`], ['servicios', '🧾 Servicios'], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
+          ? [['averias', `⏳ Averías (${pendientes})`], ['servicios', '🧾 Servicios'], ['informe', '📄 Informe técnico'], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']]
           : [['horometros', '⏱️ Horómetros'], ['reparacion', `🧰 En mantenimiento (${enRepCount})`], ['historial', '✓ Historial']]
         ) as [Tab, string][]).map(([k, label]) => {
           const on = tab === k;
@@ -971,6 +972,8 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
         <Loading />
       ) : tab === 'servicios' ? (
         <ServicioRegistroTab machines={machines} reqs={reqs} canWrite={canWrite} uid={uid} />
+      ) : tab === 'informe' ? (
+        <InformeTecnicoTab machines={machines} canWrite={canWrite} uid={uid} />
       ) : tab === 'averias' ? (
         (() => {
           // UN SOLO pintor de grupos para las DOS listas (las de estos días y las

@@ -44,6 +44,7 @@ import {
   editarServicio, cambiosServicio, resumenCambios, filaServicio, Cambio,
   cerrarAveriaPorServicio,
 } from '../lib/machineService';
+import { centavos, costoRepuestos, money, numero, totalRepuesto } from '../lib/informeTecnico';
 import { useAuth } from '../context/AuthContext';
 import { generateMachineServiceReport, generateServicioHojaPdf, MaquinaFicha, ServicioImprimible } from '../lib/machineServiceReport';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -91,7 +92,11 @@ type Orden = {
   service_date: string; origen: ServiceOrigen; technician: string | null; provider: string | null;
   intervenciones: string[] | null; problem: string | null; work_done: string | null;
   photos: string[] | null; notes: string | null; created_at: string;
-  parts?: { id: string; quantity: number | null; description: string; estado: string | null; position: number }[];
+  parts?: { id: string; quantity: number | null; description: string; estado: string | null; unit_cost?: number | null; position: number }[];
+  // ⭐ Mano de obra (`supabase/informe_tecnico_costos.sql`). OPCIONAL igual que
+  //    `updated_at`: mientras ese SQL no se corra, la columna no existe y llega
+  //    `undefined`. El único que la usa es el Informe Técnico.
+  labor_cost?: number | null;
   // ⭐ Las dos columnas de `supabase/servicio_editar.sql`. Van OPCIONALES a
   //    propósito: mientras ese SQL no se corra a mano, la consulta con `*` ni
   //    siquiera las trae y llegan `undefined`. Nada puede reventar por eso.
@@ -114,8 +119,8 @@ type FilaEdicion = {
 type FilaTipo = { id: string; key: string; label: string; sort_order: number | null; active: boolean };
 
 /** Un renglón del formulario de repuestos (el último siempre va vacío). */
-type Renglon = { quantity: string; description: string; estado: string };
-const RENGLON_VACIO: Renglon = { quantity: '', description: '', estado: ESTADOS_REPUESTO[0] };
+type Renglon = { quantity: string; description: string; estado: string; unitCost: string };
+const RENGLON_VACIO: Renglon = { quantity: '', description: '', estado: ESTADOS_REPUESTO[0], unitCost: '' };
 
 /**
  * ⚠️ `Boton` y `Entrada` viven AQUÍ ARRIBA, FUERA del componente, A PROPÓSITO.
@@ -212,6 +217,10 @@ export default function ServicioRegistroTab(
   const [intervs, setIntervs] = useState<string[]>([]);
   const [problema, setProblema] = useState('');
   const [acciones, setAcciones] = useState('');
+  // Mano de obra de la intervención, en $. Vive como TEXTO mientras se escribe:
+  // un campo que convierte a número en cada tecla no deja escribir «45,» ni
+  // borrar el último dígito. Se convierte al guardar.
+  const [manoObra, setManoObra] = useState('');
   const [averiaId, setAveriaId] = useState('');
   /**
    * ¿Al guardar, la avería enlazada queda dada por atendida?
@@ -377,7 +386,7 @@ export default function ServicioRegistroTab(
   const limpiarForm = () => {
     setFecha(todayISO()); setMaquinaId(''); setOrigen('interno');
     setTecnico(''); setProveedor(''); setIntervs([]);
-    setProblema(''); setAcciones(''); setAveriaId(''); setCerrarAveria(true);
+    setProblema(''); setAcciones(''); setAveriaId(''); setCerrarAveria(true); setManoObra('');
     setFotos([]); setRenglones([{ ...RENGLON_VACIO }]);
     setFormError(null);
     setEditandoId(null);
@@ -393,6 +402,7 @@ export default function ServicioRegistroTab(
     setIntervs((o.intervenciones ?? []).slice());
     setProblema(o.problem ?? '');
     setAcciones(o.work_done ?? '');
+    setManoObra(o.labor_cost == null ? '' : String(o.labor_cost));
     setAveriaId(o.maintenance_request_id ?? '');
     // La casilla arranca marcada también al editar: el caso que trae aquí a la
     // gente es justamente el de la hoja que se guardó sin enlazar la avería, y
@@ -406,6 +416,7 @@ export default function ServicioRegistroTab(
       quantity: p.quantity == null ? '' : String(p.quantity),
       description: p.description ?? '',
       estado: p.estado || ESTADOS_REPUESTO[0],
+      unitCost: p.unit_cost == null ? '' : String(p.unit_cost),
     }));
     setRenglones([...rs, { ...RENGLON_VACIO }]);
     setFormError(null);
@@ -437,7 +448,7 @@ export default function ServicioRegistroTab(
     const inp = {
       machineryId: maquinaId, serviceDate: fecha, origen,
       technician: tecnico, provider: proveedor,
-      intervenciones: intervs, problem: problema, workDone: acciones,
+      intervenciones: intervs, problem: problema, workDone: acciones, laborCost: manoObra,
       photos: fotos, maintenanceRequestId: averiaId || null, createdBy: uid,
     };
     const problemaTxt = validarServicio(inp);
@@ -462,7 +473,7 @@ export default function ServicioRegistroTab(
      */
     try {
       const partes: ServicePartInput[] = renglones.map((r) => ({
-        quantity: r.quantity, description: r.description, estado: r.estado,
+        quantity: r.quantity, description: r.description, estado: r.estado, unitCost: r.unitCost,
       }));
 
       // ── EDITANDO uno que ya existe ────────────────────────────────────────
@@ -1231,32 +1242,75 @@ export default function ServicioRegistroTab(
 
               {/* 5. REPUESTOS UTILIZADOS */}
               <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>5. REPUESTOS UTILIZADOS</Text>
-              {renglones.map((r, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' }}>
-                  <TextInput value={r.quantity} keyboardType="numeric" placeholder="Cant."
-                    placeholderTextColor={colors.muted}
-                    onChangeText={(v) => setRenglones((p) => p.map((x, j) => j === i ? { ...x, quantity: v } : x))}
-                    style={{ width: 58, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-                  <TextInput value={r.description} placeholder="Descripción del repuesto / insumo"
-                    placeholderTextColor={colors.muted}
-                    onChangeText={(v) => setRenglones((p) => p.map((x, j) => j === i ? { ...x, description: v } : x))}
-                    style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-                  <TouchableOpacity
-                    onPress={() => setRenglones((p) => p.map((x, j) => j === i
-                      ? { ...x, estado: ESTADOS_REPUESTO[(ESTADOS_REPUESTO.indexOf(x.estado) + 1) % ESTADOS_REPUESTO.length] } : x))}
-                    style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                    <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{r.estado}</Text>
-                  </TouchableOpacity>
-                  {renglones.length > 1 ? (
-                    <TouchableOpacity onPress={() => setRenglones((p) => p.filter((_, j) => j !== i))}>
-                      <Text style={{ color: colors.danger, fontSize: 16 }}>🗑</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              ))}
+              {renglones.map((r, i) => {
+                // El TOTAL del renglón se muestra EN VIVO (cantidad × unitario). Es la
+                // red de seguridad del campo de al lado: «10 kg de grasa a $80» es un
+                // error clásico —$80 es el total, no el kilo— y acá se ve al instante
+                // que el renglón dice $800.
+                const totalFila = totalRepuesto({ quantity: r.quantity, unit_cost: r.unitCost });
+                return (
+                  <View key={i} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs, backgroundColor: colors.surfaceAlt, gap: spacing.xs }}>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+                      <TextInput value={r.quantity} keyboardType="numeric" placeholder="Cant."
+                        placeholderTextColor={colors.muted}
+                        onChangeText={(v) => setRenglones((p) => p.map((x, j) => j === i ? { ...x, quantity: v } : x))}
+                        style={{ width: 58, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                      <TextInput value={r.description} placeholder="Descripción del repuesto / insumo"
+                        placeholderTextColor={colors.muted}
+                        onChangeText={(v) => setRenglones((p) => p.map((x, j) => j === i ? { ...x, description: v } : x))}
+                        style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                      {renglones.length > 1 ? (
+                        <TouchableOpacity onPress={() => setRenglones((p) => p.filter((_, j) => j !== i))}>
+                          <Text style={{ color: colors.danger, fontSize: 16 }}>🗑</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+                      <TouchableOpacity
+                        onPress={() => setRenglones((p) => p.map((x, j) => j === i
+                          ? { ...x, estado: ESTADOS_REPUESTO[(ESTADOS_REPUESTO.indexOf(x.estado) + 1) % ESTADOS_REPUESTO.length] } : x))}
+                        style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                        <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{r.estado}</Text>
+                      </TouchableOpacity>
+                      <TextInput value={r.unitCost} keyboardType="numeric" placeholder="$ c/u"
+                        placeholderTextColor={colors.muted}
+                        onChangeText={(v) => setRenglones((p) => p.map((x, j) => j === i ? { ...x, unitCost: v } : x))}
+                        style={{ width: 84, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                      <Text style={{ color: totalFila > 0 ? colors.text : colors.muted, fontSize: 11.5, fontWeight: '800' }}>
+                        {totalFila > 0 ? `= ${money(totalFila)}` : 'sin costo'}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
               <TouchableOpacity onPress={() => setRenglones((p) => [...p, { ...RENGLON_VACIO }])} style={{ marginTop: spacing.xs }}>
                 <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 12 }}>+ Agregar renglón</Text>
               </TouchableOpacity>
+
+              {/* 6. COSTOS — el único dinero de esta hoja, y llegó por el Informe
+                  Técnico (22-sep-2026). ES OPCIONAL: el taller puede registrar un
+                  trabajo sin saber lo que costó, y dejarlo vacío NO es un error ni
+                  bloquea el guardado. Tampoco se imprime en la hoja que se firma en
+                  el patio: solo lo usa el 📄 Informe Técnico. */}
+              <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 12, marginTop: spacing.md }}>6. COSTOS (opcional)</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: spacing.xs }}>
+                <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>Mano de obra</Text>
+                <TextInput value={manoObra} keyboardType="numeric" placeholder="$ 0,00"
+                  placeholderTextColor={colors.muted} onChangeText={setManoObra}
+                  style={{ width: 110, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+              </View>
+              {(() => {
+                const rep = costoRepuestos(renglones.map((r) => ({ quantity: r.quantity, unit_cost: r.unitCost })));
+                const total = centavos(numero(manoObra) + rep);
+                return (
+                  <Text style={{ color: total > 0 ? colors.text : colors.muted, fontSize: 12, fontWeight: '800', marginTop: spacing.xs }}>
+                    Repuestos {money(rep)} · Total de la intervención {money(total)}
+                  </Text>
+                );
+              })()}
+              <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                Solo se usa en el 📄 Informe Técnico que se le entrega al dueño del equipo. La hoja de trabajo que firma el técnico sigue saliendo sin precios.
+              </Text>
 
               {/* Lo que salió mal, JUSTO ENCIMA del botón que falló y sin desaparecer
                   solo: antes iba a un `toast` que la propia ventana tapaba, así que

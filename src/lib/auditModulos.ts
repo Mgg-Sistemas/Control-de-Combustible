@@ -153,6 +153,9 @@ const TABLA_A_MODULO: Record<string, string> = {
   // 🔧 Servicio de maquinaria (el taller: averías, órdenes y repuestos)
   maintenance_requests: 'servicio', machinery_service_orders: 'servicio',
   machinery_service_parts: 'servicio', service_intervention_types: 'servicio', machinery_service_edits: 'servicio',
+  // El «Informe Técnico y de Costos» que se le entrega al dueño del equipo:
+  // se emite desde Servicio y se arma con SU historial.
+  machinery_tech_reports: 'servicio',
   // 👥 Usuarios y permisos
   profiles: 'usuarios', app_roles: 'usuarios', module_permissions: 'usuarios', feature_toggles: 'usuarios',
   // 🚛 Viajes de camiones

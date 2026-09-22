@@ -1490,8 +1490,8 @@ generarse en cuanto se confirma el mantenimiento.
 mantenimientos ya cerrados. Las **reparaciones por avería NO salen aquí** — esas están en Servicio.
 
 ### 4.7b. Servicio de Maquinaria (averías · taller · reporte)
-Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
-**⏳ Averías · 🧾 Servicios · ✓ Historial · 📊 Reporte**.
+Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cinco pestañas:
+**⏳ Averías · 🧾 Servicios · 📄 Informe técnico · ✓ Historial · 📊 Reporte**.
 
 > **Aquí NO hay pestaña "🔧 En reparación".** Se quitó el **17-ago-2026** a pedido del cliente: el
 > circuito de *enviar a reparación* y *registrar el retorno operativo* vive **solo** en
@@ -1625,6 +1625,70 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cuatro pestañas:
 >
 > **La ficha técnica NO cambió** (sigue igual, con su foto y su Información general), porque la
 > comparte el **Recibo de cobro de mangueras**, que es de otro módulo.
+
+---
+
+#### 📄 Informe Técnico y de Costos (22-sep-2026)
+
+Pestaña nueva de este módulo. Arma, **para una sola máquina**, el documento que se le entrega al
+**dueño del equipo** — el mismo que antes se hacía a mano en Word («Informe Técnico y de Costos de
+Mantenimiento y Reparación»). **Las cuentas las hace el sistema: no se tipea ningún total.**
+
+**Primero hay que cargar los costos.** El módulo de Servicio nació **sin dinero** a propósito, así
+que se le agregaron dos campos, los dos **opcionales**:
+
+| Dónde | Campo | Qué es |
+|---|---|---|
+| 🧾 Servicios → cada renglón de repuesto | **`$ c/u`** | El precio **de UNO**, no el del renglón |
+| 🧾 Servicios → **6. COSTOS** | **Mano de obra** | Una sola cifra por intervención |
+
+> **El precio que se escribe es el UNITARIO.** Al lado del campo se ve **en vivo** el total del
+> renglón (*cantidad × unitario*), y esa es la red de seguridad: «10 kg de grasa a $80» es el error
+> clásico —$80 es el total, no el kilo— y ahí mismo se ve que el renglón dice **$800**. Abajo sale
+> *«Repuestos $X · Total de la intervención $Y»*.
+
+> **Un servicio sin costo NO es un error.** El taller puede seguir registrando un trabajo sin saber
+> lo que costó: se guarda igual, sale en el informe con su renglón en blanco y no ensucia los totales.
+
+> **Estos precios NO salen en la hoja que firma el técnico en el patio.** Esa hoja se sigue
+> imprimiendo **sin un solo número de dinero**. Los costos los usa **únicamente** este informe.
+
+**Cómo se emite.** En **🔧 Servicio de Maquinaria → 📄 Informe técnico**:
+
+1. **Equipo** — lista buscable por nombre, placa, serial o empresa.
+2. **Período** — *desde* y *hasta*. **Dejar las dos vacías trae todo el historial.** Al elegir, se
+   ve de una cuántas intervenciones hay y cuánto suman (mano de obra, repuestos, total y promedio).
+3. **Datos del informe** — dirigido a, elaborado por, empresa/propietario, encargado de sitio,
+   ubicación de operación y estado del informe.
+4. **Conclusiones y recomendaciones** — estado de operatividad, próximo mantenimiento y las
+   recomendaciones (**una por línea**: cada línea sale como un punto de la lista).
+5. **Firmas y fotos** — los dos nombres con su cargo, y la casilla del registro fotográfico.
+
+Y se toca **«📄 Generar informe técnico»**.
+
+**Qué trae el documento.** Cabecera con el **código IT-AÑO-###**; la **ficha del equipo** (tipo,
+marca/modelo, serial, horómetro con su próximo servicio, empresa propietaria con RIF y ubicación);
+los **antecedentes**; la **tabla cronológica** de intervenciones (*fecha · técnico · descripción con
+su línea de insumos · mano de obra · repuestos · subtotal*) con sus **TOTALES CONSOLIDADOS**; el
+**resumen financiero** (mano de obra, repuestos, monto total acumulado y **promedio por
+intervención**); el **registro fotográfico**; las **conclusiones**; y las **dos firmas**.
+
+> **Detalles que conviene saber:**
+> - Los **antecedentes se redactan solos** con el período, el equipo y la cantidad de intervenciones.
+>   El botón **«✍️ Redactarlo por mí»** te los escribe en el campo **para que los corrijas**.
+> - El **próximo mantenimiento**, si se deja vacío, se calcula con el horómetro de la máquina
+>   (intervalo de **250 h**, el mismo de las alertas de Mantenimiento) y **se cuenta desde el último
+>   mantenimiento confirmado**, no desde la lectura de hoy.
+> - El **registro fotográfico** usa **las fotos que el taller ya cargó** en cada servicio; donde no
+>   haya, deja el **recuadro vacío para pegarlas**, igual que el Word. Se puede apagar con la casilla.
+> - Cada informe emitido **queda guardado** con su correlativo y se puede **reimprimir** desde la
+>   lista de abajo. Al reimprimir, el **historial se vuelve a leer**: si se corrigió un costo mal
+>   cargado, el informe corregido es el que sale.
+
+> **⚠️ Si los costos salen en CERO**, es porque los servicios no los tienen cargados: se cargan en
+> **🧾 Servicios → ✏️ Editar** el servicio → **«6. COSTOS»**. Y si arriba de la pestaña aparece el
+> aviso **«Falta correr el SQL de costos»**, falta una actualización de la base de datos
+> (`supabase/informe_tecnico_costos.sql`): avísale a quien administra el sistema.
 
 > **⚡ LA VISTA PREVIA YA NO SE QUEDA PENSANDO (26-ago-2026).** El taller avisó que al
 > tocar **📄 Exportar** la aplicación se quedaba trabada un buen rato, sin señal de vida,
