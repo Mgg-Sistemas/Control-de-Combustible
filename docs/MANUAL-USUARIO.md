@@ -6025,3 +6025,69 @@ Módulo para **vender**: material que sale del inventario y servicios. Se llega 
 > lleva), el **TOTAL en $** y su **equivalente en Bs** con la tasa usada, la condición de
 > pago y **dos firmas** (entregado por / recibido conforme). Se reimprime cuando quieras
 > desde la lista de ventas.
+
+---
+
+### 4.29. Caja (el dinero del día: entradas, egresos y arqueo)
+
+Controla el efectivo y los cobros del día. Se llega por **Más → 💵 Caja** y tiene cuatro
+pestañas: **💵 Caja**, **📜 Movimientos**, **📁 Cierres** y **🏷️ Categorías**.
+*(Requiere correr `supabase/caja.sql`, y antes `supabase/ventas.sql`.)*
+
+> **⭐ TODO LO QUE ENTRA ES POR VENTAS.** En esta pantalla **no hay botón para agregar un
+> ingreso**, y no es un olvido. El dinero entra **solo de dos maneras**:
+>
+> 1. **Venta de contado** → entra **completa el día de la venta**, por su método de pago,
+>    apenas la guardas en 💰 Ventas.
+> 2. **Venta a crédito** → **NO entra al vender.** Entra el día que registras el **abono**
+>    en el módulo de **Cuentas**, y **solo por lo que se abonó**.
+>
+> Así la caja muestra **plata real**: si el cliente no paga, la caja no dice que sí. Nadie
+> puede teclear un ingreso — lo impide la propia base de datos.
+
+**🔓 Abrir la caja.** Se abre con el **fondo**: el efectivo con el que arranca la gaveta, uno
+en dólares y otro en bolívares. Solo efectivo, porque una transferencia no se «abre con
+saldo», se cuadra contra el banco. Hay **una sola caja abierta a la vez** en todo el sistema.
+Mientras está abierta ves el saldo, el detalle por método de pago y la lista de movimientos.
+
+**➖ Registrar egreso.** Es **lo único que se carga a mano**:
+
+| Campo | Qué es |
+|---|---|
+| ¿En qué se gastó? | El concepto |
+| Categoría | Compra menor, combustible, viático, transporte, repuesto, pago a proveedor, retiro a bóveda/banco, otro… (y las que agregues en 🏷️ Categorías) |
+| ¿Con qué se pagó? | Uno de los seis métodos |
+| Monto | En dólares; debajo se ve el equivalente en Bs a la tasa BCV |
+| Fecha y nota | La nota es opcional (Nº de factura, a quién se le pagó…) |
+
+Un egreso se puede borrar con 🗑. Una entrada no, porque no la pusiste tú.
+
+**🔒 Cerrar caja (arqueo).** Cuentas lo que hay y lo escribes al lado de cada método. El
+sistema te dice al instante **«✓ Cuadra»**, **«Sobra X»** o **«Falta X»**. Al cerrar se emite
+el **ACTA DE CIERRE** en PDF y la caja queda guardada en **📁 Cierres** para reimprimirla.
+
+> **⚠️ Lo que dejes VACÍO sale como «sin contar», NO como faltante.** Son cosas distintas: no
+> contar el Zelle no significa que falte todo el Zelle del día. Contar **cero** sí es contar,
+> y ahí sí se reporta el faltante.
+
+> **💱 Cada método se cuadra en su propia moneda**, y esto importa al contar:
+>
+> | Se cuenta en **dólares** | Se cuadra en **bolívares** (contra el banco) |
+> |---|---|
+> | Efectivo en $ · Zelle · USDT | Bolívares · Pago móvil · Transferencia |
+>
+> Si se convirtiera todo a dólares, una diferencia de dos bolívares aparecería como un
+> faltante de centavos imposible de rastrear.
+
+**📜 Movimientos.** El historial completo, filtrable por **rango de fechas** y por todo lo
+demás: texto libre (concepto, cliente, categoría, método, fecha), entradas o salidas, de
+ventas o de cobros, y por método de pago. Arriba salen el saldo del filtro, el neto por
+método y los egresos por categoría.
+
+> **🗓️ ¿Y si se vende con la caja cerrada?** Esa venta **no se pierde ni se rechaza**: el
+> movimiento queda suelto y lo **absorbe la próxima apertura** de caja, así que sale en ese
+> arqueo. En la pantalla de caja cerrada se avisa cuántos hay y cuánto suman.
+
+> **🔐 Permisos.** El módulo **nace cerrado** (maneja dinero). Un admin tiene que darlo desde
+> **Usuarios → permisos por módulo → «Caja»**. Con **lectura** se ve todo pero no se abre, ni
+> se cierra, ni se cargan egresos.

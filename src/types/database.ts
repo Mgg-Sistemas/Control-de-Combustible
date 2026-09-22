@@ -1851,3 +1851,65 @@ export interface Sale {
   created_at: string;
   updated_at: string | null;
 }
+
+// ── Caja ────────────────────────────────────────────────────────────────────
+// El dinero del día. ⚠️ LO QUE ENTRA ES **SOLO** POR VENTAS (regla del cliente,
+// 22-sep-2026): la venta de contado entra el día que se factura y la venta a
+// crédito el día que se cobra el abono. No hay forma de registrar un ingreso a
+// mano — lo impiden un CHECK y la política de RLS en .
+// Lógica y arqueo en .
+export type CajaTipoMov = 'ingreso' | 'egreso';
+export type CajaOrigenMov = 'venta' | 'cobranza' | 'manual';
+
+export interface CajaSesion {
+  id: string;
+  code: string;                       // CAJA-0001 (lo pone un trigger)
+  opened_at: string;
+  opened_by: string | null;
+  opened_by_name: string | null;
+  /** Fondo de caja. Solo efectivo: una transferencia no se «abre con saldo». */
+  apertura_usd: number;
+  apertura_bs: number;
+  closed_at: string | null;
+  closed_by: string | null;
+  closed_by_name: string | null;
+  /** Lo contado al cerrar, por método de pago. Va en jsonb porque los métodos
+   *  los define Ventas y agregar uno no puede exigir una migración de Caja. */
+  conteo: Record<string, number>;
+  rate_bs: number;                    // tasa BCV del cierre, congelada
+  estado: 'abierta' | 'cerrada' | string;
+  nota: string | null;
+  created_at: string;
+}
+
+export interface CajaMovimiento {
+  id: string;
+  /** NULO cuando entró con la caja cerrada (se vendió un domingo). No se pierde:
+   *  la próxima apertura lo absorbe. */
+  sesion_id: string | null;
+  tipo: CajaTipoMov;
+  origen: CajaOrigenMov;              // ingreso ⇒ venta|cobranza · egreso ⇒ manual
+  fecha: string;                      // AAAA-MM-DD
+  concepto: string;
+  categoria: string | null;           // solo egresos
+  metodo: 'bs' | 'transferencia' | 'pago_movil' | 'zelle' | 'usdt' | 'efectivo_usd';
+  monto: number;                      // siempre en $
+  rate_bs: number;
+  monto_bs: number;                   // equivalente congelado
+  sale_id: string | null;
+  cuenta_id: string | null;
+  abono_id: string | null;
+  nota: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** Catálogo de categorías de egreso. «Borrar» = desactivar: un egreso viejo no
+ *  puede quedarse sin nombre porque alguien limpió el catálogo. */
+export interface CajaCategoria {
+  id: string;
+  name: string;
+  icon: string | null;
+  active: boolean;
+  created_at: string;
+}

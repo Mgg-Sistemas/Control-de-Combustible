@@ -123,6 +123,7 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
     aliados: 'aliados',
     compras: 'compras',
     ventas: 'ventas',
+    caja: 'caja',
     inventario: 'inventario',
     reportes: null,                       // solo lee
     mangueras: 'fabricacion',

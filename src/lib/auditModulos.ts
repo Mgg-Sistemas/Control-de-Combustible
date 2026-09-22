@@ -48,6 +48,7 @@ export const MODULOS_AUDITORIA: ModuloAuditoria[] = [
   { key: 'acarreo', label: 'Acarreo / Transporte', icon: '🛻' },
   { key: 'aliados', label: 'Aliados', icon: '🤝' },
   { key: 'asistencia_camiones', label: 'Asistencia de camiones', icon: '🚚' },
+  { key: 'caja', label: 'Caja', icon: '💵' },
   { key: 'equipos', label: 'Catálogo de equipos', icon: '🚜' },
   { key: 'alimentacion', label: 'Cocina y distribución de comida', icon: '🍽️' },
   { key: 'combustible', label: 'Combustible', icon: '⛽' },
@@ -112,6 +113,9 @@ const TABLA_A_MODULO: Record<string, string> = {
   direct_purchases: 'compras', inventory_requirements: 'compras', cuentas: 'compras', cuenta_abonos: 'compras',
   // 💰 Ventas: la venta, su cliente y el catálogo de servicios que se vende
   sales: 'ventas', sales_clients: 'ventas', sales_services: 'ventas',
+  // 💵 Caja: la sesión (apertura/cierre), sus movimientos y el catálogo de
+  // categorías de egreso. Los INGRESOS los escriben triggers, no personas.
+  caja_sesiones: 'caja', caja_movimientos: 'caja', caja_categorias: 'caja',
   // 🕒 Control de asistencia (el carnet del personal)
   attendance: 'asistencia',
   // 🕐 Control de maquinaria: la jornada de cada máquina y su cierre
