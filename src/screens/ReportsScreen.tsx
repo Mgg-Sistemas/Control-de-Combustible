@@ -48,6 +48,11 @@ import {
   FiltroJornadaEquipo, MaquinaCatalogoJornada, acotarFiltroJornada, alcanceFiltroJornada, clasificacionDe,
   clasificacionesDisponibles, etiquetaMaquinaJornada, hayFiltroJornada, maquinasDisponibles, pasaFiltroJornada, sufijoArchivoFiltroJornada,
 } from '../lib/jornadaFiltroReporte';
+import {
+  CSS_UBICACIONES, OPCIONES_UBICACIONES_COMPLETO, OpcionesUbicaciones, PASTILLAS_UBICACIONES,
+  alternarUbicaciones, armarUbicaciones, cuerpoUbicaciones, ocultosUbicacionesEnPalabras, sufijoArchivoUbicaciones,
+} from '../lib/ubicacionesReporte';
+import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { precioEfectivoJornada } from '../lib/precioHistorial';
@@ -597,7 +602,9 @@ export default function ReportsScreen({ route }: any) {
   const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [eqOxicorte, setEqOxicorte] = useState(true); // incluir (true) o quitar (false) los equipos de oxicorte
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones'>('fuel');
+  // 📍 Ubicaciones (22-sep-2026): qué columnas se esconden en el PDF.
+  const [opUbic, setOpUbic] = useState<OpcionesUbicaciones>(OPCIONES_UBICACIONES_COMPLETO);
   // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
   const [inspShift, setInspShift] = useState<InspectorShift>('both');
   // Agrupamiento del reporte de INSPECTORES: por Inspector (de siempre) o por Encargado.
@@ -1729,6 +1736,28 @@ export default function ReportsScreen({ route }: any) {
       : (porEnc ? 'Por encargado y maquinaria' : 'Por empresa y maquinaria') + (money ? '' : ' · SOLO HORAS (sin precios)'))
       + (roundsFiltroEq ? ` · ${roundsFiltroEq}` : '');
     await exportPdf(pdfShell('INFORME POR JORNADA', sub, content), jornadaFile);
+  };
+
+  // ── 📍 HISTÓRICO DE UBICACIONES (22-sep-2026) ─────────────────────────────
+  // Carga las cuatro fuentes, acota las máquinas con los MISMOS filtros del resto
+  // (empresas, clasificación, máquina) y deja que la librería arme las filas.
+  const generateUbicaciones = async () => {
+    setLoading(true);
+    try {
+      const d = await cargarDatosUbicaciones(from, to);
+      const cos = repCompanies.length ? repCompanies : null;
+      const maquinas = d.maquinas.filter((m) =>
+        (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: m.id, clasificacion: m.clasificacion }, filtroEqActual));
+      const filas = armarUbicaciones({ ...d, desde: from, hasta: to, maquinas });
+      const alcance = { empresas: repCompanies, clasificaciones: repClasif, maquinas: repMaquinas.map(nombreMaqPorId) };
+      const body = `<style>${CSS_UBICACIONES}</style>` + cuerpoUbicaciones({ desde: from, hasta: to, filas, opciones: opUbic, alcance, hayBitacora: d.hayBitacora });
+      const rng = dateRangeLabel(from, to);
+      const sub = `Dónde trabajó cada máquina, día por día · ${rng}${hayFiltroJornada(filtroEqActual) || repCompanies.length ? ' · FILTRADO' : ''}`;
+      await exportPdf(pdfShell('HISTÓRICO DE UBICACIONES', sub, body),
+        `Ubicaciones ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoUbicaciones(opUbic)}`.replace(/\//g, '-'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const generateFleet = async () => {
@@ -3221,6 +3250,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'conteo', label: '📊 Conteo equipos' },
           { v: 'camiones', label: '🚛 Camiones E/S' },
           { v: 'inspectores', label: '👷 Inspectores' },
+          { v: 'ubicaciones', label: '📍 Ubicaciones' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -3236,6 +3266,8 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
                 // Inspectores (jornadas de inspección): reporte de UN día; arranca en HOY.
                 if (t.v === 'inspectores') { setFrom(isoDaysAgo(0)); }
+                // Ubicaciones: histórico, arranca en la última semana.
+                if (t.v === 'ubicaciones') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
               }}
               style={{
                 flexGrow: 1,
@@ -3560,7 +3592,7 @@ export default function ReportsScreen({ route }: any) {
 
         {/* FILTRAR POR CLASIFICACIÓN Y POR MÁQUINA — solo en el Informe por jornada
             (22-sep-2026). Esto SÍ saca máquinas y cambia los totales; el papel lo dice. */}
-        {mode === 'rounds' && maqCatalogo.length > 0 ? (() => {
+        {(mode === 'rounds' || mode === 'ubicaciones') && maqCatalogo.length > 0 ? (() => {
           const clases = clasificacionesDisponibles(maqCatalogo, repCompanies);
           const maqs = maquinasDisponibles(maqCatalogo, repCompanies, repClasif, repMaqQ);
           const TOPE = 80;
@@ -3645,7 +3677,9 @@ export default function ReportsScreen({ route }: any) {
               ) : null}
               {hayFiltroJornada(filtroEqActual) ? (
                 <Text style={{ color: colors.warning, fontSize: 11, marginTop: 4 }}>
-                  ⚠️ Esto SÍ saca máquinas y cambia los totales. El papel va marcado FILTRADO y no lleva fletes ni abonos (son de la empresa entera).
+                  {mode === 'rounds'
+                    ? '⚠️ Esto SÍ saca máquinas y cambia los totales. El papel va marcado FILTRADO y no lleva fletes ni abonos (son de la empresa entera).'
+                    : '⚠️ Esto SÍ saca máquinas del histórico. El cuadro de alcance del papel dice qué se filtró.'}
                 </Text>
               ) : null}
             </>
@@ -3747,6 +3781,28 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </View>
         ) : null}
+        {/* 📍 Ubicaciones: qué columnas se esconden en el PDF. Ocultar nunca saca filas. */}
+        {mode === 'ubicaciones' ? (
+          <View style={{ marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>¿Qué se oculta en el PDF?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {PASTILLAS_UBICACIONES.map((pz) => {
+                const on = opUbic[pz.key];
+                return (
+                  <TouchableOpacity key={pz.key} onPress={() => setOpUbic((o) => alternarUbicaciones(o, pz.key))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>{pz.chip}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Encendida = NO sale. {ocultosUbicacionesEnPalabras(opUbic)} Ocultar columnas no saca ninguna máquina.</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Sale una fila por máquina y día en que hubo ronda, check-in o punto GPS. El sector es el del último punto que guardó el inspector;
+              si ese día nadie lo guardó, vale el anterior y la celda dice «desde el DD/MM».
+            </Text>
+          </View>
+        ) : null}
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>
@@ -3764,6 +3820,8 @@ export default function ReportsScreen({ route }: any) {
               ? generateInspeccion(from)
               : mode === 'inspectores'
               ? (async () => { setLoading(true); try { await generateInspectorReport({ date: from, shift: inspShift, companies: repCompanies, inspectors: inspSelected, groupBy: inspGroupBy }); } finally { setLoading(false); } })()
+              : mode === 'ubicaciones'
+              ? generateUbicaciones()
               : generateCamiones()
           }
           disabled={loading}
@@ -3783,6 +3841,8 @@ export default function ReportsScreen({ route }: any) {
               ? '🔍 Generar INSPECCIÓN DE EQUIPOS (PDF)'
               : mode === 'inspectores'
               ? '👷 Generar REPORTE DE INSPECTORES (PDF)'
+              : mode === 'ubicaciones'
+              ? '📍 Generar HISTÓRICO DE UBICACIONES (PDF)'
               : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>
