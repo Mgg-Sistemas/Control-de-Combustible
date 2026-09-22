@@ -287,19 +287,29 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   const ff = U.armarUbicaciones(conFicha);
   const g7 = ff.find((x) => x.maquina.id === 'm7'), g8 = ff.find((x) => x.maquina.id === 'm8');
   eq('la ficha sirve cuando dice Oeste', [g7.cardinal, g7.cardinalOrigen], ['OESTE', 'ficha']);
-  eq('«CDT» en la ficha no inventa cardinal', [g8.cardinal, g8.cardinalOrigen], ['', 'ninguno']);
+  // «No me puede quedar nada sin punto cardinal, colócale uno random» (22-sep-2026):
+  // «CDT» no es cardinal, así que cae al azar; pero un azar ESTABLE, por id.
+  eq('«CDT» en la ficha no inventa cardinal: va al azar', [g8.cardinal, g8.cardinalOrigen], [U.cardinalAlAzar('m8'), 'azar']);
+  eq('el azar es estable: el mismo id, el mismo lado', U.cardinalAlAzar('m8'), U.cardinalAlAzar('m8'));
+  const lados = new Set(Array.from({ length: 50 }, (_x, i) => U.cardinalAlAzar('maq-' + i)));
+  eq('...y reparte entre los dos lados', Array.from(lados).sort(), ['ESTE', 'OESTE']);
+  const lado8 = U.cardinalAlAzar('m8');
 
   // El resumen reparte máquinas y áreas entre Este y Oeste, y cuenta las que faltan.
   const r = U.resumenUbicaciones(fo.concat(ff));
-  eq('el resumen reparte por cardinal', r.cardinales.map((c) => [c.cardinal, c.maquinas, c.filas]), [['OESTE', 3, 3]]);
-  eq('...y dice en qué áreas', r.cardinales[0].areas, ['Catamare']);
-  eq('...y cuenta la que quedó sin cardinal', r.sinCardinal, 1);
+  eq('el resumen reparte por cardinal', r.cardinales.map((c) => [c.cardinal, c.maquinas, c.filas]), lado8 === 'OESTE' ? [['OESTE', 4, 4]] : [['ESTE', 1, 1], ['OESTE', 3, 3]]);
+  eq('...y dice en qué áreas', r.cardinales.find((c) => c.cardinal === 'OESTE').areas, ['Catamare']);
+  eq('...y cuenta la que fue al azar', r.alAzar, 1);
 
   // El alcance lo explica, y se calla si la columna está oculta.
   const alc = { empresas: [], clasificaciones: [], maquinas: [] };
   const conCard = U.alcanceUbicacionesEnPalabras('2026-09-14', '2026-09-16', alc, U.OPCIONES_UBICACIONES_COMPLETO, true, r).join(' | ');
-  ok('el alcance dice a qué áreas responde', /OESTE: 3 máquina\(s\) · 3 renglón\(es\) · Catamare\./.test(conCard));
-  ok('el alcance avisa de las que no tienen cardinal', /1 renglón\(es\) sin referencia cardinal/.test(conCard));
+  ok('el alcance dice cuántas máquinas y en qué áreas', /OESTE: [34] máquina\(s\) · Catamare\./.test(conCard));
+  ok('...sin contar renglones por cardinal', !/renglón\(es\) · Catamare/.test(conCard));
+  ok('el alcance cuenta las que fueron al azar', /1 máquina\(s\) sin GPS ni obra conocida: repartidas al azar/.test(conCard));
+  // Más corto: sin la leyenda de las celdas ni «Sale completo».
+  ok('el alcance ya no trae la leyenda larga', !/registrada el DD\/MM/.test(conCard) && !/Sale completo/.test(conCard));
+  ok('el alcance cabe en pocas líneas', conCard.split(' | ').length <= 5);
   const sinCard = U.alcanceUbicacionesEnPalabras('2026-09-14', '2026-09-16', alc, { ...U.OPCIONES_UBICACIONES_COMPLETO, sinCardinal: true }, true, r).join(' | ');
   ok('oculto el cardinal, el alcance no lo menciona', !/referencia cardinal:/i.test(sinCard));
 
@@ -307,8 +317,9 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   const papel = U.cuerpoUbicaciones({ desde: '2026-09-14', hasta: '2026-09-16', filas: fo.concat(ff), opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: alc, hayBitacora: true });
   ok('la tabla trae la columna', /<th class="cd">Cardinal<\/th>/.test(papel));
   ok('y la celda con su valor', /<td class="cd">OESTE<\/td>/.test(papel));
-  ok('la que no tiene sale marcada', /<td class="cd"><span class="ub-sin">—<\/span><\/td>/.test(papel));
-  ok('el resumen de arriba cuenta las del Oeste', /<b>3<\/b>al Oeste/.test(papel));
+  ok('la que fue al azar lo dice en la celda', /<td class="cd">(ESTE|OESTE)<br\/><span class="ub-arr">al azar<\/span><\/td>/.test(papel));
+  ok('ninguna celda queda sin cardinal', !/<td class="cd">—/.test(papel) && !/ub-sin">—/.test(papel));
+  ok('el resumen de arriba cuenta las del Oeste', new RegExp(`<b>${lado8 === 'OESTE' ? 4 : 3}</b>al Oeste`).test(papel));
   const papelSin = U.cuerpoUbicaciones({ desde: '2026-09-14', hasta: '2026-09-16', filas: fo, opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinCardinal: true }, alcance: alc, hayBitacora: true });
   ok('oculta, la columna no sale', !/>Cardinal</.test(papelSin));
   eq('ocultarla no saca filas', U.armarUbicaciones(conObra).length, fo.length);
@@ -363,7 +374,7 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   ok('el área va como subtítulo', /<h4 class="sub2">📍 Camurí Chico/.test(papel));
   ok('avisa de la que se movió', /estuvo en 2 sitios/.test(papel));
   ok('no repite los días', !/15\/09\/2026 —/.test(papel));
-  ok('el alcance explica la regla del resumen', /Cada máquina sale UNA vez/.test(papel));
+  ok('el alcance del resumen también es corto', !/Cada máquina sale UNA vez/.test(papel) && /ESTE: 1 máquina\(s\) · Camurí Chico, Macuto\./.test(papel)); // las áreas son las del RANGO, no solo la última
   const sinHoras = U.cuerpoUbicacionesResumen({ desde: '2026-09-14', hasta: '2026-09-16', filas, opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinHoras: true }, alcance: alc, hayBitacora: true });
   ok('las pastillas también mandan en el resumen', !/Total h/.test(sinHoras));
   const sinEmpresa = U.cuerpoUbicacionesResumen({ desde: '2026-09-14', hasta: '2026-09-16', filas, opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinEmpresa: true }, alcance: alc, hayBitacora: true });
@@ -371,7 +382,8 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   // Sin cardinal conocido, el bloque blanco del mapa.
   const M11 = { id: 'm11', code: 'ZZZ', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
   const solo = U.armarUbicaciones({ ...dos, maquinas: [M11], puntos: [], rondas: [{ machineryId: 'm11', fecha: '2026-09-15', dia: 0, noche: 0, parada: 0, estado: 'parada', inspectorDia: null, inspectorNoche: null }] });
-  eq('la que no tiene cardinal cae en su propio bloque', U.agruparPorCardinal(U.resumirPorMaquina(solo)).map((x) => x.titulo), ['SIN REFERENCIA CARDINAL']);
+  eq('sin GPS, sin obra y sin ficha, igual cae en Este u Oeste', U.agruparPorCardinal(U.resumirPorMaquina(solo)).map((x) => x.titulo), [U.cardinalAlAzar('m11') === 'ESTE' ? 'SECTOR ESTE' : 'SECTOR OESTE']);
+  ok('...y ya no existe el bloque «sin referencia cardinal»', !/SIN REFERENCIA CARDINAL/.test(leer('src/lib/ubicacionesReporte.ts')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-ubicaciones-reporte · ${pass} ok · ${fail} fallando`);
