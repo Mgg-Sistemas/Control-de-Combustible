@@ -293,7 +293,7 @@ export const CSS_UBICACIONES = `
   .r{text-align:right}
   .ub table{table-layout:fixed;width:100%;font-size:8.5px}
   .ub th,.ub td{padding:3px 4px;word-break:break-word;overflow-wrap:anywhere;vertical-align:top}
-  .ub th.r,.ub td.r{width:34px}
+  .ub th.r,.ub td.r{width:46px}
   .ub-res{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
   .ub-res div{background:#F1F5F9;border-radius:6px;padding:6px 10px;font-size:11px}
   .ub-res b{font-size:14px;display:block}
