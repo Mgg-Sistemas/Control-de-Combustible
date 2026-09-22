@@ -295,6 +295,46 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   eq('...y reparte entre los dos lados', Array.from(lados).sort(), ['ESTE', 'OESTE']);
   const lado8 = U.cardinalAlAzar('m8');
 
+  // «Esas máquinas distribúyelas entre cualquiera de las ubicaciones» (22-sep-2026):
+  // la que no tiene nada cae en un ÁREA QUE YA SALE en el informe, no en un grupo aparte.
+  const M20 = { id: 'm20', code: 'CON-GPS-ESTE', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
+  const M21 = { id: 'm21', code: 'SIN-NADA', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
+  const reparto = {
+    ...base, maquinas: [M20, M21],
+    puntos: [{ machineryId: 'm20', at: '2026-09-15T08:00:00-04:00', sector: 'Este · Macuto' }],
+    cambios: [], visitas: [],
+    rondas: [
+      { machineryId: 'm20', fecha: '2026-09-15', dia: 8, noche: 0, parada: 0, estado: 'operativa', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm21', fecha: '2026-09-15', dia: 3, noche: 0, parada: 0, estado: 'operativa', inspectorDia: null, inspectorNoche: null },
+    ],
+  };
+  const fr = U.armarUbicaciones(reparto);
+  const huerfana = fr.find((x) => x.maquina.id === 'm21');
+  eq('la que no tiene nada cae en un área del informe', [huerfana.cardinal, huerfana.area, huerfana.cardinalOrigen], ['ESTE', 'Macuto', 'azar']);
+  // Dos veces el mismo informe: el reparto no baila entre una impresión y la siguiente.
+  eq('y el reparto no cambia al reimprimir', U.armarUbicaciones(reparto).find((x) => x.maquina.id === 'm21').area, 'Macuto');
+  eq('sin ninguna área conocida, al menos el cardinal sale', U.reparteEstable('m21', []), null);
+  // La ficha manda: si dice Oeste, el reparto NO la cruza a un área del Este.
+  const M22 = { id: 'm22', code: 'FICHA-OESTE', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '', cardinalFicha: 'Oeste' };
+  const M23 = { id: 'm23', code: 'GPS-OESTE', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
+  const mixto = U.armarUbicaciones({
+    ...reparto, maquinas: [M20, M22, M23],
+    puntos: [
+      { machineryId: 'm20', at: '2026-09-15T08:00:00-04:00', sector: 'Este · Macuto' },
+      { machineryId: 'm23', at: '2026-09-15T08:00:00-04:00', sector: 'Oeste · Catamare' },
+    ],
+    rondas: [
+      { machineryId: 'm20', fecha: '2026-09-15', dia: 8, noche: 0, parada: 0, estado: 'op', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm22', fecha: '2026-09-15', dia: 2, noche: 0, parada: 0, estado: 'op', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm23', fecha: '2026-09-15', dia: 2, noche: 0, parada: 0, estado: 'op', inspectorDia: null, inspectorNoche: null },
+    ],
+  });
+  const f22 = mixto.find((x) => x.maquina.id === 'm22');
+  eq('la ficha manda: se queda en su lado', [f22.cardinal, f22.area], ['OESTE', 'Catamare']);
+  ok('y nunca queda un grupo aparte', !/Sin ubicación conocida/.test(U.cuerpoUbicacionesResumen({ desde: '2026-09-14', hasta: '2026-09-16', filas: mixto, opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true })));
+  // Ya no queda un grupo «Sin ubicación conocida» cuando hay áreas donde repartirlas.
+  eq('el resumido la mete en el área, no aparte', U.agruparPorCardinal(U.resumirPorMaquina(fr)).map((g) => [g.titulo, g.areas.map((a) => a.nombre)]), [['SECTOR ESTE', ['Macuto']]]);
+
   // El resumen reparte máquinas y áreas entre Este y Oeste, y cuenta las que faltan.
   const r = U.resumenUbicaciones(fo.concat(ff));
   eq('el resumen reparte por cardinal', r.cardinales.map((c) => [c.cardinal, c.maquinas, c.filas]), lado8 === 'OESTE' ? [['OESTE', 4, 4]] : [['ESTE', 1, 1], ['OESTE', 3, 3]]);
@@ -306,7 +346,7 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   const conCard = U.alcanceUbicacionesEnPalabras('2026-09-14', '2026-09-16', alc, U.OPCIONES_UBICACIONES_COMPLETO, true, r).join(' | ');
   ok('el alcance dice cuántas máquinas y en qué áreas', /OESTE: [34] máquina\(s\) · Catamare\./.test(conCard));
   ok('...sin contar renglones por cardinal', !/renglón\(es\) · Catamare/.test(conCard));
-  ok('el alcance cuenta las que fueron al azar', /1 máquina\(s\) sin GPS ni obra conocida: repartidas al azar/.test(conCard));
+  ok('el alcance NO habla del azar', !/al azar/i.test(conCard) && !/sin GPS ni obra/.test(conCard));
   // Más corto: sin la leyenda de las celdas ni «Sale completo».
   ok('el alcance ya no trae la leyenda larga', !/registrada el DD\/MM/.test(conCard) && !/Sale completo/.test(conCard));
   ok('el alcance cabe en pocas líneas', conCard.split(' | ').length <= 5);
@@ -317,7 +357,7 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   const papel = U.cuerpoUbicaciones({ desde: '2026-09-14', hasta: '2026-09-16', filas: fo.concat(ff), opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: alc, hayBitacora: true });
   ok('la tabla trae la columna', /<th class="cd">Cardinal<\/th>/.test(papel));
   ok('y la celda con su valor', /<td class="cd">OESTE<\/td>/.test(papel));
-  ok('la que fue al azar lo dice en la celda', /<td class="cd">(ESTE|OESTE)<br\/><span class="ub-arr">al azar<\/span><\/td>/.test(papel));
+  ok('la celda del cardinal va limpia, sin avisos', /<td class="cd">(ESTE|OESTE)<\/td>/.test(papel) && !/al azar/.test(papel));
   ok('ninguna celda queda sin cardinal', !/<td class="cd">—/.test(papel) && !/ub-sin">—/.test(papel));
   ok('el resumen de arriba cuenta las del Oeste', new RegExp(`<b>${lado8 === 'OESTE' ? 4 : 3}</b>al Oeste`).test(papel));
   const papelSin = U.cuerpoUbicaciones({ desde: '2026-09-14', hasta: '2026-09-16', filas: fo, opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinCardinal: true }, alcance: alc, hayBitacora: true });

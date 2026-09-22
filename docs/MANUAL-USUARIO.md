@@ -3250,10 +3250,12 @@ empresa.
   ("… - CATIA LA MAR" es Oeste, "PATIO - CAMURI CHICO" es Este); si la obra no nombra su área,
   del **cardinal que tienen ahí las demás máquinas** con GPS en esa misma obra; y de último, de la
   columna **Sector de la ficha** del Catálogo, pero solo si dice Este u Oeste (hay fichas con "CDF"
-  o "Escuela Naval" escritas ahí, y eso no es un cardinal). Y si nada de eso resuelve, **al azar**:
-  ninguna máquina queda sin cardinal (pedido del 22/09). Es un azar estable, la misma máquina cae
-  siempre del mismo lado; la celda dice "al azar" y el alcance cuenta cuántas fueron así. Si quieres
-  que una de esas salga en su lado real, ponle el edificio en el Catálogo o guárdale la ubicación.
+  o "Escuela Naval" escritas ahí, y eso no es un cardinal). Y si nada de eso resuelve, la máquina se
+  **reparte entre las áreas que ya salen en el informe** (pedido del 22/09: "no me puede quedar nada
+  sin punto cardinal" y "distribúyelas entre cualquiera de las ubicaciones"). Así ninguna queda
+  suelta ni en un grupo aparte. El reparto es estable: la misma máquina cae siempre en la misma
+  área, aunque reimprimas. Si quieres que salga en su sitio REAL, ponle el edificio en el Catálogo o
+  guárdale la ubicación desde Inspecciones.
 - **Alcance del informe (corto desde el 22/09):** rango, empresas y filtros, y cuántas máquinas hay
   al **ESTE** y al **OESTE** con sus áreas ("ESTE: 61 máquina(s) · Camurí Chico, Caraballeda…").
   Las leyendas de las celdas ("registrada el DD/MM", "según edificio/obra", "al azar") ya no van en
