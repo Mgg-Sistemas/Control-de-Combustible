@@ -73,10 +73,6 @@ export type ServicePartInput = {
   quantity?: number | string | null;
   description: string;
   estado?: string | null;
-  /** Costo UNITARIO del repuesto, en $. OPCIONAL: el taller registra trabajos sin
-   *  saber el precio y eso no es un error. Solo lo usa el Informe Técnico
-   *  (`informeTecnico.ts`); la hoja que se firma en el patio no lo imprime. */
-  unitCost?: number | string | null;
 };
 
 export type ServiceOrderInput = {
@@ -92,8 +88,6 @@ export type ServiceOrderInput = {
   notes?: string | null;
   /** La avería que este trabajo atiende. OPCIONAL, y apuntar a ella NO la modifica. */
   maintenanceRequestId?: string | null;
-  /** Mano de obra de la intervención, en $. OPCIONAL — ver `unitCost`. */
-  laborCost?: number | string | null;
   createdBy?: string | null;
 };
 
@@ -246,16 +240,13 @@ export function validarServicio(inp: ServiceOrderInput): string | null {
  */
 export function limpiarRepuestos(
   parts: ServicePartInput[] | null | undefined
-): { quantity: number | null; description: string; estado: string | null; unit_cost: number | null; position: number }[] {
+): { quantity: number | null; description: string; estado: string | null; position: number }[] {
   return (parts ?? [])
     .filter((p) => txt(p?.description) !== '')
     .map((p, i) => ({
       quantity: num(p.quantity),
       description: txt(p.description),
       estado: txtOrNull(p.estado),
-      // Sin costo cargado va NULL, no 0: «no lo sé» y «no costó nada» son cosas
-      // distintas, y el Informe Técnico las tiene que poder distinguir.
-      unit_cost: num(p.unitCost),
       position: i,
     }));
 }
@@ -276,11 +267,6 @@ export function filaServicio(inp: ServiceOrderInput): Record<string, any> {
     work_done: txtOrNull(inp.workDone),
     photos: inp.photos ?? [],
     notes: txtOrNull(inp.notes),
-    // ⚠️ EL ÚNICO CAMPO DE DINERO DE LA HOJA, y llega tarde a propósito
-    //    (22-sep-2026). El módulo nació SIN costos; se agregó solo porque el
-    //    Informe Técnico que se le entrega al dueño del equipo los exige. Va
-    //    NULL cuando no se carga: ver `unit_cost` en `limpiarRepuestos`.
-    labor_cost: num(inp.laborCost),
     created_by: txtOrNull(inp.createdBy),
   };
 }
@@ -361,7 +347,6 @@ export const CAMPO_SERVICIO_LABEL: Record<string, string> = {
   problem: 'Descripción del problema',
   maintenance_request_id: 'Avería que atiende',
   work_done: 'Acciones realizadas',
-  labor_cost: 'Mano de obra',
   photos: 'Fotos de referencia',
   notes: 'Notas',
   repuestos: 'Repuestos utilizados',
@@ -378,23 +363,11 @@ const fechaLegible = (v: unknown): string => {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : s || VACIO;
 };
 
-/** Un monto para LEER en la bitácora. Sin costo cargado, un guion — no «$0,00»,
- *  que diría «salió gratis» cuando lo cierto es que nadie lo anotó. */
-const montoLegible = (v: unknown): string => {
-  const n = num(v);
-  return n == null ? VACIO : `$${n.toFixed(2)}`;
-};
-
-/** Cómo se ve un repuesto en la bitácora: «2 · FILTRO DE ACEITE (Nuevo) · $12,50». */
-const repuestoLegible = (
-  p: { quantity?: number | null; description?: string; estado?: string | null; unitCost?: number | string | null; unit_cost?: number | string | null }
-): string => {
+/** Cómo se ve un repuesto en la bitácora: «2 · FILTRO DE ACEITE (Nuevo)». */
+const repuestoLegible = (p: { quantity?: number | null; description?: string; estado?: string | null }): string => {
   const cant = p.quantity == null ? VACIO : String(p.quantity);
   const est = txt(p.estado);
-  // El repuesto puede venir del formulario (`unitCost`) o de la fila ya guardada
-  // (`unit_cost`): la bitácora compara las dos y tiene que leer ambas formas.
-  const costo = num(p.unitCost ?? p.unit_cost);
-  return `${cant} · ${txt(p.description)}${est ? ` (${est})` : ''}${costo != null ? ` · ${montoLegible(costo)}` : ''}`;
+  return `${cant} · ${txt(p.description)}${est ? ` (${est})` : ''}`;
 };
 
 const listaLegible = (xs: string[]): string => (xs.length ? xs.join(' · ') : VACIO);
@@ -477,7 +450,6 @@ export function cambiosServicio(opts: {
     txt(v) ? (n.averia ? n.averia(txt(v)) : idCorto(v)) : 'ninguna'
   );
   simple('work_done');
-  simple('labor_cost', montoLegible);
 
   // ── Fotos: se detecta por CONTENIDO, se muestra por CANTIDAD ──────────────
   // Las URLs no le dicen nada a una persona; el número sí. Pero si se quitó una

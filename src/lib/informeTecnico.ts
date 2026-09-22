@@ -128,6 +128,70 @@ export type CabeceraInforme = {
   conFotos?: boolean;
 };
 
+
+// ── LA HOJA DE COSTOS DEL INFORME ───────────────────────────────────────────
+//
+// ⚠️ LOS COSTOS **NO** VIVEN EN EL MÓDULO DE SERVICIO. Viven en su propia tabla
+//    (`machinery_tech_report_costs`), una hoja por intervención. Es un pedido
+//    explícito del cliente —«ese informe con costo que sea independiente en el
+//    módulo, que no afecte nada, es un reporte nuevo»— y además resuelve una
+//    trampa: al editar un servicio sus repuestos se BORRAN y se vuelven a
+//    insertar, así que un precio guardado en `machinery_service_parts` se
+//    perdía en silencio con cualquier corrección de fecha u ortografía.
+
+/** Una hoja de costos, tal como sale de `machinery_tech_report_costs`. */
+export type HojaCosto = {
+  service_order_id: string;
+  labor_cost?: number | string | null;
+  items?: RepuestoInforme[] | null;
+};
+
+/**
+ * La hoja que se le PROPONE al usuario para una intervención: los repuestos que
+ * el taller ya cargó, con su cantidad y el precio en blanco.
+ *
+ * Solo se propone. Después la hoja vive por su cuenta: un informe ya emitido no
+ * puede cambiar de monto porque alguien corrigió un renglón del taller tres
+ * semanas después.
+ */
+export function hojaPropuesta(it: IntervencionInforme | null | undefined): RepuestoInforme[] {
+  return (it?.parts ?? [])
+    .filter((p) => String(p?.description ?? '').trim() !== '')
+    .map((p) => ({
+      description: String(p.description).trim(),
+      quantity: p.quantity ?? null,
+      unit_cost: null,
+    }));
+}
+
+/**
+ * Pega cada hoja de costos a su intervención, para imprimir.
+ *
+ * ⚠️ Cuando hay hoja, los insumos que se imprimen son LOS DE LA HOJA, no los
+ *    repuestos del servicio. Son dos listas distintas a propósito (ver arriba):
+ *    mezclarlas haría que el informe mostrara un renglón sin precio junto a los
+ *    que sí lo tienen, y el total no cuadraría con lo que se ve.
+ *
+ * Una intervención sin hoja sale igual, con sus repuestos y sin precios: no
+ * tener el costo cargado no puede sacarla del informe.
+ */
+export function conCostos<T extends IntervencionInforme & { id?: string | null }>(
+  items?: T[] | null, hojas?: HojaCosto[] | null
+): T[] {
+  const porId = new Map<string, HojaCosto>();
+  (hojas ?? []).forEach((h) => { if (h?.service_order_id) porId.set(h.service_order_id, h); });
+  return (items ?? []).map((it) => {
+    const h = it?.id ? porId.get(it.id) : undefined;
+    if (!h) return it;
+    const conPrecio = (h.items ?? []).filter((p) => String(p?.description ?? '').trim() !== '');
+    return {
+      ...it,
+      labor_cost: h.labor_cost ?? null,
+      parts: conPrecio.length ? conPrecio : it.parts,
+    };
+  });
+}
+
 // ── LAS CUENTAS ─────────────────────────────────────────────────────────────
 
 /**

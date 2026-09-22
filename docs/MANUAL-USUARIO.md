@@ -1634,30 +1634,44 @@ Pestaña nueva de este módulo. Arma, **para una sola máquina**, el documento q
 **dueño del equipo** — el mismo que antes se hacía a mano en Word («Informe Técnico y de Costos de
 Mantenimiento y Reparación»). **Las cuentas las hace el sistema: no se tipea ningún total.**
 
-**Primero hay que cargar los costos.** El módulo de Servicio nació **sin dinero** a propósito, así
-que se le agregaron dos campos, los dos **opcionales**:
+**Los costos se cargan DENTRO del informe**, no en 🧾 Servicios.
 
-| Dónde | Campo | Qué es |
-|---|---|---|
-| 🧾 Servicios → cada renglón de repuesto | **`$ c/u`** | El precio **de UNO**, no el del renglón |
-| 🧾 Servicios → **6. COSTOS** | **Mano de obra** | Una sola cifra por intervención |
+> **⭐ El módulo de Servicio no lleva dinero, y sigue sin llevarlo.** El formulario de
+> **🧾 Servicios** no pide precios y la hoja que firma el técnico en el patio se sigue
+> imprimiendo **sin un solo monto**. Este informe es **un reporte aparte**: tiene su propia
+> hoja de costos por intervención y no toca nada de lo que ya funcionaba.
+>
+> Hay una segunda razón, menos obvia pero más grave: **al editar un servicio, sus repuestos se
+> borran y se vuelven a insertar.** Si el precio viviera en el renglón del repuesto, corregir
+> una fecha o una falta de ortografía se habría llevado por delante todos los precios
+> cargados, en silencio, y el informe del mes siguiente habría salido en cero sin que nadie
+> entendiera por qué.
+
+En **📄 Informe técnico → «2b. Costos de cada intervención»**, tocas una intervención y se abre
+su hoja:
+
+| Campo | Qué es |
+|---|---|
+| **Mano de obra** | Una sola cifra por intervención |
+| **Insumos** → `$ c/u` | El precio **de UNO**, no el del renglón |
+
+La lista de insumos **se te propone** con los repuestos que el taller ya cargó, para no
+escribirlos de nuevo. Puedes corregirla, agregar renglones o borrarlos: a partir de ahí es la
+lista **del informe**, y ya no cambia sola si mañana alguien toca el servicio.
 
 > **El precio que se escribe es el UNITARIO.** Al lado del campo se ve **en vivo** el total del
-> renglón (*cantidad × unitario*), y esa es la red de seguridad: «10 kg de grasa a $80» es el error
-> clásico —$80 es el total, no el kilo— y ahí mismo se ve que el renglón dice **$800**. Abajo sale
-> *«Repuestos $X · Total de la intervención $Y»*.
+> renglón (*cantidad × unitario*), y esa es la red de seguridad: «10 kg de grasa a $80» es el
+> error clásico —$80 es el total, no el kilo— y ahí mismo se ve que el renglón dice **$800**.
 
-> **Un servicio sin costo NO es un error.** El taller puede seguir registrando un trabajo sin saber
-> lo que costó: se guarda igual, sale en el informe con su renglón en blanco y no ensucia los totales.
-
-> **Estos precios NO salen en la hoja que firma el técnico en el patio.** Esa hoja se sigue
-> imprimiendo **sin un solo número de dinero**. Los costos los usa **únicamente** este informe.
+> **Una intervención sin costo NO es un error.** Sale en el informe con su renglón en blanco,
+> nombrando lo que se le puso, y no ensucia los totales.
 
 **Cómo se emite.** En **🔧 Servicio de Maquinaria → 📄 Informe técnico**:
 
 1. **Equipo** — lista buscable por nombre, placa, serial o empresa.
 2. **Período** — *desde* y *hasta*. **Dejar las dos vacías trae todo el historial.** Al elegir, se
    ve de una cuántas intervenciones hay y cuánto suman (mano de obra, repuestos, total y promedio).
+2b. **Costos** — la hoja de cada intervención (ver arriba). Es opcional.
 3. **Datos del informe** — dirigido a, elaborado por, empresa/propietario, encargado de sitio,
    ubicación de operación y estado del informe.
 4. **Conclusiones y recomendaciones** — estado de operatividad, próximo mantenimiento y las
@@ -1686,9 +1700,9 @@ intervención**); el **registro fotográfico**; las **conclusiones**; y las **do
 >   cargado, el informe corregido es el que sale.
 
 > **⚠️ Si los costos salen en CERO**, es porque los servicios no los tienen cargados: se cargan en
-> **🧾 Servicios → ✏️ Editar** el servicio → **«6. COSTOS»**. Y si arriba de la pestaña aparece el
+> **📄 Informe técnico → «2b. Costos de cada intervención»**. Y si arriba de la pestaña aparece el
 > aviso **«Falta correr el SQL de costos»**, falta una actualización de la base de datos
-> (`supabase/informe_tecnico_costos.sql`): avísale a quien administra el sistema.
+> (`supabase/informe_tecnico_costos_aparte.sql`): avísale a quien administra el sistema.
 
 > **⚡ LA VISTA PREVIA YA NO SE QUEDA PENSANDO (26-ago-2026).** El taller avisó que al
 > tocar **📄 Exportar** la aplicación se quedaba trabada un buen rato, sin señal de vida,
