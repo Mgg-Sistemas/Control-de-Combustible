@@ -592,6 +592,21 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '💵',
+    title: 'Caja (el dinero del día: entradas, egresos y arqueo)',
+    blocks: [
+      { t: 'p', text: 'Controla el efectivo y los cobros del día. Se llega por Más → 💵 Caja y tiene cuatro pestañas: 💵 Caja, 📜 Movimientos, 📁 Cierres y 🏷️ Categorías. Requiere correr supabase/caja.sql (y antes supabase/ventas.sql).' },
+      { t: 'note', text: '⭐ TODO LO QUE ENTRA ES POR VENTAS. En esta pantalla NO hay botón para agregar un ingreso, y no es un olvido: el dinero entra SOLO de dos maneras. (1) VENTA DE CONTADO: entra completa el día de la venta, por su método de pago, apenas la guardas en 💰 Ventas. (2) VENTA A CRÉDITO: NO entra al vender; entra el día que registras el ABONO en el módulo de Cuentas, y solo por lo que se abonó. Así la caja muestra plata real: si el cliente no paga, la caja no dice que sí. Nadie puede teclear un ingreso — lo impide la propia base de datos.' },
+      { t: 'note', text: '🔓 ABRIR LA CAJA: se abre con el FONDO, o sea el efectivo con el que arranca la gaveta: uno en dólares y otro en bolívares. Solo efectivo, porque una transferencia no se «abre con saldo», se cuadra contra el banco. Hay UNA SOLA caja abierta a la vez en todo el sistema. Mientras está abierta ves el saldo, el detalle por método de pago y la lista de movimientos.' },
+      { t: 'note', text: '➖ REGISTRAR EGRESO: es lo único que se carga a mano. Lleva en qué se gastó, la CATEGORÍA (compra menor, combustible, viático, transporte, repuesto, pago a proveedor, retiro a bóveda/banco, otro… y las que agregues en 🏷️ Categorías), con qué se pagó, el monto en dólares (se muestra el equivalente en Bs a la tasa BCV), la fecha y una nota. Un egreso se puede borrar con 🗑; una entrada no, porque no la pusiste tú.' },
+      { t: 'note', text: '🔒 CERRAR CAJA (ARQUEO): cuentas lo que hay y lo escribes al lado de cada método. El sistema te dice al instante «✓ Cuadra», «Sobra X» o «Falta X». Lo que dejes VACÍO sale como «sin contar» y NO como faltante — son cosas distintas y el acta las distingue. Al cerrar se emite el ACTA DE CIERRE en PDF y la caja queda guardada en 📁 Cierres para reimprimirla cuando haga falta.' },
+      { t: 'note', text: '💱 CADA MÉTODO SE CUADRA EN SU PROPIA MONEDA, y esto es importante al contar: el EFECTIVO EN DÓLARES, el Zelle y el USDT se cuentan en DÓLARES; los BOLÍVARES, el PAGO MÓVIL y las TRANSFERENCIAS se cuadran en BOLÍVARES contra el banco. Si se convirtiera todo a dólares, una diferencia de dos bolívares aparecería como un faltante de centavos imposible de rastrear.' },
+      { t: 'note', text: '📜 MOVIMIENTOS: el historial completo, filtrable por rango de fechas y por todo lo demás — texto libre (concepto, cliente, categoría, método, fecha), entradas o salidas, de ventas o de cobros, y por método de pago. Arriba salen el saldo del filtro, el neto por método y los egresos por categoría.' },
+      { t: 'note', text: '🗓️ ¿Y si se vende con la caja cerrada? Esa venta NO se pierde ni se rechaza: el movimiento queda suelto y lo absorbe la PRÓXIMA APERTURA de caja, así que sale en ese arqueo. En la pantalla de caja cerrada se avisa cuántos hay y cuánto suman.' },
+      { t: 'note', text: '🔐 PERMISOS: el módulo nace CERRADO (maneja dinero). Un admin tiene que darlo desde Usuarios → permisos por módulo → «Caja». Con LECTURA se ve todo pero no se abre, ni se cierra, ni se cargan egresos.' },
+    ],
+  },
+  {
     icon: '📦',
     title: 'Inventario (materiales, requerimiento y traslados)',
     blocks: [
