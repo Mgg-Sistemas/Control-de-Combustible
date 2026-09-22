@@ -1751,3 +1751,58 @@ export interface CuentaAbono {
   created_by: string | null;
   created_at: string;
 }
+
+// ── VENTAS (módulo 22-sep-2026) ──────────────────────────────────────────────
+/** Cliente del módulo de Ventas. La identidad es la CÉDULA o el RIF (único). */
+export interface SalesClient {
+  id: string;
+  name: string;
+  doc_letter: string;          // V | E | J | G | P
+  doc_number: string;          // dígitos
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  es_proveedor: boolean;       // además de cliente, se le compra
+  note: string | null;
+  active: boolean;
+  created_at: string;
+  created_by: string | null;
+}
+
+/** Tipo de servicio que se vende. Se llena solo: la 1ª vez lo escribe el usuario. */
+export interface SalesService {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;               // precio referencial ($), editable en la venta
+  active: boolean;
+  created_at: string;
+}
+
+/** Una venta: material del inventario y/o servicios, en factura o nota de entrega. */
+export interface Sale {
+  id: string;
+  code: string;                       // VTA-####
+  doc_kind: 'factura' | 'nota_entrega';
+  doc_number: string | null;          // FAC-#### / NE-####
+  client_id: string | null;
+  client_name: string;
+  client_doc: string | null;
+  sale_date: string;
+  items: import('../lib/ventas').VentaItem[];
+  subtotal: number;
+  con_iva: boolean;
+  iva_pct: number;
+  iva_monto: number;
+  total: number;                      // $
+  condicion: 'contado' | 'credito';
+  payment_method: import('../lib/ventas').MetodoPago | null;
+  rate_bs: number;                    // tasa BCV usada
+  total_bs: number;                   // equivalente congelado
+  cuenta_id: string | null;           // cuenta por cobrar si fue a crédito
+  note: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string | null;
+}

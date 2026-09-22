@@ -570,6 +570,27 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '💰',
+    title: 'Ventas (material, servicios, factura y nota de entrega)',
+    blocks: [
+      { t: 'p', text: 'Módulo para VENDER: material que sale del inventario y servicios. Se llega por Más → 💰 Ventas y tiene cuatro pestañas: 💰 Ventas, 📊 Historial, 👥 Clientes y 🧰 Servicios. Requiere correr supabase/ventas.sql.' },
+      { t: 'steps', items: [
+        'En 💰 Ventas toca "＋ Nueva venta" y elige el CLIENTE (buscador por nombre, cédula, RIF, teléfono, correo o dirección).',
+        'Marca con un check qué documento se emite: 🧾 FACTURA o 📄 NOTA DE ENTREGA. Las DOS llevan precio; la nota de entrega no es documento fiscal. Cada una lleva su propio correlativo (FAC-0001 / NE-0001).',
+        'Agrega renglones: "＋ 📦 Material" trae el producto del INVENTARIO con su PRECIO REFERENCIAL (el costo promedio) ya cargado —y se puede CAMBIAR—, y muestra la existencia disponible. "＋ 🧰 Servicio" lo trae del catálogo de servicios.',
+        'Marca o desmarca "Cobrar IVA (16%)": el IVA es OPCIONAL en cada venta. Si está apagado, el precio es el total.',
+        'Elige la condición: 🟢 CONTADO (y su método de pago) o 🟠 CRÉDITO.',
+        'Toca "Registrar venta". El material se DESCUENTA del inventario y el sistema ofrece imprimir el documento.',
+      ] },
+      { t: 'note', text: '💵 MÉTODOS DE PAGO: Bolívares (efectivo), Transferencia, Pago móvil, Zelle, USDT y Dólares (efectivo). Los montos se llevan en $ y el sistema muestra SIEMPRE el equivalente en Bs con la TASA DEL BCV del día (la misma del inventario). Al elegir Bolívares o Pago móvil se ve directo cuánto cobrar en Bs. La tasa usada queda GUARDADA en la venta: si mañana cambia el dólar, el papel que ya imprimiste NO cambia de monto.' },
+      { t: 'note', text: '🟠 VENTAS A CRÉDITO: generan SOLAS una CUENTA POR COBRAR a ese cliente en el módulo de Cuentas (con su concepto, el número del documento y el monto). Ahí se le registran los abonos como a cualquier otra cuenta. Si después editas la venta, la cuenta se ajusta sola; si la pasas a contado, la cuenta queda ANULADA (no se borra: se conserva por auditoría).' },
+      { t: 'note', text: '👥 CLIENTES — UNA CÉDULA O RIF NO ENTRA DOS VECES: cada cliente se guarda con su letra (V, E, J, G o P) y sus números. El sistema AVISA antes de guardar si ese documento ya está registrado y te dice a nombre de quién, y la base lo impide además por su cuenta. "V-12.345.678", "V12345678" y "v 12345678" son LA MISMA persona: se comparan solo los dígitos, así que no se cuelan duplicados por escribirlo distinto. Se puede marcar "🏭 También es proveedor". El buscador busca por TODAS las características: nombre, documento, teléfono, correo y dirección.' },
+      { t: 'note', text: '🧰 SERVICIOS — SE LLENAN SOLOS: la primera vez que vendes un servicio que no está, lo escribes en el selector y toca "＋ Crear": queda guardado en el catálogo con su precio referencial y la próxima vez lo eliges de la lista buscable (por nombre, descripción o precio). También se administran desde la pestaña 🧰 Servicios. El precio del catálogo es SOLO la referencia: en cada venta se puede cambiar.' },
+      { t: 'note', text: '📊 HISTORIAL: todas las ventas, filtrables por RANGO DE FECHAS y por TODAS las características: texto libre (cliente, documento, renglón vendido, método…), tipo de documento, condición (contado/crédito), método de pago y cliente. Arriba salen los totales (ventas, total, contado y crédito) y abajo el detalle AGRUPADO POR CLIENTE, con lo que se le ha vendido a cada quien y cuánto de eso es a crédito. Todo se descarga en PDF.' },
+      { t: 'note', text: '🖨️ EL DOCUMENTO: factura y nota de entrega salen con el logo, un sello grande que dice cuál de las dos es (para no confundirlas de un vistazo), el número, los datos del cliente, la tabla de renglones con cantidad/unidad/precio/total, el subtotal, el IVA (si lleva), el TOTAL en $ y su equivalente en Bs con la tasa usada, la condición de pago y dos firmas (entregado por / recibido conforme). Se reimprime cuando quieras desde la lista de ventas.' },
+    ],
+  },
+  {
     icon: '📦',
     title: 'Inventario (materiales, requerimiento y traslados)',
     blocks: [
