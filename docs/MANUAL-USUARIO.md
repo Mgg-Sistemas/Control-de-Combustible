@@ -3256,13 +3256,20 @@ empresa.
   suelta ni en un grupo aparte. El reparto es estable: la misma máquina cae siempre en la misma
   área, aunque reimprimas. Si quieres que salga en su sitio REAL, ponle el edificio en el Catálogo o
   guárdale la ubicación desde Inspecciones.
-- **Alcance del informe (corto desde el 22/09):** rango, empresas y filtros, y cuántas máquinas hay
-  al **ESTE** y al **OESTE** con sus áreas ("ESTE: 61 máquina(s) · Camurí Chico, Caraballeda…").
-  Las leyendas de las celdas ("registrada el DD/MM", "según edificio/obra", "al azar") ya no van en
-  el papel: están aquí arriba.
+- **Alcance del informe (corto desde el 22/09):** solo el rango y cuántas máquinas hay al **ESTE**
+  y al **OESTE** con sus áreas ("ESTE: 61 máquina(s) · Camurí Chico, Caraballeda…"). Ya **no repite
+  los filtros** que elegiste (empresa, clasificación, máquinas) ni las columnas que ocultaste, ni
+  las leyendas de las celdas: eso lo sabes tú, que lo marcaste, y está explicado aquí.
 - **Edificio / obra:** el que el inspector eligió de la lista, **vigente ese día** según la bitácora.
   Existe desde el 06/08/2026 (con un hueco la semana del 10 al 16 de agosto). Una máquina sin
-  cambios en la bitácora sale con el edificio de hoy, marcado con **\***.
+  cambios en la bitácora sale con el edificio de hoy, marcado con **\***. Y si no tiene ninguno,
+  **se le reparte uno de los que ya salen en el informe**, del área que le tocó, para que ninguna
+  celda de ubicación quede en blanco (pedido del 22/09).
+- **Ninguna celda de ubicación vacía:** desde el 22/09 no existen "Sin ubicación" ni la raya en
+  Edificio. La máquina sin GPS y sin obra recibe sector, área y edificio repartidos entre los del
+  informe, siempre los mismos para esa máquina. **Ojo: eso la muestra en un sitio donde puede no
+  estar.** Para que salga donde de verdad trabaja, ponle el edificio en el Catálogo o pídele al
+  inspector que le guarde la ubicación.
 - **Inspector y Estado:** del check-in **"Revisé la máquina"** de ese día (Trabajando / Parada / No
   estaba). Si no hubo check-in, el inspector de la ronda y "Trabajó (sin check-in)".
 - **Horas:** las de la ronda (día, noche y total, igual que el Informe por jornada).
