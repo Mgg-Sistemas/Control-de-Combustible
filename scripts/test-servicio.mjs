@@ -151,8 +151,36 @@ console.log('SERVICIO DE MAQUINARIA\n');
   ok('interno no guarda proveedor', filaServicio({ ...BASE, provider: 'X' }).provider === null);
   ok('externo no guarda técnico',
     filaServicio({ ...BASE, origen: 'externo', provider: 'Taller' }).technician === null);
-  ok('⭐ la fila NO trae ningún campo de dinero',
-    !Object.keys(fila).some((k) => /cost|price|amount|monto|pago/i.test(k)), Object.keys(fila).join(','));
+  // ⭐ EL DINERO DE LA HOJA ES **UNO SOLO**: `labor_cost` (22-sep-2026).
+  //
+  //    Hasta hoy esta prueba exigía que la fila NO llevara NINGÚN campo de
+  //    dinero, porque el módulo nació sin costos a propósito. Se relajó —no se
+  //    borró— por un pedido concreto: el «Informe Técnico y de Costos» que la
+  //    oficina le entrega al dueño del equipo necesita la mano de obra y el
+  //    precio de los repuestos, y armarlo a mano en Word era la alternativa.
+  //
+  //    La guarda sigue viva con el candado corrido: se nombra UNO por UNO el
+  //    campo de dinero permitido. Si mañana aparece un `total_pagado`, un
+  //    `precio_hora` o cualquier otra cosa que convierta la hoja de trabajo en
+  //    una factura por la puerta de atrás, esto se pone rojo.
+  const dinero = Object.keys(fila).filter((k) => /cost|price|amount|monto|pago/i.test(k));
+  ok('⭐ el ÚNICO campo de dinero de la hoja es la mano de obra',
+    dinero.length === 1 && dinero[0] === 'labor_cost', dinero.join(',') || '(ninguno)');
+  ok('la mano de obra sin cargar va NULL, no 0 («no lo sé» ≠ «salió gratis»)',
+    filaServicio(BASE).labor_cost === null);
+  ok('la mano de obra acepta coma decimal', filaServicio({ ...BASE, laborCost: '45,50' }).labor_cost === 45.5);
+}
+
+// ── 5b) El costo de los repuestos ─────────────────────────────────────────
+{
+  const rs = limpiarRepuestos([
+    { description: 'Filtro de aceite', quantity: '2', estado: 'Nuevo', unitCost: '12,50' },
+    { description: 'Grasa', quantity: '10' },
+  ]);
+  ok('el costo unitario se guarda', rs[0].unit_cost === 12.5);
+  ok('un repuesto sin costo va NULL, no 0', rs[1].unit_cost === null);
+  ok('⭐ NO se guarda el total del renglón, solo el unitario',
+    !Object.keys(rs[0]).some((k) => /total|subtotal/i.test(k)), Object.keys(rs[0]).join(','));
 }
 
 // ── 6) Quién lo hizo, en una línea ────────────────────────────────────────

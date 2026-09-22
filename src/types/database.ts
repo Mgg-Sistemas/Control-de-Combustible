@@ -1134,8 +1134,15 @@ export interface MachineryRepair {
 
 // ── Servicio de Maquinaria ───────────────────────────────────────────────────
 // Registro de lo que se le hizo a una máquina, con el formato del formulario en
-// papel del cliente. SIN DINERO: este módulo no lleva costos ni pagos.
-// La lógica vive en `src/lib/machineService.ts`; el PDF, en `machineServiceReport.ts`.
+// papel del cliente.
+//
+// ⚠️ EL ÚNICO DINERO SON `labor_cost` y `unit_cost` (22-sep-2026). El módulo
+//    nació sin costos; se agregaron SOLO porque el «Informe Técnico y de Costos»
+//    que se le entrega al dueño del equipo los necesita. La hoja de trabajo que
+//    firma el técnico en el patio sigue imprimiéndose SIN precios.
+//
+// La lógica vive en `src/lib/machineService.ts`; la hoja, en `machineServiceReport.ts`;
+// el informe con costos, en `informeTecnico.ts`.
 export type MachineryServiceOrigen = 'interno' | 'externo';
 
 export interface MachineryServiceOrder {
@@ -1154,6 +1161,8 @@ export interface MachineryServiceOrder {
   work_done: string | null;         // «Acciones realizadas»
   photos: string[];
   notes: string | null;
+  /** Mano de obra de la intervención, en $. NULL = no se registró (no es 0). */
+  labor_cost: number | null;
   created_by: string | null;
   created_at: string;
 }
@@ -1164,8 +1173,44 @@ export interface MachineryServicePart {
   quantity: number | null;
   description: string;
   estado: string | null;            // Nuevo | Usado | Reparado | Reacondicionado (sin candado en la base)
+  /** Costo UNITARIO, en $. El total del renglón es cantidad × esto; el total NO
+   *  se guarda, para que los dos números no puedan contradecirse. */
+  unit_cost: number | null;
   /** Conserva el orden en que se cargaron los renglones. */
   position: number;
+}
+
+/**
+ * Un «Informe Técnico y de Costos» ya emitido (`machinery_tech_reports`).
+ *
+ * Guarda SOLO la cabecera editorial y el rango; el historial de intervenciones
+ * NO se copia: se vuelve a leer al reimprimir, para que corregir un costo mal
+ * cargado se refleje en el informe. Ver `supabase/informe_tecnico_costos.sql`.
+ */
+export interface MachineryTechReport {
+  id: string;
+  code: string;                     // IT-2026-001 (lo pone un trigger, por año)
+  machinery_id: string;
+  report_date: string;              // AAAA-MM-DD
+  desde: string | null;             // NULL = todo el historial
+  hasta: string | null;
+  dirigido_a: string | null;
+  elaborado_por: string | null;
+  empresa_propietaria: string | null;
+  encargado_sitio: string | null;
+  ubicacion: string | null;
+  estado_informe: string | null;
+  antecedentes: string | null;
+  estado_operatividad: string | null;
+  proximo_pm: string | null;
+  recomendaciones: string[];
+  firma1_nombre: string | null; firma1_cargo: string | null; firma1_empresa: string | null;
+  firma2_nombre: string | null; firma2_cargo: string | null; firma2_empresa: string | null;
+  con_fotos: boolean;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
 }
 
 // Rol dinámico creado desde Usuarios: define qué módulos ve (clave → nivel).
