@@ -224,7 +224,7 @@ export type VisitaDia = { machineryId: string; fecha: string; at: string; inspec
 export type RondaDia = { machineryId: string; fecha: string; dia: number; noche: number; parada: number; estado: string | null; inspectorDia: string | null; inspectorNoche: string | null };
 
 /** De dónde salió el sector de la fila: del día, tomado de después, arrastrado de antes, del catálogo, o de ningún lado. */
-export type OrigenSector = 'dia' | 'posterior' | 'anterior' | 'catalogo' | 'edificio' | 'ninguno';
+export type OrigenSector = 'dia' | 'posterior' | 'anterior' | 'catalogo' | 'edificio' | 'repartido' | 'ninguno';
 
 export type FilaUbicacion = {
   fecha: string;
@@ -234,6 +234,8 @@ export type FilaUbicacion = {
   /** ESTE / OESTE (siempre hay uno) y el área que lo justifica («Macuto», o '' si fue al azar). */
   cardinal: Cardinal; area: string; cardinalOrigen: OrigenCardinal;
   edificio: string; edificioArrastrado: boolean;
+  /** true cuando el edificio se repartió porque la máquina no tenía ninguno. */
+  edificioRepartido?: boolean;
   inspector: string; estado: string;
   dia: number; noche: number; total: number;
 };
@@ -363,10 +365,11 @@ export function armarUbicaciones(e: EntradaUbicaciones): FilaUbicacion[] {
         estado = 'Solo ubicación';
       }
       // Sin resolver todavía: el segundo pase (obra, ficha, azar) lo cierra. Mientras, el azar.
-      filas.push({ fecha, maquina: m, sector, sectorDesde, sectorOrigen, sinUbicacion, cardinal: cardinal || cardinalAlAzar(m.id), area, cardinalOrigen, edificio, edificioArrastrado, inspector, estado, dia: redondear(dia), noche: redondear(noche), total });
+      filas.push({ fecha, maquina: m, sector, sectorDesde, sectorOrigen, sinUbicacion, cardinal: cardinal || cardinalAlAzar(m.id), area, cardinalOrigen, edificio, edificioArrastrado, edificioRepartido: false, inspector, estado, dia: redondear(dia), noche: redondear(noche), total });
     });
   });
   completarCardinal(filas);
+  completarUbicacion(filas);
   return filas.sort((a, b) => a.fecha.localeCompare(b.fecha) || cmp(a.maquina.code, b.maquina.code) || cmp(a.maquina.placa, b.maquina.placa));
 }
 
@@ -415,6 +418,50 @@ function completarCardinal(filas: FilaUbicacion[]): void {
   });
 }
 
+/**
+ * NINGUNA CELDA DE UBICACIÓN EN BLANCO (pedido del cliente, 22-sep-2026: «que no
+ * quede en blanco ni ubicaciones, ni edificios, ni nada de esa información»).
+ *
+ * Lo que sigue vacío después de todo lo anterior se REPARTE entre los sitios que ya
+ * salen en el informe, y se respeta el área que el pase del cardinal ya le asignó:
+ * el sector y el edificio que le tocan son de SU área, así que la fila queda coherente
+ * (no sale «Este · Macuto» con un edificio de Catia La Mar). El reparto va por el id
+ * de la máquina, así que no cambia entre impresiones.
+ *
+ * ⚠️ Esto RELLENA, no sabe: la máquina aparece en un sitio donde probablemente no
+ *    está. Se arregla de verdad poniéndole el edificio en el Catálogo o guardándole
+ *    la ubicación desde Inspecciones.
+ */
+function completarUbicacion(filas: FilaUbicacion[]): void {
+  // Sitios que SÍ se conocen, agrupados por área (y la bolsa general como respaldo).
+  const sectores = new Map<string, string[]>(), edificios = new Map<string, string[]>();
+  const todoSector: string[] = [], todoEdificio: string[] = [];
+  const mete = (mapa: Map<string, string[]>, bolsa: string[], area: string, valor: string) => {
+    if (!bolsa.includes(valor)) bolsa.push(valor);
+    const l = mapa.get(area) ?? [];
+    if (!l.includes(valor)) { l.push(valor); mapa.set(area, l); }
+  };
+  filas.forEach((f) => {
+    if (!f.sinUbicacion && f.sector !== FUERA) mete(sectores, todoSector, f.area, f.sector);
+    if (f.edificio !== '—') mete(edificios, todoEdificio, f.area, f.edificio);
+  });
+  [sectores, edificios].forEach((m) => m.forEach((l) => l.sort(cmp)));
+  todoSector.sort(cmp); todoEdificio.sort(cmp);
+
+  filas.forEach((f) => {
+    if (f.sinUbicacion) {
+      const elegido = reparteEstable(f.maquina.id, sectores.get(f.area) ?? todoSector);
+      if (elegido) { f.sector = elegido; f.sinUbicacion = false; f.sectorDesde = ''; f.sectorOrigen = 'repartido'; }
+    }
+    if (f.edificio === '—') {
+      // Se busca el edificio en el área de su sector, no en la suya de antes.
+      const areaSector = zonaCardinal(f.sector).area || f.area;
+      const elegido = reparteEstable(f.maquina.id, edificios.get(areaSector) ?? edificios.get(f.area) ?? todoEdificio);
+      if (elegido) { f.edificio = elegido; f.edificioArrastrado = false; f.edificioRepartido = true; }
+    }
+  });
+}
+
 // ── RESUMEN, ALCANCE Y PAPEL ────────────────────────────────────────────────
 
 /** Cuántas máquinas y renglones caen en un cardinal, y en qué áreas. */
@@ -453,17 +500,15 @@ export type AlcanceUbicaciones = { empresas: string[]; clasificaciones: string[]
 // Pedido del cliente (22-sep-2026): «que el alcance no dé tanta información, que sea más
 // resumido y diga cuántas máquinas hay entre Este y Oeste y en qué áreas». Las leyendas
 // de las celdas («registrada el», «según edificio/obra», «al azar») viven en el manual.
-export function alcanceUbicacionesEnPalabras(desde: string, hasta: string, f: AlcanceUbicaciones, o: OpcionesUbicaciones, hayBitacora: boolean, r: ResumenUbicaciones): string[] {
+export function alcanceUbicacionesEnPalabras(desde: string, hasta: string, _f: AlcanceUbicaciones, o: OpcionesUbicaciones, hayBitacora: boolean, r: ResumenUbicaciones): string[] {
+  // Nada de filtros ni de columnas ocultas: el cliente los eligió, no hace falta
+  // recordárselos («que no me diga lo que no estoy seleccionando o lo que sí»).
+  // Queda el rango y el reparto Este/Oeste, que es lo que el papel viene a decir.
   const l: string[] = [`Del ${dmy(desde)} al ${dmy(hasta)} · ${r.dias} día(s) · ${r.maquinas} máquina(s) · ${r.filas} renglón(es).`];
-  l.push(f.empresas.length ? `Empresas: solo ${f.empresas.join(', ')}.` : 'Empresas: todas.');
-  if (f.clasificaciones.length) l.push(`Clasificación: ${f.clasificaciones.join(', ')}.`);
-  if (f.maquinas.length) l.push(`Máquinas: ${f.maquinas.length <= 4 ? f.maquinas.join(', ') : `${f.maquinas.length} elegidas`}.`);
   if (!o.sinCardinal) {
     r.cardinales.forEach((c) => l.push(`${c.cardinal}: ${c.maquinas} máquina(s)${c.areas.length ? ` · ${c.areas.join(', ')}` : ''}.`));
   }
   if (!hayBitacora) l.push('⚠️ La bitácora de edificios no se pudo leer: el edificio/obra es el de HOY en la ficha (marcado *).');
-  const ocultos = PASTILLAS_UBICACIONES.filter((p) => o[p.key]).map((p) => p.largo);
-  if (ocultos.length) l.push(`No sale: ${ocultos.join(', ')}.`);
   return l;
 }
 
@@ -531,7 +576,7 @@ export function cuerpoUbicaciones(d: DatosPapelUbicaciones): string {
   partes.push(`<div class="ub-res">
     <div><b>${r.maquinas}</b>máquina(s)</div><div><b>${r.dias}</b>día(s)</div><div><b>${r.filas}</b>renglones</div>
     ${o.sinHoras ? '' : `<div><b>${r.horas} h</b>trabajadas</div>`}
-    <div><b>${r.sinUbicacion}</b>sin ubicación</div><div><b>${r.arrastradas}</b>ubicación completada</div>
+    ${r.sinUbicacion ? `<div><b>${r.sinUbicacion}</b>sin ubicación</div>` : ''}
     ${o.sinCardinal ? '' : r.cardinales.map((c) => `<div><b>${c.maquinas}</b>al ${c.cardinal === 'ESTE' ? 'Este' : 'Oeste'}</div>`).join('')}
   </div>`);
   if (!o.sinSector && r.sectores.length) {
