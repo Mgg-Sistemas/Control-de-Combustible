@@ -25,8 +25,9 @@
 //    lowboys salían «sin ubicación» teniendo «PATIO - CAMURI CHICO» al lado). «Sin
 //    ubicación» queda solo para la máquina sin GPS y sin edificio, y el resumen las cuenta.
 //
-// ⭐ TODAS LAS MÁQUINAS TIENEN CARDINAL (Este/Oeste): GPS → área de la obra → las demás
-//    máquinas de esa obra → ficha → al azar (estable por id). Ver «REFERENCIA CARDINAL».
+// ⭐ TODAS LAS MÁQUINAS TIENEN CARDINAL (Este/Oeste) Y CAEN EN UN ÁREA: GPS → área de la
+//    obra → las demás máquinas de esa obra → ficha → repartidas entre las áreas que ya
+//    salen en el informe (estable por id). Ver «REFERENCIA CARDINAL».
 //
 // Sin imports: la prueba (scripts/test-ubicaciones-reporte.mjs) lo carga solo.
 
@@ -72,19 +73,30 @@ export function diasDelRango(desde: string, hasta: string): string[] {
 //              nombra su área, pero las que sí tienen GPS ahí la delatan).
 //   4. ficha — la columna `sector` del catálogo, y SOLO si dice Este u Oeste: hay
 //              máquinas con «CDF» o «Escuela Naval» ahí, y eso no es un cardinal.
-//   5. azar  — «no me puede quedar nada sin punto cardinal, colócale uno random»
-//              (cliente, 22-sep-2026). Se reparte por el id de la máquina, así la
-//              misma máquina cae siempre del mismo lado y el papel no baila entre
-//              una impresión y la siguiente. La celda lo dice («al azar») y el
-//              alcance cuenta cuántos, igual que el Conteo reparte 50/50 sin GPS.
+//   5. azar  — «no me puede quedar nada sin punto cardinal, colócale uno random» y
+//              «esas máquinas distribúyelas entre cualquiera de las ubicaciones»
+//              (cliente, 22-sep-2026). Se reparten entre las ÁREAS QUE YA SALEN en
+//              el informe (Macuto, Caraballeda, Catia La Mar…), no en un grupo
+//              aparte, y de esa área sale su cardinal. El reparto va por el id de
+//              la máquina: la misma máquina cae siempre en la misma área, así el
+//              papel no baila entre una impresión y la siguiente. Si el informe no
+//              tuviera ni un área conocida, el cardinal sale a cara o cruz.
 export type Cardinal = 'ESTE' | 'OESTE';
 export type OrigenCardinal = 'gps' | 'area' | 'obra' | 'ficha' | 'azar';
 
-/** Cardinal «al azar» pero ESTABLE: el mismo id da siempre el mismo lado. */
-export function cardinalAlAzar(id: unknown): Cardinal {
+/** Número estable a partir del id: el mismo id da siempre el mismo número. */
+function huella(id: unknown): number {
   let h = 0;
   for (const ch of String(id ?? '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return h % 2 === 0 ? 'ESTE' : 'OESTE';
+  return h;
+}
+/** Cardinal «al azar» pero ESTABLE: el mismo id da siempre el mismo lado. */
+export function cardinalAlAzar(id: unknown): Cardinal {
+  return huella(id) % 2 === 0 ? 'ESTE' : 'OESTE';
+}
+/** Una de las opciones, elegida siempre igual para el mismo id. */
+export function reparteEstable<T>(id: unknown, opciones: readonly T[]): T | null {
+  return opciones.length ? opciones[huella(id) % opciones.length] : null;
 }
 
 const sinAcentos = (v: unknown) => limpio(v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -363,8 +375,9 @@ export function armarUbicaciones(e: EntradaUbicaciones): FilaUbicacion[] {
  * le dieron las filas con GPS de ese mismo sitio (una obra no está en dos cardinales;
  * si hubiera empate manda el ESTE, que es donde está casi toda la flota). Después, por
  * FICHA: la columna `sector` del catálogo, solo si dice un cardinal. Y lo que aún
- * quede, AL AZAR (estable por máquina). Se hace en un segundo pase porque la obra de
- * una máquina sin GPS la delatan las OTRAS máquinas.
+ * quede se REPARTE entre las áreas que ya salen en el informe (estable por máquina),
+ * para que ninguna quede en un grupo aparte. Se hace en un segundo pase porque tanto
+ * la obra como las áreas disponibles salen de las OTRAS filas.
  */
 function completarCardinal(filas: FilaUbicacion[]): void {
   const votos = new Map<string, { ESTE: number; OESTE: number; area: string }>();
@@ -385,7 +398,20 @@ function completarCardinal(filas: FilaUbicacion[]): void {
     }
     const ficha = zonaCardinal(f.maquina.cardinalFicha);
     if (ficha.cardinal) { f.cardinal = ficha.cardinal; f.area = ficha.area; f.cardinalOrigen = 'ficha'; }
-    // Si no: se queda con el azar que ya traía (estable por id).
+  });
+  // Lo que quedó: se reparte entre las ÁREAS que ya salen en el informe. A→Z para que
+  // la lista no dependa del orden en que llegaron las filas (mismo papel siempre).
+  const areas = new Map<string, Cardinal>();
+  filas.forEach((f) => { if (f.area) areas.set(f.area, f.cardinal); });
+  const opciones = Array.from(areas, ([area, cardinal]) => ({ area, cardinal })).sort((a, b) => cmp(a.area, b.area));
+  filas.forEach((f) => {
+    if (f.area) return;
+    // Si el cardinal ya lo dio la FICHA (dato humano), se reparte solo entre las áreas de
+    // ESE lado: nadie cruza de Este a Oeste por un reparto. Sin nada, entre todas.
+    const propias = f.cardinalOrigen === 'azar' ? opciones : opciones.filter((o) => o.cardinal === f.cardinal);
+    const elegida = reparteEstable(f.maquina.id, propias);
+    if (elegida) { f.cardinal = elegida.cardinal; f.area = elegida.area; }
+    // Sin ni un área conocida en todo el informe, se queda con la cara o cruz del id.
   });
 }
 
@@ -393,7 +419,7 @@ function completarCardinal(filas: FilaUbicacion[]): void {
 
 /** Cuántas máquinas y renglones caen en un cardinal, y en qué áreas. */
 export type ResumenCardinal = { cardinal: Cardinal; filas: number; maquinas: number; areas: string[] };
-export type ResumenUbicaciones = { filas: number; maquinas: number; dias: number; horas: number; sinUbicacion: number; arrastradas: number; sectores: { nombre: string; filas: number; horas: number }[]; cardinales: ResumenCardinal[]; /** Máquinas cuyo cardinal salió al azar. */ alAzar: number };
+export type ResumenUbicaciones = { filas: number; maquinas: number; dias: number; horas: number; sinUbicacion: number; arrastradas: number; sectores: { nombre: string; filas: number; horas: number }[]; cardinales: ResumenCardinal[]; /** Máquinas repartidas entre las áreas del informe. Dato interno: NO se imprime. */ alAzar: number };
 
 export function resumenUbicaciones(filas: readonly FilaUbicacion[]): ResumenUbicaciones {
   const maqs = new Set<string>(), dias = new Set<string>();
@@ -434,7 +460,6 @@ export function alcanceUbicacionesEnPalabras(desde: string, hasta: string, f: Al
   if (f.maquinas.length) l.push(`Máquinas: ${f.maquinas.length <= 4 ? f.maquinas.join(', ') : `${f.maquinas.length} elegidas`}.`);
   if (!o.sinCardinal) {
     r.cardinales.forEach((c) => l.push(`${c.cardinal}: ${c.maquinas} máquina(s)${c.areas.length ? ` · ${c.areas.join(', ')}` : ''}.`));
-    if (r.alAzar) l.push(`${r.alAzar} máquina(s) sin GPS ni obra conocida: repartidas al azar entre Este y Oeste (la celda dice «al azar»).`);
   }
   if (!hayBitacora) l.push('⚠️ La bitácora de edificios no se pudo leer: el edificio/obra es el de HOY en la ficha (marcado *).');
   const ocultos = PASTILLAS_UBICACIONES.filter((p) => o[p.key]).map((p) => p.largo);
@@ -483,8 +508,8 @@ export function cuerpoUbicaciones(d: DatosPapelUbicaciones): string {
       case 'code': return esc(f.maquina.code);
       case 'marcaModelo': return esc([o.sinMarca ? '' : f.maquina.marca, o.sinModelo ? '' : f.maquina.modelo].filter(Boolean).join(' ') || '—');
       case 'placa': return esc(f.maquina.placa || '—');
-      // Siempre hay cardinal; si fue al azar, la celda lo dice.
-      case 'cardinal': return `${f.cardinal}${f.cardinalOrigen === 'azar' ? '<br/><span class="ub-arr">al azar</span>' : ''}`;
+      // Siempre hay cardinal. El repartido va sin nota: el cliente no quiere el aviso.
+      case 'cardinal': return esc(f.cardinal);
       case 'empresa': return esc(f.maquina.empresa);
       case 'sector': {
         if (f.sinUbicacion) return `<span class="ub-sin">${SIN_UBIC}</span>`;
