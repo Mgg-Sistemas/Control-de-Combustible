@@ -3222,9 +3222,18 @@ de noche otro; al final de cada uno va su línea de firma.
    en el día, sale **una fila por cada transición** consecutiva.
 
 #### 📍 Histórico de ubicaciones por máquina (22/09/2026)
-Nueva pestaña **📍 Ubicaciones** en Reportes: un PDF con **dónde trabajó cada máquina, día por
-día**, en el **rango de fechas** que elijas, con las horas, el estado, el inspector, marca, modelo,
-placa y empresa.
+Nueva pestaña **📍 Ubicaciones** en Reportes: un PDF con **dónde trabajó cada máquina**, en el
+**rango de fechas** que elijas, con las horas, el estado, el inspector, marca, modelo, placa y
+empresa.
+
+**Son DOS papeles, se elige arriba con "¿Qué PDF quieres?":**
+- **📄 Resumido (por sector Este / Oeste)** — el que sale por defecto. **Una línea por máquina**,
+  agrupadas en **🟢 SECTOR ESTE** y **🟠 SECTOR OESTE** y, dentro, por área (Macuto, Caraballeda,
+  Catia La Mar…), igual que el reporte **"Máquinas por sector"** del Mapa. Cada máquina sale **una
+  sola vez, en el sitio donde terminó el rango**, con sus días con registro y sus horas totales; si
+  se movió, la celda dice "estuvo en N sitios". Es el que se lee de un vistazo.
+- **📆 Día por día (detallado)** — el parte completo: una fila por máquina **y día**. Con toda la
+  flota en una semana son cientos de renglones.
 
 **De dónde sale cada columna** (no hay una tabla de "ubicación por día": se reconstruye):
 - **Sector (GPS):** el último punto que el inspector guardó con **"Guardar ubicación"** en
@@ -3235,6 +3244,15 @@ placa y empresa.
   actual** del catálogo ("ubicación actual"); y sin GPS en ninguna parte, el **edificio/obra** que
   eligió el inspector ("según edificio/obra"). **"Sin ubicación"** queda solo para la máquina sin
   GPS y sin edificio, y el resumen cuenta cuántas.
+- **Cardinal (Este / Oeste) — nuevo el 22/09/2026:** el punto cardinal del litoral al que
+  pertenece la máquina. Sale, en este orden: del **GPS del día** (el sector ya viene como "Este ·
+  Macuto" u "Oeste · Aeropuerto"); si no hay GPS, del **área que nombra el edificio/obra**
+  ("… - CATIA LA MAR" es Oeste, "PATIO - CAMURI CHICO" es Este); si la obra no nombra su área,
+  del **cardinal que tienen ahí las demás máquinas** con GPS en esa misma obra; y de último, de la
+  columna **Sector de la ficha** del Catálogo, pero solo si dice Este u Oeste (hay fichas con "CDF"
+  o "Escuela Naval" escritas ahí, y eso no es un cardinal). Lo que no se puede resolver sale en rojo
+  y el alcance cuenta cuántos renglones son: la idea es que **todas las máquinas tengan cardinal**,
+  así que si ves un "—" hay que arreglar el edificio o el GPS de esa máquina.
 - **Edificio / obra:** el que el inspector eligió de la lista, **vigente ese día** según la bitácora.
   Existe desde el 06/08/2026 (con un hueco la semana del 10 al 16 de agosto). Una máquina sin
   cambios en la bitácora sale con el edificio de hoy, marcado con **\***.

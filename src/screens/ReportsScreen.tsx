@@ -50,7 +50,7 @@ import {
 } from '../lib/jornadaFiltroReporte';
 import {
   CSS_UBICACIONES, OPCIONES_UBICACIONES_COMPLETO, OpcionesUbicaciones, PASTILLAS_UBICACIONES,
-  alternarUbicaciones, armarUbicaciones, cuerpoUbicaciones, ocultosUbicacionesEnPalabras, sufijoArchivoUbicaciones,
+  alternarUbicaciones, armarUbicaciones, cuerpoUbicaciones, cuerpoUbicacionesResumen, ocultosUbicacionesEnPalabras, sufijoArchivoUbicaciones,
 } from '../lib/ubicacionesReporte';
 import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
 import { equipCategory } from '../lib/equipos';
@@ -605,6 +605,10 @@ export default function ReportsScreen({ route }: any) {
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones'>('fuel');
   // 📍 Ubicaciones (22-sep-2026): qué columnas se esconden en el PDF.
   const [opUbic, setOpUbic] = useState<OpcionesUbicaciones>(OPCIONES_UBICACIONES_COMPLETO);
+  // 📍 Ubicaciones: RESUMIDO (una línea por máquina, agrupado Este/Oeste como en el
+  // mapa) o DÍA POR DÍA (el parte detallado). Arranca resumido: es el que se lee de un
+  // vistazo; el detallado son cientos de renglones.
+  const [ubicResumen, setUbicResumen] = useState(true);
   // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
   const [inspShift, setInspShift] = useState<InspectorShift>('both');
   // Agrupamiento del reporte de INSPECTORES: por Inspector (de siempre) o por Encargado.
@@ -1750,11 +1754,15 @@ export default function ReportsScreen({ route }: any) {
         (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: m.id, clasificacion: m.clasificacion }, filtroEqActual));
       const filas = armarUbicaciones({ ...d, desde: from, hasta: to, maquinas });
       const alcance = { empresas: repCompanies, clasificaciones: repClasif, maquinas: repMaquinas.map(nombreMaqPorId) };
-      const body = `<style>${CSS_UBICACIONES}</style>` + cuerpoUbicaciones({ desde: from, hasta: to, filas, opciones: opUbic, alcance, hayBitacora: d.hayBitacora });
+      const datos = { desde: from, hasta: to, filas, opciones: opUbic, alcance, hayBitacora: d.hayBitacora };
+      const body = `<style>${CSS_UBICACIONES}</style>` + (ubicResumen ? cuerpoUbicacionesResumen(datos) : cuerpoUbicaciones(datos));
       const rng = dateRangeLabel(from, to);
-      const sub = `Dónde trabajó cada máquina, día por día · ${rng}${hayFiltroJornada(filtroEqActual) || repCompanies.length ? ' · FILTRADO' : ''}`;
-      await exportPdf(pdfShell('HISTÓRICO DE UBICACIONES', sub, body),
-        `Ubicaciones ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoUbicaciones(opUbic)}`.replace(/\//g, '-'));
+      const filtrado = hayFiltroJornada(filtroEqActual) || repCompanies.length ? ' · FILTRADO' : '';
+      const sub = ubicResumen
+        ? `Dónde está cada máquina, agrupadas Este / Oeste · ${rng}${filtrado}`
+        : `Dónde trabajó cada máquina, día por día · ${rng}${filtrado}`;
+      await exportPdf(pdfShell(ubicResumen ? 'UBICACIONES POR SECTOR' : 'HISTÓRICO DE UBICACIONES', sub, body),
+        `Ubicaciones ${ubicResumen ? 'resumen ' : ''}${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoUbicaciones(opUbic)}`.replace(/\//g, '-'));
     } finally {
       setLoading(false);
     }
@@ -3781,6 +3789,29 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </View>
         ) : null}
+        {/* 📍 Ubicaciones: cuál de los DOS papeles sale. */}
+        {mode === 'ubicaciones' ? (
+          <View style={{ marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>¿Qué PDF quieres?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {[{ v: true, label: '📄 Resumido (por sector Este / Oeste)' }, { v: false, label: '📆 Día por día (detallado)' }].map((op) => {
+                const on = ubicResumen === op.v;
+                return (
+                  <TouchableOpacity key={String(op.v)} onPress={() => setUbicResumen(op.v)}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>{op.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              {ubicResumen
+                ? 'Una línea por máquina, agrupadas 🟢 SECTOR ESTE / 🟠 SECTOR OESTE y por área, igual que «Máquinas por sector» del mapa. Cada máquina sale donde terminó el rango.'
+                : 'Una fila por máquina y día. Es el parte completo: en una semana con toda la flota son cientos de renglones.'}
+            </Text>
+          </View>
+        ) : null}
+
         {/* 📍 Ubicaciones: qué columnas se esconden en el PDF. Ocultar nunca saca filas. */}
         {mode === 'ubicaciones' ? (
           <View style={{ marginBottom: spacing.sm }}>
@@ -3842,7 +3873,7 @@ export default function ReportsScreen({ route }: any) {
               : mode === 'inspectores'
               ? '👷 Generar REPORTE DE INSPECTORES (PDF)'
               : mode === 'ubicaciones'
-              ? '📍 Generar HISTÓRICO DE UBICACIONES (PDF)'
+              ? (ubicResumen ? '📍 Generar UBICACIONES POR SECTOR (PDF)' : '📍 Generar HISTÓRICO DE UBICACIONES (PDF)')
               : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>
