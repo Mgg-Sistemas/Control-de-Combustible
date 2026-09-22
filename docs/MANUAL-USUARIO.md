@@ -3058,6 +3058,22 @@ totales ni cuentan como equipo que trabajó.
 > Un flete se le cobra a la empresa, no a la persona que cuida la máquina — y un mismo encargado
 > puede tener máquinas de dos empresas distintas.
 
+> **🔎 Filtrar el Informe por jornada por clasificación y por máquina (22/09/2026).** En Reportes →
+> **🛠️ Jornada**, debajo de la lista de empresas, hay dos filtros nuevos:
+> - **Clasificación (marca una o varias):** las clasificaciones del catálogo, con cuántos equipos
+>   tiene cada una. Solo se ofrecen las de las empresas marcadas.
+> - **Máquina en específico:** toca para desplegar, escribe código, placa o serial y marca las que
+>   quieras (una o varias). Se eligen **por equipo**, no por nombre: si hay tres RETROEXCAVADORA,
+>   marcar una no arrastra a las otras dos. Las marcadas se ven siempre arriba, aunque el buscador
+>   no las traiga.
+> - Se **cruzan** entre sí y con las empresas: una clasificación y una máquina a la vez dan la
+>   máquina solo si es de esa clasificación. Vacío = todas. Al cambiar de empresa, lo marcado que
+>   quedó fuera se suelta solo.
+> - **Esto SÍ saca máquinas y cambia los totales** (no es como "Agrupar por"). Por eso el papel sale
+>   con el subtítulo **"FILTRADO POR EQUIPO · …"** y el nombre del archivo lo dice, y **no lleva
+>   fletes ni abonos**: son de la empresa entera, y un "saldo por pagar" en un papel de dos máquinas
+>   sería un saldo que nadie debe. Las averiadas, paradas y en espera también se filtran igual.
+
 > **👤 Cómo se juntan los nombres del encargado.** El campo se escribe a mano en el Catálogo, así
 > que `juan perez`, `Juan Pérez` y `JUAN PEREZ ` son la misma persona y salen en **un solo grupo**:
 > no importan mayúsculas, tildes ni espacios de más. La **Ñ sí se respeta** (PEÑA y PENA son
