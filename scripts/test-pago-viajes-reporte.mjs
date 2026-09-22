@@ -130,8 +130,9 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   ok('cada pastilla es una opción que existe', R.PASTILLAS_PAGO.every((p) => p.key in R.OPCIONES_PAGO_COMPLETO));
 
   // ⭐ LO NUEVO ENTRA APAGADO: sin tocar nada, las columnas son las de siempre.
-  eq('⭐ sin tocar nada, el listado trae las columnas de siempre', R.columnasEquipo(R.OPCIONES_PAGO_COMO_ANTES), ['code', 'zona', 'viajes', 'precio', 'monto']);
-  eq('con todo encendido trae todas', R.columnasEquipo(R.OPCIONES_PAGO_COMPLETO), ['code', 'marcaModelo', 'placa', 'encargado', 'zona', 'viajes', 'm3', 'precio', 'monto']);
+  eq('⭐ sin tocar nada, el listado trae las columnas de siempre + la empresa del camión (22-sep-2026)', R.columnasEquipo(R.OPCIONES_PAGO_COMO_ANTES), ['code', 'empresa', 'zona', 'viajes', 'precio', 'monto']);
+  eq('con todo encendido trae todas', R.columnasEquipo(R.OPCIONES_PAGO_COMPLETO), ['code', 'empresa', 'marcaModelo', 'placa', 'encargado', 'zona', 'viajes', 'm3', 'precio', 'monto']);
+  eq('⭐ la columna de empresa se va con la pastilla «Nombre de empresas»', R.columnasEquipo({ ...R.OPCIONES_PAGO_COMPLETO, sinEmpresas: true }).includes('empresa'), false);
   const soloMarca = { ...R.OPCIONES_PAGO_COMPLETO, sinModelo: true };
   eq('marca sin modelo: la columna sigue y se llama «Marca»', [R.columnasEquipo(soloMarca).includes('marcaModelo'), R.tituloMarcaModeloPago(soloMarca)], [true, 'Marca']);
   eq('...y no suelta el modelo', R.marcaModeloPago({ marca: 'MARCA-X', modelo: 'MODELO-Y' }, soloMarca), 'MARCA-X');
@@ -148,6 +149,9 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   eq('⭐ los m³ son los de un viaje × los viajes del renglón', rs.map((r) => r.m3), [25, 12.5]);
   eq('marca, modelo y encargado salen del catálogo', [rs[0].marca, rs[0].modelo, rs[0].encargado], ['MARCA-X', 'MODELO-Y', 'Encargado Uno']);
   eq('⭐ la placa que congeló el VIAJE manda sobre la del catálogo', rs[0].placa, 'PL-m1');
+  eq('⭐ cada renglón dice de qué empresa es el camión (la que congeló el viaje)', R.renglonesPorEquipo(lineas, null, null, NOMBRES).map((r) => r.empresa), R.renglonesPorEquipo(lineas, null, null, NOMBRES).map((r) => (r.empresa === 'EMPRESA ALFA' || r.empresa === 'EMPRESA BETA') ? r.empresa : 'X'));
+  ok('...y por obra los camiones de dos empresas no se mezclan en un renglón', R.renglonesPorEquipo(R.filtrarLineasPago(lineas, { empresas: [], obras: ['Obra Norte'] }), null, null, NOMBRES).some((r) => r.empresa === 'EMPRESA ALFA') && R.renglonesPorEquipo(R.filtrarLineasPago(lineas, { empresas: [], obras: ['Obra Norte'] }), null, null, NOMBRES).some((r) => r.empresa === 'EMPRESA BETA'));
+  eq('sin catálogo de nombres no revienta', R.renglonesPorEquipo(lineas, null, null, null)[0].empresa, 'Empresa');
   const sinDatos = R.renglonesPorEquipo(lineas, null, null);
   ok('sin catálogo ni cubicaje no revienta: salen vacíos', sinDatos.every((r) => r.marca === '' && r.m3 === 0));
   ok('⭐ el «no facturó» no sale en el listado de pagados', !sinDatos.some((r) => r.viajes === 0) && sinDatos.reduce((a, r) => a + r.viajes, 0) === 6);
@@ -176,6 +180,7 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
 
   const porObra = papel({ eje: 'obra' });
   ok('⭐ por obra, el resumen y los bloques son de obras', /<th>Obra \/ ubicación<\/th>/.test(porObra) && /<h3>Obra Norte — /.test(porObra) && !/<h3>EMPRESA ALFA/.test(porObra));
+  ok('⭐ ...y cada camión dice de qué empresa es', /<th>Empresa<\/th>/.test(porObra) && /<td>EMPRESA ALFA<\/td>/.test(porObra) && /<td>EMPRESA BETA<\/td>/.test(porObra));
 
   // ⭐ OCULTAR NO MUEVE EL TOTAL: el pie dice lo mismo con todo apagado.
   const pie = (h) => (h.match(/TOTAL A PAGAR<\/td>([\s\S]*?)<\/tr>/) || [])[1];

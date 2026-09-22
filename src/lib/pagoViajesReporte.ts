@@ -218,7 +218,12 @@ export const conteoPorZona = (lineas: LineaViaje[] | null | undefined) => contar
 export type FichaCamionPago = { marca?: string | null; modelo?: string | null; placa?: string | null; serial?: string | null; encargado?: string | null };
 
 export type RenglonEquipo = {
-  code: string; marca: string; modelo: string; placa: string; encargado: string;
+  code: string;
+  /** La empresa a la que pertenece el camión: la que el VIAJE congeló al registrarse
+   *  (22-sep-2026, pedido del cliente). Por obra, sin esto no se sabía de quién era cada
+   *  camión; y en un bloque de empresa la repite a propósito, porque la hoja se recorta. */
+  empresa: string;
+  marca: string; modelo: string; placa: string; encargado: string;
   zona: string; viajes: number; precio: number; monto: number;
   /** m³ de UN viaje de ese camión (0 = no está medido) y del renglón entero. */
   m3PorViaje: number; m3: number;
@@ -234,19 +239,25 @@ export function renglonesPorEquipo(
   lineas: LineaViaje[] | null | undefined,
   fichas: Map<string, FichaCamionPago> | null | undefined,
   m3PorViaje: Map<string, number> | null | undefined,
+  nombresEmpresa?: Map<string, string> | null,
 ): RenglonEquipo[] {
   const m = new Map<string, RenglonEquipo>();
   (lineas ?? []).forEach((l) => {
     if (!(l.monto > 0) || !l.zona) return;
     const id = limpio(l.viaje?.machinery_id);
     const code = limpio(l.viaje?.machine_code) || '—';
-    const k = `${id || `code:${code}`}|${l.zona}|${l.precio}`;
+    const empresaId = empresaDeLinea(l);
+    // La empresa va en la clave: un camión que cambió de empresa a mitad del rango son
+    // dos renglones, no uno con la empresa del primer viaje.
+    const k = `${id || `code:${code}`}|${empresaId}|${l.zona}|${l.precio}`;
     let r = m.get(k);
     if (!r) {
       const f = (id && fichas?.get(id)) || {};
       const porViaje = Number((id && m3PorViaje?.get(id)) || 0) || 0;
       r = {
-        code, marca: limpio(f.marca), modelo: limpio(f.modelo),
+        code,
+        empresa: empresaId === CLAVE_SIN_EMPRESA ? 'Sin empresa' : nombresEmpresa?.get(empresaId) || 'Empresa',
+        marca: limpio(f.marca), modelo: limpio(f.modelo),
         // La placa que el VIAJE congeló manda sobre la del catálogo: es la que llevaba ese día.
         placa: limpio(l.viaje?.placa_snap) || limpio(f.placa) || limpio(f.serial),
         encargado: limpio(f.encargado),
@@ -258,13 +269,17 @@ export function renglonesPorEquipo(
     r.monto = redondear(r.monto + l.monto);
     r.m3 = redondear(r.m3PorViaje * r.viajes);
   });
-  return Array.from(m.values()).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }) || a.placa.localeCompare(b.placa, 'es') || a.precio - b.precio);
+  return Array.from(m.values()).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }) || a.placa.localeCompare(b.placa, 'es') || a.empresa.localeCompare(b.empresa, 'es') || a.precio - b.precio);
 }
 
-export type ColumnaEquipo = 'code' | 'marcaModelo' | 'placa' | 'encargado' | 'zona' | 'viajes' | 'm3' | 'precio' | 'monto';
+export type ColumnaEquipo = 'code' | 'empresa' | 'marcaModelo' | 'placa' | 'encargado' | 'zona' | 'viajes' | 'm3' | 'precio' | 'monto';
 
 export function columnasEquipo(o: OpcionesPagoViajes): ColumnaEquipo[] {
   const c: ColumnaEquipo[] = ['code'];
+  // La empresa del camión sale siempre (22-sep-2026) y se esconde con la MISMA pastilla que
+  // los nombres de empresas: con «Empresa 1, Empresa 2» en los títulos, el nombre real no
+  // se puede colar por esta columna.
+  if (!o.sinEmpresas) c.push('empresa');
   if (!o.sinMarca || !o.sinModelo) c.push('marcaModelo');
   if (!o.sinPlaca) c.push('placa');
   if (!o.sinEncargado) c.push('encargado');
@@ -359,14 +374,14 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
   if (!o.sinListado) {
     const cols = columnasEquipo(o);
     const titulos: Record<ColumnaEquipo, string> = {
-      code: 'Camión', marcaModelo: tituloMarcaModeloPago(o), placa: 'Serial / Placa', encargado: 'Encargado',
+      code: 'Camión', empresa: 'Empresa', marcaModelo: tituloMarcaModeloPago(o), placa: 'Serial / Placa', encargado: 'Encargado',
       zona: 'Zona', viajes: 'Viajes', m3: 'm³', precio: 'Tarifa', monto: 'Monto',
     };
     const num = new Set<ColumnaEquipo>(['viajes', 'm3', 'precio', 'monto']);
     bloques.forEach((b) => {
-      const rs = renglonesPorEquipo(b.lineas, d.fichas, d.m3PorViaje);
+      const rs = renglonesPorEquipo(b.lineas, d.fichas, d.m3PorViaje, d.nombresEmpresa);
       const celda = (r: RenglonEquipo, c: ColumnaEquipo) =>
-        c === 'code' ? esc(r.code) : c === 'marcaModelo' ? esc(marcaModeloPago(r, o)) : c === 'placa' ? esc(r.placa || '—')
+        c === 'code' ? esc(r.code) : c === 'empresa' ? esc(r.empresa) : c === 'marcaModelo' ? esc(marcaModeloPago(r, o)) : c === 'placa' ? esc(r.placa || '—')
           : c === 'encargado' ? esc(r.encargado || '—') : c === 'zona' ? r.zona : c === 'viajes' ? String(r.viajes)
             : c === 'm3' ? m3Texto(r.m3) : c === 'precio' ? usd(r.precio) : usd(r.monto);
       const motivos = new Map<MotivoSinPago, number>();

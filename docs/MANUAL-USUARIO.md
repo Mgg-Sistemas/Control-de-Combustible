@@ -2433,6 +2433,15 @@ La cocina **no cambia**: sigue registrando lo del día por el QR y el carnet.
 > ⚠️ Una persona **no puede tener dos veces la misma comida el mismo día**. Si hace falta cambiar
 > esa cantidad, se **corrige** la entrega que ya está; el sistema lo explica si se intenta agregar.
 
+> **📇 Contactos de cocina en días anteriores (22/09/2026).** Antes el buscador de "➕ A una
+> persona" solo encontraba gente de **nómina**, y a un contacto de cocina no se le podía agregar
+> nada de un día pasado. Ahora el buscador trae **la nómina y la agenda de cocina a la vez**; los
+> contactos salen marcados con **📇** y, al elegir uno, dice **a quién se le cobra** (a él o a su
+> empresa), igual que en Cocina. A un contacto también se le puede cargar **🧾 Otros** (hielo,
+> vasos…) eligiendo el plato de la lista: se cobra al **precio del catálogo**, como todo lo suyo. A
+> alguien de nómina "Otros" no le sale. Lo agregado en un día pasado entra en su cuenta y en su PDF
+> igual que lo registrado ese día.
+
 #### 🕵️ Quién tocó las comidas (18/09/2026)
 En la pestaña **"📊 Reportes"**, la tarjeta **"🕵️ Quién tocó las comidas"** muestra todo lo que se
 agregó, corrigió o borró en las fechas del rango: **quién** fue, **a qué hora** y **qué era**.
@@ -3048,6 +3057,22 @@ totales ni cuentan como equipo que trabajó.
 > *"TOTAL POR PAGAR"*, *"SALDO POR PAGAR"* y la tabla *"Totales por empresa"* **no cambian**.
 > Un flete se le cobra a la empresa, no a la persona que cuida la máquina — y un mismo encargado
 > puede tener máquinas de dos empresas distintas.
+
+> **🔎 Filtrar el Informe por jornada por clasificación y por máquina (22/09/2026).** En Reportes →
+> **🛠️ Jornada**, debajo de la lista de empresas, hay dos filtros nuevos:
+> - **Clasificación (marca una o varias):** las clasificaciones del catálogo, con cuántos equipos
+>   tiene cada una. Solo se ofrecen las de las empresas marcadas.
+> - **Máquina en específico:** toca para desplegar, escribe código, placa o serial y marca las que
+>   quieras (una o varias). Se eligen **por equipo**, no por nombre: si hay tres RETROEXCAVADORA,
+>   marcar una no arrastra a las otras dos. Las marcadas se ven siempre arriba, aunque el buscador
+>   no las traiga.
+> - Se **cruzan** entre sí y con las empresas: una clasificación y una máquina a la vez dan la
+>   máquina solo si es de esa clasificación. Vacío = todas. Al cambiar de empresa, lo marcado que
+>   quedó fuera se suelta solo.
+> - **Esto SÍ saca máquinas y cambia los totales** (no es como "Agrupar por"). Por eso el papel sale
+>   con el subtítulo **"FILTRADO POR EQUIPO · …"** y el nombre del archivo lo dice, y **no lleva
+>   fletes ni abonos**: son de la empresa entera, y un "saldo por pagar" en un papel de dos máquinas
+>   sería un saldo que nadie debe. Las averiadas, paradas y en espera también se filtran igual.
 
 > **👤 Cómo se juntan los nombres del encargado.** El campo se escribe a mano en el Catálogo, así
 > que `juan perez`, `Juan Pérez` y `JUAN PEREZ ` son la misma persona y salen en **un solo grupo**:
@@ -5406,6 +5431,9 @@ además de por empresa y por listero.
 >   descargar. Si filtraste, avisa en amarillo que es una parte del rango, y **el papel siempre lleva
 >   el cuadro de alcance diciendo que está FILTRADO**, aunque lo hayas apagado: un total parcial no
 >   puede leerse como el pago completo.
+> - **Columna "Empresa" en el listado por equipo (22/09/2026):** cada camión dice **a qué empresa
+>   pertenece** (la que tenía el día del viaje), al lado de su código. Sale siempre; agrupando por obra
+>   es lo que dice de quién es cada camión. Se esconde junto con la pastilla "Nombre de empresas".
 > - **"Nombre de empresas" oculto:** salen como *Empresa 1, Empresa 2…* (en el mismo orden que con
 >   nombres, para poder cruzar dos papeles) y el nombre no aparece en ninguna parte de la hoja.
 > - Los **m³** salen de Cubicaje (los de un viaje del camión × sus viajes); un camión sin medir sale

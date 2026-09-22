@@ -18,6 +18,7 @@ import { norm } from './text';
 import { AltaEmpresa, AltaPersona, CambioEmpresa, CambioPersona, mensajeDeError } from './comidaEditar';
 import { FilaAuditoria, TABLAS_COMIDA } from './comidaMovimientos';
 import { FoodCompanyMeal, FoodDistribution } from '../types/database';
+import { ContactoCocina, cobrarAEfectivo, contactoActivo, nombreDeContacto } from './comidaContactos';
 
 type Resultado<T> = { data: T | null; error?: string };
 
@@ -102,6 +103,16 @@ export async function agregarEntregaPersona(
       employee_id: a.employeeId,
       employee_name: a.employeeName,
       cedula: a.cedula,
+      // ⚠️ LAS COLUMNAS DE CONTACTO SOLO SE MANDAN SI HAY CONTACTO (mismo cuidado que
+      //    `saveFoodDistribution`): así un alta de nómina sigue entrando aunque falte
+      //    el SQL de contactos. El plato solo viaja en «Otros»: la base lo exige.
+      ...(a.contactoId ? {
+        contacto_id: a.contactoId,
+        cobrar_a: a.cobrarA ?? 'independiente',
+        contacto_company_id: a.cobrarA === 'empresa' ? (a.contactoCompanyId ?? null) : null,
+        contacto_company_nombre: a.cobrarA === 'empresa' ? (a.contactoCompanyNombre ?? null) : null,
+        ...(a.mealType === 'otros' ? { item_label: a.itemLabel ?? null } : {}),
+      } : {}),
       meals: a.cantidad,
       meal_type: a.mealType,
       distribution_date: a.distributionDate,
@@ -167,6 +178,67 @@ export async function cargarMovimientosComida(desde: string, hasta: string, tope
 
 /** Empleados para el buscador del alta por persona (activos, A→Z). */
 //
+/** Una persona a la que se le puede agregar comida: de nómina o de la agenda de cocina. */
+export type PersonaComida = {
+  id: string;
+  nombre: string;
+  cedula: string | null;
+  tipo: 'nomina' | 'contacto';
+  /** Solo contactos: a quién se le cobra HOY y cuál empresa (se congelan al guardar). */
+  cobrarA?: 'empresa' | 'independiente';
+  companyId?: string | null;
+  companyName?: string | null;
+};
+
+/**
+ * BUSCA EN LA NÓMINA Y EN LA AGENDA DE COCINA A LA VEZ (22-sep-2026).
+ *
+ * Pedido: «no puedo agregar días anteriores a esas personas» (los contactos). El
+ * editor solo buscaba en `employees`, y un contacto no está ahí. Los de nómina van
+ * primero y los contactos después, marcados, para que se note a cuál se le agrega.
+ * Si la agenda no se puede leer (falta el SQL, sin señal), se devuelve la nómina sola.
+ */
+export async function buscarPersonasComida(
+  texto: string,
+  empresas: { id: string; name: string }[] | null | undefined,
+  limite = 25,
+): Promise<PersonaComida[]> {
+  const [nomina, contactos] = await Promise.all([
+    buscarEmpleados(texto, limite),
+    buscarContactosComida(texto, limite).catch(() => [] as ContactoCocina[]),
+  ]);
+  const deNomina: PersonaComida[] = nomina.map((e) => ({ ...e, tipo: 'nomina' as const }));
+  const deAgenda: PersonaComida[] = contactos.map((c) => {
+    const cobrarA = cobrarAEfectivo(c);
+    const emp = c.company_id ? empresas?.find((e) => e.id === c.company_id) ?? null : null;
+    return {
+      id: c.id, nombre: nombreDeContacto(c), cedula: c.cedula, tipo: 'contacto' as const,
+      cobrarA, companyId: cobrarA === 'empresa' ? c.company_id : null, companyName: cobrarA === 'empresa' ? (emp?.name ?? 'Empresa') : null,
+    };
+  });
+  return [...deNomina, ...deAgenda].slice(0, limite);
+}
+
+/** Los contactos de cocina activos que coinciden. Mismo criterio de palabras que la nómina. */
+async function buscarContactosComida(texto: string, limite: number): Promise<ContactoCocina[]> {
+  const palabras = String(texto ?? '').toLowerCase().replace(/[,()%*]/g, ' ').split(/\s+/).filter(Boolean);
+  if (palabras.join('').length < 2) return [];
+  const clave = [...palabras].sort((a, b) => b.length - a.length)[0];
+  const { data, error } = await supabase
+    .from('comida_contactos')
+    .select('id, nombre, apellido, cedula, telefono1, telefono2, company_id, cobrar_a, activo')
+    .or(`nombre.ilike.%${clave}%,apellido.ilike.%${clave}%,cedula.ilike.%${clave}%`)
+    .limit(200);
+  if (error) throw error;
+  return ((data ?? []) as ContactoCocina[])
+    .filter(contactoActivo)
+    .filter((c) => {
+      const todo = norm(`${nombreDeContacto(c)} ${c.cedula ?? ''}`);
+      return palabras.every((p) => todo.includes(norm(p)));
+    })
+    .slice(0, limite);
+}
+
 // ⚠️ «Juan Pérez» no aparecía: la base busca UNA palabra en nombre, apellido o
 //    cédula, y «juan pérez» no está entero en ninguno de los tres. Ahora se busca
 //    por la palabra más larga y el resto se exige acá, sin importar el orden.

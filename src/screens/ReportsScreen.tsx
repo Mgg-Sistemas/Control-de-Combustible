@@ -44,6 +44,10 @@ import {
   type AlcanceDias,
 } from '../lib/jornadaPorMaquina';
 import { machineLabel } from '../lib/machineLabel';
+import {
+  FiltroJornadaEquipo, MaquinaCatalogoJornada, acotarFiltroJornada, alcanceFiltroJornada, clasificacionDe,
+  clasificacionesDisponibles, etiquetaMaquinaJornada, hayFiltroJornada, maquinasDisponibles, pasaFiltroJornada, sufijoArchivoFiltroJornada,
+} from '../lib/jornadaFiltroReporte';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { precioEfectivoJornada } from '../lib/precioHistorial';
@@ -832,6 +836,28 @@ export default function ReportsScreen({ route }: any) {
   // y los encargados seleccionados para filtrar el informe (vacío = todos).
   const [encByCompany, setEncByCompany] = useState<Record<string, string[]>>({});
   const [repEncargados, setRepEncargados] = useState<string[]>([]);
+  // Informe por jornada · FILTRAR POR CLASIFICACIÓN Y POR MÁQUINA (22-sep-2026). Pedido:
+  // «si quiero filtrar una máquina en específico o una clasificación, no está». Vacío =
+  // todas. La máquina se guarda por `id` (hay tres RETROEXCAVADORA). Las reglas viven en
+  // src/lib/jornadaFiltroReporte.ts; acá solo se marca y se pasa.
+  const [maqCatalogo, setMaqCatalogo] = useState<MaquinaCatalogoJornada[]>([]);
+  const [repClasif, setRepClasif] = useState<string[]>([]);
+  const [repMaquinas, setRepMaquinas] = useState<string[]>([]);
+  const [repMaqQ, setRepMaqQ] = useState('');
+  const [repMaqOpen, setRepMaqOpen] = useState(false);
+  // Lo que el último informe generado tenía filtrado, en criollo (subtítulo y pantalla).
+  const [roundsFiltroEq, setRoundsFiltroEq] = useState('');
+  const filtroEqActual: FiltroJornadaEquipo = { clasificaciones: repClasif, maquinas: repMaquinas };
+  const nombreMaqPorId = (id: string) => { const m = maqCatalogo.find((x) => x.id === id); return m ? etiquetaMaquinaJornada(m) : id; };
+  // Al cambiar las empresas marcadas, lo marcado que quedó fuera del alcance se suelta:
+  // un filtro invisible sacaría máquinas sin que nadie lo vea.
+  useEffect(() => {
+    if (!maqCatalogo.length) return;
+    const a = acotarFiltroJornada({ clasificaciones: repClasif, maquinas: repMaquinas }, maqCatalogo, repCompanies);
+    if (a.clasificaciones.length !== repClasif.length) setRepClasif(a.clasificaciones);
+    if (a.maquinas.length !== repMaquinas.length) setRepMaquinas(a.maquinas);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repCompanies, maqCatalogo]);
   // Lista dinámica de inspectores del reporte de INSPECTORES: se recalcula cada vez que
   // cambia el día, el turno o las empresas marcadas, con la MISMA agregación que el PDF
   // (`listInspectorNames`), para que el selector siempre calce con lo que saldría impreso.
@@ -1103,6 +1129,10 @@ export default function ReportsScreen({ route }: any) {
     // responsables marcados. Vacío = todos. No afecta el modo "empresa".
     const encSel = (roundsGroupBy === 'encargado' && repEncargados.length) ? new Set(repEncargados.map((e) => e.trim())) : null;
     const encOk = (enc: any) => !encSel || encSel.has(String(enc ?? '').trim());
+    // Filtro por CLASIFICACIÓN y por MÁQUINA (22-sep-2026). Vacío = todas. Se aplica a
+    // las que trabajaron, a las que no (averías/paradas/espera) y al estado de la flota:
+    // el mismo alcance en todo el papel.
+    const filtroEq: FiltroJornadaEquipo = { clasificaciones: repClasif, maquinas: repMaquinas };
     // Recordar los parámetros para la actualización EN VIVO (realtime) del reporte abierto.
     liveRef.current = () => generateRounds(fromArg, toArg, companiesArg, true);
     if (!silent) setLoading(true);
@@ -1184,6 +1214,7 @@ export default function ReportsScreen({ route }: any) {
     accs.forEach((a, key) => {
       if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
       if (!encOk(a.encargado)) return;             // filtro por encargado (solo modo encargado)
+      if (!pasaFiltroJornada({ id: key, clasificacion: a.clasificacion }, filtroEq)) return; // filtro por clasificación / máquina
       let dayH = 0, nightH = 0, totalH = 0, days = 0, totalUSD = 0, repPrice: number | null = null;
       // Desglose día por día para el panel "TOTAL POR EQUIPO". Se llena ACÁ
       // DENTRO, con las mismas variables que suman los totales, para que el
@@ -1223,7 +1254,10 @@ export default function ReportsScreen({ route }: any) {
     });
     // Fletes/viajes CON FECHA: solo los del rango del informe (así aparecen únicamente
     // en la semana en que ocurrieron). Se suman como extra al subtotal por empresa.
-    const fletesRows = await selectAllRows(
+    // ⚠️ CON EL FILTRO POR EQUIPO PUESTO NO ENTRAN NI FLETES NI ABONOS: son de la empresa
+    //    entera, no de la máquina. En un papel de dos máquinas, un «SALDO POR PAGAR» de la
+    //    empresa completa sería un saldo que nadie debe. El subtítulo lo dice.
+    const fletesRows = hayFiltroJornada(filtroEq) ? [] : await selectAllRows(
       'fletes',
       'code, viajes, precio, flete_date, company:company_id(name)',
       (q) => q.gte('flete_date', fromArg).lte('flete_date', toArg)
@@ -1241,7 +1275,7 @@ export default function ReportsScreen({ route }: any) {
     });
     // ABONOS (pagos) de cada empresa dentro del rango del informe: sincroniza el Control
     // de Pagos con el reporte. Se cuentan los abonos cuya semana CAE en el rango.
-    const abonoRows = await selectAllRows('company_payments', 'company_name, amount, period_start, period_end',
+    const abonoRows = hayFiltroJornada(filtroEq) ? [] : await selectAllRows('company_payments', 'company_name, amount, period_start, period_end',
       (q) => q.lte('period_start', toArg).gte('period_end', fromArg));
     const abonoByCompany = new Map<string, number>();
     (abonoRows ?? []).forEach((p: any) => {
@@ -1295,6 +1329,7 @@ export default function ReportsScreen({ route }: any) {
       items.forEach((it) => {
         if (cos && !cos.includes(it.company)) return;   // fuera del alcance
         if (!encOk(it.encargado)) return;               // filtro por encargado (solo modo encargado)
+        if (!pasaFiltroJornada({ id: it.machineryId, clasificacion: it.clasificacion }, filtroEq)) return; // filtro por clasificación / máquina
         const g = groups.get(it.company) ?? { company: it.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [], paradas: [], espera: [] };
         g[bucket].push(it);
         groups.set(it.company, g);
@@ -1322,7 +1357,7 @@ export default function ReportsScreen({ route }: any) {
     // el total de la flota (activas + inactivas), según el alcance del informe.
     // `machAll` ya se trajo arriba (mismo catálogo que alimenta el bloque de espera).
     const inScope = (machAll ?? []).filter((m: any) =>
-      !cos || cos.includes(m.company?.name ?? 'Sin empresa')
+      (!cos || cos.includes(m.company?.name ?? 'Sin empresa')) && pasaFiltroJornada({ id: m.id, clasificacion: m.clasificacion }, filtroEq)
     );
     const totalActivos = inScope.filter((m: any) => m.active).length;
     const inactivos = inScope.filter((m: any) => !m.active).length;
@@ -1371,6 +1406,7 @@ export default function ReportsScreen({ route }: any) {
     });
 
     setRoundsCompany(cos ? (cos.length === 1 ? cos[0] : `${cos.length} empresas`) : null);
+    setRoundsFiltroEq(alcanceFiltroJornada(filtroEq, nombreMaqPorId));
     setRoundGroupsEnc(listEnc);
     setRoundGroups(list);
     setLoading(false);
@@ -1664,14 +1700,14 @@ export default function ReportsScreen({ route }: any) {
     const soloPct = jornadaModo === 'porcentaje';
     const content = soloPct
       ? `
-      <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}${roundsFiltroEq ? ` · ${roundsFiltroEq}` : ''}</div>
       <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
         ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#F3F6FB')}
         ${resumenCard('Total $', usd(grandUSD), '#1E3A5F', '#EEF3FB')}
       </tr></tbody></table>
       ${porcentajeBlock}`
       : `
-      <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}${roundsFiltroEq ? ` · ${roundsFiltroEq}` : ''}</div>
       ${resumenTop}
       ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
@@ -1683,14 +1719,15 @@ export default function ReportsScreen({ route }: any) {
     // subtítulo y en el nombre del archivo: cómo está agrupado (empresa/encargado)
     // y si lleva precios o es "solo horas" o "% por clasificación". Dos PDF del mismo
     // rango partidos distinto no se pueden llamar igual, o al guardarlos uno pisa al otro.
-    const sufijo = soloPct ? ' - % por clasificacion' : money ? '' : ' - solo horas';
+    const sufijo = (soloPct ? ' - % por clasificacion' : money ? '' : ' - solo horas') + sufijoArchivoFiltroJornada(filtroEqActual);
     const porEnc = roundsGroupBy === 'encargado';
     const jornadaFile = (porEnc
       ? `Reporte por jornada por encargado ${rng}`
       : (roundsCompany ? `Reporte ${roundsCompany} ${rng}` : `Reporte por jornada ${rng}`)) + sufijo;
-    const sub = soloPct
+    const sub = (soloPct
       ? '% por clasificación · base 100%'
-      : (porEnc ? 'Por encargado y maquinaria' : 'Por empresa y maquinaria') + (money ? '' : ' · SOLO HORAS (sin precios)');
+      : (porEnc ? 'Por encargado y maquinaria' : 'Por empresa y maquinaria') + (money ? '' : ' · SOLO HORAS (sin precios)'))
+      + (roundsFiltroEq ? ` · ${roundsFiltroEq}` : '');
     await exportPdf(pdfShell('INFORME POR JORNADA', sub, content), jornadaFile);
   };
 
@@ -3010,6 +3047,18 @@ export default function ReportsScreen({ route }: any) {
     })().catch(() => {});
   }, []);
 
+  // Catálogo liviano para el filtro por clasificación y por máquina del Informe por
+  // jornada. Paginado: con >1000 máquinas la consulta simple se corta sin avisar.
+  useEffect(() => {
+    (async () => {
+      const rows = await selectAllRows('machinery', 'id, code, plate, serial, clasificacion, active, company:company_id(name)');
+      setMaqCatalogo(((rows ?? []) as any[]).map((m) => ({
+        id: String(m.id), code: String(m.code ?? '—'), plate: m.plate ?? null, serial: m.serial ?? null,
+        clasificacion: clasificacionDe(m.clasificacion), company: m.company?.name ?? 'Sin empresa', activa: m.active !== false,
+      })));
+    })().catch(() => {});
+  }, []);
+
   // Encargados que se muestran en el picker: los de la(s) empresa(s) marcada(s); si no hay
   // ninguna marcada (= Todas), salen todos los encargados.
   const encargadosScoped = useMemo(() => {
@@ -3508,6 +3557,100 @@ export default function ReportsScreen({ route }: any) {
             );
           })}
         </View>
+
+        {/* FILTRAR POR CLASIFICACIÓN Y POR MÁQUINA — solo en el Informe por jornada
+            (22-sep-2026). Esto SÍ saca máquinas y cambia los totales; el papel lo dice. */}
+        {mode === 'rounds' && maqCatalogo.length > 0 ? (() => {
+          const clases = clasificacionesDisponibles(maqCatalogo, repCompanies);
+          const maqs = maquinasDisponibles(maqCatalogo, repCompanies, repClasif, repMaqQ);
+          const TOPE = 80;
+          const marcadas = maqCatalogo.filter((m) => repMaquinas.includes(m.id));
+          return (
+            <>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Clasificación (marca una o varias)</Text>
+                {repClasif.length > 0 ? (
+                  <TouchableOpacity onPress={() => setRepClasif([])}>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Limpiar ({repClasif.length})</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                {clases.map((c) => {
+                  const on = repClasif.includes(c.name);
+                  return (
+                    <TouchableOpacity
+                      key={c.name}
+                      onPress={() => setRepClasif((prev) => (prev.includes(c.name) ? prev.filter((x) => x !== c.name) : [...prev, c.name]))}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{c.name} · {c.count}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+                <TouchableOpacity onPress={() => setRepMaqOpen((v) => !v)}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{repMaqOpen ? '▾' : '▸'} Máquina en específico (marca una o varias){repMaquinas.length ? ` · ${repMaquinas.length} marcada(s)` : ''}</Text>
+                </TouchableOpacity>
+                {repMaquinas.length > 0 ? (
+                  <TouchableOpacity onPress={() => setRepMaquinas([])}>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Limpiar ({repMaquinas.length})</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {/* Las marcadas se ven siempre, aunque el buscador no las traiga: un filtro
+                  que no se ve es un filtro que saca máquinas a escondidas. */}
+              {marcadas.length > 0 ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                  {marcadas.map((m) => (
+                    <TouchableOpacity key={'sel' + m.id} onPress={() => setRepMaquinas((prev) => prev.filter((x) => x !== m.id))}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: colors.brandContrast, fontSize: 13, fontWeight: '800' }}>☑</Text>
+                      <Text style={{ color: colors.brandContrast, fontSize: 13, fontWeight: '700' }}>{etiquetaMaquinaJornada(m)}{m.activa ? '' : ' · inactiva'}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+              {repMaqOpen ? (
+                <>
+                  <TextInput
+                    value={repMaqQ}
+                    onChangeText={setRepMaqQ}
+                    placeholder="Buscar por código, placa o serial…"
+                    placeholderTextColor={colors.muted}
+                    style={{ marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, backgroundColor: colors.surface, fontSize: 14 }}
+                  />
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                    {maqs.slice(0, TOPE).map((m) => {
+                      const on = repMaquinas.includes(m.id);
+                      return (
+                        <TouchableOpacity
+                          key={m.id}
+                          onPress={() => setRepMaquinas((prev) => (prev.includes(m.id) ? prev.filter((x) => x !== m.id) : [...prev, m.id]))}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: m.activa ? 1 : 0.7 }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{etiquetaMaquinaJornada(m)}{m.activa ? '' : ' · inactiva'}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                    {maqs.length === 0 ? 'Ninguna máquina coincide.' : maqs.length > TOPE ? `Se muestran ${TOPE} de ${maqs.length}: escribe para acotar.` : `${maqs.length} máquina(s).`}
+                  </Text>
+                </>
+              ) : null}
+              {hayFiltroJornada(filtroEqActual) ? (
+                <Text style={{ color: colors.warning, fontSize: 11, marginTop: 4 }}>
+                  ⚠️ Esto SÍ saca máquinas y cambia los totales. El papel va marcado FILTRADO y no lleva fletes ni abonos (son de la empresa entera).
+                </Text>
+              ) : null}
+            </>
+          );
+        })() : null}
 
         {/* AGRUPAR POR ENCARGADO → lista de encargados de la(s) empresa(s) marcada(s).
             Al elegir uno o varios, el informe sale SOLO con esos responsables (agrupado
@@ -4561,6 +4704,7 @@ export default function ReportsScreen({ route }: any) {
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             {roundsCompany ? <Text style={{ color: colors.brandText, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
+            {roundsFiltroEq ? <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 12, marginTop: 2 }}>⚠️ {roundsFiltroEq}</Text> : null}
             <Text style={{ color: colors.text, fontWeight: '800', marginTop: 2 }}>
               {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD + g.viajesUSD, 0))}
             </Text>

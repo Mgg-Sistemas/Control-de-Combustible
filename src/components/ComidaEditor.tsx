@@ -29,7 +29,7 @@ import {
 } from '../lib/comidaEditar';
 import {
   agregarEntregaEmpresa, agregarEntregaPersona, borrarEntregaEmpresa, borrarEntregaPersona,
-  buscarEmpleados, corregirEntregaEmpresa, corregirEntregaPersona,
+  buscarPersonasComida, corregirEntregaEmpresa, corregirEntregaPersona, PersonaComida,
 } from '../lib/comidaEditarDb';
 import { saveExtraItem } from '../lib/foodCompanyMeals';
 import { PlatoCatalogo, normPlato, ordenarPlatos, platoActivo, platoConNombre } from '../lib/comidaPlatos';
@@ -92,9 +92,9 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
   const [nota, setNota] = useState('');
   // Buscador de personas.
   const [busca, setBusca] = useState('');
-  const [encontrados, setEncontrados] = useState<{ id: string; nombre: string; cedula: string | null }[]>([]);
+  const [encontrados, setEncontrados] = useState<PersonaComida[]>([]);
   const [buscando, setBuscando] = useState(false);
-  const [persona, setPersona] = useState<{ id: string; nombre: string; cedula: string | null } | null>(null);
+  const [persona, setPersona] = useState<PersonaComida | null>(null);
 
   const total = entregasEmpresa.length + entregasPersona.length;
   const esHoy = fecha === hoy;
@@ -134,7 +134,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
     setPersona(null);
     if (t.trim().length < 2) { setEncontrados([]); return; }
     setBuscando(true);
-    try { setEncontrados(await buscarEmpleados(t)); } finally { setBuscando(false); }
+    try { setEncontrados(await buscarPersonasComida(t, empresas)); } finally { setBuscando(false); }
   };
 
   const guardar = async () => {
@@ -157,14 +157,20 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
       }
 
       if (form.modo === 'alta-persona') {
+        // Un contacto de cocina va por SU columna, con a quién se le cobra congelado.
+        const esContacto = persona?.tipo === 'contacto';
         const v = validarAltaPersona(
-          { employeeId: persona?.id, employeeName: persona?.nombre, cedula: persona?.cedula, mealType: comida, distributionDate: fecha, cantidad, nota },
+          {
+            employeeId: esContacto ? null : persona?.id, contactoId: esContacto ? persona?.id : null,
+            employeeName: persona?.nombre, cedula: persona?.cedula, mealType: comida, distributionDate: fecha, cantidad, nota,
+            cobrarA: persona?.cobrarA, contactoCompanyId: persona?.companyId, contactoCompanyNombre: persona?.companyName, plato,
+          },
           hoy,
         );
         if (!v.ok) { setAviso('❌ ' + v.error); return; }
         const { error } = await agregarEntregaPersona(v.patch, usuario, esHoy ? new Date().toISOString() : undefined);
         if (error) { setAviso('❌ ' + error); onCambio(); return; }
-        setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)} a ${v.patch.employeeName}.`);
+        setAviso(`✅ Agregado: ${v.patch.cantidad} ${v.patch.itemLabel ? v.patch.itemLabel : mealLabel(v.patch.mealType as MealType)} a ${v.patch.employeeName}.`);
         onCambio(); cerrarTrasGuardar(); return;
       }
 
@@ -267,6 +273,8 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
 
   const esEmpresa = form?.modo === 'alta-empresa' || form?.modo === 'editar-empresa';
   const esAlta = form?.modo === 'alta-empresa' || form?.modo === 'alta-persona';
+  // «Otros» a un contacto de cocina (22-sep-2026): el plato sale del catálogo, sin costo escrito.
+  const esContactoOtros = form?.modo === 'alta-persona' && persona?.tipo === 'contacto' && comida === 'otros';
   const platosEnLista = ordenarPlatos(platos).filter(platoActivo);
 
   return (
@@ -367,12 +375,23 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                   ) : null}
                   {persona ? (
                     <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800', marginTop: spacing.xs }}>
-                      ✅ {persona.nombre}{persona.cedula ? ` · C.I ${persona.cedula}` : ''}
+                      ✅ {persona.tipo === 'contacto' ? '📇 ' : ''}{persona.nombre}{persona.cedula ? ` · C.I ${persona.cedula}` : ''}
+                      {persona.tipo === 'contacto' ? (
+                        <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>
+                          {'  '}· contacto de cocina · se le cobra a {persona.cobrarA === 'empresa' ? persona.companyName : 'él mismo'}
+                        </Text>
+                      ) : null}
                     </Text>
                   ) : (
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                      {/* Los contactos van marcados con 📇: a un contacto se le puede cargar
+                          «Otros» y a alguien de nómina no, y conviene ver a cuál se le agrega. */}
                       {encontrados.map((p) =>
-                        pastilla(`${p.nombre}${p.cedula ? ` · ${p.cedula}` : ''}`, false, () => { setPersona(p); setEncontrados([]); }),
+                        pastilla(`${p.tipo === 'contacto' ? '📇 ' : ''}${p.nombre}${p.cedula ? ` · ${p.cedula}` : ''}`, false, () => {
+                          setPersona(p); setEncontrados([]);
+                          // «Otros» es solo para contactos: si cambia a alguien de nómina, se baja.
+                          if (p.tipo !== 'contacto' && comida === 'otros') { setComida('almuerzo'); setPlato(''); }
+                        }),
                       )}
                     </View>
                   )}
@@ -385,7 +404,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>COMIDA</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                    {(form?.modo === 'alta-empresa' ? COMPANY_MEALS : MEALS).map((m) =>
+                    {(form?.modo === 'alta-empresa' || persona?.tipo === 'contacto' ? COMPANY_MEALS : MEALS).map((m) =>
                       pastilla(`${m.icon} ${m.label}`, comida === m.key, () => {
                         setComida(m.key);
                         // El nombre del plato es solo de «Otros»: al cambiar de comida
@@ -409,10 +428,19 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                 : null}
               {/* Los platos de la lista, con un toque: escribirlo a mano es como terminan
                   «Bolsa de yelo» y «bolsa hielo» siendo dos platos con dos precios. */}
-              {esEmpresa && comida === 'otros' && platosEnLista.length ? (
+              {(esEmpresa || esContactoOtros) && comida === 'otros' && platosEnLista.length ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                   {platosEnLista.map((p) => pastilla(`🧾 ${p.name}`, normPlato(p.name) === normPlato(plato), () => setPlato(p.name)))}
                 </View>
+              ) : null}
+              {/* Al contacto se le cobra el precio del CATÁLOGO (decisión del cliente, 22-sep-2026):
+                  por eso el plato se elige de la lista y no se escribe. */}
+              {esContactoOtros ? (
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                  {platosEnLista.length
+                    ? `Elige el plato de la lista${plato ? ` · elegido: ${plato}` : ''}. Se cobra al precio que tenga en «🧾 Platos».`
+                    : 'No hay platos en la lista. Se agregan en «💲 Precios y cuentas → 🧾 Platos».'}
+                </Text>
               ) : null}
               {esEmpresa && comida === 'otros' ? (
                 <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
