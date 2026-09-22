@@ -3143,6 +3143,35 @@ de noche otro; al final de cada uno va su línea de firma.
    **Hora/Fecha** (horario de Caracas) del cambio. Si una máquina cambió de sitio **varias veces**
    en el día, sale **una fila por cada transición** consecutiva.
 
+#### 📍 Histórico de ubicaciones por máquina (22/09/2026)
+Nueva pestaña **📍 Ubicaciones** en Reportes: un PDF con **dónde trabajó cada máquina, día por
+día**, en el **rango de fechas** que elijas, con las horas, el estado, el inspector, marca, modelo,
+placa y empresa.
+
+**De dónde sale cada columna** (no hay una tabla de "ubicación por día": se reconstruye):
+- **Sector (GPS):** el último punto que el inspector guardó con **"Guardar ubicación"** en
+  Inspecciones, traducido al sector del mapa (Este · Camurí Chico, Oeste · Aeropuerto…). Si ese día
+  nadie lo guardó, vale el **último anterior** y la celda dice **"desde el DD/MM"**: la máquina no se
+  movió, pero nadie la confirmó ese día. Sin ningún punto anterior: **"Sin ubicación"**, y el resumen
+  cuenta cuántas.
+- **Edificio / obra:** el que el inspector eligió de la lista, **vigente ese día** según la bitácora.
+  Existe desde el 06/08/2026 (con un hueco la semana del 10 al 16 de agosto). Una máquina sin
+  cambios en la bitácora sale con el edificio de hoy, marcado con **\***.
+- **Inspector y Estado:** del check-in **"Revisé la máquina"** de ese día (Trabajando / Parada / No
+  estaba). Si no hubo check-in, el inspector de la ronda y "Trabajó (sin check-in)".
+- **Horas:** las de la ronda (día, noche y total, igual que el Informe por jornada).
+
+**Filtros:** empresas, clasificación y máquina en específico (los mismos de Jornada), además del
+rango de fechas. Sale **una fila por máquina y día** solo cuando hubo ronda, check-in o punto GPS.
+
+**Pastillas "¿Qué se oculta en el PDF?":** Marca, Modelo, Serial / Placa, Empresa, Sector, Edificio,
+Inspector, Estado, Horas y Alcance. **Ocultar columnas nunca saca filas.** El nombre del archivo y el
+cuadro de alcance dicen qué se ocultó y qué se filtró.
+
+> ⚠️ El histórico es tan bueno como lo que los inspectores guardan. En agosto se guardaban ~1.200
+> puntos por semana; en septiembre bajó a unas decenas. Si un día sale "desde el DD/MM" en muchas
+> máquinas, es que ese día nadie tocó "Guardar ubicación".
+
 ### 4.13. Usuarios (solo administrador)
 
 > ⚠️ **ARREGLADO EL 27/08/2026 — «elijo un rol al crear y me lo deja en otro».** Hasta esa fecha,
