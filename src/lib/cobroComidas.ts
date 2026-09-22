@@ -66,6 +66,8 @@ export type ComidaPersonaCobro = {
   contacto_company_nombre?: string | null;
   /** Nombre de quien recibió. Para un contacto, es el nombre de su cuenta. */
   employee_name?: string | null;
+  /** Plato de «Otros» de un contacto (22-sep-2026). Se cobra por el catálogo, como el de las empresas. */
+  item_label?: string | null;
 };
 
 /** Ficha de cada persona: companyId null = nómina propia (con su departamento). */
@@ -370,7 +372,10 @@ export function calcularCobroComidas(opts: {
     //    a su cuenta. Nunca a las dos — eso sería cobrar la misma comida dos veces.
     const contactoId = limpio(r.contacto_id);
     if (contactoId) {
-      const baseC = { categoria: r.meal_type, fecha: dia(r.distribution_date), cantidad: Math.floor(num(r.meals)), via: 'contacto' as const };
+      // `plato`: el «Otros» de un contacto se cobra por el precio del PLATO en el catálogo
+      // (22-sep-2026). No hay costo escrito por la cocina: sin precio en el catálogo, sale
+      // como «sin precio» y la tarjeta avisa, igual que un plato nuevo de una empresa.
+      const baseC = { categoria: r.meal_type, fecha: dia(r.distribution_date), cantidad: Math.floor(num(r.meals)), via: 'contacto' as const, plato: r.item_label };
       const persona = limpio(r.employee_name) || 'Contacto sin nombre';
       const empresaId = limpio(r.contacto_company_id);
       if (r.cobrar_a === 'empresa' && empresaId) {

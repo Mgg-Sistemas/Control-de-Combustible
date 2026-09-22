@@ -928,6 +928,9 @@ export interface FoodDistribution {
   /** La empresa a la que se le cobró, congelada (id y nombre). Solo con cobrar_a = 'empresa'. */
   contacto_company_id?: string | null;
   contacto_company_nombre?: string | null;
+  /** Plato de «Otros» (bolsa de hielo, vasos…), solo en entregas de contactos con
+   *  meal_type = 'otros' (22-sep-2026). Su precio sale del catálogo de platos. */
+  item_label?: string | null;
   meals: number;
   meal_type: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
   delivered_at: string;        // hora de entrega (ISO UTC)

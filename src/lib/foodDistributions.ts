@@ -22,7 +22,10 @@ export type SaveFoodInput = {
   contactoCompanyId?: string | null;
   contactoCompanyNombre?: string | null;
   meals: number;
-  mealType?: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona)
+  mealType?: MealType | null;  // desayuno/almuerzo/lunch/cena (1 por día por persona); 'otros' solo para contactos
+  /** Qué plato fue, SOLO con `mealType = 'otros'` y solo para contactos (22-sep-2026).
+   *  La base lo exige: un «Otros» sin plato no se puede cobrar ni explicar. */
+  itemLabel?: string | null;
   distributionDate: string;   // día ISO (Caracas)
   deliveredAt?: string;       // hora de entrega (ISO). Por defecto ahora.
   note?: string | null;
@@ -50,6 +53,8 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
         cobrar_a: input.cobrarA ?? null,
         contacto_company_id: input.cobrarA === 'empresa' ? (input.contactoCompanyId ?? null) : null,
         contacto_company_nombre: input.cobrarA === 'empresa' ? ((input.contactoCompanyNombre ?? '').trim() || null) : null,
+        // El plato solo viaja en «Otros»: la base rechaza un plato en un almuerzo.
+        ...(input.mealType === 'otros' ? { item_label: (input.itemLabel ?? '').trim() || null } : {}),
       } : {}),
       meals: input.meals,
       meal_type: input.mealType ?? null,
@@ -66,6 +71,9 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
     if (dup) return { data: null, error: 'Esa comida ya se registró hoy para esta persona.' };
     // Falta el SQL de contactos: sin esto el aviso sería «column contacto_id does
     // not exist», que no le dice a nadie qué hacer.
+    if (input.contactoId && input.mealType === 'otros' && /item_label|otros_|plato_solo/i.test(error.message)) {
+      return { data: null, error: 'Falta correr el SQL de «Otros» para contactos en Supabase (sql-comida-contactos-otros-2026-09-22.sql). Avisa al administrador.' };
+    }
     if (input.contactoId && /contacto_|cobrar_a|schema cache/i.test(error.message)) {
       return { data: null, error: 'Falta correr el SQL de contactos de cocina en Supabase (sql-comida-contactos-2026-09-21.sql). Avisa al administrador.' };
     }

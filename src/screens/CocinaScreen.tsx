@@ -14,8 +14,10 @@ import {
   normalizarCedula, validarCantidadComidas,
 } from '../lib/comidaContactos';
 import { cargarContactos } from '../lib/comidaContactosDb';
+import { PlatoCatalogo, ordenarPlatos, platoActivo } from '../lib/comidaPlatos';
+import { cargarPlatos } from '../lib/comidaPlatosDb';
 import { ContactoCocinaForm } from '../components/ContactoCocinaForm';
-import { MEALS, mealLabel } from '../lib/foodCompanyMeals';
+import { MEALS, OTROS_MEAL, mealLabel } from '../lib/foodCompanyMeals';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId, parseComidaId } from './ScanQrScreen';
 import { norm } from '../lib/text';
@@ -126,6 +128,11 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   const [cedulaNoHallada, setCedulaNoHallada] = useState('');
   // Cuántas comidas pide el contacto de una. Los de nómina siguen siendo 1 por día.
   const [cantidad, setCantidad] = useState('1');
+  // ── «OTROS» PARA CONTACTOS (22-sep-2026) ─────────────────────────────────
+  // El catálogo de platos (bolsa de hielo, vasos…) de la pestaña «🧾 Platos». A un
+  // contacto se le cobran por el precio del catálogo; a la nómina NO se le ofrecen.
+  const [platos, setPlatos] = useState<PlatoCatalogo[]>([]);
+  const [platoGuardando, setPlatoGuardando] = useState<string | null>(null);
   // Modo de entrega: torniquete (registra la comida fija de la sesión) o
   // "elegir por persona" (al escanear abre a la persona y el cocinero elige la
   // comida — p. ej. alguien que llega a almorzar a las 4pm).
@@ -144,12 +151,15 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   // está registrado, que es justo lo que esta agenda existe para evitar.
   const loadAgenda = React.useCallback(async () => {
     try {
-      const [ag, comps] = await Promise.all([
+      const [ag, comps, pl] = await Promise.all([
         cargarContactos(),
         supabase.from('companies').select('id, name, hidden').order('name', { ascending: true }),
+        // Si el catálogo falla, la cocina sigue repartiendo: solo se esconde «Otros».
+        cargarPlatos().catch(() => [] as PlatoCatalogo[]),
       ]);
       setContactos(ag.contactos);
       setSinTablaContactos(ag.sinTabla);
+      setPlatos(ordenarPlatos(pl.filter(platoActivo)));
       setEmpresas(((comps.data ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: String(c.id), name: String(c.name ?? '') })));
     } catch {
       setSinTablaContactos(false);
@@ -367,10 +377,15 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
 
   const doneMeal = (mt: MealType) => todayList.find((d) => d.meal_type === mt) || null;
 
-  const registrarMeal = async (mealType: MealType) => {
+  const registrarMeal = async (mealType: MealType, plato?: string) => {
     if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
     if (!person) return;
     const esContacto = !!person.contactoId;
+    // ⚠️ «OTROS» ES SOLO PARA CONTACTOS (decisión del cliente, 22-sep-2026): a la nómina
+    //    no se le ofrece el botón, y aunque llegara acá, no se registra. La base también
+    //    lo rechaza (check `food_distributions_otros_solo_contactos`).
+    const nombrePlato = (plato ?? '').trim();
+    if (mealType === 'otros' && (!esContacto || !nombrePlato)) { setNotice('❌ «Otros» solo se le registra a un contacto de cocina, y hay que elegir el plato.'); return; }
     // ⚠️ EL CANDADO DE «UNA POR DÍA» ES SOLO PARA LA NÓMINA. Un contacto paga lo que
     //    pide: puede llevarse 8 almuerzos y volver a mediodía por el suyo. Se le avisa
     //    que ya pasó, pero no se le tranca (decisión del cliente, 21-sep-2026).
@@ -381,7 +396,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       if (motivo) { setNotice(`❌ ${motivo}`); return; }
       cuantas = Number(String(cantidad).replace(',', '.'));
     }
-    setSavingMeal(mealType); setNotice(null);
+    setSavingMeal(mealType); setPlatoGuardando(mealType === 'otros' ? nombrePlato : null); setNotice(null);
     const { data, error } = await saveFoodDistribution({
       // O es de nómina, o es de la agenda: nunca las dos columnas a la vez.
       employeeId: esContacto ? null : person.id,
@@ -393,19 +408,21 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       cedula: person.cedula,
       meals: cuantas,
       mealType,
+      itemLabel: mealType === 'otros' ? nombrePlato : null,
       distributionDate: today,
       note: '',
       createdBy: uid || null,
       createdByName: cook?.name || myName || null,
     });
-    setSavingMeal(null);
+    setSavingMeal(null); setPlatoGuardando(null);
     if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
     setTodayList((prev) => [data, ...prev]);
     const puestas = Number(data.meals) || 1;
     setDayCounts((c) => ({ ...c, [mealType]: (c[mealType] || 0) + puestas }));
+    const que = mealType === 'otros' ? nombrePlato : mealLabel(mealType);
     setNotice(puestas > 1
-      ? `✅ ${puestas} ${mealLabel(mealType)}(s) registrados para ${person.name} · ${caracasClock(data.delivered_at)}.`
-      : `✅ ${mealLabel(mealType)} registrado para ${person.name} · ${caracasClock(data.delivered_at)}.`);
+      ? `✅ ${puestas} ${que}(s) registrados para ${person.name} · ${caracasClock(data.delivered_at)}.`
+      : `✅ ${que} registrado para ${person.name} · ${caracasClock(data.delivered_at)}.`);
   };
 
   const borrar = async (id: string) => {
@@ -675,6 +692,36 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
                 );
               })}
             </View>
+            {/* «OTROS» (22-sep-2026): hielo, vasos… SOLO para contactos. El precio es el del
+                catálogo de platos; por eso se elige de la lista y no se escribe. */}
+            {person.contactoId ? (
+              <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{OTROS_MEAL.icon} {OTROS_MEAL.label} · elige el plato</Text>
+                {platos.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
+                    No hay platos en el catálogo. Se agregan en Distribución de comida → Precios y cuentas → 🧾 Platos.
+                  </Text>
+                ) : (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                    {platos.map((pl) => {
+                      const busy = savingMeal === 'otros' && platoGuardando === pl.name;
+                      return (
+                        <TouchableOpacity
+                          key={pl.id}
+                          onPress={() => registrarMeal('otros', pl.name)}
+                          disabled={!!savingMeal}
+                          style={{ borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: OTROS_MEAL.color, opacity: savingMeal ? 0.6 : 1 }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>
+                            {busy ? 'Guardando…' : `${pl.name} · Entregar ${Number(cantidad) || 1} ›`}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            ) : null}
           </Card>
 
           <Card>
@@ -687,7 +734,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
             ) : (
               todayList.map((d) => (
                 <View key={d.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontSize: 13 }}>🍽️ {d.meal_type ? mealLabel(d.meal_type) : `${d.meals} comida(s)`} · {caracasClock(d.delivered_at)}{d.note ? ` · ${d.note}` : ''}</Text>
+                  <Text style={{ color: colors.text, fontSize: 13 }}>{d.meal_type === 'otros' ? '🧾' : '🍽️'} {Number(d.meals) > 1 ? `${d.meals} × ` : ''}{d.meal_type === 'otros' ? (d.item_label || 'Otros') : d.meal_type ? mealLabel(d.meal_type) : `${d.meals} comida(s)`} · {caracasClock(d.delivered_at)}{d.note ? ` · ${d.note}` : ''}</Text>
                   <TouchableOpacity onPress={() => borrar(d.id)}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑</Text></TouchableOpacity>
                 </View>
               ))

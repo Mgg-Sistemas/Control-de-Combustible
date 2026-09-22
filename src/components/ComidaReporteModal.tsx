@@ -183,7 +183,7 @@ export function ComidaReporteModal({
   const previo = useMemo(() => {
     const e = filtrarComidas({ empresas: entregasEmpresa, personas: entregasPersona }, filtro);
     const gE = agruparEmpresas(e.empresas, precios, platoAPrecio);
-    const gP = agruparPersonas(e.personas, precios);
+    const gP = agruparPersonas(e.personas, precios, platoAPrecio);
     return {
       e, gE, gP, totales: totalesDeGrupos(gE, gP), vacio: filtroSinEntregas(e),
       // ¿El papel es de UN contacto? Entonces se encabeza como su cuenta.

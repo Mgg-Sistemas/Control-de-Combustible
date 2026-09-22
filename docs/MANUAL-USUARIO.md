@@ -2591,6 +2591,24 @@ Para la **factura en PDF**, en **"📄 Reporte"** hay una tercera casilla en "Qu
 **Nunca se borra un contacto.** Se **quita de la lista** (pide un segundo toque) y deja de salirle a
 la cocina; **"↩️ Devolver"** lo trae de vuelta. Sus entregas y su cuenta se conservan siempre.
 
+**🧾 Hielo, vasos y otros platos para un contacto (22/09/2026).** Antes, a un particular solo se le
+podían entregar desayuno, almuerzo, lunch y cena: el botón "Otros" existía solo en Distribución por
+empresa, y escribirle "4 bolsas de hielo" en la nota **no cobraba nada** (la nota es texto; el PDF no
+la suma). Ahora, cuando la persona abierta en Cocina es un **contacto**, debajo de las cuatro comidas
+aparece **"🧾 Otros · elige el plato"** con los platos del catálogo (los de **"💲 Precios y cuentas →
+🧾 Platos"**): se pone la cantidad, se toca el plato, y listo.
+- **El precio es el del catálogo**, el mismo que pagan las empresas por ese plato. No se escribe a
+  mano, así no se teclea mal. Un plato que todavía no tiene precio se registra igual, se cuenta, y
+  la tarjeta de cobro lo avisa en amarillo hasta que alguien le ponga precio.
+- **Sale sumado en la factura**: en "Cuenta de comidas · Su nombre" el hielo es un renglón más, con
+  su cantidad y su valor, dentro del total. Igual en la tarjeta de cobro y en el detalle.
+- **Si el contacto se le cobra a su empresa**, el hielo también va a la cuenta de esa empresa.
+- **Es solo para contactos.** A la gente de nómina no le sale el botón, y la base tampoco lo acepta.
+- Si no hay platos en el catálogo, Cocina lo dice y explica dónde se crean.
+
+> **⚠️ Hace falta correr un SQL** (`sql-comida-contactos-otros-2026-09-22.sql`, ya corrido el
+> 22/09/2026). Sin él, al tocar un plato la cocina ve un aviso claro y todo lo demás sigue igual.
+
 > **⚠️ Hace falta correr un SQL** (`sql-comida-contactos-2026-09-21.sql`). Mientras no se corra, la
 > pestaña lo dice y **todo lo demás del módulo funciona igual que siempre**: la cocina sigue
 > registrando la comida de la nómina sin ningún cambio.
