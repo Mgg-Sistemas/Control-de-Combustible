@@ -552,5 +552,34 @@ const todas = { empresas: entregasEmpresa, personas: entregasPersona };
   ok('⭐ la pantalla agrupa igual que el papel', /const k = r\.contacto_id \?\? r\.employee_id \?\? \(r\.cedula \|\| r\.employee_name\);/.test(pantalla) && /const k = r\.contacto_id \?\? r\.employee_id \?\? r\.employee_name;/.test(pantalla));
 }
 
+// ── 21) «OTROS» DE UN CONTACTO EN EL PAPEL, SUMADO (22-sep-2026) ─────────────
+//
+// «Después cuando vaya a sacar el registro en PDF no va a salir sumado, sino como
+// nota» (Niliany). Ahora el hielo es un renglón con precio, no una nota.
+{
+  const COBRO = loadTs('src/lib/cobroComidas.ts');
+  const PH = [
+    { id: 'a', categoria: 'almuerzo', precio: 5, desde: '2026-09-01', hasta: null },
+    { id: 'h', categoria: 'plato_hielo', precio: 2.5, desde: '2026-09-01', hasta: null },
+  ];
+  const aPrecio = (n) => (String(n ?? '').trim().toLowerCase() === 'bolsa de hielo' ? 'plato_hielo' : null);
+  const alm = { id: 'c1', employee_id: null, contacto_id: 'k1', cobrar_a: 'independiente', employee_name: 'Ana Rojas', cedula: '111', meal_type: 'almuerzo', distribution_date: '2026-09-22', meals: 3, delivered_at: '2026-09-22T16:00:00Z' };
+  const hie = { ...alm, id: 'c2', meal_type: 'otros', item_label: 'Bolsa de hielo', meals: 4 };
+  eq('⭐ el hielo del contacto vale lo del catálogo: 4 × 2,50', REP.montoDePersona(hie, PH, aPrecio), { monto: 10, conPrecio: true, precioUnitario: 2.5 });
+  eq('sin catálogo no vale nada (y lo dice)', REP.montoDePersona(hie, PH).conPrecio, false);
+  const g = REP.agruparPersonas([alm, hie], PH, aPrecio);
+  eq('⭐ un solo renglón para Ana, con 15 + 10 = 25', [g.length, g[0].monto], [1, 25]);
+  const l = REP.lineasDetalle({ empresas: [], personas: [alm, hie] }, PH, aPrecio);
+  eq('⭐ en el detalle el hielo dice qué fue y cuánto vale', l.find((x) => x.comida === 'otros'), {
+    ...l.find((x) => x.comida === 'otros'), plato: 'Bolsa de hielo', cantidad: 4, monto: 10, conPrecio: true,
+  });
+  eq('...y el almuerzo sigue sin plato', l.find((x) => x.comida === 'almuerzo').plato, '');
+  // Paridad con la tarjeta: mismo dinero.
+  const tc = COBRO.totalCobroComidas(COBRO.calcularCobroComidas({ empresas: [], personas: [alm, hie], empresaDePersona: new Map(), precios: PH, platoAPrecio: aPrecio }));
+  eq('⭐ papel y tarjeta dan lo mismo con hielo adentro', REP.totalesDeGrupos([], g).monto, tc.monto);
+  const modal = fs.readFileSync(path.join(ROOT, 'src/components/ComidaReporteModal.tsx'), 'utf8');
+  ok('⭐ el modal le pasa el catálogo a las personas, no solo a las empresas', /agruparPersonas\(e\.personas, precios, platoAPrecio\)/.test(modal));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-comida-reporte · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
