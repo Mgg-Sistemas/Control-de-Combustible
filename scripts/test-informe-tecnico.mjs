@@ -153,6 +153,70 @@ eq('⭐ MONTO TOTAL ACUMULADO del informe real', T.total, 1936.84);
 eq('cuenta las intervenciones', T.intervenciones, 9);
 eq('⭐ promedio por intervención del informe real', T.promedio, 215.2);
 
+
+// ── 3b) LA HOJA DE COSTOS, QUE VIVE APARTE ─────────────────────────────────
+// ⭐ El cliente pidió que el informe fuera «independiente en el módulo, que no
+//    afecte nada». Los costos NO están en `machinery_service_orders` ni en
+//    `machinery_service_parts`: viven en `machinery_tech_report_costs`, una hoja
+//    por intervención, y se pegan al imprimir.
+{
+  const SERVICIO = {
+    id: 'so-1', service_date: '2026-09-17', technician: 'Daniel Jiménez',
+    problem: 'Cambio de aceite de motor y filtros.',
+    parts: [{ quantity: 26, description: 'L Aceite Motul 15W40' },
+            { quantity: 1, description: 'Filtro Aceite 1R-0739' }],
+  };
+
+  // La propuesta: los repuestos del taller, con el precio EN BLANCO.
+  const P = I.hojaPropuesta(SERVICIO);
+  eq('la hoja se propone con los repuestos del servicio', P.map((p) => p.description),
+    ['L Aceite Motul 15W40', 'Filtro Aceite 1R-0739']);
+  eq('conserva la cantidad', P.map((p) => p.quantity), [26, 1]);
+  eq('⭐ y el precio arranca VACÍO (nadie lo inventa)', P.map((p) => p.unit_cost), [null, null]);
+  eq('ignora renglones sin descripción',
+    I.hojaPropuesta({ parts: [{ quantity: 1 }, { description: '  ' }] }), []);
+  eq('hojaPropuesta de null no revienta', I.hojaPropuesta(null), []);
+
+  // Pegar la hoja al imprimir.
+  const HOJA = [{ service_order_id: 'so-1', labor_cost: 45,
+    items: [{ description: 'L Aceite Motul 15W40', quantity: 26, unit_cost: 9.263 },
+            { description: 'Filtro Aceite 1R-0739', quantity: 1, unit_cost: 45 }] }];
+  const [CON] = I.conCostos([SERVICIO], HOJA);
+  eq('⭐ la mano de obra viene de la hoja, no del servicio', CON.labor_cost, 45);
+  eq('⭐ y los insumos también', I.costoRepuestos(CON.parts), 285.84);
+  eq('el resto de la intervención no se toca', [CON.id, CON.technician], ['so-1', 'Daniel Jiménez']);
+
+  // ⭐ Sin hoja, la intervención sale IGUAL: sin costo, pero sale.
+  const [SIN] = I.conCostos([SERVICIO], []);
+  eq('⭐ una intervención sin hoja no se cae del informe', SIN.id, 'so-1');
+  eq('y vale 0, sin inventar nada', I.subtotalIntervencion(SIN), 0);
+  eq('conserva sus repuestos para poder nombrarlos',
+    I.insumosTexto(SIN.parts), '26 L Aceite Motul 15W40, 1 Filtro Aceite 1R-0739');
+
+  // ⭐ La hoja MANDA sobre los repuestos del taller: son dos listas distintas.
+  const [MANDA] = I.conCostos([SERVICIO], [{ service_order_id: 'so-1', labor_cost: 10,
+    items: [{ description: 'Reparación de cilindro', unit_cost: 350 }] }]);
+  eq('⭐ cuando hay hoja, se imprimen SUS insumos y no los del servicio',
+    MANDA.parts.map((p) => p.description), ['Reparación de cilindro']);
+  eq('y el subtotal es el de la hoja', I.subtotalIntervencion(MANDA), 360);
+
+  // Una hoja con la lista vacía no borra los repuestos del servicio: el usuario
+  // cargó mano de obra y nada más.
+  const [SOLO_MO] = I.conCostos([SERVICIO], [{ service_order_id: 'so-1', labor_cost: 80, items: [] }]);
+  eq('una hoja con solo mano de obra conserva los repuestos a la vista',
+    SOLO_MO.parts.length, 2);
+  eq('y el subtotal es solo la mano de obra', I.subtotalIntervencion(SOLO_MO), 80);
+
+  // La hoja de OTRA intervención no se cuela.
+  const [OTRA] = I.conCostos([SERVICIO], [{ service_order_id: 'so-9', labor_cost: 999 }]);
+  eq('⭐ la hoja de otra intervención no se aplica', OTRA.labor_cost, undefined);
+
+  eq('conCostos de null no revienta', I.conCostos(null, HOJA), []);
+  eq('conCostos sin hojas devuelve lo mismo', I.conCostos([SERVICIO], null).length, 1);
+  eq('una intervención sin id no toma ninguna hoja',
+    I.conCostos([{ service_date: '2026-09-01' }], HOJA)[0].labor_cost, undefined);
+}
+
 // ── 4) Sin costos: 0, nunca NaN ─────────────────────────────────────────────
 const SIN = [{ service_date: '2026-09-01', problem: 'Revisión' },
              { service_date: '2026-09-02', problem: 'Engrase', parts: [{ description: 'Grasa' }] }];

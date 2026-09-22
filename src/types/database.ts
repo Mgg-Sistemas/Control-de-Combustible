@@ -1134,15 +1134,9 @@ export interface MachineryRepair {
 
 // ── Servicio de Maquinaria ───────────────────────────────────────────────────
 // Registro de lo que se le hizo a una máquina, con el formato del formulario en
-// papel del cliente.
-//
-// ⚠️ EL ÚNICO DINERO SON `labor_cost` y `unit_cost` (22-sep-2026). El módulo
-//    nació sin costos; se agregaron SOLO porque el «Informe Técnico y de Costos»
-//    que se le entrega al dueño del equipo los necesita. La hoja de trabajo que
-//    firma el técnico en el patio sigue imprimiéndose SIN precios.
-//
-// La lógica vive en `src/lib/machineService.ts`; la hoja, en `machineServiceReport.ts`;
-// el informe con costos, en `informeTecnico.ts`.
+// papel del cliente. SIN DINERO: este módulo no lleva costos ni pagos — los
+// costos del «Informe Técnico» viven APARTE, en `machinery_tech_report_costs`.
+// La lógica vive en `src/lib/machineService.ts`; el PDF, en `machineServiceReport.ts`.
 export type MachineryServiceOrigen = 'interno' | 'externo';
 
 export interface MachineryServiceOrder {
@@ -1161,8 +1155,6 @@ export interface MachineryServiceOrder {
   work_done: string | null;         // «Acciones realizadas»
   photos: string[];
   notes: string | null;
-  /** Mano de obra de la intervención, en $. NULL = no se registró (no es 0). */
-  labor_cost: number | null;
   created_by: string | null;
   created_at: string;
 }
@@ -1173,9 +1165,6 @@ export interface MachineryServicePart {
   quantity: number | null;
   description: string;
   estado: string | null;            // Nuevo | Usado | Reparado | Reacondicionado (sin candado en la base)
-  /** Costo UNITARIO, en $. El total del renglón es cantidad × esto; el total NO
-   *  se guarda, para que los dos números no puedan contradecirse. */
-  unit_cost: number | null;
   /** Conserva el orden en que se cargaron los renglones. */
   position: number;
 }
@@ -1211,6 +1200,30 @@ export interface MachineryTechReport {
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
+}
+
+/**
+ * LA HOJA DE COSTOS DEL INFORME (`machinery_tech_report_costs`), UNA POR
+ * INTERVENCIÓN.
+ *
+ * ⚠️ VIVE EN SU PROPIA TABLA, Y ESO ES EL DISEÑO, NO UN DESCUIDO. El módulo de
+ *    Servicio no lleva dinero: la hoja que firma el técnico en el patio no
+ *    imprime precios y su formulario no los pide. Meter el costo dentro de
+ *    `machinery_service_orders` obligaba a tocar ese formulario, y además el
+ *    precio de los repuestos se habría PERDIDO en cada edición: al editar un
+ *    servicio sus repuestos se borran y se vuelven a insertar.
+ *
+ * `items` es el desglose de insumos DEL INFORME, con su precio. Se propone
+ * copiando los repuestos del servicio, pero después vive por su cuenta: un
+ * informe ya emitido no puede cambiar de monto porque alguien corrigió un
+ * renglón del taller tres semanas después.
+ */
+export interface MachineryTechReportCost {
+  service_order_id: string;         // 1:1 con la intervención
+  labor_cost: number | null;        // mano de obra, en $
+  items: { description: string; qty: number | null; unit_cost: number | null }[];
+  updated_by: string | null;
+  updated_at: string;
 }
 
 // Rol dinámico creado desde Usuarios: define qué módulos ve (clave → nivel).

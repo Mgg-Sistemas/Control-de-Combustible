@@ -160,6 +160,9 @@ const TABLA_A_MODULO: Record<string, string> = {
   // El «Informe Técnico y de Costos» que se le entrega al dueño del equipo:
   // se emite desde Servicio y se arma con SU historial.
   machinery_tech_reports: 'servicio',
+  // Los COSTOS del informe: tabla aparte porque el módulo de Servicio no lleva
+  // dinero, pero la sección a la que pertenecen sigue siendo Servicio.
+  machinery_tech_report_costs: 'servicio',
   // 👥 Usuarios y permisos
   profiles: 'usuarios', app_roles: 'usuarios', module_permissions: 'usuarios', feature_toggles: 'usuarios',
   // 🚛 Viajes de camiones
