@@ -20,8 +20,10 @@
 //    el día de mañana sí, colócale esa, no la última»): sin punto ESE día vale el primero
 //    POSTERIOR («registrada el 20/07»); si no hay ninguno después, el último ANTERIOR
 //    («desde el 12/09»); si no hay ninguno en el historial, la ubicación actual del
-//    catálogo («ubicación actual»). «Sin ubicación» queda solo para la máquina que no
-//    tiene ubicación en ninguna parte, y el resumen las cuenta.
+//    catálogo («ubicación actual»); y sin GPS en ninguna parte, el EDIFICIO/OBRA que el
+//    inspector eligió («según edificio/obra»: 228 renglones de camionetas, cisternas y
+//    lowboys salían «sin ubicación» teniendo «PATIO - CAMURI CHICO» al lado). «Sin
+//    ubicación» queda solo para la máquina sin GPS y sin edificio, y el resumen las cuenta.
 //
 // Sin imports: la prueba (scripts/test-ubicaciones-reporte.mjs) lo carga solo.
 
@@ -123,7 +125,7 @@ export type VisitaDia = { machineryId: string; fecha: string; at: string; inspec
 export type RondaDia = { machineryId: string; fecha: string; dia: number; noche: number; parada: number; estado: string | null; inspectorDia: string | null; inspectorNoche: string | null };
 
 /** De dónde salió el sector de la fila: del día, tomado de después, arrastrado de antes, del catálogo, o de ningún lado. */
-export type OrigenSector = 'dia' | 'posterior' | 'anterior' | 'catalogo' | 'ninguno';
+export type OrigenSector = 'dia' | 'posterior' | 'anterior' | 'catalogo' | 'edificio' | 'ninguno';
 
 export type FilaUbicacion = {
   fecha: string;
@@ -197,9 +199,22 @@ export function armarUbicaciones(e: EntradaUbicaciones): FilaUbicacion[] {
     const finMs = Date.parse(finDia);
     porId.forEach((m) => {
       if (!conAlgo.has(`${m.id}|${fecha}`)) return;
+      // EDIFICIO: el vigente al final del día según la bitácora. Sin cambios ≤ día pero con
+      // cambios después, vale el «de» del primero posterior (lo que había ese día). Sin
+      // bitácora de la máquina, la ficha de hoy, marcada como arrastrada.
+      let edificio = '—', edificioArrastrado = false;
+      const cs = cambios.get(m.id) ?? [];
+      if (cs.length) {
+        let vigente: string | null | undefined;
+        for (const c of cs) { if (Date.parse(c.at) <= finMs) vigente = c.a; else { if (vigente === undefined) vigente = c.de; break; } }
+        edificio = limpio(vigente) || '—';
+      } else {
+        edificio = limpio(m.referenciaActual) || '—';
+        edificioArrastrado = edificio !== '—';
+      }
       // SECTOR: último punto DEL DÍA; si no, el primero POSTERIOR (el cliente quiere la
       // del día siguiente en que sí la guardaron); si no, el último ANTERIOR; si no, el
-      // del catálogo; y solo sin nada de eso, «sin ubicación».
+      // del catálogo; si no, el edificio/obra; y solo sin nada de eso, «sin ubicación».
       let sector = SIN_UBIC, sectorDesde = '', sinUbicacion = true;
       let sectorOrigen: OrigenSector = 'ninguno';
       const ps = puntos.get(m.id) ?? [];
@@ -213,19 +228,9 @@ export function armarUbicaciones(e: EntradaUbicaciones): FilaUbicacion[] {
         sector = sectorDe(ultimo); sinUbicacion = false; sectorDesde = fechaCaracas(ultimo.at); sectorOrigen = 'anterior';
       } else if (limpio(m.sectorActual)) {
         sector = limpio(m.sectorActual); sinUbicacion = false; sectorOrigen = 'catalogo';
-      }
-      // EDIFICIO: el vigente al final del día según la bitácora. Sin cambios ≤ día pero con
-      // cambios después, vale el «de» del primero posterior (lo que había ese día). Sin
-      // bitácora de la máquina, la ficha de hoy, marcada como arrastrada.
-      let edificio = '—', edificioArrastrado = false;
-      const cs = cambios.get(m.id) ?? [];
-      if (cs.length) {
-        let vigente: string | null | undefined;
-        for (const c of cs) { if (Date.parse(c.at) <= finMs) vigente = c.a; else { if (vigente === undefined) vigente = c.de; break; } }
-        edificio = limpio(vigente) || '—';
-      } else {
-        edificio = limpio(m.referenciaActual) || '—';
-        edificioArrastrado = edificio !== '—';
+      } else if (edificio !== '—') {
+        // Sin GPS en ninguna parte pero con edificio: esa es la ubicación que dio el inspector.
+        sector = edificio; sinUbicacion = false; sectorOrigen = 'edificio';
       }
       // INSPECTOR y ESTADO: el check-in del día manda; si no hubo, la ronda.
       const vs = (visitas.get(`${m.id}|${fecha}`) ?? []).slice().sort((a, b) => a.at.localeCompare(b.at));
@@ -277,8 +282,8 @@ export function alcanceUbicacionesEnPalabras(desde: string, hasta: string, f: Al
   l.push(f.empresas.length ? `Empresas: solo ${f.empresas.join(', ')}.` : 'Empresas: todas.');
   if (f.clasificaciones.length) l.push(`Clasificación: ${f.clasificaciones.join(', ')}.`);
   if (f.maquinas.length) l.push(`Máquinas: ${f.maquinas.length <= 4 ? f.maquinas.join(', ') : `${f.maquinas.length} elegidas`}.`);
-  l.push('El sector sale del punto GPS que guardó el inspector ese día. «registrada el DD/MM» = ese día nadie lo guardó y vale la del siguiente día en que sí; «desde el DD/MM» = no hubo ninguna después y vale la última anterior; «ubicación actual» = solo se conoce la de hoy en el catálogo.');
-  if (r.sinUbicacion) l.push(`⚠️ ${r.sinUbicacion} renglón(es) de máquinas sin ubicación en ninguna parte.`);
+  l.push('El sector sale del punto GPS que guardó el inspector ese día. «registrada el DD/MM» = ese día nadie lo guardó y vale la del siguiente día en que sí; «desde el DD/MM» = no hubo ninguna después y vale la última anterior; «ubicación actual» = solo se conoce la de hoy en el catálogo; «según edificio/obra» = la máquina no tiene GPS en ninguna parte y vale el edificio que eligió el inspector.');
+  if (r.sinUbicacion) l.push(`⚠️ ${r.sinUbicacion} renglón(es) de máquinas sin GPS y sin edificio: no hay dónde ponerlas.`);
   if (!hayBitacora) l.push('⚠️ La bitácora de edificios no se pudo leer: el edificio/obra es el de HOY en la ficha (marcado *).');
   l.push(ocultosUbicacionesEnPalabras(o));
   return l;
@@ -286,6 +291,9 @@ export function alcanceUbicacionesEnPalabras(desde: string, hasta: string, f: Al
 
 export const CSS_UBICACIONES = `
   .r{text-align:right}
+  .ub table{table-layout:fixed;width:100%;font-size:8.5px}
+  .ub th,.ub td{padding:3px 4px;word-break:break-word;overflow-wrap:anywhere;vertical-align:top}
+  .ub th.r,.ub td.r{width:34px}
   .ub-res{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
   .ub-res div{background:#F1F5F9;border-radius:6px;padding:6px 10px;font-size:11px}
   .ub-res b{font-size:14px;display:block}
@@ -320,7 +328,8 @@ export function cuerpoUbicaciones(d: DatosPapelUbicaciones): string {
         if (f.sinUbicacion) return `<span class="ub-sin">${SIN_UBIC}</span>`;
         const nota = f.sectorOrigen === 'posterior' ? `registrada el ${dmy(f.sectorDesde)}`
           : f.sectorOrigen === 'anterior' ? `desde el ${dmy(f.sectorDesde)}`
-            : f.sectorOrigen === 'catalogo' ? 'ubicación actual' : '';
+            : f.sectorOrigen === 'catalogo' ? 'ubicación actual'
+              : f.sectorOrigen === 'edificio' ? 'según edificio/obra' : '';
         return `${esc(f.sector)}${nota ? `<br/><span class="ub-arr">${nota}</span>` : ''}`;
       }
       case 'edificio': return `${esc(f.edificio)}${f.edificioArrastrado ? ' *' : ''}`;
@@ -352,5 +361,7 @@ export function cuerpoUbicaciones(d: DatosPapelUbicaciones): string {
       <tbody>${fs.map((f) => `<tr>${cols.filter((c) => c !== 'fecha').map((c) => `<td${numCols.has(c) ? ' class="r"' : ''}>${celda(f, c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
   });
   if (!o.sinAlcance) partes.push(`<div class="ub-alc"><b>Alcance del informe</b><br/>${alcanceUbicacionesEnPalabras(d.desde, d.hasta, d.alcance, o, d.hayBitacora, r).map(esc).join('<br/>')}</div>`);
-  return partes.join('\n');
+  // Envuelto en `.ub`: la tabla lleva 12 columnas y sin ancho fijo se salía de la hoja
+  // (las horas quedaban cortadas a la derecha, visto en el PDF del 22-sep-2026).
+  return `<div class="ub">${partes.join('\n')}</div>`;
 }

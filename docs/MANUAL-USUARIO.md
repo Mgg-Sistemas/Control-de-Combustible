@@ -3217,9 +3217,10 @@ placa y empresa.
   Inspecciones, traducido al sector del mapa (Este · Camurí Chico, Oeste · Aeropuerto…). Si ese día
   nadie lo guardó, vale la del **siguiente día en que sí se guardó** y la celda dice **"registrada el
   DD/MM"** (corrección del 22/09: la siguiente, no la anterior). Solo si no hay ninguna después vale
-  la **última anterior** ("desde el DD/MM"); y sin ningún punto en el historial, la **ubicación
-  actual** del catálogo ("ubicación actual"). **"Sin ubicación"** queda solo para la máquina que no
-  tiene ubicación en ninguna parte, y el resumen cuenta cuántas.
+  la **última anterior** ("desde el DD/MM"); sin ningún punto en el historial, la **ubicación
+  actual** del catálogo ("ubicación actual"); y sin GPS en ninguna parte, el **edificio/obra** que
+  eligió el inspector ("según edificio/obra"). **"Sin ubicación"** queda solo para la máquina sin
+  GPS y sin edificio, y el resumen cuenta cuántas.
 - **Edificio / obra:** el que el inspector eligió de la lista, **vigente ese día** según la bitácora.
   Existe desde el 06/08/2026 (con un hueco la semana del 10 al 16 de agosto). Una máquina sin
   cambios en la bitácora sale con el edificio de hoy, marcado con **\***.
