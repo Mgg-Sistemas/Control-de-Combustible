@@ -22,8 +22,9 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import {
-  MachineryRow, MaquinaContacto, buscarMaquinas, datosMaquina, desdeMachinery,
-  encargadosDe, etiquetaMaquina, filaMaquina, proponerMaquinas, validarMaquina,
+  EmpresaRow, MachineryRow, MaquinaContacto, buscarMaquinas, datosMaquina, desdeMachinery,
+  empresasConMaquinas, encargadosDe, etiquetaMaquina, filaMaquina, maquinasPorEmpresa,
+  proponerMaquinas, validarMaquina,
 } from '../lib/contactoMaquinas';
 
 type Props = {
@@ -33,6 +34,10 @@ type Props = {
   contactoNombre?: string | null;
   /** Si el contacto es una empresa registrada, para proponerle SUS máquinas. */
   companyId?: string | null;
+  /** Las empresas internas, para poder enlazarlo AQUÍ mismo si falta. */
+  companies?: EmpresaRow[];
+  /** Se enlazó (o se desenlazó) la empresa: hay que releer los contactos. */
+  onEmpresaEnlazada?: (companyId: string | null) => Promise<void> | void;
   /** Las que ya tiene guardadas. */
   maquinas: MaquinaContacto[];
   /** El catálogo de equipos, SOLO para proponer (nunca se escribe). */
@@ -48,8 +53,8 @@ type Props = {
 const VACIA: MaquinaContacto = {};
 
 export function MaquinaPicker({
-  visible, contactoId, contactoNombre, companyId, maquinas, machinery,
-  usuarioId, onCerrar, onElegir, onCambio,
+  visible, contactoId, contactoNombre, companyId, companies, maquinas, machinery,
+  usuarioId, onCerrar, onElegir, onCambio, onEmpresaEnlazada,
 }: Props) {
   const { colors } = useTheme();
   const [q, setQ] = useState('');
@@ -58,6 +63,9 @@ export function MaquinaPicker({
   const [verDetalle, setVerDetalle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  // 🏢 Enlazar el contacto con su empresa interna SIN salirse de aquí.
+  const [buscaEmp, setBuscaEmp] = useState('');
+  const [verEmp, setVerEmp] = useState(false);
 
   const propias = useMemo(() => buscarMaquinas(maquinas, q), [maquinas, q]);
   // ⭐ Sin empresa enlazada se busca en TODO el catálogo: así se encuentra la
@@ -69,6 +77,39 @@ export function MaquinaPicker({
     [machinery, companyId, q, maquinas],
   );
   const encargados = useMemo(() => encargadosDe(machinery).slice(0, 12), [machinery]);
+
+  // 🏢 Las empresas internas, buscables, con cuántas máquinas tiene cada una.
+  const empresas = useMemo(
+    () => empresasConMaquinas(companies, machinery, buscaEmp).slice(0, 40),
+    [companies, machinery, buscaEmp],
+  );
+  const empresaActual = useMemo(
+    () => (companyId ? (companies ?? []).find((e) => e.id === companyId) ?? null : null),
+    [companies, companyId],
+  );
+  const cuentaEmpresas = useMemo(() => maquinasPorEmpresa(machinery), [machinery]);
+
+  /**
+   * Deja dicho DE CUÁL EMPRESA INTERNA es este contacto.
+   *
+   * ⚠️ Escribe en `contactos`, no en `machinery`: enlazar no le quita ni le pone
+   *    una máquina a nadie, solo permite PROPONER las de esa empresa.
+   */
+  const enlazarEmpresa = async (id: string | null) => {
+    if (!contactoId) { setAviso('❌ Primero elige el contacto.'); return; }
+    setBusy(true); setAviso(null);
+    try {
+      const { data, error } = await supabase
+        .from('contactos').update({ company_id: id }).eq('id', contactoId).select().single();
+      if (error) { setAviso(`❌ ${error.message}`); return; }
+      // ⚠️ Con RLS, un «no tienes permiso» llega como 0 filas y SIN error.
+      if (!data) { setAviso('❌ No se guardó: te falta permiso de escritura en Contactos.'); return; }
+      setVerEmp(false); setBuscaEmp('');
+      await onEmpresaEnlazada?.(id);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const guardar = async (fila: MaquinaContacto) => {
     if (!contactoId) { setAviso('❌ Primero elige el contacto.'); return; }
@@ -161,6 +202,72 @@ export function MaquinaPicker({
         ) : (
           <>
             <SectionTitle>Máquina{contactoNombre ? ` · ${contactoNombre}` : ''}</SectionTitle>
+
+            {/* 🏢 ¿DE CUÁL EMPRESA INTERNA ES? Pedido del cliente: «si es una
+                empresa interna se muestra la lista, si es externa se agrega la
+                máquina sin que afecte el catálogo».
+
+                Sin este enlace el desplegable no tiene de dónde proponer nada, y
+                antes solo se podía hacer en la ficha completa del contacto: había
+                que abandonar la venta a medias para volver a empezarla. */}
+            {onEmpresaEnlazada ? (
+              verEmp ? (
+                <View style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                    ¿De cuál empresa interna es {contactoNombre || 'este contacto'}? Al enlazarla salen SUS máquinas.
+                  </Text>
+                  <TextInput
+                    value={buscaEmp} onChangeText={setBuscaEmp}
+                    placeholder="🔎 Busca la empresa por nombre o RIF…"
+                    placeholderTextColor={colors.muted} style={input}
+                  />
+                  <ScrollView style={{ maxHeight: 210, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
+                    {empresas.map(({ empresa, maquinas: cuantas }) => (
+                      <TouchableOpacity
+                        key={empresa.id} disabled={busy} onPress={() => enlazarEmpresa(empresa.id)}
+                        style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border, opacity: busy ? 0.6 : 1 }}
+                      >
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>🏢 {empresa.name}</Text>
+                        <Text style={{ color: cuantas ? colors.muted : colors.danger, fontSize: 11 }}>
+                          {cuantas ? `${cuantas} máquina${cuantas === 1 ? '' : 's'} en el catálogo de equipos` : 'sin máquinas en el catálogo'}
+                          {empresa.rif ? ` · ${empresa.rif}` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    {!empresas.length ? (
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
+                        {buscaEmp ? `Ninguna empresa con «${buscaEmp}».` : 'No hay empresas registradas.'}
+                        {' '}Si es de AFUERA, no la enlaces: cárgale la máquina con «➕» aquí abajo.
+                      </Text>
+                    ) : null}
+                  </ScrollView>
+                  <TouchableOpacity onPress={() => { setVerEmp(false); setBuscaEmp(''); }} style={{ marginTop: spacing.xs }}>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => { setVerEmp(true); setBuscaEmp(''); setAviso(null); }}
+                  style={{ padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderStyle: companyId ? 'solid' : 'dashed', borderColor: colors.border, backgroundColor: colors.surfaceAlt, marginBottom: spacing.xs }}
+                >
+                  <Text style={{ color: companyId ? colors.text : colors.brandText, fontSize: 13, fontWeight: '700' }}>
+                    {companyId
+                      ? `🏢 ${empresaActual?.name ?? 'Empresa enlazada'} · ${cuentaEmpresas[companyId] ?? 0} máquinas`
+                      : '🏢 ¿Es una empresa interna? Enlázala y salen sus máquinas'}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    {companyId ? 'Tocar para cambiarla' : 'Si es de afuera, déjalo así y cárgale la máquina con «➕»'}
+                  </Text>
+                </TouchableOpacity>
+              )
+            ) : null}
+
+            {companyId && onEmpresaEnlazada && !verEmp ? (
+              <TouchableOpacity disabled={busy} onPress={() => enlazarEmpresa(null)} style={{ marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>Desenlazar la empresa</Text>
+              </TouchableOpacity>
+            ) : null}
+
             <TextInput
               value={q} onChangeText={setQ}
               placeholder="🔎 Código, descripción, tipo, marca, modelo, serial, placa, encargado, zona…"
@@ -253,7 +360,7 @@ export function MaquinaPicker({
                     ? `Ninguna máquina con «${q}».`
                     : companyId
                       ? 'Esta empresa no tiene máquinas en el catálogo de equipos.'
-                      : 'Este contacto no está enlazado a una empresa registrada, así que no hay máquinas que proponerle.'}
+                      : 'Este contacto no está enlazado a una empresa interna, así que no hay máquinas que proponerle: enlázala aquí arriba, o si es de afuera cárgasela a mano.'}
                   {' '}Tócale «➕ Registrar una máquina que no está» aquí arriba.
                 </Text>
               ) : null}

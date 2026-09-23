@@ -15,7 +15,7 @@
 //    pasado cambiaría de contenido solo porque alguien corrigió el catálogo.
 //
 // Regla pura, sin React ni Supabase. Prueba: scripts/test-contacto-maquinas.mjs
-import { norm } from './text';
+import { norm, cmpText } from './text';
 
 /** Una máquina del catálogo de equipos, con lo que hace falta para copiarla. */
 export type MachineryRow = {
@@ -248,4 +248,61 @@ export function maquinaDeRenglon(m: MaquinaContacto | null | undefined) {
     maquina_serial: limpio(m.serial) || null,
     maquina_placa: limpio(m.placa) || null,
   };
+}
+
+// ── 🏢 EMPRESA INTERNA · la lista buscable que destraba todo lo demás ────────
+//
+// Pedido del cliente, textual: «si es una empresa interna se muestra la lista, si
+// es externa se agrega la maquina sin que afecte el catalogo […] estas listas
+// vuelvelas buscable».
+//
+// ⚠️ LO QUE ESTO ARREGLA. Proponerle a un contacto las máquinas de su empresa
+//    solo funciona si alguien dijo ANTES de cuál empresa es (`contactos.company_id`).
+//    Ese enlace se hacía únicamente en la ficha completa del contacto, así que al
+//    vender un servicio el desplegable salía vacío y no había manera de arreglarlo
+//    sin abandonar la venta. Con esto la empresa se elige ahí mismo.
+
+/** Una empresa del sistema, con lo que hace falta para buscarla y mostrarla. */
+export type EmpresaRow = {
+  id: string;
+  name?: string | null;
+  rif?: string | null;
+  hidden?: boolean | null;
+};
+
+/** Cuántas máquinas activas tiene cada empresa en el catálogo de equipos. */
+export function maquinasPorEmpresa(machinery: MachineryRow[] | null | undefined): Record<string, number> {
+  const cuenta: Record<string, number> = {};
+  (machinery ?? []).forEach((m) => {
+    if (!m || m.active === false || !m.company_id) return;
+    cuenta[m.company_id] = (cuenta[m.company_id] ?? 0) + 1;
+  });
+  return cuenta;
+}
+
+/** Todo lo buscable de una empresa: su nombre y su RIF. */
+export const empresaHaystack = (e: EmpresaRow): string =>
+  norm([e?.name, e?.rif].filter((v) => v !== null && v !== undefined && String(v).trim() !== '').join(' '));
+
+/**
+ * Las empresas internas, BUSCABLES, con cuántas máquinas tiene cada una.
+ *
+ * ⭐ Ordena por máquinas de mayor a menor y luego A→Z: quien está enlazando un
+ *    contacto para verle las máquinas quiere arriba las que TIENEN máquinas. Una
+ *    empresa con 0 igual sale —enlazarla no está prohibido— pero de última.
+ *
+ * ⚠️ Las ocultas NO salen: si no aparecen en ningún otro selector, aparecer aquí
+ *    solo sirve para enlazar un contacto a una empresa que ya nadie usa.
+ */
+export function empresasConMaquinas(
+  companies: EmpresaRow[] | null | undefined,
+  machinery: MachineryRow[] | null | undefined,
+  texto?: string | null,
+): { empresa: EmpresaRow; maquinas: number }[] {
+  const q = norm(texto ?? '');
+  const cuenta = maquinasPorEmpresa(machinery);
+  return (companies ?? [])
+    .filter((e) => e && !e.hidden && (!q || empresaHaystack(e).includes(q)))
+    .map((empresa) => ({ empresa, maquinas: cuenta[empresa.id] ?? 0 }))
+    .sort((a, b) => (b.maquinas - a.maquinas) || cmpText(a.empresa.name, b.empresa.name));
 }
