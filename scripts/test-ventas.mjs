@@ -181,7 +181,7 @@ eq('agrupa por cliente, el que mas compro primero', PC.map((g) => g.name), ['Fer
 eq('suma lo vendido a cada cliente', PC.map((g) => g.usd), [250, 150]);
 eq('marca cuanto de eso es credito', PC.map((g) => g.credito), [250, 0]);
 
-// ── 6) Basura ───────────────────────────────────────────────────────────────
+// ── 7) Basura ───────────────────────────────────────────────────────────────
 eq('filtrar null no revienta', V.filtrarVentas(null, { texto: 'x' }), []);
 eq('buscar clientes en null no revienta', V.buscarClientes(null, 'x'), []);
 eq('porCliente de null no revienta', V.porCliente(null), []);

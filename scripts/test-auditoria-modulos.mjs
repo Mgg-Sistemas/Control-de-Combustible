@@ -122,6 +122,7 @@ console.log('LOS MODULOS DE LA AUDITORIA\n');
     viajes_camiones: 'viajes',
     aliados: 'aliados',
     compras: 'compras',
+    contactos: 'contactos',
     ventas: 'ventas',
     caja: 'caja',
     inventario: 'inventario',

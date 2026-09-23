@@ -29,6 +29,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Viajes de camiones', route: 'ViajesCamiones', desc: 'Registro de viajes por listero: un toque por cada regreso/entrada, con hora automática y chofer del turno', icon: '🚛', module: 'viajes_camiones' },
   { label: 'Aliados', route: 'Aliados', desc: 'Colaboradores externos con ficha y carnet propios (QR con sus datos)', icon: '🤝', module: 'aliados' },
   { label: 'Compras', route: 'Compras', desc: 'Solicitudes de pedido, órdenes de compra con aprobación y proveedores', icon: '🛒', module: 'compras' },
+  { label: 'Contactos', route: 'Contactos', desc: 'El catalogo unico de a quien se le vende y a quien se le compra: personas y empresas, con su cedula o RIF', icon: '📇', module: 'contactos' },
   { label: 'Ventas', route: 'Ventas', desc: 'Venta de material y servicios con factura o nota de entrega, pago en Bs/$/Zelle/USDT y ventas a crédito', icon: '💰', module: 'ventas' },
   { label: 'Caja', route: 'Caja', desc: 'El dinero del día: entra por ventas (contado) y por cobros de crédito, salen los egresos, y se cierra con arqueo', icon: '💵', module: 'caja' },
   { label: 'Inventario', route: 'Inventario', desc: 'Existencias por material con PMP, entradas desde compras, salidas y consumo', icon: '📦', module: 'inventario' },
