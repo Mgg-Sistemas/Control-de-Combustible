@@ -3249,9 +3249,18 @@ de noche otro; al final de cada uno va su línea de firma.
    en el día, sale **una fila por cada transición** consecutiva.
 
 #### 📍 Histórico de ubicaciones por máquina (22/09/2026)
-Nueva pestaña **📍 Ubicaciones** en Reportes: un PDF con **dónde trabajó cada máquina, día por
-día**, en el **rango de fechas** que elijas, con las horas, el estado, el inspector, marca, modelo,
-placa y empresa.
+Nueva pestaña **📍 Ubicaciones** en Reportes: un PDF con **dónde trabajó cada máquina**, en el
+**rango de fechas** que elijas, con las horas, el estado, el inspector, marca, modelo, placa y
+empresa.
+
+**Son DOS papeles, se elige arriba con "¿Qué PDF quieres?":**
+- **📄 Resumido (por sector Este / Oeste)** — el que sale por defecto. **Una línea por máquina**,
+  agrupadas en **🟢 SECTOR ESTE** y **🟠 SECTOR OESTE** y, dentro, por área (Macuto, Caraballeda,
+  Catia La Mar…), igual que el reporte **"Máquinas por sector"** del Mapa. Cada máquina sale **una
+  sola vez, en el sitio donde terminó el rango**, con sus días con registro y sus horas totales; si
+  se movió, la celda dice "estuvo en N sitios". Es el que se lee de un vistazo.
+- **📆 Día por día (detallado)** — el parte completo: una fila por máquina **y día**. Con toda la
+  flota en una semana son cientos de renglones.
 
 **De dónde sale cada columna** (no hay una tabla de "ubicación por día": se reconstruye):
 - **Sector (GPS):** el último punto que el inspector guardó con **"Guardar ubicación"** en
@@ -3262,9 +3271,32 @@ placa y empresa.
   actual** del catálogo ("ubicación actual"); y sin GPS en ninguna parte, el **edificio/obra** que
   eligió el inspector ("según edificio/obra"). **"Sin ubicación"** queda solo para la máquina sin
   GPS y sin edificio, y el resumen cuenta cuántas.
+- **Cardinal (Este / Oeste) — nuevo el 22/09/2026:** el punto cardinal del litoral al que
+  pertenece la máquina. Sale, en este orden: del **GPS del día** (el sector ya viene como "Este ·
+  Macuto" u "Oeste · Aeropuerto"); si no hay GPS, del **área que nombra el edificio/obra**
+  ("… - CATIA LA MAR" es Oeste, "PATIO - CAMURI CHICO" es Este); si la obra no nombra su área,
+  del **cardinal que tienen ahí las demás máquinas** con GPS en esa misma obra; y de último, de la
+  columna **Sector de la ficha** del Catálogo, pero solo si dice Este u Oeste (hay fichas con "CDF"
+  o "Escuela Naval" escritas ahí, y eso no es un cardinal). Y si nada de eso resuelve, la máquina se
+  **reparte entre las áreas que ya salen en el informe** (pedido del 22/09: "no me puede quedar nada
+  sin punto cardinal" y "distribúyelas entre cualquiera de las ubicaciones"). Así ninguna queda
+  suelta ni en un grupo aparte. El reparto es estable: la misma máquina cae siempre en la misma
+  área, aunque reimprimas. Si quieres que salga en su sitio REAL, ponle el edificio en el Catálogo o
+  guárdale la ubicación desde Inspecciones.
+- **Alcance del informe (corto desde el 22/09):** solo el rango y cuántas máquinas hay al **ESTE**
+  y al **OESTE** con sus áreas ("ESTE: 61 máquina(s) · Camurí Chico, Caraballeda…"). Ya **no repite
+  los filtros** que elegiste (empresa, clasificación, máquinas) ni las columnas que ocultaste, ni
+  las leyendas de las celdas: eso lo sabes tú, que lo marcaste, y está explicado aquí.
 - **Edificio / obra:** el que el inspector eligió de la lista, **vigente ese día** según la bitácora.
   Existe desde el 06/08/2026 (con un hueco la semana del 10 al 16 de agosto). Una máquina sin
-  cambios en la bitácora sale con el edificio de hoy, marcado con **\***.
+  cambios en la bitácora sale con el edificio de hoy, marcado con **\***. Y si no tiene ninguno,
+  **se le reparte uno de los que ya salen en el informe**, del área que le tocó, para que ninguna
+  celda de ubicación quede en blanco (pedido del 22/09).
+- **Ninguna celda de ubicación vacía:** desde el 22/09 no existen "Sin ubicación" ni la raya en
+  Edificio. La máquina sin GPS y sin obra recibe sector, área y edificio repartidos entre los del
+  informe, siempre los mismos para esa máquina. **Ojo: eso la muestra en un sitio donde puede no
+  estar.** Para que salga donde de verdad trabaja, ponle el edificio en el Catálogo o pídele al
+  inspector que le guarde la ubicación.
 - **Inspector y Estado:** del check-in **"Revisé la máquina"** de ese día (Trabajando / Parada / No
   estaba). Si no hubo check-in, el inspector de la ronda y "Trabajó (sin check-in)".
 - **Horas:** las de la ronda (día, noche y total, igual que el Informe por jornada).

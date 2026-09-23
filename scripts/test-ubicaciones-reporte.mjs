@@ -109,7 +109,11 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   const f16 = fila('m3', '2026-09-16');
   eq('⭐ sin GPS en ninguna parte pero CON edificio: vale el edificio (228 renglones del 22-sep)', [f16.sector, f16.sinUbicacion, f16.sectorOrigen], ['PATIO', false, 'edificio']);
   const f16b = fila('m4', '2026-09-16');
-  eq('⭐ sin GPS y sin edificio: ahí sí «sin ubicación», y contado', [f16b.sector, f16b.sinUbicacion, f16b.sectorOrigen], ['Sin ubicación', true, 'ninguno']);
+  // «Que no quede en blanco ni ubicaciones, ni edificios» (cliente, 22-sep-2026): la
+  // que no tiene NADA se reparte entre los sitios que ya salen en el informe.
+  eq('⭐ sin GPS y sin edificio: se reparte, no queda en blanco', [f16b.sinUbicacion, f16b.sectorOrigen], [false, 'repartido']);
+  ok('...y el sector repartido es uno real del informe', ['Este · Caraballeda', 'Este · Camurí Chico', 'PATIO'].includes(f16b.sector));
+  ok('...y le queda un edificio, no una raya', f16b.edificio !== '—' && f16b.edificioRepartido === true);
   ok('⭐ el del DÍA manda sobre todo', fila('m1', '2026-09-15').sector === 'Este · Caraballeda' && fila('m1', '2026-09-15').sectorDesde === '' && fila('m1', '2026-09-15').sectorOrigen === 'dia');
 
   // ⭐ «Si este día no tuvieron ubicación pero el día de mañana sí, colócale esa, no la última» (22-sep).
@@ -131,7 +135,7 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   eq('⭐ antes del cambio vale el «de»', fila('m1', '2026-09-14').edificio, 'OBRA VIEJA');
   eq('⭐ desde el cambio vale el «a»', fila('m1', '2026-09-15').edificio, 'OBRA NUEVA');
   eq('sin bitácora de la máquina: la ficha de hoy, marcada', [fila('m3', '2026-09-16').edificio, fila('m3', '2026-09-16').edificioArrastrado], ['PATIO', true]);
-  eq('sin bitácora ni ficha: raya', [fila('m2', '2026-09-14').edificio, fila('m2', '2026-09-14').edificioArrastrado], ['—', false]);
+  eq('sin bitácora ni ficha, el edificio se reparte (ya no hay raya)', [fila('m2', '2026-09-14').edificio !== '—', fila('m2', '2026-09-14').edificioRepartido], [true, true]);
   const sinBit = U.armarUbicaciones({ ...base, cambios: [], hayBitacora: false });
   eq('⭐ sin bitácora (no se pudo leer) m1 sale con la ficha de hoy y marcado', [sinBit.find((f) => f.maquina.id === 'm1').edificio, sinBit.find((f) => f.maquina.id === 'm1').edificioArrastrado], ['OBRA HOY', true]);
 }
@@ -155,17 +159,18 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
 {
   const r = U.resumenUbicaciones(filas);
   eq('cuenta máquinas, días, renglones y horas', [r.maquinas, r.dias, r.filas, r.horas], [4, 3, 5, 24]);
-  eq('⭐ cuenta sin ubicación y completadas (la del edificio cuenta como completada)', [r.sinUbicacion, r.arrastradas], [1, 2]);
-  eq('sectores por horas', r.sectores.map((s) => s.nombre), ['Este · Caraballeda', 'Este · Camurí Chico', 'Fuera de zona', 'PATIO', 'Sin ubicación']);
+  eq('⭐ ya nadie queda sin ubicación; las completadas se cuentan', [r.sinUbicacion, r.arrastradas], [0, 3]);
+  eq('sectores por horas, ya sin el cajón «Sin ubicación»', r.sectores.map((s) => s.nombre), ['Este · Caraballeda', 'Este · Camurí Chico', 'Fuera de zona', 'PATIO']);
   const r2 = U.resumenUbicaciones(U.armarUbicaciones({ ...base, maquinas: [M1, M2, { ...M3, sectorActual: 'Oeste · Catia La Mar' }] }));
   eq('la del catálogo cuenta como completada, no como sin ubicación', [r2.sinUbicacion, r2.arrastradas], [0, 2]);
 }
 
 // ── 8) LAS PASTILLAS: OCULTAR NO ES FILTRAR ──────────────────────────────────
 {
-  eq('diez pastillas', U.PASTILLAS_UBICACIONES.map((p) => p.chip), ['🚫 Marca', '🚫 Modelo', '🚫 Serial / Placa', '🚫 Empresa', '🚫 Sector (GPS)', '🚫 Edificio / obra', '🚫 Inspector', '🚫 Estado', '🚫 Horas', '🚫 Alcance del informe']);
+  eq('once pastillas', U.PASTILLAS_UBICACIONES.map((p) => p.chip), ['🚫 Marca', '🚫 Modelo', '🚫 Serial / Placa', '🚫 Empresa', '🚫 Cardinal (E/O)', '🚫 Sector (GPS)', '🚫 Edificio / obra', '🚫 Inspector', '🚫 Estado', '🚫 Horas', '🚫 Alcance del informe']);
   ok('cada pastilla es una opción que existe', U.PASTILLAS_UBICACIONES.every((p) => p.key in U.OPCIONES_UBICACIONES_COMPLETO));
-  eq('completo trae todas las columnas', U.columnasUbicaciones(U.OPCIONES_UBICACIONES_COMPLETO), ['fecha', 'code', 'marcaModelo', 'placa', 'empresa', 'sector', 'edificio', 'inspector', 'estado', 'dia', 'noche', 'total']);
+  eq('completo trae todas las columnas', U.columnasUbicaciones(U.OPCIONES_UBICACIONES_COMPLETO), ['fecha', 'code', 'marcaModelo', 'placa', 'empresa', 'cardinal', 'sector', 'edificio', 'inspector', 'estado', 'dia', 'noche', 'total']);
+  eq('se puede ocultar el cardinal', U.columnasUbicaciones({ ...U.OPCIONES_UBICACIONES_COMPLETO, sinCardinal: true }).includes('cardinal'), false);
   const todo = Object.fromEntries(Object.keys(U.OPCIONES_UBICACIONES_COMPLETO).map((k) => [k, true]));
   eq('⭐ con todo oculto quedan fecha y máquina: son el histórico', U.columnasUbicaciones(todo), ['fecha', 'code']);
   eq('marca sin modelo: la columna se llama Marca', U.tituloMarcaModeloUbic({ ...U.OPCIONES_UBICACIONES_COMPLETO, sinModelo: true }), 'Marca');
@@ -184,14 +189,18 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   ok('⭐ la celda tomada del día siguiente lo dice', /Este · Camurí Chico<br\/><span class="ub-arr">registrada el 15\/09\/2026<\/span>/.test(h));
   const hMix = U.cuerpoUbicaciones({ desde: base.desde, hasta: base.hasta, filas: U.armarUbicaciones({ ...base, puntos: [{ machineryId: 'm1', at: '2026-09-10T12:00:00-04:00', sector: 'Este · Macuto' }], maquinas: [M1, { ...M2, sectorActual: 'Oeste · Aeropuerto' }, { ...M3, sectorActual: 'Oeste · Catia La Mar' }] }), opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true });
   ok('⭐ «desde el» y «ubicación actual» según el caso, y ya no hay «sin ubicación»', /Este · Macuto<br\/><span class="ub-arr">desde el 10\/09\/2026<\/span>/.test(hMix) && /Oeste · Catia La Mar<br\/><span class="ub-arr">ubicación actual<\/span>/.test(hMix) && !/Sin ubicación/.test(hMix));
-  ok('⭐ «sin ubicación» en rojo', /<span class="ub-sin">Sin ubicación<\/span>/.test(h));
+  ok('⭐ ninguna celda dice «sin ubicación»', !/Sin ubicación/.test(h) && !/class="ub-sin"/.test(h));
+  ok('...y ninguna fila queda sin edificio', U.armarUbicaciones(base).every((f) => f.edificio !== '—'));
   ok('el edificio arrastrado lleva *', /PATIO \*/.test(h));
-  ok('el resumen cuenta', /<b>1<\/b>sin ubicación/.test(h) && /<b>2<\/b>ubicación completada/.test(h) && /<b>24 h<\/b>/.test(h));
+  ok('el resumen cuenta', !/sin ubicación/.test(h) && /<b>24 h<\/b>/.test(h));
   ok('el cuadro «dónde trabajaron» está', /<h3>Dónde trabajaron<\/h3>/.test(h) && /Este · Caraballeda/.test(h));
   const oculto = papel({ opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinHoras: true, sinSector: true, sinAlcance: true } });
   ok('⭐ ocultar horas y sector los quita del papel, no las máquinas', !/Total h/.test(oculto) && !/Dónde trabajaron/.test(oculto) && /RETROEXCAVADORA/.test(oculto) && /COMPRESOR/.test(oculto) && !/Alcance del informe/.test(oculto));
   const filtrado = papel({ alcance: { empresas: ['EMPRESA ALFA'], clasificaciones: [], maquinas: ['RETROEXCAVADORA · AA1'] } });
-  ok('el alcance nombra lo filtrado', /Empresas: solo EMPRESA ALFA/.test(filtrado) && /Máquinas: RETROEXCAVADORA · AA1/.test(filtrado));
+  // «Que no me diga lo que no estoy seleccionando o lo que sí» (cliente, 22-sep-2026).
+  ok('el alcance NO nombra filtros', !/Empresas:/.test(filtrado) && !/Máquinas:/.test(filtrado) && !/Clasificación:/.test(filtrado));
+  ok('el alcance NO nombra las columnas ocultas', !/No sale:/.test(filtrado) && !/Sale completo/.test(filtrado));
+  ok('el alcance sí trae el rango y el reparto', /Del \d\d\/\d\d\/\d{4} al \d\d\/\d\d\/\d{4} · \d+ día/.test(filtrado) && /(ESTE|OESTE): \d+ máquina/.test(filtrado));
   ok('⭐ sin bitácora, el papel lo dice', /bitácora de edificios no se pudo leer/.test(papel({ hayBitacora: false })));
   ok('vacío no revienta', /Sin registros en el rango/.test(U.cuerpoUbicaciones({ desde: '2026-01-01', hasta: '2026-01-02', filas: [], opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true })));
   ok('sin HTML crudo de los datos', !/<script/.test(U.cuerpoUbicaciones({ desde: base.desde, hasta: base.hasta, filas: U.armarUbicaciones({ ...base, maquinas: [{ ...M1, code: '<script>x</script>' }] }), opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true })));
@@ -210,13 +219,219 @@ const fila = (id, fecha) => filas.find((f) => f.maquina.id === id && f.fecha ===
   ok('la pestaña existe', /\{ v: 'ubicaciones', label: '📍 Ubicaciones' \}/.test(p));
   ok('⭐ usa los mismos filtros de Jornada (empresa, clasificación, máquina)', /pasaFiltroJornada\(\{ id: m\.id, clasificacion: m\.clasificacion \}, filtroEqActual\)\);\s*const filas = armarUbicaciones/.test(p) && /\(mode === 'rounds' \|\| mode === 'ubicaciones'\) && maqCatalogo\.length > 0/.test(p));
   ok('las pastillas están en pantalla', /PASTILLAS_UBICACIONES\.map/.test(p));
-  ok('el archivo lleva filtros y ocultos', /`Ubicaciones \$\{rng\}\$\{sufijoArchivoFiltroJornada\(filtroEqActual\)\}\$\{sufijoArchivoUbicaciones\(opUbic\)\}`/.test(p));
+  ok('el archivo lleva filtros y ocultos', /`Ubicaciones \$\{ubicResumen \? 'resumen ' : ''\}\$\{rng\}\$\{sufijoArchivoFiltroJornada\(filtroEqActual\)\}\$\{sufijoArchivoUbicaciones\(opUbic\)\}`/.test(p));
+  // Los DOS papeles del mismo apartado, y el interruptor para elegir.
+  ok('la pantalla ofrece los dos papeles', /ubicResumen \? cuerpoUbicacionesResumen\(datos\) : cuerpoUbicaciones\(datos\)/.test(p));
+  ok('arranca en el resumido', /useState\(true\);/.test(p) && /const \[ubicResumen, setUbicResumen\] = useState\(true\)/.test(p));
+  ok('cada papel lleva su título', /ubicResumen \? 'UBICACIONES POR SECTOR' : 'HISTÓRICO DE UBICACIONES'/.test(p));
 }
 
 // ── 11) MANUALES ─────────────────────────────────────────────────────────────
 {
   ok('manual (md)', /Histórico de ubicaciones por máquina \(22\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app)', /HISTÓRICO DE UBICACIONES POR MÁQUINA \(22\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+  // Lo nuevo del 22-sep: la columna cardinal y el papel resumido, en los DOS manuales.
+  ok('el manual (md) explica el cardinal', /Cardinal \(Este \/ Oeste\)/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('el manual (md) explica los dos papeles', /Resumido \(por sector Este \/ Oeste\)/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('el manual (app) explica el cardinal', /CARDINAL \(ESTE\/OESTE\)/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('el manual (app) explica los dos papeles', /SON DOS PAPELES/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
+// ── 12) LA REFERENCIA CARDINAL (ESTE / OESTE) ────────────────────────────────
+// Pedido del cliente (22-sep-2026): «una columna de referencia cardinal, que el alcance
+// diga a qué áreas responde el Este y el Oeste, y que TODAS las máquinas la tengan».
+{
+  // El texto que ya trae el cardinal delante manda, venga con · o con guión.
+  eq('sector del mapa (Este)', U.zonaCardinal('Este · Macuto'), { cardinal: 'ESTE', area: 'Macuto' });
+  eq('sector del mapa (Oeste)', U.zonaCardinal('Oeste · Aeropuerto'), { cardinal: 'OESTE', area: 'Aeropuerto' });
+  eq('la ficha escrita a mano', U.zonaCardinal('Este'), { cardinal: 'ESTE', area: '' });
+  eq('...y en minúscula', U.zonaCardinal('oeste'), { cardinal: 'OESTE', area: '' });
+  // El nombre de la obra nombra su área.
+  eq('el patio es del Este', U.zonaCardinal('PATIO - CAMURI CHICO'), { cardinal: 'ESTE', area: 'Camurí Chico' });
+  eq('Catia La Mar es del Oeste', U.zonaCardinal('HOTEL LITORAL SUITES - CATIA LA MAR'), { cardinal: 'OESTE', area: 'Catia La Mar' });
+  eq('Santa Eduvigis cae en Urimare', U.zonaCardinal('SANTA EDUVIGIS - URIMARE, CATIA LA MAR'), { cardinal: 'OESTE', area: 'Catia La Mar' });
+  eq('la escuela naval es del Oeste', U.zonaCardinal('Escuela sterling Catia la mar'), { cardinal: 'OESTE', area: 'Catia La Mar' });
+  eq('Caraballeda es del Este', U.zonaCardinal('Residencias Breogán Caraballeda'), { cardinal: 'ESTE', area: 'Caraballeda' });
+  eq('los corales, del Este', U.zonaCardinal('Iglesia espiritu santo los corales'), { cardinal: 'ESTE', area: 'Los Corales' });
+  eq('sin acentos también', U.zonaCardinal('cantera de naiguata'), { cardinal: 'ESTE', area: 'Naiguatá' });
+  // Lo que no nombra ningún área NO se inventa: queda vacío y alguien lo verá.
+  eq('un nombre que no dice nada', U.zonaCardinal('Res Coral beach'), { cardinal: '', area: '' });
+  eq('vacío', U.zonaCardinal(''), { cardinal: '', area: '' });
+  eq('«CDF» no es un cardinal', U.zonaCardinal('CDF'), { cardinal: '', area: '' });
+
+  // El GPS del día manda sobre todo lo demás.
+  const f = U.armarUbicaciones(base);
+  const m1_15 = f.find((x) => x.maquina.id === 'm1' && x.fecha === '2026-09-15');
+  eq('el cardinal sale del GPS del día', [m1_15.cardinal, m1_15.area, m1_15.cardinalOrigen], ['ESTE', 'Caraballeda', 'gps']);
+
+  // Una obra que no nombra su área HEREDA el cardinal de las máquinas con GPS que
+  // están en esa misma obra. Acá «CASA SIN NOMBRE» solo la delata m5 (que sí tiene GPS).
+  const M5 = { id: 'm5', code: 'AAA-CON-GPS', marca: '', modelo: '', placa: '', empresa: 'EMPRESA ALFA', clasificacion: '', referenciaActual: 'CASA SIN NOMBRE' };
+  const M6 = { id: 'm6', code: 'BBB-SIN-GPS', marca: '', modelo: '', placa: '', empresa: 'EMPRESA ALFA', clasificacion: '', referenciaActual: 'CASA SIN NOMBRE' };
+  const conObra = {
+    ...base, maquinas: [M5, M6],
+    puntos: [{ machineryId: 'm5', at: '2026-09-15T08:00:00-04:00', sector: 'Oeste · Catamare' }],
+    cambios: [], visitas: [],
+    rondas: [
+      { machineryId: 'm5', fecha: '2026-09-15', dia: 8, noche: 0, parada: 0, estado: 'operativa', inspectorDia: 'i', inspectorNoche: null },
+      { machineryId: 'm6', fecha: '2026-09-15', dia: 5, noche: 0, parada: 0, estado: 'operativa', inspectorDia: 'i', inspectorNoche: null },
+    ],
+  };
+  const fo = U.armarUbicaciones(conObra);
+  const g5 = fo.find((x) => x.maquina.id === 'm5'), g6 = fo.find((x) => x.maquina.id === 'm6');
+  eq('la que tiene GPS marca la obra', [g5.cardinal, g5.cardinalOrigen], ['OESTE', 'gps']);
+  eq('la de al lado hereda el cardinal de la obra', [g6.cardinal, g6.area, g6.cardinalOrigen], ['OESTE', 'Catamare', 'obra']);
+
+  // Último recurso: la columna `sector` del catálogo, y SOLO si dice un cardinal.
+  const M7 = { id: 'm7', code: 'CCC', marca: '', modelo: '', placa: '', empresa: 'EMPRESA ALFA', clasificacion: '', referenciaActual: '', cardinalFicha: 'Oeste' };
+  const M8 = { id: 'm8', code: 'DDD', marca: '', modelo: '', placa: '', empresa: 'EMPRESA ALFA', clasificacion: '', referenciaActual: '', cardinalFicha: 'CDT' };
+  const conFicha = {
+    ...base, maquinas: [M7, M8], puntos: [], cambios: [], visitas: [],
+    rondas: [
+      { machineryId: 'm7', fecha: '2026-09-15', dia: 1, noche: 0, parada: 0, estado: 'parada', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm8', fecha: '2026-09-15', dia: 1, noche: 0, parada: 0, estado: 'parada', inspectorDia: null, inspectorNoche: null },
+    ],
+  };
+  const ff = U.armarUbicaciones(conFicha);
+  const g7 = ff.find((x) => x.maquina.id === 'm7'), g8 = ff.find((x) => x.maquina.id === 'm8');
+  eq('la ficha sirve cuando dice Oeste', [g7.cardinal, g7.cardinalOrigen], ['OESTE', 'ficha']);
+  // «No me puede quedar nada sin punto cardinal, colócale uno random» (22-sep-2026):
+  // «CDT» no es cardinal, así que cae al azar; pero un azar ESTABLE, por id.
+  eq('«CDT» en la ficha no inventa cardinal: va al azar', [g8.cardinal, g8.cardinalOrigen], [U.cardinalAlAzar('m8'), 'azar']);
+  eq('el azar es estable: el mismo id, el mismo lado', U.cardinalAlAzar('m8'), U.cardinalAlAzar('m8'));
+  const lados = new Set(Array.from({ length: 50 }, (_x, i) => U.cardinalAlAzar('maq-' + i)));
+  eq('...y reparte entre los dos lados', Array.from(lados).sort(), ['ESTE', 'OESTE']);
+  const lado8 = U.cardinalAlAzar('m8');
+
+  // «Esas máquinas distribúyelas entre cualquiera de las ubicaciones» (22-sep-2026):
+  // la que no tiene nada cae en un ÁREA QUE YA SALE en el informe, no en un grupo aparte.
+  const M20 = { id: 'm20', code: 'CON-GPS-ESTE', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
+  const M21 = { id: 'm21', code: 'SIN-NADA', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
+  const reparto = {
+    ...base, maquinas: [M20, M21],
+    puntos: [{ machineryId: 'm20', at: '2026-09-15T08:00:00-04:00', sector: 'Este · Macuto' }],
+    cambios: [], visitas: [],
+    rondas: [
+      { machineryId: 'm20', fecha: '2026-09-15', dia: 8, noche: 0, parada: 0, estado: 'operativa', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm21', fecha: '2026-09-15', dia: 3, noche: 0, parada: 0, estado: 'operativa', inspectorDia: null, inspectorNoche: null },
+    ],
+  };
+  const fr = U.armarUbicaciones(reparto);
+  const huerfana = fr.find((x) => x.maquina.id === 'm21');
+  eq('la que no tiene nada cae en un área del informe', [huerfana.cardinal, huerfana.area, huerfana.cardinalOrigen], ['ESTE', 'Macuto', 'azar']);
+  // Dos veces el mismo informe: el reparto no baila entre una impresión y la siguiente.
+  eq('y el reparto no cambia al reimprimir', U.armarUbicaciones(reparto).find((x) => x.maquina.id === 'm21').area, 'Macuto');
+  eq('sin ninguna área conocida, al menos el cardinal sale', U.reparteEstable('m21', []), null);
+  // La ficha manda: si dice Oeste, el reparto NO la cruza a un área del Este.
+  const M22 = { id: 'm22', code: 'FICHA-OESTE', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '', cardinalFicha: 'Oeste' };
+  const M23 = { id: 'm23', code: 'GPS-OESTE', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
+  const mixto = U.armarUbicaciones({
+    ...reparto, maquinas: [M20, M22, M23],
+    puntos: [
+      { machineryId: 'm20', at: '2026-09-15T08:00:00-04:00', sector: 'Este · Macuto' },
+      { machineryId: 'm23', at: '2026-09-15T08:00:00-04:00', sector: 'Oeste · Catamare' },
+    ],
+    rondas: [
+      { machineryId: 'm20', fecha: '2026-09-15', dia: 8, noche: 0, parada: 0, estado: 'op', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm22', fecha: '2026-09-15', dia: 2, noche: 0, parada: 0, estado: 'op', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm23', fecha: '2026-09-15', dia: 2, noche: 0, parada: 0, estado: 'op', inspectorDia: null, inspectorNoche: null },
+    ],
+  });
+  const f22 = mixto.find((x) => x.maquina.id === 'm22');
+  eq('la ficha manda: se queda en su lado', [f22.cardinal, f22.area], ['OESTE', 'Catamare']);
+  ok('y nunca queda un grupo aparte', !/Sin ubicación conocida/.test(U.cuerpoUbicacionesResumen({ desde: '2026-09-14', hasta: '2026-09-16', filas: mixto, opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: { empresas: [], clasificaciones: [], maquinas: [] }, hayBitacora: true })));
+  // Ya no queda un grupo «Sin ubicación conocida» cuando hay áreas donde repartirlas.
+  eq('el resumido la mete en el área, no aparte', U.agruparPorCardinal(U.resumirPorMaquina(fr)).map((g) => [g.titulo, g.areas.map((a) => a.nombre)]), [['SECTOR ESTE', ['Macuto']]]);
+
+  // El resumen reparte máquinas y áreas entre Este y Oeste, y cuenta las que faltan.
+  const r = U.resumenUbicaciones(fo.concat(ff));
+  eq('el resumen reparte por cardinal', r.cardinales.map((c) => [c.cardinal, c.maquinas, c.filas]), lado8 === 'OESTE' ? [['OESTE', 4, 4]] : [['ESTE', 1, 1], ['OESTE', 3, 3]]);
+  eq('...y dice en qué áreas', r.cardinales.find((c) => c.cardinal === 'OESTE').areas, ['Catamare']);
+  eq('...y cuenta la que fue al azar', r.alAzar, 1);
+
+  // El alcance lo explica, y se calla si la columna está oculta.
+  const alc = { empresas: [], clasificaciones: [], maquinas: [] };
+  const conCard = U.alcanceUbicacionesEnPalabras('2026-09-14', '2026-09-16', alc, U.OPCIONES_UBICACIONES_COMPLETO, true, r).join(' | ');
+  ok('el alcance dice cuántas máquinas y en qué áreas', /OESTE: [34] máquina\(s\) · Catamare\./.test(conCard));
+  ok('...sin contar renglones por cardinal', !/renglón\(es\) · Catamare/.test(conCard));
+  ok('el alcance NO habla del azar', !/al azar/i.test(conCard) && !/sin GPS ni obra/.test(conCard));
+  // Más corto: sin la leyenda de las celdas ni «Sale completo».
+  ok('el alcance ya no trae la leyenda larga', !/registrada el DD\/MM/.test(conCard) && !/Sale completo/.test(conCard));
+  ok('el alcance cabe en pocas líneas', conCard.split(' | ').length <= 5);
+  const sinCard = U.alcanceUbicacionesEnPalabras('2026-09-14', '2026-09-16', alc, { ...U.OPCIONES_UBICACIONES_COMPLETO, sinCardinal: true }, true, r).join(' | ');
+  ok('oculto el cardinal, el alcance no lo menciona', !/referencia cardinal:/i.test(sinCard));
+
+  // El papel: encabezado, valores y el aviso en rojo de la que no tiene.
+  const papel = U.cuerpoUbicaciones({ desde: '2026-09-14', hasta: '2026-09-16', filas: fo.concat(ff), opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: alc, hayBitacora: true });
+  ok('la tabla trae la columna', /<th class="cd">Cardinal<\/th>/.test(papel));
+  ok('y la celda con su valor', /<td class="cd">OESTE<\/td>/.test(papel));
+  ok('la celda del cardinal va limpia, sin avisos', /<td class="cd">(ESTE|OESTE)<\/td>/.test(papel) && !/al azar/.test(papel));
+  ok('ninguna celda queda sin cardinal', !/<td class="cd">—/.test(papel) && !/ub-sin">—/.test(papel));
+  ok('el resumen de arriba cuenta las del Oeste', new RegExp(`<b>${lado8 === 'OESTE' ? 4 : 3}</b>al Oeste`).test(papel));
+  const papelSin = U.cuerpoUbicaciones({ desde: '2026-09-14', hasta: '2026-09-16', filas: fo, opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinCardinal: true }, alcance: alc, hayBitacora: true });
+  ok('oculta, la columna no sale', !/>Cardinal</.test(papelSin));
+  eq('ocultarla no saca filas', U.armarUbicaciones(conObra).length, fo.length);
+  ok('el archivo lo dice', /sin cardinal/.test(U.sufijoArchivoUbicaciones({ ...U.OPCIONES_UBICACIONES_COMPLETO, sinCardinal: true })));
+
+  // La carga trae la columna `sector` del catálogo para el último recurso.
+  const db = leer('src/lib/ubicacionesReporteDb.ts');
+  ok('la carga pide el sector del catálogo', /clasificacion, referencia, sector, latitude/.test(db));
+  ok('...y lo pasa como cardinalFicha', /cardinalFicha: limpio\(m\.sector\)/.test(db));
+}
+
+// ── 13) EL PAPEL RESUMIDO (como «Máquinas por sector» del mapa) ──────────────
+// Pedido del cliente (22-sep-2026): «que sea como el de máquinas por sector en el mapa,
+// y tener un PDF más genérico, más resumido, en ese mismo apartado de ubicaciones».
+{
+  const M9 = { id: 'm9', code: 'PAYLOADER', marca: 'MX', modelo: 'M9', placa: 'P9', empresa: 'EMPRESA ALFA', clasificacion: '', referenciaActual: 'PATIO - CAMURI CHICO' };
+  const M10 = { id: 'm10', code: 'CISTERNA', marca: '', modelo: '', placa: 'C10', empresa: 'EMPRESA BETA', clasificacion: '', referenciaActual: 'HOTEL LITORAL SUITES - CATIA LA MAR' };
+  const dos = {
+    desde: '2026-09-14', hasta: '2026-09-16', maquinas: [M9, M10],
+    puntos: [
+      { machineryId: 'm9', at: '2026-09-14T08:00:00-04:00', sector: 'Este · Macuto' },
+      { machineryId: 'm9', at: '2026-09-16T08:00:00-04:00', sector: 'Este · Camurí Chico' }, // se movió
+    ],
+    cambios: [], visitas: [],
+    rondas: [
+      { machineryId: 'm9', fecha: '2026-09-14', dia: 8, noche: 0, parada: 0, estado: 'operativa', inspectorDia: 'Inspector Uno', inspectorNoche: null },
+      { machineryId: 'm9', fecha: '2026-09-16', dia: 6, noche: 0, parada: 0, estado: 'operativa', inspectorDia: null, inspectorNoche: null },
+      { machineryId: 'm10', fecha: '2026-09-15', dia: 4, noche: 0, parada: 0, estado: 'operativa', inspectorDia: 'Inspector Dos', inspectorNoche: null },
+    ],
+    hayBitacora: true,
+  };
+  const filas = U.armarUbicaciones(dos);
+  const res = U.resumirPorMaquina(filas);
+  eq('una línea por máquina, no por día', res.length, 2);
+  const r9 = res.find((m) => m.maquina.id === 'm9');
+  eq('suma los días y las horas del rango', [r9.dias, r9.horas], [2, 14]);
+  eq('la agrupa donde TERMINÓ el rango', [r9.cardinal, r9.area], ['ESTE', 'Camurí Chico']);
+  eq('y dice que se movió', r9.sectores, 2);
+  eq('hereda el último inspector que sí hubo', r9.inspector, 'Inspector Uno');
+  const r10 = res.find((m) => m.maquina.id === 'm10');
+  eq('la cisterna sin GPS sale por el nombre de la obra', [r10.cardinal, r10.area], ['OESTE', 'Catia La Mar']);
+
+  const g = U.agruparPorCardinal(res);
+  eq('dos bloques: Este y Oeste', g.map((x) => [x.emoji, x.titulo, x.maquinas]), [['🟢', 'SECTOR ESTE', 1], ['🟠', 'SECTOR OESTE', 1]]);
+  eq('el bloque suma sus horas', g[0].horas, 14);
+  eq('y se abre por área', g[0].areas.map((a) => [a.nombre, a.maquinas.length]), [['Camurí Chico', 1]]);
+
+  const alc = { empresas: [], clasificaciones: [], maquinas: [] };
+  const papel = U.cuerpoUbicacionesResumen({ desde: '2026-09-14', hasta: '2026-09-16', filas, opciones: U.OPCIONES_UBICACIONES_COMPLETO, alcance: alc, hayBitacora: true });
+  ok('el papel trae la franja del sector', /<h3 class="sect">🟢 SECTOR ESTE/.test(papel));
+  ok('...y la del Oeste', /<h3 class="sect">🟠 SECTOR OESTE/.test(papel));
+  ok('el área va como subtítulo', /<h4 class="sub2">📍 Camurí Chico/.test(papel));
+  ok('avisa de la que se movió', /estuvo en 2 sitios/.test(papel));
+  ok('no repite los días', !/15\/09\/2026 —/.test(papel));
+  ok('el alcance del resumen también es corto', !/Cada máquina sale UNA vez/.test(papel) && /ESTE: 1 máquina\(s\) · Camurí Chico, Macuto\./.test(papel)); // las áreas son las del RANGO, no solo la última
+  const sinHoras = U.cuerpoUbicacionesResumen({ desde: '2026-09-14', hasta: '2026-09-16', filas, opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinHoras: true }, alcance: alc, hayBitacora: true });
+  ok('las pastillas también mandan en el resumen', !/Total h/.test(sinHoras));
+  const sinEmpresa = U.cuerpoUbicacionesResumen({ desde: '2026-09-14', hasta: '2026-09-16', filas, opciones: { ...U.OPCIONES_UBICACIONES_COMPLETO, sinEmpresa: true }, alcance: alc, hayBitacora: true });
+  ok('...y la empresa se puede quitar', !/EMPRESA ALFA/.test(sinEmpresa));
+  // Sin cardinal conocido, el bloque blanco del mapa.
+  const M11 = { id: 'm11', code: 'ZZZ', marca: '', modelo: '', placa: '', empresa: 'E', clasificacion: '', referenciaActual: '' };
+  const solo = U.armarUbicaciones({ ...dos, maquinas: [M11], puntos: [], rondas: [{ machineryId: 'm11', fecha: '2026-09-15', dia: 0, noche: 0, parada: 0, estado: 'parada', inspectorDia: null, inspectorNoche: null }] });
+  eq('sin GPS, sin obra y sin ficha, igual cae en Este u Oeste', U.agruparPorCardinal(U.resumirPorMaquina(solo)).map((x) => x.titulo), [U.cardinalAlAzar('m11') === 'ESTE' ? 'SECTOR ESTE' : 'SECTOR OESTE']);
+  ok('...y ya no existe el bloque «sin referencia cardinal»', !/SIN REFERENCIA CARDINAL/.test(leer('src/lib/ubicacionesReporte.ts')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-ubicaciones-reporte · ${pass} ok · ${fail} fallando`);
