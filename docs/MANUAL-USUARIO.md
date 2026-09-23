@@ -6211,6 +6211,27 @@ de la pastilla elegida. Es **una sola lista**, no dos: a mucha gente se le vende
 y tenerla dos veces es tener su cuenta partida en dos. Debajo del nombre se lee qué es
 (*👤 Cliente · 🏭 Proveedor*) y un **🏢** marca a los que son una **empresa interna**.
 
+**🏢 Empresas del catálogo, con su encargado.** La cuarta pastilla del selector no filtra la lista
+de contactos: muestra **las empresas que ya se tienen en catálogo** —las mismas con las que trabaja
+maquinaria— **con su encargado**, su RIF y cuántas máquinas tiene cada una. Se busca **por nombre,
+por RIF y por encargado**, que es como uno se acuerda de una empresa cuando no recuerda la razón
+social exacta. Las que ya están registradas como contacto llevan un **✅**.
+
+Al tocar una, el sistema **resuelve a qué contacto corresponde** y la deja elegida:
+
+1. Si ya hay un contacto enlazado a esa empresa, **lo usa**.
+2. Si hay uno con el **mismo RIF**, es el mismo: solo le faltaba el enlace, y se lo pone.
+3. Si hay uno con el **mismo nombre**, igual.
+4. Si no hay ninguno, **lo crea** como cliente, con la razón social y el RIF de la empresa, ya
+   enlazado — así sus máquinas salen de una en el renglón de servicio.
+
+> **⚠️ Por qué no crea uno cada vez.** Dos fichas de la misma empresa es **su cuenta por cobrar
+> partida en dos**: la mitad de lo que debe en una y la otra mitad en la otra. Por eso busca antes
+> de crear, y por eso el RIF repetido nunca entra dos veces.
+
+Si el contacto que le corresponde está **deshabilitado**, no lo resucita solo: avisa para que lo
+habilites en 📇 Contactos. Elegir una empresa **no escribe nada en el catálogo de empresas**.
+
 **2. La máquina, desde el propio renglón de servicio.** En **"🚜 ¿A cuál máquina?"**, arriba del
 buscador, está ahora la pregunta **"🏢 ¿Es una empresa interna?"**:
 

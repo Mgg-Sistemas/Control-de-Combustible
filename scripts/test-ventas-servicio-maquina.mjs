@@ -196,7 +196,7 @@ const MACHINERY = [
   ok('el rótulo dice cliente O proveedor', /Cliente o proveedor/.test(s));
   ok('el buscador también', /Busca el cliente o proveedor/.test(s));
   ok('tiene las pastillas para filtrar por rol', /setRolCli/.test(s) && /🏭 Proveedores/.test(s));
-  ok('la lista se filtra por rol Y por texto', /buscarClientes\(filtrarContactos\(clientes as any, rolCli\) as any, q\)/.test(s));
+  ok('la lista se filtra por rol Y por texto', /buscarClientes\(filtrarContactos\(clientes as any, rolCli === 'empresas' \? 'todos' : rolCli\) as any, q\)/.test(s));
   ok('le pasa las empresas al selector de máquinas', /companies=\{empresas as any\}/.test(s));
   ok('...y relee los contactos al enlazar', /onEmpresaEnlazada=\{refetchClientes\}/.test(s));
   ok('la máquina sigue siendo solo de los renglones de servicio', /it\.kind === 'servicio' \?/.test(s));
@@ -224,6 +224,83 @@ const MACHINERY = [
 {
   ok('manual (md) lo explica', /cliente o proveedor y su máquina \(23\/09\/2026\)/i.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app) lo explica', /cliente o proveedor y su máquina \(23\/09\/2026\)/i.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (md) explica la pastilla de empresas', /Empresas del catálogo, con su encargado/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) explica la pastilla de empresas', /LAS EMPRESAS DEL CATÁLOGO, CON SU ENCARGADO, EN LA VENTA \(23\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
+// ── 12) 🏢 LAS EMPRESAS DEL CATÁLOGO, CON SU ENCARGADO ──────────────────────
+//
+// «coloca la opcion en ventas, de colocar el nombre de las empresas que se tiene
+//  en catalogo con su encargado».
+{
+  const CONTACTOS = [
+    { id: 'k1', name: 'COSTA BRAVA', doc_letter: 'J', doc_number: '401112223', es_cliente: true, active: true, company_id: 'e1' },
+    { id: 'k2', name: 'FERRETERIA ALBAMAR', doc_letter: 'J', doc_number: '409998887', es_cliente: false, es_proveedor: true, active: true, company_id: null },
+    { id: 'k3', name: 'ZETA FINAL', doc_letter: null, doc_number: null, es_cliente: true, active: true, company_id: null },
+  ];
+
+  // EL ENCARGADO, que es lo que se pidió mostrar.
+  eq('el encargado sale de sus máquinas', M.encargadosDeEmpresa(MACHINERY, 'e1'), ['ANA PEREZ', 'LUIS ROJAS']);
+  eq('una empresa sin máquinas no tiene encargado', M.encargadosDeEmpresa(MACHINERY, 'e3'), []);
+  // ⚠️ Una máquina RETIRADA no dice quién la atiende hoy.
+  eq('⭐ la retirada no aporta encargado', M.encargadosDeEmpresa(MACHINERY, 'e2'), []);
+  eq('sin empresa no hay encargado', M.encargadosDeEmpresa(MACHINERY, null), []);
+
+  const lista = M.empresasParaVenta(EMPRESAS, MACHINERY, CONTACTOS);
+  // ⚠️ A→Z: acá se busca un NOMBRE para facturarle. (El enlazador ordena por
+  //    máquinas, que es otra pregunta: «¿cuál tiene equipos?».)
+  eq('⭐ van A→Z', lista.map((x) => x.empresa.name), ['ALBAMAR', 'COSTA BRAVA', 'ZETA FINAL']);
+  eq('cada una con su encargado', lista[1].encargados, ['ANA PEREZ', 'LUIS ROJAS']);
+  eq('...y con cuántas máquinas tiene', lista[1].maquinas, 2);
+  ok('dice cuál YA está registrada como contacto', lista[1].contacto && lista[1].contacto.id === 'k1');
+  ok('...y cuál no', lista[0].contacto === null);
+  ok('la oculta no se ofrece para facturarle', !lista.some((x) => x.empresa.id === 'e4'));
+
+  // BUSCABLE por nombre, RIF **y encargado**.
+  eq('busca por nombre', M.empresasParaVenta(EMPRESAS, MACHINERY, CONTACTOS, 'zeta').map((x) => x.empresa.id), ['e3']);
+  eq('busca por RIF', M.empresasParaVenta(EMPRESAS, MACHINERY, CONTACTOS, '401112223').map((x) => x.empresa.id), ['e1']);
+  eq('⭐ busca por ENCARGADO', M.empresasParaVenta(EMPRESAS, MACHINERY, CONTACTOS, 'luis rojas').map((x) => x.empresa.id), ['e1']);
+  eq('el encargado de otra no la trae', M.empresasParaVenta(EMPRESAS, MACHINERY, CONTACTOS, 'nadie'), []);
+  eq('sin empresas no revienta', M.empresasParaVenta(null, MACHINERY, CONTACTOS), []);
+
+  // ⭐ RESOLVER A QUÉ CONTACTO CORRESPONDE. Crear uno cada vez sería la cuenta por
+  //    cobrar de la misma empresa partida en dos fichas.
+  const d1 = M.contactoParaEmpresa(EMPRESAS[0], CONTACTOS);
+  eq('la que ya tiene contacto enlazado se usa', [d1.accion, d1.contacto.id], ['usar', 'k1']);
+  const d2 = M.contactoParaEmpresa(EMPRESAS[1], CONTACTOS);
+  eq('⭐ mismo RIF = el mismo, solo le faltaba el enlace', [d2.accion, d2.contacto.id, d2.motivo], ['enlazar', 'k2', 'rif']);
+  const d3 = M.contactoParaEmpresa(EMPRESAS[2], CONTACTOS);
+  eq('mismo nombre también', [d3.accion, d3.contacto.id, d3.motivo], ['enlazar', 'k3', 'nombre']);
+  const d4 = M.contactoParaEmpresa({ id: 'e9', name: 'NUEVA SRL', rif: 'J-405556667' }, CONTACTOS);
+  eq('la que no está se crea', d4.accion, 'crear');
+  eq('...ya enlazada a la empresa', d4.fila.company_id, 'e9');
+  eq('...como cliente', d4.fila.es_cliente, true);
+  eq('...con su RIF partido bien', [d4.fila.doc_letter, d4.fila.doc_number], ['J', '405556667']);
+  eq('...y su razón social', [d4.fila.name, d4.fila.razon_social], ['NUEVA SRL', 'NUEVA SRL']);
+  eq('...sin nombre ni apellido, que es una empresa', [d4.fila.first_name, d4.fila.last_name], [null, null]);
+  const dG = M.contactoParaEmpresa({ id: 'e8', name: 'ENTE PUBLICO', rif: 'G-200001112' }, CONTACTOS);
+  eq('respeta el RIF de gobierno', dG.fila.doc_letter, 'G');
+  const dSin = M.contactoParaEmpresa({ id: 'e7', name: 'SIN RIF CA', rif: null }, CONTACTOS);
+  eq('sin RIF se crea igual, con el documento vacío', [dSin.accion, dSin.fila.doc_number], ['crear', null]);
+  // ⚠️ Un contacto DESHABILITADO no se resucita solo: la pantalla avisa a quién habilitar.
+  const dOff = M.contactoParaEmpresa(EMPRESAS[0], [{ ...CONTACTOS[0], active: false }]);
+  eq('⭐ avisa si el contacto está deshabilitado', [dOff.accion, dOff.deshabilitado], ['usar', true]);
+}
+
+// ── 13) LA PANTALLA · LA PASTILLA DE EMPRESAS ───────────────────────────────
+{
+  const s = sinComentarios(leer('src/screens/VentasScreen.tsx'));
+  ok('tiene la pastilla de empresas del catálogo', /🏢 Empresas del catálogo/.test(s));
+  ok('con su encargado en la línea', /x\.encargados\.slice\(0, 3\)\.join/.test(s));
+  ok('la lista sale de la regla, no de la pantalla', /empresasParaVenta\(empresas as any, machinery as any, clientes as any, q\)/.test(s));
+  ok('⭐ resuelve el contacto en vez de crear uno cada vez', /contactoParaEmpresa\(x\.empresa, clientes as any\)/.test(s));
+  ok('avisa si el contacto está deshabilitado', /está deshabilitado\. Habilítalo en 📇 Contactos/.test(s));
+  ok('el buscador dice que también busca por encargado', /Busca la empresa por nombre, RIF o encargado/.test(s));
+  // ⚠️ Con RLS un «no tienes permiso» llega como 0 filas y SIN error.
+  ok('pide la fila de vuelta al enlazar', /update\(\{ company_id: x\.empresa\.id, es_cliente: true \}\)[\s\S]{0,80}\.select\(\)/.test(s));
+  ok('...y al crear', /insert\(\{ \.\.\.d\.fila, created_by[\s\S]{0,60}\.select\(\)/.test(s));
+  ok('⭐ elegir una empresa NO escribe en el catálogo de empresas',
+    !/from\('companies'\)[\s\S]{0,40}\.(insert|update|delete|upsert)/.test(s));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-ventas-servicio-maquina · ${pass} ok · ${fail} fallando`);

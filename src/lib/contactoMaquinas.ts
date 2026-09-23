@@ -306,3 +306,135 @@ export function empresasConMaquinas(
     .map((empresa) => ({ empresa, maquinas: cuenta[empresa.id] ?? 0 }))
     .sort((a, b) => (b.maquinas - a.maquinas) || cmpText(a.empresa.name, b.empresa.name));
 }
+
+// ── 🏢 LAS EMPRESAS DEL CATÁLOGO, PARA VENDERLES · CON SU ENCARGADO ─────────
+//
+// Pedido del cliente, textual: «coloca la opcion en ventas, de colocar el nombre
+// de las empresas que se tiene en catalogo con su encargado».
+//
+// ⚠️ UNA EMPRESA DEL CATÁLOGO NO ES UN CONTACTO. Son dos cosas distintas: el
+//    catálogo de empresas es con el que trabaja maquinaria (jornadas, reportes,
+//    comidas) y el contacto es a quien se le factura, con su RIF y su cuenta por
+//    cobrar. Elegir la empresa en la venta tiene que RESOLVER a qué contacto
+//    corresponde, no crear uno nuevo cada vez: dos fichas de COSTA BRAVA es la
+//    cuenta por cobrar de COSTA BRAVA partida en dos.
+
+import { ContactoRow, docDigitos, filaContacto } from './contactos';
+
+/** Los encargados de las máquinas de UNA empresa, A→Z y sin repetir. */
+export function encargadosDeEmpresa(
+  machinery: MachineryRow[] | null | undefined,
+  companyId?: string | null,
+): string[] {
+  if (!companyId) return [];
+  const s = new Set<string>();
+  (machinery ?? []).forEach((m) => {
+    if (!m || m.active === false || m.company_id !== companyId) return;
+    const v = mayus(m.encargado);
+    if (v) s.add(v);
+  });
+  return [...s].sort(cmpText);
+}
+
+/** Una empresa del catálogo lista para elegirla en una venta. */
+export type EmpresaParaVenta = {
+  empresa: EmpresaRow;
+  maquinas: number;
+  encargados: string[];
+  /** El contacto que YA la representa, si alguien lo enlazó o lo creó antes. */
+  contacto: ContactoRow | null;
+};
+
+/**
+ * Las empresas del catálogo con su encargado, BUSCABLES por nombre, RIF **y
+ * encargado** — que es como se acuerda la gente de una empresa cuando no recuerda
+ * la razón social exacta.
+ *
+ * ⚠️ Van A→Z, no por cantidad de máquinas como en el enlazador: acá se está
+ *    buscando un nombre para facturarle, y una lista de nombres se busca A→Z.
+ *    Las ocultas no salen (no aparecen en ningún otro selector).
+ */
+export function empresasParaVenta(
+  companies: EmpresaRow[] | null | undefined,
+  machinery: MachineryRow[] | null | undefined,
+  contactos: ContactoRow[] | null | undefined,
+  texto?: string | null,
+): EmpresaParaVenta[] {
+  const q = norm(texto ?? '');
+  const cuenta = maquinasPorEmpresa(machinery);
+  const porEmpresa = new Map<string, ContactoRow>();
+  (contactos ?? []).forEach((c) => {
+    const id = (c as any)?.company_id;
+    if (id && !porEmpresa.has(id)) porEmpresa.set(id, c);
+  });
+  return (companies ?? [])
+    .filter((e) => e && !e.hidden)
+    .map((empresa) => ({
+      empresa,
+      maquinas: cuenta[empresa.id] ?? 0,
+      encargados: encargadosDeEmpresa(machinery, empresa.id),
+      contacto: porEmpresa.get(empresa.id) ?? null,
+    }))
+    .filter((x) => !q || norm([empresaHaystack(x.empresa), x.encargados.join(' ')].join(' ')).includes(q))
+    .sort((a, b) => cmpText(a.empresa.name, b.empresa.name));
+}
+
+/** La letra del RIF de una empresa («J-40111…» → 'J'). Por defecto J. */
+const letraDeRif = (rif: any): string => {
+  const l = String(rif ?? '').trim().charAt(0).toUpperCase();
+  return l === 'G' ? 'G' : 'J';
+};
+
+/**
+ * A qué contacto corresponde una empresa del catálogo, y qué hay que hacer.
+ *
+ * ⭐ EL ORDEN IMPORTA, y va del dato más duro al más blando:
+ *    1. Ya hay un contacto enlazado a esa empresa → se usa.
+ *    2. Hay uno con el MISMO RIF → es el mismo, solo le faltaba el enlace.
+ *    3. Hay uno con el MISMO NOMBRE → lo mismo (es como se importaron).
+ *    4. No hay → se crea, ya enlazado.
+ *
+ * ⚠️ Nunca «crear» si el RIF ya existe: el índice único lo rebotaría, y si no lo
+ *    rebotara quedarían dos fichas de la misma empresa con la cuenta por cobrar
+ *    partida en dos.
+ */
+export type ContactoDeEmpresa =
+  | { accion: 'usar'; contacto: ContactoRow; deshabilitado: boolean }
+  | { accion: 'enlazar'; contacto: ContactoRow; deshabilitado: boolean; motivo: 'rif' | 'nombre' }
+  | { accion: 'crear'; fila: Record<string, any> };
+
+export function contactoParaEmpresa(
+  empresa: EmpresaRow | null | undefined,
+  contactos: ContactoRow[] | null | undefined,
+): ContactoDeEmpresa {
+  const lista = contactos ?? [];
+  const apagado = (c: ContactoRow) => c.active === false;
+
+  const enlazado = empresa ? lista.find((c) => (c as any)?.company_id === empresa.id) : null;
+  if (enlazado) return { accion: 'usar', contacto: enlazado, deshabilitado: apagado(enlazado) };
+
+  const digitos = docDigitos(empresa?.rif);
+  if (digitos) {
+    const porRif = lista.find((c) => docDigitos(c.doc_number) === digitos);
+    if (porRif) return { accion: 'enlazar', contacto: porRif, deshabilitado: apagado(porRif), motivo: 'rif' };
+  }
+
+  const nombre = norm(empresa?.name);
+  if (nombre) {
+    const porNombre = lista.find((c) => norm(c.name) === nombre);
+    if (porNombre) return { accion: 'enlazar', contacto: porNombre, deshabilitado: apagado(porNombre), motivo: 'nombre' };
+  }
+
+  return {
+    accion: 'crear',
+    fila: {
+      ...filaContacto({
+        letra: letraDeRif(empresa?.rif),
+        numero: empresa?.rif,
+        razonSocial: empresa?.name,
+        esCliente: true,
+      }),
+      company_id: empresa?.id ?? null,
+    },
+  };
+}
