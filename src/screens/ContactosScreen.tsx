@@ -29,12 +29,13 @@ import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'reac
 import { Screen, Card, SectionTitle, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { ContactoForm } from '../components/ContactoForm';
+import { MaquinaPicker } from '../components/MaquinaPicker';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { Contacto } from '../types/database';
+import { Contacto, ContactoMaquina, Machinery } from '../types/database';
 import {
   RolContacto, buscarContactos, conteoContactos, docCanonico, docTipoLabel,
   filtrarContactos, rolesDe, sinDocumento,
@@ -58,6 +59,11 @@ export default function ContactosScreen() {
 
   const { data: contactos, loading, refetch } =
     useTable<Contacto>('contactos', { orderBy: 'name', realtimeFrom: 'contactos' });
+  // 🚜 El catálogo PROPIO de máquinas y el de equipos (este último SOLO para
+  // proponer: desde aquí nunca se escribe en `machinery`).
+  const { data: maquinas, refetch: refetchMaquinas } =
+    useTable<ContactoMaquina>('contacto_maquinas', { orderBy: 'codigo', realtimeFrom: 'contacto_maquinas' });
+  const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
 
   const [q, setQ] = useState('');
   const [rol, setRol] = useState<RolContacto>('todos');
@@ -67,6 +73,8 @@ export default function ContactosScreen() {
   // pantalla completa el confirm del navegador queda tapado y parece que se colgó.
   // Es una trampa que este proyecto ya documentó.
   const [confirmando, setConfirmando] = useState<string | null>(null);
+  // A qué contacto se le están viendo las máquinas.
+  const [maqDe, setMaqDe] = useState<Contacto | null>(null);
   const [busy, setBusy] = useState(false);
 
   const conteo = useMemo(() => conteoContactos(contactos), [contactos]);
@@ -191,6 +199,11 @@ export default function ContactosScreen() {
               </View>
               {canWrite && !confirma ? (
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  {/* 🚜 Sus máquinas. El número es el dato que importa de un
+                      vistazo: si dice 0, todavía no se le cargó ninguna. */}
+                  <TouchableOpacity onPress={() => setMaqDe(c)}>
+                    <Text style={{ fontSize: 15 }}>🚜{maquinas.filter((m) => m.contacto_id === c.id && m.active !== false).length || ''}</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => abrirEditar(c)}><Text style={{ fontSize: 15 }}>✏️</Text></TouchableOpacity>
                   {c.active === false
                     ? <TouchableOpacity onPress={() => cambiarEstado(c, true)}><Text style={{ fontSize: 15 }}>↩️</Text></TouchableOpacity>
@@ -220,6 +233,22 @@ export default function ContactosScreen() {
       })}
 
       <View style={{ height: spacing.xl }} />
+
+      {/* 🚜 Las máquinas de un contacto. Si además es una empresa registrada, el
+          desplegable le propone las del catálogo de equipos para copiarlas; si no,
+          se cargan a mano. En los dos casos van a SU lista, no al catálogo. */}
+      <MaquinaPicker
+        visible={!!maqDe}
+        contactoId={maqDe?.id ?? null}
+        contactoNombre={maqDe?.name ?? null}
+        companyId={(maqDe as any)?.company_id ?? null}
+        maquinas={maquinas.filter((m) => m.contacto_id === maqDe?.id)}
+        machinery={machinery as any}
+        usuarioId={session?.user?.id ?? null}
+        onCerrar={() => setMaqDe(null)}
+        onCambio={refetchMaquinas}
+        onElegir={() => { /* Desde el módulo solo se administran: elegir no hace nada. */ }}
+      />
 
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>

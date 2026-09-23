@@ -70,6 +70,10 @@ export function ventaDocumentoHtml(d: VentaDocData): string {
       <td>
         <div class="nm">${esc(it.name)}</div>
         <div class="tag">${it.kind === 'servicio' ? '🧰 Servicio' : '📦 Material'}</div>
+        ${/* A QUÉ MÁQUINA se le hizo (23-sep-2026). Va en el papel: un servicio de
+              maquinaria sin decir a cuál máquina fue es lo que después no se puede
+              cobrar ni reclamar. El nombre viene CONGELADO en el renglón. */''}
+        ${it.maquina ? `<div class="tag">🚜 ${esc(it.maquina)}${it.maquina_serial ? ` · Serial ${esc(it.maquina_serial)}` : ''}${it.maquina_placa ? ` · Placa ${esc(it.maquina_placa)}` : ''}</div>` : ''}
       </td>
       <td class="c">${qty(it.qty)}</td>
       <td class="c mut">${esc(it.unit || '—')}</td>

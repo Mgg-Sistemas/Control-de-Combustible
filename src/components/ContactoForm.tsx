@@ -22,7 +22,9 @@ import { Card } from './ui';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
-import { Contacto } from '../types/database';
+import { Contacto, Company } from '../types/database';
+import { useTable } from '../hooks/useTable';
+import { norm } from '../lib/text';
 import {
   DOC_LETRAS, docCanonico, docDuplicado, docTipoLabel, esPersona, filaContacto,
   limpiarNombre, partirNombre, repartirBusqueda, rubrosUsados, validarContacto,
@@ -71,6 +73,11 @@ export function ContactoForm({
   const [esProveedor, setEsProveedor] = useState(contacto ? !!contacto.es_proveedor : nacePara === 'proveedor');
   const [rubros, setRubros] = useState<string[]>(contacto?.tags ?? []);
   const [rubroNuevo, setRubroNuevo] = useState('');
+  // 🏢 La empresa registrada que ES este contacto (23-sep-2026). Es lo que permite
+  // proponerle SUS máquinas del catálogo de equipos. Opcional: la mayoría de los
+  // contactos no son empresas del sistema.
+  const [companyId, setCompanyId] = useState<string | null>(contacto?.company_id ?? null);
+  const [buscaEmp, setBuscaEmp] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -81,6 +88,13 @@ export function ContactoForm({
   };
   const choca = docDuplicado(contactos as any, letra, numero, contacto?.id ?? null);
   const sugeridos = useMemo(() => rubrosUsados(contactos as any).slice(0, 14), [contactos]);
+  // Solo las empresas ACTIVAS, y solo cuando hace falta el selector (no en la venta).
+  const { data: empresas } = useTable<Company>('companies', { orderBy: 'name' });
+  const empresasFiltradas = useMemo(() => {
+    const q = norm(buscaEmp);
+    if (!q) return [] as Company[];
+    return empresas.filter((e) => !(e as any).hidden && norm(e.name).includes(q)).slice(0, 12);
+  }, [empresas, buscaEmp]);
 
   const alternarRubro = (r: string) =>
     setRubros((prev) => (prev.some((x) => limpiarNombre(x) === limpiarNombre(r))
@@ -92,7 +106,7 @@ export function ContactoForm({
     if (m) { setAviso(`❌ ${m}`); return; }
     setGuardando(true); setAviso(null);
     try {
-      const fila = filaContacto(datos);
+      const fila = { ...filaContacto(datos), company_id: companyId };
       // ⚠️ Siempre con .select(): con RLS, un «no tienes permiso» llega como 0 filas
       //    y SIN error. Sin pedir la fila de vuelta, la pantalla diría «✅ listo» a
       //    algo que no se guardó.
@@ -194,6 +208,48 @@ export function ContactoForm({
           <TextInput value={correo} onChangeText={setCorreo} autoCapitalize="none" keyboardType="email-address" placeholder="correo@ejemplo.com" placeholderTextColor={colors.muted} style={input} />
           {rotulo('Dirección (opcional)')}
           <TextInput value={direccion} onChangeText={setDireccion} placeholder="Dirección fiscal / de entrega" placeholderTextColor={colors.muted} style={input} />
+        </>
+      ) : null}
+
+      {/* 🏢 ¿ES UNA EMPRESA YA REGISTRADA? Enlazarlo es lo que hace que al venderle
+          un servicio salgan SUS máquinas para elegirlas de un toque. Es opcional y
+          no cambia nada más: un contacto sin enlazar funciona igual, solo que sus
+          máquinas hay que cargarlas a mano. */}
+      {!compacto ? (
+        <>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>
+            ¿Es una empresa ya registrada? (opcional · sirve para proponerle sus máquinas)
+          </Text>
+          {companyId ? (
+            <TouchableOpacity
+              onPress={() => { setCompanyId(null); setBuscaEmp(''); }}
+              style={{ marginTop: 4, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surfaceAlt }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                🏢 {empresas.find((e) => e.id === companyId)?.name ?? 'Empresa enlazada'}
+              </Text>
+              <Text style={{ color: colors.danger, fontSize: 11 }}>Tocar para desenlazar</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TextInput
+                value={buscaEmp} onChangeText={setBuscaEmp}
+                placeholder="Busca la empresa… (déjalo vacío si no es ninguna)"
+                placeholderTextColor={colors.muted} style={input}
+              />
+              {buscaEmp.trim() ? (
+                <View style={{ marginTop: 4 }}>
+                  {empresasFiltradas.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Ninguna empresa con «{buscaEmp}».</Text>
+                  ) : empresasFiltradas.map((e) => (
+                    <TouchableOpacity key={e.id} onPress={() => { setCompanyId(e.id); setBuscaEmp(''); }} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontSize: 13 }}>🏢 {e.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          )}
         </>
       ) : null}
 

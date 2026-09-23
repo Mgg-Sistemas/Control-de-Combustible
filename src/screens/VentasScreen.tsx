@@ -36,6 +36,9 @@ import {
 } from '../lib/ventas';
 import { ventaDocumentoHtml } from '../lib/ventaDocumento';
 import { ContactoForm } from '../components/ContactoForm';
+import { MaquinaPicker } from '../components/MaquinaPicker';
+import { MaquinaContacto, maquinaDeRenglon } from '../lib/contactoMaquinas';
+import { ContactoMaquina, Machinery } from '../types/database';
 import { useBcvRate, fmtUsd, fmtBs } from '../lib/bcv';
 import { exportPdf } from '../lib/pdf';
 import { norm } from '../lib/text';
@@ -61,6 +64,12 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   const { data: clientes, refetch: refetchClientes } = useTable<SalesClient>('contactos', { orderBy: 'name' });
   const { data: servicios, refetch: refetchServicios } = useTable<SalesService>('sales_services', { orderBy: 'name' });
   const { data: inventario } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
+  // 🚜 Para poder decir a qué MÁQUINA se le hizo un servicio. `machinery` se lee
+  // SOLO para proponer: lo que se elige se copia a `contacto_maquinas`, que es un
+  // catálogo aparte. El de equipos no se toca nunca desde aquí.
+  const { data: maquinasContacto, refetch: refetchMaquinas } =
+    useTable<ContactoMaquina>('contacto_maquinas', { orderBy: 'codigo' });
+  const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -83,6 +92,9 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   // decia «crealo en la pestaña 👥 Clientes»: para registrar una venta habia que
   // abandonarla, perder lo tecleado y volver a empezar.
   const [nuevoCli, setNuevoCli] = useState(false);
+  // 🚜 A que MAQUINA se le hizo el servicio (23-sep-2026). `pickMaq` guarda el
+  // indice del renglon al que se le esta poniendo la maquina.
+  const [pickMaq, setPickMaq] = useState<number | null>(null);
 
   const cliente = clientes.find((c) => c.id === clientId) || null;
   const cuenta = useMemo(() => cuentaDe(items, conIva, IVA_PCT), [items, conIva]);
@@ -308,6 +320,35 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
                       <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>{fmtUsd(lineaTotal(it))}</Text>
                     </View>
                   </View>
+
+                  {/* 🚜 A QUÉ MÁQUINA se le hizo el servicio (23-sep-2026). Solo en
+                      los SERVICIOS: un saco de cemento no se le hace a una máquina.
+                      El nombre queda CONGELADO en el renglón y sale en el papel. */}
+                  {it.kind === 'servicio' ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (!clientId) return toast.error('Elige primero el cliente: las máquinas son suyas.');
+                          setPickMaq(i);
+                        }}
+                        style={{ flex: 1, paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderStyle: it.maquina ? 'solid' : 'dashed', borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                      >
+                        <Text style={{ color: it.maquina ? colors.text : colors.brandText, fontSize: 12, fontWeight: '700' }}>
+                          {it.maquina ? `🚜 ${it.maquina}` : '🚜 ¿A cuál máquina? (opcional)'}
+                        </Text>
+                        {it.maquina && (it.maquina_serial || it.maquina_placa) ? (
+                          <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                            {[it.maquina_serial ? `Serial ${it.maquina_serial}` : '', it.maquina_placa ? `Placa ${it.maquina_placa}` : ''].filter(Boolean).join(' · ')}
+                          </Text>
+                        ) : null}
+                      </TouchableOpacity>
+                      {it.maquina ? (
+                        <TouchableOpacity onPress={() => setItem(i, { maquina_id: null, maquina: null, maquina_serial: null, maquina_placa: null })}>
+                          <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>quitar</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
               ))}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
@@ -455,6 +496,25 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
               )}
             </Screen>
           </Modal>
+
+          {/* 🚜 Selector de MÁQUINA para un renglón de servicio. Las que salen son
+              las del CLIENTE: las suyas ya guardadas, más las del catálogo de
+              equipos de su empresa para copiarlas, más «➕ una que no está». */}
+          <MaquinaPicker
+            visible={pickMaq !== null}
+            contactoId={clientId || null}
+            contactoNombre={cliente?.name ?? null}
+            companyId={(cliente as any)?.company_id ?? null}
+            maquinas={maquinasContacto.filter((m) => m.contacto_id === clientId)}
+            machinery={machinery as any}
+            usuarioId={session?.user?.id ?? null}
+            onCerrar={() => setPickMaq(null)}
+            onCambio={refetchMaquinas}
+            onElegir={(m: MaquinaContacto) => {
+              if (pickMaq !== null) setItem(pickMaq, maquinaDeRenglon(m) ?? {});
+              setPickMaq(null);
+            }}
+          />
 
           {/* Selector de MATERIAL del inventario */}
           <Modal visible={pickMat} animationType="slide" onRequestClose={() => setPickMat(false)}>
