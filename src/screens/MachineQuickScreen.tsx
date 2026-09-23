@@ -7,6 +7,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { Machinery, MaintenanceMaterial, OperatorAssignment } from '../types/database';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { upsertMachineRound } from '../lib/machineRounds';
+import { guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
 import { startJornada } from '../lib/jornada';
 import { isCierreAnticipado } from '../lib/caracasDay';
 import { captureAndUploadPhoto } from '../lib/photo';
@@ -442,6 +443,9 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     // en la MISMA ronda que se abrió, o una jornada de noche pasada la medianoche
     // quedaría partida en dos (se abre en la de ayer y se cerraría en la de hoy).
     setJornadaStartDate(res.roundDate);
+    // HORÓMETRO DE TRABAJO (modo sombra): la jornada manda; esto solo registra AL LADO,
+    // sin await, sin toast y sin return — si falla, la jornada ya quedó iniciada igual.
+    void guardarLecturaHorometro(machine.id, res.roundDate, res.shift.key === 'night' ? 'night' : 'day', { inicial: hi, ...(horPhoto ? { fotoInicialUrl: horPhoto } : {}), origen: 'qr' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo:', r.error); }).catch(() => {});
     setAsg(res.assignment);
     setView('home');
     setNotice(`✅ Jornada iniciada · ${first} ${last} · ${caracasClock(new Date(res.startedAt))} (Caracas) · ${res.shift.label} · Horómetro inicial ${hi}.`);
@@ -482,6 +486,9 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     setJornadaBusy(false);
     const err = results.find((r: any) => r?.error)?.error;
     if (err) { setNotice('❌ ' + (err.message || err)); return; }
+    // HORÓMETRO DE TRABAJO (modo sombra): la jornada manda (day_hours = HF − HI sigue
+    // igual); esto solo registra AL LADO, sin await, sin toast y sin return.
+    void guardarLecturaHorometro(machine.id, roundDate, sh.key === 'day' ? 'day' : 'night', { inicial: hi, final: hf, origen: 'qr' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo:', r.error); }).catch(() => {});
     setJornadaActive(false);
     setJornadaStartAt(null);
     setAsg(null);

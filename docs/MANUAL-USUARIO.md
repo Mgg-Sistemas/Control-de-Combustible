@@ -3312,6 +3312,31 @@ cuadro de alcance dicen qué se ocultó y qué se filtró.
 > puntos por semana; en septiembre bajó a unas decenas. Si un día sale "desde el DD/MM" en muchas
 > máquinas, es que ese día nadie tocó "Guardar ubicación".
 
+#### ⚙️ Horómetro de trabajo (modo sombra, 23/09/2026)
+Se está preparando el **pago por horómetro de trabajo** (lectura final menos lectura inicial de
+cada turno) como alternativa a las horas de jornada. Hoy está en **modo sombra**: **se registra y
+se ve, pero no paga nada.** Todas las máquinas siguen cobrando por jornada exactamente como
+siempre, y así seguirán hasta que se decida encender el modo máquina por máquina.
+
+**Qué hace ya:**
+- El teléfono del inspector y el QR del operador guardan la lectura del horómetro **también** en
+  una tabla nueva, aparte de la jornada, al iniciar y al cerrar. Si eso falla, la jornada se guarda
+  igual: nunca bloquea ni retrasa el cierre.
+- La base marca cada lectura como válida o inválida (final menor que inicial, retroceso respecto a
+  la última válida, salto mayor a 12,5 horas). **Marca, no rechaza**: el inspector no ve ningún
+  error nuevo.
+- **Control de Maquinaria** muestra, debajo de las horas de cada día, `⚙️ N h` con lo que dice el
+  horómetro de trabajo, en rojo con ⚠️ si es inválida. Solo aparece cuando la semana tiene alguna
+  lectura; sin lecturas, la pantalla es la de siempre. Solo se muestra, no se edita todavía.
+- **Reportes → ⚙️ Horómetro:** PDF «Horómetro vs jornada» por máquina y día: horas de jornada,
+  horas de horómetro, diferencia y estado (cuadra, horómetro mayor, jornada mayor, sin lectura,
+  inválida), con una lista de **máquinas listas para encender** (5 días seguidos cuadrando o con
+  menos de 3 horas de diferencia). Mismos filtros de empresa, clasificación y máquina que Jornada.
+
+**Qué NO hace todavía (fases siguientes, con decisiones del cliente):** pagar por horómetro,
+corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del
+aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
+
 ### 4.13. Usuarios (solo administrador)
 
 > ⚠️ **ARREGLADO EL 27/08/2026 — «elijo un rol al crear y me lo deja en otro».** Hasta esa fecha,
