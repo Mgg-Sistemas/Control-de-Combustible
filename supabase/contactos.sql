@@ -203,7 +203,7 @@ create or replace function public.contacto_espeja_supplier()
 returns trigger language plpgsql security definer set search_path = public as $fn$
 declare sid uuid;
 begin
-  if pg_trigger_depth() > 1 then return new; end if;
+  if pg_trigger_depth() > 1 then return null; end if;
 
   -- Deja de ser proveedor: NO se borra su ficha de Compras (sus compras viejas la
   -- necesitan). Se desactiva, que es lo reversible.
@@ -211,7 +211,7 @@ begin
     if new.supplier_id is not null then
       update public.suppliers set active = false where id = new.supplier_id;
     end if;
-    return new;
+    return null;
   end if;
 
   sid := new.supplier_id;
@@ -222,7 +222,10 @@ begin
                  else upper(new.doc_letter) || '-' || regexp_replace(new.doc_number, '[^0-9]', '', 'g') end,
             new.phone, new.email, new.address, new.active, new.tags, new.id)
     returning id into sid;
-    new.supplier_id := sid;
+    -- ⚠️ Se guarda con un UPDATE y no asignándole a NEW: este trigger es AFTER, y
+    --    ahí NEW ya no se puede tocar. Ese UPDATE se dispara a sí mismo una vez, y
+    --    la guarda de pg_trigger_depth lo corta en seco.
+    update public.contactos set supplier_id = sid where id = new.id;
   else
     update public.suppliers
        set name    = new.name,
@@ -236,12 +239,16 @@ begin
            contacto_id = new.id
      where id = sid;
   end if;
-  return new;
+  return null;
 end $fn$;
 
 drop trigger if exists trg_contacto_espeja_supplier on public.contactos;
+-- ⚠️ AFTER, NO BEFORE. Con BEFORE INSERT, el «insert into suppliers» de arriba apunta
+--    a un contacto que TODAVÍA NO EXISTE y la llave foránea lo rechaza: registrar un
+--    proveedor nuevo reventaba con «violates foreign key constraint». Se descubrió
+--    probándolo contra la base de verdad, no leyéndolo.
 create trigger trg_contacto_espeja_supplier
-  before insert or update on public.contactos
+  after insert or update on public.contactos
   for each row execute function public.contacto_espeja_supplier();
 
 -- 6b) Del proveedor DE VUELTA a su contacto, para quien siga editando en Compras.
