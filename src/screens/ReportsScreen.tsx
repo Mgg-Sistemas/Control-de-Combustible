@@ -53,6 +53,9 @@ import {
   alternarUbicaciones, armarUbicaciones, cuerpoUbicaciones, cuerpoUbicacionesResumen, ocultosUbicacionesEnPalabras, sufijoArchivoUbicaciones,
 } from '../lib/ubicacionesReporte';
 import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
+// ⚙️ Horómetro vs jornada (modo sombra, 23-sep-2026): compara sin cambiar ningún pago.
+import { CSS_COMPARATIVO, compararJornadaHorometro, cuerpoComparativo } from '../lib/horometroTrabajo';
+import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { precioEfectivoJornada } from '../lib/precioHistorial';
@@ -602,7 +605,7 @@ export default function ReportsScreen({ route }: any) {
   const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [eqOxicorte, setEqOxicorte] = useState(true); // incluir (true) o quitar (false) los equipos de oxicorte
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones' | 'horometro'>('fuel');
   // 📍 Ubicaciones (22-sep-2026): qué columnas se esconden en el PDF.
   const [opUbic, setOpUbic] = useState<OpcionesUbicaciones>(OPCIONES_UBICACIONES_COMPLETO);
   // 📍 Ubicaciones: RESUMIDO (una línea por máquina, agrupado Este/Oeste como en el
@@ -1763,6 +1766,29 @@ export default function ReportsScreen({ route }: any) {
         : `Dónde trabajó cada máquina, día por día · ${rng}${filtrado}`;
       await exportPdf(pdfShell(ubicResumen ? 'UBICACIONES POR SECTOR' : 'HISTÓRICO DE UBICACIONES', sub, body),
         `Ubicaciones ${ubicResumen ? 'resumen ' : ''}${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoUbicaciones(opUbic)}`.replace(/\//g, '-'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── ⚙️ HORÓMETRO VS JORNADA · MODO SOMBRA (23-sep-2026) ─────────────────
+  // Calcado de generateUbicaciones: mismos filtros (empresas, clasificación, máquina).
+  // Compara, por máquina y día, lo que pagó la jornada con lo que dice el horómetro
+  // de trabajo. NO cambia ningún pago: es para decidir qué máquinas están listas.
+  const generateHorometro = async () => {
+    setLoading(true);
+    try {
+      const d = await cargarDatosComparativo(from, to);
+      const cos = repCompanies.length ? repCompanies : null;
+      const rondas = d.rondas.filter((m) =>
+        (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: m.machineryId, clasificacion: m.clasificacion }, filtroEqActual));
+      const filas = compararJornadaHorometro(rondas, d.lecturas);
+      const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas });
+      const rng = dateRangeLabel(from, to);
+      const filtrado = hayFiltroJornada(filtroEqActual) || repCompanies.length ? ' · FILTRADO' : '';
+      const sub = `Jornada declarada vs horómetro de trabajo, máquina por máquina y día por día · ${rng}${filtrado}`;
+      await exportPdf(pdfShell('HORÓMETRO VS JORNADA (MODO SOMBRA)', sub, body),
+        `Horometro vs jornada ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}`.replace(/\//g, '-'));
     } finally {
       setLoading(false);
     }
@@ -3259,6 +3285,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'camiones', label: '🚛 Camiones E/S' },
           { v: 'inspectores', label: '👷 Inspectores' },
           { v: 'ubicaciones', label: '📍 Ubicaciones' },
+          { v: 'horometro', label: '⚙️ Horómetro' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -3276,6 +3303,8 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'inspectores') { setFrom(isoDaysAgo(0)); }
                 // Ubicaciones: histórico, arranca en la última semana.
                 if (t.v === 'ubicaciones') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
+                // Horómetro vs jornada: mismo arranque que ubicaciones, la última semana.
+                if (t.v === 'horometro') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
               }}
               style={{
                 flexGrow: 1,
@@ -3294,6 +3323,13 @@ export default function ReportsScreen({ route }: any) {
           );
         })}
       </View>
+
+      {/* ⚙️ Horómetro vs jornada: aviso de que es MODO SOMBRA (no toca pagos). */}
+      {mode === 'horometro' ? (
+        <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
+          Modo sombra: compara lo que pagó la jornada con lo que dice el horómetro de trabajo. No cambia ningún pago. Una máquina está «lista» con 5 días seguidos cuadrando.
+        </Text>
+      ) : null}
 
       <Card>
         {/* Selector de MES para el reporte de camiones */}
@@ -3600,7 +3636,7 @@ export default function ReportsScreen({ route }: any) {
 
         {/* FILTRAR POR CLASIFICACIÓN Y POR MÁQUINA — solo en el Informe por jornada
             (22-sep-2026). Esto SÍ saca máquinas y cambia los totales; el papel lo dice. */}
-        {(mode === 'rounds' || mode === 'ubicaciones') && maqCatalogo.length > 0 ? (() => {
+        {((mode === 'rounds' || mode === 'ubicaciones') && maqCatalogo.length > 0) || (mode === 'horometro' && maqCatalogo.length > 0) ? (() => {
           const clases = clasificacionesDisponibles(maqCatalogo, repCompanies);
           const maqs = maquinasDisponibles(maqCatalogo, repCompanies, repClasif, repMaqQ);
           const TOPE = 80;
@@ -3853,6 +3889,8 @@ export default function ReportsScreen({ route }: any) {
               ? (async () => { setLoading(true); try { await generateInspectorReport({ date: from, shift: inspShift, companies: repCompanies, inspectors: inspSelected, groupBy: inspGroupBy }); } finally { setLoading(false); } })()
               : mode === 'ubicaciones'
               ? generateUbicaciones()
+              : mode === 'horometro'
+              ? generateHorometro()
               : generateCamiones()
           }
           disabled={loading}
@@ -3874,6 +3912,8 @@ export default function ReportsScreen({ route }: any) {
               ? '👷 Generar REPORTE DE INSPECTORES (PDF)'
               : mode === 'ubicaciones'
               ? (ubicResumen ? '📍 Generar UBICACIONES POR SECTOR (PDF)' : '📍 Generar HISTÓRICO DE UBICACIONES (PDF)')
+              : mode === 'horometro'
+              ? '⚙️ Generar HORÓMETRO VS JORNADA (PDF)'
               : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>

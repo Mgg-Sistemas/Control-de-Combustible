@@ -135,7 +135,8 @@ export async function saveCompanyMeal(input: SaveCompanyMealInput): Promise<{ da
     })
     .select()
     .single();
-  if (error) return { data: null, error: error.message };
+  // El candado de la base (23-sep-2026): un «Otros» sin nombre no entra, ni desde una app vieja.
+  if (error) return { data: null, error: /otros_con_nombre/.test(error.message) ? 'Para «Otros» hay que decir qué fue (hielo, agua, vasos…): sin nombre, la factura lo llamaría «Otros». Si no ves las opciones, recarga la app.' : error.message };
   return { data: (data as FoodCompanyMeal) ?? null };
 }
 
