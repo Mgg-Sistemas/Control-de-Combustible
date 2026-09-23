@@ -4485,10 +4485,35 @@ Se llega desde **Más → Ajustes**. La **apariencia** (modo oscuro/claro) y la 
 Ajustes solo quedan:
 
 - **Cerrar sesión.**
-- **⬇️ Descargar backup (solo administradores puntuales, en computadora):** descarga un archivo
-  con **todos los datos** del sistema (máquinas, jornadas, empleados, pagos, inventario…), por si
-  hace falta un respaldo manual. Acceso restringido a las cuentas designadas — el resto de
-  administradores no ve este botón.
+- **⬇️ Descargar respaldo .sql (23/09/2026)** *(solo administradores puntuales, en computadora)*:
+  descarga un archivo **`.sql`** con los datos de **todas las tablas** (máquinas, jornadas,
+  empleados, pagos, inventario, ventas, compras, contactos…), **listo para volver a meterlo en
+  Supabase**. Acceso restringido a las cuentas designadas — el resto de administradores no ve
+  este botón. *(Requiere correr `supabase/respaldo_sql.sql`.)*
+
+  > **Antes salía en .json y se dejaba 75 tablas.** El `.json` solo se podía mirar; el `.sql`
+  > se pega en **Supabase → SQL Editor** y se restaura. Y la lista de tablas estaba **escrita a
+  > mano** en el código: envejecía con cada módulo nuevo, así que de **107 tablas con datos el
+  > respaldo solo se llevaba 32** — quedaban fuera `machinery_locations` (7.105 filas),
+  > `camion_viajes` (4.448), `cuentas`, `suppliers`, `purchase_orders`, los servicios de
+  > maquinaria… Ahora **la lista se lee de la base**, así que se entera sola de cada módulo nuevo.
+
+  > **Antes también se colgaba.** No tenía tope de tiempo: si una consulta se quedaba esperando,
+  > la pantalla se quedaba pegada en *"Respaldando 5/45: machine_rounds…"* **para siempre**. Ahora
+  > cada consulta tiene **45 segundos**; si los pasa, esa tabla se marca como fallida y **el
+  > respaldo sigue con las demás**.
+
+  > **⭐ Y ya no miente.** Si alguna tabla no se pudo leer, **se dice con su nombre**: en la
+  > pantalla y en la primera página del archivo, en mayúsculas. Un respaldo incompleto que parece
+  > completo es peor que uno que falla — nadie lo revisa hasta el día que hace falta restaurarlo.
+  > Si lees *"⚠️ Respaldo descargado PERO INCOMPLETO"*, vuelve a generarlo antes de confiar en él.
+
+  > **Qué NO trae:** solo **datos**. No trae el esquema (tablas, índices, funciones, triggers ni
+  > permisos: eso vive en los archivos de `supabase/`), ni la bitácora `audit_log` (más de 100 mil
+  > filas de auditoría, no de datos del negocio), ni las tablas `backup_*` y `bkp_*`, que ya son
+  > respaldos viejos guardados dentro de la propia base. **Tarda unos minutos: no cierres la
+  > pestaña.** Cada INSERT lleva `on conflict do nothing`, así que restaurarlo sobre una base que
+  > ya tiene datos **no duplica nada**: solo mete lo que falta.
 
 > **👤 Con qué cuenta estás dentro (14/08/2026):** al abrir la **tuerca ⚙️** del encabezado, arriba
 > a la derecha —al lado del título "⚙️ Ajustes"— se muestra **tu nombre** y, debajo, tu **👤 usuario
