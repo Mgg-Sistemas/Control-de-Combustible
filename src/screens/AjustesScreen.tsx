@@ -35,11 +35,23 @@ export default function AjustesScreen() {
     try {
       const { runBackup } = await import('../lib/backup');
       const res = await runBackup((name, i, total) => setBackupMsg(`Respaldando ${i}/${total}: ${name}…`));
-      setBackupMsg(`✓ Backup descargado: ${res.rows.toLocaleString('es-VE')} filas de ${res.tables} tablas.`);
-      toast.success('Backup descargado.');
-    } catch {
-      setBackupMsg('❌ No se pudo generar el backup.');
-      toast.error('No se pudo generar el backup.');
+      // ⚠️ SI ALGUNA TABLA FALLÓ, SE DICE CON SU NOMBRE. Un respaldo incompleto que
+      //    parece completo es peor que uno que falla: nadie lo revisa hasta el día
+      //    que hace falta restaurarlo.
+      if (res.fallidas.length) {
+        setBackupMsg(
+          `⚠️ Respaldo descargado PERO INCOMPLETO: ${res.fallidas.length} tabla(s) no se pudieron leer `
+          + `(${res.fallidas.map((f) => f.tabla).join(', ')}). Vuelve a generarlo antes de confiar en él. `
+          + `Se llevó ${res.filas.toLocaleString('es-VE')} filas de ${res.tablas} tablas.`,
+        );
+        toast.error(`Respaldo INCOMPLETO: fallaron ${res.fallidas.length} tabla(s).`);
+      } else {
+        setBackupMsg(`✓ Respaldo .sql descargado: ${res.filas.toLocaleString('es-VE')} filas de ${res.tablas} tablas.`);
+        toast.success('Respaldo descargado.');
+      }
+    } catch (e: any) {
+      setBackupMsg(`❌ No se pudo generar el respaldo (${e?.message ?? 'revisa la conexión'}).`);
+      toast.error('No se pudo generar el respaldo.');
     } finally {
       setBackupBusy(false);
     }
@@ -54,12 +66,15 @@ export default function AjustesScreen() {
         <>
           <SectionTitle>Respaldo</SectionTitle>
           <Card>
-            <Text style={{ fontWeight: '700', color: colors.text }}>Backup de la base de datos</Text>
+            <Text style={{ fontWeight: '700', color: colors.text }}>Respaldo de la base de datos</Text>
             <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-              Descarga un archivo JSON con TODOS los datos (máquinas, jornadas, empleados, pagos, inventario…). Acceso restringido a Anthony, Angelica y Antoni Vargas.
+              Descarga un archivo <Text style={{ fontWeight: '800' }}>.sql</Text> con los datos de TODAS las tablas
+              (máquinas, jornadas, empleados, pagos, inventario, ventas, compras…), listo para volver a meterlo en
+              Supabase. No trae el esquema ni la bitácora de auditoría. Tarda unos minutos: no cierres la pestaña.
+              Acceso restringido a Anthony, Angelica y Antoni Vargas.
             </Text>
             <TouchableOpacity onPress={doBackup} disabled={backupBusy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', opacity: backupBusy ? 0.6 : 1 }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{backupBusy ? 'Generando…' : '⬇️ Descargar backup'}</Text>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{backupBusy ? 'Generando…' : '⬇️ Descargar respaldo (.sql)'}</Text>
             </TouchableOpacity>
             {backupMsg ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>{backupMsg}</Text> : null}
           </Card>
