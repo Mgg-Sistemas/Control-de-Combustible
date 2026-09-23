@@ -14,7 +14,7 @@ import { CobroComidasPrecios } from './CobroComidasPrecios';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { COMPANY_MEALS } from '../lib/foodCompanyMeals';
+import { COMPANY_MEALS, OTROS_MEAL } from '../lib/foodCompanyMeals';
 import { FoodCompanyMeal, FoodDistribution } from '../types/database';
 import {
   calcularCobroComidas,
@@ -30,7 +30,7 @@ import {
   SIN_CATEGORIA,
 } from '../lib/cobroComidas';
 import { cargarConfigCuentas, cargarEmpresaDePersonas, cargarEncargados, cargarPreciosComida, EncargadoCatalogo } from '../lib/cobroComidasDb';
-import { PlatoCatalogo, resolverPlatos } from '../lib/comidaPlatos';
+import { PlatoCatalogo, nombreDeOpcion, resolverPlatos } from '../lib/comidaPlatos';
 import { cargarPlatos } from '../lib/comidaPlatosDb';
 
 type Props = {
@@ -60,8 +60,16 @@ const etiqueta = (k: string) => {
   const m = COMPANY_MEALS.find((x) => x.key === k);
   return m ? `${m.icon} ${m.label}` : k;
 };
-/** «🧾 Otros · Bolsa de hielo»: sin el nombre, «4 otros» no dice qué se cobra. */
-const etiquetaItem = (it: ItemCobro) => `${etiqueta(it.categoria)}${it.plato ? ` · ${it.plato}` : ''}`;
+/**
+ * Cómo se llama el renglón en la factura. Un «Otros» se llama POR SU OPCIÓN —«🧾 HIELO»,
+ * «🧾 AGUA»—, no «🧾 Otros · HIELO»: al cliente se le cobra hielo, y «Otros» es el nombre
+ * de la gaveta del sistema, no el de lo que se le entregó (pedido del cliente, 23-sep-2026).
+ * Uno viejo sin nombre se sigue llamando «Otros»: mejor eso que un renglón en blanco.
+ */
+const etiquetaItem = (it: ItemCobro) => {
+  const opcion = nombreDeOpcion(it.categoria, it.plato);
+  return opcion ? `${OTROS_MEAL.icon} ${opcion}` : etiqueta(it.categoria);
+};
 /** Cuando el precio de un plato de «Otros» lo escribió la cocina (no tiene precio propio), se dice. */
 const precioItem = (it: ItemCobro) =>
   it.precio === null

@@ -14,10 +14,10 @@ import {
   normalizarCedula, validarCantidadComidas,
 } from '../lib/comidaContactos';
 import { cargarContactos } from '../lib/comidaContactosDb';
-import { PlatoCatalogo, ordenarPlatos, platoActivo } from '../lib/comidaPlatos';
-import { cargarPlatos } from '../lib/comidaPlatosDb';
+import { PlatoCatalogo, ordenarPlatos, platoActivo, validarNombrePlato } from '../lib/comidaPlatos';
+import { cargarPlatos, crearOReusarPlato } from '../lib/comidaPlatosDb';
 import { ContactoCocinaForm } from '../components/ContactoCocinaForm';
-import { MEALS, OTROS_MEAL, mealLabel } from '../lib/foodCompanyMeals';
+import { MEALS, OTROS_MEAL, OTROS_TITULO, mealLabel } from '../lib/foodCompanyMeals';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId, parseComidaId } from './ScanQrScreen';
 import { norm } from '../lib/text';
@@ -131,8 +131,17 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   // ── «OTROS» PARA CONTACTOS (22-sep-2026) ─────────────────────────────────
   // El catálogo de platos (bolsa de hielo, vasos…) de la pestaña «🧾 Platos». A un
   // contacto se le cobran por el precio del catálogo; a la nómina NO se le ofrecen.
+  // ⚠️ Se guardan TODOS, también los quitados de la lista: `crearOReusarPlato`
+  //    necesita verlos para devolver a la lista el que ya existía en vez de chocar
+  //    contra el índice único. Lo que se PINTA son los activos (`platosEnLista`).
   const [platos, setPlatos] = useState<PlatoCatalogo[]>([]);
   const [platoGuardando, setPlatoGuardando] = useState<string | null>(null);
+  // ➕ Agregar una opción sin salir de la cocina (23-sep-2026). Pedido del cliente:
+  // «coloca un + para agregar otras opciones». La nueva nace SIN precio: se le pone
+  // en «💲 Precios y cuentas → 🧾 Platos», y hasta entonces sale avisada en amarillo.
+  const [nuevaOpcion, setNuevaOpcion] = useState(false);
+  const [nombreOpcion, setNombreOpcion] = useState('');
+  const [creandoOpcion, setCreandoOpcion] = useState(false);
   // Modo de entrega: torniquete (registra la comida fija de la sesión) o
   // "elegir por persona" (al escanear abre a la persona y el cocinero elige la
   // comida — p. ej. alguien que llega a almorzar a las 4pm).
@@ -159,7 +168,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       ]);
       setContactos(ag.contactos);
       setSinTablaContactos(ag.sinTabla);
-      setPlatos(ordenarPlatos(pl.filter(platoActivo)));
+      setPlatos(ordenarPlatos(pl));
       setEmpresas(((comps.data ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: String(c.id), name: String(c.name ?? '') })));
     } catch {
       setSinTablaContactos(false);
@@ -167,6 +176,35 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     }
   }, []);
   React.useEffect(() => { loadAgenda(); }, [loadAgenda]);
+
+  /** Los activos: lo que se le ofrece a la cocina. Los quitados de la lista siguen en
+   *  `platos` para que `crearOReusarPlato` los reconozca (ver el comentario del estado). */
+  const platosEnLista = React.useMemo(() => platos.filter(platoActivo), [platos]);
+
+  /**
+   * ➕ Agrega una opción a la lista (hielo, agua, refresco…) desde el teléfono.
+   *
+   * ⚠️ NACE SIN PRECIO, a propósito. El precio manda sobre el costo y decide lo que
+   *    se factura: ponerlo es de quien cobra, no de quien reparte. Mientras no lo
+   *    tenga, la opción sale avisada en «🧾 Platos» y en la tarjeta de cobro, que es
+   *    justo el recordatorio que hace falta. Por eso el aviso de acá lo dice.
+   */
+  const agregarOpcion = async () => {
+    const m = validarNombrePlato(nombreOpcion, platos);
+    if (m) { setNotice(`❌ ${m}`); return; }
+    setCreandoOpcion(true); setNotice(null);
+    try {
+      const r = await crearOReusarPlato(nombreOpcion, platos);
+      if (r.error || !r.plato) { setNotice(`❌ No se agregó: ${r.error ?? 'inténtalo de nuevo.'}`); return; }
+      setPlatos(ordenarPlatos(await cargarPlatos().catch(() => platos)));
+      setNombreOpcion(''); setNuevaOpcion(false);
+      setNotice(r.yaExistia
+        ? `✅ «${r.plato.name}» ya estaba y volvió a la lista.`
+        : `✅ «${r.plato.name}» quedó en la lista. Ponle su precio en Distribución de comida → 💲 Precios y cuentas → 🧾 Platos, o no se podrá cobrar.`);
+    } finally {
+      setCreandoOpcion(false);
+    }
+  };
 
   // Conteo del día por comida: cuenta food_distributions de HOY agrupadas por tipo.
   // Se refresca al abrir y en tiempo real (ver useRealtimeRefresh más abajo), así
@@ -692,18 +730,19 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
                 );
               })}
             </View>
-            {/* «OTROS» (22-sep-2026): hielo, vasos… SOLO para contactos. El precio es el del
-                catálogo de platos; por eso se elige de la lista y no se escribe. */}
+            {/* «OTROS» (22-sep-2026): hielo, agua, vasos… SOLO para contactos. El precio es el
+                del catálogo de platos; por eso se ELIGE de la lista y no se escribe a mano.
+                23-sep-2026: la lista nace con HIELO y AGUA, y el ➕ agrega las que hagan falta. */}
             {person.contactoId ? (
               <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{OTROS_MEAL.icon} {OTROS_MEAL.label} · elige el plato</Text>
-                {platos.length === 0 ? (
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{OTROS_MEAL.icon} {OTROS_TITULO} · elige la opción</Text>
+                {platosEnLista.length === 0 ? (
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-                    No hay platos en el catálogo. Se agregan en Distribución de comida → Precios y cuentas → 🧾 Platos.
+                    La lista está vacía: deberían estar HIELO y AGUA. Agrégalas con el ➕ de abajo.
                   </Text>
                 ) : (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-                    {platos.map((pl) => {
+                    {platosEnLista.map((pl) => {
                       const busy = savingMeal === 'otros' && platoGuardando === pl.name;
                       return (
                         <TouchableOpacity
@@ -719,6 +758,48 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
                       );
                     })}
                   </View>
+                )}
+
+                {/* ➕ AGREGAR OTRA OPCIÓN, sin salir de la cocina. El campo sale solo al
+                    tocar el ➕: si estuviera siempre abierto se escribiría «yelo» con
+                    HIELO en la lista, y serían dos opciones con dos precios. */}
+                {nuevaOpcion ? (
+                  <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
+                    <TextInput
+                      value={nombreOpcion}
+                      onChangeText={setNombreOpcion}
+                      placeholder="Ej. Refresco, Postre, Vasos…"
+                      placeholderTextColor={colors.muted}
+                      autoCapitalize="characters"
+                      style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+                    />
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>
+                      Queda en la lista para todos. Nace SIN precio: pónselo en Distribución de comida →
+                      💲 Precios y cuentas → 🧾 Platos, o no se podrá cobrar.
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                      <TouchableOpacity
+                        onPress={() => { setNuevaOpcion(false); setNombreOpcion(''); }}
+                        style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
+                      >
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cancelar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        disabled={creandoOpcion}
+                        onPress={agregarOpcion}
+                        style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: creandoOpcion ? 0.6 : 1 }}
+                      >
+                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{creandoOpcion ? 'Agregando…' : '💾 Agregar a la lista'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => { setNuevaOpcion(true); setNombreOpcion(''); }}
+                    style={{ marginTop: spacing.xs, alignSelf: 'flex-start', paddingVertical: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border }}
+                  >
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>➕ Agregar otra opción</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             ) : null}

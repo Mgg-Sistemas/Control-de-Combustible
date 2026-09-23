@@ -146,3 +146,39 @@ export function entregasDelPlato<T extends { id: string; meal_type?: string | nu
   if (!n) return [];
   return (entregas ?? []).filter((e) => e && e.meal_type === 'otros' && normPlato(e.item_label) === n);
 }
+
+// ── CÓMO SE LLAMA EN LA FACTURA (23-sep-2026) ───────────────────────────────
+//
+// Pedido del cliente, textual: «el segmento que se llama OTROS, sea HIELO, AGUA, y
+// coloca un + para agregar otras opciones […] en la factura se debe reflejar como
+// AGUA, Hielo».
+//
+// ⭐ EL RENGLÓN SE LLAMA POR SU OPCIÓN, NO «OTROS». Al cliente se le cobran agua y
+//    hielo; «Otros · Agua» es el nombre de la gaveta donde lo guarda el sistema, no
+//    el de lo que se le entregó. `meal_type` sigue siendo 'otros' en la base: lo que
+//    cambia es cómo se escribe, y solo en el papel.
+//
+// ⚠️ Una entrega de «Otros» SIN nombre (las viejas, de antes de que hubiera lista)
+//    se sigue llamando «Otros»: mejor eso que un renglón en blanco al que nadie le
+//    puede reclamar nada.
+
+/** El valor que `meal_type` lleva en la base para estas opciones. */
+export const COMIDA_OTROS = 'otros';
+
+/**
+ * Las dos opciones con las que nace la lista. Las siembra
+ * `supabase/comida_hielo_agua.sql`; acá están para poder decir, cuando la lista sale
+ * vacía, que lo que falta es correr ese SQL y no que alguien borró algo.
+ */
+export const OPCIONES_BASE = ['HIELO', 'AGUA'] as const;
+
+/**
+ * El nombre PROPIO de un renglón de «Otros» (AGUA, HIELO, Refresco…), o null si no
+ * lo tiene y hay que llamarlo como la comida. Lo usan la tarjeta de cobro, el PDF del
+ * cobro y el detalle del reporte: los tres tienen que nombrarlo IGUAL, o una factura
+ * y su respaldo dirían cosas distintas de la misma entrega.
+ */
+export function nombreDeOpcion(comida: unknown, plato: unknown): string | null {
+  if (String(comida ?? '').trim().toLowerCase() !== COMIDA_OTROS) return null;
+  return limpiarNombrePlato(plato) || null;
+}

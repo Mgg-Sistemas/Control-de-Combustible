@@ -23,6 +23,20 @@ export const MEALS: { key: MealType; label: string; icon: string; color: string 
 export const OTROS_MEAL: { key: MealType; label: string; icon: string; color: string } =
   { key: 'otros', label: 'Otros', icon: '🧾', color: '#DB2777' };
 
+/**
+ * Cómo se llama el segmento DONDE SE REGISTRA (23-sep-2026). Pedido del cliente:
+ * «el segmento que se llama OTROS, sea HIELO, AGUA, y coloca un + para agregar otras
+ * opciones». Nombrar las dos de entrada es lo que hace que la cocina no escriba
+ * «yelo» a mano; el «y otros» se queda porque el cliente puede agregar las que
+ * quiera con el «+» y el rótulo no puede mentir cuando haya seis.
+ *
+ * ⚠️ `OTROS_MEAL.label` (corto) SIGUE VIVO y es el que va en las tablas y columnas
+ *    de los papeles: un título de tres palabras corre el ancho del PDF entero. En la
+ *    factura, igual, cada renglón se llama por su opción (HIELO, AGUA) y no «Otros»
+ *    — ver `nombreDeOpcion` en comidaPlatos.ts.
+ */
+export const OTROS_TITULO = 'Hielo, agua y otros';
+
 /** Las comidas de la DISTRIBUCIÓN POR EMPRESA: las 4 fijas + Otros. */
 export const COMPANY_MEALS = [...MEALS, OTROS_MEAL];
 

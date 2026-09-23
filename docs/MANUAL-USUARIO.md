@@ -2585,6 +2585,33 @@ Solo la ve quien tiene **permiso completo** en Distribución de comida (la cocin
 - Una comida **sin precio** para su fecha **no suma** al total, pero se cuenta como **"sin precio"**
   con aviso amarillo para que no se pierda.
 
+#### 🧊 Hielo y agua (23/09/2026)
+El segmento que antes se llamaba **"Otros"** ahora se llama **"🧾 Hielo, agua y otros"** y **trae
+HIELO y AGUA puestos**, listos para tocar. Al lado de ellos hay un **"➕ Otra opción"** para agregar
+las que hagan falta (refresco, postre, vasos…). Está igual **en el teléfono y en la PC**.
+
+**Cómo se registra.** Se **elige** la opción de la lista; no se escribe. Escribirla a mano es como
+terminan "yelo" y "hielo" siendo **dos opciones con dos precios distintos en la misma factura**. El
+"➕" es para **estrenar** una opción, no para volver a escribir cada día la misma.
+
+**El costo lo pone el usuario.** Una opción nueva **nace sin precio** —el precio es de quien cobra,
+no de quien reparte— y se le pone en **"💲 Precios y cuentas" → "🧾 Platos"**, donde queda con su
+historial. Mientras no lo tenga se cobra con el **costo por plato** que escriba la cocina al
+registrar, y sale avisada en amarillo hasta que se lo pongan.
+
+> **⭐ EN LA FACTURA SALE POR SU NOMBRE.** El renglón dice **"🧾 AGUA"** y **"🧾 HIELO"**, no
+> "Otros · Agua": al cliente se le cobra agua, y "Otros" es el nombre de la gaveta del sistema, no el
+> de lo que se le entregó. Es así en la tarjeta de cobro, en **"📄 PDF del cobro"** y en el detalle
+> entrega por entrega del reporte. El cuadro **"🍽️ Cantidad por comida"** también abre "Otros" en una
+> fila por opción — *AGUA 9, HIELO 9* — y esas filas **suman el mismo total** de siempre.
+
+> **Ya no se puede registrar un "Otros" sin decir qué fue.** Antes se podía, y quedaba un renglón de
+> factura que no decía nada. Las entregas viejas que quedaron así se siguen viendo: salen como
+> **"Otros (sin nombre)"**, para que se note cuáles son.
+
+> **Hace falta correr `supabase/comida_hielo_agua.sql`** para que HIELO y AGUA aparezcan en la lista.
+> Si no salen, la pantalla lo dice y se pueden agregar igual con el "➕".
+
 #### 🧾 Platos (18/09/2026)
 En **"💲 Precios y cuentas"** hay una pestaña **"🧾 Platos"** para lo que se entrega además de
 desayuno, almuerzo, lunch y cena (postre, jugo, bolsa de hielo…). Son los mismos platos que la
