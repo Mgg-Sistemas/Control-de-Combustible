@@ -15,7 +15,7 @@
 
 import { supabase } from './supabase';
 import { norm } from './text';
-import { AltaEmpresa, AltaPersona, CambioEmpresa, CambioPersona, mensajeDeError } from './comidaEditar';
+import { AltaEmpresa, AltaPersona, CambioEmpresa, CambioPersona, mensajeDeError, MSG_OTROS_SIN_NOMBRE, esErrorOtrosSinNombre } from './comidaEditar';
 import { FilaAuditoria, TABLAS_COMIDA } from './comidaMovimientos';
 import { FoodCompanyMeal, FoodDistribution } from '../types/database';
 import { ContactoCocina, cobrarAEfectivo, contactoActivo, nombreDeContacto } from './comidaContactos';
@@ -33,7 +33,7 @@ export async function corregirEntregaEmpresa(id: string, patch: CambioEmpresa): 
 
   const { data, error } = await supabase.from('food_company_meals').update(fila).eq('id', id).select('*');
   const msg = mensajeDeError(error, data?.length ?? 0, 'guardar');
-  if (msg) return { data: null, error: msg };
+  if (msg) return { data: null, error: esErrorOtrosSinNombre(msg) ? MSG_OTROS_SIN_NOMBRE : msg };
   return { data: (data?.[0] ?? null) as FoodCompanyMeal | null };
 }
 
@@ -87,7 +87,7 @@ export async function agregarEntregaEmpresa(
     })
     .select('*');
   const msg = mensajeDeError(error, data?.length ?? 0, 'guardar');
-  if (msg) return { data: null, error: msg };
+  if (msg) return { data: null, error: esErrorOtrosSinNombre(msg) ? MSG_OTROS_SIN_NOMBRE : msg };
   return { data: (data?.[0] ?? null) as FoodCompanyMeal | null };
 }
 

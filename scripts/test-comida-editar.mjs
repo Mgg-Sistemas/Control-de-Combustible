@@ -88,6 +88,13 @@ const HOY = '2026-09-18';
   eq('un costo distinto sí es un cambio', costoNuevo.patch, { costo: 2.5 });
 
   const varios = E.validarCambioEmpresa(actual, { cantidad: '8', nota: 'sobraron' });
+  // «Otros» sin nombre saldría «Otros» en la factura (23-sep-2026): el editor no lo deja.
+  const otrosSinNombre = E.validarCambioEmpresa({ ...actual, meal_type: 'otros', item_label: 'Hielo' }, { plato: '' });
+  eq('un Otros no se puede quedar sin nombre', otrosSinNombre.ok, false);
+  ok('...y lo dice en cristiano', /qué fue/.test(otrosSinNombre.error));
+  const almuerzoSinPlato = E.validarCambioEmpresa({ ...actual, meal_type: 'almuerzo', item_label: 'Postre' }, { plato: '' });
+  eq('en almuerzo sí se puede quitar un nombre que sobraba', almuerzoSinPlato.ok, true);
+  eq('el candado de la base se traduce', [E.esErrorOtrosSinNombre('violates check constraint "food_company_meals_otros_con_nombre"'), E.esErrorOtrosSinNombre('otra cosa')], [true, false]);
   eq('varios campos a la vez', varios.patch, { cantidad: 8, nota: 'sobraron' });
 
   const notaVacia = E.validarCambioEmpresa({ ...actual, note: 'algo' }, { nota: '   ' });

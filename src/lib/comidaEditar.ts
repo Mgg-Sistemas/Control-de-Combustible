@@ -63,6 +63,11 @@ export function leerDecimal(texto: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Lo que se le dice a quien intenta dejar un «Otros» sin nombre (la base lo rechaza igual). */
+export const MSG_OTROS_SIN_NOMBRE = 'Para «Otros» hay que decir qué fue (hielo, agua, vasos…): sin nombre, la factura lo llamaría «Otros». Si no ves las opciones, recarga la app.';
+/** ¿Este error de la base es el candado de «Otros» sin nombre? Para traducirlo a cristiano. */
+export const esErrorOtrosSinNombre = (msg: unknown) => /otros_con_nombre|otros_con_plato/.test(String(msg ?? ''));
+
 /** Cantidad de platos: entero, sin coma, ≥ 1. */
 export function leerCantidad(texto: unknown): number | null {
   const t = limpio(texto);
@@ -81,7 +86,7 @@ export const MAX_CANTIDAD = 9999;
  * (vacía)», y entonces nadie la lee.
  */
 export function validarCambioEmpresa(
-  actual: { delivered?: unknown; unit_cost?: unknown; item_label?: unknown; note?: unknown },
+  actual: { delivered?: unknown; unit_cost?: unknown; item_label?: unknown; note?: unknown; meal_type?: unknown },
   escrito: { cantidad?: unknown; costo?: unknown; plato?: unknown; nota?: unknown },
 ): Validacion<CambioEmpresa> {
   const patch: CambioEmpresa = {};
@@ -104,6 +109,9 @@ export function validarCambioEmpresa(
 
   if (escrito.plato !== undefined) {
     const p = limpio(escrito.plato) || null;
+    // Un «Otros» sin nombre saldría «Otros» en la factura (pedido del cliente, 23-sep-2026:
+    // «si es hielo es hielo, si es vaso es vaso»). La base también lo rechaza.
+    if (p === null && limpio(actual.meal_type).toLowerCase() === 'otros') return { ok: false, error: MSG_OTROS_SIN_NOMBRE };
     if ((p ?? '') !== (limpio(actual.item_label) || '')) patch.plato = p;
   }
 
