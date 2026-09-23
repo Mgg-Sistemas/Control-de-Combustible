@@ -116,7 +116,7 @@ const TABLA_A_MODULO: Record<string, string> = {
   sales: 'ventas', sales_services: 'ventas',
   // 📇 El catalogo unico (23-sep-2026). `sales_clients` paso a llamarse `contactos`;
   // `suppliers` sigue viva y espejada, pero se administra desde aca.
-  contactos: 'contactos',
+  contactos: 'contactos', contacto_maquinas: 'contactos',
   // 💵 Caja: la sesión (apertura/cierre), sus movimientos y el catálogo de
   // categorías de egreso. Los INGRESOS los escriben triggers, no personas.
   caja_sesiones: 'caja', caja_movimientos: 'caja', caja_categorias: 'caja',

@@ -48,6 +48,16 @@ export type VentaItem = {
   unit?: string | null;
   qty: number;
   price: number;               // $ por unidad (referencial, el usuario lo puede cambiar)
+
+  // ── A QUÉ MÁQUINA SE LE HIZO (23-sep-2026) ────────────────────────────────
+  // Pedido del cliente: poder elegir la maquinaria al vender un SERVICIO. Se
+  // guarda el NOMBRE ya armado, no solo el id: la venta congela lo que se acordó,
+  // igual que congela el nombre y el RIF del cliente. Si mañana le cambian el
+  // encargado o la retiran del catálogo, el papel firmado no cambia.
+  maquina_id?: string | null;   // contacto_maquinas.id, solo para saber de dónde salió
+  maquina?: string | null;      // «EX-012 · EXCAVADORA CAT 320», como se imprime
+  maquina_serial?: string | null;
+  maquina_placa?: string | null;
 };
 
 export type VentaRow = {

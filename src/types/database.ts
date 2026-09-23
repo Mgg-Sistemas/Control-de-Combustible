@@ -1839,12 +1839,50 @@ export interface Contacto {
   note: string | null;
   /** false = deshabilitado. No se borra: sus ventas y compras viejas lo necesitan. */
   active: boolean;
+  /**
+   * Si este contacto ES una empresa ya registrada, cuál (23-sep-2026). Es lo que
+   * permite proponerle SUS máquinas del catálogo de equipos al venderle un servicio.
+   */
+  company_id: string | null;
   /** Su ficha espejo en `suppliers`, la que leen Compras y Cuentas. */
   supplier_id: string | null;
   created_at: string;
   created_by: string | null;
 }
 
+/**
+ * 🚜 Una máquina del catálogo PROPIO de un contacto (23-sep-2026).
+ *
+ * ⭐ Es una COPIA independiente: `machinery` se lee para proponerla, pero escribir
+ *    aquí NO toca el catálogo de equipos. `machinery_id` queda solo para saber de
+ *    dónde salió. Ver supabase/contacto_maquinas.sql.
+ */
+export interface ContactoMaquina {
+  id: string;
+  contacto_id: string;
+  /** De cuál máquina del catálogo de equipos se copió. null = se escribió a mano. */
+  machinery_id: string | null;
+  codigo: string | null;
+  descripcion: string | null;
+  tipo: string | null;
+  marca: string | null;
+  modelo: string | null;
+  serial: string | null;
+  placa: string | null;
+  identificador: string | null;
+  referencia: string | null;
+  encargado: string | null;
+  zona: string | null;
+  sector: string | null;
+  ubicacion: string | null;
+  horometro: number | null;
+  precio_hora: number | null;
+  nota: string | null;
+  origen: 'catalogo' | 'manual';
+  active: boolean;
+  created_at: string;
+  created_by: string | null;
+}
 /** Alias histórico: en Ventas un contacto se llama «cliente». */
 export type SalesClient = Contacto;
 

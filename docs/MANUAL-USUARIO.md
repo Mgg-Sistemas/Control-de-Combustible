@@ -6119,6 +6119,44 @@ queda elegido de una. Es el **mismo formulario** del módulo, así que el contac
 igual sin importar por dónde se creó. Lo que escribiste en el buscador se aprovecha: si buscaste
 "PEDRO", el nombre ya viene puesto.
 
+#### 🚜 Máquinas de un contacto (23/09/2026)
+
+Cada contacto tiene **su propia lista de máquinas**, y se llega por el botón **🚜** de su
+tarjeta en 📇 Contactos (el número al lado dice cuántas tiene).
+*(Requiere correr `supabase/contacto_maquinas.sql`.)*
+
+**Si el contacto es una empresa ya registrada**, el desplegable le **propone las máquinas de esa
+empresa** sacadas del catálogo de equipos: se tocan y quedan copiadas a su lista. Para que eso
+funcione hay que **enlazarlo** con la empresa, en el formulario del contacto — *"¿Es una empresa ya
+registrada?"*. Es opcional: sin enlazar, las máquinas se cargan a mano.
+
+**El buscador busca por todo:** código, descripción, tipo, marca, modelo, serial, placa,
+identificador, referencia, **encargado**, zona, sector y ubicación. Si escribes el nombre de un
+**encargado**, salen sus máquinas *aunque no sepas de qué empresa son* — y arriba hay pastillas con
+los encargados que existen, para no tener que acordarse del nombre exacto. De cada máquina,
+**"› Ver todos los datos"** muestra todo lo que tiene cargado.
+
+**Una máquina que no existe también se carga:** **"➕ Registrar una máquina que no está"**. Basta con
+**una** cosa que la identifique —el código, la descripción, el serial o la placa—; lo demás es
+opcional. Se pide poco a propósito: una pantalla que exige diez campos termina con diez campos
+llenos de "X", y una "X" no se nota mientras que un vacío sí.
+
+> **⭐ Es una lista APARTE y no toca el catálogo de equipos.** Registrar o copiar una máquina aquí
+> **no crea ni modifica nada** en 🚜 Catálogo de equipos: sus jornadas, sus horómetros y sus
+> inspecciones siguen exactamente igual. Lo que se elige del catálogo se **copia**, y desde ese
+> momento la copia tiene vida propia.
+
+> **Por qué se copia en vez de apuntar.** Una máquina que hoy es de una empresa mañana se le
+> alquila a otra, se retira, o le cambian el encargado. Si la venta apuntara a la ficha viva, **un
+> papel firmado el mes pasado cambiaría de contenido** solo porque alguien corrigió el catálogo. La
+> copia congela lo que se acordó, igual que la venta congela el nombre y el RIF del cliente. Si
+> borran la máquina del catálogo de equipos, la copia **se queda completa**.
+
+**En las ventas.** Al agregar un renglón de **🧰 Servicio** aparece **"🚜 ¿A cuál máquina?"**
+(primero hay que elegir el cliente: las máquinas son suyas). La máquina elegida **sale impresa** en
+la factura o la nota de entrega, con su serial y su placa. Es opcional, pero conviene: un servicio
+de maquinaria que no dice a cuál máquina fue es lo que después no se puede cobrar ni reclamar.
+
 ### 4.28. Ventas (material, servicios, factura y nota de entrega)
 
 Módulo para **vender**: material que sale del inventario y servicios. Se llega por
