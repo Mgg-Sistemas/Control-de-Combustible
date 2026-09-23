@@ -35,7 +35,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { Contacto, ContactoMaquina, Machinery } from '../types/database';
+import { Contacto, ContactoMaquina, Machinery, Company } from '../types/database';
 import {
   RolContacto, buscarContactos, conteoContactos, docCanonico, docTipoLabel,
   filtrarContactos, rolesDe, sinDocumento,
@@ -64,6 +64,9 @@ export default function ContactosScreen() {
   const { data: maquinas, refetch: refetchMaquinas } =
     useTable<ContactoMaquina>('contacto_maquinas', { orderBy: 'codigo', realtimeFrom: 'contacto_maquinas' });
   const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  // 🏢 Para enlazar un contacto con la empresa interna que ES, desde el mismo
+  // selector de máquinas.
+  const { data: empresas } = useTable<Company>('companies', { orderBy: 'name' });
 
   const [q, setQ] = useState('');
   const [rol, setRol] = useState<RolContacto>('todos');
@@ -75,6 +78,13 @@ export default function ContactosScreen() {
   const [confirmando, setConfirmando] = useState<string | null>(null);
   // A qué contacto se le están viendo las máquinas.
   const [maqDe, setMaqDe] = useState<Contacto | null>(null);
+  // ⚠️ La ficha VIVA del contacto al que se le están viendo las máquinas. Si se le
+  // enlaza la empresa desde el propio selector, el objeto que quedó guardado en el
+  // estado es el de antes y seguiría diciendo «sin empresa» hasta cerrar y volver.
+  const maqContacto = useMemo(
+    () => (maqDe ? contactos.find((c) => c.id === maqDe.id) ?? maqDe : null),
+    [contactos, maqDe],
+  );
   const [busy, setBusy] = useState(false);
 
   const conteo = useMemo(() => conteoContactos(contactos), [contactos]);
@@ -240,13 +250,15 @@ export default function ContactosScreen() {
       <MaquinaPicker
         visible={!!maqDe}
         contactoId={maqDe?.id ?? null}
-        contactoNombre={maqDe?.name ?? null}
-        companyId={(maqDe as any)?.company_id ?? null}
+        contactoNombre={maqContacto?.name ?? null}
+        companyId={(maqContacto as any)?.company_id ?? null}
         maquinas={maquinas.filter((m) => m.contacto_id === maqDe?.id)}
         machinery={machinery as any}
         usuarioId={session?.user?.id ?? null}
         onCerrar={() => setMaqDe(null)}
+        companies={empresas as any}
         onCambio={refetchMaquinas}
+        onEmpresaEnlazada={refetch}
         onElegir={() => { /* Desde el módulo solo se administran: elegir no hace nada. */ }}
       />
 

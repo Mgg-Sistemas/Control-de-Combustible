@@ -38,7 +38,8 @@ import { ventaDocumentoHtml } from '../lib/ventaDocumento';
 import { ContactoForm } from '../components/ContactoForm';
 import { MaquinaPicker } from '../components/MaquinaPicker';
 import { MaquinaContacto, maquinaDeRenglon } from '../lib/contactoMaquinas';
-import { ContactoMaquina, Machinery } from '../types/database';
+import { ContactoMaquina, Machinery, Company } from '../types/database';
+import { RolContacto, conteoContactos, filtrarContactos, rolesDe } from '../lib/contactos';
 import { useBcvRate, fmtUsd, fmtBs } from '../lib/bcv';
 import { exportPdf } from '../lib/pdf';
 import { norm } from '../lib/text';
@@ -70,6 +71,9 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   const { data: maquinasContacto, refetch: refetchMaquinas } =
     useTable<ContactoMaquina>('contacto_maquinas', { orderBy: 'codigo' });
   const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  // 🏢 Las empresas internas, para poder enlazar ahí mismo al cliente/proveedor
+  // que ES una de ellas y que le salgan SUS máquinas.
+  const { data: empresas } = useTable<Company>('companies', { orderBy: 'name' });
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -92,6 +96,10 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   // decia «crealo en la pestaña 👥 Clientes»: para registrar una venta habia que
   // abandonarla, perder lo tecleado y volver a empezar.
   const [nuevoCli, setNuevoCli] = useState(false);
+  // 👤/🏭 Pedido del cliente (23-sep-2026): «que se pueda escoger el cliente o
+  // proveedor». Es UNA sola lista con dos marcas —a mucha gente se le vende Y se
+  // le compra—, así que en vez de dos listas se filtra la misma.
+  const [rolCli, setRolCli] = useState<RolContacto>('todos');
   // 🚜 A que MAQUINA se le hizo el servicio (23-sep-2026). `pickMaq` guarda el
   // indice del renglon al que se le esta poniendo la maquina.
   const [pickMaq, setPickMaq] = useState<number | null>(null);
@@ -203,7 +211,12 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
     return inventario.filter((m) => !t || norm(`${m.name} ${m.unit ?? ''} ${m.sku ?? ''} ${m.category ?? ''}`).includes(t)).slice(0, 80);
   }, [inventario, q]);
   const srvFiltrado = useMemo(() => buscarServicios(servicios, q).slice(0, 80), [servicios, q]);
-  const cliFiltrado = useMemo(() => buscarClientes(clientes, q).slice(0, 80), [clientes, q]);
+  // La lista buscable de la venta: primero el rol elegido, después el texto.
+  const cliFiltrado = useMemo(
+    () => buscarClientes(filtrarContactos(clientes as any, rolCli) as any, q).slice(0, 80),
+    [clientes, rolCli, q],
+  );
+  const cliConteo = useMemo(() => conteoContactos(clientes as any), [clientes]);
 
   if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
@@ -269,11 +282,19 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
             <SectionTitle>Nueva venta</SectionTitle>
 
             <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cliente</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cliente o proveedor</Text>
               <TouchableOpacity onPress={() => { setQ(''); setPickCli(true); }} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                 <Text style={{ color: cliente ? colors.text : colors.muted, fontSize: 14, fontWeight: cliente ? '700' : '400' }}>
-                  {cliente ? `👤 ${cliente.name} · ${docCanonico(cliente.doc_letter, cliente.doc_number)}` : 'Busca el cliente (nombre, cédula, RIF, teléfono…)'}
+                  {cliente
+                    ? `${cliente.es_proveedor && !cliente.es_cliente ? '🏭' : '👤'} ${cliente.name} · ${docCanonico(cliente.doc_letter, cliente.doc_number)}`
+                    : 'Busca el cliente o proveedor (nombre, cédula, RIF, teléfono…)'}
                 </Text>
+                {cliente ? (
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    {rolesDe(cliente as any)}
+                    {(cliente as any).company_id ? ' · 🏢 empresa interna' : ''}
+                  </Text>
+                ) : null}
               </TouchableOpacity>
             </Card>
 
@@ -328,7 +349,7 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 4 }}>
                       <TouchableOpacity
                         onPress={() => {
-                          if (!clientId) return toast.error('Elige primero el cliente: las máquinas son suyas.');
+                          if (!clientId) return toast.error('Elige primero el cliente o proveedor: las máquinas son suyas.');
                           setPickMaq(i);
                         }}
                         style={{ flex: 1, paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderStyle: it.maquina ? 'solid' : 'dashed', borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
@@ -468,8 +489,29 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
                 </ScrollView>
               ) : (
                 <>
-                  <SectionTitle>Elegir cliente</SectionTitle>
+                  <SectionTitle>Elegir cliente o proveedor</SectionTitle>
                   <TextInput value={q} onChangeText={setQ} placeholder="Busca por nombre, apellido, cédula, RIF, teléfono, correo…" placeholderTextColor={colors.muted} style={input} />
+
+                  {/* 👤/🏭 Una sola lista, filtrada. No son dos catálogos: a mucha
+                      gente se le vende Y se le compra, y tenerla dos veces es tener
+                      su cuenta partida en dos. */}
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                    {([
+                      { key: 'todos' as RolContacto, label: `📇 Todos (${cliConteo.todos})` },
+                      { key: 'clientes' as RolContacto, label: `👤 Clientes (${cliConteo.clientes})` },
+                      { key: 'proveedores' as RolContacto, label: `🏭 Proveedores (${cliConteo.proveedores})` },
+                    ]).map((p) => {
+                      const on = rolCli === p.key;
+                      return (
+                        <TouchableOpacity
+                          key={p.key} onPress={() => setRolCli(p.key)}
+                          style={{ flex: 1, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingVertical: 6, alignItems: 'center' }}
+                        >
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>{p.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                   {canWrite ? (
                     <TouchableOpacity onPress={() => setNuevoCli(true)} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}>
                       <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>＋ Agregar persona o proveedor</Text>
@@ -478,15 +520,19 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
                   <ScrollView style={{ marginTop: spacing.sm }} keyboardShouldPersistTaps="handled">
                     {cliFiltrado.map((c) => (
                       <TouchableOpacity key={c.id} onPress={() => { setClientId(c.id); setPickCli(false); setQ(''); }} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{c.name}{c.es_proveedor ? ' · 🏭' : ''}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
+                          {c.name}{(c as any).company_id ? ' · 🏢' : ''}
+                        </Text>
                         <Text style={{ color: colors.muted, fontSize: 12 }}>
-                          {docTipoLabel(c.doc_letter)} {docCanonico(c.doc_letter, c.doc_number)}{c.phone ? ` · ${c.phone}` : ''}
+                          {rolesDe(c as any)} · {docTipoLabel(c.doc_letter)} {docCanonico(c.doc_letter, c.doc_number)}{c.phone ? ` · ${c.phone}` : ''}
                         </Text>
                       </TouchableOpacity>
                     ))}
                     {cliFiltrado.length === 0 ? (
                       <Text style={{ color: colors.muted, marginTop: spacing.md }}>
-                        {q ? `Nadie con «${q}».` : 'Todavía no hay nadie registrado.'}
+                        {q
+                          ? `Nadie con «${q}»${rolCli === 'todos' ? '' : ' entre los ' + (rolCli === 'clientes' ? 'clientes' : 'proveedores')}.`
+                          : 'Todavía no hay nadie registrado.'}
                         {canWrite ? ' Tócale «＋ Agregar persona o proveedor» aquí arriba.' : ' Pídele a un encargado que lo registre.'}
                       </Text>
                     ) : null}
@@ -498,18 +544,26 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
           </Modal>
 
           {/* 🚜 Selector de MÁQUINA para un renglón de servicio. Las que salen son
-              las del CLIENTE: las suyas ya guardadas, más las del catálogo de
-              equipos de su empresa para copiarlas, más «➕ una que no está». */}
+              las del CLIENTE O PROVEEDOR elegido: las suyas ya guardadas, más las
+              del catálogo de equipos de su empresa interna para copiarlas, más
+              «➕ una que no está» para las de afuera.
+
+              Si todavía no se sabe de qué empresa interna es, el propio selector
+              deja enlazarla ahí mismo (lista buscable, con cuántas máquinas tiene
+              cada una). Antes eso solo se podía hacer en la ficha del contacto:
+              había que abandonar la venta a medias. */}
           <MaquinaPicker
             visible={pickMaq !== null}
             contactoId={clientId || null}
             contactoNombre={cliente?.name ?? null}
             companyId={(cliente as any)?.company_id ?? null}
+            companies={empresas as any}
             maquinas={maquinasContacto.filter((m) => m.contacto_id === clientId)}
             machinery={machinery as any}
             usuarioId={session?.user?.id ?? null}
             onCerrar={() => setPickMaq(null)}
             onCambio={refetchMaquinas}
+            onEmpresaEnlazada={refetchClientes}
             onElegir={(m: MaquinaContacto) => {
               if (pickMaq !== null) setItem(pickMaq, maquinaDeRenglon(m) ?? {});
               setPickMaq(null);

@@ -6199,6 +6199,39 @@ llenos de "X", y una "X" no se nota mientras que un vacío sí.
 la factura o la nota de entrega, con su serial y su placa. Es opcional, pero conviene: un servicio
 de maquinaria que no dice a cuál máquina fue es lo que después no se puede cobrar ni reclamar.
 
+#### 🧰 En una venta: el cliente o proveedor y su máquina (23/09/2026)
+
+Pedido textual: *"en servicios en ventas, que se pueda escoger el cliente o proveedor, y que se
+coloque la maquina, si es una empresa interna se muestra la lista, si es externa se agrega la
+maquina sin que afecte el catalogo"*.
+
+**1. A quién se le factura: cliente O proveedor.** El selector de la venta trae las **pastillas
+📇 Todos / 👤 Clientes / 🏭 Proveedores** con su cuenta al lado, y el buscador trabaja **dentro**
+de la pastilla elegida. Es **una sola lista**, no dos: a mucha gente se le vende *y* se le compra,
+y tenerla dos veces es tener su cuenta partida en dos. Debajo del nombre se lee qué es
+(*👤 Cliente · 🏭 Proveedor*) y un **🏢** marca a los que son una **empresa interna**.
+
+**2. La máquina, desde el propio renglón de servicio.** En **"🚜 ¿A cuál máquina?"**, arriba del
+buscador, está ahora la pregunta **"🏢 ¿Es una empresa interna?"**:
+
+- **Si es interna** (COSTA BRAVA, ALBAMAR…), se **enlaza ahí mismo** desde una lista buscable —por
+  **nombre o RIF**— que dice **cuántas máquinas tiene cada empresa** y pone arriba las que tienen.
+  Al enlazarla, el desplegable **se llena con sus máquinas** del catálogo de equipos y se copian de
+  un toque.
+- **Si es de afuera**, no se enlaza nada: se usa **"➕ Registrar una máquina que no está"** y la
+  máquina queda **solo en la lista de ese contacto**.
+
+> **⚠️ Esto es lo que antes obligaba a abandonar la venta.** El enlace con la empresa solo se podía
+> hacer en la ficha completa del contacto, así que si faltaba, el desplegable salía vacío y había
+> que salirse de la venta a medias —perdiendo lo tecleado— para poder volver a empezarla.
+
+> **⭐ Enlazar NO toca el catálogo de equipos.** Se escribe en la ficha del contacto, no en
+> 🚜 Catálogo de equipos: decir de qué empresa es alguien no le quita ni le pone una máquina a
+> nadie. Las **retiradas** no se proponen y las empresas **ocultas** no se ofrecen para enlazar.
+
+La empresa también se enlaza (o se desenlaza) desde el botón **🚜** del módulo 📇 Contactos: es el
+mismo selector.
+
 ### 4.28. Ventas (material, servicios, factura y nota de entrega)
 
 Módulo para **vender**: material que sale del inventario y servicios. Se llega por
