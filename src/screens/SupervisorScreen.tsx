@@ -28,6 +28,7 @@ import { paradaShiftOf } from '../lib/inspectorDaySets';
 import { SosAutomatizacionCard } from '../components/SosAutomatizacionCard';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
+import { guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
 import { markAttendance, pairMarks, fmtHora, nextKind, shiftOfTs, SHIFT_LABEL } from '../lib/attendance';
@@ -1778,6 +1779,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const res = await upsertMachineRound(ci.id, roundDate, { jornada_start_at: startIso, jornada_shift: sh, jornada_marked_at: now.toISOString(), jornada_marked_by: uid || null, ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
+    // HORÓMETRO DE TRABAJO (modo sombra): la jornada manda; esto solo registra AL LADO,
+    // sin await, sin toast y sin return — si falla, la jornada ya quedó iniciada igual.
+    if (hiHas) void guardarLecturaHorometro(ci.id, roundDate, sh === 'night' ? 'night' : 'day', { inicial: hi, ...(horoIniPhoto ? { fotoInicialUrl: horoIniPhoto } : {}), origen: 'inspector' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo:', r.error); }).catch(() => {});
     setJornadaShift(sh);
     setJornadaStart(startIso);
     // REACTIVACIÓN: iniciar la jornada implica que la máquina VUELVE a trabajar, pero
@@ -1932,6 +1936,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // disparan las alertas 200/220/250 en Mantenimiento de Maquinaria / Supervisión.
     // Best-effort: no bloquea el cierre de la jornada.
     if (hfValid) supabase.from('machinery').update({ last_horometro: hfNum }).eq('id', ci.id).then(() => {}, () => {});
+    // HORÓMETRO DE TRABAJO (modo sombra): la jornada manda; esto solo registra AL LADO,
+    // sin await, sin toast y sin return — si falla, el cierre ya quedó hecho igual.
+    if (hfValid) void guardarLecturaHorometro(ci.id, roundDate, jornadaShift === 'night' ? 'night' : 'day', { final: hfNum, ...(horoFinPhoto ? { fotoFinalUrl: horoFinPhoto } : {}), origen: 'inspector' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo:', r.error); }).catch(() => {});
     setJornadaStart(null);
     setFinConfirm(false);
     setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre('');
