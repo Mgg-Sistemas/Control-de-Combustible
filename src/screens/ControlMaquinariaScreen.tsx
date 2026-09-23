@@ -27,6 +27,9 @@ import { caracasParts } from '../lib/jornada';
 import { freezeOpenJornadaNow } from '../lib/machineRounds';
 import { HistorialPrecios, precioEfectivoJornada, precioVigenteEn } from '../lib/precioHistorial';
 import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
+import { LecturaTrabajo } from '../lib/horometroTrabajo';
+import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
+import { HorometroTrabajoCelda } from '../components/HorometroTrabajoCelda';
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
@@ -172,6 +175,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineId|fecha
   const [fuelWeek, setFuelWeek] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en el rango visible
+  // HORÓMETRO DE TRABAJO en «modo sombra» (23-sep-2026): lecturas del rango visible, SOLO
+  // para mostrarlas junto a las horas. No pagan ni tocan las rondas (src/lib/horometroTrabajo.ts).
+  const [lecturasHoro, setLecturasHoro] = useState<LecturaTrabajo[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   // Al llegar desde el Dashboard con ?q (serial/código), filtra a ESA máquina.
@@ -281,6 +287,15 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // los useMemo que dependen de él (workedByMachine) no se recalculen sin necesidad.
   const weekDays = useMemo(() => Array.from({ length: dayCount }, (_, i) => shiftDay(weekStart, i)), [weekStart, dayCount]);
   const weekEnd = weekDays[weekDays.length - 1];
+  // Lecturas del horómetro de trabajo agrupadas por `${machineryId}|${round_date}` (modo sombra).
+  const lecturasPorClave = useMemo(() => {
+    const map = new Map<string, LecturaTrabajo[]>();
+    for (const l of lecturasHoro) {
+      const k = `${l.machineryId}|${l.roundDate}`;
+      const arr = map.get(k); if (arr) arr.push(l); else map.set(k, [l]);
+    }
+    return map;
+  }, [lecturasHoro]);
 
   // Cierre de control + histórico
   const [closing, setClosing] = useState(false);
@@ -343,6 +358,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       setHistPrecios(hp);
       // Combustible surtido por máquina en el rango visible (para mostrar ⛽ L y L/h).
       loadFuelByMachine(days[0], days[days.length - 1]).then(setFuelWeek).catch(() => {});
+      // Horómetro de trabajo (modo sombra): mismo rango; si la tabla no existe llega [].
+      cargarLecturasHorometro(days[0], days[days.length - 1]).then(setLecturasHoro).catch(() => setLecturasHoro([]));
       // Guardia/militar actual de cada máquina (para mostrarlo en cada ronda).
       fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
       // Inspector "asignado" = quien hizo el último check-in en cada máquina.
@@ -1942,6 +1959,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         </View>
       ) : null}
 
+      {/* Aviso del modo sombra: solo si el rango visible tiene alguna lectura de horómetro de trabajo. */}
+      {lecturasHoro.length > 0 ? (
+        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>⚙️ Horómetro de trabajo (modo sombra): solo se muestra, no paga.</Text>
+      ) : null}
       {loading && machines.length === 0 ? (
         <Loading />
       ) : companyFilter === '__all__' && !q ? (
@@ -2252,6 +2273,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                           {b?.horometro_inicial != null && b?.horometro_final != null ? ` = ${Math.round((Number(b.horometro_final) - Number(b.horometro_inicial)) * 100) / 100} h` : ''}
                         </Text>
                       ) : null}
+                      {/* Horómetro de TRABAJO (modo sombra): solo se muestra, no paga ni edita. Y solo
+                          si la semana trae alguna lectura: sin lecturas, la pantalla es la de siempre. */}
+                      {lecturasHoro.length > 0 ? <HorometroTrabajoCelda lecturas={lecturasPorClave.get(`${m.id}|${dISO}`) ?? []} colors={colors} /> : null}
                     </View>
                   );
                 })}
