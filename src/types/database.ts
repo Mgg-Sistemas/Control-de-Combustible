@@ -1812,20 +1812,41 @@ export interface CuentaAbono {
 
 // ── VENTAS (módulo 22-sep-2026) ──────────────────────────────────────────────
 /** Cliente del módulo de Ventas. La identidad es la CÉDULA o el RIF (único). */
-export interface SalesClient {
+/**
+ * 📇 Un CONTACTO del catálogo único (23-sep-2026): a quién se le vende y a quién se
+ * le compra. Antes eran dos listas sueltas —`sales_clients` en Ventas y `suppliers`
+ * en Compras—; ahora es una sola, y `suppliers` queda ESPEJADA para que Compras,
+ * Cuentas y Mangueras sigan leyendo lo que siempre leyeron. Ver supabase/contactos.sql.
+ */
+export interface Contacto {
   id: string;
+  /** Lo que se IMPRIME: «NOMBRE APELLIDO» de una persona, la razón social de una empresa. */
   name: string;
-  doc_letter: string;          // V | E | J | G | P
-  doc_number: string;          // dígitos
+  first_name: string | null;
+  last_name: string | null;
+  razon_social: string | null;
+  /** V | E | J | G | P. NULL = todavía no le cargaron la cédula o el RIF. */
+  doc_letter: string | null;
+  doc_number: string | null;
   phone: string | null;
   email: string | null;
   address: string | null;
-  es_proveedor: boolean;       // además de cliente, se le compra
+  /** Dos MARCAS, no dos listas: a mucha gente se le vende Y se le compra. */
+  es_cliente: boolean;
+  es_proveedor: boolean;
+  /** Rubro de proveedor (FERRETERIA, REPUESTOS…), igual que en Compras. */
+  tags: string[] | null;
   note: string | null;
+  /** false = deshabilitado. No se borra: sus ventas y compras viejas lo necesitan. */
   active: boolean;
+  /** Su ficha espejo en `suppliers`, la que leen Compras y Cuentas. */
+  supplier_id: string | null;
   created_at: string;
   created_by: string | null;
 }
+
+/** Alias histórico: en Ventas un contacto se llama «cliente». */
+export type SalesClient = Contacto;
 
 /** Tipo de servicio que se vende. Se llena solo: la 1ª vez lo escribe el usuario. */
 export interface SalesService {

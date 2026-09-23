@@ -53,6 +53,7 @@ export const MODULOS_AUDITORIA: ModuloAuditoria[] = [
   { key: 'alimentacion', label: 'Cocina y distribución de comida', icon: '🍽️' },
   { key: 'combustible', label: 'Combustible', icon: '⛽' },
   { key: 'compras', label: 'Compras', icon: '🛒' },
+  { key: 'contactos', label: 'Contactos (compras, ventas)', icon: '📇' },
   { key: 'asistencia', label: 'Control de asistencia', icon: '🕒' },
   { key: 'control', label: 'Control de maquinaria (jornadas)', icon: '🕐' },
   { key: 'pagos', label: 'Control de pagos', icon: '💰' },
@@ -112,7 +113,10 @@ const TABLA_A_MODULO: Record<string, string> = {
   purchase_orders: 'compras', purchase_requests: 'compras', suppliers: 'compras',
   direct_purchases: 'compras', inventory_requirements: 'compras', cuentas: 'compras', cuenta_abonos: 'compras',
   // 💰 Ventas: la venta, su cliente y el catálogo de servicios que se vende
-  sales: 'ventas', sales_clients: 'ventas', sales_services: 'ventas',
+  sales: 'ventas', sales_services: 'ventas',
+  // 📇 El catalogo unico (23-sep-2026). `sales_clients` paso a llamarse `contactos`;
+  // `suppliers` sigue viva y espejada, pero se administra desde aca.
+  contactos: 'contactos',
   // 💵 Caja: la sesión (apertura/cierre), sus movimientos y el catálogo de
   // categorías de egreso. Los INGRESOS los escriben triggers, no personas.
   caja_sesiones: 'caja', caja_movimientos: 'caja', caja_categorias: 'caja',

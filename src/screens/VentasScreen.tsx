@@ -29,12 +29,13 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { SalesClient, SalesService, Sale, InventoryLevel } from '../types/database';
 import {
-  METODOS_PAGO, DOC_KINDS, DOC_LETRAS, IVA_PCT, MetodoPago, VentaDocKind, VentaItem,
-  metodoLabel, docKindLabel, docCanonico, docValido, docTipoLabel, docDuplicado,
+  METODOS_PAGO, DOC_KINDS, IVA_PCT, MetodoPago, VentaDocKind, VentaItem,
+  metodoLabel, docKindLabel, docCanonico, docTipoLabel,
   buscarClientes, buscarServicios, lineaTotal, cuentaDe, bsDeUsd,
   filtrarVentas, totalesVentas, porCliente, VentaFiltro,
 } from '../lib/ventas';
 import { ventaDocumentoHtml } from '../lib/ventaDocumento';
+import { ContactoForm } from '../components/ContactoForm';
 import { useBcvRate, fmtUsd, fmtBs } from '../lib/bcv';
 import { exportPdf } from '../lib/pdf';
 import { norm } from '../lib/text';
@@ -57,7 +58,7 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   const { rate } = useBcvRate();
 
   const { data: ventas, loading, refetch } = useTable<Sale>('sales', { orderBy: 'created_at', ascending: false, realtimeFrom: 'sales' });
-  const { data: clientes, refetch: refetchClientes } = useTable<SalesClient>('sales_clients', { orderBy: 'name' });
+  const { data: clientes, refetch: refetchClientes } = useTable<SalesClient>('contactos', { orderBy: 'name' });
   const { data: servicios, refetch: refetchServicios } = useTable<SalesService>('sales_services', { orderBy: 'name' });
   const { data: inventario } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
 
@@ -78,6 +79,10 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   const [pickCli, setPickCli] = useState(false);
   const [q, setQ] = useState('');
   const [nuevoSrv, setNuevoSrv] = useState('');
+  // ＋ Agregar un cliente SIN salirse de la venta (23-sep-2026). Antes el selector
+  // decia «crealo en la pestaña 👥 Clientes»: para registrar una venta habia que
+  // abandonarla, perder lo tecleado y volver a empezar.
+  const [nuevoCli, setNuevoCli] = useState(false);
 
   const cliente = clientes.find((c) => c.id === clientId) || null;
   const cuenta = useMemo(() => cuentaDe(items, conIva, IVA_PCT), [items, conIva]);
@@ -394,23 +399,60 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
             </View>
           </ScrollView>
 
-          {/* Selector de CLIENTE */}
-          <Modal visible={pickCli} animationType="slide" onRequestClose={() => setPickCli(false)}>
+          {/* Selector de CLIENTE · la lista buscable, con «＋ Agregar» adentro.
+              Pedido del cliente (23-sep-2026): «acá permite agregar personas, y
+              proveedores […] si no existe se agrega, con nombre apellido, rif - ci».
+              Es la MISMA lista de la pestaña 👥 Clientes: lo que se cree acá le sale
+              allá y a la próxima venta, ya buscable. */}
+          <Modal visible={pickCli} animationType="slide" onRequestClose={() => { setPickCli(false); setNuevoCli(false); }}>
             <Screen>
-              <SectionTitle>Elegir cliente</SectionTitle>
-              <TextInput value={q} onChangeText={setQ} placeholder="Busca por nombre, cédula, RIF, teléfono, correo…" placeholderTextColor={colors.muted} style={input} />
-              <ScrollView style={{ marginTop: spacing.sm }} keyboardShouldPersistTaps="handled">
-                {cliFiltrado.map((c) => (
-                  <TouchableOpacity key={c.id} onPress={() => { setClientId(c.id); setPickCli(false); setQ(''); }} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{c.name}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>
-                      {docTipoLabel(c.doc_letter)} {docCanonico(c.doc_letter, c.doc_number)}{c.phone ? ` · ${c.phone}` : ''}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                {cliFiltrado.length === 0 ? <Text style={{ color: colors.muted, marginTop: spacing.md }}>Sin resultados. Crea el cliente en la pestaña 👥 Clientes.</Text> : null}
-              </ScrollView>
-              <TouchableOpacity onPress={() => setPickCli(false)} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
+              {nuevoCli ? (
+                <ScrollView keyboardShouldPersistTaps="handled">
+                  <SectionTitle>Nuevo cliente o proveedor</SectionTitle>
+                  <ContactoForm
+                    contactos={clientes}
+                    usuarioId={session?.user?.id ?? null}
+                    textoBuscado={q}
+                    compacto
+                    onCancelar={() => setNuevoCli(false)}
+                    onGuardado={async (c: SalesClient) => {
+                      // Queda elegido de una: crearlo era el paso para poder seguir
+                      // con ESTA venta, no una tarea aparte.
+                      setNuevoCli(false); setPickCli(false); setQ('');
+                      setClientId(c.id);
+                      await refetchClientes();
+                      toast.success(`${c.name} quedó registrado y elegido.`);
+                    }}
+                  />
+                </ScrollView>
+              ) : (
+                <>
+                  <SectionTitle>Elegir cliente</SectionTitle>
+                  <TextInput value={q} onChangeText={setQ} placeholder="Busca por nombre, apellido, cédula, RIF, teléfono, correo…" placeholderTextColor={colors.muted} style={input} />
+                  {canWrite ? (
+                    <TouchableOpacity onPress={() => setNuevoCli(true)} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>＋ Agregar persona o proveedor</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <ScrollView style={{ marginTop: spacing.sm }} keyboardShouldPersistTaps="handled">
+                    {cliFiltrado.map((c) => (
+                      <TouchableOpacity key={c.id} onPress={() => { setClientId(c.id); setPickCli(false); setQ(''); }} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{c.name}{c.es_proveedor ? ' · 🏭' : ''}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          {docTipoLabel(c.doc_letter)} {docCanonico(c.doc_letter, c.doc_number)}{c.phone ? ` · ${c.phone}` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    {cliFiltrado.length === 0 ? (
+                      <Text style={{ color: colors.muted, marginTop: spacing.md }}>
+                        {q ? `Nadie con «${q}».` : 'Todavía no hay nadie registrado.'}
+                        {canWrite ? ' Tócale «＋ Agregar persona o proveedor» aquí arriba.' : ' Pídele a un encargado que lo registre.'}
+                      </Text>
+                    ) : null}
+                  </ScrollView>
+                  <TouchableOpacity onPress={() => setPickCli(false)} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
+                </>
+              )}
             </Screen>
           </Modal>
 
@@ -471,7 +513,7 @@ function HistorialTab() {
   const { colors } = useTheme();
   const toast = useToast();
   const { data: ventas, loading } = useTable<Sale>('sales', { orderBy: 'sale_date', ascending: false, realtimeFrom: 'sales' });
-  const { data: clientes } = useTable<SalesClient>('sales_clients', { orderBy: 'name' });
+  const { data: clientes } = useTable<SalesClient>('contactos', { orderBy: 'name' });
 
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -649,55 +691,23 @@ function ClientesTab({ canWrite }: { canWrite: boolean }) {
   const { session } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
-  const { data: clientes, loading, refetch } = useTable<SalesClient>('sales_clients', { orderBy: 'name', realtimeFrom: 'sales_clients' });
+  const { data: clientes, loading, refetch } = useTable<SalesClient>('contactos', { orderBy: 'name', realtimeFrom: 'contactos' });
 
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [letra, setLetra] = useState('V');
-  const [numero, setNumero] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [address, setAddress] = useState('');
-  const [esProv, setEsProv] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // El cliente que se está editando (null = uno nuevo). El formulario —campos,
+  // validación y guardado— vive en <ContactoForm>, compartido con NUEVA VENTA.
+  const [editando, setEditando] = useState<SalesClient | null>(null);
 
   const lista = useMemo(() => buscarClientes(clientes, q), [clientes, q]);
-  const choca = docDuplicado(clientes as any, letra, numero, editId);
 
-  const abrirNuevo = () => { setEditId(null); setName(''); setLetra('V'); setNumero(''); setPhone(''); setEmail(''); setAddress(''); setEsProv(false); setOpen(true); };
-  const abrirEditar = (c: SalesClient) => {
-    setEditId(c.id); setName(c.name); setLetra(c.doc_letter); setNumero(c.doc_number);
-    setPhone(c.phone ?? ''); setEmail(c.email ?? ''); setAddress(c.address ?? ''); setEsProv(!!c.es_proveedor); setOpen(true);
-  };
-
-  const guardar = async () => {
-    if (!name.trim()) return toast.error('Escribe el nombre.');
-    if (!docValido(letra, numero)) return toast.error('El documento no es válido (mínimo 6 dígitos).');
-    if (choca) return toast.error(`Ese ${docTipoLabel(letra).toLowerCase()} ya está registrado a nombre de "${choca.name}".`);
-    setBusy(true);
-    const fila = {
-      name: name.trim().toUpperCase(), doc_letter: letra, doc_number: numero.replace(/[^0-9]/g, ''),
-      phone: phone.trim() || null, email: email.trim() || null, address: address.trim() || null,
-      es_proveedor: esProv,
-    };
-    const { error } = editId
-      ? await supabase.from('sales_clients').update(fila).eq('id', editId)
-      : await supabase.from('sales_clients').insert({ ...fila, created_by: session?.user?.id ?? null });
-    setBusy(false);
-    if (error) {
-      if (/sales_clients|relation|does not exist/i.test(error.message)) return toast.error('Corre "ventas.sql" en Supabase para habilitar Ventas.');
-      return toast.error(/duplicate|unique/i.test(error.message) ? 'Ese documento ya está registrado.' : error.message);
-    }
-    setOpen(false); await refetch();
-    toast.success(editId ? 'Cliente actualizado.' : 'Cliente registrado.');
-  };
+  const abrirNuevo = () => { setEditando(null); setOpen(true); };
+  const abrirEditar = (c: SalesClient) => { setEditando(c); setOpen(true); };
 
   const borrar = async (c: SalesClient) => {
     const ok = await confirm({ title: 'Eliminar cliente', message: `¿Eliminar a "${c.name}"?\n\nNo se puede si tiene ventas o cuentas registradas.`, confirmText: 'Eliminar', danger: true });
     if (!ok) return;
-    const { error } = await supabase.from('sales_clients').delete().eq('id', c.id);
+    const { error } = await supabase.from('contactos').delete().eq('id', c.id);
     if (error) return toast.error(/foreign key|violates/i.test(error.message) ? 'No se puede: ese cliente ya tiene ventas o cuentas.' : error.message);
     await refetch(); toast.success('Cliente eliminado.');
   };
@@ -708,15 +718,15 @@ function ClientesTab({ canWrite }: { canWrite: boolean }) {
   return (
     <Screen>
       <ConfigBanner />
-      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Busca por nombre, cédula, RIF, teléfono, correo, dirección…" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Busca por nombre, apellido, cédula, RIF, teléfono, correo, dirección…" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
       {canWrite ? (
         <TouchableOpacity onPress={abrirNuevo} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginBottom: spacing.sm }}>
-          <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>＋ Nuevo cliente</Text>
+          <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>＋ Agregar persona o proveedor</Text>
         </TouchableOpacity>
       ) : null}
 
       {lista.length === 0 ? (
-        <EmptyState title={q ? 'Sin resultados' : 'Sin clientes'} subtitle={q ? 'Prueba con otro dato.' : 'Registra a quién le vendes.'} />
+        <EmptyState title={q ? 'Sin resultados' : 'Sin clientes'} subtitle={q ? 'Prueba con otro dato.' : 'Registra a quién le vendes y a quién le compras.'} />
       ) : lista.map((c) => (
         <Card key={c.id}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -741,51 +751,22 @@ function ClientesTab({ canWrite }: { canWrite: boolean }) {
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>
           <ScrollView keyboardShouldPersistTaps="handled">
-            <SectionTitle>{editId ? 'Editar cliente' : 'Nuevo cliente'}</SectionTitle>
-            <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nombre o razón social</Text>
-              <TextInput value={name} onChangeText={(t) => setName(t.toUpperCase())} autoCapitalize="characters" placeholder="NOMBRE DEL CLIENTE" placeholderTextColor={colors.muted} style={input} />
-
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Documento (la cédula o el RIF no se puede repetir)</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 4 }}>
-                {DOC_LETRAS.map((l) => {
-                  const on = letra === l;
-                  return (
-                    <TouchableOpacity key={l} onPress={() => setLetra(l)} style={{ flex: 1, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingVertical: spacing.xs, alignItems: 'center' }}>
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{l}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <TextInput value={numero} onChangeText={(t) => setNumero(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Solo los números" placeholderTextColor={colors.muted}
-                style={[input, { borderColor: choca ? colors.danger : colors.border }]} />
-              <Text style={{ color: choca ? colors.danger : colors.muted, fontSize: 11, marginTop: 3, fontWeight: choca ? '800' : '400' }}>
-                {choca
-                  ? `⚠️ Ese ${docTipoLabel(letra).toLowerCase()} ya está registrado a nombre de "${choca.name}".`
-                  : `Quedará como ${docCanonico(letra, numero) || `${letra}-…`} · ${docTipoLabel(letra)}`}
-              </Text>
-
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Teléfono</Text>
-              <TextInput value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="0414-1112233" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Correo</Text>
-              <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="correo@ejemplo.com" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Dirección</Text>
-              <TextInput value={address} onChangeText={setAddress} placeholder="Dirección fiscal / de entrega" placeholderTextColor={colors.muted} style={input} />
-
-              <TouchableOpacity onPress={() => setEsProv((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm }}>
-                <Text style={{ fontSize: 15 }}>{esProv ? '☑️' : '⬜'}</Text>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }}>🏭 También es proveedor (le compramos)</Text>
-              </TouchableOpacity>
-            </Card>
-
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
-              <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={guardar} disabled={busy || !!choca} style={{ flex: 2, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy || choca ? 0.5 : 1 }}>
-                <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>{busy ? 'Guardando…' : editId ? 'Guardar cambios' : 'Registrar cliente'}</Text>
-              </TouchableOpacity>
-            </View>
+            <SectionTitle>{editando ? 'Editar cliente' : 'Nuevo cliente o proveedor'}</SectionTitle>
+            {/* EL MISMO formulario que sale dentro de NUEVA VENTA (23-sep-2026).
+                Antes esta pestaña tenía el suyo propio, copiado: el mismo cliente
+                quedaba escrito distinto según por dónde se hubiera creado. */}
+            <ContactoForm
+              contacto={editando}
+              contactos={clientes}
+              usuarioId={session?.user?.id ?? null}
+              onCancelar={() => setOpen(false)}
+              onGuardado={async (c: SalesClient) => {
+                setOpen(false);
+                await refetch();
+                toast.success(editando ? `${c.name} actualizado.` : `${c.name} quedó registrado.`);
+              }}
+            />
+            <View style={{ height: spacing.xl }} />
           </ScrollView>
         </Screen>
       </Modal>

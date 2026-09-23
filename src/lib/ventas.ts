@@ -107,74 +107,31 @@ export const bsDeUsd = (usd: any, tasa: any): number => money(n(usd) * n(tasa));
 /** Bs → $ (0 si no hay tasa: dividir entre 0 no es "gratis"). */
 export const usdDeBs = (bs: any, tasa: any): number => (n(tasa) > 0 ? money(n(bs) / n(tasa)) : 0);
 
-// ── Cédula / RIF ─────────────────────────────────────────────────────────────
-export const DOC_LETRAS = ['V', 'E', 'J', 'G', 'P'] as const;
-export type DocLetra = (typeof DOC_LETRAS)[number];
+// ── Cédula / RIF · el CATÁLOGO DE CONTACTOS ─────────────────────────────────
+//
+// ⭐ 23-sep-2026: esto se mudó a `src/lib/contactos.ts`. La lista de clientes de
+//    Ventas y la de proveedores de Compras pasaron a ser UN SOLO catálogo, el del
+//    módulo 📇 Contactos (pedido del cliente). Acá quedan los re-exports para que
+//    Ventas siga llamándolos por su nombre de siempre.
+//
+// ⚠️ NO VOLVER A ESCRIBIR ESTAS REGLAS AQUÍ. Dos sitios decidiendo cuándo una
+//    cédula está repetida es como se termina con el mismo cliente dos veces y su
+//    cuenta por cobrar partida en dos.
+export {
+  DOC_LETRAS, docCanonico, docDigitos, docTipoLabel, docValido, docDuplicado, esRif, esPersona,
+  componerNombre, partirNombre, repartirBusqueda, limpiarNombre, validarContacto, filaContacto,
+} from './contactos';
+export type { DocLetra, ContactoRow } from './contactos';
 
-/** V/E/P identifican PERSONA (cédula); J/G identifican EMPRESA (RIF). */
-export const esRif = (letra?: string | null): boolean => letra === 'J' || letra === 'G';
-export const docTipoLabel = (letra?: string | null): string => (esRif(letra) ? 'RIF' : 'Cédula');
+/** Alias histórico: en Ventas un contacto se llama «cliente». */
+export type ClienteRow = ContactoRowImport;
+import type { ContactoRow as ContactoRowImport } from './contactos';
+import { buscarContactos, contactoHaystack } from './contactos';
 
-/** Solo los dígitos: así "V-12.345.678" y "V12345678" comparan igual. */
-export const docDigitos = (v: any): string => String(v ?? '').replace(/[^0-9]/g, '');
-
-/** Como se imprime y se guarda: "V-12345678". */
-export const docCanonico = (letra?: string | null, numero?: any): string => {
-  const d = docDigitos(numero);
-  const l = String(letra ?? '').toUpperCase();
-  return d ? `${l}-${d}` : '';
-};
-
-/** Un documento sirve si tiene letra válida y al menos 6 dígitos. */
-export const docValido = (letra?: string | null, numero?: any): boolean =>
-  (DOC_LETRAS as readonly string[]).includes(String(letra ?? '').toUpperCase()) && docDigitos(numero).length >= 6;
-
-export type ClienteRow = {
-  id: string;
-  name: string;
-  doc_letter: string;
-  doc_number: string;
-  phone?: string | null;
-  email?: string | null;
-  address?: string | null;
-  es_proveedor?: boolean | null;
-  note?: string | null;
-  active?: boolean | null;
-};
-
-/**
- * ¿Ya existe ese documento en la lista? Compara letra + DÍGITOS, e ignora al
- * propio registro cuando se está editando (`exceptoId`).
- *
- * La base también lo impide por índice único; esto es para avisar ANTES y con
- * un mensaje que se entienda, no para reemplazarlo.
- */
-export function docDuplicado<T extends ClienteRow>(
-  lista: T[] | null | undefined,
-  letra?: string | null,
-  numero?: any,
-  exceptoId?: string | null,
-): T | null {
-  const l = String(letra ?? '').toUpperCase();
-  const d = docDigitos(numero);
-  if (!l || !d) return null;
-  return (lista ?? []).find(
-    (c) => c.id !== exceptoId && String(c.doc_letter ?? '').toUpperCase() === l && docDigitos(c.doc_number) === d,
-  ) ?? null;
-}
-
-/** Todo lo buscable de un cliente, junto: nombre, documento, teléfono, correo, dirección. */
-export const clienteHaystack = (c: ClienteRow): string =>
-  norm([c.name, docCanonico(c.doc_letter, c.doc_number), c.doc_number, c.phone, c.email, c.address, c.note]
-    .filter(Boolean).join(' '));
-
+/** Todo lo buscable de un cliente. Es el del catálogo: una sola manera de buscar. */
+export const clienteHaystack = contactoHaystack;
 /** Busca clientes por CUALQUIER característica. Sin texto, devuelve todos. */
-export function buscarClientes<T extends ClienteRow>(lista: T[] | null | undefined, texto?: string | null): T[] {
-  const q = norm(texto ?? '');
-  const rows = lista ?? [];
-  if (!q) return [...rows];
-  return rows.filter((c) => clienteHaystack(c).includes(q));
-}
+export const buscarClientes = buscarContactos;
 
 // ── Servicios del catálogo ───────────────────────────────────────────────────
 export type ServicioRow = { id: string; name: string; description?: string | null; price?: number | null; active?: boolean | null };

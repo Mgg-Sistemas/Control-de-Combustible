@@ -6043,6 +6043,57 @@ Es normal: se acomoda a la pantalla. Funciona igual en ambos.
 > Este manual es general y se irá ampliando con las secciones nuevas (empleados y fichas,
 > nómina, compras, inventario y ganancias) a medida que estén listas.
 
+### 4.27-bis. 📇 Contactos (compras, ventas) (23/09/2026)
+
+**Una sola lista de a quién se le vende y a quién se le compra.** Se llega por
+**Más → 📇 Contactos**. Antes eran dos listas sueltas que no se hablaban: los **clientes**
+vivían en Ventas y los **proveedores** en Compras, así que la misma empresa estaba dos veces,
+escrita de dos maneras, y su cuenta salía partida en dos.
+*(Requiere correr `supabase/contactos.sql`.)*
+
+> **Los 55 proveedores que ya tenía Compras están aquí**, con su rubro y su RIF. No se copiaron
+> ni se duplicaron: quedaron **espejados**. Se edite donde se edite —en 📇 Contactos o en la
+> pestaña Proveedores de 🛒 Compras— el nombre y el RIF terminan **iguales en los dos sitios**.
+> Compras, Cuentas y Mangueras siguen funcionando exactamente igual.
+
+**Cliente y proveedor son dos marcas, no dos listas.** Un contacto puede ser **👤 Cliente**,
+**🏭 Proveedor** o **las dos cosas** — a mucha gente se le vende y se le compra. Marcarlo como
+proveedor es lo que hace que salga para elegirlo en Compras.
+
+**Los datos.** Si es **persona** (V, E o P): **nombre** y **apellido**. Si es **empresa**
+(J o G): **razón social**. En los dos casos, su **cédula o RIF**, y opcionalmente teléfono,
+correo, dirección y **rubro** (ferretería, repuestos, aceites… es como Compras los filtra).
+
+> **⭐ Una cédula o un RIF no entra dos veces.** El sistema **avisa antes de guardar** y **dice a
+> nombre de quién** ya está, y la base lo impide además por su cuenta. **"J-50.129.99-35" y
+> "J501299935" son el mismo RIF**: se comparan solo los dígitos, así que no se cuelan duplicados
+> por escribirlo distinto.
+
+> **El documento se puede dejar en blanco.** Hay proveedores reales que hoy no lo tienen cargado;
+> si fuera obligatorio, se quedaban fuera del catálogo **y con ellos sus compras**. Entran sin él
+> y salen **avisados en amarillo**, con su propia pastilla **"⚠️ Sin cédula/RIF"**, para
+> completarlos cuando se tenga a mano. **Escribirlo a medias sí se rechaza**: "no lo tengo" y "lo
+> escribí mal" no son lo mismo.
+
+> **⚠️ Ojo con tres proveedores.** **DPE Grupo Digital Print**, **Ferretería Albamar** y
+> **Ferretería El Puerto Marítimo** venían los tres con el **mismo RIF J-501299935**. Tres
+> empresas distintas no pueden compartir RIF: alguno está mal copiado. El sistema **no eligió por
+> nadie**: el primero se quedó con el RIF y los otros dos entraron **sin documento**, para que una
+> persona lo corrija. Salen en la pastilla "⚠️ Sin cédula/RIF" junto con los cinco que nunca lo
+> tuvieron (AVZ-Import 2024, Defcom Venezuela, Distribuidora DUV Ultra Video, Distribuidora HID
+> Venezuela y Tornillería Global).
+
+> **Deshabilitar, no borrar.** Con **🚫** el contacto deja de salir para elegirlo (y, si es
+> proveedor, también deja de salir en Compras), pero **no se borra**: sus ventas, compras y
+> cuentas siguen con su nombre. Con **↩️** vuelve. Borrarlo se llevaría por delante el nombre
+> impreso en papeles ya emitidos.
+
+**Desde una venta también se agrega.** En **💰 Ventas → ＋ Nueva venta**, el buscador de cliente
+trae **"＋ Agregar persona o proveedor"**: se registra ahí mismo, **sin abandonar la venta**, y
+queda elegido de una. Es el **mismo formulario** del módulo, así que el contacto queda escrito
+igual sin importar por dónde se creó. Lo que escribiste en el buscador se aprovecha: si buscaste
+"PEDRO", el nombre ya viene puesto.
+
 ### 4.28. Ventas (material, servicios, factura y nota de entrega)
 
 Módulo para **vender**: material que sale del inventario y servicios. Se llega por
