@@ -8,7 +8,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import {
-  COMPANY_MEALS, mealLabel, suggestedMeals, countCompanyMachines,
+  COMPANY_MEALS, OTROS_TITULO, mealLabel, suggestedMeals, countCompanyMachines,
   listForCompanyDay, saveCompanyMeal, deleteCompanyMeal, isCookCargo,
   listForCompanyBetween, listExtraItems, saveExtraItem, FoodExtraItem,
 } from '../lib/foodCompanyMeals';
@@ -71,6 +71,10 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const [qty, setQty] = useState('');
   const [unitCost, setUnitCost] = useState('');
   const [itemLabel, setItemLabel] = useState('');
+  // ➕ (23-sep-2026): el campo para escribir una opción nueva sale SOLO al tocar el
+  // «+». Antes estaba siempre abierto y se escribía «hielo» teniendo HIELO en la
+  // lista: dos opciones con el mismo nombre y dos precios distintos en la factura.
+  const [nuevaOpcion, setNuevaOpcion] = useState(false);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   // Reporte por empresa (PDF)
@@ -153,6 +157,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
     setQty('');
     setUnitCost(last ? String(Number(last.unit_cost) || 0) : '');
     setItemLabel('');
+    setNuevaOpcion(false);
     setNote('');
     setNotice(null);
   };
@@ -165,6 +170,13 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const registrar = async () => {
     if (!mealFor || !cook) return;
     if (q <= 0) { setNotice('❌ Escribe cuántos platos entregaste.'); return; }
+    // ⭐ Un «Otros» SIN nombre no se puede cobrar: en la factura sale un renglón que
+    //    no dice qué fue, y nadie le puede reclamar nada al cliente. Con la lista
+    //    (HIELO, AGUA…) y el «+», no hay excusa para dejarlo en blanco.
+    if (mealFor === 'otros' && !itemLabel.trim()) {
+      setNotice('❌ Elige qué fue (hielo, agua…) o agrégalo con el ➕. Así sale por su nombre en la factura.');
+      return;
+    }
     setSaving(true); setNotice(null);
     const { data, error } = await saveCompanyMeal({
       companyId, companyName, mealType: mealFor, mealDate: today,
@@ -197,6 +209,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   // Elegir un plato OTROS del catálogo: fija el nombre y reusa su último costo de hoy.
   const selectExtra = (name: string) => {
     setItemLabel(name);
+    setNuevaOpcion(false);
     const last = [...meals].reverse().find((r) => r.meal_type === 'otros' && norm(r.item_label ?? '') === norm(name));
     if (last) setUnitCost(String(Number(last.unit_cost) || 0));
   };
@@ -380,7 +393,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 22 }}>{mt.icon} {mt.label}</Text>
+              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 22 }}>{mt.icon} {mt.key === 'otros' ? OTROS_TITULO : mt.label}</Text>
               {platos > 0 ? (
                 <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>{platos} plato(s){usd > 0 ? ` · ${fmtUsd(usd)}` : ''}</Text>
               ) : (
@@ -451,28 +464,50 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
       <Modal visible={!!mealFor} transparent animationType="fade" onRequestClose={() => setMealFor(null)}>
         <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>{modalMeal ? `${modalMeal.icon} ${modalMeal.label}` : ''} · {companyName}</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>{modalMeal ? `${modalMeal.icon} ${modalMeal.key === 'otros' ? OTROS_TITULO : modalMeal.label}` : ''} · {companyName}</Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
               Escribe los platos que surtiste. Se SUMA a lo ya registrado hoy{mealFor ? ` (${platosOf(mealFor)} hasta ahora)` : ''}.
             </Text>
 
             {mealFor === 'otros' ? (
               <>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>Plato (elige de la lista o escribe uno nuevo)</Text>
-                {extraItems.length > 0 ? (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginBottom: 4 }}>
-                    {extraItems.map((e) => {
-                      const on = norm(e.name) === norm(itemLabel);
-                      return (
-                        <TouchableOpacity key={e.id} onPress={() => selectExtra(e.name)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{e.name}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                {/* ⭐ HIELO, AGUA Y LAS QUE AGREGUEN (23-sep-2026). Se ELIGE de la lista:
+                    con eso la entrega queda con el nombre exacto de una opción, que es
+                    lo que la hace encontrar su precio y salir por su nombre en la
+                    factura. El «+» es para estrenar una opción nueva, no para escribir
+                    cada día lo mismo con otras letras. */}
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>Qué fue · elige una opción</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginBottom: 4 }}>
+                  {extraItems.map((e) => {
+                    const on = !nuevaOpcion && norm(e.name) === norm(itemLabel);
+                    return (
+                      <TouchableOpacity key={e.id} onPress={() => selectExtra(e.name)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{e.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <TouchableOpacity
+                    onPress={() => { setNuevaOpcion((v) => !v); setItemLabel(''); }}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderStyle: 'dashed', borderColor: nuevaOpcion ? colors.primary : colors.border, backgroundColor: nuevaOpcion ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: nuevaOpcion ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>➕ Otra opción</Text>
+                  </TouchableOpacity>
+                </View>
+                {extraItems.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                    La lista está vacía: deberían estar HIELO y AGUA. Si no salen, falta correr el SQL
+                    «comida_hielo_agua». Mientras tanto agrégalas con ➕.
+                  </Text>
                 ) : null}
-                <TextInput value={itemLabel} onChangeText={setItemLabel} placeholder="Ej. Bolsa de hielo, Refresco, Postre…" placeholderTextColor={colors.muted} style={input} />
-                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>El nombre se guarda para la próxima; luego solo cambias el costo.</Text>
+                {nuevaOpcion ? (
+                  <>
+                    <TextInput value={itemLabel} onChangeText={setItemLabel} placeholder="Ej. Refresco, Postre, Vasos…" placeholderTextColor={colors.muted} style={input} />
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                      Queda en la lista para la próxima. Ponle su precio en «💲 Precios y cuentas → 🧾 Platos»;
+                      mientras tanto se cobra con el costo que escribas aquí abajo.
+                    </Text>
+                  </>
+                ) : null}
               </>
             ) : null}
 

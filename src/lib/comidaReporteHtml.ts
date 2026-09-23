@@ -21,6 +21,7 @@ import {
   ColumnaEmpresa, ColumnaPersona, ColumnaDetalle,
 } from './comidaReporteOpciones';
 import { CuentaDeContacto, FiltroComida, GrupoComida, LineaDetalle, TotalesComida, alcanceEnPalabras } from './comidaReporte';
+import { COMIDA_OTROS, nombreDeOpcion } from './comidaPlatos';
 
 export const escapar = (v: unknown): string =>
   String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -115,9 +116,43 @@ function cuadroGrupos(
   return `<h2>${titulo}</h2>${tabla(titulos, numericas, filas, pie)}`;
 }
 
-function cuadroPorComida(t: TotalesComida, cat: CatalogoComidas): string {
+/** Cómo se nombra en el cuadro un «Otros» al que nunca le escribieron qué fue. */
+const OTROS_SIN_NOMBRE = 'Otros (sin nombre)';
+
+/**
+ * Cuántas de cada OPCIÓN de «Otros» (HIELO, AGUA, Refresco…), sacado del detalle.
+ * Es lo que hace que el cuadro diga «AGUA 12» en vez de «Otros 12»: pedido del
+ * cliente (23-sep-2026), «en la factura se debe reflejar como AGUA, Hielo».
+ *
+ * ⚠️ Devuelve [] —y el cuadro deja la fila «Otros» de siempre— si el detalle no
+ *    suma exactamente el total de «Otros». Pasa cuando el papel salió SIN detalle
+ *    (`lineas` viene vacío). Un cuadro desglosado que no cuadra con su propio
+ *    total es peor que uno menos detallado: el que lo revisa deja de creerle.
+ */
+function porOpcionDeOtros(lineas: LineaDetalle[], totalOtros: number): { nombre: string; cantidad: number }[] {
+  const m = new Map<string, number>();
+  let suma = 0;
+  for (const l of lineas) {
+    if (String(l.comida ?? '').trim().toLowerCase() !== COMIDA_OTROS) continue;
+    const n = nombreDeOpcion(l.comida, l.plato) ?? OTROS_SIN_NOMBRE;
+    m.set(n, (m.get(n) || 0) + l.cantidad);
+    suma += l.cantidad;
+  }
+  if (!m.size || suma !== totalOtros) return [];
+  return Array.from(m, ([nombre, cantidad]) => ({ nombre, cantidad }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+function cuadroPorComida(t: TotalesComida, cat: CatalogoComidas, lineas: LineaDetalle[]): string {
+  const opciones = porOpcionDeOtros(lineas, t.porComida[COMIDA_OTROS] || 0);
   const filas = cat
-    .map((m) => [{ txt: escapar(m.label) }, { txt: String(t.porComida[m.key] || 0) }])
+    .flatMap((m) => (
+      // «Otros» no es una comida: es hielo, agua y lo que el cliente haya agregado.
+      // Se abre en una fila por opción, que es lo que después se le cobra.
+      m.key === COMIDA_OTROS && opciones.length
+        ? opciones.map((o) => [{ txt: escapar(o.nombre) }, { txt: String(o.cantidad) }])
+        : [[{ txt: escapar(m.label) }, { txt: String(t.porComida[m.key] || 0) }]]
+    ))
     .concat(
       // Lo que llegó con una comida que no está en el catálogo no se esconde:
       // se ve, con su nombre crudo, para que se note que algo quedó mal marcado.
@@ -152,7 +187,9 @@ function cuadroDetalle(todas: LineaDetalle[], o: OpcionesComida, cat: CatalogoCo
     if (c === 'fecha') return { txt: escapar(dmy(l.fecha)) };
     if (c === 'hora') return { txt: escapar(l.hora || '—') };
     if (c === 'quienRecibe') return { txt: `${l.via === 'empresa' ? '🏢' : '👤'} ${escapar(l.quienRecibe)}` };
-    if (c === 'comida') return { txt: escapar(etiquetaComida(l.comida, cat) + (l.plato ? ` · ${l.plato}` : '')) };
+    // Un «Otros» se nombra por su OPCIÓN (HIELO, AGUA…), igual que en la factura:
+    // el respaldo de un cobro tiene que decir lo mismo que el cobro.
+    if (c === 'comida') return { txt: escapar(nombreDeOpcion(l.comida, l.plato) ?? etiquetaComida(l.comida, cat)) };
     if (c === 'cantidad') return { txt: String(l.cantidad) };
     if (c === 'monto') return { txt: l.conPrecio ? usd(l.monto) : '<span class="warn">sin precio</span>' };
     if (c === 'quien') return { txt: escapar(l.quien || '—') };
@@ -232,7 +269,7 @@ export function cuerpoReporteComida(d: DatosReporteComida): string {
     Personas: <b>${t.personas}</b>${o.sinMontos ? '' : ` · Valor: <b>${usd(t.monto)}</b>`}
   </div>`);
 
-  if (!o.sinComidas) partes.push(cuadroPorComida(t, d.comidas));
+  if (!o.sinComidas) partes.push(cuadroPorComida(t, d.comidas, d.lineas));
   if (!o.sinEmpresas) partes.push(cuadroGrupos(d.gruposEmpresas, o, d.comidas, 'empresa'));
   if (!o.sinPersonas) partes.push(cuadroGrupos(d.gruposPersonas, o, d.comidas, 'persona', d.cedulas));
   if (!o.sinDetalle) partes.push(cuadroDetalle(d.lineas, o, d.comidas));

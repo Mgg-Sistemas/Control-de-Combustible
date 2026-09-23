@@ -21,7 +21,7 @@ import { Plegable } from './Plegable';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useConfirm } from './ConfirmProvider';
-import { COMPANY_MEALS, MEALS, mealLabel } from '../lib/foodCompanyMeals';
+import { COMPANY_MEALS, MEALS, OTROS_TITULO, mealLabel } from '../lib/foodCompanyMeals';
 import { FoodCompanyMeal, FoodDistribution, MealType } from '../types/database';
 import {
   validarCambioEmpresa, validarCambioPersona, validarAltaEmpresa, validarAltaPersona,
@@ -89,6 +89,9 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
   const [cantidad, setCantidad] = useState('');
   const [costo, setCosto] = useState('');
   const [plato, setPlato] = useState('');
+  // ➕ (23-sep-2026): el campo para ESCRIBIR una opción de «Otros» sale solo al tocar
+  // el ➕. Con HIELO y AGUA en la lista, lo normal es elegir; escribir es la excepción.
+  const [nuevaOpcion, setNuevaOpcion] = useState(false);
   const [nota, setNota] = useState('');
   // Buscador de personas.
   const [busca, setBusca] = useState('');
@@ -101,7 +104,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
 
   const abrir = (f: Formulario) => {
     setAviso(null);
-    setBusca(''); setEncontrados([]); setPersona(null);
+    setBusca(''); setEncontrados([]); setPersona(null); setNuevaOpcion(false);
     if (f.modo === 'alta-empresa') {
       setEmpresaId(''); setComida('almuerzo'); setCantidad(''); setCosto(''); setPlato(''); setNota('');
     } else if (f.modo === 'alta-persona') {
@@ -170,7 +173,10 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
         if (!v.ok) { setAviso('❌ ' + v.error); return; }
         const { error } = await agregarEntregaPersona(v.patch, usuario, esHoy ? new Date().toISOString() : undefined);
         if (error) { setAviso('❌ ' + error); onCambio(); return; }
-        setAviso(`✅ Agregado: ${v.patch.cantidad} ${v.patch.itemLabel ? v.patch.itemLabel : mealLabel(v.patch.mealType as MealType)} a ${v.patch.employeeName}.`);
+        // Una opción escrita a mano acá también tiene que quedar en la lista: si no,
+        // la entrega no encuentra su precio y nadie sabe que falta ponérselo.
+        const avisoPlatoP = await anotarPlatoNuevo(v.patch.itemLabel, platos);
+        setAviso(`✅ Agregado: ${v.patch.cantidad} ${v.patch.itemLabel ? v.patch.itemLabel : mealLabel(v.patch.mealType as MealType)} a ${v.patch.employeeName}.${avisoPlatoP}`);
         onCambio(); cerrarTrasGuardar(); return;
       }
 
@@ -276,6 +282,17 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
   // «Otros» a un contacto de cocina (22-sep-2026): el plato sale del catálogo, sin costo escrito.
   const esContactoOtros = form?.modo === 'alta-persona' && persona?.tipo === 'contacto' && comida === 'otros';
   const platosEnLista = ordenarPlatos(platos).filter(platoActivo);
+  /**
+   * El campo de texto para el nombre sale SOLO cuando hace falta: al estrenar una
+   * opción con el ➕, cuando la lista está vacía, o al corregir una entrega vieja
+   * cuyo nombre ya no está en la lista (si no, no habría cómo verlo ni arreglarlo).
+   * El último caso es el de siempre: una fila de empresa que quedó con nombre de
+   * plato pero con otra comida, para poder borrárselo.
+   */
+  const platoFueraDeLista = comida === 'otros' && !!plato.trim() && !platoConNombre(platos, plato);
+  const mostrarCampoPlato =
+    ((esEmpresa || esContactoOtros) && comida === 'otros' && (nuevaOpcion || !platosEnLista.length || platoFueraDeLista))
+    || (esEmpresa && form?.modo === 'editar-empresa' && comida !== 'otros' && !!form.fila.item_label);
 
   return (
     <Plegable
@@ -405,7 +422,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>COMIDA</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                     {(form?.modo === 'alta-empresa' || persona?.tipo === 'contacto' ? COMPANY_MEALS : MEALS).map((m) =>
-                      pastilla(`${m.icon} ${m.label}`, comida === m.key, () => {
+                      pastilla(`${m.icon} ${m.key === 'otros' ? OTROS_TITULO : m.label}`, comida === m.key, () => {
                         setComida(m.key);
                         // El nombre del plato es solo de «Otros»: al cambiar de comida
                         // se vacía, para que no se pegue a un almuerzo.
@@ -423,23 +440,30 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
               {campo(esEmpresa ? 'CUÁNTOS PLATOS' : 'CUÁNTAS COMIDAS', cantidad, setCantidad, { numerico: true, placeholder: '0' })}
 
               {esEmpresa ? campo('COSTO POR PLATO EN $ (opcional)', costo, setCosto, { numerico: true, placeholder: '0,00' }) : null}
-              {esEmpresa && (comida === 'otros' || (form?.modo === 'editar-empresa' && !!form.fila.item_label))
-                ? campo(comida === 'otros' ? 'QUÉ FUE (postre, hielo, refresco…)' : 'NOMBRE DEL PLATO (bórralo si no corresponde)', plato, setPlato, { placeholder: 'Nombre del plato' })
-                : null}
-              {/* Los platos de la lista, con un toque: escribirlo a mano es como terminan
-                  «Bolsa de yelo» y «bolsa hielo» siendo dos platos con dos precios. */}
-              {(esEmpresa || esContactoOtros) && comida === 'otros' && platosEnLista.length ? (
+              {/* HIELO, AGUA y las que hayan agregado: se ELIGEN con un toque. Escribirlo
+                  a mano es como terminan «Bolsa de yelo» y «bolsa hielo» siendo dos
+                  opciones con dos precios. El ➕ es para estrenar una, no para volver a
+                  escribir cada día la misma (23-sep-2026). */}
+              {(esEmpresa || esContactoOtros) && comida === 'otros' ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
-                  {platosEnLista.map((p) => pastilla(`🧾 ${p.name}`, normPlato(p.name) === normPlato(plato), () => setPlato(p.name)))}
+                  {platosEnLista.map((p) => pastilla(
+                    `🧾 ${p.name}`,
+                    !nuevaOpcion && normPlato(p.name) === normPlato(plato),
+                    () => { setNuevaOpcion(false); setPlato(p.name); },
+                  ))}
+                  {pastilla('➕ Otra opción', nuevaOpcion, () => { setNuevaOpcion(true); setPlato(''); })}
                 </View>
               ) : null}
+              {mostrarCampoPlato
+                ? campo(comida === 'otros' ? 'QUÉ FUE (hielo, agua, refresco…)' : 'NOMBRE DEL PLATO (bórralo si no corresponde)', plato, setPlato, { placeholder: 'Nombre de la opción' })
+                : null}
               {/* Al contacto se le cobra el precio del CATÁLOGO (decisión del cliente, 22-sep-2026):
                   por eso el plato se elige de la lista y no se escribe. */}
               {esContactoOtros ? (
                 <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
                   {platosEnLista.length
-                    ? `Elige el plato de la lista${plato ? ` · elegido: ${plato}` : ''}. Se cobra al precio que tenga en «🧾 Platos».`
-                    : 'No hay platos en la lista. Se agregan en «💲 Precios y cuentas → 🧾 Platos».'}
+                    ? `Elige la opción de la lista${plato ? ` · elegida: ${plato}` : ''}. Se cobra al precio que tenga en «🧾 Platos».`
+                    : 'La lista está vacía: deberían estar HIELO y AGUA. Agrégalas con ➕ o en «💲 Precios y cuentas → 🧾 Platos», que es donde se les pone el precio.'}
                 </Text>
               ) : null}
               {esEmpresa && comida === 'otros' ? (

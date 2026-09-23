@@ -277,10 +277,23 @@ const TODOS = [ana, beto, caro, dani];
 // ── 11b) «OTROS» SOLO PARA CONTACTOS (22-sep-2026) ───────────────────────────
 {
   const coc = sinComentarios(leer('src/screens/CocinaScreen.tsx'));
-  ok('⭐ el bloque de Otros solo se pinta a un contacto', /\{person\.contactoId \? \(\s*<View[^>]*>\s*<Text[^>]*>\{OTROS_MEAL\.icon\} \{OTROS_MEAL\.label\}/.test(coc));
+  ok('⭐ el bloque de Otros solo se pinta a un contacto', /\{person\.contactoId \? \(\s*<View[^>]*>\s*<Text[^>]*>\{OTROS_MEAL\.icon\} \{OTROS_TITULO\}/.test(coc));
   ok('⭐ y aunque llegara, a la nómina no se le registra', /if \(mealType === 'otros' && \(!esContacto \|\| !nombrePlato\)\)/.test(coc));
-  ok('⭐ el plato se ELIGE del catálogo, no se escribe', /platos\.map\(\(pl\) =>/.test(coc) && !/setPlatoEscrito|placeholder="Plato"/.test(coc));
-  ok('solo los platos activos, ordenados', /setPlatos\(ordenarPlatos\(pl\.filter\(platoActivo\)\)\)/.test(coc));
+  // 23-sep-2026: el cliente pidió un «+» para agregar opciones desde la cocina. La
+  // regla de fondo NO cambió y por eso el guard sigue: una ENTREGA sale siempre de un
+  // botón del catálogo (`pl.name`), nunca del texto que se escribe. Lo que el texto
+  // crea es una OPCIÓN de la lista; si escribir registrara entregas, volveríamos a
+  // tener «yelo» y «hielo» con dos precios en la misma factura.
+  ok('⭐ la entrega se ELIGE del catálogo, nunca se escribe',
+    /platosEnLista\.map\(\(pl\) =>/.test(coc)
+    && /registrarMeal\('otros', pl\.name\)/.test(coc)
+    && !/registrarMeal\('otros', nombreOpcion/.test(coc));
+  ok('⭐ el ➕ agrega una OPCIÓN a la lista, no una entrega', /crearOReusarPlato\(nombreOpcion, platos\)/.test(coc));
+  ok('...y la valida antes (nombre vacío, repetido o de una comida del sistema)', /validarNombrePlato\(nombreOpcion, platos\)/.test(coc));
+  // Se guardan TODOS y se pintan los activos: `crearOReusarPlato` necesita ver los
+  // quitados de la lista para devolverlos, en vez de estrellarse contra el índice único.
+  ok('se guardan todos los platos y se pintan los de la lista',
+    /setPlatos\(ordenarPlatos\(pl\)\)/.test(coc) && /platos\.filter\(platoActivo\)/.test(coc));
   ok('si el catálogo falla, la cocina sigue repartiendo', /cargarPlatos\(\)\.catch\(\(\) => \[\]/.test(coc));
   ok('el plato viaja solo en Otros', /itemLabel: mealType === 'otros' \? nombrePlato : null/.test(coc));
   ok('la lista de hoy dice cuál plato fue', /d\.meal_type === 'otros' \? \(d\.item_label \|\| 'Otros'\)/.test(coc));
