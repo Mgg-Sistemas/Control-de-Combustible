@@ -264,6 +264,24 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('inicial 0 es un inicial válido (horómetro recién cambiado)', H.lecturaParaCompletarFinal([L('m1', HOY, 'day', 0, null)], HOY).inicial, 0);
 }
 
+// ── EL EDITOR DE CONTROL: parsear y validar la correccion (24-sep-2026) ──
+{
+  eq('numero con coma', H.numeroDeTexto('720,2'), 720.2);
+  eq('numero con punto', H.numeroDeTexto('720.2'), 720.2);
+  eq('vacio = borrar (null)', [H.numeroDeTexto(''), H.numeroDeTexto('  ')], [null, null]);
+  eq('basura = false', [H.numeroDeTexto('abc'), H.numeroDeTexto('7.7.7'), H.numeroDeTexto('-3')], [false, false, false]);
+  eq('cero es un numero valido', H.numeroDeTexto('0'), 0);
+
+  const okC = { inicial: '711,3', final: '720,2', motivo: 'foto llego tarde' };
+  eq('correccion buena pasa', H.validarCorreccionHorometro(okC), null);
+  ok('sin motivo NO pasa', /motivo/i.test(H.validarCorreccionHorometro({ ...okC, motivo: '  ' }) ?? ''));
+  ok('inicial basura no pasa', /inicial/.test(H.validarCorreccionHorometro({ ...okC, inicial: 'x' }) ?? ''));
+  ok('final basura no pasa', /final/.test(H.validarCorreccionHorometro({ ...okC, final: '-1' }) ?? ''));
+  ok('final menor que inicial no pasa', /menor/.test(H.validarCorreccionHorometro({ ...okC, final: '700' }) ?? ''));
+  ok('borrar los dos no pasa', /al menos un numero/.test(H.validarCorreccionHorometro({ inicial: '', final: '', motivo: 'm' }) ?? ''));
+  eq('borrar solo el final si pasa (lectura queda a medias, la base revalida)', H.validarCorreccionHorometro({ inicial: '711,3', final: '', motivo: 'el final era de otra maquina' }), null);
+}
+
 // ── GUARDIAS DEL MODO SOMBRA (23-sep-2026) ───────────────────────────────────
 // Lo que hoy paga NO se toca: el horómetro se registra AL LADO, best-effort, y ninguna
 // pantalla de dinero llama todavía a horasPagables. Si alguien lo conecta, que sea a
@@ -281,8 +299,16 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('el QR del operador también, al iniciar y al cerrar', (qr.match(/void guardarLecturaHorometro\(/g) || []).length, 2);
   ok('el QR sigue escribiendo la jornada como hoy (decisión pendiente del cliente)', /day_hours: hours/.test(qr));
   // Control solo MUESTRA: no hay escritura de lecturas ni cambio de pago.
-  ok('Control muestra la celda solo si la semana trae lecturas', /lecturasHoro\.length > 0 \? <HorometroTrabajoCelda/.test(ctl));
-  ok('Control NO guarda lecturas todavía', !/guardarLecturaHorometro/.test(ctl));
+  ok('Control muestra la celda solo si la semana trae lecturas', /lecturasHoro\.length > 0 \? \([\s\S]{0,400}?<HorometroTrabajoCelda/.test(ctl));
+  // Control corrige SOLO por el modal (24-sep-2026: decision del cliente — solo admins,
+  // motivo escrito basta). La pantalla no llama a guardar directo; el modal si, con
+  // origen 'control' (la base exige modulo + motivo).
+  ok('Control no guarda directo: corrige solo por el modal', !/guardarLecturaHorometro/.test(ctl) && /HorometroCorregirModal/.test(ctl));
+  ok('el lapiz solo con el modulo horometros', /puedeCorregirHoro = levelMeets\(moduleLevel\('horometros'\), 'escritura'\)/.test(ctl));
+  const modal = leer('src/components/HorometroCorregirModal.tsx');
+  ok('el modal corrige con origen control', /origen: 'control'/.test(modal));
+  ok('el modal exige el motivo (regla pura compartida)', /validarCorreccionHorometro/.test(modal));
+  ok('el modal no toca machine_rounds ni horas', !/from\('machine_rounds'\)|day_hours|night_hours|upsertMachineRound/.test(modal));
   // Ninguna pantalla de dinero usa horasPagables: la fórmula de pago es la de siempre.
   ok('el pago sigue por workedFromShifts en Control', !/horasPagables/.test(ctl) && /workedFromShifts/.test(ctl));
   ok('el pago sigue por workedFromShifts en Reportes', !/horasPagables/.test(rep) && /workedFromShifts/.test(rep));
@@ -308,6 +334,8 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('manual (app)', /HORÓMETRO DE TRABAJO \(MODO SOMBRA, 23\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
   ok('manual (md) cuenta el final olvidado', /final olvidado/i.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (md) cuenta el cierre consciente', /cierre consciente/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (md) cuenta el editor de Control', /Corregir horómetro|Corregir horometro/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el editor de Control', /CORREGIR HORÓMETRO DESDE CONTROL/.test(leer('src/screens/ManualScreen.tsx')));
   ok('manual (app) cuenta el cierre consciente', /CIERRE CONSCIENTE/.test(leer('src/screens/ManualScreen.tsx')));
   ok('manual (app) cuenta el final olvidado', /FINAL OLVIDADO/.test(leer('src/screens/ManualScreen.tsx')));
 }

@@ -30,6 +30,8 @@ import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
 import { LecturaTrabajo } from '../lib/horometroTrabajo';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import { HorometroTrabajoCelda } from '../components/HorometroTrabajoCelda';
+import { HorometroCorregirModal } from '../components/HorometroCorregirModal';
+import { levelMeets } from '../lib/permissions';
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
@@ -144,7 +146,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const toast = useToast();
-  const { session, role } = useAuth();
+  const { session, role, moduleLevel } = useAuth();
+  // ✎ Corregir horometros (24-sep-2026, decision del cliente): SOLO quien tenga el
+  //    modulo `horometros` con escritura (admin = full). La base lo exige igual.
+  const puedeCorregirHoro = levelMeets(moduleLevel('horometros'), 'escritura');
   // Regla del cliente (07-ago-2026): la ANALISTA SOLO puede CARGAR horas a máquinas que
   // NO tienen horas ese día; NO puede borrar/reducir ni agregar más a las que ya tienen.
   // Tampoco puede tocar el PRECIO de la jornada.
@@ -178,6 +183,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // HORÓMETRO DE TRABAJO en «modo sombra» (23-sep-2026): lecturas del rango visible, SOLO
   // para mostrarlas junto a las horas. No pagan ni tocan las rondas (src/lib/horometroTrabajo.ts).
   const [lecturasHoro, setLecturasHoro] = useState<LecturaTrabajo[]>([]);
+  // ✎ la maquina+dia que se esta corrigiendo (null = modal cerrado).
+  const [horoEdit, setHoroEdit] = useState<{ id: string; code: string; dISO: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   // Al llegar desde el Dashboard con ?q (serial/código), filtra a ESA máquina.
@@ -2275,7 +2282,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       ) : null}
                       {/* Horómetro de TRABAJO (modo sombra): solo se muestra, no paga ni edita. Y solo
                           si la semana trae alguna lectura: sin lecturas, la pantalla es la de siempre. */}
-                      {lecturasHoro.length > 0 ? <HorometroTrabajoCelda lecturas={lecturasPorClave.get(`${m.id}|${dISO}`) ?? []} colors={colors} /> : null}
+                      {lecturasHoro.length > 0 ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ flex: 1 }}>
+                            <HorometroTrabajoCelda lecturas={lecturasPorClave.get(`${m.id}|${dISO}`) ?? []} colors={colors} />
+                          </View>
+                          {puedeCorregirHoro ? (
+                            <TouchableOpacity onPress={() => setHoroEdit({ id: m.id, code: m.code, dISO })} style={{ paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ color: colors.muted, fontSize: 13 }}>✎</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
                   );
                 })}
@@ -2295,6 +2313,17 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       )}
 
       {/* Lista desplegable de empresas para filtrar */}
+      {horoEdit ? (
+        <HorometroCorregirModal
+          code={horoEdit.code}
+          machineryId={horoEdit.id}
+          roundDate={horoEdit.dISO}
+          lecturas={lecturasPorClave.get(`${horoEdit.id}|${horoEdit.dISO}`) ?? []}
+          onClose={() => setHoroEdit(null)}
+          onSaved={() => { if (weekDays.length > 0) cargarLecturasHorometro(weekDays[0], weekDays[weekDays.length - 1]).then(setLecturasHoro).catch(() => {}); }}
+        />
+      ) : null}
+
       <Modal visible={companyPickerOpen} transparent animationType="fade" onRequestClose={() => setCompanyPickerOpen(false)}>
         <TouchableOpacity activeOpacity={1} onPress={() => setCompanyPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '75%', overflow: 'hidden' }}>

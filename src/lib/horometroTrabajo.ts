@@ -79,6 +79,34 @@ export function validarLectura(
   return { valida: true, motivo: '' };
 }
 
+/** Lo que se escribe en un campo de horometro: numero >= 0, '' = borrar (null),
+ *  cualquier otra cosa = false (no es un numero). Coma o punto, da igual. */
+export function numeroDeTexto(t: unknown): number | null | false {
+  const v = String(t ?? '').replace(',', '.').trim();
+  if (v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : false;
+}
+
+export const MSG_MOTIVO_CORRECCION =
+  'Escribe el motivo de la correccion: queda grabado junto al cambio, con tu nombre.';
+
+/**
+ * EL EDITOR DE CONTROL (24-sep-2026). Decision del cliente: solo admins corrigen,
+ * y basta el motivo escrito (sin foto). Esta funcion valida LO ESCRITO antes de
+ * mandarlo; el candado de verdad (sesion + modulo + motivo) vive en la base.
+ */
+export function validarCorreccionHorometro(d: { inicial: string; final: string; motivo: string }): string | null {
+  if (!String(d.motivo ?? '').trim()) return MSG_MOTIVO_CORRECCION;
+  const i = numeroDeTexto(d.inicial);
+  if (i === false) return 'El horometro inicial no es un numero valido (0 o mas).';
+  const f = numeroDeTexto(d.final);
+  if (f === false) return 'El horometro final no es un numero valido (0 o mas).';
+  if (i == null && f == null) return 'Escribe al menos un numero: borrar los dos dejaria la lectura vacia.';
+  if (i != null && f != null && f < i) return 'El final (' + f + ') no puede ser menor al inicial (' + i + ').';
+  return null;
+}
+
 /**
  * LA LECTURA QUE EL INSPECTOR PUEDE COMPLETAR TRAS EL CIERRE (24-sep-2026).
  *

@@ -3338,6 +3338,24 @@ corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómet
 aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
 
 
+#### ✎ Corregir horómetro desde Control (24/09/2026)
+Decisión del cliente: **solo los administradores corrigen, y basta el motivo escrito** (sin foto).
+
+- En **Control de maquinaria**, junto a la celda ⚙️ de cada día aparece un lápiz **✎** (solo
+  para quien tenga el módulo `horometros` con escritura; admin lo tiene siempre). Abre el
+  editor: turno (día/noche), inicial, final, el interruptor de **reinicio** y el **motivo
+  obligatorio**.
+- **Reinicio** es para cuando al equipo le cambiaron el aparato y arranca en un número menor
+  (hasta 0): con el interruptor marcado, la base no tacha la lectura por «menor que la última».
+- Vacío = borrar ese número (por ejemplo, un final que era de otra máquina). Borrar los dos no
+  se puede: para eso mejor no tocar nada.
+- El candado real está **en la base**: sin sesión, sin el módulo o sin motivo, no guarda —
+  esconder el lápiz es cortesía, no seguridad. Cada corrección queda con **quién, cuándo y por
+  qué** (en la lectura y en la bitácora de auditoría), y el teléfono del inspector **no puede
+  pisarla** después.
+- Solo toca la lectura del modo sombra: **ni las horas pagadas ni el horómetro de
+  mantenimiento se mueven**.
+
 #### ⚙️ El final olvidado (24/09/2026)
 
 **Y el cierre consciente (mismo día, 24/09/2026), para que el olvido no pase:** si la máquina
