@@ -1,0 +1,54 @@
+# ============================================================================
+# FINALES DE LÍNEA — el repositorio va en LF, en todas las máquinas.
+#
+# POR QUÉ EXISTE ESTE ARCHIVO
+# ---------------------------------------------------------------------------
+# En Windows, `git config core.autocrlf true` reescribe los archivos a CRLF al
+# bajarlos. Sin este archivo eso pasaba con 1.612 de los 1.628 archivos de
+# texto del proyecto, y traía dos problemas REALES, no cosméticos:
+#
+#   1. Pruebas en rojo sin que nadie rompiera nada. Varias suites revisan el
+#      texto de un archivo con expresiones que llevan un salto de línea (`\n`).
+#      Con CRLF no calzan: `test-conteo-cubicaje` y `test-comida-editar` salían
+#      fallando en esta máquina y en ninguna otra.
+#   2. Diffs gigantes que no cambian nada. El 18-sep-2026 una edición convirtió
+#      dos pantallas enteras a CRLF: 2.400 líneas de «cambios» que habrían
+#      chocado con cualquier trabajo de otra persona en esos mismos archivos.
+#
+# `eol=lf` hace que CADA checkout escriba LF, sin importar la máquina ni cómo
+# tenga configurado `core.autocrlf` quien clone. La regla deja de depender de la
+# configuración personal de cada quien.
+#
+# ⚠️ ESTO NO CAMBIA EL CONTENIDO GUARDADO. El repositorio YA guardaba LF (git lo
+#    normalizaba al commitear); lo único que cambia es lo que se escribe en el
+#    disco al bajar los archivos.
+#
+# Si algún día un archivo aparece «modificado» sin haberlo tocado, el arreglo es
+#    git add --renormalize .
+# ============================================================================
+
+# Todo lo que git reconozca como texto se guarda y se baja en LF.
+* text=auto eol=lf
+
+# Los .bat y .cmd de Windows SÍ necesitan CRLF: con LF, cmd.exe puede no leer
+# bien la última línea.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binarios: que git no los toque ni intente adivinar.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.keystore binary
+*.jks binary
+*.xlsx binary
+*.xls binary
+*.docx binary
