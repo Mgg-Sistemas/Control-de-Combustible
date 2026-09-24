@@ -250,9 +250,14 @@ const C = loadTs('src/lib/contactos.ts');
   ok('avisa cuántos están sin cédula ni RIF', /sin cédula ni RIF/.test(pant));
 
   // El «＋» de la venta sigue existiendo y usa el mismo formulario.
+  // ⚠️ 24-sep-2026: el selector de la venta se mudó a components/ContactoPicker.tsx
+  //    para compartirlo con 🧰 Ventas de servicio. El «＋» vive ahí, pero el
+  //    FORMULARIO tiene que seguir siendo el mismo del módulo: si algún día son
+  //    dos, el mismo contacto queda escrito de dos maneras según por dónde se creó.
   const ventas = sinComentarios(leer('src/screens/VentasScreen.tsx'));
-  ok('⭐ desde una venta se puede agregar sin salirse', /＋ Agregar persona o proveedor/.test(ventas));
-  ok('...con el MISMO formulario del módulo', (ventas.match(/<ContactoForm/g) ?? []).length === 2);
+  const picker = sinComentarios(leer('src/components/ContactoPicker.tsx'));
+  ok('⭐ desde una venta se puede agregar sin salirse', /＋ Agregar persona o proveedor/.test(picker));
+  ok('...con el MISMO formulario del módulo', /<ContactoForm/.test(picker) && /<ContactoForm/.test(ventas));
   ok('⭐ Ventas lee del catálogo único', /useTable<SalesClient>\('contactos'/.test(ventas));
   ok('...y ya no de la lista vieja', !/sales_clients/.test(ventas));
 }

@@ -6257,7 +6257,7 @@ mismo selector.
 
 Módulo para **vender**: material que sale del inventario y servicios. Se llega por
 **Más → 💰 Ventas** y tiene cuatro pestañas: **💰 Ventas**, **📊 Historial**,
-**👥 Clientes** y **🧰 Servicios**. *(Requiere correr `supabase/ventas.sql`.)*
+**👥 Clientes** y **🧰 Ventas de servicio**. *(Requiere correr `supabase/ventas.sql`.)*
 
 **Registrar una venta:**
 1. En **💰 Ventas** toca **"＋ Nueva venta"** y elige el **cliente** (buscador por nombre,
@@ -6313,6 +6313,53 @@ Módulo para **vender**: material que sale del inventario y servicios. Se llega 
 > desde la lista de ventas.
 
 ---
+
+#### 🧰 Ventas de servicio (24/09/2026)
+
+Pedido textual: *"vuelve esto como ventas, pero sera ventas de servicios, con todo el formato pero
+servicio, atado a una maquina, con su historico, con todo"* y *"cada servicio nuevo se volvera una
+lista desplegable buscable"*.
+
+La pestaña **🧰 Ventas de servicio** dejó de ser un simple catálogo: **es una venta completa**, con
+todo el formato de 💰 Ventas —a quién se le factura, 🧾 factura o 📄 nota de entrega con su
+correlativo, renglones con cantidad y precio editable, IVA opcional, contado con su método o
+crédito que genera sola su cuenta por cobrar, el equivalente en Bs congelado a la tasa del día y el
+papel imprimible— **pero solo de servicios, y cada renglón va atado a una máquina**.
+
+**＋ Nueva venta de servicio:**
+
+1. **Cliente o proveedor** — el mismo selector de 💰 Ventas, con sus pastillas y las 🏢 empresas
+   del catálogo.
+2. **＋ 🧰 Agregar servicio** — abre la **lista desplegable buscable** de servicios (busca por
+   nombre, descripción y precio). ¿No está? Se escribe una vez abajo, **queda en el catálogo** y
+   desde ese momento aparece en esa misma lista para elegirlo siempre.
+3. **🚜 ¿A cuál máquina?** — **obligatorio**. Salen las del cliente: las suyas ya guardadas, las
+   del catálogo de equipos de su empresa interna para copiarlas, o una que no existe.
+4. Cantidad, precio, IVA, condición, método y nota. Se registra y se imprime.
+
+> **⚠️ Por qué la máquina es obligatoria acá.** Un renglón sin máquina **no aparece en el histórico
+> de ninguna**, y un servicio de maquinaria que no dice a cuál máquina fue es lo que después no se
+> puede cobrar ni reclamar. Un servicio que de verdad no va contra una máquina se factura en
+> 💰 Ventas, que no la exige.
+
+**El histórico.** Arriba van el buscador —*servicio, máquina, serial, placa, cliente, documento*— y
+el rango de fechas, y debajo las tarjetas con **ventas, servicios, máquinas, facturado y a
+crédito**. Cuatro vistas:
+
+- **📋 Ventas** — cada venta de servicio, con sus renglones y sus máquinas, imprimible y borrable.
+- **🚜 Por máquina** — cuánto se le ha facturado a **cada máquina**, en cuántas ventas y cuándo fue
+  el último servicio. **Al tocar una, se ve solo lo suyo.**
+- **🧰 Por servicio** — qué tipo de servicio deja más, y el detalle renglón por renglón.
+- **⚙️ Tipos de servicio** — el catálogo de siempre (el de *"NUEVO SERVICIO"*), buscable, para
+  editar o borrar los tipos.
+
+> **⭐ Se guarda en la MISMA tabla de ventas.** No hay una contabilidad aparte: una segunda tabla
+> sería **un segundo correlativo** (dos FAC-0001 el mismo mes), una segunda cuenta por cobrar del
+> mismo cliente y dos totales que nunca cuadran. Lo que cambia es la pantalla, no la plata.
+
+> **⚠️ Una venta MIXTA no sale acá.** Si lleva material *y* servicio, su plata ya se cuenta en
+> 💰 Ventas; contarla otra vez sería facturado inflado en un tablero y no en el otro. Se mira
+> completa en 💰 Ventas.
 
 ### 4.29. Caja (el dinero del día: entradas, egresos y arqueo)
 

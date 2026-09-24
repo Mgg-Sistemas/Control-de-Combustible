@@ -195,8 +195,10 @@ const MACHINERY = [
   const s = sinComentarios(leer('src/screens/VentasScreen.tsx'));
   ok('el rótulo dice cliente O proveedor', /Cliente o proveedor/.test(s));
   ok('el buscador también', /Busca el cliente o proveedor/.test(s));
-  ok('tiene las pastillas para filtrar por rol', /setRolCli/.test(s) && /🏭 Proveedores/.test(s));
-  ok('la lista se filtra por rol Y por texto', /buscarClientes\(filtrarContactos\(clientes as any, rolCli === 'empresas' \? 'todos' : rolCli\) as any, q\)/.test(s));
+  // ⭐ El selector es UN SOLO componente, compartido con 🧰 Ventas de servicio: dos
+  //    selectores parecidos se desincronizan —a uno le agregan las empresas y al
+  //    otro no— y el mismo cliente termina escrito de dos maneras distintas.
+  ok('⭐ usa el selector compartido', /<ContactoPicker/.test(s));
   ok('le pasa las empresas al selector de máquinas', /companies=\{empresas as any\}/.test(s));
   ok('...y relee los contactos al enlazar', /onEmpresaEnlazada=\{refetchClientes\}/.test(s));
   ok('la máquina sigue siendo solo de los renglones de servicio', /it\.kind === 'servicio' \?/.test(s));
@@ -287,13 +289,15 @@ const MACHINERY = [
   eq('⭐ avisa si el contacto está deshabilitado', [dOff.accion, dOff.deshabilitado], ['usar', true]);
 }
 
-// ── 13) LA PANTALLA · LA PASTILLA DE EMPRESAS ───────────────────────────────
+// ── 13) EL SELECTOR COMPARTIDO · LA PASTILLA DE EMPRESAS ────────────────────
 {
-  const s = sinComentarios(leer('src/screens/VentasScreen.tsx'));
+  const s = sinComentarios(leer('src/components/ContactoPicker.tsx'));
+  ok('tiene las pastillas para filtrar por rol', /setRol\(p\.key\)/.test(s) && /🏭 Proveedores/.test(s));
+  ok('la lista se filtra por rol Y por texto', /buscarContactos\(filtrarContactos\(contactos, rol === 'empresas' \? 'todos' : rol\), q\)/.test(s));
   ok('tiene la pastilla de empresas del catálogo', /🏢 Empresas del catálogo/.test(s));
   ok('con su encargado en la línea', /x\.encargados\.slice\(0, 3\)\.join/.test(s));
-  ok('la lista sale de la regla, no de la pantalla', /empresasParaVenta\(empresas as any, machinery as any, clientes as any, q\)/.test(s));
-  ok('⭐ resuelve el contacto en vez de crear uno cada vez', /contactoParaEmpresa\(x\.empresa, clientes as any\)/.test(s));
+  ok('la lista sale de la regla, no de la pantalla', /empresasParaVenta\(empresas as any, machinery as any, contactos as any, q\)/.test(s));
+  ok('⭐ resuelve el contacto en vez de crear uno cada vez', /contactoParaEmpresa\(x\.empresa, contactos as any\)/.test(s));
   ok('avisa si el contacto está deshabilitado', /está deshabilitado\. Habilítalo en 📇 Contactos/.test(s));
   ok('el buscador dice que también busca por encargado', /Busca la empresa por nombre, RIF o encargado/.test(s));
   // ⚠️ Con RLS un «no tienes permiso» llega como 0 filas y SIN error.
