@@ -299,10 +299,16 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('deja constancia en la bitácora de quién y cuándo', /logAudit\('HOROMETRO_FINAL_TARDE'/.test(sup));
   const fnTardio = sup.slice(sup.indexOf('const ponerFinalTardio'), sup.indexOf('\n  };', sup.indexOf('const ponerFinalTardio')));
   ok('no toca las horas pagadas (ni day_hours ni night_hours en el botón)', fnTardio.length > 200 && !/day_hours|night_hours/.test(fnTardio));
+  // El CIERRE CONSCIENTE (24-sep-2026): con inicial y sin final, el primer toque avisa.
+  ok('el cierre se detiene una vez si falta el final', /if \(!hfValid && \(horoIni \|\| ''\)\.trim\(\) !== '' && !cerrarSinFinal\) \{ setCerrarSinFinal\(true\); return; \}/.test(sup));
+  ok('el segundo toque dice lo que hace', /Cerrar SIN horómetro final/.test(sup));
+  ok('y queda en la bitácora que cerró sin horómetro', /cerró SIN horómetro final \(avisado\)/.test(sup));
   // Manuales.
   ok('manual (md)', /Horómetro de trabajo \(modo sombra, 23\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app)', /HORÓMETRO DE TRABAJO \(MODO SOMBRA, 23\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
   ok('manual (md) cuenta el final olvidado', /final olvidado/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (md) cuenta el cierre consciente', /cierre consciente/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el cierre consciente', /CIERRE CONSCIENTE/.test(leer('src/screens/ManualScreen.tsx')));
   ok('manual (app) cuenta el final olvidado', /FINAL OLVIDADO/.test(leer('src/screens/ManualScreen.tsx')));
 }
 

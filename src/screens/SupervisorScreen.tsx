@@ -377,6 +377,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //    Solo el mismo día; días anteriores son corrección de Control, con motivo.
   const [finTardia, setFinTardia] = useState<LecturaTrabajo | null>(null);
   const [finTardiaBusy, setFinTardiaBusy] = useState(false);
+  // ⚙️ CIERRE CONSCIENTE (24-sep-2026): si la máquina marcó horómetro INICIAL hoy y el
+  //    final viene vacío, el primer «Sí, finalizar» NO cierra: avisa, y hay que escribirlo
+  //    o tocar explícitamente «Cerrar SIN horómetro final». Nunca bloquea (regla de oro:
+  //    las horas van por TIEMPO y toda máquina puede cerrar); solo hace el olvido difícil.
+  const [cerrarSinFinal, setCerrarSinFinal] = useState(false);
   const [horoPhotoBusy, setHoroPhotoBusy] = useState<false | 'ini' | 'fin'>(false);
   // Al iniciar jornada: turno declarado y HORA de inicio (por defecto 7:00am día /
   // 7:00pm noche). Se acota contra la hora del sistema (alerta si se declara tarde).
@@ -487,7 +492,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); setMotivoCierre(''); return; }
-    setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre('');
+    setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre(''); setCerrarSinFinal(false);
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
     setParadaTab('averia'); setCiMotivo('');
     setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
@@ -1934,6 +1939,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const hi = Number((horoIni || '').replace(',', '.'));
       if (isFinite(hi) && hfNum < hi) { setNotice(`❌ El horómetro final (${hfNum}) no puede ser menor al inicial (${hi}).`); return; }
     }
+    // ⚙️ CIERRE CONSCIENTE: marcó inicial hoy y va a cerrar sin final → el primer toque
+    //    no cierra; avisa y pide decidir. (Caso real 24-sep: el inspector confirmó antes de
+    //    escribir el final y después no tenía dónde ponerlo.) El segundo toque, ya avisado
+    //    y con el botón renombrado «Cerrar SIN horómetro final», sí cierra: nunca bloquea.
+    if (!hfValid && (horoIni || '').trim() !== '' && !cerrarSinFinal) { setCerrarSinFinal(true); return; }
     // MOTIVO DE CIERRE OBLIGATORIO si se finaliza ANTES de la hora de fin del turno
     // (día <7pm / noche <7am), EXCEPTO el inspector "SOS LA GUAIRA" (siempre activo).
     const anticipado = requiereMotivoCierre();
@@ -1987,10 +1997,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hfValid) void guardarLecturaHorometro(ci.id, roundDate, jornadaShift === 'night' ? 'night' : 'day', { final: hfNum, ...(horoFinPhoto ? { fotoFinalUrl: horoFinPhoto } : {}), origen: 'inspector' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo:', r.error); }).catch(() => {});
     setJornadaStart(null);
     setFinConfirm(false);
-    setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre('');
+    setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre(''); setCerrarSinFinal(false);
     // ⚙️ Si cerró SIN horómetro final, ofrece ponerlo ahí mismo (botón de final olvidado).
     if (!hfValid) cargarLecturasDeMaquinaDia(ci.id, roundDate).then((ls) => setFinTardia(lecturaParaCompletarFinal(ls, roundDate))).catch(() => {});
-    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${motivo ? ` · Motivo cierre: ${motivo}` : ''}`); // bitácora
+    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${motivo ? ` · Motivo cierre: ${motivo}` : ''}${!hfValid && (horoIni || '').trim() !== '' ? ' · ⚠️ cerró SIN horómetro final (avisado)' : ''}`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
     // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
@@ -3601,6 +3611,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
                       </TouchableOpacity>
                       <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Será el inicial de la próxima jornada. Las horas de mantenimiento se cuentan final − inicial (no afecta el pago).</Text>
+                      {/* ⚙️ CIERRE CONSCIENTE: avisó y sigue vacío → que se note lo que va a pasar. */}
+                      {cerrarSinFinal && !(horoFin || '').trim() ? (
+                        <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                          <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>⚠️ Vas a cerrar SIN el horómetro final</Text>
+                          <Text style={{ color: colors.warningSoftText, fontSize: 11, marginTop: 2 }}>Esta máquina marcó inicial {horoIni} hoy. Si puedes ver el tablero, escríbelo arriba. Si no (tablero dañado, sin acceso), cierra sin él: hoy mismo podrás ponerlo con ⚙️ PONER HORÓMETRO FINAL, y quedará en la bitácora que se cerró sin horómetro.</Text>
+                        </View>
+                      ) : null}
                       {(() => {
                         const hf = Number((horoFin || '').replace(',', '.'));
                         const hi = Number((horoIni || '').replace(',', '.'));
@@ -3610,16 +3627,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         return <View style={{ marginBottom: spacing.sm }} />;
                       })()}
                       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                        <TouchableOpacity onPress={() => { setFinConfirm(false); setMotivoCierre(''); }} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
+                        <TouchableOpacity onPress={() => { setFinConfirm(false); setMotivoCierre(''); setCerrarSinFinal(false); }} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
                           <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={finalizarJornada} disabled={jornadaBusy} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
-                          <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : 'Sí, finalizar'}</Text>
+                        <TouchableOpacity onPress={finalizarJornada} disabled={jornadaBusy} style={{ flex: 1, backgroundColor: cerrarSinFinal && !(horoFin || '').trim() ? '#B45309' : '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                          <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : cerrarSinFinal && !(horoFin || '').trim() ? 'Cerrar SIN horómetro final' : 'Sí, finalizar'}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   ) : (
-                    <TouchableOpacity onPress={() => setFinConfirm(true)} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                    <TouchableOpacity onPress={() => { setCerrarSinFinal(false); setFinConfirm(true); }} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '800' }}>🏁 FINALIZAR JORNADA</Text>
                     </TouchableOpacity>
                   )}
