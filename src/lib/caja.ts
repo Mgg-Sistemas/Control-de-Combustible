@@ -489,3 +489,162 @@ export function actaCierreHtml(d: ActaData): string {
   </div>
   </body></html>`;
 }
+
+// ── 💵 CUÁNTO DINERO HAY · LAS TARJETAS ─────────────────────────────────────
+//
+// Pedido del cliente, textual: «la parte de caja, se veran las entradas de dinero
+// que vengan de las ventas, hazlo asi. Y que se refleje con tarjetas cuando dinero
+// hay».
+//
+// ⚠️ NO SE SUMA TODO EN UN SOLO NÚMERO Y YA. El dinero está en cuatro sitios
+//    distintos y cada uno se busca en un lugar distinto cuando falta: la gaveta en
+//    dólares, la gaveta en bolívares, el banco (transferencia y pago móvil) y lo
+//    digital (Zelle y USDT). Un solo total escondería que hay $300 en Zelle y cero
+//    en la gaveta, que es justo lo que hay que saber antes de pagar algo en
+//    efectivo.
+
+/** Los cuatro bolsillos donde vive la plata, con los métodos que caen en cada uno. */
+export type BolsilloKey = 'efectivo_usd' | 'efectivo_bs' | 'banco_bs' | 'digital_usd';
+
+export const BOLSILLOS: { key: BolsilloKey; label: string; icon: string; moneda: 'usd' | 'bs'; metodos: MetodoPago[] }[] = [
+  { key: 'efectivo_usd', label: 'Efectivo en $', icon: '💵', moneda: 'usd', metodos: ['efectivo_usd'] },
+  { key: 'efectivo_bs', label: 'Efectivo en Bs', icon: '💶', moneda: 'bs', metodos: ['bs'] },
+  { key: 'banco_bs', label: 'Banco (Bs)', icon: '🏦', moneda: 'bs', metodos: ['transferencia', 'pago_movil'] },
+  { key: 'digital_usd', label: 'Digital ($)', icon: '💳', moneda: 'usd', metodos: ['zelle', 'usdt'] },
+];
+
+export type TarjetaDinero = {
+  key: BolsilloKey;
+  label: string;
+  icon: string;
+  moneda: 'usd' | 'bs';
+  /** Fondo con el que se abrió (solo el efectivo tiene). */
+  apertura: number;
+  ingresos: number;
+  egresos: number;
+  /** apertura + ingresos − egresos, EN SU PROPIA MONEDA. Esto es «cuánto hay». */
+  disponible: number;
+  /** ¿Se movió algo por acá? Una tarjeta en cero igual se muestra: que no haya
+   *  efectivo es información, no un hueco en la pantalla. */
+  hubo: boolean;
+  /** Qué métodos resume, para poder decirlo en la tarjeta. */
+  metodos: MetodoPago[];
+};
+
+/**
+ * CUÁNTO DINERO HAY, por bolsillo. Cada uno en SU moneda: el efectivo en dólares
+ * se cuenta en dólares y los bolívares en bolívares. Convertir para mostrar un
+ * número solo hace que una diferencia de dos bolívares aparezca como un faltante
+ * de centavos que nadie puede rastrear.
+ */
+export function tarjetasDeDinero(
+  sesion?: SesionRow | null,
+  movs?: MovimientoRow[] | null,
+): TarjetaDinero[] {
+  const porMetodo = esperadoDe(sesion, movs);
+  return BOLSILLOS.map((b) => {
+    const xs = porMetodo.filter((t) => b.metodos.includes(t.metodo));
+    const sum = (f: (t: Esperado) => number) => money(xs.reduce((s, t) => s + f(t), 0));
+    const apertura = sum((t) => t.apertura);
+    const ingresos = sum((t) => t.ingresos);
+    const egresos = sum((t) => t.egresos);
+    return {
+      key: b.key, label: b.label, icon: b.icon, moneda: b.moneda, metodos: b.metodos,
+      apertura, ingresos, egresos,
+      disponible: money(apertura + ingresos - egresos),
+      hubo: !!(apertura || ingresos || egresos),
+    };
+  });
+}
+
+/**
+ * El gran total, en $, con los bolívares convertidos a la tasa que se le pase.
+ *
+ * ⚠️ ES UNA REFERENCIA, NO UN ARQUEO. Se muestra rotulado como aproximado y con
+ *    la tasa usada a la vista. El arqueo sigue siendo método por método en su
+ *    propia moneda: ahí un número convertido es un faltante inventado.
+ *    Sin tasa, los bolívares NO se inventan: se informan aparte.
+ */
+export function totalDisponible(
+  sesion?: SesionRow | null,
+  movs?: MovimientoRow[] | null,
+  tasa?: number | null,
+) {
+  const t = tarjetasDeDinero(sesion, movs);
+  const usd = money(t.filter((x) => x.moneda === 'usd').reduce((s, x) => s + x.disponible, 0));
+  const bs = money(t.filter((x) => x.moneda === 'bs').reduce((s, x) => s + x.disponible, 0));
+  const tasaOk = n(tasa) > 0 ? money(tasa) : 0;
+  return {
+    usd,
+    bs,
+    tasa: tasaOk,
+    /** usd + (bs / tasa). Si no hay tasa, es solo `usd` y `bsSinConvertir` avisa. */
+    totalUsd: tasaOk ? money(usd + bs / tasaOk) : usd,
+    bsSinConvertir: !tasaOk && bs !== 0,
+  };
+}
+
+// ── 💰 LAS ENTRADAS QUE VIENEN DE LAS VENTAS ────────────────────────────────
+
+/** ¿Este movimiento es plata que entró por una venta (de contado o cobrada)? */
+export const vieneDeVenta = (m?: MovimientoRow | null): boolean =>
+  !!m && m.tipo === 'ingreso' && (m.origen === 'venta' || m.origen === 'cobranza');
+
+/**
+ * Las entradas de dinero que vienen de ventas.
+ *
+ * ⚠️ NO SE REORDENAN: se respeta el orden en que vienen (la consulta las trae por
+ *    `created_at` descendente, lo último arriba). Ordenarlas por monto haría que
+ *    la entrada de hace un minuto se pierda entre las viejas grandes.
+ */
+export function entradasDeVentas<T extends MovimientoRow>(movs?: T[] | null): T[] {
+  return (movs ?? []).filter(vieneDeVenta);
+}
+
+export type ResumenEntradas = {
+  /** Ventas de contado: cuántas y cuánto, en $. */
+  ventas: number;
+  ventasUsd: number;
+  /** Cobros de ventas a crédito. */
+  cobros: number;
+  cobrosUsd: number;
+  /** Todo lo que entró por ventas, en $ y en Bs. */
+  total: number;
+  totalUsd: number;
+  totalBs: number;
+};
+
+/** Cuánto entró por ventas, separando el contado de lo cobrado a crédito. */
+export function resumenEntradas(movs?: MovimientoRow[] | null): ResumenEntradas {
+  const xs = entradasDeVentas(movs);
+  const suma = (o: OrigenMov) => money(xs.filter((m) => m.origen === o).reduce((s, m) => s + money(m.monto), 0));
+  const ventasUsd = suma('venta');
+  const cobrosUsd = suma('cobranza');
+  return {
+    ventas: xs.filter((m) => m.origen === 'venta').length,
+    ventasUsd,
+    cobros: xs.filter((m) => m.origen === 'cobranza').length,
+    cobrosUsd,
+    total: xs.length,
+    totalUsd: money(ventasUsd + cobrosUsd),
+    totalBs: money(xs.reduce((s, m) => s + money(m.monto_bs), 0)),
+  };
+}
+
+/** Lo que entró por ventas, agrupado por método de pago. De mayor a menor. */
+export function entradasPorMetodo(movs?: MovimientoRow[] | null): { metodo: MetodoPago; veces: number; usd: number; nativo: number; moneda: 'usd' | 'bs' }[] {
+  const xs = entradasDeVentas(movs);
+  return METODOS_PAGO
+    .map(({ key }) => {
+      const ys = xs.filter((m) => m.metodo === key);
+      return {
+        metodo: key,
+        veces: ys.length,
+        usd: money(ys.reduce((s, m) => s + money(m.monto), 0)),
+        nativo: money(ys.reduce((s, m) => s + montoNativo(m), 0)),
+        moneda: MONEDA_METODO[key],
+      };
+    })
+    .filter((x) => x.veces > 0)
+    .sort((a, b) => b.usd - a.usd);
+}

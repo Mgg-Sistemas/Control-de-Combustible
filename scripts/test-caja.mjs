@@ -286,6 +286,132 @@ ok('⭐ el texto del usuario va escapado', !RARO.includes('<script>'), 'hay <scr
 ok('⭐ una imagen inyectada no se cuela', !RARO.includes('<img src=x'));
 ok('⭐ la categoría va escapada', !RARO.includes('<i>c</i>'));
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// 💵 CUÁNTO DINERO HAY (TARJETAS) Y LAS ENTRADAS POR VENTAS — 24-sep-2026.
+//
+// Pedido del cliente, textual:
+//   «la parte de caja, se veran las entradas de dinero que vengan de las ventas,
+//    hazlo asi. Y que se refleje con tarjetas cuando dinero hay»
+//
+// LO QUE BLINDA:
+//   · ⭐ CADA BOLSILLO EN SU MONEDA. El efectivo en $ se cuenta en $, los Bs en
+//     Bs. Un solo número convertido escondería que hay $300 en Zelle y CERO en
+//     la gaveta — que es justo lo que hay que saber antes de pagar en efectivo.
+//   · ⭐ SIN TASA NO SE INVENTA UN TOTAL. Los bolívares se informan aparte.
+//   · EL FONDO DE APERTURA solo suma al efectivo.
+//   · SOLO ENTRAN VENTAS Y COBROS: un egreso nunca es una «entrada por venta».
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const mov = (o) => ({ tipo: 'ingreso', origen: 'venta', fecha: '2026-09-24', concepto: 'x', ...o });
+  const MOVS = [
+    mov({ metodo: 'efectivo_usd', monto: 100, monto_bs: 0 }),
+    mov({ metodo: 'zelle', monto: 50, monto_bs: 0 }),
+    mov({ metodo: 'bs', monto: 10, monto_bs: 400 }),
+    mov({ metodo: 'pago_movil', monto: 20, monto_bs: 800 }),
+    mov({ metodo: 'transferencia', monto: 5, monto_bs: 200 }),
+    mov({ origen: 'cobranza', metodo: 'efectivo_usd', monto: 30, monto_bs: 0 }),
+    { tipo: 'egreso', origen: 'manual', fecha: '2026-09-24', concepto: 'gasolina',
+      metodo: 'efectivo_usd', monto: 25, monto_bs: 0 },
+    { tipo: 'egreso', origen: 'manual', fecha: '2026-09-24', concepto: 'pasaje',
+      metodo: 'bs', monto: 2, monto_bs: 80 },
+  ];
+  const SESION = { code: 'CAJA-0001', apertura_usd: 200, apertura_bs: 1000, estado: 'abierta' };
+
+  const t = C.tarjetasDeDinero(SESION, MOVS);
+  eq('son cuatro bolsillos', t.map((x) => x.key),
+    ['efectivo_usd', 'efectivo_bs', 'banco_bs', 'digital_usd']);
+
+  // 💵 Efectivo en $: fondo 200 + (100 + 30) − 25 = 305
+  eq('⭐ cuánto hay en efectivo en $', t[0].disponible, 305);
+  eq('...con su fondo aparte', t[0].apertura, 200);
+  eq('...lo que entró', t[0].ingresos, 130);
+  eq('...y lo que salió', t[0].egresos, 25);
+  // 💶 Efectivo en Bs: fondo 1000 + 400 − 80 = 1320 (EN BOLÍVARES, no en $)
+  eq('⭐ el efectivo en Bs se cuenta en Bs', t[1].disponible, 1320);
+  eq('...y su moneda lo dice', t[1].moneda, 'bs');
+  // 🏦 Banco: pago móvil 800 + transferencia 200 = 1000 Bs, sin fondo
+  eq('el banco junta pago móvil y transferencia', t[2].disponible, 1000);
+  eq('⭐ el banco NO se abre con fondo', t[2].apertura, 0);
+  eq('...y resume dos métodos', t[2].metodos, ['transferencia', 'pago_movil']);
+  // 💳 Digital: zelle 50
+  eq('lo digital va en $', [t[3].disponible, t[3].moneda], [50, 'usd']);
+
+  // Una tarjeta en cero igual se muestra: que no haya efectivo es información.
+  const vacias = C.tarjetasDeDinero(null, []);
+  eq('sin nada, las cuatro tarjetas siguen ahí', vacias.length, 4);
+  eq('...todas en cero', vacias.map((x) => x.disponible), [0, 0, 0, 0]);
+  eq('...y avisan que no se movió nada', vacias.map((x) => x.hubo), [false, false, false, false]);
+  eq('nada no revienta', C.tarjetasDeDinero(null, null).length, 4);
+
+  // ── EL GRAN TOTAL ────────────────────────────────────────────────────────
+  const tot = C.totalDisponible(SESION, MOVS, 40);
+  eq('los dólares se suman entre ellos', tot.usd, 355);          // 305 + 50
+  eq('los bolívares entre ellos', tot.bs, 2320);                  // 1320 + 1000
+  eq('el total convertido es una referencia', tot.totalUsd, 413); // 355 + 2320/40
+  eq('...y dice con qué tasa', tot.tasa, 40);
+  // ⭐ SIN TASA NO SE INVENTA NADA: los bolívares quedan aparte, avisados.
+  const sinTasa = C.totalDisponible(SESION, MOVS, 0);
+  eq('⭐ sin tasa, el total en $ es solo lo que ES dólares', sinTasa.totalUsd, 355);
+  eq('...y avisa que hay Bs sin convertir', sinTasa.bsSinConvertir, true);
+  eq('con tasa no hay nada que avisar', tot.bsSinConvertir, false);
+  eq('una tasa basura se trata como sin tasa', C.totalDisponible(SESION, MOVS, 'abc').bsSinConvertir, true);
+
+  // ── LAS ENTRADAS POR VENTAS ──────────────────────────────────────────────
+  eq('una venta de contado es entrada por venta', C.vieneDeVenta(MOVS[0]), true);
+  eq('un cobro de crédito también', C.vieneDeVenta(MOVS[5]), true);
+  // ⭐ Un egreso NUNCA es una entrada, aunque alguien le ponga el origen raro.
+  eq('⭐ un egreso no', C.vieneDeVenta(MOVS[6]), false);
+  eq('nada no revienta', C.vieneDeVenta(null), false);
+
+  const e = C.resumenEntradas(MOVS);
+  eq('cinco ventas de contado', e.ventas, 5);
+  eq('...por 185', e.ventasUsd, 185);          // 100+50+10+20+5
+  eq('un cobro de crédito', e.cobros, 1);
+  eq('...por 30', e.cobrosUsd, 30);
+  eq('en total entraron 215', e.totalUsd, 215);
+  eq('⭐ los egresos no se cuelan en lo que entró', e.total, 6);
+  eq('y su equivalente en Bs', e.totalBs, 1400);  // 400 + 800 + 200
+  eq('sin movimientos, todo en cero', C.resumenEntradas([]).totalUsd, 0);
+  eq('nada no revienta', C.resumenEntradas(null).total, 0);
+
+  const pm = C.entradasPorMetodo(MOVS);
+  // De mayor a menor en $: efectivo 130, zelle 50, pago movil 20, bs 10, transf 5
+  eq('⭐ de mayor a menor', pm.map((x) => x.metodo),
+    ['efectivo_usd', 'zelle', 'pago_movil', 'bs', 'transferencia']);
+  eq('el efectivo junta la venta y el cobro', [pm[0].veces, pm[0].usd], [2, 130]);
+  // ⭐ Y cada uno también en SU moneda: el pago móvil se cuadra en bolívares.
+  eq('⭐ el pago móvil trae sus bolívares', [pm[2].nativo, pm[2].moneda], [800, 'bs']);
+  eq('el efectivo en $ trae dólares', [pm[0].nativo, pm[0].moneda], [130, 'usd']);
+  eq('un método sin entradas no aparece', pm.some((x) => x.metodo === 'usdt'), false);
+  eq('sin nada, lista vacía', C.entradasPorMetodo([]), []);
+}
+
+// ── LA PANTALLA ─────────────────────────────────────────────────────────────
+{
+  const src = fs.readFileSync(path.join(ROOT, 'src/screens/CajaScreen.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ');
+  ok('muestra las tarjetas de cuánto dinero hay', /tarjetasDeDinero\(abierta, deLaCaja\)/.test(src));
+  ok('...con su gran total', /totalDisponible\(abierta, deLaCaja, rate\)/.test(src));
+  ok('tiene la sección de entradas por ventas', /💰 Entradas por ventas/.test(src));
+  ok('...con el contado y los cobros separados', /resumenEntradas\(deLaCaja\)/.test(src));
+  ok('...y por método de pago', /entradasPorMetodo\(deLaCaja\)/.test(src));
+  ok('se puede filtrar la lista por ventas', /setVerMovs/.test(src));
+  ok('el historial también las resume', /resumenEntradas\(filtrados\)/.test(src));
+  // ⭐ LA REGLA QUE MANDA: acá no se fabrica un ingreso desde la pantalla.
+  ok('⭐ sigue sin haber botón para agregar un ingreso',
+    !/tipo: 'ingreso'/.test(src) && !/origen: 'venta'/.test(src));
+  ok('...y lo dice en pantalla', /todo lo que entra viene de Ventas/i.test(src));
+}
+
+// ── MANUALES ────────────────────────────────────────────────────────────────
+{
+  ok('manual (md) lo explica',
+    /cuánto dinero hay y las entradas por ventas \(24\/09\/2026\)/i.test(fs.readFileSync(path.join(ROOT, 'docs/MANUAL-USUARIO.md'), 'utf8')));
+  ok('manual (app) lo explica',
+    /CUÁNTO DINERO HAY Y LAS ENTRADAS POR VENTAS \(24\/09\/2026\)/.test(fs.readFileSync(path.join(ROOT, 'src/screens/ManualScreen.tsx'), 'utf8')));
+}
+
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nCAJA — arqueo por método, saldo y acta de cierre\n');
 if (failures.length) console.log(failures.join('\n'));
