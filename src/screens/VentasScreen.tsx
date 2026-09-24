@@ -2,6 +2,15 @@
 // 💰 VENTAS — se vende MATERIAL (sale del inventario, con su precio referencial
 // editable) y SERVICIOS (catálogo que se va llenando solo).
 //
+// La pestaña 🧰 VENTAS DE SERVICIO vive en components/VentaServiciosTab.tsx: es
+// una venta completa de puros servicios, cada uno atado a una máquina, con su
+// histórico por máquina. Escribe en la MISMA tabla `sales` — una segunda tabla
+// sería un segundo correlativo de facturas y dos totales que no cuadran.
+//
+// El selector de a quién se le factura es components/ContactoPicker.tsx, el MISMO
+// que usa esa pestaña: dos selectores parecidos se desincronizan y el mismo
+// cliente termina escrito de dos maneras.
+//
 // Cada venta se documenta como FACTURA o NOTA DE ENTREGA —las dos con PRECIO, lo
 // elige el usuario— y puede ser de CONTADO (con su método de pago) o a CRÉDITO,
 // que genera sola su cuenta por cobrar en el módulo de Cuentas.
@@ -38,10 +47,12 @@ import { ventaDocumentoHtml } from '../lib/ventaDocumento';
 import { ContactoForm } from '../components/ContactoForm';
 import { MaquinaPicker } from '../components/MaquinaPicker';
 import {
-  EmpresaParaVenta, MaquinaContacto, contactoParaEmpresa, empresasParaVenta, maquinaDeRenglon,
+  MaquinaContacto, maquinaDeRenglon,
 } from '../lib/contactoMaquinas';
 import { ContactoMaquina, Machinery, Company } from '../types/database';
-import { RolContacto, conteoContactos, filtrarContactos, rolesDe } from '../lib/contactos';
+import { ContactoPicker } from '../components/ContactoPicker';
+import { VentaServiciosTab } from '../components/VentaServiciosTab';
+import { rolesDe } from '../lib/contactos';
 import { useBcvRate, fmtUsd, fmtBs } from '../lib/bcv';
 import { exportPdf } from '../lib/pdf';
 import { norm } from '../lib/text';
@@ -49,12 +60,6 @@ import { leerNumero } from '../lib/numeros';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
-/**
- * Lo que se está mirando en el selector de la venta: los contactos filtrados por
- * rol, o las EMPRESAS DEL CATÁLOGO con su encargado — que no son contactos, por eso
- * no es un `RolContacto` más.
- */
-type FiltroVenta = RolContacto | 'empresas';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const dmy = (iso: string) => { const [y, m, d] = String(iso ?? '').slice(0, 10).split('-'); return d ? `${d}/${m}/${y}` : ''; };
@@ -101,14 +106,6 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   const [pickCli, setPickCli] = useState(false);
   const [q, setQ] = useState('');
   const [nuevoSrv, setNuevoSrv] = useState('');
-  // ＋ Agregar un cliente SIN salirse de la venta (23-sep-2026). Antes el selector
-  // decia «crealo en la pestaña 👥 Clientes»: para registrar una venta habia que
-  // abandonarla, perder lo tecleado y volver a empezar.
-  const [nuevoCli, setNuevoCli] = useState(false);
-  // 👤/🏭 Pedido del cliente (23-sep-2026): «que se pueda escoger el cliente o
-  // proveedor». Es UNA sola lista con dos marcas —a mucha gente se le vende Y se
-  // le compra—, así que en vez de dos listas se filtra la misma.
-  const [rolCli, setRolCli] = useState<FiltroVenta>('todos');
   // 🚜 A que MAQUINA se le hizo el servicio (23-sep-2026). `pickMaq` guarda el
   // indice del renglon al que se le esta poniendo la maquina.
   const [pickMaq, setPickMaq] = useState<number | null>(null);
@@ -140,54 +137,6 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
     }]);
     setPickSrv(false); setQ(''); setNuevoSrv('');
   };
-  /**
-   * 🏢 Se eligió una EMPRESA DEL CATÁLOGO para facturarle.
-   *
-   * ⚠️ Una empresa del catálogo no es un contacto. Acá se resuelve cuál contacto le
-   *    corresponde (el que ya la representa, el del mismo RIF, el del mismo nombre)
-   *    y SOLO si no hay ninguno se crea. Crear uno cada vez sería la cuenta por
-   *    cobrar de esa empresa partida en dos fichas.
-   */
-  const elegirEmpresa = async (x: EmpresaParaVenta) => {
-    const d = contactoParaEmpresa(x.empresa, clientes as any);
-    // Un contacto deshabilitado no se resucita solo: se le dice a quién habilitar.
-    if (d.accion !== 'crear' && d.deshabilitado) {
-      return toast.error(`${d.contacto.name} está deshabilitado. Habilítalo en 📇 Contactos para poder facturarle.`);
-    }
-    const elegir = (id: string) => { setClientId(id); setPickCli(false); setQ(''); setRolCli('todos'); };
-    if (d.accion === 'usar') { elegir(d.contacto.id); return; }
-
-    setBusy(true);
-    try {
-      // ⚠️ Siempre con .select(): con RLS, un «no tienes permiso» llega como 0 filas
-      //    y SIN error, y la pantalla diría «listo» a algo que no se guardó.
-      if (d.accion === 'enlazar') {
-        const { data, error } = await supabase.from('contactos')
-          .update({ company_id: x.empresa.id, es_cliente: true }).eq('id', d.contacto.id).select().single();
-        if (error) return toast.error(error.message);
-        if (!data) return toast.error('No se guardó: te falta permiso de escritura en Contactos.');
-        await refetchClientes();
-        elegir(d.contacto.id);
-        toast.success(`${d.contacto.name} quedó enlazado con la empresa ${d.motivo === 'rif' ? '(mismo RIF)' : '(mismo nombre)'}.`);
-        return;
-      }
-      if (!canWrite) return toast.error('Esa empresa todavía no está registrada como contacto y no tienes permiso para crearla.');
-      const { data, error } = await supabase.from('contactos')
-        .insert({ ...d.fila, created_by: session?.user?.id ?? null }).select().single();
-      if (error) {
-        return toast.error(/duplicate|unique/i.test(error.message)
-          ? 'Ese RIF ya está registrado con otro nombre. Búscalo en la lista.'
-          : error.message);
-      }
-      if (!data) return toast.error('No se guardó: te falta permiso de escritura en Contactos.');
-      await refetchClientes();
-      elegir((data as SalesClient).id);
-      toast.success(`${x.empresa.name} quedó registrada como cliente y elegida.`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   // Un servicio nuevo se guarda en el catálogo la PRIMERA vez y luego se elige.
   const crearServicio = async () => {
     const name = nuevoSrv.trim();
@@ -269,20 +218,6 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
   }, [inventario, q]);
   const srvFiltrado = useMemo(() => buscarServicios(servicios, q).slice(0, 80), [servicios, q]);
   // La lista buscable de la venta: primero el rol elegido, después el texto.
-  const cliFiltrado = useMemo(
-    // 'empresas' no filtra contactos: es otra lista (ver `empFiltrado`).
-    () => buscarClientes(filtrarContactos(clientes as any, rolCli === 'empresas' ? 'todos' : rolCli) as any, q).slice(0, 80),
-    [clientes, rolCli, q],
-  );
-  const cliConteo = useMemo(() => conteoContactos(clientes as any), [clientes]);
-  // 🏢 Las empresas del catálogo con su encargado, buscables por nombre, RIF y
-  // encargado (que es como se acuerda la gente cuando no recuerda la razón social).
-  const empFiltrado = useMemo(
-    () => empresasParaVenta(empresas as any, machinery as any, clientes as any, q),
-    [empresas, machinery, clientes, q],
-  );
-
-  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   return (
     <Screen>
@@ -525,136 +460,21 @@ function VentasTab({ canWrite }: { canWrite: boolean }) {
             </View>
           </ScrollView>
 
-          {/* Selector de CLIENTE · la lista buscable, con «＋ Agregar» adentro.
-              Pedido del cliente (23-sep-2026): «acá permite agregar personas, y
-              proveedores […] si no existe se agrega, con nombre apellido, rif - ci».
-              Es la MISMA lista de la pestaña 👥 Clientes: lo que se cree acá le sale
-              allá y a la próxima venta, ya buscable. */}
-          <Modal visible={pickCli} animationType="slide" onRequestClose={() => { setPickCli(false); setNuevoCli(false); }}>
-            <Screen>
-              {nuevoCli ? (
-                <ScrollView keyboardShouldPersistTaps="handled">
-                  <SectionTitle>Nuevo cliente o proveedor</SectionTitle>
-                  <ContactoForm
-                    contactos={clientes}
-                    usuarioId={session?.user?.id ?? null}
-                    textoBuscado={q}
-                    compacto
-                    onCancelar={() => setNuevoCli(false)}
-                    onGuardado={async (c: SalesClient) => {
-                      // Queda elegido de una: crearlo era el paso para poder seguir
-                      // con ESTA venta, no una tarea aparte.
-                      setNuevoCli(false); setPickCli(false); setQ('');
-                      setClientId(c.id);
-                      await refetchClientes();
-                      toast.success(`${c.name} quedó registrado y elegido.`);
-                    }}
-                  />
-                </ScrollView>
-              ) : (
-                <>
-                  <SectionTitle>Elegir cliente o proveedor</SectionTitle>
-                  <TextInput
-                    value={q} onChangeText={setQ}
-                    placeholder={rolCli === 'empresas'
-                      ? 'Busca la empresa por nombre, RIF o encargado…'
-                      : 'Busca por nombre, apellido, cédula, RIF, teléfono, correo…'}
-                    placeholderTextColor={colors.muted} style={input}
-                  />
-
-                  {/* 👤/🏭 Una sola lista, filtrada. No son dos catálogos: a mucha
-                      gente se le vende Y se le compra, y tenerla dos veces es tener
-                      su cuenta partida en dos.
-                      🏢 La cuarta pastilla NO es un filtro de esta lista: son las
-                      EMPRESAS DEL CATÁLOGO con su encargado, que es otra cosa. */}
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.xs }}>
-                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                      {([
-                        { key: 'todos' as FiltroVenta, label: `📇 Todos (${cliConteo.todos})` },
-                        { key: 'clientes' as FiltroVenta, label: `👤 Clientes (${cliConteo.clientes})` },
-                        { key: 'proveedores' as FiltroVenta, label: `🏭 Proveedores (${cliConteo.proveedores})` },
-                        { key: 'empresas' as FiltroVenta, label: `🏢 Empresas del catálogo (${empFiltrado.length})` },
-                      ]).map((p) => {
-                        const on = rolCli === p.key;
-                        return (
-                          <TouchableOpacity
-                            key={p.key} onPress={() => setRolCli(p.key)}
-                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingVertical: 6, paddingHorizontal: spacing.md }}
-                          >
-                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11 }}>{p.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-                  {canWrite && rolCli !== 'empresas' ? (
-                    <TouchableOpacity onPress={() => setNuevoCli(true)} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}>
-                      <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>＋ Agregar persona o proveedor</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  <ScrollView style={{ marginTop: spacing.sm }} keyboardShouldPersistTaps="handled">
-                    {/* 🏢 LAS EMPRESAS QUE SE TIENEN EN CATÁLOGO, CON SU ENCARGADO.
-                        Pedido del cliente (23-sep-2026), textual: «coloca la opción
-                        en ventas, de colocar el nombre de las empresas que se tiene
-                        en catálogo con su encargado».
-
-                        ⚠️ Una empresa del catálogo NO es un contacto: el catálogo es
-                        con el que trabaja maquinaria y el contacto es a quien se le
-                        factura. Al tocarla se RESUELVE cuál contacto le corresponde
-                        —el que ya la representa, el del mismo RIF, el del mismo
-                        nombre— y solo si no hay ninguno se crea. Crear uno cada vez
-                        sería la cuenta por cobrar de la empresa partida en dos. */}
-                    {rolCli === 'empresas' ? (
-                      <>
-                        {empFiltrado.map((x) => (
-                          <TouchableOpacity
-                            key={x.empresa.id} disabled={busy} onPress={() => elegirEmpresa(x)}
-                            style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, opacity: busy ? 0.6 : 1 }}
-                          >
-                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
-                              🏢 {x.empresa.name}{x.contacto ? ' · ✅ ya registrada' : ''}
-                            </Text>
-                            <Text style={{ color: colors.muted, fontSize: 12 }}>
-                              {x.encargados.length
-                                ? `👤 ${x.encargados.slice(0, 3).join(', ')}${x.encargados.length > 3 ? ` +${x.encargados.length - 3}` : ''}`
-                                : '👤 sin encargado cargado'}
-                              {x.empresa.rif ? ` · ${x.empresa.rif}` : ''}
-                              {x.maquinas ? ` · ${x.maquinas} máquina${x.maquinas === 1 ? '' : 's'}` : ''}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                        {empFiltrado.length === 0 ? (
-                          <Text style={{ color: colors.muted, marginTop: spacing.md }}>
-                            {q ? `Ninguna empresa con «${q}» (se busca por nombre, RIF y encargado).` : 'No hay empresas en el catálogo.'}
-                          </Text>
-                        ) : null}
-                      </>
-                    ) : null}
-
-                    {rolCli !== 'empresas' ? cliFiltrado.map((c) => (
-                      <TouchableOpacity key={c.id} onPress={() => { setClientId(c.id); setPickCli(false); setQ(''); }} style={{ paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
-                          {c.name}{(c as any).company_id ? ' · 🏢' : ''}
-                        </Text>
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>
-                          {rolesDe(c as any)} · {docTipoLabel(c.doc_letter)} {docCanonico(c.doc_letter, c.doc_number)}{c.phone ? ` · ${c.phone}` : ''}
-                        </Text>
-                      </TouchableOpacity>
-                    )) : null}
-                    {rolCli !== 'empresas' && cliFiltrado.length === 0 ? (
-                      <Text style={{ color: colors.muted, marginTop: spacing.md }}>
-                        {q
-                          ? `Nadie con «${q}»${rolCli === 'todos' ? '' : ' entre los ' + (rolCli === 'clientes' ? 'clientes' : 'proveedores')}.`
-                          : 'Todavía no hay nadie registrado.'}
-                        {canWrite ? ' Tócale «＋ Agregar persona o proveedor» aquí arriba.' : ' Pídele a un encargado que lo registre.'}
-                      </Text>
-                    ) : null}
-                  </ScrollView>
-                  <TouchableOpacity onPress={() => setPickCli(false)} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
-                </>
-              )}
-            </Screen>
-          </Modal>
+          {/* A quién se le factura. Es el MISMO componente que usa 🧰 Ventas de
+              servicio: dos selectores parecidos se desincronizan —a uno le agregan
+              las empresas y al otro no— y el mismo cliente termina escrito de dos
+              maneras distintas. Ver components/ContactoPicker.tsx. */}
+          <ContactoPicker
+            visible={pickCli}
+            contactos={clientes as any}
+            empresas={empresas}
+            machinery={machinery}
+            canWrite={canWrite}
+            usuarioId={session?.user?.id ?? null}
+            onCerrar={() => setPickCli(false)}
+            onCambio={refetchClientes}
+            onElegir={(id: string) => { setClientId(id); setPickCli(false); }}
+          />
 
           {/* 🚜 Selector de MÁQUINA para un renglón de servicio. Las que salen son
               las del CLIENTE O PROVEEDOR elegido: las suyas ya guardadas, más las
@@ -1002,123 +822,13 @@ function ClientesTab({ canWrite }: { canWrite: boolean }) {
 }
 
 // ============================================================================
-// PESTAÑA 4 · SERVICIOS (catálogo buscable, se llena solo desde la venta)
-// ============================================================================
-function ServiciosVentaTab({ canWrite }: { canWrite: boolean }) {
-  const { colors } = useTheme();
-  const toast = useToast();
-  const confirm = useConfirm();
-  const { data: servicios, loading, refetch } = useTable<SalesService>('sales_services', { orderBy: 'name', realtimeFrom: 'sales_services' });
-
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [price, setPrice] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const lista = useMemo(() => buscarServicios(servicios, q), [servicios, q]);
-
-  const abrirNuevo = () => { setEditId(null); setName(''); setDescription(''); setPrice(''); setOpen(true); };
-  const abrirEditar = (s: SalesService) => { setEditId(s.id); setName(s.name); setDescription(s.description ?? ''); setPrice(String(s.price ?? '')); setOpen(true); };
-
-  const guardar = async () => {
-    if (!name.trim()) return toast.error('Escribe el servicio.');
-    setBusy(true);
-    const fila = { name: name.trim(), description: description.trim() || null, price: leerNumero(price) };
-    const { error } = editId
-      ? await supabase.from('sales_services').update(fila).eq('id', editId)
-      : await supabase.from('sales_services').insert(fila);
-    setBusy(false);
-    if (error) {
-      if (/sales_services|relation|does not exist/i.test(error.message)) return toast.error('Corre "ventas.sql" en Supabase para habilitar Ventas.');
-      return toast.error(/duplicate|unique/i.test(error.message) ? 'Ese servicio ya existe.' : error.message);
-    }
-    setOpen(false); await refetch();
-    toast.success(editId ? 'Servicio actualizado.' : 'Servicio agregado.');
-  };
-
-  const borrar = async (s: SalesService) => {
-    const ok = await confirm({ title: 'Eliminar servicio', message: `¿Eliminar "${s.name}" del catálogo?`, confirmText: 'Eliminar', danger: true });
-    if (!ok) return;
-    const { error } = await supabase.from('sales_services').delete().eq('id', s.id);
-    if (error) return toast.error(error.message);
-    await refetch(); toast.success('Servicio eliminado.');
-  };
-
-  const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
-  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
-
-  return (
-    <Screen>
-      <ConfigBanner />
-      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Busca por nombre, descripción o precio…" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
-      {canWrite ? (
-        <TouchableOpacity onPress={abrirNuevo} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginBottom: spacing.sm }}>
-          <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>＋ Nuevo servicio</Text>
-        </TouchableOpacity>
-      ) : null}
-      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-        También se agregan solos: al vender un servicio que no está, lo escribes una vez y queda acá para elegirlo después.
-      </Text>
-
-      {lista.length === 0 ? (
-        <EmptyState title={q ? 'Sin resultados' : 'Sin servicios'} subtitle={q ? 'Prueba con otro dato.' : 'Agrega el primer tipo de servicio.'} />
-      ) : lista.map((s) => (
-        <Card key={s.id}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🧰 {s.name}</Text>
-              {s.description ? <Text style={{ color: colors.muted, fontSize: 12 }}>{s.description}</Text> : null}
-              <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', marginTop: 2 }}>{fmtUsd(s.price)}</Text>
-            </View>
-            {canWrite ? (
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                <TouchableOpacity onPress={() => abrirEditar(s)}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>✏️</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => borrar(s)}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️</Text></TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-        </Card>
-      ))}
-
-      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
-        <Screen>
-          <ScrollView keyboardShouldPersistTaps="handled">
-            <SectionTitle>{editId ? 'Editar servicio' : 'Nuevo servicio'}</SectionTitle>
-            <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Tipo de servicio</Text>
-              <TextInput value={name} onChangeText={setName} placeholder="Ej. Traslado de maquinaria" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Descripción (opcional)</Text>
-              <TextInput value={description} onChangeText={setDescription} placeholder="Detalle del servicio…" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Precio referencial ($)</Text>
-              <TextInput value={price} onChangeText={setPrice} keyboardType="decimal-pad" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 3 }}>Es solo la referencia: en cada venta se puede cambiar.</Text>
-            </Card>
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
-              <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={guardar} disabled={busy} style={{ flex: 2, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
-                <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>{busy ? 'Guardando…' : editId ? 'Guardar cambios' : 'Agregar servicio'}</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        </Screen>
-      </Modal>
-    </Screen>
-  );
-}
-
-// ============================================================================
 // PANTALLA
 // ============================================================================
 const TABS = [
   { key: 'ventas', label: 'Ventas', icon: '💰' },
   { key: 'historial', label: 'Historial', icon: '📊' },
   { key: 'clientes', label: 'Clientes', icon: '👥' },
-  { key: 'servicios', label: 'Servicios', icon: '🧰' },
+  { key: 'servicios', label: 'Ventas de servicio', icon: '🧰' },
 ];
 
 export default function VentasScreen() {
@@ -1146,7 +856,7 @@ export default function VentasScreen() {
         {active === 'ventas' ? <VentasTab canWrite={canWrite} />
           : active === 'historial' ? <HistorialTab />
           : active === 'clientes' ? <ClientesTab canWrite={canWrite} />
-          : <ServiciosVentaTab canWrite={canWrite} />}
+          : <VentaServiciosTab canWrite={canWrite} />}
       </View>
     </View>
   );
