@@ -24,14 +24,32 @@ function aLectura(r: any): LecturaTrabajo {
   };
 }
 
+const COLS = 'machinery_id, round_date, shift, inicial, final, valida, motivo_invalida, reinicio, origen, corregido_por';
+
 /** Lecturas de un rango de jornadas (paginado: una semana de toda la flota pasa de 1.000). */
 export async function cargarLecturasHorometro(desde: string, hasta: string): Promise<LecturaTrabajo[]> {
   try {
-    const rows = await selectAllRows('lecturas_horometro_trabajo', 'machinery_id, round_date, shift, inicial, final, valida, motivo_invalida, reinicio, origen, corregido_por',
+    const rows = await selectAllRows('lecturas_horometro_trabajo', COLS,
       (q: any) => q.gte('round_date', desde).lte('round_date', hasta));
     return (rows as any[]).map(aLectura);
   } catch {
     return []; // sin tabla, sin lecturas: las pantallas siguen como si no existiera el módulo
+  }
+}
+
+/** Las lecturas (0, 1 o 2: dia/noche) de UNA maquina en UNA jornada. Nunca lanza:
+ *  [] si falla o la tabla no existe, para que el telefono del inspector no se caiga. */
+export async function cargarLecturasDeMaquinaDia(machineryId: string, roundDate: string): Promise<LecturaTrabajo[]> {
+  try {
+    const { data, error } = await supabase
+      .from('lecturas_horometro_trabajo')
+      .select(COLS)
+      .eq('machinery_id', machineryId)
+      .eq('round_date', roundDate);
+    if (error || !data) return [];
+    return (data as any[]).map(aLectura);
+  } catch {
+    return [];
   }
 }
 
