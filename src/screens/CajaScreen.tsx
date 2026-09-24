@@ -38,6 +38,7 @@ import {
   ORIGEN_LABEL, MONEDA_METODO, esEfectivo,
   totalesPorMetodo, esperadoDe, arqueoDe, resumenCaja, porCategoria,
   filtrarMovs, validarEgreso, filaEgreso, actaCierreHtml,
+  tarjetasDeDinero, totalDisponible, resumenEntradas, entradasPorMetodo,
   money, fmtUsd, fmtBs, dmy,
 } from '../lib/caja';
 import { useBcvRate } from '../lib/bcv';
@@ -87,6 +88,18 @@ function CajaTab({ canWrite }: { canWrite: boolean }) {
 
   const resumen = useMemo(() => resumenCaja(deLaCaja), [deLaCaja]);
   const esperado = useMemo(() => esperadoDe(abierta, deLaCaja), [abierta, deLaCaja]);
+  // 💵 Cuánto dinero hay, por bolsillo, y lo que entró por ventas (24-sep-2026).
+  const tarjetas = useMemo(() => tarjetasDeDinero(abierta, deLaCaja), [abierta, deLaCaja]);
+  const total = useMemo(() => totalDisponible(abierta, deLaCaja, rate), [abierta, deLaCaja, rate]);
+  const entradas = useMemo(() => resumenEntradas(deLaCaja), [deLaCaja]);
+  const porMetodoEntradas = useMemo(() => entradasPorMetodo(deLaCaja), [deLaCaja]);
+  // Qué se está mirando en la lista de abajo.
+  const [verMovs, setVerMovs] = useState<'todo' | 'venta' | 'cobranza' | 'egreso'>('todo');
+  const movsVistos = useMemo(() => {
+    if (verMovs === 'todo') return deLaCaja;
+    if (verMovs === 'egreso') return deLaCaja.filter((m) => m.tipo === 'egreso');
+    return deLaCaja.filter((m) => m.tipo === 'ingreso' && m.origen === verMovs);
+  }, [deLaCaja, verMovs]);
 
   // ── Abrir caja ──────────────────────────────────────────────────────────
   const [abrirOpen, setAbrirOpen] = useState(false);
@@ -274,6 +287,89 @@ function CajaTab({ canWrite }: { canWrite: boolean }) {
         </Text>
       </Card>
 
+      {/* ── 💵 CUÁNTO DINERO HAY ──────────────────────────────────────────
+          Pedido del cliente (24-sep-2026): «que se refleje con tarjetas cuánto
+          dinero hay».
+
+          ⚠️ Cuatro tarjetas y no un solo número: la plata está en cuatro sitios
+          distintos y cada uno se busca en un lugar distinto cuando falta. Un
+          total único escondería que hay $300 en Zelle y CERO en la gaveta, que
+          es justo lo que hay que saber antes de pagar algo en efectivo. */}
+      <SectionTitle>💵 Cuánto dinero hay</SectionTitle>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        {tarjetas.map((t) => (
+          <Card key={t.key} style={{ flexGrow: 1, flexBasis: '46%', minWidth: 150 }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+              {t.icon} {t.label.toUpperCase()}
+            </Text>
+            <Text style={{ color: t.disponible > 0 ? colors.text : colors.muted, fontWeight: '900', fontSize: 19, marginTop: 2 }}>
+              {t.moneda === 'bs' ? fmtBs(t.disponible) : fmtUsd(t.disponible)}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+              {t.hubo
+                ? `${t.apertura ? `fondo ${t.moneda === 'bs' ? fmtBs(t.apertura) : fmtUsd(t.apertura)} · ` : ''}entró ${t.moneda === 'bs' ? fmtBs(t.ingresos) : fmtUsd(t.ingresos)}${t.egresos ? ` · salió ${t.moneda === 'bs' ? fmtBs(t.egresos) : fmtUsd(t.egresos)}` : ''}`
+                : 'sin movimientos'}
+            </Text>
+          </Card>
+        ))}
+      </View>
+      <Card style={{ marginTop: spacing.sm, borderLeftWidth: 4, borderLeftColor: colors.brand }}>
+        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>EN TOTAL HAY</Text>
+        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20, marginTop: 2 }}>
+          {fmtUsd(total.usd)}{total.bs ? ` + ${fmtBs(total.bs)}` : ''}
+        </Text>
+        <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+          {/* ⚠️ La conversión es una REFERENCIA, no un arqueo: el arqueo sigue
+              siendo método por método en su propia moneda. */}
+          {total.tasa
+            ? `≈ ${fmtUsd(total.totalUsd)} a la tasa de hoy (${fmtBs(total.tasa)}/$) · es una referencia, el arqueo va moneda por moneda`
+            : 'Sin tasa BCV de hoy: los bolívares no se convierten para no inventar un número.'}
+        </Text>
+      </Card>
+
+      {/* ── 💰 LO QUE ENTRÓ POR VENTAS ────────────────────────────────────
+          Pedido del cliente (24-sep-2026): «se verán las entradas de dinero que
+          vengan de las ventas». Acá NO entra nada de otro lado: el contado entra
+          el día de la venta y el crédito el día que se cobra el abono. */}
+      <SectionTitle>💰 Entradas por ventas</SectionTitle>
+      <Card>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>Ventas de contado</Text>
+            <Text style={{ color: colors.success, fontWeight: '900', fontSize: 16 }}>{fmtUsd(entradas.ventasUsd)}</Text>
+            <Text style={{ color: colors.muted, fontSize: 10.5 }}>{entradas.ventas} venta(s)</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>Cobros de crédito</Text>
+            <Text style={{ color: colors.success, fontWeight: '900', fontSize: 16 }}>{fmtUsd(entradas.cobrosUsd)}</Text>
+            <Text style={{ color: colors.muted, fontSize: 10.5 }}>{entradas.cobros} cobro(s)</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>Total entrado</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>{fmtUsd(entradas.totalUsd)}</Text>
+            <Text style={{ color: colors.muted, fontSize: 10.5 }}>{fmtBs(entradas.totalBs)}</Text>
+          </View>
+        </View>
+        {porMetodoEntradas.length ? (
+          <>
+            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.sm }} />
+            {porMetodoEntradas.map((e) => (
+              <View key={e.metodo} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                <Text style={{ color: colors.text, fontSize: 12.5, flex: 1 }}>{metodoLabel(e.metodo)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, marginRight: spacing.sm }}>{e.veces}×</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{fmtMetodo(e.metodo, e.nativo)}</Text>
+              </View>
+            ))}
+          </>
+        ) : (
+          <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm }}>
+            Todavía no ha entrado plata por ventas en esta caja. Entra sola: al cobrar una venta de
+            contado en 💰 Ventas o 🧰 Ventas de servicio, y al registrar un abono de una venta a
+            crédito en 💲 Cuentas.
+          </Text>
+        )}
+      </Card>
+
       {/* Saldo esperado por método */}
       <SectionTitle>Saldo por método</SectionTitle>
       <Card>
@@ -314,9 +410,32 @@ function CajaTab({ canWrite }: { canWrite: boolean }) {
 
       {/* Movimientos de la sesión */}
       <SectionTitle>Movimientos de esta caja</SectionTitle>
-      {deLaCaja.length === 0 ? (
-        <EmptyState title="Todavía no se ha movido nada" subtitle="Las ventas de contado y los cobros entran solos." />
-      ) : deLaCaja.map((m) => (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          {([
+            { key: 'todo' as const, label: `Todo (${deLaCaja.length})` },
+            { key: 'venta' as const, label: `💰 Ventas (${entradas.ventas})` },
+            { key: 'cobranza' as const, label: `🧾 Cobros (${entradas.cobros})` },
+            { key: 'egreso' as const, label: `➖ Egresos (${deLaCaja.filter((m) => m.tipo === 'egreso').length})` },
+          ]).map((p) => {
+            const on = verMovs === p.key;
+            return (
+              <TouchableOpacity
+                key={p.key} onPress={() => setVerMovs(p.key)}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
+              >
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{p.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </ScrollView>
+      {movsVistos.length === 0 ? (
+        <EmptyState
+          title={verMovs === 'todo' ? 'Todavía no se ha movido nada' : 'Nada por acá'}
+          subtitle={verMovs === 'egreso' ? 'No se ha registrado ningún egreso.' : 'Las ventas de contado y los cobros entran solos.'}
+        />
+      ) : movsVistos.map((m) => (
         <Card key={m.id} style={{ marginBottom: spacing.xs }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
             <Text style={{ fontSize: 17 }}>{m.tipo === 'ingreso' ? (m.origen === 'cobranza' ? '🧾' : '💰') : '➖'}</Text>
@@ -511,6 +630,7 @@ function MovimientosTab() {
   );
   const r = useMemo(() => resumenCaja(filtrados), [filtrados]);
   const cats = useMemo(() => porCategoria(filtrados), [filtrados]);
+  const ent = useMemo(() => resumenEntradas(filtrados), [filtrados]);
   const porMetodo = useMemo(() => totalesPorMetodo(filtrados), [filtrados]);
 
   const input = {
@@ -555,6 +675,26 @@ function MovimientosTab() {
         </Text>
         <Text style={{ color: colors.text, fontWeight: '900', fontSize: 20, marginTop: 2 }}>{fmtUsd(r.saldo)}</Text>
         <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtBs(r.saldoBs)}</Text>
+
+        {/* 💰 DE DÓNDE VINO LA PLATA. Acá solo hay dos fuentes posibles: una
+            venta de contado o el cobro de una venta a crédito. Verlo separado
+            dice si el día se hizo vendiendo o cobrando lo viejo. */}
+        <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.sm }} />
+        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>ENTRADAS POR VENTAS</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: 3 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 10.5 }}>Ventas de contado ({ent.ventas})</Text>
+            <Text style={{ color: colors.success, fontWeight: '900', fontSize: 14 }}>{fmtUsd(ent.ventasUsd)}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 10.5 }}>Cobros de crédito ({ent.cobros})</Text>
+            <Text style={{ color: colors.success, fontWeight: '900', fontSize: 14 }}>{fmtUsd(ent.cobrosUsd)}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 10.5 }}>Total</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>{fmtUsd(ent.totalUsd)}</Text>
+          </View>
+        </View>
 
         <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.sm }} />
         {porMetodo.filter((t) => t.ingresos || t.egresos).map((t) => (

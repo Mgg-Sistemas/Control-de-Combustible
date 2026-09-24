@@ -6424,3 +6424,43 @@ método y los egresos por categoría.
 > **🔐 Permisos.** El módulo **nace cerrado** (maneja dinero). Un admin tiene que darlo desde
 > **Usuarios → permisos por módulo → «Caja»**. Con **lectura** se ve todo pero no se abre, ni
 > se cierra, ni se cargan egresos.
+
+#### 💵 Cuánto dinero hay y las entradas por ventas (24/09/2026)
+
+Pedido textual: *"la parte de caja, se veran las entradas de dinero que vengan de las ventas, hazlo
+asi. Y que se refleje con tarjetas cuanto dinero hay"*.
+
+**Cuatro tarjetas con cuánto dinero hay**, cada una en **su propia moneda**:
+
+| Tarjeta | Qué junta | Se cuenta en |
+|---|---|---|
+| 💵 **Efectivo en $** | dólares en efectivo | $ |
+| 💶 **Efectivo en Bs** | bolívares en efectivo | Bs |
+| 🏦 **Banco (Bs)** | transferencia + pago móvil | Bs |
+| 💳 **Digital ($)** | Zelle + USDT | $ |
+
+Cada una muestra **cuánto hay ahora** (fondo de apertura + lo que entró − lo que salió) y, debajo,
+el desglose. Una tarjeta en cero **igual se muestra**: que no haya efectivo es información, no un
+hueco en la pantalla.
+
+Abajo, **EN TOTAL HAY** suma los dólares por un lado y los bolívares por el otro, y agrega el
+equivalente **a la tasa de hoy** — rotulado como referencia.
+
+> **⚠️ Por qué no es un solo número.** La plata está en cuatro sitios distintos y cada uno se busca
+> en un lugar distinto cuando falta. Un total único escondería que hay **$300 en Zelle y cero en la
+> gaveta**, que es justo lo que hay que saber antes de pagar algo en efectivo. Y si **no hay tasa
+> BCV** del día, los bolívares **no se convierten**: se informan aparte, para no inventar un número.
+
+**💰 Entradas por ventas.** Arriba de la lista sale cuánto entró, separado en **ventas de contado**
+y **cobros de crédito**, con su total en $ y en Bs, y debajo **cuánto entró por cada método de
+pago** (en la moneda de ese método). Si todavía no ha entrado nada, lo dice y explica de dónde va a
+entrar.
+
+**Pastillas sobre los movimientos:** *Todo · 💰 Ventas · 🧾 Cobros · ➖ Egresos*, con su cuenta al
+lado, para ver **solo las entradas que vienen de ventas** cuando haga falta.
+
+En **📜 Movimientos** el mismo desglose aparece para el rango de fechas filtrado: dice si el
+período se hizo **vendiendo** o **cobrando lo viejo**.
+
+> **Sigue sin haber botón para agregar un ingreso.** Estas pantallas solo **muestran**: el dinero
+> lo meten las ventas y los cobros, como siempre.
