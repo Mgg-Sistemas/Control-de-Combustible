@@ -3339,6 +3339,15 @@ aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
 
 
 #### ⚙️ El final olvidado (24/09/2026)
+
+**Y el cierre consciente (mismo día, 24/09/2026), para que el olvido no pase:** si la máquina
+marcó horómetro **inicial** hoy y se toca «Sí, finalizar» con el final **vacío**, el primer
+toque **no cierra**: sale el aviso «⚠️ Vas a cerrar SIN el horómetro final» con el inicial a la
+vista, y el botón cambia a **«Cerrar SIN horómetro final»**. O se escribe el número ahí mismo,
+o se cierra sin él a propósito (tablero dañado, sin acceso) — y en ese caso queda **en la
+bitácora** que esa jornada cerró sin horómetro, avisada. Las máquinas que no marcaron inicial
+cierran igual que siempre, sin aviso ni paso extra: el horómetro sigue sin bloquear jamás una
+jornada.
 Caso real del estreno: un inspector cerró la jornada sin escribir el horómetro final, y la
 pantalla ya solo le ofrecía iniciar la siguiente — cuyo campo precargado le mostraba el número
 viejo, como si «le saliera el de inicio». Ahora:
