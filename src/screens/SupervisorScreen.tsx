@@ -28,7 +28,8 @@ import { paradaShiftOf } from '../lib/inspectorDaySets';
 import { SosAutomatizacionCard } from '../components/SosAutomatizacionCard';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
-import { guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
+import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
+import { LecturaTrabajo, lecturaParaCompletarFinal } from '../lib/horometroTrabajo';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
 import { markAttendance, pairMarks, fmtHora, nextKind, shiftOfTs, SHIFT_LABEL } from '../lib/attendance';
@@ -372,6 +373,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // de Maquinaria · Horómetros). Ambas son opcionales (no bloquean la jornada).
   const [horoIniPhoto, setHoroIniPhoto] = useState<string | null>(null);
   const [horoFinPhoto, setHoroFinPhoto] = useState<string | null>(null);
+  // ⚙️ FINAL OLVIDADO (24-sep-2026): la lectura de HOY que cerró con inicial y sin final.
+  //    Solo el mismo día; días anteriores son corrección de Control, con motivo.
+  const [finTardia, setFinTardia] = useState<LecturaTrabajo | null>(null);
+  const [finTardiaBusy, setFinTardiaBusy] = useState(false);
   const [horoPhotoBusy, setHoroPhotoBusy] = useState<false | 'ini' | 'fin'>(false);
   // Al iniciar jornada: turno declarado y HORA de inicio (por defecto 7:00am día /
   // 7:00pm noche). Se acota contra la hora del sistema (alerta si se declara tarde).
@@ -423,6 +428,35 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setHoroPhotoBusy(false);
     if (r.ok && r.url) (which === 'ini' ? setHoroIniPhoto : setHoroFinPhoto)(r.url);
     else if (r.error) setNotice('❌ ' + r.error);
+  };
+
+  /**
+   * ⚙️ PONER EL HORÓMETRO FINAL OLVIDADO (24-sep-2026). Solo completa la lectura de
+   * HOY que quedó con inicial y sin final: NUNCA cambia un número ya puesto (eso es
+   * corrección de Control, con motivo) y NO toca ni un minuto de las horas ya cerradas.
+   * Va por la misma vía validada del cierre (origen inspector: la base revisa salto y
+   * retroceso) y deja constancia de quién y cuándo en la bitácora.
+   */
+  const ponerFinalTardio = async () => {
+    if (!ci || !finTardia || finTardiaBusy) return;
+    const hf = Number((horoFin || '').replace(',', '.').trim());
+    if (!(horoFin || '').trim() || !isFinite(hf) || hf < 0) { setNotice('❌ Escribe el horómetro final tal como lo marca el tablero.'); return; }
+    const hi = Number(finTardia.inicial);
+    if (isFinite(hi) && hf < hi) { setNotice(`❌ El horómetro final (${hf}) no puede ser menor al inicial (${hi}).`); return; }
+    setFinTardiaBusy(true);
+    const r = await guardarLecturaHorometro(ci.id, finTardia.roundDate, finTardia.shift, { final: hf, ...(horoFinPhoto ? { fotoFinalUrl: horoFinPhoto } : {}), origen: 'inspector' });
+    setFinTardiaBusy(false);
+    if (!r.ok) { setNotice('❌ No se guardó: ' + (r.error ?? 'intenta de nuevo')); return; }
+    // Espejo con lo viejo, igual que el cierre normal (mejor esfuerzo, sin tocar horas):
+    // el hf de la ronda solo si estaba vacío, y el horómetro vivo para la precarga de mañana.
+    try {
+      const prev = await getMachineRound(ci.id, finTardia.roundDate);
+      if ((prev as any)?.horometro_final == null) void upsertMachineRound(ci.id, finTardia.roundDate, { horometro_final: hf }, uid || null);
+    } catch {}
+    supabase.from('machinery').update({ last_horometro: hf }).eq('id', ci.id).then(() => {}, () => {});
+    logAudit('HOROMETRO_FINAL_TARDE', 'machinery', ci.id, `${ci.code} · final ${hf} puesto tras el cierre (${finTardia.shift === 'night' ? 'noche' : 'día'} ${finTardia.roundDate})`); // bitacora: quien y cuando
+    setHoroFin(''); setHoroFinPhoto(null); setFinTardia(null);
+    setNotice(`✅ Horómetro final ${hf} registrado. Quedó en la bitácora quién lo puso y cuándo.`);
   };
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsBusy, setGpsBusy] = useState(false);
@@ -481,10 +515,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (open) {
         // Jornada abierta: muestra su horómetro inicial ya guardado.
         setHoroIni((r as any)?.horometro_inicial != null ? String((r as any).horometro_inicial) : '');
+        setFinTardia(null);
       } else {
         // Cerrada: precarga el inicial con el último horómetro final de la máquina.
         const last = await lastHorometroFinal(ci.id);
         setHoroIni(last != null ? String(last) : '');
+        // ⚙️ ¿La jornada de HOY cerró sin horómetro final? Ofrece completarla ahí mismo.
+        //    La noche de AYER (cruza medianoche) solo hasta las 9am, como el declarar tarde.
+        try {
+          const deHoy = await cargarLecturasDeMaquinaDia(ci.id, today);
+          let tard = lecturaParaCompletarFinal(deHoy, today);
+          if (!tard && caracasParts(new Date()).hour < 9) {
+            const deAyer = await cargarLecturasDeMaquinaDia(ci.id, yesterday);
+            tard = lecturaParaCompletarFinal(deAyer.filter((l) => l.shift === 'night'), yesterday);
+          }
+          setFinTardia(tard);
+        } catch { setFinTardia(null); }
       }
     })();
   }, [ci?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1942,6 +1988,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setJornadaStart(null);
     setFinConfirm(false);
     setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre('');
+    // ⚙️ Si cerró SIN horómetro final, ofrece ponerlo ahí mismo (botón de final olvidado).
+    if (!hfValid) cargarLecturasDeMaquinaDia(ci.id, roundDate).then((ls) => setFinTardia(lecturaParaCompletarFinal(ls, roundDate))).catch(() => {});
     logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${motivo ? ` · Motivo cierre: ${motivo}` : ''}`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
@@ -3585,6 +3633,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
               ) : (
                 <View style={{ marginBottom: spacing.sm }}>
+                  {/* ⚙️ FINAL OLVIDADO: la jornada de HOY cerró con inicial y sin final. Se completa
+                      aquí mismo, mirando el tablero — NO hay que iniciar otra jornada para eso. */}
+                  {finTardia ? (
+                    <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ La jornada de hoy ({finTardia.shift === 'night' ? '🌙 noche' : '☀️ día'}) cerró sin horómetro final</Text>
+                      <Text style={{ color: colors.infoSoftText, fontSize: 11, marginBottom: spacing.xs }}>Inicial registrado: {String(finTardia.inicial)}. Escribe lo que marca el tablero y adjunta la foto. Solo se puede HOY; no cambia las horas ya cerradas ni hay que iniciar otra jornada.</Text>
+                      <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.xs }]} />
+                      <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                        <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={ponerFinalTardio} disabled={finTardiaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: finTardiaBusy ? 0.6 : 1 }}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{finTardiaBusy ? 'Guardando…' : '⚙️ PONER HORÓMETRO FINAL'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                   {/* Turno de la jornada. Si el inspector tiene turno ASIGNADO (día/noche),
                       se FIJA a su turno (no puede elegir el otro); si no está asignado, elige. */}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Turno de la jornada</Text>

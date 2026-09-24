@@ -79,6 +79,28 @@ export function validarLectura(
   return { valida: true, motivo: '' };
 }
 
+/**
+ * LA LECTURA QUE EL INSPECTOR PUEDE COMPLETAR TRAS EL CIERRE (24-sep-2026).
+ *
+ * Caso real del estreno (JUMBO 320): el inspector cerro la jornada sin escribir el
+ * horometro final, y la pantalla ya solo le ofrecia INICIAR la siguiente - cuyo
+ * campo precargado le mostraba el numero viejo. El final se pone el MISMO dia
+ * mirando el tablero; un final puesto dias despues es un numero inventado, y eso
+ * es correccion de Control (con motivo), no del inspector.
+ *
+ * Devuelve la lectura de `hoyISO` con inicial y SIN final (dia primero), o null.
+ */
+export function lecturaParaCompletarFinal(
+  lecturas: readonly LecturaTrabajo[] | null | undefined,
+  hoyISO: string,
+): LecturaTrabajo | null {
+  const abiertas = (lecturas ?? []).filter(
+    (l) => !!l && String(l.roundDate).slice(0, 10) === hoyISO && l.inicial != null && l.final == null,
+  );
+  abiertas.sort((a, b) => (a.shift < b.shift ? -1 : a.shift > b.shift ? 1 : 0)); // day antes que night
+  return abiertas[0] ?? null;
+}
+
 /** final − inicial, a 2 decimales. null si falta alguna lectura o la fila no es válida. */
 export function horasDeLectura(l: LecturaTrabajo): number | null {
   if (!l || !l.valida || l.inicial == null || l.final == null) return null;

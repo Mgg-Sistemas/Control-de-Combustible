@@ -3337,6 +3337,26 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
 corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del
 aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
 
+
+#### ⚙️ El final olvidado (24/09/2026)
+Caso real del estreno: un inspector cerró la jornada sin escribir el horómetro final, y la
+pantalla ya solo le ofrecía iniciar la siguiente — cuyo campo precargado le mostraba el número
+viejo, como si «le saliera el de inicio». Ahora:
+
+- Si la jornada de **HOY** cerró con horómetro inicial y sin final, al abrir la máquina el
+  inspector ve la caja **«⚙️ La jornada de hoy cerró sin horómetro final»** con el botón
+  **⚙️ PONER HORÓMETRO FINAL**: escribe lo que marca el tablero, adjunta la foto y listo.
+  **No hay que iniciar otra jornada para eso** (hacerlo pisaría el inicial verdadero).
+- **Solo el mismo día** (la noche que cruza la medianoche, hasta las 9:00am). Un final puesto
+  días después sin ver el tablero es un número inventado: eso es corrección de Control, con
+  motivo obligatorio, cuando se construya ese editor.
+- Solo **completa**: si la lectura ya tiene final, el botón no aparece y nada se pisa.
+- Va por la misma vía validada del cierre (la base revisa retrocesos y saltos imposibles) y
+  **no cambia ni un minuto de las horas ya cerradas**: el pago sigue por jornada.
+- Queda **constancia en la bitácora** de quién lo puso, cuándo y en cuál máquina
+  (HOROMETRO_FINAL_TARDE), y el horómetro vivo de la ficha se actualiza para que la precarga
+  del día siguiente amanezca buena.
+
 #### 🧾 «Otros» siempre con nombre (23/09/2026)
 Pedido del cliente: «que la comida no caiga en Otros; si es hielo es hielo, si es vaso es vaso, si
 es mango es mango, y la factura lo refleje con el nombre que corresponde».

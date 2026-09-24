@@ -250,6 +250,20 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('sin filas, el papel lo dice y no revienta', /Sin rondas en el rango/.test(H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-02', filas: [] })));
 }
 
+// ── EL FINAL OLVIDADO: cuál lectura puede completar el inspector (24-sep-2026) ──
+{
+  const HOY = '2026-09-24';
+  const sinFinal = L('m1', HOY, 'day', 711.3, null);
+  eq('la de hoy con inicial y sin final se puede completar', H.lecturaParaCompletarFinal([sinFinal], HOY), sinFinal);
+  eq('sin lecturas no hay nada que completar', H.lecturaParaCompletarFinal([], HOY), null);
+  eq('null aguanta', H.lecturaParaCompletarFinal(null, HOY), null);
+  eq('la de AYER no: eso es corrección de Control', H.lecturaParaCompletarFinal([L('m1', '2026-09-23', 'day', 711.3, null)], HOY), null);
+  eq('la que ya tiene final no se toca', H.lecturaParaCompletarFinal([L('m1', HOY, 'day', 711.3, 720.2)], HOY), null);
+  eq('la que no tiene ni inicial tampoco (no hay contra qué restar)', H.lecturaParaCompletarFinal([L('m1', HOY, 'day', null, null)], HOY), null);
+  eq('con día y noche a medias, primero el día', H.lecturaParaCompletarFinal([L('m1', HOY, 'night', 800, null), sinFinal], HOY).shift, 'day');
+  eq('inicial 0 es un inicial válido (horómetro recién cambiado)', H.lecturaParaCompletarFinal([L('m1', HOY, 'day', 0, null)], HOY).inicial, 0);
+}
+
 // ── GUARDIAS DEL MODO SOMBRA (23-sep-2026) ───────────────────────────────────
 // Lo que hoy paga NO se toca: el horómetro se registra AL LADO, best-effort, y ninguna
 // pantalla de dinero llama todavía a horasPagables. Si alguien lo conecta, que sea a
@@ -277,9 +291,19 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('leer lecturas devuelve [] si la tabla no existe', /catch \{\s*return \[\];/.test(db));
   ok('guardar nunca lanza', /return \{ ok: false, error: String\(e\?\.message \?\? e\) \}/.test(db));
   ok('la pestaña de Reportes dice que es modo sombra', /MODO SOMBRA/.test(rep) && /No cambia ningún pago/.test(rep));
+  // El botón del FINAL OLVIDADO (24-sep-2026): completa, nunca pisa; y deja bitácora.
+  ok('el botón existe en la pantalla del inspector', /PONER HORÓMETRO FINAL/.test(sup));
+  ok('solo completa la lectura de HOY (regla pura compartida)', /lecturaParaCompletarFinal\(/.test(sup));
+  ok('guarda por la vía validada con origen inspector', /guardarLecturaHorometro\(ci\.id, finTardia\.roundDate, finTardia\.shift, \{ final: hf,[\s\S]*?origen: 'inspector' \}\)/.test(sup));
+  ok('el espejo viejo solo si estaba vacío (nunca pisa un final ya puesto)', /horometro_final == null\) void upsertMachineRound/.test(sup));
+  ok('deja constancia en la bitácora de quién y cuándo', /logAudit\('HOROMETRO_FINAL_TARDE'/.test(sup));
+  const fnTardio = sup.slice(sup.indexOf('const ponerFinalTardio'), sup.indexOf('\n  };', sup.indexOf('const ponerFinalTardio')));
+  ok('no toca las horas pagadas (ni day_hours ni night_hours en el botón)', fnTardio.length > 200 && !/day_hours|night_hours/.test(fnTardio));
   // Manuales.
   ok('manual (md)', /Horómetro de trabajo \(modo sombra, 23\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app)', /HORÓMETRO DE TRABAJO \(MODO SOMBRA, 23\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (md) cuenta el final olvidado', /final olvidado/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el final olvidado', /FINAL OLVIDADO/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-horometro-trabajo · ${pass} ok · ${fail} fallando`);
