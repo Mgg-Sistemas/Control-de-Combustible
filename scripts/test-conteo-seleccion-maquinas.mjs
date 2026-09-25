@@ -239,5 +239,12 @@ ok('el manual en pantalla lo explica', /ESCOGER MÁQUINAS SUELTAS \(11\/09\/2026
 ok('el manual .md cuenta la corrección', /Conteo de equipos: lo destildado ya no sale \(19\/09\/2026\)/.test(md));
 ok('el manual en pantalla también', /CONTEO DE EQUIPOS: LO DESTILDADO YA NO SALE \(19\/09\/2026\)/.test(ms));
 
+// ── LOGOS DEL CONTEO (24-sep-2026): checks propios, como el inventario ──
+ok('el conteo tiene su propio juego de logos', /const \[conteoLogos, setConteoLogos\] = useState<ReporteLogos>/.test(scr));
+ok('el membrete del conteo los recibe', /renaceShell\('CONTEO DE EQUIPOS'[\s\S]*?, \{\}, conteoLogos\)/.test(scr));
+ok('las pastillas estan en la pantalla del conteo', /¿Qué logos lleva el membrete\?/.test(scrCrudo));
+ok('arranca como salia siempre (Golden + Renace)', /setConteoLogos\] = useState<ReporteLogos>\(\{ sos: false, golden: true, renace: true, bcv: false \}\)/.test(scr));
+ok('lo del conteo NO toca los logos del inventario', /renaceShell\('INVENTARIO DE<br\/>MAQUINARIA', '', body, \{\}, tacLogos\)/.test(scr));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-conteo-seleccion-maquinas · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
