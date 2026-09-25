@@ -3366,6 +3366,13 @@ Decisión del cliente: **solo los administradores corrigen, y basta el motivo es
 
 #### ⚙️ El final olvidado (24/09/2026)
 
+**Y el inicio consciente (25/09/2026), la otra mitad:** si se toca «Iniciar jornada» con el
+horómetro inicial **vacío**, el primer toque no inicia: sale «⚠️ Vas a iniciar SIN el
+horómetro inicial» y el botón cambia a **«Iniciar SIN horómetro»**. O se escribe el número del
+tablero, o se inicia sin él a propósito (aparato dañado o máquina sin horómetro) — y queda en
+la bitácora «inició SIN horómetro inicial (avisado)». Nunca bloquea. El QR del operador no lo
+necesita: ahí el inicial siempre fue obligatorio.
+
 **Y el cierre consciente (mismo día, 24/09/2026), para que el olvido no pase:** si la máquina
 marcó horómetro **inicial** hoy y se toca «Sí, finalizar» con el final **vacío**, el primer
 toque **no cierra**: sale el aviso «⚠️ Vas a cerrar SIN el horómetro final» con el inicial a la

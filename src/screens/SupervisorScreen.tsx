@@ -382,6 +382,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //    o tocar explícitamente «Cerrar SIN horómetro final». Nunca bloquea (regla de oro:
   //    las horas van por TIEMPO y toda máquina puede cerrar); solo hace el olvido difícil.
   const [cerrarSinFinal, setCerrarSinFinal] = useState(false);
+  // ⚙️ INICIO CONSCIENTE (25-sep-2026, pedido del cliente: «a aquellas máquinas que no
+  //    tengan horómetro inicial, que salga un aviso de que deben colocarlo»): iniciar
+  //    con el campo vacío pide un segundo toque — «Iniciar SIN horómetro». Nunca bloquea:
+  //    la máquina sin aparato (o con el tablero dañado) sigue trabajando por jornada.
+  const [iniciarSinHoro, setIniciarSinHoro] = useState(false);
   const [horoPhotoBusy, setHoroPhotoBusy] = useState<false | 'ini' | 'fin'>(false);
   // Al iniciar jornada: turno declarado y HORA de inicio (por defecto 7:00am día /
   // 7:00pm noche). Se acota contra la hora del sistema (alerta si se declara tarde).
@@ -492,7 +497,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); setMotivoCierre(''); return; }
-    setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre(''); setCerrarSinFinal(false);
+    setParadaOpen(false); setFinConfirm(false); setHoroFin(''); setMotivoCierre(''); setCerrarSinFinal(false); setIniciarSinHoro(false);
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
     setParadaTab('averia'); setCiMotivo('');
     setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
@@ -1804,6 +1809,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const hiHas = hiRaw !== '';
     const hi = Number(hiRaw);
     if (hiHas && (!isFinite(hi) || hi < 0)) { setNotice('❌ El horómetro no puede ser negativo.'); return; }
+    // ⚙️ INICIO CONSCIENTE: sin horómetro inicial, el primer toque no inicia — avisa y
+    //    pide decidir. El segundo toque (botón ya renombrado) inicia igual: nunca bloquea.
+    if (!hiHas && !iniciarSinHoro) { setIniciarSinHoro(true); return; }
     // Hora de inicio DECLARADA (HH:MM). Caracas es UTC-4 fijo (sin horario de verano).
     const m = /^(\d{1,2}):(\d{2})$/.exec((iniTime || '').trim());
     if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) { setNotice('❌ Hora de inicio inválida (usa HH:MM, ej. 07:00).'); return; }
@@ -1835,6 +1843,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hiHas) void guardarLecturaHorometro(ci.id, roundDate, sh === 'night' ? 'night' : 'day', { inicial: hi, ...(horoIniPhoto ? { fotoInicialUrl: horoIniPhoto } : {}), origen: 'inspector' }).then((r) => { if (!r.ok) console.warn('horómetro de trabajo:', r.error); }).catch(() => {});
     setJornadaShift(sh);
     setJornadaStart(startIso);
+    setIniciarSinHoro(false);
     // REACTIVACIÓN: iniciar la jornada implica que la máquina VUELVE a trabajar, pero
     // eso es SOLO una reclasificación en memoria (ver `reactivada()`/`segmentoDe`, que
     // comparan jornada_start_at contra la avería/parada por TURNO) — NO se toca el
@@ -1874,7 +1883,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Guarda el desfase (minutos) para que Inspecciones muestre "inició tarde".
     // Best-effort: si la columna jornada_late_min no existe aún, se ignora el error.
     supabase.from('machine_rounds').update({ jornada_late_min: alertaRetraso > 0 ? alertaRetraso : null }).eq('machinery_id', ci.id).eq('round_date', roundDate).then(() => {}, () => {});
-    logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? (veniaAveriada ? ' · inicio tardío por avería (sin alerta)' : ` · declarada ${retrasoLabel(retrasoMin)} tarde`) : ''}`); // bitácora
+    logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? (veniaAveriada ? ' · inicio tardío por avería (sin alerta)' : ` · declarada ${retrasoLabel(retrasoMin)} tarde`) : ''}${!hiHas ? ' · ⚠️ inició SIN horómetro inicial (avisado)' : ''}`); // bitácora
     // Camión: al INICIAR la jornada, se registra su SALIDA del patio.
     logTruckYardIfTruck(ci.id, ci.code, 'salida', uid || null, fullName || null);
 
@@ -3693,8 +3702,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <TouchableOpacity onPress={() => tomarFotoHoro('ini')} disabled={horoPhotoBusy === 'ini'} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoIniPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
                     <Text style={{ color: horoIniPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'ini' ? 'Subiendo…' : horoIniPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : '🟢 INICIAR JORNADA'}</Text>
+                  {/* ⚙️ INICIO CONSCIENTE: avisó y el campo sigue vacío → que se note lo que va a pasar. */}
+                  {iniciarSinHoro && !(horoIni || '').trim() ? (
+                    <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>⚠️ Vas a iniciar SIN el horómetro inicial</Text>
+                      <Text style={{ color: colors.warningSoftText, fontSize: 11, marginTop: 2 }}>Míralo en el tablero de la máquina y escríbelo arriba (con su foto). Sin él, hoy esta máquina no contará en el horómetro de trabajo. Si el aparato está dañado o no tiene, inicia sin él: quedará anotado en la bitácora.</Text>
+                    </View>
+                  ) : null}
+                  <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: iniciarSinHoro && !(horoIni || '').trim() ? '#B45309' : '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : iniciarSinHoro && !(horoIni || '').trim() ? 'Iniciar SIN horómetro' : '🟢 INICIAR JORNADA'}</Text>
                   </TouchableOpacity>
                 </View>
               )}
