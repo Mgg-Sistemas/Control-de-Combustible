@@ -156,10 +156,10 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('una fila por ronda, ordenadas por fecha y código', filas.map((f) => `${f.fecha} ${f.code}`), ['2026-09-01 CARG-03', '2026-09-01 EXC-04', '2026-09-01 GRUA-05', '2026-09-01 RETRO-01', '2026-09-02 RETRO-01', '2026-09-02 VIBRO-02']);
   const de = (code, fecha) => filas.find((f) => f.code === code && f.fecha === fecha);
   eq('cuadra dentro de media hora', de('RETRO-01', '2026-09-02').estado, 'cuadra');
-  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', fecha: '2026-09-01', horasJornada: 11, horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
+  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
   eq('horómetro mayor', de('VIBRO-02', '2026-09-02').estado, 'horometro_mayor');
   eq('jornada mayor, con la diferencia negativa', [de('CARG-03', '2026-09-01').estado, de('CARG-03', '2026-09-01').diferencia, de('CARG-03', '2026-09-01').empresa], ['jornada_mayor', -5, 'EMPRESA BETA']);
-  eq('inválida: sin horas ni diferencia', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', fecha: '2026-09-01', horasJornada: 6, horasHorometro: null, diferencia: null, estado: 'invalida' });
+  eq('inválida: sin horas ni diferencia', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, horasHorometro: null, diferencia: null, estado: 'invalida' });
   eq('solo una lectura incompleta cuenta como sin lectura', de('GRUA-05', '2026-09-01').estado, 'sin_lectura');
   eq('ronda sin ninguna lectura → sin lectura', H.compararJornadaHorometro([RONDA('m9', 'MOTO-09', '2026-09-05', 8, 0)], lecturas)[0].estado, 'sin_lectura');
   eq('la jornada del comparativo usa la fórmula completa (resta parada)', de('RETRO-01', '2026-09-01').horasJornada, 11);
@@ -231,7 +231,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   const papel = H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-02', filas });
   ok('el rango va en dd/mm/aaaa', /Del 01\/09\/2026 al 02\/09\/2026/.test(papel));
   ok('una tabla por día, con la fecha en dd/mm/aaaa', /01\/09\/2026 <span>2 máquina\(s\)/.test(papel) && /02\/09\/2026 <span>3 máquina\(s\)/.test(papel));
-  ok('la tabla tiene las seis columnas', /<th>Máquina<\/th><th>Empresa<\/th><th class="r">Jornada h<\/th><th class="r">Horómetro h<\/th><th class="r">Diferencia<\/th><th>Estado<\/th>/.test(papel));
+  ok('la tabla tiene las ocho columnas (con marca/modelo y placa)', /<th>Máquina<\/th><th>Marca \/ Modelo<\/th><th>Serial \/ Placa<\/th><th>Empresa<\/th><th class="r">Jornada h<\/th><th class="r">Horómetro h<\/th><th class="r">Diferencia<\/th><th>Estado<\/th>/.test(papel));
   ok('cuadra va con hc-ok', /<tr class="hc-ok"><td>RETRO-01<\/td>/.test(papel));
   ok('horómetro mayor va con hc-mas y signo +', /<tr class="hc-mas"><td>VIBRO-02<\/td>.*?\+2<\/td><td class="est">Horómetro mayor/.test(papel));
   ok('jornada mayor va con hc-menos', /<tr class="hc-menos"><td>CARG-03<\/td>.*?-5<\/td><td class="est">Jornada mayor/.test(papel));
@@ -363,12 +363,23 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('sin jornada: fuera sus horas, diferencia, estado, cuadre y listas',
     !/[Jj]ornada|Diferencia|Estado|[Cc]uadra|hc-ok|hc-mas|hc-menos|listas para encender/.test(solo));
   ok('...y las horas de la jornada no están ni de número', !solo.includes('9,75'));
-  ok('...pero el horómetro sí está', /RETRO-01<\/td><td>EMPRESA FANTASMA CA<\/td><td class="r">8<\/td>/.test(solo));
+  ok('...pero el horómetro sí está', /RETRO-01<\/td><td><\/td><td><\/td><td>EMPRESA FANTASMA CA<\/td><td class="r">8<\/td>/.test(solo));
   ok('sin resumen: fuera las cajas', !/hc-res/.test(H.cuerpoComparativo(d, { ...C, sinResumen: true })));
   ok('sin listas: fuera la sección entera', !/listas para encender/.test(H.cuerpoComparativo(d, { ...C, sinListas: true })));
   ok('sin detalle: fuera las tablas por día', !/máquina\(s\)/.test(H.cuerpoComparativo(d, { ...C, sinDetalle: true })));
-  const nada = H.cuerpoComparativo(d, { sinEmpresa: true, sinJornada: true, sinResumen: true, sinListas: true, sinDetalle: true });
+  const nada = H.cuerpoComparativo(d, { sinMarca: true, sinModelo: true, sinPlaca: true, sinEmpresa: true, sinJornada: true, sinResumen: true, sinListas: true, sinDetalle: true });
   ok('todo apagado: el papel no dice «oculto» por ninguna parte', !/ocult/i.test(nada));
+  // La ficha de la máquina (25-sep-2026: «falta marca y modelo, placa»).
+  const conFicha = H.compararJornadaHorometro(
+    [{ machineryId: 'm3', code: 'EXC-03', empresa: 'ACME', marca: 'CAT', modelo: '320D', placa: 'A7X-123', fecha: '2026-09-02', ronda: R(8, 0) }],
+    [L('m3', '2026-09-02', 'day', 50, 58)],
+  );
+  const dF = { desde: '2026-09-02', hasta: '2026-09-02', filas: conFicha };
+  ok('marca, modelo y placa salen por defecto', /<td>CAT \/ 320D<\/td><td>A7X-123<\/td>/.test(H.cuerpoComparativo(dF)));
+  const sinMarca = H.cuerpoComparativo(dF, { ...C, sinMarca: true });
+  ok('sin marca: queda el modelo, sin rastro de la marca', !/CAT|Marca/.test(sinMarca) && /<th>Modelo<\/th>/.test(sinMarca) && /<td>320D<\/td>/.test(sinMarca));
+  ok('sin marca ni modelo: fuera la columna entera', !/CAT|320D|Marca|Modelo/.test(H.cuerpoComparativo(dF, { ...C, sinMarca: true, sinModelo: true })));
+  ok('sin placa: ni la columna ni el número', !/Serial|Placa|A7X-123/.test(H.cuerpoComparativo(dF, { ...C, sinPlaca: true })));
   eq('alternar prende y apaga', H.alternarComparativo(C, 'sinEmpresa').sinEmpresa, true);
   ok('en palabras: completo por defecto', /Sale completo/.test(H.ocultosComparativoEnPalabras(C)));
   ok('en palabras: nombra lo apagado', /nombre de empresas/.test(H.ocultosComparativoEnPalabras({ ...C, sinEmpresa: true })));
@@ -387,6 +398,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('el papel se genera con las opciones', /cuerpoComparativo\(\{ desde: from, hasta: to, filas \}, opHoro\)/.test(rep));
   ok('el membrete recibe los logos y el título se adapta', /pdfShell\(tituloComparativo\(opHoro\), sub, body, horoLogos\)/.test(rep));
   ok('el nombre del archivo cuenta lo apagado', /sufijoArchivoComparativo\(opHoro\)/.test(rep));
+  ok('la carga del comparativo trae la ficha (marca, modelo, placa)', /id, code, marca, modelo, plate, serial, clasificacion, company:company_id\(name\)/.test(leer('src/lib/horometroComparativoDb.ts')));
   ok('pdfShell SIN logos sale como siempre (lo comparten ~20 reportes)', /sos: logos\?\.sos \?\? true, golden: logos\?\.golden \?\? false, renace: logos\?\.renace \?\? false, bcv: logos\?\.bcv \?\? true/.test(rep));
   ok('manual (md) cuenta las pastillas del reporte de horómetros', /igual de ajustable que los demás reportes de maquinaria/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app) cuenta las pastillas del reporte de horómetros', /PASTILLAS DEL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));

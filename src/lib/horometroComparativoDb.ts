@@ -11,7 +11,8 @@ import { LecturaTrabajo, RondaHoras } from './horometroTrabajo';
 import { cargarLecturasHorometro } from './horometroTrabajoDb';
 
 export type RondaComparativa = {
-  machineryId: string; code: string; empresa: string; clasificacion: string; fecha: string; ronda: RondaHoras;
+  machineryId: string; code: string; empresa: string; clasificacion: string;
+  marca: string; modelo: string; placa: string; fecha: string; ronda: RondaHoras;
 };
 
 export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[] };
@@ -21,13 +22,17 @@ const num = (v: unknown) => Number(v) || 0;
 
 export async function cargarDatosComparativo(desde: string, hasta: string): Promise<DatosComparativo> {
   const [maqs, ron, lecturas] = await Promise.all([
-    selectAllRows('machinery', 'id, code, clasificacion, company:company_id(name)'),
+    selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, company:company_id(name)'),
     selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q: any) => q.gte('round_date', desde).lte('round_date', hasta)),
     cargarLecturasHorometro(desde, hasta),
   ]);
-  const porMaq = new Map<string, { code: string; empresa: string; clasificacion: string }>();
+  const porMaq = new Map<string, { code: string; empresa: string; clasificacion: string; marca: string; modelo: string; placa: string }>();
   for (const m of maqs as any[]) {
-    porMaq.set(String(m.id), { code: limpio(m.code) || '—', empresa: limpio(m.company?.name) || 'Sin empresa', clasificacion: limpio(m.clasificacion) || 'Sin clasificación' });
+    porMaq.set(String(m.id), {
+      code: limpio(m.code) || '—', empresa: limpio(m.company?.name) || 'Sin empresa', clasificacion: limpio(m.clasificacion) || 'Sin clasificación',
+      // Igual que ubicaciones: placa, o serial si no tiene placa.
+      marca: limpio(m.marca), modelo: limpio(m.modelo), placa: limpio(m.plate) || limpio(m.serial),
+    });
   }
   const porClave = new Map<string, RondaComparativa>();
   for (const r of ron as any[]) {
