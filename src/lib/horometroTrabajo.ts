@@ -336,41 +336,99 @@ const CLASE_ESTADO: Record<FilaComparativa['estado'], string> = {
   cuadra: 'hc-ok', horometro_mayor: 'hc-mas', jornada_mayor: 'hc-menos', sin_lectura: 'hc-sin', invalida: 'hc-menos',
 };
 
-/** Cuerpo HTML del comparativo: resumen, máquinas listas para encender y una tabla por día. */
-export function cuerpoComparativo(d: { desde: string; hasta: string; filas: FilaComparativa[] }): string {
+// ── QUÉ SE OCULTA (las pastillas del reporte, 25-sep-2026) ───────────────────────
+// Pedido del cliente: el reporte de horómetros «igual de ajustable que los otros».
+// ⭐ LO OCULTO NO DEJA RASTRO en el papel: ni columna en blanco, ni «(oculto)», ni un
+//    derivado que lo delate. Por eso apagar la jornada tumba TAMBIÉN la diferencia, el
+//    estado, los colores del cuadre y las «listas» (todos se calculan contra ella), y
+//    hasta el título del papel cambia (tituloComparativo / subtituloComparativo).
+
+export type OpcionesComparativo = {
+  sinEmpresa: boolean; sinJornada: boolean; sinResumen: boolean; sinListas: boolean; sinDetalle: boolean;
+};
+export const OPCIONES_COMPARATIVO_COMPLETO: OpcionesComparativo = {
+  sinEmpresa: false, sinJornada: false, sinResumen: false, sinListas: false, sinDetalle: false,
+};
+export const PASTILLAS_COMPARATIVO: { key: keyof OpcionesComparativo; chip: string; largo: string; archivo: string }[] = [
+  { key: 'sinEmpresa', chip: '🚫 Nombre de empresas', largo: 'nombre de empresas', archivo: 'sin empresas' },
+  { key: 'sinJornada', chip: '🚫 Horas de jornada', largo: 'horas de jornada (con su diferencia, estado y «listas»)', archivo: 'solo horometro' },
+  { key: 'sinResumen', chip: '🚫 Resumen', largo: 'cajas del resumen', archivo: 'sin resumen' },
+  { key: 'sinListas', chip: '🚫 Máquinas listas', largo: 'máquinas listas para encender', archivo: 'sin listas' },
+  { key: 'sinDetalle', chip: '🚫 Detalle por día', largo: 'detalle día por día', archivo: 'sin detalle' },
+];
+export function alternarComparativo(o: OpcionesComparativo, key: keyof OpcionesComparativo): OpcionesComparativo {
+  return { ...o, [key]: !o[key] };
+}
+export function ocultosComparativoEnPalabras(o: OpcionesComparativo): string {
+  const l = PASTILLAS_COMPARATIVO.filter((p) => o[p.key]).map((p) => p.largo);
+  return l.length === 0 ? 'Sale completo.' : `No sale: ${l.join(', ')}.`;
+}
+export function sufijoArchivoComparativo(o: OpcionesComparativo): string {
+  const l = PASTILLAS_COMPARATIVO.filter((p) => o[p.key]).map((p) => p.archivo);
+  return l.length === 0 ? '' : ` - ${l.join(' - ')}`;
+}
+/** Sin jornada, el papel no puede seguir llamándose «vs jornada»: delataría lo oculto. */
+export function tituloComparativo(o: OpcionesComparativo): string {
+  return o.sinJornada ? 'HORÓMETRO DE TRABAJO (MODO SOMBRA)' : 'HORÓMETRO VS JORNADA (MODO SOMBRA)';
+}
+export function subtituloComparativo(o: OpcionesComparativo): string {
+  return o.sinJornada
+    ? 'Horas del horómetro de trabajo, máquina por máquina y día por día'
+    : 'Jornada declarada vs horómetro de trabajo, máquina por máquina y día por día';
+}
+
+/** Cuerpo HTML del comparativo: resumen, máquinas listas para encender y una tabla por día.
+ *  `o` dice qué se oculta (pastillas de arriba); sin `o`, sale completo, como siempre. */
+export function cuerpoComparativo(
+  d: { desde: string; hasta: string; filas: FilaComparativa[] },
+  o: OpcionesComparativo = OPCIONES_COMPARATIVO_COMPLETO,
+): string {
   const filas = d.filas ?? [];
   const r = resumenComparativo(filas);
   const caja = (t: string, v: string | number) => `<div><b>${esc(v)}</b>${esc(t)}</div>`;
   let html = `<div class="hc">`;
-  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos.</p>`;
-  html += `<div class="hc-res">`
-    + caja('máquinas', r.maquinas) + caja('días con ronda', r.filas) + caja('con lectura', r.conLectura)
-    + caja('cuadran', r.cuadran) + caja('horómetro mayor', r.horometroMayor) + caja('jornada mayor', r.jornadaMayor)
-    + caja('inválidas', r.invalidas) + caja('sin lectura', r.sinLectura)
-    + caja('h jornada', fmtH(r.horasJornada)) + caja('h horómetro', fmtH(r.horasHorometro))
-    + `</div>`;
-
-  html += `<h3 class="sect">Máquinas listas para encender <span>${DIAS_PARA_LISTA} días seguidos cuadrando (±${TOLERANCIA_LISTA} h) sin lecturas inválidas</span></h3>`;
-  if (r.listas.length === 0) html += `<p class="nota">Ninguna todavía.</p>`;
-  else {
-    html += `<table><thead><tr><th>Máquina</th><th class="r">Días seguidos</th></tr></thead><tbody>`;
-    for (const m of r.listas) html += `<tr class="hc-ok"><td>${esc(m.code)}</td><td class="r">${m.dias}</td></tr>`;
-    html += `</tbody></table>`;
+  html += o.sinJornada
+    ? `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; horas = final − inicial del horómetro de trabajo, por turno. «—» = sin lectura completa ese día.</p>`
+    : `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos.</p>`;
+  if (!o.sinResumen) {
+    html += `<div class="hc-res">` + caja('máquinas', r.maquinas) + caja('días con ronda', r.filas) + caja('con lectura', r.conLectura);
+    if (!o.sinJornada) html += caja('cuadran', r.cuadran) + caja('horómetro mayor', r.horometroMayor) + caja('jornada mayor', r.jornadaMayor);
+    html += caja('inválidas', r.invalidas) + caja('sin lectura', r.sinLectura);
+    if (!o.sinJornada) html += caja('h jornada', fmtH(r.horasJornada));
+    html += caja('h horómetro', fmtH(r.horasHorometro)) + `</div>`;
   }
 
-  const porDia = new Map<string, FilaComparativa[]>();
-  for (const f of filas) { const a = porDia.get(f.fecha); if (a) a.push(f); else porDia.set(f.fecha, [f]); }
-  const fechas = [...porDia.keys()].sort();
-  if (fechas.length === 0) html += `<p class="nota">Sin rondas en el rango.</p>`;
-  for (const fecha of fechas) {
-    const del = [...(porDia.get(fecha) ?? [])].sort((a, b) => cmp(a.code, b.code));
-    html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} máquina(s)</span></h3>`;
-    html += `<table><thead><tr><th>Máquina</th><th>Empresa</th><th class="r">Jornada h</th><th class="r">Horómetro h</th><th class="r">Diferencia</th><th>Estado</th></tr></thead><tbody>`;
-    for (const f of del) {
-      const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
-      html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}</td><td>${esc(f.empresa)}</td><td class="r">${fmtH(f.horasJornada)}</td><td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${ETIQUETA_ESTADO[f.estado]}</td></tr>`;
+  if (!o.sinListas && !o.sinJornada) {
+    html += `<h3 class="sect">Máquinas listas para encender <span>${DIAS_PARA_LISTA} días seguidos cuadrando (±${TOLERANCIA_LISTA} h) sin lecturas inválidas</span></h3>`;
+    if (r.listas.length === 0) html += `<p class="nota">Ninguna todavía.</p>`;
+    else {
+      html += `<table><thead><tr><th>Máquina</th><th class="r">Días seguidos</th></tr></thead><tbody>`;
+      for (const m of r.listas) html += `<tr class="hc-ok"><td>${esc(m.code)}</td><td class="r">${m.dias}</td></tr>`;
+      html += `</tbody></table>`;
     }
-    html += `</tbody></table>`;
+  }
+
+  if (!o.sinDetalle) {
+    const porDia = new Map<string, FilaComparativa[]>();
+    for (const f of filas) { const a = porDia.get(f.fecha); if (a) a.push(f); else porDia.set(f.fecha, [f]); }
+    const fechas = [...porDia.keys()].sort();
+    if (fechas.length === 0) html += `<p class="nota">Sin rondas en el rango.</p>`;
+    for (const fecha of fechas) {
+      const del = [...(porDia.get(fecha) ?? [])].sort((a, b) => cmp(a.code, b.code));
+      html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} máquina(s)</span></h3>`;
+      html += `<table><thead><tr><th>Máquina</th>${o.sinEmpresa ? '' : '<th>Empresa</th>'}${o.sinJornada ? '' : '<th class="r">Jornada h</th>'}<th class="r">Horómetro h</th>${o.sinJornada ? '' : '<th class="r">Diferencia</th><th>Estado</th>'}</tr></thead><tbody>`;
+      for (const f of del) {
+        const empresa = o.sinEmpresa ? '' : `<td>${esc(f.empresa)}</td>`;
+        if (o.sinJornada) {
+          // Sin jornada tampoco hay clase de color: el verde/ámbar/rojo ES el cuadre.
+          html += `<tr><td>${esc(f.code)}</td>${empresa}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
+        } else {
+          const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
+          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}</td>${empresa}<td class="r">${fmtH(f.horasJornada)}</td><td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${ETIQUETA_ESTADO[f.estado]}</td></tr>`;
+        }
+      }
+      html += `</tbody></table>`;
+    }
   }
   html += `</div>`;
   return html;
