@@ -191,6 +191,8 @@ stubs['machineInspectors'] = {
     referencia: '', latitude: null, longitude: null, encargado: null,
   })) }),
   inspectorSiempreActivo: () => false,
+  // Mismo criterio que el real (MI): sin nombre o 'faltantes' no es un inspector.
+  sinInspectorReal: (n) => !n || /faltant/i.test(String(n)),
 };
 
 const traza = loadTs(path.join(ROOT, 'src/lib/inspectorTrazaReport.ts'));
@@ -256,6 +258,14 @@ const src = sinComentarios(leer('src/lib/inspectorTrazaReport.ts'));
 ok('el reporte sale de la agregación de las asignadas', /computeInspectorData\(date, null\)/.test(src));
 ok('...con la regla de asignación tardía de las tarjetas', /assignmentCountsForShift\(asig, date, turno\)/.test(src));
 ok('...y las columnas de la librería', /columnasInspector\(op\)/.test(src));
+// Sincronizacion con las tarjetas EN EL NUCLEO (25-sep-2026): computeInspectorData
+const core = sinComentarios(leer('src/lib/inspectorReport.ts'));
+ok('el nucleo salta al usuario MAQUINAS FALTANTES', /if \(sinInspectorReal\(a\.inspector_name\)\) return;/.test(core));
+ok('el nucleo aplica la asignacion tardia de las tarjetas', /if \(!assignmentCountsForShift\(a as any, date, a\.shift as any\)\) return;/.test(core));
+ok('la fila de anoche viaja SIN horas (solo el estado)', /day_hours: 0, night_hours: 0, hours_stopped: 0, overtime_hours: 0 \}\);/.test(core));
+ok('adminIds muerto quedo fuera', !/adminIds/.test(core));
+const rs = sinComentarios(leer('src/screens/ReportsScreen.tsx'));
+ok('la pestania de inspectores arranca en el dia de NEGOCIO', /t\.v === 'inspectores'\) \{ setFrom\(caracasBusinessToday\(\)\); \}/.test(rs));
 const sec = sinComentarios(leer('src/components/ReportesSection.tsx'));
 ok('la ventana pasa turno y columnas', /generateInspectorTrazaReport\(\{ date, turno, inspectors: names\.length \? names : undefined, opciones \}\)/.test(sec));
 ok('la ventana muestra las pastillas', /PASTILLAS_INSPECTOR\.map/.test(sec) && /conColumnas: true/.test(sec) && /conTurno: true/.test(sec));

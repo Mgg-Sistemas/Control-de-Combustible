@@ -2499,6 +2499,25 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
   cada comida, la hora y quién lo registró.
 - Botón **"📄 Reporte PDF (con opciones)"** para imprimir/llevar el control del rango.
 
+
+#### 🔁 Reporte por inspector: cuatro sincronizaciones más (25/09/2026)
+El cliente reportó que el PDF «no sincronizaba bien» con las tarjetas. Se revisaron las dos
+implementaciones regla por regla y se corrigieron en el NÚCLEO compartido (el mismo que usan
+el reporte con firma y el recibo del inspector):
+
+- **El usuario de sistema «MÁQUINAS FALTANTES» ya no sale como un inspector** en el PDF (las
+  tarjetas lo apartan a su cajón; el PDF lo listaba como una persona más).
+- **Una asignación hecha después del fin del turno no cuenta ese día** — la misma regla de las
+  tarjetas, ahora también en el núcleo.
+- **La jornada de anoche ya no trae sus horas de ayer**: antes, al generar el PDF de madrugada,
+  las horas de día de AYER podían salir como horas de HOY. Ahora esa fila solo aporta el estado
+  «en curso».
+- **La fecha por defecto es el día de negocio** (antes de las 7am, la noche en curso es la de
+  ayer): el PDF y las tarjetas hablan del mismo día a cualquier hora.
+
+El PDF sigue siendo una **foto del momento en que se genera** (no se refresca solo como la
+pantalla): si los datos cambian, se genera de nuevo.
+
 #### ✏️ Corregir comidas de cualquier día (18/09/2026)
 En la pestaña **"📅 Por día"**, quien tiene **permiso COMPLETO** en Distribución de comida ve la
 tarjeta **"✏️ Agregar o corregir las comidas de este día"**. Funciona desde el teléfono.

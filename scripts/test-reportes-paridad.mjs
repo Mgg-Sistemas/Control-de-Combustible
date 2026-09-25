@@ -113,6 +113,8 @@ stubs['machineInspectors'] = {
     tipo: 'MARCA', companyName: 'EMPRESA X', sector: 'ESTE', referencia: '', latitude: null, longitude: null, encargado: null,
   })) }),
   inspectorSiempreActivo: () => false,
+  // Mismo criterio que el real (MI): sin nombre o 'faltantes' no es un inspector.
+  sinInspectorReal: (n) => !n || /faltant/i.test(String(n)),
 };
 
 const rep = loadTs(path.join(ROOT, 'src/lib/inspectorReport.ts'));
