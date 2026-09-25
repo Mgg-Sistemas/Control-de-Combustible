@@ -1628,6 +1628,14 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cinco pestañas:
 
 ---
 
+
+#### 🏷️ Conteo de equipos: los logos del membrete se eligen (24/09/2026)
+Igual que en el inventario de arriba: antes del botón «⬇️ PDF de este conteo» están las
+pastillas **¿Qué logos lleva el membrete?** — SOS La Guaira, Golden Touch, Venezuela Renace y
+BCV — y cada una se prende o se apaga con un toque. Debajo dice cuáles van a salir. Arranca
+como salía siempre (Golden Touch + Venezuela Renace), y lo que se marque aquí **no cambia** los
+logos del inventario: cada papel tiene su propia memoria.
+
 #### 📄 Informe Técnico y de Costos (22-sep-2026)
 
 Pestaña nueva de este módulo. Arma, **para una sola máquina**, el documento que se le entrega al
