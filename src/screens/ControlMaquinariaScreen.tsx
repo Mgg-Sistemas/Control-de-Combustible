@@ -2280,9 +2280,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                           {b?.horometro_inicial != null && b?.horometro_final != null ? ` = ${Math.round((Number(b.horometro_final) - Number(b.horometro_inicial)) * 100) / 100} h` : ''}
                         </Text>
                       ) : null}
-                      {/* Horómetro de TRABAJO (modo sombra): solo se muestra, no paga ni edita. Y solo
-                          si la semana trae alguna lectura: sin lecturas, la pantalla es la de siempre. */}
-                      {lecturasHoro.length > 0 ? (
+                      {/* Horómetro de TRABAJO (modo sombra): solo se muestra, no paga. Sale si la
+                          semana trae lecturas — o SIEMPRE para quien puede corregir (25-sep-2026,
+                          pedido del cliente: el ✎ en TODAS las máquinas y jornadas, también en
+                          semanas viejas sin lecturas, para poder cargar una a mano con su motivo). */}
+                      {lecturasHoro.length > 0 || puedeCorregirHoro ? (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <View style={{ flex: 1 }}>
                             <HorometroTrabajoCelda lecturas={lecturasPorClave.get(`${m.id}|${dISO}`) ?? []} colors={colors} />
