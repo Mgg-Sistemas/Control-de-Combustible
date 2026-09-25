@@ -3359,6 +3359,14 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   horas de horómetro, diferencia y estado (cuadra, horómetro mayor, jornada mayor, sin lectura,
   inválida), con una lista de **máquinas listas para encender** (5 días seguidos cuadrando o con
   menos de 3 horas de diferencia). Mismos filtros de empresa, clasificación y máquina que Jornada.
+  Desde el 25/09/2026 es **igual de ajustable que los demás reportes de maquinaria**: pastillas de
+  «qué se oculta en el PDF» (nombre de empresas, horas de jornada, resumen, máquinas listas,
+  detalle por día) y checks de «qué logos lleva el membrete» (SOS, Golden Touch, Venezuela
+  Renace, BCV; por omisión BCV + SOS, como salía siempre). Lo oculto **no deja rastro**: al
+  apagar las horas de jornada desaparecen también la diferencia, el estado, los colores del
+  cuadre y las «listas», y el papel pasa a llamarse «Horómetro de trabajo». Ojo: el PDF solo
+  trae horas de horómetro en los días con lectura **completa** (inicial Y final del mismo
+  turno); una lectura a medias sale como «sin lectura».
 
 **Qué NO hace todavía (fases siguientes, con decisiones del cliente):** pagar por horómetro,
 corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del
