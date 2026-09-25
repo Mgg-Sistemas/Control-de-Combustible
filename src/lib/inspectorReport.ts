@@ -6,8 +6,8 @@ import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
 import { horarioNominal, horaFinJornada } from './jornada';
-import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
-import { computeMachineVisibilitySets, clasificarEstadoTurno } from './inspectorDaySets';
+import { listInspectorAssignments, inspectorSiempreActivo, sinInspectorReal } from './machineInspectors';
+import { computeMachineVisibilitySets, clasificarEstadoTurno, assignmentCountsForShift } from './inspectorDaySets';
 import { motivoParada } from './paradaMotivo';
 import { horasTurnoDelDia } from './hours';
 
@@ -179,8 +179,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   ]);
   const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets(((machFlagsAll ?? []) as any[]).map((m) => ({ id: m.id, active: m.active, operational: m.operational, en_espera: m.en_espera })));
   const nameById: Record<string, string> = {};
-  const adminIds = new Set<string>();
-  ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; if (p.role === 'admin') adminIds.add(p.id); });
+  ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; });
   // selectAllRows pagina por id (no por fecha), así que se reordena por created_at DESC
   // — el código de abajo asume que la primera fila por máquina/turno es la más reciente.
   (maint as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -289,7 +288,12 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   ((rounds ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
   // Solo rellena con la ronda de "anoche" las máquinas que NO tengan ya una fila de
   // HOY (si la tienen, esa es la vigente — ver comentario del fetch más arriba).
-  ((roundsNocheAyer ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
+  // ⚠️ SOLO el estado viaja del fallback: sus horas bancadas son de AYER. Sin esto,
+  //    el day_hours de ayer salia como horas de DIA de hoy (desincronizado de las
+  //    tarjetas, que nunca leen la fila de anoche).
+  ((roundsNocheAyer ?? []) as any[]).forEach((r) => {
+    if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, { ...r, day_hours: 0, night_hours: 0, hours_stopped: 0, overtime_hours: 0 });
+  });
   // Jornada abierta HOY (cualquier turno) — excepción de la visibilidad "blanda"
   // (en_espera=true) de arriba, igual que `anyOpenSet` en InspectionsSummary.
   const anyOpenSet = new Set<string>();
@@ -495,7 +499,14 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   };
 
   // a) TODAS las máquinas ASIGNADAS, cada una bajo su turno (día/noche).
+  //    MISMO filtro que las tarjetas (25-sep-2026, «no está sincronizando bien»):
+  //    · una asignación hecha DESPUÉS del fin del turno de la fecha no cuenta ese día
+  //      (assignmentCountsForShift, el de las tarjetas), y
+  //    · el usuario de sistema «MÁQUINAS FALTANTES» no es un inspector: las tarjetas
+  //      lo apartan a su cajón y el PDF lo sacaba como un inspector más.
   assignments.forEach((a) => {
+    if (sinInspectorReal(a.inspector_name)) return;
+    if (!assignmentCountsForShift(a as any, date, a.shift as any)) return;
     putMach(a.shift as Turno, a.inspector_name || '—', a.machinery_id, {
       code: a.code,
       serial: a.serial ?? null,

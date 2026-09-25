@@ -84,6 +84,7 @@ import { leerApartadas } from '../lib/cubicajeApartadas';
 import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
+import { caracasBusinessToday } from '../lib/caracasDay';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { clasificarNoTrabajaron, MaquinaNoTrabajo, MarcaTurno, EstadoNoTrabajo } from '../lib/jornadaEstados';
 import { ordenarMaquinas, agruparMaquinas } from '../lib/ordenMaquinas';
@@ -3302,8 +3303,11 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
                 // Despliegue arranca desde la semana base hasta HOY (editable).
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
-                // Inspectores (jornadas de inspección): reporte de UN día; arranca en HOY.
-                if (t.v === 'inspectores') { setFrom(isoDaysAgo(0)); }
+                // Inspectores (jornadas de inspección): reporte de UN día; arranca en el DÍA
+                // DE NEGOCIO (antes de las 7am, la noche en curso es la de AYER — el mismo
+                // día que muestran las tarjetas; con la fecha de calendario, a las 2am el PDF
+                // y las tarjetas hablaban de días distintos).
+                if (t.v === 'inspectores') { setFrom(caracasBusinessToday()); }
                 // Ubicaciones: histórico, arranca en la última semana.
                 if (t.v === 'ubicaciones') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
                 // Horómetro vs jornada: mismo arranque que ubicaciones, la última semana.

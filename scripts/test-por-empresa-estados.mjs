@@ -147,6 +147,7 @@ stubs['machineInspectors'] = {
     tipo: m.tipo, companyName: 'EMPRESA X', sector: 'ESTE', referencia: '', latitude: null, longitude: null, encargado: null,
   })) }),
   inspectorSiempreActivo: () => false,
+  sinInspectorReal: (n) => !n || /faltant/i.test(String(n)),
 };
 
 const rep = loadTs(path.join(ROOT, 'src/lib/porEmpresaReport.ts'));
