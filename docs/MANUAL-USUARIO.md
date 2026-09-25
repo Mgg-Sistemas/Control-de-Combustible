@@ -3349,6 +3349,10 @@ aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
 #### ✎ Corregir horómetro desde Control (24/09/2026)
 Decisión del cliente: **solo los administradores corrigen, y basta el motivo escrito** (sin foto).
 
+- Para quien puede corregir, la celda ⚙️ y el lápiz salen **en todas las máquinas y todos los
+  días, también en semanas sin lecturas** (25/09/2026): así se puede cargar a mano el horómetro
+  de un día pasado que nadie marcó, siempre con su motivo. Para el resto, la pantalla sigue
+  mostrando el horómetro solo cuando la semana trae lecturas.
 - En **Control de maquinaria**, junto a la celda ⚙️ de cada día aparece un lápiz **✎** (solo
   para quien tenga el módulo `horometros` con escritura; admin lo tiene siempre). Abre el
   editor: turno (día/noche), inicial, final, el interruptor de **reinicio** y el **motivo

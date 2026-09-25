@@ -299,7 +299,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('el QR del operador también, al iniciar y al cerrar', (qr.match(/void guardarLecturaHorometro\(/g) || []).length, 2);
   ok('el QR sigue escribiendo la jornada como hoy (decisión pendiente del cliente)', /day_hours: hours/.test(qr));
   // Control solo MUESTRA: no hay escritura de lecturas ni cambio de pago.
-  ok('Control muestra la celda solo si la semana trae lecturas', /lecturasHoro\.length > 0 \? \([\s\S]{0,400}?<HorometroTrabajoCelda/.test(ctl));
+  ok('la celda sale con lecturas en la semana, o siempre para quien corrige', /lecturasHoro\.length > 0 \|\| puedeCorregirHoro \? \([\s\S]{0,400}?<HorometroTrabajoCelda/.test(ctl));
   // Control corrige SOLO por el modal (24-sep-2026: decision del cliente — solo admins,
   // motivo escrito basta). La pantalla no llama a guardar directo; el modal si, con
   // origen 'control' (la base exige modulo + motivo).
