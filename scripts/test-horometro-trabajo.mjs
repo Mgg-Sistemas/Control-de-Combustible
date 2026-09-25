@@ -329,6 +329,11 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('el cierre se detiene una vez si falta el final', /if \(!hfValid && \(horoIni \|\| ''\)\.trim\(\) !== '' && !cerrarSinFinal\) \{ setCerrarSinFinal\(true\); return; \}/.test(sup));
   ok('el segundo toque dice lo que hace', /Cerrar SIN horómetro final/.test(sup));
   ok('y queda en la bitácora que cerró sin horómetro', /cerró SIN horómetro final \(avisado\)/.test(sup));
+  // El INICIO CONSCIENTE (25-sep-2026): sin horometro inicial, el primer toque avisa.
+  ok('el inicio se detiene una vez si falta el horometro', /if \(!hiHas && !iniciarSinHoro\) \{ setIniciarSinHoro\(true\); return; \}/.test(sup));
+  ok('el segundo toque dice lo que hace', /Iniciar SIN horómetro/.test(sup));
+  ok('y queda en la bitacora que inicio sin horometro', /inició SIN horómetro inicial \(avisado\)/.test(sup));
+  ok('el QR ya exige el inicial (no necesita aviso)', /Ingresa el horómetro inicial/.test(qr));
   // Manuales.
   ok('manual (md)', /Horómetro de trabajo \(modo sombra, 23\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app)', /HORÓMETRO DE TRABAJO \(MODO SOMBRA, 23\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
@@ -337,6 +342,8 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('manual (md) cuenta el editor de Control', /Corregir horómetro|Corregir horometro/i.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app) cuenta el editor de Control', /CORREGIR HORÓMETRO DESDE CONTROL/.test(leer('src/screens/ManualScreen.tsx')));
   ok('manual (app) cuenta el cierre consciente', /CIERRE CONSCIENTE/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (md) cuenta el inicio consciente', /inicio consciente/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el inicio consciente', /INICIO CONSCIENTE/.test(leer('src/screens/ManualScreen.tsx')));
   ok('manual (app) cuenta el final olvidado', /FINAL OLVIDADO/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
