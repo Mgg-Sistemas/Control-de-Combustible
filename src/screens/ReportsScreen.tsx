@@ -654,6 +654,9 @@ export default function ReportsScreen({ route }: any) {
   // Ubicaciones tácticas: qué LOGOS salen en el membrete (cada uno con su check).
   // Arranca con SOS + Golden Touch + Venezuela Renace; BCV apagado.
   const [tacLogos, setTacLogos] = useState<ReporteLogos>({ sos: true, golden: true, renace: true, bcv: false });
+  // CONTEO DE EQUIPOS: sus logos van aparte (pedido 24-sep-2026: «poder colocarle y
+  // quitarle los logos así como el de arriba»). Arranca como salía siempre.
+  const [conteoLogos, setConteoLogos] = useState<ReporteLogos>({ sos: false, golden: true, renace: true, bcv: false });
   const LOGOS_TAC: { key: keyof ReporteLogos; label: string }[] = [
     { key: 'sos', label: 'SOS La Guaira' },
     { key: 'golden', label: 'Golden Touch' },
@@ -3073,7 +3076,7 @@ export default function ReportsScreen({ route }: any) {
     // selección y no de la flota.
     const exclLbl = maqFuera.size ? ` · ${maqFuera.size} equipo(s) excluido(s)` : '';
     await exportPdf(
-      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl}${exclLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body),
+      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl}${exclLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body, {}, conteoLogos),
       `Conteo de equipos${porCategoria ? ' por categoria' : ''}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
     );
   };
@@ -4362,6 +4365,26 @@ export default function ReportsScreen({ route }: any) {
                         ⚠️ Dejaste fuera todas las máquinas: el reporte saldría en cero. Marca al menos una en "🚜 Escoger máquinas".
                       </Text>
                     ) : null}
+                    {/* 🏷️ LOGOS DEL MEMBRETE (24-sep-2026): mismos checks que el inventario de
+                        arriba, pero con memoria propia — lo que se marque aquí no cambia el otro papel. */}
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 4 }}>¿Qué logos lleva el membrete?</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: 4 }}>
+                      {LOGOS_TAC.map((lg) => {
+                        const on = conteoLogos[lg.key] ?? false;
+                        return (
+                          <TouchableOpacity
+                            key={lg.key}
+                            onPress={() => setConteoLogos((o) => ({ ...o, [lg.key]: !(o[lg.key] ?? false) }))}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                          >
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      Salen: {LOGOS_TAC.filter((l) => conteoLogos[l.key]).map((l) => l.label).join(' · ') || 'ninguno (membrete sin logos)'}.
+                    </Text>
                     {/* Botón ARRIBA (antes del listado) para no tener que bajar toda la lista. */}
                     <TouchableOpacity
                       style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.xs, marginBottom: spacing.xs, opacity: conteoSinContenido(conteoOpciones) || seleccionVacia(maquinasDeTipos.length, maqFuera.size) ? 0.5 : 1 }]}
