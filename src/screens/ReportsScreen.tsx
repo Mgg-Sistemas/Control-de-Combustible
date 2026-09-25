@@ -54,7 +54,12 @@ import {
 } from '../lib/ubicacionesReporte';
 import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
 // ⚙️ Horómetro vs jornada (modo sombra, 23-sep-2026): compara sin cambiar ningún pago.
-import { CSS_COMPARATIVO, compararJornadaHorometro, cuerpoComparativo } from '../lib/horometroTrabajo';
+import {
+  CSS_COMPARATIVO, compararJornadaHorometro, cuerpoComparativo,
+  OpcionesComparativo, OPCIONES_COMPARATIVO_COMPLETO, PASTILLAS_COMPARATIVO,
+  alternarComparativo, ocultosComparativoEnPalabras, sufijoArchivoComparativo,
+  tituloComparativo, subtituloComparativo,
+} from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
@@ -314,15 +319,23 @@ const PDF_CSS = `
 // Categoría de equipo para el "Conteo de equipos": agrupa por tipo real leyendo el
 // nombre/código. Las categorías pedidas se detectan por palabras clave; el resto
 // queda por la primera palabra del código (p. ej. PAYLOADER, RETROEXCAVADORA…).
-function pdfShell(title: string, sub: string, body: string): string {
+function pdfShell(title: string, sub: string, body: string, logos?: ReporteLogos): string {
+  // ⚙️ LOGOS AL GUSTO (25-sep-2026): por ahora solo el reporte de horómetros los pasa.
+  //    SIN `logos` sale EXACTAMENTE como siempre (BCV a la izquierda, SOS a la derecha):
+  //    este membrete lo comparten ~20 reportes y no deben moverse.
+  const L = { sos: logos?.sos ?? true, golden: logos?.golden ?? false, renace: logos?.renace ?? false, bcv: logos?.bcv ?? true };
+  const caja = (src: string, cap: string) => `<div class="logo-box"><img src="${src}"/><div class="logo-cap">${cap}</div></div>`;
+  const izquierda = (L.bcv ? caja(BCV_LOGO_DATA_URI, 'Banco Central de Venezuela') : '')
+    + (L.golden ? caja(GOLDEN_TOUCH_LOGO_DATA_URI, 'Golden Touch') : '')
+    + (L.renace ? caja(RENACE_LOGO_DATA_URI, 'Plan Venezuela Renace') : '');
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>${PDF_CSS}</style></head><body>
     <div class="top">
       <div class="brand">
-        <div class="logo-box"><img src="${BCV_LOGO_DATA_URI}"/><div class="logo-cap">Banco Central de Venezuela</div></div>
+        ${izquierda}
         <div><h1 class="doc-title">${title}</h1><div class="doc-sub">${sub}</div></div>
       </div>
       <div class="brand-right">
-        <div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>
+        ${L.sos ? caja(LOGO_DATA_URI, 'SOS La Guaira') : ''}
         <div class="emit"><span class="k">Emitida:</span> ${nowStamp()}</div>
       </div>
     </div>
@@ -658,6 +671,10 @@ export default function ReportsScreen({ route }: any) {
   // CONTEO DE EQUIPOS: sus logos van aparte (pedido 24-sep-2026: «poder colocarle y
   // quitarle los logos así como el de arriba»). Arranca como salía siempre.
   const [conteoLogos, setConteoLogos] = useState<ReporteLogos>({ sos: false, golden: true, renace: true, bcv: false });
+  // ⚙️ HORÓMETRO (25-sep-2026): pastillas de ocultar y logos propios, como los demás
+  // reportes de maquinaria. Por omisión sale como salía siempre (BCV + SOS, todo visible).
+  const [horoLogos, setHoroLogos] = useState<ReporteLogos>({ sos: true, golden: false, renace: false, bcv: true });
+  const [opHoro, setOpHoro] = useState<OpcionesComparativo>(OPCIONES_COMPARATIVO_COMPLETO);
   const LOGOS_TAC: { key: keyof ReporteLogos; label: string }[] = [
     { key: 'sos', label: 'SOS La Guaira' },
     { key: 'golden', label: 'Golden Touch' },
@@ -1787,12 +1804,14 @@ export default function ReportsScreen({ route }: any) {
       const rondas = d.rondas.filter((m) =>
         (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: m.machineryId, clasificacion: m.clasificacion }, filtroEqActual));
       const filas = compararJornadaHorometro(rondas, d.lecturas);
-      const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas });
+      // ⚙️ 25-sep-2026: pastillas de ocultar + logos, como los demás reportes de maquinaria.
+      //    Lo oculto no deja rastro (título y subtítulo incluidos: ver tituloComparativo).
+      const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas }, opHoro);
       const rng = dateRangeLabel(from, to);
       const filtrado = hayFiltroJornada(filtroEqActual) || repCompanies.length ? ' · FILTRADO' : '';
-      const sub = `Jornada declarada vs horómetro de trabajo, máquina por máquina y día por día · ${rng}${filtrado}`;
-      await exportPdf(pdfShell('HORÓMETRO VS JORNADA (MODO SOMBRA)', sub, body),
-        `Horometro vs jornada ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}`.replace(/\//g, '-'));
+      const sub = `${subtituloComparativo(opHoro)} · ${rng}${filtrado}`;
+      await exportPdf(pdfShell(tituloComparativo(opHoro), sub, body, horoLogos),
+        `Horometro vs jornada ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoComparativo(opHoro)}`.replace(/\//g, '-'));
     } finally {
       setLoading(false);
     }
@@ -3874,6 +3893,39 @@ export default function ReportsScreen({ route }: any) {
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               Sale una fila por máquina y día en que hubo ronda, check-in o punto GPS. El sector es el del último punto que guardó el inspector;
               si ese día nadie lo guardó, vale el anterior y la celda dice «desde el DD/MM».
+            </Text>
+          </View>
+        ) : null}
+        {/* ⚙️ Horómetro: qué se oculta y qué logos van — lo oculto no deja rastro en el PDF. */}
+        {mode === 'horometro' ? (
+          <View style={{ marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>¿Qué se oculta en el PDF?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {PASTILLAS_COMPARATIVO.map((pz) => {
+                const on = opHoro[pz.key];
+                return (
+                  <TouchableOpacity key={pz.key} onPress={() => setOpHoro((o) => alternarComparativo(o, pz.key))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>{pz.chip}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Encendida = NO sale, sin dejar rastro. {ocultosComparativoEnPalabras(opHoro)} Al apagar las horas de jornada se van también la diferencia, el estado y las «listas», y el papel pasa a llamarse «Horómetro de trabajo».</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>¿Qué logos lleva el membrete?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {LOGOS_TAC.map((lg) => {
+                const on = horoLogos[lg.key] ?? false;
+                return (
+                  <TouchableOpacity key={lg.key} onPress={() => setHoroLogos((o) => ({ ...o, [lg.key]: !(o[lg.key] ?? false) }))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Salen: {LOGOS_TAC.filter((l) => horoLogos[l.key]).map((l) => l.label).join(' · ') || 'ninguno (membrete sin logos)'}.
             </Text>
           </View>
         ) : null}

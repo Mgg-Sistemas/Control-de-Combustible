@@ -347,5 +347,50 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('manual (app) cuenta el final olvidado', /FINAL OLVIDADO/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
+// ── LAS PASTILLAS DEL COMPARATIVO (25-sep-2026): lo oculto no deja rastro ─────
+{
+  const C = H.OPCIONES_COMPARATIVO_COMPLETO;
+  const ronda = (id, code, fecha, dia) => ({ machineryId: id, code, empresa: 'EMPRESA FANTASMA CA', fecha, ronda: R(dia, 0) });
+  const filas = H.compararJornadaHorometro(
+    [ronda('m1', 'RETRO-01', '2026-09-01', 9.75), ronda('m2', 'GRUA-02', '2026-09-01', 6)],
+    [L('m1', '2026-09-01', 'day', 100, 108)],
+  );
+  const d = { desde: '2026-09-01', hasta: '2026-09-01', filas };
+  eq('sin tocar nada, el papel es EXACTAMENTE el de siempre', H.cuerpoComparativo(d), H.cuerpoComparativo(d, C));
+  const sinEmp = H.cuerpoComparativo(d, { ...C, sinEmpresa: true });
+  ok('sin empresa: ni la columna ni el nombre', !/Empresa/.test(sinEmp) && !sinEmp.includes('EMPRESA FANTASMA'));
+  const solo = H.cuerpoComparativo(d, { ...C, sinJornada: true });
+  ok('sin jornada: fuera sus horas, diferencia, estado, cuadre y listas',
+    !/[Jj]ornada|Diferencia|Estado|[Cc]uadra|hc-ok|hc-mas|hc-menos|listas para encender/.test(solo));
+  ok('...y las horas de la jornada no están ni de número', !solo.includes('9,75'));
+  ok('...pero el horómetro sí está', /RETRO-01<\/td><td>EMPRESA FANTASMA CA<\/td><td class="r">8<\/td>/.test(solo));
+  ok('sin resumen: fuera las cajas', !/hc-res/.test(H.cuerpoComparativo(d, { ...C, sinResumen: true })));
+  ok('sin listas: fuera la sección entera', !/listas para encender/.test(H.cuerpoComparativo(d, { ...C, sinListas: true })));
+  ok('sin detalle: fuera las tablas por día', !/máquina\(s\)/.test(H.cuerpoComparativo(d, { ...C, sinDetalle: true })));
+  const nada = H.cuerpoComparativo(d, { sinEmpresa: true, sinJornada: true, sinResumen: true, sinListas: true, sinDetalle: true });
+  ok('todo apagado: el papel no dice «oculto» por ninguna parte', !/ocult/i.test(nada));
+  eq('alternar prende y apaga', H.alternarComparativo(C, 'sinEmpresa').sinEmpresa, true);
+  ok('en palabras: completo por defecto', /Sale completo/.test(H.ocultosComparativoEnPalabras(C)));
+  ok('en palabras: nombra lo apagado', /nombre de empresas/.test(H.ocultosComparativoEnPalabras({ ...C, sinEmpresa: true })));
+  eq('sufijo de archivo vacío por defecto', H.sufijoArchivoComparativo(C), '');
+  ok('sufijo nombra lo apagado', / - sin empresas/.test(H.sufijoArchivoComparativo({ ...C, sinEmpresa: true })));
+  ok('el título se adapta: sin jornada no dice «vs jornada»',
+    !/JORNADA/.test(H.tituloComparativo({ ...C, sinJornada: true })) && /VS JORNADA/.test(H.tituloComparativo(C)));
+  ok('el subtítulo igual', !/jornada/i.test(H.subtituloComparativo({ ...C, sinJornada: true })));
+}
+
+// ── GUARDIAS DEL REPORTE AJUSTABLE (25-sep-2026) ─────────────────────────
+{
+  const rep = leer('src/screens/ReportsScreen.tsx');
+  ok('el reporte de horómetros tiene sus pastillas', /const \[opHoro, setOpHoro\] = useState<OpcionesComparativo>\(OPCIONES_COMPARATIVO_COMPLETO\)/.test(rep));
+  ok('...y sus logos propios (BCV + SOS por omisión, como salía)', /useState<ReporteLogos>\(\{ sos: true, golden: false, renace: false, bcv: true \}\)/.test(rep));
+  ok('el papel se genera con las opciones', /cuerpoComparativo\(\{ desde: from, hasta: to, filas \}, opHoro\)/.test(rep));
+  ok('el membrete recibe los logos y el título se adapta', /pdfShell\(tituloComparativo\(opHoro\), sub, body, horoLogos\)/.test(rep));
+  ok('el nombre del archivo cuenta lo apagado', /sufijoArchivoComparativo\(opHoro\)/.test(rep));
+  ok('pdfShell SIN logos sale como siempre (lo comparten ~20 reportes)', /sos: logos\?\.sos \?\? true, golden: logos\?\.golden \?\? false, renace: logos\?\.renace \?\? false, bcv: logos\?\.bcv \?\? true/.test(rep));
+  ok('manual (md) cuenta las pastillas del reporte de horómetros', /igual de ajustable que los demás reportes de maquinaria/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta las pastillas del reporte de horómetros', /PASTILLAS DEL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-horometro-trabajo · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
