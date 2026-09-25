@@ -216,6 +216,9 @@ export type FilaComparativa = {
   machineryId: string;
   code: string;
   empresa: string;
+  marca: string;
+  modelo: string;
+  placa: string;
   fecha: string;
   horasJornada: number;
   horasHorometro: number | null;
@@ -231,7 +234,7 @@ const TOLERANCIA_LISTA = 3;
 const DIAS_PARA_LISTA = 5;
 
 export function compararJornadaHorometro(
-  rondas: readonly { machineryId: string; code: string; empresa: string; fecha: string; ronda: RondaHoras }[],
+  rondas: readonly { machineryId: string; code: string; empresa: string; marca?: string; modelo?: string; placa?: string; fecha: string; ronda: RondaHoras }[],
   lecturas: readonly LecturaTrabajo[],
 ): FilaComparativa[] {
   const porClave = new Map<string, LecturaTrabajo[]>();
@@ -245,7 +248,7 @@ export function compararJornadaHorometro(
     const fecha = String(r.fecha ?? '').slice(0, 10);
     const hj = redondear(horasJornada(r.ronda));
     const del = porClave.get(`${r.machineryId}|${fecha}`) ?? [];
-    const base = { machineryId: r.machineryId, code: limpio(r.code), empresa: limpio(r.empresa), fecha, horasJornada: hj };
+    const base = { machineryId: r.machineryId, code: limpio(r.code), empresa: limpio(r.empresa), marca: limpio(r.marca), modelo: limpio(r.modelo), placa: limpio(r.placa), fecha, horasJornada: hj };
     if (del.length === 0) { filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'sin_lectura' }); continue; }
     if (del.some((l) => !l.valida)) { filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'invalida' }); continue; }
     const horas = del.map(horasDeLectura).filter((h): h is number => h != null);
@@ -344,12 +347,17 @@ const CLASE_ESTADO: Record<FilaComparativa['estado'], string> = {
 //    hasta el título del papel cambia (tituloComparativo / subtituloComparativo).
 
 export type OpcionesComparativo = {
+  sinMarca: boolean; sinModelo: boolean; sinPlaca: boolean;
   sinEmpresa: boolean; sinJornada: boolean; sinResumen: boolean; sinListas: boolean; sinDetalle: boolean;
 };
 export const OPCIONES_COMPARATIVO_COMPLETO: OpcionesComparativo = {
+  sinMarca: false, sinModelo: false, sinPlaca: false,
   sinEmpresa: false, sinJornada: false, sinResumen: false, sinListas: false, sinDetalle: false,
 };
 export const PASTILLAS_COMPARATIVO: { key: keyof OpcionesComparativo; chip: string; largo: string; archivo: string }[] = [
+  { key: 'sinMarca', chip: '🚫 Marca', largo: 'marca', archivo: 'sin marca' },
+  { key: 'sinModelo', chip: '🚫 Modelo', largo: 'modelo', archivo: 'sin modelo' },
+  { key: 'sinPlaca', chip: '🚫 Serial / Placa', largo: 'serial/placa', archivo: 'sin placa' },
   { key: 'sinEmpresa', chip: '🚫 Nombre de empresas', largo: 'nombre de empresas', archivo: 'sin empresas' },
   { key: 'sinJornada', chip: '🚫 Horas de jornada', largo: 'horas de jornada (con su diferencia, estado y «listas»)', archivo: 'solo horometro' },
   { key: 'sinResumen', chip: '🚫 Resumen', largo: 'cajas del resumen', archivo: 'sin resumen' },
@@ -370,6 +378,10 @@ export function sufijoArchivoComparativo(o: OpcionesComparativo): string {
 /** Sin jornada, el papel no puede seguir llamándose «vs jornada»: delataría lo oculto. */
 export function tituloComparativo(o: OpcionesComparativo): string {
   return o.sinJornada ? 'HORÓMETRO DE TRABAJO (MODO SOMBRA)' : 'HORÓMETRO VS JORNADA (MODO SOMBRA)';
+}
+/** Marca / Modelo se funden en una columna, como en ubicaciones. */
+export function tituloMarcaModeloComp(o: OpcionesComparativo): string {
+  return !o.sinMarca && !o.sinModelo ? 'Marca / Modelo' : !o.sinMarca ? 'Marca' : 'Modelo';
 }
 export function subtituloComparativo(o: OpcionesComparativo): string {
   return o.sinJornada
@@ -416,15 +428,19 @@ export function cuerpoComparativo(
     for (const fecha of fechas) {
       const del = [...(porDia.get(fecha) ?? [])].sort((a, b) => cmp(a.code, b.code));
       html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} máquina(s)</span></h3>`;
-      html += `<table><thead><tr><th>Máquina</th>${o.sinEmpresa ? '' : '<th>Empresa</th>'}${o.sinJornada ? '' : '<th class="r">Jornada h</th>'}<th class="r">Horómetro h</th>${o.sinJornada ? '' : '<th class="r">Diferencia</th><th>Estado</th>'}</tr></thead><tbody>`;
+      html += `<table><thead><tr><th>Máquina</th>${o.sinMarca && o.sinModelo ? '' : `<th>${tituloMarcaModeloComp(o)}</th>`}${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinEmpresa ? '' : '<th>Empresa</th>'}${o.sinJornada ? '' : '<th class="r">Jornada h</th>'}<th class="r">Horómetro h</th>${o.sinJornada ? '' : '<th class="r">Diferencia</th><th>Estado</th>'}</tr></thead><tbody>`;
       for (const f of del) {
-        const empresa = o.sinEmpresa ? '' : `<td>${esc(f.empresa)}</td>`;
+        // La identidad de la máquina (25-sep-2026: «falta marca y modelo, placa»), cada
+        // pedazo con su pastilla. Lo apagado no deja ni la celda.
+        const ident = (o.sinMarca && o.sinModelo ? '' : `<td>${esc([!o.sinMarca ? f.marca : '', !o.sinModelo ? f.modelo : ''].filter(Boolean).join(' / '))}</td>`)
+          + (o.sinPlaca ? '' : `<td>${esc(f.placa)}</td>`)
+          + (o.sinEmpresa ? '' : `<td>${esc(f.empresa)}</td>`);
         if (o.sinJornada) {
           // Sin jornada tampoco hay clase de color: el verde/ámbar/rojo ES el cuadre.
-          html += `<tr><td>${esc(f.code)}</td>${empresa}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
+          html += `<tr><td>${esc(f.code)}</td>${ident}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
         } else {
           const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
-          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}</td>${empresa}<td class="r">${fmtH(f.horasJornada)}</td><td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${ETIQUETA_ESTADO[f.estado]}</td></tr>`;
+          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}</td>${ident}<td class="r">${fmtH(f.horasJornada)}</td><td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${ETIQUETA_ESTADO[f.estado]}</td></tr>`;
         }
       }
       html += `</tbody></table>`;
