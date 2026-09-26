@@ -407,7 +407,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
 // ── LAS FOTOS DE LOS TABLEROS (26-sep-2026): un check, nunca predefinido ─────
 {
   const C = H.OPCIONES_COMPARATIVO_COMPLETO;
-  const ficha = (id) => (id === 'm1' ? { code: 'RETRO-01', empresa: 'ACME CA' } : undefined);
+  const ficha = (id) => (id === 'm1' ? { code: 'RETRO-01', empresa: 'ACME CA', placa: 'A7X-123' } : undefined);
   const lecFoto = { ...L('m1', '2026-09-02', 'day', 100, 108), fotoInicialUrl: 'https://x/ini.jpg', fotoFinalUrl: 'https://x/fin.jpg' };
   const g = H.seccionFotosComparativo([lecFoto, L('m1', '2026-09-01', 'night', 90, 100)], ficha, C);
   ok('cada foto sale con su etiqueta y su numero', /Inicial 100/.test(g) && /Final 108/.test(g));
@@ -416,6 +416,9 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('agrupadas por dia en dd/mm/aaaa', /02\/09\/2026 <span>2 foto\(s\)/.test(g));
   ok('maquina fuera del filtro: su foto tampoco sale', (H.seccionFotosComparativo([{ ...lecFoto, machineryId: 'zz' }], ficha, C).match(/<figure>/g) || []).length === 0);
   ok('sin empresa: la foto no la nombra', !/ACME/.test(H.seccionFotosComparativo([lecFoto], ficha, { ...C, sinEmpresa: true })));
+  ok('la foto dice la placa/serial (26-sep: media flota comparte codigo)', /RETRO-01 · A7X-123 · ACME CA/.test(g));
+  ok('sin placa (pastilla): la foto tampoco la dice', !/A7X-123/.test(H.seccionFotosComparativo([lecFoto], ficha, { ...C, sinPlaca: true })));
+  ok('ficha sin placa cargada: no queda un punto colgando', /RETRO-01 · SIN-PLACA-CA/.test(H.seccionFotosComparativo([lecFoto], (id) => ({ code: 'RETRO-01', empresa: 'SIN-PLACA-CA' }), C)));
   ok('sin fotos lo dice y no revienta', /Sin fotos en el rango/.test(H.seccionFotosComparativo([], ficha, C)));
 
   const rep2 = leer('src/screens/ReportsScreen.tsx');
@@ -425,6 +428,12 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('la carga de lecturas trae las dos fotos', /foto_inicial_url, foto_final_url/.test(leer('src/lib/horometroTrabajoDb.ts')));
   ok('manual (md) cuenta el check de fotos', /Traer las fotos de los horómetros/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app) cuenta el check de fotos', /FOTOS DE LOS HORÓMETROS EN EL REPORTE/.test(leer('src/screens/ManualScreen.tsx')));
+
+  // El BUSCADOR visible (26-sep-2026: «colócale un buscador» — existía, plegado).
+  ok('entrar a horometro abre el buscador de maquinas', /if \(t\.v === 'horometro'\) \{ setFrom\(isoDaysAgo\(6\)\); setTo\(isoDaysAgo\(0\)\); setRepMaqOpen\(true\); \}/.test(rep2));
+  ok('el encabezado del buscador es un boton visible', /🚜 Buscar máquina en específico/.test(rep2));
+  ok('manual (md) cuenta el buscador', /Buscar máquina en específico/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el buscador', /BUSCADOR DE MÁQUINAS EN EL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-horometro-trabajo · ${pass} ok · ${fail} fallando`);

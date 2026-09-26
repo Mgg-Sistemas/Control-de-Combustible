@@ -3340,7 +3340,9 @@ export default function ReportsScreen({ route }: any) {
                 // Ubicaciones: histórico, arranca en la última semana.
                 if (t.v === 'ubicaciones') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
                 // Horómetro vs jornada: mismo arranque que ubicaciones, la última semana.
-                if (t.v === 'horometro') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
+                // Y el buscador de máquinas ABIERTO (26-sep-2026, «colócale un buscador»):
+                // existía, pero plegado tras una línea gris que nadie encontraba.
+                if (t.v === 'horometro') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); setRepMaqOpen(true); }
               }}
               style={{
                 flexGrow: 1,
@@ -3704,8 +3706,11 @@ export default function ReportsScreen({ route }: any) {
               </View>
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
-                <TouchableOpacity onPress={() => setRepMaqOpen((v) => !v)}>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>{repMaqOpen ? '▾' : '▸'} Máquina en específico (marca una o varias){repMaquinas.length ? ` · ${repMaquinas.length} marcada(s)` : ''}</Text>
+                {/* Botón visible, no línea gris (26-sep-2026): el cliente pidió «un buscador»
+                    que ya existía — plegado nadie lo encontraba. */}
+                <TouchableOpacity onPress={() => setRepMaqOpen((v) => !v)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: repMaqOpen || repMaquinas.length ? colors.brand : colors.border, backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{repMaqOpen ? '▾' : '▸'} 🚜 Buscar máquina en específico (marca una o varias){repMaquinas.length ? ` · ${repMaquinas.length} marcada(s)` : ''}</Text>
                 </TouchableOpacity>
                 {repMaquinas.length > 0 ? (
                   <TouchableOpacity onPress={() => setRepMaquinas([])}>
@@ -3946,7 +3951,7 @@ export default function ReportsScreen({ route }: any) {
             </View>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               {horoFotos
-                ? 'Al final del PDF va la galería de fotos que subieron los inspectores — día por día, cada una con su máquina, turno, Inicial/Final y el número leído — de las mismas máquinas y fechas del reporte.'
+                ? 'Al final del PDF va la galería de fotos que subieron los inspectores — día por día, cada una con su máquina, su placa/serial, turno, Inicial/Final y el número leído — de las mismas máquinas y fechas del reporte.'
                 : 'Apagado (así arranca siempre): el papel sale como hoy, sin fotos.'}
             </Text>
           </View>

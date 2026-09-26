@@ -3369,9 +3369,13 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   turno); una lectura a medias sale como «sin lectura».
   Y desde el 26/09/2026, un check **«📷 Traer las fotos de los horómetros»** (apagado siempre
   al entrar, nunca predefinido): encendido, al final del PDF va la galería de fotos que subieron
-  los inspectores — día por día, cada una con su máquina, turno, Inicial/Final y el número
-  leído — de las mismas máquinas y fechas del reporte (respeta el rango, la empresa y el filtro
+  los inspectores — día por día, cada una con su máquina, su placa/serial, turno, Inicial/Final
+  y el número leído — de las mismas máquinas y fechas del reporte (respeta el rango, la empresa y el filtro
   de equipos, y la pastilla de ocultar empresas). Apagado, el papel no las menciona.
+  Además, el **buscador «🚜 Buscar máquina en específico»** viene **abierto** en este reporte
+  (26/09/2026): escribe código, placa o serial, marca una o varias máquinas, y el PDF — y sus
+  fotos — salen solo con ellas. Es el mismo filtro de Jornada y Ubicaciones, ahora con botón
+  visible en los tres.
 
 **Qué NO hace todavía (fases siguientes, con decisiones del cliente):** pagar por horómetro,
 corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del

@@ -463,18 +463,20 @@ export function cuerpoComparativo(
 // reporte (los filtros de empresa y equipos se aplican ANTES de llamar acá).
 export function seccionFotosComparativo(
   lecturas: readonly LecturaTrabajo[],
-  fichaDe: (machineryId: string) => { code: string; empresa: string } | undefined,
+  fichaDe: (machineryId: string) => { code: string; empresa: string; placa?: string } | undefined,
   o: OpcionesComparativo = OPCIONES_COMPARATIVO_COMPLETO,
 ): string {
-  type Foto = { fecha: string; code: string; empresa: string; shift: Turno; etiqueta: string; valor: number | null; url: string };
+  type Foto = { fecha: string; code: string; empresa: string; placa: string; shift: Turno; etiqueta: string; valor: number | null; url: string };
   const fotos: Foto[] = [];
   for (const l of lecturas ?? []) {
     if (!l) continue;
     const m = fichaDe(l.machineryId);
     if (!m) continue; // fuera del filtro del reporte: su foto tampoco sale
     const fecha = String(l.roundDate ?? '').slice(0, 10);
-    if (l.fotoInicialUrl) fotos.push({ fecha, code: m.code, empresa: m.empresa, shift: l.shift, etiqueta: 'Inicial', valor: l.inicial, url: l.fotoInicialUrl });
-    if (l.fotoFinalUrl) fotos.push({ fecha, code: m.code, empresa: m.empresa, shift: l.shift, etiqueta: 'Final', valor: l.final, url: l.fotoFinalUrl });
+    // La placa/serial identifica la máquina (26-sep-2026: media flota comparte código).
+    const base = { fecha, code: m.code, empresa: m.empresa, placa: limpio(m.placa), shift: l.shift };
+    if (l.fotoInicialUrl) fotos.push({ ...base, etiqueta: 'Inicial', valor: l.inicial, url: l.fotoInicialUrl });
+    if (l.fotoFinalUrl) fotos.push({ ...base, etiqueta: 'Final', valor: l.final, url: l.fotoFinalUrl });
   }
   fotos.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)
     || cmp(a.code, b.code)
@@ -487,7 +489,7 @@ export function seccionFotosComparativo(
   for (const [fecha, del] of porDia) {
     html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} foto(s)</span></h3><div class="hf">`;
     for (const f of del) {
-      const cap = `${esc(f.code)}${o.sinEmpresa ? '' : ' · ' + esc(f.empresa)} · ${f.shift === 'night' ? '🌙 noche' : '☀️ día'} · ${esc(f.etiqueta)}${f.valor == null ? '' : ' ' + fmtH(f.valor)}`;
+      const cap = `${esc(f.code)}${o.sinPlaca || !f.placa ? '' : ' · ' + esc(f.placa)}${o.sinEmpresa ? '' : ' · ' + esc(f.empresa)} · ${f.shift === 'night' ? '🌙 noche' : '☀️ día'} · ${esc(f.etiqueta)}${f.valor == null ? '' : ' ' + fmtH(f.valor)}`;
       html += `<figure><img src="${esc(f.url)}"/><figcaption>${cap}</figcaption></figure>`;
     }
     html += `</div>`;
