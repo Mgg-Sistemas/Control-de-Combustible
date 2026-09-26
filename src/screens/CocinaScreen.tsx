@@ -20,6 +20,7 @@ import { ContactoCocinaForm } from '../components/ContactoCocinaForm';
 import { MEALS, OTROS_MEAL, OTROS_TITULO, mealLabel } from '../lib/foodCompanyMeals';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId, parseComidaId } from './ScanQrScreen';
+import { mensajeBloqueo, mensajeDeErrorInactivo, puedeRecibirComida } from '../lib/empleadoEstado';
 import { norm } from '../lib/text';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -71,6 +72,9 @@ type Person = {
   cargo: string | null;
   photo_url: string | null;
   companyName: string;
+  /** Su estado en Nómina. Un «inactivo» o «suspendido» NO recibe comida
+   *  (26-sep-2026). Los contactos de cocina no son de nómina: van sin estado. */
+  status?: string | null;
   /** Con esto puesto, es un contacto de cocina y NO de nómina. */
   contactoId?: string | null;
   /** A quién se le cobra lo que pida. Se congela en cada entrega. */
@@ -259,7 +263,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     setNotice(null);
     const { data } = await supabase
       .from('employees')
-      .select('id, first_name, last_name, cedula, cargo, photo_url, company:company_id(name)')
+      .select('id, first_name, last_name, cedula, cargo, photo_url, status, company:company_id(name)')
       .eq('id', employeeId)
       .maybeSingle();
     if (!data) { setNotice('❌ El carnet no corresponde a una persona registrada.'); return; }
@@ -269,8 +273,14 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       cedula: (data as any).cedula ?? null,
       cargo: (data as any).cargo ?? null,
       photo_url: (data as any).photo_url ?? null,
+      status: (data as any).status ?? null,
       companyName: (data as any).company?.name ?? 'Sin empresa',
     };
+    // 🚫 DESHABILITADO EN NÓMINA: ni se le abre la ficha. Dejarla abierta con los
+    //    botones puestos es invitar a que alguien le dé igual «Almuerzo» y se
+    //    quede esperando un error que llega tres toques después.
+    const bloqueo = mensajeBloqueo(p.name, p.status);
+    if (bloqueo) { setPerson(null); setTodayList([]); setNotice(bloqueo); return; }
     setPerson(p);
     setTodayList(await listForEmployeeDay(p.id, today));
   };
@@ -345,7 +355,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
     const { data } = await supabase
       .from('employees')
-      .select('id, first_name, last_name, cedula, cargo, photo_url, company:company_id(name)')
+      .select('id, first_name, last_name, cedula, cargo, photo_url, status, company:company_id(name)')
       .eq('id', employeeId)
       .maybeSingle();
     if (!data) { setPerson(null); setNotice('❌ El carnet no corresponde a una persona registrada.'); return; }
@@ -355,8 +365,13 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       cedula: (data as any).cedula ?? null,
       cargo: (data as any).cargo ?? null,
       photo_url: (data as any).photo_url ?? null,
+      status: (data as any).status ?? null,
       companyName: (data as any).company?.name ?? 'Sin empresa',
     };
+    // 🚫 DESHABILITADO EN NÓMINA: el torniquete no le registra nada. Se corta ACÁ,
+    //    antes de guardar, para que el cartel salga apenas pasa el carnet.
+    const bloqueo = mensajeBloqueo(p.name, p.status);
+    if (bloqueo) { setPerson(null); setTodayList([]); setNotice(bloqueo); return; }
     setPerson(p);
     const list = await listForEmployeeDay(p.id, today);
     setTodayList(list);
@@ -371,7 +386,9 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       meals: 1, mealType: serving, distributionDate: today, note: '',
       createdBy: uid || null, createdByName: cook?.name || myName || null,
     });
-    if (error || !saved) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
+    // Si la base lo trancó (se dio de baja entre el escaneo y el guardado, o esta
+    // pantalla está vieja), se muestra el MISMO cartel y no un error de Postgres.
+    if (error || !saved) { setNotice(mensajeDeErrorInactivo(error) ?? ('❌ ' + (error ?? 'No se pudo registrar.'))); return; }
     setTodayList((prev) => [saved, ...prev]);
     setServed((s) => s + 1);
     setDayCounts((c) => ({ ...c, [serving]: (c[serving] || 0) + 1 }));
@@ -419,6 +436,13 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
     if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
     if (!person) return;
     const esContacto = !!person.contactoId;
+    // 🚫 Defensa en profundidad: la ficha pudo haberse abierto ANTES de que lo
+    //    dieran de baja, y esta pantalla vive abierta horas en el mostrador.
+    if (!esContacto && !puedeRecibirComida(person.status)) {
+      setNotice(mensajeBloqueo(person.name, person.status));
+      setPerson(null); setTodayList([]);
+      return;
+    }
     // ⚠️ «OTROS» ES SOLO PARA CONTACTOS (decisión del cliente, 22-sep-2026): a la nómina
     //    no se le ofrece el botón, y aunque llegara acá, no se registra. La base también
     //    lo rechaza (check `food_distributions_otros_solo_contactos`).
@@ -453,7 +477,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
       createdByName: cook?.name || myName || null,
     });
     setSavingMeal(null); setPlatoGuardando(null);
-    if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
+    if (error || !data) { setNotice(mensajeDeErrorInactivo(error) ?? ('❌ ' + (error ?? 'No se pudo registrar.'))); return; }
     setTodayList((prev) => [data, ...prev]);
     const puestas = Number(data.meals) || 1;
     setDayCounts((c) => ({ ...c, [mealType]: (c[mealType] || 0) + puestas }));
