@@ -16,17 +16,21 @@ export type RondaComparativa = {
 };
 
 export type FichaComparativo = { code: string; empresa: string; clasificacion: string; marca: string; modelo: string; placa: string };
-export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[]; maquinas: Map<string, FichaComparativo> };
+export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[]; maquinas: Map<string, FichaComparativo>; nombres: Map<string, string> };
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const num = (v: unknown) => Number(v) || 0;
 
 export async function cargarDatosComparativo(desde: string, hasta: string): Promise<DatosComparativo> {
-  const [maqs, ron, lecturas] = await Promise.all([
+  const [maqs, ron, lecturas, perfiles] = await Promise.all([
     selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, company:company_id(name)'),
     selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q: any) => q.gte('round_date', desde).lte('round_date', hasta)),
     cargarLecturasHorometro(desde, hasta),
+    // Para la galería de fotos: quién subió cada una (created_by/updated_by → nombre).
+    selectAllRows('profiles', 'id, full_name').catch(() => [] as any[]),
   ]);
+  const nombres = new Map<string, string>();
+  for (const p of (perfiles ?? []) as any[]) { const n = limpio(p.full_name); if (n) nombres.set(String(p.id), n); }
   const porMaq = new Map<string, FichaComparativo>();
   for (const m of maqs as any[]) {
     porMaq.set(String(m.id), {
@@ -49,5 +53,5 @@ export async function cargarDatosComparativo(desde: string, hasta: string): Prom
   }
   // `maquinas` viaja completo (26-sep-2026): las FOTOS del reporte filtran lecturas
   // por empresa/clasificación aunque la máquina no tenga ronda ese día.
-  return { rondas: Array.from(porClave.values()), lecturas, maquinas: porMaq };
+  return { rondas: Array.from(porClave.values()), lecturas, maquinas: porMaq, nombres };
 }
