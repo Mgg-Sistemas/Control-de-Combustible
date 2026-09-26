@@ -21,17 +21,38 @@ function aLectura(r: any): LecturaTrabajo {
     valida: r.valida !== false, motivoInvalida: limpio(r.motivo_invalida) || null,
     reinicio: r.reinicio === true, origen: (limpio(r.origen) || 'inspector') as OrigenLectura,
     corregidoPor: r.corregido_por ?? null,
+    fotoInicialUrl: limpio(r.foto_inicial_url) || null, fotoFinalUrl: limpio(r.foto_final_url) || null,
+    createdAt: r.created_at ?? null, updatedAt: r.updated_at ?? null,
+    createdBy: r.created_by ?? null, updatedBy: r.updated_by ?? null,
   };
 }
+
+const COLS = 'machinery_id, round_date, shift, inicial, final, valida, motivo_invalida, reinicio, origen, corregido_por, foto_inicial_url, foto_final_url, created_at, updated_at, created_by, updated_by';
 
 /** Lecturas de un rango de jornadas (paginado: una semana de toda la flota pasa de 1.000). */
 export async function cargarLecturasHorometro(desde: string, hasta: string): Promise<LecturaTrabajo[]> {
   try {
-    const rows = await selectAllRows('lecturas_horometro_trabajo', 'machinery_id, round_date, shift, inicial, final, valida, motivo_invalida, reinicio, origen, corregido_por',
+    const rows = await selectAllRows('lecturas_horometro_trabajo', COLS,
       (q: any) => q.gte('round_date', desde).lte('round_date', hasta));
     return (rows as any[]).map(aLectura);
   } catch {
     return []; // sin tabla, sin lecturas: las pantallas siguen como si no existiera el módulo
+  }
+}
+
+/** Las lecturas (0, 1 o 2: dia/noche) de UNA maquina en UNA jornada. Nunca lanza:
+ *  [] si falla o la tabla no existe, para que el telefono del inspector no se caiga. */
+export async function cargarLecturasDeMaquinaDia(machineryId: string, roundDate: string): Promise<LecturaTrabajo[]> {
+  try {
+    const { data, error } = await supabase
+      .from('lecturas_horometro_trabajo')
+      .select(COLS)
+      .eq('machinery_id', machineryId)
+      .eq('round_date', roundDate);
+    if (error || !data) return [];
+    return (data as any[]).map(aLectura);
+  } catch {
+    return [];
   }
 }
 

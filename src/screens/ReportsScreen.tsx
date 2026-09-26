@@ -54,7 +54,12 @@ import {
 } from '../lib/ubicacionesReporte';
 import { cargarDatosUbicaciones } from '../lib/ubicacionesReporteDb';
 // ⚙️ Horómetro vs jornada (modo sombra, 23-sep-2026): compara sin cambiar ningún pago.
-import { CSS_COMPARATIVO, compararJornadaHorometro, cuerpoComparativo } from '../lib/horometroTrabajo';
+import {
+  CSS_COMPARATIVO, compararJornadaHorometro, cuerpoComparativo,
+  OpcionesComparativo, OPCIONES_COMPARATIVO_COMPLETO, PASTILLAS_COMPARATIVO,
+  alternarComparativo, ocultosComparativoEnPalabras, sufijoArchivoComparativo,
+  tituloComparativo, subtituloComparativo, seccionFotosComparativo,
+} from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
@@ -84,6 +89,7 @@ import { leerApartadas } from '../lib/cubicajeApartadas';
 import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
+import { caracasBusinessToday } from '../lib/caracasDay';
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { clasificarNoTrabajaron, MaquinaNoTrabajo, MarcaTurno, EstadoNoTrabajo } from '../lib/jornadaEstados';
 import { ordenarMaquinas, agruparMaquinas } from '../lib/ordenMaquinas';
@@ -313,15 +319,23 @@ const PDF_CSS = `
 // Categoría de equipo para el "Conteo de equipos": agrupa por tipo real leyendo el
 // nombre/código. Las categorías pedidas se detectan por palabras clave; el resto
 // queda por la primera palabra del código (p. ej. PAYLOADER, RETROEXCAVADORA…).
-function pdfShell(title: string, sub: string, body: string): string {
+function pdfShell(title: string, sub: string, body: string, logos?: ReporteLogos): string {
+  // ⚙️ LOGOS AL GUSTO (25-sep-2026): por ahora solo el reporte de horómetros los pasa.
+  //    SIN `logos` sale EXACTAMENTE como siempre (BCV a la izquierda, SOS a la derecha):
+  //    este membrete lo comparten ~20 reportes y no deben moverse.
+  const L = { sos: logos?.sos ?? true, golden: logos?.golden ?? false, renace: logos?.renace ?? false, bcv: logos?.bcv ?? true };
+  const caja = (src: string, cap: string) => `<div class="logo-box"><img src="${src}"/><div class="logo-cap">${cap}</div></div>`;
+  const izquierda = (L.bcv ? caja(BCV_LOGO_DATA_URI, 'Banco Central de Venezuela') : '')
+    + (L.golden ? caja(GOLDEN_TOUCH_LOGO_DATA_URI, 'Golden Touch') : '')
+    + (L.renace ? caja(RENACE_LOGO_DATA_URI, 'Plan Venezuela Renace') : '');
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>${PDF_CSS}</style></head><body>
     <div class="top">
       <div class="brand">
-        <div class="logo-box"><img src="${BCV_LOGO_DATA_URI}"/><div class="logo-cap">Banco Central de Venezuela</div></div>
+        ${izquierda}
         <div><h1 class="doc-title">${title}</h1><div class="doc-sub">${sub}</div></div>
       </div>
       <div class="brand-right">
-        <div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>
+        ${L.sos ? caja(LOGO_DATA_URI, 'SOS La Guaira') : ''}
         <div class="emit"><span class="k">Emitida:</span> ${nowStamp()}</div>
       </div>
     </div>
@@ -654,6 +668,16 @@ export default function ReportsScreen({ route }: any) {
   // Ubicaciones tácticas: qué LOGOS salen en el membrete (cada uno con su check).
   // Arranca con SOS + Golden Touch + Venezuela Renace; BCV apagado.
   const [tacLogos, setTacLogos] = useState<ReporteLogos>({ sos: true, golden: true, renace: true, bcv: false });
+  // CONTEO DE EQUIPOS: sus logos van aparte (pedido 24-sep-2026: «poder colocarle y
+  // quitarle los logos así como el de arriba»). Arranca como salía siempre.
+  const [conteoLogos, setConteoLogos] = useState<ReporteLogos>({ sos: false, golden: true, renace: true, bcv: false });
+  // ⚙️ HORÓMETRO (25-sep-2026): pastillas de ocultar y logos propios, como los demás
+  // reportes de maquinaria. Por omisión sale como salía siempre (BCV + SOS, todo visible).
+  const [horoLogos, setHoroLogos] = useState<ReporteLogos>({ sos: true, golden: false, renace: false, bcv: true });
+  const [opHoro, setOpHoro] = useState<OpcionesComparativo>(OPCIONES_COMPARATIVO_COMPLETO);
+  // 📷 Fotos de los tableros (26-sep-2026): NUNCA predefinido — arranca apagado
+  // siempre, y solo si el usuario lo prende el PDF trae la galería.
+  const [horoFotos, setHoroFotos] = useState(false);
   const LOGOS_TAC: { key: keyof ReporteLogos; label: string }[] = [
     { key: 'sos', label: 'SOS La Guaira' },
     { key: 'golden', label: 'Golden Touch' },
@@ -1783,12 +1807,22 @@ export default function ReportsScreen({ route }: any) {
       const rondas = d.rondas.filter((m) =>
         (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: m.machineryId, clasificacion: m.clasificacion }, filtroEqActual));
       const filas = compararJornadaHorometro(rondas, d.lecturas);
-      const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas });
+      // ⚙️ 25-sep-2026: pastillas de ocultar + logos, como los demás reportes de maquinaria.
+      //    Lo oculto no deja rastro (título y subtítulo incluidos: ver tituloComparativo).
+      // 📷 FOTOS: solo con el check prendido, y de las MISMAS máquinas del papel
+      //    (empresa + filtro de equipos), tenga o no ronda ese día.
+      const fotos = !horoFotos ? '' : seccionFotosComparativo(
+        d.lecturas.filter((l) => { const m = d.maquinas.get(l.machineryId); return !!m && (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: l.machineryId, clasificacion: m.clasificacion }, filtroEqActual); }),
+        (id) => d.maquinas.get(id),
+        opHoro,
+        (quien) => d.nombres.get(quien),
+      );
+      const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas }, opHoro) + fotos;
       const rng = dateRangeLabel(from, to);
       const filtrado = hayFiltroJornada(filtroEqActual) || repCompanies.length ? ' · FILTRADO' : '';
-      const sub = `Jornada declarada vs horómetro de trabajo, máquina por máquina y día por día · ${rng}${filtrado}`;
-      await exportPdf(pdfShell('HORÓMETRO VS JORNADA (MODO SOMBRA)', sub, body),
-        `Horometro vs jornada ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}`.replace(/\//g, '-'));
+      const sub = `${subtituloComparativo(opHoro)} · ${rng}${filtrado}`;
+      await exportPdf(pdfShell(tituloComparativo(opHoro), sub, body, horoLogos),
+        `Horometro vs jornada ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoComparativo(opHoro)}${horoFotos ? ' - con fotos' : ''}`.replace(/\//g, '-'));
     } finally {
       setLoading(false);
     }
@@ -3073,7 +3107,7 @@ export default function ReportsScreen({ route }: any) {
     // selección y no de la flota.
     const exclLbl = maqFuera.size ? ` · ${maqFuera.size} equipo(s) excluido(s)` : '';
     await exportPdf(
-      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl}${exclLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body),
+      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl}${exclLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body, {}, conteoLogos),
       `Conteo de equipos${porCategoria ? ' por categoria' : ''}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
     );
   };
@@ -3299,12 +3333,17 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
                 // Despliegue arranca desde la semana base hasta HOY (editable).
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
-                // Inspectores (jornadas de inspección): reporte de UN día; arranca en HOY.
-                if (t.v === 'inspectores') { setFrom(isoDaysAgo(0)); }
+                // Inspectores (jornadas de inspección): reporte de UN día; arranca en el DÍA
+                // DE NEGOCIO (antes de las 7am, la noche en curso es la de AYER — el mismo
+                // día que muestran las tarjetas; con la fecha de calendario, a las 2am el PDF
+                // y las tarjetas hablaban de días distintos).
+                if (t.v === 'inspectores') { setFrom(caracasBusinessToday()); }
                 // Ubicaciones: histórico, arranca en la última semana.
                 if (t.v === 'ubicaciones') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
                 // Horómetro vs jornada: mismo arranque que ubicaciones, la última semana.
-                if (t.v === 'horometro') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); }
+                // Y el buscador de máquinas ABIERTO (26-sep-2026, «colócale un buscador»):
+                // existía, pero plegado tras una línea gris que nadie encontraba.
+                if (t.v === 'horometro') { setFrom(isoDaysAgo(6)); setTo(isoDaysAgo(0)); setRepMaqOpen(true); }
               }}
               style={{
                 flexGrow: 1,
@@ -3668,8 +3707,11 @@ export default function ReportsScreen({ route }: any) {
               </View>
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
-                <TouchableOpacity onPress={() => setRepMaqOpen((v) => !v)}>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>{repMaqOpen ? '▾' : '▸'} Máquina en específico (marca una o varias){repMaquinas.length ? ` · ${repMaquinas.length} marcada(s)` : ''}</Text>
+                {/* Botón visible, no línea gris (26-sep-2026): el cliente pidió «un buscador»
+                    que ya existía — plegado nadie lo encontraba. */}
+                <TouchableOpacity onPress={() => setRepMaqOpen((v) => !v)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: repMaqOpen || repMaquinas.length ? colors.brand : colors.border, backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{repMaqOpen ? '▾' : '▸'} 🚜 Buscar máquina en específico (marca una o varias){repMaquinas.length ? ` · ${repMaquinas.length} marcada(s)` : ''}</Text>
                 </TouchableOpacity>
                 {repMaquinas.length > 0 ? (
                   <TouchableOpacity onPress={() => setRepMaquinas([])}>
@@ -3867,6 +3909,51 @@ export default function ReportsScreen({ route }: any) {
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               Sale una fila por máquina y día en que hubo ronda, check-in o punto GPS. El sector es el del último punto que guardó el inspector;
               si ese día nadie lo guardó, vale el anterior y la celda dice «desde el DD/MM».
+            </Text>
+          </View>
+        ) : null}
+        {/* ⚙️ Horómetro: qué se oculta y qué logos van — lo oculto no deja rastro en el PDF. */}
+        {mode === 'horometro' ? (
+          <View style={{ marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.3 }}>¿Qué se oculta en el PDF?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {PASTILLAS_COMPARATIVO.map((pz) => {
+                const on = opHoro[pz.key];
+                return (
+                  <TouchableOpacity key={pz.key} onPress={() => setOpHoro((o) => alternarComparativo(o, pz.key))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.warning : colors.border, backgroundColor: on ? colors.warning : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? '#fff' : colors.text, fontSize: 12, fontWeight: '700' }}>{pz.chip}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Encendida = NO sale, sin dejar rastro. {ocultosComparativoEnPalabras(opHoro)} Al apagar las horas de jornada se van también la diferencia, el estado y las «listas», y el papel pasa a llamarse «Horómetro de trabajo».</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>¿Qué logos lleva el membrete?</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {LOGOS_TAC.map((lg) => {
+                const on = horoLogos[lg.key] ?? false;
+                return (
+                  <TouchableOpacity key={lg.key} onPress={() => setHoroLogos((o) => ({ ...o, [lg.key]: !(o[lg.key] ?? false) }))}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Salen: {LOGOS_TAC.filter((l) => horoLogos[l.key]).map((l) => l.label).join(' · ') || 'ninguno (membrete sin logos)'}.
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>📷 Fotos de los tableros</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              <TouchableOpacity onPress={() => setHoroFotos((v) => !v)}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: horoFotos ? colors.brand : colors.border, backgroundColor: horoFotos ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: horoFotos ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{horoFotos ? '☑' : '☐'} Traer las fotos de los horómetros</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              {horoFotos
+                ? 'Al final del PDF va la galería ORGANIZADA POR MAQUINARIA: cada máquina con sus fotos en orden (Inicial → Final), y cada foto con su fecha, turno, el número leído, la hora en que se subió y quién la subió.'
+                : 'Apagado (así arranca siempre): el papel sale como hoy, sin fotos.'}
             </Text>
           </View>
         ) : null}
@@ -4362,6 +4449,26 @@ export default function ReportsScreen({ route }: any) {
                         ⚠️ Dejaste fuera todas las máquinas: el reporte saldría en cero. Marca al menos una en "🚜 Escoger máquinas".
                       </Text>
                     ) : null}
+                    {/* 🏷️ LOGOS DEL MEMBRETE (24-sep-2026): mismos checks que el inventario de
+                        arriba, pero con memoria propia — lo que se marque aquí no cambia el otro papel. */}
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 4 }}>¿Qué logos lleva el membrete?</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: 4 }}>
+                      {LOGOS_TAC.map((lg) => {
+                        const on = conteoLogos[lg.key] ?? false;
+                        return (
+                          <TouchableOpacity
+                            key={lg.key}
+                            onPress={() => setConteoLogos((o) => ({ ...o, [lg.key]: !(o[lg.key] ?? false) }))}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                          >
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{on ? '☑' : '☐'} {lg.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      Salen: {LOGOS_TAC.filter((l) => conteoLogos[l.key]).map((l) => l.label).join(' · ') || 'ninguno (membrete sin logos)'}.
+                    </Text>
                     {/* Botón ARRIBA (antes del listado) para no tener que bajar toda la lista. */}
                     <TouchableOpacity
                       style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.xs, marginBottom: spacing.xs, opacity: conteoSinContenido(conteoOpciones) || seleccionVacia(maquinasDeTipos.length, maqFuera.size) ? 0.5 : 1 }]}

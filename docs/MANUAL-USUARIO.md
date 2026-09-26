@@ -374,6 +374,17 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   1:00am**—, o ✏️ un ajuste manual hecho aquí mismo). Es **solo de consulta** — sirve para revisar y
   confiar en el total, no para editarlo (los ajustes se siguen haciendo con los campos de siempre).
 
+> **⚙️ CIERRE MANUAL DE JORNADAS (26/09/2026, pedido del cliente).** El **barredor automático
+> de las 7 está APAGADO** (interruptor `jornadas_cierre_config` en la base; se puede volver a
+> prender sin tocar código). Desde hoy **cerrar la jornada es del inspector**:
+> - Una jornada olvidada **queda ABIERTA y visible** en el tablero — nadie la cierra a las 7pm.
+> - **Cerrar tarde no regala horas:** el cierre banca solo hasta el **fin nominal del turno**
+>   (día 7:00pm · noche 7:00am, tope 12h), igual que hacía el barredor. Extras aparte.
+> - **Sin choques:** al **iniciar la siguiente jornada** de esa máquina, el teléfono **liquida
+>   solo** cualquier jornada vieja abierta — bancada hasta su fin nominal — y queda en la
+>   bitácora como «cierre rezagado». Control puede corregir horas como siempre.
+> La regla de abajo sigue valiendo para el **cierre anticipado** (motivo obligatorio).
+
 > **Cierre de jornada (regla firme):** el **DÍA cierra a las 7:00pm** y la **NOCHE a la 1:00am**
 > (permanencia de noche = 6h). **Excepción LUMINARIA:** las **luminarias** (torres/equipos de
 > iluminación) trabajan **toda la noche (7pm→7am)**, así que su jornada de **noche cierra a las 7:00am
@@ -1628,6 +1639,14 @@ Lo que **se dañó**. Abre directo en **⏳ Averías**. Tiene cinco pestañas:
 
 ---
 
+
+#### 🏷️ Conteo de equipos: los logos del membrete se eligen (24/09/2026)
+Igual que en el inventario de arriba: antes del botón «⬇️ PDF de este conteo» están las
+pastillas **¿Qué logos lleva el membrete?** — SOS La Guaira, Golden Touch, Venezuela Renace y
+BCV — y cada una se prende o se apaga con un toque. Debajo dice cuáles van a salir. Arranca
+como salía siempre (Golden Touch + Venezuela Renace), y lo que se marque aquí **no cambia** los
+logos del inventario: cada papel tiene su propia memoria.
+
 #### 📄 Informe Técnico y de Costos (22-sep-2026)
 
 Pestaña nueva de este módulo. Arma, **para una sola máquina**, el documento que se le entrega al
@@ -2490,6 +2509,25 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
 - Al elegir **una empresa** (filtro de arriba): su **historial día por día** con lo entregado en
   cada comida, la hora y quién lo registró.
 - Botón **"📄 Reporte PDF (con opciones)"** para imprimir/llevar el control del rango.
+
+
+#### 🔁 Reporte por inspector: cuatro sincronizaciones más (25/09/2026)
+El cliente reportó que el PDF «no sincronizaba bien» con las tarjetas. Se revisaron las dos
+implementaciones regla por regla y se corrigieron en el NÚCLEO compartido (el mismo que usan
+el reporte con firma y el recibo del inspector):
+
+- **El usuario de sistema «MÁQUINAS FALTANTES» ya no sale como un inspector** en el PDF (las
+  tarjetas lo apartan a su cajón; el PDF lo listaba como una persona más).
+- **Una asignación hecha después del fin del turno no cuenta ese día** — la misma regla de las
+  tarjetas, ahora también en el núcleo.
+- **La jornada de anoche ya no trae sus horas de ayer**: antes, al generar el PDF de madrugada,
+  las horas de día de AYER podían salir como horas de HOY. Ahora esa fila solo aporta el estado
+  «en curso».
+- **La fecha por defecto es el día de negocio** (antes de las 7am, la noche en curso es la de
+  ayer): el PDF y las tarjetas hablan del mismo día a cualquier hora.
+
+El PDF sigue siendo una **foto del momento en que se genera** (no se refresca solo como la
+pantalla): si los datos cambian, se genera de nuevo.
 
 #### ✏️ Corregir comidas de cualquier día (18/09/2026)
 En la pestaña **"📅 Por día"**, quien tiene **permiso COMPLETO** en Distribución de comida ve la
@@ -3370,14 +3408,91 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
 - **Control de Maquinaria** muestra, debajo de las horas de cada día, `⚙️ N h` con lo que dice el
   horómetro de trabajo, en rojo con ⚠️ si es inválida. Solo aparece cuando la semana tiene alguna
   lectura; sin lecturas, la pantalla es la de siempre. Solo se muestra, no se edita todavía.
-- **Reportes → ⚙️ Horómetro:** PDF «Horómetro vs jornada» por máquina y día: horas de jornada,
+- **Reportes → ⚙️ Horómetro:** PDF «Horómetro vs jornada» por máquina y día: marca, modelo, serial/placa, horas de jornada,
   horas de horómetro, diferencia y estado (cuadra, horómetro mayor, jornada mayor, sin lectura,
   inválida), con una lista de **máquinas listas para encender** (5 días seguidos cuadrando o con
   menos de 3 horas de diferencia). Mismos filtros de empresa, clasificación y máquina que Jornada.
+  Desde el 25/09/2026 es **igual de ajustable que los demás reportes de maquinaria**: pastillas de
+  «qué se oculta en el PDF» (marca, modelo, serial/placa, nombre de empresas, horas de
+  jornada, resumen, máquinas listas, detalle por día) y checks de «qué logos lleva el membrete» (SOS, Golden Touch, Venezuela
+  Renace, BCV; por omisión BCV + SOS, como salía siempre). Lo oculto **no deja rastro**: al
+  apagar las horas de jornada desaparecen también la diferencia, el estado, los colores del
+  cuadre y las «listas», y el papel pasa a llamarse «Horómetro de trabajo». Ojo: el PDF solo
+  trae horas de horómetro en los días con lectura **completa** (inicial Y final del mismo
+  turno); una lectura a medias sale como «sin lectura».
+  Y desde el 26/09/2026, un check **«📷 Traer las fotos de los horómetros»** (apagado siempre
+  al entrar, nunca predefinido): encendido, al final del PDF va la galería de fotos que subieron
+  los inspectores — **organizada por maquinaria** (26/09/2026 tarde): cada máquina con su
+  encabezado (código · placa/serial · empresa) y sus fotos en orden (día antes que noche,
+  **Inicial antes que Final**), y cada foto con su fecha, turno, el número leído, la **hora en
+  que se subió y quién la subió** — de las mismas máquinas y fechas del reporte (respeta el rango, la empresa y el filtro
+  de equipos, y la pastilla de ocultar empresas). Apagado, el papel no las menciona.
+  Además, el **buscador «🚜 Buscar máquina en específico»** viene **abierto** en este reporte
+  (26/09/2026): escribe código, placa o serial, marca una o varias máquinas, y el PDF — y sus
+  fotos — salen solo con ellas. Es el mismo filtro de Jornada y Ubicaciones, ahora con botón
+  visible en los tres.
 
 **Qué NO hace todavía (fases siguientes, con decisiones del cliente):** pagar por horómetro,
 corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del
 aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
+
+
+#### ✎ Corregir horómetro desde Control (24/09/2026)
+Decisión del cliente: **solo los administradores corrigen, y basta el motivo escrito** (sin foto).
+
+- Para quien puede corregir, la celda ⚙️ y el lápiz salen **en todas las máquinas y todos los
+  días, también en semanas sin lecturas** (25/09/2026): así se puede cargar a mano el horómetro
+  de un día pasado que nadie marcó, siempre con su motivo. Para el resto, la pantalla sigue
+  mostrando el horómetro solo cuando la semana trae lecturas.
+- En **Control de maquinaria**, junto a la celda ⚙️ de cada día aparece un lápiz **✎** (solo
+  para quien tenga el módulo `horometros` con escritura; admin lo tiene siempre). Abre el
+  editor: turno (día/noche), inicial, final, el interruptor de **reinicio** y el **motivo
+  obligatorio**.
+- **Reinicio** es para cuando al equipo le cambiaron el aparato y arranca en un número menor
+  (hasta 0): con el interruptor marcado, la base no tacha la lectura por «menor que la última».
+- Vacío = borrar ese número (por ejemplo, un final que era de otra máquina). Borrar los dos no
+  se puede: para eso mejor no tocar nada.
+- El candado real está **en la base**: sin sesión, sin el módulo o sin motivo, no guarda —
+  esconder el lápiz es cortesía, no seguridad. Cada corrección queda con **quién, cuándo y por
+  qué** (en la lectura y en la bitácora de auditoría), y el teléfono del inspector **no puede
+  pisarla** después.
+- Solo toca la lectura del modo sombra: **ni las horas pagadas ni el horómetro de
+  mantenimiento se mueven**.
+
+#### ⚙️ El final olvidado (24/09/2026)
+
+**Y el inicio consciente (25/09/2026), la otra mitad:** si se toca «Iniciar jornada» con el
+horómetro inicial **vacío**, el primer toque no inicia: sale «⚠️ Vas a iniciar SIN el
+horómetro inicial» y el botón cambia a **«Iniciar SIN horómetro»**. O se escribe el número del
+tablero, o se inicia sin él a propósito (aparato dañado o máquina sin horómetro) — y queda en
+la bitácora «inició SIN horómetro inicial (avisado)». Nunca bloquea. El QR del operador no lo
+necesita: ahí el inicial siempre fue obligatorio.
+
+**Y el cierre consciente (mismo día, 24/09/2026), para que el olvido no pase:** si la máquina
+marcó horómetro **inicial** hoy y se toca «Sí, finalizar» con el final **vacío**, el primer
+toque **no cierra**: sale el aviso «⚠️ Vas a cerrar SIN el horómetro final» con el inicial a la
+vista, y el botón cambia a **«Cerrar SIN horómetro final»**. O se escribe el número ahí mismo,
+o se cierra sin él a propósito (tablero dañado, sin acceso) — y en ese caso queda **en la
+bitácora** que esa jornada cerró sin horómetro, avisada. Las máquinas que no marcaron inicial
+cierran igual que siempre, sin aviso ni paso extra: el horómetro sigue sin bloquear jamás una
+jornada.
+Caso real del estreno: un inspector cerró la jornada sin escribir el horómetro final, y la
+pantalla ya solo le ofrecía iniciar la siguiente — cuyo campo precargado le mostraba el número
+viejo, como si «le saliera el de inicio». Ahora:
+
+- Si la jornada de **HOY** cerró con horómetro inicial y sin final, al abrir la máquina el
+  inspector ve la caja **«⚙️ La jornada de hoy cerró sin horómetro final»** con el botón
+  **⚙️ PONER HORÓMETRO FINAL**: escribe lo que marca el tablero, adjunta la foto y listo.
+  **No hay que iniciar otra jornada para eso** (hacerlo pisaría el inicial verdadero).
+- **Solo el mismo día** (la noche que cruza la medianoche, hasta las 9:00am). Un final puesto
+  días después sin ver el tablero es un número inventado: eso es corrección de Control, con
+  motivo obligatorio, cuando se construya ese editor.
+- Solo **completa**: si la lectura ya tiene final, el botón no aparece y nada se pisa.
+- Va por la misma vía validada del cierre (la base revisa retrocesos y saltos imposibles) y
+  **no cambia ni un minuto de las horas ya cerradas**: el pago sigue por jornada.
+- Queda **constancia en la bitácora** de quién lo puso, cuándo y en cuál máquina
+  (HOROMETRO_FINAL_TARDE), y el horómetro vivo de la ficha se actualiza para que la precarga
+  del día siguiente amanezca buena.
 
 #### 🧾 «Otros» siempre con nombre (23/09/2026)
 Pedido del cliente: «que la comida no caiga en Otros; si es hielo es hielo, si es vaso es vaso, si

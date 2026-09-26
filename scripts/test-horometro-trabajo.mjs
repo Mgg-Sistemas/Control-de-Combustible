@@ -156,10 +156,10 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('una fila por ronda, ordenadas por fecha y código', filas.map((f) => `${f.fecha} ${f.code}`), ['2026-09-01 CARG-03', '2026-09-01 EXC-04', '2026-09-01 GRUA-05', '2026-09-01 RETRO-01', '2026-09-02 RETRO-01', '2026-09-02 VIBRO-02']);
   const de = (code, fecha) => filas.find((f) => f.code === code && f.fecha === fecha);
   eq('cuadra dentro de media hora', de('RETRO-01', '2026-09-02').estado, 'cuadra');
-  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', fecha: '2026-09-01', horasJornada: 11, horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
+  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
   eq('horómetro mayor', de('VIBRO-02', '2026-09-02').estado, 'horometro_mayor');
   eq('jornada mayor, con la diferencia negativa', [de('CARG-03', '2026-09-01').estado, de('CARG-03', '2026-09-01').diferencia, de('CARG-03', '2026-09-01').empresa], ['jornada_mayor', -5, 'EMPRESA BETA']);
-  eq('inválida: sin horas ni diferencia', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', fecha: '2026-09-01', horasJornada: 6, horasHorometro: null, diferencia: null, estado: 'invalida' });
+  eq('inválida: sin horas ni diferencia', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, horasHorometro: null, diferencia: null, estado: 'invalida' });
   eq('solo una lectura incompleta cuenta como sin lectura', de('GRUA-05', '2026-09-01').estado, 'sin_lectura');
   eq('ronda sin ninguna lectura → sin lectura', H.compararJornadaHorometro([RONDA('m9', 'MOTO-09', '2026-09-05', 8, 0)], lecturas)[0].estado, 'sin_lectura');
   eq('la jornada del comparativo usa la fórmula completa (resta parada)', de('RETRO-01', '2026-09-01').horasJornada, 11);
@@ -231,7 +231,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   const papel = H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-02', filas });
   ok('el rango va en dd/mm/aaaa', /Del 01\/09\/2026 al 02\/09\/2026/.test(papel));
   ok('una tabla por día, con la fecha en dd/mm/aaaa', /01\/09\/2026 <span>2 máquina\(s\)/.test(papel) && /02\/09\/2026 <span>3 máquina\(s\)/.test(papel));
-  ok('la tabla tiene las seis columnas', /<th>Máquina<\/th><th>Empresa<\/th><th class="r">Jornada h<\/th><th class="r">Horómetro h<\/th><th class="r">Diferencia<\/th><th>Estado<\/th>/.test(papel));
+  ok('la tabla tiene las ocho columnas (con marca/modelo y placa)', /<th>Máquina<\/th><th>Marca \/ Modelo<\/th><th>Serial \/ Placa<\/th><th>Empresa<\/th><th class="r">Jornada h<\/th><th class="r">Horómetro h<\/th><th class="r">Diferencia<\/th><th>Estado<\/th>/.test(papel));
   ok('cuadra va con hc-ok', /<tr class="hc-ok"><td>RETRO-01<\/td>/.test(papel));
   ok('horómetro mayor va con hc-mas y signo +', /<tr class="hc-mas"><td>VIBRO-02<\/td>.*?\+2<\/td><td class="est">Horómetro mayor/.test(papel));
   ok('jornada mayor va con hc-menos', /<tr class="hc-menos"><td>CARG-03<\/td>.*?-5<\/td><td class="est">Jornada mayor/.test(papel));
@@ -248,6 +248,38 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   const papel2 = H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-05', filas: H.compararJornadaHorometro(cinco, lecs) });
   ok('la máquina lista sale en su tabla con sus días', /Días seguidos<\/th>/.test(papel2) && /<td>MOTO-07<\/td><td class="r">5<\/td>/.test(papel2));
   ok('sin filas, el papel lo dice y no revienta', /Sin rondas en el rango/.test(H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-02', filas: [] })));
+}
+
+// ── EL FINAL OLVIDADO: cuál lectura puede completar el inspector (24-sep-2026) ──
+{
+  const HOY = '2026-09-24';
+  const sinFinal = L('m1', HOY, 'day', 711.3, null);
+  eq('la de hoy con inicial y sin final se puede completar', H.lecturaParaCompletarFinal([sinFinal], HOY), sinFinal);
+  eq('sin lecturas no hay nada que completar', H.lecturaParaCompletarFinal([], HOY), null);
+  eq('null aguanta', H.lecturaParaCompletarFinal(null, HOY), null);
+  eq('la de AYER no: eso es corrección de Control', H.lecturaParaCompletarFinal([L('m1', '2026-09-23', 'day', 711.3, null)], HOY), null);
+  eq('la que ya tiene final no se toca', H.lecturaParaCompletarFinal([L('m1', HOY, 'day', 711.3, 720.2)], HOY), null);
+  eq('la que no tiene ni inicial tampoco (no hay contra qué restar)', H.lecturaParaCompletarFinal([L('m1', HOY, 'day', null, null)], HOY), null);
+  eq('con día y noche a medias, primero el día', H.lecturaParaCompletarFinal([L('m1', HOY, 'night', 800, null), sinFinal], HOY).shift, 'day');
+  eq('inicial 0 es un inicial válido (horómetro recién cambiado)', H.lecturaParaCompletarFinal([L('m1', HOY, 'day', 0, null)], HOY).inicial, 0);
+}
+
+// ── EL EDITOR DE CONTROL: parsear y validar la correccion (24-sep-2026) ──
+{
+  eq('numero con coma', H.numeroDeTexto('720,2'), 720.2);
+  eq('numero con punto', H.numeroDeTexto('720.2'), 720.2);
+  eq('vacio = borrar (null)', [H.numeroDeTexto(''), H.numeroDeTexto('  ')], [null, null]);
+  eq('basura = false', [H.numeroDeTexto('abc'), H.numeroDeTexto('7.7.7'), H.numeroDeTexto('-3')], [false, false, false]);
+  eq('cero es un numero valido', H.numeroDeTexto('0'), 0);
+
+  const okC = { inicial: '711,3', final: '720,2', motivo: 'foto llego tarde' };
+  eq('correccion buena pasa', H.validarCorreccionHorometro(okC), null);
+  ok('sin motivo NO pasa', /motivo/i.test(H.validarCorreccionHorometro({ ...okC, motivo: '  ' }) ?? ''));
+  ok('inicial basura no pasa', /inicial/.test(H.validarCorreccionHorometro({ ...okC, inicial: 'x' }) ?? ''));
+  ok('final basura no pasa', /final/.test(H.validarCorreccionHorometro({ ...okC, final: '-1' }) ?? ''));
+  ok('final menor que inicial no pasa', /menor/.test(H.validarCorreccionHorometro({ ...okC, final: '700' }) ?? ''));
+  ok('borrar los dos no pasa', /al menos un numero/.test(H.validarCorreccionHorometro({ inicial: '', final: '', motivo: 'm' }) ?? ''));
+  eq('borrar solo el final si pasa (lectura queda a medias, la base revalida)', H.validarCorreccionHorometro({ inicial: '711,3', final: '', motivo: 'el final era de otra maquina' }), null);
 }
 
 // ── GUARDIAS DEL MODO SOMBRA (23-sep-2026) ───────────────────────────────────
@@ -267,8 +299,16 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('el QR del operador también, al iniciar y al cerrar', (qr.match(/void guardarLecturaHorometro\(/g) || []).length, 2);
   ok('el QR sigue escribiendo la jornada como hoy (decisión pendiente del cliente)', /day_hours: hours/.test(qr));
   // Control solo MUESTRA: no hay escritura de lecturas ni cambio de pago.
-  ok('Control muestra la celda solo si la semana trae lecturas', /lecturasHoro\.length > 0 \? <HorometroTrabajoCelda/.test(ctl));
-  ok('Control NO guarda lecturas todavía', !/guardarLecturaHorometro/.test(ctl));
+  ok('la celda sale con lecturas en la semana, o siempre para quien corrige', /lecturasHoro\.length > 0 \|\| puedeCorregirHoro \? \([\s\S]{0,400}?<HorometroTrabajoCelda/.test(ctl));
+  // Control corrige SOLO por el modal (24-sep-2026: decision del cliente — solo admins,
+  // motivo escrito basta). La pantalla no llama a guardar directo; el modal si, con
+  // origen 'control' (la base exige modulo + motivo).
+  ok('Control no guarda directo: corrige solo por el modal', !/guardarLecturaHorometro/.test(ctl) && /HorometroCorregirModal/.test(ctl));
+  ok('el lapiz solo con el modulo horometros', /puedeCorregirHoro = levelMeets\(moduleLevel\('horometros'\), 'escritura'\)/.test(ctl));
+  const modal = leer('src/components/HorometroCorregirModal.tsx');
+  ok('el modal corrige con origen control', /origen: 'control'/.test(modal));
+  ok('el modal exige el motivo (regla pura compartida)', /validarCorreccionHorometro/.test(modal));
+  ok('el modal no toca machine_rounds ni horas', !/from\('machine_rounds'\)|day_hours|night_hours|upsertMachineRound/.test(modal));
   // Ninguna pantalla de dinero usa horasPagables: la fórmula de pago es la de siempre.
   ok('el pago sigue por workedFromShifts en Control', !/horasPagables/.test(ctl) && /workedFromShifts/.test(ctl));
   ok('el pago sigue por workedFromShifts en Reportes', !/horasPagables/.test(rep) && /workedFromShifts/.test(rep));
@@ -277,9 +317,128 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('leer lecturas devuelve [] si la tabla no existe', /catch \{\s*return \[\];/.test(db));
   ok('guardar nunca lanza', /return \{ ok: false, error: String\(e\?\.message \?\? e\) \}/.test(db));
   ok('la pestaña de Reportes dice que es modo sombra', /MODO SOMBRA/.test(rep) && /No cambia ningún pago/.test(rep));
+  // El botón del FINAL OLVIDADO (24-sep-2026): completa, nunca pisa; y deja bitácora.
+  ok('el botón existe en la pantalla del inspector', /PONER HORÓMETRO FINAL/.test(sup));
+  ok('solo completa la lectura de HOY (regla pura compartida)', /lecturaParaCompletarFinal\(/.test(sup));
+  ok('guarda por la vía validada con origen inspector', /guardarLecturaHorometro\(ci\.id, finTardia\.roundDate, finTardia\.shift, \{ final: hf,[\s\S]*?origen: 'inspector' \}\)/.test(sup));
+  ok('el espejo viejo solo si estaba vacío (nunca pisa un final ya puesto)', /horometro_final == null\) void upsertMachineRound/.test(sup));
+  ok('deja constancia en la bitácora de quién y cuándo', /logAudit\('HOROMETRO_FINAL_TARDE'/.test(sup));
+  const fnTardio = sup.slice(sup.indexOf('const ponerFinalTardio'), sup.indexOf('\n  };', sup.indexOf('const ponerFinalTardio')));
+  ok('no toca las horas pagadas (ni day_hours ni night_hours en el botón)', fnTardio.length > 200 && !/day_hours|night_hours/.test(fnTardio));
+  // El CIERRE CONSCIENTE (24-sep-2026): con inicial y sin final, el primer toque avisa.
+  ok('el cierre se detiene una vez si falta el final', /if \(!hfValid && \(horoIni \|\| ''\)\.trim\(\) !== '' && !cerrarSinFinal\) \{ setCerrarSinFinal\(true\); return; \}/.test(sup));
+  ok('el segundo toque dice lo que hace', /Cerrar SIN horómetro final/.test(sup));
+  ok('y queda en la bitácora que cerró sin horómetro', /cerró SIN horómetro final \(avisado\)/.test(sup));
+  // El INICIO CONSCIENTE (25-sep-2026): sin horometro inicial, el primer toque avisa.
+  ok('el inicio se detiene una vez si falta el horometro', /if \(!hiHas && !iniciarSinHoro\) \{ setIniciarSinHoro\(true\); return; \}/.test(sup));
+  ok('el segundo toque dice lo que hace', /Iniciar SIN horómetro/.test(sup));
+  ok('y queda en la bitacora que inicio sin horometro', /inició SIN horómetro inicial \(avisado\)/.test(sup));
+  ok('el QR ya exige el inicial (no necesita aviso)', /Ingresa el horómetro inicial/.test(qr));
   // Manuales.
   ok('manual (md)', /Horómetro de trabajo \(modo sombra, 23\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app)', /HORÓMETRO DE TRABAJO \(MODO SOMBRA, 23\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (md) cuenta el final olvidado', /final olvidado/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (md) cuenta el cierre consciente', /cierre consciente/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (md) cuenta el editor de Control', /Corregir horómetro|Corregir horometro/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el editor de Control', /CORREGIR HORÓMETRO DESDE CONTROL/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (app) cuenta el cierre consciente', /CIERRE CONSCIENTE/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (md) cuenta el inicio consciente', /inicio consciente/i.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el inicio consciente', /INICIO CONSCIENTE/.test(leer('src/screens/ManualScreen.tsx')));
+  ok('manual (app) cuenta el final olvidado', /FINAL OLVIDADO/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
+// ── LAS PASTILLAS DEL COMPARATIVO (25-sep-2026): lo oculto no deja rastro ─────
+{
+  const C = H.OPCIONES_COMPARATIVO_COMPLETO;
+  const ronda = (id, code, fecha, dia) => ({ machineryId: id, code, empresa: 'EMPRESA FANTASMA CA', fecha, ronda: R(dia, 0) });
+  const filas = H.compararJornadaHorometro(
+    [ronda('m1', 'RETRO-01', '2026-09-01', 9.75), ronda('m2', 'GRUA-02', '2026-09-01', 6)],
+    [L('m1', '2026-09-01', 'day', 100, 108)],
+  );
+  const d = { desde: '2026-09-01', hasta: '2026-09-01', filas };
+  eq('sin tocar nada, el papel es EXACTAMENTE el de siempre', H.cuerpoComparativo(d), H.cuerpoComparativo(d, C));
+  const sinEmp = H.cuerpoComparativo(d, { ...C, sinEmpresa: true });
+  ok('sin empresa: ni la columna ni el nombre', !/Empresa/.test(sinEmp) && !sinEmp.includes('EMPRESA FANTASMA'));
+  const solo = H.cuerpoComparativo(d, { ...C, sinJornada: true });
+  ok('sin jornada: fuera sus horas, diferencia, estado, cuadre y listas',
+    !/[Jj]ornada|Diferencia|Estado|[Cc]uadra|hc-ok|hc-mas|hc-menos|listas para encender/.test(solo));
+  ok('...y las horas de la jornada no están ni de número', !solo.includes('9,75'));
+  ok('...pero el horómetro sí está', /RETRO-01<\/td><td><\/td><td><\/td><td>EMPRESA FANTASMA CA<\/td><td class="r">8<\/td>/.test(solo));
+  ok('sin resumen: fuera las cajas', !/hc-res/.test(H.cuerpoComparativo(d, { ...C, sinResumen: true })));
+  ok('sin listas: fuera la sección entera', !/listas para encender/.test(H.cuerpoComparativo(d, { ...C, sinListas: true })));
+  ok('sin detalle: fuera las tablas por día', !/máquina\(s\)/.test(H.cuerpoComparativo(d, { ...C, sinDetalle: true })));
+  const nada = H.cuerpoComparativo(d, { sinMarca: true, sinModelo: true, sinPlaca: true, sinEmpresa: true, sinJornada: true, sinResumen: true, sinListas: true, sinDetalle: true });
+  ok('todo apagado: el papel no dice «oculto» por ninguna parte', !/ocult/i.test(nada));
+  // La ficha de la máquina (25-sep-2026: «falta marca y modelo, placa»).
+  const conFicha = H.compararJornadaHorometro(
+    [{ machineryId: 'm3', code: 'EXC-03', empresa: 'ACME', marca: 'CAT', modelo: '320D', placa: 'A7X-123', fecha: '2026-09-02', ronda: R(8, 0) }],
+    [L('m3', '2026-09-02', 'day', 50, 58)],
+  );
+  const dF = { desde: '2026-09-02', hasta: '2026-09-02', filas: conFicha };
+  ok('marca, modelo y placa salen por defecto', /<td>CAT \/ 320D<\/td><td>A7X-123<\/td>/.test(H.cuerpoComparativo(dF)));
+  const sinMarca = H.cuerpoComparativo(dF, { ...C, sinMarca: true });
+  ok('sin marca: queda el modelo, sin rastro de la marca', !/CAT|Marca/.test(sinMarca) && /<th>Modelo<\/th>/.test(sinMarca) && /<td>320D<\/td>/.test(sinMarca));
+  ok('sin marca ni modelo: fuera la columna entera', !/CAT|320D|Marca|Modelo/.test(H.cuerpoComparativo(dF, { ...C, sinMarca: true, sinModelo: true })));
+  ok('sin placa: ni la columna ni el número', !/Serial|Placa|A7X-123/.test(H.cuerpoComparativo(dF, { ...C, sinPlaca: true })));
+  eq('alternar prende y apaga', H.alternarComparativo(C, 'sinEmpresa').sinEmpresa, true);
+  ok('en palabras: completo por defecto', /Sale completo/.test(H.ocultosComparativoEnPalabras(C)));
+  ok('en palabras: nombra lo apagado', /nombre de empresas/.test(H.ocultosComparativoEnPalabras({ ...C, sinEmpresa: true })));
+  eq('sufijo de archivo vacío por defecto', H.sufijoArchivoComparativo(C), '');
+  ok('sufijo nombra lo apagado', / - sin empresas/.test(H.sufijoArchivoComparativo({ ...C, sinEmpresa: true })));
+  ok('el título se adapta: sin jornada no dice «vs jornada»',
+    !/JORNADA/.test(H.tituloComparativo({ ...C, sinJornada: true })) && /VS JORNADA/.test(H.tituloComparativo(C)));
+  ok('el subtítulo igual', !/jornada/i.test(H.subtituloComparativo({ ...C, sinJornada: true })));
+}
+
+// ── GUARDIAS DEL REPORTE AJUSTABLE (25-sep-2026) ─────────────────────────
+{
+  const rep = leer('src/screens/ReportsScreen.tsx');
+  ok('el reporte de horómetros tiene sus pastillas', /const \[opHoro, setOpHoro\] = useState<OpcionesComparativo>\(OPCIONES_COMPARATIVO_COMPLETO\)/.test(rep));
+  ok('...y sus logos propios (BCV + SOS por omisión, como salía)', /useState<ReporteLogos>\(\{ sos: true, golden: false, renace: false, bcv: true \}\)/.test(rep));
+  ok('el papel se genera con las opciones', /cuerpoComparativo\(\{ desde: from, hasta: to, filas \}, opHoro\)/.test(rep));
+  ok('el membrete recibe los logos y el título se adapta', /pdfShell\(tituloComparativo\(opHoro\), sub, body, horoLogos\)/.test(rep));
+  ok('el nombre del archivo cuenta lo apagado', /sufijoArchivoComparativo\(opHoro\)/.test(rep));
+  ok('la carga del comparativo trae la ficha (marca, modelo, placa)', /id, code, marca, modelo, plate, serial, clasificacion, company:company_id\(name\)/.test(leer('src/lib/horometroComparativoDb.ts')));
+  ok('pdfShell SIN logos sale como siempre (lo comparten ~20 reportes)', /sos: logos\?\.sos \?\? true, golden: logos\?\.golden \?\? false, renace: logos\?\.renace \?\? false, bcv: logos\?\.bcv \?\? true/.test(rep));
+  ok('manual (md) cuenta las pastillas del reporte de horómetros', /igual de ajustable que los demás reportes de maquinaria/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta las pastillas del reporte de horómetros', /PASTILLAS DEL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
+// ── LAS FOTOS DE LOS TABLEROS (26-sep-2026): un check, nunca predefinido ─────
+{
+  const C = H.OPCIONES_COMPARATIVO_COMPLETO;
+  const ficha = (id) => (id === 'm1' ? { code: 'RETRO-01', empresa: 'ACME CA', placa: 'A7X-123' } : undefined);
+  const lecFoto = { ...L('m1', '2026-09-02', 'day', 100, 108), fotoInicialUrl: 'https://x/ini.jpg', fotoFinalUrl: 'https://x/fin.jpg', createdAt: '2026-09-02T11:12:00Z', createdBy: 'u1', updatedAt: '2026-09-02T22:30:00Z', updatedBy: 'u2' };
+  const nombreDe = (id) => (id === 'u1' ? 'Frank Narros' : id === 'u2' ? 'María P.' : undefined);
+  const g = H.seccionFotosComparativo([lecFoto, L('m1', '2026-09-01', 'night', 90, 100)], ficha, C, nombreDe);
+  ok('cada foto sale con su etiqueta y su numero', /Inicial 100/.test(g) && /Final 108/.test(g));
+  ok('la imagen apunta a la URL guardada', /<img src="https:\/\/x\/ini\.jpg"\/>/.test(g));
+  ok('lectura sin foto no pinta figuras de mas', (g.match(/<figure>/g) || []).length === 2);
+  ok('organizadas POR MAQUINARIA (encabezado con su total)', /<h3 class="sect">RETRO-01 · A7X-123 · ACME CA <span>2 foto\(s\)/.test(g));
+  ok('cada foto dice su fecha y su turno', /02\/09\/2026 · ☀️ día · Inicial 100/.test(g));
+  ok('y la hora y el autor de la subida', /Inicial 100 · subida 7:12 a\. m\. · Frank Narros/.test(g) && /Final 108 · subida 6:30 p\. m\. · María P\./.test(g));
+  ok('Inicial sale ANTES que Final', g.indexOf('Inicial 100') < g.indexOf('Final 108'));
+  ok('sin quien ni cuando, la foto no inventa nada', !/subida/.test(H.seccionFotosComparativo([{ ...lecFoto, createdAt: null, updatedAt: null }], ficha, C)));
+  ok('maquina fuera del filtro: su foto tampoco sale', (H.seccionFotosComparativo([{ ...lecFoto, machineryId: 'zz' }], ficha, C).match(/<figure>/g) || []).length === 0);
+  ok('sin empresa: la foto no la nombra', !/ACME/.test(H.seccionFotosComparativo([lecFoto], ficha, { ...C, sinEmpresa: true })));
+  ok('la foto dice la placa/serial (26-sep: media flota comparte codigo)', /RETRO-01 · A7X-123 · ACME CA/.test(g));
+  ok('sin placa (pastilla): la foto tampoco la dice', !/A7X-123/.test(H.seccionFotosComparativo([lecFoto], ficha, { ...C, sinPlaca: true })));
+  ok('ficha sin placa cargada: no queda un punto colgando', /RETRO-01 · SIN-PLACA-CA/.test(H.seccionFotosComparativo([lecFoto], (id) => ({ code: 'RETRO-01', empresa: 'SIN-PLACA-CA' }), C)));
+  ok('sin fotos lo dice y no revienta', /Sin fotos en el rango/.test(H.seccionFotosComparativo([], ficha, C)));
+
+  const rep2 = leer('src/screens/ReportsScreen.tsx');
+  ok('el check arranca APAGADO (nunca predefinido)', /const \[horoFotos, setHoroFotos\] = useState\(false\)/.test(rep2));
+  ok('solo con el check el papel trae la galeria', /const fotos = !horoFotos \? '' : seccionFotosComparativo\(/.test(rep2));
+  ok('el nombre del archivo lo cuenta', /\$\{horoFotos \? ' - con fotos' : ''\}/.test(rep2));
+  ok('la carga de lecturas trae las dos fotos', /foto_inicial_url, foto_final_url/.test(leer('src/lib/horometroTrabajoDb.ts')));
+  ok('manual (md) cuenta el check de fotos', /Traer las fotos de los horómetros/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el check de fotos', /FOTOS DE LOS HORÓMETROS EN EL REPORTE/.test(leer('src/screens/ManualScreen.tsx')));
+
+  // El BUSCADOR visible (26-sep-2026: «colócale un buscador» — existía, plegado).
+  ok('entrar a horometro abre el buscador de maquinas', /if \(t\.v === 'horometro'\) \{ setFrom\(isoDaysAgo\(6\)\); setTo\(isoDaysAgo\(0\)\); setRepMaqOpen\(true\); \}/.test(rep2));
+  ok('el encabezado del buscador es un boton visible', /🚜 Buscar máquina en específico/.test(rep2));
+  ok('manual (md) cuenta el buscador', /Buscar máquina en específico/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el buscador', /BUSCADOR DE MÁQUINAS EN EL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-horometro-trabajo · ${pass} ok · ${fail} fallando`);

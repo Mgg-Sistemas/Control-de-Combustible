@@ -11,23 +11,33 @@ import { LecturaTrabajo, RondaHoras } from './horometroTrabajo';
 import { cargarLecturasHorometro } from './horometroTrabajoDb';
 
 export type RondaComparativa = {
-  machineryId: string; code: string; empresa: string; clasificacion: string; fecha: string; ronda: RondaHoras;
+  machineryId: string; code: string; empresa: string; clasificacion: string;
+  marca: string; modelo: string; placa: string; fecha: string; ronda: RondaHoras;
 };
 
-export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[] };
+export type FichaComparativo = { code: string; empresa: string; clasificacion: string; marca: string; modelo: string; placa: string };
+export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[]; maquinas: Map<string, FichaComparativo>; nombres: Map<string, string> };
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const num = (v: unknown) => Number(v) || 0;
 
 export async function cargarDatosComparativo(desde: string, hasta: string): Promise<DatosComparativo> {
-  const [maqs, ron, lecturas] = await Promise.all([
-    selectAllRows('machinery', 'id, code, clasificacion, company:company_id(name)'),
+  const [maqs, ron, lecturas, perfiles] = await Promise.all([
+    selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, company:company_id(name)'),
     selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q: any) => q.gte('round_date', desde).lte('round_date', hasta)),
     cargarLecturasHorometro(desde, hasta),
+    // Para la galería de fotos: quién subió cada una (created_by/updated_by → nombre).
+    selectAllRows('profiles', 'id, full_name').catch(() => [] as any[]),
   ]);
-  const porMaq = new Map<string, { code: string; empresa: string; clasificacion: string }>();
+  const nombres = new Map<string, string>();
+  for (const p of (perfiles ?? []) as any[]) { const n = limpio(p.full_name); if (n) nombres.set(String(p.id), n); }
+  const porMaq = new Map<string, FichaComparativo>();
   for (const m of maqs as any[]) {
-    porMaq.set(String(m.id), { code: limpio(m.code) || '—', empresa: limpio(m.company?.name) || 'Sin empresa', clasificacion: limpio(m.clasificacion) || 'Sin clasificación' });
+    porMaq.set(String(m.id), {
+      code: limpio(m.code) || '—', empresa: limpio(m.company?.name) || 'Sin empresa', clasificacion: limpio(m.clasificacion) || 'Sin clasificación',
+      // Igual que ubicaciones: placa, o serial si no tiene placa.
+      marca: limpio(m.marca), modelo: limpio(m.modelo), placa: limpio(m.plate) || limpio(m.serial),
+    });
   }
   const porClave = new Map<string, RondaComparativa>();
   for (const r of ron as any[]) {
@@ -41,5 +51,7 @@ export async function cargarDatosComparativo(desde: string, hasta: string): Prom
     if (!cur) porClave.set(k, { machineryId, ...m, fecha, ronda });
     else { cur.ronda.dia = Math.max(cur.ronda.dia, ronda.dia); cur.ronda.noche = Math.max(cur.ronda.noche, ronda.noche); cur.ronda.parada = Math.max(cur.ronda.parada, ronda.parada); cur.ronda.extras = Math.max(cur.ronda.extras, ronda.extras); }
   }
-  return { rondas: Array.from(porClave.values()), lecturas };
+  // `maquinas` viaja completo (26-sep-2026): las FOTOS del reporte filtran lecturas
+  // por empresa/clasificación aunque la máquina no tenga ronda ese día.
+  return { rondas: Array.from(porClave.values()), lecturas, maquinas: porMaq, nombres };
 }
