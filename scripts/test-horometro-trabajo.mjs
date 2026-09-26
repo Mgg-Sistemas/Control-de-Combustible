@@ -156,10 +156,10 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('una fila por ronda, ordenadas por fecha y código', filas.map((f) => `${f.fecha} ${f.code}`), ['2026-09-01 CARG-03', '2026-09-01 EXC-04', '2026-09-01 GRUA-05', '2026-09-01 RETRO-01', '2026-09-02 RETRO-01', '2026-09-02 VIBRO-02']);
   const de = (code, fecha) => filas.find((f) => f.code === code && f.fecha === fecha);
   eq('cuadra dentro de media hora', de('RETRO-01', '2026-09-02').estado, 'cuadra');
-  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
+  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, inicial: 100, final: 111.6, corregida: false, motivo: '', horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
   eq('horómetro mayor', de('VIBRO-02', '2026-09-02').estado, 'horometro_mayor');
   eq('jornada mayor, con la diferencia negativa', [de('CARG-03', '2026-09-01').estado, de('CARG-03', '2026-09-01').diferencia, de('CARG-03', '2026-09-01').empresa], ['jornada_mayor', -5, 'EMPRESA BETA']);
-  eq('inválida: sin horas ni diferencia', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, horasHorometro: null, diferencia: null, estado: 'invalida' });
+  eq('inválida: sin horas ni diferencia', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, inicial: 800, final: 790, corregida: false, motivo: '', horasHorometro: null, diferencia: null, estado: 'invalida' });
   eq('solo una lectura incompleta cuenta como sin lectura', de('GRUA-05', '2026-09-01').estado, 'sin_lectura');
   eq('ronda sin ninguna lectura → sin lectura', H.compararJornadaHorometro([RONDA('m9', 'MOTO-09', '2026-09-05', 8, 0)], lecturas)[0].estado, 'sin_lectura');
   eq('la jornada del comparativo usa la fórmula completa (resta parada)', de('RETRO-01', '2026-09-01').horasJornada, 11);
@@ -231,7 +231,8 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   const papel = H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-02', filas });
   ok('el rango va en dd/mm/aaaa', /Del 01\/09\/2026 al 02\/09\/2026/.test(papel));
   ok('una tabla por día, con la fecha en dd/mm/aaaa', /01\/09\/2026 <span>2 máquina\(s\)/.test(papel) && /02\/09\/2026 <span>3 máquina\(s\)/.test(papel));
-  ok('la tabla tiene las ocho columnas (con marca/modelo y placa)', /<th>Máquina<\/th><th>Marca \/ Modelo<\/th><th>Serial \/ Placa<\/th><th>Empresa<\/th><th class="r">Jornada h<\/th><th class="r">Horómetro h<\/th><th class="r">Diferencia<\/th><th>Estado<\/th>/.test(papel));
+  // 26-sep-2026: entraron Inicio y Fin entre «Jornada h» y «Horómetro h».
+  ok('la tabla trae sus columnas, con Inicio y Fin (26-sep-2026)', /<th>Máquina<\/th><th>Marca \/ Modelo<\/th><th>Serial \/ Placa<\/th><th>Empresa<\/th><th class="r">Jornada h<\/th><th class="r">Inicio<\/th><th class="r">Fin<\/th><th class="r">Horómetro h<\/th><th class="r">Diferencia<\/th><th>Estado<\/th>/.test(papel));
   ok('cuadra va con hc-ok', /<tr class="hc-ok"><td>RETRO-01<\/td>/.test(papel));
   ok('horómetro mayor va con hc-mas y signo +', /<tr class="hc-mas"><td>VIBRO-02<\/td>.*?\+2<\/td><td class="est">Horómetro mayor/.test(papel));
   ok('jornada mayor va con hc-menos', /<tr class="hc-menos"><td>CARG-03<\/td>.*?-5<\/td><td class="est">Jornada mayor/.test(papel));
@@ -363,7 +364,8 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('sin jornada: fuera sus horas, diferencia, estado, cuadre y listas',
     !/[Jj]ornada|Diferencia|Estado|[Cc]uadra|hc-ok|hc-mas|hc-menos|listas para encender/.test(solo));
   ok('...y las horas de la jornada no están ni de número', !solo.includes('9,75'));
-  ok('...pero el horómetro sí está', /RETRO-01<\/td><td><\/td><td><\/td><td>EMPRESA FANTASMA CA<\/td><td class="r">8<\/td>/.test(solo));
+  // 26-sep-2026: entre la empresa y las horas van ahora Inicio y Fin.
+  ok('...pero el horómetro sí está', /RETRO-01<\/td><td><\/td><td><\/td><td>EMPRESA FANTASMA CA<\/td><td class="r">[^<]*<\/td><td class="r">[^<]*<\/td><td class="r">8<\/td>/.test(solo));
   ok('sin resumen: fuera las cajas', !/hc-res/.test(H.cuerpoComparativo(d, { ...C, sinResumen: true })));
   ok('sin listas: fuera la sección entera', !/listas para encender/.test(H.cuerpoComparativo(d, { ...C, sinListas: true })));
   ok('sin detalle: fuera las tablas por día', !/máquina\(s\)/.test(H.cuerpoComparativo(d, { ...C, sinDetalle: true })));
@@ -439,6 +441,167 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('el encabezado del buscador es un boton visible', /🚜 Buscar máquina en específico/.test(rep2));
   ok('manual (md) cuenta el buscador', /Buscar máquina en específico/.test(leer('docs/MANUAL-USUARIO.md')));
   ok('manual (app) cuenta el buscador', /BUSCADOR DE MÁQUINAS EN EL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🕒 EL INICIO, EL FIN Y LA CORRECCIÓN MANUAL EN LOS REPORTES — 26-sep-2026.
+//
+// Pedido del cliente, textual:
+//   «se esta modificando el horometro desde control pero en los reportes por
+//    jornada y por horometro no se refleja, sincroniza eso, cuando es cambio sea
+//    manual que se refleje en el reporte las horas el inicio y el fin»
+//
+// LO QUE BLINDA:
+//   · ⭐ EL INFORME POR JORNADA NO LEÍA ESTA TABLA. Se arma con `machine_rounds`
+//     —lo que PAGA— y el horómetro de trabajo vive aparte (modo sombra), así que
+//     una corrección hecha en Control no aparecía por ningún lado.
+//   · ⭐ LAS HORAS SE SUMAN DÍA POR DÍA, no `final − inicial` de las puntas:
+//     restar las puntas contaría días que el papel no muestra (filtrados, o de
+//     otra empresa) y el número no cuadraría con la suma de los días listados.
+//   · UNA CORRECCIÓN SE RECONOCE POR TRES SEÑALES (quién, origen, motivo): mirar
+//     una sola dejaría fuera las corregidas antes de que existieran las otras.
+//   · UNA LECTURA MALA IGUAL ENSEÑA SUS NÚMEROS: es lo que se va a ir a corregir.
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const L = (o) => ({
+    machineryId: 'm1', roundDate: '2026-09-24', shift: 'day',
+    inicial: null, final: null, valida: true, motivoInvalida: null,
+    reinicio: false, origen: 'inspector', corregidoPor: null, motivoCorreccion: null, ...o,
+  });
+
+  // ── La marca de corrección ────────────────────────────────────────────────
+  eq('una lectura del inspector no está corregida',
+    H.marcaDeCorreccion([L({ inicial: 10, final: 20 })]), { corregida: false, motivo: '' });
+  // ⭐ Las TRES señales, cada una por su cuenta.
+  eq('⭐ la marca quién-corrigió basta',
+    H.marcaDeCorreccion([L({ corregidoPor: 'u1' })]).corregida, true);
+  eq('⭐ el origen «control» basta',
+    H.marcaDeCorreccion([L({ origen: 'control' })]).corregida, true);
+  eq('⭐ el reinicio también cuenta como corrección',
+    H.marcaDeCorreccion([L({ origen: 'reinicio' })]).corregida, true);
+  eq('⭐ el motivo escrito basta',
+    H.marcaDeCorreccion([L({ motivoCorreccion: 'tecleó mal' })]).corregida, true);
+  eq('trae el motivo para el papel',
+    H.marcaDeCorreccion([L({ origen: 'control', motivoCorreccion: 'la foto llegó tarde' })]).motivo,
+    'la foto llegó tarde');
+  // Los dos turnos corregidos con el mismo motivo no lo repiten en el papel.
+  eq('el mismo motivo no sale dos veces', H.marcaDeCorreccion([
+    L({ shift: 'day', origen: 'control', motivoCorreccion: 'igual' }),
+    L({ shift: 'night', origen: 'control', motivoCorreccion: 'igual' }),
+  ]).motivo, 'igual');
+  eq('dos motivos distintos salen los dos', H.marcaDeCorreccion([
+    L({ shift: 'day', origen: 'control', motivoCorreccion: 'uno' }),
+    L({ shift: 'night', origen: 'control', motivoCorreccion: 'dos' }),
+  ]).motivo, 'uno · dos');
+  eq('nada no revienta', H.marcaDeCorreccion(null), { corregida: false, motivo: '' });
+
+  // ── El inicio y el fin en el comparativo ──────────────────────────────────
+  const ronda = (o = {}) => ({
+    machineryId: 'm1', code: 'EX-012', empresa: 'COSTA BRAVA', marca: 'CAT', modelo: '320',
+    placa: 'A12', fecha: '2026-09-24', ronda: { dia: 8, noche: 0, parada: 0, extras: 0 }, ...o,
+  });
+  const f1 = H.compararJornadaHorometro([ronda()], [
+    L({ shift: 'day', inicial: 100, final: 108 }),
+  ])[0];
+  eq('⭐ el inicio sale en la fila', f1.inicial, 100);
+  eq('⭐ y el fin también', f1.final, 108);
+  eq('las horas siguen saliendo', f1.horasHorometro, 8);
+  eq('una lectura del inspector no se marca corregida', f1.corregida, false);
+
+  // Con los DOS turnos: inicio del día, fin de la noche.
+  const f2 = H.compararJornadaHorometro([ronda()], [
+    L({ shift: 'night', inicial: 108, final: 114 }),
+    L({ shift: 'day', inicial: 100, final: 108 }),
+  ])[0];
+  eq('⭐ el inicio es el del turno de DÍA aunque llegue después', f2.inicial, 100);
+  eq('⭐ y el fin, el de la NOCHE', f2.final, 114);
+  eq('las horas son la suma de los dos turnos', f2.horasHorometro, 14);
+
+  // ⭐ Corregida desde Control: el papel tiene que poder decirlo.
+  const f3 = H.compararJornadaHorometro([ronda()], [
+    L({ shift: 'day', inicial: 7919, final: 7927, origen: 'control', corregidoPor: 'u1', motivoCorreccion: 'tecleó 791,9 y era 7.919' }),
+  ])[0];
+  eq('⭐ la fila queda marcada como corregida a mano', f3.corregida, true);
+  eq('...con su motivo', f3.motivo, 'tecleó 791,9 y era 7.919');
+  eq('...y con los números corregidos', [f3.inicial, f3.final, f3.horasHorometro], [7919, 7927, 8]);
+
+  // Sin lectura: sin números, pero sin reventar.
+  const f4 = H.compararJornadaHorometro([ronda()], [])[0];
+  eq('sin lectura no inventa números', [f4.inicial, f4.final, f4.estado], [null, null, 'sin_lectura']);
+  // ⚠️ Una lectura MALA igual enseña lo que se tecleó: es lo que se va a corregir.
+  const f5 = H.compararJornadaHorometro([ronda()], [
+    L({ shift: 'day', inicial: 100, final: 90, valida: false, motivoInvalida: 'menor que ayer' }),
+  ])[0];
+  eq('⭐ la inválida igual enseña sus números', [f5.inicial, f5.final, f5.estado], [100, 90, 'invalida']);
+
+  // ── El resumen cuenta las corregidas ──────────────────────────────────────
+  const r = H.resumenComparativo([f3, f1]);
+  eq('⭐ el resumen cuenta cuántas se corrigieron', r.corregidas, 1);
+  eq('sin correcciones, cero', H.resumenComparativo([f1]).corregidas, 0);
+
+  // ── El papel ──────────────────────────────────────────────────────────────
+  const html = H.cuerpoComparativo({ desde: '2026-09-24', hasta: '2026-09-24', filas: [f3] });
+  ok('⭐ el papel trae la columna Inicio', /<th class="r">Inicio<\/th>/.test(html));
+  ok('⭐ ...y la columna Fin', /<th class="r">Fin<\/th>/.test(html));
+  ok('⭐ ...con los números del tablero', html.includes('7919') && html.includes('7927'));
+  ok('⭐ ...y la marca de corregido a mano', /✎ corregido a mano/.test(html));
+  ok('...con el motivo a la vista', html.includes('tecleó 791,9 y era 7.919'));
+  ok('la nota explica el ✎', /corregido a mano<\/b> marca las 1 lectura/.test(html));
+  // La pastilla las apaga, y apagadas no dejan ni la celda.
+  const sinIF = H.cuerpoComparativo({ desde: '2026-09-24', hasta: '2026-09-24', filas: [f3] },
+    { ...H.OPCIONES_COMPARATIVO_COMPLETO, sinInicioFin: true });
+  ok('⭐ la pastilla apaga Inicio y Fin', !/<th class="r">Inicio<\/th>/.test(sinIF));
+  ok('...y no deja la celda suelta', !sinIF.includes('7919'));
+  ok('la pastilla está en la lista', H.PASTILLAS_COMPARATIVO.some((p) => p.key === 'sinInicioFin'));
+  // ⚠️ Lo oculto no puede delatarse en el nombre del archivo ni en la nota.
+  ok('el archivo dice que se ocultó', H.sufijoArchivoComparativo({ ...H.OPCIONES_COMPARATIVO_COMPLETO, sinInicioFin: true }).includes('sin inicio fin'));
+
+  // ── El informe POR JORNADA ────────────────────────────────────────────────
+  const porMaq = H.horometroPorMaquina([
+    L({ roundDate: '2026-09-24', shift: 'day', inicial: 100, final: 108 }),
+    L({ roundDate: '2026-09-25', shift: 'day', inicial: 108, final: 115, origen: 'control', motivoCorreccion: 'corregido' }),
+  ]);
+  const h = porMaq.get('m1');
+  eq('⭐ el inicio del rango es el del primer día', h.inicial, 100);
+  eq('⭐ y el fin, el del último', h.final, 115);
+  // ⭐ SUMA DÍA POR DÍA (8 + 7), no 115 − 100.
+  eq('⭐ las horas se suman día por día', h.horas, 15);
+  eq('cuenta los días con lectura completa', h.dias, 2);
+  eq('⭐ y marca que la tocaron a mano', h.corregida, true);
+  eq('...con su motivo', h.motivo, 'corregido');
+  // ⚠️ Si un día se lo quitaron del informe (filtro, otra empresa), la resta de las
+  //    puntas daría 15 igual; la suma día por día NO cuenta lo que no está.
+  const soloUno = H.horometroPorMaquina([L({ roundDate: '2026-09-24', shift: 'day', inicial: 100, final: 108 })]);
+  eq('⭐ un solo día suma solo ese día', soloUno.get('m1').horas, 8);
+  eq('sin lecturas, el mapa queda vacío', H.horometroPorMaquina([]).size, 0);
+  eq('nada no revienta', H.horometroPorMaquina(null).size, 0);
+
+  const linea = H.lineaHorometroJornada(h);
+  ok('⭐ la línea del informe trae inicio, fin y horas', /🕒 Horómetro: 100 → 115 = 15 h/.test(linea));
+  ok('⭐ ...y dice que se corrigió a mano', /✎ corregido a mano: corregido/.test(linea));
+  eq('sin horómetro no ensucia el informe', H.lineaHorometroJornada(null), '');
+  eq('una máquina sin números tampoco',
+    H.lineaHorometroJornada({ inicial: null, final: null, horas: null, dias: 0, corregida: false, motivo: '' }), '');
+}
+
+// ── LA PANTALLA DE REPORTES ─────────────────────────────────────────────────
+{
+  const rep = leer('src/screens/ReportsScreen.tsx');
+  // ⭐ LO QUE FALTABA: el informe por jornada ni leía la tabla del horómetro.
+  ok('⭐ el informe por jornada ya lee las lecturas',
+    /horoJornadaRef\.current = horometroPorMaquina\(await cargarLecturasHorometro\(fromArg, toArg\)\)/.test(rep));
+  ok('⭐ ...y las imprime bajo la máquina', /lineaHorometroJornada\(horoJornadaRef\.current\.get\(m\.id\)\)/.test(rep));
+  ok('la corrección se ve en azul', /horoJornadaRef\.current\.get\(m\.id\)\?\.corregida \? '#1D4ED8'/.test(rep));
+  // ⚠️ Esto NO puede tocar lo que se paga: `machine_rounds` sigue mandando.
+  ok('⭐ el horómetro no entra en las horas que paga el informe',
+    !/totalH = .*horoJornadaRef/.test(rep) && !/dayH.*horometroPorMaquina/.test(rep));
+
+  // Los manuales cuentan la sincronización (26-sep-2026).
+  ok('manual (md) cuenta el inicio/fin y el ✎',
+    /La corrección manual se ve en los dos reportes \(26\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) también',
+    /LA CORRECCIÓN MANUAL DEL HORÓMETRO SE VE EN LOS DOS REPORTES \(26\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-horometro-trabajo · ${pass} ok · ${fail} fallando`);
