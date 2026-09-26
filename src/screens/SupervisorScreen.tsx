@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -14,7 +14,8 @@ import { addEdificio } from '../lib/edificios';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
-import { captureAndUploadPhoto } from '../lib/photo';
+import { captureAndUploadPhoto, takePhotoAndUpload, pickPhotoFromGalleryAndUpload } from '../lib/photo';
+import { agregarFotoHorometro, listarFotosHorometroDia, type FotoHorometroExtra } from '../lib/horometroFotosDb';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
 import QrScanner from '../components/QrScanner';
 import QrInactive from '../components/QrInactive';
@@ -139,6 +140,79 @@ const edificioTextOf = (lat: number, lng: number, referencia?: string): string =
  * Ese check-in VALIDA la jornada: sin visita, la máquina-día queda sin validar
  * (el operador no cobra). Ve sus máquinas asignadas (🪖) y puede escanear el QR.
  */
+/**
+ * 📎 FOTOS ADICIONALES DEL HORÓMETRO (26-sep-2026). Pedido del cliente: que el
+ * inspector pueda subir la foto del horómetro DESDE LA GALERÍA, subir MÁS DE
+ * UNA, y que quede el HISTÓRICO de quién subió cada una y cuándo.
+ *
+ * Vive aparte de la foto inicial/final de la lectura (esa sigue igual): cada
+ * toque acá sube UNA foto al bucket y la anota en `horometro_fotos` con el
+ * nombre CONGELADO de quien la subió. El histórico no se puede editar ni
+ * borrar desde la app (la base lo rechaza): una foto mal subida se tapa
+ * subiendo la buena, y las dos quedan con su quién y su cuándo.
+ *
+ * Se monta dentro de los bloques de horómetro (inicio y cierre de jornada), y
+ * lista las fotos de la JORNADA de negocio en curso (7am a 7am) de esa máquina.
+ */
+function FotosHorometroExtra({ machineryId, uid, userName }: { machineryId: string; uid: string | null; userName: string }) {
+  const { colors } = useTheme();
+  const [fotos, setFotos] = useState<FotoHorometroExtra[]>([]);
+  const [busy, setBusy] = useState<null | 'cam' | 'gal'>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const roundDate = caracasBusinessToday();
+  const cargar = () => {
+    listarFotosHorometroDia(machineryId, roundDate).then((r) => {
+      setFotos(r.fotos);
+      // Un fallo de lectura no puede parecer «no hay fotos»: se dice.
+      if (r.error) setErr(`No se pudo leer el histórico: ${r.error}`);
+    });
+  };
+  useEffect(() => { setErr(null); cargar(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [machineryId, roundDate]);
+  const subir = async (via: 'cam' | 'gal') => {
+    if (busy) return;
+    setBusy(via); setErr(null);
+    try {
+      const r = via === 'cam'
+        ? await takePhotoAndUpload(machineryId, 'horometro')
+        : await pickPhotoFromGalleryAndUpload(machineryId, 'horometro');
+      if (!r.ok || !r.url) { if (r.error) setErr(r.error); return; }
+      const turno = shiftOf(caracasParts(new Date()).hour).key;
+      const g = await agregarFotoHorometro({ machineryId, roundDate, shift: turno, url: r.url, userId: uid, userName: userName || null });
+      if (g.error) { setErr(g.error); return; }
+      cargar();
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: colors.surface }}>
+      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+        📎 Fotos adicionales del horómetro {fotos.length ? `· ${fotos.length} hoy` : ''}
+      </Text>
+      <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+        Puedes subir varias, de la cámara o de la galería. Cada una queda en el histórico con tu nombre y la hora, y sale en el reporte de horómetros.
+      </Text>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+        <TouchableOpacity onPress={() => subir('cam')} disabled={!!busy} style={{ flex: 1, alignItems: 'center', padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, opacity: busy ? 0.6 : 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{busy === 'cam' ? 'Subiendo…' : '📷 Tomar foto'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => subir('gal')} disabled={!!busy} style={{ flex: 1, alignItems: 'center', padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, opacity: busy ? 0.6 : 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{busy === 'gal' ? 'Subiendo…' : '🖼️ Subir de galería'}</Text>
+        </TouchableOpacity>
+      </View>
+      {err ? <Text style={{ color: colors.danger, fontSize: 11, marginTop: 4 }}>⚠️ {err}</Text> : null}
+      {fotos.map((f) => (
+        <View key={f.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs }}>
+          <Image source={{ uri: f.url }} style={{ width: 36, height: 36, borderRadius: 6, backgroundColor: colors.border }} />
+          <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }}>
+            {f.shift === 'night' ? '🌙' : '☀️'} subida {caracasClock(f.subidaAt)}{f.subidaPorNombre ? ` · ${f.subidaPorNombre}` : ''}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function SupervisorScreen({ initialMachineId, onConsumed, onSistema }: { initialMachineId?: string; onConsumed?: () => void; onSistema?: () => void } = {}) {
   const { colors } = useTheme();
   const confirm = useConfirm();
@@ -430,11 +504,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   };
 
   // Foto del horómetro al iniciar ('ini') o finalizar ('fin') la jornada del inspector.
-  // Intenta cámara y cae a galería/archivo (captureAndUploadPhoto) → permite cargar imagen.
-  const tomarFotoHoro = async (which: 'ini' | 'fin') => {
+  // Por defecto intenta cámara y cae a galería/archivo (captureAndUploadPhoto);
+  // desde el 26-sep-2026 también hay botón EXPLÍCITO de galería (pedido del
+  // cliente: «poder subir una foto del horómetro desde la galería»).
+  const tomarFotoHoro = async (which: 'ini' | 'fin', via: 'camara' | 'galeria' = 'camara') => {
     if (!ci) return;
     setHoroPhotoBusy(which);
-    const r = await captureAndUploadPhoto(ci.id, 'horometro');
+    const r = via === 'galeria'
+      ? await pickPhotoFromGalleryAndUpload(ci.id, 'horometro')
+      : await captureAndUploadPhoto(ci.id, 'horometro');
     setHoroPhotoBusy(false);
     if (r.ok && r.url) (which === 'ini' ? setHoroIniPhoto : setHoroFinPhoto)(r.url);
     else if (r.error) setNotice('❌ ' + r.error);
@@ -3639,9 +3717,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       ) : null}
                       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
                       <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
-                      <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
-                        <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
-                      </TouchableOpacity>
+                      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                        <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => tomarFotoHoro('fin', 'galeria')} disabled={horoPhotoBusy === 'fin'} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>🖼️ Galería</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {ci ? <FotosHorometroExtra machineryId={ci.id} uid={uid} userName={fullName} /> : null}
                       <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Será el inicial de la próxima jornada. Las horas de mantenimiento se cuentan final − inicial (no afecta el pago).</Text>
                       {/* ⚙️ CIERRE CONSCIENTE: avisó y sigue vacío → que se note lo que va a pasar. */}
                       {cerrarSinFinal && !(horoFin || '').trim() ? (
@@ -3689,9 +3773,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ La jornada de hoy ({finTardia.shift === 'night' ? '🌙 noche' : '☀️ día'}) cerró sin horómetro final</Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginBottom: spacing.xs }}>Inicial registrado: {String(finTardia.inicial)}. Escribe lo que marca el tablero y adjunta la foto. Solo se puede HOY; no cambia las horas ya cerradas ni hay que iniciar otra jornada.</Text>
                       <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.xs }]} />
-                      <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
-                        <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
-                      </TouchableOpacity>
+                      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
+                        <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => tomarFotoHoro('fin', 'galeria')} disabled={horoPhotoBusy === 'fin'} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>🖼️ Galería</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {ci ? <FotosHorometroExtra machineryId={ci.id} uid={uid} userName={fullName} /> : null}
                       <TouchableOpacity onPress={ponerFinalTardio} disabled={finTardiaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: finTardiaBusy ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{finTardiaBusy ? 'Guardando…' : '⚙️ PONER HORÓMETRO FINAL'}</Text>
                       </TouchableOpacity>
@@ -3722,9 +3812,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Máximo para declarar sin alerta: {iniShift === 'night' ? '9:00pm' : '9:00am'}. Si se declara tarde se avisa a los administradores (la jornada igual inicia).</Text>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? '' : ' (se precarga con el final de la jornada anterior)'}</Text>
                   <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
-                  <TouchableOpacity onPress={() => tomarFotoHoro('ini')} disabled={horoPhotoBusy === 'ini'} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoIniPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
-                    <Text style={{ color: horoIniPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'ini' ? 'Subiendo…' : horoIniPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                    <TouchableOpacity onPress={() => tomarFotoHoro('ini')} disabled={horoPhotoBusy === 'ini'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoIniPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ color: horoIniPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'ini' ? 'Subiendo…' : horoIniPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => tomarFotoHoro('ini', 'galeria')} disabled={horoPhotoBusy === 'ini'} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ color: colors.text, fontWeight: '700' }}>🖼️ Galería</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {ci ? <FotosHorometroExtra machineryId={ci.id} uid={uid} userName={fullName} /> : null}
                   {/* ⚙️ INICIO CONSCIENTE: avisó y el campo sigue vacío → que se note lo que va a pasar. */}
                   {iniciarSinHoro && !(horoIni || '').trim() ? (
                     <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>

@@ -3432,6 +3432,21 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   fotos — salen solo con ellas. Es el mismo filtro de Jornada y Ubicaciones, ahora con botón
   visible en los tres.
 
+- **📎 Fotos adicionales del horómetro, con histórico (26/09/2026 noche).** Pedido del cliente:
+  que el inspector pueda subir la foto del horómetro **desde la galería** y **más de una**, y que
+  quede el **histórico de quién subió y cuándo**.
+  - En el teléfono del inspector, junto a la foto del horómetro de inicio y de cierre, ahora hay
+    **botón de 🖼️ Galería** (además de la cámara) y un bloque **«📎 Fotos adicionales del
+    horómetro»**: 📷 Tomar foto / 🖼️ Subir de galería, cuantas veces haga falta. Cada foto queda
+    en el histórico **con el nombre de quien la subió y la hora**, y el bloque lista las de la
+    jornada en curso.
+  - **El histórico no se puede editar ni borrar** — ni siquiera un administrador desde la app: una
+    foto mal subida se tapa subiendo la buena, y las dos quedan con su quién y su cuándo. Eso es
+    lo que lo hace servir de prueba.
+  - **En el reporte de horómetros**, con el check de fotos encendido, las adicionales salen en la
+    galería de su máquina, detrás de la Inicial y la Final de su jornada, marcadas «Adicional»
+    con su hora de subida y su autor. Sin adicionales, el papel sale idéntico al de antes.
+
 **Qué NO hace todavía (fases siguientes, con decisiones del cliente):** pagar por horómetro,
 corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del
 aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
