@@ -633,31 +633,66 @@ const horaCaracas = (iso: string | null | undefined): string => {
   return `${h24 % 12 === 0 ? 12 : h24 % 12}:${mm} ${h24 < 12 ? 'a. m.' : 'p. m.'}`;
 };
 
+/**
+ * Una foto ADICIONAL del histórico (tabla `horometro_fotos`, 26-sep-2026): el
+ * inspector puede subir cuantas quiera, de cámara o de galería, y cada una
+ * guarda quién y cuándo. Tipo estructural propio: este archivo no importa nada.
+ */
+export type FotoExtraComparativo = {
+  machineryId: string;
+  roundDate: string;
+  shift: Turno;
+  url: string;
+  subidaAt: string | null;
+  /** El nombre CONGELADO al subir (manda sobre `nombreDe`: es lo que se firmó). */
+  subidaPorNombre: string | null;
+};
+
 export function seccionFotosComparativo(
   lecturas: readonly LecturaTrabajo[],
   fichaDe: (machineryId: string) => { code: string; empresa: string; placa?: string } | undefined,
   o: OpcionesComparativo = OPCIONES_COMPARATIVO_COMPLETO,
   nombreDe?: (userId: string) => string | undefined,
+  extras: readonly FotoExtraComparativo[] = [],
 ): string {
-  type Foto = { mkey: string; titulo: string; fecha: string; code: string; shift: Turno; etiqueta: string; valor: number | null; url: string; hora: string; autor: string };
+  type Foto = { mkey: string; titulo: string; fecha: string; code: string; shift: Turno; etiqueta: string; valor: number | null; url: string; hora: string; autor: string; orden: number; sub: string };
   const fotos: Foto[] = [];
+  const tituloDe = (m: { code: string; empresa: string; placa?: string }) => {
+    const placa = limpio(m.placa);
+    // El encabezado de la máquina respeta las pastillas: lo oculto no deja rastro.
+    return esc(limpio(m.code)) + (o.sinPlaca || !placa ? '' : ' · ' + esc(placa)) + (o.sinEmpresa ? '' : ' · ' + esc(limpio(m.empresa)));
+  };
   for (const l of lecturas ?? []) {
     if (!l) continue;
     const m = fichaDe(l.machineryId);
     if (!m) continue; // fuera del filtro del reporte: su foto tampoco sale
     const fecha = String(l.roundDate ?? '').slice(0, 10);
-    const placa = limpio(m.placa);
-    // El encabezado de la máquina respeta las pastillas: lo oculto no deja rastro.
-    const titulo = esc(limpio(m.code)) + (o.sinPlaca || !placa ? '' : ' · ' + esc(placa)) + (o.sinEmpresa ? '' : ' · ' + esc(limpio(m.empresa)));
+    const titulo = tituloDe(m);
     const quien = (id?: string | null) => limpio(nombreDe?.(String(id ?? '')) ?? '');
-    if (l.fotoInicialUrl) fotos.push({ mkey: l.machineryId, titulo, fecha, code: limpio(m.code), shift: l.shift, etiqueta: 'Inicial', valor: l.inicial, url: l.fotoInicialUrl, hora: horaCaracas(l.createdAt), autor: quien(l.createdBy) });
-    if (l.fotoFinalUrl) fotos.push({ mkey: l.machineryId, titulo, fecha, code: limpio(m.code), shift: l.shift, etiqueta: 'Final', valor: l.final, url: l.fotoFinalUrl, hora: horaCaracas(l.updatedAt ?? l.createdAt), autor: quien(l.updatedBy ?? l.createdBy) });
+    if (l.fotoInicialUrl) fotos.push({ mkey: l.machineryId, titulo, fecha, code: limpio(m.code), shift: l.shift, etiqueta: 'Inicial', valor: l.inicial, url: l.fotoInicialUrl, hora: horaCaracas(l.createdAt), autor: quien(l.createdBy), orden: 0, sub: '' });
+    if (l.fotoFinalUrl) fotos.push({ mkey: l.machineryId, titulo, fecha, code: limpio(m.code), shift: l.shift, etiqueta: 'Final', valor: l.final, url: l.fotoFinalUrl, hora: horaCaracas(l.updatedAt ?? l.createdAt), autor: quien(l.updatedBy ?? l.createdBy), orden: 1, sub: '' });
   }
-  // Por MÁQUINA y, dentro de cada una: fecha → día antes que noche → Inicial antes que Final.
+  // Las ADICIONALES del histórico, detrás de Inicial/Final de su misma jornada
+  // y turno, en el orden en que se subieron. Mismo filtro que las lecturas: una
+  // máquina fuera del reporte tampoco enseña sus adicionales.
+  for (const f of extras ?? []) {
+    if (!f || !f.url) continue;
+    const m = fichaDe(f.machineryId);
+    if (!m) continue;
+    fotos.push({
+      mkey: f.machineryId, titulo: tituloDe(m), fecha: String(f.roundDate ?? '').slice(0, 10),
+      code: limpio(m.code), shift: f.shift, etiqueta: 'Adicional', valor: null, url: f.url,
+      hora: horaCaracas(f.subidaAt), autor: limpio(f.subidaPorNombre), orden: 2, sub: String(f.subidaAt ?? ''),
+    });
+  }
+  // Por MÁQUINA y, dentro de cada una: fecha → día antes que noche → Inicial,
+  // Final y después las adicionales por hora de subida. Sin adicionales, el
+  // orden es EXACTAMENTE el de siempre (amarrado por test byte a byte).
   fotos.sort((a, b) => cmp(a.code, b.code) || cmp(a.titulo, b.titulo)
     || (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)
     || (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1)
-    || (a.etiqueta === b.etiqueta ? 0 : a.etiqueta === 'Inicial' ? -1 : 1));
+    || (a.orden - b.orden)
+    || cmp(a.sub, b.sub));
   let html = `<div class="hc"><h3 class="sect">📷 Fotos de los horómetros <span>${fotos.length} foto(s), tal como las subió el inspector</span></h3>`;
   if (fotos.length === 0) return html + `<p class="nota">Sin fotos en el rango.</p></div>`;
   const porMaquina = new Map<string, Foto[]>();

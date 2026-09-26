@@ -443,6 +443,60 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('manual (app) cuenta el buscador', /BUSCADOR DE MÁQUINAS EN EL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
+// ── 📎 LAS FOTOS ADICIONALES, CON HISTÓRICO (26-sep-2026 noche) ──────────────
+// Pedido del cliente: subir desde la GALERÍA, MÁS DE UNA, y que quede el
+// histórico de quién subió cada una y cuándo.
+{
+  const C = H.OPCIONES_COMPARATIVO_COMPLETO;
+  const ficha = (id) => (id === 'm1' ? { code: 'RETRO-01', empresa: 'ACME CA', placa: 'A7X-123' } : undefined);
+  const lecFoto = { ...L('m1', '2026-09-02', 'day', 100, 108), fotoInicialUrl: 'https://x/ini.jpg', fotoFinalUrl: 'https://x/fin.jpg', createdAt: '2026-09-02T11:12:00Z', createdBy: 'u1', updatedAt: '2026-09-02T22:30:00Z', updatedBy: 'u2' };
+  const nombreDe = (id) => (id === 'u1' ? 'Frank Narros' : id === 'u2' ? 'María P.' : undefined);
+  const extras = [
+    // A propósito en desorden: la sección las ordena por hora de subida.
+    { machineryId: 'm1', roundDate: '2026-09-02', shift: 'day', url: 'https://x/ad2.jpg', subidaAt: '2026-09-02T18:05:00Z', subidaPorNombre: 'Pedro L.' },
+    { machineryId: 'm1', roundDate: '2026-09-02', shift: 'day', url: 'https://x/ad1.jpg', subidaAt: '2026-09-02T12:40:00Z', subidaPorNombre: 'Frank Narros' },
+  ];
+  const g = H.seccionFotosComparativo([lecFoto], ficha, C, nombreDe, extras);
+  ok('⭐ las adicionales entran a la galeria de SU maquina', (g.match(/<figure>/g) || []).length === 4
+    && /RETRO-01 · A7X-123 · ACME CA <span>4 foto\(s\)/.test(g));
+  ok('salen DETRAS de Inicial y Final de su jornada',
+    g.indexOf('Inicial 100') < g.indexOf('Final 108') && g.indexOf('Final 108') < g.indexOf('ad1.jpg'));
+  ok('...y entre ellas, por hora de subida (el orden ES el historico)', g.indexOf('ad1.jpg') < g.indexOf('ad2.jpg'));
+  ok('cada adicional dice quien y cuando (nombre CONGELADO al subir)',
+    /Adicional · subida 8:40 a\. m\. · Frank Narros/.test(g) && /Adicional · subida 2:05 p\. m\. · Pedro L\./.test(g));
+  ok('⭐ SIN adicionales, el papel es BYTE A BYTE el de siempre',
+    H.seccionFotosComparativo([lecFoto], ficha, C, nombreDe) === H.seccionFotosComparativo([lecFoto], ficha, C, nombreDe, []));
+  ok('adicional de maquina fuera del filtro: tampoco sale',
+    (H.seccionFotosComparativo([], (id) => undefined, C, undefined, extras).match(/<figure>/g) || []).length === 0);
+  ok('las pastillas tambien mandan sobre el encabezado con adicionales',
+    !/ACME/.test(H.seccionFotosComparativo([], ficha, { ...C, sinEmpresa: true }, undefined, extras)));
+
+  // El histórico en la base y en el teléfono del inspector.
+  const db = leer('src/lib/horometroFotosDb.ts');
+  ok('la libreria del historico existe: agregar, listar el dia y cargar el rango',
+    /export async function agregarFotoHorometro/.test(db) && /export async function listarFotosHorometroDia/.test(db)
+    && /export async function cargarFotosHorometroRango/.test(db));
+  ok('⭐ el historico NO se edita ni se borra desde la app', !/\.update\(/.test(db) && !/\.delete\(/.test(db));
+  ok('el nombre va CONGELADO al subir', /subida_por_nombre: p\.userName/.test(db));
+  ok('un rechazo por permisos SE DICE, no se da por guardado', /No se guardó el registro de la foto/.test(db));
+
+  const sup = leer('src/screens/SupervisorScreen.tsx');
+  ok('el inspector tiene boton EXPLICITO de galeria en la foto del horometro',
+    (sup.match(/tomarFotoHoro\('(ini|fin)', 'galeria'\)/g) || []).length >= 3 && /🖼️ Galería/.test(sup));
+  ok('el bloque de adicionales existe y se monta en inicio y cierre',
+    /function FotosHorometroExtra\(/.test(sup) && (sup.match(/<FotosHorometroExtra machineryId=\{ci\.id\}/g) || []).length === 3);
+  ok('cada subida guarda quien y cuando, y la lista lo enseña',
+    /agregarFotoHorometro\(\{ machineryId, roundDate, shift: turno, url: r\.url, userId: uid, userName/.test(sup)
+    && /subida \{caracasClock\(f\.subidaAt\)\}/.test(sup));
+  ok('camara Y galeria, mas de una vez', /📷 Tomar foto/.test(sup) && /🖼️ Subir de galería/.test(sup));
+
+  const rep3 = leer('src/screens/ReportsScreen.tsx');
+  ok('el reporte carga las adicionales del rango (solo con el check)',
+    /const extras = !horoFotos \? \[\] : await cargarFotosHorometroRango\(from, to\)\.catch\(\(\) => \[\]\)/.test(rep3));
+  ok('manual (md) cuenta las adicionales', /📎 Fotos adicionales del horómetro, con histórico \(26\/09\/2026 noche\)/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) tambien', /📎 FOTOS ADICIONALES DEL HORÓMETRO, CON HISTÓRICO/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🕒 EL INICIO, EL FIN Y LA CORRECCIÓN MANUAL EN LOS REPORTES — 26-sep-2026.
