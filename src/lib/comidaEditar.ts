@@ -24,6 +24,7 @@
 //    NOTA, que es lo que el cliente pidió.
 //
 // Sin React ni Supabase: se prueba sola (scripts/test-comida-editar.mjs).
+import { mensajeDeErrorInactivo } from './empleadoEstado';
 
 /** Lo que se puede corregir de una entrega por EMPRESA. */
 export type CambioEmpresa = {
@@ -300,6 +301,10 @@ export function mensajeDeError(error: { code?: unknown; message?: unknown } | nu
   if (error) {
     const code = limpio(error.code);
     const msg = limpio(error.message);
+    // 🚫 Empleado deshabilitado en Nómina (26-sep-2026). Va PRIMERO: el mensaje
+    //    del trigger es el que tiene que leerse, no «La base no acepta ese valor».
+    const inactivo = mensajeDeErrorInactivo(msg);
+    if (inactivo) return inactivo;
     if (code === '23505' || /duplicate|unique/i.test(msg)) {
       return 'Esa persona ya tiene esa comida ese día. Corrige la entrega que ya está en vez de agregar otra.';
     }

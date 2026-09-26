@@ -29,15 +29,25 @@ const require = createRequire(path.join(ROOT, 'package.json'));
 const ts = require('typescript');
 const Module = require('module');
 
+// ⚠️ RESUELVE LOS `import` RELATIVOS. Este cargador no lo hacía, y el día que
+//    `comidaEditar.ts` importó su primera regla de otro archivo
+//    (`./empleadoEstado`) la suite entera reventó con MODULE_NOT_FOUND. Es el
+//    mismo cargador que usan las demás suites; ahora también éste.
+const cache = new Map();
 function loadTs(rel) {
-  const abs = path.join(ROOT, rel);
+  const abs = path.isAbsolute(rel) ? rel : path.join(ROOT, rel);
+  if (cache.has(abs)) return cache.get(abs);
   const out = ts.transpileModule(fs.readFileSync(abs, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, esModuleInterop: true },
   }).outputText;
   const m = new Module(abs);
   m.filename = abs;
   m.paths = Module._nodeModulePaths(path.dirname(abs));
+  cache.set(abs, m.exports);
+  const orig = m.require.bind(m);
+  m.require = (id) => (id.startsWith('.') ? loadTs(path.join(path.dirname(abs), id) + '.ts') : orig(id));
   m._compile(out, m.filename);
+  cache.set(abs, m.exports);
   return m.exports;
 }
 

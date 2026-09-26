@@ -2778,6 +2778,48 @@ pestaña, **"👤 Cuentas"**, con cada **empresa** y cada **departamento de la n
 - **Lunch:** desde el 15/09/2026 tiene **el mismo precio del desayuno** hasta que se defina el suyo en
   "💲 Precios".
 
+
+#### 🚫 Empleado inactivo no recibe comida (26/09/2026)
+
+Pedido textual: *"cuando se marque en nomina un empleado como deshabilitado o inactivo, no permitas
+que desde comidas o distribucion pueda recibir comidas. Que al escanear el carnet salga un msj que
+diga EMPLEADO INACTIVO"*.
+*(Requiere correr `supabase/comida_empleado_inactivo.sql`.)*
+
+Al escanear el carnet de alguien marcado **Inactivo** o **Suspendido** en Nómina, la pantalla no le
+abre la ficha ni le registra nada: sale el cartel
+
+> **🚫 EMPLEADO INACTIVO · NOMBRE — no puede recibir comida.** Así está marcado en Nómina; si es un
+> error, se corrige allá.
+
+Vale igual si se busca **por cédula**, si se usa el **torniquete** (entrega rápida) y si se intenta
+agregar la entrega desde el **editor de 🍲 Comidas** en cualquier día.
+
+| Estado en Nómina | ¿Recibe comida? |
+|---|---|
+| **Activo** | ✅ sí |
+| **Inactivo** | 🚫 no |
+| **Suspendido** | 🚫 no |
+| **Otro** | ✅ **sí** |
+
+> **⚠️ Por qué "Otro" sí come.** En Nómina **"Otro" es un grupo aparte** — tiene su propia pastilla
+> y su propio conteo, y no se cuenta como inactivo. El pedido nombró *"deshabilitado o inactivo"*,
+> así que trancar también a "Otro" dejaría sin comer a **42 personas** que la empresa nunca marcó
+> como salida. Si quieres que "Otro" tampoco reciba, se cambia en un minuto.
+
+> **⚠️ Esto no toca nada de lo ya entregado.** Lo que se sirvió, servido está: las **4.343 entregas**
+> registradas siguen igual y los reportes y los cobros las siguen mostrando. Lo único que cambia es
+> que de ahora en adelante no se registra una comida nueva.
+
+> **📊 A cuánta gente afecta.** Hay **136 empleados** marcados inactivos o suspendidos. De ellos,
+> **65 comieron en los últimos 30 días** (515 comidas), algunas **el mismo día** en que se activó
+> este candado. A partir de ahora esas 65 personas **no pueden retirar comida**. Si alguna de ellas
+> sí trabaja, **lo que hay que corregir es su estado en Nómina**, no el candado.
+
+**El candado vive en la base de datos**, no solo en la pantalla: la comida se registra desde dos
+sitios distintos (el mostrador de Cocina y el editor de Comidas), y una regla escrita en una sola
+pantalla se olvida en la otra. Un **contacto de cocina** no es de nómina, así que a él no le aplica.
+
 ### 4.8d. Inventario (materiales, requerimiento y traslados)
 Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
