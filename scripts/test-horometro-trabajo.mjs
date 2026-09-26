@@ -408,12 +408,17 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
 {
   const C = H.OPCIONES_COMPARATIVO_COMPLETO;
   const ficha = (id) => (id === 'm1' ? { code: 'RETRO-01', empresa: 'ACME CA', placa: 'A7X-123' } : undefined);
-  const lecFoto = { ...L('m1', '2026-09-02', 'day', 100, 108), fotoInicialUrl: 'https://x/ini.jpg', fotoFinalUrl: 'https://x/fin.jpg' };
-  const g = H.seccionFotosComparativo([lecFoto, L('m1', '2026-09-01', 'night', 90, 100)], ficha, C);
+  const lecFoto = { ...L('m1', '2026-09-02', 'day', 100, 108), fotoInicialUrl: 'https://x/ini.jpg', fotoFinalUrl: 'https://x/fin.jpg', createdAt: '2026-09-02T11:12:00Z', createdBy: 'u1', updatedAt: '2026-09-02T22:30:00Z', updatedBy: 'u2' };
+  const nombreDe = (id) => (id === 'u1' ? 'Frank Narros' : id === 'u2' ? 'María P.' : undefined);
+  const g = H.seccionFotosComparativo([lecFoto, L('m1', '2026-09-01', 'night', 90, 100)], ficha, C, nombreDe);
   ok('cada foto sale con su etiqueta y su numero', /Inicial 100/.test(g) && /Final 108/.test(g));
   ok('la imagen apunta a la URL guardada', /<img src="https:\/\/x\/ini\.jpg"\/>/.test(g));
   ok('lectura sin foto no pinta figuras de mas', (g.match(/<figure>/g) || []).length === 2);
-  ok('agrupadas por dia en dd/mm/aaaa', /02\/09\/2026 <span>2 foto\(s\)/.test(g));
+  ok('organizadas POR MAQUINARIA (encabezado con su total)', /<h3 class="sect">RETRO-01 · A7X-123 · ACME CA <span>2 foto\(s\)/.test(g));
+  ok('cada foto dice su fecha y su turno', /02\/09\/2026 · ☀️ día · Inicial 100/.test(g));
+  ok('y la hora y el autor de la subida', /Inicial 100 · subida 7:12 a\. m\. · Frank Narros/.test(g) && /Final 108 · subida 6:30 p\. m\. · María P\./.test(g));
+  ok('Inicial sale ANTES que Final', g.indexOf('Inicial 100') < g.indexOf('Final 108'));
+  ok('sin quien ni cuando, la foto no inventa nada', !/subida/.test(H.seccionFotosComparativo([{ ...lecFoto, createdAt: null, updatedAt: null }], ficha, C)));
   ok('maquina fuera del filtro: su foto tampoco sale', (H.seccionFotosComparativo([{ ...lecFoto, machineryId: 'zz' }], ficha, C).match(/<figure>/g) || []).length === 0);
   ok('sin empresa: la foto no la nombra', !/ACME/.test(H.seccionFotosComparativo([lecFoto], ficha, { ...C, sinEmpresa: true })));
   ok('la foto dice la placa/serial (26-sep: media flota comparte codigo)', /RETRO-01 · A7X-123 · ACME CA/.test(g));
