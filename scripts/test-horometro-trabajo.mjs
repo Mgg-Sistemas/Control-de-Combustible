@@ -404,5 +404,28 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('manual (app) cuenta las pastillas del reporte de horómetros', /PASTILLAS DEL REPORTE DE HORÓMETROS/.test(leer('src/screens/ManualScreen.tsx')));
 }
 
+// ── LAS FOTOS DE LOS TABLEROS (26-sep-2026): un check, nunca predefinido ─────
+{
+  const C = H.OPCIONES_COMPARATIVO_COMPLETO;
+  const ficha = (id) => (id === 'm1' ? { code: 'RETRO-01', empresa: 'ACME CA' } : undefined);
+  const lecFoto = { ...L('m1', '2026-09-02', 'day', 100, 108), fotoInicialUrl: 'https://x/ini.jpg', fotoFinalUrl: 'https://x/fin.jpg' };
+  const g = H.seccionFotosComparativo([lecFoto, L('m1', '2026-09-01', 'night', 90, 100)], ficha, C);
+  ok('cada foto sale con su etiqueta y su numero', /Inicial 100/.test(g) && /Final 108/.test(g));
+  ok('la imagen apunta a la URL guardada', /<img src="https:\/\/x\/ini\.jpg"\/>/.test(g));
+  ok('lectura sin foto no pinta figuras de mas', (g.match(/<figure>/g) || []).length === 2);
+  ok('agrupadas por dia en dd/mm/aaaa', /02\/09\/2026 <span>2 foto\(s\)/.test(g));
+  ok('maquina fuera del filtro: su foto tampoco sale', (H.seccionFotosComparativo([{ ...lecFoto, machineryId: 'zz' }], ficha, C).match(/<figure>/g) || []).length === 0);
+  ok('sin empresa: la foto no la nombra', !/ACME/.test(H.seccionFotosComparativo([lecFoto], ficha, { ...C, sinEmpresa: true })));
+  ok('sin fotos lo dice y no revienta', /Sin fotos en el rango/.test(H.seccionFotosComparativo([], ficha, C)));
+
+  const rep2 = leer('src/screens/ReportsScreen.tsx');
+  ok('el check arranca APAGADO (nunca predefinido)', /const \[horoFotos, setHoroFotos\] = useState\(false\)/.test(rep2));
+  ok('solo con el check el papel trae la galeria', /const fotos = !horoFotos \? '' : seccionFotosComparativo\(/.test(rep2));
+  ok('el nombre del archivo lo cuenta', /\$\{horoFotos \? ' - con fotos' : ''\}/.test(rep2));
+  ok('la carga de lecturas trae las dos fotos', /foto_inicial_url, foto_final_url/.test(leer('src/lib/horometroTrabajoDb.ts')));
+  ok('manual (md) cuenta el check de fotos', /Traer las fotos de los horómetros/.test(leer('docs/MANUAL-USUARIO.md')));
+  ok('manual (app) cuenta el check de fotos', /FOTOS DE LOS HORÓMETROS EN EL REPORTE/.test(leer('src/screens/ManualScreen.tsx')));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-horometro-trabajo · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

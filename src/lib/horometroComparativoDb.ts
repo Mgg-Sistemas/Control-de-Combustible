@@ -15,7 +15,8 @@ export type RondaComparativa = {
   marca: string; modelo: string; placa: string; fecha: string; ronda: RondaHoras;
 };
 
-export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[] };
+export type FichaComparativo = { code: string; empresa: string; clasificacion: string; marca: string; modelo: string; placa: string };
+export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[]; maquinas: Map<string, FichaComparativo> };
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const num = (v: unknown) => Number(v) || 0;
@@ -26,7 +27,7 @@ export async function cargarDatosComparativo(desde: string, hasta: string): Prom
     selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q: any) => q.gte('round_date', desde).lte('round_date', hasta)),
     cargarLecturasHorometro(desde, hasta),
   ]);
-  const porMaq = new Map<string, { code: string; empresa: string; clasificacion: string; marca: string; modelo: string; placa: string }>();
+  const porMaq = new Map<string, FichaComparativo>();
   for (const m of maqs as any[]) {
     porMaq.set(String(m.id), {
       code: limpio(m.code) || '—', empresa: limpio(m.company?.name) || 'Sin empresa', clasificacion: limpio(m.clasificacion) || 'Sin clasificación',
@@ -46,5 +47,7 @@ export async function cargarDatosComparativo(desde: string, hasta: string): Prom
     if (!cur) porClave.set(k, { machineryId, ...m, fecha, ronda });
     else { cur.ronda.dia = Math.max(cur.ronda.dia, ronda.dia); cur.ronda.noche = Math.max(cur.ronda.noche, ronda.noche); cur.ronda.parada = Math.max(cur.ronda.parada, ronda.parada); cur.ronda.extras = Math.max(cur.ronda.extras, ronda.extras); }
   }
-  return { rondas: Array.from(porClave.values()), lecturas };
+  // `maquinas` viaja completo (26-sep-2026): las FOTOS del reporte filtran lecturas
+  // por empresa/clasificación aunque la máquina no tenga ronda ese día.
+  return { rondas: Array.from(porClave.values()), lecturas, maquinas: porMaq };
 }
