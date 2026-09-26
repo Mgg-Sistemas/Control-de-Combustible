@@ -209,8 +209,15 @@ eq('el interruptor existe y entra apagado', C.OPCIONES_POR_DEFECTO.peso, false);
 // ── 12) LA PANTALLA: obligatorio, congelado y limpio ────────────────────────
 const scr = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
 ok('⭐ valida el peso ANTES de tocar la red', scr.indexOf('motivoPesoInvalido({ brutoKg, taraKg, fotoLista: !!fotoPeso })') < scr.indexOf("if (!isOnline())"));
+// Desde la exención de romana (26-sep tarde), el payload dice explícitamente
+// que un camión exento manda nulls — y el que no, sus valores congelados.
 ok('el payload congela bruto, tara, marca de manual y la foto cruda',
-  /pesoBrutoKg: brutoKg,\s*pesoTaraKg: taraKg,\s*taraManual: usaTaraManual,\s*taraManualNombre: usaTaraManual \? listeroName : null,\s*pesoFotoDataUrl: fotoPeso,/.test(scr));
+  /pesoBrutoKg: exentoDeRomana \? null : brutoKg,\s*pesoTaraKg: exentoDeRomana \? null : taraKg,\s*taraManual: usaTaraManual,\s*taraManualNombre: usaTaraManual \? listeroName : null,\s*pesoFotoDataUrl: exentoDeRomana \? null : fotoPeso,/.test(scr));
+ok('🚫 exento: la tarjeta del peso NI SE PINTA y la validación se salta',
+  /\{!camionExentoRomana \? \(/.test(scr) && /if \(!exentoDeRomana\) \{\s*const motivoPeso = motivoPesoInvalido/.test(scr));
+ok('🚫 el interruptor vive en la lista de taras y PREGUNTA antes de marcar',
+  /toggleExentoRomana/.test(scr) && /No pasa por romana · tocar para que vuelva a pasar/.test(scr)
+  && /¿Lo marcas\?/.test(scr));
 ok('cambiar de camión limpia el peso (dos sitios: buscador y fuera de catálogo)',
   (scr.match(/limpiarPeso\(\);/g) || []).length >= 2);
 ok('la cola de pantalla también enseña el peso (queued y stuck)',
