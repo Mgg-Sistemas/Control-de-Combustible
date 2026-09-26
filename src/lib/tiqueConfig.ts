@@ -19,7 +19,9 @@ export type PapelTique = 'rollo80' | 'rollo58' | 'carta1' | 'carta2' | 'carta4' 
 export type ClaveCampo =
   | 'folio' | 'fecha' | 'hora' | 'placa' | 'empresa' | 'cdt'
   | 'jornada' | 'turno' | 'codigo' | 'marcaModelo' | 'serial'
-  | 'chofer' | 'listero' | 'm3' | 'estado' | 'nota';
+  | 'chofer' | 'listero' | 'm3'
+  | 'pesoBruto' | 'pesoTara' | 'pesoNeto'
+  | 'estado' | 'nota';
 
 export type ClaveLogo = 'sos' | 'goldenTouch' | 'renace' | 'bcv';
 
@@ -68,6 +70,11 @@ export const CAMPOS_TIQUE: { k: ClaveCampo; label: string; corto: string; ayuda?
   { k: 'chofer',      label: '👤 Chofer',           corto: 'Chofer' },
   { k: 'listero',     label: '📝 Listero',          corto: 'Listero' },
   { k: 'm3',          label: '📐 Metros cúbicos',   corto: 'Volumen', ayuda: 'Sale de lo que se mida en Cubicaje. Hoy es un promedio del día, no una medición de ese viaje.' },
+  // Los tres renglones del peso de romana (26-sep-2026), con los mismos nombres
+  // del papel de muestra que mandó la encargada.
+  { k: 'pesoBruto',   label: '⚖️ Peso entrada (bruto)', corto: 'P. entrada', ayuda: 'El peso que tecleó el listero en la romana del CDT.' },
+  { k: 'pesoTara',    label: '⚖️ Peso salida (tara)',   corto: 'P. salida',  ayuda: 'La tara del camión, congelada al registrar ese viaje.' },
+  { k: 'pesoNeto',    label: '⚖️ Peso a pagar (neto)',  corto: 'P. a pagar', ayuda: 'Bruto menos tara. Lo calcula la base de datos, nunca el teléfono. Los viajes anteriores al peso salen con raya.' },
   { k: 'estado',      label: '⚙️ Estado del camión', corto: 'Estado' },
   { k: 'nota',        label: '🗒️ Nota',             corto: 'Nota' },
 ];
@@ -93,7 +100,11 @@ export const CONFIG_POR_DEFECTO: TiqueConfig = {
   campos: {
     folio: true, fecha: true, hora: true, placa: true, empresa: true, cdt: true,
     jornada: false, turno: false, codigo: false, marcaModelo: false, serial: false,
-    chofer: false, listero: false, m3: false, estado: false, nota: false,
+    chofer: false, listero: false, m3: false,
+    // Apagados de fábrica como TODO lo nuevo (regla de la casa). El pedido del
+    // 26-sep es que salgan: se encienden los tres checks en la configuración.
+    pesoBruto: false, pesoTara: false, pesoNeto: false,
+    estado: false, nota: false,
   },
   logos: { sos: true, goldenTouch: true, renace: false, bcv: false },
   papel: 'carta1',
