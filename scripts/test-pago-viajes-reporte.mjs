@@ -124,9 +124,11 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
 
 // ── 4) LAS PASTILLAS: OCULTAR NO ES FILTRAR ──────────────────────────────────
 {
-  eq('las diez pastillas, en el orden del Conteo de equipos', R.PASTILLAS_PAGO.map((p) => p.chip), [
+  // Once desde el 26-sep-2026: se sumó «Cantidad por tipo de viaje» (las
+  // tarifas con nombre — Oeste → Este y las que vengan).
+  eq('las once pastillas, en el orden del Conteo de equipos', R.PASTILLAS_PAGO.map((p) => p.chip), [
     '🚫 Marca', '🚫 Modelo', '🚫 Serial / Placa', '🚫 Encargado', '🚫 Metros cúbicos', '🚫 Nombre de empresas',
-    '🚫 Listado por equipo', '🚫 Cantidad por tipo', '🚫 Cantidad por zona', '🚫 Alcance del informe']);
+    '🚫 Listado por equipo', '🚫 Cantidad por tipo', '🚫 Cantidad por zona', '🚫 Cantidad por tipo de viaje', '🚫 Alcance del informe']);
   ok('cada pastilla es una opción que existe', R.PASTILLAS_PAGO.every((p) => p.key in R.OPCIONES_PAGO_COMPLETO));
 
   // ⭐ LO NUEVO ENTRA APAGADO: sin tocar nada, las columnas son las de siempre.

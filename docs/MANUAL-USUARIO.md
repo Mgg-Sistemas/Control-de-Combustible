@@ -5133,6 +5133,44 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > - ⚠️ La **carga manual de la oficina** (cuadrar días pasados) sigue entrando **sin peso**: nadie
 >   estaba mirando la romana en ese momento y el sistema no lo inventa.
 
+> **🚫 Camiones que NO pasan por romana (26/09/2026).** Para los camiones específicos a los que no
+> se les pesa: en «⚙️ Configuración → ⚖️ Tara de romana por camión», cada camión tiene su
+> interruptor **⚖️ Pasa por romana / 🚫 No pasa por romana** (solo control total; pregunta antes de
+> marcar y queda anotado quién lo marcó).
+>
+> - A un camión marcado «no pasa», al listero **ni le aparece** la tarjeta del peso: registra con
+>   un toque, como antes del cambio. Sus viajes entran **sin peso**, salen con **raya** en reportes
+>   y ticket (nunca un cero) y **no suman kilos** de nadie.
+> - Al desmarcarlo, los viajes **nuevos** vuelven a exigir peso y foto; los viejos quedan como
+>   fueron. La tara guardada **no se borra** al marcar la exención: queda esperando por si vuelve.
+> - Los camiones **fuera de catálogo** no se pueden marcar (no tienen ficha): a esos el peso se les
+>   exige siempre — son justo los menos controlados.
+
+> **🧾 Tipos de viaje con nombre: la tarifa Oeste → Este y las que vengan (26/09/2026).** Nueva
+> metodología de cobro: además de los viajes del Este y del Oeste, hay viajes **cruzados** (de
+> Oeste a Este o viceversa) con su propia tarifa — y mañana pueden inventarse otras. Para no tocar
+> código cada vez, existe el **catálogo de tipos de viaje**:
+>
+> - **Crear un tipo es un formulario** («🧾 Tipos de viaje», en el panel de información, solo
+>   control total): nombre libre + tarifa por viaje. Ya están creados **«Oeste → Este»** y
+>   **«Este → Oeste»** — solo falta ponerles el precio. La tarifa se puede dejar vacía y ponerla
+>   después; **apagar** un tipo lo esconde del listero sin tocar los viajes que ya lo llevan.
+> - **El listero marca el tipo al registrar**: si hay tipos creados, junto al peso salen las
+>   pastillas «🚚 Normal» (viene marcada) y una por tipo. El toque extra es SOLO para el viaje
+>   especial; el viaje de siempre no cambia en nada.
+> - **El tipo y su tarifa se CONGELAN en el viaje** al registrarlo: cambiar el precio del tipo la
+>   semana que viene no toca lo ya registrado (misma regla que la placa y la tara).
+> - **En el pago, la tarifa del tipo MANDA** sobre la tarifa de zona. Un viaje con tipo **sin
+>   precio** sale visible como «Tipo de viaje sin tarifa» — nunca se paga con la tarifa de zona
+>   por adivinanza; se arregla poniéndole precio al tipo o corrigiendo el viaje. Los viajes SIN
+>   tipo se pagan exactamente como siempre: **nada de lo ya pagado cambia**.
+> - **En la tarjeta y el PDF del pago**: cada viaje cruzado dice su tipo y su tarifa; el listado
+>   por equipo separa el renglón del cruce (la columna Zona dice «Oeste → Este»); y hay un cuadro
+>   nuevo «Cantidad por tipo de viaje» con su pastilla para ocultarlo (entra oculto, como todo lo
+>   nuevo).
+> - **Corregir el tipo de un viaje** (si el listero marcó mal): ✏️ Editar, pastillas de tipo, solo
+>   control total; congela la tarifa de HOY del tipo y queda en Auditoría.
+
 > **🖨️ Imprimir el ticket y entregarlo (12/09/2026).** Ya se puede sacar el papel. En cada viaje que
 > tenga número aparece **🖨️ Imprimir ticket**, al lado de Editar y Borrar. Se abre la vista previa,
 > tocas **Imprimir** y sale el papel para dárselo al camionero.

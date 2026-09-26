@@ -87,16 +87,23 @@ import {
   listTaras,
   setTaraCamion,
   quitarTaraCamion,
+  setExentoRomana,
   subirFotoRomana,
   faltaCorrerSqlDePeso,
+  listTiposViaje,
+  crearTipoViaje,
+  editarTipoViaje,
+  setActivoTipoViaje,
   type ListeroConRol,
   type TaraCamion,
+  type TipoViaje,
 } from '../lib/camionViajes';
 import {
   pesoTecleadoAKg, kgTexto, kgTextoOpcional, netoDe, motivoPesoInvalido,
   avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
 } from '../lib/viajesPeso';
 import { capturarFotoLocal } from '../lib/photo';
+import { leerNumero } from '../lib/numeros';
 import {
   normalizarHora,
   isoDeJornadaHora,
@@ -699,6 +706,26 @@ export default function ViajesCamionesScreen() {
     return () => { vivo = false; };
   }, [tarasRecarga]);
 
+  // ── TIPOS DE VIAJE (26-sep-2026): tarifas con nombre («Oeste → Este»…).
+  // Los lee TODO el mundo: el listero necesita las pastillas para marcar el
+  // tipo al registrar. Los administra solo quien tiene full, más abajo.
+  const [tipos, setTipos] = useState<TipoViaje[]>([]);
+  const [tiposMissing, setTiposMissing] = useState(false);
+  const [tiposRecarga, setTiposRecarga] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    listTiposViaje().then((r) => {
+      if (!vivo) return;
+      setTipos(r.tipos);
+      setTiposMissing(r.missing);
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer los tipos de viaje:', r.error);
+    });
+    return () => { vivo = false; };
+  }, [tiposRecarga]);
+  const tiposActivos = useMemo(() => tipos.filter((t) => t.activo), [tipos]);
+  /** El tipo marcado para ESTE registro. null = viaje normal (tarifa de zona). */
+  const [tipoSel, setTipoSel] = useState<string | null>(null);
+
   const [pesoTexto, setPesoTexto] = useState('');
   const [unidadPeso, setUnidadPeso] = useState<UnidadPeso>('kg');
   /** Tara tecleada a mano — solo cuando el camión no tiene tara cargada (o es
@@ -708,7 +735,8 @@ export default function ViajesCamionesScreen() {
    *  con el viaje (con señal al momento; sin señal, viaja en la cola). */
   const [fotoPeso, setFotoPeso] = useState<string | null>(null);
   const [fotoTomando, setFotoTomando] = useState(false);
-  const limpiarPeso = () => { setPesoTexto(''); setTaraManualTexto(''); setFotoPeso(null); };
+  // El tipo también es DE ESTE viaje: se limpia junto con el peso.
+  const limpiarPeso = () => { setPesoTexto(''); setTaraManualTexto(''); setFotoPeso(null); setTipoSel(null); };
 
   const tomarFotoPeso = async () => {
     if (fotoTomando) return;
@@ -728,8 +756,13 @@ export default function ViajesCamionesScreen() {
   const taraSeleccion = selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID
     ? (taras.get(selectedTruck.id) ?? null)
     : null;
+  /** 🚫 Este camión NO pasa por romana: la tarjeta del peso ni se pinta y el
+   *  viaje entra sin peso, como antes del 26-sep. Los de fuera de catálogo
+   *  nunca están exentos (no tienen ficha donde marcarlo, a propósito). */
+  const camionExentoRomana = taraSeleccion?.exentoRomana === true;
+  const taraCatalogo = taraSeleccion?.pesoTaraKg ?? null;
   const brutoKgVivo = pesoTecleadoAKg(pesoTexto, unidadPeso);
-  const taraKgViva = taraSeleccion?.pesoTaraKg ?? pesoTecleadoAKg(taraManualTexto, unidadPeso);
+  const taraKgViva = taraCatalogo ?? pesoTecleadoAKg(taraManualTexto, unidadPeso);
   const netoVivo = netoDe(brutoKgVivo, taraKgViva);
   const avisoSospechoso = avisoPesoSospechoso(brutoKgVivo, taraKgViva);
 
@@ -1012,6 +1045,9 @@ export default function ViajesCamionesScreen() {
       taraManual: q.payload.taraManual === true,
       taraManualNombre: q.payload.taraManualNombre ?? null,
       pesoFotoUrl: null,
+      tipoViajeId: q.payload.tipoViajeId ?? null,
+      tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
+      tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
       queued: true,
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
@@ -1047,6 +1083,9 @@ export default function ViajesCamionesScreen() {
       taraManual: q.payload.taraManual === true,
       taraManualNombre: q.payload.taraManualNombre ?? null,
       pesoFotoUrl: null,
+      tipoViajeId: q.payload.tipoViajeId ?? null,
+      tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
+      tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
       queued: true,
       stuck: true,
       stuckError: q.error,
@@ -1097,13 +1136,22 @@ export default function ViajesCamionesScreen() {
 
       // ── EL PESO, PRIMERO (26-sep-2026). Obligatorio con su foto: sin los dos
       //    no hay viaje que registrar, y el aviso sale ANTES de tocar la red.
+      //    Salvo que el camión esté marcado «🚫 no pasa por romana»: ese entra
+      //    sin peso, con un toque, como antes del cambio.
       const esFueraPeso = selectedTruck.id === FUERA_CATALOGO_ID;
-      const taraCatalogo = esFueraPeso ? null : (taras.get(selectedTruck.id)?.pesoTaraKg ?? null);
-      const usaTaraManual = taraCatalogo == null;
-      const brutoKg = pesoTecleadoAKg(pesoTexto, unidadPeso);
-      const taraKg = taraCatalogo ?? pesoTecleadoAKg(taraManualTexto, unidadPeso);
-      const motivoPeso = motivoPesoInvalido({ brutoKg, taraKg, fotoLista: !!fotoPeso });
-      if (motivoPeso) { toast.error(motivoPeso); return; }
+      const infoTara = esFueraPeso ? null : (taras.get(selectedTruck.id) ?? null);
+      const exentoDeRomana = infoTara?.exentoRomana === true;
+      const taraCat = exentoDeRomana ? null : (infoTara?.pesoTaraKg ?? null);
+      const usaTaraManual = !exentoDeRomana && taraCat == null;
+      const brutoKg = exentoDeRomana ? 0 : pesoTecleadoAKg(pesoTexto, unidadPeso);
+      const taraKg = exentoDeRomana ? 0 : (taraCat ?? pesoTecleadoAKg(taraManualTexto, unidadPeso));
+      if (!exentoDeRomana) {
+        const motivoPeso = motivoPesoInvalido({ brutoKg, taraKg, fotoLista: !!fotoPeso });
+        if (motivoPeso) { toast.error(motivoPeso); return; }
+      }
+      // El TIPO DE VIAJE elegido, con su tarifa CONGELADA del catálogo de este
+      // momento. Sin pastilla marcada = viaje normal (tarifa de zona).
+      const tipoElegido = tipoSel ? (tiposActivos.find((t) => t.id === tipoSel) ?? null) : null;
       // ⭐ EL ESTADO NO BLOQUEA NI PREGUNTA (cliente, 31-ago-2026). Acá había un
       //    `confirm` de "este camión figura AVERIADA, ¿de todas formas...?" que
       //    frenaba el registro. Se quitó: el listero está anotando algo que VIO,
@@ -1206,11 +1254,16 @@ export default function ViajesCamionesScreen() {
         //    ESTE momento; el neto lo calcula la base. La foto va como data-url
         //    y se sube justo antes del insert (con señal ya; sin señal, cuando
         //    la cola vacíe) — ver `subirFotoRomana` en camionViajes.ts.
-        pesoBrutoKg: brutoKg,
-        pesoTaraKg: taraKg,
+        pesoBrutoKg: exentoDeRomana ? null : brutoKg,
+        pesoTaraKg: exentoDeRomana ? null : taraKg,
         taraManual: usaTaraManual,
         taraManualNombre: usaTaraManual ? listeroName : null,
-        pesoFotoDataUrl: fotoPeso,
+        pesoFotoDataUrl: exentoDeRomana ? null : fotoPeso,
+        // ⭐ EL TIPO, CONGELADO: nombre y tarifa del catálogo AHORA. Cambiar el
+        //    precio del tipo la semana que viene no toca este viaje.
+        tipoViajeId: tipoElegido?.id ?? null,
+        tipoViajeNombre: tipoElegido?.nombre ?? null,
+        tipoViajeTarifa: tipoElegido?.tarifaUsd ?? null,
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
@@ -1245,7 +1298,9 @@ export default function ViajesCamionesScreen() {
 
       const { error } = await registrarViaje({ ...payload, clientActionId, origen: 'campo' });
       if (!error) {
-        toast.success(`Viaje de ${selectedTruck.code} registrado · neto ${kgTexto(brutoKg - taraKg)}.`);
+        toast.success(exentoDeRomana
+          ? `Viaje de ${selectedTruck.code} registrado (no pasa por romana).`
+          : `Viaje de ${selectedTruck.code} registrado · neto ${kgTexto(brutoKg - taraKg)}.`);
         limpiarPeso();
         loadMisViajes();
         return;
@@ -1284,7 +1339,8 @@ export default function ViajesCamionesScreen() {
   const [editing, setEditing] = useState<
     // `peso` es el BRUTO en Kg como texto (26-sep-2026): solo lo toca la jefa,
     // y solo en viajes que YA traen peso (la tara congelada no se edita nunca).
-    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string } | null
+    // `tipoId` es el TIPO DE VIAJE ('' = normal): también solo full.
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tipoId: string } | null
   >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
@@ -1395,6 +1451,7 @@ export default function ViajesCamionesScreen() {
       listeroId: row.listeroId,
       ubicacionId: row.ubicacionId ?? '',
       peso: row.pesoBrutoKg != null ? String(row.pesoBrutoKg) : '',
+      tipoId: row.tipoViajeId ?? '',
     });
   };
   const cancelEdit = () => setEditing(null);
@@ -1499,6 +1556,17 @@ export default function ViajesCamionesScreen() {
             cambios.pesoBrutoKg = kgNuevo;
             queCambio.push(`peso bruto: ${kgTexto(row.pesoBrutoKg)} → ${kgTexto(kgNuevo)}`);
           }
+        }
+        // 🧾 CORREGIR EL TIPO DE VIAJE (26-sep-2026). Congela el nombre y la
+        //    tarifa del catálogo DE AHORA — es una corrección, no un registro
+        //    viejo. '' = volverlo viaje normal (tarifa de zona).
+        if (editing.tipoId !== (row.tipoViajeId ?? '')) {
+          const tipoNuevo = editing.tipoId ? (tipos.find((t) => t.id === editing.tipoId) ?? null) : null;
+          if (editing.tipoId && !tipoNuevo) { toast.error('Ese tipo de viaje ya no existe. Refresca la pantalla.'); return; }
+          cambios.tipoViaje = tipoNuevo
+            ? { id: tipoNuevo.id, nombre: tipoNuevo.nombre, tarifa: tipoNuevo.tarifaUsd }
+            : { id: null, nombre: null, tarifa: null };
+          queCambio.push(`tipo de viaje: ${row.tipoViajeNombre || 'normal'} → ${tipoNuevo?.nombre || 'normal'}`);
         }
       }
       if (Object.keys(cambios).length === 0) { setEditing(null); return; }
@@ -2463,6 +2531,67 @@ export default function ViajesCamionesScreen() {
     setTarasRecarga((x) => x + 1);
     toast.success('Tara quitada.');
   };
+  /** 🚫 Marca o desmarca «no pasa por romana». La tara guardada NO se toca:
+   *  queda esperando por si el camión vuelve a pasar. */
+  const toggleExentoRomana = async (truckId: string, code: string) => {
+    const yaExento = taras.get(truckId)?.exentoRomana === true;
+    if (!yaExento) {
+      const ok = await confirm({
+        title: 'No pasa por romana',
+        message: `A ${code} ya no se le va a exigir peso ni foto: el listero lo registra con un toque, como antes. Sus viajes salen SIN peso (con raya) y no suman kilos. ¿Lo marcas?`,
+        confirmText: '🚫 No pasa por romana',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+    }
+    const { error } = await setExentoRomana(truckId, !yaExento, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTarasRecarga((x) => x + 1);
+    toast.success(yaExento ? `${code} vuelve a pasar por romana: sus próximos viajes exigen peso y foto.` : `${code} marcado: no pasa por romana.`);
+  };
+
+  // 🧾 Administración de TIPOS DE VIAJE (solo full; el RLS lo exige igual).
+  const [nuevoTipoNombre, setNuevoTipoNombre] = useState('');
+  const [nuevoTipoTarifa, setNuevoTipoTarifa] = useState('');
+  const [tipoTarifaEdits, setTipoTarifaEdits] = useState<Record<string, string>>({});
+  const [tipoOcupado, setTipoOcupado] = useState(false);
+  const crearTipo = async () => {
+    if (tipoOcupado) return;
+    setTipoOcupado(true);
+    try {
+      const tarifa = nuevoTipoTarifa.trim() === '' ? null : leerNumero(nuevoTipoTarifa);
+      const { error } = await crearTipoViaje(nuevoTipoNombre, tarifa, uid || null, listeroName || null);
+      if (error) { toast.error(error); return; }
+      setNuevoTipoNombre(''); setNuevoTipoTarifa('');
+      setTiposRecarga((x) => x + 1);
+      toast.success('Tipo de viaje creado. Los listeros ya lo ven al registrar.');
+    } finally { setTipoOcupado(false); }
+  };
+  const guardarTarifaTipo = async (t: TipoViaje) => {
+    const raw = (tipoTarifaEdits[t.id] ?? '').trim();
+    if (raw === '') return;
+    const tarifa = leerNumero(raw);
+    const { error } = await editarTipoViaje(t.id, { tarifaUsd: tarifa }, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTipoTarifaEdits((prev) => { const p = { ...prev }; delete p[t.id]; return p; });
+    setTiposRecarga((x) => x + 1);
+    toast.success(`Tarifa de «${t.nombre}» guardada: $${tarifa}. Solo aplica a los viajes que vengan; los registrados llevan la suya congelada.`);
+  };
+  const toggleActivoTipo = async (t: TipoViaje) => {
+    if (t.activo) {
+      const ok = await confirm({
+        title: 'Apagar el tipo',
+        message: `«${t.nombre}» deja de ofrecerse a los listeros. Los viajes que ya lo llevan NO cambian (el tipo va congelado en cada viaje). ¿Lo apagas?`,
+        confirmText: 'Apagar',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+    }
+    const { error } = await setActivoTipoViaje(t.id, !t.activo, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTiposRecarga((x) => x + 1);
+    toast.success(t.activo ? `«${t.nombre}» apagado.` : `«${t.nombre}» prendido: los listeros ya lo ven.`);
+  };
 
   // Compartir / exportar el reporte del rango filtrado (mismo mecanismo PDF
   // que el resto del sistema, ver src/lib/pdf.ts + CoordinadorOperadoresScreen).
@@ -3212,6 +3341,7 @@ export default function ViajesCamionesScreen() {
           {row.choferName ? ` · 👤 ${row.choferName}` : ''}
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
           {row.ubicacionNombre ? ` · 🏗️ ${row.ubicacionNombre}` : ''}
+          {row.tipoViajeNombre ? ` · 🧾 ${row.tipoViajeNombre}` : ''}
         </Text>
         {/* ⚖️ El peso del viaje, si lo trae (los anteriores al 26-sep-2026 no
             tienen y no se les inventa). La foto se abre aparte: es la evidencia
@@ -3299,6 +3429,30 @@ export default function ViajesCamionesScreen() {
                       placeholderTextColor={colors.muted}
                       style={[styles.input]}
                     />
+                  </View>
+                ) : null}
+                {/* 🧾 Corregir el TIPO — por si el listero marcó mal el cruce.
+                    Sale si hay tipos creados O si el viaje ya trae uno puesto. */}
+                {tiposActivos.length > 0 || row.tipoViajeId ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>TIPO DE VIAJE</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[{ id: '', nombre: '🚚 Normal' }, ...tiposActivos.map((t) => ({ id: t.id, nombre: t.nombre }))].map((t) => {
+                        const marcado = editing.tipoId === t.id;
+                        return (
+                          <TouchableOpacity
+                            key={t.id || '__normal__'}
+                            onPress={() => setEditing((e) => (e ? { ...e, tipoId: t.id } : e))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
+                          >
+                            <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{t.nombre}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                      Cambiarlo congela la tarifa que el tipo tenga HOY y queda en Auditoría.
+                    </Text>
                   </View>
                 ) : null}
                 {listeros.length > 0 ? (
@@ -3511,9 +3665,47 @@ export default function ViajesCamionesScreen() {
               </Text>
             ) : null}
 
+            {/* ── 🧾 TIPO DE VIAJE (26-sep-2026) — solo si hay tipos creados. El
+                normal viene marcado: el toque extra es SOLO para el cruzado. */}
+            {tiposActivos.length > 0 ? (
+              <View style={{ gap: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🧾 TIPO DE VIAJE</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {[{ id: null as string | null, nombre: '🚚 Normal', tarifaUsd: null as number | null }, ...tiposActivos].map((t) => {
+                    const marcado = tipoSel === t.id;
+                    return (
+                      <TouchableOpacity
+                        key={t.id ?? '__normal__'}
+                        onPress={() => setTipoSel(t.id)}
+                        style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
+                      >
+                        <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          {t.nombre}{t.id && t.tarifaUsd != null ? ` · $${t.tarifaUsd}` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {tipoSel && (tiposActivos.find((t) => t.id === tipoSel)?.tarifaUsd ?? null) == null ? (
+                  <Text style={{ color: '#92400E', fontSize: 11 }}>
+                    Ese tipo todavía no tiene tarifa: el viaje se registra igual y sale «tipo sin tarifa» en el pago hasta que le pongan precio.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* 🚫 Camión marcado «no pasa por romana»: la tarjeta del peso NI SE
+                PINTA — un campo opcional que a veces es obligatorio confunde
+                más que no verlo. El viaje entra sin peso, con un toque. */}
+            {camionExentoRomana ? (
+              <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                🚫 Este camión no pasa por romana{taraSeleccion?.exentoPorNombre ? ` (lo marcó ${taraSeleccion.exentoPorNombre})` : ''}: se registra sin peso.
+              </Text>
+            ) : null}
             {/* ── ⚖️ PESO DE ROMANA (26-sep-2026) — obligatorio con su foto. El
                 listero teclea el BRUTO, el sistema resta la TARA de la placa y
                 muestra el NETO en vivo; el que vale lo calcula la base. */}
+            {!camionExentoRomana ? (
             <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs, backgroundColor: colors.surface }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, flex: 1 }}>⚖️ Peso de la romana (obligatorio)</Text>
@@ -3543,10 +3735,10 @@ export default function ViajesCamionesScreen() {
                 placeholderTextColor={colors.muted}
                 style={[styles.input]}
               />
-              {taraSeleccion ? (
+              {taraCatalogo != null ? (
                 <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-                  Tara de esta placa: <Text style={{ fontWeight: '800', color: colors.text }}>{kgTexto(taraSeleccion.pesoTaraKg)}</Text>
-                  {taraSeleccion.updatedByNombre ? ` · la cargó ${taraSeleccion.updatedByNombre}` : ''}
+                  Tara de esta placa: <Text style={{ fontWeight: '800', color: colors.text }}>{kgTexto(taraCatalogo)}</Text>
+                  {taraSeleccion?.updatedByNombre ? ` · la cargó ${taraSeleccion.updatedByNombre}` : ''}
                 </Text>
               ) : (
                 <>
@@ -3582,6 +3774,7 @@ export default function ViajesCamionesScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+            ) : null}
             {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
                 cierra el buscador y toca Registrar de una —su trabajo es un
                 toque por camión, lo va a hacer siempre—; si la consulta del
@@ -4704,36 +4897,118 @@ export default function ViajesCamionesScreen() {
               <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                 {camionesEnObra.map((t) => {
                   const tara = taras.get(t.id);
+                  const exento = tara?.exentoRomana === true;
                   return (
-                    <View key={`tara-${t.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>
-                          {[t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null].filter(Boolean).join(' · ') || 'Sin placa ni serial'}
-                          {tara?.updatedByNombre ? ` · la cargó ${tara.updatedByNombre}` : ''}
-                        </Text>
-                      </View>
-                      <TextInput
-                        value={taraEdits[t.id] ?? (tara ? String(tara.pesoTaraKg) : '')}
-                        onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
-                        onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
-                        keyboardType="numeric"
-                        placeholder="—"
-                        placeholderTextColor={colors.muted}
-                        style={[styles.input, { width: 90, paddingVertical: 6, textAlign: 'center' }]}
-                      />
-                      <TouchableOpacity onPress={() => saveTara(t.id)}>
-                        <Text style={{ fontSize: 16 }}>💾</Text>
-                      </TouchableOpacity>
-                      {tara ? (
-                        <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`}>
-                          <Text style={{ fontSize: 14, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                    <View key={`tara-${t.id}`} style={{ paddingVertical: 4 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            {[t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null].filter(Boolean).join(' · ') || 'Sin placa ni serial'}
+                            {tara?.pesoTaraKg != null && tara.updatedByNombre ? ` · la cargó ${tara.updatedByNombre}` : ''}
+                            {exento ? ` · 🚫 no pasa por romana${tara?.exentoPorNombre ? ` (${tara.exentoPorNombre})` : ''}` : ''}
+                          </Text>
+                        </View>
+                        <TextInput
+                          value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? String(tara.pesoTaraKg) : '')}
+                          onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
+                          onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
+                          keyboardType="numeric"
+                          placeholder="—"
+                          placeholderTextColor={colors.muted}
+                          style={[styles.input, { width: 90, paddingVertical: 6, textAlign: 'center' }]}
+                        />
+                        <TouchableOpacity onPress={() => saveTara(t.id)}>
+                          <Text style={{ fontSize: 16 }}>💾</Text>
                         </TouchableOpacity>
-                      ) : null}
+                        {tara?.pesoTaraKg != null ? (
+                          <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`}>
+                            <Text style={{ fontSize: 14, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      {/* 🚫 El interruptor de la romana, debajo de cada camión:
+                          quién no pasa se decide acá, no en el teléfono. */}
+                      <TouchableOpacity onPress={() => toggleExentoRomana(t.id, t.code)} style={{ alignSelf: 'flex-start', marginTop: 2 }}>
+                        <Text style={{ color: exento ? colors.danger : colors.muted, fontSize: 11, fontWeight: '700' }}>
+                          {exento ? '🚫 No pasa por romana · tocar para que vuelva a pasar' : '⚖️ Pasa por romana · tocar si NO debe pasar'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   );
                 })}
               </ScrollView>
+            )}
+          </Plegable>
+
+          {/* 🧾 TIPOS DE VIAJE (26-sep-2026): el catálogo abierto de tarifas con
+              nombre — «Oeste → Este» y las que inventen después. Crear un tipo
+              nuevo es este formulario, sin tocar código. */}
+          <Plegable
+            titulo="🧾 Tipos de viaje (tarifas con nombre)"
+            resumen={tiposMissing ? 'Falta correr el SQL en la base' : `${tiposActivos.length} activo(s)${tipos.some((t) => t.activo && t.tarifaUsd == null) ? ' · hay tipos SIN tarifa' : ''}`}
+          >
+            <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
+              El listero marca el tipo al registrar (una pastilla; «Normal» viene marcado). El tipo y su tarifa se CONGELAN en el viaje: cambiar el precio mañana no toca lo ya registrado. Un viaje sin tipo se paga como siempre, con la tarifa de su zona.
+            </Text>
+            {tiposMissing ? (
+              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ Falta correr el SQL de los tipos de viaje. Avisa al administrador.</Text>
+            ) : (
+              <>
+                {tipos.length === 0 ? <Text style={{ color: colors.muted }}>Todavía no hay tipos creados.</Text> : null}
+                {tipos.map((t) => (
+                  <View key={t.id} style={{ paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border, opacity: t.activo ? 1 : 0.55 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>🧾 {t.nombre}</Text>
+                        <Text style={{ color: t.activo && t.tarifaUsd == null ? '#92400E' : colors.muted, fontSize: 11 }}>
+                          {t.tarifaUsd != null ? `$${t.tarifaUsd} por viaje` : '⚠️ sin tarifa: sus viajes salen «tipo sin tarifa» en el pago'}
+                          {t.updatedByNombre ? ` · ${t.updatedByNombre}` : ''}
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={tipoTarifaEdits[t.id] ?? (t.tarifaUsd != null ? String(t.tarifaUsd) : '')}
+                        onChangeText={(v) => setTipoTarifaEdits((prev) => ({ ...prev, [t.id]: v }))}
+                        onBlur={() => { if (tipoTarifaEdits[t.id] !== undefined) guardarTarifaTipo(t); }}
+                        keyboardType="numeric"
+                        placeholder="$—"
+                        placeholderTextColor={colors.muted}
+                        style={[styles.input, { width: 80, paddingVertical: 6, textAlign: 'center' }]}
+                      />
+                      <TouchableOpacity onPress={() => guardarTarifaTipo(t)}>
+                        <Text style={{ fontSize: 16 }}>💾</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => toggleActivoTipo(t)}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: t.activo ? colors.danger : colors.success }}>{t.activo ? 'Apagar' : 'Prender'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 2 }}>➕ CREAR UN TIPO NUEVO</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+                  <TextInput
+                    value={nuevoTipoNombre}
+                    onChangeText={setNuevoTipoNombre}
+                    placeholder="Nombre (ej. Oeste → Este, doble carga…)"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input, { flex: 1 }]}
+                  />
+                  <TextInput
+                    value={nuevoTipoTarifa}
+                    onChangeText={setNuevoTipoTarifa}
+                    keyboardType="numeric"
+                    placeholder="$ tarifa"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input, { width: 80, textAlign: 'center' }]}
+                  />
+                  <TouchableOpacity onPress={crearTipo} disabled={tipoOcupado} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primary, opacity: tipoOcupado ? 0.6 : 1 }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{tipoOcupado ? '…' : 'Crear'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                  La tarifa se puede dejar vacía y ponerla después. Apagar un tipo lo esconde del listero sin tocar los viajes que ya lo llevan.
+                </Text>
+              </>
             )}
           </Plegable>
 
