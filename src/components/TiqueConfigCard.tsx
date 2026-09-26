@@ -58,6 +58,11 @@ const EJEMPLO: Record<ClaveCampo, string> = {
   chofer:      'Chofer del turno',
   listero:     'Listero del CDT',
   m3:          '16,82 m³',
+  // El ejemplo del peso es el MISMO del papel de muestra de la encargada
+  // (26-sep-2026): bruto − tara = neto, y se ve que cuadra.
+  pesoBruto:   '32.540,00 Kg',
+  pesoTara:    '11.340,00 Kg',
+  pesoNeto:    '21.200,00 Kg',
   estado:      'Operativa',
   nota:        'Sin nota',
 };

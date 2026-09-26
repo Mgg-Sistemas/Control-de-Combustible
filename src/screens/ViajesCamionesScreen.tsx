@@ -12,7 +12,7 @@
 //     y exportar el reporte del rango filtrado.
 // Pedido del cliente 12-ago-2026.
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -84,8 +84,19 @@ import {
   setAlertaHoras,
   resolveChoferActual,
   listListeros,
+  listTaras,
+  setTaraCamion,
+  quitarTaraCamion,
+  subirFotoRomana,
+  faltaCorrerSqlDePeso,
   type ListeroConRol,
+  type TaraCamion,
 } from '../lib/camionViajes';
+import {
+  pesoTecleadoAKg, kgTexto, kgTextoOpcional, netoDe, motivoPesoInvalido,
+  avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
+} from '../lib/viajesPeso';
+import { capturarFotoLocal } from '../lib/photo';
 import {
   normalizarHora,
   isoDeJornadaHora,
@@ -665,6 +676,63 @@ export default function ViajesCamionesScreen() {
   const registeringRef = useRef(false);
   const retryingRef = useRef(false);
 
+  // ── PESO DE ROMANA (26-sep-2026) ──────────────────────────────────────────
+  // El listero teclea el BRUTO, el sistema resta la TARA de la placa y muestra
+  // el NETO en vivo (el que vale lo calcula la base). Peso y foto OBLIGATORIOS.
+  //
+  // Las taras las lee TODO el mundo (el listero las necesita para el cálculo);
+  // las administra solo quien tiene full, más abajo en ⚙️ Configuración.
+  const [taras, setTaras] = useState<Map<string, TaraCamion>>(new Map());
+  const [tarasMissing, setTarasMissing] = useState(false);
+  const [tarasRecarga, setTarasRecarga] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    listTaras().then((r) => {
+      if (!vivo) return;
+      setTaras(r.taras);
+      setTarasMissing(r.missing);
+      // Que un fallo de red no se vea igual que «ningún camión tiene tara»: si
+      // no se pudo leer, el registro va a pedir tara manual y el listero tiene
+      // que saber por qué.
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer las taras:', r.error);
+    });
+    return () => { vivo = false; };
+  }, [tarasRecarga]);
+
+  const [pesoTexto, setPesoTexto] = useState('');
+  const [unidadPeso, setUnidadPeso] = useState<UnidadPeso>('kg');
+  /** Tara tecleada a mano — solo cuando el camión no tiene tara cargada (o es
+   *  de fuera de catálogo, que no tiene ficha donde tenerla). */
+  const [taraManualTexto, setTaraManualTexto] = useState('');
+  /** La foto de la romana, como data-url LOCAL. No se sube al tomarla: se sube
+   *  con el viaje (con señal al momento; sin señal, viaja en la cola). */
+  const [fotoPeso, setFotoPeso] = useState<string | null>(null);
+  const [fotoTomando, setFotoTomando] = useState(false);
+  const limpiarPeso = () => { setPesoTexto(''); setTaraManualTexto(''); setFotoPeso(null); };
+
+  const tomarFotoPeso = async () => {
+    if (fotoTomando) return;
+    setFotoTomando(true);
+    try {
+      const r = await capturarFotoLocal();
+      if (r.ok && r.dataUrl) { setFotoPeso(r.dataUrl); return; }
+      if (r.error) toast.error(r.error);
+    } finally {
+      setFotoTomando(false);
+    }
+  };
+
+  // Lo que la tarjeta de registro necesita EN VIVO mientras el listero teclea.
+  // El neto que vale lo calcula la base al guardar; este es el mismo cálculo,
+  // para que él vea el resultado antes de tocar el botón.
+  const taraSeleccion = selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID
+    ? (taras.get(selectedTruck.id) ?? null)
+    : null;
+  const brutoKgVivo = pesoTecleadoAKg(pesoTexto, unidadPeso);
+  const taraKgViva = taraSeleccion?.pesoTaraKg ?? pesoTecleadoAKg(taraManualTexto, unidadPeso);
+  const netoVivo = netoDe(brutoKgVivo, taraKgViva);
+  const avisoSospechoso = avisoPesoSospechoso(brutoKgVivo, taraKgViva);
+
   const openPicker = () => {
     setPickQuery('');
     setPickEstadoSel(new Set());
@@ -701,6 +769,9 @@ export default function ViajesCamionesScreen() {
     setSelectedTruck(t);
     setSelectedChofer(null);
     setChoferIncierto(false);
+    // El peso es DE ESTE viaje: cambiar de camión lo limpia, o el bruto del
+    // camión anterior se registraría en el nuevo sin que nadie lo note.
+    limpiarPeso();
     const shift = caracasNowShift();
     setSelectedShift(shift);
     // Un camión fuera de catálogo no tiene ficha ni chofer asignado que consultar:
@@ -786,6 +857,8 @@ export default function ViajesCamionesScreen() {
       if (!ok) { setFcOpen(false); setPickOpen(true); return; }
     }
     setFcOpen(false);
+    // Mismo motivo que en `onSelectTruck`: el peso pertenece a UN viaje.
+    limpiarPeso();
     // Se arma un camión "de mentira" con el id centinela para que el resto de la
     // pantalla (el resumen de arriba, el botón de registrar) funcione igual sin
     // tener que duplicar el flujo. Al guardar, `machineryId` se manda en null.
@@ -930,6 +1003,15 @@ export default function ViajesCamionesScreen() {
       folio: null,
       placa: q.payload.placa ?? null,
       empresa: q.payload.empresa ?? null,
+      // El peso viaja en la cola con su viaje. El neto de pantalla se calcula
+      // igual que lo hará la base; la foto todavía no tiene URL (está en el
+      // teléfono, esperando subir junto con el viaje).
+      pesoBrutoKg: q.payload.pesoBrutoKg ?? null,
+      pesoTaraKg: q.payload.pesoTaraKg ?? null,
+      pesoNetoKg: netoDe(q.payload.pesoBrutoKg, q.payload.pesoTaraKg),
+      taraManual: q.payload.taraManual === true,
+      taraManualNombre: q.payload.taraManualNombre ?? null,
+      pesoFotoUrl: null,
       queued: true,
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
@@ -958,6 +1040,13 @@ export default function ViajesCamionesScreen() {
       folio: null,
       placa: q.payload.placa ?? null,
       empresa: q.payload.empresa ?? null,
+      // Mismo criterio que en los de la cola, dos bloques más arriba.
+      pesoBrutoKg: q.payload.pesoBrutoKg ?? null,
+      pesoTaraKg: q.payload.pesoTaraKg ?? null,
+      pesoNetoKg: netoDe(q.payload.pesoBrutoKg, q.payload.pesoTaraKg),
+      taraManual: q.payload.taraManual === true,
+      taraManualNombre: q.payload.taraManualNombre ?? null,
+      pesoFotoUrl: null,
       queued: true,
       stuck: true,
       stuckError: q.error,
@@ -988,10 +1077,11 @@ export default function ViajesCamionesScreen() {
    * almacenamiento fallaba, el viaje se veía en pantalla (estaba en memoria) y
    * desaparecía al cerrar la app.
    */
-  const guardarEnCola = async (payload: any, clientActionId: string, msgOk: string) => {
+  const guardarEnCola = async (payload: any, clientActionId: string, msgOk: string): Promise<boolean> => {
     const { ok } = await enqueueViaje(payload, clientActionId);
-    if (ok) { toast.info(msgOk); return; }
+    if (ok) { toast.info(msgOk); return true; }
     toast.error('⚠️ El viaje se ve en pantalla pero NO se pudo guardar en el teléfono. NO cierres la aplicación hasta que suba.');
+    return false;
   };
 
   const doRegistrarViaje = async () => {
@@ -1004,6 +1094,16 @@ export default function ViajesCamionesScreen() {
     setRegistering(true);
     try {
       if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
+
+      // ── EL PESO, PRIMERO (26-sep-2026). Obligatorio con su foto: sin los dos
+      //    no hay viaje que registrar, y el aviso sale ANTES de tocar la red.
+      const esFueraPeso = selectedTruck.id === FUERA_CATALOGO_ID;
+      const taraCatalogo = esFueraPeso ? null : (taras.get(selectedTruck.id)?.pesoTaraKg ?? null);
+      const usaTaraManual = taraCatalogo == null;
+      const brutoKg = pesoTecleadoAKg(pesoTexto, unidadPeso);
+      const taraKg = taraCatalogo ?? pesoTecleadoAKg(taraManualTexto, unidadPeso);
+      const motivoPeso = motivoPesoInvalido({ brutoKg, taraKg, fotoLista: !!fotoPeso });
+      if (motivoPeso) { toast.error(motivoPeso); return; }
       // ⭐ EL ESTADO NO BLOQUEA NI PREGUNTA (cliente, 31-ago-2026). Acá había un
       //    `confirm` de "este camión figura AVERIADA, ¿de todas formas...?" que
       //    frenaba el registro. Se quitó: el listero está anotando algo que VIO,
@@ -1102,6 +1202,15 @@ export default function ViajesCamionesScreen() {
         //    Un camión fuera de catálogo no tiene ficha: ahí la seña que anotó
         //    el listero es lo único que hay, y es mejor que nada.
         ...datosDelCamion(esFuera ? null : selectedTruck, esFuera ? fcRef.trim() : ''),
+        // ⭐ EL PESO, CONGELADO COMO LA PLACA. La tara que se graba es la de
+        //    ESTE momento; el neto lo calcula la base. La foto va como data-url
+        //    y se sube justo antes del insert (con señal ya; sin señal, cuando
+        //    la cola vacíe) — ver `subirFotoRomana` en camionViajes.ts.
+        pesoBrutoKg: brutoKg,
+        pesoTaraKg: taraKg,
+        taraManual: usaTaraManual,
+        taraManualNombre: usaTaraManual ? listeroName : null,
+        pesoFotoDataUrl: fotoPeso,
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
@@ -1129,14 +1238,15 @@ export default function ViajesCamionesScreen() {
       }) || nuevoClientActionId();
 
       if (!isOnline()) {
-        await guardarEnCola(payload, clientActionId,
-          'Sin señal: el viaje quedó guardado en el teléfono y se sube solo al recuperar conexión.');
+        if (await guardarEnCola(payload, clientActionId,
+          'Sin señal: el viaje quedó guardado en el teléfono (con su foto) y se sube solo al recuperar conexión.')) limpiarPeso();
         return;
       }
 
       const { error } = await registrarViaje({ ...payload, clientActionId, origen: 'campo' });
       if (!error) {
-        toast.success(`Viaje de ${selectedTruck.code} registrado.`);
+        toast.success(`Viaje de ${selectedTruck.code} registrado · neto ${kgTexto(brutoKg - taraKg)}.`);
+        limpiarPeso();
         loadMisViajes();
         return;
       }
@@ -1147,6 +1257,7 @@ export default function ViajesCamionesScreen() {
       // entró y se perdió la respuesta: encolarlo sí lo duplicaría de verdad.
       if (accionTrasFalloConSenal(error) === 'ya_estaba') {
         toast.success(`Viaje de ${selectedTruck.code} registrado.`);
+        limpiarPeso();
         loadMisViajes();
         return;
       }
@@ -1155,8 +1266,8 @@ export default function ViajesCamionesScreen() {
       // un `toast.error(error); return;` y el viaje se perdía para siempre: el
       // wifi del patio da señal sin internet a cada rato, y `isOnline()` es
       // optimista por diseño (en web es solo `navigator.onLine`).
-      await guardarEnCola(payload, clientActionId,
-        `No se pudo subir (${motivoLegible(error)}). El viaje quedó guardado en el teléfono y se reintenta solo.`);
+      if (await guardarEnCola(payload, clientActionId,
+        `No se pudo subir (${motivoLegible(error)}). El viaje quedó guardado en el teléfono y se reintenta solo.`)) limpiarPeso();
     } finally {
       registeringRef.current = false;
       setRegistering(false);
@@ -1171,7 +1282,9 @@ export default function ViajesCamionesScreen() {
   //    viaje no es corregirlo, es otro viaje. Para eso se borra este y se carga
   //    el bueno, y así la auditoría conserva las dos cosas por separado.
   const [editing, setEditing] = useState<
-    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string } | null
+    // `peso` es el BRUTO en Kg como texto (26-sep-2026): solo lo toca la jefa,
+    // y solo en viajes que YA traen peso (la tara congelada no se edita nunca).
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string } | null
   >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
@@ -1281,6 +1394,7 @@ export default function ViajesCamionesScreen() {
       chofer: row.choferName ?? '',
       listeroId: row.listeroId,
       ubicacionId: row.ubicacionId ?? '',
+      peso: row.pesoBrutoKg != null ? String(row.pesoBrutoKg) : '',
     });
   };
   const cancelEdit = () => setEditing(null);
@@ -1368,6 +1482,23 @@ export default function ViajesCamionesScreen() {
           if (!ok) return;
           cambios.ubicacionId = obra.id;
           queCambio.push(`CDT: ${row.ubicacionNombre || SIN_UBICACION_LABEL} → ${obra.nombre}`);
+        }
+        // ⚖️ CORREGIR EL PESO BRUTO (26-sep-2026). Solo en viajes que YA traen
+        //    peso: a uno viejo no se le inventa (no tiene tara congelada con qué
+        //    calcular el neto). El neto lo recalcula la base sola; la tara no se
+        //    toca nunca — si la tara estaba mala, ese viaje se borra y se carga
+        //    bien.
+        if (row.pesoBrutoKg != null && editing.peso.trim() !== '') {
+          const kgNuevo = pesoTecleadoAKg(editing.peso, 'kg');
+          if (kgNuevo !== row.pesoBrutoKg) {
+            if (kgNuevo <= 0) { toast.error('El peso bruto tiene que ser mayor que cero.'); return; }
+            if (row.pesoTaraKg != null && kgNuevo <= row.pesoTaraKg) {
+              toast.error(`El bruto tiene que superar la tara congelada de este viaje (${kgTexto(row.pesoTaraKg)}).`);
+              return;
+            }
+            cambios.pesoBrutoKg = kgNuevo;
+            queCambio.push(`peso bruto: ${kgTexto(row.pesoBrutoKg)} → ${kgTexto(kgNuevo)}`);
+          }
         }
       }
       if (Object.keys(cambios).length === 0) { setEditing(null); return; }
@@ -2304,6 +2435,35 @@ export default function ViajesCamionesScreen() {
     toast.success('Meta actualizada.');
   };
 
+  // ⚖️ Taras por camión (editable, solo full — el RLS de `camion_taras` lo
+  //    exige igual; acá solo se evita el error feo). SIEMPRE en kilos: es el
+  //    catálogo oficial, no la romana de turno.
+  const [taraEdits, setTaraEdits] = useState<Record<string, string>>({});
+  const saveTara = async (truckId: string) => {
+    const raw = (taraEdits[truckId] ?? '').trim();
+    if (raw === '') return; // vaciar el campo no borra: para eso está el ✕, que confirma
+    const kg = pesoTecleadoAKg(raw, 'kg');
+    if (kg <= 0) { toast.error('La tara tiene que ser un peso en Kg mayor que cero.'); return; }
+    const { error } = await setTaraCamion(truckId, kg, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTaraEdits((prev) => { const p = { ...prev }; delete p[truckId]; return p; });
+    setTarasRecarga((x) => x + 1);
+    toast.success(`Tara guardada: ${kgTexto(kg)}.`);
+  };
+  const borrarTara = async (truckId: string, code: string) => {
+    const ok = await confirm({
+      title: 'Quitar la tara',
+      message: `¿Quitar la tara de ${code}? Los viajes YA registrados conservan la suya (quedó congelada); los PRÓXIMOS van a pedir tara tecleada a mano.`,
+      confirmText: 'Quitar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { error } = await quitarTaraCamion(truckId);
+    if (error) { toast.error(error); return; }
+    setTarasRecarga((x) => x + 1);
+    toast.success('Tara quitada.');
+  };
+
   // Compartir / exportar el reporte del rango filtrado (mismo mecanismo PDF
   // que el resto del sistema, ver src/lib/pdf.ts + CoordinadorOperadoresScreen).
   const [shareBusy, setShareBusy] = useState(false);
@@ -2417,6 +2577,14 @@ export default function ViajesCamionesScreen() {
       const porViajeDe = (key: string) => volumenPorCamion.get(key)?.porViaje ?? 0;
       const m3Fila = (key: string, viajes: number) => redondear(porViajeDe(key) * viajes);
       const totalM3 = sumaVolumen(volumenPorCamion);
+      // ── EL PESO DE ROMANA en el papel (26-sep-2026). Kilos que EXISTEN: los
+      //    viajes sin peso (anteriores) no suman ni aparecen como cero. Un
+      //    total en 0 se imprime como raya: «0,00 Kg» diría que se pesó nada.
+      const kgOpc = (n: number | null | undefined) => kgTextoOpcional(n) ?? '—';
+      const kgPie = (n: number) => (n > 0 ? kgTexto(n) : '—');
+      const netoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoNetoKg ?? 0), 0);
+      const brutoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoBrutoKg ?? 0), 0);
+      const taraDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoTaraKg ?? 0), 0);
 
       /** Arma una tabla con las columnas visibles. `pie` ya viene con su HTML
        *  hecho (lleva <b>), así que NO se escapa: lo arma este mismo archivo. */
@@ -2446,7 +2614,7 @@ export default function ViajesCamionesScreen() {
       // El eje decide qué columna sobra: la suya ya está en el encabezado del grupo.
       const colsR = columnasResumen(op, resumenEje);
       const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}
+        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.peso ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}
           ${op.viajes ? `<br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span>` : ''}</p>
         ${resumenViajes.empresas.map((e) => {
           const g3 = redondear(e.camiones.reduce((a, c) => a + m3Fila(c.key, c.viajes), 0));
@@ -2455,6 +2623,7 @@ export default function ViajesCamionesScreen() {
             `${e.camiones.length} camión(es)`,
             op.viajes ? `${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}` : null,
             op.m3 ? `${m3Texto(g3)} m³` : null,
+            op.peso ? `a pagar ${kgPie(e.netoKg)}` : null,
           ].filter(Boolean).join(' · ');
           const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
             camion: c.code,
@@ -2469,13 +2638,15 @@ export default function ViajesCamionesScreen() {
             noche: num(c.noche),
             viajes: String(c.viajes),
             m3: m3Texto(m3Fila(c.key, c.viajes)),
+            pesoNeto: kgPie(c.netoKg),
           }));
           const pie = colsR.map((c, i) => (
             i === 0 ? `<b>Total ${esc(e.name)}</b>`
               : c.key === 'dia' ? `<b>${num(e.dia)}</b>`
               : c.key === 'noche' ? `<b>${num(e.noche)}</b>`
               : c.key === 'viajes' ? `<b>${e.total}</b>`
-              : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>` : ''
+              : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>`
+              : c.key === 'pesoNeto' ? `<b>${kgPie(e.netoKg)}</b>` : ''
           ));
           return `<h3>${icoGrupo} ${esc(e.name)} — ${cab}</h3>${tabla(colsR, filas, pie)}`;
         }).join('')}`;
@@ -2518,6 +2689,9 @@ export default function ViajesCamionesScreen() {
         marcaModelo: marcaModeloDe(r.machineryId),
         dims: dimsDe(r.machineryId),
         m3: m3Texto(r.machineryId ? porViajeDe(r.machineryId) : 0),
+        pesoBruto: kgOpc(r.pesoBrutoKg),
+        pesoTara: kgOpc(r.pesoTaraKg),
+        pesoNeto: kgOpc(r.pesoNetoKg),
         clase: claseDe(r.machineryId),
         chofer: r.choferName ?? '—',
         listero: r.listeroName,
@@ -2527,7 +2701,10 @@ export default function ViajesCamionesScreen() {
       const filasD = filteredRangeRows.map(filaD);
       const pieD = colsD.map((c, i) => (
         i === 0 ? `<b>Total: ${filteredRangeRows.length} viajes</b>`
-          : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>` : ''
+          : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>`
+          : c.key === 'pesoBruto' ? `<b>${kgPie(brutoDeFilas(filteredRangeRows))}</b>`
+          : c.key === 'pesoTara' ? `<b>${kgPie(taraDeFilas(filteredRangeRows))}</b>`
+          : c.key === 'pesoNeto' ? `<b>${kgPie(netoDeFilas(filteredRangeRows))}</b>` : ''
       ));
       // m³ de un grupo: la suma de lo que vale cada uno de SUS viajes. El total general
       // sigue siendo el de siempre (arriba); el del grupo es su parte.
@@ -2537,13 +2714,16 @@ export default function ViajesCamionesScreen() {
         ? gruposDetalle.map((g) => {
           const pieG = colsD.map((c, i) => (
             i === 0 ? `<b>${g.filas.length} viaje(s)</b>`
-              : c.key === 'm3' ? `<b>${m3Texto(m3DeFilas(g.filas))}</b>` : ''
+              : c.key === 'm3' ? `<b>${m3Texto(m3DeFilas(g.filas))}</b>`
+              : c.key === 'pesoBruto' ? `<b>${kgPie(brutoDeFilas(g.filas))}</b>`
+              : c.key === 'pesoTara' ? `<b>${kgPie(taraDeFilas(g.filas))}</b>`
+              : c.key === 'pesoNeto' ? `<b>${kgPie(netoDeFilas(g.filas))}</b>` : ''
           ));
           return `<h3>${icoD} ${esc(g.name)} — ${g.filas.length} viaje(s)</h3>${tabla(colsD, g.filas.map(filaD), pieG)}`;
         }).join('')
         : tabla(colsD, filasD, pieD);
       const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}</p>
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.peso ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
         ${cuerpoD}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
@@ -2805,6 +2985,9 @@ export default function ViajesCamionesScreen() {
       chofer: row.choferName,
       listero: row.listeroName,
       m3: vol > 0 ? `${m3Texto(vol)} m³` : null,
+      // Los tres renglones del peso, formateados como el papel de muestra
+      // («32.540,00 Kg»). Un viaje sin peso los deja en null y salen con raya.
+      ...pesosParaTique(row),
       estado: row.estadoMaquina,
       nota: row.note,
     };
@@ -3030,6 +3213,24 @@ export default function ViajesCamionesScreen() {
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
           {row.ubicacionNombre ? ` · 🏗️ ${row.ubicacionNombre}` : ''}
         </Text>
+        {/* ⚖️ El peso del viaje, si lo trae (los anteriores al 26-sep-2026 no
+            tienen y no se les inventa). La foto se abre aparte: es la evidencia
+            del bruto que tecleó el listero. */}
+        {row.pesoBrutoKg != null || row.pesoNetoKg != null ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+              ⚖️ Bruto {kgTextoOpcional(row.pesoBrutoKg) ?? '—'} · Tara {kgTextoOpcional(row.pesoTaraKg) ?? '—'} · Neto {kgTextoOpcional(row.pesoNetoKg ?? netoDe(row.pesoBrutoKg, row.pesoTaraKg)) ?? '—'}
+              {row.taraManual ? ` · ✍️ tara manual${row.taraManualNombre ? ` (${row.taraManualNombre})` : ''}` : ''}
+            </Text>
+            {row.pesoFotoUrl ? (
+              <TouchableOpacity onPress={() => Linking.openURL(row.pesoFotoUrl!).catch(() => toast.error('No se pudo abrir la foto.'))}>
+                <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>📷 Ver foto ›</Text>
+              </TouchableOpacity>
+            ) : row.queued ? (
+              <Text style={{ color: colors.muted, fontSize: 11 }}>📷 la foto sube con el viaje</Text>
+            ) : null}
+          </View>
+        ) : null}
         {isEditing ? (
           <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
             {edicionExcepcional ? (
@@ -3083,6 +3284,23 @@ export default function ViajesCamionesScreen() {
                     style={[styles.input]}
                   />
                 </View>
+                {/* ⚖️ El BRUTO se puede corregir; la tara congelada no. Solo en
+                    viajes que ya traen peso: a uno viejo no se le inventa. */}
+                {row.pesoBrutoKg != null ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>
+                      PESO BRUTO (KG) · tara congelada {kgTextoOpcional(row.pesoTaraKg) ?? '—'}
+                    </Text>
+                    <TextInput
+                      value={editing.peso}
+                      onChangeText={(t) => setEditing((e) => (e ? { ...e, peso: t } : e))}
+                      keyboardType="numeric"
+                      placeholder="Peso bruto en Kg"
+                      placeholderTextColor={colors.muted}
+                      style={[styles.input]}
+                    />
+                  </View>
+                ) : null}
                 {listeros.length > 0 ? (
                   <View>
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>LO REGISTRÓ</Text>
@@ -3292,6 +3510,78 @@ export default function ViajesCamionesScreen() {
                 Se vuelve a intentar al registrar. Si tampoco se logra, el viaje se guarda igual y queda marcado «chofer sin confirmar» para completarlo después.
               </Text>
             ) : null}
+
+            {/* ── ⚖️ PESO DE ROMANA (26-sep-2026) — obligatorio con su foto. El
+                listero teclea el BRUTO, el sistema resta la TARA de la placa y
+                muestra el NETO en vivo; el que vale lo calcula la base. */}
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs, backgroundColor: colors.surface }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, flex: 1 }}>⚖️ Peso de la romana (obligatorio)</Text>
+                {/* Kilos por defecto; toneladas «por si acaso» (pedido 26-sep). */}
+                <View style={{ flexDirection: 'row', gap: 4 }}>
+                  {UNIDADES_PESO.map((u) => (
+                    <TouchableOpacity
+                      key={u.k}
+                      onPress={() => setUnidadPeso(u.k)}
+                      style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: unidadPeso === u.k ? colors.primary : colors.border, backgroundColor: unidadPeso === u.k ? colors.primary : 'transparent' }}
+                    >
+                      <Text style={{ color: unidadPeso === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              {faltaCorrerSqlDePeso() ? (
+                <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '700' }}>
+                  ⚠️ Falta configurar el peso en la base de datos: el viaje entra pero SIN peso. Avisa al administrador.
+                </Text>
+              ) : null}
+              <TextInput
+                value={pesoTexto}
+                onChangeText={setPesoTexto}
+                keyboardType="numeric"
+                placeholder={unidadPeso === 'kg' ? 'Peso bruto de la romana, en Kg (ej. 32540)' : 'Peso bruto en toneladas (ej. 32,54)'}
+                placeholderTextColor={colors.muted}
+                style={[styles.input]}
+              />
+              {taraSeleccion ? (
+                <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                  Tara de esta placa: <Text style={{ fontWeight: '800', color: colors.text }}>{kgTexto(taraSeleccion.pesoTaraKg)}</Text>
+                  {taraSeleccion.updatedByNombre ? ` · la cargó ${taraSeleccion.updatedByNombre}` : ''}
+                </Text>
+              ) : (
+                <>
+                  <Text style={{ color: '#92400E', fontSize: 11.5 }}>
+                    Este camión no tiene tara cargada: tecléala tú. Queda registrado que fue manual y con tu nombre.
+                  </Text>
+                  <TextInput
+                    value={taraManualTexto}
+                    onChangeText={setTaraManualTexto}
+                    keyboardType="numeric"
+                    placeholder={unidadPeso === 'kg' ? 'Tara (peso vacío), en Kg' : 'Tara en toneladas'}
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input]}
+                  />
+                </>
+              )}
+              {netoVivo != null ? (
+                <Text style={{ color: netoVivo > 0 ? colors.success : colors.danger, fontWeight: '900', fontSize: 14 }}>
+                  Peso a pagar (neto): {kgTexto(netoVivo)}
+                </Text>
+              ) : null}
+              {avisoSospechoso ? (
+                <Text style={{ color: '#92400E', fontSize: 11.5, fontWeight: '700' }}>{avisoSospechoso}</Text>
+              ) : null}
+              <TouchableOpacity
+                onPress={tomarFotoPeso}
+                disabled={fotoTomando}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: fotoPeso ? colors.success : colors.brand, borderRadius: radius.md, padding: spacing.sm, opacity: fotoTomando ? 0.6 : 1 }}
+              >
+                {fotoPeso ? <Image source={{ uri: fotoPeso }} style={{ width: 44, height: 44, borderRadius: 6 }} /> : null}
+                <Text style={{ color: fotoPeso ? colors.success : colors.brandText, fontWeight: '800', flex: 1 }}>
+                  {fotoTomando ? 'Abriendo la cámara…' : fotoPeso ? '✅ Foto de la romana lista · tocar para repetirla' : '📷 Foto de la romana (obligatoria)'}
+                </Text>
+              </TouchableOpacity>
+            </View>
             {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
                 cierra el buscador y toca Registrar de una —su trabajo es un
                 toque por camión, lo va a hacer siempre—; si la consulta del
@@ -4394,6 +4684,55 @@ export default function ViajesCamionesScreen() {
                     </TouchableOpacity>
                   </View>
                 ))}
+              </ScrollView>
+            )}
+
+            {/* ⚖️ LA TARA OFICIAL POR CAMIÓN (26-sep-2026). La carga quien tiene
+                full, de una vez, con lo que pesaron en la romana. El listero
+                solo la ve restándose en su registro. */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>⚖️ TARA DE ROMANA POR CAMIÓN (KG)</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+              Es el peso del camión vacío. Al registrar, el sistema la resta del bruto y arroja el peso a pagar. Cambiarla NO toca los viajes ya registrados: cada viaje se llevó su tara congelada.
+            </Text>
+            {tarasMissing ? (
+              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
+                ⚠️ Falta correr el SQL del peso de romana en la base de datos. Avisa al administrador.
+              </Text>
+            ) : camionesEnObra.length === 0 ? (
+              <Text style={{ color: colors.muted }}>Sin camiones.</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                {camionesEnObra.map((t) => {
+                  const tara = taras.get(t.id);
+                  return (
+                    <View key={`tara-${t.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {[t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null].filter(Boolean).join(' · ') || 'Sin placa ni serial'}
+                          {tara?.updatedByNombre ? ` · la cargó ${tara.updatedByNombre}` : ''}
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={taraEdits[t.id] ?? (tara ? String(tara.pesoTaraKg) : '')}
+                        onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
+                        onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
+                        keyboardType="numeric"
+                        placeholder="—"
+                        placeholderTextColor={colors.muted}
+                        style={[styles.input, { width: 90, paddingVertical: 6, textAlign: 'center' }]}
+                      />
+                      <TouchableOpacity onPress={() => saveTara(t.id)}>
+                        <Text style={{ fontSize: 16 }}>💾</Text>
+                      </TouchableOpacity>
+                      {tara ? (
+                        <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`}>
+                          <Text style={{ fontSize: 14, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </ScrollView>
             )}
           </Plegable>

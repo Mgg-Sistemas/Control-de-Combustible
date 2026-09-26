@@ -171,6 +171,7 @@ export function motivoLegible(msg?: string | null): string {
   if (esErrorDeRed(m)) return 'sin conexión con el servidor';
   if (m.includes('foreign key')) return 'ese camión ya no está en el catálogo';
   if (m.includes('cv_fuera_catalogo_coherente')) return 'el viaje quedó a medias entre camión del catálogo y anotado a mano';
+  if (m.includes('cv_peso_coherente')) return 'el peso está incoherente (el bruto tiene que superar la tara)';
   // Nada de buscar '401' suelto: un código de camión con esos dígitos daba el
   // consejo de cerrar sesión sin motivo.
   if (m.includes('row-level security') || m.includes('jwt')) return 'tu sesión venció, vuelve a entrar';

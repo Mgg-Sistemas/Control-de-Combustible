@@ -328,6 +328,83 @@ export async function captureAndUploadEmployeePhoto(
   return uploadToMachinery(path, body);
 }
 
+/** Un Blob a data-url (base64), para poder GUARDARLO en el teléfono. */
+async function blobADataUrl(blob: Blob): Promise<string | null> {
+  return await new Promise((resolve) => {
+    try {
+      const fr = new (globalThis as any).FileReader();
+      fr.onload = () => resolve(typeof fr.result === 'string' && fr.result ? fr.result : null);
+      fr.onerror = () => resolve(null);
+      fr.readAsDataURL(blob);
+    } catch { resolve(null); }
+  });
+}
+
+/**
+ * TOMA UNA FOTO Y **NO LA SUBE**: la devuelve como data-url (jpeg ya
+ * redimensionado/comprimido, ~100-300 KB).
+ *
+ * Existe para la FOTO DE LA ROMANA de los viajes (26-sep-2026): es obligatoria
+ * y el listero trabaja donde no hay señal, así que la foto tiene que poder
+ * viajar DENTRO de la cola offline y subirse con el viaje cuando vuelva la
+ * conexión. Subir acá rompería justo ese caso.
+ *
+ * Cámara primero; si no hay permiso/soporte, galería (igual que
+ * `captureAndUploadPhoto`).
+ */
+export async function capturarFotoLocal(): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
+  const webBase64 = Platform.OS !== 'web';
+  let res: ImagePicker.ImagePickerResult | null = null;
+  try {
+    const cam = await ImagePicker.requestCameraPermissionsAsync();
+    if (cam.granted) {
+      res = await pick(() => ImagePicker.launchCameraAsync({ quality: PICK_QUALITY, base64: webBase64 }));
+    }
+  } catch {
+    res = null;
+  }
+  if (!res || res.canceled || !res.assets?.[0]) {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return { ok: false, error: 'Permiso de cámara/galería denegado.' };
+    res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: webBase64 }));
+  }
+  if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
+  const asset = res.assets[0] as any;
+
+  // NATIVO: expo-image-manipulator ya devuelve el base64 del jpeg achicado.
+  if (Platform.OS !== 'web' && asset?.uri) {
+    try {
+      const longest = Math.max(asset.width ?? 0, asset.height ?? 0);
+      const actions = longest > 1600
+        ? [{ resize: (asset.width ?? 0) >= (asset.height ?? 0) ? { width: 1600 } : { height: 1600 } }]
+        : [];
+      const out = await manipulateAsync(asset.uri, actions, { compress: 0.5, format: SaveFormat.JPEG, base64: true });
+      if (out?.base64) return { ok: true, dataUrl: `data:image/jpeg;base64,${out.base64}` };
+    } catch { /* se cae a los respaldos de abajo */ }
+  }
+  // WEB: canvas → blob → data-url.
+  if (Platform.OS === 'web' && asset?.uri) {
+    const resized = await resizeImageWeb(asset.uri);
+    if (resized) {
+      const d = await blobADataUrl(resized);
+      if (d) return { ok: true, dataUrl: d };
+    }
+  }
+  // Respaldos: el base64 crudo del picker, o el blob del uri.
+  if (asset?.base64) return { ok: true, dataUrl: `data:image/jpeg;base64,${asset.base64}` };
+  if (asset?.uri) {
+    try {
+      const resp = await fetch(asset.uri);
+      const blob = await resp.blob();
+      if (blob && blob.size > 0) {
+        const d = await blobADataUrl(blob);
+        if (d) return { ok: true, dataUrl: d };
+      }
+    } catch {}
+  }
+  return { ok: false, error: 'No se pudo leer la imagen.' };
+}
+
 /** Quita una foto de un registro (pone la columna = null). Sirve para empleados,
  *  aliados y maquinaria. `column` por defecto es 'photo_url' (la foto principal);
  *  en maquinaria también existe 'photo_serial_url' (foto del serial/placa).

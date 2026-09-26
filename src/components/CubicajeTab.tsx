@@ -1321,6 +1321,7 @@ export function OpcionesReporteBox({
   const filas: { k: keyof OpcionesReporte; label: string; ayuda?: string }[] = [
     { k: 'm3', label: '📐 Metros cúbicos', ayuda: 'Columna de m³ y su sumatoria. Sale de lo que midas en 📐 Cubicaje.' },
     { k: 'viajes', label: '🔢 Conteo de viajes', ayuda: modoResumen ? 'Columnas Día, Noche y Viajes del resumido.' : 'En el detallado cada línea ES un viaje: este interruptor solo afecta al resumido.' },
+    { k: 'peso', label: '⚖️ Peso de romana', ayuda: modoResumen ? 'Columna «Peso a pagar (Kg)»: la suma de los netos de sus viajes. Los viajes sin peso no suman.' : 'Columnas P. entrada (bruto), P. salida (tara) y P. a pagar (neto) de cada viaje. Los viajes anteriores al peso salen con raya.' },
     { k: 'marcaModelo', label: '🏷️ Marca y modelo' },
     { k: 'dimensiones', label: '📏 Alto, largo y ancho' },
     { k: 'clasificacion', label: '🔶 Clasificación por capacidad' },
@@ -1343,7 +1344,7 @@ export function OpcionesReporteBox({
       </TouchableOpacity>
       {abierto ? (
         <View style={{ marginTop: spacing.xs }}>
-          {filas.filter((f) => !(soloCamiones && (f.k === 'm3' || f.k === 'viajes'))).map((f) => (
+          {filas.filter((f) => !(soloCamiones && (f.k === 'm3' || f.k === 'viajes' || f.k === 'peso'))).map((f) => (
             <Toggle key={f.k} on={op[f.k]} label={f.label} ayuda={f.ayuda} onPress={() => setOp(f.k, !op[f.k])} />
           ))}
           {soloCamiones ? (

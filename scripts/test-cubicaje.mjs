@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Test del CUBICAJE Y REPORTE VOLUMÉTRICO de «Ruta de viajes de camiones»
  * (09-sep-2026).
  *
@@ -207,9 +207,9 @@ eq('apagar el conteo NO desarma el detallado',
 const todasLasClaves = Object.keys(OPCIONES_POR_DEFECTO);
 const todo = Object.fromEntries(todasLasClaves.map((k) => [k, true]));
 const nada = Object.fromEntries(todasLasClaves.map((k) => [k, false]));
-eq('hay 12 interruptores', todasLasClaves.length, 12);
-eq('con todo encendido, el detallado lleva 14 columnas', columnasDetalle(todo).length, 14);
-eq('y el resumido 10', columnasResumen(todo, 'listero').length, 10);
+eq('hay 13 interruptores', todasLasClaves.length, 13);
+eq('con todo encendido, el detallado lleva 17 columnas (con los 3 del peso)', columnasDetalle(todo).length, 17);
+eq('y el resumido 11 (con el peso a pagar)', columnasResumen(todo, 'listero').length, 11);
 // Fecha, hora y camión no se pueden quitar: sin ellas la línea no identifica
 // nada. Ningún interruptor debe poder dejar la tabla sin identidad. La EMPRESA
 // salió de este mínimo el 12-sep-2026, a pedido del cliente: se puede ocultar.
@@ -523,7 +523,7 @@ const prev = scrS.slice(iniPrev, scrS.indexOf(") : reporteModo === 'resumen' ? (
 ok('solo camiones · la vista previa tampoco muestra viajes', iniPrev >= 0 && prev.length > 100 && !/c\.viajes|e\.total|resumenTurno|m3Texto/.test(prev));
 ok('solo camiones · el resumido ahora pone la empresa de cada camion', (scrS.match(/empresa: empresaDe\(c\.key\)/g) ?? []).length >= 2);
 const tabCam = sinComentarios(leer('src/components/CubicajeTab.tsx'));
-ok('solo camiones · las opciones esconden el conteo y los m³', /soloCamiones && \(f\.k === 'm3' \|\| f\.k === 'viajes'\)/.test(tabCam)
+ok('solo camiones · las opciones esconden el conteo y los m³', /soloCamiones && \(f\.k === 'm3' \|\| f\.k === 'viajes' \|\| f\.k === 'peso'\)/.test(tabCam)
   && /soloCamiones=\{soloCamiones\}/.test(scrS));
 ok('solo camiones · el manual .md lo explica', /Solo camiones \(sin cantidades\)\*\* \*\(14\/09\/2026\)\*/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin cantidades\) \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
