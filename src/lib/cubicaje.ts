@@ -267,6 +267,12 @@ export type OpcionesReporte = {
   empresa: boolean;
   /** En qué OBRA se registró el viaje (la que tenía el listero ese día). */
   ubicacion: boolean;
+  /**
+   * PESO DE ROMANA (26-sep-2026). En el detallado: columnas bruto, tara y
+   * neto de cada viaje. En el resumido: la columna «Peso a pagar» con la suma
+   * de los netos de sus viajes. Los viajes anteriores al peso salen con raya.
+   */
+  peso: boolean;
 };
 
 /**
@@ -293,6 +299,8 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   empresa: true,
   // APAGADA porque es nueva. Quien no la encienda saca el mismo papel de ayer.
   ubicacion: false,
+  // APAGADA por lo mismo: el peso es del 26-sep-2026 y lo enciende quien lo pida.
+  peso: false,
 };
 
 export type ColSpec = { key: string; head: string; num?: boolean };
@@ -319,6 +327,12 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });
   if (op.m3) c.push({ key: 'm3', head: 'm³', num: true });
+  if (op.peso) {
+    // Los tres del papel de romana, con los nombres del ticket de muestra.
+    c.push({ key: 'pesoBruto', head: 'P. entrada (Kg)', num: true });
+    c.push({ key: 'pesoTara', head: 'P. salida (Kg)', num: true });
+    c.push({ key: 'pesoNeto', head: 'P. a pagar (Kg)', num: true });
+  }
   if (op.clasificacion) c.push({ key: 'clase', head: 'Clasificación' });
   if (op.chofer) c.push({ key: 'chofer', head: 'Chofer' });
   if (op.listero) c.push({ key: 'listero', head: 'Listero' });
@@ -354,14 +368,18 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
     c.push({ key: 'viajes', head: 'Viajes', num: true });
   }
   if (op.m3) c.push({ key: 'm3', head: 'm³', num: true });
+  // En el resumido cada fila es un CAMIÓN: bruto y tara por fila no significan
+  // nada (son de cada viaje); lo que se resume es lo que se paga.
+  if (op.peso) c.push({ key: 'pesoNeto', head: 'Peso a pagar (Kg)', num: true });
   return c;
 }
 
 /** Columnas del reporte «SOLO CAMIONES» (14-sep-2026): las del resumido con el
- *  conteo de viajes y los m³ SIEMPRE fuera, estén como estén los interruptores.
+ *  conteo de viajes, los m³ y el peso SIEMPRE fuera, estén como estén los
+ *  interruptores — este papel no lleva ninguna cantidad.
  *  Lleva un Nº de renglón para poder cantar la lista. */
 export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
-  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false }, eje)];
+  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, peso: false }, eje)];
 }
 
 /**
@@ -372,7 +390,8 @@ export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero'
  * mejor decirlo antes de generarlo que entregar la hoja vacía.
  */
 export function reporteSinCifras(op: OpcionesReporte, modoResumen: boolean): boolean {
-  return modoResumen && !op.viajes && !op.m3;
+  // El peso también es una cifra: con él encendido el resumido sí dice algo.
+  return modoResumen && !op.viajes && !op.m3 && !op.peso;
 }
 
 /** Toma los valores de una fila en el ORDEN de las columnas visibles. El que

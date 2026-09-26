@@ -639,12 +639,16 @@ ok('...y cuando no entra, lo dice', tamanoQueEntra('carta6', 30, { logos: true, 
 
 // El aviso: solo cuando de verdad no entra, y con la salida a mano.
 eq('con la configuracion de fabrica no hay nada que avisar', avisoDeCapacidad(CONFIG_POR_DEFECTO), null);
-eq('...ni con todo encendido en 4 por hoja', avisoDeCapacidad(TODOS), null);
+// ⚠️ Desde el peso de romana (26-sep-2026) «todo encendido» son 19 datos, y 19
+//    YA NO CABEN en 4 por hoja: el aviso tiene que salir y ofrecer una salida.
+//    No es una regresion del calculo, es fisica del papel — con 16 si cabian.
+const avisa4 = avisoDeCapacidad(TODOS);
+ok('con los 19 datos y 4 por hoja SI avisa (con 16 cabia)', typeof avisa4 === 'string' && /19 dato/.test(avisa4));
 const avisa = avisoDeCapacidad(normalizarConfig({ ...TODOS, papel: 'carta6' }));
 ok('con todo encendido y 6 por hoja SI avisa', typeof avisa === 'string');
-ok('...y dice cuantos datos son', /16 dato/.test(avisa));
+ok('...y dice cuantos datos son', /19 dato/.test(avisa));
 // La pregunta que viene enseguida es «entonces cual uso»: se contesta sola.
-ok('...y en que papel si caben', /4 por hoja/.test(avisa));
+ok('...y en que papel si caben', /1 por hoja/.test(avisa));
 
 // El documento elige el tamano para el PEOR ticket del mandado: con un tamano por
 // ticket, dos papeles de la misma hoja saldrian con letras distintas.

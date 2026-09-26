@@ -81,6 +81,12 @@ export type ViajeMin = {
    * sigue cuadrando igual.
    */
   turno?: 'day' | 'night' | null;
+  /**
+   * PESO A PAGAR del viaje en KILOS (26-sep-2026), tal como lo dejó calculado
+   * LA BASE (bruto − tara). `null`/ausente = viaje anterior al peso: no suma ni
+   * resta, y el resumen lo dice sumando solo lo que existe.
+   */
+  pesoNetoKg?: number | null;
 };
 
 /**
@@ -135,7 +141,11 @@ export function placaDeCamion(t: { plate: string | null; serial: string | null }
 // camión, o el centinela del fuera de catálogo. Se expone para que quien
 // pinte el resumen pueda cruzarlo con datos de afuera —hoy los m³ del
 // cubicaje— sin tener que readivinar de qué camión es cada línea.
-export type CamionResumen = { key: string; code: string; placa: string; viajes: number; dia: number; noche: number };
+// `netoKg` es la suma de los pesos a pagar de SUS viajes dentro del grupo (los
+// que lo traen; los viejos sin peso no aportan). Agrupando por listero, el
+// mismo camión reparte su neto entre los listeros que lo registraron — igual
+// que reparte sus viajes — así que la suma de los grupos siempre cuadra.
+export type CamionResumen = { key: string; code: string; placa: string; viajes: number; dia: number; noche: number; netoKg: number };
 /**
  * Un GRUPO del resumen. Se llama `EmpresaResumen` por historia: cuando se
  * agrupa por listero, cada uno de estos es un LISTERO y no una empresa. El
@@ -143,7 +153,7 @@ export type CamionResumen = { key: string; code: string; placa: string; viajes: 
  * el HTML del PDF y el test sin ganar nada. Es justo lo que hace barato el
  * `groupBy`: la FORMA del resultado no cambia, solo por dónde se parte.
  */
-export type EmpresaResumen = { key: string; name: string; total: number; dia: number; noche: number; camiones: CamionResumen[] };
+export type EmpresaResumen = { key: string; name: string; total: number; dia: number; noche: number; netoKg: number; camiones: CamionResumen[] };
 
 export type ResumenViajes = {
   empresas: EmpresaResumen[];
@@ -151,6 +161,8 @@ export type ResumenViajes = {
   /** Desglose del total general por turno. Ver la nota de `CamionResumen`. */
   dia: number;
   noche: number;
+  /** Suma de los pesos a pagar de TODOS los viajes que lo traen, en kilos. */
+  netoKg: number;
   totalCamiones: number;
   /** Por cuál eje quedó partido esto. Lo usa el PDF para rotular sin adivinar. */
   groupBy: EjeResumen;
@@ -269,8 +281,8 @@ export function resumirViajes(
   camionPorId: (id: string) => CamionMin | undefined,
   groupBy: EjeResumen = 'empresa'
 ): ResumenViajes {
-  const emp = new Map<string, { key: string; nombres: Map<string, number>; total: number; dia: number; noche: number; camiones: Map<string, CamionResumen> }>();
-  let totalDia = 0, totalNoche = 0;
+  const emp = new Map<string, { key: string; nombres: Map<string, number>; total: number; dia: number; noche: number; netoKg: number; camiones: Map<string, CamionResumen> }>();
+  let totalDia = 0, totalNoche = 0, totalNetoKg = 0;
 
   for (const r of rows) {
     // Un camión fuera de catálogo no se busca: no está y nunca va a estar.
@@ -287,11 +299,17 @@ export function resumirViajes(
     const esNoche = r.turno === 'night';
     if (esDia) totalDia += 1;
     if (esNoche) totalNoche += 1;
+    // Solo suma lo que EXISTE: un viaje viejo sin peso no aporta cero, no
+    // aporta nada — y el total de kilos sigue siendo verdad para los que sí.
+    const neto = Number(r.pesoNetoKg);
+    const netoValido = r.pesoNetoKg != null && isFinite(neto) ? neto : 0;
+    totalNetoKg += netoValido;
 
-    const g = emp.get(key) ?? { key, nombres: new Map<string, number>(), total: 0, dia: 0, noche: 0, camiones: new Map<string, CamionResumen>() };
+    const g = emp.get(key) ?? { key, nombres: new Map<string, number>(), total: 0, dia: 0, noche: 0, netoKg: 0, camiones: new Map<string, CamionResumen>() };
     g.total += 1;
     if (esDia) g.dia += 1;
     if (esNoche) g.noche += 1;
+    g.netoKg += netoValido;
     g.nombres.set(name, (g.nombres.get(name) ?? 0) + 1);
 
     const ck = claveCamion(r);
@@ -305,10 +323,12 @@ export function resumirViajes(
       viajes: 0,
       dia: 0,
       noche: 0,
+      netoKg: 0,
     };
     cam.viajes += 1;
     if (esDia) cam.dia += 1;
     if (esNoche) cam.noche += 1;
+    cam.netoKg += netoValido;
     g.camiones.set(ck, cam);
     emp.set(key, g);
   }
@@ -320,6 +340,7 @@ export function resumirViajes(
       total: g.total,
       dia: g.dia,
       noche: g.noche,
+      netoKg: g.netoKg,
       camiones: Array.from(g.camiones.values()).sort((a, b) => b.viajes - a.viajes || cmp(a.code, b.code)),
     }))
     .sort((a, b) => b.total - a.total || cmp(a.name, b.name));
@@ -329,6 +350,7 @@ export function resumirViajes(
     total: rows.length,
     dia: totalDia,
     noche: totalNoche,
+    netoKg: totalNetoKg,
     // ⚠️ Camiones DISTINTOS, no la suma de los grupos. Agrupando por empresa da
     //    igual (un camión pertenece a una sola empresa), pero agrupando por
     //    listero un mismo camión aparece bajo cada listero que lo registró: si

@@ -5097,6 +5097,42 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ⚠️ **El número del ticket no se puede quitar.** La casilla se ve, pero no se mueve: un ticket sin
 > número no identifica nada, no se puede cantar por radio y no se puede reclamar.
 
+> **⚖️ Peso de romana: bruto, tara y peso a pagar (26/09/2026).** Pedido de la encargada del módulo:
+> al registrar el viaje, el listero **teclea el peso bruto** que marca la romana del CDT, el sistema
+> **resta la tara** de esa placa y arroja el **peso a pagar (neto)** — como en el papel de muestra:
+> Peso entrada (bruto) 32.540,00 Kg · Peso salida (tara) 11.340,00 Kg · Peso a pagar (neto)
+> 21.200,00 Kg.
+>
+> - **El peso y la foto son obligatorios.** Sin el bruto y sin la **📷 foto de la romana** (la
+>   evidencia de ese número) el viaje no se registra. Los viajes anteriores al 26/09 quedan sin
+>   peso y salen con raya: no se les inventa hacia atrás.
+> - **La tara la carga quien tiene control total del módulo**, de una vez, en «⚙️ Configuración →
+>   ⚖️ Tara de romana por camión (Kg)». Se teclea en kilos, se guarda con 💾 y queda anotado quién
+>   la cargó. El ✕ la quita (los próximos viajes pedirán tara a mano).
+> - **Si el camión no tiene tara cargada** (o es de fuera de catálogo, que no tiene ficha), el
+>   listero la teclea a mano y el viaje queda marcado **✍️ tara manual** con su nombre — para que
+>   después se sepa cuál número salió del catálogo y cuál de un teléfono.
+> - **La tara se congela en cada viaje**, igual que la placa: si mañana re-pesan la tara de un
+>   camión, los viajes YA registrados conservan la suya y solo los nuevos usan la nueva. Y el neto
+>   **lo calcula la base de datos** (bruto − tara), nunca el teléfono: lo que ves en vivo es un
+>   adelanto del mismo cálculo.
+> - **Kilos por defecto, toneladas por si acaso.** El interruptor Kg/Toneladas está al lado del
+>   campo; todo se guarda en kilos.
+> - **Sin señal funciona igual**: el viaje Y su foto quedan guardados en el teléfono y suben juntos
+>   cuando vuelva la conexión.
+> - **En el ticket** salen los tres renglones si el administrador enciende los checks **⚖️ Peso
+>   entrada (bruto) / Peso salida (tara) / Peso a pagar (neto)** en «¿Qué sale en el ticket?»
+>   (entran apagados, como todo lo nuevo). ⚠️ Con muchos datos encendidos puede que ya no quepan
+>   4 o 6 tickets por hoja: el propio configurador avisa y dice qué papel usar.
+> - **En los reportes**, el interruptor **⚖️ Peso de romana** de «Qué sale en el reporte» agrega al
+>   detallado las columnas de bruto, tara y neto con sus totales, y al resumido la columna «Peso a
+>   pagar (Kg)» por camión, por grupo y general. Los viajes sin peso no suman ni aparecen como cero.
+> - **Corregir un bruto mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje
+>   (solo el bruto; la tara congelada no se toca — si la tara estaba mala, se borra el viaje y se
+>   carga bien). El neto se recalcula solo y el cambio queda en Auditoría.
+> - ⚠️ La **carga manual de la oficina** (cuadrar días pasados) sigue entrando **sin peso**: nadie
+>   estaba mirando la romana en ese momento y el sistema no lo inventa.
+
 > **🖨️ Imprimir el ticket y entregarlo (12/09/2026).** Ya se puede sacar el papel. En cada viaje que
 > tenga número aparece **🖨️ Imprimir ticket**, al lado de Editar y Borrar. Se abre la vista previa,
 > tocas **Imprimir** y sale el papel para dárselo al camionero.
