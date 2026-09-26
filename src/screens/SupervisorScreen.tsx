@@ -23,7 +23,7 @@ import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts, calcularInicioJornada } from '../lib/jornada';
 import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf, ultimaJornadaRoundDate } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
-import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
+import { getMachineRound, upsertMachineRound, lastHorometroFinal, cerrarJornadasRezagadas } from '../lib/machineRounds';
 import { paradaShiftOf } from '../lib/inspectorDaySets';
 import { SosAutomatizacionCard } from '../components/SosAutomatizacionCard';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
@@ -994,8 +994,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // pendiente por iniciar. Solo aplica a la noche; no toca el flujo del día.
   const nightGraceActive = useMemo(() => inNightGraceWindow(), [nowTick]);
   // CIERRE DE JORNADA: el inspector puede FINALIZAR manualmente en cualquier momento.
-  // Las máquinas que queden abiertas las cierra el auto-cierre del servidor (pg_cron)
-  // a las 7:00pm (día) / 7:00am (noche), hora Caracas. Ya NO hay bloqueo por hora.
+  // ⚙️ CIERRE MANUAL (26-sep-2026, pedido del cliente): el barredor del servidor está
+  // APAGADO (switch jornadas_cierre_config en la base). La jornada olvidada queda
+  // ABIERTA hasta que un humano la cierre; al iniciar la siguiente se liquida sola
+  // hasta su fin nominal (cerrarJornadasRezagadas). Ya NO hay bloqueo por hora.
   // ¿Esta máquina está asignada a OTRO inspector (no a mí)? Entonces no puedo
   // iniciarle jornada. Excepción: admin y coordinador (pueden con cualquiera).
   const maquinaDeOtro = useMemo(() => {
@@ -1832,6 +1834,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');
     if (!vis) { setJornadaBusy(false); return; }
+    // ⚙️ CIERRE MANUAL (26-sep-2026): el barredor está apagado. Si esta máquina tiene
+    //    jornadas VIEJAS abiertas (olvidadas), se liquidan aquí — hasta su fin nominal,
+    //    nunca más — para que la nueva no choque con la vieja. Best-effort: si falla,
+    //    la nueva inicia igual y el rezago queda para el próximo intento o para Control.
+    try {
+      const rez = await cerrarJornadasRezagadas(ci.id, today, uid || null);
+      for (const c of rez.cerradas) {
+        logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · cierre rezagado ${c.shift === 'night' ? '🌙' : '☀️'} ${c.roundDate} · ${c.horas.toFixed(2)} h hasta el fin nominal · liquidada al iniciar la siguiente`);
+      }
+    } catch {}
     // jornada_start_at = inicio del TURNO (7am/7pm si marcó a tiempo; el declarado si marcó
     // tarde). jornada_marked_at = hora REAL en que el inspector tocó "iniciar" (ej. 8:15) →
     // se muestra en Inspecciones junto al inicio ("INICIO 07:00 · marcó 8:15").
@@ -1929,9 +1941,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!ci || !jornadaStart || jornadaBusy) return;
     if (!isOnline()) { setNotice('📶 Sin conexión: para finalizar jornada hace falta señal (suma horas contra el estado del servidor).'); return; }
     // El inspector puede FINALIZAR su jornada en cualquier momento (cierre manual
-    // anticipado). Si no la cierra, el auto-cierre del servidor la cierra sola a las
-    // 7:00pm (día) / 7:00am (noche). Antes había un bloqueo por hora que impedía
-    // finalizar antes: se quitó a pedido (CESAR/REMBERTO no podían cerrar).
+    // anticipado). ⚙️ 26-sep-2026: el barredor del servidor está APAGADO — cerrar es
+    // del inspector. Cerrar DESPUÉS del fin del turno no regala horas: se banca solo
+    // hasta el fin NOMINAL (7pm día / 7am noche), igual que hacía el barredor. Antes
+    // había un bloqueo por hora que impedía finalizar antes: se quitó a pedido
+    // (CESAR/REMBERTO no podían cerrar).
     // El horómetro final es OPCIONAL y NUNCA debe impedir finalizar la jornada: las
     // horas se cuentan por TIEMPO (inicio → fin), no por horómetro. Si lo ponen y es
     // un número válido (≥0) se guarda; si lo dejan vacío, igual se finaliza. Antes un
@@ -1959,7 +1973,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const motivo = motivoCierre.trim();
     if (anticipado && !motivo) { setNotice('❌ Cierre anticipado: escribe el MOTIVO del cierre para finalizar.'); return; }
     setJornadaBusy(true); setNotice(null);
-    const ms = Date.now() - new Date(jornadaStart).getTime();
+    // ⚙️ CIERRE MANUAL: el cierre EFECTIVO nunca pasa del fin nominal del turno
+    //    (día 7pm / noche 7am). Cerrar a las 9pm no regala 2 horas: banca hasta las 7pm,
+    //    como hacía el barredor; las extras se declaran aparte. El roundDate se calcula
+    //    aquí (y no más abajo) porque el tope nominal lo necesita.
+    const roundDate = businessRoundDateOf(new Date(jornadaStart), jornadaShift);
+    const nominalEndMs = jornadaShift === 'night'
+      ? new Date(roundDate + 'T07:00:00-04:00').getTime() + 86400000
+      : new Date(roundDate + 'T19:00:00-04:00').getTime();
+    const cerroTarde = Date.now() > nominalEndMs;
+    const cierreEfectivoMs = Math.min(Date.now(), nominalEndMs);
+    const ms = cierreEfectivoMs - new Date(jornadaStart).getTime();
     const horas = Math.max(0, Math.round((ms / 3600000) * 100) / 100);
     // La jornada se cierra contra el round_date en que se INICIÓ (no el de "hoy"):
     // una jornada de noche que arranca 22:00 y termina 01:00 sigue perteneciendo al
@@ -1970,7 +1994,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // ser un inicio de NOCHE declarado él mismo ya pasada la medianoche (ej. 00:13am):
     // su fecha de calendario es HOY, pero de negocio pertenece a la noche de AYER —
     // mismo bucket que `iniciarJornada` usó para crear el round (ver su comentario).
-    const roundDate = businessRoundDateOf(new Date(jornadaStart), jornadaShift);
     const prev = await getMachineRound(ci.id, roundDate);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
@@ -1982,7 +2005,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const shiftStartMs = jornadaShift === 'night'
       ? new Date(roundDate + 'T19:00:00-04:00').getTime()
       : new Date(roundDate + 'T07:00:00-04:00').getTime();
-    const topeFisico = Math.min(12, Math.max(0, (Date.now() - shiftStartMs) / 3600000));
+    const topeFisico = Math.min(12, Math.max(0, (cierreEfectivoMs - shiftStartMs) / 3600000));
     // Las horas bancadas NUNCA pueden ser MENORES a lo realmente trabajado en ESTA
     // sesión (inicio → ahora, tope 12h). El `min(topeFisico, …)` protege del doble
     // conteo al re-abrir, PERO cuando `jornada_start_at` cae antes del inicio nominal
@@ -2009,14 +2032,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setHoroFin(''); setHoroFinPhoto(null); setMotivoCierre(''); setCerrarSinFinal(false);
     // ⚙️ Si cerró SIN horómetro final, ofrece ponerlo ahí mismo (botón de final olvidado).
     if (!hfValid) cargarLecturasDeMaquinaDia(ci.id, roundDate).then((ls) => setFinTardia(lecturaParaCompletarFinal(ls, roundDate))).catch(() => {});
-    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${motivo ? ` · Motivo cierre: ${motivo}` : ''}${!hfValid && (horoIni || '').trim() !== '' ? ' · ⚠️ cerró SIN horómetro final (avisado)' : ''}`); // bitácora
+    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h${cerroTarde ? ' · cerró tarde (bancó hasta el fin del turno)' : ''}${motivo ? ` · Motivo cierre: ${motivo}` : ''}${!hfValid && (horoIni || '').trim() !== '' ? ' · ⚠️ cerró SIN horómetro final (avisado)' : ''}`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
     // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
     // romper el cierre de jornada si falla).
     supabase.from('machine_work_segments').insert({
       machinery_id: ci.id, round_date: roundDate, shift: jornadaShift,
-      started_at: jornadaStart, ended_at: new Date().toISOString(), hours: horas,
+      started_at: jornadaStart, ended_at: new Date(cierreEfectivoMs).toISOString(), hours: horas,
       source: anticipado ? 'manual_finish_early' : 'manual_finish', recorded_by: uid || null,
       ...(motivo ? { close_reason: motivo } : {}),
     }).then(() => {}, () => {});
