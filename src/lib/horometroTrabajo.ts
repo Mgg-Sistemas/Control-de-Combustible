@@ -54,6 +54,8 @@ export type LecturaTrabajo = {
   reinicio: boolean;
   origen: OrigenLectura;
   corregidoPor?: string | null;
+  fotoInicialUrl?: string | null;
+  fotoFinalUrl?: string | null;
 };
 
 /** Ventana del turno (12 h) más media hora de gracia. Se compara contra la ventana, no contra la hora de captura. */
@@ -330,6 +332,10 @@ export const CSS_COMPARATIVO = `
   .hc h3.sect{margin:18px 0 6px;font-size:14px;color:#fff;background:#1E3A5F;padding:7px 12px;border-radius:6px}
   .hc h3.sect span{font-weight:400;color:#CFE0F2;font-size:11px}
   .hc .nota{font-size:10px;color:#555;margin:4px 0 8px}
+  .hf{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+  .hf figure{margin:0;width:172px}
+  .hf img{width:100%;height:130px;object-fit:cover;border-radius:6px;border:1px solid #E2E8F0;background:#F8FAFC}
+  .hf figcaption{font-size:9px;color:#334155;margin-top:2px;word-break:break-word}
 `;
 
 const ETIQUETA_ESTADO: Record<FilaComparativa['estado'], string> = {
@@ -448,4 +454,43 @@ export function cuerpoComparativo(
   }
   html += `</div>`;
   return html;
+}
+
+// ── LAS FOTOS DE LOS TABLEROS (26-sep-2026) ───────────────────────────
+// Pedido del cliente: poder TRAERSE en el mismo reporte las fotos que suben los
+// inspectores, con un check que NUNCA viene predefinido. Apagado, el papel ni las
+// menciona; encendido, va esta galería al final, con las MISMAS máquinas del
+// reporte (los filtros de empresa y equipos se aplican ANTES de llamar acá).
+export function seccionFotosComparativo(
+  lecturas: readonly LecturaTrabajo[],
+  fichaDe: (machineryId: string) => { code: string; empresa: string } | undefined,
+  o: OpcionesComparativo = OPCIONES_COMPARATIVO_COMPLETO,
+): string {
+  type Foto = { fecha: string; code: string; empresa: string; shift: Turno; etiqueta: string; valor: number | null; url: string };
+  const fotos: Foto[] = [];
+  for (const l of lecturas ?? []) {
+    if (!l) continue;
+    const m = fichaDe(l.machineryId);
+    if (!m) continue; // fuera del filtro del reporte: su foto tampoco sale
+    const fecha = String(l.roundDate ?? '').slice(0, 10);
+    if (l.fotoInicialUrl) fotos.push({ fecha, code: m.code, empresa: m.empresa, shift: l.shift, etiqueta: 'Inicial', valor: l.inicial, url: l.fotoInicialUrl });
+    if (l.fotoFinalUrl) fotos.push({ fecha, code: m.code, empresa: m.empresa, shift: l.shift, etiqueta: 'Final', valor: l.final, url: l.fotoFinalUrl });
+  }
+  fotos.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)
+    || cmp(a.code, b.code)
+    || (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1)
+    || (a.etiqueta === b.etiqueta ? 0 : a.etiqueta === 'Inicial' ? -1 : 1));
+  let html = `<div class="hc"><h3 class="sect">📷 Fotos de los horómetros <span>${fotos.length} foto(s), tal como las subió el inspector</span></h3>`;
+  if (fotos.length === 0) return html + `<p class="nota">Sin fotos en el rango.</p></div>`;
+  const porDia = new Map<string, Foto[]>();
+  for (const f of fotos) { const a = porDia.get(f.fecha); if (a) a.push(f); else porDia.set(f.fecha, [f]); }
+  for (const [fecha, del] of porDia) {
+    html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} foto(s)</span></h3><div class="hf">`;
+    for (const f of del) {
+      const cap = `${esc(f.code)}${o.sinEmpresa ? '' : ' · ' + esc(f.empresa)} · ${f.shift === 'night' ? '🌙 noche' : '☀️ día'} · ${esc(f.etiqueta)}${f.valor == null ? '' : ' ' + fmtH(f.valor)}`;
+      html += `<figure><img src="${esc(f.url)}"/><figcaption>${cap}</figcaption></figure>`;
+    }
+    html += `</div>`;
+  }
+  return html + `</div>`;
 }

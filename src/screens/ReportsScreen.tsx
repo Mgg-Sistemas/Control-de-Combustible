@@ -58,7 +58,7 @@ import {
   CSS_COMPARATIVO, compararJornadaHorometro, cuerpoComparativo,
   OpcionesComparativo, OPCIONES_COMPARATIVO_COMPLETO, PASTILLAS_COMPARATIVO,
   alternarComparativo, ocultosComparativoEnPalabras, sufijoArchivoComparativo,
-  tituloComparativo, subtituloComparativo,
+  tituloComparativo, subtituloComparativo, seccionFotosComparativo,
 } from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { equipCategory } from '../lib/equipos';
@@ -675,6 +675,9 @@ export default function ReportsScreen({ route }: any) {
   // reportes de maquinaria. Por omisión sale como salía siempre (BCV + SOS, todo visible).
   const [horoLogos, setHoroLogos] = useState<ReporteLogos>({ sos: true, golden: false, renace: false, bcv: true });
   const [opHoro, setOpHoro] = useState<OpcionesComparativo>(OPCIONES_COMPARATIVO_COMPLETO);
+  // 📷 Fotos de los tableros (26-sep-2026): NUNCA predefinido — arranca apagado
+  // siempre, y solo si el usuario lo prende el PDF trae la galería.
+  const [horoFotos, setHoroFotos] = useState(false);
   const LOGOS_TAC: { key: keyof ReporteLogos; label: string }[] = [
     { key: 'sos', label: 'SOS La Guaira' },
     { key: 'golden', label: 'Golden Touch' },
@@ -1806,12 +1809,19 @@ export default function ReportsScreen({ route }: any) {
       const filas = compararJornadaHorometro(rondas, d.lecturas);
       // ⚙️ 25-sep-2026: pastillas de ocultar + logos, como los demás reportes de maquinaria.
       //    Lo oculto no deja rastro (título y subtítulo incluidos: ver tituloComparativo).
-      const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas }, opHoro);
+      // 📷 FOTOS: solo con el check prendido, y de las MISMAS máquinas del papel
+      //    (empresa + filtro de equipos), tenga o no ronda ese día.
+      const fotos = !horoFotos ? '' : seccionFotosComparativo(
+        d.lecturas.filter((l) => { const m = d.maquinas.get(l.machineryId); return !!m && (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: l.machineryId, clasificacion: m.clasificacion }, filtroEqActual); }),
+        (id) => d.maquinas.get(id),
+        opHoro,
+      );
+      const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas }, opHoro) + fotos;
       const rng = dateRangeLabel(from, to);
       const filtrado = hayFiltroJornada(filtroEqActual) || repCompanies.length ? ' · FILTRADO' : '';
       const sub = `${subtituloComparativo(opHoro)} · ${rng}${filtrado}`;
       await exportPdf(pdfShell(tituloComparativo(opHoro), sub, body, horoLogos),
-        `Horometro vs jornada ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoComparativo(opHoro)}`.replace(/\//g, '-'));
+        `Horometro vs jornada ${rng}${sufijoArchivoFiltroJornada(filtroEqActual)}${sufijoArchivoComparativo(opHoro)}${horoFotos ? ' - con fotos' : ''}`.replace(/\//g, '-'));
     } finally {
       setLoading(false);
     }
@@ -3926,6 +3936,18 @@ export default function ReportsScreen({ route }: any) {
             </View>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               Salen: {LOGOS_TAC.filter((l) => horoLogos[l.key]).map((l) => l.label).join(' · ') || 'ninguno (membrete sin logos)'}.
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>📷 Fotos de los tableros</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              <TouchableOpacity onPress={() => setHoroFotos((v) => !v)}
+                style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: horoFotos ? colors.brand : colors.border, backgroundColor: horoFotos ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: horoFotos ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{horoFotos ? '☑' : '☐'} Traer las fotos de los horómetros</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              {horoFotos
+                ? 'Al final del PDF va la galería de fotos que subieron los inspectores — día por día, cada una con su máquina, turno, Inicial/Final y el número leído — de las mismas máquinas y fechas del reporte.'
+                : 'Apagado (así arranca siempre): el papel sale como hoy, sin fotos.'}
             </Text>
           </View>
         ) : null}
