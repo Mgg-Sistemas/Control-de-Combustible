@@ -62,6 +62,7 @@ import {
   horometroPorMaquina, lineaHorometroJornada, HorometroDeMaquina,
 } from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
+import { cargarFotosHorometroRango } from '../lib/horometroFotosDb';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
@@ -1830,11 +1831,22 @@ export default function ReportsScreen({ route }: any) {
       //    Lo oculto no deja rastro (título y subtítulo incluidos: ver tituloComparativo).
       // 📷 FOTOS: solo con el check prendido, y de las MISMAS máquinas del papel
       //    (empresa + filtro de equipos), tenga o no ronda ese día.
+      // 📎 Y LAS ADICIONALES del histórico (26-sep-2026): las que el inspector
+      //    subió aparte (de cámara o galería, las que quiera). Mismo filtro de
+      //    empresa/equipos, aplicado por `fichaDe` dentro de la sección. Si la
+      //    tabla no existe todavía (restore viejo), el papel sale sin ellas.
+      const extras = !horoFotos ? [] : await cargarFotosHorometroRango(from, to).catch(() => []);
       const fotos = !horoFotos ? '' : seccionFotosComparativo(
         d.lecturas.filter((l) => { const m = d.maquinas.get(l.machineryId); return !!m && (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: l.machineryId, clasificacion: m.clasificacion }, filtroEqActual); }),
-        (id) => d.maquinas.get(id),
+        (id) => {
+          const m = d.maquinas.get(id);
+          // El MISMO filtro para lecturas y adicionales: una máquina fuera del
+          // papel no enseña ninguna de sus fotos.
+          return m && (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id, clasificacion: m.clasificacion }, filtroEqActual) ? m : undefined;
+        },
         opHoro,
         (quien) => d.nombres.get(quien),
+        extras.map((f) => ({ machineryId: f.machineryId, roundDate: f.roundDate, shift: f.shift, url: f.url, subidaAt: f.subidaAt, subidaPorNombre: f.subidaPorNombre })),
       );
       const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas }, opHoro) + fotos;
       const rng = dateRangeLabel(from, to);
@@ -3971,7 +3983,7 @@ export default function ReportsScreen({ route }: any) {
             </View>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               {horoFotos
-                ? 'Al final del PDF va la galería ORGANIZADA POR MAQUINARIA: cada máquina con sus fotos en orden (Inicial → Final), y cada foto con su fecha, turno, el número leído, la hora en que se subió y quién la subió.'
+                ? 'Al final del PDF va la galería ORGANIZADA POR MAQUINARIA: cada máquina con sus fotos en orden (Inicial → Final → adicionales), y cada foto con su fecha, turno, el número leído, la hora en que se subió y quién la subió. Las adicionales son las que el inspector sube aparte, de cámara o de galería, las que haga falta.'
                 : 'Apagado (así arranca siempre): el papel sale como hoy, sin fotos.'}
             </Text>
           </View>
