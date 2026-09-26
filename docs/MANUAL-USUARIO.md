@@ -3367,6 +3367,11 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   cuadre y las «listas», y el papel pasa a llamarse «Horómetro de trabajo». Ojo: el PDF solo
   trae horas de horómetro en los días con lectura **completa** (inicial Y final del mismo
   turno); una lectura a medias sale como «sin lectura».
+  Y desde el 26/09/2026, un check **«📷 Traer las fotos de los horómetros»** (apagado siempre
+  al entrar, nunca predefinido): encendido, al final del PDF va la galería de fotos que subieron
+  los inspectores — día por día, cada una con su máquina, turno, Inicial/Final y el número
+  leído — de las mismas máquinas y fechas del reporte (respeta el rango, la empresa y el filtro
+  de equipos, y la pastilla de ocultar empresas). Apagado, el papel no las menciona.
 
 **Qué NO hace todavía (fases siguientes, con decisiones del cliente):** pagar por horómetro,
 corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del
