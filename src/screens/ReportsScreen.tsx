@@ -59,8 +59,10 @@ import {
   OpcionesComparativo, OPCIONES_COMPARATIVO_COMPLETO, PASTILLAS_COMPARATIVO,
   alternarComparativo, ocultosComparativoEnPalabras, sufijoArchivoComparativo,
   tituloComparativo, subtituloComparativo, seccionFotosComparativo,
+  horometroPorMaquina, lineaHorometroJornada, HorometroDeMaquina,
 } from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
+import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { precioEfectivoJornada } from '../lib/precioHistorial';
@@ -784,6 +786,9 @@ export default function ReportsScreen({ route }: any) {
   // Actualización EN VIVO del reporte abierto: guarda la función para regenerarlo con
   // los MISMOS parámetros cuando cambian las jornadas (realtime). Se limpia al cerrar.
   const liveRef = useRef<null | (() => void)>(null);
+  // 🕒 El horómetro de trabajo del rango, por máquina (26-sep-2026). Lo llena
+  // generateRounds y lo lee downloadRoundsPdf, que arma el papel en otra función.
+  const horoJornadaRef = useRef<Map<string, HorometroDeMaquina>>(new Map());
   const rtId = useRef(0);
   if (!rtId.current) rtId.current = nextRtInstanceId();
 
@@ -1181,6 +1186,13 @@ export default function ReportsScreen({ route }: any) {
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     const histPrecios = await cargarHistorialPrecios();
+    // 🕒 EL HORÓMETRO DE TRABAJO (26-sep-2026). Pedido del cliente: «se está
+    // modificando el horómetro desde Control pero en los reportes por jornada y
+    // por horómetro no se refleja». Este informe se arma con `machine_rounds`
+    // —lo que PAGA— y no miraba la tabla del horómetro para nada, así que una
+    // corrección hecha en Control no aparecía. Se trae al lado, sin tocar el pago.
+    // Si la tabla no existe, vuelve vacío y el informe sale igual que siempre.
+    horoJornadaRef.current = horometroPorMaquina(await cargarLecturasHorometro(fromArg, toArg));
     const nowMs = Date.now();
     // Motivo de CIERRE (cierre manual anticipado) por máquina: close_reason del tramo
     // más reciente del rango (machine_work_segments). Se muestra junto a la máquina.
@@ -1617,7 +1629,14 @@ export default function ReportsScreen({ route }: any) {
         const rows = g.machines
           .map(
             (m) =>
-              `<tr><td>${esc(m.machine)}${[m.plate, m.serial].filter(Boolean).length ? `<br/><span style="color:#888">${esc([m.plate, m.serial].filter(Boolean).join(' · '))}</span>` : ''}${m.cierreMotivo ? `<br/><span style="color:#B45309;font-size:9px">📝 ${esc(m.cierreMotivo)}</span>` : ''}${m.cierreFinBy ? `<br/><span style="color:#1D4ED8;font-size:9px">🏁 Finalizó: ${esc(m.cierreFinBy)}</span>` : ''}</td>` +
+              `<tr><td>${esc(m.machine)}${[m.plate, m.serial].filter(Boolean).length ? `<br/><span style="color:#888">${esc([m.plate, m.serial].filter(Boolean).join(' · '))}</span>` : ''}${m.cierreMotivo ? `<br/><span style="color:#B45309;font-size:9px">📝 ${esc(m.cierreMotivo)}</span>` : ''}${m.cierreFinBy ? `<br/><span style="color:#1D4ED8;font-size:9px">🏁 Finalizó: ${esc(m.cierreFinBy)}</span>` : ''}${(() => {
+                // 🕒 El horómetro de trabajo del rango: inicio → fin = horas, y el ✎
+                //    si alguien lo corrigió a mano en Control, con su motivo.
+                const linea = lineaHorometroJornada(horoJornadaRef.current.get(m.id));
+                if (!linea) return '';
+                const azul = horoJornadaRef.current.get(m.id)?.corregida ? '#1D4ED8' : '#555';
+                return `<br/><span style="color:${azul};font-size:9px">${esc(linea)}</span>`;
+              })()}</td>` +
               `<td>${esc(m.tipo)}</td>` +
               `<td>${esc(m.clasificacion)}</td>` +
               `<td style="text-align:center">${m.days}</td>` +

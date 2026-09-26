@@ -3459,6 +3459,39 @@ Decisión del cliente: **solo los administradores corrigen, y basta el motivo es
 - Solo toca la lectura del modo sombra: **ni las horas pagadas ni el horómetro de
   mantenimiento se mueven**.
 
+#### 🕒 La corrección manual se ve en los dos reportes (26/09/2026)
+
+Pedido textual: *"se esta modificando el horometro desde control pero en los reportes por jornada y
+por horometro no se refleja, sincroniza eso, cuando es cambio sea manual que se refleje en el
+reporte las horas el inicio y el fin"*.
+
+**Por qué no se reflejaba.** El **Informe por jornada** se arma con las rondas (`machine_rounds`),
+que es **lo que se paga**; el horómetro de trabajo vive en una tabla **aparte** (modo sombra). Ese
+informe **no miraba esa tabla para nada**, así que una corrección hecha en Control no aparecía por
+ningún lado. Y el reporte **⚙️ Horómetro** sí la leía, pero mostraba **solo las horas**: se veía un
+número distinto sin poder saber de dónde salía ni si alguien lo había tocado.
+
+**Qué cambia:**
+
+- **⚙️ Horómetro** trae ahora dos columnas nuevas, **Inicio** y **Fin** — los números del tablero
+  con los que la máquina arrancó y terminó el día — junto a las horas de siempre. Se apagan con la
+  pastilla **🚫 Inicio / Fin**.
+- **Informe por jornada**: bajo cada máquina sale **🕒 Horómetro: inicio → fin = horas**.
+- Lo que se **corrigió a mano** desde Control sale marcado en **azul** con **✎ corregido a mano** y
+  **el motivo que escribió quien lo corrigió**, en los dos reportes. El resumen del ⚙️ Horómetro
+  cuenta cuántas lecturas se corrigieron.
+
+> **⚠️ Esto no cambia ni un centavo de lo que se paga.** El horómetro de trabajo sigue en **modo
+> sombra**: el informe por jornada paga con las horas de la ronda, igual que ayer. El horómetro se
+> muestra **al lado**, para poder compararlos.
+
+> **⚠️ Las horas se suman día por día**, no se resta el último número menos el primero. Restar las
+> puntas contaría también los días que el papel **no** está mostrando (filtrados por empresa, por
+> equipo o fuera del rango), y el total no cuadraría con la suma de los días listados.
+
+> **Una lectura marcada como mala igual enseña sus números.** Es justo lo que hay que ver para ir a
+> corregirla.
+
 #### ⚙️ El final olvidado (24/09/2026)
 
 **Y el inicio consciente (25/09/2026), la otra mitad:** si se toca «Iniciar jornada» con el

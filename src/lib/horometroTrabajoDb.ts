@@ -20,14 +20,14 @@ function aLectura(r: any): LecturaTrabajo {
     inicial: numONull(r.inicial), final: numONull(r.final),
     valida: r.valida !== false, motivoInvalida: limpio(r.motivo_invalida) || null,
     reinicio: r.reinicio === true, origen: (limpio(r.origen) || 'inspector') as OrigenLectura,
-    corregidoPor: r.corregido_por ?? null,
+    corregidoPor: r.corregido_por ?? null, motivoCorreccion: limpio(r.motivo_correccion) || null,
     fotoInicialUrl: limpio(r.foto_inicial_url) || null, fotoFinalUrl: limpio(r.foto_final_url) || null,
     createdAt: r.created_at ?? null, updatedAt: r.updated_at ?? null,
     createdBy: r.created_by ?? null, updatedBy: r.updated_by ?? null,
   };
 }
 
-const COLS = 'machinery_id, round_date, shift, inicial, final, valida, motivo_invalida, reinicio, origen, corregido_por, foto_inicial_url, foto_final_url, created_at, updated_at, created_by, updated_by';
+const COLS = 'machinery_id, round_date, shift, inicial, final, valida, motivo_invalida, reinicio, origen, corregido_por, motivo_correccion, foto_inicial_url, foto_final_url, created_at, updated_at, created_by, updated_by';
 
 /** Lecturas de un rango de jornadas (paginado: una semana de toda la flota pasa de 1.000). */
 export async function cargarLecturasHorometro(desde: string, hasta: string): Promise<LecturaTrabajo[]> {

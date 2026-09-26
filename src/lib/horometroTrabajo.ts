@@ -31,6 +31,9 @@ const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g,
 const dmy = (iso: string): string => { const [y, m, d] = String(iso ?? '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 /** Horas para el papel: coma decimal, sin ceros de sobra («8,5», «12», «0,25»). */
 const fmtH = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : String(redondear(n)).replace('.', ','));
+/** Un número de horómetro tal cual se leyó del tablero (sin redondear a horas): un
+ *  horómetro puede traer decimales y redondearlo escondería justo la corrección. */
+const fmtNum = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : String(n).replace('.', ','));
 /** Día siguiente en ISO (aaaa-mm-dd), sin zona: solo se usa para saber si dos fechas son seguidas. */
 const diaSiguiente = (iso: string): string => {
   const t = Date.parse(String(iso ?? '').slice(0, 10) + 'T00:00:00Z');
@@ -54,6 +57,8 @@ export type LecturaTrabajo = {
   reinicio: boolean;
   origen: OrigenLectura;
   corregidoPor?: string | null;
+  /** Por qué se corrigió desde Control. La base lo exige en toda corrección. */
+  motivoCorreccion?: string | null;
   fotoInicialUrl?: string | null;
   fotoFinalUrl?: string | null;
   createdAt?: string | null;
@@ -230,7 +235,44 @@ export type FilaComparativa = {
   horasHorometro: number | null;
   diferencia: number | null;
   estado: 'cuadra' | 'horometro_mayor' | 'jornada_mayor' | 'sin_lectura' | 'invalida';
+
+  // ── EL INICIO Y EL FIN (26-sep-2026) ──────────────────────────────────────
+  // Pedido del cliente: «cuando el cambio sea manual que se refleje en el reporte
+  // las horas, el inicio y el fin». Hasta hoy el papel traía SOLO las horas, así
+  // que una corrección hecha en Control se veía como un número distinto sin poder
+  // saber de dónde salía ni si alguien lo había tocado a mano.
+  /** El horómetro con el que ARRANCÓ el día (el `inicial` del primer turno). */
+  inicial: number | null;
+  /** Con el que TERMINÓ (el `final` del último turno con final). */
+  final: number | null;
+  /** ✎ Alguien la corrigió a mano desde Control (o la marcó como reinicio). */
+  corregida: boolean;
+  /** Por qué se corrigió. Lo escribió quien corrigió; obligatorio en la base. */
+  motivo: string;
 };
+
+/**
+ * ✎ ¿A estas lecturas las tocó alguien a mano, y por qué?
+ *
+ * Una corrección se reconoce por CUALQUIERA de las tres señales que deja la base:
+ * `corregidoPor` (quién), el origen `control`/`reinicio` (desde dónde) o el motivo
+ * escrito. Mirar una sola dejaría fuera las corregidas antes de que existiera el
+ * resto de las columnas, y esas son justo las que hay que poder rastrear.
+ */
+export function marcaDeCorreccion(lecturas: readonly LecturaTrabajo[] | null | undefined): { corregida: boolean; motivo: string } {
+  const ls = (lecturas ?? []).filter(Boolean);
+  const tocada = (l: LecturaTrabajo) =>
+    !!l.corregidoPor || l.origen === 'control' || l.origen === 'reinicio' || !!limpio(l.motivoCorreccion);
+  const corregidas = ls.filter(tocada);
+  if (corregidas.length === 0) return { corregida: false, motivo: '' };
+  // Los motivos de los dos turnos, sin repetir: el papel los muestra juntos.
+  const motivos: string[] = [];
+  for (const l of corregidas) {
+    const m = limpio(l.motivoCorreccion);
+    if (m && !motivos.includes(m)) motivos.push(m);
+  }
+  return { corregida: true, motivo: motivos.join(' · ') };
+}
 
 /** Media hora de tolerancia para decir que jornada y horómetro cuadran. */
 const TOLERANCIA_CUADRA = 0.5;
@@ -254,8 +296,23 @@ export function compararJornadaHorometro(
     const fecha = String(r.fecha ?? '').slice(0, 10);
     const hj = redondear(horasJornada(r.ronda));
     const del = porClave.get(`${r.machineryId}|${fecha}`) ?? [];
-    const base = { machineryId: r.machineryId, code: limpio(r.code), empresa: limpio(r.empresa), marca: limpio(r.marca), modelo: limpio(r.modelo), placa: limpio(r.placa), fecha, horasJornada: hj };
-    if (del.length === 0) { filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'sin_lectura' }); continue; }
+    // ⭐ EL INICIO Y EL FIN DEL DÍA (26-sep-2026). Se toman de los turnos ORDENADOS
+    //    (día antes que noche): el `inicial` del primero que lo tenga y el `final`
+    //    del último que lo tenga. Con los dos turnos cargados, eso es el horómetro
+    //    con el que la máquina arrancó la jornada y con el que la terminó.
+    const ord = [...del].sort((a, b) => (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1));
+    const marca = marcaDeCorreccion(ord);
+    const base = {
+      machineryId: r.machineryId, code: limpio(r.code), empresa: limpio(r.empresa),
+      marca: limpio(r.marca), modelo: limpio(r.modelo), placa: limpio(r.placa), fecha, horasJornada: hj,
+      inicial: ord.find((l) => l.inicial != null)?.inicial ?? null,
+      final: [...ord].reverse().find((l) => l.final != null)?.final ?? null,
+      corregida: marca.corregida, motivo: marca.motivo,
+    };
+    const vacia = { inicial: null, final: null, corregida: false, motivo: '' };
+    if (del.length === 0) { filas.push({ ...base, ...vacia, horasHorometro: null, diferencia: null, estado: 'sin_lectura' }); continue; }
+    // ⚠️ Una lectura MALA igual enseña sus números: el papel tiene que dejar ver QUÉ
+    //    se tecleó mal, que es lo que se va a ir a corregir.
     if (del.some((l) => !l.valida)) { filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'invalida' }); continue; }
     const horas = del.map(horasDeLectura).filter((h): h is number => h != null);
     if (horas.length === 0) { filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'sin_lectura' }); continue; } // solo lecturas incompletas
@@ -267,9 +324,82 @@ export function compararJornadaHorometro(
   return filas.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : cmp(a.code, b.code)));
 }
 
+// ── 🕒 EL HORÓMETRO EN EL INFORME POR JORNADA (26-sep-2026) ─────────────────
+//
+// Pedido del cliente, textual: «se esta modificando el horometro desde control
+// pero en los reportes por jornada y por horometro no se refleja, sincroniza eso,
+// cuando es cambio sea manual que se refleje en el reporte las horas el inicio y
+// el fin».
+//
+// ⚠️ EL INFORME POR JORNADA NO LEÍA ESTA TABLA. Se arma con `machine_rounds`, que
+//    es lo que PAGA; el horómetro de trabajo vive aparte (modo sombra) y por eso
+//    una corrección hecha en Control no aparecía por ningún lado. Esto no cambia
+//    lo que se paga: agrega el dato al lado, para poder compararlos.
+
+/** Lo que el informe por jornada muestra de una máquina en todo el rango. */
+export type HorometroDeMaquina = {
+  /** Con el que arrancó el PRIMER día del rango. */
+  inicial: number | null;
+  /** Con el que terminó el ÚLTIMO día del rango. */
+  final: number | null;
+  /** La suma de las horas de cada día, NO `final − inicial`. */
+  horas: number | null;
+  /** Días con lectura completa. */
+  dias: number;
+  corregida: boolean;
+  motivo: string;
+};
+
+/**
+ * El horómetro de cada máquina en el rango, para el informe por jornada.
+ *
+ * ⚠️ LAS HORAS SE SUMAN DÍA POR DÍA, no se restan las puntas. Restar el último
+ *    menos el primero contaría también las horas que la máquina trabajó para otro
+ *    (o en un día que no entró al informe por un filtro), y el número no cuadraría
+ *    con la suma de los días que el papel sí muestra.
+ */
+export function horometroPorMaquina(
+  lecturas: readonly LecturaTrabajo[] | null | undefined,
+): Map<string, HorometroDeMaquina> {
+  const porMaquina = new Map<string, LecturaTrabajo[]>();
+  for (const l of lecturas ?? []) {
+    if (!l || !l.machineryId) continue;
+    const a = porMaquina.get(l.machineryId);
+    if (a) a.push(l); else porMaquina.set(l.machineryId, [l]);
+  }
+  const out = new Map<string, HorometroDeMaquina>();
+  for (const [id, ls] of porMaquina) {
+    // Orden real: por día y, dentro del día, el turno de día antes que el de noche.
+    const clave = (l: LecturaTrabajo) => `${String(l.roundDate ?? '').slice(0, 10)}|${l.shift === 'night' ? '1' : '0'}`;
+    const ord = [...ls].sort((a, b) => (clave(a) < clave(b) ? -1 : clave(a) > clave(b) ? 1 : 0));
+    const horas = ord.map(horasDeLectura).filter((h): h is number => h != null);
+    const marca = marcaDeCorreccion(ord);
+    out.set(id, {
+      inicial: ord.find((l) => l.inicial != null)?.inicial ?? null,
+      final: [...ord].reverse().find((l) => l.final != null)?.final ?? null,
+      horas: horas.length ? redondear(horas.reduce((s, h) => s + h, 0)) : null,
+      dias: new Set(ord.filter((l) => horasDeLectura(l) != null).map((l) => String(l.roundDate).slice(0, 10))).size,
+      corregida: marca.corregida,
+      motivo: marca.motivo,
+    });
+  }
+  return out;
+}
+
+/** La línea que sale bajo la máquina en el informe por jornada. '' si no hay nada que decir. */
+export function lineaHorometroJornada(h: HorometroDeMaquina | null | undefined): string {
+  if (!h) return '';
+  if (h.inicial == null && h.final == null && h.horas == null) return '';
+  const horas = h.horas == null ? '' : ` = ${fmtH(h.horas)} h`;
+  const corr = h.corregida ? ` ✎ corregido a mano${h.motivo ? `: ${h.motivo}` : ''}` : '';
+  return `🕒 Horómetro: ${fmtNum(h.inicial)} → ${fmtNum(h.final)}${horas}${corr}`;
+}
+
 export type ResumenComparativo = {
   filas: number; maquinas: number; conLectura: number;
   cuadran: number; horometroMayor: number; jornadaMayor: number; invalidas: number; sinLectura: number;
+  /** ✎ Cuántas se corrigieron a mano desde Control (26-sep-2026). */
+  corregidas: number;
   horasJornada: number; horasHorometro: number;
   listas: { code: string; dias: number }[];
 };
@@ -281,11 +411,12 @@ export function resumenComparativo(filas: readonly FilaComparativa[]): ResumenCo
   const fs = filas ?? [];
   const r: ResumenComparativo = {
     filas: fs.length, maquinas: new Set(fs.map((f) => f.machineryId)).size, conLectura: 0,
-    cuadran: 0, horometroMayor: 0, jornadaMayor: 0, invalidas: 0, sinLectura: 0,
+    cuadran: 0, horometroMayor: 0, jornadaMayor: 0, invalidas: 0, sinLectura: 0, corregidas: 0,
     horasJornada: 0, horasHorometro: 0, listas: [],
   };
   for (const f of fs) {
     r.horasJornada += num(f.horasJornada);
+    if (f.corregida) r.corregidas++;
     if (f.horasHorometro != null) { r.conLectura++; r.horasHorometro += num(f.horasHorometro); }
     if (f.estado === 'cuadra') r.cuadran++;
     else if (f.estado === 'horometro_mayor') r.horometroMayor++;
@@ -333,6 +464,7 @@ export const CSS_COMPARATIVO = `
   .hc-menos .est{color:#B91C1C;font-weight:700}
   .hc-sin td{color:#6B7280}
   .hc-sin .est{font-style:italic}
+  .hc-corr{color:#1D4ED8;font-size:8px;font-weight:700}
   .hc h3.sect{margin:18px 0 6px;font-size:14px;color:#fff;background:#1E3A5F;padding:7px 12px;border-radius:6px}
   .hc h3.sect span{font-weight:400;color:#CFE0F2;font-size:11px}
   .hc .nota{font-size:10px;color:#555;margin:4px 0 8px}
@@ -359,10 +491,13 @@ const CLASE_ESTADO: Record<FilaComparativa['estado'], string> = {
 export type OpcionesComparativo = {
   sinMarca: boolean; sinModelo: boolean; sinPlaca: boolean;
   sinEmpresa: boolean; sinJornada: boolean; sinResumen: boolean; sinListas: boolean; sinDetalle: boolean;
+  /** 🚫 Las columnas Inicio y Fin del horómetro (26-sep-2026). */
+  sinInicioFin: boolean;
 };
 export const OPCIONES_COMPARATIVO_COMPLETO: OpcionesComparativo = {
   sinMarca: false, sinModelo: false, sinPlaca: false,
   sinEmpresa: false, sinJornada: false, sinResumen: false, sinListas: false, sinDetalle: false,
+  sinInicioFin: false,
 };
 export const PASTILLAS_COMPARATIVO: { key: keyof OpcionesComparativo; chip: string; largo: string; archivo: string }[] = [
   { key: 'sinMarca', chip: '🚫 Marca', largo: 'marca', archivo: 'sin marca' },
@@ -370,6 +505,7 @@ export const PASTILLAS_COMPARATIVO: { key: keyof OpcionesComparativo; chip: stri
   { key: 'sinPlaca', chip: '🚫 Serial / Placa', largo: 'serial/placa', archivo: 'sin placa' },
   { key: 'sinEmpresa', chip: '🚫 Nombre de empresas', largo: 'nombre de empresas', archivo: 'sin empresas' },
   { key: 'sinJornada', chip: '🚫 Horas de jornada', largo: 'horas de jornada (con su diferencia, estado y «listas»)', archivo: 'solo horometro' },
+  { key: 'sinInicioFin', chip: '🚫 Inicio / Fin', largo: 'el inicio y el fin del horómetro', archivo: 'sin inicio fin' },
   { key: 'sinResumen', chip: '🚫 Resumen', largo: 'cajas del resumen', archivo: 'sin resumen' },
   { key: 'sinListas', chip: '🚫 Máquinas listas', largo: 'máquinas listas para encender', archivo: 'sin listas' },
   { key: 'sinDetalle', chip: '🚫 Detalle por día', largo: 'detalle día por día', archivo: 'sin detalle' },
@@ -409,13 +545,23 @@ export function cuerpoComparativo(
   const r = resumenComparativo(filas);
   const caja = (t: string, v: string | number) => `<div><b>${esc(v)}</b>${esc(t)}</div>`;
   let html = `<div class="hc">`;
+  // La nota explica lo que cambió el 26-sep-2026: de dónde salen las horas (Inicio y
+  // Fin, a la vista) y qué significa el ✎ azul.
+  // ⚠️ NI UNA PALABRA QUE DELATE LO OCULTO. Con «🚫 Horas de jornada» encendida, el
+  //    papel no puede ni nombrar la jornada: por eso acá se dice «el día».
+  const notaIF = o.sinInicioFin ? '' : ' <b>Inicio</b> y <b>Fin</b> son los números del tablero con los que arrancó y terminó el día.';
+  const notaCorr = r.corregidas > 0
+    ? ` <span style="color:#1D4ED8"><b>✎ corregido a mano</b> marca las ${r.corregidas} lectura(s) que se arreglaron desde Control, con el motivo que escribió quien las corrigió.</span>`
+    : '';
   html += o.sinJornada
-    ? `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; horas = final − inicial del horómetro de trabajo, por turno. «—» = sin lectura completa ese día.</p>`
-    : `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos.</p>`;
+    ? `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; horas = final − inicial del horómetro de trabajo, por turno. «—» = sin lectura completa ese día.${notaIF}${notaCorr}</p>`
+    : `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos.${notaIF}${notaCorr}</p>`;
   if (!o.sinResumen) {
     html += `<div class="hc-res">` + caja('máquinas', r.maquinas) + caja('días con ronda', r.filas) + caja('con lectura', r.conLectura);
     if (!o.sinJornada) html += caja('cuadran', r.cuadran) + caja('horómetro mayor', r.horometroMayor) + caja('jornada mayor', r.jornadaMayor);
     html += caja('inválidas', r.invalidas) + caja('sin lectura', r.sinLectura);
+    // ✎ La caja solo sale si hubo correcciones: un cero permanente es ruido.
+    if (r.corregidas > 0) html += caja('✎ corregidas a mano', r.corregidas);
     if (!o.sinJornada) html += caja('h jornada', fmtH(r.horasJornada));
     html += caja('h horómetro', fmtH(r.horasHorometro)) + `</div>`;
   }
@@ -438,19 +584,29 @@ export function cuerpoComparativo(
     for (const fecha of fechas) {
       const del = [...(porDia.get(fecha) ?? [])].sort((a, b) => cmp(a.code, b.code));
       html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} máquina(s)</span></h3>`;
-      html += `<table><thead><tr><th>Máquina</th>${o.sinMarca && o.sinModelo ? '' : `<th>${tituloMarcaModeloComp(o)}</th>`}${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinEmpresa ? '' : '<th>Empresa</th>'}${o.sinJornada ? '' : '<th class="r">Jornada h</th>'}<th class="r">Horómetro h</th>${o.sinJornada ? '' : '<th class="r">Diferencia</th><th>Estado</th>'}</tr></thead><tbody>`;
+      // 🕒 INICIO / FIN (26-sep-2026): las dos columnas que faltaban. Sin ellas, una
+      //    corrección hecha en Control se veía como un número de horas distinto sin
+      //    poder saber de dónde salía ni si alguien lo había tocado a mano.
+      const colsIF = o.sinInicioFin ? '' : '<th class="r">Inicio</th><th class="r">Fin</th>';
+      html += `<table><thead><tr><th>Máquina</th>${o.sinMarca && o.sinModelo ? '' : `<th>${tituloMarcaModeloComp(o)}</th>`}${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinEmpresa ? '' : '<th>Empresa</th>'}${o.sinJornada ? '' : '<th class="r">Jornada h</th>'}${colsIF}<th class="r">Horómetro h</th>${o.sinJornada ? '' : '<th class="r">Diferencia</th><th>Estado</th>'}</tr></thead><tbody>`;
       for (const f of del) {
         // La identidad de la máquina (25-sep-2026: «falta marca y modelo, placa»), cada
         // pedazo con su pastilla. Lo apagado no deja ni la celda.
         const ident = (o.sinMarca && o.sinModelo ? '' : `<td>${esc([!o.sinMarca ? f.marca : '', !o.sinModelo ? f.modelo : ''].filter(Boolean).join(' / '))}</td>`)
           + (o.sinPlaca ? '' : `<td>${esc(f.placa)}</td>`)
           + (o.sinEmpresa ? '' : `<td>${esc(f.empresa)}</td>`);
+        const celdasIF = o.sinInicioFin ? ''
+          : `<td class="r">${fmtNum(f.inicial)}</td><td class="r">${fmtNum(f.final)}</td>`;
+        // ✎ La marca de «lo corrigieron a mano», con su motivo debajo del código.
+        const marca = f.corregida
+          ? `<br/><span class="hc-corr">✎ corregido a mano${f.motivo ? `: ${esc(f.motivo)}` : ''}</span>`
+          : '';
         if (o.sinJornada) {
           // Sin jornada tampoco hay clase de color: el verde/ámbar/rojo ES el cuadre.
-          html += `<tr><td>${esc(f.code)}</td>${ident}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
+          html += `<tr><td>${esc(f.code)}${marca}</td>${ident}${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
         } else {
           const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
-          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}</td>${ident}<td class="r">${fmtH(f.horasJornada)}</td><td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${ETIQUETA_ESTADO[f.estado]}</td></tr>`;
+          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}${marca}</td>${ident}<td class="r">${fmtH(f.horasJornada)}</td>${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${ETIQUETA_ESTADO[f.estado]}</td></tr>`;
         }
       }
       html += `</tbody></table>`;
