@@ -1815,6 +1815,7 @@ export default function ReportsScreen({ route }: any) {
         d.lecturas.filter((l) => { const m = d.maquinas.get(l.machineryId); return !!m && (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: l.machineryId, clasificacion: m.clasificacion }, filtroEqActual); }),
         (id) => d.maquinas.get(id),
         opHoro,
+        (quien) => d.nombres.get(quien),
       );
       const body = `<style>${CSS_COMPARATIVO}</style>` + cuerpoComparativo({ desde: from, hasta: to, filas }, opHoro) + fotos;
       const rng = dateRangeLabel(from, to);
@@ -3951,7 +3952,7 @@ export default function ReportsScreen({ route }: any) {
             </View>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
               {horoFotos
-                ? 'Al final del PDF va la galería de fotos que subieron los inspectores — día por día, cada una con su máquina, su placa/serial, turno, Inicial/Final y el número leído — de las mismas máquinas y fechas del reporte.'
+                ? 'Al final del PDF va la galería ORGANIZADA POR MAQUINARIA: cada máquina con sus fotos en orden (Inicial → Final), y cada foto con su fecha, turno, el número leído, la hora en que se subió y quién la subió.'
                 : 'Apagado (así arranca siempre): el papel sale como hoy, sin fotos.'}
             </Text>
           </View>

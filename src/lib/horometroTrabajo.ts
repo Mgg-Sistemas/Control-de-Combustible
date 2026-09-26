@@ -56,6 +56,10 @@ export type LecturaTrabajo = {
   corregidoPor?: string | null;
   fotoInicialUrl?: string | null;
   fotoFinalUrl?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
 };
 
 /** Ventana del turno (12 h) más media hora de gracia. Se compara contra la ventana, no contra la hora de captura. */
@@ -457,39 +461,55 @@ export function cuerpoComparativo(
 }
 
 // ── LAS FOTOS DE LOS TABLEROS (26-sep-2026) ───────────────────────────
-// Pedido del cliente: poder TRAERSE en el mismo reporte las fotos que suben los
-// inspectores, con un check que NUNCA viene predefinido. Apagado, el papel ni las
-// menciona; encendido, va esta galería al final, con las MISMAS máquinas del
-// reporte (los filtros de empresa y equipos se aplican ANTES de llamar acá).
+// Pedido del cliente (dos tandas del mismo día): un check que NUNCA viene
+// predefinido, y la galería ORGANIZADA POR MAQUINARIA — cada máquina con sus
+// fotos en orden (día antes que noche, Inicial antes que Final) y cada foto con
+// su fecha, la HORA en que se subió y QUIÉN la subió. Apagado el check, el papel
+// ni las menciona; los filtros de empresa/equipos se aplican ANTES de llamar acá.
+
+/** Hora Caracas (UTC-4 fijo, sin horario de verano) en «7:12 a. m.»; '' si no hay instante. */
+const horaCaracas = (iso: string | null | undefined): string => {
+  const t = Date.parse(String(iso ?? ''));
+  if (!Number.isFinite(t)) return '';
+  const p = new Date(t - 4 * 3600000);
+  const h24 = p.getUTCHours();
+  const mm = String(p.getUTCMinutes()).padStart(2, '0');
+  return `${h24 % 12 === 0 ? 12 : h24 % 12}:${mm} ${h24 < 12 ? 'a. m.' : 'p. m.'}`;
+};
+
 export function seccionFotosComparativo(
   lecturas: readonly LecturaTrabajo[],
   fichaDe: (machineryId: string) => { code: string; empresa: string; placa?: string } | undefined,
   o: OpcionesComparativo = OPCIONES_COMPARATIVO_COMPLETO,
+  nombreDe?: (userId: string) => string | undefined,
 ): string {
-  type Foto = { fecha: string; code: string; empresa: string; placa: string; shift: Turno; etiqueta: string; valor: number | null; url: string };
+  type Foto = { mkey: string; titulo: string; fecha: string; code: string; shift: Turno; etiqueta: string; valor: number | null; url: string; hora: string; autor: string };
   const fotos: Foto[] = [];
   for (const l of lecturas ?? []) {
     if (!l) continue;
     const m = fichaDe(l.machineryId);
     if (!m) continue; // fuera del filtro del reporte: su foto tampoco sale
     const fecha = String(l.roundDate ?? '').slice(0, 10);
-    // La placa/serial identifica la máquina (26-sep-2026: media flota comparte código).
-    const base = { fecha, code: m.code, empresa: m.empresa, placa: limpio(m.placa), shift: l.shift };
-    if (l.fotoInicialUrl) fotos.push({ ...base, etiqueta: 'Inicial', valor: l.inicial, url: l.fotoInicialUrl });
-    if (l.fotoFinalUrl) fotos.push({ ...base, etiqueta: 'Final', valor: l.final, url: l.fotoFinalUrl });
+    const placa = limpio(m.placa);
+    // El encabezado de la máquina respeta las pastillas: lo oculto no deja rastro.
+    const titulo = esc(limpio(m.code)) + (o.sinPlaca || !placa ? '' : ' · ' + esc(placa)) + (o.sinEmpresa ? '' : ' · ' + esc(limpio(m.empresa)));
+    const quien = (id?: string | null) => limpio(nombreDe?.(String(id ?? '')) ?? '');
+    if (l.fotoInicialUrl) fotos.push({ mkey: l.machineryId, titulo, fecha, code: limpio(m.code), shift: l.shift, etiqueta: 'Inicial', valor: l.inicial, url: l.fotoInicialUrl, hora: horaCaracas(l.createdAt), autor: quien(l.createdBy) });
+    if (l.fotoFinalUrl) fotos.push({ mkey: l.machineryId, titulo, fecha, code: limpio(m.code), shift: l.shift, etiqueta: 'Final', valor: l.final, url: l.fotoFinalUrl, hora: horaCaracas(l.updatedAt ?? l.createdAt), autor: quien(l.updatedBy ?? l.createdBy) });
   }
-  fotos.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)
-    || cmp(a.code, b.code)
+  // Por MÁQUINA y, dentro de cada una: fecha → día antes que noche → Inicial antes que Final.
+  fotos.sort((a, b) => cmp(a.code, b.code) || cmp(a.titulo, b.titulo)
+    || (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)
     || (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1)
     || (a.etiqueta === b.etiqueta ? 0 : a.etiqueta === 'Inicial' ? -1 : 1));
   let html = `<div class="hc"><h3 class="sect">📷 Fotos de los horómetros <span>${fotos.length} foto(s), tal como las subió el inspector</span></h3>`;
   if (fotos.length === 0) return html + `<p class="nota">Sin fotos en el rango.</p></div>`;
-  const porDia = new Map<string, Foto[]>();
-  for (const f of fotos) { const a = porDia.get(f.fecha); if (a) a.push(f); else porDia.set(f.fecha, [f]); }
-  for (const [fecha, del] of porDia) {
-    html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} foto(s)</span></h3><div class="hf">`;
+  const porMaquina = new Map<string, Foto[]>();
+  for (const f of fotos) { const a = porMaquina.get(f.mkey); if (a) a.push(f); else porMaquina.set(f.mkey, [f]); }
+  for (const [, del] of porMaquina) {
+    html += `<h3 class="sect">${del[0].titulo} <span>${del.length} foto(s)</span></h3><div class="hf">`;
     for (const f of del) {
-      const cap = `${esc(f.code)}${o.sinPlaca || !f.placa ? '' : ' · ' + esc(f.placa)}${o.sinEmpresa ? '' : ' · ' + esc(f.empresa)} · ${f.shift === 'night' ? '🌙 noche' : '☀️ día'} · ${esc(f.etiqueta)}${f.valor == null ? '' : ' ' + fmtH(f.valor)}`;
+      const cap = `${dmy(f.fecha)} · ${f.shift === 'night' ? '🌙 noche' : '☀️ día'} · ${esc(f.etiqueta)}${f.valor == null ? '' : ' ' + fmtH(f.valor)}${f.hora ? ` · subida ${f.hora}` : ''}${f.autor ? ` · ${esc(f.autor)}` : ''}`;
       html += `<figure><img src="${esc(f.url)}"/><figcaption>${cap}</figcaption></figure>`;
     }
     html += `</div>`;

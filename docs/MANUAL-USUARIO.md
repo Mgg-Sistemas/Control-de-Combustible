@@ -3380,8 +3380,10 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   turno); una lectura a medias sale como «sin lectura».
   Y desde el 26/09/2026, un check **«📷 Traer las fotos de los horómetros»** (apagado siempre
   al entrar, nunca predefinido): encendido, al final del PDF va la galería de fotos que subieron
-  los inspectores — día por día, cada una con su máquina, su placa/serial, turno, Inicial/Final
-  y el número leído — de las mismas máquinas y fechas del reporte (respeta el rango, la empresa y el filtro
+  los inspectores — **organizada por maquinaria** (26/09/2026 tarde): cada máquina con su
+  encabezado (código · placa/serial · empresa) y sus fotos en orden (día antes que noche,
+  **Inicial antes que Final**), y cada foto con su fecha, turno, el número leído, la **hora en
+  que se subió y quién la subió** — de las mismas máquinas y fechas del reporte (respeta el rango, la empresa y el filtro
   de equipos, y la pastilla de ocultar empresas). Apagado, el papel no las menciona.
   Además, el **buscador «🚜 Buscar máquina en específico»** viene **abierto** en este reporte
   (26/09/2026): escribe código, placa o serial, marca una o varias máquinas, y el PDF — y sus
