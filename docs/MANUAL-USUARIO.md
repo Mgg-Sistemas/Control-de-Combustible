@@ -374,6 +374,17 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   1:00am**—, o ✏️ un ajuste manual hecho aquí mismo). Es **solo de consulta** — sirve para revisar y
   confiar en el total, no para editarlo (los ajustes se siguen haciendo con los campos de siempre).
 
+> **⚙️ CIERRE MANUAL DE JORNADAS (26/09/2026, pedido del cliente).** El **barredor automático
+> de las 7 está APAGADO** (interruptor `jornadas_cierre_config` en la base; se puede volver a
+> prender sin tocar código). Desde hoy **cerrar la jornada es del inspector**:
+> - Una jornada olvidada **queda ABIERTA y visible** en el tablero — nadie la cierra a las 7pm.
+> - **Cerrar tarde no regala horas:** el cierre banca solo hasta el **fin nominal del turno**
+>   (día 7:00pm · noche 7:00am, tope 12h), igual que hacía el barredor. Extras aparte.
+> - **Sin choques:** al **iniciar la siguiente jornada** de esa máquina, el teléfono **liquida
+>   solo** cualquier jornada vieja abierta — bancada hasta su fin nominal — y queda en la
+>   bitácora como «cierre rezagado». Control puede corregir horas como siempre.
+> La regla de abajo sigue valiendo para el **cierre anticipado** (motivo obligatorio).
+
 > **Cierre de jornada (regla firme):** el **DÍA cierra a las 7:00pm** y la **NOCHE a la 1:00am**
 > (permanencia de noche = 6h). **Excepción LUMINARIA:** las **luminarias** (torres/equipos de
 > iluminación) trabajan **toda la noche (7pm→7am)**, así que su jornada de **noche cierra a las 7:00am

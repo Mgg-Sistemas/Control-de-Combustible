@@ -143,3 +143,65 @@ export async function freezeOpenJornadaNow(
   }
   return { closed: true, hours: elapsed, shift };
 }
+
+/**
+ * ⚙️ CIERRE MANUAL DE JORNADAS (26-sep-2026). Pedido del cliente: «las máquinas no
+ * se cierren automáticamente al finalizar la jornada; los inspectores deben
+ * cerrarlas». El barredor del servidor (auto_close_jornadas) quedó APAGADO por el
+ * switch `jornadas_cierre_config`: una jornada olvidada queda ABIERTA — visible en
+ * el tablero — hasta que un humano pase por la máquina.
+ *
+ * Este es el guardián ANTI-CHOQUE: al INICIAR una jornada nueva se liquidan las
+ * VIEJAS que quedaron abiertas (round_date anterior), bancando horas SOLO hasta el
+ * fin NOMINAL de su turno (7pm día / 7am noche, tope 12h) — exactamente lo que
+ * hubiera hecho el barredor — y dejando su segmento y su rastro. Nunca lanza: si
+ * falla, la jornada nueva inicia igual y el rezago queda para el próximo intento
+ * o para Control.
+ */
+export async function cerrarJornadasRezagadas(
+  machineryId: string,
+  antesDeISO: string,
+  recordedBy?: string | null,
+): Promise<{ cerradas: { roundDate: string; shift: 'day' | 'night'; horas: number }[] }> {
+  const cerradas: { roundDate: string; shift: 'day' | 'night'; horas: number }[] = [];
+  try {
+    const { data } = await supabase
+      .from('machine_rounds')
+      .select('round_date, jornada_start_at, jornada_shift, day_hours, night_hours')
+      .eq('machinery_id', machineryId)
+      .eq('round_no', 1)
+      .lt('round_date', antesDeISO)
+      .not('jornada_start_at', 'is', null)
+      .order('round_date', { ascending: true })
+      .limit(10);
+    for (const r of (data ?? []) as any[]) {
+      const roundDate = String(r.round_date).slice(0, 10);
+      const shift: 'day' | 'night' = r.jornada_shift === 'night' ? 'night'
+        : r.jornada_shift === 'day' ? 'day'
+        : (caracasHour(r.jornada_start_at) >= 7 && caracasHour(r.jornada_start_at) < 19 ? 'day' : 'night');
+      const finNominalMs = shift === 'night'
+        ? new Date(roundDate + 'T07:00:00-04:00').getTime() + 86400000
+        : new Date(roundDate + 'T19:00:00-04:00').getTime();
+      if (Date.now() < finNominalMs) continue; // todavía corre: no es rezago
+      const startMs = new Date(r.jornada_start_at).getTime();
+      // Horas hasta el fin NOMINAL, nunca más — cerrar días después no regala horas.
+      const horas = Math.min(12, Math.max(0, Math.round(((finNominalMs - startMs) / 3600000) * 100) / 100));
+      const base = Number((shift === 'night' ? r.night_hours : r.day_hours) ?? 0);
+      const total = Math.min(12, Math.round((base + horas) * 100) / 100);
+      const key = shift === 'night' ? 'night_hours' : 'day_hours';
+      const res = await upsertMachineRound(machineryId, roundDate, { [key]: total, jornada_start_at: null } as RoundPatch, recordedBy ?? null);
+      if (res.error) continue;
+      if (horas > 0) {
+        // Mismo `source` que un cierre del inspector: el reconciliador lo suma igual.
+        await supabase.from('machine_work_segments').insert({
+          machinery_id: machineryId, round_date: roundDate, shift,
+          started_at: r.jornada_start_at, ended_at: new Date(finNominalMs).toISOString(),
+          hours: horas, source: 'manual_finish', recorded_by: recordedBy ?? null,
+          close_reason: 'cierre rezagado: liquidada al iniciar la siguiente jornada',
+        }).then(() => {}, () => {});
+      }
+      cerradas.push({ roundDate, shift, horas });
+    }
+  } catch {}
+  return { cerradas };
+}
