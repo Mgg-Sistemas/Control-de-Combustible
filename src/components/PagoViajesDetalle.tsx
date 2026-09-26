@@ -9,7 +9,7 @@ import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Card } from './ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
-import { etiquetaAlcanceCorta, etiquetaMotivoSinPago, LineaViaje, PagoViajesGrupo } from '../lib/pagoViajes';
+import { etiquetaAlcanceCorta, etiquetaMotivoSinPago, tipoDeViajePago, LineaViaje, PagoViajesGrupo } from '../lib/pagoViajes';
 import { marcarViajePago } from '../lib/pagoViajesDb';
 
 type Props = {
@@ -82,11 +82,21 @@ export function PagoViajesDetalle({ grupo, canEdit, onChanged }: Props) {
                 {horaCaracas(l.viaje.registered_at)} · {l.viaje.machine_code ?? '—'}{l.viaje.folio ? ` · ${l.viaje.folio}` : ''}
               </Text>
               <Text style={{ color: sinPago ? colors.warning : colors.text, fontSize: 12, fontWeight: '800' }}>
-                {sinPago ? etiquetaMotivoSinPago(sinPago) : `${l.zona === 'oeste' ? 'Oeste' : 'Este'} ${usd(l.monto)}`}
+                {/* Un viaje con TIPO se rotula por su tipo («Oeste → Este»), no
+                    por la zona del CDT: es lo que explica su tarifa. */}
+                {sinPago ? etiquetaMotivoSinPago(sinPago)
+                  : `${tipoDeViajePago(l.viaje) ?? (l.zona === 'oeste' ? 'Oeste' : 'Este')} ${usd(l.monto)}`}
               </Text>
             </View>
-            {!sinPago && etiquetaAlcanceCorta(l.tarifa) ? (
+            {!sinPago && tipoDeViajePago(l.viaje) ? (
+              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>💲 tarifa del tipo «{tipoDeViajePago(l.viaje)}» (congelada en el viaje)</Text>
+            ) : !sinPago && etiquetaAlcanceCorta(l.tarifa) ? (
               <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>💲 {etiquetaAlcanceCorta(l.tarifa)}</Text>
+            ) : null}
+            {sinPago === 'tipo_sin_tarifa' ? (
+              <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700' }}>
+                🧾 tipo «{tipoDeViajePago(l.viaje)}»: ponle la tarifa al tipo (⚙️ Tipos de viaje) o corrígele el tipo al viaje.
+              </Text>
             ) : null}
             <Text style={{ color: colors.muted, fontSize: 11 }}>
               Estado del camión: {l.viaje.estado_maquina || 'sin dato'}

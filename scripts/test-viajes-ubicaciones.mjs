@@ -266,12 +266,13 @@ ok('la lectura de viajes se reintenta sin las columnas nuevas', /const data = aw
 // un viaje entre el despliegue y el momento en que se corra el SQL.
 //
 // Desde la ticketera (12-sep-2026) el reintento es una ESCALERA de peldaños
-// —todo, sin peso (26-sep-2026), sin ticket, pelado— porque hay TRES grupos de
-// columnas que pueden faltar por separado. El peldaño de abajo salva al listero.
+// —todo, sin tipo de viaje, sin peso (26-sep-2026), sin ticket, pelado— porque
+// hay CUATRO grupos de columnas que pueden faltar por separado. El peldaño de
+// abajo salva al listero.
 ok('el insert baja hasta el cuerpo pelado',
-  /escalones\.push\(\{ cuerpo: base, obra: false, ticket: false, peso: false \}\);/.test(lib));
-ok('...y los cuatro peldaños salen del MISMO cuerpo base',
-  (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 3);
+  /escalones\.push\(\{ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false \}\);/.test(lib));
+ok('...y los cinco peldaños salen del MISMO cuerpo base',
+  (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 4);
 ok('el reintento usa la MISMA clave de idempotencia', !/nuevoClientActionId/.test(lib));
 ok('la lista de listeros no se cae sin la columna', /supabase\.from\('profiles'\)\.select\(COLS_PERFIL\)/.test(lib));
 
@@ -299,15 +300,16 @@ ok('se llama Panel de información', scrCrudo.includes('📊 Panel de informaci�
 // alguien agrega un bloque nuevo con <Card> suelto, el panel vuelve a crecer sin
 // que nada avise, que es justo lo que esto vino a arreglar.
 const plegable = sinComentarios(leer('src/components/Plegable.tsx'));
-// Seis desde el 17-sep: se sumó «🚜 Máquinas que salen en Viajes» (solo admin).
-eq('los seis apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 6);
+// Seis desde el 17-sep («🚜 Máquinas que salen en Viajes»); siete desde el
+// 26-sep («🧾 Tipos de viaje», las tarifas con nombre).
+eq('los siete apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 7);
 ok('y el de obras también lo es', /setAbierto\(\(v\) => !v\)/.test(comp));
 ok('ya no quedan tarjetas fijas en el panel',
   !/\n          <Card>\n            <SectionTitle>/.test(scrCrudo));
 
 // ⚠️ CERRADO NO ES ESCONDIDO: el título tiene que decir qué hay dentro, o una
 //    lista de seis desplegables mudos es una búsqueda a ciegas.
-eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 6);
+eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 7);
 ok('el resumen de hoy y la lista completa arrancan abiertos',
   (scr.match(/abiertaPorDefecto(?![=])/g) || []).length === 2);
 // Una alerta que hay que ir a destapar no es una alerta.

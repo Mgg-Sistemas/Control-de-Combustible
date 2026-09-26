@@ -25,6 +25,10 @@
 import type { LineaViaje, MotivoSinPago, PagoViajesGrupo } from './pagoViajes';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+/** El TIPO DE VIAJE de una línea (misma regla que `tipoDeViajePago` en
+ *  pagoViajes.ts, copiada a propósito: este archivo solo importa TIPOS para
+ *  que su prueba lo cargue solo, sin resolver módulos). null = viaje normal. */
+const tipoDeLinea = (l: LineaViaje): string | null => limpio(l.viaje?.tipo_viaje_nombre) || null;
 const redondear = (n: number) => Math.round(n * 100) / 100;
 
 // ── LAS PASTILLAS ───────────────────────────────────────────────────────────
@@ -44,6 +48,8 @@ export type OpcionesPagoViajes = {
   sinTipos: boolean;
   /** Sin el cuadro de cantidad por zona de pago (este / oeste). */
   sinZonas: boolean;
+  /** Sin el cuadro de cantidad por TIPO DE VIAJE (26-sep-2026: «Oeste → Este»…). */
+  sinTipoViaje: boolean;
   /** Sin el cuadro de alcance del final (qué filtros se aplicaron). */
   sinAlcance: boolean;
 };
@@ -51,13 +57,13 @@ export type OpcionesPagoViajes = {
 /** Todo a la vista. */
 export const OPCIONES_PAGO_COMPLETO: OpcionesPagoViajes = {
   sinMarca: false, sinModelo: false, sinPlaca: false, sinEncargado: false, sinCubicaje: false,
-  sinEmpresas: false, sinListado: false, sinTipos: false, sinZonas: false, sinAlcance: false,
+  sinEmpresas: false, sinListado: false, sinTipos: false, sinZonas: false, sinTipoViaje: false, sinAlcance: false,
 };
 
 /** El papel de siempre: lo que salía antes de que existieran las pastillas. */
 export const OPCIONES_PAGO_COMO_ANTES: OpcionesPagoViajes = {
   sinMarca: true, sinModelo: true, sinPlaca: true, sinEncargado: true, sinCubicaje: true,
-  sinEmpresas: false, sinListado: false, sinTipos: true, sinZonas: true, sinAlcance: true,
+  sinEmpresas: false, sinListado: false, sinTipos: true, sinZonas: true, sinTipoViaje: true, sinAlcance: true,
 };
 
 /** Mismo orden y mismos rótulos que las pastillas del Conteo de equipos: el cliente las
@@ -73,6 +79,7 @@ export const PASTILLAS_PAGO: { key: keyof OpcionesPagoViajes; chip: string; larg
   { key: 'sinListado', chip: '🚫 Listado por equipo', largo: 'listado por equipo', archivo: 'solo resumen' },
   { key: 'sinTipos', chip: '🚫 Cantidad por tipo', largo: 'cantidad por tipo de equipo', archivo: 'sin tipos' },
   { key: 'sinZonas', chip: '🚫 Cantidad por zona', largo: 'cantidad por zona de pago', archivo: 'sin zonas' },
+  { key: 'sinTipoViaje', chip: '🚫 Cantidad por tipo de viaje', largo: 'cantidad por tipo de viaje', archivo: 'sin tipo de viaje' },
   { key: 'sinAlcance', chip: '🚫 Alcance del informe', largo: 'cuadro de alcance', archivo: 'sin alcance' },
 ];
 
@@ -211,6 +218,8 @@ function contarPor(lineas: LineaViaje[] | null | undefined, claveDe: (l: LineaVi
 export const conteoPorTipo = (lineas: LineaViaje[] | null | undefined) => contarPor(lineas, (l) => limpio(l.viaje?.machine_code) || 'Sin tipo');
 /** Cantidad por ZONA de pago. Un viaje sin zona válida sale como «Sin zona»: no se esconde. */
 export const conteoPorZona = (lineas: LineaViaje[] | null | undefined) => contarPor(lineas, (l) => (l.zona === 'este' ? 'Este' : l.zona === 'oeste' ? 'Oeste' : 'Sin zona'));
+/** Cantidad por TIPO DE VIAJE (26-sep-2026). Los sin tipo salen como «Normal (por zona)». */
+export const conteoPorTipoViaje = (lineas: LineaViaje[] | null | undefined) => contarPor(lineas, (l) => tipoDeLinea(l) ?? 'Normal (por zona)');
 
 // ── EL LISTADO POR EQUIPO ───────────────────────────────────────────────────
 
@@ -243,13 +252,18 @@ export function renglonesPorEquipo(
 ): RenglonEquipo[] {
   const m = new Map<string, RenglonEquipo>();
   (lineas ?? []).forEach((l) => {
-    if (!(l.monto > 0) || !l.zona) return;
+    // Un viaje pagado por TIPO entra aunque su CDT no tenga zona: la tarifa es
+    // la del tipo, no la de la zona. El viaje normal sigue exigiendo su zona.
+    const tipo = tipoDeLinea(l);
+    if (!(l.monto > 0) || (!l.zona && !tipo)) return;
     const id = limpio(l.viaje?.machinery_id);
     const code = limpio(l.viaje?.machine_code) || '—';
     const empresaId = empresaDeLinea(l);
     // La empresa va en la clave: un camión que cambió de empresa a mitad del rango son
-    // dos renglones, no uno con la empresa del primer viaje.
-    const k = `${id || `code:${code}`}|${empresaId}|${l.zona}|${l.precio}`;
+    // dos renglones, no uno con la empresa del primer viaje. Y el TIPO también:
+    // el mismo camión con viajes normales y cruzados son dos renglones, cada
+    // uno con su tarifa.
+    const k = `${id || `code:${code}`}|${empresaId}|${tipo ?? l.zona}|${l.precio}`;
     let r = m.get(k);
     if (!r) {
       const f = (id && fichas?.get(id)) || {};
@@ -261,7 +275,9 @@ export function renglonesPorEquipo(
         // La placa que el VIAJE congeló manda sobre la del catálogo: es la que llevaba ese día.
         placa: limpio(l.viaje?.placa_snap) || limpio(f.placa) || limpio(f.serial),
         encargado: limpio(f.encargado),
-        zona: l.zona === 'oeste' ? 'Oeste' : 'Este', viajes: 0, precio: l.precio, monto: 0, m3PorViaje: porViaje, m3: 0,
+        // La columna «Zona» dice el TIPO cuando el viaje lo lleva: «Oeste → Este»
+        // es lo que explica esa tarifa, no la zona del CDT donde se marcó.
+        zona: tipo ?? (l.zona === 'oeste' ? 'Oeste' : 'Este'), viajes: 0, precio: l.precio, monto: 0, m3PorViaje: porViaje, m3: 0,
       };
       m.set(k, r);
     }
@@ -368,6 +384,7 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
     <tbody>${filas.map((c) => `<tr><td>${esc(c.clave)}</td><td class="r">${c.viajes}</td><td class="r">${c.pagados}</td><td class="r b">${usd(c.monto)}</td></tr>`).join('')}</tbody></table>`;
   if (!o.sinTipos) partes.push(cuadroConteo('Cantidad por tipo de equipo', 'Tipo', conteoPorTipo(d.lineas)));
   if (!o.sinZonas) partes.push(cuadroConteo('Cantidad por zona de pago', 'Zona', conteoPorZona(d.lineas)));
+  if (!o.sinTipoViaje) partes.push(cuadroConteo('Cantidad por tipo de viaje', 'Tipo de viaje', conteoPorTipoViaje(d.lineas)));
 
   if (d.htmlFueraDelPago) partes.push(d.htmlFueraDelPago);
 

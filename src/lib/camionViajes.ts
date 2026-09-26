@@ -106,6 +106,15 @@ export type CamionViajeRow = {
   taraManualNombre: string | null;
   /** Foto de la romana con el bruto — la evidencia obligatoria del peso. */
   pesoFotoUrl: string | null;
+  /**
+   * TIPO DE VIAJE (26-sep-2026): la tarifa con nombre («Oeste → Este», lo que
+   * inventen después). CONGELADOS al registrar, nombre Y tarifa: cambiar el
+   * precio del tipo mañana no toca este viaje. `null` = viaje normal, se paga
+   * con la tarifa de zona de siempre.
+   */
+  tipoViajeId: string | null;
+  tipoViajeNombre: string | null;
+  tipoViajeTarifa: number | null;
 };
 
 function mapRow(r: any): CamionViajeRow {
@@ -140,6 +149,9 @@ function mapRow(r: any): CamionViajeRow {
     taraManual: r.tara_manual === true,
     taraManualNombre: (r.tara_manual_nombre ?? null) as string | null,
     pesoFotoUrl: (r.peso_foto_url ?? null) as string | null,
+    tipoViajeId: (r.tipo_viaje_id ?? null) as string | null,
+    tipoViajeNombre: (r.tipo_viaje_nombre ?? null) as string | null,
+    tipoViajeTarifa: r.tipo_viaje_tarifa == null ? null : Number(r.tipo_viaje_tarifa),
   };
 }
 
@@ -178,9 +190,14 @@ let hayColumnasDeTique: boolean | null = null;
  *  LEER sus viajes. */
 let hayColumnasDePeso: boolean | null = null;
 
+/** Y el cuarto, para el TIPO DE VIAJE (26-sep-2026, mismo día que el peso pero
+ *  horas después: un respaldo de esta misma tarde tiene peso y no tiene tipo). */
+let hayColumnasDeTipo: boolean | null = null;
+
 const COLS_OBRA = 'ubicacion_id, ubicacion_nombre';
 const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
 const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_manual_nombre, peso_foto_url';
+const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa';
 
 /** Las columnas que se piden, según lo que se sepa que existe. */
 const colsViaje = () =>
@@ -188,6 +205,7 @@ const colsViaje = () =>
    hayColumnasDeObra === false ? null : COLS_OBRA,
    hayColumnasDeTique === false ? null : COLS_TIQUE,
    hayColumnasDePeso === false ? null : COLS_PESO,
+   hayColumnasDeTipo === false ? null : COLS_TIPO,
   ].filter(Boolean).join(', ');
 
 /** ¿El error es «esa columna no existe»? Solo eso: una tabla que falta es otra cosa. */
@@ -209,16 +227,32 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     if (hayColumnasDeObra === null) hayColumnasDeObra = true;
     if (hayColumnasDeTique === null) hayColumnasDeTique = true;
     if (hayColumnasDePeso === null) hayColumnasDePeso = true;
+    if (hayColumnasDeTipo === null) hayColumnasDeTipo = true;
     return data as any[];
   } catch (e: any) {
     if (!esColumnaQueFalta(e)) throw e;
 
-    // ESCALÓN 0: sin el peso, que es lo más nuevo (26-sep-2026). Obra y
-    // ticketera pueden estar perfectamente.
+    // ESCALÓN -1: sin el tipo de viaje, que es lo más nuevo de todo.
+    if (hayColumnasDeTipo !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}, ${COLS_PESO}`, filtro);
+        hayColumnasDeTipo = false;
+        hayColumnasDePeso = true;
+        hayColumnasDeTique = true;
+        hayColumnasDeObra = true;
+        return data as any[];
+      } catch (eT: any) {
+        if (!esColumnaQueFalta(eT)) throw eT;
+      }
+    }
+
+    // ESCALÓN 0: sin el peso (26-sep-2026, y sin el tipo, que llegó después).
+    // Obra y ticketera pueden estar perfectamente.
     if (hayColumnasDePeso !== false) {
       try {
         const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}`, filtro);
         hayColumnasDePeso = false;
+        hayColumnasDeTipo = false;
         hayColumnasDeTique = true;
         hayColumnasDeObra = true;
         return data as any[];
@@ -234,6 +268,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
         const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}`, filtro);
         hayColumnasDeTique = false;
         hayColumnasDePeso = false;
+        hayColumnasDeTipo = false;
         hayColumnasDeObra = true;
         return data as any[];
       } catch (e2: any) {
@@ -246,6 +281,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     hayColumnasDeObra = false;
     hayColumnasDeTique = false;
     hayColumnasDePeso = false;
+    hayColumnasDeTipo = false;
     return data as any[];
   }
 }
@@ -352,6 +388,11 @@ export async function registrarViaje(params: {
    *  justo antes del insert. Si la subida falla, el viaje NO se inserta y el
    *  error vuelve a la cola, que reintenta las dos cosas juntas. */
   pesoFotoDataUrl?: string | null;
+  /** TIPO DE VIAJE, ya congelado por la pantalla (nombre y tarifa del catálogo
+   *  AL MOMENTO de registrar). Ausente = viaje normal (tarifa de zona). */
+  tipoViajeId?: string | null;
+  tipoViajeNombre?: string | null;
+  tipoViajeTarifa?: number | null;
 }): Promise<{ error?: string; missing?: boolean }> {
   // La foto primero: un viaje con peso no puede entrar sin su evidencia. El
   // insert de abajo solo corre cuando ya hay URL (o cuando el viaje es viejo
@@ -406,6 +447,11 @@ export async function registrarViaje(params: {
     tara_manual_nombre: params.taraManualNombre ?? null,
     peso_foto_url: pesoFotoUrl,
   };
+  const camposTipo = {
+    tipo_viaje_id: params.tipoViajeId ?? null,
+    tipo_viaje_nombre: params.tipoViajeNombre ?? null,
+    tipo_viaje_tarifa: params.tipoViajeTarifa ?? null,
+  };
 
   // Mismo respaldo que en la lectura, y por la misma razón: si un `.sql` todavía
   // no se corrió, el insert con esas columnas rebota con 42703 y EL LISTERO NO
@@ -416,21 +462,24 @@ export async function registrarViaje(params: {
   // ⚠️ El `client_action_id` es EL MISMO en todos los intentos, así que si uno
   //    llegó a entrar, el siguiente rebota con 23505 y quien llama ya lee eso
   //    como «ese viaje ya estaba». No se puede duplicar por reintentar.
-  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean }[] = [];
+  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean }[] = [];
+  if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo }, obra: true, ticket: true, peso: true, tipo: true });
+  }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso }, obra: true, ticket: true, peso: true });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso }, obra: true, ticket: true, peso: true, tipo: false });
   }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false) {
     // ⚠️ Sin las columnas de peso el viaje ENTRA IGUAL y el peso se pierde en
     //    ESA base (misma filosofía de siempre: mejor un viaje sin peso que un
     //    listero que no puede registrar). La pantalla avisa con
     //    `faltaCorrerSqlDePeso()` para que el admin corra el `.sql`.
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true, peso: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true, peso: false, tipo: false });
   }
   if (hayColumnasDeObra !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false, peso: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false, peso: false, tipo: false });
   }
-  escalones.push({ cuerpo: base, obra: false, ticket: false, peso: false });
+  escalones.push({ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false });
 
   let error: any = null;
   for (const paso of escalones) {
@@ -444,9 +493,11 @@ export async function registrarViaje(params: {
       if (paso.obra) hayColumnasDeObra = true;
       if (paso.ticket) hayColumnasDeTique = true;
       if (paso.peso) hayColumnasDePeso = true;
-      else if (paso.ticket) hayColumnasDePeso = false;
-      if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; }
-      if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; }
+      if (paso.tipo) hayColumnasDeTipo = true;
+      else if (paso.peso) hayColumnasDeTipo = false;
+      if (!paso.peso && paso.ticket) { hayColumnasDePeso = false; hayColumnasDeTipo = false; }
+      if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; }
+      if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; }
       return {};
     }
     if (!esColumnaQueFalta(error)) break;
@@ -554,6 +605,11 @@ export type CambiosViaje = {
    *  generada); la tara congelada NO se toca — si la tara estaba mala, ese
    *  viaje se borra y se carga bien, que es otra historia. */
   pesoBrutoKg?: number;
+  /** Corregir el TIPO DE VIAJE (solo full). Se manda el snapshot COMPLETO —
+   *  id, nombre y tarifa del catálogo al momento de la corrección— o los tres
+   *  en null para volverlo viaje normal. Congela en la corrección, igual que
+   *  congeló el registro. */
+  tipoViaje?: { id: string | null; nombre: string | null; tarifa: number | null };
 };
 
 /**
@@ -571,6 +627,11 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
   if (cambios.note !== undefined) patch.note = cambios.note;
   if (cambios.ubicacionId) patch.ubicacion_id = cambios.ubicacionId;
   if (cambios.pesoBrutoKg !== undefined) patch.peso_bruto_kg = cambios.pesoBrutoKg;
+  if (cambios.tipoViaje !== undefined) {
+    patch.tipo_viaje_id = cambios.tipoViaje.id;
+    patch.tipo_viaje_nombre = cambios.tipoViaje.nombre;
+    patch.tipo_viaje_tarifa = cambios.tipoViaje.tarifa;
+  }
   // Un update vacío en PostgREST devuelve la fila sin cambiar nada: parecería
   // que se guardó algo. Mejor decirlo.
   if (Object.keys(patch).length === 0) return { error: 'No cambiaste nada.' };
@@ -629,27 +690,48 @@ export async function setMetaCamion(machineryId: string, meta: number | null): P
 // de equipos, y la tara es un dato del módulo de viajes.
 
 export type TaraCamion = {
-  pesoTaraKg: number;
+  /** null = este camión no tiene tara cargada (la fila existe por la exención). */
+  pesoTaraKg: number | null;
   updatedAt: string;
   /** Nombre CONGELADO de quien la cargó/actualizó — para el «¿quién puso esta
    *  tara?» de dentro de seis meses, aunque esa cuenta ya no exista. */
   updatedByNombre: string | null;
+  /**
+   * 🚫 NO PASA POR ROMANA (26-sep-2026): a este camión no se le exige peso ni
+   * foto — al listero ni le aparece la tarjeta. Sus viajes entran sin peso y
+   * salen con raya. `exentoPorNombre` dice quién lo marcó.
+   */
+  exentoRomana: boolean;
+  exentoPorNombre: string | null;
 };
 
-/** Todas las taras cargadas. `missing` = falta correr el `.sql` de la tabla. */
+/** Todas las taras/exenciones cargadas. `missing` = falta correr el `.sql`. */
 export async function listTaras(): Promise<{ taras: Map<string, TaraCamion>; missing: boolean; error?: string }> {
   const taras = new Map<string, TaraCamion>();
+  // Las columnas de exención llegaron horas después de la tabla: se piden con
+  // respaldo para que un restore de esta misma tarde no deje la lista vacía.
+  const leerFilas = async () => {
+    try {
+      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre, exento_romana, exento_por_nombre');
+    } catch (e: any) {
+      if (e?.code !== '42703' && !/column .* does not exist|could not find the .*column/i.test(String(e?.message ?? e))) throw e;
+      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre');
+    }
+  };
   try {
-    const data = await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre');
+    const data = await leerFilas();
     (data as any[]).forEach((r) => {
       const n = Number(r.peso_tara_kg);
-      if (isFinite(n) && n > 0) {
-        taras.set(r.machinery_id as string, {
-          pesoTaraKg: n,
-          updatedAt: String(r.updated_at ?? ''),
-          updatedByNombre: (r.updated_by_nombre ?? null) as string | null,
-        });
-      }
+      const tara = r.peso_tara_kg != null && isFinite(n) && n > 0 ? n : null;
+      const exento = r.exento_romana === true;
+      if (tara == null && !exento) return; // fila vacía: no dice nada
+      taras.set(r.machinery_id as string, {
+        pesoTaraKg: tara,
+        updatedAt: String(r.updated_at ?? ''),
+        updatedByNombre: (r.updated_by_nombre ?? null) as string | null,
+        exentoRomana: exento,
+        exentoPorNombre: (r.exento_por_nombre ?? null) as string | null,
+      });
     });
     return { taras, missing: false };
   } catch (e: any) {
@@ -676,11 +758,135 @@ export async function setTaraCamion(
 }
 
 /** Quita la tara de un camión. ⚠️ Los viajes YA registrados conservan la suya
- *  (congelada); esto solo hace que los PRÓXIMOS pidan tara manual. */
+ *  (congelada); esto solo hace que los PRÓXIMOS pidan tara manual.
+ *  Si el camión está EXENTO de romana, la fila se conserva (con tara en null):
+ *  quitar la tara no puede borrar la exención de rebote. */
 export async function quitarTaraCamion(machineryId: string): Promise<{ error?: string }> {
-  const { data, error } = await supabase.from('camion_taras').delete().eq('machinery_id', machineryId).select('machinery_id');
+  // Primero el caso simple: fila SIN exención → se borra entera.
+  const del = await supabase.from('camion_taras').delete()
+    .eq('machinery_id', machineryId).eq('exento_romana', false).select('machinery_id');
+  if (del.error) return { error: del.error.message };
+  if (del.data && del.data.length > 0) return {};
+  // Fila exenta (o vieja sin columna): se vacía solo la tara.
+  const up = await supabase.from('camion_taras').update({ peso_tara_kg: null })
+    .eq('machinery_id', machineryId).select('machinery_id');
+  if (up.error) return { error: up.error.message };
+  if (!up.data || up.data.length === 0) return { error: 'Ese camión no tenía tara cargada.' };
+  return {};
+}
+
+/**
+ * 🚫 MARCA O DESMARCA «no pasa por romana» (26-sep-2026). Solo full (RLS).
+ *
+ * ⚠️ NO toca la tara guardada: si el camión tenía tara y se marca exento, la
+ *    tara queda esperando por si vuelve a pasar por romana. Desmarcar un
+ *    camión SIN tara borra la fila (una fila sin tara ni exención no dice
+ *    nada, y la base tiene un CHECK que no la deja existir).
+ */
+export async function setExentoRomana(
+  machineryId: string, exento: boolean, userName: string | null,
+): Promise<{ error?: string }> {
+  if (!machineryId) return { error: 'Falta el camión.' };
+  if (exento) {
+    const { error } = await supabase.from('camion_taras').upsert({
+      machinery_id: machineryId,
+      exento_romana: true,
+      exento_at: new Date().toISOString(),
+      exento_por_nombre: userName,
+    });
+    if (error) return { error: error.message };
+    return {};
+  }
+  // Desmarcar: si hay tara, la fila se queda con ella; si no, se borra.
+  const up = await supabase.from('camion_taras')
+    .update({ exento_romana: false, exento_at: new Date().toISOString(), exento_por_nombre: userName })
+    .eq('machinery_id', machineryId).not('peso_tara_kg', 'is', null).select('machinery_id');
+  if (up.error) return { error: up.error.message };
+  if (up.data && up.data.length > 0) return {};
+  const del = await supabase.from('camion_taras').delete()
+    .eq('machinery_id', machineryId).is('peso_tara_kg', null).select('machinery_id');
+  if (del.error) return { error: del.error.message };
+  return {};
+}
+
+// ── EL CATÁLOGO DE TIPOS DE VIAJE (tabla `viaje_tipos`, 26-sep-2026) ─────────
+//
+// Las tarifas con NOMBRE: «Oeste → Este» y las que inventen después. Las
+// administra quien tiene full (RLS probado); el listero solo las LEE para
+// marcar el tipo al registrar. El viaje congela nombre Y tarifa: cambiar el
+// precio del tipo mañana no toca lo ya registrado.
+
+export type TipoViaje = {
+  id: string;
+  nombre: string;
+  /** null = sin precio todavía: sus viajes salen «tipo sin tarifa» en el pago. */
+  tarifaUsd: number | null;
+  activo: boolean;
+  updatedByNombre: string | null;
+};
+
+export async function listTiposViaje(): Promise<{ tipos: TipoViaje[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows('viaje_tipos', 'id, nombre, tarifa_usd, activo, updated_by_nombre');
+    const tipos = (data as any[]).map((r) => ({
+      id: r.id as string,
+      nombre: String(r.nombre ?? '').trim(),
+      tarifaUsd: r.tarifa_usd == null ? null : Number(r.tarifa_usd),
+      activo: r.activo !== false,
+      updatedByNombre: (r.updated_by_nombre ?? null) as string | null,
+    })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true }));
+    return { tipos, missing: false };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { tipos: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/** Crea un tipo nuevo. La tarifa puede venir después. */
+export async function crearTipoViaje(nombre: string, tarifaUsd: number | null, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const n = nombre.replace(/\s+/g, ' ').trim();
+  if (n.length < 2) return { error: 'Ponle un nombre al tipo (p. ej. «Oeste → Este»).' };
+  if (tarifaUsd != null && !(tarifaUsd > 0)) return { error: 'La tarifa tiene que ser mayor que 0 (o déjala vacía para ponerla después).' };
+  const { error } = await supabase.from('viaje_tipos').insert({
+    nombre: n, tarifa_usd: tarifaUsd, updated_by: userId, updated_by_nombre: userName,
+  });
+  if (error) {
+    if (/uq_viaje_tipos_nombre_activo|duplicate key/i.test(error.message)) return { error: `Ya existe un tipo activo llamado «${n}».` };
+    return { error: error.message };
+  }
+  return {};
+}
+
+/** Cambia la tarifa (o el nombre) de un tipo. ⚠️ SOLO afecta a los viajes que
+ *  vengan: los registrados llevan su tarifa congelada. */
+export async function editarTipoViaje(id: string, cambios: { nombre?: string; tarifaUsd?: number | null }, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const patch: Record<string, any> = { updated_at: new Date().toISOString(), updated_by: userId, updated_by_nombre: userName };
+  if (cambios.nombre !== undefined) {
+    const n = cambios.nombre.replace(/\s+/g, ' ').trim();
+    if (n.length < 2) return { error: 'El nombre del tipo no puede quedar vacío.' };
+    patch.nombre = n;
+  }
+  if (cambios.tarifaUsd !== undefined) {
+    if (cambios.tarifaUsd != null && !(cambios.tarifaUsd > 0)) return { error: 'La tarifa tiene que ser mayor que 0.' };
+    patch.tarifa_usd = cambios.tarifaUsd;
+  }
+  const { data, error } = await supabase.from('viaje_tipos').update(patch).eq('id', id).select('id');
   if (error) return { error: error.message };
-  if (!data || data.length === 0) return { error: 'Ese camión no tenía tara cargada.' };
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** Apaga o prende un tipo. Apagado deja de ofrecerse al listero; los viajes que
+ *  ya lo llevan no cambian (el nombre viaja congelado en cada fila). */
+export async function setActivoTipoViaje(id: string, activo: boolean, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('viaje_tipos')
+    .update({ activo, updated_at: new Date().toISOString(), updated_by: userId, updated_by_nombre: userName })
+    .eq('id', id).select('id');
+  if (error) {
+    if (/uq_viaje_tipos_nombre_activo|duplicate key/i.test(error.message)) return { error: 'Ya hay un tipo ACTIVO con ese mismo nombre.' };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
   return {};
 }
 

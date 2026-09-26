@@ -77,10 +77,24 @@ export type ViajePago = {
   placa_snap?: string | null;
   ubicacion_nombre?: string | null;
   listero_name?: string | null;
+  /**
+   * TIPO DE VIAJE (26-sep-2026): tarifa con nombre, CONGELADA en el viaje al
+   * registrarlo. Si el viaje trae tipo, SU tarifa manda sobre la de zona; si
+   * el tipo quedó sin precio, el viaje sale «tipo sin tarifa» — visible y sin
+   * pagar, nunca pagado con la tarifa de zona por adivinanza.
+   */
+  tipo_viaje_nombre?: string | null;
+  tipo_viaje_tarifa?: number | string | null;
 };
 
+/** El tipo de viaje de una fila, limpio. null = viaje normal (por zona). */
+export function tipoDeViajePago(v: { tipo_viaje_nombre?: string | null } | null | undefined): string | null {
+  const n = String(v?.tipo_viaje_nombre ?? '').replace(/\s+/g, ' ').trim();
+  return n || null;
+}
+
 /** Por qué un viaje de un camión por viaje no suma dinero. */
-export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa' | 'fuera_catalogo';
+export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa' | 'fuera_catalogo' | 'tipo_sin_tarifa';
 
 export type LineaViaje = {
   viaje: ViajePago;
@@ -316,7 +330,14 @@ export function calcularPagoViajes(opts: {
     if (!fuera && modoPagoEn(opts.modos, v.machinery_id, jornada) !== 'viaje') return;
 
     const zona = zonaViajeValida(v.zona_pago);
-    const tarifa = zona ? tarifaViajeEn(opts.tarifas, zona, jornada, { machineryId: v.machinery_id, companyId: v.company_id }) : null;
+    // ⭐ EL TIPO DE VIAJE MANDA (26-sep-2026): si el viaje lleva tipo, su tarifa
+    //    congelada es el precio y la tarifa de zona NI SE BUSCA — mezclarlas es
+    //    como se pagaría dos veces distinto el mismo cruce. Sin tipo, todo
+    //    sigue EXACTAMENTE como siempre (amarrado por test).
+    const tipoNombre = tipoDeViajePago(v);
+    const tarifaTipo = num(v.tipo_viaje_tarifa);
+    const tarifa = tipoNombre ? null
+      : zona ? tarifaViajeEn(opts.tarifas, zona, jornada, { machineryId: v.machinery_id, companyId: v.company_id }) : null;
     const marca = opts.marcas.get(v.id) ?? null;
     const facturable = marca ? marca.facturable : true;
     let motivoSinPago: MotivoSinPago | null = null;
@@ -326,9 +347,14 @@ export function calcularPagoViajes(opts: {
     // Un camión fuera del catálogo no está inscrito en el pago: se ve, pero no se paga solo.
     else if (fuera) motivoSinPago = 'fuera_catalogo';
     else if (!v.company_id) motivoSinPago = 'sin_empresa';
+    // Un tipo sin precio NO cae a la tarifa de zona: la encargada lo marcó
+    // especial, y pagarlo como normal sería pagar mal en silencio. Sale
+    // visible como «tipo sin tarifa» hasta que el tipo tenga precio (o la
+    // jefa le corrija el tipo al viaje).
+    else if (tipoNombre) { if (!(tarifaTipo > 0)) motivoSinPago = 'tipo_sin_tarifa'; }
     else if (!zona) motivoSinPago = 'sin_zona';
     else if (!tarifa) motivoSinPago = 'sin_tarifa';
-    const precio = tarifa ? num(tarifa.precio) : 0;
+    const precio = tipoNombre ? (tarifaTipo > 0 ? tarifaTipo : 0) : tarifa ? num(tarifa.precio) : 0;
     const monto = motivoSinPago ? 0 : precio;
 
     const semana = opts.semanaDe(jornada);
@@ -400,6 +426,7 @@ export function etiquetaMotivoSinPago(m: MotivoSinPago | null): string {
     case 'sin_tarifa': return 'Sin tarifa';
     case 'sin_empresa': return 'Sin empresa';
     case 'fuera_catalogo': return 'Camión fuera del catálogo';
+    case 'tipo_sin_tarifa': return 'Tipo de viaje sin tarifa';
     default: return '';
   }
 }
