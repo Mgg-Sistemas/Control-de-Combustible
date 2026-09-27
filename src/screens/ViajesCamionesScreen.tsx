@@ -102,7 +102,7 @@ import {
   pesoTecleadoAKg, kgTexto, kgTextoOpcional, netoDe, motivoPesoInvalido,
   avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
 } from '../lib/viajesPeso';
-import { capturarFotoLocal } from '../lib/photo';
+import { capturarFotoLocal, elegirFotoLocal } from '../lib/photo';
 import { leerNumero } from '../lib/numeros';
 import {
   normalizarHora,
@@ -738,11 +738,14 @@ export default function ViajesCamionesScreen() {
   // El tipo también es DE ESTE viaje: se limpia junto con el peso.
   const limpiarPeso = () => { setPesoTexto(''); setTaraManualTexto(''); setFotoPeso(null); setTipoSel(null); };
 
-  const tomarFotoPeso = async () => {
+  // Cámara o galería (27-sep-2026, a pedido: «si deja tomar foto, también debe
+  // dejar subir de la galería»). Las dos entregan el MISMO data-url local, así
+  // que la cola offline y la subida no distinguen de dónde salió la evidencia.
+  const tomarFotoPeso = async (via: 'camara' | 'galeria' = 'camara') => {
     if (fotoTomando) return;
     setFotoTomando(true);
     try {
-      const r = await capturarFotoLocal();
+      const r = via === 'galeria' ? await elegirFotoLocal() : await capturarFotoLocal();
       if (r.ok && r.dataUrl) { setFotoPeso(r.dataUrl); return; }
       if (r.error) toast.error(r.error);
     } finally {
@@ -3818,16 +3821,27 @@ export default function ViajesCamionesScreen() {
               {avisoSospechoso ? (
                 <Text style={{ color: '#92400E', fontSize: 11.5, fontWeight: '700' }}>{avisoSospechoso}</Text>
               ) : null}
-              <TouchableOpacity
-                onPress={tomarFotoPeso}
-                disabled={fotoTomando}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: fotoPeso ? colors.success : colors.brand, borderRadius: radius.md, padding: spacing.sm, opacity: fotoTomando ? 0.6 : 1 }}
-              >
-                {fotoPeso ? <Image source={{ uri: fotoPeso }} style={{ width: 44, height: 44, borderRadius: 6 }} /> : null}
-                <Text style={{ color: fotoPeso ? colors.success : colors.brandText, fontWeight: '800', flex: 1 }}>
-                  {fotoTomando ? 'Abriendo la cámara…' : fotoPeso ? '✅ Foto de la romana lista · tocar para repetirla' : '📷 Foto de la romana (obligatoria)'}
-                </Text>
-              </TouchableOpacity>
+              {/* 📷 cámara + 🖼️ galería (27-sep-2026): la evidencia puede venir
+                  de cualquiera de las dos; repetirla la reemplaza. */}
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => tomarFotoPeso('camara')}
+                  disabled={fotoTomando}
+                  style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: fotoPeso ? colors.success : colors.brand, borderRadius: radius.md, padding: spacing.sm, opacity: fotoTomando ? 0.6 : 1 }}
+                >
+                  {fotoPeso ? <Image source={{ uri: fotoPeso }} style={{ width: 44, height: 44, borderRadius: 6 }} /> : null}
+                  <Text style={{ color: fotoPeso ? colors.success : colors.brandText, fontWeight: '800', flex: 1 }}>
+                    {fotoTomando ? 'Abriendo…' : fotoPeso ? '✅ Foto de la romana lista · tocar para repetirla' : '📷 Foto de la romana (obligatoria)'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => tomarFotoPeso('galeria')}
+                  disabled={fotoTomando}
+                  style={{ flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, opacity: fotoTomando ? 0.6 : 1 }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🖼️ Galería</Text>
+                </TouchableOpacity>
+              </View>
             </View>
             ) : null}
             {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
