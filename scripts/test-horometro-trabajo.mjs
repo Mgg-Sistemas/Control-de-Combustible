@@ -156,11 +156,20 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('una fila por ronda, ordenadas por fecha y código', filas.map((f) => `${f.fecha} ${f.code}`), ['2026-09-01 CARG-03', '2026-09-01 EXC-04', '2026-09-01 GRUA-05', '2026-09-01 RETRO-01', '2026-09-02 RETRO-01', '2026-09-02 VIBRO-02']);
   const de = (code, fecha) => filas.find((f) => f.code === code && f.fecha === fecha);
   eq('cuadra dentro de media hora', de('RETRO-01', '2026-09-02').estado, 'cuadra');
-  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, inicial: 100, final: 111.6, corregida: false, motivo: '', horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
+  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, inicial: 100, final: 111.6, corregida: false, motivo: '', estadoDetalle: '', horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
   eq('horómetro mayor', de('VIBRO-02', '2026-09-02').estado, 'horometro_mayor');
   eq('jornada mayor, con la diferencia negativa', [de('CARG-03', '2026-09-01').estado, de('CARG-03', '2026-09-01').diferencia, de('CARG-03', '2026-09-01').empresa], ['jornada_mayor', -5, 'EMPRESA BETA']);
-  eq('inválida: sin horas ni diferencia', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, inicial: 800, final: 790, corregida: false, motivo: '', horasHorometro: null, diferencia: null, estado: 'invalida' });
+  // 27-sep-2026, pedido del cliente: «en vez de decir inválido, que diga la
+  // razón» — la fila trae el motivo que dejó la base en estadoDetalle.
+  eq('inválida: sin horas ni diferencia, y CON su razón', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, inicial: 800, final: 790, corregida: false, motivo: '', estadoDetalle: 'final menor que inicial', horasHorometro: null, diferencia: null, estado: 'invalida' });
   eq('solo una lectura incompleta cuenta como sin lectura', de('GRUA-05', '2026-09-01').estado, 'sin_lectura');
+  // …y la incompleta dice QUÉ falta (el caso del número borrado desde Control).
+  eq('la incompleta dice qué le falta', de('GRUA-05', '2026-09-01').estadoDetalle, 'Incompleta: falta el final');
+  eq('la etiqueta de la columna Estado usa la razón, con mayúscula inicial',
+    [H.etiquetaDeEstado({ estado: 'invalida', estadoDetalle: 'salto mayor a 12,5 h' }),
+     H.etiquetaDeEstado({ estado: 'invalida', estadoDetalle: '' }),
+     H.etiquetaDeEstado({ estado: 'sin_lectura', estadoDetalle: '' })],
+    ['Salto mayor a 12,5 h', 'Inválida', 'Sin lectura']);
   eq('ronda sin ninguna lectura → sin lectura', H.compararJornadaHorometro([RONDA('m9', 'MOTO-09', '2026-09-05', 8, 0)], lecturas)[0].estado, 'sin_lectura');
   eq('la jornada del comparativo usa la fórmula completa (resta parada)', de('RETRO-01', '2026-09-01').horasJornada, 11);
 
@@ -236,7 +245,11 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('cuadra va con hc-ok', /<tr class="hc-ok"><td>RETRO-01<\/td>/.test(papel));
   ok('horómetro mayor va con hc-mas y signo +', /<tr class="hc-mas"><td>VIBRO-02<\/td>.*?\+2<\/td><td class="est">Horómetro mayor/.test(papel));
   ok('jornada mayor va con hc-menos', /<tr class="hc-menos"><td>CARG-03<\/td>.*?-5<\/td><td class="est">Jornada mayor/.test(papel));
-  ok('inválida va con hc-menos y guion', /<tr class="hc-menos"><td>EXC-04<\/td>.*?—<\/td><td class="est">Inválida/.test(papel));
+  // 27-sep-2026: la columna Estado ya no dice «Inválida» a secas — dice la
+  // RAZÓN que dejó la base, con mayúscula inicial.
+  ok('inválida va con hc-menos, guion y SU RAZÓN en vez de «Inválida»',
+    /<tr class="hc-menos"><td>EXC-04<\/td>.*?—<\/td><td class="est">Final menor que inicial/.test(papel)
+    && !/<td class="est">Inválida/.test(papel));
   ok('sin lectura va con hc-sin', /<tr class="hc-sin"><td>GRUA-05<\/td>.*?Sin lectura/.test(papel));
   ok('las horas van con coma decimal', /8,25<\/td>/.test(papel));
   ok('la empresa se escapa', papel.includes('EMPRESA &lt;BETA&gt; &amp; CIA') && !papel.includes('<BETA>'));
