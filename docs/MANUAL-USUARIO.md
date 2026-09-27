@@ -5112,6 +5112,30 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > ⚠️ **El número del ticket no se puede quitar.** La casilla se ve, pero no se mueve: un ticket sin
 > número no identifica nada, no se puede cantar por radio y no se puede reclamar.
 
+> **✍️ Cada dato del ticket: automático, a mano o quitado (27/09/2026).** Pedido del cliente: que
+> cada apartado del ticket sea modificable por quien tiene **control total** del módulo de viajes.
+> Ahora cada dato tiene **tres modos**, en el mismo desplegable «🎫 Qué sale en el ticket»:
+>
+> - **Quitado**: el interruptor apagado, como siempre. El renglón no sale.
+> - **🔤 Automático**: el interruptor encendido y sin texto puesto — sale el **dato de ese viaje**
+>   (la empresa a la que pertenece el camión, la placa de ese camión, etc.). Es como funcionaba todo
+>   hasta hoy, y nada cambia si no tocas nada.
+> - **✍️ A mano**: debajo de cada dato encendido hay una línea gris «🔤 Automático · tocar para
+>   ponerlo a mano». La tocas, escribes el texto (hasta 80 letras) y ese texto sale **igual en TODOS
+>   los tickets**, en lugar del dato del viaje — por ejemplo, que «Empresa» diga siempre lo que tú
+>   escribiste, sin importar de quién sea el camión. **Vaciar el texto vuelve al automático.**
+>
+> La **vista previa** de arriba muestra el texto a mano en el momento, el título del desplegable
+> anuncia «✍️ N a mano» para que se sepa sin abrirlo, y como todo en esa tarjeta, **no se guarda
+> nada hasta tocar Guardar**.
+>
+> ⚠️ **El número del ticket es el único sin modo a mano**: es el correlativo que identifica cada
+> papel; un número fijo haría iguales a todos los tickets del CDT.
+>
+> ⚠️ **Ojo con los datos que cambian por viaje.** Un texto a mano en «Placa» o en los pesos imprime
+> ese mismo texto en todos los papeles. La opción existe porque se pidió para todos los apartados,
+> pero para esos datos lo normal es dejarlos en automático.
+
 > **⚖️ Peso de romana: bruto, tara y peso a pagar (26/09/2026).** Pedido de la encargada del módulo:
 > al registrar el viaje, el listero **teclea el peso bruto** que marca la romana del CDT, el sistema
 > **resta la tara** de esa placa y arroja el **peso a pagar (neto)** — como en el papel de muestra:

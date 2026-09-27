@@ -29,7 +29,22 @@ export type TiqueConfig = {
   campos: Record<ClaveCampo, boolean>;
   logos: Record<ClaveLogo, boolean>;
   papel: PapelTique;
+  /**
+   * TEXTO PUESTO A MANO por campo (27-sep-2026). Pedido del cliente: cada
+   * apartado del ticket «o toma el dato del sistema, o se coloca a mano, o se
+   * quita». Una clave presente = ese campo imprime ESTE texto, igual en TODOS
+   * los tickets, en vez del dato del viaje. Ausente = automático (como hoy).
+   * Apagado el check, el texto no pinta nada: quitar manda sobre todo.
+   *
+   * ⚠️ El folio (CAMPO_FIJO) nunca acepta texto a mano: es el correlativo que
+   *    identifica el ticket; un número fijo haría iguales a todos los papeles.
+   */
+  textos: Partial<Record<ClaveCampo, string>>;
 };
+
+/** Tope del texto a mano. En el rollo de 58 caben ~32 letras por renglón; 80
+ *  ya son dos renglones y medio — más que eso es un párrafo, no un dato. */
+export const TEXTO_FIJO_MAX = 80;
 
 /**
  * ⚠️ EL FOLIO NO SE PUEDE APAGAR, y es lo único que no.
@@ -108,6 +123,8 @@ export const CONFIG_POR_DEFECTO: TiqueConfig = {
   },
   logos: { sos: true, goldenTouch: true, renace: false, bcv: false },
   papel: 'carta1',
+  // Ningún texto a mano de fábrica: todo automático, como siempre fue.
+  textos: {},
 };
 
 const esPapel = (v: unknown): v is PapelTique => PAPELES.some((p) => p.k === v);
@@ -143,7 +160,23 @@ export function normalizarConfig(bruto: any): TiqueConfig {
   // El folio manda sobre lo guardado: si una fila vieja lo trae apagado —o
   // alguien lo apaga escribiendo en la tabla— el ticket saldría sin número.
   campos[CAMPO_FIJO] = true;
-  return { campos, logos, papel: esPapel(bruto?.papel) ? bruto.papel : CONFIG_POR_DEFECTO.papel };
+
+  // LOS TEXTOS A MANO viven ANIDADOS dentro del jsonb `campos` (clave `textos`),
+  // no en una columna propia: así no hace falta tocar el esquema y una app vieja
+  // simplemente no los ve (recorre solo las claves conocidas). Se acepta también
+  // `bruto.textos` suelto por si algún día se muda a su columna. Solo entran
+  // claves de campos reales, con texto de verdad, recortadas al tope — y NUNCA
+  // el folio.
+  const textos: Partial<Record<ClaveCampo, string>> = {};
+  const dt = (dc && typeof dc === 'object' ? dc.textos : null) ?? bruto?.textos;
+  if (dt && typeof dt === 'object') {
+    (Object.keys(campos) as ClaveCampo[]).forEach((k) => {
+      if (k === CAMPO_FIJO) return;
+      const v = typeof dt[k] === 'string' ? dt[k].trim() : '';
+      if (v) textos[k] = v.slice(0, TEXTO_FIJO_MAX);
+    });
+  }
+  return { campos, logos, papel: esPapel(bruto?.papel) ? bruto.papel : CONFIG_POR_DEFECTO.papel, textos };
 }
 
 /** ¿Cuántos interruptores están distintos de como vienen de fábrica? */
@@ -156,6 +189,8 @@ export function cambiosRespectoAlDefecto(c: TiqueConfig): number {
     if (c.logos[k] !== CONFIG_POR_DEFECTO.logos[k]) n++;
   });
   if (c.papel !== CONFIG_POR_DEFECTO.papel) n++;
+  // Cada texto puesto a mano es un cambio respecto a la fábrica (que no trae ninguno).
+  n += Object.keys(c.textos ?? {}).length;
   return n;
 }
 
@@ -164,5 +199,8 @@ export function resumenConfig(c: TiqueConfig): string {
   const datos = (Object.keys(c.campos) as ClaveCampo[]).filter((k) => c.campos[k]).length;
   const logos = (Object.keys(c.logos) as ClaveLogo[]).filter((k) => c.logos[k]).length;
   const papel = PAPELES.find((p) => p.k === c.papel)?.label ?? c.papel;
-  return `${datos} dato(s) · ${logos} logo(s) · ${papel}`;
+  // Los textos a mano se anuncian en el encabezado: un ticket que no imprime el
+  // dato del viaje es algo que hay que poder ver sin abrir la tarjeta.
+  const aMano = Object.keys(c.textos ?? {}).filter((k) => c.campos[k as ClaveCampo]).length;
+  return `${datos} dato(s) · ${logos} logo(s) · ${papel}${aMano > 0 ? ` · ✍️ ${aMano} a mano` : ''}`;
 }

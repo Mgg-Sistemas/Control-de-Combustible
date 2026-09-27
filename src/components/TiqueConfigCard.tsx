@@ -14,14 +14,14 @@
 //    decidiendo, y deja el formato a medio cambiar si se va la señal en el
 //    medio. Mientras hay cambios sin guardar, la tarjeta lo dice.
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { Plegable } from './Plegable';
 import { Toggle } from './CubicajeTab';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import {
-  CAMPOS_TIQUE, CAMPO_FIJO, CONFIG_POR_DEFECTO, LOGOS_TIQUE, PAPELES,
+  CAMPOS_TIQUE, CAMPO_FIJO, CONFIG_POR_DEFECTO, LOGOS_TIQUE, PAPELES, TEXTO_FIJO_MAX,
   cambiosRespectoAlDefecto, resumenConfig,
   type ClaveCampo, type ClaveLogo, type PapelTique, type TiqueConfig,
 } from '../lib/tiqueConfig';
@@ -96,6 +96,16 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
   const campo = (k: ClaveCampo) => setConfig((c) => ({ ...c, campos: { ...c.campos, [k]: !c.campos[k] } }));
   const logo = (k: ClaveLogo) => setConfig((c) => ({ ...c, logos: { ...c.logos, [k]: !c.logos[k] } }));
   const papel = (p: PapelTique) => setConfig((c) => ({ ...c, papel: p }));
+
+  // ✍️ EL TEXTO A MANO por campo (27-sep-2026). Se escribe crudo mientras se
+  // teclea; `normalizarConfig` lo recorta y bota los vacíos al guardar. Vaciar
+  // el campo ES volver al automático, sin botón aparte.
+  const [textoAbierto, setTextoAbierto] = useState<ClaveCampo | null>(null);
+  const texto = (k: ClaveCampo, v: string) => setConfig((c) => {
+    const t = { ...c.textos };
+    if (v) t[k] = v; else delete t[k];
+    return { ...c, textos: t };
+  });
 
   const guardar = async () => {
     setOcupado(true);
@@ -174,17 +184,54 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
       </View>
 
       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>QUÉ DATOS SALEN</Text>
-      <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled>
+      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 4 }}>
+        Cada dato encendido sale 🔤 automático (el dato de ese viaje) o ✍️ a mano: un texto fijo
+        que se imprime IGUAL en todos los tickets. Toca la línea gris debajo del dato para
+        ponérselo; vaciar el texto vuelve al automático.
+      </Text>
+      <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
         {CAMPOS_TIQUE.map((c) => (
           c.k === CAMPO_FIJO ? (
             // Se enseña, se explica y no se deja tocar. Esconderla sería peor:
             // el cliente pidió un check para cada cosa y merece ver por qué este
-            // no se mueve.
+            // no se mueve. Y tampoco acepta texto a mano: es el correlativo.
             <View key={c.k} style={{ opacity: 0.55 }}>
               <Toggle on label={`${c.label} · fijo`} ayuda={c.ayuda} onPress={() => {}} />
             </View>
           ) : (
-            <Toggle key={c.k} on={config.campos[c.k]} label={c.label} ayuda={c.ayuda} onPress={() => campo(c.k)} />
+            <View key={c.k}>
+              <Toggle on={config.campos[c.k]} label={c.label} ayuda={c.ayuda} onPress={() => campo(c.k)} />
+              {/* El modo del dato, solo si el check está encendido: apagado ya
+                  es «quitado» y no hay nada más que decidir. */}
+              {config.campos[c.k] ? (
+                textoAbierto === c.k ? (
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginLeft: spacing.lg, marginBottom: 6 }}>
+                    <TextInput
+                      value={config.textos[c.k] ?? ''}
+                      onChangeText={(v) => texto(c.k, v)}
+                      placeholder="Texto fijo (vacío = automático)"
+                      placeholderTextColor={colors.muted}
+                      maxLength={TEXTO_FIJO_MAX}
+                      autoFocus
+                      style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 12, backgroundColor: colors.surface }}
+                    />
+                    <TouchableOpacity onPress={() => setTextoAbierto(null)} style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>Listo</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity onPress={() => setTextoAbierto(c.k)} style={{ marginLeft: spacing.lg, marginBottom: 6 }}>
+                    {(config.textos[c.k] ?? '').trim() ? (
+                      <Text style={{ color: colors.warning, fontSize: 10.5, fontWeight: '700' }} numberOfLines={1}>
+                        ✍️ A mano: «{(config.textos[c.k] ?? '').trim()}» · sale igual en TODOS
+                      </Text>
+                    ) : (
+                      <Text style={{ color: colors.muted, fontSize: 10.5 }}>🔤 Automático · tocar para ponerlo a mano</Text>
+                    )}
+                  </TouchableOpacity>
+                )
+              ) : null}
+            </View>
           )
         ))}
       </ScrollView>
