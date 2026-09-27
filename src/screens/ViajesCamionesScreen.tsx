@@ -3119,9 +3119,10 @@ export default function ViajesCamionesScreen() {
       chofer: row.choferName,
       listero: row.listeroName,
       m3: vol > 0 ? `${m3Texto(vol)} m³` : null,
-      // Los tres renglones del peso, formateados como el papel de muestra
-      // («32.540,00 Kg»). Un viaje sin peso los deja en null y salen con raya.
-      ...pesosParaTique(row),
+      // Los tres renglones del peso, en la unidad que el admin eligió para el
+      // papel (Kg de fábrica, como el papel de muestra; o Ton). Un viaje sin
+      // peso los deja en null y salen con raya.
+      ...pesosParaTique(row, configTique.pesosUnidad),
       estado: row.estadoMaquina,
       nota: row.note,
     };

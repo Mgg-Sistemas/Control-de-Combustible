@@ -27,6 +27,7 @@ import {
 } from '../lib/tiqueConfig';
 import { guardarConfigTique, leerConfigTique } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, renglonesDelTique } from '../lib/tiqueDocumento';
+import { UNIDADES_PESO, pesosParaTique } from '../lib/viajesPeso';
 
 /**
  * Un viaje de mentira para la vista previa.
@@ -122,7 +123,14 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
   };
 
   const enRollo = config.papel === 'rollo80' || config.papel === 'rollo58';
-  const renglones = useMemo(() => renglonesDelTique(EJEMPLO, config), [config]);
+  // El ejemplo de los pesos se arma con el MISMO formateador del papel
+  // (pesosParaTique) y la unidad elegida: si dice Ton en la vista previa es
+  // porque va a decir Ton en el ticket. Los números son los del papel de muestra.
+  const ejemplo = useMemo(() => ({
+    ...EJEMPLO,
+    ...pesosParaTique({ pesoBrutoKg: 32540, pesoTaraKg: 11340, pesoNetoKg: 21200 }, config.pesosUnidad),
+  }), [config.pesosUnidad]);
+  const renglones = useMemo(() => renglonesDelTique(ejemplo, config), [ejemplo, config]);
   /**
    * ⚠️ ESTE AVISO EXISTE POR UN TICKET CORTADO.
    *
@@ -235,6 +243,27 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
           )
         ))}
       </ScrollView>
+
+      {/* ⚖️ En qué unidad se IMPRIMEN los pesos (27-sep-2026, a pedido). Solo
+          cambia el texto del papel: el dato guardado es kilos siempre. */}
+      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 4 }}>⚖️ LOS PESOS DEL PAPEL, EN</Text>
+      <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+        {UNIDADES_PESO.map((u) => {
+          const on = config.pesosUnidad === u.k;
+          return (
+            <TouchableOpacity
+              key={`pu-${u.k}`}
+              onPress={() => setConfig((c) => ({ ...c, pesosUnidad: u.k }))}
+              style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingVertical: 6, paddingHorizontal: spacing.sm }}
+            >
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
+        Solo cambia cómo se imprime: «32.540,00 Kg» o «32,540 Ton». El dato guardado sigue en kilos.
+      </Text>
 
       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 2 }}>QUÉ LOGOS SALEN</Text>
       {LOGOS_TIQUE.map((l) => (

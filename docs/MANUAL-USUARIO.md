@@ -5169,6 +5169,12 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   corto «P. entrada / P. salida / P. a pagar», a pedido. ⚠️ Con muchos datos encendidos puede que
 >   ya no quepan 4 o 6 tickets por hoja: el propio configurador avisa y dice qué papel usar (los
 >   rótulos largos también cuentan para ese cálculo).
+> - **En qué unidad salen los pesos del ticket (27/09/2026).** En «🎫 Qué sale en el ticket» (solo
+>   control total) está la pastilla **«⚖️ Los pesos del papel, en: Kg / Toneladas»**: en Kg sale
+>   «32.540,00 Kg» (como el papel de muestra) y en toneladas «32,540 Ton», con tres decimales para
+>   no redondear un papel que se firma. Solo cambia el **texto impreso** — el dato guardado sigue
+>   en kilos —, la vista previa lo muestra al momento y el título del desplegable anuncia «⚖️
+>   pesos en Ton» cuando está en toneladas. De fábrica: Kg.
 > - **En los reportes**, el interruptor **⚖️ Peso de romana** de «Qué sale en el reporte» agrega al
 >   detallado las columnas de bruto, tara y neto con sus totales, y al resumido la columna «Peso a
 >   pagar (Kg)» por camión, por grupo y general. Los viajes sin peso no suman ni aparecen como cero.
