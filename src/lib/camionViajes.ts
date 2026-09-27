@@ -710,12 +710,15 @@ export async function listTaras(): Promise<{ taras: Map<string, TaraCamion>; mis
   const taras = new Map<string, TaraCamion>();
   // Las columnas de exención llegaron horas después de la tabla: se piden con
   // respaldo para que un restore de esta misma tarde no deje la lista vacía.
+  // ⚠️ `camion_taras` NO tiene columna `id` (la llave es machinery_id): hay que
+  //    decírselo al paginador o su `order('id')` por defecto revienta con 42703
+  //    y la pantalla lo confunde con «falta correr el SQL» (pasó el 26-sep).
   const leerFilas = async () => {
     try {
-      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre, exento_romana, exento_por_nombre');
+      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre, exento_romana, exento_por_nombre', undefined, 'machinery_id');
     } catch (e: any) {
       if (e?.code !== '42703' && !/column .* does not exist|could not find the .*column/i.test(String(e?.message ?? e))) throw e;
-      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre');
+      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre', undefined, 'machinery_id');
     }
   };
   try {
