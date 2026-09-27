@@ -5150,7 +5150,8 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   tara en: Kg / Toneladas» (27/09/2026) dice en qué unidad estás escribiendo, y cambiarla bota lo
 >   tecleado sin guardar para que un número pensado en Kg no termine guardado como toneladas —, se
 >   **guarda siempre en kilos**, con 💾, y queda anotado quién la cargó. El ✕ la quita (los próximos
->   viajes pedirán tara a mano).
+>   viajes pedirán tara a mano). Arriba de la lista hay un **🔎 buscador** (27/09/2026): filtra por
+>   placa, código, serial, marca, modelo o empresa, y dice cuántos camiones coinciden.
 > - **Si el camión no tiene tara cargada** (o es de fuera de catálogo, que no tiene ficha), el
 >   listero la teclea a mano y el viaje queda marcado **✍️ tara manual** con su nombre — para que
 >   después se sepa cuál número salió del catálogo y cuál de un teléfono.
