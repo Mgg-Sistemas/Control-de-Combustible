@@ -53,7 +53,12 @@ export async function guardarConfigTique(
   const limpia = normalizarConfig(c);
   const fila = {
     id: true,
-    campos: limpia.campos,
+    // ⚠️ LOS TEXTOS A MANO VIAJAN DENTRO DEL MISMO JSONB `campos` (clave
+    //    `textos`), a propósito: la tabla no necesita columna nueva ni SQL, y
+    //    una app vieja los ignora sin romperse (solo lee las claves conocidas).
+    //    `normalizarConfig` los saca de ahí al leer. Si algún día se mudan a su
+    //    columna, la lectura ya acepta las dos formas.
+    campos: { ...limpia.campos, textos: limpia.textos } as any,
     logos: limpia.logos,
     papel: limpia.papel,
     updated_by: uid,
