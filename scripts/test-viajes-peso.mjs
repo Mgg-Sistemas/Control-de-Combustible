@@ -261,6 +261,13 @@ ok('la tara de la placa se enseña con quién la cargó', /Tara de esta placa/.t
 ok('sin tara cargada, el listero la teclea y queda como manual', /Este camión no tiene tara cargada/.test(scr));
 ok('kilos y toneladas', /UNIDADES_PESO\.map/.test(scr));
 ok('la administración de taras vive en ⚙️ Configuración', /TARA DE ROMANA POR CAMIÓN/.test(scr) && /borrarTara/.test(scr) && /saveTara/.test(scr));
+// 🔎 El buscador de la lista de taras (27-sep-2026): filtra con los MISMOS
+// campos que el buscador del listero — código, placa, serial, marca, modelo,
+// empresa — y dice cuántos quedaron.
+ok('la lista de taras tiene buscador con los campos de siempre',
+  /taraQuery/.test(scr) && /tarasFiltradas\.map/.test(scr)
+  && /\[t\.code, t\.clasificacion, t\.marca, t\.modelo, t\.plate, t\.serial, t\.companyName\][\s\S]{0,120}norm\(String\(f\)\)\.includes\(nq\)\)\);\n  \}, \[camionesEnObra, taraQuery\]\)/.test(scr)
+  && /Ningún camión coincide con esa búsqueda/.test(scr));
 // La tara se puede TECLEAR en Kg o en toneladas (27-sep-2026, a pedido), pero
 // se GUARDA siempre en Kg; y cambiar la pastilla bota lo tecleado sin guardar
 // (un «32540» pensado en Kg no puede terminar guardado como toneladas).
