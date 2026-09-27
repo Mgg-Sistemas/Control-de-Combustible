@@ -87,9 +87,13 @@ export const CAMPOS_TIQUE: { k: ClaveCampo; label: string; corto: string; ayuda?
   { k: 'm3',          label: '📐 Metros cúbicos',   corto: 'Volumen', ayuda: 'Sale de lo que se mida en Cubicaje. Hoy es un promedio del día, no una medición de ese viaje.' },
   // Los tres renglones del peso de romana (26-sep-2026), con los mismos nombres
   // del papel de muestra que mandó la encargada.
-  { k: 'pesoBruto',   label: '⚖️ Peso entrada (bruto)', corto: 'P. entrada', ayuda: 'El peso que tecleó el listero en la romana del CDT.' },
-  { k: 'pesoTara',    label: '⚖️ Peso salida (tara)',   corto: 'P. salida',  ayuda: 'La tara del camión, congelada al registrar ese viaje.' },
-  { k: 'pesoNeto',    label: '⚖️ Peso a pagar (neto)',  corto: 'P. a pagar', ayuda: 'Bruto menos tara. Lo calcula la base de datos, nunca el teléfono. Los viajes anteriores al peso salen con raya.' },
+  // ⚠️ El `corto` de los pesos va COMPLETO a pedido del cliente (27-sep-2026):
+  //    «peso entrada (bruto) / Peso salida (tara) / peso a pagar (neto)», como
+  //    el papel de muestra. En el rollo la etiqueta se parte en 2–3 líneas y el
+  //    cálculo del alto las cuenta (lineasDelValor sobre la etiqueta también).
+  { k: 'pesoBruto',   label: '⚖️ Peso entrada (bruto)', corto: 'Peso entrada (bruto)', ayuda: 'El peso que tecleó el listero en la romana del CDT.' },
+  { k: 'pesoTara',    label: '⚖️ Peso salida (tara)',   corto: 'Peso salida (tara)',   ayuda: 'La tara del camión, congelada al registrar ese viaje.' },
+  { k: 'pesoNeto',    label: '⚖️ Peso a pagar (neto)',  corto: 'Peso a pagar (neto)',  ayuda: 'Bruto menos tara. Lo calcula la base de datos, nunca el teléfono. Los viajes anteriores al peso salen con raya.' },
   { k: 'estado',      label: '⚙️ Estado del camión', corto: 'Estado' },
   { k: 'nota',        label: '🗒️ Nota',             corto: 'Nota' },
 ];

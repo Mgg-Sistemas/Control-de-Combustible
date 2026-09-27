@@ -2504,14 +2504,19 @@ export default function ViajesCamionesScreen() {
   };
 
   // ⚖️ Taras por camión (editable, solo full — el RLS de `camion_taras` lo
-  //    exige igual; acá solo se evita el error feo). SIEMPRE en kilos: es el
-  //    catálogo oficial, no la romana de turno.
+  //    exige igual; acá solo se evita el error feo). SE GUARDA SIEMPRE EN KILOS:
+  //    es el catálogo oficial. Lo que cambia (27-sep-2026, a pedido) es en qué
+  //    unidad se TECLEA: Kg o toneladas, con las mismas pastillas del registro.
   const [taraEdits, setTaraEdits] = useState<Record<string, string>>({});
+  const [taraUnidad, setTaraUnidad] = useState<UnidadPeso>('kg');
+  /** La tara guardada (kg), mostrada en la unidad elegida para poder editarla
+   *  sin convertir de cabeza. En toneladas va con coma: leerNumero la entiende. */
+  const taraMostrada = (kg: number) => taraUnidad === 'kg' ? String(kg) : String(kg / 1000).replace('.', ',');
   const saveTara = async (truckId: string) => {
     const raw = (taraEdits[truckId] ?? '').trim();
     if (raw === '') return; // vaciar el campo no borra: para eso está el ✕, que confirma
-    const kg = pesoTecleadoAKg(raw, 'kg');
-    if (kg <= 0) { toast.error('La tara tiene que ser un peso en Kg mayor que cero.'); return; }
+    const kg = pesoTecleadoAKg(raw, taraUnidad);
+    if (kg <= 0) { toast.error(`La tara tiene que ser un peso en ${taraUnidad === 'kg' ? 'Kg' : 'toneladas'} mayor que cero.`); return; }
     const { error } = await setTaraCamion(truckId, kg, uid || null, listeroName || null);
     if (error) { toast.error(error); return; }
     setTaraEdits((prev) => { const p = { ...prev }; delete p[truckId]; return p; });
@@ -4883,10 +4888,28 @@ export default function ViajesCamionesScreen() {
             {/* ⚖️ LA TARA OFICIAL POR CAMIÓN (26-sep-2026). La carga quien tiene
                 full, de una vez, con lo que pesaron en la romana. El listero
                 solo la ve restándose en su registro. */}
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>⚖️ TARA DE ROMANA POR CAMIÓN (KG)</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>⚖️ TARA DE ROMANA POR CAMIÓN</Text>
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
               Es el peso del camión vacío. Al registrar, el sistema la resta del bruto y arroja el peso a pagar. Cambiarla NO toca los viajes ya registrados: cada viaje se llevó su tara congelada.
             </Text>
+            {/* La unidad en que se TECLEA (27-sep-2026, a pedido). Se guarda
+                siempre en Kg; esto solo cambia cómo se escribe y cómo se ve
+                el campo. Mismas pastillas que el peso bruto del registro. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>Escribo la tara en:</Text>
+              {UNIDADES_PESO.map((u) => (
+                <TouchableOpacity
+                  key={`tu-${u.k}`}
+                  // Cambiar la unidad bota lo tecleado sin guardar: un «32540»
+                  // escrito pensando en Kg no puede guardarse como toneladas.
+                  onPress={() => { setTaraUnidad(u.k); setTaraEdits({}); }}
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: taraUnidad === u.k ? colors.primary : colors.border, backgroundColor: taraUnidad === u.k ? colors.primary : 'transparent' }}
+                >
+                  <Text style={{ color: taraUnidad === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={{ color: colors.muted, fontSize: 10.5 }}>· se guarda en Kg</Text>
+            </View>
             {tarasMissing ? (
               <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
                 ⚠️ Falta correr el SQL del peso de romana en la base de datos. Avisa al administrador.
@@ -4910,11 +4933,11 @@ export default function ViajesCamionesScreen() {
                           </Text>
                         </View>
                         <TextInput
-                          value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? String(tara.pesoTaraKg) : '')}
+                          value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? taraMostrada(tara.pesoTaraKg) : '')}
                           onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
                           onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
                           keyboardType="numeric"
-                          placeholder="—"
+                          placeholder={taraUnidad === 'kg' ? 'Kg' : 'Ton'}
                           placeholderTextColor={colors.muted}
                           style={[styles.input, { width: 90, paddingVertical: 6, textAlign: 'center' }]}
                         />
