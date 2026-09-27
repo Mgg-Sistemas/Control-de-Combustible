@@ -146,9 +146,11 @@ ok('la foto va con upsert y el nombre sale de la clave de idempotencia',
   /viajes-peso\/\$\{nombre\}\.jpg/.test(lib) && /upsert: true/.test(lib));
 ok('el escalón de lectura pela el peso primero (lo más nuevo)',
   /hayColumnasDePeso !== false/.test(lib) && /faltaCorrerSqlDePeso/.test(lib));
-ok('la corrección del bruto existe y NO toca la tara',
+// Hasta el 26-sep la tara congelada NO se editaba (se borraba el viaje); el
+// 27-sep el dueño del módulo pidió corregirla «por si cargaron mal la tara».
+ok('la corrección del bruto Y la de la tara existen en la librería',
   /pesoBrutoKg\?: number;/.test(lib) && /patch\.peso_bruto_kg = cambios\.pesoBrutoKg/.test(lib)
-  && !/patch\.peso_tara_kg/.test(lib));
+  && /pesoTaraKg\?: number;/.test(lib) && /patch\.peso_tara_kg = cambios\.pesoTaraKg/.test(lib));
 ok('las taras: upsert con nombre congelado de quién la cargó',
   /from\('camion_taras'\)\.upsert\(/.test(lib) && /updated_by_nombre: userName/.test(lib));
 ok('quitar la tara distingue «no había fila»', /Ese camión no tenía tara cargada/.test(lib));
@@ -270,7 +272,14 @@ ok('cambiar la unidad bota lo tecleado sin guardar',
 ok('el ticket imprime con la unidad de la configuración',
   /pesosParaTique\(row, configTique\.pesosUnidad\)/.test(scr));
 ok('quitar la tara PREGUNTA y explica lo congelado', /¿Quitar la tara de \$\{code\}\?/.test(scr) && /conservan la suya/.test(scr));
-ok('la corrección del bruto solo con full y sin tocar la tara', /PESO BRUTO \(KG\) · tara congelada/.test(scr) && /tara congelada de este viaje/.test(scr));
+// La pantalla ofrece los DOS campos (bruto y tara) en ✏️ Editar, y las dos
+// correcciones se validan ENTRE SÍ: tocadas ambas, el candado bruto > tara se
+// mira con los números nuevos.
+ok('la corrección de bruto y tara vive en ✏️ Editar con validación cruzada',
+  /TARA DE ESTE VIAJE \(KG\)/.test(scr) && /const brutoFinal = cambios\.pesoBrutoKg \?\? row\.pesoBrutoKg;/.test(scr)
+  && /taraFinal/.test(scr) && /LA CARGARON MAL/.test(scr));
+ok('...y las dos dejan rastro legible en Auditoría',
+  /queCambio\.push\(`peso bruto: /.test(scr) && /queCambio\.push\(`tara: /.test(scr));
 ok('el PDF detallado lleva las tres columnas con sus totales',
   /pesoBruto: kgOpc\(r\.pesoBrutoKg\)/.test(scr) && /kgPie\(netoDeFilas\(filteredRangeRows\)\)/.test(scr));
 ok('el resumido suma el peso a pagar por camión, grupo y total',

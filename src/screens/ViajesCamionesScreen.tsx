@@ -1337,10 +1337,11 @@ export default function ViajesCamionesScreen() {
   //    viaje no es corregirlo, es otro viaje. Para eso se borra este y se carga
   //    el bueno, y así la auditoría conserva las dos cosas por separado.
   const [editing, setEditing] = useState<
-    // `peso` es el BRUTO en Kg como texto (26-sep-2026): solo lo toca la jefa,
-    // y solo en viajes que YA traen peso (la tara congelada no se edita nunca).
-    // `tipoId` es el TIPO DE VIAJE ('' = normal): también solo full.
-    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tipoId: string } | null
+    // `peso` es el BRUTO en Kg como texto (26-sep-2026) y `tara` es la TARA
+    // CONGELADA de ese viaje (27-sep-2026, pedido: «por si cargaron mal la
+    // tara»): solo los toca la jefa, y solo en viajes que YA traen peso (a uno
+    // viejo no se le inventa). `tipoId` es el TIPO DE VIAJE ('' = normal).
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tara: string; tipoId: string } | null
   >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
@@ -1451,6 +1452,7 @@ export default function ViajesCamionesScreen() {
       listeroId: row.listeroId,
       ubicacionId: row.ubicacionId ?? '',
       peso: row.pesoBrutoKg != null ? String(row.pesoBrutoKg) : '',
+      tara: row.pesoTaraKg != null ? String(row.pesoTaraKg) : '',
       tipoId: row.tipoViajeId ?? '',
     });
   };
@@ -1540,21 +1542,37 @@ export default function ViajesCamionesScreen() {
           cambios.ubicacionId = obra.id;
           queCambio.push(`CDT: ${row.ubicacionNombre || SIN_UBICACION_LABEL} → ${obra.nombre}`);
         }
-        // ⚖️ CORREGIR EL PESO BRUTO (26-sep-2026). Solo en viajes que YA traen
-        //    peso: a uno viejo no se le inventa (no tiene tara congelada con qué
-        //    calcular el neto). El neto lo recalcula la base sola; la tara no se
-        //    toca nunca — si la tara estaba mala, ese viaje se borra y se carga
-        //    bien.
+        // ⚖️ CORREGIR EL PESO BRUTO (26-sep-2026) Y LA TARA (27-sep-2026,
+        //    pedido: «por si cargaron mal la tara»). Solo en viajes que YA
+        //    traen peso: a uno viejo no se le inventa. El neto lo recalcula la
+        //    base sola, y las dos correcciones se validan ENTRE SÍ: si se
+        //    tocan ambas, el candado bruto > tara se mira con los números
+        //    nuevos, no con los viejos.
+        const taraFinal = row.pesoTaraKg != null && editing.tara.trim() !== ''
+          ? pesoTecleadoAKg(editing.tara, 'kg') : row.pesoTaraKg;
         if (row.pesoBrutoKg != null && editing.peso.trim() !== '') {
           const kgNuevo = pesoTecleadoAKg(editing.peso, 'kg');
           if (kgNuevo !== row.pesoBrutoKg) {
             if (kgNuevo <= 0) { toast.error('El peso bruto tiene que ser mayor que cero.'); return; }
-            if (row.pesoTaraKg != null && kgNuevo <= row.pesoTaraKg) {
-              toast.error(`El bruto tiene que superar la tara congelada de este viaje (${kgTexto(row.pesoTaraKg)}).`);
+            if (taraFinal != null && taraFinal > 0 && kgNuevo <= taraFinal) {
+              toast.error(`El bruto tiene que superar la tara de este viaje (${kgTexto(taraFinal)}).`);
               return;
             }
             cambios.pesoBrutoKg = kgNuevo;
             queCambio.push(`peso bruto: ${kgTexto(row.pesoBrutoKg)} → ${kgTexto(kgNuevo)}`);
+          }
+        }
+        if (row.pesoTaraKg != null && editing.tara.trim() !== '') {
+          const taraNueva = pesoTecleadoAKg(editing.tara, 'kg');
+          if (taraNueva !== row.pesoTaraKg) {
+            if (taraNueva <= 0) { toast.error('La tara tiene que ser mayor que cero.'); return; }
+            const brutoFinal = cambios.pesoBrutoKg ?? row.pesoBrutoKg;
+            if (brutoFinal != null && taraNueva >= brutoFinal) {
+              toast.error(`La tara (${kgTexto(taraNueva)}) no puede alcanzar el bruto (${kgTexto(brutoFinal)}): el peso a pagar saldría en cero o negativo.`);
+              return;
+            }
+            cambios.pesoTaraKg = taraNueva;
+            queCambio.push(`tara: ${kgTexto(row.pesoTaraKg)} → ${kgTexto(taraNueva)}`);
           }
         }
         // 🧾 CORREGIR EL TIPO DE VIAJE (26-sep-2026). Congela el nombre y la
@@ -3420,22 +3438,42 @@ export default function ViajesCamionesScreen() {
                     style={[styles.input]}
                   />
                 </View>
-                {/* ⚖️ El BRUTO se puede corregir; la tara congelada no. Solo en
-                    viajes que ya traen peso: a uno viejo no se le inventa. */}
+                {/* ⚖️ El BRUTO se puede corregir (26-sep) y la TARA también
+                    (27-sep, pedido: «por si cargaron mal la tara»). Solo en
+                    viajes que ya traen peso: a uno viejo no se le inventa.
+                    El peso a pagar lo recalcula la base sola. */}
                 {row.pesoBrutoKg != null ? (
-                  <View>
-                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>
-                      PESO BRUTO (KG) · tara congelada {kgTextoOpcional(row.pesoTaraKg) ?? '—'}
-                    </Text>
-                    <TextInput
-                      value={editing.peso}
-                      onChangeText={(t) => setEditing((e) => (e ? { ...e, peso: t } : e))}
-                      keyboardType="numeric"
-                      placeholder="Peso bruto en Kg"
-                      placeholderTextColor={colors.muted}
-                      style={[styles.input]}
-                    />
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>PESO BRUTO (KG)</Text>
+                      <TextInput
+                        value={editing.peso}
+                        onChangeText={(t) => setEditing((e) => (e ? { ...e, peso: t } : e))}
+                        keyboardType="numeric"
+                        placeholder="Peso bruto en Kg"
+                        placeholderTextColor={colors.muted}
+                        style={[styles.input]}
+                      />
+                    </View>
+                    {row.pesoTaraKg != null ? (
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>TARA DE ESTE VIAJE (KG)</Text>
+                        <TextInput
+                          value={editing.tara}
+                          onChangeText={(t) => setEditing((e) => (e ? { ...e, tara: t } : e))}
+                          keyboardType="numeric"
+                          placeholder="Tara en Kg"
+                          placeholderTextColor={colors.muted}
+                          style={[styles.input]}
+                        />
+                      </View>
+                    ) : null}
                   </View>
+                ) : null}
+                {row.pesoBrutoKg != null ? (
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: -4 }}>
+                    Corregir la tara es solo para cuando LA CARGARON MAL en este viaje: el peso a pagar se recalcula solo y el cambio queda en Auditoría. La tara del catálogo del camión no se toca desde acá.
+                  </Text>
                 ) : null}
                 {/* 🧾 Corregir el TIPO — por si el listero marcó mal el cruce.
                     Sale si hay tipos creados O si el viaje ya trae uno puesto. */}
