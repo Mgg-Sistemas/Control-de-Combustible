@@ -1128,6 +1128,21 @@ function EditUserForm({
   // app_role_id (y si era admin, baja su rol base a conductor para que vea SOLO su rol).
   const applyRole = async (s: RoleSel) => {
     if (!user || isSelf) return;
+    // ⚠️ DEGRADAR A UN ADMIN NO PUEDE SER SILENCIOSO (27-sep-2026). Asignarle un
+    //    rol personalizado a un admin le baja el rol base a conductor (si no, el
+    //    atajo de admin ignoraría el rol asignado) — pero eso le QUITA el acceso
+    //    total al sistema, y pasaba sin ninguna advertencia: bastaba «probar» un
+    //    rol para dejar a un administrador viendo solo los módulos de ese rol.
+    if (s.kind !== 'base' && user.role === 'admin') {
+      const ok = await confirm({
+        title: 'Vas a degradar a un ADMINISTRADOR',
+        message: `${user.full_name || 'Este usuario'} es ADMINISTRADOR (acceso total a todo el sistema). Asignarle el rol «${roles.find((r) => r.id === s.id)?.name ?? 'personalizado'}» le QUITA ese acceso total y pasa a ver SOLO los módulos del rol. Para devolvérselo habrá que ponerle el rol base Administrador de nuevo.\n\n¿Seguro que quieres degradarlo?`,
+        confirmText: 'Sí, degradarlo',
+        cancelText: 'Cancelar',
+        danger: true,
+      });
+      if (!ok) { setPickerOpen(false); return; }
+    }
     setSel(s);
     setPickerOpen(false);
     setSavingRole(true);

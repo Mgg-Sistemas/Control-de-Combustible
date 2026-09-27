@@ -13,21 +13,20 @@ import { useTheme } from '../theme/ThemeContext';
  * que "Más" sea solo el menú de módulos.
  */
 export default function AjustesScreen() {
-  const { signOut, session, configured, fullName } = useAuth();
+  const { signOut, session, configured, fullName, role } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
 
-  // Acceso "superadmin/desarrollador": SOLO Anthony y Angelica (por nombre, sin
-  // tildes). Gatea el Backup de la BD y el panel masivo de activar/desactivar
-  // máquinas (ambos son herramientas sensibles, no de uso diario del resto de
-  // admins). Web.
+  // ⭐ REGLA DE LA CASA (27-sep-2026, pedido explícito): UN ADMIN TIENE ACCESO A
+  //    TODO. El respaldo estaba gateado SOLO por nombre propio, y un admin
+  //    llamado de otra forma abría Ajustes y veía únicamente «Cerrar sesión»,
+  //    como si el módulo estuviera roto. El rol manda; los nombres quedan solo
+  //    para quien puede descargar sin ser admin (Antoni Vargas).
   const nfull = (fullName ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
   const esSuperadmin = nfull.includes('ANTHONY') || nfull.includes('ANGELICA');
-  // Backup de la BD: además de los superadmin, ANTONI VARGAS puede descargarlo
-  // (SOLO el backup, no el panel masivo de máquinas). "frank vargas" también existe,
-  // por eso se exige ANTONI + VARGAS, no solo el apellido.
+  // "frank vargas" también existe, por eso se exige ANTONI + VARGAS.
   const esAntoniVargas = nfull.includes('ANTONI') && nfull.includes('VARGAS');
-  const puedeBackup = esSuperadmin || esAntoniVargas;
+  const puedeBackup = role === 'admin' || esSuperadmin || esAntoniVargas;
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
   const doBackup = async () => {
@@ -71,7 +70,7 @@ export default function AjustesScreen() {
               Descarga un archivo <Text style={{ fontWeight: '800' }}>.sql</Text> con los datos de TODAS las tablas
               (máquinas, jornadas, empleados, pagos, inventario, ventas, compras…), listo para volver a meterlo en
               Supabase. No trae el esquema ni la bitácora de auditoría. Tarda unos minutos: no cierres la pestaña.
-              Acceso restringido a Anthony, Angelica y Antoni Vargas.
+              Acceso para administradores.
             </Text>
             <TouchableOpacity onPress={doBackup} disabled={backupBusy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', opacity: backupBusy ? 0.6 : 1 }}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{backupBusy ? 'Generando…' : '⬇️ Descargar respaldo (.sql)'}</Text>

@@ -1420,6 +1420,11 @@ export default function ViajesCamionesScreen() {
   }, [uid, listerosRecarga, obrasRaw]);
 
   const isEditableByListero = (row: CamionViajeRow): boolean => {
+    // ⭐ FULL PRIMERO (27-sep-2026): el «¿es tuyo?» iba ANTES que el «¿tiene
+    //    full?», así que quien tiene control total (admin incluido) no veía el
+    //    botón de editar en los viajes de OTRO listero dentro de esta lista —
+    //    justo lo contrario de lo que documenta el comentario de abajo.
+    if (canFull) return true;
     if (row.listeroId !== uid) return false;
     // ⭐ CON ACCESO FULL NO HAY HORA DE CIERRE (02-sep-2026).
     //
@@ -1433,8 +1438,8 @@ export default function ViajesCamionesScreen() {
     //    «mis viajes de hoy», no — la misma persona con dos reglas distintas.
     //
     //    No queda invisible: la edición excepcional deja rastro en Auditoría.
-    //    Ver `saveEdit` y `requiereRastroDeEdicion`.
-    if (canFull) return true;
+    //    Ver `saveEdit` y `requiereRastroDeEdicion`. (El `return true` de full
+    //    vive arriba del todo desde el 27-sep-2026.)
     const { startMs, endMs } = currentJornadaWindow();
     const t = new Date(row.registeredAt).getTime();
     return t >= startMs && t < endMs;
