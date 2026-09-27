@@ -14,7 +14,7 @@
 //    `escapar()`, sin excepción. No es paranoia de seguridad: es que un ticket
 //    en blanco no se nota hasta que ya se entregó.
 import {
-  CAMPOS_TIQUE, LOGOS_TIQUE, PAPELES,
+  CAMPOS_TIQUE, CAMPO_FIJO, LOGOS_TIQUE, PAPELES,
   type ClaveCampo, type ClaveLogo, type PapelTique, type TiqueConfig,
 } from './tiqueConfig';
 
@@ -74,7 +74,16 @@ export function escapar(v: unknown): string {
 export function renglonesDelTique(d: DatosTique, c: TiqueConfig): { k: string; v: string }[] {
   return CAMPOS_TIQUE
     .filter((campo) => c.campos[campo.k])
-    .map((campo) => ({ k: campo.corto, v: limpio(d[campo.k]) || SIN_DATO_PAPEL }));
+    .map((campo) => {
+      // ✍️ TEXTO A MANO (27-sep-2026): si el admin le puso un texto fijo al
+      //    campo, ESE sale — igual en todos los tickets — en vez del dato del
+      //    viaje. El folio jamás: es el correlativo que identifica el papel.
+      //    Va ACÁ y solo acá porque esta función arma el papel Y la vista
+      //    previa: puesto en otro sitio, se configura mirando una cosa y se
+      //    imprime otra.
+      const aMano = campo.k === CAMPO_FIJO ? '' : limpio(c.textos?.[campo.k]);
+      return { k: campo.corto, v: aMano || limpio(d[campo.k]) || SIN_DATO_PAPEL };
+    });
 }
 
 /**
