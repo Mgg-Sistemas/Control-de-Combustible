@@ -184,12 +184,20 @@ eq('una config vieja guardada SIN las claves nuevas las recibe apagadas',
   const TD = cargar('src/lib/tiqueDocumento.ts');
   const conPeso = TC.normalizarConfig({ campos: { pesoBruto: true, pesoTara: true, pesoNeto: true } });
   const renglones = TD.renglonesDelTique({ pesoBruto: '32.540,00 Kg', pesoTara: '11.340,00 Kg', pesoNeto: '21.200,00 Kg' }, conPeso);
-  ok('encendidos, el papel lleva los tres renglones con su valor',
-    renglones.some((r) => r.k === 'P. entrada' && r.v === '32.540,00 Kg')
-    && renglones.some((r) => r.k === 'P. salida' && r.v === '11.340,00 Kg')
-    && renglones.some((r) => r.k === 'P. a pagar' && r.v === '21.200,00 Kg'));
+  // Los rótulos van COMPLETOS en el papel, a pedido del cliente (27-sep-2026):
+  // «Peso entrada (bruto) / Peso salida (tara) / Peso a pagar (neto)».
+  ok('encendidos, el papel lleva los tres renglones con su rótulo completo y su valor',
+    renglones.some((r) => r.k === 'Peso entrada (bruto)' && r.v === '32.540,00 Kg')
+    && renglones.some((r) => r.k === 'Peso salida (tara)' && r.v === '11.340,00 Kg')
+    && renglones.some((r) => r.k === 'Peso a pagar (neto)' && r.v === '21.200,00 Kg'));
   ok('un viaje viejo sale con raya, no con cero',
-    TD.renglonesDelTique({}, conPeso).filter((r) => /^P\./.test(r.k)).every((r) => r.v === '—'));
+    TD.renglonesDelTique({}, conPeso).filter((r) => /^Peso /.test(r.k)).every((r) => r.v === '—'));
+  // Etiquetas largas en columnas angostas: la cuenta del alto las tiene que
+  // ver, o el rollo vuelve a salir en dos cortes (el bug del 12-sep, por la
+  // otra columna). En 18 mm a 8 pt, «PESO ENTRADA (BRUTO)» parte en 2 o más.
+  ok('el alto del ticket cuenta las líneas de la etiqueta partida',
+    TD.lineasExtraDeEtiquetas(['Peso entrada (bruto)'], true, 10) >= 1
+    && TD.lineasExtraDeEtiquetas(['Fecha'], true, 10) === 0);
 }
 
 // ── 11) LOS REPORTES: interruptor apagado = el papel de siempre ────────────
@@ -233,7 +241,14 @@ ok('la foto es un botón obligatorio con cámara', /Foto de la romana \(obligato
 ok('la tara de la placa se enseña con quién la cargó', /Tara de esta placa/.test(scr) && /la cargó \$\{taraSeleccion\.updatedByNombre\}/.test(scr) || /la cargó \$\{/.test(scr) || /la cargó /.test(scr));
 ok('sin tara cargada, el listero la teclea y queda como manual', /Este camión no tiene tara cargada/.test(scr));
 ok('kilos y toneladas', /UNIDADES_PESO\.map/.test(scr));
-ok('la administración de taras vive en ⚙️ Configuración', /TARA DE ROMANA POR CAMIÓN \(KG\)/.test(scr) && /borrarTara/.test(scr) && /saveTara/.test(scr));
+ok('la administración de taras vive en ⚙️ Configuración', /TARA DE ROMANA POR CAMIÓN/.test(scr) && /borrarTara/.test(scr) && /saveTara/.test(scr));
+// La tara se puede TECLEAR en Kg o en toneladas (27-sep-2026, a pedido), pero
+// se GUARDA siempre en Kg; y cambiar la pastilla bota lo tecleado sin guardar
+// (un «32540» pensado en Kg no puede terminar guardado como toneladas).
+ok('la tara se teclea en Kg o toneladas y se guarda en Kg',
+  /Escribo la tara en:/.test(scr) && /pesoTecleadoAKg\(raw, taraUnidad\)/.test(scr) && /se guarda en Kg/.test(scr));
+ok('cambiar la unidad bota lo tecleado sin guardar',
+  /setTaraUnidad\(u\.k\); setTaraEdits\(\{\}\);/.test(scr));
 ok('quitar la tara PREGUNTA y explica lo congelado', /¿Quitar la tara de \$\{code\}\?/.test(scr) && /conservan la suya/.test(scr));
 ok('la corrección del bruto solo con full y sin tocar la tara', /PESO BRUTO \(KG\) · tara congelada/.test(scr) && /tara congelada de este viaje/.test(scr));
 ok('el PDF detallado lleva las tres columnas con sus totales',

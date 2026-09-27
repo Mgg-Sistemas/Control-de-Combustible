@@ -5146,8 +5146,11 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   evidencia de ese número) el viaje no se registra. Los viajes anteriores al 26/09 quedan sin
 >   peso y salen con raya: no se les inventa hacia atrás.
 > - **La tara la carga quien tiene control total del módulo**, de una vez, en «⚙️ Configuración →
->   ⚖️ Tara de romana por camión (Kg)». Se teclea en kilos, se guarda con 💾 y queda anotado quién
->   la cargó. El ✕ la quita (los próximos viajes pedirán tara a mano).
+>   ⚖️ Tara de romana por camión». Se teclea **en kilos o en toneladas** — la pastilla «Escribo la
+>   tara en: Kg / Toneladas» (27/09/2026) dice en qué unidad estás escribiendo, y cambiarla bota lo
+>   tecleado sin guardar para que un número pensado en Kg no termine guardado como toneladas —, se
+>   **guarda siempre en kilos**, con 💾, y queda anotado quién la cargó. El ✕ la quita (los próximos
+>   viajes pedirán tara a mano).
 > - **Si el camión no tiene tara cargada** (o es de fuera de catálogo, que no tiene ficha), el
 >   listero la teclea a mano y el viaje queda marcado **✍️ tara manual** con su nombre — para que
 >   después se sepa cuál número salió del catálogo y cuál de un teléfono.
@@ -5161,8 +5164,11 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   cuando vuelva la conexión.
 > - **En el ticket** salen los tres renglones si el administrador enciende los checks **⚖️ Peso
 >   entrada (bruto) / Peso salida (tara) / Peso a pagar (neto)** en «¿Qué sale en el ticket?»
->   (entran apagados, como todo lo nuevo). ⚠️ Con muchos datos encendidos puede que ya no quepan
->   4 o 6 tickets por hoja: el propio configurador avisa y dice qué papel usar.
+>   (entran apagados, como todo lo nuevo). Desde el 27/09/2026 el papel imprime el **rótulo
+>   completo** — «Peso entrada (bruto)», «Peso salida (tara)», «Peso a pagar (neto)» — en vez del
+>   corto «P. entrada / P. salida / P. a pagar», a pedido. ⚠️ Con muchos datos encendidos puede que
+>   ya no quepan 4 o 6 tickets por hoja: el propio configurador avisa y dice qué papel usar (los
+>   rótulos largos también cuentan para ese cálculo).
 > - **En los reportes**, el interruptor **⚖️ Peso de romana** de «Qué sale en el reporte» agrega al
 >   detallado las columnas de bruto, tara y neto con sus totales, y al resumido la columna «Peso a
 >   pagar (Kg)» por camión, por grupo y general. Los viajes sin peso no suman ni aparecen como cero.
