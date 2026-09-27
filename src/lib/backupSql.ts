@@ -12,9 +12,14 @@
 //    antes de tiempo y, al restaurar, PostgreSQL se pierde a mitad del archivo. Por
 //    eso el escapado vive acá, en una función probada, y no repartido por la app.
 
-/** Las tablas `backup_*` y `bkp_*` son respaldos manuales viejos dentro de la
- *  propia base: respaldarlas otra vez es respaldar un respaldo. */
-export const esTablaDeRespaldoViejo = (t: string): boolean => /^(backup|bkp)[_-]/i.test(String(t ?? ''));
+/** Las tablas `backup_*`, `bkp_*`, `respaldo_*`, `rls_backup_*` y
+ *  `permisos_backup_*` son respaldos manuales viejos dentro de la propia base:
+ *  respaldarlas otra vez es respaldar un respaldo. (Los tres prefijos nuevos
+ *  entraron el 27-sep-2026: desde que el admin puede LEER esas tablas, ya no
+ *  salían vacías y se colaban al archivo.) La función de la base
+ *  `tablas_para_respaldo` filtra con ESTA MISMA regla — si cambian, juntos. */
+export const esTablaDeRespaldoViejo = (t: string): boolean =>
+  /^(backup|bkp|respaldo|rls_backup|permisos_backup)[_-]/i.test(String(t ?? ''));
 
 /**
  * `audit_log` queda fuera: son 115 mil filas y 181 MB de BITÁCORA, no de datos del

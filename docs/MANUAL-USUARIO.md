@@ -4762,8 +4762,10 @@ Ajustes solo quedan:
 
   > **Qué NO trae:** solo **datos**. No trae el esquema (tablas, índices, funciones, triggers ni
   > permisos: eso vive en los archivos de `supabase/`), ni la bitácora `audit_log` (más de 100 mil
-  > filas de auditoría, no de datos del negocio), ni las tablas `backup_*` y `bkp_*`, que ya son
-  > respaldos viejos guardados dentro de la propia base. **Tarda unos minutos: no cierres la
+  > filas de auditoría, no de datos del negocio), ni las tablas `backup_*`, `bkp_*`, `respaldo_*`,
+  > `rls_backup_*` y `permisos_backup_*`, que ya son respaldos viejos guardados dentro de la
+  > propia base (los tres últimos prefijos se excluyeron el 27/09/2026, cuando los admins ganaron
+  > lectura sobre ellas y habrían empezado a colarse al archivo). **Tarda unos minutos: no cierres la
   > pestaña.** Cada INSERT lleva `on conflict do nothing`, así que restaurarlo sobre una base que
   > ya tiene datos **no duplica nada**: solo mete lo que falta.
 

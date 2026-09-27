@@ -110,6 +110,11 @@ const B = loadTs('src/lib/backupSql.ts');
   // Respaldar un `backup_*` es respaldar un respaldo.
   ok('⭐ los respaldos viejos dentro de la base NO', !B.seRespalda('backup_rounds_congelar_20260817'));
   ok('...ni los «bkp_»', !B.seRespalda('bkp_sos_18ago_20260819'));
+  // 27-sep-2026: desde que el admin puede LEER estas tablas ya no salían vacías
+  // y se colaban al archivo — mismos prefijos que filtra `tablas_para_respaldo`.
+  ok('...ni los «respaldo_»', !B.seRespalda('respaldo_listeros_2026_08_18'));
+  ok('...ni los «rls_backup_» y «permisos_backup_»',
+    !B.seRespalda('rls_backup_20260821') && !B.seRespalda('permisos_backup_20260821'));
   ok('...sin importar mayúsculas', !B.seRespalda('BACKUP_COSAS'));
   // Pero una tabla que solo EMPIEZA parecido sí se respalda: «backups» de verdad.
   ok('una tabla que solo se parece SÍ se respalda', B.seRespalda('backupsalgo'));
