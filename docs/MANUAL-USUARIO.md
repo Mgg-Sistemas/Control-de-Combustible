@@ -5178,9 +5178,13 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > - **En los reportes**, el interruptor **⚖️ Peso de romana** de «Qué sale en el reporte» agrega al
 >   detallado las columnas de bruto, tara y neto con sus totales, y al resumido la columna «Peso a
 >   pagar (Kg)» por camión, por grupo y general. Los viajes sin peso no suman ni aparecen como cero.
-> - **Corregir un bruto mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje
->   (solo el bruto; la tara congelada no se toca — si la tara estaba mala, se borra el viaje y se
->   carga bien). El neto se recalcula solo y el cambio queda en Auditoría.
+> - **Corregir un peso mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje.
+>   Desde el 27/09/2026 se pueden corregir **los dos**: el **bruto** y también la **tara de ese
+>   viaje** — para cuando la cargaron mal (antes había que borrar el viaje y recargarlo). El peso a
+>   pagar se recalcula solo, el sistema no deja que la tara alcance al bruto, y cada corrección
+>   queda en Auditoría con el antes y el después. Ojo: esto corrige la tara de **ese viaje**; la
+>   tara del catálogo del camión se cambia en «⚖️ Tara de romana por camión» y solo afecta viajes
+>   futuros.
 > - ⚠️ La **carga manual de la oficina** (cuadrar días pasados) sigue entrando **sin peso**: nadie
 >   estaba mirando la romana en ese momento y el sistema no lo inventa.
 > - 🔧 **Arreglo del 26/09 en la noche:** la lista de taras salía con el aviso falso «⚠️ Falta

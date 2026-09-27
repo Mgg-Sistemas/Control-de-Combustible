@@ -602,9 +602,14 @@ export type CambiosViaje = {
   ubicacionId?: string;
   /** Corregir el PESO BRUTO de un viaje ya registrado (solo la jefa/full, se
    *  valida en la pantalla). El neto lo recalcula LA BASE sola (columna
-   *  generada); la tara congelada NO se toca — si la tara estaba mala, ese
-   *  viaje se borra y se carga bien, que es otra historia. */
+   *  generada). */
   pesoBrutoKg?: number;
+  /** Corregir la TARA CONGELADA de un viaje ya registrado (27-sep-2026, pedido
+   *  explícito: «por si cargaron mal la tara»). Antes la regla era borrar el
+   *  viaje y recargarlo; el dueño del módulo decidió que se corrige acá, con
+   *  rastro en Auditoría. El neto lo recalcula LA BASE sola, y el candado
+   *  `cv_peso_coherente` (bruto > tara > 0) rebota una tara imposible. */
+  pesoTaraKg?: number;
   /** Corregir el TIPO DE VIAJE (solo full). Se manda el snapshot COMPLETO —
    *  id, nombre y tarifa del catálogo al momento de la corrección— o los tres
    *  en null para volverlo viaje normal. Congela en la corrección, igual que
@@ -627,6 +632,7 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
   if (cambios.note !== undefined) patch.note = cambios.note;
   if (cambios.ubicacionId) patch.ubicacion_id = cambios.ubicacionId;
   if (cambios.pesoBrutoKg !== undefined) patch.peso_bruto_kg = cambios.pesoBrutoKg;
+  if (cambios.pesoTaraKg !== undefined) patch.peso_tara_kg = cambios.pesoTaraKg;
   if (cambios.tipoViaje !== undefined) {
     patch.tipo_viaje_id = cambios.tipoViaje.id;
     patch.tipo_viaje_nombre = cambios.tipoViaje.nombre;
