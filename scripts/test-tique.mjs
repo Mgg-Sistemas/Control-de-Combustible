@@ -712,12 +712,21 @@ ok('...y en que papel si caben', /1 por hoja/.test(avisa));
 
 // El documento elige el tamano para el PEOR ticket del mandado: con un tamano por
 // ticket, dos papeles de la misma hoja saldrian con letras distintas.
+// ⚠️ Se mide SIN los pesos: con los 19 datos y las etiquetas completas de los
+//    pesos (27-sep-2026), carta2 ya esta pegada al piso con o sin reimpresion
+//    y la comparacion se aplana. Con 16 datos de etiqueta corta la reimpresion
+//    todavia tiene que achicar la letra, que es lo que esta prueba vigila.
+const TODOS_SIN_PESOS = normalizarConfig({
+  ...TODOS,
+  campos: { ...TODOS.campos, pesoBruto: false, pesoTara: false, pesoNeto: false },
+  papel: 'carta2',
+});
 const conRei = documentoDeTiques(
   [{ datos: DATOS }, { datos: DATOS, reimpresion: true }],
-  normalizarConfig({ ...TODOS, papel: 'carta2' }), {});
+  TODOS_SIN_PESOS, {});
 const sinRei = documentoDeTiques(
   [{ datos: DATOS }, { datos: DATOS }],
-  normalizarConfig({ ...TODOS, papel: 'carta2' }), {});
+  TODOS_SIN_PESOS, {});
 const ptDe = (html) => Number((html.match(/font-size:([\d.]+)pt;line-height/) || [])[1]);
 ok('una reimpresion en el mandado achica TODO el mandado', ptDe(conRei) < ptDe(sinRei));
 ok('...y los dos tickets de la hoja llevan el mismo tamano',
