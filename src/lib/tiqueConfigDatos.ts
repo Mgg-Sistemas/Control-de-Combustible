@@ -58,7 +58,7 @@ export async function guardarConfigTique(
     //    una app vieja los ignora sin romperse (solo lee las claves conocidas).
     //    `normalizarConfig` los saca de ahí al leer. Si algún día se mudan a su
     //    columna, la lectura ya acepta las dos formas.
-    campos: { ...limpia.campos, textos: limpia.textos } as any,
+    campos: { ...limpia.campos, textos: limpia.textos, pesosUnidad: limpia.pesosUnidad } as any,
     logos: limpia.logos,
     papel: limpia.papel,
     updated_by: uid,

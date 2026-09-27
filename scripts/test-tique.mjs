@@ -284,6 +284,22 @@ eq('un campo que no es booleano se ignora', normalizarConfig({ campos: { fecha: 
     !/a mano/.test(resumenConfig(normalizarConfig({ campos: { nota: false }, textos: { nota: 'X' } }))));
 }
 
+// ── ⚖️ LA UNIDAD DE LOS PESOS DEL PAPEL (27-sep-2026) ──────────────────────
+// Kg o toneladas, elegido por el admin. Viaja en el mismo saco jsonb que los
+// textos, y de fábrica es 'kg': sin tocar nada, el papel sale igual que siempre.
+{
+  eq('de fabrica los pesos salen en Kg', normalizarConfig(null).pesosUnidad, 'kg');
+  eq('la unidad entra desde el saco de campos',
+    normalizarConfig({ campos: { pesosUnidad: 't' } }).pesosUnidad, 't');
+  eq('...y tambien suelta (columna futura)',
+    normalizarConfig({ pesosUnidad: 't' }).pesosUnidad, 't');
+  eq('una unidad inventada cae a Kg',
+    normalizarConfig({ pesosUnidad: 'libras' }).pesosUnidad, 'kg');
+  ok('en toneladas cuenta como cambio y el resumen lo anuncia',
+    cambiosRespectoAlDefecto(normalizarConfig({ pesosUnidad: 't' })) === 1
+    && /pesos en Ton/.test(resumenConfig(normalizarConfig({ pesosUnidad: 't' }))));
+}
+
 // El encabezado plegado tiene que decir que hay dentro sin abrirlo.
 ok('el resumen dice datos, logos y papel',
   /6 dato\(s\) · 2 logo\(s\) · 1 por hoja/.test(resumenConfig(CONFIG_POR_DEFECTO)));
@@ -300,7 +316,11 @@ ok('...y avisa mientras hay cambios sin guardar', /Tienes cambios sin guardar/.t
 //    listas, el admin marcaria los checks mirando una cosa y saldria impresa
 //    otra, y se daria cuenta cuando ya hubiera entregado doscientos tickets.
 ok('la vista previa se arma con el MISMO armador que el papel',
-  /renglonesDelTique\(EJEMPLO, config\)/.test(card));
+  /renglonesDelTique\(ejemplo, config\)/.test(card));
+// ...y los pesos del ejemplo con el MISMO formateador del papel, en la unidad
+// elegida: si la vista previa dice Ton es porque el ticket va a decir Ton.
+ok('los pesos del ejemplo salen del formateador del papel',
+  /pesosParaTique\(\{ pesoBrutoKg: 32540, pesoTaraKg: 11340, pesoNetoKg: 21200 \}, config\.pesosUnidad\)/.test(card));
 ok('...y ya no tiene su propia lista de campos',
   !/CAMPOS_TIQUE\.filter/.test(card));
 // El ejemplo guarda VALORES, no etiquetas: las etiquetas salen de CAMPOS_TIQUE,
@@ -351,8 +371,8 @@ ok('al guardar se vuelve a normalizar', /const limpia = normalizarConfig\(c\);/.
 // Los textos a mano viajan DENTRO del jsonb `campos` (clave `textos`): sin
 // columna nueva, sin SQL, y una app vieja los ignora. Si alguien los saca de
 // ahi sin mudar tambien la lectura, se pierden en silencio al guardar.
-ok('los textos a mano se guardan anidados en el jsonb campos',
-  /campos: \{ \.\.\.limpia\.campos, textos: limpia\.textos \}/.test(datosConfig));
+ok('los textos a mano y la unidad de los pesos se guardan anidados en el jsonb campos',
+  /campos: \{ \.\.\.limpia\.campos, textos: limpia\.textos, pesosUnidad: limpia\.pesosUnidad \}/.test(datosConfig));
 ok('reconoce «esa tabla no existe» por sus tres formas',
   /42p01/.test(datosConfig) && /pgrst205/.test(datosConfig) && /does not exist/.test(datosConfig));
 
