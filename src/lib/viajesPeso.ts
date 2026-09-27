@@ -65,6 +65,27 @@ export function kgTextoOpcional(valorKg: number | null | undefined): string | nu
   return valorKg == null || !isFinite(n) ? null : kgTexto(n);
 }
 
+/**
+ * EL MISMO PESO PERO EN TONELADAS, para el papel (27-sep-2026, a pedido: el
+ * admin elige en qué unidad salen los pesos del ticket). Mismo formato manual
+ * es-VE y TRES decimales, no dos: una romana marca de a 5–10 kg y con dos
+ * decimales «32.545 kg» se imprimiría «32,55 Ton» — un redondeo en un papel
+ * que se firma. El dato guardado sigue siendo kilos, siempre.
+ */
+export function tonTexto(valorKg: number): string {
+  const n = Number(valorKg);
+  if (!isFinite(n)) return '0,000 Ton';
+  const negativo = n < 0;
+  const [entero, dec] = (Math.abs(n) / 1000).toFixed(3).split('.');
+  const miles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${negativo ? '-' : ''}${miles},${dec} Ton`;
+}
+
+export function tonTextoOpcional(valorKg: number | null | undefined): string | null {
+  const n = Number(valorKg);
+  return valorKg == null || !isFinite(n) ? null : tonTexto(n);
+}
+
 /** El neto EN VIVO para la pantalla. `null` = todavía no se puede calcular. */
 export function netoDe(brutoKg: number | null | undefined, taraKg: number | null | undefined): number | null {
   const b = Number(brutoKg), t = Number(taraKg);
@@ -107,20 +128,22 @@ export function avisoPesoSospechoso(brutoKg: number, taraKg: number): string | n
   return null;
 }
 
-/** Los tres renglones del ticket, ya como texto. Un viaje sin peso (anterior a
- *  esta función, o de la cola vieja) devuelve nulls y el papel pinta rayas. */
+/** Los tres renglones del ticket, ya como texto, en la unidad que el admin
+ *  eligió para el papel (Kg de fábrica: sin tocar nada, sale igual que
+ *  siempre). Un viaje sin peso devuelve nulls y el papel pinta rayas. */
 export function pesosParaTique(v: {
   pesoBrutoKg: number | null;
   pesoTaraKg: number | null;
   pesoNetoKg: number | null;
-}): { pesoBruto: string | null; pesoTara: string | null; pesoNeto: string | null } {
+}, unidad: UnidadPeso = 'kg'): { pesoBruto: string | null; pesoTara: string | null; pesoNeto: string | null } {
   // El neto impreso sale del guardado (lo calculó la base); si un viaje viejo
   // trajera bruto y tara sin neto, se calcula igual que la base para no
   // imprimir una raya teniendo los dos números.
   const neto = v.pesoNetoKg ?? netoDe(v.pesoBrutoKg, v.pesoTaraKg);
+  const texto = unidad === 't' ? tonTextoOpcional : kgTextoOpcional;
   return {
-    pesoBruto: kgTextoOpcional(v.pesoBrutoKg),
-    pesoTara: kgTextoOpcional(v.pesoTaraKg),
-    pesoNeto: kgTextoOpcional(neto),
+    pesoBruto: texto(v.pesoBrutoKg),
+    pesoTara: texto(v.pesoTaraKg),
+    pesoNeto: texto(neto),
   };
 }

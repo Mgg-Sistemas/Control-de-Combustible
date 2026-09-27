@@ -40,6 +40,13 @@ export type TiqueConfig = {
    *    identifica el ticket; un número fijo haría iguales a todos los papeles.
    */
   textos: Partial<Record<ClaveCampo, string>>;
+  /**
+   * EN QUÉ UNIDAD salen los pesos en el papel (27-sep-2026, a pedido): kilos
+   * («32.540,00 Kg», el papel de muestra) o toneladas («32,540 Ton»). Solo
+   * cambia el TEXTO impreso: el dato guardado es kilos siempre. 'kg' de
+   * fábrica — sin tocar nada, el papel sale igual que siempre.
+   */
+  pesosUnidad: 'kg' | 't';
 };
 
 /** Tope del texto a mano. En el rollo de 58 caben ~32 letras por renglón; 80
@@ -129,6 +136,7 @@ export const CONFIG_POR_DEFECTO: TiqueConfig = {
   papel: 'carta1',
   // Ningún texto a mano de fábrica: todo automático, como siempre fue.
   textos: {},
+  pesosUnidad: 'kg',
 };
 
 const esPapel = (v: unknown): v is PapelTique => PAPELES.some((p) => p.k === v);
@@ -180,7 +188,13 @@ export function normalizarConfig(bruto: any): TiqueConfig {
       if (v) textos[k] = v.slice(0, TEXTO_FIJO_MAX);
     });
   }
-  return { campos, logos, papel: esPapel(bruto?.papel) ? bruto.papel : CONFIG_POR_DEFECTO.papel, textos };
+  // La unidad de los pesos viaja en el mismo saco que los textos (dentro del
+  // jsonb `campos`), por el mismo motivo: sin columna nueva y las apps viejas
+  // la ignoran. Cualquier valor que no sea 'kg' o 't' cae al de fábrica.
+  const du = (dc && typeof dc === 'object' ? dc.pesosUnidad : null) ?? bruto?.pesosUnidad;
+  const pesosUnidad = du === 't' ? 't' as const : 'kg' as const;
+
+  return { campos, logos, papel: esPapel(bruto?.papel) ? bruto.papel : CONFIG_POR_DEFECTO.papel, textos, pesosUnidad };
 }
 
 /** ¿Cuántos interruptores están distintos de como vienen de fábrica? */
@@ -195,6 +209,7 @@ export function cambiosRespectoAlDefecto(c: TiqueConfig): number {
   if (c.papel !== CONFIG_POR_DEFECTO.papel) n++;
   // Cada texto puesto a mano es un cambio respecto a la fábrica (que no trae ninguno).
   n += Object.keys(c.textos ?? {}).length;
+  if ((c.pesosUnidad ?? 'kg') !== 'kg') n++;
   return n;
 }
 
@@ -206,5 +221,6 @@ export function resumenConfig(c: TiqueConfig): string {
   // Los textos a mano se anuncian en el encabezado: un ticket que no imprime el
   // dato del viaje es algo que hay que poder ver sin abrir la tarjeta.
   const aMano = Object.keys(c.textos ?? {}).filter((k) => c.campos[k as ClaveCampo]).length;
-  return `${datos} dato(s) · ${logos} logo(s) · ${papel}${aMano > 0 ? ` · ✍️ ${aMano} a mano` : ''}`;
+  const ton = (c.pesosUnidad ?? 'kg') === 't' ? ' · ⚖️ pesos en Ton' : '';
+  return `${datos} dato(s) · ${logos} logo(s) · ${papel}${aMano > 0 ? ` · ✍️ ${aMano} a mano` : ''}${ton}`;
 }

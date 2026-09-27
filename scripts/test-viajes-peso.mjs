@@ -198,6 +198,23 @@ eq('una config vieja guardada SIN las claves nuevas las recibe apagadas',
   ok('el alto del ticket cuenta las líneas de la etiqueta partida',
     TD.lineasExtraDeEtiquetas(['Peso entrada (bruto)'], true, 10) >= 1
     && TD.lineasExtraDeEtiquetas(['Fecha'], true, 10) === 0);
+
+  // ⚖️ La unidad de los pesos del papel (27-sep-2026): Kg o Ton, elegida por
+  // el admin. Solo cambia el TEXTO impreso; el dato guardado es kilos siempre.
+  const V = cargar('src/lib/viajesPeso.ts');
+  const pesos = { pesoBrutoKg: 32540, pesoTaraKg: 11340, pesoNetoKg: 21200 };
+  eq('en toneladas: tres decimales, coma, y «Ton» (nada de redondear un papel que se firma)',
+    [V.tonTexto(32540), V.tonTexto(32545), V.tonTexto(1234567)],
+    ['32,540 Ton', '32,545 Ton', '1.234,567 Ton']);
+  eq('pesosParaTique en Ton imprime toneladas',
+    V.pesosParaTique(pesos, 't'),
+    { pesoBruto: '32,540 Ton', pesoTara: '11,340 Ton', pesoNeto: '21,200 Ton' });
+  eq('sin unidad, pesosParaTique sigue en Kg byte a byte (nadie estrena formato sin pedirlo)',
+    JSON.stringify(V.pesosParaTique(pesos)),
+    JSON.stringify({ pesoBruto: '32.540,00 Kg', pesoTara: '11.340,00 Kg', pesoNeto: '21.200,00 Kg' }));
+  eq('un viaje sin peso sigue en null (raya) tambien en toneladas',
+    V.pesosParaTique({ pesoBrutoKg: null, pesoTaraKg: null, pesoNetoKg: null }, 't'),
+    { pesoBruto: null, pesoTara: null, pesoNeto: null });
 }
 
 // ── 11) LOS REPORTES: interruptor apagado = el papel de siempre ────────────
@@ -236,7 +253,7 @@ ok('cambiar de camión limpia el peso (dos sitios: buscador y fuera de catálogo
   (scr.match(/limpiarPeso\(\);/g) || []).length >= 2);
 ok('la cola de pantalla también enseña el peso (queued y stuck)',
   (scr.match(/pesoNetoKg: netoDe\(q\.payload\.pesoBrutoKg, q\.payload\.pesoTaraKg\)/g) || []).length === 2);
-ok('el ticket de la pantalla usa los pesos congelados', /\.\.\.pesosParaTique\(row\)/.test(scr));
+ok('el ticket de la pantalla usa los pesos congelados', /\.\.\.pesosParaTique\(row, configTique\.pesosUnidad\)/.test(scr));
 ok('la foto es un botón obligatorio con cámara', /Foto de la romana \(obligatoria\)/.test(scr) && /tomarFotoPeso/.test(scr));
 ok('la tara de la placa se enseña con quién la cargó', /Tara de esta placa/.test(scr) && /la cargó \$\{taraSeleccion\.updatedByNombre\}/.test(scr) || /la cargó \$\{/.test(scr) || /la cargó /.test(scr));
 ok('sin tara cargada, el listero la teclea y queda como manual', /Este camión no tiene tara cargada/.test(scr));
@@ -249,6 +266,9 @@ ok('la tara se teclea en Kg o toneladas y se guarda en Kg',
   /Escribo la tara en:/.test(scr) && /pesoTecleadoAKg\(raw, taraUnidad\)/.test(scr) && /se guarda en Kg/.test(scr));
 ok('cambiar la unidad bota lo tecleado sin guardar',
   /setTaraUnidad\(u\.k\); setTaraEdits\(\{\}\);/.test(scr));
+// El papel imprime los pesos en la unidad elegida en 🎫 Qué sale en el ticket.
+ok('el ticket imprime con la unidad de la configuración',
+  /pesosParaTique\(row, configTique\.pesosUnidad\)/.test(scr));
 ok('quitar la tara PREGUNTA y explica lo congelado', /¿Quitar la tara de \$\{code\}\?/.test(scr) && /conservan la suya/.test(scr));
 ok('la corrección del bruto solo con full y sin tocar la tara', /PESO BRUTO \(KG\) · tara congelada/.test(scr) && /tara congelada de este viaje/.test(scr));
 ok('el PDF detallado lleva las tres columnas con sus totales',
