@@ -5147,6 +5147,9 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   carga bien). El neto se recalcula solo y el cambio queda en Auditoría.
 > - ⚠️ La **carga manual de la oficina** (cuadrar días pasados) sigue entrando **sin peso**: nadie
 >   estaba mirando la romana en ese momento y el sistema no lo inventa.
+> - 🔧 **Arreglo del 26/09 en la noche:** la lista de taras salía con el aviso falso «⚠️ Falta
+>   correr el SQL del peso de romana» aunque la base estaba al día (era un error de la app al
+>   pedir la lista, no de la base). Si te sale, recarga la página con la versión nueva.
 
 > **🚫 Camiones que NO pasan por romana (26/09/2026).** Para los camiones específicos a los que no
 > se les pesa: en «⚙️ Configuración → ⚖️ Tara de romana por camión», cada camión tiene su
