@@ -249,6 +249,14 @@ export type FilaComparativa = {
   corregida: boolean;
   /** Por qué se corrigió. Lo escribió quien corrigió; obligatorio en la base. */
   motivo: string;
+  /**
+   * EL ESTADO CON SU RAZÓN (27-sep-2026). Pedido del cliente: «en vez de decir
+   * inválido, que diga la razón o el estado real». Para una inválida trae el
+   * motivo que dejó la base («salto mayor a 12,5 h», «menor que la última
+   * lectura válida»); para una incompleta dice QUÉ falta («falta el final» —
+   * el caso de un número borrado). Vacío = se usa la etiqueta genérica.
+   */
+  estadoDetalle: string;
 };
 
 /**
@@ -308,14 +316,37 @@ export function compararJornadaHorometro(
       inicial: ord.find((l) => l.inicial != null)?.inicial ?? null,
       final: [...ord].reverse().find((l) => l.final != null)?.final ?? null,
       corregida: marca.corregida, motivo: marca.motivo,
+      estadoDetalle: '',
     };
     const vacia = { inicial: null, final: null, corregida: false, motivo: '' };
     if (del.length === 0) { filas.push({ ...base, ...vacia, horasHorometro: null, diferencia: null, estado: 'sin_lectura' }); continue; }
     // ⚠️ Una lectura MALA igual enseña sus números: el papel tiene que dejar ver QUÉ
-    //    se tecleó mal, que es lo que se va a ir a corregir.
-    if (del.some((l) => !l.valida)) { filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'invalida' }); continue; }
+    //    se tecleó mal, que es lo que se va a ir a corregir. Y el estado dice LA
+    //    RAZÓN que dejó la base (27-sep-2026), no un «Inválida» a secas: «salto
+    //    mayor a 12,5 h» manda a revisar un tecleo; «menor que la última lectura
+    //    válida» manda a revisar un retroceso — no se corrigen igual.
+    if (del.some((l) => !l.valida)) {
+      const motivos: string[] = [];
+      for (const l of del) {
+        if (l.valida) continue;
+        const m = limpio(l.motivoInvalida);
+        if (m && !motivos.includes(m)) motivos.push(m);
+      }
+      filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'invalida', estadoDetalle: motivos.join(' · ') });
+      continue;
+    }
     const horas = del.map(horasDeLectura).filter((h): h is number => h != null);
-    if (horas.length === 0) { filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'sin_lectura' }); continue; } // solo lecturas incompletas
+    if (horas.length === 0) {
+      // Solo lecturas incompletas: decir QUÉ falta distingue «nadie la tomó» de
+      // «tiene inicial y el final quedó vacío» (por ejemplo, porque lo borraron
+      // desde Control) — el pedido del 27-sep-2026.
+      const tieneIni = del.some((l) => l.inicial != null);
+      const tieneFin = del.some((l) => l.final != null);
+      const detalle = tieneIni && !tieneFin ? 'Incompleta: falta el final'
+        : !tieneIni && tieneFin ? 'Incompleta: falta el inicial' : '';
+      filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'sin_lectura', estadoDetalle: detalle });
+      continue;
+    }
     const hh = redondear(horas.reduce((s, h) => s + h, 0));
     const dif = redondear(hh - hj);
     const estado: FilaComparativa['estado'] = Math.abs(dif) <= TOLERANCIA_CUADRA ? 'cuadra' : dif > 0 ? 'horometro_mayor' : 'jornada_mayor';
@@ -477,6 +508,14 @@ export const CSS_COMPARATIVO = `
 const ETIQUETA_ESTADO: Record<FilaComparativa['estado'], string> = {
   cuadra: 'Cuadra', horometro_mayor: 'Horómetro mayor', jornada_mayor: 'Jornada mayor', sin_lectura: 'Sin lectura', invalida: 'Inválida',
 };
+/** El texto de la columna Estado: la RAZÓN cuando la hay (27-sep-2026), la
+ *  etiqueta genérica cuando no. Con la primera letra en mayúscula, que los
+ *  motivos de la base vienen en minúscula («salto mayor a 12,5 h»). */
+export function etiquetaDeEstado(f: Pick<FilaComparativa, 'estado' | 'estadoDetalle'>): string {
+  const d = limpio(f.estadoDetalle);
+  if (!d) return ETIQUETA_ESTADO[f.estado];
+  return d.charAt(0).toUpperCase() + d.slice(1);
+}
 const CLASE_ESTADO: Record<FilaComparativa['estado'], string> = {
   cuadra: 'hc-ok', horometro_mayor: 'hc-mas', jornada_mayor: 'hc-menos', sin_lectura: 'hc-sin', invalida: 'hc-menos',
 };
@@ -606,7 +645,7 @@ export function cuerpoComparativo(
           html += `<tr><td>${esc(f.code)}${marca}</td>${ident}${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
         } else {
           const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
-          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}${marca}</td>${ident}<td class="r">${fmtH(f.horasJornada)}</td>${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${ETIQUETA_ESTADO[f.estado]}</td></tr>`;
+          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}${marca}</td>${ident}<td class="r">${fmtH(f.horasJornada)}</td>${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${esc(etiquetaDeEstado(f))}</td></tr>`;
         }
       }
       html += `</tbody></table>`;
