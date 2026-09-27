@@ -369,8 +369,27 @@ export async function capturarFotoLocal(): Promise<{ ok: boolean; dataUrl?: stri
     res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: webBase64 }));
   }
   if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
-  const asset = res.assets[0] as any;
+  return await assetADataUrlLocal(res.assets[0] as any);
+}
 
+/**
+ * SOLO GALERÍA Y **NO SUBE**: para el botón «🖼️ Galería» al lado de cada
+ * cámara (regla de la casa desde el 27-sep-2026: donde se puede tomar foto,
+ * también se puede subir de la galería). Devuelve el mismo data-url local que
+ * `capturarFotoLocal`, así la cola offline no distingue de dónde salió.
+ */
+export async function elegirFotoLocal(): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
+  const webBase64 = Platform.OS !== 'web';
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) return { ok: false, error: 'Permiso de galería denegado.' };
+  const res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: webBase64 }));
+  if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
+  return await assetADataUrlLocal(res.assets[0] as any);
+}
+
+/** El tramo común de las dos de arriba: un asset del picker → data-url jpeg
+ *  achicado (~100-300 KB), con los mismos respaldos por plataforma. */
+async function assetADataUrlLocal(asset: any): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
   // NATIVO: expo-image-manipulator ya devuelve el base64 del jpeg achicado.
   if (Platform.OS !== 'web' && asset?.uri) {
     try {
