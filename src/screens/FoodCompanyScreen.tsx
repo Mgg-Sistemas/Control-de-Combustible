@@ -47,7 +47,7 @@ const parseDec = (t: string) => Math.max(0, parseFloat(String(t ?? '').replace('
  */
 export default function FoodCompanyScreen({ companyId, onExit }: { companyId: string; onExit?: () => void }) {
   const { colors } = useTheme();
-  const { session, role } = useAuth();
+  const { session, role, fullName } = useAuth();
   const uid = session?.user?.id ?? '';
   const canSeeReport = role === 'admin' || role === 'supervisor' || role === 'cocina';
   const isAnon = !!(session?.user as any)?.is_anonymous;
@@ -62,6 +62,12 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const [meals, setMeals] = useState<FoodCompanyMeal[]>([]);
   const [extraItems, setExtraItems] = useState<FoodExtraItem[]>([]);
   const [cook, setCook] = useState<{ name: string; cargo: string } | null>(null);
+  // ⭐ ADMIN = ACCESO A TODO (27-sep-2026): el «+ Agregar» pedía carnet de cocina
+  //    y al admin le salía un 🔒. Entra verificado con su nombre; sus registros
+  //    quedan a nombre del admin. Misma regla que CocinaScreen.
+  useEffect(() => {
+    if (role === 'admin') setCook((c) => c ?? { name: (fullName ?? '').trim() || 'Administrador', cargo: 'ADMINISTRADOR' });
+  }, [role, fullName]);
   const [scanOpen, setScanOpen] = useState(false);
   const [cookCedula, setCookCedula] = useState('');
   const [verifying, setVerifying] = useState(false);

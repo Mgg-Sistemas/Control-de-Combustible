@@ -1033,11 +1033,14 @@ const HOSE_PAYMENT: Record<string, { label: string; tone: Tone }> = {
 
 function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
-  const { session, appRole } = useAuth();
+  const { session, appRole, role } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   // ALMACENISTA (Diana): solo aprueba marcando "Autorizado bajo orden del Gerente General".
   const esAlmacenista = /almacen/i.test(appRole?.name ?? '');
+  // ⭐ El ADMIN también VE la casilla (27-sep-2026: admin = acceso a todo), pero
+  //    para él es OPCIONAL: la obligatoriedad es la regla de la almacenista.
+  const veOrdenGG = esAlmacenista || role === 'admin';
   const [ordenGG, setOrdenGG] = useState(false);
   const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'created_at', ascending: false, realtimeFrom: 'hose_services' });
   // Empresa a cobrar: LISTA PROPIA de mangueras (hose_empresas), no el catálogo companies.
@@ -1094,7 +1097,9 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
       payment_status: 'pagado',
       approved_by: session?.user?.id ?? null,
       approved_at: nowISO(),
-      ...(esAlmacenista ? { orden_gg: true } : {}),
+      // La marca viaja si la casilla está marcada (a la almacenista se la exige
+      // la validación de arriba; el admin la marca cuando aplica).
+      ...(ordenGG ? { orden_gg: true } : {}),
     }).eq('id', h.id);
     setBusy(null);
     if (error) return toast.error(error.message);
@@ -1118,7 +1123,7 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
       payment_status: 'pagado',
       approved_by: session?.user?.id ?? null,
       approved_at: nowISO(),
-      ...(esAlmacenista ? { orden_gg: true } : {}),
+      ...(ordenGG ? { orden_gg: true } : {}),
     }).in('id', pagables.map((h) => h.id));
     setBusy(null);
     if (error) return toast.error(error.message);
@@ -1155,8 +1160,9 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Las mangueras se crean en su módulo (Taller). Aquí el gerente aprueba los pagos pendientes. Marca (☑) varias y usa "Aprobar pago en lote".</Text>
 
-      {/* ALMACENISTA: check obligatorio para poder aprobar (single o lote). */}
-      {esAlmacenista ? (
+      {/* ALMACENISTA: check obligatorio para poder aprobar (single o lote).
+          ADMIN: la misma casilla, pero opcional (27-sep-2026). */}
+      {veOrdenGG ? (
         <TouchableOpacity onPress={() => setOrdenGG((v) => !v)} activeOpacity={0.7} style={{ marginBottom: spacing.sm }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: ordenGG ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm }}>
             <View style={{ width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: ordenGG ? colors.success : colors.border, backgroundColor: ordenGG ? colors.success : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
@@ -1164,7 +1170,7 @@ function ManguerasAprobarTab({ canWrite }: { canWrite: boolean }) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>Autorizado bajo orden del Gerente General</Text>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Debes marcar esta casilla para poder aprobar. Sale en el PDF de autorización con la firma del Gerente General.</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>{esAlmacenista ? 'Debes marcar esta casilla para poder aprobar. Sale en el PDF de autorización con la firma del Gerente General.' : 'Opcional: márcala si esta aprobación viene por orden del Gerente General. Sale en el PDF de autorización con su firma.'}</Text>
             </View>
           </View>
         </TouchableOpacity>

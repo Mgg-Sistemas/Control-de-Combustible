@@ -490,10 +490,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const whitelisted = BULK_TOGGLE_USERNAMES.includes(un) || BULK_TOGGLE_CEDULAS.includes(ci);
       const enabled = (ft as any)?.enabled !== false; // sin fila (ft=null) o enabled=true => encendido
       const extraIds: string[] = (ft as any)?.extra_user_ids ?? [];
-      setBulkAllowed(enabled && (whitelisted || extraIds.includes(uid)));
+      // ⭐ ADMIN = ACCESO A TODO (27-sep-2026, pedido explícito; amplía la lista
+      //    del 04/08 que dejaba fuera a los demás admins). El interruptor
+      //    `enabled` de feature_toggles SIGUE mandando sobre todos, admin
+      //    incluido: apagar el panel entero es una decisión, no un permiso.
+      setBulkAllowed(enabled && (role === 'admin' || whitelisted || extraIds.includes(uid)));
     });
     return () => { active = false; };
-  }, [session?.user?.id]);
+    // `role` en las dependencias: llega DESPUÉS del uid (otra consulta) y sin él
+    // un admin quedaría evaluado como usuario común en el primer render.
+  }, [session?.user?.id, role]);
 
   // Panel "Gestionar Iniciada/Pendiente por supervisor" (solo bulkAllowed). Cambia
   // el mismo estado que las tarjetas ✅ INICIADAS / ⏳ PENDIENTES de arriba (no el

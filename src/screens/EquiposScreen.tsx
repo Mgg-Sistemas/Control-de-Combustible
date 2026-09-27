@@ -260,8 +260,10 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [qrBlockBusy, setQrBlockBusy] = useState(false);
   // Guardia / militar encargado actual por máquina (historial acumulable).
   const { session, role } = useAuth();
-  // SOLO los SUPERVISORES pueden iniciar jornada desde el catálogo (sin escanear el QR).
-  const isSupervisor = role === 'supervisor';
+  // Los SUPERVISORES pueden iniciar jornada desde el catálogo (sin escanear el
+  // QR) — y el ADMIN también (27-sep-2026, regla de la casa: admin = acceso a
+  // todo; antes tenía que irse a la vista de inspector para lo mismo).
+  const isSupervisor = role === 'supervisor' || role === 'admin';
   const [jornadaFor, setJornadaFor] = useState<Machinery | null>(null);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({});
   const [inspectors, setInspectors] = useState<Record<string, InspectorInfo>>({}); // inspector del último check-in por máquina

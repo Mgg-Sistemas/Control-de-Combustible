@@ -85,11 +85,14 @@ export default function ManguerasScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const confirm = useConfirm();
-  const { moduleLevel, appRole } = useAuth();
+  const { moduleLevel, appRole, role } = useAuth();
   const level = moduleLevel('mangueras');
   // ALMACENISTA (Diana): solo puede aprobar el pago marcando "Autorizado bajo orden del
   // Gerente General". El check solo le sale a ella (rol app almacenista) y es OBLIGATORIO.
   const esAlmacenista = /almacen/i.test(appRole?.name ?? '');
+  // ⭐ El ADMIN también VE la casilla (27-sep-2026: admin = acceso a todo), pero
+  //    para él es OPCIONAL: la obligatoriedad es la regla de la almacenista.
+  const veOrdenGG = esAlmacenista || role === 'admin';
   const [ordenGG, setOrdenGG] = useState(false);
 
   if (level === 'none') {
@@ -286,7 +289,9 @@ export default function ManguerasScreen() {
       payment_status: 'pagado',
       approved_by: data.user?.id ?? null,
       approved_at: new Date().toISOString(),
-      ...(esAlmacenista ? { orden_gg: true } : {}),
+      // Viaja si la casilla está marcada (a la almacenista la obliga la
+      // validación de arriba; el admin la marca cuando aplica).
+      ...(ordenGG ? { orden_gg: true } : {}),
     }).eq('id', h.id);
     setBusy(null);
     refetch();
@@ -348,8 +353,9 @@ export default function ManguerasScreen() {
         ) : null}
       </View>
 
-      {/* ALMACENISTA: check obligatorio para poder aprobar el pago de mangueras. */}
-      {esAlmacenista ? (
+      {/* ALMACENISTA: check obligatorio para poder aprobar el pago de mangueras.
+          ADMIN: la misma casilla, pero opcional (27-sep-2026). */}
+      {veOrdenGG ? (
         <TouchableOpacity onPress={() => setOrdenGG((v) => !v)} activeOpacity={0.7}>
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -358,7 +364,7 @@ export default function ManguerasScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>Autorizado bajo orden del Gerente General</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Debes marcar esta casilla para poder aprobar el pago. Quedará constancia en el PDF de autorización, con la firma del Gerente General.</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{esAlmacenista ? 'Debes marcar esta casilla para poder aprobar el pago. Quedará constancia en el PDF de autorización, con la firma del Gerente General.' : 'Opcional: márcala si esta aprobación viene por orden del Gerente General. Quedará constancia en el PDF de autorización, con su firma.'}</Text>
               </View>
             </View>
           </Card>

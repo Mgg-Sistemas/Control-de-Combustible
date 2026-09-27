@@ -4736,11 +4736,12 @@ Se llega desde **Más → Ajustes**. La **apariencia** (modo oscuro/claro) y la 
 Ajustes solo quedan:
 
 - **Cerrar sesión.**
-- **⬇️ Descargar respaldo .sql (23/09/2026)** *(solo administradores puntuales, en computadora)*:
+- **⬇️ Descargar respaldo .sql (23/09/2026)** *(administradores, en computadora)*:
   descarga un archivo **`.sql`** con los datos de **todas las tablas** (máquinas, jornadas,
   empleados, pagos, inventario, ventas, compras, contactos…), **listo para volver a meterlo en
-  Supabase**. Acceso restringido a las cuentas designadas — el resto de administradores no ve
-  este botón. *(Requiere correr `supabase/respaldo_sql.sql`.)*
+  Supabase**. Desde el **27/09/2026 lo ve TODO administrador** (antes estaba restringido a
+  cuentas designadas y el resto de admins abría Ajustes y solo veía «Cerrar sesión»).
+  *(Requiere correr `supabase/respaldo_sql.sql`.)*
 
   > **Antes salía en .json y se dejaba 75 tablas.** El `.json` solo se podía mirar; el `.sql`
   > se pega en **Supabase → SQL Editor** y se restaura. Y la lista de tablas estaba **escrita a
@@ -6379,6 +6380,17 @@ historial de abonos. Ahí abajo están los botones:
 ---
 
 ## 5. Cosas que sirven en TODAS las secciones
+
+> **👑 Un ADMINISTRADOR tiene acceso a todo (27/09/2026).** Es la regla de la casa y se
+> reforzó en todo el sistema: el respaldo de la base, el panel de activar/desactivar máquinas
+> por supervisor, el registro de Cocina (entra verificado con su nombre, sin carnet de
+> cocina), el botón «Iniciar jornada» del Catálogo, la casilla «Autorizado bajo orden del
+> Gerente General» (para el admin es opcional; para la almacenista sigue siendo obligatoria),
+> editar cualquier viaje en Viajes de Camiones, ver TODAS las máquinas en Coordinador de
+> Operadores aunque tenga un alcance configurado, y leer las tablas de respaldo y el contador
+> de folios en la base. Además: si al entrar falla la carga del perfil, el sistema **reintenta
+> 3 veces** en vez de dejarte como usuario sin permisos en silencio; y **asignarle un rol
+> personalizado a un admin ahora ADVIERTE** que eso lo degrada (antes lo hacía sin avisar).
 
 - **🔎 Buscar:** escribe parte del nombre, serial o empresa.
 - **🏢 Filtrar por empresa:** toca el selector de empresa para ver solo esa.
