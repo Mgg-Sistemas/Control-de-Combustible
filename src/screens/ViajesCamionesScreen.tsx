@@ -2527,6 +2527,17 @@ export default function ViajesCamionesScreen() {
   //    unidad se TECLEA: Kg o toneladas, con las mismas pastillas del registro.
   const [taraEdits, setTaraEdits] = useState<Record<string, string>>({});
   const [taraUnidad, setTaraUnidad] = useState<UnidadPeso>('kg');
+  // 🔎 El buscador de la lista de taras (27-sep-2026, a pedido): con 60+
+  // camiones, cargar la tara de UNO era pura rueda de ratón. Mismos campos
+  // que el buscador del listero: código, placa, serial, marca, modelo, empresa.
+  const [taraQuery, setTaraQuery] = useState('');
+  const tarasFiltradas = useMemo(() => {
+    const nq = norm(taraQuery.trim());
+    if (!nq) return camionesEnObra;
+    return camionesEnObra.filter((t) =>
+      [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName]
+        .some((f) => f != null && norm(String(f)).includes(nq)));
+  }, [camionesEnObra, taraQuery]);
   /** La tara guardada (kg), mostrada en la unidad elegida para poder editarla
    *  sin convertir de cabeza. En toneladas va con coma: leerNumero la entiende. */
   const taraMostrada = (kg: number) => taraUnidad === 'kg' ? String(kg) : String(kg / 1000).replace('.', ',');
@@ -4956,8 +4967,32 @@ export default function ViajesCamionesScreen() {
             ) : camionesEnObra.length === 0 ? (
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
             ) : (
+              <>
+              {/* 🔎 Buscar el camión al que se le va a cargar la tara: por
+                  código, placa, serial, marca, modelo o empresa. */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+                <TextInput
+                  value={taraQuery}
+                  onChangeText={setTaraQuery}
+                  placeholder="🔎 Buscar por placa, código, serial, empresa…"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { flex: 1, paddingVertical: 6 }]}
+                />
+                {taraQuery.trim() ? (
+                  <TouchableOpacity onPress={() => setTaraQuery('')} accessibilityLabel="Limpiar la búsqueda de taras">
+                    <Text style={{ color: colors.muted, fontSize: 14, fontWeight: '900' }}>✕</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {taraQuery.trim() ? (
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>
+                  {tarasFiltradas.length === 0
+                    ? 'Ningún camión coincide con esa búsqueda.'
+                    : `${tarasFiltradas.length} de ${camionesEnObra.length} camión(es).`}
+                </Text>
+              ) : null}
               <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                {camionesEnObra.map((t) => {
+                {tarasFiltradas.map((t) => {
                   const tara = taras.get(t.id);
                   const exento = tara?.exentoRomana === true;
                   return (
@@ -5000,6 +5035,7 @@ export default function ViajesCamionesScreen() {
                   );
                 })}
               </ScrollView>
+              </>
             )}
           </Plegable>
 
