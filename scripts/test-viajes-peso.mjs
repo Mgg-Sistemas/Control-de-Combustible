@@ -168,6 +168,13 @@ const foto = sinComentarios(leer('src/lib/photo.ts'));
   const cuerpo = i >= 0 ? foto.slice(i, foto.indexOf('export async function', i + 10)) : '';
   ok('capturarFotoLocal existe', i >= 0);
   ok('⭐ ...y NO sube al bucket (la foto espera al viaje)', cuerpo.length > 100 && !/upload|uploadToMachinery/.test(cuerpo));
+  // 🖼️ La variante de GALERÍA (27-sep-2026, regla de la casa: donde se toma
+  // foto también se sube de galería) — mismo data-url local, tampoco sube.
+  const g = foto.indexOf('export async function elegirFotoLocal');
+  const cuerpoG = g >= 0 ? foto.slice(g, foto.indexOf('export async function', g + 10)) : '';
+  ok('elegirFotoLocal existe (galería) y tampoco sube nada',
+    g >= 0 && cuerpoG.length > 100 && !/upload|uploadToMachinery/.test(cuerpoG)
+    && /launchImageLibraryAsync/.test(cuerpoG) && !/launchCameraAsync/.test(cuerpoG));
 }
 
 // ── 10) EL TICKET: tres campos nuevos, apagados de fábrica ─────────────────
@@ -257,6 +264,10 @@ ok('la cola de pantalla también enseña el peso (queued y stuck)',
   (scr.match(/pesoNetoKg: netoDe\(q\.payload\.pesoBrutoKg, q\.payload\.pesoTaraKg\)/g) || []).length === 2);
 ok('el ticket de la pantalla usa los pesos congelados', /\.\.\.pesosParaTique\(row, configTique\.pesosUnidad\)/.test(scr));
 ok('la foto es un botón obligatorio con cámara', /Foto de la romana \(obligatoria\)/.test(scr) && /tomarFotoPeso/.test(scr));
+// 🖼️ Y con GALERÍA al lado (27-sep-2026): las dos vías entregan el mismo
+// data-url local, así que la cola offline no distingue de dónde salió.
+ok('...y con botón de galería al lado',
+  /tomarFotoPeso\('galeria'\)/.test(scr) && /elegirFotoLocal\(\)/.test(scr) && /🖼️ Galería/.test(scr));
 ok('la tara de la placa se enseña con quién la cargó', /Tara de esta placa/.test(scr) && /la cargó \$\{taraSeleccion\.updatedByNombre\}/.test(scr) || /la cargó \$\{/.test(scr) || /la cargó /.test(scr));
 ok('sin tara cargada, el listero la teclea y queda como manual', /Este camión no tiene tara cargada/.test(scr));
 ok('kilos y toneladas', /UNIDADES_PESO\.map/.test(scr));

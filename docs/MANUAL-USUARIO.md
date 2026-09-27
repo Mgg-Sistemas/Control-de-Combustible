@@ -5144,7 +5144,9 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >
 > - **El peso y la foto son obligatorios.** Sin el bruto y sin la **📷 foto de la romana** (la
 >   evidencia de ese número) el viaje no se registra. Los viajes anteriores al 26/09 quedan sin
->   peso y salen con raya: no se les inventa hacia atrás.
+>   peso y salen con raya: no se les inventa hacia atrás. Desde el 27/09 la foto se puede **tomar
+>   con la cámara o subir de la 🖼️ galería** (botón al lado): las dos valen igual, viajan igual en
+>   la cola sin señal, y volver a tomar o elegir otra **reemplaza** la anterior antes de registrar.
 > - **La tara la carga quien tiene control total del módulo**, de una vez, en «⚙️ Configuración →
 >   ⚖️ Tara de romana por camión». Se teclea **en kilos o en toneladas** — la pastilla «Escribo la
 >   tara en: Kg / Toneladas» (27/09/2026) dice en qué unidad estás escribiendo, y cambiarla bota lo
