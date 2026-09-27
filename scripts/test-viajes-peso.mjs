@@ -152,6 +152,12 @@ ok('la corrección del bruto existe y NO toca la tara',
 ok('las taras: upsert con nombre congelado de quién la cargó',
   /from\('camion_taras'\)\.upsert\(/.test(lib) && /updated_by_nombre: userName/.test(lib));
 ok('quitar la tara distingue «no había fila»', /Ese camión no tenía tara cargada/.test(lib));
+// camion_taras NO tiene columna `id`: si listTaras no le dice al paginador que
+// ordene por machinery_id, el order('id') por defecto revienta con 42703 y la
+// pantalla miente «falta correr el SQL» (pasó el 26-sep-2026). Las DOS lecturas
+// (con y sin columnas de exención) tienen que llevar el orden explícito.
+ok('listTaras ordena por machinery_id (camion_taras no tiene id) en ambas lecturas',
+  (lib.match(/selectAllRows\('camion_taras'[^)]*'machinery_id'\)/g) ?? []).length === 2);
 
 // ── 9) LA FOTO LOCAL NO SUBE NADA ───────────────────────────────────────────
 const foto = sinComentarios(leer('src/lib/photo.ts'));
