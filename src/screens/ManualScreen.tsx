@@ -1122,6 +1122,7 @@ const SECTIONS: Sec[] = [
     icon: '🧩',
     title: 'Cosas que sirven en TODAS las secciones',
     blocks: [
+      { t: 'note', text: '👑 UN ADMINISTRADOR TIENE ACCESO A TODO (27/09/2026). Regla de la casa, reforzada en todo el sistema: el respaldo de la base (Ajustes), el panel de activar/desactivar máquinas por supervisor, el registro de Cocina (entra verificado con su nombre, sin carnet de cocina), el botón «Iniciar jornada» del Catálogo, la casilla «Autorizado bajo orden del Gerente General» (para el admin es OPCIONAL; para la almacenista sigue obligatoria), editar cualquier viaje en Viajes de Camiones, y ver TODAS las máquinas en Coordinador de Operadores aunque tenga un alcance configurado. Además: si al entrar falla la carga del perfil, el sistema REINTENTA 3 VECES en vez de dejarte como usuario sin permisos en silencio; y asignarle un rol personalizado a un admin ahora ADVIERTE que eso lo degrada (antes pasaba sin aviso).' },
       { t: 'bullets', items: [
         '🔎 Buscar: escribe parte del nombre, serial o empresa.',
         '🏢 Filtrar por empresa: toca el selector para ver solo esa.',

@@ -158,8 +158,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // aunque falte una columna (p. ej. panel_type sin migrar) el admin no pierda su rol
     // ni sus módulos. El rol especial (app_role) se trae aparte, con respaldo.
     const loadRole = async () => {
-      const { data } = await supabase.from('profiles').select('role, app_role_id, can_audit, full_name').eq('id', uid).single();
-      if (!active) return;
+      // ⚠️ EL ERROR DE ESTA CONSULTA NO SE PUEDE TRAGAR (27-sep-2026). Antes se
+      //    descartaba: un hipo de red al entrar dejaba `role = null`, y con rol
+      //    nulo el sistema trata al usuario como común — un ADMIN veía la app
+      //    mutilada («sin acceso» en ~28 módulos) SIN NINGÚN MENSAJE, hasta
+      //    recargar. Ahora se reintenta hasta 3 veces con pausa; solo el fallo
+      //    persistente deja el rol nulo, y ya no en silencio: queda en consola.
+      let data: any = null;
+      for (let intento = 1; intento <= 3; intento++) {
+        const r = await supabase.from('profiles').select('role, app_role_id, can_audit, full_name').eq('id', uid).single();
+        if (!active) return;
+        if (!r.error && r.data) { data = r.data; break; }
+        console.warn(`[auth] no se pudo leer el perfil (intento ${intento}/3):`, r.error?.message ?? 'sin datos');
+        if (intento < 3) await new Promise((res) => setTimeout(res, 800 * intento));
+        if (!active) return;
+      }
       setRole((data?.role as UserRole) ?? null);
       // Auditoría: TODOS los admin la ven; además cualquiera con el flag can_audit.
       setCanAudit((data?.role as UserRole) === 'admin' || !!(data as any)?.can_audit);

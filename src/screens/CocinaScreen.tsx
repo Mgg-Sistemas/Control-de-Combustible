@@ -90,7 +90,7 @@ type Person = {
  */
 export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation }: { initialEmployeeId?: string; onConsumed?: () => void; navigation?: any } = {}) {
   const { colors } = useTheme();
-  const { session, signOut, moduleLevel } = useAuth();
+  const { session, signOut, moduleLevel, role, fullName } = useAuth();
   const uid = session?.user?.id ?? '';
   // Crear contactos es de «escritura o full en Distribución de comida» (decisión del
   // cliente, 21-sep-2026). Verificarse con el carnet de cocina habilita a REPARTIR,
@@ -111,6 +111,13 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation
   const [searching, setSearching] = useState(false);
   // Persona de cocina VERIFICADA (por su propio carnet) que habilita el registro.
   const [cook, setCook] = useState<{ name: string; cargo: string } | null>(null);
+  // ⭐ ADMIN = ACCESO A TODO (27-sep-2026, pedido explícito): un administrador no
+  //    es un empleado con cargo de cocina, así que la verificación por carnet lo
+  //    dejaba mirando un candado. Entra verificado con SU nombre — los registros
+  //    que haga quedan a nombre del admin, no de un cocinero fantasma.
+  React.useEffect(() => {
+    if (role === 'admin') setCook((c) => c ?? { name: (fullName ?? '').trim() || 'Administrador', cargo: 'ADMINISTRADOR' });
+  }, [role, fullName]);
   const [scanMode, setScanMode] = useState<'cook' | 'person' | 'quick'>('quick');
   const [cookCedula, setCookCedula] = useState('');
   const [verifying, setVerifying] = useState(false);
