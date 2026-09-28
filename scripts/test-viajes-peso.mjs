@@ -151,6 +151,12 @@ ok('el escalón de lectura pela el peso primero (lo más nuevo)',
 ok('la corrección del bruto Y la de la tara existen en la librería',
   /pesoBrutoKg\?: number;/.test(lib) && /patch\.peso_bruto_kg = cambios\.pesoBrutoKg/.test(lib)
   && /pesoTaraKg\?: number;/.test(lib) && /patch\.peso_tara_kg = cambios\.pesoTaraKg/.test(lib));
+// 28-sep-2026: `origen` se LEE con el grupo del peso (decide si el peso se
+// puede AGREGAR en ✏️ Editar: solo a los cargados a mano), y al agregarlo la
+// tara queda marcada ✍️ manual con su nombre.
+ok('origen viaja con las columnas del peso y la marca manual es editable',
+  /peso_foto_url, origen'/.test(lib) && /patch\.tara_manual = cambios\.taraManual/.test(lib)
+  && /patch\.tara_manual_nombre = cambios\.taraManualNombre/.test(lib));
 ok('las taras: upsert con nombre congelado de quién la cargó',
   /from\('camion_taras'\)\.upsert\(/.test(lib) && /updated_by_nombre: userName/.test(lib));
 ok('quitar la tara distingue «no había fila»', /Ese camión no tenía tara cargada/.test(lib));
@@ -328,6 +334,21 @@ ok('la corrección de bruto y tara vive en ✏️ Editar con validación cruzada
   && /taraFinal/.test(scr) && /LA CARGARON MAL/.test(scr));
 ok('...y las dos dejan rastro legible en Auditoría',
   /queCambio\.push\(`peso bruto: /.test(scr) && /queCambio\.push\(`tara: /.test(scr));
+// ── 28-sep-2026: el peso en la CARGA MANUAL y el AGREGADO a los cargados a mano.
+// La carga manual acepta bruto+tara OPCIONALES (vacío = sin peso, como siempre),
+// con tres reglas: un solo viaje por carga, ambos números o ninguno, y sin foto.
+ok('la carga manual acepta el peso con sus tres reglas',
+  /pesoBrutoKg: conPeso \? cargaBrutoKg : null,/.test(scr)
+  && /El peso va en UN viaje por carga/.test(scr)
+  && /van juntos, o ninguno/.test(scr));
+ok('...y la tara queda ✍️ manual si la tecleó la oficina o el catálogo no tenía',
+  /const cargaTaraManual = conPeso && \(taraTecleada \|\| taraCatCarga == null\);/.test(scr));
+// En ✏️ Editar, AGREGAR el peso es SOLO para los cargados a mano sin peso: a
+// uno del patio sin peso se le sigue sin inventar.
+ok('agregar el peso en Editar exige origen manual y los dos números',
+  /const agregandoPeso = row\.origen === 'manual' && row\.pesoBrutoKg == null;/.test(scr)
+  && /van LOS DOS números: bruto y tara/.test(scr)
+  && /queCambio\.push\(`peso agregado: /.test(scr));
 ok('el PDF detallado lleva las tres columnas con sus totales',
   /pesoBruto: kgOpc\(r\.pesoBrutoKg\)/.test(scr) && /kgPie\(netoDeFilas\(filteredRangeRows\)\)/.test(scr));
 ok('el resumido suma el peso a pagar por camión, grupo y total',
