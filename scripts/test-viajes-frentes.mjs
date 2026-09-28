@@ -142,6 +142,27 @@ ok('⭐ la subsección vive en Obras y ubicaciones, con buscador de camiones',
   && /Buscar camión: placa, código, serial, empresa/.test(comp));
 ok('reasignar avisa que lo registrado no cambia', /Los viajes ya registrados no cambian/.test(comp));
 
+
+// ── 6) LA CASILLA «NO MOSTRAR LOS VIAJES SIN FRENTE» (28-sep-2026) ──────────
+// ⭐ Es un FILTRO (saca viajes y mueve el total), no una opción de columna: por
+//    eso vive con los filtros y NO en «Qué sale en el reporte», cuya caja
+//    promete que el total no se mueve. Y el papel tiene que DECIR que está
+//    filtrado, o se lee como el reporte completo del rango.
+ok('⭐ la casilla recorta lo que alimenta chips, lista, resumen y PDF',
+  /const dateScopedRows = useMemo\(\s*\(\) => \(soloConFrente \? dateScopedRowsConSinFrente\.filter\(tieneFrente\) : dateScopedRowsConSinFrente\)/.test(scr));
+ok('⭐ el nombre congelado vale: un frente borrado no devuelve el viaje a «sin frente»',
+  /const tieneFrente = \(r: CamionViajeRow\) => !!r\.frenteId \|\| String\(r\.frenteNombre \?\? ''\)\.trim\(\) !== '';/.test(scr));
+ok('⭐ el PDF avisa en su encabezado que está filtrado',
+  /soloConFrente \? ' · ⛏️ SOLO viajes con frente' : ''/.test(scr));
+ok('dice cuántos dejaría fuera ANTES de marcarla',
+  /dejarías fuera \$\{viajesSinFrente\} viaje\(s\) que no tienen frente/.test(scr));
+ok('«Limpiar filtros» también la apaga (nada de filtros invisibles)',
+  /setHoraDesdeTxt\(''\); setHoraHastaTxt\(''\); setSoloConFrente\(false\);/.test(scr));
+ok('si vacía la lista, el mensaje la señala a ella',
+  /la casilla «⛏️ No mostrar los viajes SIN frente» dejó fuera todos los del rango/.test(scr));
+ok('⭐ y NO se coló en la caja de columnas, que promete que el total no se mueve',
+  !/soloConFrente/.test(leer('src/components/CubicajeTab.tsx')));
+
 console.log('\nFRENTES DE TRABAJO — catálogo, asignación diaria, congelado y reportes\n');
 if (failures.length) console.log(failures.join('\n'));
 console.log(`\n${failures.length ? '❌' : '✅'} test-viajes-frentes · ${pass} ok · ${fail} fallando\n`);
