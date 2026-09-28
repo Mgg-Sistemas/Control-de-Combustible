@@ -1385,6 +1385,7 @@ export function OpcionesReporteBox({
                 ['sos', 'SOS La Guaira'],
                 ['golden', 'Golden Touch'],
                 ['renace', 'Plan Venezuela Renace'],
+                ['jhenzaen', 'Jhenzaen 2.012 C.A'],
               ] as [keyof LogosReporte, string][]).map(([k, label]) => (
                 <Toggle key={`lg-${k}`} on={logos[k]} label={label} onPress={() => setLogo(k, !logos[k])} />
               ))}
