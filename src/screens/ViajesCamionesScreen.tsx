@@ -46,7 +46,7 @@ import {
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
   volumenConGuardado, LOGOS_POR_DEFECTO, type LogosReporte,
 } from '../lib/cubicaje';
-import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, claveFrenteViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
@@ -55,6 +55,7 @@ import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique 
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
+import { FrentesTrabajo } from '../components/FrentesTrabajo';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
@@ -94,9 +95,17 @@ import {
   crearTipoViaje,
   editarTipoViaje,
   setActivoTipoViaje,
+  listFrentes,
+  crearFrente,
+  setActivoFrente,
+  listAsignacionesFrente,
+  asignarFrente,
+  quitarAsignacionFrente,
   type ListeroConRol,
   type TaraCamion,
   type TipoViaje,
+  type FrenteTrabajo,
+  type AsignacionFrente,
 } from '../lib/camionViajes';
 import {
   pesoTecleadoAKg, kgTexto, kgTextoOpcional, tonTexto, tonTextoOpcional, netoDe, motivoPesoInvalido,
@@ -726,6 +735,37 @@ export default function ViajesCamionesScreen() {
   /** El tipo marcado para ESTE registro. null = viaje normal (tarifa de zona). */
   const [tipoSel, setTipoSel] = useState<string | null>(null);
 
+  // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
+  // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
+  // frente del camión en cada viaje que registra. Los lee todo el mundo
+  // (como los tipos); los administra solo quien tiene full.
+  const [frentes, setFrentes] = useState<FrenteTrabajo[]>([]);
+  const [frentesMissing, setFrentesMissing] = useState(false);
+  const [frentesRecarga, setFrentesRecarga] = useState(0);
+  /** machineryId → asignación de la jornada de HOY. */
+  const [asignacionesHoy, setAsignacionesHoy] = useState<Map<string, AsignacionFrente>>(new Map());
+  useEffect(() => {
+    let vivo = true;
+    listFrentes().then((r) => {
+      if (!vivo) return;
+      setFrentes(r.frentes);
+      setFrentesMissing(r.missing);
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer los frentes:', r.error);
+    });
+    listAsignacionesFrente(caracasBusinessToday()).then((r) => {
+      if (!vivo) return;
+      setAsignacionesHoy(new Map(r.asignaciones.map((a) => [a.machineryId, a])));
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer las asignaciones de frente:', r.error);
+    });
+    return () => { vivo = false; };
+  }, [frentesRecarga]);
+  const frentesActivos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
+  /** El frente congelado que le toca a un camión HOY (o nada). */
+  const frenteParaGrabar = (machineryId: string | null) => {
+    const a = machineryId ? asignacionesHoy.get(machineryId) : undefined;
+    return { frenteId: a?.frenteId ?? null, frenteNombre: a?.frenteNombre ?? null };
+  };
+
   const [pesoTexto, setPesoTexto] = useState('');
   const [unidadPeso, setUnidadPeso] = useState<UnidadPeso>('kg');
   /** Tara tecleada a mano — solo cuando el camión no tiene tara cargada (o es
@@ -1053,6 +1093,10 @@ export default function ViajesCamionesScreen() {
       tipoViajeId: q.payload.tipoViajeId ?? null,
       tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
       tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
+      // El frente viaja en la cola con su viaje, como la obra: congelado al
+      // registrar, no al sincronizar.
+      frenteId: q.payload.frenteId ?? null,
+      frenteNombre: q.payload.frenteNombre ?? null,
       queued: true,
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
@@ -1092,6 +1136,8 @@ export default function ViajesCamionesScreen() {
       tipoViajeId: q.payload.tipoViajeId ?? null,
       tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
       tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
+      frenteId: q.payload.frenteId ?? null,
+      frenteNombre: q.payload.frenteNombre ?? null,
       queued: true,
       stuck: true,
       stuckError: q.error,
@@ -1270,6 +1316,10 @@ export default function ViajesCamionesScreen() {
         tipoViajeId: tipoElegido?.id ?? null,
         tipoViajeNombre: tipoElegido?.nombre ?? null,
         tipoViajeTarifa: tipoElegido?.tarifaUsd ?? null,
+        // ⭐ EL FRENTE, CONGELADO: la asignación que este camión tiene HOY.
+        //    Reasignarlo mañana no toca este viaje; un camión sin asignación
+        //    registra sin frente (se le puede poner después en ✏️ Editar).
+        ...frenteParaGrabar(esFuera ? null : selectedTruck.id),
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
@@ -1346,8 +1396,9 @@ export default function ViajesCamionesScreen() {
     // `peso` es el BRUTO en Kg como texto (26-sep-2026) y `tara` es la TARA
     // CONGELADA de ese viaje (27-sep-2026, pedido: «por si cargaron mal la
     // tara»): solo los toca la jefa, y solo en viajes que YA traen peso (a uno
-    // viejo no se le inventa). `tipoId` es el TIPO DE VIAJE ('' = normal).
-    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tara: string; tipoId: string } | null
+    // viejo no se le inventa). `tipoId` es el TIPO DE VIAJE ('' = normal) y
+    // `frenteIdEdit` el FRENTE DE TRABAJO ('' = sin frente, 28-sep-2026).
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tara: string; tipoId: string; frenteIdEdit: string } | null
   >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
@@ -1465,6 +1516,7 @@ export default function ViajesCamionesScreen() {
       peso: row.pesoBrutoKg != null ? String(row.pesoBrutoKg) : '',
       tara: row.pesoTaraKg != null ? String(row.pesoTaraKg) : '',
       tipoId: row.tipoViajeId ?? '',
+      frenteIdEdit: row.frenteId ?? '',
     });
   };
   const cancelEdit = () => setEditing(null);
@@ -1616,6 +1668,17 @@ export default function ViajesCamionesScreen() {
             : { id: null, nombre: null, tarifa: null };
           queCambio.push(`tipo de viaje: ${row.tipoViajeNombre || 'normal'} → ${tipoNuevo?.nombre || 'normal'}`);
         }
+        // ⛏️ PONER O CORREGIR EL FRENTE (28-sep-2026, pedido: «el histórico
+        //    debería poder agregarle frentes a los que ya se hicieron»).
+        //    '' = quitárselo. Congela nombre e id, como todo lo demás.
+        if (editing.frenteIdEdit !== (row.frenteId ?? '')) {
+          const frenteNuevo = editing.frenteIdEdit ? (frentes.find((f) => f.id === editing.frenteIdEdit) ?? null) : null;
+          if (editing.frenteIdEdit && !frenteNuevo) { toast.error('Ese frente ya no existe. Refresca la pantalla.'); return; }
+          cambios.frente = frenteNuevo
+            ? { id: frenteNuevo.id, nombre: frenteNuevo.nombre }
+            : { id: null, nombre: null };
+          queCambio.push(`frente: ${row.frenteNombre || 'sin frente'} → ${frenteNuevo?.nombre || 'sin frente'}`);
+        }
       }
       if (Object.keys(cambios).length === 0) { setEditing(null); return; }
 
@@ -1722,6 +1785,20 @@ export default function ViajesCamionesScreen() {
   const [cargaListeroId, setCargaListeroId] = useState<string>('');
   /** CDT de la carga manual. '' = el del listero a cuyo nombre queda (lo de antes). */
   const [cargaUbicacionId, setCargaUbicacionId] = useState<string>('');
+  // ⛏️ FRENTE de la carga manual (28-sep-2026, a pedido: «poder cargarlos a
+  // mano»). Al elegir camión y fecha se PROPONE la asignación de esa jornada
+  // (si la hubo); lo que se marque a mano manda. null = sin frente.
+  const [cargaFrenteId, setCargaFrenteId] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    if (!cargaTruckId || !/^\d{4}-\d{2}-\d{2}$/.test(cargaFecha)) { setCargaFrenteId(null); return; }
+    listAsignacionesFrente(cargaFecha).then((r) => {
+      if (!vivo) return;
+      const a = r.asignaciones.find((x) => x.machineryId === cargaTruckId);
+      setCargaFrenteId(a?.frenteId ?? null);
+    });
+    return () => { vivo = false; };
+  }, [cargaTruckId, cargaFecha]);
   const [cargaBusy, setCargaBusy] = useState(false);
   const cargaBusyRef = useRef(false);
 
@@ -1824,6 +1901,7 @@ export default function ViajesCamionesScreen() {
           `${turnos.length === 1 ? ` (turno de ${TURNO_NOMBRE[turnoElegido].toLowerCase()})` : ''}, ` +
           `a nombre de ${listero.full_name}, en ${obraCarga.ubicacionNombre ? `el CDT «${obraCarga.ubicacionNombre}»` : 'ningún CDT (sin ubicación)'}.` +
           (conPeso ? `\n\n⚖️ Con peso: bruto ${kgTexto(cargaBrutoKg)} − tara ${kgTexto(cargaTaraKg)} = a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}${cargaTaraManual ? ' (tara tecleada a mano)' : ' (tara del catálogo)'}. Sin foto: la carga manual no la finge.` : '') +
+          (cargaFrenteId ? `\n⛏️ Frente: ${frentes.find((f) => f.id === cargaFrenteId)?.nombre ?? ''}.` : '') +
           `\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
         confirmText: 'Cargar',
       });
@@ -1855,6 +1933,9 @@ export default function ViajesCamionesScreen() {
           pesoTaraKg: conPeso ? cargaTaraKg : null,
           taraManual: cargaTaraManual,
           taraManualNombre: cargaTaraManual ? (fullName || listeroName || null) : null,
+          // ⛏️ El frente elegido (o el propuesto por la asignación de ese día).
+          frenteId: cargaFrenteId,
+          frenteNombre: cargaFrenteId ? (frentes.find((f) => f.id === cargaFrenteId)?.nombre ?? null) : null,
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
@@ -2138,6 +2219,7 @@ export default function ViajesCamionesScreen() {
   const [detalleEje, setDetalleEje] = useState<EjeResumen | 'ninguno'>('ninguno');
   const porListero = resumenEje === 'listero';
   const porUbicacion = resumenEje === 'ubicacion';
+  const porFrente = resumenEje === 'frente';
   const toggleEn = (set: React.Dispatch<React.SetStateAction<Map<string, string>>>) =>
     (id: string, label: string) => set((prev) => { const n = new Map(prev); n.has(id) ? n.delete(id) : n.set(id, label); return n; });
   const toggleFilterListero = toggleEn(setFilterListeroSel);
@@ -2496,6 +2578,12 @@ export default function ViajesCamionesScreen() {
         name: r.ubicacionNombre || SIN_UBICACION_LABEL,
       };
     }
+    if (eje === 'frente') {
+      return {
+        key: claveFrenteViaje(r),
+        name: r.frenteNombre || 'Sin frente',
+      };
+    }
     return companyOfRow(r);
   };
   /** El detallado partido por empresa, listero u obra; null = una sola lista. */
@@ -2797,8 +2885,8 @@ export default function ViajesCamionesScreen() {
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
       // Los tres ejes se rotulan desde un solo sitio: dos ternarios encadenados en
       // cada punto del PDF acabarian discrepando entre si.
-      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : '🏢';
-      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : 'empresa(s)';
+      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢';
+      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : porFrente ? 'frente(s)' : 'empresa(s)';
       // Un 0 en una columna de números se lee peor que un guion: la fila del
       // camión que solo trabaja de día queda limpia en vez de arrastrar un
       // «0» en la de noche.
@@ -2950,6 +3038,7 @@ export default function ViajesCamionesScreen() {
         // El nombre GRABADO en el viaje, no el del catálogo de hoy: si la obra se
         // renombró o se borró, el papel tiene que seguir diciendo dónde fue.
         ubicacion: r.ubicacionNombre || SIN_UBICACION_LABEL,
+        frente: r.frenteNombre || 'Sin frente',
         placa: placaDe(r),
         marcaModelo: marcaModeloDe(r.machineryId),
         dims: dimsDe(r.machineryId),
@@ -2974,7 +3063,7 @@ export default function ViajesCamionesScreen() {
       // m³ de un grupo: la suma de lo que vale cada uno de SUS viajes. El total general
       // sigue siendo el de siempre (arriba); el del grupo es su parte.
       const m3DeFilas = (fs: CamionViajeRow[]) => redondear(fs.reduce((a, r) => a + (r.machineryId ? porViajeDe(r.machineryId) : 0), 0));
-      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : '🏢';
+      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : ejeD === 'frente' ? '⛏️' : '🏢';
       const cuerpoD = gruposDetalle
         ? gruposDetalle.map((g) => {
           const pieG = colsD.map((c, i) => (
@@ -2988,7 +3077,7 @@ export default function ViajesCamionesScreen() {
         }).join('')
         : tabla(colsD, filasD, pieD);
       const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : ejeD === 'frente' ? 'frente(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
         ${cuerpoD}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
@@ -2997,12 +3086,13 @@ export default function ViajesCamionesScreen() {
       const corte = 'por jornada (7am a 7am), no por día de calendario';
       const html = pdfDocument({
         title: soloCamiones
-          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : 'Camiones que salieron · por empresa')
+          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : porFrente ? 'Camiones que salieron · por frente' : 'Camiones que salieron · por empresa')
           : reporteModo === 'resumen'
-          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
+          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : porFrente ? 'Viajes de camiones · resumen por frente' : 'Viajes de camiones · resumen por camión')
           : detalleEje === 'ubicacion' ? 'Viajes de camiones · detallado por obra'
           : detalleEje === 'listero' ? 'Viajes de camiones · detallado por listero'
           : detalleEje === 'empresa' ? 'Viajes de camiones · detallado por empresa'
+          : detalleEje === 'frente' ? 'Viajes de camiones · detallado por frente'
           : 'Viajes de camiones',
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
@@ -3026,10 +3116,10 @@ export default function ViajesCamionesScreen() {
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
       const sufijo = soloCamiones
-        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : 'camiones por empresa ')
+        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : porFrente ? 'camiones por frente ' : 'camiones por empresa ')
         : reporteModo === 'resumen'
-        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : 'resumen por camion ')
-        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : '';
+        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : porFrente ? 'resumen por frente ' : 'resumen por camion ')
+        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : detalleEje === 'frente' ? 'detallado por frente ' : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
     } catch (e: any) {
       // Sin este catch, un fallo de exportPdf dejaba el botón como si nada y la
@@ -3485,6 +3575,7 @@ export default function ViajesCamionesScreen() {
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
           {row.ubicacionNombre ? ` · 🏗️ ${row.ubicacionNombre}` : ''}
           {row.tipoViajeNombre ? ` · 🧾 ${row.tipoViajeNombre}` : ''}
+          {row.frenteNombre ? ` · ⛏️ ${row.frenteNombre}` : ''}
         </Text>
         {/* ⚖️ El peso del viaje, si lo trae (los anteriores al 26-sep-2026 no
             tienen y no se les inventa). La foto se abre aparte: es la evidencia
@@ -3621,6 +3712,30 @@ export default function ViajesCamionesScreen() {
                     </View>
                     <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
                       Cambiarlo congela la tarifa que el tipo tenga HOY y queda en Auditoría.
+                    </Text>
+                  </View>
+                ) : null}
+                {/* ⛏️ FRENTE DE TRABAJO (28-sep-2026): ponérselo o corregirlo a
+                    un viaje ya hecho — pedido explícito para el histórico. */}
+                {frentesActivos.length > 0 || row.frenteId ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>⛏️ FRENTE DE TRABAJO</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {[{ id: '', nombre: '∅ Sin frente' }, ...frentesActivos.map((f) => ({ id: f.id, nombre: f.nombre }))].map((f) => {
+                        const marcado = editing.frenteIdEdit === f.id;
+                        return (
+                          <TouchableOpacity
+                            key={f.id || '__sin_frente__'}
+                            onPress={() => setEditing((e) => (e ? { ...e, frenteIdEdit: f.id } : e))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
+                          >
+                            <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{f.nombre}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                      De dónde recogió el camión. El cambio queda en Auditoría.
                     </Text>
                   </View>
                 ) : null}
@@ -4490,6 +4605,40 @@ export default function ViajesCamionesScreen() {
               </>
             ) : null}
 
+            {/* ⛏️ FRENTE de la carga manual (28-sep-2026). Al elegir camión y
+                fecha se PROPONE la asignación de esa jornada; se puede cambiar
+                o dejar «Sin frente». */}
+            {frentesActivos.length > 0 || cargaFrenteId ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                  ⛏️ FRENTE DE TRABAJO (de dónde recogió)
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                  {[{ id: null as string | null, nombre: 'Sin frente' }, ...frentesActivos].map((f) => {
+                    const activo = cargaFrenteId === f.id;
+                    return (
+                      <TouchableOpacity
+                        key={f.id ?? '__sin_frente__'}
+                        onPress={() => setCargaFrenteId(f.id)}
+                        style={{
+                          paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                          borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                          backgroundColor: activo ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          {f.id ? `⛏️ ${f.nombre}` : '∅ Sin frente'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                  Si ese día el camión tenía frente asignado, ya viene marcado; lo que toques manda.
+                </Text>
+              </>
+            ) : null}
+
             <TouchableOpacity
               onPress={doCargarViajes}
               disabled={cargaBusy}
@@ -4544,6 +4693,20 @@ export default function ViajesCamionesScreen() {
             canFull={canFull}
             onCambioObras={recargarObras}
             onCambioListeros={() => setListerosRecarga((n) => n + 1)}
+            extra={
+              /* ⛏️ Los frentes viven DENTRO de esta tarjeta (28-sep-2026, a
+                 pedido): frente = de dónde recogen; obra = a dónde llevan. */
+              <FrentesTrabajo
+                frentes={frentes}
+                faltaSql={frentesMissing}
+                canFull={canFull}
+                camiones={allTrucks}
+                jornadaHoy={caracasBusinessToday()}
+                uid={uid}
+                userName={fullName || listeroName || null}
+                onCambio={() => setFrentesRecarga((n) => n + 1)}
+              />
+            }
           />
 
           {/* Qué sale en el ticket. Va acá, pegado a las obras, porque las dos
@@ -4876,7 +5039,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra']] as const).map(([key, label]) => {
+                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente']] as const).map(([key, label]) => {
                       const on = resumenEje === key;
                       return (
                         <TouchableOpacity
@@ -4899,7 +5062,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra']] as const).map(([key, label]) => {
+                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente']] as const).map(([key, label]) => {
                       const on = detalleEje === key;
                       return (
                         <TouchableOpacity
@@ -4962,7 +5125,7 @@ export default function ViajesCamionesScreen() {
                   {camionesSalieron.grupos.map((g) => (
                     <View key={g.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={2}>
-                        {porUbicacion ? '🏗️' : porListero ? '👤' : '🏢'} {g.name} · {g.camiones.length} camión(es)
+                        {porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢'} {g.name} · {g.camiones.length} camión(es)
                       </Text>
                       {g.camiones.map((c, i) => (
                         <Text key={`${g.key}-${c.key}`} style={{ color: colors.muted, fontSize: 12, paddingVertical: 3, paddingLeft: spacing.sm }} numberOfLines={1}>
@@ -4995,7 +5158,7 @@ export default function ViajesCamionesScreen() {
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : '🏢'} {e.name}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢'} {e.name}</Text>
                         <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>
                           {cub.op.viajes ? `${e.total} viaje(s)` : `${e.camiones.length} camión(es)`}
                           {cub.op.m3 ? ` · ${m3Texto(redondear(e.camiones.reduce((a, c) => a + (volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes, 0)))} m³` : ''}
@@ -5062,7 +5225,7 @@ export default function ViajesCamionesScreen() {
                         <View key={g.key}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, marginTop: spacing.xs, marginBottom: 2 }}>
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
-                              {detalleEje === 'ubicacion' ? '🏗️' : detalleEje === 'listero' ? '👤' : '🏢'} {g.name}
+                              {detalleEje === 'ubicacion' ? '🏗️' : detalleEje === 'listero' ? '👤' : detalleEje === 'frente' ? '⛏️' : '🏢'} {g.name}
                             </Text>
                             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{g.filas.length} viaje(s)</Text>
                           </View>

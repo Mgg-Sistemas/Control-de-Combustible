@@ -85,6 +85,9 @@ export type ViajePago = {
    */
   tipo_viaje_nombre?: string | null;
   tipo_viaje_tarifa?: number | string | null;
+  /** FRENTE DE TRABAJO (28-sep-2026): de dónde recogió, congelado en el viaje.
+   *  Solo informa (agrupar y columna del papel): NO toca ningún cálculo. */
+  frente_nombre?: string | null;
 };
 
 /** El tipo de viaje de una fila, limpio. null = viaje normal (por zona). */

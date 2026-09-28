@@ -124,6 +124,16 @@ export type CamionViajeRow = {
   tipoViajeId: string | null;
   tipoViajeNombre: string | null;
   tipoViajeTarifa: number | null;
+  /**
+   * FRENTE DE TRABAJO (28-sep-2026): de DÓNDE recogió el camión el material
+   * que llevó al CDT/CDF. Se asigna por jornada a cada camión (o a un grupo)
+   * en ⚙️ Obras y ubicaciones, y se CONGELA en el viaje al registrarlo —
+   * reasignar el camión mañana no toca los viajes de hoy. `null` = sin frente
+   * (viajes viejos, o camión sin asignación ese día); se puede completar
+   * después en ✏️ Editar (full).
+   */
+  frenteId: string | null;
+  frenteNombre: string | null;
 };
 
 function mapRow(r: any): CamionViajeRow {
@@ -162,6 +172,8 @@ function mapRow(r: any): CamionViajeRow {
     tipoViajeId: (r.tipo_viaje_id ?? null) as string | null,
     tipoViajeNombre: (r.tipo_viaje_nombre ?? null) as string | null,
     tipoViajeTarifa: r.tipo_viaje_tarifa == null ? null : Number(r.tipo_viaje_tarifa),
+    frenteId: (r.frente_id ?? null) as string | null,
+    frenteNombre: (r.frente_nombre ?? null) as string | null,
   };
 }
 
@@ -204,6 +216,10 @@ let hayColumnasDePeso: boolean | null = null;
  *  horas después: un respaldo de esta misma tarde tiene peso y no tiene tipo). */
 let hayColumnasDeTipo: boolean | null = null;
 
+/** Y el quinto, para el FRENTE DE TRABAJO (28-sep-2026). Mismo motivo que los
+ *  otros cuatro: un respaldo de esta mañana tiene tipo y no tiene frente. */
+let hayColumnasDeFrente: boolean | null = null;
+
 const COLS_OBRA = 'ubicacion_id, ubicacion_nombre';
 const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
 // `origen` viaja con el grupo del peso: la columna existe desde el 14-sep y
@@ -211,6 +227,7 @@ const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
 // origen tampoco hace falta (sin columnas de peso no hay peso que agregar).
 const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_manual_nombre, peso_foto_url, origen';
 const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa';
+const COLS_FRENTE = 'frente_id, frente_nombre';
 
 /** Las columnas que se piden, según lo que se sepa que existe. */
 const colsViaje = () =>
@@ -219,6 +236,7 @@ const colsViaje = () =>
    hayColumnasDeTique === false ? null : COLS_TIQUE,
    hayColumnasDePeso === false ? null : COLS_PESO,
    hayColumnasDeTipo === false ? null : COLS_TIPO,
+   hayColumnasDeFrente === false ? null : COLS_FRENTE,
   ].filter(Boolean).join(', ');
 
 /** ¿El error es «esa columna no existe»? Solo eso: una tabla que falta es otra cosa. */
@@ -241,14 +259,31 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     if (hayColumnasDeTique === null) hayColumnasDeTique = true;
     if (hayColumnasDePeso === null) hayColumnasDePeso = true;
     if (hayColumnasDeTipo === null) hayColumnasDeTipo = true;
+    if (hayColumnasDeFrente === null) hayColumnasDeFrente = true;
     return data as any[];
   } catch (e: any) {
     if (!esColumnaQueFalta(e)) throw e;
 
-    // ESCALÓN -1: sin el tipo de viaje, que es lo más nuevo de todo.
+    // ESCALÓN -2: sin el frente de trabajo, que es lo más nuevo de todo.
+    if (hayColumnasDeFrente !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}, ${COLS_PESO}, ${COLS_TIPO}`, filtro);
+        hayColumnasDeFrente = false;
+        hayColumnasDeTipo = true;
+        hayColumnasDePeso = true;
+        hayColumnasDeTique = true;
+        hayColumnasDeObra = true;
+        return data as any[];
+      } catch (eF: any) {
+        if (!esColumnaQueFalta(eF)) throw eF;
+      }
+    }
+
+    // ESCALÓN -1: sin el tipo de viaje (ni el frente, que llegó después).
     if (hayColumnasDeTipo !== false) {
       try {
         const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}, ${COLS_PESO}`, filtro);
+        hayColumnasDeFrente = false;
         hayColumnasDeTipo = false;
         hayColumnasDePeso = true;
         hayColumnasDeTique = true;
@@ -259,13 +294,14 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
       }
     }
 
-    // ESCALÓN 0: sin el peso (26-sep-2026, y sin el tipo, que llegó después).
-    // Obra y ticketera pueden estar perfectamente.
+    // ESCALÓN 0: sin el peso (26-sep-2026, y sin el tipo ni el frente, que
+    // llegaron después). Obra y ticketera pueden estar perfectamente.
     if (hayColumnasDePeso !== false) {
       try {
         const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}`, filtro);
         hayColumnasDePeso = false;
         hayColumnasDeTipo = false;
+        hayColumnasDeFrente = false;
         hayColumnasDeTique = true;
         hayColumnasDeObra = true;
         return data as any[];
@@ -282,6 +318,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
         hayColumnasDeTique = false;
         hayColumnasDePeso = false;
         hayColumnasDeTipo = false;
+        hayColumnasDeFrente = false;
         hayColumnasDeObra = true;
         return data as any[];
       } catch (e2: any) {
@@ -295,6 +332,7 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     hayColumnasDeTique = false;
     hayColumnasDePeso = false;
     hayColumnasDeTipo = false;
+    hayColumnasDeFrente = false;
     return data as any[];
   }
 }
@@ -406,6 +444,11 @@ export async function registrarViaje(params: {
   tipoViajeId?: string | null;
   tipoViajeNombre?: string | null;
   tipoViajeTarifa?: number | null;
+  /** FRENTE DE TRABAJO, ya resuelto por la pantalla (la asignación del camión
+   *  en ESA jornada, o el elegido a mano en la carga manual). Ausente = sin
+   *  frente; se puede completar después en ✏️ Editar. */
+  frenteId?: string | null;
+  frenteNombre?: string | null;
 }): Promise<{ error?: string; missing?: boolean }> {
   // La foto primero: un viaje con peso no puede entrar sin su evidencia. El
   // insert de abajo solo corre cuando ya hay URL (o cuando el viaje es viejo
@@ -465,6 +508,10 @@ export async function registrarViaje(params: {
     tipo_viaje_nombre: params.tipoViajeNombre ?? null,
     tipo_viaje_tarifa: params.tipoViajeTarifa ?? null,
   };
+  const camposFrente = {
+    frente_id: params.frenteId ?? null,
+    frente_nombre: params.frenteNombre ?? null,
+  };
 
   // Mismo respaldo que en la lectura, y por la misma razón: si un `.sql` todavía
   // no se corrió, el insert con esas columnas rebota con 42703 y EL LISTERO NO
@@ -475,24 +522,27 @@ export async function registrarViaje(params: {
   // ⚠️ El `client_action_id` es EL MISMO en todos los intentos, así que si uno
   //    llegó a entrar, el siguiente rebota con 23505 y quien llama ya lee eso
   //    como «ese viaje ya estaba». No se puede duplicar por reintentar.
-  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean }[] = [];
+  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean; frente: boolean }[] = [];
+  if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false && hayColumnasDeFrente !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente }, obra: true, ticket: true, peso: true, tipo: true, frente: true });
+  }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo }, obra: true, ticket: true, peso: true, tipo: true });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo }, obra: true, ticket: true, peso: true, tipo: true, frente: false });
   }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso }, obra: true, ticket: true, peso: true, tipo: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso }, obra: true, ticket: true, peso: true, tipo: false, frente: false });
   }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false) {
     // ⚠️ Sin las columnas de peso el viaje ENTRA IGUAL y el peso se pierde en
     //    ESA base (misma filosofía de siempre: mejor un viaje sin peso que un
     //    listero que no puede registrar). La pantalla avisa con
     //    `faltaCorrerSqlDePeso()` para que el admin corra el `.sql`.
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true, peso: false, tipo: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true, peso: false, tipo: false, frente: false });
   }
   if (hayColumnasDeObra !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false, peso: false, tipo: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false, peso: false, tipo: false, frente: false });
   }
-  escalones.push({ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false });
+  escalones.push({ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false, frente: false });
 
   let error: any = null;
   for (const paso of escalones) {
@@ -508,9 +558,11 @@ export async function registrarViaje(params: {
       if (paso.peso) hayColumnasDePeso = true;
       if (paso.tipo) hayColumnasDeTipo = true;
       else if (paso.peso) hayColumnasDeTipo = false;
-      if (!paso.peso && paso.ticket) { hayColumnasDePeso = false; hayColumnasDeTipo = false; }
-      if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; }
-      if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; }
+      if (paso.frente) hayColumnasDeFrente = true;
+      else if (paso.tipo) hayColumnasDeFrente = false;
+      if (!paso.peso && paso.ticket) { hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
+      if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
+      if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
       return {};
     }
     if (!esColumnaQueFalta(error)) break;
@@ -633,6 +685,10 @@ export type CambiosViaje = {
    *  en null para volverlo viaje normal. Congela en la corrección, igual que
    *  congeló el registro. */
   tipoViaje?: { id: string | null; nombre: string | null; tarifa: number | null };
+  /** Ponerle o corregirle el FRENTE DE TRABAJO a un viaje ya registrado
+   *  (28-sep-2026, pedido: «el histórico debería poder agregarle frentes a los
+   *  que ya se hicieron»). Snapshot completo, o los dos en null para quitarlo. */
+  frente?: { id: string | null; nombre: string | null };
 };
 
 /**
@@ -657,6 +713,10 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
     patch.tipo_viaje_id = cambios.tipoViaje.id;
     patch.tipo_viaje_nombre = cambios.tipoViaje.nombre;
     patch.tipo_viaje_tarifa = cambios.tipoViaje.tarifa;
+  }
+  if (cambios.frente !== undefined) {
+    patch.frente_id = cambios.frente.id;
+    patch.frente_nombre = cambios.frente.nombre;
   }
   // Un update vacío en PostgREST devuelve la fila sin cambiar nada: parecería
   // que se guardó algo. Mejor decirlo.
@@ -916,6 +976,123 @@ export async function setActivoTipoViaje(id: string, activo: boolean, userId: st
     return { error: error.message };
   }
   if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+// ── LOS FRENTES DE TRABAJO (tablas `viaje_frentes` y asignaciones, 28-sep) ───
+//
+// El FRENTE es de DÓNDE recogen los camiones el material que llevan a los
+// CDT/CDF (las obras/ubicaciones son el destino; el frente, el origen). La
+// oficina asigna diariamente un frente a cada camión —o a un grupo—, y cada
+// viaje CONGELA el frente que su camión tenía esa jornada. Administra quien
+// tiene full (RLS probado por suplantación); el listero solo LEE.
+
+export type FrenteTrabajo = {
+  id: string;
+  nombre: string;
+  activo: boolean;
+};
+
+export async function listFrentes(): Promise<{ frentes: FrenteTrabajo[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows('viaje_frentes', 'id, nombre, activo');
+    const frentes = (data as any[]).map((r) => ({
+      id: r.id as string,
+      nombre: String(r.nombre ?? '').trim(),
+      activo: r.activo !== false,
+    })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true }));
+    return { frentes, missing: false };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { frentes: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+export async function crearFrente(nombre: string, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const n = nombre.replace(/\s+/g, ' ').trim();
+  if (n.length < 2) return { error: 'Ponle un nombre al frente (p. ej. «Frente norte»).' };
+  const { data, error } = await supabase.from('viaje_frentes')
+    .insert({ nombre: n, created_by: userId, created_by_nombre: userName }).select('id');
+  if (error) {
+    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: `Ya existe un frente activo llamado «${n}».` };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** Apaga o prende un frente. Apagado deja de ofrecerse al asignar; los viajes
+ *  que ya lo llevan no cambian (el nombre viaja congelado en cada fila). */
+export async function setActivoFrente(id: string, activo: boolean, userName: string | null): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('viaje_frentes')
+    .update(activo
+      ? { activo: true, desactivado_at: null, desactivado_por_nombre: null }
+      : { activo: false, desactivado_at: new Date().toISOString(), desactivado_por_nombre: userName })
+    .eq('id', id).select('id');
+  if (error) {
+    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: 'Ya hay un frente ACTIVO con ese mismo nombre.' };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** La asignación de UNA jornada: camión → frente. */
+export type AsignacionFrente = {
+  machineryId: string;
+  frenteId: string;
+  frenteNombre: string;
+};
+
+/** Las asignaciones de una jornada (AAAA-MM-DD), con el nombre del frente ya
+ *  pegado — es lo que el teléfono del listero congela en cada viaje. */
+export async function listAsignacionesFrente(jornada: string): Promise<{ asignaciones: AsignacionFrente[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows(
+      'viaje_frente_asignaciones',
+      'machinery_id, frente_id, frente:frente_id(nombre)',
+      (q: any) => q.eq('jornada', jornada),
+      'machinery_id'
+    );
+    return {
+      asignaciones: (data as any[]).map((r) => ({
+        machineryId: r.machinery_id as string,
+        frenteId: r.frente_id as string,
+        frenteNombre: String(r.frente?.nombre ?? '').trim(),
+      })),
+      missing: false,
+    };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { asignaciones: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/** Asigna un frente a VARIOS camiones en una jornada. Reasignar PISA la
+ *  asignación anterior de ese camión ese día (upsert por jornada+camión) —
+ *  los viajes YA registrados conservan su frente congelado. */
+export async function asignarFrente(
+  jornada: string, machineryIds: string[], frenteId: string,
+  userId: string | null, userName: string | null
+): Promise<{ error?: string }> {
+  if (!machineryIds.length) return { error: 'Marca al menos un camión.' };
+  const filas = machineryIds.map((m) => ({
+    jornada, machinery_id: m, frente_id: frenteId, created_by: userId, created_by_nombre: userName,
+  }));
+  const { data, error } = await supabase.from('viaje_frente_asignaciones')
+    .upsert(filas, { onConflict: 'jornada,machinery_id' }).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** Quita la asignación de un camión en una jornada (los viajes ya registrados
+ *  conservan su frente congelado). */
+export async function quitarAsignacionFrente(jornada: string, machineryId: string): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('viaje_frente_asignaciones')
+    .delete().eq('jornada', jornada).eq('machinery_id', machineryId).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'Esa asignación ya no existe.' };
   return {};
 }
 
