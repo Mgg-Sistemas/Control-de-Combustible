@@ -322,7 +322,25 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   const modal = leer('src/components/HorometroCorregirModal.tsx');
   ok('el modal corrige con origen control', /origen: 'control'/.test(modal));
   ok('el modal exige el motivo (regla pura compartida)', /validarCorreccionHorometro/.test(modal));
-  ok('el modal no toca machine_rounds ni horas', !/from\('machine_rounds'\)|day_hours|night_hours|upsertMachineRound/.test(modal));
+  // ✎→espejo (28-sep-2026, pedido del cliente: «el horómetro no es solo
+  // mantenimiento, es el horómetro de trabajo de la máquina»). El candado viejo
+  // («el modal no toca machine_rounds») quedó DEROGADO a propósito: ahora la
+  // corrección SE PROPAGA a la ronda y al horómetro vivo — pero jamás al pago.
+  ok('el modal no toca las horas pagadas (day/night_hours) ni escribe rondas directo',
+    !/day_hours|night_hours|upsertMachineRound|from\('machine_rounds'\)/.test(modal));
+  ok('⭐ el modal propaga la corrección tras guardar (ronda + horómetro vivo)',
+    /if \(!r\.ok\)[\s\S]*?propagarCorreccionHorometro\(machineryId, roundDate, turno, finNum\)/.test(modal));
+  // La propagación vive en la capa de datos, con sus tres reglas:
+  ok('⭐ propagar NUNCA toca day_hours/night_hours',
+    /propagarCorreccionHorometro/.test(db)
+    && !/day_hours|night_hours/.test(db.slice(db.indexOf('propagarCorreccionHorometro'))));
+  ok('⭐ propagar solo ACTUALIZA rondas existentes, nunca crea una',
+    /maybeSingle\(\);\s*if \(fila\) \{[\s\S]*?\.update\(\{ horometro_final: final \}\)/.test(db)
+    && !/from\('machine_rounds'\)\.insert|from\('machine_rounds'\)\.upsert/.test(db));
+  ok('⭐ el horómetro vivo solo se pisa si NO hay lectura ni ronda más nueva con final',
+    /if \(!lect\.data\?\.length && !rond\.data\?\.length\) \{[\s\S]*?last_horometro: final/.test(db));
+  ok('⭐ borrar el final (null) no borra espejos (conservador)',
+    /if \(final == null\) return out;/.test(db));
   // Ninguna pantalla de dinero usa horasPagables: la fórmula de pago es la de siempre.
   ok('el pago sigue por workedFromShifts en Control', !/horasPagables/.test(ctl) && /workedFromShifts/.test(ctl));
   ok('el pago sigue por workedFromShifts en Reportes', !/horasPagables/.test(rep) && /workedFromShifts/.test(rep));
