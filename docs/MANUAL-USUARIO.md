@@ -5951,6 +5951,21 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
+> **⏱️ Franja de horas y minutos (28/09/2026).** En **«🚛 Lista completa de viajes»**, debajo de las
+> pastillas de fecha hay dos casillas nuevas — **DESDE** y **HASTA** — para recortar los viajes de los
+> días elegidos a un **rango de horas y minutos**: de 08:00 a 10:15, solo desde una hora, o solo hasta
+> una.
+> - **Se escribe como quieras:** «8» vale por 08:00 en punto; «830», «0830» y «8:30» valen por 08:30.
+> - **Los extremos entran:** un viaje de las 10:15 en punto **sí** sale en «hasta 10:15».
+> - **DESDE mayor que HASTA cruza la medianoche:** «de 22:00 a 02:00» trae la noche **con su
+>   madrugada**, que es como trabaja la jornada (7am a 7am).
+> - La lista, los **chips** de filtros, el resumen y el **PDF** salen todos recortados igual, y el
+>   encabezado del PDF **dice la franja** para que el papel no se confunda con el del día completo.
+> - Una hora **mal tecleada avisa en rojo y no filtra** (no te vacía la lista en silencio).
+>   **«✕ Limpiar filtros»** quita también la franja.
+> - El apartado de **m³ (cubicaje) no se recorta por horas**: consulta lo guardado por días completos
+>   y su etiqueta lo dice.
+
 > **🎫 Buscar un viaje por su número de ticket (17/09/2026).** En **"🚛 Lista completa de viajes"**, el
 > buscador que ya filtraba camión, listero y empresa ahora **también encuentra un viaje por el número
 > del ticket**. Escribe **191**, **000191** o **CDT-000191**: da igual con ceros o sin ellos. La lista
