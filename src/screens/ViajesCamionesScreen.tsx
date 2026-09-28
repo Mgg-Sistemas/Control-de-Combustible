@@ -52,7 +52,7 @@ import {
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
 } from '../lib/ubicacionesObra';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique } from '../lib/tique';
-import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
+import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
@@ -2083,6 +2083,19 @@ export default function ViajesCamionesScreen() {
   const [rangeTo, setRangeTo] = useState(caracasBusinessToday());
   const [diasSel, setDiasSel] = useState<Set<string>>(new Set([caracasBusinessToday()]));
   const [diasPickOpen, setDiasPickOpen] = useState(false);
+  // ⏱️ RANGO DE HORAS Y MINUTOS (28-sep-2026, pedido): recorta los viajes de los
+  // días elegidos a una franja horaria — de 08:00 a 10:15, o solo desde, o solo
+  // hasta. Se aplica en `dateScopedRows` a propósito: chips, lista, resumen y
+  // PDF salen del MISMO conjunto y no se contradicen. DESDE > HASTA cruza la
+  // medianoche (22:00–02:00 = la noche con su madrugada, como la jornada).
+  const [horaDesdeTxt, setHoraDesdeTxt] = useState('');
+  const [horaHastaTxt, setHoraHastaTxt] = useState('');
+  const horaDesde = normalizaHora(horaDesdeTxt);
+  const horaHasta = normalizaHora(horaHastaTxt);
+  const horasActivas = horaDesde !== null || horaHasta !== null;
+  // Texto escrito que NO es una hora: se avisa y NO filtra — filtrar con una
+  // hora a medio teclear vaciaría la lista sin explicación.
+  const horaMalEscrita = (horaDesdeTxt.trim() !== '' && horaDesde === null) || (horaHastaTxt.trim() !== '' && horaHasta === null);
   // ⚠️ Map id→ETIQUETA, no Set: hace falta el nombre para poder dibujar el chip
   //    de un filtro que quedó marcado y que en el rango de HOY ya no aparece en
   //    ningún viaje. Con un Set ese chip desaparecía, la lista salía vacía y no
@@ -2189,6 +2202,14 @@ export default function ViajesCamionesScreen() {
     () => etiquetaRangoViajes(preset === 'dias', rangeBounds.desde, rangeBounds.hasta, diasSel, dmy),
     [preset, rangeBounds.desde, rangeBounds.hasta, diasSel]
   );
+  // ⏱️ La MISMA etiqueta pero diciendo la franja horaria cuando está puesta. Es
+  // la que llevan la lista y el PDF (que salen recortados por la franja); la de
+  // fechas a secas queda para lo que NO se recorta por hora (el cubicaje, que
+  // consulta lo guardado por rango de fechas — ponerle la franja ahí mentiría).
+  const etiquetaRangoConHoras = useMemo(() => {
+    const horas = textoRangoHoras(horaDesde, horaHasta);
+    return horas ? `${etiquetaRango} · ⏱️ ${horas}` : etiquetaRango;
+  }, [etiquetaRango, horaDesde, horaHasta]);
 
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeMissing, setRangeMissing] = useState(false);
@@ -2236,13 +2257,20 @@ export default function ViajesCamionesScreen() {
     // (que por defecto es HOY) haría pasar la jornada de hoy por «los días que
     // elegiste», y de ahí a un reporte con la fecha equivocada hay un paso.
     if (sinDiasMarcados || rangoInvalido || rangeDesactualizado) return [];
-    if (preset === 'dias') {
+    const base = preset === 'dias'
       // Por JORNADA: un viaje de la madrugada pertenece a la jornada de la noche
       // anterior, así que marcar un día trae también su madrugada.
-      return rangeRows.filter((r) => diasSel.has(jornadaDeFecha(new Date(r.registeredAt))));
-    }
-    return rangeRows;
-  }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado]);
+      ? rangeRows.filter((r) => diasSel.has(jornadaDeFecha(new Date(r.registeredAt))))
+      : rangeRows;
+    // ⏱️ La franja horaria recorta ENCIMA de los días elegidos. La hora del
+    // viaje es la de Caracas (la misma que se ve en la fila), ambos extremos
+    // inclusive; desde > hasta cruza la medianoche (ver pasaRangoHoras).
+    if (!horasActivas) return base;
+    return base.filter((r) => {
+      const p = caracasParts(new Date(r.registeredAt));
+      return pasaRangoHoras(p.hour * 60 + p.minute, horaDesde, horaHasta);
+    });
+  }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado, horasActivas, horaDesde, horaHasta]);
 
   // ── CUÁNTOS VIAJES TIENE YA ESE CAMIÓN EN ESA JORNADA (02-sep-2026) ───────
   //
@@ -2979,7 +3007,7 @@ export default function ViajesCamionesScreen() {
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
         // y sin decirlo uno de los dos parece un error de cálculo.
-        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 && !soloCamiones ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
+        subtitle: `${etiquetaRangoConHoras} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 && !soloCamiones ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
@@ -4525,7 +4553,7 @@ export default function ViajesCamionesScreen() {
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
-            resumen={`${filteredRangeRows.length} viaje(s) · ${etiquetaRango}`}
+            resumen={`${filteredRangeRows.length} viaje(s) · ${etiquetaRangoConHoras}`}
             abiertaPorDefecto
           >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
@@ -4546,7 +4574,7 @@ export default function ViajesCamionesScreen() {
             {/* Qué se está mirando, dicho en una línea. Sin esto, «días
                 específicos» sin ningún día marcado se veía igual que «hoy». */}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-              📅 {etiquetaRango}{rangoInvalido || sinDiasMarcados ? '' : ` · ${filteredRangeRows.length} viaje(s) · ${resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}`}
+              📅 {etiquetaRangoConHoras}{rangoInvalido || sinDiasMarcados ? '' : ` · ${filteredRangeRows.length} viaje(s) · ${resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}`}
             </Text>
 
             {preset === 'rango' ? (
@@ -4588,6 +4616,52 @@ export default function ViajesCamionesScreen() {
                 ) : null}
               </View>
             ) : null}
+
+            {/* ⏱️ FRANJA DE HORAS (28-sep-2026). Recorta los viajes de los días
+                elegidos a un rango de horas y minutos. Va aquí, pegado a las
+                fechas, porque ES parte del «cuándo»: primero los días, después
+                la franja. Vacío = todas las horas (la pantalla de siempre). */}
+            <View style={{ marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⏱️ FRANJA DE HORAS (OPCIONAL)</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: 4 }}>
+                <TextInput
+                  value={horaDesdeTxt}
+                  onChangeText={setHoraDesdeTxt}
+                  placeholder="Desde · 08:00"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numbers-and-punctuation"
+                  autoCorrect={false}
+                  style={[styles.input, { flex: 1 }]}
+                />
+                <TextInput
+                  value={horaHastaTxt}
+                  onChangeText={setHoraHastaTxt}
+                  placeholder="Hasta · 10:15"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numbers-and-punctuation"
+                  autoCorrect={false}
+                  style={[styles.input, { flex: 1 }]}
+                />
+                {horaDesdeTxt || horaHastaTxt ? (
+                  <TouchableOpacity onPress={() => { setHoraDesdeTxt(''); setHoraHastaTxt(''); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {horaMalEscrita ? (
+                <Text style={{ color: colors.danger, fontSize: 11, marginTop: 3 }}>
+                  ⚠️ Esa hora no se entiende: usa HH:MM (08:30), la hora sola (8) o los cuatro números (0830). Mientras tanto NO se está filtrando por esa casilla.
+                </Text>
+              ) : horasActivas ? (
+                <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 3 }}>
+                  ⏱️ Mostrando solo los viajes {textoRangoHoras(horaDesde, horaHasta)} (extremos incluidos). La lista y el PDF salen recortados igual.
+                </Text>
+              ) : (
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 3 }}>
+                  Se aplica sobre los días elegidos. Puedes llenar solo una casilla; DESDE mayor que HASTA cruza la medianoche (22:00 a 02:00 = la noche con su madrugada).
+                </Text>
+              )}
+            </View>
 
             {/* ⭐ BUSCADOR DE FILTROS. Con treinta camiones que se llaman todos
                 "CAMION VOLTEO TORONTO", buscar a ojo no es viable: acá se
@@ -4765,8 +4839,11 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0) ? (
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || horaDesdeTxt || horaHastaTxt) ? (
+              /* «Limpiar filtros» limpia TAMBIÉN la franja de horas: es un filtro
+                 más, y dejarlo puesto tras «limpiar» sería la trampa del filtro
+                 invisible otra vez (28-sep-2026). */
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -4864,9 +4941,13 @@ export default function ViajesCamionesScreen() {
                     ? `⚠️ No se pudieron cargar los viajes (${motivoLegible(rangeError)}). NO exportes el reporte hasta resolverlo: saldría incompleto.`
                     : filtrosSobrantes.length > 0
                       ? `Sin viajes: hay filtros marcados que no aparecen en este rango (${filtrosSobrantes.map((f) => ICONO_EJE[f.eje] + f.label).join(', ')}). Toca «✕ Limpiar filtros» o desmárcalos.`
-                      : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size > 0
-                        ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
-                        : 'Sin viajes en el rango seleccionado.'}
+                      : horasActivas
+                        // La franja horaria también puede ser la que vacía la lista —
+                        // y como es un campo y no una pastilla, se olvida fácil.
+                        ? `Sin viajes ${textoRangoHoras(horaDesde, horaHasta)} en este rango. Amplía la ⏱️ franja de horas o tócale «✕ Quitar».`
+                        : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size > 0
+                          ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
+                          : 'Sin viajes en el rango seleccionado.'}
                 </Text>
               ) : soloCamiones ? (
                 // Lo mismo que el PDF: qué camiones salieron, sin ninguna cantidad.
