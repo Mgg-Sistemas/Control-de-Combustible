@@ -21,8 +21,8 @@
 // `ViajesCamionesScreen` solo le pasa las filas ya filtradas y el catálogo de
 // camiones. Ver `scripts/test-viajes-resumen.mjs`.
 
-/** Por cuál de los tres ejes se parte el resumen. */
-export type EjeResumen = 'empresa' | 'listero' | 'ubicacion';
+/** Por cuál de los cuatro ejes se parte el resumen. */
+export type EjeResumen = 'empresa' | 'listero' | 'ubicacion' | 'frente';
 
 /** Clave de los camiones sin empresa asignada: van todos a una sola cubeta. */
 export const SIN_EMPRESA = '__sin_empresa__';
@@ -46,6 +46,14 @@ export const SIN_LISTERO = '__sin_listero__';
  * equivocado es peor que uno incompleto y honesto — el incompleto se nota.
  */
 export const SIN_UBICACION = '__sin_ubicacion__';
+
+/**
+ * Cubeta de los viajes sin FRENTE de trabajo (28-sep-2026): los anteriores a
+ * que existieran los frentes, y los de camiones sin asignación ese día. Misma
+ * regla que la obra: no se adivina con la asignación de HOY — eso diría de
+ * dónde recoge ahora, no de dónde recogió cuando hizo el viaje.
+ */
+export const SIN_FRENTE = '__sin_frente__';
 
 /** Clave de los camiones que el listero anotó a mano por no estar en el catálogo. */
 export const FUERA_CATALOGO = '__fuera_catalogo__';
@@ -71,6 +79,10 @@ export type ViajeMin = {
    */
   ubicacionId?: string | null;
   ubicacionName?: string | null;
+  /** El FRENTE del que recogió (28-sep-2026). Misma regla que la obra: una
+   *  FOTO congelada en la fila, no la asignación de hoy. */
+  frenteId?: string | null;
+  frenteNombre?: string | null;
   /**
    * ☀️ día (7am–7pm) o 🌙 noche (7pm–7am).
    *
@@ -220,6 +232,7 @@ const SIN_NOMBRE: Record<EjeResumen, string> = {
   empresa: 'Sin empresa',
   listero: 'Sin listero',
   ubicacion: 'Sin ubicación',
+  frente: 'Sin frente',
 };
 
 /** Texto de un nombre listo para agrupar: sin espacios dobles ni de los bordes. */
@@ -241,6 +254,15 @@ export function claveUbicacionViaje(r: { ubicacionId?: string | null; ubicacionN
   const nombre = limpio(r.ubicacionName);
   // El prefijo evita que un nombre suelto choque con el uuid de otra obra.
   return nombre ? `nombre:${nombre.toLowerCase()}` : SIN_UBICACION;
+}
+
+/** CLAVE DEL FRENTE de un viaje: misma construcción (y mismo porqué) que la de
+ *  la obra — el nombre congelado sirve de repuesto si el frente se borra. */
+export function claveFrenteViaje(r: { frenteId?: string | null; frenteNombre?: string | null }): string {
+  const id = String(r.frenteId ?? '').trim();
+  if (id) return id;
+  const nombre = limpio(r.frenteNombre);
+  return nombre ? `nombre:${nombre.toLowerCase()}` : SIN_FRENTE;
 }
 
 /**
@@ -266,6 +288,11 @@ function grupoDeViaje(
       return {
         key: claveUbicacionViaje(r),
         name: limpio(r.ubicacionName) || SIN_NOMBRE.ubicacion,
+      };
+    case 'frente':
+      return {
+        key: claveFrenteViaje(r),
+        name: limpio(r.frenteNombre) || SIN_NOMBRE.frente,
       };
     case 'empresa':
     default:
@@ -370,7 +397,7 @@ export type CamionSalio = { key: string; code: string; placa: string };
 export type GrupoCamiones = { key: string; name: string; camiones: CamionSalio[] };
 export type CamionesQueSalieron = { grupos: GrupoCamiones[]; totalCamiones: number; groupBy: EjeResumen };
 
-const esCubetaSin = (key: string) => key === SIN_EMPRESA || key === SIN_LISTERO || key === SIN_UBICACION;
+const esCubetaSin = (key: string) => key === SIN_EMPRESA || key === SIN_LISTERO || key === SIN_UBICACION || key === SIN_FRENTE;
 
 /**
  * La misma lista del resumido, sin ninguna cifra de viajes.

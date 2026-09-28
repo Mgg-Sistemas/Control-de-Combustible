@@ -266,13 +266,13 @@ ok('la lectura de viajes se reintenta sin las columnas nuevas', /const data = aw
 // un viaje entre el despliegue y el momento en que se corra el SQL.
 //
 // Desde la ticketera (12-sep-2026) el reintento es una ESCALERA de peldaños
-// —todo, sin tipo de viaje, sin peso (26-sep-2026), sin ticket, pelado— porque
-// hay CUATRO grupos de columnas que pueden faltar por separado. El peldaño de
-// abajo salva al listero.
+// —todo, sin frente (28-sep-2026), sin tipo de viaje, sin peso (26-sep-2026),
+// sin ticket, pelado— porque hay CINCO grupos de columnas que pueden faltar
+// por separado. El peldaño de abajo salva al listero.
 ok('el insert baja hasta el cuerpo pelado',
-  /escalones\.push\(\{ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false \}\);/.test(lib));
-ok('...y los cinco peldaños salen del MISMO cuerpo base',
-  (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 4);
+  /escalones\.push\(\{ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false, frente: false \}\);/.test(lib));
+ok('...y los seis peldaños salen del MISMO cuerpo base',
+  (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 5);
 ok('el reintento usa la MISMA clave de idempotencia', !/nuevoClientActionId/.test(lib));
 ok('la lista de listeros no se cae sin la columna', /supabase\.from\('profiles'\)\.select\(COLS_PERFIL\)/.test(lib));
 

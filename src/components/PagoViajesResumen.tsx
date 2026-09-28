@@ -151,7 +151,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
       <tbody>${fueraDelPago.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.companyId ? datos?.empresas.get(c.companyId) ?? 'Empresa' : 'Sin empresa')}</td><td class="r">${c.viajes}</td><td>${c.sinConfigurar ? 'Nunca se puso en el pago' : 'Se le quitó el pago por viaje'}</td></tr>`).join('')}</tbody></table>` : '';
     const html = pdfDocument({
       title: 'Pago de viajes de camiones',
-      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}`,
+      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ejePdf === 'frente' ? ' · por frente' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}`,
       extraCss: CSS_PAGO_VIAJES,
       body: cuerpoPagoViajes({
         lineas: lineasPdf,
@@ -238,7 +238,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
         {!error && empresas.length ? (
           <Plegable
             titulo="📄 Opciones del PDF"
-            resumen={`${pdfFiltrado ? 'filtrado · ' : ''}${totPdf.pagados} viaje(s) · ${usd(totPdf.monto)} · por ${ejePdf === 'obra' ? 'obra' : 'empresa'}`}
+            resumen={`${pdfFiltrado ? 'filtrado · ' : ''}${totPdf.pagados} viaje(s) · ${usd(totPdf.monto)} · por ${ejePdf === 'obra' ? 'obra' : ejePdf === 'frente' ? 'frente' : 'empresa'}`}
             alerta={pdfFiltrado}
           >
             <Text style={{ color: colors.muted, fontSize: 12 }}>
@@ -249,6 +249,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {pastilla('eje-e', '🏢 Empresa', ejePdf === 'empresa', () => setEjePdf('empresa'))}
               {pastilla('eje-o', '📍 Obra / ubicación', ejePdf === 'obra', () => setEjePdf('obra'))}
+              {pastilla('eje-f', '⛏️ Frente de trabajo', ejePdf === 'frente', () => setEjePdf('frente'))}
             </View>
 
             {rotuloPdf(`📍 OBRAS (vacío = todas · ${obrasPdf.length})`)}

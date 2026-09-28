@@ -6034,6 +6034,31 @@ indistinguibles, y un camión no hace dos viajes en el mismo instante.
 
 **Quitar.** En la lista completa, filtras el día y le das **"🗑️ Borrar"** a los que sobren.
 
+#### ⛏️ Frentes de trabajo (28/09/2026)
+
+El **frente** es **de dónde recogen** los camiones el material que después llevan a los CDT/CDF
+(las obras/ubicaciones son el **destino**; el frente, el **origen**). Vive como **subsección
+dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
+
+- **Crear frentes** con nombre libre, y **desactivarlos sin borrar**: un frente apagado deja de
+  ofrecerse, pero los viajes que ya lo llevan no cambian.
+- **Asignar el frente del día**: eliges la fecha (por defecto hoy), el frente, y marcas los
+  camiones — con **🔎 buscador** por placa, código, serial o empresa — uno, varios o un grupo de
+  una vez. Reasignar **pisa** la asignación de ese camión ese día; abajo se ve lo asignado del
+  día, con su ✕ para quitarlo.
+- **Cada viaje congela el frente** de su camión al registrarse (como la obra y la placa):
+  reasignar a mediodía solo afecta los viajes que se registren **después**, y un camión sin
+  asignación registra **sin frente**.
+- **La carga manual también lleva frente**: al elegir camión y fecha se **propone** la asignación
+  de esa jornada (si la hubo) y se puede cambiar o dejar «Sin frente».
+- **A un viaje ya hecho** el frente se le pone o corrige en **✏️ Editar** (solo full) y queda en
+  **🕵️ Auditoría**.
+- **En los reportes:** la Lista completa tiene el interruptor **«⛏️ Frente de trabajo»** (entra
+  **apagado**, como todo lo nuevo) y la opción de **agrupar por frente** en el detallado y el
+  resumido; el 💰 Pago de viajes tiene su pastilla **«🚫 Frente de trabajo»** para la columna y el
+  eje **«⛏️ Frente de trabajo»** para agrupar el PDF. **Agrupar por frente no mueve un centavo**:
+  solo parte y rotula distinto.
+
 #### 🏗️ Obras y ubicaciones (12/09/2026)
 
 Los listeros trabajan en **obras** distintas —*CDT Parque del Agua*, *SanteDubi*, *CDF*,
