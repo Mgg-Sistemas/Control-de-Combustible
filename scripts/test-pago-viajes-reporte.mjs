@@ -126,14 +126,14 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
 {
   // Once desde el 26-sep-2026: se sumó «Cantidad por tipo de viaje» (las
   // tarifas con nombre — Oeste → Este y las que vengan).
-  eq('las once pastillas, en el orden del Conteo de equipos', R.PASTILLAS_PAGO.map((p) => p.chip), [
+  eq('las doce pastillas, en el orden del Conteo de equipos (el frente entró el 28-sep)', R.PASTILLAS_PAGO.map((p) => p.chip), [
     '🚫 Marca', '🚫 Modelo', '🚫 Serial / Placa', '🚫 Encargado', '🚫 Metros cúbicos', '🚫 Nombre de empresas',
-    '🚫 Listado por equipo', '🚫 Cantidad por tipo', '🚫 Cantidad por zona', '🚫 Cantidad por tipo de viaje', '🚫 Alcance del informe']);
+    '🚫 Listado por equipo', '🚫 Cantidad por tipo', '🚫 Cantidad por zona', '🚫 Cantidad por tipo de viaje', '🚫 Frente de trabajo', '🚫 Alcance del informe']);
   ok('cada pastilla es una opción que existe', R.PASTILLAS_PAGO.every((p) => p.key in R.OPCIONES_PAGO_COMPLETO));
 
   // ⭐ LO NUEVO ENTRA APAGADO: sin tocar nada, las columnas son las de siempre.
   eq('⭐ sin tocar nada, el listado trae las columnas de siempre + la empresa del camión (22-sep-2026)', R.columnasEquipo(R.OPCIONES_PAGO_COMO_ANTES), ['code', 'empresa', 'zona', 'viajes', 'precio', 'monto']);
-  eq('con todo encendido trae todas', R.columnasEquipo(R.OPCIONES_PAGO_COMPLETO), ['code', 'empresa', 'marcaModelo', 'placa', 'encargado', 'zona', 'viajes', 'm3', 'precio', 'monto']);
+  eq('con todo encendido trae todas', R.columnasEquipo(R.OPCIONES_PAGO_COMPLETO), ['code', 'empresa', 'marcaModelo', 'placa', 'encargado', 'frente', 'zona', 'viajes', 'm3', 'precio', 'monto']);
   eq('⭐ la columna de empresa se va con la pastilla «Nombre de empresas»', R.columnasEquipo({ ...R.OPCIONES_PAGO_COMPLETO, sinEmpresas: true }).includes('empresa'), false);
   const soloMarca = { ...R.OPCIONES_PAGO_COMPLETO, sinModelo: true };
   eq('marca sin modelo: la columna sigue y se llama «Marca»', [R.columnasEquipo(soloMarca).includes('marcaModelo'), R.tituloMarcaModeloPago(soloMarca)], [true, 'Marca']);

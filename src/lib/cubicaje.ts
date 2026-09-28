@@ -267,6 +267,10 @@ export type OpcionesReporte = {
   empresa: boolean;
   /** En qué OBRA se registró el viaje (la que tenía el listero ese día). */
   ubicacion: boolean;
+  /** De qué FRENTE recogió (28-sep-2026): la asignación congelada del camión
+   *  ese día. Solo en el detallado — en el resumido cada fila es un camión y
+   *  el mismo camión pudo recoger de dos frentes en el rango. */
+  frente: boolean;
   /**
    * PESO DE ROMANA (26-sep-2026; partido en TRES el 28-sep-2026, a pedido:
    * cada renglón del peso con su propio interruptor). En el detallado cada
@@ -312,6 +316,7 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   empresa: true,
   // APAGADA porque es nueva. Quien no la encienda saca el mismo papel de ayer.
   ubicacion: false,
+  frente: false,
   // APAGADOS por lo mismo: el peso es del 26-sep-2026 y lo enciende quien lo pida.
   pesoBruto: false,
   pesoTara: false,
@@ -334,7 +339,7 @@ export type ColSpec = { key: string; head: string; num?: boolean };
  *  el reporte se pidió en toneladas (28-sep-2026). Solo texto: el dato es kilos. */
 const U = (unidad: 'kg' | 't') => (unidad === 't' ? 'Ton' : 'Kg');
 
-export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
+export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [
     { key: 'fecha', head: 'Fecha' },
     { key: 'hora', head: 'Hora' },
@@ -342,6 +347,7 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   if (op.empresa) c.push({ key: 'empresa', head: 'Empresa' });
   c.push({ key: 'camion', head: 'Camión' });
   if (op.ubicacion && eje !== 'ubicacion') c.push({ key: 'ubicacion', head: 'Obra' });
+  if (op.frente && eje !== 'frente') c.push({ key: 'frente', head: 'Frente' });
   if (op.placa) c.push({ key: 'placa', head: 'Placa / Serial' });
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });
@@ -360,7 +366,7 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
 
 /** Columnas del reporte RESUMIDO (una línea por camión). Apagar «viajes» deja
  *  el reporte puramente volumétrico: camión, medida y m³. */
-export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
+export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [{ key: 'camion', head: 'Camión' }];
   // La columna del EJE no va: su valor ya está en el encabezado del grupo. Por
   // eso agrupando por empresa —que es como se abre— el resumido sale idéntico a
@@ -395,7 +401,7 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
  *  conteo de viajes, los m³ y el peso SIEMPRE fuera, estén como estén los
  *  interruptores — este papel no lleva ninguna cantidad.
  *  Lleva un Nº de renglón para poder cantar la lista. */
-export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
+export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa'): ColSpec[] {
   return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, pesoBruto: false, pesoTara: false, pesoNeto: false }, eje)];
 }
 
