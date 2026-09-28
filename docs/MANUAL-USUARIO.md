@@ -5952,6 +5952,13 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
+> **🔧 Arreglo en el pago (28/09/2026, tarde).** El **💰 Pago de viajes** no estaba tomando las
+> tarifas de los **🧾 Tipos de viaje**: la regla del cálculo existía (la tarifa del tipo manda
+> sobre la de zona) y el dato estaba sano en la base, pero **la consulta del pago no pedía las
+> columnas del tipo**, así que el cálculo nunca las veía y todo caía a la tarifa de zona — 39
+> cruces «Este → Oeste» de $100 salían a $50. Corregido: los cruces salen con su tipo y su
+> tarifa congelada. Si sacaste un pago de esos días, **vuelve a generarlo**.
+
 > **📝 El PDF de viajes sale sin la marca en texto (28/09/2026).** A pedido, los reportes de la
 > **Lista completa de viajes** ya **no** imprimen la línea *«Banco Central de Venezuela / SOS La
 > Guaira · Sistema de control interno»* debajo del título ni el pie *«… Documento generado por el

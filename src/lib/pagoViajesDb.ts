@@ -9,8 +9,12 @@ import { AlcanceTarifa, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, 
 // ⭐ Las escrituras piden `.select('id')`: un rechazo por permisos vuelve sin error y
 //    con 0 filas, y hay que decirlo en vez de dar por guardado lo que no se guardó.
 
+// ⚠️ `tipo_viaje_nombre` y `tipo_viaje_tarifa` TIENEN que viajar acá (28-sep-2026):
+//    `calcularPagoViajes` decide con ellas que la tarifa del TIPO manda sobre la de
+//    zona. Sin pedirlas, el cálculo nunca veía el tipo y TODOS los viajes se pagaban
+//    con la tarifa de zona — 39 cruces «Este → Oeste» de $100 salían a $50.
 const COLS_VIAJE =
-  'id, machinery_id, machine_code, company_id, zona_pago, registered_at, estado_maquina, folio, origen, fuera_catalogo, placa_snap, ubicacion_nombre, listero_name';
+  'id, machinery_id, machine_code, company_id, zona_pago, registered_at, estado_maquina, folio, origen, fuera_catalogo, placa_snap, ubicacion_nombre, listero_name, tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa';
 
 export const SIN_PERMISO_PAGO = 'No se guardó: hace falta permiso completo en Viajes de camiones.';
 
