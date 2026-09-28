@@ -5185,9 +5185,15 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   no redondear un papel que se firma. Solo cambia el **texto impreso** — el dato guardado sigue
 >   en kilos —, la vista previa lo muestra al momento y el título del desplegable anuncia «⚖️
 >   pesos en Ton» cuando está en toneladas. De fábrica: Kg.
-> - **En los reportes**, el interruptor **⚖️ Peso de romana** de «Qué sale en el reporte» agrega al
->   detallado las columnas de bruto, tara y neto con sus totales, y al resumido la columna «Peso a
->   pagar (Kg)» por camión, por grupo y general. Los viajes sin peso no suman ni aparecen como cero.
+> - **En los reportes** (el PDF de la Lista completa de viajes), desde el **28/09/2026** el peso son
+>   **tres interruptores separados** en «🖨️ Qué sale en el reporte»: **⚖️ Peso entrada (bruto)**,
+>   **⚖️ Peso salida (tara)** y **⚖️ Peso a pagar (neto)** — cada columna se enciende por su cuenta,
+>   con sus totales. En el resumido solo existe «Peso a pagar» (bruto y tara son de cada viaje, no
+>   de un camión). Los viajes sin peso no suman ni aparecen como cero. En esa misma caja están la
+>   pastilla **«⚖️ Los pesos del PDF en: Kg / Toneladas»** (solo cambia el texto — «32.540,00 Kg» o
+>   «32,540 Ton» — y el encabezado de la columna lo dice; el dato guardado sigue en kilos) y la
+>   sección **«🏷️ Qué logos lleva el membrete»** (BCV, SOS La Guaira, Golden Touch, Plan Venezuela
+>   Renace; arranca como salía siempre: BCV + SOS). Sin tocar nada, el papel sale idéntico al de ayer.
 > - **Corregir un peso mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje.
 >   Desde el 27/09/2026 se pueden corregir **los dos**: el **bruto** y también la **tara de ese
 >   viaje** — para cuando la cargaron mal (antes había que borrar el viaje y recargarlo). El peso a
