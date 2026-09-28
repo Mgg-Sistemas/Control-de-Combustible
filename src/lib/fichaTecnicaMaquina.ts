@@ -51,6 +51,10 @@ export type MaquinaFichaTecnica = {
   // Campos de VEHÍCULO (la misma ficha sirve para los dos):
   tank_capacity_l?: number | null;
   expected_kml?: number | null;
+  // La ÚLTIMA foto del horómetro subida (la busca la pantalla en las lecturas,
+  // las fotos adicionales y el cierre de jornada). Sin foto, el anexo no la trae.
+  fotoHorometroUrl?: string | null;
+  fotoHorometroLeyenda?: string | null;
 };
 
 export type OpcionesFichaTecnica = {
@@ -238,17 +242,21 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     <div class="cap">Registro visual de la condición exterior del equipo en terreno</div>
   </div>` : ''}
 
-  ${m.photo_serial_url ? `<div class="anexo">
+  ${m.photo_serial_url || m.fotoHorometroUrl ? `<div class="anexo">
     <div class="hd">
       <div>
         <div class="t">ANEXO · REGISTRO FOTOGRÁFICO</div>
         <div class="s">${esc(nombre)}${m.code ? ` · ${esc(m.code)}` : ''}</div>
       </div>
     </div>
-    <div class="foto">
+    ${m.photo_serial_url ? `<div class="foto">
       <img src="${esc(m.photo_serial_url)}" alt=""/>
       <div class="cap">Detalle de la placa de identificación (serial / placa) del equipo</div>
-    </div>
+    </div>` : ''}
+    ${m.fotoHorometroUrl ? `<div class="foto">
+      <img src="${esc(m.fotoHorometroUrl)}" alt=""/>
+      <div class="cap">Última foto del horómetro subida${m.fotoHorometroLeyenda ? ` (${esc(m.fotoHorometroLeyenda)})` : ''}</div>
+    </div>` : ''}
   </div>` : ''}
 
   ${pie}

@@ -91,3 +91,81 @@ export async function guardarLecturaHorometro(machineryId: string, roundDate: st
     return { ok: false, error: String(e?.message ?? e) };
   }
 }
+
+export type UltimaFotoHorometro = { url: string; roundDate: string; detalle: string };
+
+/**
+ * La ÚLTIMA foto del horómetro de una máquina (28-sep-2026, para la 📄 Ficha
+ * técnica del Catálogo). Mira las TRES fuentes donde se suben fotos del tablero
+ * y devuelve la más reciente por jornada:
+ *  · la lectura del inspector (foto final, o inicial si no hay final),
+ *  · las fotos ADICIONALES del histórico (`horometro_fotos`),
+ *  · el cierre de jornada (`machine_rounds.horometro_photo`) — SOLO LECTURA,
+ *    acá no se escribe nada de la jornada.
+ * A igual jornada gana la de la lectura (es la canónica del turno).
+ * Nunca lanza: sin tablas o sin fotos devuelve null y la ficha sale sin ella.
+ */
+export async function ultimaFotoHorometro(machineryId: string): Promise<UltimaFotoHorometro | null> {
+  const candidatos: UltimaFotoHorometro[] = [];
+  try {
+    const { data } = await supabase
+      .from('lecturas_horometro_trabajo')
+      .select('round_date, shift, foto_inicial_url, foto_final_url')
+      .eq('machinery_id', machineryId)
+      .or('foto_final_url.not.is.null,foto_inicial_url.not.is.null')
+      .order('round_date', { ascending: false })
+      .limit(4);
+    const filas = ((data ?? []) as any[]).slice().sort((a, b) => {
+      const fa = String(a.round_date), fb = String(b.round_date);
+      if (fa !== fb) return fa < fb ? 1 : -1;
+      return (a.shift === 'night' ? 0 : 1) - (b.shift === 'night' ? 0 : 1); // la noche cierra el día
+    });
+    for (const r of filas) {
+      const url = limpio(r.foto_final_url) || limpio(r.foto_inicial_url);
+      if (!url) continue;
+      candidatos.push({
+        url,
+        roundDate: String(r.round_date).slice(0, 10),
+        detalle: `${r.foto_final_url ? 'final' : 'inicial'} del turno ${r.shift === 'night' ? 'noche' : 'día'}`,
+      });
+      break;
+    }
+  } catch { /* sin tabla o sin permiso: la ficha sale sin foto */ }
+  try {
+    const { data } = await supabase
+      .from('horometro_fotos')
+      .select('round_date, shift, url, created_at')
+      .eq('machinery_id', machineryId)
+      .order('round_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const r: any = (data ?? [])[0];
+    if (r && limpio(r.url)) {
+      candidatos.push({
+        url: limpio(r.url),
+        roundDate: String(r.round_date).slice(0, 10),
+        detalle: `foto adicional del turno ${r.shift === 'night' ? 'noche' : 'día'}`,
+      });
+    }
+  } catch { /* idem */ }
+  try {
+    const { data } = await supabase
+      .from('machine_rounds')
+      .select('round_date, horometro_photo')
+      .eq('machinery_id', machineryId)
+      .not('horometro_photo', 'is', null)
+      .order('round_date', { ascending: false })
+      .limit(1);
+    const r: any = (data ?? [])[0];
+    if (r && limpio(r.horometro_photo)) {
+      candidatos.push({
+        url: limpio(r.horometro_photo),
+        roundDate: String(r.round_date).slice(0, 10),
+        detalle: 'del cierre de la jornada',
+      });
+    }
+  } catch { /* idem */ }
+  if (!candidatos.length) return null;
+  // Orden estable: a igual jornada queda el primero que entró (la lectura).
+  return candidatos.slice().sort((a, b) => (a.roundDate < b.roundDate ? 1 : a.roundDate > b.roundDate ? -1 : 0))[0];
+}

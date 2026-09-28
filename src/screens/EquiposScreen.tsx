@@ -15,6 +15,7 @@ import { formatUTM } from '../lib/utm';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { fichaTecnicaMaquinaHtml, nombreArchivoFichaTecnica } from '../lib/fichaTecnicaMaquina';
+import { ultimaFotoHorometro } from '../lib/horometroTrabajoDb';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
@@ -955,8 +956,15 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       const comp = (companies.data ?? []).find((c) => c.id === m.company_id);
       const d = new Date();
       const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // La última foto del horómetro subida (lecturas, adicionales o cierre de
+      // jornada) va al anexo de la ficha. Sin foto (o sin permiso), sale sin ella.
+      const fotoHoro = await ultimaFotoHorometro(m.id);
       const html = fichaTecnicaMaquinaHtml(
-        { ...m, companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null },
+        {
+          ...m, companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null,
+          fotoHorometroUrl: fotoHoro?.url ?? null,
+          fotoHorometroLeyenda: fotoHoro ? `${fmtDMY(fotoHoro.roundDate)} · ${fotoHoro.detalle}` : null,
+        },
         { estado: estadoParaFicha(m), fecha: hoy, emitidoPor: fullName ?? null }
       );
       await exportPdf(html, nombreArchivoFichaTecnica(m));
