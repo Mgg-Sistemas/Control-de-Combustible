@@ -5,13 +5,9 @@
 // módulo `horometros` con escritura (admin = full), pero EL CANDADO REAL ESTÁ
 // EN LA BASE: la RPC exige sesión, módulo y motivo; sin ellos, no guarda.
 //
-// ⭐ LA CORRECCIÓN SE PROPAGA (28-sep-2026, pedido del cliente: «el horómetro no
-//    es solo mantenimiento, es el horómetro de trabajo de la máquina»): tras
-//    guardar la lectura, `propagarCorreccionHorometro` espeja el final en la
-//    ronda de esa jornada (`machine_rounds.horometro_final`) y — solo si es la
-//    lectura más nueva de la máquina — en `machinery.last_horometro`, que es lo
-//    que leen las alertas 200/220/250 h, la 📄 Ficha técnica y el informe.
-//    LO QUE SIGUE INTOCABLE: las horas pagadas de la jornada (modo sombra).
+// ⭐ SOLO TOCA LA TABLA DEL MODO SOMBRA (`lecturas_horometro_trabajo`). No toca
+//    `machine_rounds`, ni horas pagadas, ni el horómetro de mantenimiento: lo
+//    que hoy paga y lo que el taller mira siguen exactamente igual.
 //
 // ⭐ REINICIO: cuando al equipo le CAMBIARON el aparato (arranca en 0), se marca
 //    el interruptor y la base deja de exigirle «no menor que la última lectura»
@@ -20,7 +16,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { LecturaTrabajo, Turno, validarCorreccionHorometro, numeroDeTexto } from '../lib/horometroTrabajo';
-import { guardarLecturaHorometro, propagarCorreccionHorometro } from '../lib/horometroTrabajoDb';
+import { guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -63,19 +59,15 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
     // Patch COMPLETO de los tres campos: lo que quedó vacío BORRA el número.
     // Origen 'control' siempre (también con reinicio marcado): así la base exige
     // módulo y motivo, y la corrección queda protegida contra pisadas del teléfono.
-    const finNum = numeroDeTexto(fin) === false ? null : (numeroDeTexto(fin) as number | null);
     const r = await guardarLecturaHorometro(machineryId, roundDate, turno, {
       inicial: numeroDeTexto(ini) === false ? null : (numeroDeTexto(ini) as number | null),
-      final: finNum,
+      final: numeroDeTexto(fin) === false ? null : (numeroDeTexto(fin) as number | null),
       reinicio,
       origen: 'control',
       motivoCorreccion: motivo.trim(),
     });
-    if (!r.ok) { setBusy(false); setError(r.error ?? 'No se guardó. Intenta de nuevo.'); return; }
-    // La corrección llega TAMBIÉN a la ronda del día y al horómetro vivo de la
-    // máquina (nunca a las horas pagadas). Best-effort: la lectura ya quedó.
-    try { await propagarCorreccionHorometro(machineryId, roundDate, turno, finNum); } catch {}
     setBusy(false);
+    if (!r.ok) { setError(r.error ?? 'No se guardó. Intenta de nuevo.'); return; }
     onSaved();
     onClose();
   };
@@ -88,7 +80,7 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
       <View style={{ flex: 1, backgroundColor: 'rgba(10,15,25,0.6)', alignItems: 'center', justifyContent: 'center', padding: spacing.md, zIndex: 9999 }}>
         <View style={{ width: '100%', maxWidth: 460, backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md }}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>✎ Corregir horómetro de trabajo</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>{code} · {dmy} · corrige la lectura y el horómetro de la máquina (ronda del día y ficha). Las horas PAGADAS no se tocan.</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>{code} · {dmy} · solo la lectura del modo sombra: no toca horas pagadas ni mantenimiento.</Text>
 
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
             {(['day', 'night'] as const).map((t) => {

@@ -3516,33 +3516,8 @@ Decisión del cliente: **solo los administradores corrigen, y basta el motivo es
   esconder el lápiz es cortesía, no seguridad. Cada corrección queda con **quién, cuándo y por
   qué** (en la lectura y en la bitácora de auditoría), y el teléfono del inspector **no puede
   pisarla** después.
-- ~~Solo toca la lectura del modo sombra: ni las horas pagadas ni el horómetro de
-  mantenimiento se mueven.~~ **Cambió el 28/09/2026 — ver el bloque siguiente:** la corrección
-  ahora **sí llega** al horómetro de la máquina; lo único intocable siguen siendo las **horas
-  pagadas**.
-
-#### ✎➡️ La corrección de Control llega al horómetro de la máquina (28/09/2026)
-
-Pedido textual: *"el horómetro no solo es para mantenimiento de maquinaria, sino el horómetro
-de trabajo de la máquina"*. Antes el lápiz corregía **solo** la lectura del modo sombra: el
-reporte ⚙️ Horómetro salía bien, pero la máquina seguía con el número viejo en **todo lo
-demás** — alertas de mantenimiento (200/220/250 h), 📄 Ficha técnica, informe técnico, Patio,
-Supervisión. La auditoría del 27/09 encontró **25 máquina-día** con números distintos entre
-las dos tablas.
-
-**Qué hace ahora, al guardar la corrección:**
-
-1. El **final corregido se espeja en la ronda** de esa jornada (`horometro_final`) — solo si
-   la ronda **ya existe**: corregir un horómetro **nunca crea una jornada nueva** (una jornada
-   fantasma se colaría en Asistencia).
-2. Si la lectura corregida es la **más nueva** de la máquina, el número pasa a ser también su
-   **horómetro vivo** — el que leen las alertas, la Ficha técnica y el informe. Corregir una
-   **semana vieja no pisa el número de hoy**, y con **reinicio** marcado el número puede bajar
-   (el aparato es nuevo: está bien).
-
-**Lo que no cambia ni un centavo:** las **horas pagadas** de la jornada. El pago sigue en modo
-sombra, igual que ayer. Y **borrar** un número (dejarlo vacío) no borra los espejos — quitar
-un número inventado no dice cuál era el bueno. Todo queda con su rastro en 🕵️ Auditoría.
+- Solo toca la lectura del modo sombra: **ni las horas pagadas ni el horómetro de
+  mantenimiento se mueven**.
 
 #### 🕒 La corrección manual se ve en los dos reportes (26/09/2026)
 
