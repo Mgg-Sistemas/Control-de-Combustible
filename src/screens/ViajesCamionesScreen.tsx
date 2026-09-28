@@ -3017,6 +3017,10 @@ export default function ViajesCamionesScreen() {
         body: soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
         // 🏷️ Los logos que el usuario marcó para ESTE papel (28-sep-2026).
         logos: logosRep,
+        // 📝 Sin la marca en texto (28-sep-2026, pedido): ni la línea «BCV /
+        // SOS La Guaira · Sistema de control interno» ni el pie «Documento
+        // generado por…». Solo en los reportes de viajes; el resto no cambia.
+        marcaTexto: false,
       });
       // ⚠️ El nombre TIENE que decir por dónde se partió: dos PDF del mismo día
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los

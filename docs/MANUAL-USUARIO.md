@@ -5951,6 +5951,12 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
+> **📝 El PDF de viajes sale sin la marca en texto (28/09/2026).** A pedido, los reportes de la
+> **Lista completa de viajes** ya **no** imprimen la línea *«Banco Central de Venezuela / SOS La
+> Guaira · Sistema de control interno»* debajo del título ni el pie *«… Documento generado por el
+> sistema de control interno»*. Los **logos** del membrete siguen siendo elegibles con sus checks.
+> Los **demás reportes** del sistema no cambian: siguen con su marca de siempre.
+
 > **⏱️ Franja de horas y minutos (28/09/2026).** En **«🚛 Lista completa de viajes»**, debajo de las
 > pastillas de fecha hay dos casillas nuevas — **DESDE** y **HASTA** — para recortar los viajes de los
 > días elegidos a un **rango de horas y minutos**: de 08:00 a 10:15, solo desde una hora, o solo hasta
