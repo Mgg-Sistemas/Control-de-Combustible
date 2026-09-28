@@ -1048,6 +1048,8 @@ export default function ViajesCamionesScreen() {
       taraManual: q.payload.taraManual === true,
       taraManualNombre: q.payload.taraManualNombre ?? null,
       pesoFotoUrl: null,
+      // Un viaje en cola vino del teléfono sin señal: su origen es la cola.
+      origen: 'cola',
       tipoViajeId: q.payload.tipoViajeId ?? null,
       tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
       tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
@@ -1085,6 +1087,7 @@ export default function ViajesCamionesScreen() {
       pesoNetoKg: netoDe(q.payload.pesoBrutoKg, q.payload.pesoTaraKg),
       taraManual: q.payload.taraManual === true,
       taraManualNombre: q.payload.taraManualNombre ?? null,
+      origen: 'cola',
       pesoFotoUrl: null,
       tipoViajeId: q.payload.tipoViajeId ?? null,
       tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
@@ -1552,10 +1555,29 @@ export default function ViajesCamionesScreen() {
         }
         // ⚖️ CORREGIR EL PESO BRUTO (26-sep-2026) Y LA TARA (27-sep-2026,
         //    pedido: «por si cargaron mal la tara»). Solo en viajes que YA
-        //    traen peso: a uno viejo no se le inventa. El neto lo recalcula la
-        //    base sola, y las dos correcciones se validan ENTRE SÍ: si se
-        //    tocan ambas, el candado bruto > tara se mira con los números
-        //    nuevos, no con los viejos.
+        //    traen peso — con UNA excepción (28-sep-2026, a pedido): a un
+        //    viaje CARGADO A MANO sin peso se le puede AGREGAR, porque la
+        //    oficina lo cuadra con el papel de la romana en la mano. A uno
+        //    del patio sin peso se le sigue sin inventar. El neto lo
+        //    recalcula la base sola, y las dos correcciones se validan ENTRE
+        //    SÍ: tocadas ambas, el candado bruto > tara mira los números nuevos.
+        const agregandoPeso = row.origen === 'manual' && row.pesoBrutoKg == null;
+        if (agregandoPeso && (editing.peso.trim() !== '' || editing.tara.trim() !== '')) {
+          const brutoNuevo = pesoTecleadoAKg(editing.peso, 'kg');
+          const taraNueva = pesoTecleadoAKg(editing.tara, 'kg');
+          if (!(brutoNuevo > 0) || !(taraNueva > 0)) {
+            toast.error('Para agregarle el peso van LOS DOS números: bruto y tara (en Kg).'); return;
+          }
+          if (brutoNuevo <= taraNueva) {
+            toast.error(`El bruto (${kgTexto(brutoNuevo)}) tiene que superar la tara (${kgTexto(taraNueva)}).`); return;
+          }
+          cambios.pesoBrutoKg = brutoNuevo;
+          cambios.pesoTaraKg = taraNueva;
+          // La tecleó una persona: misma marca «✍️ tara manual» del registro.
+          cambios.taraManual = true;
+          cambios.taraManualNombre = listeroName || null;
+          queCambio.push(`peso agregado: bruto ${kgTexto(brutoNuevo)} · tara ${kgTexto(taraNueva)}`);
+        }
         const taraFinal = row.pesoTaraKg != null && editing.tara.trim() !== ''
           ? pesoTecleadoAKg(editing.tara, 'kg') : row.pesoTaraKg;
         if (row.pesoBrutoKg != null && editing.peso.trim() !== '') {
@@ -1690,6 +1712,13 @@ export default function ViajesCamionesScreen() {
   const [cargaMM, setCargaMM] = useState('00');
   const [cargaCantidad, setCargaCantidad] = useState('1');
   const [cargaChofer, setCargaChofer] = useState('');
+  // ⚖️ PESO EN LA CARGA MANUAL (28-sep-2026, a pedido). OPCIONAL: vacío, el
+  // viaje entra sin peso como siempre. Solo con UN viaje por carga: la tanda
+  // separa varios a 5 minutos y un mismo bruto repetido en todos sería
+  // inventar la romana. Sin foto: nadie la tomó, y el sistema no la finge.
+  const [cargaBrutoTexto, setCargaBrutoTexto] = useState('');
+  const [cargaTaraTexto, setCargaTaraTexto] = useState('');
+  const [cargaPesoUnidad, setCargaPesoUnidad] = useState<UnidadPeso>('kg');
   const [cargaListeroId, setCargaListeroId] = useState<string>('');
   /** CDT de la carga manual. '' = el del listero a cuyo nombre queda (lo de antes). */
   const [cargaUbicacionId, setCargaUbicacionId] = useState<string>('');
@@ -1746,6 +1775,24 @@ export default function ViajesCamionesScreen() {
       if (!cargaTruck) { toast.error('Ese camión ya no está en la lista. Refresca la pantalla.'); return; }
       if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
 
+      // ⚖️ EL PESO DE LA CARGA MANUAL (28-sep-2026). Opcional; con reglas:
+      // ambos números o ninguno (el neto no existe a medias), bruto > tara
+      // (mismo candado de la base), y UN solo viaje por carga — un mismo
+      // bruto repetido en una tanda sería inventar la romana.
+      const cargaBrutoKg = pesoTecleadoAKg(cargaBrutoTexto, cargaPesoUnidad);
+      const taraCatCarga = taras.get(cargaTruck.id)?.pesoTaraKg ?? null;
+      const taraTecleada = cargaTaraTexto.trim() !== '';
+      const cargaTaraKg = taraTecleada ? pesoTecleadoAKg(cargaTaraTexto, cargaPesoUnidad) : (taraCatCarga ?? 0);
+      const conPeso = cargaBrutoKg > 0;
+      if (!conPeso && taraTecleada) { toast.error('Tecleaste la tara pero falta el peso bruto: van juntos, o ninguno.'); return; }
+      if (conPeso) {
+        if (cantidad !== 1) { toast.error('El peso va en UN viaje por carga: cada viaje tiene su propia romana. Carga los demás aparte, cada uno con su peso.'); return; }
+        if (!(cargaTaraKg > 0)) { toast.error('Este camión no tiene tara cargada: teclea también la tara para poder poner el peso.'); return; }
+        if (cargaBrutoKg <= cargaTaraKg) { toast.error(`El bruto (${kgTexto(cargaBrutoKg)}) no supera la tara (${kgTexto(cargaTaraKg)}): el peso a pagar saldría en cero o negativo.`); return; }
+      }
+      // La tara es «manual» si la tecleó la oficina o si el catálogo no tenía.
+      const cargaTaraManual = conPeso && (taraTecleada || taraCatCarga == null);
+
       // Por defecto el viaje queda a nombre de quien lo carga. Se puede atribuir a
       // otro listero para que el resumen por listero siga diciendo la verdad.
       const listero = listeros.find((l) => l.id === cargaListeroId) ?? { id: uid, full_name: listeroName };
@@ -1775,7 +1822,9 @@ export default function ViajesCamionesScreen() {
           `Se van a agregar ${cantidad} viaje(s) al camión ${cargaTruck.code} el ${dmy(cargaFecha)}, ` +
           `desde las ${pad2(hh)}:${pad2(mm)}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}` +
           `${turnos.length === 1 ? ` (turno de ${TURNO_NOMBRE[turnoElegido].toLowerCase()})` : ''}, ` +
-          `a nombre de ${listero.full_name}, en ${obraCarga.ubicacionNombre ? `el CDT «${obraCarga.ubicacionNombre}»` : 'ningún CDT (sin ubicación)'}.\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
+          `a nombre de ${listero.full_name}, en ${obraCarga.ubicacionNombre ? `el CDT «${obraCarga.ubicacionNombre}»` : 'ningún CDT (sin ubicación)'}.` +
+          (conPeso ? `\n\n⚖️ Con peso: bruto ${kgTexto(cargaBrutoKg)} − tara ${kgTexto(cargaTaraKg)} = a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}${cargaTaraManual ? ' (tara tecleada a mano)' : ' (tara del catálogo)'}. Sin foto: la carga manual no la finge.` : '') +
+          `\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
         confirmText: 'Cargar',
       });
       if (!ok) return;
@@ -1800,6 +1849,12 @@ export default function ViajesCamionesScreen() {
           estadoMaquina: null,
           note: nota,
           origen: 'manual',
+          // ⚖️ El peso, si lo trajeron del papel de la romana (28-sep-2026).
+          //    Nulls = sin peso, como siempre fue la carga manual. Sin foto.
+          pesoBrutoKg: conPeso ? cargaBrutoKg : null,
+          pesoTaraKg: conPeso ? cargaTaraKg : null,
+          taraManual: cargaTaraManual,
+          taraManualNombre: cargaTaraManual ? (fullName || listeroName || null) : null,
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
@@ -1879,9 +1934,12 @@ export default function ViajesCamionesScreen() {
         toast.success(`Esos ${yaEstaban} viaje(s) ya estaban cargados. No se duplicó ninguno.`);
         setCargaCantidad('1');
       } else {
-        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}.`);
+        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}${conPeso ? ` · a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}` : ''}.`);
         setCargaCantidad('1');
       }
+      // El peso es de ESE viaje: no puede quedar esperando a la próxima carga.
+      setCargaBrutoTexto('');
+      setCargaTaraTexto('');
       loadRangeRows();
       loadResumen();
     } finally {
@@ -3469,9 +3527,11 @@ export default function ViajesCamionesScreen() {
                 </View>
                 {/* ⚖️ El BRUTO se puede corregir (26-sep) y la TARA también
                     (27-sep, pedido: «por si cargaron mal la tara»). Solo en
-                    viajes que ya traen peso: a uno viejo no se le inventa.
-                    El peso a pagar lo recalcula la base sola. */}
-                {row.pesoBrutoKg != null ? (
+                    viajes que ya traen peso — y desde el 28-sep, también en
+                    los CARGADOS A MANO sin peso, para AGREGÁRSELO (la oficina
+                    lo cuadra con el papel de la romana; a uno del patio sin
+                    peso se le sigue sin inventar). La base recalcula el neto. */}
+                {row.pesoBrutoKg != null || row.origen === 'manual' ? (
                   <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>PESO BRUTO (KG)</Text>
@@ -3484,7 +3544,7 @@ export default function ViajesCamionesScreen() {
                         style={[styles.input]}
                       />
                     </View>
-                    {row.pesoTaraKg != null ? (
+                    {row.pesoTaraKg != null || row.origen === 'manual' ? (
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>TARA DE ESTE VIAJE (KG)</Text>
                         <TextInput
@@ -3502,6 +3562,10 @@ export default function ViajesCamionesScreen() {
                 {row.pesoBrutoKg != null ? (
                   <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: -4 }}>
                     Corregir la tara es solo para cuando LA CARGARON MAL en este viaje: el peso a pagar se recalcula solo y el cambio queda en Auditoría. La tara del catálogo del camión no se toca desde acá.
+                  </Text>
+                ) : row.origen === 'manual' ? (
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: -4 }}>
+                    Este viaje fue CARGADO A MANO y no trae peso: puedes agregárselo (bruto y tara juntos, en Kg). El peso a pagar lo calcula la base, la tara queda ✍️ manual con tu nombre, y todo va a Auditoría.
                   </Text>
                 ) : null}
                 {/* 🧾 Corregir el TIPO — por si el listero marcó mal el cruce.
@@ -4293,6 +4357,50 @@ export default function ViajesCamionesScreen() {
               placeholderTextColor={colors.muted}
               style={[styles.input]}
             />
+
+            {/* ⚖️ EL PESO DE ROMANA, OPCIONAL (28-sep-2026, a pedido): para
+                cuadrar un viaje con el papel de la romana en la mano. Vacío =
+                sin peso, como siempre. Solo con UN viaje por carga y sin foto. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm, marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>⚖️ PESO DE ROMANA (OPCIONAL)</Text>
+              {UNIDADES_PESO.map((u) => (
+                <TouchableOpacity
+                  key={`cu-${u.k}`}
+                  onPress={() => setCargaPesoUnidad(u.k)}
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: cargaPesoUnidad === u.k ? colors.primary : colors.border, backgroundColor: cargaPesoUnidad === u.k ? colors.primary : 'transparent' }}
+                >
+                  <Text style={{ color: cargaPesoUnidad === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  value={cargaBrutoTexto}
+                  onChangeText={setCargaBrutoTexto}
+                  keyboardType="numeric"
+                  placeholder={`Bruto (${cargaPesoUnidad === 'kg' ? 'Kg' : 'Ton'})`}
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input]}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  value={cargaTaraTexto}
+                  onChangeText={setCargaTaraTexto}
+                  keyboardType="numeric"
+                  placeholder={`Tara (${cargaPesoUnidad === 'kg' ? 'Kg' : 'Ton'})`}
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input]}
+                />
+              </View>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+              {cargaTruck && taras.get(cargaTruck.id)?.pesoTaraKg != null
+                ? `Tara de esta placa en el catálogo: ${kgTexto(taras.get(cargaTruck.id)!.pesoTaraKg!)} — se usa si dejas la tara vacía; tecleada, queda ✍️ manual.`
+                : 'Este camión no tiene tara en el catálogo: si pones bruto, teclea también la tara (queda ✍️ manual).'}
+              {' '}Vacío = el viaje entra sin peso, como siempre. Solo con 1 viaje por carga, y sin foto (nadie la tomó).
+            </Text>
 
             {listeros.length > 0 ? (
               <>
