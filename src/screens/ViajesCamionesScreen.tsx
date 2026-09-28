@@ -2177,6 +2177,11 @@ export default function ViajesCamionesScreen() {
   // Texto escrito que NO es una hora: se avisa y NO filtra — filtrar con una
   // hora a medio teclear vaciaría la lista sin explicación.
   const horaMalEscrita = (horaDesdeTxt.trim() !== '' && horaDesde === null) || (horaHastaTxt.trim() !== '' && horaHasta === null);
+  // ⛏️ DEJAR FUERA LOS VIAJES SIN FRENTE (28-sep-2026, a pedido). Es un FILTRO,
+  // no una opción de columna: cambia QUÉ viajes entran y por tanto el total —
+  // por eso vive acá con los filtros y no en «Qué sale en el reporte», que
+  // promete que el total no se mueve. El papel lo dice en su encabezado.
+  const [soloConFrente, setSoloConFrente] = useState(false);
   // ⚠️ Map id→ETIQUETA, no Set: hace falta el nombre para poder dibujar el chip
   //    de un filtro que quedó marcado y que en el rango de HOY ya no aparece en
   //    ningún viaje. Con un Set ese chip desaparecía, la lista salía vacía y no
@@ -2290,8 +2295,11 @@ export default function ViajesCamionesScreen() {
   // consulta lo guardado por rango de fechas — ponerle la franja ahí mentiría).
   const etiquetaRangoConHoras = useMemo(() => {
     const horas = textoRangoHoras(horaDesde, horaHasta);
-    return horas ? `${etiquetaRango} · ⏱️ ${horas}` : etiquetaRango;
-  }, [etiquetaRango, horaDesde, horaHasta]);
+    // ⚠️ El aviso del frente va en la MISMA etiqueta que el papel imprime: un
+    // reporte al que se le sacaron viajes no puede leerse como el completo.
+    const conFrente = soloConFrente ? ' · ⛏️ SOLO viajes con frente' : '';
+    return `${horas ? `${etiquetaRango} · ⏱️ ${horas}` : etiquetaRango}${conFrente}`;
+  }, [etiquetaRango, horaDesde, horaHasta, soloConFrente]);
 
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeMissing, setRangeMissing] = useState(false);
@@ -2334,7 +2342,7 @@ export default function ViajesCamionesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canFull, desdeISO, hastaExclusivoISO, rangoInvalido, sinDiasMarcados]);
 
-  const dateScopedRows = useMemo(() => {
+  const dateScopedRowsConSinFrente = useMemo(() => {
     // Sin ningún día marcado no hay nada que mostrar. Devolver el rango entero
     // (que por defecto es HOY) haría pasar la jornada de hoy por «los días que
     // elegiste», y de ahí a un reporte con la fecha equivocada hay un paso.
@@ -2353,6 +2361,18 @@ export default function ViajesCamionesScreen() {
       return pasaRangoHoras(p.hour * 60 + p.minute, horaDesde, horaHasta);
     });
   }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado, horasActivas, horaDesde, horaHasta]);
+
+  /** ⛏️ ¿Este viaje trae frente? El id manda, y el NOMBRE congelado vale de
+   *  repuesto: si el frente se borró del catálogo el viaje conserva su nombre y
+   *  sigue siendo un viaje CON frente (misma regla que la obra). */
+  const tieneFrente = (r: CamionViajeRow) => !!r.frenteId || String(r.frenteNombre ?? '').trim() !== '';
+  /** Cuántos viajes dejaría fuera la casilla, para decirlo ANTES de marcarla. */
+  const viajesSinFrente = useMemo(() => dateScopedRowsConSinFrente.filter((r) => !tieneFrente(r)).length, [dateScopedRowsConSinFrente]);
+  /** Lo que de verdad alimenta chips, lista, resumen y PDF. */
+  const dateScopedRows = useMemo(
+    () => (soloConFrente ? dateScopedRowsConSinFrente.filter(tieneFrente) : dateScopedRowsConSinFrente),
+    [dateScopedRowsConSinFrente, soloConFrente],
+  );
 
   // ── CUÁNTOS VIAJES TIENE YA ESE CAMIÓN EN ESA JORNADA (02-sep-2026) ───────
   //
@@ -4833,6 +4853,29 @@ export default function ViajesCamionesScreen() {
               )}
             </View>
 
+            {/* ⛏️ SOLO LOS VIAJES CON FRENTE (28-sep-2026, a pedido). Va acá,
+                con los filtros, y NO en «Qué sale en el reporte»: esa caja
+                promete que el total no se mueve, y esto SACA viajes. */}
+            <TouchableOpacity
+              onPress={() => setSoloConFrente((v) => !v)}
+              activeOpacity={0.7}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm }}
+            >
+              <Text style={{ fontSize: 15 }}>{soloConFrente ? '☑️' : '⬜'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>
+                  ⛏️ No mostrar los viajes SIN frente
+                </Text>
+                <Text style={{ color: soloConFrente ? colors.warning : colors.muted, fontSize: 10.5 }}>
+                  {soloConFrente
+                    ? '⚠️ El reporte está FILTRADO: su total no es el de todos los viajes del rango. El PDF lo dice en el encabezado.'
+                    : viajesSinFrente > 0
+                      ? `Marcándola dejarías fuera ${viajesSinFrente} viaje(s) que no tienen frente.`
+                      : 'Todos los viajes del rango tienen frente: marcarla no cambiaría nada.'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
             {/* ⭐ BUSCADOR DE FILTROS. Con treinta camiones que se llaman todos
                 "CAMION VOLTEO TORONTO", buscar a ojo no es viable: acá se
                 escribe la placa (o el listero, o la empresa) y quedan las que
@@ -5009,11 +5052,11 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || horaDesdeTxt || horaHastaTxt) ? (
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
               /* «Limpiar filtros» limpia TAMBIÉN la franja de horas: es un filtro
                  más, y dejarlo puesto tras «limpiar» sería la trampa del filtro
                  invisible otra vez (28-sep-2026). */
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -5111,6 +5154,8 @@ export default function ViajesCamionesScreen() {
                     ? `⚠️ No se pudieron cargar los viajes (${motivoLegible(rangeError)}). NO exportes el reporte hasta resolverlo: saldría incompleto.`
                     : filtrosSobrantes.length > 0
                       ? `Sin viajes: hay filtros marcados que no aparecen en este rango (${filtrosSobrantes.map((f) => ICONO_EJE[f.eje] + f.label).join(', ')}). Toca «✕ Limpiar filtros» o desmárcalos.`
+                      : soloConFrente && dateScopedRowsConSinFrente.length > 0
+                        ? 'Sin viajes: la casilla «⛏️ No mostrar los viajes SIN frente» dejó fuera todos los del rango. Desmárcala, o asígnales frente en ⚙️ Obras y ubicaciones.'
                       : horasActivas
                         // La franja horaria también puede ser la que vacía la lista —
                         // y como es un campo y no una pastilla, se olvida fácil.

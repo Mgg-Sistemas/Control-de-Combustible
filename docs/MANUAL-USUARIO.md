@@ -6063,6 +6063,13 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
   eje **«⛏️ Frente de trabajo»** para agrupar el PDF. **Agrupar por frente no mueve un centavo**:
   solo parte y rotula distinto.
 
+  > **☑️ «No mostrar los viajes SIN frente» (28/09/2026, a pedido):** la casilla está **con los
+  > filtros** (debajo de la ⏱️ franja de horas), **no** en «Qué sale en el reporte» — porque esta
+  > sí **saca viajes y mueve el total**, y esa caja promete lo contrario. Antes de marcarla te
+  > dice **cuántos viajes dejaría fuera**; marcada, el **encabezado del PDF avisa** «⛏️ SOLO
+  > viajes con frente» para que el papel no se lea como el del rango completo. **«✕ Limpiar
+  > filtros» también la apaga.**
+
 #### 🏗️ Obras y ubicaciones (12/09/2026)
 
 Los listeros trabajan en **obras** distintas —*CDT Parque del Agua*, *SanteDubi*, *CDF*,
