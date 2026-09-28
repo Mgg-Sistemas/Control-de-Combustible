@@ -1718,6 +1718,22 @@ intervención**); el **registro fotográfico**; las **conclusiones**; y las **do
 >   lista de abajo. Al reimprimir, el **historial se vuelve a leer**: si se corrigió un costo mal
 >   cargado, el informe corregido es el que sale.
 
+**✏️🗑 Editar o eliminar un informe ya emitido (28-sep-2026).** En **«INFORMES YA EMITIDOS»**, cada
+informe trae ahora —solo con **permiso de escritura**— los botones **✏️ Editar** y **🗑 Eliminar**,
+además del **📄 Reimprimir** de siempre.
+
+- **✏️ Editar** carga en el formulario **todo lo que se guardó al emitirlo** (cabecera, período,
+  conclusiones y firmas). Corriges lo que haga falta y el botón de abajo pasa a decir
+  **«💾 Guardar cambios de IT-… y reimprimir»**: los cambios **pisan lo guardado** y la reimpresión
+  sale con el **MISMO número** — un IT-2026-003 corregido sigue siendo el IT-2026-003, nunca cambia
+  de correlativo. Cambiar de máquina a mitad de la edición **la cancela** (ese informe es de la otra
+  máquina).
+- **🗑 Eliminar** pregunta primero, en rojo, con las dos verdades en la cara: el PDF que ya se
+  entregó **no desaparece de las manos de nadie**, y si era el **último número del año**, el próximo
+  informe que se emita **sale con ese mismo número** (el correlativo es max+1 por año, como el folio
+  de la tiquetera).
+- Tanto la edición como el borrado **quedan anotados en 🕵️ Auditoría**.
+
 > **⚠️ Si los costos salen en CERO**, es porque los servicios no los tienen cargados: se cargan en
 > **📄 Informe técnico → «2b. Costos de cada intervención»**. Y si arriba de la pestaña aparece el
 > aviso **«Falta correr el SQL de costos»**, falta una actualización de la base de datos
