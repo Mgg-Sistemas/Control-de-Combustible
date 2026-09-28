@@ -14,6 +14,7 @@ import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
+import { fichaTecnicaMaquinaHtml, nombreArchivoFichaTecnica } from '../lib/fichaTecnicaMaquina';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
@@ -189,6 +190,13 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'oil_type', label: 'Ficha técnica · Tipo de aceite del motor (15W-40…)', type: 'suggest', table: 'machinery', column: 'oil_type' },
   { key: 'oil_capacity_l', label: 'Ficha técnica · Cantidad de aceite requerida (L)', type: 'number' },
   { key: 'oil_notes', label: 'Ficha técnica · Nota de lubricación (si no se mide en litros)', type: 'text' },
+  // PESO y DIMENSIONES — salen en el PDF «📄 Ficha técnica» (28-sep-2026). Son
+  // las MISMAS columnas que edita el módulo de Acarreo (haul): corregirlas aquí
+  // las corrige allá, a propósito — un solo peso por máquina, no dos verdades.
+  { key: 'weight_ton', label: 'Ficha técnica · Peso operativo (toneladas)', type: 'number' },
+  { key: 'length_m', label: 'Ficha técnica · Largo (m)', type: 'number' },
+  { key: 'width_m', label: 'Ficha técnica · Ancho (m)', type: 'number' },
+  { key: 'height_m', label: 'Ficha técnica · Alto (m)', type: 'number' },
   { key: 'con_tapa', label: '¿Tiene tapa?', type: 'switch' },
   { key: 'tapa_doble', label: '¿Doble tapa? (si no, es sencilla)', type: 'switch', showIf: (v) => v.con_tapa === 'true' },
 ];
@@ -259,7 +267,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [qrStr, setQrStr] = useState<string>('');
   const [qrBlockBusy, setQrBlockBusy] = useState(false);
   // Guardia / militar encargado actual por máquina (historial acumulable).
-  const { session, role } = useAuth();
+  const { session, role, fullName } = useAuth();
   // Los SUPERVISORES pueden iniciar jornada desde el catálogo (sin escanear el
   // QR) — y el ADMIN también (27-sep-2026, regla de la casa: admin = acceso a
   // todo; antes tenía que irse a la vista de inspector para lo mismo).
@@ -927,6 +935,34 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <div class="u">${url}</div>
       </body></html>`;
     await exportPdf(html, `Catálogo - QR ${qrFor.code}`);
+  };
+
+  // ── 📄 FICHA TÉCNICA de la máquina (28-sep-2026, pedido con el ejemplo XCMG
+  // XPE0912). Imprime lo que YA está cargado en el catálogo — lo vacío se omite
+  // en vez de salir en blanco (`fichaTecnicaMaquina.ts`). El estado en vivo es
+  // el MISMO que pinta las tarjetas (liveStatusOf), para que la ficha nunca
+  // contradiga a la pantalla.
+  const estadoParaFicha = (m: Machinery): string => {
+    if (m.operational === false) return '⬛ Retirada / no operativa';
+    if (m.en_espera) return '⏳ Esperando instrucciones';
+    const e = liveStatusOf(m.id).estado;
+    if (e === 'averiada') return '⚠️ Averiada (reparación pendiente)';
+    if (e === 'trabajando') return '✅ Operativa · trabajando ahora';
+    return '✅ Operativa';
+  };
+  const fichaTecnica = async (m: Machinery) => {
+    try {
+      const comp = (companies.data ?? []).find((c) => c.id === m.company_id);
+      const d = new Date();
+      const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const html = fichaTecnicaMaquinaHtml(
+        { ...m, companyName: comp?.name ?? null, companyRif: (comp as any)?.rif ?? null },
+        { estado: estadoParaFicha(m), fecha: hoy, emitidoPor: fullName ?? null }
+      );
+      await exportPdf(html, nombreArchivoFichaTecnica(m));
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo generar la ficha técnica.');
+    }
   };
 
   const openFuel = async (m: Machinery) => {
@@ -1640,6 +1676,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
         <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
+        <BigBtn label="📄 Ficha técnica" onPress={() => fichaTecnica(m)} color="#B45309" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
         {/* Esperando instrucciones: máquina cargada en el sistema pero SIN decidir aún si
