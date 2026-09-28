@@ -268,12 +268,25 @@ export type OpcionesReporte = {
   /** En qué OBRA se registró el viaje (la que tenía el listero ese día). */
   ubicacion: boolean;
   /**
-   * PESO DE ROMANA (26-sep-2026). En el detallado: columnas bruto, tara y
-   * neto de cada viaje. En el resumido: la columna «Peso a pagar» con la suma
-   * de los netos de sus viajes. Los viajes anteriores al peso salen con raya.
+   * PESO DE ROMANA (26-sep-2026; partido en TRES el 28-sep-2026, a pedido:
+   * cada renglón del peso con su propio interruptor). En el detallado cada
+   * uno es su columna; en el resumido solo existe «Peso a pagar» (bruto y
+   * tara son de cada viaje, no de un camión) y lo enciende `pesoNeto`. Los
+   * viajes anteriores al peso salen con raya.
    */
-  peso: boolean;
+  pesoBruto: boolean;
+  pesoTara: boolean;
+  pesoNeto: boolean;
 };
+
+/**
+ * QUÉ LOGOS LLEVA EL MEMBRETE del reporte de viajes (28-sep-2026, a pedido).
+ * Por defecto = como salía siempre este papel (BCV + SOS La Guaira): quien no
+ * toque nada saca el mismo PDF de ayer. Mismo criterio que el conteo de
+ * equipos y el horómetro: cada papel tiene su propia memoria de logos.
+ */
+export type LogosReporte = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean };
+export const LOGOS_POR_DEFECTO: LogosReporte = { bcv: true, sos: true, golden: false, renace: false };
 
 /**
  * ⚠️ EL VALOR POR DEFECTO REPRODUCE EL REPORTE DE SIEMPRE, COLUMNA POR COLUMNA.
@@ -299,8 +312,10 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   empresa: true,
   // APAGADA porque es nueva. Quien no la encienda saca el mismo papel de ayer.
   ubicacion: false,
-  // APAGADA por lo mismo: el peso es del 26-sep-2026 y lo enciende quien lo pida.
-  peso: false,
+  // APAGADOS por lo mismo: el peso es del 26-sep-2026 y lo enciende quien lo pida.
+  pesoBruto: false,
+  pesoTara: false,
+  pesoNeto: false,
 };
 
 export type ColSpec = { key: string; head: string; num?: boolean };
@@ -315,7 +330,11 @@ export type ColSpec = { key: string; head: string; num?: boolean };
  * porque su valor ya está en el encabezado del grupo y repetirlo en cada fila
  * solo gasta ancho de página.
  */
-export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
+/** El rótulo de la unidad en los encabezados del peso: Kg de siempre, o Ton si
+ *  el reporte se pidió en toneladas (28-sep-2026). Solo texto: el dato es kilos. */
+const U = (unidad: 'kg' | 't') => (unidad === 't' ? 'Ton' : 'Kg');
+
+export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [
     { key: 'fecha', head: 'Fecha' },
     { key: 'hora', head: 'Hora' },
@@ -327,12 +346,10 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });
   if (op.m3) c.push({ key: 'm3', head: 'm³', num: true });
-  if (op.peso) {
-    // Los tres del papel de romana, con los nombres del ticket de muestra.
-    c.push({ key: 'pesoBruto', head: 'P. entrada (Kg)', num: true });
-    c.push({ key: 'pesoTara', head: 'P. salida (Kg)', num: true });
-    c.push({ key: 'pesoNeto', head: 'P. a pagar (Kg)', num: true });
-  }
+  // Los tres del papel de romana, cada uno con su interruptor (28-sep-2026).
+  if (op.pesoBruto) c.push({ key: 'pesoBruto', head: `P. entrada (${U(unidad)})`, num: true });
+  if (op.pesoTara) c.push({ key: 'pesoTara', head: `P. salida (${U(unidad)})`, num: true });
+  if (op.pesoNeto) c.push({ key: 'pesoNeto', head: `P. a pagar (${U(unidad)})`, num: true });
   if (op.clasificacion) c.push({ key: 'clase', head: 'Clasificación' });
   if (op.chofer) c.push({ key: 'chofer', head: 'Chofer' });
   if (op.listero) c.push({ key: 'listero', head: 'Listero' });
@@ -343,7 +360,7 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
 
 /** Columnas del reporte RESUMIDO (una línea por camión). Apagar «viajes» deja
  *  el reporte puramente volumétrico: camión, medida y m³. */
-export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
+export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [{ key: 'camion', head: 'Camión' }];
   // La columna del EJE no va: su valor ya está en el encabezado del grupo. Por
   // eso agrupando por empresa —que es como se abre— el resumido sale idéntico a
@@ -370,7 +387,7 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   if (op.m3) c.push({ key: 'm3', head: 'm³', num: true });
   // En el resumido cada fila es un CAMIÓN: bruto y tara por fila no significan
   // nada (son de cada viaje); lo que se resume es lo que se paga.
-  if (op.peso) c.push({ key: 'pesoNeto', head: 'Peso a pagar (Kg)', num: true });
+  if (op.pesoNeto) c.push({ key: 'pesoNeto', head: `Peso a pagar (${U(unidad)})`, num: true });
   return c;
 }
 
@@ -379,7 +396,7 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
  *  interruptores — este papel no lleva ninguna cantidad.
  *  Lleva un Nº de renglón para poder cantar la lista. */
 export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
-  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, peso: false }, eje)];
+  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, pesoBruto: false, pesoTara: false, pesoNeto: false }, eje)];
 }
 
 /**
@@ -390,8 +407,9 @@ export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero'
  * mejor decirlo antes de generarlo que entregar la hoja vacía.
  */
 export function reporteSinCifras(op: OpcionesReporte, modoResumen: boolean): boolean {
-  // El peso también es una cifra: con él encendido el resumido sí dice algo.
-  return modoResumen && !op.viajes && !op.m3 && !op.peso;
+  // El peso también es una cifra — en el resumido la única que existe es el
+  // «Peso a pagar», así que solo pesoNeto cuenta acá.
+  return modoResumen && !op.viajes && !op.m3 && !op.pesoNeto;
 }
 
 /** Toma los valores de una fila en el ORDEN de las columnas visibles. El que

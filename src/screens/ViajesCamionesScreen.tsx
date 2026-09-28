@@ -44,7 +44,7 @@ import { CubicajeTab, OpcionesReporteBox, useCubicaje, type CamionCubicaje } fro
 import {
   repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen, columnasCamiones,
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
-  volumenConGuardado,
+  volumenConGuardado, LOGOS_POR_DEFECTO, type LogosReporte,
 } from '../lib/cubicaje';
 import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
@@ -99,7 +99,7 @@ import {
   type TipoViaje,
 } from '../lib/camionViajes';
 import {
-  pesoTecleadoAKg, kgTexto, kgTextoOpcional, netoDe, motivoPesoInvalido,
+  pesoTecleadoAKg, kgTexto, kgTextoOpcional, tonTexto, tonTextoOpcional, netoDe, motivoPesoInvalido,
   avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
 } from '../lib/viajesPeso';
 import { capturarFotoLocal, elegirFotoLocal } from '../lib/photo';
@@ -2048,6 +2048,12 @@ export default function ViajesCamionesScreen() {
   // 'camiones' = qué camiones salieron, SIN ninguna cantidad (14-sep-2026).
   const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen' | 'camiones'>('detallado');
   const soloCamiones = reporteModo === 'camiones';
+  // 🏷️ Qué logos lleva el membrete del PDF de viajes (28-sep-2026, a pedido).
+  // Arranca como salía siempre este papel (BCV + SOS); cada papel tiene su
+  // propia memoria de logos, igual que el conteo de equipos y el horómetro.
+  const [logosRep, setLogosRep] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
+  // ⚖️ En qué unidad salen los pesos del PDF: Kg de siempre, o toneladas.
+  const [pesoUnidadRep, setPesoUnidadRep] = useState<UnidadPeso>('kg');
   // Por cuál eje se parte el resumen (pedido del cliente 22-ago-2026: poder
   // sacarlo también por listero). Va APARTE del modo a propósito: "detallado vs
   // resumido" y "por empresa vs por listero" son dos preguntas distintas, y
@@ -2751,8 +2757,10 @@ export default function ViajesCamionesScreen() {
       // ── EL PESO DE ROMANA en el papel (26-sep-2026). Kilos que EXISTEN: los
       //    viajes sin peso (anteriores) no suman ni aparecen como cero. Un
       //    total en 0 se imprime como raya: «0,00 Kg» diría que se pesó nada.
-      const kgOpc = (n: number | null | undefined) => kgTextoOpcional(n) ?? '—';
-      const kgPie = (n: number) => (n > 0 ? kgTexto(n) : '—');
+      //    Desde el 28-sep el papel puede salir en TONELADAS (solo el texto:
+      //    el dato guardado y las sumas siguen en kilos).
+      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n) : kgTextoOpcional(n)) ?? '—';
+      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n) : kgTexto(n)) : '—');
       const netoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoNetoKg ?? 0), 0);
       const brutoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoBrutoKg ?? 0), 0);
       const taraDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoTaraKg ?? 0), 0);
@@ -2783,9 +2791,9 @@ export default function ViajesCamionesScreen() {
       //    rótulos. Si se partiera en dos plantillas, cualquier arreglo futuro
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
       // El eje decide qué columna sobra: la suya ya está en el encabezado del grupo.
-      const colsR = columnasResumen(op, resumenEje);
+      const colsR = columnasResumen(op, resumenEje, pesoUnidadRep);
       const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.peso ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}
+        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}
           ${op.viajes ? `<br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span>` : ''}</p>
         ${resumenViajes.empresas.map((e) => {
           const g3 = redondear(e.camiones.reduce((a, c) => a + m3Fila(c.key, c.viajes), 0));
@@ -2794,7 +2802,7 @@ export default function ViajesCamionesScreen() {
             `${e.camiones.length} camión(es)`,
             op.viajes ? `${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}` : null,
             op.m3 ? `${m3Texto(g3)} m³` : null,
-            op.peso ? `a pagar ${kgPie(e.netoKg)}` : null,
+            op.pesoNeto ? `a pagar ${kgPie(e.netoKg)}` : null,
           ].filter(Boolean).join(' · ');
           const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
             camion: c.code,
@@ -2847,7 +2855,7 @@ export default function ViajesCamionesScreen() {
       //    después el detallado SIN la columna Obra (la librería la omite porque la da
       //    por puesta en el encabezado del grupo) y sin ningún encabezado que la dijera.
       const ejeD: EjeResumen = detalleEje === 'ninguno' ? 'empresa' : detalleEje;
-      const colsD = columnasDetalle(op, ejeD);
+      const colsD = columnasDetalle(op, ejeD, pesoUnidadRep);
       const filaD = (r: CamionViajeRow) => valoresEnOrden(colsD, {
         fecha: fmtFecha(r.registeredAt),
         hora: fmtHora(r.registeredAt),
@@ -2894,7 +2902,7 @@ export default function ViajesCamionesScreen() {
         }).join('')
         : tabla(colsD, filasD, pieD);
       const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.peso ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
         ${cuerpoD}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
@@ -2921,6 +2929,8 @@ export default function ViajesCamionesScreen() {
           h3{margin:14px 0 4px;font-size:13px;color:#16324F;border-bottom:2px solid #16324F;padding-bottom:2px}
           .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}`,
         body: soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
+        // 🏷️ Los logos que el usuario marcó para ESTE papel (28-sep-2026).
+        logos: logosRep,
       });
       // ⚠️ El nombre TIENE que decir por dónde se partió: dos PDF del mismo día
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
@@ -4875,7 +4885,17 @@ export default function ViajesCamionesScreen() {
             {/* Los interruptores van PEGADOS al botón de exportar, no en la otra
                 sub-pestaña: configurar en un sitio y exportar en otro es como se
                 quedan encendidos los filtros que nadie quería. */}
-            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo !== 'detallado'} soloCamiones={soloCamiones} aviso={avisoReporte} />
+            <OpcionesReporteBox
+              op={cub.op}
+              setOp={cub.setOp}
+              modoResumen={reporteModo !== 'detallado'}
+              soloCamiones={soloCamiones}
+              aviso={avisoReporte}
+              logos={logosRep}
+              setLogo={(k, v) => setLogosRep((p) => ({ ...p, [k]: v }))}
+              pesoUnidad={pesoUnidadRep}
+              setPesoUnidad={setPesoUnidadRep}
+            />
             {cub.op.m3 && diasDesactualizados > 0 ? (
               <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>
                 ⚠️ {diasDesactualizados} día(s) con m³ guardados tienen HOY otra cantidad de viajes que cuando se

@@ -108,7 +108,7 @@ ok('la lista de la pantalla pinta el encabezado de cada grupo', /gruposDetalle\s
 ok('...y sin agrupar sigue siendo la lista de siempre', /: filteredRangeRows\.map\(\(row\) => renderRow\(row, \{ canEdit: true, canDelete: true, showListero: true \}\)\)/.test(scr));
 
 // El PDF.
-ok('⭐ el PDF detallado usa SU eje, no el del resumido', /const ejeD: EjeResumen = detalleEje === 'ninguno' \? 'empresa' : detalleEje;\s*const colsD = columnasDetalle\(op, ejeD\);/.test(scr));
+ok('⭐ el PDF detallado usa SU eje, no el del resumido', /const ejeD: EjeResumen = detalleEje === 'ninguno' \? 'empresa' : detalleEje;\s*const colsD = columnasDetalle\(op, ejeD, pesoUnidadRep\);/.test(scr));
 // El margen era de 400 caracteres; el pie con los subtotales del peso de
 // romana (26-sep-2026) lo agrandó. Lo que se fija es la FORMA, no el tamaño.
 ok('...un título y una tabla por grupo, con su subtotal', /gruposDetalle\.map\(\(g\) => \{[\s\S]{0,900}<h3>\$\{icoD\} \$\{esc\(g\.name\)\} — \$\{g\.filas\.length\} viaje\(s\)<\/h3>\$\{tabla\(colsD, g\.filas\.map\(filaD\), pieG\)\}/.test(scr));

@@ -207,7 +207,9 @@ eq('apagar el conteo NO desarma el detallado',
 const todasLasClaves = Object.keys(OPCIONES_POR_DEFECTO);
 const todo = Object.fromEntries(todasLasClaves.map((k) => [k, true]));
 const nada = Object.fromEntries(todasLasClaves.map((k) => [k, false]));
-eq('hay 13 interruptores', todasLasClaves.length, 13);
+// 28-sep-2026: el peso se partió en TRES interruptores (bruto/tara/neto), a
+// pedido — de 13 pasamos a 15.
+eq('hay 15 interruptores', todasLasClaves.length, 15);
 eq('con todo encendido, el detallado lleva 17 columnas (con los 3 del peso)', columnasDetalle(todo).length, 17);
 eq('y el resumido 11 (con el peso a pagar)', columnasResumen(todo, 'listero').length, 11);
 // Fecha, hora y camión no se pueden quitar: sin ellas la línea no identifica
@@ -317,14 +319,16 @@ ok('...y la vista previa usa la MISMA', /volumenPorCamion\.get\(c\.key\)\?\.porV
 
 // El reporte se arma desde las columnas: si alguien vuelve a escribir los <th> a
 // mano, encabezado y celdas se desalinean sin que nada avise.
-ok('el PDF arma sus columnas con columnasDetalle', /columnasDetalle\(op, ejeD\)/.test(scrS));
-ok('y con columnasResumen', /columnasResumen\(op, resumenEje\)/.test(scrS));
+// Desde el 28-sep-2026 también viaja la UNIDAD del peso (Kg o Ton) para que
+// los encabezados digan lo que las celdas traen.
+ok('el PDF arma sus columnas con columnasDetalle', /columnasDetalle\(op, ejeD, pesoUnidadRep\)/.test(scrS));
+ok('y con columnasResumen', /columnasResumen\(op, resumenEje, pesoUnidadRep\)/.test(scrS));
 // Desde el 12-sep-2026 las columnas dependen también del EJE: la del eje no se
 // repite en cada fila porque ya está en el encabezado del grupo. Si el PDF
 // dejara de pasarlo, el resumido por empresa volvería a traer la empresa en
 // cada línea y el papel se ensancharía sin motivo.
 ok('...y les pasa el eje, no solo las opciones',
-  /columnasDetalle\(op, ejeD\)/.test(scrS) && /columnasResumen\(op, resumenEje\)/.test(scrS));
+  /columnasDetalle\(op, ejeD, pesoUnidadRep\)/.test(scrS) && /columnasResumen\(op, resumenEje, pesoUnidadRep\)/.test(scrS));
 ok('las celdas salen con valoresEnOrden', (scrS.match(/valoresEnOrden\(/g) ?? []).length >= 2);
 
 // El volumen se calcula sobre LO FILTRADO: si se calculara sobre el rango sin
@@ -523,7 +527,8 @@ const prev = scrS.slice(iniPrev, scrS.indexOf(") : reporteModo === 'resumen' ? (
 ok('solo camiones · la vista previa tampoco muestra viajes', iniPrev >= 0 && prev.length > 100 && !/c\.viajes|e\.total|resumenTurno|m3Texto/.test(prev));
 ok('solo camiones · el resumido ahora pone la empresa de cada camion', (scrS.match(/empresa: empresaDe\(c\.key\)/g) ?? []).length >= 2);
 const tabCam = sinComentarios(leer('src/components/CubicajeTab.tsx'));
-ok('solo camiones · las opciones esconden el conteo y los m³', /soloCamiones && \(f\.k === 'm3' \|\| f\.k === 'viajes' \|\| f\.k === 'peso'\)/.test(tabCam)
+ok('solo camiones · las opciones esconden el conteo, los m³ y los tres pesos',
+  /soloCamiones && \(f\.k === 'm3' \|\| f\.k === 'viajes' \|\| f\.k === 'pesoBruto' \|\| f\.k === 'pesoTara' \|\| f\.k === 'pesoNeto'\)/.test(tabCam)
   && /soloCamiones=\{soloCamiones\}/.test(scrS));
 ok('solo camiones · el manual .md lo explica', /Solo camiones \(sin cantidades\)\*\* \*\(14\/09\/2026\)\*/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin cantidades\) \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
