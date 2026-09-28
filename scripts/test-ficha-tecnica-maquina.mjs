@@ -137,6 +137,23 @@ const NADA = F.fichaTecnicaMaquinaHtml({});
 ok('una máquina sin nada lo dice, en vez de una tabla vacía',
   NADA.includes('no tiene características cargadas'));
 
+// ⭐ CON LOS COLORES DEL SISTEMA (pedido de la misma tarde): el azul marino de
+// todos los reportes (#16324F), no el negro/ámbar del documento de ejemplo.
+ok('⭐ la ficha usa el azul del sistema, no el negro/ámbar del ejemplo',
+  HTML.includes('#16324F') && !HTML.includes('#F59E0B') && !HTML.includes('#16181D'));
+
+// ⭐ La MISMA ficha sirve para un VEHÍCULO: tanque y km/L salen, y lo que un
+// vehículo no tiene (horómetro, aceite, tapa) no se inventa.
+const VEH = F.fichaTecnicaMaquinaHtml(
+  { code: 'CAMIONETA-01', marca: 'Toyota', modelo: 'Hilux', plate: 'A12BC3D',
+    tank_capacity_l: 80, expected_kml: 9.5 },
+  { estado: '✅ Activo', fallbackSubtitulo: 'Vehículo' });
+ok('⭐ vehículo: capacidad del tanque y rendimiento km/L salen en la tabla',
+  VEH.includes('Capacidad del tanque') && VEH.includes('80 L') && VEH.includes('9,5 km/L'));
+ok('vehículo sin clasificación dice «Vehículo» en la cabecera', VEH.includes('Vehículo'));
+ok('y sin horómetro no inventa horas ni próximo servicio',
+  !VEH.includes('HORAS DE TRABAJO') && !VEH.includes('PRÓXIMO SERVICIO'));
+
 // ⭐ Escape: marca, encargado y empresa los escribe el usuario.
 const RARO = F.fichaTecnicaMaquinaHtml({
   marca: '<script>alert(1)</script>', encargado: '<img src=x onerror=1>',
@@ -153,6 +170,12 @@ eq('sin código usa marca · modelo (limpio)',
 const scr = fs.readFileSync(path.join(ROOT, 'src/screens/EquiposScreen.tsx'), 'utf8');
 ok('la tarjeta de la máquina tiene el botón 📄 Ficha técnica',
   scr.includes('📄 Ficha técnica') && /onPress=\{\(\) => fichaTecnica\(m\)\}/.test(scr));
+// ⭐ Y TAMBIÉN en las listas que abren las tarjetas de estado (Operativas /
+// Averiadas / Esperando / Retiradas): una retirada sigue teniendo ficha.
+ok('⭐ el botón sale también en las listas por estado (dos apariciones)',
+  (scr.match(/onPress=\{\(\) => fichaTecnica\(m\)\}/g) ?? []).length >= 2);
+ok('⭐ los VEHÍCULOS también tienen su botón (misma ficha, subtítulo Vehículo)',
+  /onPress=\{\(\) => fichaTecnicaVeh\(v\)\}/.test(scr) && /fallbackSubtitulo: 'Vehículo'/.test(scr));
 ok('⭐ la ficha usa el MISMO estado en vivo que las tarjetas (liveStatusOf)',
   /estadoParaFicha[\s\S]*?liveStatusOf\(m\.id\)\.estado/.test(scr));
 ok('la ficha lleva la empresa CON su RIF',

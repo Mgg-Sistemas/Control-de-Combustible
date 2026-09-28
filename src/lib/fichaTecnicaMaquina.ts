@@ -2,10 +2,15 @@
 // 📄 FICHA TÉCNICA DE UNA MÁQUINA — el documento del Catálogo.
 //
 // Reproduce el formato que trajo el cliente («FICHA TÉCNICA — Trituradora de
-// Mandíbula Móvil XCMG XPE0912», 28-sep-2026): cabecera negra con el título en
-// ámbar, las tarjetas de ESTADO OPERATIVO ACTUAL, la tabla de ESPECIFICACIONES
-// TÉCNICAS PRINCIPALES, la foto del equipo en terreno y, en página aparte, el
-// ANEXO fotográfico con la foto de la placa/serial.
+// Mandíbula Móvil XCMG XPE0912», 28-sep-2026): cabecera con el título grande y
+// la insignia del equipo, las tarjetas de ESTADO OPERATIVO ACTUAL, la tabla de
+// ESPECIFICACIONES TÉCNICAS PRINCIPALES, la foto del equipo en terreno y, en
+// página aparte, el ANEXO fotográfico con la foto de la placa/serial — pero con
+// LOS COLORES DEL SISTEMA (el azul marino de todos los reportes, pedido de la
+// misma tarde), no el negro/ámbar del documento de ejemplo.
+//
+// Sirve para MAQUINARIA y para VEHÍCULOS: el tipo de entrada es el mismo y lo
+// que un vehículo no tiene (horómetro, aceite) simplemente no sale.
 //
 // TODO ESTE ARCHIVO ES PURO: no toca Supabase ni React. La pantalla del
 // Catálogo (`EquiposScreen`) trae la máquina ya cargada y acá solo se imprime —
@@ -43,6 +48,9 @@ export type MaquinaFichaTecnica = {
   expected_lph?: number | null; daily_consumption_l?: number | null;
   last_horometro?: number | null; horometro_base?: number | null;
   entry_date?: string | null;
+  // Campos de VEHÍCULO (la misma ficha sirve para los dos):
+  tank_capacity_l?: number | null;
+  expected_kml?: number | null;
 };
 
 export type OpcionesFichaTecnica = {
@@ -51,6 +59,9 @@ export type OpcionesFichaTecnica = {
   /** Pie: quién la emitió y cuándo (AAAA-MM-DD). Vacíos = sin pie. */
   emitidoPor?: string | null;
   fecha?: string | null;
+  /** Subtítulo cuando el equipo no tiene clasificación: «Maquinaria pesada»
+   *  (default) o «Vehículo». */
+  fallbackSubtitulo?: string | null;
 };
 
 /** «XCMG · XPE0912», o el tipo histórico combinado, o el código. Es el nombre
@@ -103,9 +114,11 @@ export function proximoServicioTexto(m: MaquinaFichaTecnica): string | null {
   return `${num(base + INTERVALO_PM_HORAS, 1)} h`;
 }
 
-const NEGRO = '#16181D';
-const AMBAR = '#F59E0B';
-const AMBAR_OSCURO = '#B45309';
+// LOS COLORES DEL SISTEMA: el mismo azul marino de todos los reportes (pdf.ts,
+// informe técnico) con sus celestes de apoyo — no el negro/ámbar del ejemplo.
+const NAVY = '#16324F';
+const CELESTE = '#EAF1FB';
+const BORDE = '#D7E3F4';
 
 /** Filas clave/valor de la tabla de especificaciones, saltando lo vacío. */
 function kv(pairs: [string, any][]): string {
@@ -124,7 +137,8 @@ function kv(pairs: [string, any][]): string {
  */
 export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFichaTecnica = {}): string {
   const nombre = nombreDeMaquina(m);
-  const subtitulo = String(m.clasificacion ?? '').trim() || String(m.tipo ?? '').trim() || 'Maquinaria pesada';
+  const subtitulo = String(m.clasificacion ?? '').trim() || String(m.tipo ?? '').trim()
+    || String(op.fallbackSubtitulo ?? '').trim() || 'Maquinaria pesada';
   const empresa = String(m.companyName ?? '').trim();
   const rif = String(m.companyRif ?? '').trim();
   const horas = m.last_horometro != null ? `${num(Number(m.last_horometro), 1)} h` : null;
@@ -142,7 +156,7 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     ['Fabricante / marca', m.marca],
     ['Modelo', m.modelo],
     ['Código en el sistema', m.code],
-    ['Clasificación', subtitulo !== 'Maquinaria pesada' ? subtitulo : null],
+    ['Clasificación', m.clasificacion],
     ['Número de identificación (serial / PIN)', m.serial],
     ['Placa', m.plate],
     ['Identificador', m.identifier],
@@ -156,6 +170,8 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
     ['Nota de lubricación', m.oil_notes],
     ['Tapa', tapaTexto(m)],
     ['Rendimiento esperado', m.expected_lph != null && Number(m.expected_lph) > 0 ? `${num(Number(m.expected_lph))} L/h` : null],
+    ['Rendimiento esperado (km/L)', m.expected_kml != null && Number(m.expected_kml) > 0 ? `${num(Number(m.expected_kml))} km/L` : null],
+    ['Capacidad del tanque', m.tank_capacity_l != null && Number(m.tank_capacity_l) > 0 ? `${num(Number(m.tank_capacity_l))} L` : null],
     ['Consumo diario de combustible', m.daily_consumption_l != null && Number(m.daily_consumption_l) > 0 ? `${num(Number(m.daily_consumption_l))} L` : null],
     ['Fecha de ingreso al sistema', m.entry_date ? dmy(m.entry_date) : null],
   ]);
@@ -169,29 +185,29 @@ export function fichaTecnicaMaquinaHtml(m: MaquinaFichaTecnica, op: OpcionesFich
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1a1c20;margin:0;font-size:11.5px;line-height:1.45}
 
-  .hd{background:${NEGRO};color:#fff;border-radius:10px;padding:16px 18px;display:flex;
+  .hd{background:${NAVY};color:#fff;border-radius:10px;padding:16px 18px;display:flex;
     align-items:center;justify-content:space-between;gap:14px}
-  .hd .t{color:${AMBAR};font-size:26px;font-weight:900;letter-spacing:.5px}
-  .hd .s{color:#B9BEC9;font-size:12px;margin-top:2px}
-  .hd .badge{background:${AMBAR};color:#1F2937;font-weight:900;font-size:13px;
+  .hd .t{color:#fff;font-size:26px;font-weight:900;letter-spacing:.5px}
+  .hd .s{color:#AFC4DB;font-size:12px;margin-top:2px}
+  .hd .badge{background:${CELESTE};color:${NAVY};font-weight:900;font-size:13px;
     padding:7px 14px;border-radius:8px;white-space:nowrap}
 
-  h2{font-size:13px;color:#111827;margin:16px 0 8px;padding-bottom:4px;
-    border-bottom:3px solid ${AMBAR};text-transform:uppercase;letter-spacing:.4px;page-break-after:avoid}
+  h2{font-size:13px;color:${NAVY};margin:16px 0 8px;padding-bottom:4px;
+    border-bottom:3px solid ${NAVY};text-transform:uppercase;letter-spacing:.4px;page-break-after:avoid}
 
   .cards{display:flex;gap:10px}
-  .card{flex:1;background:#FFF8EB;border:1px solid #F3D9A4;border-left:4px solid ${AMBAR};
+  .card{flex:1;background:${CELESTE};border:1px solid ${BORDE};border-left:4px solid ${NAVY};
     border-radius:8px;padding:10px 12px;text-align:center}
-  .card .ct{font-size:9.5px;font-weight:800;letter-spacing:.4px;color:#7C5A1E}
-  .card .cv{font-size:17px;font-weight:900;color:${AMBAR_OSCURO};margin-top:3px}
+  .card .ct{font-size:9.5px;font-weight:800;letter-spacing:.4px;color:#47617D}
+  .card .cv{font-size:17px;font-weight:900;color:${NAVY};margin-top:3px}
 
   table{border-collapse:collapse;width:100%}
-  table.ft td{border:1px solid #E5E7EB;padding:7px 11px;vertical-align:top;font-size:11.5px}
-  table.ft td.k{background:#F5F6F8;color:#374151;width:40%;font-weight:700}
-  table.ft tr:nth-child(even) td:not(.k){background:#FBFCFD}
+  table.ft td{border:1px solid ${BORDE};padding:7px 11px;vertical-align:top;font-size:11.5px}
+  table.ft td.k{background:${CELESTE};color:#334155;width:40%;font-weight:700}
+  table.ft tr:nth-child(even) td:not(.k){background:#F8FAFC}
 
   .foto{margin-top:14px;text-align:center;page-break-inside:avoid}
-  .foto img{max-width:100%;max-height:340px;border-radius:8px;border:1px solid #E5E7EB}
+  .foto img{max-width:100%;max-height:340px;border-radius:8px;border:1px solid ${BORDE}}
   .foto .cap{color:#6B7280;font-size:10px;margin-top:5px}
 
   .vacia{border:1px dashed #CBD5E1;border-radius:8px;padding:14px;text-align:center;
