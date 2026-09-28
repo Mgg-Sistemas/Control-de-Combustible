@@ -293,9 +293,12 @@ Otras cosas que puedes hacer en cada máquina:
 
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).
 
-**📄 Ficha técnica de cada máquina (28-sep-2026).** En la tarjeta de cada equipo del Catálogo
-está el botón **«📄 Ficha técnica»**: genera un PDF con el formato del documento del cliente —
-cabecera negra con el título en ámbar y la insignia **MARCA · MODELO**, las tarjetas de
+**📄 Ficha técnica de cada máquina (28-sep-2026).** En la tarjeta de cada equipo del Catálogo —
+y también en las **listas que abren las tarjetas de estado** (Operativas · Averiadas ·
+Esperando instrucciones · Retiradas), porque una máquina retirada o en espera **sigue teniendo
+ficha** — está el botón **«📄 Ficha técnica»**: genera un PDF con el formato del documento del
+cliente pero con **los colores del sistema** (el azul de todos los reportes) —
+cabecera azul con la insignia **MARCA · MODELO**, las tarjetas de
 **ESTADO OPERATIVO ACTUAL** (horas acumuladas del horómetro, estado en vivo —el **mismo** que
 pintan las tarjetas del Catálogo— y el próximo servicio a 250 h), la tabla de
 **ESPECIFICACIONES TÉCNICAS** (marca, modelo, serial/PIN, placa, identificador, peso,
@@ -309,6 +312,11 @@ la **foto del equipo en terreno** y, en **página aparte**, el **ANEXO FOTOGRÁF
 > PDF. Son los **mismos** del módulo de Acarreo: corregirlos aquí los corrige allá — un solo
 > peso por máquina, no dos verdades. La foto de la placa es la misma del botón
 > **«🔖 Foto serial/placa»**.
+
+**Los vehículos también:** la tarjeta de cada 🚗 vehículo tiene su mismo botón
+**«📄 Ficha técnica»** — sale con sus datos (marca, modelo, placa, serial, capacidad del
+tanque en L, rendimiento en km/L, empresa, encargado y sus fotos). Lo que un vehículo no
+tiene (horómetro, aceite, tapa) simplemente no sale.
 
 **📄 Reporte de CONTEO de equipos (desde el Catálogo), con todos los datos reales
 (05/08/2026):** sigue siendo **sin horas ni precios** (para eso está Control de maquinaria), pero
