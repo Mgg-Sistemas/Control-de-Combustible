@@ -264,9 +264,10 @@ eq('los tres interruptores existen y entran apagados',
   ok('con el peso a pagar encendido, el resumido SÍ tiene cifras',
     C.reporteSinCifras({ ...on, viajes: false, m3: false }, true) === false);
   // 🏷️ Los logos del membrete del reporte de viajes (28-sep-2026): de fábrica,
-  // como salía siempre este papel (BCV + SOS), y los otros dos apagados.
+  // como salía siempre este papel (BCV + SOS), y los demás apagados — incluido
+  // Jhenzaen 2.012 C.A, que entró la misma tarde («lo nuevo entra apagado»).
   eq('los logos de fábrica son los de siempre',
-    C.LOGOS_POR_DEFECTO, { bcv: true, sos: true, golden: false, renace: false });
+    C.LOGOS_POR_DEFECTO, { bcv: true, sos: true, golden: false, renace: false, jhenzaen: false });
 }
 
 // ── 12) LA PANTALLA: obligatorio, congelado y limpio ────────────────────────
@@ -319,11 +320,16 @@ ok('el PDF de viajes manda sus logos y su unidad',
   && /pesoUnidadRep === 't' \? tonTexto/.test(scr));
 ok('la caja de opciones ofrece logos y unidad',
   /logos=\{logosRep\}/.test(scr) && /pesoUnidad=\{pesoUnidadRep\}/.test(scr));
+ok('...y trae el check de Jhenzaen 2.012 C.A',
+  /\['jhenzaen', 'Jhenzaen 2\.012 C\.A'\]/.test(leer('src/components/CubicajeTab.tsx')));
 {
   const pdf = sinComentarios(leer('src/lib/pdf.ts'));
   ok('pdfDocument SIN logos sale como siempre (BCV y SOS encendidos por defecto)',
     /bcv: opts\.logos\?\.bcv \?\? true/.test(pdf) && /sos: opts\.logos\?\.sos \?\? true/.test(pdf)
-    && /golden: opts\.logos\?\.golden \?\? false/.test(pdf) && /renace: opts\.logos\?\.renace \?\? false/.test(pdf));
+    && /golden: opts\.logos\?\.golden \?\? false/.test(pdf) && /renace: opts\.logos\?\.renace \?\? false/.test(pdf)
+    && /jhenzaen: opts\.logos\?\.jhenzaen \?\? false/.test(pdf));
+  ok('el logo de Jhenzaen existe en el membrete con su rótulo, apagado de fábrica',
+    /JHENZAEN_LOGO_DATA_URI/.test(pdf) && /Jhenzaen 2\.012 C\.A/.test(pdf));
   // 📝 La marca en texto (28-sep-2026): SIN pasar `marcaTexto`, la línea de
   // empresa y el pie salen como siempre (los ~20 reportes no cambian); con
   // `marcaTexto: false` se apagan LOS DOS. Es interruptor, no borrado.

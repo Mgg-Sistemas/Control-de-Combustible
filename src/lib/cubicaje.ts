@@ -285,8 +285,8 @@ export type OpcionesReporte = {
  * toque nada saca el mismo PDF de ayer. Mismo criterio que el conteo de
  * equipos y el horómetro: cada papel tiene su propia memoria de logos.
  */
-export type LogosReporte = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean };
-export const LOGOS_POR_DEFECTO: LogosReporte = { bcv: true, sos: true, golden: false, renace: false };
+export type LogosReporte = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean; jhenzaen: boolean };
+export const LOGOS_POR_DEFECTO: LogosReporte = { bcv: true, sos: true, golden: false, renace: false, jhenzaen: false };
 
 /**
  * ⚠️ EL VALOR POR DEFECTO REPRODUCE EL REPORTE DE SIEMPRE, COLUMNA POR COLUMNA.
