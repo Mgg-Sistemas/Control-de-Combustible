@@ -166,6 +166,30 @@ eq('nombre de archivo usa el código', F.nombreArchivoFichaTecnica(XCMG), 'Ficha
 eq('sin código usa marca · modelo (limpio)',
   F.nombreArchivoFichaTecnica({ marca: 'XCMG', modelo: 'XPE0912' }), 'Ficha tecnica XCMG  XPE0912');
 
+// ⭐ La ÚLTIMA FOTO DEL HORÓMETRO (28-sep-2026) va al anexo, con su leyenda.
+const CON_HORO = F.fichaTecnicaMaquinaHtml({
+  code: 'EXC-01', fotoHorometroUrl: 'https://x/tablero.jpg',
+  fotoHorometroLeyenda: '27/09/2026 · final del turno día',
+});
+ok('⭐ la foto del horómetro sale en el anexo con su leyenda',
+  CON_HORO.includes('https://x/tablero.jpg')
+  && CON_HORO.includes('Última foto del horómetro subida')
+  && CON_HORO.includes('27/09/2026 · final del turno día'));
+ok('⭐ el anexo existe aunque no haya foto de placa (solo horómetro)',
+  CON_HORO.includes('ANEXO · REGISTRO FOTOGRÁFICO'));
+ok('sin foto de horómetro, la ficha no la nombra',
+  !HTML.includes('Última foto del horómetro'));
+
+// La búsqueda de esa foto (horometroTrabajoDb.ultimaFotoHorometro) mira las
+// TRES fuentes y es SOLO LECTURA — jamás escribe en la jornada.
+const hdb = fs.readFileSync(path.join(ROOT, 'src/lib/horometroTrabajoDb.ts'), 'utf8');
+const fnFoto = hdb.slice(hdb.indexOf('export async function ultimaFotoHorometro'));
+ok('⭐ mira lecturas, fotos adicionales y cierre de jornada',
+  /lecturas_horometro_trabajo/.test(fnFoto) && /horometro_fotos/.test(fnFoto)
+  && /machine_rounds/.test(fnFoto));
+ok('⭐ y es SOLO lectura: ni insert, ni update, ni upsert, ni delete',
+  fnFoto.length > 500 && !/\.insert\(|\.update\(|\.upsert\(|\.delete\(/.test(fnFoto));
+
 // ── 3) El botón del Catálogo ────────────────────────────────────────────────
 const scr = fs.readFileSync(path.join(ROOT, 'src/screens/EquiposScreen.tsx'), 'utf8');
 ok('la tarjeta de la máquina tiene el botón 📄 Ficha técnica',
@@ -180,6 +204,9 @@ ok('⭐ la ficha usa el MISMO estado en vivo que las tarjetas (liveStatusOf)',
   /estadoParaFicha[\s\S]*?liveStatusOf\(m\.id\)\.estado/.test(scr));
 ok('la ficha lleva la empresa CON su RIF',
   /fichaTecnica = async[\s\S]*?companyRif: \(comp as any\)\?\.rif \?\? null/.test(scr));
+ok('⭐ la ficha busca la última foto del horómetro antes de imprimir',
+  /const fotoHoro = await ultimaFotoHorometro\(m\.id\)/.test(scr)
+  && /fotoHorometroLeyenda: fotoHoro \? `\$\{fmtDMY\(fotoHoro\.roundDate\)\} · \$\{fotoHoro\.detalle\}` : null/.test(scr));
 ok('y se exporta con su nombre de archivo',
   /exportPdf\(html, nombreArchivoFichaTecnica\(m\)\)/.test(scr));
 // El peso y las medidas se pueden CARGAR desde el mismo Catálogo (✏️ Editar):

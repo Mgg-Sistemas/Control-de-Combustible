@@ -304,7 +304,10 @@ pintan las tarjetas del Catálogo— y el próximo servicio a 250 h), la tabla d
 **ESPECIFICACIONES TÉCNICAS** (marca, modelo, serial/PIN, placa, identificador, peso,
 dimensiones, empresa con su RIF, encargado, aceite del motor, tapa, rendimiento y consumo),
 la **foto del equipo en terreno** y, en **página aparte**, el **ANEXO FOTOGRÁFICO** con la
-🔖 foto de la placa/serial.
+🔖 foto de la placa/serial y la **última foto del horómetro subida** (28-sep-2026): el sistema
+la busca entre la foto de la **lectura del inspector**, las **fotos adicionales** del
+histórico y la del **cierre de jornada**, se queda con la más reciente y la imprime con su
+fecha y de qué turno era. Sin foto subida, la ficha sale sin ella.
 
 > **Lo vacío no sale:** un renglón sin dato se **omite** (no se imprime «—» ni se inventa).
 > Si a una máquina le falta el peso o las dimensiones, se cargan en su ficha con **✏️ Editar**
