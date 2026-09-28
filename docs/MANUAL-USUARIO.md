@@ -5237,7 +5237,8 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   pastilla **«⚖️ Los pesos del PDF en: Kg / Toneladas»** (solo cambia el texto — «32.540,00 Kg» o
 >   «32,540 Ton» — y el encabezado de la columna lo dice; el dato guardado sigue en kilos) y la
 >   sección **«🏷️ Qué logos lleva el membrete»** (BCV, SOS La Guaira, Golden Touch, Plan Venezuela
->   Renace; arranca como salía siempre: BCV + SOS). Sin tocar nada, el papel sale idéntico al de ayer.
+>   Renace y — desde el 28/09 — **Jhenzaen 2.012 C.A**; arranca como salía siempre: BCV + SOS, lo
+>   nuevo entra apagado). Sin tocar nada, el papel sale idéntico al de ayer.
 > - **Corregir un peso mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje.
 >   Desde el 27/09/2026 se pueden corregir **los dos**: el **bruto** y también la **tara de ese
 >   viaje** — para cuando la cargaron mal (antes había que borrar el viaje y recargarlo). El peso a

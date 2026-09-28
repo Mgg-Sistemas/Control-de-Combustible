@@ -5,6 +5,7 @@ import { LOGO_DATA_URI } from './logoData';
 import { BCV_LOGO_DATA_URI } from './logoBcvData';
 import { GOLDEN_TOUCH_LOGO_DATA_URI } from './logoGoldenTouchData';
 import { RENACE_LOGO_DATA_URI } from './logoRenaceData';
+import { JHENZAEN_LOGO_DATA_URI } from './logoJhenzaenData';
 import { COMPANY_NAME } from './company';
 
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
@@ -83,7 +84,7 @@ export function pdfDocument(opts: {
    * lo pasa (viajes de camiones) decide los suyos; Golden Touch y Renace se
    * suman a la izquierda cuando se piden.
    */
-  logos?: { bcv?: boolean; sos?: boolean; golden?: boolean; renace?: boolean };
+  logos?: { bcv?: boolean; sos?: boolean; golden?: boolean; renace?: boolean; jhenzaen?: boolean };
   /**
    * 📝 La MARCA EN TEXTO (28-sep-2026, pedido del cliente): la línea de empresa
    * «Banco Central de Venezuela / SOS La Guaira · Sistema de control interno» y
@@ -95,12 +96,13 @@ export function pdfDocument(opts: {
   marcaTexto?: boolean;
 }): string {
   const { title, subtitle = '', body, extraCss = '' } = opts;
-  const L = { bcv: opts.logos?.bcv ?? true, sos: opts.logos?.sos ?? true, golden: opts.logos?.golden ?? false, renace: opts.logos?.renace ?? false };
+  const L = { bcv: opts.logos?.bcv ?? true, sos: opts.logos?.sos ?? true, golden: opts.logos?.golden ?? false, renace: opts.logos?.renace ?? false, jhenzaen: opts.logos?.jhenzaen ?? false };
   const conMarca = opts.marcaTexto !== false;
   const izq = [
     L.bcv ? `<div class="logo-box"><img src="${BCV_LOGO_DATA_URI}"/><div class="logo-cap">Banco Central de Venezuela</div></div>` : '',
     L.golden ? `<div class="logo-box"><img src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="object-fit:contain;background:#fff"/><div class="logo-cap">Golden Touch</div></div>` : '',
     L.renace ? `<div class="logo-box"><img src="${RENACE_LOGO_DATA_URI}" style="object-fit:contain"/><div class="logo-cap">Plan Venezuela Renace</div></div>` : '',
+    L.jhenzaen ? `<div class="logo-box"><img src="${JHENZAEN_LOGO_DATA_URI}" style="object-fit:contain;background:#fff"/><div class="logo-cap">Jhenzaen 2.012 C.A</div></div>` : '',
   ].join('');
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
     <style>${PDF_BASE_CSS}${extraCss}</style></head><body>
