@@ -385,6 +385,33 @@ ok('⭐ el HTML del repuesto va escapado', !RARO.includes('<i>tuerca</i>'));
 eq('nombre de archivo lleva el equipo y el correlativo',
   I.nombreArchivoInforme({ code: 'JUMBO 320' }, 'IT-2026-001'), 'Informe tecnico JUMBO 320 IT-2026-001');
 
+// ── La pantalla: EDITAR y ELIMINAR informes emitidos (28-sep-2026) ──────────
+// Pedido del cliente: «que el histórico de esos informes se pueda modificar o
+// eliminar, porque solo me deja reimprimir». Candados sobre el fuente de la
+// pantalla: son las reglas que protegen el correlativo y el rastro.
+const scr = fs.readFileSync(path.join(ROOT, 'src/screens/InformeTecnicoTab.tsx'), 'utf8');
+
+ok('la pantalla puede EDITAR un informe emitido (abrirEdicion carga el formulario)',
+  /const abrirEdicion = \(e: Emitido\)/.test(scr) && /setEditando\(e\)/.test(scr));
+ok('⭐ guardar la edición hace UPDATE por id — nunca inserta uno nuevo',
+  /guardarEdicion[\s\S]*?\.update\(\{ \.\.\.payloadEditorial\(\), updated_at[\s\S]*?\.eq\('id', editando\.id\)/.test(scr));
+const mPayload = /const payloadEditorial = \(\) => \(\{([\s\S]*?)\}\);/.exec(scr);
+ok('⭐ el payload editorial NO lleva `code`: el correlativo del papel entregado no se pisa',
+  !!mPayload && !/\bcode\s*:/.test(mPayload[1]));
+ok('emitir usa el MISMO payload que editar (guardar distinto según el camino = reimpresiones distintas)',
+  /\.insert\(\{ machinery_id: maquinaId, \.\.\.payloadEditorial\(\), created_by: uid \}\)/.test(scr));
+ok('⭐ eliminar pide confirmación en rojo ANTES de borrar',
+  /const eliminar = async[\s\S]*?await confirm\(\{[\s\S]*?danger: true,[\s\S]*?\.delete\(\)\.eq\('id', e\.id\)/.test(scr));
+ok('y el aviso dice que el último número del año se reutiliza (correlativo max+1)',
+  scr.includes('el próximo informe saldrá con ese mismo número'));
+ok('editar y eliminar SOLO salen con permiso de escritura',
+  /\{canWrite \? \([\s\S]*?abrirEdicion\(e\)[\s\S]*?eliminar\(e\)/.test(scr));
+ok('cambiar de máquina a mitad de la edición la cancela (no se mezclan dos informes)',
+  /editando\.machinery_id !== maquinaId\) cancelarEdicion\(\)/.test(scr));
+ok('el botón del formulario cambia a «guardar cambios» durante la edición',
+  /editando \? guardarEdicion : emitir/.test(scr) && scr.includes('Guardar cambios de ${editando.code}'));
+ok('reimprimir sigue existiendo tal cual', /const reimprimir = async \(e: Emitido\)/.test(scr));
+
 // ── Resultado ───────────────────────────────────────────────────────────────
 console.log('\nINFORME TÉCNICO — costos, totales consolidados y documento\n');
 if (failures.length) console.log(failures.join('\n'));
