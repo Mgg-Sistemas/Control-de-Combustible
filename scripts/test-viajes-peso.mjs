@@ -228,22 +228,39 @@ eq('una config vieja guardada SIN las claves nuevas las recibe apagadas',
 
 // ── 11) LOS REPORTES: interruptor apagado = el papel de siempre ────────────
 const C = cargar('src/lib/cubicaje.ts');
-eq('el interruptor existe y entra apagado', C.OPCIONES_POR_DEFECTO.peso, false);
+// 28-sep-2026: el interruptor único se partió en TRES (bruto/tara/neto), a
+// pedido del cliente — cada renglón del peso se enciende por su cuenta.
+eq('los tres interruptores existen y entran apagados',
+  [C.OPCIONES_POR_DEFECTO.pesoBruto, C.OPCIONES_POR_DEFECTO.pesoTara, C.OPCIONES_POR_DEFECTO.pesoNeto],
+  [false, false, false]);
 {
   const off = { ...C.OPCIONES_POR_DEFECTO };
-  const on = { ...C.OPCIONES_POR_DEFECTO, peso: true };
-  ok('apagado, el detallado no tiene ni rastro del peso',
+  const on = { ...C.OPCIONES_POR_DEFECTO, pesoBruto: true, pesoTara: true, pesoNeto: true };
+  ok('apagados, el detallado no tiene ni rastro del peso',
     C.columnasDetalle(off).every((c) => !/peso/i.test(c.key)));
-  eq('⭐ encendido, el detallado suma las tres columnas del papel de muestra',
+  eq('⭐ los tres encendidos: el detallado suma las tres columnas del papel de muestra',
     C.columnasDetalle(on).filter((c) => /^peso/.test(c.key)).map((c) => c.head),
     ['P. entrada (Kg)', 'P. salida (Kg)', 'P. a pagar (Kg)']);
+  eq('cada uno enciende SOLO su columna',
+    C.columnasDetalle({ ...off, pesoTara: true }).filter((c) => /^peso/.test(c.key)).map((c) => c.key),
+    ['pesoTara']);
+  // ⚖️ En toneladas, el ENCABEZADO lo dice (28-sep-2026): celdas y título juntos.
+  eq('en toneladas el encabezado dice Ton',
+    C.columnasDetalle(on, 'empresa', 't').filter((c) => /^peso/.test(c.key)).map((c) => c.head),
+    ['P. entrada (Ton)', 'P. salida (Ton)', 'P. a pagar (Ton)']);
   eq('el resumido solo lleva el peso a pagar (bruto y tara son de cada viaje)',
     C.columnasResumen(on).filter((c) => /^peso/.test(c.key)).map((c) => c.head),
     ['Peso a pagar (Kg)']);
+  ok('...y bruto/tara solos NO le ponen columna al resumido',
+    C.columnasResumen({ ...off, pesoBruto: true, pesoTara: true }).every((c) => !/peso/i.test(c.key)));
   ok('«solo camiones» no lleva peso ni encendido (papel sin cantidades)',
     C.columnasCamiones(on).every((c) => !/peso/i.test(c.key)));
-  ok('con el peso encendido, el resumido SÍ tiene cifras',
+  ok('con el peso a pagar encendido, el resumido SÍ tiene cifras',
     C.reporteSinCifras({ ...on, viajes: false, m3: false }, true) === false);
+  // 🏷️ Los logos del membrete del reporte de viajes (28-sep-2026): de fábrica,
+  // como salía siempre este papel (BCV + SOS), y los otros dos apagados.
+  eq('los logos de fábrica son los de siempre',
+    C.LOGOS_POR_DEFECTO, { bcv: true, sos: true, golden: false, renace: false });
 }
 
 // ── 12) LA PANTALLA: obligatorio, congelado y limpio ────────────────────────
@@ -289,6 +306,19 @@ ok('cambiar la unidad bota lo tecleado sin guardar',
 // El papel imprime los pesos en la unidad elegida en 🎫 Qué sale en el ticket.
 ok('el ticket imprime con la unidad de la configuración',
   /pesosParaTique\(row, configTique\.pesosUnidad\)/.test(scr));
+// 🏷️⚖️ El PDF de la LISTA (28-sep-2026): logos elegidos + unidad Kg/Ton. Sin
+// tocar nada, mismo papel de siempre (pdf.ts defaultea BCV+SOS).
+ok('el PDF de viajes manda sus logos y su unidad',
+  /logos: logosRep,/.test(scr) && /pesoUnidadRep === 't' \? tonTextoOpcional/.test(scr)
+  && /pesoUnidadRep === 't' \? tonTexto/.test(scr));
+ok('la caja de opciones ofrece logos y unidad',
+  /logos=\{logosRep\}/.test(scr) && /pesoUnidad=\{pesoUnidadRep\}/.test(scr));
+{
+  const pdf = sinComentarios(leer('src/lib/pdf.ts'));
+  ok('pdfDocument SIN logos sale como siempre (BCV y SOS encendidos por defecto)',
+    /bcv: opts\.logos\?\.bcv \?\? true/.test(pdf) && /sos: opts\.logos\?\.sos \?\? true/.test(pdf)
+    && /golden: opts\.logos\?\.golden \?\? false/.test(pdf) && /renace: opts\.logos\?\.renace \?\? false/.test(pdf));
+}
 ok('quitar la tara PREGUNTA y explica lo congelado', /¿Quitar la tara de \$\{code\}\?/.test(scr) && /conservan la suya/.test(scr));
 // La pantalla ofrece los DOS campos (bruto y tara) en ✏️ Editar, y las dos
 // correcciones se validan ENTRE SÍ: tocadas ambas, el candado bruto > tara se
