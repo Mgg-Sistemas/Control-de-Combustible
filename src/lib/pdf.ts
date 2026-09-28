@@ -84,9 +84,19 @@ export function pdfDocument(opts: {
    * suman a la izquierda cuando se piden.
    */
   logos?: { bcv?: boolean; sos?: boolean; golden?: boolean; renace?: boolean };
+  /**
+   * 📝 La MARCA EN TEXTO (28-sep-2026, pedido del cliente): la línea de empresa
+   * «Banco Central de Venezuela / SOS La Guaira · Sistema de control interno» y
+   * el pie «… · Documento generado por el sistema de control interno». SIN
+   * pasarlo salen como siempre (los ~20 reportes que comparten este membrete no
+   * cambian en nada); los reportes de viajes de camiones lo apagan. No se borra
+   * del código: es un interruptor, como los logos.
+   */
+  marcaTexto?: boolean;
 }): string {
   const { title, subtitle = '', body, extraCss = '' } = opts;
   const L = { bcv: opts.logos?.bcv ?? true, sos: opts.logos?.sos ?? true, golden: opts.logos?.golden ?? false, renace: opts.logos?.renace ?? false };
+  const conMarca = opts.marcaTexto !== false;
   const izq = [
     L.bcv ? `<div class="logo-box"><img src="${BCV_LOGO_DATA_URI}"/><div class="logo-cap">Banco Central de Venezuela</div></div>` : '',
     L.golden ? `<div class="logo-box"><img src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="object-fit:contain;background:#fff"/><div class="logo-cap">Golden Touch</div></div>` : '',
@@ -105,9 +115,9 @@ export function pdfDocument(opts: {
       </div>
     </div>
     <div class="rule"></div>
-    <div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div>
+    ${conMarca ? `<div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div>` : ''}
     ${body}
-    <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
+    ${conMarca ? `<div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>` : ''}
   </body></html>`;
 }
 
