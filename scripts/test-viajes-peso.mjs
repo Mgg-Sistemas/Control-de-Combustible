@@ -324,7 +324,18 @@ ok('la caja de opciones ofrece logos y unidad',
   ok('pdfDocument SIN logos sale como siempre (BCV y SOS encendidos por defecto)',
     /bcv: opts\.logos\?\.bcv \?\? true/.test(pdf) && /sos: opts\.logos\?\.sos \?\? true/.test(pdf)
     && /golden: opts\.logos\?\.golden \?\? false/.test(pdf) && /renace: opts\.logos\?\.renace \?\? false/.test(pdf));
+  // 📝 La marca en texto (28-sep-2026): SIN pasar `marcaTexto`, la línea de
+  // empresa y el pie salen como siempre (los ~20 reportes no cambian); con
+  // `marcaTexto: false` se apagan LOS DOS. Es interruptor, no borrado.
+  ok('pdfDocument SIN marcaTexto imprime la línea de empresa y el pie de siempre',
+    /const conMarca = opts\.marcaTexto !== false;/.test(pdf)
+    && /\$\{conMarca \? `<div class="company"><b>\$\{REPORT_BRAND\}<\/b><br\/>Sistema de control interno<\/div>` : ''\}/.test(pdf)
+    && /\$\{conMarca \? `<div class="foot">\$\{REPORT_BRAND\} · Documento generado por el sistema de control interno<\/div>` : ''\}/.test(pdf));
 }
+// ⭐ El PDF de viajes la APAGA (pedido del 28-sep: «quítame esa información de
+// los reportes de viajes de camiones»).
+ok('el PDF de viajes sale sin la marca en texto (marcaTexto: false)',
+  /logos: logosRep,[\s\S]{0,400}?marcaTexto: false,/.test(scr));
 ok('quitar la tara PREGUNTA y explica lo congelado', /¿Quitar la tara de \$\{code\}\?/.test(scr) && /conservan la suya/.test(scr));
 // La pantalla ofrece los DOS campos (bruto y tara) en ✏️ Editar, y las dos
 // correcciones se validan ENTRE SÍ: tocadas ambas, el candado bruto > tara se
