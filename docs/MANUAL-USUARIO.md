@@ -5201,8 +5201,16 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   queda en Auditoría con el antes y el después. Ojo: esto corrige la tara de **ese viaje**; la
 >   tara del catálogo del camión se cambia en «⚖️ Tara de romana por camión» y solo afecta viajes
 >   futuros.
-> - ⚠️ La **carga manual de la oficina** (cuadrar días pasados) sigue entrando **sin peso**: nadie
->   estaba mirando la romana en ese momento y el sistema no lo inventa.
+> - **La carga manual de la oficina ya puede llevar peso (28/09/2026).** En «✍️ Cargar viajes a
+>   mano» hay campos opcionales de **bruto y tara** (con su pastilla Kg/Toneladas), para cuadrar un
+>   viaje con el papel de la romana en la mano. Tres reglas: va en **un solo viaje por carga** (una
+>   tanda con el mismo bruto repetido sería inventar la romana), van **los dos números o ninguno**
+>   (vacío = sin peso, como siempre), y **sin foto** (nadie la tomó y el sistema no la finge). Si
+>   dejas la tara vacía se usa la del catálogo; tecleada queda **✍️ manual** con tu nombre.
+> - **A un viaje ya cargado a mano se le puede AGREGAR el peso después**, en ✏️ Editar: aparecen
+>   los dos campos vacíos, exige bruto y tara juntos, la tara queda ✍️ manual y todo va a
+>   Auditoría. ⚠️ A un viaje **del patio** sin peso se le sigue **sin inventar**: esa puerta es
+>   solo para los cargados a mano.
 > - 🔧 **Arreglo del 26/09 en la noche:** la lista de taras salía con el aviso falso «⚠️ Falta
 >   correr el SQL del peso de romana» aunque la base estaba al día (era un error de la app al
 >   pedir la lista, no de la base). Si te sale, recarga la página con la versión nueva.

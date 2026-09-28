@@ -107,6 +107,15 @@ export type CamionViajeRow = {
   /** Foto de la romana con el bruto — la evidencia obligatoria del peso. */
   pesoFotoUrl: string | null;
   /**
+   * CÓMO ENTRÓ el viaje (28-sep-2026, leído al fin): 'campo' (tocado en el
+   * patio), 'cola' (subió sin señal) o 'manual' (cargado a mano por la
+   * oficina). Se lee junto a las columnas del peso porque decide si el peso
+   * se puede AGREGAR después en ✏️ Editar: a un viaje del patio sin peso no
+   * se le inventa (nadie miró la romana), a uno cargado a mano sí — la
+   * oficina lo cuadra con el papel de la romana en la mano.
+   */
+  origen: 'campo' | 'cola' | 'manual' | null;
+  /**
    * TIPO DE VIAJE (26-sep-2026): la tarifa con nombre («Oeste → Este», lo que
    * inventen después). CONGELADOS al registrar, nombre Y tarifa: cambiar el
    * precio del tipo mañana no toca este viaje. `null` = viaje normal, se paga
@@ -149,6 +158,7 @@ function mapRow(r: any): CamionViajeRow {
     taraManual: r.tara_manual === true,
     taraManualNombre: (r.tara_manual_nombre ?? null) as string | null,
     pesoFotoUrl: (r.peso_foto_url ?? null) as string | null,
+    origen: (r.origen === 'campo' || r.origen === 'cola' || r.origen === 'manual' ? r.origen : null),
     tipoViajeId: (r.tipo_viaje_id ?? null) as string | null,
     tipoViajeNombre: (r.tipo_viaje_nombre ?? null) as string | null,
     tipoViajeTarifa: r.tipo_viaje_tarifa == null ? null : Number(r.tipo_viaje_tarifa),
@@ -196,7 +206,10 @@ let hayColumnasDeTipo: boolean | null = null;
 
 const COLS_OBRA = 'ubicacion_id, ubicacion_nombre';
 const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
-const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_manual_nombre, peso_foto_url';
+// `origen` viaja con el grupo del peso: la columna existe desde el 14-sep y
+// toda base que ya tenga peso (26-sep) la tiene — y si el peso falta, el
+// origen tampoco hace falta (sin columnas de peso no hay peso que agregar).
+const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_manual_nombre, peso_foto_url, origen';
 const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa';
 
 /** Las columnas que se piden, según lo que se sepa que existe. */
@@ -610,6 +623,11 @@ export type CambiosViaje = {
    *  rastro en Auditoría. El neto lo recalcula LA BASE sola, y el candado
    *  `cv_peso_coherente` (bruto > tara > 0) rebota una tara imposible. */
   pesoTaraKg?: number;
+  /** Al AGREGARLE peso a un viaje cargado a mano (28-sep-2026), la tara que se
+   *  teclea queda marcada como manual, con el nombre de quien la puso — la
+   *  misma marca «✍️ tara manual» del registro del listero. */
+  taraManual?: boolean;
+  taraManualNombre?: string | null;
   /** Corregir el TIPO DE VIAJE (solo full). Se manda el snapshot COMPLETO —
    *  id, nombre y tarifa del catálogo al momento de la corrección— o los tres
    *  en null para volverlo viaje normal. Congela en la corrección, igual que
@@ -633,6 +651,8 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
   if (cambios.ubicacionId) patch.ubicacion_id = cambios.ubicacionId;
   if (cambios.pesoBrutoKg !== undefined) patch.peso_bruto_kg = cambios.pesoBrutoKg;
   if (cambios.pesoTaraKg !== undefined) patch.peso_tara_kg = cambios.pesoTaraKg;
+  if (cambios.taraManual !== undefined) patch.tara_manual = cambios.taraManual;
+  if (cambios.taraManualNombre !== undefined) patch.tara_manual_nombre = cambios.taraManualNombre;
   if (cambios.tipoViaje !== undefined) {
     patch.tipo_viaje_id = cambios.tipoViaje.id;
     patch.tipo_viaje_nombre = cambios.tipoViaje.nombre;
