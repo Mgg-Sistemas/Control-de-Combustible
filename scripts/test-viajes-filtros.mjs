@@ -28,7 +28,7 @@ const m = new Module(srcPath);
 m.filename = srcPath;
 m.paths = Module._nodeModulePaths(path.dirname(srcPath));
 m._compile(out, m.filename);
-const { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique } = m.exports;
+const { pasaFiltros, opcionesDeEje, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras } = m.exports;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -256,6 +256,67 @@ eq('⭐ la lista completa filtra por ticket', /pasaFiltros\(clavesDe\(r\), selec
 eq('...y se recalcula al escribir', /\[dateScopedRows, seleccion, truckById, busqTique\]/.test(scr), true);
 eq('el buscador dice que también busca tickets', /Buscar por N\.º de ticket/.test(scr), true);
 eq('⭐ si no lo encuentra, dice que amplíe el rango', /Amplía el rango de fechas/.test(scr), true);
+// ── ⏱️ LA FRANJA DE HORAS Y MINUTOS (28-sep-2026) ───────────────────────────
+// «quiero la opción también de minutos y horas, por si quiero un rango de
+// horas en específico». Lo que se amarra: cómo se lee lo tecleado, los
+// extremos inclusive, el cruce de medianoche, y que la pantalla la aplique
+// ANTES de contar los chips (mismo conjunto para chips, lista y PDF).
+
+// Cómo se entiende lo tecleado.
+eq('normaliza 08:30', normalizaHora('08:30'), '08:30');
+eq('normaliza 8:5 → 08:05', normalizaHora('8:5'), '08:05');
+eq('⭐ una hora sola vale en punto: 8 → 08:00', normalizaHora('8'), '08:00');
+eq('cuatro números: 0830 → 08:30', normalizaHora('0830'), '08:30');
+eq('tres números: 830 → 08:30', normalizaHora('830'), '08:30');
+eq('también con punto: 8.30', normalizaHora('8.30'), '08:30');
+eq('vacío = sin filtro (null)', normalizaHora(''), null);
+eq('⭐ 25:00 no es una hora', normalizaHora('25:00'), null);
+eq('08:60 tampoco', normalizaHora('08:60'), null);
+eq('texto no es hora', normalizaHora('8am'), null);
+
+// La franja. Minutos del día = hora·60 + minuto.
+const min = (h, m) => h * 60 + m;
+eq('sin filtro pasa todo', pasaRangoHoras(min(3, 0), null, null), true);
+eq('dentro de la franja', pasaRangoHoras(min(9, 0), '08:00', '10:15'), true);
+eq('⭐ el extremo DESDE entra (inclusive)', pasaRangoHoras(min(8, 0), '08:00', '10:15'), true);
+eq('⭐ el extremo HASTA entra (inclusive)', pasaRangoHoras(min(10, 15), '08:00', '10:15'), true);
+eq('un minuto después, fuera', pasaRangoHoras(min(10, 16), '08:00', '10:15'), false);
+eq('un minuto antes, fuera', pasaRangoHoras(min(7, 59), '08:00', '10:15'), false);
+eq('solo DESDE: lo de después pasa', pasaRangoHoras(min(23, 0), '08:00', null), true);
+eq('solo DESDE: lo de antes no', pasaRangoHoras(min(7, 0), '08:00', null), false);
+eq('solo HASTA: lo de antes pasa', pasaRangoHoras(min(0, 5), null, '10:15'), true);
+eq('solo HASTA: lo de después no', pasaRangoHoras(min(10, 16), null, '10:15'), false);
+// ⭐ DESDE > HASTA cruza la medianoche: la noche con su madrugada, de una vez.
+eq('⭐ cruce: las 23:30 entran en 22:00–02:00', pasaRangoHoras(min(23, 30), '22:00', '02:00'), true);
+eq('⭐ cruce: la 01:00 también', pasaRangoHoras(min(1, 0), '22:00', '02:00'), true);
+eq('cruce: las 12:00 no', pasaRangoHoras(min(12, 0), '22:00', '02:00'), false);
+eq('cruce: los extremos también entran', pasaRangoHoras(min(22, 0), '22:00', '02:00') && pasaRangoHoras(min(2, 0), '22:00', '02:00'), true);
+eq('desde == hasta: ese minuto exacto', pasaRangoHoras(min(8, 30), '08:30', '08:30'), true);
+eq('desde == hasta: otro minuto no', pasaRangoHoras(min(8, 31), '08:30', '08:30'), false);
+
+// Cómo se nombra (va al encabezado del PDF).
+eq('sin filtro no dice nada (null)', textoRangoHoras(null, null), null);
+eq('las dos puntas', textoRangoHoras('08:00', '10:15'), 'de 08:00 a 10:15');
+eq('solo desde', textoRangoHoras('08:00', null), 'desde las 08:00');
+eq('solo hasta', textoRangoHoras(null, '10:15'), 'hasta las 10:15');
+eq('⭐ el cruce se dice con todas sus letras', textoRangoHoras('22:00', '02:00'), 'de 22:00 a 02:00 (cruza la medianoche)');
+eq('un minuto exacto', textoRangoHoras('08:30', '08:30'), 'a las 08:30');
+
+// La pantalla: la franja recorta dateScopedRows (ANTES de los chips), la
+// etiqueta con horas va a la lista y al PDF, y una hora mal tecleada avisa y
+// NO filtra. El cubicaje conserva la etiqueta de fechas a secas (consulta lo
+// guardado por rango de fechas: ponerle la franja mentiría).
+eq('⭐ la franja recorta dateScopedRows con la hora de Caracas',
+  /if \(!horasActivas\) return base;[\s\S]*?caracasParts\(new Date\(r\.registeredAt\)\)[\s\S]*?pasaRangoHoras\(p\.hour \* 60 \+ p\.minute, horaDesde, horaHasta\)/.test(scr), true);
+eq('⭐ el PDF sale con la etiqueta CON horas', /subtitle: `\$\{etiquetaRangoConHoras\}/.test(scr), true);
+eq('el cubicaje conserva la de fechas a secas', /etiqueta: etiquetaRango \}/.test(scr), true);
+eq('una hora mal tecleada avisa y no filtra',
+  /horaMalEscrita = \(horaDesdeTxt\.trim\(\) !== '' && horaDesde === null\) \|\| \(horaHastaTxt\.trim\(\) !== '' && horaHasta === null\)/.test(scr), true);
+eq('«Limpiar filtros» limpia también la franja',
+  /setFilterUbicacionSel\(new Map\(\)\); setHoraDesdeTxt\(''\); setHoraHastaTxt\(''\);/.test(scr), true);
+eq('la lista vacía por la franja lo dice',
+  /Sin viajes \$\{textoRangoHoras\(horaDesde, horaHasta\)\} en este rango/.test(scr), true);
+
 const md = fs.readFileSync(path.join(ROOT, 'docs/MANUAL-USUARIO.md'), 'utf8');
 eq('el manual .md lo explica', /Buscar un viaje por su n.mero de ticket \(17\/09\/2026/.test(md), true);
 eq('el manual en pantalla también',
