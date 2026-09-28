@@ -67,23 +67,32 @@ export function kgTextoOpcional(valorKg: number | null | undefined): string | nu
 
 /**
  * EL MISMO PESO PERO EN TONELADAS, para el papel (27-sep-2026, a pedido: el
- * admin elige en qué unidad salen los pesos del ticket). Mismo formato manual
- * es-VE y TRES decimales, no dos: una romana marca de a 5–10 kg y con dos
- * decimales «32.545 kg» se imprimiría «32,55 Ton» — un redondeo en un papel
- * que se firma. El dato guardado sigue siendo kilos, siempre.
+ * admin elige en qué unidad salen los pesos del ticket).
+ *
+ * ⚠️ EL TICKET VA CON TRES DECIMALES y ese es el valor por defecto: una romana
+ *    marca de a 5–10 kg, y con dos decimales «32.545 kg» se imprimiría
+ *    «32,55 Ton» — un redondeo en un papel que se FIRMA en el CDT.
+ *
+ * ⭐ EL REPORTE VA CON DOS (28-sep-2026, pedido: «ese reporte con toneladas,
+ *    que sean 2 decimales y no 3»). Es un papel de control, se lee de un
+ *    vistazo y no lo firma nadie: ahí el tercer decimal solo estorba. Por eso
+ *    es un PARÁMETRO y no un cambio global — el ticket no se toca.
+ *
+ * El dato guardado sigue siendo kilos, siempre.
  */
-export function tonTexto(valorKg: number): string {
+export function tonTexto(valorKg: number, decimales: 2 | 3 = 3): string {
   const n = Number(valorKg);
-  if (!isFinite(n)) return '0,000 Ton';
+  const cero = `0,${'0'.repeat(decimales)} Ton`;
+  if (!isFinite(n)) return cero;
   const negativo = n < 0;
-  const [entero, dec] = (Math.abs(n) / 1000).toFixed(3).split('.');
+  const [entero, dec] = (Math.abs(n) / 1000).toFixed(decimales).split('.');
   const miles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${negativo ? '-' : ''}${miles},${dec} Ton`;
 }
 
-export function tonTextoOpcional(valorKg: number | null | undefined): string | null {
+export function tonTextoOpcional(valorKg: number | null | undefined, decimales: 2 | 3 = 3): string | null {
   const n = Number(valorKg);
-  return valorKg == null || !isFinite(n) ? null : tonTexto(n);
+  return valorKg == null || !isFinite(n) ? null : tonTexto(n, decimales);
 }
 
 /** El neto EN VIVO para la pantalla. `null` = todavía no se puede calcular. */

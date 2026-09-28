@@ -221,6 +221,16 @@ eq('una config vieja guardada SIN las claves nuevas las recibe apagadas',
   eq('en toneladas: tres decimales, coma, y «Ton» (nada de redondear un papel que se firma)',
     [V.tonTexto(32540), V.tonTexto(32545), V.tonTexto(1234567)],
     ['32,540 Ton', '32,545 Ton', '1.234,567 Ton']);
+  // ⭐ DOS DECIMALES A PEDIDO (28-sep-2026), pero SOLO donde se piden: es un
+  // parámetro, no un cambio global. El ticket se firma y conserva los tres.
+  eq('el reporte los puede pedir con DOS decimales',
+    [V.tonTexto(32540, 2), V.tonTexto(32545, 2), V.tonTexto(1234567, 2)],
+    ['32,54 Ton', '32,55 Ton', '1.234,57 Ton']);
+  eq('…y el opcional también, sin perder el null de un viaje sin peso',
+    [V.tonTextoOpcional(32545, 2), V.tonTextoOpcional(null, 2)],
+    ['32,55 Ton', null]);
+  eq('⭐ sin pedir nada siguen siendo TRES: el ticket no estrena formato',
+    [V.tonTexto(32545), V.tonTextoOpcional(32545)], ['32,545 Ton', '32,545 Ton']);
   eq('pesosParaTique en Ton imprime toneladas',
     V.pesosParaTique(pesos, 't'),
     { pesoBruto: '32,540 Ton', pesoTara: '11,340 Ton', pesoNeto: '21,200 Ton' });
@@ -318,6 +328,9 @@ ok('el ticket imprime con la unidad de la configuración',
 ok('el PDF de viajes manda sus logos y su unidad',
   /logos: logosRep,/.test(scr) && /pesoUnidadRep === 't' \? tonTextoOpcional/.test(scr)
   && /pesoUnidadRep === 't' \? tonTexto/.test(scr));
+// ⭐ Y el papel de la lista pide sus toneladas con DOS decimales (28-sep-2026).
+ok('el PDF de viajes imprime las toneladas con 2 decimales',
+  /tonTextoOpcional\(n, 2\)/.test(scr) && /tonTexto\(n, 2\)/.test(scr));
 ok('la caja de opciones ofrece logos y unidad',
   /logos=\{logosRep\}/.test(scr) && /pesoUnidad=\{pesoUnidadRep\}/.test(scr));
 ok('...y trae el check de Jhenzaen 2.012 C.A',

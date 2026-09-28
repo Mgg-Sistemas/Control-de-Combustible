@@ -2933,8 +2933,11 @@ export default function ViajesCamionesScreen() {
       //    total en 0 se imprime como raya: «0,00 Kg» diría que se pesó nada.
       //    Desde el 28-sep el papel puede salir en TONELADAS (solo el texto:
       //    el dato guardado y las sumas siguen en kilos).
-      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n) : kgTextoOpcional(n)) ?? '—';
-      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n) : kgTexto(n)) : '—');
+      // ⭐ DOS decimales en las toneladas de ESTE papel (28-sep-2026, a pedido).
+      //    El TICKET sigue con tres: se firma en el CDT y ahí un redondeo de
+      //    5 kg sí importa (ver `tonTexto` en viajesPeso.ts).
+      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n, 2) : kgTextoOpcional(n)) ?? '—';
+      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n, 2) : kgTexto(n)) : '—');
       const netoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoNetoKg ?? 0), 0);
       const brutoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoBrutoKg ?? 0), 0);
       const taraDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoTaraKg ?? 0), 0);

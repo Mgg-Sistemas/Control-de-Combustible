@@ -5235,10 +5235,14 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   con sus totales. En el resumido solo existe «Peso a pagar» (bruto y tara son de cada viaje, no
 >   de un camión). Los viajes sin peso no suman ni aparecen como cero. En esa misma caja están la
 >   pastilla **«⚖️ Los pesos del PDF en: Kg / Toneladas»** (solo cambia el texto — «32.540,00 Kg» o
->   «32,540 Ton» — y el encabezado de la columna lo dice; el dato guardado sigue en kilos) y la
+>   «32,54 Ton» — y el encabezado de la columna lo dice; el dato guardado sigue en kilos) y la
 >   sección **«🏷️ Qué logos lleva el membrete»** (BCV, SOS La Guaira, Golden Touch, Plan Venezuela
 >   Renace y — desde el 28/09 — **Jhenzaen 2.012 C.A**; arranca como salía siempre: BCV + SOS, lo
 >   nuevo entra apagado). Sin tocar nada, el papel sale idéntico al de ayer.
+>
+>   > **Las toneladas de ESTE reporte van con dos decimales (28/09/2026, a pedido):** «32,54 Ton».
+>   > Es un papel de control, se lee de un vistazo y no lo firma nadie. **El ticket conserva los
+>   > tres** («32,545 Ton») porque sí se firma en el CDT, y ahí un redondeo de 5 kg sí importa.
 > - **Corregir un peso mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje.
 >   Desde el 27/09/2026 se pueden corregir **los dos**: el **bruto** y también la **tara de ese
 >   viaje** — para cuando la cargaron mal (antes había que borrar el viaje y recargarlo). El peso a
