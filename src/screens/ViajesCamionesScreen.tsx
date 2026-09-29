@@ -1726,8 +1726,35 @@ export default function ViajesCamionesScreen() {
       // botón que no responde.
       if (rastro) logAudit(rastro.accion as any, 'camion_viajes', editing.id, rastro.detalle);
 
+      // ⛏️ EL FRENTE QUE SE LE PONE A UN VIAJE QUEDA ASIGNADO AL CAMIÓN PARA ESA
+      //    JORNADA (29-sep-2026, a pedido: «las máquinas a las que se les coloca
+      //    un frente para un viaje deberían tomarlo para esa fecha, y en los
+      //    viajes que vienen deberían tomarlo»). Así no hay que repetir la
+      //    asignación camión por camión: se corrige un viaje y el resto del día
+      //    sale solo.
+      //
+      // ⚠️ SOLO AL PONER, NUNCA AL QUITAR: quitarle el frente a UN viaje no
+      //    significa que el camión no tenga frente ese día, y borrar la
+      //    asignación dejaría sin frente a los viajes que vengan después.
+      // ⚠️ Y NO TOCA LOS VIAJES YA REGISTRADOS: cada uno guardó el suyo al
+      //    grabarse (misma regla que la obra y la placa).
+      let avisoFrente = '';
+      if (cambios.frente?.id && row.machineryId && !row.fueraCatalogo) {
+        const jornadaDelViaje = jornadaDeFecha(new Date(cambios.registeredAtISO ?? row.registeredAt));
+        const rAsig = await asignarFrente(jornadaDelViaje, [row.machineryId], cambios.frente.id, uid, fullName || listeroName || null);
+        if (rAsig.error) {
+          // El viaje YA se corrigió: esto es el extra. Se dice, no se esconde.
+          avisoFrente = ` (pero no se pudo dejar asignado el frente para el ${dmy(jornadaDelViaje)}: ${rAsig.error})`;
+        } else {
+          avisoFrente = ` · ⛏️ ${cambios.frente.nombre} queda asignado a ${row.machineCode} para el ${dmy(jornadaDelViaje)}: los viajes que se registren después lo toman solos.`;
+          // Si es la jornada de HOY, el teléfono tiene que verlo YA: si no, el
+          // próximo viaje se registraría con la asignación vieja en memoria.
+          if (jornadaDelViaje === caracasBusinessToday()) setFrentesRecarga((n) => n + 1);
+        }
+      }
+
       setEditing(null);
-      toast.success('Viaje actualizado.');
+      toast.success(`Viaje actualizado.${avisoFrente}`);
       loadMisViajes();
       if (canFull) { loadRangeRows(); loadResumen(); }
     } finally {
@@ -2018,6 +2045,14 @@ export default function ViajesCamionesScreen() {
       } else {
         toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}${conPeso ? ` · a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}` : ''}.`);
         setCargaCantidad('1');
+      }
+      // ⛏️ El frente elegido en la carga a mano TAMBIÉN queda asignado al camión
+      //    para esa jornada (29-sep-2026, misma regla que ✏️ Editar): se carga
+      //    un viaje con su frente y los que vengan después lo toman solos.
+      //    Solo si de verdad entró algún viaje, y nunca para quitarlo.
+      if (cargaFrenteId && hechos > 0) {
+        const rAsig = await asignarFrente(cargaFecha, [cargaTruck.id], cargaFrenteId, uid, fullName || listeroName || null);
+        if (!rAsig.error && cargaFecha === caracasBusinessToday()) setFrentesRecarga((n) => n + 1);
       }
       // El peso es de ESE viaje: no puede quedar esperando a la próxima carga.
       setCargaBrutoTexto('');

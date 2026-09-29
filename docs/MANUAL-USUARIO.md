@@ -6079,6 +6079,13 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
   de esa jornada (si la hubo) y se puede cambiar o dejar «Sin frente».
 - **A un viaje ya hecho** el frente se le pone o corrige en **✏️ Editar** (solo full) y queda en
   **🕵️ Auditoría**.
+  > **⛏️ Ponerle el frente a un viaje lo deja asignado para esa fecha (29/09/2026).** Cuando le
+  > pones un frente a un viaje —en **✏️ Editar** o al **cargarlo a mano**—, ese frente queda
+  > **asignado a ese camión para la jornada de ese viaje**. Así no hay que repetir la asignación:
+  > **los viajes que se registren después salen con él solos**. Dos detalles a propósito:
+  > - **Solo al ponerlo, nunca al quitarlo.** Quitarle el frente a un viaje no deja sin frente al
+  >   camión: los que vengan después lo siguen tomando.
+  > - **Los viajes ya registrados no cambian**, como siempre: cada uno guardó el suyo al grabarse.
 - **En los reportes:** la Lista completa tiene el interruptor **«⛏️ Frente de trabajo»** (entra
   **apagado**, como todo lo nuevo) y la opción de **agrupar por frente** en el detallado y el
   resumido; el 💰 Pago de viajes tiene su pastilla **«🚫 Frente de trabajo»** para la columna y el
