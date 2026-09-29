@@ -210,9 +210,9 @@ const todo = Object.fromEntries(todasLasClaves.map((k) => [k, true]));
 const nada = Object.fromEntries(todasLasClaves.map((k) => [k, false]));
 // 28-sep-2026: el peso se partió en TRES interruptores (bruto/tara/neto), a
 // pedido — de 13 pasamos a 15.
-eq('hay 16 interruptores (entró el frente, 28-sep)', todasLasClaves.length, 16);
+eq('hay 17 interruptores (entró el promedio por viaje, 29-sep)', todasLasClaves.length, 17);
 eq('con todo encendido, el detallado lleva 18 columnas (con los 3 del peso y el frente)', columnasDetalle(todo).length, 18);
-eq('y el resumido 11 (con el peso a pagar)', columnasResumen(todo, 'listero').length, 11);
+eq('y el resumido 12 (peso a pagar + promedio por viaje)', columnasResumen(todo, 'listero').length, 12);
 // Fecha, hora y camión no se pueden quitar: sin ellas la línea no identifica
 // nada. Ningún interruptor debe poder dejar la tabla sin identidad. La EMPRESA
 // salió de este mínimo el 12-sep-2026, a pedido del cliente: se puede ocultar.
@@ -614,6 +614,39 @@ ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin c
   ok('la caja de opciones ofrece el interruptor y sus tarjetas',
     /resumenEjec=\{resumenRep\}/.test(scrR) && /TARJETAS_RESUMEN\.map/.test(tabCam));
   ok('las tarjetas solo se listan con el maestro encendido', /resumenEjec\.activo \? \(/.test(tabCam));
+}
+
+
+// ── 📊 PROMEDIO POR VIAJE DE CADA CAMIÓN (29-sep-2026) ──────────────────────
+// Pedido con papel de muestra: junto al tonelaje del camión, cuánto cargó EN
+// PROMEDIO por viaje. Va en el RESUMIDO, que es donde cada fila es un camión.
+{
+  const base = { ...OPCIONES_POR_DEFECTO };
+  ok('⭐ la columna entra APAGADA', base.pesoPromedio === false);
+  const conProm = { ...base, pesoNeto: true, pesoPromedio: true };
+  const keysR = columnasResumen(conProm, 'empresa').map((c) => c.key);
+  ok('⭐ encendida sale en el resumido, PEGADA al peso a pagar',
+    keysR.indexOf('pesoPromedio') === keysR.indexOf('pesoNeto') + 1);
+  ok('apagada no está', !columnasResumen({ ...base, pesoNeto: true }, 'empresa').some((c) => c.key === 'pesoPromedio'));
+  // ⭐ En el DETALLADO no va: cada fila YA es un viaje y su promedio sería su
+  //    propio peso — una columna que repite la de al lado.
+  ok('⭐ el detallado NO la lleva', !columnasDetalle(conProm, 'empresa').some((c) => c.key === 'pesoPromedio'));
+  ok('«solo camiones» tampoco (ese papel no lleva cantidades)',
+    !columnasCamiones(conProm, 'empresa').some((c) => c.key === 'pesoPromedio'));
+  // El encabezado dice la unidad del reporte, como las demás del peso.
+  eq('el encabezado dice Kg', columnasResumen(conProm, 'empresa', 'kg').find((c) => c.key === 'pesoPromedio').head, 'Prom. por viaje (Kg)');
+  eq('…o Ton', columnasResumen(conProm, 'empresa', 't').find((c) => c.key === 'pesoPromedio').head, 'Prom. por viaje (Ton)');
+  ok('es columna numérica (va alineada a la derecha)', columnasResumen(conProm, 'empresa').find((c) => c.key === 'pesoPromedio').num === true);
+
+  // La pantalla: divide el peso del camión entre SUS viajes, y nunca entre cero.
+  const scrP = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
+  ok('⭐ el promedio del camión es su peso ÷ sus viajes, sin dividir entre cero',
+    /pesoPromedio: kgPie\(c\.viajes > 0 \? c\.netoKg \/ c\.viajes : 0\)/.test(scrP));
+  ok('⭐ el total del grupo usa los viajes del grupo, no la suma de promedios',
+    /c\.key === 'pesoPromedio' \? `<b>\$\{kgPie\(e\.total > 0 \? e\.netoKg \/ e\.total : 0\)\}<\/b>`/.test(scrP));
+  ok('y el TOTAL GENERAL también lo dice',
+    /op\.pesoPromedio \? ` · promedio por viaje \$\{kgPie\(resumenViajes\.total > 0 \? resumenViajes\.netoKg \/ resumenViajes\.total : 0\)\}`/.test(scrP));
+  ok('la caja de opciones la ofrece', /'📊 Promedio por viaje de cada camión'/.test(tabCam));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-cubicaje · ${pass} ok · ${fail} fallando`);

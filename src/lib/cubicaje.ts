@@ -281,6 +281,15 @@ export type OpcionesReporte = {
   pesoBruto: boolean;
   pesoTara: boolean;
   pesoNeto: boolean;
+  /**
+   * PROMEDIO DE PESO POR VIAJE DE CADA CAMIÓN (29-sep-2026, a pedido, con un
+   * papel de muestra): peso a pagar del camión ÷ sus viajes.
+   *
+   * ⚠️ SOLO EN EL RESUMIDO, donde cada fila ES un camión. En el detallado cada
+   *    fila es UN viaje y su «promedio» sería el peso de ese mismo viaje: una
+   *    columna que repite la de al lado no informa nada.
+   */
+  pesoPromedio: boolean;
 };
 
 /**
@@ -321,6 +330,7 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   pesoBruto: false,
   pesoTara: false,
   pesoNeto: false,
+  pesoPromedio: false,
 };
 
 export type ColSpec = { key: string; head: string; num?: boolean };
@@ -394,6 +404,8 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   // En el resumido cada fila es un CAMIÓN: bruto y tara por fila no significan
   // nada (son de cada viaje); lo que se resume es lo que se paga.
   if (op.pesoNeto) c.push({ key: 'pesoNeto', head: `Peso a pagar (${U(unidad)})`, num: true });
+  // El promedio va PEGADO al peso: se lee «cuánto cargó y cuánto por viaje».
+  if (op.pesoPromedio) c.push({ key: 'pesoPromedio', head: `Prom. por viaje (${U(unidad)})`, num: true });
   return c;
 }
 
@@ -402,7 +414,7 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
  *  interruptores — este papel no lleva ninguna cantidad.
  *  Lleva un Nº de renglón para poder cantar la lista. */
 export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa'): ColSpec[] {
-  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, pesoBruto: false, pesoTara: false, pesoNeto: false }, eje)];
+  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, pesoBruto: false, pesoTara: false, pesoNeto: false, pesoPromedio: false }, eje)];
 }
 
 // ── EL RESUMEN EJECUTIVO DEL REPORTE (28-sep-2026) ──────────────────────────

@@ -5239,6 +5239,12 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   sección **«🏷️ Qué logos lleva el membrete»** (BCV, SOS La Guaira, Golden Touch, Plan Venezuela
 >   Renace y — desde el 28/09 — **Jhenzaen 2.012 C.A**; arranca como salía siempre: BCV + SOS, lo
 >   nuevo entra apagado). Sin tocar nada, el papel sale idéntico al de ayer.
+>   **📊 Promedio por viaje de cada camión (29/09/2026).** En esa misma caja hay un interruptor
+>   nuevo, **«📊 Promedio por viaje de cada camión»**: agrega —pegada al peso a pagar— una columna
+>   con **lo que cargó ese camión en promedio por viaje** (su peso a pagar ÷ sus viajes), en la
+>   unidad del reporte. El pie de cada grupo y el **total general** traen su propio promedio,
+>   calculado sobre los viajes de ese grupo (no promediando promedios). **Solo sale en el
+>   resumido**: en el detallado cada fila ya es un viaje, y su «promedio» sería su propio peso.
 >
 >   > **Las toneladas de ESTE reporte van con dos decimales (28/09/2026, a pedido):** «32,54 Ton».
 >   > Es un papel de control, se lee de un vistazo y no lo firma nadie. **El ticket conserva los
