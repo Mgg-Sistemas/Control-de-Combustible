@@ -9,6 +9,13 @@
 //    quiera cantidades tiene el reporte de la Lista completa, que agrupa por
 //    frente.
 //
+// SEGUNDA VUELTA (29-sep-2026, mismo día): «falta que pueda quitar o colocar
+// información con los checks, además de quitar y colocar los logos» y «me deben
+// salir SOLO los frentes para ese día asignados». Las dos cosas viven acá:
+//   · `OpcionesFrentes` — qué columnas y qué líneas lleva el papel.
+//   · `LOGOS_FRENTES_POR_DEFECTO` — este reporte nace SIN membrete de logos.
+//   · `sinCamiones: false` — los frentes que ese día no tienen camión NO salen.
+//
 // TODO ESTE ARCHIVO ES PURO: no toca Supabase ni React, así que
 // `scripts/test-frentes-reporte.mjs` lo prueba solo.
 
@@ -18,6 +25,8 @@ export type CamionDelFrente = {
   /** Placa o serial: lo que identifica al camión en el patio. */
   placa?: string | null;
   empresa?: string | null;
+  /** Marca y modelo ya juntos («VOLVO FM 440»). Columna opcional. */
+  marcaModelo?: string | null;
 };
 
 export type FrenteDelDia = {
@@ -26,12 +35,63 @@ export type FrenteDelDia = {
 };
 
 /**
+ * 🖨️ QUÉ SALE EN LA HOJA DE FRENTES (29-sep-2026, a pedido).
+ *
+ * Mismo criterio que los demás reportes del sistema: el usuario decide qué
+ * columnas y qué líneas lleva el papel. Y lo que se oculta DEJA RASTRO: el
+ * subtítulo lo dice, para que nadie lea una hoja recortada como si fuera la
+ * completa (ver `etiquetaOpcionesFrentes`).
+ */
+export type OpcionesFrentes = {
+  /** Columna «Nº» (el orden dentro del frente). */
+  numeracion: boolean;
+  /** Columna «Placa / Serial». */
+  placa: boolean;
+  /** Columna «Empresa». */
+  empresa: boolean;
+  /** Columna «Marca / Modelo» (nace apagada: es dato de taller, no de patio). */
+  marcaModelo: boolean;
+  /** El «N camión(es)» a la derecha del nombre del frente. */
+  contador: boolean;
+  /** La línea de totales de arriba («12 camión(es) · 3 de 5 frente(s)…»). */
+  totales: boolean;
+  /**
+   * ⭐ APAGADA A PEDIDO: «me deben salir SOLO los frentes para ese día
+   * asignados». Encendida vuelve a listar los frentes activos que ese día no
+   * tienen ningún camión, que es útil para ver qué quedó sin asignar.
+   */
+  sinCamiones: boolean;
+};
+
+export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
+  numeracion: true,
+  placa: true,
+  empresa: true,
+  marcaModelo: false,
+  contador: true,
+  totales: true,
+  sinCamiones: false,
+};
+
+/**
+ * 🏷️ LOS LOGOS DEL MEMBRETE.
+ *
+ * ⭐ ESTE REPORTE NACE SIN NINGUNO, y sin la marca en texto del pie: el cliente
+ *    pidió quitar «Banco Central de Venezuela / SOS La Guaira» de esta hoja
+ *    («guarda en memoria que ya no va»). Los interruptores quedan para poder
+ *    ponerle el que haga falta; no se borró nada del código.
+ */
+export type LogosFrentes = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean; jhenzaen: boolean };
+export const LOGOS_FRENTES_POR_DEFECTO: LogosFrentes = {
+  bcv: false, sos: false, golden: false, renace: false, jhenzaen: false,
+};
+
+/**
  * Agrupa las asignaciones de un día por frente, en el orden en que se imprimen:
  * los frentes alfabéticamente y, dentro, los camiones por su código.
  *
- * ⚠️ Los frentes ACTIVOS SIN camiones ese día también salen (con su cero): el
- *    papel sirve para ver qué quedó SIN asignar, y un frente que desaparece de
- *    la hoja se lee como «no existe» en vez de «no se le puso nadie».
+ * `frentesActivos` son los frentes que hay que listar AUNQUE no tengan camiones
+ * ese día. Normalmente va vacío (ver `frentesParaReporte`).
  */
 export function frentesDelDia(
   asignaciones: { frenteNombre: string; camion: CamionDelFrente }[],
@@ -52,6 +112,19 @@ export function frentesDelDia(
   })).sort((a, b) => cmp(a.nombre, b.nombre));
 }
 
+/**
+ * ⭐ LO QUE DE VERDAD SALE EN EL PAPEL: solo los frentes ASIGNADOS ese día,
+ *    salvo que se encienda `sinCamiones`. Es una función aparte para que la
+ *    regla —la que el cliente pidió— se pueda probar sin abrir la pantalla.
+ */
+export function frentesParaReporte(
+  asignaciones: { frenteNombre: string; camion: CamionDelFrente }[],
+  frentesActivos: string[],
+  op: OpcionesFrentes = FRENTES_POR_DEFECTO,
+): FrenteDelDia[] {
+  return frentesDelDia(asignaciones, op.sinCamiones ? frentesActivos : []);
+}
+
 export type TotalesFrentes = { frentes: number; frentesConCamiones: number; camiones: number };
 
 export function totalesFrentes(grupos: FrenteDelDia[]): TotalesFrentes {
@@ -60,6 +133,22 @@ export function totalesFrentes(grupos: FrenteDelDia[]): TotalesFrentes {
     frentesConCamiones: grupos.filter((g) => g.camiones.length > 0).length,
     camiones: grupos.reduce((a, g) => a + g.camiones.length, 0),
   };
+}
+
+/**
+ * Lo que se OCULTÓ, dicho en el subtítulo. Un papel al que se le quitaron
+ * columnas no puede leerse como el completo (misma regla que los reportes de
+ * maquinaria). Devuelve '' cuando no se ocultó nada.
+ */
+export function etiquetaOpcionesFrentes(op: OpcionesFrentes = FRENTES_POR_DEFECTO): string {
+  const fuera: string[] = [];
+  if (!op.placa) fuera.push('placa');
+  if (!op.empresa) fuera.push('empresa');
+  if (!op.numeracion) fuera.push('numeración');
+  if (!op.contador) fuera.push('conteo por frente');
+  if (!op.totales) fuera.push('totales');
+  const extra = op.sinCamiones ? ' · incluye los frentes sin camiones' : '';
+  return `${fuera.length ? ` · sin ${fuera.join(', ')}` : ''}${extra}`;
 }
 
 const esc = (v: unknown): string =>
@@ -81,23 +170,28 @@ export const CSS_FRENTES = `
  * El cuerpo del PDF: un bloque por frente con la lista de sus camiones.
  * Sin una sola cantidad de operación, a propósito (ver la cabecera).
  */
-export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], conEmpresa = true): string {
+export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO): string {
   const t = totalesFrentes(grupos);
   if (t.frentes === 0) {
-    return '<p class="fr-vacio">No hay frentes creados todavía.</p>';
+    return '<p class="fr-vacio">Ese día no hay ningún camión asignado a un frente.</p>';
   }
-  const cabecera = `<p class="fr-tot">${t.camiones} camión(es) asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con camiones</p>`;
+  const cabecera = op.totales
+    ? `<p class="fr-tot">${t.camiones} camión(es) asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con camiones</p>`
+    : '';
   const bloques = grupos.map((g) => {
     const filas = g.camiones.map((c, i) => `<tr>
-      <td>${i + 1}</td>
+      ${op.numeracion ? `<td>${i + 1}</td>` : ''}
       <td>${esc(c.code)}</td>
-      <td>${esc(c.placa || '—')}</td>
-      ${conEmpresa ? `<td>${esc(c.empresa || '—')}</td>` : ''}
+      ${op.placa ? `<td>${esc(c.placa || '—')}</td>` : ''}
+      ${op.empresa ? `<td>${esc(c.empresa || '—')}</td>` : ''}
+      ${op.marcaModelo ? `<td>${esc(c.marcaModelo || '—')}</td>` : ''}
     </tr>`).join('');
+    const cabeceras = `${op.numeracion ? '<th style="width:34px">Nº</th>' : ''}<th>Camión</th>${op.placa ? '<th>Placa / Serial</th>' : ''}${op.empresa ? '<th>Empresa</th>' : ''}${op.marcaModelo ? '<th>Marca / Modelo</th>' : ''}`;
     const tabla = g.camiones.length
-      ? `<table><thead><tr><th style="width:34px">Nº</th><th>Camión</th><th>Placa / Serial</th>${conEmpresa ? '<th>Empresa</th>' : ''}</tr></thead><tbody>${filas}</tbody></table>`
+      ? `<table><thead><tr>${cabeceras}</tr></thead><tbody>${filas}</tbody></table>`
       : '<p class="fr-vacio">Sin camiones asignados este día.</p>';
-    return `<div class="fr-g"><div class="fr-h">⛏️ ${esc(g.nombre)}<span>${g.camiones.length} camión(es)</span></div>${tabla}</div>`;
+    const conteo = op.contador ? `<span>${g.camiones.length} camión(es)</span>` : '';
+    return `<div class="fr-g"><div class="fr-h">⛏️ ${esc(g.nombre)}${conteo}</div>${tabla}</div>`;
   }).join('');
   return cabecera + bloques;
 }
@@ -105,4 +199,40 @@ export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], conEmpresa = true): 
 /** «Frentes de trabajo 2026-09-29» — el nombre del archivo. */
 export function nombreArchivoFrentes(jornadaISO: string): string {
   return `Frentes de trabajo ${String(jornadaISO ?? '').slice(0, 10)}`;
+}
+
+// ── 🕘 EL HISTORIAL (29-sep-2026, a pedido: «que haya un historial de frentes
+//    de trabajo ahí mismo en ese apartado») ────────────────────────────────────
+
+/** Un día del historial: qué frentes se usaron y con cuántos camiones. */
+export type DiaHistorialFrentes = {
+  jornada: string;
+  camiones: number;
+  frentes: { nombre: string; camiones: number }[];
+};
+
+/**
+ * Agrupa las asignaciones de VARIOS días por jornada, de la más reciente a la
+ * más vieja (que es como se lee un historial). Dentro de cada día, los frentes
+ * van del que más camiones tuvo al que menos, y a igualdad, alfabético.
+ */
+export function historialFrentes(
+  asignaciones: { jornada: string; frenteNombre: string }[],
+): DiaHistorialFrentes[] {
+  const cmp = (a: string, b: string) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true });
+  const dias = new Map<string, Map<string, number>>();
+  (asignaciones ?? []).forEach((a) => {
+    const j = String(a?.jornada ?? '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(j)) return;
+    const n = String(a?.frenteNombre ?? '').trim() || 'Sin frente';
+    const porFrente = dias.get(j) ?? new Map<string, number>();
+    porFrente.set(n, (porFrente.get(n) ?? 0) + 1);
+    dias.set(j, porFrente);
+  });
+  return Array.from(dias, ([jornada, porFrente]) => ({
+    jornada,
+    camiones: Array.from(porFrente.values()).reduce((a, b) => a + b, 0),
+    frentes: Array.from(porFrente, ([nombre, camiones]) => ({ nombre, camiones }))
+      .sort((a, b) => b.camiones - a.camiones || cmp(a.nombre, b.nombre)),
+  })).sort((a, b) => b.jornada.localeCompare(a.jornada));
 }

@@ -140,7 +140,15 @@ const comp = sinComentarios(leer('src/components/FrentesTrabajo.tsx'));
 ok('⭐ la subsección vive en Obras y ubicaciones, con buscador de camiones',
   /extra=\{/.test(scr) && /FrentesTrabajo/.test(scr)
   && /Buscar camión: placa, código, serial, empresa/.test(comp));
-ok('reasignar avisa que lo registrado no cambia', /Los viajes ya registrados no cambian/.test(comp));
+// ⚠️ CAMBIÓ EL 29-sep-2026, a pedido: «los frentes asignados para un día deben
+//    tomarlo automáticamente los viajes de ese día, estén registrados o no».
+//    Antes el aviso decía lo contrario («los viajes ya registrados no cambian»)
+//    y era cierto; ahora el que no tiene frente propio lo toma solo, así que el
+//    aviso tiene que decir ESO o el usuario no entiende lo que acaba de pasar.
+ok('⭐ asignar avisa que los viajes de ese día SIN frente lo toman solos',
+  /Los viajes de ese día sin frente lo toman automáticamente/.test(comp));
+ok('…y lo que se le puso a mano a un viaje sigue mandando',
+  /y ese manda|manda sobre la asignación del día/.test(leer('src/components/FrentesTrabajo.tsx')));
 
 
 // ── 6) LA CASILLA «NO MOSTRAR LOS VIAJES SIN FRENTE» (28-sep-2026) ──────────
