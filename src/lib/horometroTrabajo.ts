@@ -10,7 +10,7 @@
 //
 // ⭐ UNA SOLA FUNCIÓN DE HORAS PAGABLES (`horasPagables`). Modo jornada, o modo horómetro
 //    sin lectura válida completa → exactamente la fórmula de la jornada (`workedFromShifts`
-//    de src/lib/hours.ts, reescrita acá porque este archivo NO importa nada). Modo horómetro
+//    de src/lib/hours.ts, reescrita acá para no arrastrar React ni Supabase). Modo horómetro
 //    con lecturas válidas → final − inicial de cada turno, y NO suma extras ni resta paradas:
 //    el horómetro ya las incluye y las excluye (si no, pagaría doble las extras).
 //
@@ -90,13 +90,73 @@ export function validarLectura(
   return { valida: true, motivo: '' };
 }
 
+/**
+ * ⭐ COMA Y PUNTO VALEN IGUAL EN TODOS LOS HOROMETROS (29-sep-2026).
+ *
+ * Pedido del cliente: «en todos los horometros valida , y . ... desde la vista
+ * de tlf y desde la pc en control».
+ *
+ * Antes cada pantalla lo leia por su cuenta con `Number(txt.replace(',', '.'))`,
+ * que cambia SOLO LA PRIMERA coma. Escribir el numero como se escribe aca
+ * —«7.919,5»— daba NaN: en el telefono el boton no hacia nada y en Control
+ * saltaba «no es un numero valido», sin decir que el problema era el punto.
+ *
+ * Ahora las tres cosas las hace ESTA libreria, y las pantallas solo la llaman:
+ *   · `soloHorometro` — lo que deja teclear el campo.
+ *   · `horometroDeTexto` — el numero, o NaN si no hay.
+ *   · `numeroDeTexto` — igual, pero distinguiendo «vacio» (borrar) de «malo».
+ *
+ * LA REGLA:
+ *   · Coma o punto valen IGUAL como decimal: 720,2 = 720.2.
+ *   · Si vienen los dos, el que agrupa de tres en tres es el de MILES y el otro
+ *     el decimal: 7.919,5 = 7,919.5 = 7919,5.
+ *   · Un separador con grupos de tres exactos es de MILES: «7.919» son 7919
+ *     horas, no 7,919. Asi es como se escribe aca, y es el caso real que este
+ *     mismo modal trae de ejemplo («tecleo 791,9 y era 7.919»).
+ *   · Tolera lo que queda a medio escribir: «7919,» vale 7919.
+ *
+ * ⚠️ LO QUE NO SE ENTIENDE SE RECHAZA, no se adivina: «7.7.7» no es un numero y
+ *    la pantalla lo dice. Un horometro mal leido se arrastra como inicial de la
+ *    proxima jornada; es preferible que lo vuelvan a teclear. Por eso esta regla
+ *    es MAS ESTRICTA que la del dinero (`leerNumero`, src/lib/numeros.ts), que
+ *    nunca puede devolver NaN porque contagiaria un total.
+ */
+
+/** Lo que se deja TECLEAR en un campo de horometro: digitos y separadores. */
+export const soloHorometro = (t: unknown): string => String(t ?? '').replace(/[^0-9.,]/g, '');
+
+// Un numero corriente, con un solo separador decimal (o a medio escribir).
+const SIMPLE = /^\d+(?:[.,]\d*)?$/;
+// Miles agrupados de tres en tres, con su decimal opcional del OTRO signo.
+const MILES_PUNTO = /^\d{1,3}(?:\.\d{3})+(?:,\d*)?$/;
+const MILES_COMA = /^\d{1,3}(?:,\d{3})+(?:\.\d*)?$/;
+
+/**
+ * El horometro que dice un campo. NaN si esta vacio o no es un numero, para que
+ * quien llama siga decidiendo con `isFinite()` —que es como ya lo decidian las
+ * pantallas— y un campo vacio nunca se confunda con un cero.
+ */
+export function horometroDeTexto(t: unknown): number {
+  const v = String(t ?? '').trim();
+  let s: string;
+  // ⚠️ Los MILES se prueban ANTES: «7.919» también encaja en el patrón simple
+  //    (7 coma 919), y si ganara ese serían 7,919 horas en vez de 7919.
+  if (MILES_PUNTO.test(v)) s = v.replace(/\./g, '').replace(',', '.');
+  else if (MILES_COMA.test(v)) s = v.replace(/,/g, '');
+  else if (SIMPLE.test(v)) s = v.replace(',', '.');
+  else return NaN;
+  if (s.endsWith('.')) s = s.slice(0, -1); // «7919,» a medio escribir
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
+}
+
 /** Lo que se escribe en un campo de horometro: numero >= 0, '' = borrar (null),
  *  cualquier otra cosa = false (no es un numero). Coma o punto, da igual. */
 export function numeroDeTexto(t: unknown): number | null | false {
-  const v = String(t ?? '').replace(',', '.').trim();
+  const v = String(t ?? '').trim();
   if (v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? n : false;
+  const n = horometroDeTexto(v);
+  return Number.isFinite(n) ? n : false;
 }
 
 export const MSG_MOTIVO_CORRECCION =
