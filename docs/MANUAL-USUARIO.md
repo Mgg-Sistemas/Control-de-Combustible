@@ -6086,6 +6086,13 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
   > - **Solo al ponerlo, nunca al quitarlo.** Quitarle el frente a un viaje no deja sin frente al
   >   camión: los que vengan después lo siguen tomando.
   > - **Los viajes ya registrados no cambian**, como siempre: cada uno guardó el suyo al grabarse.
+  > **📄 PDF de los frentes del día (29/09/2026).** En la subsección **⛏️ Frentes de trabajo**,
+  > junto a «Asignados ese día», está el botón **«📄 PDF del día»**: saca la **hoja de asignación**
+  > de la fecha elegida — cada frente con la lista de camiones que recogen ahí (camión, placa/serial
+  > y empresa). **No lleva ninguna cifra** —ni viajes, ni toneladas, ni m³— a propósito: para eso
+  > está el reporte de la Lista completa, que agrupa por frente. Los frentes **activos sin nadie
+  > asignado también salen**, diciendo «sin camiones asignados este día», que es justo lo que hay
+  > que ver para no dejar un frente olvidado.
 - **En los reportes:** la Lista completa tiene el interruptor **«⛏️ Frente de trabajo»** (entra
   **apagado**, como todo lo nuevo) y la opción de **agrupar por frente** en el detallado y el
   resumido; el 💰 Pago de viajes tiene su pastilla **«🚫 Frente de trabajo»** para la columna y el

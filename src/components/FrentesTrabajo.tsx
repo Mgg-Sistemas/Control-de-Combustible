@@ -24,6 +24,8 @@ import {
   crearFrente, setActivoFrente,
   type FrenteTrabajo, type AsignacionFrente,
 } from '../lib/camionViajes';
+import { exportPdf, pdfDocument } from '../lib/pdf';
+import { frentesDelDia, cuerpoFrentesDelDia, nombreArchivoFrentes, CSS_FRENTES } from '../lib/frentesReporte';
 
 /** Lo que hace falta de cada camión para el buscador de la asignación. */
 export type CamionParaFrente = {
@@ -65,6 +67,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [asignaciones, setAsignaciones] = useState<AsignacionFrente[]>([]);
   const [recarga, setRecarga] = useState(0);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -124,6 +127,48 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     setMarcados(new Set());
     setRecarga((n) => n + 1);
     onCambio();
+  };
+
+  /**
+   * 📄 EL PDF DE LOS FRENTES DEL DÍA (29-sep-2026, a pedido).
+   *
+   * ⚠️ SIN UNA SOLA CIFRA de operación (pedido explícito: «no es necesario que
+   *    tenga toneladas, ni nada de eso»): es la hoja de ASIGNACIÓN — qué camión
+   *    recoge en qué frente ese día. Las cantidades viven en el reporte de la
+   *    Lista completa, que ya agrupa por frente.
+   */
+  const exportarPdf = async () => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const grupos = frentesDelDia(
+        asignaciones.map((a) => {
+          const c = camiones.find((x) => x.id === a.machineryId);
+          return {
+            frenteNombre: a.frenteNombre,
+            camion: {
+              code: c?.code ?? '(camión fuera del catálogo)',
+              placa: c?.plate || c?.serial || null,
+              empresa: c?.companyName || null,
+            },
+          };
+        }),
+        activos.map((f) => f.nombre),
+      );
+      const html = pdfDocument({
+        title: 'Frentes de trabajo',
+        subtitle: `Asignación del ${fecha.split('-').reverse().join('/')} · de dónde recoge cada camión`,
+        extraCss: CSS_FRENTES,
+        body: cuerpoFrentesDelDia(grupos),
+        // Igual que los demás papeles de viajes de camiones (28-sep-2026).
+        marcaTexto: false,
+      });
+      await exportPdf(html, nombreArchivoFrentes(fecha));
+    } catch (e: any) {
+      toast.error(`No se pudo generar el PDF: ${String(e?.message ?? e)}`);
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   const quitar = async (a: AsignacionFrente) => {
@@ -250,7 +295,16 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               {/* Lo asignado ese día, agrupado por frente, con su ✕. */}
               {asignaciones.length > 0 ? (
                 <View style={{ marginTop: spacing.sm }}>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>ASIGNADOS ESE DÍA · {asignaciones.length}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>ASIGNADOS ESE DÍA · {asignaciones.length}</Text>
+                    {/* 📄 La hoja de asignación del día. Sin cifras: solo quién
+                        recoge dónde (pedido explícito del cliente). */}
+                    <TouchableOpacity disabled={pdfBusy} onPress={exportarPdf}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>
+                        {pdfBusy ? 'Generando…' : '📄 PDF del día'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                   {activos.filter((f) => asignaciones.some((a) => a.frenteId === f.id)).map((f) => (
                     <View key={`g-${f.id}`} style={{ marginTop: 4 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>⛏️ {f.nombre}</Text>
