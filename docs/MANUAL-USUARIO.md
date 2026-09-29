@@ -5969,6 +5969,28 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 > sistema de control interno»*. Los **logos** del membrete siguen siendo elegibles con sus checks.
 > Los **demás reportes** del sistema no cambian: siguen con su marca de siempre.
 
+> **📊 Resumen ejecutivo del reporte (28/09/2026).** En **«🖨️ Qué sale en el reporte»** hay un
+> interruptor **«📊 Resumen ejecutivo»**: enciéndelo y el PDF arranca con un bloque de **tarjetas**
+> antes de la tabla. Al encenderlo trae las tres de siempre —**Total viajes realizados** (con
+> cuántas unidades los hicieron), **Total tonelaje / kilogramos** y **Promedio por viaje**—, y
+> debajo aparecen las demás para marcar **las que quieras**:
+> - **🚚 Promedio de viajes por camión** — viajes ÷ camiones que salieron.
+> - **📐 Total de metros cúbicos**, **📐 Promedio de m³ por viaje** y **📐 Promedio de m³ por
+>   camión** — cada una por su cuenta.
+>
+> Puedes dejar **una, dos, las tres o las siete**: cada tarjeta se marca y se desmarca sola.
+>
+> - **La unidad la manda el reporte:** con la pastilla en **Toneladas** el bloque dice «TOTAL
+>   TONELAJE» y calcula en toneladas; en **Kg**, «TOTAL KILOGRAMOS» y en kilos. No hay dos
+>   unidades en el mismo papel.
+> - **Ninguna tarjeta inventa un cero:** si ningún viaje del papel trae peso, o los camiones no
+>   tienen cubicaje medido, la tarjeta sale con **raya (—) y el motivo escrito** — un «0,00 Ton»
+>   se leería como «cargaron cero», que es mentira. Lo mismo con los promedios sin viajes.
+> - Si enciendes el resumen y **no marcas ninguna** tarjeta, la caja te avisa y el bloque no sale
+>   (un recuadro «Resumen ejecutivo» vacío parecería un error del sistema).
+> - **No sale en «🚚 Solo camiones»**, a propósito: ese papel existe para no llevar **ninguna
+>   cantidad**, y un bloque de totales arriba lo contradiría.
+
 > **⏱️ Franja de horas y minutos (28/09/2026).** En **«🚛 Lista completa de viajes»**, debajo de las
 > pastillas de fecha hay dos casillas nuevas — **DESDE** y **HASTA** — para recortar los viajes de los
 > días elegidos a un **rango de horas y minutos**: de 08:00 a 10:15, solo desde una hora, o solo hasta

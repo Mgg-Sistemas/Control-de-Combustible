@@ -45,6 +45,7 @@ import {
   repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen, columnasCamiones,
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
   volumenConGuardado, LOGOS_POR_DEFECTO, type LogosReporte,
+  RESUMEN_POR_DEFECTO, tarjetasResumen, htmlResumenEjecutivo, CSS_RESUMEN_EJECUTIVO, type OpcionesResumen,
 } from '../lib/cubicaje';
 import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, claveFrenteViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
@@ -2211,6 +2212,11 @@ export default function ViajesCamionesScreen() {
   const [logosRep, setLogosRep] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
   // ⚖️ En qué unidad salen los pesos del PDF: Kg de siempre, o toneladas.
   const [pesoUnidadRep, setPesoUnidadRep] = useState<UnidadPeso>('kg');
+  // 📊 El RESUMEN EJECUTIVO del papel (28-sep-2026, a pedido). Apagado de
+  // fábrica; encendido trae las tres tarjetas de la imagen y las otras cuatro
+  // se marcan aparte. La lógica (qué dice cada tarjeta y qué NO se inventa)
+  // vive en `tarjetasResumen`, en cubicaje.ts, probada sola.
+  const [resumenRep, setResumenRep] = useState<OpcionesResumen>(RESUMEN_POR_DEFECTO);
   // Por cuál eje se parte el resumen (pedido del cliente 22-ago-2026: poder
   // sacarlo también por listero). Va APARTE del modo a propósito: "detallado vs
   // resumido" y "por empresa vs por listero" son dos preguntas distintas, y
@@ -3107,6 +3113,26 @@ export default function ViajesCamionesScreen() {
       // de día 7am–7pm más turno de noche 7pm–7am. Se dice en el subtítulo para
       // que nadie compare estas cifras contra un conteo hecho por calendario.
       const corte = 'por jornada (7am a 7am), no por día de calendario';
+      // 📊 EL RESUMEN EJECUTIVO (28-sep-2026), con las MISMAS cifras que la
+      // tabla de abajo: los viajes del papel, los camiones que salieron, el
+      // peso a pagar y los m³ medidos. El peso se escribe en la unidad del
+      // reporte — la misma pastilla que manda en las columnas.
+      //
+      // ⚠️ En «Solo camiones» NO va: ese papel existe para no llevar NINGUNA
+      //    cantidad (por eso hasta se le esconden los interruptores), y un
+      //    bloque de totales arriba lo contradiría entero.
+      const tarjetas = soloCamiones ? [] : tarjetasResumen(
+        {
+          viajes: filteredRangeRows.length,
+          camiones: resumenViajes.totalCamiones,
+          pesoKg: netoDeFilas(filteredRangeRows),
+          m3: totalM3,
+        },
+        resumenRep,
+        pesoUnidadRep,
+        (kg) => (pesoUnidadRep === 't' ? tonTexto(kg, 2) : kgTexto(kg)),
+      );
+      const bloqueResumen = htmlResumenEjecutivo(tarjetas, esc);
       const html = pdfDocument({
         title: soloCamiones
           ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : porFrente ? 'Camiones que salieron · por frente' : 'Camiones que salieron · por empresa')
@@ -3126,8 +3152,8 @@ export default function ViajesCamionesScreen() {
           tr:nth-child(even) td{background:#f4f7fb}
           tfoot td{background:#e8eef6;font-weight:700}
           h3{margin:14px 0 4px;font-size:13px;color:#16324F;border-bottom:2px solid #16324F;padding-bottom:2px}
-          .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}`,
-        body: soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
+          .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}${CSS_RESUMEN_EJECUTIVO}`,
+        body: bloqueResumen + (soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle),
         // 🏷️ Los logos que el usuario marcó para ESTE papel (28-sep-2026).
         logos: logosRep,
         // 📝 Sin la marca en texto (28-sep-2026, pedido): ni la línea «BCV /
@@ -5299,6 +5325,8 @@ export default function ViajesCamionesScreen() {
               setLogo={(k, v) => setLogosRep((p) => ({ ...p, [k]: v }))}
               pesoUnidad={pesoUnidadRep}
               setPesoUnidad={setPesoUnidadRep}
+              resumenEjec={resumenRep}
+              setResumenEjec={(k, v) => setResumenRep((p) => ({ ...p, [k]: v }))}
             />
             {cub.op.m3 && diasDesactualizados > 0 ? (
               <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>

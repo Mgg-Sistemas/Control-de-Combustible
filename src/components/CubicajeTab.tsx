@@ -39,6 +39,7 @@ import { useConfirm } from './ConfirmProvider';
 import { exportPdf } from '../lib/pdf';
 import {
   Medida, ModoVolumen, MODOS, OpcionesReporte, OPCIONES_POR_DEFECTO, LogosReporte, LOGOS_POR_DEFECTO, VolumenDetalle,
+  OpcionesResumen, TARJETAS_RESUMEN, RESUMEN_POR_DEFECTO, resumenVacio,
   volumenDe, kpis, clasificar, etiquetaClase, CLASES, esUnidadOculta, num, m3Texto, dimsTexto,
   filasParaGuardar, claveCarga, CargaMin, CargaHist, EjeHistorico, EJES_HISTORICO,
   agruparHistorico, totalCargas, segmentoDe, fechaCorta,
@@ -1305,6 +1306,7 @@ export function CubicajeTab({
  *  sitio y exportar en otro es como se quedan encendidos los filtros. */
 export function OpcionesReporteBox({
   op, setOp, modoResumen, aviso, soloCamiones = false, logos, setLogo, pesoUnidad, setPesoUnidad,
+  resumenEjec, setResumenEjec,
 }: {
   op: OpcionesReporte;
   setOp: (k: keyof OpcionesReporte, v: boolean) => void;
@@ -1320,12 +1322,19 @@ export function OpcionesReporteBox({
   /** ⚖️ En qué unidad salen los pesos del PDF (28-sep-2026): Kg o toneladas. */
   pesoUnidad?: UnidadPeso;
   setPesoUnidad?: (u: UnidadPeso) => void;
+  /** 📊 El RESUMEN EJECUTIVO (28-sep-2026): el interruptor maestro y sus siete
+   *  tarjetas. Sin estas props la caja sale como antes, sin la sección. */
+  resumenEjec?: OpcionesResumen;
+  setResumenEjec?: (k: keyof OpcionesResumen, v: boolean) => void;
 }) {
   const { colors } = useTheme();
   const [abierto, setAbierto] = useState(false);
   const cambiadas = (Object.keys(OPCIONES_POR_DEFECTO) as (keyof OpcionesReporte)[])
     .filter((k) => op[k] !== OPCIONES_POR_DEFECTO[k]).length
-    + (logos ? (Object.keys(LOGOS_POR_DEFECTO) as (keyof LogosReporte)[]).filter((k) => logos[k] !== LOGOS_POR_DEFECTO[k]).length : 0);
+    + (logos ? (Object.keys(LOGOS_POR_DEFECTO) as (keyof LogosReporte)[]).filter((k) => logos[k] !== LOGOS_POR_DEFECTO[k]).length : 0)
+    // El resumen cuenta como UN cambio (encendido), no como ocho: lo que
+    // importa en el título es que el papel ya no es el de fábrica.
+    + (resumenEjec?.activo ? 1 : 0);
 
   const filas: { k: keyof OpcionesReporte; label: string; ayuda?: string }[] = [
     { k: 'm3', label: '📐 Metros cúbicos', ayuda: 'Columna de m³ y su sumatoria. Sale de lo que midas en 📐 Cubicaje.' },
@@ -1374,6 +1383,42 @@ export function OpcionesReporteBox({
                   </TouchableOpacity>
                 );
               })}
+            </View>
+          ) : null}
+          {/* 📊 RESUMEN EJECUTIVO (28-sep-2026, a pedido). El interruptor
+              maestro manda: apagado, ni se listan las tarjetas — así la caja
+              no crece siete renglones para quien no lo usa. */}
+          {resumenEjec && setResumenEjec ? (
+            <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+              <Toggle
+                on={resumenEjec.activo}
+                label="📊 Resumen ejecutivo (tarjetas arriba del reporte)"
+                ayuda="Un bloque de tarjetas con los totales y promedios, antes de la tabla."
+                onPress={() => setResumenEjec('activo', !resumenEjec.activo)}
+              />
+              {resumenEjec.activo ? (
+                <View style={{ paddingLeft: spacing.md }}>
+                  {TARJETAS_RESUMEN.map((t) => (
+                    <Toggle
+                      key={`rsm-${t.k}`}
+                      on={resumenEjec[t.k]}
+                      label={t.label}
+                      ayuda={t.ayuda}
+                      onPress={() => setResumenEjec(t.k, !resumenEjec[t.k])}
+                    />
+                  ))}
+                  {resumenVacio(resumenEjec) ? (
+                    <Text style={{ color: colors.warning, fontSize: 10.5, marginTop: 2 }}>
+                      ⚠️ No marcaste ninguna tarjeta: el bloque no va a salir. Marca al menos una.
+                    </Text>
+                  ) : (
+                    <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                      El peso sale en la unidad del reporte (la pastilla Kg / Toneladas de arriba). Lo que no se pueda
+                      calcular —sin viajes, sin peso o sin cubicaje— sale con raya y dice por qué, nunca en cero.
+                    </Text>
+                  )}
+                </View>
+              ) : null}
             </View>
           ) : null}
           {/* 🏷️ Qué logos lleva el membrete (28-sep-2026). Arranca como salía
