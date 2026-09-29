@@ -1,5 +1,9 @@
 import { supabase, selectAllRows } from './supabase';
 import { esRolListero } from './rolListero';
+import { jornadaDeFecha } from './caracasDay';
+import {
+  CAMPOS_VIAJE_ROW, completarFrentes, mapaAsignaciones, rangoJornadas, type AsignacionDia,
+} from './frentesAuto';
 
 /**
  * VIAJES DE CAMIONES: bitácora de viajes (regreso/entrada = un viaje) registrada
@@ -611,7 +615,7 @@ export async function listMisViajesHoy(
       q.eq('listero_id', listeroId)
         .gte('registered_at', desdeISO)
         .lt('registered_at', hastaExclusivoISO));
-    return { rows: data.map(mapRow).sort(porFechaDesc), missing: false };
+    return { rows: await conFrenteDelDia(data.map(mapRow).sort(porFechaDesc)), missing: false };
   } catch (e: any) {
     return fallo(e);
   }
@@ -636,7 +640,7 @@ export async function listTodosLosViajes(filtro: {
       if (filtro.machineryIds && filtro.machineryIds.length > 0) qq = qq.in('machinery_id', filtro.machineryIds);
       return qq;
     });
-    return { rows: data.map(mapRow).sort(porFechaDesc), missing: false };
+    return { rows: await conFrenteDelDia(data.map(mapRow).sort(porFechaDesc)), missing: false };
   } catch (e: any) {
     return fallo(e);
   }
@@ -1068,9 +1072,68 @@ export async function listAsignacionesFrente(jornada: string): Promise<{ asignac
   }
 }
 
+/**
+ * Las asignaciones de un RANGO de jornadas (ambos extremos inclusive). Sirve
+ * para dos cosas: el 🕘 historial del apartado de frentes, y que los viajes de
+ * un día tomen SOLOS el frente asignado a su camión (ver `conFrenteDelDia`).
+ */
+export async function listAsignacionesFrenteRango(
+  desde: string, hasta: string,
+): Promise<{ asignaciones: AsignacionDia[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows(
+      'viaje_frente_asignaciones',
+      'jornada, machinery_id, frente_id, frente:frente_id(nombre)',
+      // Sin orderBy explícito: pagina por `id`, que es único. `jornada` se
+      // repite (un camión por fila) y paginar por una columna repetida puede
+      // saltar o duplicar filas al pasar de página.
+      (q: any) => q.gte('jornada', desde).lte('jornada', hasta),
+    );
+    return {
+      asignaciones: (data as any[]).map((r) => ({
+        jornada: String(r.jornada ?? '').slice(0, 10),
+        machineryId: r.machinery_id as string,
+        frenteId: r.frente_id as string,
+        frenteNombre: String(r.frente?.nombre ?? '').trim(),
+      })),
+      missing: false,
+    };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { asignaciones: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/**
+ * ⛏️ EL FRENTE DEL DÍA SE TOMA SOLO (29-sep-2026, pedido: «los frentes
+ * asignados para un día deben tomarlo automáticamente los viajes de ese día,
+ * estén registrados o no estén registrados»).
+ *
+ * A los viajes que vienen SIN frente se les completa con el que su camión tenía
+ * asignado esa jornada. No se toca la base: se completa al leer (ver
+ * `src/lib/frentesAuto.ts`, que explica por qué). Lo congelado manda: un viaje
+ * que ya trae su frente se queda con el suyo.
+ *
+ * Si todos los viajes ya traen frente —o la tabla todavía no existe— NO se hace
+ * ninguna consulta extra.
+ */
+async function conFrenteDelDia(rows: CamionViajeRow[]): Promise<CamionViajeRow[]> {
+  const sinFrente = rows.filter((r) => r.machineryId && !CAMPOS_VIAJE_ROW.tieneFrente(r));
+  const rango = rangoJornadas(sinFrente.map((r) => jornadaDeFecha(new Date(r.registeredAt))));
+  if (!rango) return rows;
+  const { asignaciones } = await listAsignacionesFrenteRango(rango.desde, rango.hasta);
+  if (asignaciones.length === 0) return rows;
+  const { filas } = completarFrentes(
+    rows, mapaAsignaciones(asignaciones),
+    (iso) => jornadaDeFecha(new Date(iso)), CAMPOS_VIAJE_ROW,
+  );
+  return filas;
+}
+
 /** Asigna un frente a VARIOS camiones en una jornada. Reasignar PISA la
  *  asignación anterior de ese camión ese día (upsert por jornada+camión) —
- *  los viajes YA registrados conservan su frente congelado. */
+ *  los viajes YA registrados conservan su frente congelado, y los que NO tienen
+ *  frente lo toman solos al leerse (`conFrenteDelDia`). */
 export async function asignarFrente(
   jornada: string, machineryIds: string[], frenteId: string,
   userId: string | null, userName: string | null
