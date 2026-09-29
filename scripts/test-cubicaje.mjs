@@ -44,6 +44,7 @@ const {
   num, volumen, volumenDe, redondear, clasificar, etiquetaClase, kpis, esUnidadOculta,
   repartirVolumen, sumaVolumen, columnasDetalle, columnasResumen, columnasCamiones, valoresEnOrden,
   reporteSinCifras, OPCIONES_POR_DEFECTO, dimsTexto, m3Texto, CLASES, MODOS,
+  RESUMEN_POR_DEFECTO, TARJETAS_RESUMEN, tarjetasResumen, resumenVacio, htmlResumenEjecutivo,
 } = m.exports;
 
 let pass = 0, fail = 0;
@@ -515,7 +516,9 @@ ok('solo camiones · la empresa sale al agrupar por listero y no al agrupar por 
 ok('solo camiones · es un modo mas del reporte', /useState<'detallado' \| 'resumen' \| 'camiones'>\('detallado'\)/.test(scrS));
 ok('solo camiones · la lista sale del resumido, con los mismos filtros', /camionesQueSalieron\(resumenViajes\)/.test(scrS));
 ok('solo camiones · el PDF usa sus columnas y el eje', /columnasCamiones\(op, resumenEje\)/.test(scrS));
-ok('solo camiones · el PDF usa su cuerpo', /body: soloCamiones \? bodyCamiones :/.test(scrS));
+// Desde el 28-sep-2026 el cuerpo va precedido del RESUMEN EJECUTIVO (vacío
+// cuando está apagado, y siempre vacío en este modo: ver el bloque del resumen).
+ok('solo camiones · el PDF usa su cuerpo', /body: bloqueResumen \+ \(soloCamiones \? bodyCamiones :/.test(scrS));
 const iniCam = scrS.indexOf('const bodyCamiones');
 const cuerpoCam = scrS.slice(iniCam, scrS.indexOf('const colsD'));
 ok('solo camiones · el cuerpo del PDF no imprime ninguna cantidad de viajes ni m³',
@@ -532,6 +535,86 @@ ok('solo camiones · las opciones esconden el conteo, los m³ y los tres pesos',
   && /soloCamiones=\{soloCamiones\}/.test(scrS));
 ok('solo camiones · el manual .md lo explica', /Solo camiones \(sin cantidades\)\*\* \*\(14\/09\/2026\)\*/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin cantidades\) \(14\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
+
+
+// ── 📊 EL RESUMEN EJECUTIVO (28-sep-2026) ───────────────────────────────────
+// Pedido con imagen: tarjetas de totales arriba del papel, y que se pueda
+// elegir CUÁLES salen. Lo que se blinda: que entra apagado, que cada tarjeta
+// es independiente, que la unidad la manda el reporte, y —lo más importante—
+// que NINGUNA tarjeta inventa un cero cuando el dato no existe.
+{
+  const D = { viajes: 8, camiones: 4, pesoKg: 146500, m3: 96 };
+  const kg = (n) => `${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Kg`;
+  const ton = (n) => `${(n / 1000).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton`;
+  const TODAS = { activo: true, totalViajes: true, totalPeso: true, pesoPorViaje: true, viajesPorCamion: true, totalM3: true, m3PorViaje: true, m3PorCamion: true };
+  const claves = (op, u = 't', f = ton) => tarjetasResumen(D, op, u, f).map((t) => t.clave);
+
+  // ⭐ Lo nuevo entra apagado: sin encenderlo el papel sale como siempre.
+  ok('⭐ el resumen viene APAGADO de fábrica', RESUMEN_POR_DEFECTO.activo === false);
+  eq('⭐ apagado no produce ni una tarjeta', tarjetasResumen(D, RESUMEN_POR_DEFECTO, 't', ton), []);
+  eq('al encenderlo salen LAS TRES de la imagen del cliente',
+    claves({ ...RESUMEN_POR_DEFECTO, activo: true }),
+    ['totalViajes', 'totalPeso', 'pesoPorViaje']);
+
+  // ⭐ Versátil: una, dos, las tres, o las siete.
+  eq('⭐ se puede dejar UNA sola', claves({ ...TODAS, totalPeso: false, pesoPorViaje: false, viajesPorCamion: false, totalM3: false, m3PorViaje: false, m3PorCamion: false }), ['totalViajes']);
+  eq('⭐ o DOS de las tres', claves({ ...RESUMEN_POR_DEFECTO, activo: true, totalPeso: false }), ['totalViajes', 'pesoPorViaje']);
+  eq('⭐ o las SIETE, en su orden', claves(TODAS),
+    ['totalViajes', 'totalPeso', 'pesoPorViaje', 'viajesPorCamion', 'totalM3', 'm3PorViaje', 'm3PorCamion']);
+  eq('hay siete tarjetas ofrecidas en la caja', TARJETAS_RESUMEN.length, 7);
+  ok('y cada una existe en las opciones', TARJETAS_RESUMEN.every((t) => t.k in RESUMEN_POR_DEFECTO));
+
+  // Los números, como en la imagen que mandó el cliente (8 viajes, 4 unidades).
+  const t = tarjetasResumen(D, TODAS, 't', ton);
+  const por = (k) => t.find((x) => x.clave === k);
+  eq('total de viajes: la cifra y las unidades asignadas',
+    [por('totalViajes').valor, por('totalViajes').pie], ['8 viajes', '4 unidades asignadas']);
+  eq('el promedio por viaje divide peso entre viajes',
+    [por('pesoPorViaje').valor, por('pesoPorViaje').pie], ['18,31 Ton', '146,50 Ton ÷ 8 viajes']);
+  eq('viajes por camión', [por('viajesPorCamion').valor, por('viajesPorCamion').pie], ['2,00 viajes', '8 viajes ÷ 4 camiones']);
+  eq('m³ por viaje', por('m3PorViaje').valor, '12,00 m³');
+  eq('m³ por camión', por('m3PorCamion').valor, '24,00 m³');
+
+  // ⭐ LA UNIDAD LA MANDA EL REPORTE: el rótulo y la cifra van juntos.
+  eq('⭐ en toneladas dice TONELAJE', por('totalPeso').titulo, 'TOTAL TONELAJE');
+  const enKg = tarjetasResumen(D, TODAS, 'kg', kg).find((x) => x.clave === 'totalPeso');
+  eq('⭐ en kilos dice KILOGRAMOS y la cifra es la de kilos', [enKg.titulo, enKg.valor], ['TOTAL KILOGRAMOS', '146.500,00 Kg']);
+
+  // ⭐⭐ NADA DE CEROS INVENTADOS: sin el dato, raya y motivo escrito.
+  const sinPeso = tarjetasResumen({ ...D, pesoKg: 0 }, TODAS, 't', ton);
+  eq('⭐ sin peso cargado, el total sale con RAYA (no «0,00 Ton»)',
+    sinPeso.find((x) => x.clave === 'totalPeso').valor, '—');
+  ok('…y dice por qué', /Ningún viaje de este papel trae peso/.test(sinPeso.find((x) => x.clave === 'totalPeso').pie));
+  eq('⭐ y su promedio tampoco se inventa', sinPeso.find((x) => x.clave === 'pesoPorViaje').valor, '—');
+  const sinM3 = tarjetasResumen({ ...D, m3: 0 }, TODAS, 't', ton);
+  eq('⭐ sin cubicaje medido, los m³ salen con raya', [sinM3.find((x) => x.clave === 'totalM3').valor, sinM3.find((x) => x.clave === 'm3PorViaje').valor], ['—', '—']);
+  const vacio = tarjetasResumen({ viajes: 0, camiones: 0, pesoKg: 0, m3: 0 }, TODAS, 't', ton);
+  ok('⭐ sin viajes NINGÚN promedio divide entre cero', vacio.every((x) => !/NaN|Infinity/.test(x.valor + x.pie)));
+  eq('…y los promedios lo dicen', vacio.find((x) => x.clave === 'pesoPorViaje').pie, 'Sin viajes que promediar');
+
+  // El bloque encendido y sin una sola tarjeta no se dibuja.
+  ok('⭐ encendido sin tarjetas = bloque vacío, y se avisa',
+    resumenVacio({ ...TODAS, totalViajes: false, totalPeso: false, pesoPorViaje: false, viajesPorCamion: false, totalM3: false, m3PorViaje: false, m3PorCamion: false }));
+  ok('apagado no es «vacío» (no hay nada que avisar)', !resumenVacio(RESUMEN_POR_DEFECTO));
+  eq('y el HTML de cero tarjetas es cadena vacía', htmlResumenEjecutivo([], (v) => String(v)), '');
+  const html = htmlResumenEjecutivo(t, (v) => String(v));
+  ok('el HTML trae el título y una caja por tarjeta',
+    html.includes('Resumen ejecutivo') && (html.match(/class="rsm-c"/g) || []).length === 7);
+
+  // La pantalla: mismas cifras que la tabla, unidad del reporte, y FUERA del
+  // papel «solo camiones», que existe para no llevar ninguna cantidad.
+  const scrR = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
+  ok('⭐ el resumen usa las MISMAS cifras que la tabla de abajo',
+    /viajes: filteredRangeRows\.length,\s*camiones: resumenViajes\.totalCamiones,\s*pesoKg: netoDeFilas\(filteredRangeRows\),\s*m3: totalM3,/.test(scrR));
+  ok('⭐ y escribe el peso en la unidad del reporte',
+    /pesoUnidadRep === 't' \? tonTexto\(kg, 2\) : kgTexto\(kg\)/.test(scrR));
+  ok('⭐ en «solo camiones» no sale (ese papel no lleva cantidades)',
+    /const tarjetas = soloCamiones \? \[\] : tarjetasResumen\(/.test(scrR));
+  ok('el bloque va ARRIBA del cuerpo del papel', /body: bloqueResumen \+ \(soloCamiones/.test(scrR));
+  ok('la caja de opciones ofrece el interruptor y sus tarjetas',
+    /resumenEjec=\{resumenRep\}/.test(scrR) && /TARJETAS_RESUMEN\.map/.test(tabCam));
+  ok('las tarjetas solo se listan con el maestro encendido', /resumenEjec\.activo \? \(/.test(tabCam));
+}
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-cubicaje · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }
