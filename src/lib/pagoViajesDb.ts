@@ -1,5 +1,8 @@
 import { supabase, selectAllRows } from './supabase';
 import { AlcanceTarifa, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, TarifaViaje, ViajePago } from './pagoViajes';
+import { listAsignacionesFrenteRango } from './camionViajes';
+import { jornadaDeFecha } from './caracasDay';
+import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones, rangoJornadas } from './frentesAuto';
 
 // Lecturas y escrituras del pago de viajes. Las reglas de dinero viven en
 // `pagoViajes.ts`; acá solo se habla con la base.
@@ -44,7 +47,12 @@ export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_V
     selectAllRows('machinery', 'id, marca, modelo, plate, serial, encargado'),
   ]);
   return {
-    viajes: viajes as ViajePago[],
+    // ⛏️ EL FRENTE DEL DÍA, TAMBIÉN ACÁ (29-sep-2026). El reporte de pago agrupa
+    //    y rotula por frente; si la oficina asignó el frente después de que el
+    //    listero registrara, ese viaje saldría en «sin frente» en un papel y con
+    //    su frente en el otro. La regla es UNA sola (`frentesAuto.ts`) y no
+    //    mueve un centavo: el frente solo agrupa.
+    viajes: await conFrenteDelDia(viajes as ViajePago[]),
     modos,
     tarifas,
     marcas: marcas as MarcaViaje[],
@@ -53,6 +61,24 @@ export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_V
       marca: m.marca ?? null, modelo: m.modelo ?? null, placa: m.plate ?? null, serial: m.serial ?? null, encargado: m.encargado ?? null,
     }])),
   };
+}
+
+/**
+ * Completa el frente VACÍO de cada viaje con el asignado a su camión esa
+ * jornada. Misma regla y mismo código que la pantalla de viajes; acá solo se
+ * aplica a la fila cruda (snake_case). Si todos traen frente, no hay consulta.
+ */
+async function conFrenteDelDia(viajes: ViajePago[]): Promise<ViajePago[]> {
+  const sinFrente = viajes.filter((v: any) => v.machinery_id && !CAMPOS_VIAJE_PAGO.tieneFrente(v));
+  const rango = rangoJornadas(sinFrente.map((v: any) => jornadaDeFecha(new Date(v.registered_at))));
+  if (!rango) return viajes;
+  const { asignaciones } = await listAsignacionesFrenteRango(rango.desde, rango.hasta);
+  if (asignaciones.length === 0) return viajes;
+  const { filas } = completarFrentes(
+    viajes, mapaAsignaciones(asignaciones),
+    (iso) => jornadaDeFecha(new Date(iso)), CAMPOS_VIAJE_PAGO,
+  );
+  return filas;
 }
 
 /** Historial completo de modos de pago (tabla chica). */

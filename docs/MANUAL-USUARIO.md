@@ -6078,9 +6078,24 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
   camiones — con **🔎 buscador** por placa, código, serial o empresa — uno, varios o un grupo de
   una vez. Reasignar **pisa** la asignación de ese camión ese día; abajo se ve lo asignado del
   día, con su ✕ para quitarlo.
-- **Cada viaje congela el frente** de su camión al registrarse (como la obra y la placa):
-  reasignar a mediodía solo afecta los viajes que se registren **después**, y un camión sin
-  asignación registra **sin frente**.
+- **Cada viaje congela el frente** de su camión al registrarse (como la obra y la placa), y el que
+  se registró **sin** frente lo **toma solo** de la asignación de ese día (ver el recuadro de
+  abajo).
+
+  > **⛏️ EL FRENTE DEL DÍA LO TOMAN TODOS LOS VIAJES DE ESE DÍA (29/09/2026, a pedido).** Antes el
+  > frente solo se pegaba al viaje **en el momento de registrarlo**, así que si la oficina asignaba
+  > el frente **después** —que es lo normal— los viajes de la mañana seguían saliendo «sin frente» y
+  > había que entrar a ✏️ Editar uno por uno. **Ya no.** Cuando asignas un frente a un camión para
+  > una fecha, **todos los viajes de ese camión y esa jornada que no tengan frente propio lo toman
+  > automáticamente**: los que ya estaban registrados y los que vengan después. Vale en la **Lista
+  > completa** y en el **💰 Pago de viajes**, para que los dos papeles digan lo mismo.
+  > - **Lo que tiene frente propio se queda con el suyo.** Si un viaje ya trae un frente —porque se
+  >   registró con él o porque se lo pusiste a mano en ✏️ Editar—, la asignación del día **no lo
+  >   pisa**. Así un camión que cambió de frente a mediodía conserva los viajes de la mañana en su
+  >   frente, y una corrección hecha a mano no se borra al recargar.
+  > - **No se toca la base.** El frente se completa **al leer**, no con un cambio masivo: si mañana
+  >   corriges la asignación, los reportes se corrigen solos y nada quedó escrito a la fuerza.
+  > - Para **quitarle** el frente a un camión ese día, usa el ✕ de «Asignados ese día».
 - **La carga manual también lleva frente**: al elegir camión y fecha se **propone** la asignación
   de esa jornada (si la hubo) y se puede cambiar o dejar «Sin frente».
 - **A un viaje ya hecho** el frente se le pone o corrige en **✏️ Editar** (solo full) y queda en
@@ -6091,14 +6106,31 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
   > **los viajes que se registren después salen con él solos**. Dos detalles a propósito:
   > - **Solo al ponerlo, nunca al quitarlo.** Quitarle el frente a un viaje no deja sin frente al
   >   camión: los que vengan después lo siguen tomando.
-  > - **Los viajes ya registrados no cambian**, como siempre: cada uno guardó el suyo al grabarse.
+  > - **Y los viajes de ese día que estaban sin frente lo toman solos** (29/09/2026): los que ya
+  >   tienen uno propio conservan el suyo.
   > **📄 PDF de los frentes del día (29/09/2026).** En la subsección **⛏️ Frentes de trabajo**,
   > junto a «Asignados ese día», está el botón **«📄 PDF del día»**: saca la **hoja de asignación**
   > de la fecha elegida — cada frente con la lista de camiones que recogen ahí (camión, placa/serial
   > y empresa). **No lleva ninguna cifra** —ni viajes, ni toneladas, ni m³— a propósito: para eso
-  > está el reporte de la Lista completa, que agrupa por frente. Los frentes **activos sin nadie
-  > asignado también salen**, diciendo «sin camiones asignados este día», que es justo lo que hay
-  > que ver para no dejar un frente olvidado.
+  > está el reporte de la Lista completa, que agrupa por frente.
+  >
+  > **🖨️ «Qué sale en la hoja de frentes» (29/09/2026, a pedido).** Debajo de los asignados hay un
+  > desplegable con los **checks** del papel: **1️⃣ numeración**, **🔢 placa/serial**, **🏢 empresa**,
+  > **🚚 marca y modelo** (nace apagada), **🔟 cuántos camiones lleva cada frente**, **📋 línea de
+  > totales** y **⬜ incluir los frentes SIN camiones**. Lo que apagues **se declara en el subtítulo
+  > del PDF** («…sin placa, empresa»), para que una hoja recortada no se lea como la completa.
+  > - **Salen SOLO los frentes asignados ese día** (pedido del 29/09). El check «incluir los frentes
+  >   SIN camiones» —apagado por defecto— vuelve a listar los que quedaron vacíos, que sirve para no
+  >   dejar un frente olvidado.
+  > - **🏷️ Los logos también se eligen**: BCV, SOS La Guaira, Golden Touch, Plan Venezuela Renace y
+  >   Jhenzaen 2.012 C.A. **Esta hoja nace SIN ninguno** y **sin** el pie «Banco Central de
+  >   Venezuela / SOS La Guaira» (pedido del 29/09: *ya no va*). Si alguna vez hace falta, se
+  >   enciende con su interruptor: no se borró nada.
+  >
+  > **🕘 Historial de frentes de trabajo (29/09/2026, a pedido).** En el mismo apartado, un
+  > desplegable con los **últimos 45 días** que tuvieron asignación: por cada día, cuántos camiones
+  > y qué frentes se usaron (con cuántos camiones cada uno), del más reciente al más viejo. **Toca
+  > un día** y se abre arriba: ves su asignación completa y puedes sacarle su PDF.
 - **En los reportes:** la Lista completa tiene el interruptor **«⛏️ Frente de trabajo»** (entra
   **apagado**, como todo lo nuevo) y la opción de **agrupar por frente** en el detallado y el
   resumido; el 💰 Pago de viajes tiene su pastilla **«🚫 Frente de trabajo»** para la columna y el
