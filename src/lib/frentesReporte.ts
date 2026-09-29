@@ -16,6 +16,11 @@
 //   · `LOGOS_FRENTES_POR_DEFECTO` — este reporte nace SIN membrete de logos.
 //   · `sinCamiones: false` — los frentes que ese día no tienen camión NO salen.
 //
+// ⭐ Y LO QUE SE APAGA NO DEJA RASTRO (corregido el 29-sep-2026, a pedido: «si
+//    activo o desactivo un check, no me salga esa información en el PDF»). El
+//    papel sale como si ese dato no existiera: ni columna vacía, ni «(oculto)»,
+//    ni una nota en el subtítulo.
+//
 // TODO ESTE ARCHIVO ES PURO: no toca Supabase ni React, así que
 // `scripts/test-frentes-reporte.mjs` lo prueba solo.
 
@@ -38,9 +43,9 @@ export type FrenteDelDia = {
  * 🖨️ QUÉ SALE EN LA HOJA DE FRENTES (29-sep-2026, a pedido).
  *
  * Mismo criterio que los demás reportes del sistema: el usuario decide qué
- * columnas y qué líneas lleva el papel. Y lo que se oculta DEJA RASTRO: el
- * subtítulo lo dice, para que nadie lea una hoja recortada como si fuera la
- * completa (ver `etiquetaOpcionesFrentes`).
+ * columnas y qué líneas lleva el papel. Y lo que se apaga NO DEJA RASTRO: la
+ * hoja se imprime como si ese dato no existiera — ni celda vacía, ni nota en el
+ * subtítulo (pedido del 29-sep-2026).
  */
 export type OpcionesFrentes = {
   /** Columna «Nº» (el orden dentro del frente). */
@@ -135,21 +140,17 @@ export function totalesFrentes(grupos: FrenteDelDia[]): TotalesFrentes {
   };
 }
 
-/**
- * Lo que se OCULTÓ, dicho en el subtítulo. Un papel al que se le quitaron
- * columnas no puede leerse como el completo (misma regla que los reportes de
- * maquinaria). Devuelve '' cuando no se ocultó nada.
- */
-export function etiquetaOpcionesFrentes(op: OpcionesFrentes = FRENTES_POR_DEFECTO): string {
-  const fuera: string[] = [];
-  if (!op.placa) fuera.push('placa');
-  if (!op.empresa) fuera.push('empresa');
-  if (!op.numeracion) fuera.push('numeración');
-  if (!op.contador) fuera.push('conteo por frente');
-  if (!op.totales) fuera.push('totales');
-  const extra = op.sinCamiones ? ' · incluye los frentes sin camiones' : '';
-  return `${fuera.length ? ` · sin ${fuera.join(', ')}` : ''}${extra}`;
-}
+// ⛔ ACÁ HUBO UNA `etiquetaOpcionesFrentes` QUE ESCRIBÍA EN EL SUBTÍTULO LO QUE
+//    SE HABÍA APAGADO («… · sin placa, empresa, numeración»). SE QUITÓ el
+//    29-sep-2026 a pedido del cliente: «que no salga esa información, y guarda
+//    en memoria que si activo o desactivo un check, no me salga esa información
+//    en el PDF».
+//
+//    Es la regla de la casa desde el 25-sep-2026 y va para TODOS los reportes:
+//    lo oculto NO aparece en NINGUNA parte del papel — ni columna en blanco, ni
+//    «(oculto)», ni en el título o el subtítulo. El papel se imprime como si ese
+//    dato no existiera. NO volver a agregarla (hay un candado en
+//    `scripts/test-frentes-reporte.mjs` que lo impide).
 
 const esc = (v: unknown): string =>
   String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

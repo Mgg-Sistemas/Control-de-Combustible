@@ -6117,8 +6117,13 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
   > **🖨️ «Qué sale en la hoja de frentes» (29/09/2026, a pedido).** Debajo de los asignados hay un
   > desplegable con los **checks** del papel: **1️⃣ numeración**, **🔢 placa/serial**, **🏢 empresa**,
   > **🚚 marca y modelo** (nace apagada), **🔟 cuántos camiones lleva cada frente**, **📋 línea de
-  > totales** y **⬜ incluir los frentes SIN camiones**. Lo que apagues **se declara en el subtítulo
-  > del PDF** («…sin placa, empresa»), para que una hoja recortada no se lea como la completa.
+  > totales** y **⬜ incluir los frentes SIN camiones**.
+  > - **Lo que apagues no deja rastro en el papel** (corregido el 29/09 a pedido): la hoja sale
+  >   **como si ese dato no existiera** — ni celda vacía, ni «(oculto)», ni una nota en el subtítulo.
+  >   Durante unas horas el subtítulo decía «… · sin placa, empresa, numeración» y **se quitó**.
+  >   *(Misma corrección en el 💰 Pago de viajes: su cuadro «Alcance del informe» ya no lleva la
+  >   línea «No sale: …». Lo que sí sigue —y debe seguir— es el aviso de que el papel está
+  >   **filtrado**, porque eso cambia el total.)*
   > - **Salen SOLO los frentes asignados ese día** (pedido del 29/09). El check «incluir los frentes
   >   SIN camiones» —apagado por defecto— vuelve a listar los que quedaron vacíos, que sirve para no
   >   dejar un frente olvidado.
