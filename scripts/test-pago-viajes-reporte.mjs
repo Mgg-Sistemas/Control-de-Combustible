@@ -124,14 +124,16 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
 
 // ── 4) LAS PASTILLAS: OCULTAR NO ES FILTRAR ──────────────────────────────────
 {
-  eq('las diez pastillas, en el orden del Conteo de equipos', R.PASTILLAS_PAGO.map((p) => p.chip), [
+  // Once desde el 26-sep-2026: se sumó «Cantidad por tipo de viaje» (las
+  // tarifas con nombre — Oeste → Este y las que vengan).
+  eq('las doce pastillas, en el orden del Conteo de equipos (el frente entró el 28-sep)', R.PASTILLAS_PAGO.map((p) => p.chip), [
     '🚫 Marca', '🚫 Modelo', '🚫 Serial / Placa', '🚫 Encargado', '🚫 Metros cúbicos', '🚫 Nombre de empresas',
-    '🚫 Listado por equipo', '🚫 Cantidad por tipo', '🚫 Cantidad por zona', '🚫 Alcance del informe']);
+    '🚫 Listado por equipo', '🚫 Cantidad por tipo', '🚫 Cantidad por zona', '🚫 Cantidad por tipo de viaje', '🚫 Frente de trabajo', '🚫 Alcance del informe']);
   ok('cada pastilla es una opción que existe', R.PASTILLAS_PAGO.every((p) => p.key in R.OPCIONES_PAGO_COMPLETO));
 
   // ⭐ LO NUEVO ENTRA APAGADO: sin tocar nada, las columnas son las de siempre.
   eq('⭐ sin tocar nada, el listado trae las columnas de siempre + la empresa del camión (22-sep-2026)', R.columnasEquipo(R.OPCIONES_PAGO_COMO_ANTES), ['code', 'empresa', 'zona', 'viajes', 'precio', 'monto']);
-  eq('con todo encendido trae todas', R.columnasEquipo(R.OPCIONES_PAGO_COMPLETO), ['code', 'empresa', 'marcaModelo', 'placa', 'encargado', 'zona', 'viajes', 'm3', 'precio', 'monto']);
+  eq('con todo encendido trae todas', R.columnasEquipo(R.OPCIONES_PAGO_COMPLETO), ['code', 'empresa', 'marcaModelo', 'placa', 'encargado', 'frente', 'zona', 'viajes', 'm3', 'precio', 'monto']);
   eq('⭐ la columna de empresa se va con la pastilla «Nombre de empresas»', R.columnasEquipo({ ...R.OPCIONES_PAGO_COMPLETO, sinEmpresas: true }).includes('empresa'), false);
   const soloMarca = { ...R.OPCIONES_PAGO_COMPLETO, sinModelo: true };
   eq('marca sin modelo: la columna sigue y se llama «Marca»', [R.columnasEquipo(soloMarca).includes('marcaModelo'), R.tituloMarcaModeloPago(soloMarca)], [true, 'Marca']);
@@ -204,6 +206,21 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   eq('el papel de siempre no lleva sufijo', R.sufijoArchivoPago(R.FILTRO_PAGO_TODO, 'empresa', R.OPCIONES_PAGO_COMO_ANTES), '');
   ok('por obra y de una obra, lo dice', /por obra/.test(R.sufijoArchivoPago({ empresas: [], obras: ['Obra Norte'] }, 'obra', R.OPCIONES_PAGO_COMO_ANTES)) && /Obra Norte/.test(R.sufijoArchivoPago({ empresas: [], obras: ['Obra Norte'] }, 'obra', R.OPCIONES_PAGO_COMO_ANTES)));
   ok('sin caracteres que Windows no acepta', !/[\\/:*?"<>|]/.test(R.sufijoArchivoPago({ empresas: [], obras: ['Obra: A/B'] }, 'obra', R.OPCIONES_PAGO_COMO_ANTES)));
+
+  // ⭐⭐ LO QUE SE APAGA NO DEJA RASTRO EN EL PAPEL (29-sep-2026, a pedido: «si
+  //     activo o desactivo un check, no me salga esa información en el PDF»).
+  //     El bloque «Alcance del informe» llevaba también «No sale: …» con la
+  //     lista de lo apagado; se quitó. El FILTRO sí se sigue diciendo, con su
+  //     ⚠️, porque cambia el TOTAL: un papel filtrado que no lo avisa se lee
+  //     como el pago completo del rango.
+  const apagado = papel({ opciones: { ...R.OPCIONES_PAGO_COMPLETO, sinFrente: true, sinZona: true, sinAlcance: false } });
+  ok('⭐ el PDF NO dice qué columnas se apagaron', !/No sale:/.test(apagado));
+  ok('…pero sigue diciendo por qué está agrupado y con qué filtro', /Alcance del informe/.test(apagado) && /Agrupado por/.test(apagado));
+  const filtrado = papel({ filtro: { empresas: ['e1'], obras: [] }, opciones: { ...R.OPCIONES_PAGO_COMO_ANTES, sinAlcance: false } });
+  ok('⭐ y un papel FILTRADO sigue avisando que su total no es el completo',
+    /este papel está filtrado/i.test(filtrado) && !/No sale:/.test(filtrado));
+  ok('la pantalla SÍ te dice antes de descargar qué vas a dejar fuera',
+    /ocultosPagoEnPalabras/.test(leer('src/components/PagoViajesResumen.tsx')));
 }
 
 // ── 8) LA PANTALLA ───────────────────────────────────────────────────────────

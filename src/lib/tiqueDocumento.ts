@@ -14,7 +14,7 @@
 //    `escapar()`, sin excepción. No es paranoia de seguridad: es que un ticket
 //    en blanco no se nota hasta que ya se entregó.
 import {
-  CAMPOS_TIQUE, LOGOS_TIQUE, PAPELES,
+  CAMPOS_TIQUE, CAMPO_FIJO, LOGOS_TIQUE, PAPELES,
   type ClaveCampo, type ClaveLogo, type PapelTique, type TiqueConfig,
 } from './tiqueConfig';
 
@@ -74,7 +74,16 @@ export function escapar(v: unknown): string {
 export function renglonesDelTique(d: DatosTique, c: TiqueConfig): { k: string; v: string }[] {
   return CAMPOS_TIQUE
     .filter((campo) => c.campos[campo.k])
-    .map((campo) => ({ k: campo.corto, v: limpio(d[campo.k]) || SIN_DATO_PAPEL }));
+    .map((campo) => {
+      // ✍️ TEXTO A MANO (27-sep-2026): si el admin le puso un texto fijo al
+      //    campo, ESE sale — igual en todos los tickets — en vez del dato del
+      //    viaje. El folio jamás: es el correlativo que identifica el papel.
+      //    Va ACÁ y solo acá porque esta función arma el papel Y la vista
+      //    previa: puesto en otro sitio, se configura mirando una cosa y se
+      //    imprime otra.
+      const aMano = campo.k === CAMPO_FIJO ? '' : limpio(c.textos?.[campo.k]);
+      return { k: campo.corto, v: aMano || limpio(d[campo.k]) || SIN_DATO_PAPEL };
+    });
 }
 
 /**
@@ -177,6 +186,23 @@ export const PT_MAXIMO = 11;
  *  de cuántas líneas ocupa cada valor. Si se separan, la cuenta mide otra fila. */
 export const ANCHO_ETIQUETA_ROLLO_MM = 18;
 export const GAP_FILA_MM = 2;
+/** Lo mismo para la hoja. Antes era un 22 suelto en el CSS; al alargarse las
+ *  etiquetas de los pesos (27-sep-2026) la cuenta del alto también lo necesita. */
+export const ANCHO_ETIQUETA_HOJA_MM = 22;
+
+/**
+ * CUÁNTAS LÍNEAS DE MÁS ocupan las ETIQUETAS que no caben en su columna.
+ *
+ * Existía solo para los valores; desde que los pesos se imprimen con su nombre
+ * completo («PESO ENTRADA (BRUTO)», pedido del 27-sep-2026) la etiqueta también
+ * se parte, y un alto que no la cuenta vuelve a cortar el ticket en dos — el
+ * mismo bug del 12-sep, por la otra columna. La etiqueta va un par de puntos
+ * más chica que el dato, igual que en el CSS (`.k` usa base − 2).
+ */
+export function lineasExtraDeEtiquetas(etiquetas: string[], rollo: boolean, pt: number): number {
+  const ancho = rollo ? ANCHO_ETIQUETA_ROLLO_MM : ANCHO_ETIQUETA_HOJA_MM;
+  return etiquetas.reduce((suma, e) => suma + lineasDelValor(e, ancho, pt - 2) - 1, 0);
+}
 
 /**
  * Ancho promedio de una letra, en «em». Calibrado midiendo en el navegador: a 10 pt en
@@ -262,12 +288,19 @@ function altoLogoMm(base: number, rollo: boolean): number {
 export function tamanoQueEntra(
   papel: PapelTique,
   renglones: number,
-  opts?: { logos?: boolean; reimpresion?: boolean },
+  opts?: { logos?: boolean; reimpresion?: boolean; etiquetas?: string[] },
 ): { pt: number; entra: boolean } {
   const m = MEDIDAS[papel];
-  const conf = { logos: opts?.logos !== false, reimpresion: opts?.reimpresion === true, rollo: m.rollo };
   if (m.altoMm == null) return { pt: papel === 'rollo58' ? 10 : 11, entra: true };
   for (let pt = PT_MAXIMO; pt >= PT_MINIMO; pt -= 0.5) {
+    // Las etiquetas partidas se cuentan CON el tamaño que se está probando:
+    // achicar la letra también las desparte, así que la cuenta va por vuelta.
+    const conf = {
+      logos: opts?.logos !== false,
+      reimpresion: opts?.reimpresion === true,
+      rollo: m.rollo,
+      lineasExtra: opts?.etiquetas ? lineasExtraDeEtiquetas(opts.etiquetas, m.rollo, pt) : 0,
+    };
     if (altoDelTique(pt, renglones, conf) <= m.altoMm) return { pt, entra: true };
   }
   // Ni con la letra más chica entra. Se devuelve el piso igual —el papel sale,
@@ -283,13 +316,15 @@ export function tamanoQueEntra(
  * es la pregunta que va a hacer enseguida.
  */
 export function avisoDeCapacidad(c: TiqueConfig): string | null {
-  const renglones = renglonesDelTique({}, c).length;
+  const filas = renglonesDelTique({}, c);
+  const renglones = filas.length;
+  const etiquetas = filas.map((r) => r.k);
   const logos = LOGOS_TIQUE.some((l) => c.logos[l.k]);
-  const r = tamanoQueEntra(c.papel, renglones, { logos, reimpresion: true });
+  const r = tamanoQueEntra(c.papel, renglones, { logos, reimpresion: true, etiquetas });
   if (r.entra) return null;
   const alternativa = (['carta4', 'carta2', 'carta1'] as PapelTique[]).find((p) =>
     (MEDIDAS[p].porHoja < MEDIDAS[c.papel].porHoja || MEDIDAS[p].altoMm! > MEDIDAS[c.papel].altoMm!)
-    && tamanoQueEntra(p, renglones, { logos, reimpresion: true }).entra);
+    && tamanoQueEntra(p, renglones, { logos, reimpresion: true, etiquetas }).entra);
   const label = (p: PapelTique) => PAPELES.find((x) => x.k === p)?.label ?? p;
   return `⚠️ Con ${renglones} dato(s) no caben en «${label(c.papel)}»: el ticket saldría cortado.`
     + (alternativa ? ` Prueba con «${label(alternativa)}», o quita datos.` : ' Quita datos o usa un rollo.');
@@ -336,7 +371,7 @@ function cssComun(papel: PapelTique, base: number, altoRolloMm: number | null): 
     // El cuerpo es lo que crece: empuja la firma al pie del recuadro.
     '.cuerpo{flex:1 1 auto}',
     `.fila{display:flex;gap:${GAP_FILA_MM}mm;align-items:baseline;padding:.5mm 0}`,
-    `.k{font-weight:800;text-transform:uppercase;font-size:${(base - 2).toFixed(1)}pt;letter-spacing:.3px;flex:0 0 ${rollo ? ANCHO_ETIQUETA_ROLLO_MM : 22}mm;color:#333}`,
+    `.k{font-weight:800;text-transform:uppercase;font-size:${(base - 2).toFixed(1)}pt;letter-spacing:.3px;flex:0 0 ${rollo ? ANCHO_ETIQUETA_ROLLO_MM : ANCHO_ETIQUETA_HOJA_MM}mm;color:#333}`,
     '.v{flex:1 1 auto;font-weight:700;word-break:break-word;overflow-wrap:anywhere}',
     // El número del ticket es lo que se canta por radio y lo que se reclama. Va
     // grande arriba de todo, no perdido entre los demás renglones.
@@ -425,10 +460,11 @@ export function documentoDeTiques(
   //    Si hay UNA reimpresión, su recuadro es más alto que el de los demás; con
   //    un tamaño por ticket, dos papeles de la misma hoja saldrían con letras
   //    distintas y el fajo parecería armado a pedazos. Uno solo para todos.
-  const renglones = renglonesDelTique({}, c).length;
+  const filasVacias = renglonesDelTique({}, c);
+  const renglones = filasVacias.length;
   const hayLogos = LOGOS_TIQUE.some((l) => c.logos[l.k] && String(uris[l.k] ?? '').trim());
   const hayReimpresion = tickets.some((t) => t.reimpresion === true);
-  const { pt } = tamanoQueEntra(c.papel, renglones, { logos: hayLogos, reimpresion: hayReimpresion });
+  const { pt } = tamanoQueEntra(c.papel, renglones, { logos: hayLogos, reimpresion: hayReimpresion, etiquetas: filasVacias.map((r) => r.k) });
   // El alto de la página del rollo se calcula con el mismo tamaño de letra que
   // va a salir impreso. Con otro tamaño, la página y el ticket no coincidirían.
   //
@@ -438,9 +474,15 @@ export function documentoDeTiques(
   //    página y salía en DOS cortes (medido en el navegador el 12-sep-2026). La página
   //    es una sola para todo el mandado, así que se usa el ticket que más líneas parte.
   const colValorMm = MEDIDAS[c.papel].anchoMm - ANCHO_ETIQUETA_ROLLO_MM - GAP_FILA_MM;
+  // Cada fila mide lo que su lado MÁS ALTO: el valor partido o la etiqueta
+  // partida (las de los pesos van completas desde el 27-sep-2026 y en 18 mm
+  // se parten en dos o tres). Contar solo el valor volvía a cortar el rollo.
   const lineasExtra = MEDIDAS[c.papel].rollo
     ? Math.max(0, ...tickets.map((t) => renglonesDelTique(t.datos, c)
-      .reduce((suma, r) => suma + lineasDelValor(r.v, colValorMm, pt) - 1, 0)))
+      .reduce((suma, r) => suma + Math.max(
+        lineasDelValor(r.v, colValorMm, pt),
+        lineasDelValor(r.k, ANCHO_ETIQUETA_ROLLO_MM, pt - 2),
+      ) - 1, 0)))
     : 0;
   const altoRollo = MEDIDAS[c.papel].rollo
     ? altoDelTique(pt, renglones, { logos: hayLogos, reimpresion: hayReimpresion, rollo: true, lineasExtra })

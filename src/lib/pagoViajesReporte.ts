@@ -25,6 +25,10 @@
 import type { LineaViaje, MotivoSinPago, PagoViajesGrupo } from './pagoViajes';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+/** El TIPO DE VIAJE de una línea (misma regla que `tipoDeViajePago` en
+ *  pagoViajes.ts, copiada a propósito: este archivo solo importa TIPOS para
+ *  que su prueba lo cargue solo, sin resolver módulos). null = viaje normal. */
+const tipoDeLinea = (l: LineaViaje): string | null => limpio(l.viaje?.tipo_viaje_nombre) || null;
 const redondear = (n: number) => Math.round(n * 100) / 100;
 
 // ── LAS PASTILLAS ───────────────────────────────────────────────────────────
@@ -44,6 +48,10 @@ export type OpcionesPagoViajes = {
   sinTipos: boolean;
   /** Sin el cuadro de cantidad por zona de pago (este / oeste). */
   sinZonas: boolean;
+  /** Sin el cuadro de cantidad por TIPO DE VIAJE (26-sep-2026: «Oeste → Este»…). */
+  sinTipoViaje: boolean;
+  /** Sin la columna del FRENTE de trabajo en el listado (28-sep-2026). */
+  sinFrente: boolean;
   /** Sin el cuadro de alcance del final (qué filtros se aplicaron). */
   sinAlcance: boolean;
 };
@@ -51,13 +59,13 @@ export type OpcionesPagoViajes = {
 /** Todo a la vista. */
 export const OPCIONES_PAGO_COMPLETO: OpcionesPagoViajes = {
   sinMarca: false, sinModelo: false, sinPlaca: false, sinEncargado: false, sinCubicaje: false,
-  sinEmpresas: false, sinListado: false, sinTipos: false, sinZonas: false, sinAlcance: false,
+  sinEmpresas: false, sinListado: false, sinTipos: false, sinZonas: false, sinTipoViaje: false, sinFrente: false, sinAlcance: false,
 };
 
 /** El papel de siempre: lo que salía antes de que existieran las pastillas. */
 export const OPCIONES_PAGO_COMO_ANTES: OpcionesPagoViajes = {
   sinMarca: true, sinModelo: true, sinPlaca: true, sinEncargado: true, sinCubicaje: true,
-  sinEmpresas: false, sinListado: false, sinTipos: true, sinZonas: true, sinAlcance: true,
+  sinEmpresas: false, sinListado: false, sinTipos: true, sinZonas: true, sinTipoViaje: true, sinFrente: true, sinAlcance: true,
 };
 
 /** Mismo orden y mismos rótulos que las pastillas del Conteo de equipos: el cliente las
@@ -73,6 +81,8 @@ export const PASTILLAS_PAGO: { key: keyof OpcionesPagoViajes; chip: string; larg
   { key: 'sinListado', chip: '🚫 Listado por equipo', largo: 'listado por equipo', archivo: 'solo resumen' },
   { key: 'sinTipos', chip: '🚫 Cantidad por tipo', largo: 'cantidad por tipo de equipo', archivo: 'sin tipos' },
   { key: 'sinZonas', chip: '🚫 Cantidad por zona', largo: 'cantidad por zona de pago', archivo: 'sin zonas' },
+  { key: 'sinTipoViaje', chip: '🚫 Cantidad por tipo de viaje', largo: 'cantidad por tipo de viaje', archivo: 'sin tipo de viaje' },
+  { key: 'sinFrente', chip: '🚫 Frente de trabajo', largo: 'columna de frente', archivo: 'sin frente' },
   { key: 'sinAlcance', chip: '🚫 Alcance del informe', largo: 'cuadro de alcance', archivo: 'sin alcance' },
 ];
 
@@ -89,18 +99,21 @@ export function ocultosPagoEnPalabras(o: OpcionesPagoViajes): string {
 // ── LOS FILTROS ─────────────────────────────────────────────────────────────
 
 export const SIN_OBRA = 'Sin obra';
+export const SIN_FRENTE_PAGO = 'Sin frente';
 export const CLAVE_SIN_EMPRESA = '(sin empresa)';
 
 /** Una lista VACÍA quiere decir «todas»: es lo que espera quien no toca nada. */
 export type FiltroPagoViajes = { empresas: string[]; obras: string[] };
 export const FILTRO_PAGO_TODO: FiltroPagoViajes = { empresas: [], obras: [] };
 
-export type EjePago = 'empresa' | 'obra';
+export type EjePago = 'empresa' | 'obra' | 'frente';
 
 /** La obra (CDT / ubicación) de un viaje: el nombre CONGELADO en el viaje. Se usa el
  *  nombre y no un id porque es lo que el viaje guardó ese día: si después renombran el
  *  CDT, el viaje ya pagado sigue diciendo dónde se marcó. */
 export const obraDeLinea = (l: LineaViaje): string => limpio(l.viaje?.ubicacion_nombre) || SIN_OBRA;
+/** El FRENTE del viaje (28-sep-2026): mismo criterio que la obra — el nombre congelado. */
+export const frenteDeLinea = (l: LineaViaje): string => limpio(l.viaje?.frente_nombre) || SIN_FRENTE_PAGO;
 export const empresaDeLinea = (l: LineaViaje): string => limpio(l.viaje?.company_id) || CLAVE_SIN_EMPRESA;
 
 const pasa = (lista: string[] | null | undefined, clave: string) => !lista || lista.length === 0 || lista.includes(clave);
@@ -177,13 +190,13 @@ export function bloquesPago(
 ): BloquePago[] {
   const m = new Map<string, LineaViaje[]>();
   (lineas ?? []).forEach((l) => {
-    const k = eje === 'obra' ? obraDeLinea(l) : empresaDeLinea(l);
+    const k = eje === 'obra' ? obraDeLinea(l) : eje === 'frente' ? frenteDeLinea(l) : empresaDeLinea(l);
     const lista = m.get(k) ?? [];
     lista.push(l);
     m.set(k, lista);
   });
-  const nombreReal = (k: string) => (eje === 'obra' ? k : k === CLAVE_SIN_EMPRESA ? 'Sin empresa (fuera del catálogo)' : nombresEmpresa?.get(k) || 'Empresa');
-  const ultimo = eje === 'obra' ? SIN_OBRA : CLAVE_SIN_EMPRESA;
+  const nombreReal = (k: string) => (eje !== 'empresa' ? k : k === CLAVE_SIN_EMPRESA ? 'Sin empresa (fuera del catálogo)' : nombresEmpresa?.get(k) || 'Empresa');
+  const ultimo = eje === 'obra' ? SIN_OBRA : eje === 'frente' ? SIN_FRENTE_PAGO : CLAVE_SIN_EMPRESA;
   const bloques = Array.from(m, ([clave, ls]) => ({ clave, nombre: nombreReal(clave), lineas: ls, total: totalDeLineas(ls) }))
     .sort((a, b) => Number(a.clave === ultimo) - Number(b.clave === ultimo) || a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
   // «Sin nombre de empresas»: se numeran DESPUÉS de ordenar por su nombre real, así el
@@ -211,6 +224,8 @@ function contarPor(lineas: LineaViaje[] | null | undefined, claveDe: (l: LineaVi
 export const conteoPorTipo = (lineas: LineaViaje[] | null | undefined) => contarPor(lineas, (l) => limpio(l.viaje?.machine_code) || 'Sin tipo');
 /** Cantidad por ZONA de pago. Un viaje sin zona válida sale como «Sin zona»: no se esconde. */
 export const conteoPorZona = (lineas: LineaViaje[] | null | undefined) => contarPor(lineas, (l) => (l.zona === 'este' ? 'Este' : l.zona === 'oeste' ? 'Oeste' : 'Sin zona'));
+/** Cantidad por TIPO DE VIAJE (26-sep-2026). Los sin tipo salen como «Normal (por zona)». */
+export const conteoPorTipoViaje = (lineas: LineaViaje[] | null | undefined) => contarPor(lineas, (l) => tipoDeLinea(l) ?? 'Normal (por zona)');
 
 // ── EL LISTADO POR EQUIPO ───────────────────────────────────────────────────
 
@@ -224,6 +239,9 @@ export type RenglonEquipo = {
    *  camión; y en un bloque de empresa la repite a propósito, porque la hoja se recorta. */
   empresa: string;
   marca: string; modelo: string; placa: string; encargado: string;
+  /** El FRENTE (28-sep-2026). Vacío cuando la columna está apagada: ahí el
+   *  frente tampoco parte los renglones (ver `renglonesPorEquipo`). */
+  frente: string;
   zona: string; viajes: number; precio: number; monto: number;
   /** m³ de UN viaje de ese camión (0 = no está medido) y del renglón entero. */
   m3PorViaje: number; m3: number;
@@ -240,16 +258,27 @@ export function renglonesPorEquipo(
   fichas: Map<string, FichaCamionPago> | null | undefined,
   m3PorViaje: Map<string, number> | null | undefined,
   nombresEmpresa?: Map<string, string> | null,
+  /** true = la columna del FRENTE está encendida (28-sep-2026): el frente entra
+   *  a la clave y el mismo camión que recogió de DOS frentes son dos renglones.
+   *  Apagada NO parte nada — si partiera, saldrían dos renglones idénticos a la
+   *  vista sin la columna que los explica. */
+  conFrente = false,
 ): RenglonEquipo[] {
   const m = new Map<string, RenglonEquipo>();
   (lineas ?? []).forEach((l) => {
-    if (!(l.monto > 0) || !l.zona) return;
+    // Un viaje pagado por TIPO entra aunque su CDT no tenga zona: la tarifa es
+    // la del tipo, no la de la zona. El viaje normal sigue exigiendo su zona.
+    const tipo = tipoDeLinea(l);
+    if (!(l.monto > 0) || (!l.zona && !tipo)) return;
     const id = limpio(l.viaje?.machinery_id);
     const code = limpio(l.viaje?.machine_code) || '—';
     const empresaId = empresaDeLinea(l);
+    const frente = conFrente ? frenteDeLinea(l) : '';
     // La empresa va en la clave: un camión que cambió de empresa a mitad del rango son
-    // dos renglones, no uno con la empresa del primer viaje.
-    const k = `${id || `code:${code}`}|${empresaId}|${l.zona}|${l.precio}`;
+    // dos renglones, no uno con la empresa del primer viaje. Y el TIPO también:
+    // el mismo camión con viajes normales y cruzados son dos renglones, cada
+    // uno con su tarifa. El FRENTE solo cuando su columna está encendida.
+    const k = `${id || `code:${code}`}|${empresaId}|${tipo ?? l.zona}|${l.precio}|${frente}`;
     let r = m.get(k);
     if (!r) {
       const f = (id && fichas?.get(id)) || {};
@@ -261,7 +290,10 @@ export function renglonesPorEquipo(
         // La placa que el VIAJE congeló manda sobre la del catálogo: es la que llevaba ese día.
         placa: limpio(l.viaje?.placa_snap) || limpio(f.placa) || limpio(f.serial),
         encargado: limpio(f.encargado),
-        zona: l.zona === 'oeste' ? 'Oeste' : 'Este', viajes: 0, precio: l.precio, monto: 0, m3PorViaje: porViaje, m3: 0,
+        frente,
+        // La columna «Zona» dice el TIPO cuando el viaje lo lleva: «Oeste → Este»
+        // es lo que explica esa tarifa, no la zona del CDT donde se marcó.
+        zona: tipo ?? (l.zona === 'oeste' ? 'Oeste' : 'Este'), viajes: 0, precio: l.precio, monto: 0, m3PorViaje: porViaje, m3: 0,
       };
       m.set(k, r);
     }
@@ -269,10 +301,10 @@ export function renglonesPorEquipo(
     r.monto = redondear(r.monto + l.monto);
     r.m3 = redondear(r.m3PorViaje * r.viajes);
   });
-  return Array.from(m.values()).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }) || a.placa.localeCompare(b.placa, 'es') || a.empresa.localeCompare(b.empresa, 'es') || a.precio - b.precio);
+  return Array.from(m.values()).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }) || a.placa.localeCompare(b.placa, 'es') || a.empresa.localeCompare(b.empresa, 'es') || a.precio - b.precio || a.frente.localeCompare(b.frente, 'es'));
 }
 
-export type ColumnaEquipo = 'code' | 'empresa' | 'marcaModelo' | 'placa' | 'encargado' | 'zona' | 'viajes' | 'm3' | 'precio' | 'monto';
+export type ColumnaEquipo = 'code' | 'empresa' | 'marcaModelo' | 'placa' | 'encargado' | 'frente' | 'zona' | 'viajes' | 'm3' | 'precio' | 'monto';
 
 export function columnasEquipo(o: OpcionesPagoViajes): ColumnaEquipo[] {
   const c: ColumnaEquipo[] = ['code'];
@@ -283,6 +315,7 @@ export function columnasEquipo(o: OpcionesPagoViajes): ColumnaEquipo[] {
   if (!o.sinMarca || !o.sinModelo) c.push('marcaModelo');
   if (!o.sinPlaca) c.push('placa');
   if (!o.sinEncargado) c.push('encargado');
+  if (!o.sinFrente) c.push('frente');
   c.push('zona', 'viajes');
   if (!o.sinCubicaje) c.push('m3');
   c.push('precio', 'monto');
@@ -303,7 +336,7 @@ export function alcancePagoEnPalabras(
   nombresEmpresa: Map<string, string> | null | undefined,
 ): string[] {
   const nombreE = (k: string) => (k === CLAVE_SIN_EMPRESA ? 'Sin empresa' : nombresEmpresa?.get(k) || 'Empresa');
-  const l: string[] = [`Agrupado por ${eje === 'obra' ? 'obra / ubicación' : 'empresa'}.`];
+  const l: string[] = [`Agrupado por ${eje === 'obra' ? 'obra / ubicación' : eje === 'frente' ? 'frente de trabajo' : 'empresa'}.`];
   // Con los nombres ocultos, el alcance tampoco los puede soltar.
   l.push(f.empresas.length === 0 ? 'Empresas: todas.'
     : o.sinEmpresas ? `Empresas: solo ${f.empresas.length} elegida(s).`
@@ -316,6 +349,7 @@ export function alcancePagoEnPalabras(
 export function sufijoArchivoPago(f: FiltroPagoViajes, eje: EjePago, o: OpcionesPagoViajes): string {
   const partes: string[] = [];
   if (eje === 'obra') partes.push('por obra');
+  if (eje === 'frente') partes.push('por frente');
   if (f.obras.length === 1) partes.push(f.obras[0]);
   else if (f.obras.length > 1) partes.push(`${f.obras.length} obras`);
   if (f.empresas.length) partes.push(`${f.empresas.length} empresa(s)`);
@@ -356,7 +390,7 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
   const o = d.opciones;
   const bloques = bloquesPago(d.lineas, d.eje, d.nombresEmpresa, o);
   const tot = totalDeLineas(d.lineas);
-  const rotulo = d.eje === 'obra' ? 'Obra / ubicación' : 'Empresa';
+  const rotulo = d.eje === 'obra' ? 'Obra / ubicación' : d.eje === 'frente' ? 'Frente de trabajo' : 'Empresa';
   const partes: string[] = [];
 
   partes.push(`<table><thead><tr><th>${rotulo}</th><th class="r">Viajes pagados</th><th class="r">No facturó</th><th class="r">Sin pagar</th><th class="r">Total</th></tr></thead>
@@ -368,6 +402,7 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
     <tbody>${filas.map((c) => `<tr><td>${esc(c.clave)}</td><td class="r">${c.viajes}</td><td class="r">${c.pagados}</td><td class="r b">${usd(c.monto)}</td></tr>`).join('')}</tbody></table>`;
   if (!o.sinTipos) partes.push(cuadroConteo('Cantidad por tipo de equipo', 'Tipo', conteoPorTipo(d.lineas)));
   if (!o.sinZonas) partes.push(cuadroConteo('Cantidad por zona de pago', 'Zona', conteoPorZona(d.lineas)));
+  if (!o.sinTipoViaje) partes.push(cuadroConteo('Cantidad por tipo de viaje', 'Tipo de viaje', conteoPorTipoViaje(d.lineas)));
 
   if (d.htmlFueraDelPago) partes.push(d.htmlFueraDelPago);
 
@@ -375,14 +410,14 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
     const cols = columnasEquipo(o);
     const titulos: Record<ColumnaEquipo, string> = {
       code: 'Camión', empresa: 'Empresa', marcaModelo: tituloMarcaModeloPago(o), placa: 'Serial / Placa', encargado: 'Encargado',
-      zona: 'Zona', viajes: 'Viajes', m3: 'm³', precio: 'Tarifa', monto: 'Monto',
+      frente: 'Frente', zona: 'Zona', viajes: 'Viajes', m3: 'm³', precio: 'Tarifa', monto: 'Monto',
     };
     const num = new Set<ColumnaEquipo>(['viajes', 'm3', 'precio', 'monto']);
     bloques.forEach((b) => {
-      const rs = renglonesPorEquipo(b.lineas, d.fichas, d.m3PorViaje, d.nombresEmpresa);
+      const rs = renglonesPorEquipo(b.lineas, d.fichas, d.m3PorViaje, d.nombresEmpresa, !o.sinFrente);
       const celda = (r: RenglonEquipo, c: ColumnaEquipo) =>
         c === 'code' ? esc(r.code) : c === 'empresa' ? esc(r.empresa) : c === 'marcaModelo' ? esc(marcaModeloPago(r, o)) : c === 'placa' ? esc(r.placa || '—')
-          : c === 'encargado' ? esc(r.encargado || '—') : c === 'zona' ? r.zona : c === 'viajes' ? String(r.viajes)
+          : c === 'encargado' ? esc(r.encargado || '—') : c === 'frente' ? esc(r.frente || '—') : c === 'zona' ? r.zona : c === 'viajes' ? String(r.viajes)
             : c === 'm3' ? m3Texto(r.m3) : c === 'precio' ? usd(r.precio) : usd(r.monto);
       const motivos = new Map<MotivoSinPago, number>();
       b.lineas.forEach((l) => { if (l.motivoSinPago && l.motivoSinPago !== 'no_facturo') motivos.set(l.motivoSinPago, (motivos.get(l.motivoSinPago) ?? 0) + 1); });
@@ -396,7 +431,15 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
   }
 
   if (!o.sinAlcance) {
-    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePagoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa).map(esc).join('<br/>')}<br/>${esc(ocultosPagoEnPalabras(o))}</div>`);
+    // ⭐ EL ALCANCE DICE QUÉ VIAJES ENTRARON, NO QUÉ COLUMNAS SE APAGARON
+    //    (29-sep-2026, a pedido: «si activo o desactivo un check, no me salga
+    //    esa información en el PDF»). Acá iba también `ocultosPagoEnPalabras`
+    //    («No sale: …») y se quitó: lo oculto no deja rastro en el papel. El
+    //    filtro SÍ se sigue diciendo —y con su ⚠️— porque cambia el TOTAL, y un
+    //    papel filtrado que no lo avisa se lee como el pago completo del rango.
+    //    `ocultosPagoEnPalabras` sigue existiendo para la PANTALLA, que te dice
+    //    qué vas a dejar fuera ANTES de descargar.
+    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePagoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa).map(esc).join('<br/>')}</div>`);
   }
   return partes.join('\n');
 }

@@ -38,7 +38,8 @@ import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
 import { exportPdf } from '../lib/pdf';
 import {
-  Medida, ModoVolumen, MODOS, OpcionesReporte, OPCIONES_POR_DEFECTO, VolumenDetalle,
+  Medida, ModoVolumen, MODOS, OpcionesReporte, OPCIONES_POR_DEFECTO, LogosReporte, LOGOS_POR_DEFECTO, VolumenDetalle,
+  OpcionesResumen, TARJETAS_RESUMEN, RESUMEN_POR_DEFECTO, resumenVacio,
   volumenDe, kpis, clasificar, etiquetaClase, CLASES, esUnidadOculta, num, m3Texto, dimsTexto,
   filasParaGuardar, claveCarga, CargaMin, CargaHist, EjeHistorico, EJES_HISTORICO,
   agruparHistorico, totalCargas, segmentoDe, fechaCorta,
@@ -48,6 +49,7 @@ import {
   AVISO_SIN_SQL, type CargaGuardada,
 } from '../lib/cubicajeDatos';
 import { reporteVolumetricoHtml, type UnidadReporte } from '../lib/reporteVolumetrico';
+import { UNIDADES_PESO, type UnidadPeso } from '../lib/viajesPeso';
 import { isVolteoVolqueta } from '../lib/equipos';
 import { medidaConocida } from '../lib/medidasFlota';
 import { leerApartadas, guardarApartadas } from '../lib/cubicajeApartadas';
@@ -1303,7 +1305,8 @@ export function CubicajeTab({
  *  exportar de la otra sub-pestaña porque es ahí donde se usa: configurar en un
  *  sitio y exportar en otro es como se quedan encendidos los filtros. */
 export function OpcionesReporteBox({
-  op, setOp, modoResumen, aviso, soloCamiones = false,
+  op, setOp, modoResumen, aviso, soloCamiones = false, logos, setLogo, pesoUnidad, setPesoUnidad,
+  resumenEjec, setResumenEjec,
 }: {
   op: OpcionesReporte;
   setOp: (k: keyof OpcionesReporte, v: boolean) => void;
@@ -1312,20 +1315,42 @@ export function OpcionesReporteBox({
   /** Reporte «Solo camiones»: el conteo y los m³ no salen, así que sus
    *  interruptores se esconden. Uno que no hace nada parece roto. */
   soloCamiones?: boolean;
+  /** 🏷️ Qué logos lleva el membrete (28-sep-2026). Sin estas props, la caja
+   *  sale como siempre, sin la sección de logos. */
+  logos?: LogosReporte;
+  setLogo?: (k: keyof LogosReporte, v: boolean) => void;
+  /** ⚖️ En qué unidad salen los pesos del PDF (28-sep-2026): Kg o toneladas. */
+  pesoUnidad?: UnidadPeso;
+  setPesoUnidad?: (u: UnidadPeso) => void;
+  /** 📊 El RESUMEN EJECUTIVO (28-sep-2026): el interruptor maestro y sus siete
+   *  tarjetas. Sin estas props la caja sale como antes, sin la sección. */
+  resumenEjec?: OpcionesResumen;
+  setResumenEjec?: (k: keyof OpcionesResumen, v: boolean) => void;
 }) {
   const { colors } = useTheme();
   const [abierto, setAbierto] = useState(false);
   const cambiadas = (Object.keys(OPCIONES_POR_DEFECTO) as (keyof OpcionesReporte)[])
-    .filter((k) => op[k] !== OPCIONES_POR_DEFECTO[k]).length;
+    .filter((k) => op[k] !== OPCIONES_POR_DEFECTO[k]).length
+    + (logos ? (Object.keys(LOGOS_POR_DEFECTO) as (keyof LogosReporte)[]).filter((k) => logos[k] !== LOGOS_POR_DEFECTO[k]).length : 0)
+    // El resumen cuenta como UN cambio (encendido), no como ocho: lo que
+    // importa en el título es que el papel ya no es el de fábrica.
+    + (resumenEjec?.activo ? 1 : 0);
 
   const filas: { k: keyof OpcionesReporte; label: string; ayuda?: string }[] = [
     { k: 'm3', label: '📐 Metros cúbicos', ayuda: 'Columna de m³ y su sumatoria. Sale de lo que midas en 📐 Cubicaje.' },
     { k: 'viajes', label: '🔢 Conteo de viajes', ayuda: modoResumen ? 'Columnas Día, Noche y Viajes del resumido.' : 'En el detallado cada línea ES un viaje: este interruptor solo afecta al resumido.' },
+    // Los tres renglones del peso, cada uno con su interruptor (28-sep-2026, a
+    // pedido: antes era uno solo que prendía los tres).
+    { k: 'pesoBruto', label: '⚖️ Peso entrada (bruto)', ayuda: modoResumen ? 'Solo en el detallado: el bruto es de cada viaje, no de un camión.' : 'Columna «P. entrada (Kg)» de cada viaje. Los viajes anteriores al peso salen con raya.' },
+    { k: 'pesoTara', label: '⚖️ Peso salida (tara)', ayuda: modoResumen ? 'Solo en el detallado: la tara es de cada viaje, no de un camión.' : 'Columna «P. salida (Kg)»: la tara congelada de cada viaje.' },
+    { k: 'pesoNeto', label: '⚖️ Peso a pagar (neto)', ayuda: modoResumen ? 'Columna «Peso a pagar (Kg)»: la suma de los netos de sus viajes. Los viajes sin peso no suman.' : 'Columna «P. a pagar (Kg)» de cada viaje, con su total.' },
+    { k: 'pesoPromedio', label: '📊 Promedio por viaje de cada camión', ayuda: modoResumen ? 'Peso a pagar del camión ÷ sus viajes. Sale en la unidad del reporte.' : 'Solo en el resumido: en el detallado cada fila YA es un viaje, y su promedio sería su propio peso.' },
     { k: 'marcaModelo', label: '🏷️ Marca y modelo' },
     { k: 'dimensiones', label: '📏 Alto, largo y ancho' },
     { k: 'clasificacion', label: '🔶 Clasificación por capacidad' },
     { k: 'empresa', label: '🏢 Empresa', ayuda: modoResumen ? 'De qué empresa es cada camión. No sale si ya estás agrupando por empresa: ahí lo dice el encabezado.' : 'De qué empresa es el camión de esa línea.' },
     { k: 'ubicacion', label: '🏗️ Obra / ubicación', ayuda: 'En qué obra se registró el viaje. No sale si ya estás agrupando por obra.' },
+    { k: 'frente', label: '⛏️ Frente de trabajo', ayuda: modoResumen ? 'Solo en el detallado: el mismo camión pudo recoger de dos frentes en el rango. Para verlo resumido, agrupa por frente.' : 'De qué frente recogió (la asignación congelada de ese día). No sale si ya estás agrupando por frente.' },
     { k: 'placa', label: '🚗 Placa / serial' },
     { k: 'chofer', label: '👤 Chofer', ayuda: modoResumen ? 'Solo en el detallado.' : undefined },
     { k: 'listero', label: '📝 Listero', ayuda: modoResumen ? 'Solo en el detallado.' : undefined },
@@ -1343,16 +1368,83 @@ export function OpcionesReporteBox({
       </TouchableOpacity>
       {abierto ? (
         <View style={{ marginTop: spacing.xs }}>
-          {filas.filter((f) => !(soloCamiones && (f.k === 'm3' || f.k === 'viajes'))).map((f) => (
+          {filas.filter((f) => !(soloCamiones && (f.k === 'm3' || f.k === 'viajes' || f.k === 'pesoBruto' || f.k === 'pesoTara' || f.k === 'pesoNeto'))).map((f) => (
             <Toggle key={f.k} on={op[f.k]} label={f.label} ayuda={f.ayuda} onPress={() => setOp(f.k, !op[f.k])} />
           ))}
+          {/* ⚖️ En qué unidad salen los pesos del PDF (28-sep-2026, a pedido).
+              Solo cambia el texto: el dato guardado es kilos siempre. */}
+          {pesoUnidad && setPesoUnidad && !soloCamiones ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 4 }}>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>⚖️ Los pesos del PDF en:</Text>
+              {UNIDADES_PESO.map((u) => {
+                const on = pesoUnidad === u.k;
+                return (
+                  <TouchableOpacity key={`pu-${u.k}`} onPress={() => setPesoUnidad(u.k)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent' }}>
+                    <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : null}
+          {/* 📊 RESUMEN EJECUTIVO (28-sep-2026, a pedido). El interruptor
+              maestro manda: apagado, ni se listan las tarjetas — así la caja
+              no crece siete renglones para quien no lo usa. */}
+          {resumenEjec && setResumenEjec ? (
+            <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+              <Toggle
+                on={resumenEjec.activo}
+                label="📊 Resumen ejecutivo (tarjetas arriba del reporte)"
+                ayuda="Un bloque de tarjetas con los totales y promedios, antes de la tabla."
+                onPress={() => setResumenEjec('activo', !resumenEjec.activo)}
+              />
+              {resumenEjec.activo ? (
+                <View style={{ paddingLeft: spacing.md }}>
+                  {TARJETAS_RESUMEN.map((t) => (
+                    <Toggle
+                      key={`rsm-${t.k}`}
+                      on={resumenEjec[t.k]}
+                      label={t.label}
+                      ayuda={t.ayuda}
+                      onPress={() => setResumenEjec(t.k, !resumenEjec[t.k])}
+                    />
+                  ))}
+                  {resumenVacio(resumenEjec) ? (
+                    <Text style={{ color: colors.warning, fontSize: 10.5, marginTop: 2 }}>
+                      ⚠️ No marcaste ninguna tarjeta: el bloque no va a salir. Marca al menos una.
+                    </Text>
+                  ) : (
+                    <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                      El peso sale en la unidad del reporte (la pastilla Kg / Toneladas de arriba). Lo que no se pueda
+                      calcular —sin viajes, sin peso o sin cubicaje— sale con raya y dice por qué, nunca en cero.
+                    </Text>
+                  )}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+          {/* 🏷️ Qué logos lleva el membrete (28-sep-2026). Arranca como salía
+              siempre este papel: BCV + SOS La Guaira. */}
+          {logos && setLogo ? (
+            <View style={{ marginTop: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>🏷️ QUÉ LOGOS LLEVA EL MEMBRETE</Text>
+              {([
+                ['bcv', 'BCV'],
+                ['sos', 'SOS La Guaira'],
+                ['golden', 'Golden Touch'],
+                ['renace', 'Plan Venezuela Renace'],
+                ['jhenzaen', 'Jhenzaen 2.012 C.A'],
+              ] as [keyof LogosReporte, string][]).map(([k, label]) => (
+                <Toggle key={`lg-${k}`} on={logos[k]} label={label} onPress={() => setLogo(k, !logos[k])} />
+              ))}
+            </View>
+          ) : null}
           {soloCamiones ? (
             <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
-              En «Solo camiones» no sale ninguna cantidad: ni viajes ni metros cúbicos.
+              En «Solo camiones» no sale ninguna cantidad: ni viajes, ni metros cúbicos, ni pesos.
             </Text>
           ) : null}
           <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
-            Solo cambian las COLUMNAS del PDF y de la vista previa. No sacan ni agregan viajes: el total es el mismo.
+            Solo cambian las COLUMNAS y el membrete del PDF y de la vista previa. No sacan ni agregan viajes: el total es el mismo.
           </Text>
         </View>
       ) : null}

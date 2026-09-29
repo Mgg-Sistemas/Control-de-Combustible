@@ -293,6 +293,34 @@ Otras cosas que puedes hacer en cada máquina:
 
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).
 
+**📄 Ficha técnica de cada máquina (28-sep-2026).** En la tarjeta de cada equipo del Catálogo —
+y también en las **listas que abren las tarjetas de estado** (Operativas · Averiadas ·
+Esperando instrucciones · Retiradas), porque una máquina retirada o en espera **sigue teniendo
+ficha** — está el botón **«📄 Ficha técnica»**: genera un PDF con el formato del documento del
+cliente pero con **los colores del sistema** (el azul de todos los reportes) —
+cabecera azul con la insignia **MARCA · MODELO**, las tarjetas de
+**ESTADO OPERATIVO ACTUAL** (horas acumuladas del horómetro, estado en vivo —el **mismo** que
+pintan las tarjetas del Catálogo— y el próximo servicio a 250 h), la tabla de
+**ESPECIFICACIONES TÉCNICAS** (marca, modelo, serial/PIN, placa, identificador, peso,
+dimensiones, empresa con su RIF, encargado, aceite del motor, tapa, rendimiento y consumo),
+la **foto del equipo en terreno** y, en **página aparte**, el **ANEXO FOTOGRÁFICO** con la
+🔖 foto de la placa/serial y la **última foto del horómetro subida** (28-sep-2026): el sistema
+la busca entre la foto de la **lectura del inspector**, las **fotos adicionales** del
+histórico y la del **cierre de jornada**, se queda con la más reciente y la imprime con su
+fecha y de qué turno era. Sin foto subida, la ficha sale sin ella.
+
+> **Lo vacío no sale:** un renglón sin dato se **omite** (no se imprime «—» ni se inventa).
+> Si a una máquina le falta el peso o las dimensiones, se cargan en su ficha con **✏️ Editar**
+> (campos nuevos «Ficha técnica · Peso operativo / Largo / Ancho / Alto») y ya salen en el
+> PDF. Son los **mismos** del módulo de Acarreo: corregirlos aquí los corrige allá — un solo
+> peso por máquina, no dos verdades. La foto de la placa es la misma del botón
+> **«🔖 Foto serial/placa»**.
+
+**Los vehículos también:** la tarjeta de cada 🚗 vehículo tiene su mismo botón
+**«📄 Ficha técnica»** — sale con sus datos (marca, modelo, placa, serial, capacidad del
+tanque en L, rendimiento en km/L, empresa, encargado y sus fotos). Lo que un vehículo no
+tiene (horómetro, aceite, tapa) simplemente no sale.
+
 **📄 Reporte de CONTEO de equipos (desde el Catálogo), con todos los datos reales
 (05/08/2026):** sigue siendo **sin horas ni precios** (para eso está Control de maquinaria), pero
 ahora trae el detalle completo de cada equipo, no solo el conteo. Muestra, en este orden:
@@ -1728,6 +1756,22 @@ intervención**); el **registro fotográfico**; las **conclusiones**; y las **do
 > - Cada informe emitido **queda guardado** con su correlativo y se puede **reimprimir** desde la
 >   lista de abajo. Al reimprimir, el **historial se vuelve a leer**: si se corrigió un costo mal
 >   cargado, el informe corregido es el que sale.
+
+**✏️🗑 Editar o eliminar un informe ya emitido (28-sep-2026).** En **«INFORMES YA EMITIDOS»**, cada
+informe trae ahora —solo con **permiso de escritura**— los botones **✏️ Editar** y **🗑 Eliminar**,
+además del **📄 Reimprimir** de siempre.
+
+- **✏️ Editar** carga en el formulario **todo lo que se guardó al emitirlo** (cabecera, período,
+  conclusiones y firmas). Corriges lo que haga falta y el botón de abajo pasa a decir
+  **«💾 Guardar cambios de IT-… y reimprimir»**: los cambios **pisan lo guardado** y la reimpresión
+  sale con el **MISMO número** — un IT-2026-003 corregido sigue siendo el IT-2026-003, nunca cambia
+  de correlativo. Cambiar de máquina a mitad de la edición **la cancela** (ese informe es de la otra
+  máquina).
+- **🗑 Eliminar** pregunta primero, en rojo, con las dos verdades en la cara: el PDF que ya se
+  entregó **no desaparece de las manos de nadie**, y si era el **último número del año**, el próximo
+  informe que se emita **sale con ese mismo número** (el correlativo es max+1 por año, como el folio
+  de la tiquetera).
+- Tanto la edición como el borrado **quedan anotados en 🕵️ Auditoría**.
 
 > **⚠️ Si los costos salen en CERO**, es porque los servicios no los tienen cargados: se cargan en
 > **📄 Informe técnico → «2b. Costos de cada intervención»**. Y si arriba de la pestaña aparece el
@@ -3422,7 +3466,11 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
 - **Reportes → ⚙️ Horómetro:** PDF «Horómetro vs jornada» por máquina y día: marca, modelo, serial/placa, horas de jornada,
   horas de horómetro, diferencia y estado (cuadra, horómetro mayor, jornada mayor, sin lectura,
   inválida), con una lista de **máquinas listas para encender** (5 días seguidos cuadrando o con
-  menos de 3 horas de diferencia). Mismos filtros de empresa, clasificación y máquina que Jornada.
+  menos de 3 horas de diferencia). Desde el 27/09/2026 la columna Estado ya **no dice «Inválida»
+  a secas: dice la razón real** que anotó la base — «Salto mayor a 12,5 h», «Menor que la última
+  lectura válida», «Final menor que inicial» — y una lectura incompleta dice **qué le falta**
+  («Incompleta: falta el final», el caso típico de un número borrado) en vez del genérico «Sin
+  lectura». Mismos filtros de empresa, clasificación y máquina que Jornada.
   Desde el 25/09/2026 es **igual de ajustable que los demás reportes de maquinaria**: pastillas de
   «qué se oculta en el PDF» (marca, modelo, serial/placa, nombre de empresas, horas de
   jornada, resumen, máquinas listas, detalle por día) y checks de «qué logos lleva el membrete» (SOS, Golden Touch, Venezuela
@@ -3442,6 +3490,21 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   (26/09/2026): escribe código, placa o serial, marca una o varias máquinas, y el PDF — y sus
   fotos — salen solo con ellas. Es el mismo filtro de Jornada y Ubicaciones, ahora con botón
   visible en los tres.
+
+- **📎 Fotos adicionales del horómetro, con histórico (26/09/2026 noche).** Pedido del cliente:
+  que el inspector pueda subir la foto del horómetro **desde la galería** y **más de una**, y que
+  quede el **histórico de quién subió y cuándo**.
+  - En el teléfono del inspector, junto a la foto del horómetro de inicio y de cierre, ahora hay
+    **botón de 🖼️ Galería** (además de la cámara) y un bloque **«📎 Fotos adicionales del
+    horómetro»**: 📷 Tomar foto / 🖼️ Subir de galería, cuantas veces haga falta. Cada foto queda
+    en el histórico **con el nombre de quien la subió y la hora**, y el bloque lista las de la
+    jornada en curso.
+  - **El histórico no se puede editar ni borrar** — ni siquiera un administrador desde la app: una
+    foto mal subida se tapa subiendo la buena, y las dos quedan con su quién y su cuándo. Eso es
+    lo que lo hace servir de prueba.
+  - **En el reporte de horómetros**, con el check de fotos encendido, las adicionales salen en la
+    galería de su máquina, detrás de la Inicial y la Final de su jornada, marcadas «Adicional»
+    con su hora de subida y su autor. Sin adicionales, el papel sale idéntico al de antes.
 
 **Qué NO hace todavía (fases siguientes, con decisiones del cliente):** pagar por horómetro,
 corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómetro físico», reinicio del
@@ -4728,11 +4791,12 @@ Se llega desde **Más → Ajustes**. La **apariencia** (modo oscuro/claro) y la 
 Ajustes solo quedan:
 
 - **Cerrar sesión.**
-- **⬇️ Descargar respaldo .sql (23/09/2026)** *(solo administradores puntuales, en computadora)*:
+- **⬇️ Descargar respaldo .sql (23/09/2026)** *(administradores, en computadora)*:
   descarga un archivo **`.sql`** con los datos de **todas las tablas** (máquinas, jornadas,
   empleados, pagos, inventario, ventas, compras, contactos…), **listo para volver a meterlo en
-  Supabase**. Acceso restringido a las cuentas designadas — el resto de administradores no ve
-  este botón. *(Requiere correr `supabase/respaldo_sql.sql`.)*
+  Supabase**. Desde el **27/09/2026 lo ve TODO administrador** (antes estaba restringido a
+  cuentas designadas y el resto de admins abría Ajustes y solo veía «Cerrar sesión»).
+  *(Requiere correr `supabase/respaldo_sql.sql`.)*
 
   > **Antes salía en .json y se dejaba 75 tablas.** El `.json` solo se podía mirar; el `.sql`
   > se pega en **Supabase → SQL Editor** y se restaura. Y la lista de tablas estaba **escrita a
@@ -4753,8 +4817,10 @@ Ajustes solo quedan:
 
   > **Qué NO trae:** solo **datos**. No trae el esquema (tablas, índices, funciones, triggers ni
   > permisos: eso vive en los archivos de `supabase/`), ni la bitácora `audit_log` (más de 100 mil
-  > filas de auditoría, no de datos del negocio), ni las tablas `backup_*` y `bkp_*`, que ya son
-  > respaldos viejos guardados dentro de la propia base. **Tarda unos minutos: no cierres la
+  > filas de auditoría, no de datos del negocio), ni las tablas `backup_*`, `bkp_*`, `respaldo_*`,
+  > `rls_backup_*` y `permisos_backup_*`, que ya son respaldos viejos guardados dentro de la
+  > propia base (los tres últimos prefijos se excluyeron el 27/09/2026, cuando los admins ganaron
+  > lectura sobre ellas y habrían empezado a colarse al archivo). **Tarda unos minutos: no cierres la
   > pestaña.** Cada INSERT lleva `on conflict do nothing`, así que restaurarlo sobre una base que
   > ya tiene datos **no duplica nada**: solo mete lo que falta.
 
@@ -5107,6 +5173,151 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >
 > ⚠️ **El número del ticket no se puede quitar.** La casilla se ve, pero no se mueve: un ticket sin
 > número no identifica nada, no se puede cantar por radio y no se puede reclamar.
+
+> **✍️ Cada dato del ticket: automático, a mano o quitado (27/09/2026).** Pedido del cliente: que
+> cada apartado del ticket sea modificable por quien tiene **control total** del módulo de viajes.
+> Ahora cada dato tiene **tres modos**, en el mismo desplegable «🎫 Qué sale en el ticket»:
+>
+> - **Quitado**: el interruptor apagado, como siempre. El renglón no sale.
+> - **🔤 Automático**: el interruptor encendido y sin texto puesto — sale el **dato de ese viaje**
+>   (la empresa a la que pertenece el camión, la placa de ese camión, etc.). Es como funcionaba todo
+>   hasta hoy, y nada cambia si no tocas nada.
+> - **✍️ A mano**: debajo de cada dato encendido hay una línea gris «🔤 Automático · tocar para
+>   ponerlo a mano». La tocas, escribes el texto (hasta 80 letras) y ese texto sale **igual en TODOS
+>   los tickets**, en lugar del dato del viaje — por ejemplo, que «Empresa» diga siempre lo que tú
+>   escribiste, sin importar de quién sea el camión. **Vaciar el texto vuelve al automático.**
+>
+> La **vista previa** de arriba muestra el texto a mano en el momento, el título del desplegable
+> anuncia «✍️ N a mano» para que se sepa sin abrirlo, y como todo en esa tarjeta, **no se guarda
+> nada hasta tocar Guardar**.
+>
+> ⚠️ **El número del ticket es el único sin modo a mano**: es el correlativo que identifica cada
+> papel; un número fijo haría iguales a todos los tickets del CDT.
+>
+> ⚠️ **Ojo con los datos que cambian por viaje.** Un texto a mano en «Placa» o en los pesos imprime
+> ese mismo texto en todos los papeles. La opción existe porque se pidió para todos los apartados,
+> pero para esos datos lo normal es dejarlos en automático.
+
+> **⚖️ Peso de romana: bruto, tara y peso a pagar (26/09/2026).** Pedido de la encargada del módulo:
+> al registrar el viaje, el listero **teclea el peso bruto** que marca la romana del CDT, el sistema
+> **resta la tara** de esa placa y arroja el **peso a pagar (neto)** — como en el papel de muestra:
+> Peso entrada (bruto) 32.540,00 Kg · Peso salida (tara) 11.340,00 Kg · Peso a pagar (neto)
+> 21.200,00 Kg.
+>
+> - **El peso y la foto son obligatorios.** Sin el bruto y sin la **📷 foto de la romana** (la
+>   evidencia de ese número) el viaje no se registra. Los viajes anteriores al 26/09 quedan sin
+>   peso y salen con raya: no se les inventa hacia atrás. Desde el 27/09 la foto se puede **tomar
+>   con la cámara o subir de la 🖼️ galería** (botón al lado): las dos valen igual, viajan igual en
+>   la cola sin señal, y volver a tomar o elegir otra **reemplaza** la anterior antes de registrar.
+> - **La tara la carga quien tiene control total del módulo**, de una vez, en «⚙️ Configuración →
+>   ⚖️ Tara de romana por camión». Se teclea **en kilos o en toneladas** — la pastilla «Escribo la
+>   tara en: Kg / Toneladas» (27/09/2026) dice en qué unidad estás escribiendo, y cambiarla bota lo
+>   tecleado sin guardar para que un número pensado en Kg no termine guardado como toneladas —, se
+>   **guarda siempre en kilos**, con 💾, y queda anotado quién la cargó. El ✕ la quita (los próximos
+>   viajes pedirán tara a mano). Arriba de la lista hay un **🔎 buscador** (27/09/2026): filtra por
+>   placa, código, serial, marca, modelo o empresa, y dice cuántos camiones coinciden.
+> - **Si el camión no tiene tara cargada** (o es de fuera de catálogo, que no tiene ficha), el
+>   listero la teclea a mano y el viaje queda marcado **✍️ tara manual** con su nombre — para que
+>   después se sepa cuál número salió del catálogo y cuál de un teléfono.
+> - **La tara se congela en cada viaje**, igual que la placa: si mañana re-pesan la tara de un
+>   camión, los viajes YA registrados conservan la suya y solo los nuevos usan la nueva. Y el neto
+>   **lo calcula la base de datos** (bruto − tara), nunca el teléfono: lo que ves en vivo es un
+>   adelanto del mismo cálculo.
+> - **Kilos por defecto, toneladas por si acaso.** El interruptor Kg/Toneladas está al lado del
+>   campo; todo se guarda en kilos.
+> - **Sin señal funciona igual**: el viaje Y su foto quedan guardados en el teléfono y suben juntos
+>   cuando vuelva la conexión.
+> - **En el ticket** salen los tres renglones si el administrador enciende los checks **⚖️ Peso
+>   entrada (bruto) / Peso salida (tara) / Peso a pagar (neto)** en «¿Qué sale en el ticket?»
+>   (entran apagados, como todo lo nuevo). Desde el 27/09/2026 el papel imprime el **rótulo
+>   completo** — «Peso entrada (bruto)», «Peso salida (tara)», «Peso a pagar (neto)» — en vez del
+>   corto «P. entrada / P. salida / P. a pagar», a pedido. ⚠️ Con muchos datos encendidos puede que
+>   ya no quepan 4 o 6 tickets por hoja: el propio configurador avisa y dice qué papel usar (los
+>   rótulos largos también cuentan para ese cálculo).
+> - **En qué unidad salen los pesos del ticket (27/09/2026).** En «🎫 Qué sale en el ticket» (solo
+>   control total) está la pastilla **«⚖️ Los pesos del papel, en: Kg / Toneladas»**: en Kg sale
+>   «32.540,00 Kg» (como el papel de muestra) y en toneladas «32,540 Ton», con tres decimales para
+>   no redondear un papel que se firma. Solo cambia el **texto impreso** — el dato guardado sigue
+>   en kilos —, la vista previa lo muestra al momento y el título del desplegable anuncia «⚖️
+>   pesos en Ton» cuando está en toneladas. De fábrica: Kg.
+> - **En los reportes** (el PDF de la Lista completa de viajes), desde el **28/09/2026** el peso son
+>   **tres interruptores separados** en «🖨️ Qué sale en el reporte»: **⚖️ Peso entrada (bruto)**,
+>   **⚖️ Peso salida (tara)** y **⚖️ Peso a pagar (neto)** — cada columna se enciende por su cuenta,
+>   con sus totales. En el resumido solo existe «Peso a pagar» (bruto y tara son de cada viaje, no
+>   de un camión). Los viajes sin peso no suman ni aparecen como cero. En esa misma caja están la
+>   pastilla **«⚖️ Los pesos del PDF en: Kg / Toneladas»** (solo cambia el texto — «32.540,00 Kg» o
+>   «32,54 Ton» — y el encabezado de la columna lo dice; el dato guardado sigue en kilos) y la
+>   sección **«🏷️ Qué logos lleva el membrete»** (BCV, SOS La Guaira, Golden Touch, Plan Venezuela
+>   Renace y — desde el 28/09 — **Jhenzaen 2.012 C.A**; arranca como salía siempre: BCV + SOS, lo
+>   nuevo entra apagado). Sin tocar nada, el papel sale idéntico al de ayer.
+>   **📊 Promedio por viaje de cada camión (29/09/2026).** En esa misma caja hay un interruptor
+>   nuevo, **«📊 Promedio por viaje de cada camión»**: agrega —pegada al peso a pagar— una columna
+>   con **lo que cargó ese camión en promedio por viaje** (su peso a pagar ÷ sus viajes), en la
+>   unidad del reporte. El pie de cada grupo y el **total general** traen su propio promedio,
+>   calculado sobre los viajes de ese grupo (no promediando promedios). **Solo sale en el
+>   resumido**: en el detallado cada fila ya es un viaje, y su «promedio» sería su propio peso.
+>
+>   > **Las toneladas de ESTE reporte van con dos decimales (28/09/2026, a pedido):** «32,54 Ton».
+>   > Es un papel de control, se lee de un vistazo y no lo firma nadie. **El ticket conserva los
+>   > tres** («32,545 Ton») porque sí se firma en el CDT, y ahí un redondeo de 5 kg sí importa.
+> - **Corregir un peso mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje.
+>   Desde el 27/09/2026 se pueden corregir **los dos**: el **bruto** y también la **tara de ese
+>   viaje** — para cuando la cargaron mal (antes había que borrar el viaje y recargarlo). El peso a
+>   pagar se recalcula solo, el sistema no deja que la tara alcance al bruto, y cada corrección
+>   queda en Auditoría con el antes y el después. Ojo: esto corrige la tara de **ese viaje**; la
+>   tara del catálogo del camión se cambia en «⚖️ Tara de romana por camión» y solo afecta viajes
+>   futuros.
+> - **La carga manual de la oficina ya puede llevar peso (28/09/2026).** En «✍️ Cargar viajes a
+>   mano» hay campos opcionales de **bruto y tara** (con su pastilla Kg/Toneladas), para cuadrar un
+>   viaje con el papel de la romana en la mano. Tres reglas: va en **un solo viaje por carga** (una
+>   tanda con el mismo bruto repetido sería inventar la romana), van **los dos números o ninguno**
+>   (vacío = sin peso, como siempre), y **sin foto** (nadie la tomó y el sistema no la finge). Si
+>   dejas la tara vacía se usa la del catálogo; tecleada queda **✍️ manual** con tu nombre.
+> - **A un viaje ya cargado a mano se le puede AGREGAR el peso después**, en ✏️ Editar: aparecen
+>   los dos campos vacíos, exige bruto y tara juntos, la tara queda ✍️ manual y todo va a
+>   Auditoría. ⚠️ A un viaje **del patio** sin peso se le sigue **sin inventar**: esa puerta es
+>   solo para los cargados a mano.
+> - 🔧 **Arreglo del 26/09 en la noche:** la lista de taras salía con el aviso falso «⚠️ Falta
+>   correr el SQL del peso de romana» aunque la base estaba al día (era un error de la app al
+>   pedir la lista, no de la base). Si te sale, recarga la página con la versión nueva.
+
+> **🚫 Camiones que NO pasan por romana (26/09/2026).** Para los camiones específicos a los que no
+> se les pesa: en «⚙️ Configuración → ⚖️ Tara de romana por camión», cada camión tiene su
+> interruptor **⚖️ Pasa por romana / 🚫 No pasa por romana** (solo control total; pregunta antes de
+> marcar y queda anotado quién lo marcó).
+>
+> - A un camión marcado «no pasa», al listero **ni le aparece** la tarjeta del peso: registra con
+>   un toque, como antes del cambio. Sus viajes entran **sin peso**, salen con **raya** en reportes
+>   y ticket (nunca un cero) y **no suman kilos** de nadie.
+> - Al desmarcarlo, los viajes **nuevos** vuelven a exigir peso y foto; los viejos quedan como
+>   fueron. La tara guardada **no se borra** al marcar la exención: queda esperando por si vuelve.
+> - Los camiones **fuera de catálogo** no se pueden marcar (no tienen ficha): a esos el peso se les
+>   exige siempre — son justo los menos controlados.
+
+> **🧾 Tipos de viaje con nombre: la tarifa Oeste → Este y las que vengan (26/09/2026).** Nueva
+> metodología de cobro: además de los viajes del Este y del Oeste, hay viajes **cruzados** (de
+> Oeste a Este o viceversa) con su propia tarifa — y mañana pueden inventarse otras. Para no tocar
+> código cada vez, existe el **catálogo de tipos de viaje**:
+>
+> - **Crear un tipo es un formulario** («🧾 Tipos de viaje», en el panel de información, solo
+>   control total): nombre libre + tarifa por viaje. Ya están creados **«Oeste → Este»** y
+>   **«Este → Oeste»** — solo falta ponerles el precio. La tarifa se puede dejar vacía y ponerla
+>   después; **apagar** un tipo lo esconde del listero sin tocar los viajes que ya lo llevan.
+> - **El listero marca el tipo al registrar**: si hay tipos creados, junto al peso salen las
+>   pastillas «🚚 Normal» (viene marcada) y una por tipo. El toque extra es SOLO para el viaje
+>   especial; el viaje de siempre no cambia en nada.
+> - **El tipo y su tarifa se CONGELAN en el viaje** al registrarlo: cambiar el precio del tipo la
+>   semana que viene no toca lo ya registrado (misma regla que la placa y la tara).
+> - **En el pago, la tarifa del tipo MANDA** sobre la tarifa de zona. Un viaje con tipo **sin
+>   precio** sale visible como «Tipo de viaje sin tarifa» — nunca se paga con la tarifa de zona
+>   por adivinanza; se arregla poniéndole precio al tipo o corrigiendo el viaje. Los viajes SIN
+>   tipo se pagan exactamente como siempre: **nada de lo ya pagado cambia**.
+> - **En la tarjeta y el PDF del pago**: cada viaje cruzado dice su tipo y su tarifa; el listado
+>   por equipo separa el renglón del cruce (la columna Zona dice «Oeste → Este»); y hay un cuadro
+>   nuevo «Cantidad por tipo de viaje» con su pastilla para ocultarlo (entra oculto, como todo lo
+>   nuevo).
+> - **Corregir el tipo de un viaje** (si el listero marcó mal): ✏️ Editar, pastillas de tipo, solo
+>   control total; congela la tarifa de HOY del tipo y queda en Auditoría.
 
 > **🖨️ Imprimir el ticket y entregarlo (12/09/2026).** Ya se puede sacar el papel. En cada viaje que
 > tenga número aparece **🖨️ Imprimir ticket**, al lado de Editar y Borrar. Se abre la vista previa,
@@ -5762,6 +5973,56 @@ manera de agregar un viaje a una fecha pasada, porque el botón del listero sell
 >   Mover a un listero de obra tampoco mueve sus viajes viejos.
 > - Cada viaje de la lista ahora muestra su CDT (**🏗️**). El listero no puede cambiarlo.
 
+> **🔧 Arreglo en el pago (28/09/2026, tarde).** El **💰 Pago de viajes** no estaba tomando las
+> tarifas de los **🧾 Tipos de viaje**: la regla del cálculo existía (la tarifa del tipo manda
+> sobre la de zona) y el dato estaba sano en la base, pero **la consulta del pago no pedía las
+> columnas del tipo**, así que el cálculo nunca las veía y todo caía a la tarifa de zona — 39
+> cruces «Este → Oeste» de $100 salían a $50. Corregido: los cruces salen con su tipo y su
+> tarifa congelada. Si sacaste un pago de esos días, **vuelve a generarlo**.
+
+> **📝 El PDF de viajes sale sin la marca en texto (28/09/2026).** A pedido, los reportes de la
+> **Lista completa de viajes** ya **no** imprimen la línea *«Banco Central de Venezuela / SOS La
+> Guaira · Sistema de control interno»* debajo del título ni el pie *«… Documento generado por el
+> sistema de control interno»*. Los **logos** del membrete siguen siendo elegibles con sus checks.
+> Los **demás reportes** del sistema no cambian: siguen con su marca de siempre.
+
+> **📊 Resumen ejecutivo del reporte (28/09/2026).** En **«🖨️ Qué sale en el reporte»** hay un
+> interruptor **«📊 Resumen ejecutivo»**: enciéndelo y el PDF arranca con un bloque de **tarjetas**
+> antes de la tabla. Al encenderlo trae las tres de siempre —**Total viajes realizados** (con
+> cuántas unidades los hicieron), **Total tonelaje / kilogramos** y **Promedio por viaje**—, y
+> debajo aparecen las demás para marcar **las que quieras**:
+> - **🚚 Promedio de viajes por camión** — viajes ÷ camiones que salieron.
+> - **📐 Total de metros cúbicos**, **📐 Promedio de m³ por viaje** y **📐 Promedio de m³ por
+>   camión** — cada una por su cuenta.
+>
+> Puedes dejar **una, dos, las tres o las siete**: cada tarjeta se marca y se desmarca sola.
+>
+> - **La unidad la manda el reporte:** con la pastilla en **Toneladas** el bloque dice «TOTAL
+>   TONELAJE» y calcula en toneladas; en **Kg**, «TOTAL KILOGRAMOS» y en kilos. No hay dos
+>   unidades en el mismo papel.
+> - **Ninguna tarjeta inventa un cero:** si ningún viaje del papel trae peso, o los camiones no
+>   tienen cubicaje medido, la tarjeta sale con **raya (—) y el motivo escrito** — un «0,00 Ton»
+>   se leería como «cargaron cero», que es mentira. Lo mismo con los promedios sin viajes.
+> - Si enciendes el resumen y **no marcas ninguna** tarjeta, la caja te avisa y el bloque no sale
+>   (un recuadro «Resumen ejecutivo» vacío parecería un error del sistema).
+> - **No sale en «🚚 Solo camiones»**, a propósito: ese papel existe para no llevar **ninguna
+>   cantidad**, y un bloque de totales arriba lo contradiría.
+
+> **⏱️ Franja de horas y minutos (28/09/2026).** En **«🚛 Lista completa de viajes»**, debajo de las
+> pastillas de fecha hay dos casillas nuevas — **DESDE** y **HASTA** — para recortar los viajes de los
+> días elegidos a un **rango de horas y minutos**: de 08:00 a 10:15, solo desde una hora, o solo hasta
+> una.
+> - **Se escribe como quieras:** «8» vale por 08:00 en punto; «830», «0830» y «8:30» valen por 08:30.
+> - **Los extremos entran:** un viaje de las 10:15 en punto **sí** sale en «hasta 10:15».
+> - **DESDE mayor que HASTA cruza la medianoche:** «de 22:00 a 02:00» trae la noche **con su
+>   madrugada**, que es como trabaja la jornada (7am a 7am).
+> - La lista, los **chips** de filtros, el resumen y el **PDF** salen todos recortados igual, y el
+>   encabezado del PDF **dice la franja** para que el papel no se confunda con el del día completo.
+> - Una hora **mal tecleada avisa en rojo y no filtra** (no te vacía la lista en silencio).
+>   **«✕ Limpiar filtros»** quita también la franja.
+> - El apartado de **m³ (cubicaje) no se recorta por horas**: consulta lo guardado por días completos
+>   y su etiqueta lo dice.
+
 > **🎫 Buscar un viaje por su número de ticket (17/09/2026).** En **"🚛 Lista completa de viajes"**, el
 > buscador que ya filtraba camión, listero y empresa ahora **también encuentra un viaje por el número
 > del ticket**. Escribe **191**, **000191** o **CDT-000191**: da igual con ceros o sin ellos. La lista
@@ -5815,6 +6076,89 @@ indistinguibles, y un camión no hace dos viajes en el mismo instante.
 > ya existía para las tandas que cruzan las **7am** y se reparten entre dos días.
 
 **Quitar.** En la lista completa, filtras el día y le das **"🗑️ Borrar"** a los que sobren.
+
+#### ⛏️ Frentes de trabajo (28/09/2026)
+
+El **frente** es **de dónde recogen** los camiones el material que después llevan a los CDT/CDF
+(las obras/ubicaciones son el **destino**; el frente, el **origen**). Vive como **subsección
+dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
+
+- **Crear frentes** con nombre libre, y **desactivarlos sin borrar**: un frente apagado deja de
+  ofrecerse, pero los viajes que ya lo llevan no cambian.
+- **Asignar el frente del día**: eliges la fecha (por defecto hoy), el frente, y marcas los
+  camiones — con **🔎 buscador** por placa, código, serial o empresa — uno, varios o un grupo de
+  una vez. Reasignar **pisa** la asignación de ese camión ese día; abajo se ve lo asignado del
+  día, con su ✕ para quitarlo.
+- **Cada viaje congela el frente** de su camión al registrarse (como la obra y la placa), y el que
+  se registró **sin** frente lo **toma solo** de la asignación de ese día (ver el recuadro de
+  abajo).
+
+  > **⛏️ EL FRENTE DEL DÍA LO TOMAN TODOS LOS VIAJES DE ESE DÍA (29/09/2026, a pedido).** Antes el
+  > frente solo se pegaba al viaje **en el momento de registrarlo**, así que si la oficina asignaba
+  > el frente **después** —que es lo normal— los viajes de la mañana seguían saliendo «sin frente» y
+  > había que entrar a ✏️ Editar uno por uno. **Ya no.** Cuando asignas un frente a un camión para
+  > una fecha, **todos los viajes de ese camión y esa jornada que no tengan frente propio lo toman
+  > automáticamente**: los que ya estaban registrados y los que vengan después. Vale en la **Lista
+  > completa** y en el **💰 Pago de viajes**, para que los dos papeles digan lo mismo.
+  > - **Lo que tiene frente propio se queda con el suyo.** Si un viaje ya trae un frente —porque se
+  >   registró con él o porque se lo pusiste a mano en ✏️ Editar—, la asignación del día **no lo
+  >   pisa**. Así un camión que cambió de frente a mediodía conserva los viajes de la mañana en su
+  >   frente, y una corrección hecha a mano no se borra al recargar.
+  > - **No se toca la base.** El frente se completa **al leer**, no con un cambio masivo: si mañana
+  >   corriges la asignación, los reportes se corrigen solos y nada quedó escrito a la fuerza.
+  > - Para **quitarle** el frente a un camión ese día, usa el ✕ de «Asignados ese día».
+- **La carga manual también lleva frente**: al elegir camión y fecha se **propone** la asignación
+  de esa jornada (si la hubo) y se puede cambiar o dejar «Sin frente».
+- **A un viaje ya hecho** el frente se le pone o corrige en **✏️ Editar** (solo full) y queda en
+  **🕵️ Auditoría**.
+  > **⛏️ Ponerle el frente a un viaje lo deja asignado para esa fecha (29/09/2026).** Cuando le
+  > pones un frente a un viaje —en **✏️ Editar** o al **cargarlo a mano**—, ese frente queda
+  > **asignado a ese camión para la jornada de ese viaje**. Así no hay que repetir la asignación:
+  > **los viajes que se registren después salen con él solos**. Dos detalles a propósito:
+  > - **Solo al ponerlo, nunca al quitarlo.** Quitarle el frente a un viaje no deja sin frente al
+  >   camión: los que vengan después lo siguen tomando.
+  > - **Y los viajes de ese día que estaban sin frente lo toman solos** (29/09/2026): los que ya
+  >   tienen uno propio conservan el suyo.
+  > **📄 PDF de los frentes del día (29/09/2026).** En la subsección **⛏️ Frentes de trabajo**,
+  > junto a «Asignados ese día», está el botón **«📄 PDF del día»**: saca la **hoja de asignación**
+  > de la fecha elegida — cada frente con la lista de camiones que recogen ahí (camión, placa/serial
+  > y empresa). **No lleva ninguna cifra** —ni viajes, ni toneladas, ni m³— a propósito: para eso
+  > está el reporte de la Lista completa, que agrupa por frente.
+  >
+  > **🖨️ «Qué sale en la hoja de frentes» (29/09/2026, a pedido).** Debajo de los asignados hay un
+  > desplegable con los **checks** del papel: **1️⃣ numeración**, **🔢 placa/serial**, **🏢 empresa**,
+  > **🚚 marca y modelo** (nace apagada), **🔟 cuántos camiones lleva cada frente**, **📋 línea de
+  > totales** y **⬜ incluir los frentes SIN camiones**.
+  > - **Lo que apagues no deja rastro en el papel** (corregido el 29/09 a pedido): la hoja sale
+  >   **como si ese dato no existiera** — ni celda vacía, ni «(oculto)», ni una nota en el subtítulo.
+  >   Durante unas horas el subtítulo decía «… · sin placa, empresa, numeración» y **se quitó**.
+  >   *(Misma corrección en el 💰 Pago de viajes: su cuadro «Alcance del informe» ya no lleva la
+  >   línea «No sale: …». Lo que sí sigue —y debe seguir— es el aviso de que el papel está
+  >   **filtrado**, porque eso cambia el total.)*
+  > - **Salen SOLO los frentes asignados ese día** (pedido del 29/09). El check «incluir los frentes
+  >   SIN camiones» —apagado por defecto— vuelve a listar los que quedaron vacíos, que sirve para no
+  >   dejar un frente olvidado.
+  > - **🏷️ Los logos también se eligen**: BCV, SOS La Guaira, Golden Touch, Plan Venezuela Renace y
+  >   Jhenzaen 2.012 C.A. **Esta hoja nace SIN ninguno** y **sin** el pie «Banco Central de
+  >   Venezuela / SOS La Guaira» (pedido del 29/09: *ya no va*). Si alguna vez hace falta, se
+  >   enciende con su interruptor: no se borró nada.
+  >
+  > **🕘 Historial de frentes de trabajo (29/09/2026, a pedido).** En el mismo apartado, un
+  > desplegable con los **últimos 45 días** que tuvieron asignación: por cada día, cuántos camiones
+  > y qué frentes se usaron (con cuántos camiones cada uno), del más reciente al más viejo. **Toca
+  > un día** y se abre arriba: ves su asignación completa y puedes sacarle su PDF.
+- **En los reportes:** la Lista completa tiene el interruptor **«⛏️ Frente de trabajo»** (entra
+  **apagado**, como todo lo nuevo) y la opción de **agrupar por frente** en el detallado y el
+  resumido; el 💰 Pago de viajes tiene su pastilla **«🚫 Frente de trabajo»** para la columna y el
+  eje **«⛏️ Frente de trabajo»** para agrupar el PDF. **Agrupar por frente no mueve un centavo**:
+  solo parte y rotula distinto.
+
+  > **☑️ «No mostrar los viajes SIN frente» (28/09/2026, a pedido):** la casilla está **con los
+  > filtros** (debajo de la ⏱️ franja de horas), **no** en «Qué sale en el reporte» — porque esta
+  > sí **saca viajes y mueve el total**, y esa caja promete lo contrario. Antes de marcarla te
+  > dice **cuántos viajes dejaría fuera**; marcada, el **encabezado del PDF avisa** «⛏️ SOLO
+  > viajes con frente» para que el papel no se lea como el del rango completo. **«✕ Limpiar
+  > filtros» también la apaga.**
 
 #### 🏗️ Obras y ubicaciones (12/09/2026)
 
@@ -6251,6 +6595,17 @@ historial de abonos. Ahí abajo están los botones:
 ---
 
 ## 5. Cosas que sirven en TODAS las secciones
+
+> **👑 Un ADMINISTRADOR tiene acceso a todo (27/09/2026).** Es la regla de la casa y se
+> reforzó en todo el sistema: el respaldo de la base, el panel de activar/desactivar máquinas
+> por supervisor, el registro de Cocina (entra verificado con su nombre, sin carnet de
+> cocina), el botón «Iniciar jornada» del Catálogo, la casilla «Autorizado bajo orden del
+> Gerente General» (para el admin es opcional; para la almacenista sigue siendo obligatoria),
+> editar cualquier viaje en Viajes de Camiones, ver TODAS las máquinas en Coordinador de
+> Operadores aunque tenga un alcance configurado, y leer las tablas de respaldo y el contador
+> de folios en la base. Además: si al entrar falla la carga del perfil, el sistema **reintenta
+> 3 veces** en vez de dejarte como usuario sin permisos en silencio; y **asignarle un rol
+> personalizado a un admin ahora ADVIERTE** que eso lo degrada (antes lo hacía sin avisar).
 
 - **🔎 Buscar:** escribe parte del nombre, serial o empresa.
 - **🏢 Filtrar por empresa:** toca el selector de empresa para ver solo esa.

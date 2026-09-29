@@ -14,19 +14,20 @@
 //    decidiendo, y deja el formato a medio cambiar si se va la señal en el
 //    medio. Mientras hay cambios sin guardar, la tarjeta lo dice.
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { Plegable } from './Plegable';
 import { Toggle } from './CubicajeTab';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useToast } from './ToastProvider';
 import {
-  CAMPOS_TIQUE, CAMPO_FIJO, CONFIG_POR_DEFECTO, LOGOS_TIQUE, PAPELES,
+  CAMPOS_TIQUE, CAMPO_FIJO, CONFIG_POR_DEFECTO, LOGOS_TIQUE, PAPELES, TEXTO_FIJO_MAX,
   cambiosRespectoAlDefecto, resumenConfig,
   type ClaveCampo, type ClaveLogo, type PapelTique, type TiqueConfig,
 } from '../lib/tiqueConfig';
 import { guardarConfigTique, leerConfigTique } from '../lib/tiqueConfigDatos';
 import { avisoDeCapacidad, renglonesDelTique } from '../lib/tiqueDocumento';
+import { UNIDADES_PESO, pesosParaTique } from '../lib/viajesPeso';
 
 /**
  * Un viaje de mentira para la vista previa.
@@ -58,6 +59,11 @@ const EJEMPLO: Record<ClaveCampo, string> = {
   chofer:      'Chofer del turno',
   listero:     'Listero del CDT',
   m3:          '16,82 m³',
+  // El ejemplo del peso es el MISMO del papel de muestra de la encargada
+  // (26-sep-2026): bruto − tara = neto, y se ve que cuadra.
+  pesoBruto:   '32.540,00 Kg',
+  pesoTara:    '11.340,00 Kg',
+  pesoNeto:    '21.200,00 Kg',
   estado:      'Operativa',
   nota:        'Sin nota',
 };
@@ -92,6 +98,16 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
   const logo = (k: ClaveLogo) => setConfig((c) => ({ ...c, logos: { ...c.logos, [k]: !c.logos[k] } }));
   const papel = (p: PapelTique) => setConfig((c) => ({ ...c, papel: p }));
 
+  // ✍️ EL TEXTO A MANO por campo (27-sep-2026). Se escribe crudo mientras se
+  // teclea; `normalizarConfig` lo recorta y bota los vacíos al guardar. Vaciar
+  // el campo ES volver al automático, sin botón aparte.
+  const [textoAbierto, setTextoAbierto] = useState<ClaveCampo | null>(null);
+  const texto = (k: ClaveCampo, v: string) => setConfig((c) => {
+    const t = { ...c.textos };
+    if (v) t[k] = v; else delete t[k];
+    return { ...c, textos: t };
+  });
+
   const guardar = async () => {
     setOcupado(true);
     const r = await guardarConfigTique(config, uid);
@@ -107,7 +123,14 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
   };
 
   const enRollo = config.papel === 'rollo80' || config.papel === 'rollo58';
-  const renglones = useMemo(() => renglonesDelTique(EJEMPLO, config), [config]);
+  // El ejemplo de los pesos se arma con el MISMO formateador del papel
+  // (pesosParaTique) y la unidad elegida: si dice Ton en la vista previa es
+  // porque va a decir Ton en el ticket. Los números son los del papel de muestra.
+  const ejemplo = useMemo(() => ({
+    ...EJEMPLO,
+    ...pesosParaTique({ pesoBrutoKg: 32540, pesoTaraKg: 11340, pesoNetoKg: 21200 }, config.pesosUnidad),
+  }), [config.pesosUnidad]);
+  const renglones = useMemo(() => renglonesDelTique(ejemplo, config), [ejemplo, config]);
   /**
    * ⚠️ ESTE AVISO EXISTE POR UN TICKET CORTADO.
    *
@@ -169,20 +192,78 @@ export function TiqueConfigCard({ uid, onGuardado }: { uid: string | null; onGua
       </View>
 
       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>QUÉ DATOS SALEN</Text>
-      <ScrollView style={{ maxHeight: 280 }} nestedScrollEnabled>
+      <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 4 }}>
+        Cada dato encendido sale 🔤 automático (el dato de ese viaje) o ✍️ a mano: un texto fijo
+        que se imprime IGUAL en todos los tickets. Toca la línea gris debajo del dato para
+        ponérselo; vaciar el texto vuelve al automático.
+      </Text>
+      <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
         {CAMPOS_TIQUE.map((c) => (
           c.k === CAMPO_FIJO ? (
             // Se enseña, se explica y no se deja tocar. Esconderla sería peor:
             // el cliente pidió un check para cada cosa y merece ver por qué este
-            // no se mueve.
+            // no se mueve. Y tampoco acepta texto a mano: es el correlativo.
             <View key={c.k} style={{ opacity: 0.55 }}>
               <Toggle on label={`${c.label} · fijo`} ayuda={c.ayuda} onPress={() => {}} />
             </View>
           ) : (
-            <Toggle key={c.k} on={config.campos[c.k]} label={c.label} ayuda={c.ayuda} onPress={() => campo(c.k)} />
+            <View key={c.k}>
+              <Toggle on={config.campos[c.k]} label={c.label} ayuda={c.ayuda} onPress={() => campo(c.k)} />
+              {/* El modo del dato, solo si el check está encendido: apagado ya
+                  es «quitado» y no hay nada más que decidir. */}
+              {config.campos[c.k] ? (
+                textoAbierto === c.k ? (
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginLeft: spacing.lg, marginBottom: 6 }}>
+                    <TextInput
+                      value={config.textos[c.k] ?? ''}
+                      onChangeText={(v) => texto(c.k, v)}
+                      placeholder="Texto fijo (vacío = automático)"
+                      placeholderTextColor={colors.muted}
+                      maxLength={TEXTO_FIJO_MAX}
+                      autoFocus
+                      style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 12, backgroundColor: colors.surface }}
+                    />
+                    <TouchableOpacity onPress={() => setTextoAbierto(null)} style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brand }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>Listo</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity onPress={() => setTextoAbierto(c.k)} style={{ marginLeft: spacing.lg, marginBottom: 6 }}>
+                    {(config.textos[c.k] ?? '').trim() ? (
+                      <Text style={{ color: colors.warning, fontSize: 10.5, fontWeight: '700' }} numberOfLines={1}>
+                        ✍️ A mano: «{(config.textos[c.k] ?? '').trim()}» · sale igual en TODOS
+                      </Text>
+                    ) : (
+                      <Text style={{ color: colors.muted, fontSize: 10.5 }}>🔤 Automático · tocar para ponerlo a mano</Text>
+                    )}
+                  </TouchableOpacity>
+                )
+              ) : null}
+            </View>
           )
         ))}
       </ScrollView>
+
+      {/* ⚖️ En qué unidad se IMPRIMEN los pesos (27-sep-2026, a pedido). Solo
+          cambia el texto del papel: el dato guardado es kilos siempre. */}
+      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 4 }}>⚖️ LOS PESOS DEL PAPEL, EN</Text>
+      <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+        {UNIDADES_PESO.map((u) => {
+          const on = config.pesosUnidad === u.k;
+          return (
+            <TouchableOpacity
+              key={`pu-${u.k}`}
+              onPress={() => setConfig((c) => ({ ...c, pesosUnidad: u.k }))}
+              style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingVertical: 6, paddingHorizontal: spacing.sm }}
+            >
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>
+        Solo cambia cómo se imprime: «32.540,00 Kg» o «32,540 Ton». El dato guardado sigue en kilos.
+      </Text>
 
       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 2 }}>QUÉ LOGOS SALEN</Text>
       {LOGOS_TIQUE.map((l) => (

@@ -36,6 +36,7 @@ import { REPORT_BRAND, exportPdf } from '../lib/pdf';
 import { cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastProvider';
+import { useConfirm } from '../components/ConfirmProvider';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import {
@@ -125,6 +126,7 @@ export default function InformeTecnicoTab(
   const { colors } = useTheme();
   const { fullName } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const [q, setQ] = useState('');
   const [maquinaId, setMaquinaId] = useState('');
@@ -156,6 +158,10 @@ export default function InformeTecnicoTab(
 
   const [emitidos, setEmitidos] = useState<Emitido[]>([]);
   const [busy, setBusy] = useState(false);
+  // El informe emitido que se está EDITANDO. Mientras esté puesto, el formulario
+  // entero trabaja sobre ese informe: guardar lo pisa (mismo correlativo) en vez
+  // de emitir uno nuevo.
+  const [editando, setEditando] = useState<Emitido | null>(null);
 
   const lista = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -299,6 +305,119 @@ export default function InformeTecnicoTab(
     conFotos,
   });
 
+  /** Los campos editoriales TAL COMO van a la base. Los comparten el insert de
+   *  `emitir` y el update de `guardarEdicion` a propósito: si editar guardara
+   *  distinto de lo que guarda emitir, la reimpresión saldría distinta según
+   *  por cuál camino entró el dato. */
+  const payloadEditorial = () => ({
+    report_date: fechaEmision,
+    desde: desde || null, hasta: hasta || null,
+    dirigido_a: dirigidoA.trim() || null, elaborado_por: elaboradoPor.trim() || null,
+    empresa_propietaria: empresaProp.trim() || null, encargado_sitio: encargado.trim() || null,
+    ubicacion: ubicacion.trim() || null, estado_informe: estadoInforme.trim() || null,
+    antecedentes: antecedentes.trim() || null,
+    estado_operatividad: estadoOper.trim() || null, proximo_pm: proximoPm.trim() || null,
+    recomendaciones: recos.split('\n').map((r) => r.trim()).filter(Boolean),
+    firma1_nombre: f1Nombre.trim() || null, firma1_cargo: f1Cargo.trim() || null,
+    firma2_nombre: f2Nombre.trim() || null, firma2_cargo: f2Cargo.trim() || null,
+    con_fotos: conFotos,
+  });
+
+  /** Carga un informe emitido EN EL FORMULARIO para corregirlo. El período
+   *  también se carga: el historial de abajo pasa a ser el de ese informe. */
+  const abrirEdicion = (e: Emitido) => {
+    setDesde(e.desde ?? ''); setHasta(e.hasta ?? '');
+    setFechaEmision(String(e.report_date ?? '').slice(0, 10) || hoyISO());
+    setDirigidoA(e.dirigido_a ?? ''); setElaboradoPor(e.elaborado_por ?? '');
+    setEmpresaProp(e.empresa_propietaria ?? ''); setEncargado(e.encargado_sitio ?? '');
+    setUbicacion(e.ubicacion ?? REPORT_BRAND); setEstadoInforme(e.estado_informe ?? '');
+    setAntecedentes(e.antecedentes ?? ''); setEstadoOper(e.estado_operatividad ?? '');
+    setProximoPm(e.proximo_pm ?? ''); setRecos((e.recomendaciones ?? []).join('\n'));
+    setConFotos(e.con_fotos !== false);
+    setF1Nombre(e.firma1_nombre ?? ''); setF1Cargo(e.firma1_cargo ?? '');
+    setF2Nombre(e.firma2_nombre ?? ''); setF2Cargo(e.firma2_cargo ?? '');
+    setEditando(e);
+  };
+
+  /** Sale de la edición y deja el formulario como arranca (informe NUEVO). */
+  const cancelarEdicion = () => {
+    setEditando(null);
+    setFechaEmision(hoyISO()); setDirigidoA(''); setElaboradoPor(fullName ?? '');
+    setEmpresaProp(''); setEncargado(maquina?.encargado ?? ''); setUbicacion(REPORT_BRAND);
+    setEstadoInforme('Consolidado final de servicios'); setAntecedentes(''); setEstadoOper('');
+    setProximoPm(''); setRecos(''); setConFotos(true);
+    setF1Nombre(fullName ?? ''); setF1Cargo(''); setF2Nombre(''); setF2Cargo('');
+  };
+
+  // Cambiar de máquina a mitad de una edición la CANCELA: el informe cargado es
+  // de la otra máquina, y guardarle encima estos datos sería mezclar dos.
+  useEffect(() => {
+    if (editando && editando.machinery_id !== maquinaId) cancelarEdicion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maquinaId]);
+
+  /**
+   * Guarda los cambios SOBRE el informe cargado y lo reimprime.
+   *
+   * ⚠️ EL CORRELATIVO NO SE TOCA NUNCA: `payloadEditorial` no lleva `code` y el
+   *    update va por `id`. El número es lo que identifica al papel que ya puede
+   *    andar entregado; un IT-2026-003 corregido sigue siendo el IT-2026-003.
+   */
+  const guardarEdicion = async () => {
+    if (!editando) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from('machinery_tech_reports')
+        .update({ ...payloadEditorial(), updated_at: new Date().toISOString() })
+        .eq('id', editando.id);
+      if (error) return toast.error(`No se pudo guardar la corrección: ${error.message}`);
+      const equipo = await traerEquipo(editando.machinery_id);
+      const html = informeTecnicoHtml({
+        equipo, items: conCosto, cabecera: cabeceraDe(editando.code), empresaEmisora: REPORT_BRAND,
+      });
+      await exportPdf(html, nombreArchivoInforme(equipo, editando.code));
+      await cargarEmitidos(maquinaId);
+      toast.success(`Informe ${editando.code} corregido y reimpreso.`);
+      cancelarEdicion();
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo guardar la corrección.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Elimina un informe emitido, avisando las dos verdades ANTES: el PDF que ya
+   * se entregó no desaparece de las manos de nadie, y como el correlativo es
+   * max+1 por año, borrar el último del año hace que el próximo informe herede
+   * ese mismo número (igual que el folio de la tiquetera). El borrado queda en
+   * la Auditoría (trigger `trg_audit` de la tabla).
+   */
+  const eliminar = async (e: Emitido) => {
+    const va = await confirm({
+      title: `¿Eliminar el informe ${e.code}?`,
+      message:
+        'Se borra su registro y ya no se podrá reimprimir desde el sistema (el PDF que se haya entregado no desaparece). ' +
+        `Y ojo con el número: si ${e.code} es el último emitido del año, el próximo informe saldrá con ese mismo número. ` +
+        'El borrado queda anotado en Auditoría.',
+      confirmText: 'Sí, eliminar', danger: true,
+    });
+    if (!va) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('machinery_tech_reports').delete().eq('id', e.id);
+      if (error) return toast.error(`No se pudo eliminar: ${error.message}`);
+      if (editando?.id === e.id) cancelarEdicion();
+      await cargarEmitidos(maquinaId);
+      toast.success(`Informe ${e.code} eliminado.`);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'No se pudo eliminar.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /**
    * Emite el informe: lo guarda (para tener el correlativo y poder reimprimirlo
    * igual) y saca el PDF.
@@ -321,19 +440,7 @@ export default function InformeTecnicoTab(
       if (canWrite) {
         const { data, error } = await supabase
           .from('machinery_tech_reports')
-          .insert({
-            machinery_id: maquinaId, report_date: fechaEmision,
-            desde: desde || null, hasta: hasta || null,
-            dirigido_a: dirigidoA.trim() || null, elaborado_por: elaboradoPor.trim() || null,
-            empresa_propietaria: empresaProp.trim() || null, encargado_sitio: encargado.trim() || null,
-            ubicacion: ubicacion.trim() || null, estado_informe: estadoInforme.trim() || null,
-            antecedentes: antecedentes.trim() || null,
-            estado_operatividad: estadoOper.trim() || null, proximo_pm: proximoPm.trim() || null,
-            recomendaciones: recos.split('\n').map((r) => r.trim()).filter(Boolean),
-            firma1_nombre: f1Nombre.trim() || null, firma1_cargo: f1Cargo.trim() || null,
-            firma2_nombre: f2Nombre.trim() || null, firma2_cargo: f2Cargo.trim() || null,
-            con_fotos: conFotos, created_by: uid,
-          })
+          .insert({ machinery_id: maquinaId, ...payloadEditorial(), created_by: uid })
           .select('code').single();
         if (error) aviso = `El informe se generó, pero no quedó registrado: ${error.message}`;
         else code = (data as any)?.code ?? null;
@@ -571,6 +678,20 @@ export default function InformeTecnicoTab(
             </>
           ) : null}
 
+          {/* ── Aviso de edición ── */}
+          {editando ? (
+            <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.brand, borderRadius: radius.md, padding: spacing.md }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>✏️ Editando el informe {editando.code}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }}>
+                El formulario tiene cargado lo que se guardó al emitirlo, incluido su período. Al guardar,
+                los cambios PISAN lo guardado y se reimprime con el MISMO número {editando.code}.
+              </Text>
+              <TouchableOpacity onPress={cancelarEdicion} style={{ marginTop: spacing.xs }}>
+                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕ Cancelar la edición (volver a un informe nuevo)</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           {/* ── 3) La cabecera del documento ── */}
           <Text style={etiqueta}>3. DATOS DEL INFORME</Text>
           <View style={{ marginTop: spacing.xs }}>
@@ -628,11 +749,13 @@ export default function InformeTecnicoTab(
             </Text>
           </TouchableOpacity>
 
-          {/* ── Emitir ── */}
-          <TouchableOpacity disabled={busy} onPress={emitir} activeOpacity={0.85}
+          {/* ── Emitir (o guardar la edición) ── */}
+          <TouchableOpacity disabled={busy} onPress={editando ? guardarEdicion : emitir} activeOpacity={0.85}
             style={{ marginTop: spacing.lg, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 14 }}>
-              {busy ? 'Generando…' : '📄 Generar informe técnico'}
+              {busy ? 'Generando…'
+                : editando ? `💾 Guardar cambios de ${editando.code} y reimprimir`
+                : '📄 Generar informe técnico'}
             </Text>
           </TouchableOpacity>
           {!canWrite ? (
@@ -646,17 +769,32 @@ export default function InformeTecnicoTab(
             <>
               <Text style={etiqueta}>INFORMES YA EMITIDOS</Text>
               {emitidos.map((e) => (
-                <TouchableOpacity key={e.id} disabled={busy} onPress={() => reimprimir(e)} activeOpacity={0.7}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs, padding: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{e.code}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>
-                      {dmy(e.report_date)}{e.dirigido_a ? ` · ${e.dirigido_a}` : ''}
-                      {e.desde || e.hasta ? ` · ${dmy(e.desde)} → ${dmy(e.hasta)}` : ' · todo el historial'}
-                    </Text>
-                  </View>
-                  <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 12 }}>📄 Reimprimir</Text>
-                </TouchableOpacity>
+                <View key={e.id}
+                  style={{ marginTop: spacing.xs, borderWidth: 1, borderColor: editando?.id === e.id ? colors.brand : colors.border, borderRadius: radius.md, backgroundColor: colors.surface }}>
+                  <TouchableOpacity disabled={busy} onPress={() => reimprimir(e)} activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{e.code}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        {dmy(e.report_date)}{e.dirigido_a ? ` · ${e.dirigido_a}` : ''}
+                        {e.desde || e.hasta ? ` · ${dmy(e.desde)} → ${dmy(e.hasta)}` : ' · todo el historial'}
+                      </Text>
+                    </View>
+                    <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 12 }}>📄 Reimprimir</Text>
+                  </TouchableOpacity>
+                  {canWrite ? (
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
+                      <TouchableOpacity disabled={busy} onPress={() => abrirEdicion(e)}
+                        style={{ flex: 1, alignItems: 'center', paddingVertical: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                        <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 12 }}>✏️ Editar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity disabled={busy} onPress={() => eliminar(e)}
+                        style={{ flex: 1, alignItems: 'center', paddingVertical: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑 Eliminar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
               ))}
             </>
           ) : null}

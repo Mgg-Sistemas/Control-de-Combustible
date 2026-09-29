@@ -1,5 +1,9 @@
 import { supabase, selectAllRows } from './supabase';
 import { esRolListero } from './rolListero';
+import { jornadaDeFecha } from './caracasDay';
+import {
+  CAMPOS_VIAJE_ROW, completarFrentes, mapaAsignaciones, rangoJornadas, type AsignacionDia,
+} from './frentesAuto';
 
 /**
  * VIAJES DE CAMIONES: bitácora de viajes (regreso/entrada = un viaje) registrada
@@ -90,6 +94,50 @@ export type CamionViajeRow = {
    */
   placa: string | null;
   empresa: string | null;
+  /**
+   * PESO DE ROMANA (26-sep-2026). CONGELADO al registrar, como la placa: el
+   * bruto lo tecleó el listero en el CDT, la tara es la copia de la tara del
+   * camión EN ESE MOMENTO (re-pesarla mañana no cambia este viaje) y el neto
+   * lo calculó LA BASE (columna generada bruto − tara, nunca el teléfono).
+   * `null` = viaje anterior al peso; no se rellena hacia atrás.
+   */
+  pesoBrutoKg: number | null;
+  pesoTaraKg: number | null;
+  pesoNetoKg: number | null;
+  /** La tara NO salió del catálogo: la tecleó una persona (camión sin tara
+   *  cargada, o fuera de catálogo). `taraManualNombre` dice quién fue. */
+  taraManual: boolean;
+  taraManualNombre: string | null;
+  /** Foto de la romana con el bruto — la evidencia obligatoria del peso. */
+  pesoFotoUrl: string | null;
+  /**
+   * CÓMO ENTRÓ el viaje (28-sep-2026, leído al fin): 'campo' (tocado en el
+   * patio), 'cola' (subió sin señal) o 'manual' (cargado a mano por la
+   * oficina). Se lee junto a las columnas del peso porque decide si el peso
+   * se puede AGREGAR después en ✏️ Editar: a un viaje del patio sin peso no
+   * se le inventa (nadie miró la romana), a uno cargado a mano sí — la
+   * oficina lo cuadra con el papel de la romana en la mano.
+   */
+  origen: 'campo' | 'cola' | 'manual' | null;
+  /**
+   * TIPO DE VIAJE (26-sep-2026): la tarifa con nombre («Oeste → Este», lo que
+   * inventen después). CONGELADOS al registrar, nombre Y tarifa: cambiar el
+   * precio del tipo mañana no toca este viaje. `null` = viaje normal, se paga
+   * con la tarifa de zona de siempre.
+   */
+  tipoViajeId: string | null;
+  tipoViajeNombre: string | null;
+  tipoViajeTarifa: number | null;
+  /**
+   * FRENTE DE TRABAJO (28-sep-2026): de DÓNDE recogió el camión el material
+   * que llevó al CDT/CDF. Se asigna por jornada a cada camión (o a un grupo)
+   * en ⚙️ Obras y ubicaciones, y se CONGELA en el viaje al registrarlo —
+   * reasignar el camión mañana no toca los viajes de hoy. `null` = sin frente
+   * (viajes viejos, o camión sin asignación ese día); se puede completar
+   * después en ✏️ Editar (full).
+   */
+  frenteId: string | null;
+  frenteNombre: string | null;
 };
 
 function mapRow(r: any): CamionViajeRow {
@@ -115,6 +163,21 @@ function mapRow(r: any): CamionViajeRow {
     folio: (r.folio ?? null) as string | null,
     placa: (r.placa_snap ?? null) as string | null,
     empresa: (r.empresa_snap ?? null) as string | null,
+    // `== null` y no `?? null` pelado: un 0 guardado sería un dato corrupto
+    // (el CHECK no lo deja entrar), pero si llegara, Number(0) lo conserva y
+    // la pantalla lo enseña en vez de esconderlo.
+    pesoBrutoKg: r.peso_bruto_kg == null ? null : Number(r.peso_bruto_kg),
+    pesoTaraKg: r.peso_tara_kg == null ? null : Number(r.peso_tara_kg),
+    pesoNetoKg: r.peso_neto_kg == null ? null : Number(r.peso_neto_kg),
+    taraManual: r.tara_manual === true,
+    taraManualNombre: (r.tara_manual_nombre ?? null) as string | null,
+    pesoFotoUrl: (r.peso_foto_url ?? null) as string | null,
+    origen: (r.origen === 'campo' || r.origen === 'cola' || r.origen === 'manual' ? r.origen : null),
+    tipoViajeId: (r.tipo_viaje_id ?? null) as string | null,
+    tipoViajeNombre: (r.tipo_viaje_nombre ?? null) as string | null,
+    tipoViajeTarifa: r.tipo_viaje_tarifa == null ? null : Number(r.tipo_viaje_tarifa),
+    frenteId: (r.frente_id ?? null) as string | null,
+    frenteNombre: (r.frente_nombre ?? null) as string | null,
   };
 }
 
@@ -147,14 +210,37 @@ let hayColumnasDeObra: boolean | null = null;
  */
 let hayColumnasDeTique: boolean | null = null;
 
+/** Y el tercero, para las columnas del PESO DE ROMANA (26-sep-2026). Mismo
+ *  motivo que los otros dos: el código se despliega antes de que el `.sql`
+ *  corra en una base restaurada, y sin el escalón el listero no podría ni
+ *  LEER sus viajes. */
+let hayColumnasDePeso: boolean | null = null;
+
+/** Y el cuarto, para el TIPO DE VIAJE (26-sep-2026, mismo día que el peso pero
+ *  horas después: un respaldo de esta misma tarde tiene peso y no tiene tipo). */
+let hayColumnasDeTipo: boolean | null = null;
+
+/** Y el quinto, para el FRENTE DE TRABAJO (28-sep-2026). Mismo motivo que los
+ *  otros cuatro: un respaldo de esta mañana tiene tipo y no tiene frente. */
+let hayColumnasDeFrente: boolean | null = null;
+
 const COLS_OBRA = 'ubicacion_id, ubicacion_nombre';
 const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
+// `origen` viaja con el grupo del peso: la columna existe desde el 14-sep y
+// toda base que ya tenga peso (26-sep) la tiene — y si el peso falta, el
+// origen tampoco hace falta (sin columnas de peso no hay peso que agregar).
+const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_manual_nombre, peso_foto_url, origen';
+const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa';
+const COLS_FRENTE = 'frente_id, frente_nombre';
 
 /** Las columnas que se piden, según lo que se sepa que existe. */
 const colsViaje = () =>
   [SELECT_COLS,
    hayColumnasDeObra === false ? null : COLS_OBRA,
    hayColumnasDeTique === false ? null : COLS_TIQUE,
+   hayColumnasDePeso === false ? null : COLS_PESO,
+   hayColumnasDeTipo === false ? null : COLS_TIPO,
+   hayColumnasDeFrente === false ? null : COLS_FRENTE,
   ].filter(Boolean).join(', ');
 
 /** ¿El error es «esa columna no existe»? Solo eso: una tabla que falta es otra cosa. */
@@ -175,15 +261,68 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     const data = await selectAllRows('camion_viajes', colsViaje(), filtro);
     if (hayColumnasDeObra === null) hayColumnasDeObra = true;
     if (hayColumnasDeTique === null) hayColumnasDeTique = true;
+    if (hayColumnasDePeso === null) hayColumnasDePeso = true;
+    if (hayColumnasDeTipo === null) hayColumnasDeTipo = true;
+    if (hayColumnasDeFrente === null) hayColumnasDeFrente = true;
     return data as any[];
   } catch (e: any) {
     if (!esColumnaQueFalta(e)) throw e;
 
-    // ESCALÓN 1: sin la ticketera, que es lo más nuevo. La obra puede estar.
+    // ESCALÓN -2: sin el frente de trabajo, que es lo más nuevo de todo.
+    if (hayColumnasDeFrente !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}, ${COLS_PESO}, ${COLS_TIPO}`, filtro);
+        hayColumnasDeFrente = false;
+        hayColumnasDeTipo = true;
+        hayColumnasDePeso = true;
+        hayColumnasDeTique = true;
+        hayColumnasDeObra = true;
+        return data as any[];
+      } catch (eF: any) {
+        if (!esColumnaQueFalta(eF)) throw eF;
+      }
+    }
+
+    // ESCALÓN -1: sin el tipo de viaje (ni el frente, que llegó después).
+    if (hayColumnasDeTipo !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}, ${COLS_PESO}`, filtro);
+        hayColumnasDeFrente = false;
+        hayColumnasDeTipo = false;
+        hayColumnasDePeso = true;
+        hayColumnasDeTique = true;
+        hayColumnasDeObra = true;
+        return data as any[];
+      } catch (eT: any) {
+        if (!esColumnaQueFalta(eT)) throw eT;
+      }
+    }
+
+    // ESCALÓN 0: sin el peso (26-sep-2026, y sin el tipo ni el frente, que
+    // llegaron después). Obra y ticketera pueden estar perfectamente.
+    if (hayColumnasDePeso !== false) {
+      try {
+        const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}, ${COLS_TIQUE}`, filtro);
+        hayColumnasDePeso = false;
+        hayColumnasDeTipo = false;
+        hayColumnasDeFrente = false;
+        hayColumnasDeTique = true;
+        hayColumnasDeObra = true;
+        return data as any[];
+      } catch (e0: any) {
+        if (!esColumnaQueFalta(e0)) throw e0;
+      }
+    }
+
+    // ESCALÓN 1: sin la ticketera (y sin peso: sin ticketera no hay peso,
+    // llegaron en ese orden). La obra puede estar.
     if (hayColumnasDeTique !== false) {
       try {
         const data = await selectAllRows('camion_viajes', `${SELECT_COLS}, ${COLS_OBRA}`, filtro);
         hayColumnasDeTique = false;
+        hayColumnasDePeso = false;
+        hayColumnasDeTipo = false;
+        hayColumnasDeFrente = false;
         hayColumnasDeObra = true;
         return data as any[];
       } catch (e2: any) {
@@ -195,6 +334,9 @@ async function leerViajes(filtro?: (q: any) => any): Promise<any[]> {
     const data = await selectAllRows('camion_viajes', SELECT_COLS, filtro);
     hayColumnasDeObra = false;
     hayColumnasDeTique = false;
+    hayColumnasDePeso = false;
+    hayColumnasDeTipo = false;
+    hayColumnasDeFrente = false;
     return data as any[];
   }
 }
@@ -207,6 +349,54 @@ export function faltaCorrerSqlDeObras(): boolean {
 /** Lo mismo para la ticketera: sin esto no hay folio que imprimir. */
 export function faltaCorrerSqlDeTique(): boolean {
   return hayColumnasDeTique === false;
+}
+
+/** Y para el peso de romana: sin las columnas, el peso que teclee el listero
+ *  se perdería en silencio — la pantalla tiene que avisar, no fingir. */
+export function faltaCorrerSqlDePeso(): boolean {
+  return hayColumnasDePeso === false;
+}
+
+// ── LA FOTO DE LA ROMANA ─────────────────────────────────────────────────────
+//
+// La evidencia obligatoria del peso bruto. Con señal se sube al momento; SIN
+// señal viaja DENTRO de la cola offline como data-url (base64) y se sube acá,
+// justo antes del insert, cuando el vaciado de la cola la trae de vuelta.
+//
+// ⚠️ El nombre del archivo sale del `client_action_id` del viaje (saneado), con
+//    `upsert: true`: cada reintento reescribe EL MISMO archivo en vez de dejar
+//    un huérfano por intento, y el viaje duplicado (23505) apunta a la misma
+//    foto que su original.
+
+/** Decodifica base64 a bytes. Copia mínima de la de `photo.ts` — importar ese
+ *  archivo arrastraría expo-image-picker a todo el que importe esta librería. */
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function bytesDeBase64(b64: string): Uint8Array {
+  const str = b64.replace(/=+$/, '');
+  const bytes = new Uint8Array((str.length * 3) >> 2);
+  let p = 0, buffer = 0, bits = 0;
+  for (let i = 0; i < str.length; i++) {
+    buffer = (buffer << 6) | B64.indexOf(str[i]);
+    bits += 6;
+    if (bits >= 8) { bits -= 8; bytes[p++] = (buffer >> bits) & 0xff; }
+  }
+  return bytes;
+}
+
+/** Sube la foto de la romana (data-url jpeg) al bucket 'machinery' y devuelve
+ *  la URL pública. El error se DEVUELVE: quien llama decide si encola. */
+export async function subirFotoRomana(dataUrl: string, clave: string): Promise<{ url?: string; error?: string }> {
+  const coma = dataUrl.indexOf(',');
+  const b64 = coma >= 0 ? dataUrl.slice(coma + 1) : dataUrl;
+  if (!b64) return { error: 'La foto quedó vacía. Vuelve a tomarla.' };
+  const nombre = String(clave || Date.now()).replace(/[^a-zA-Z0-9._-]/g, '-');
+  const path = `viajes-peso/${nombre}.jpg`;
+  const up = await supabase.storage.from('machinery').upload(path, bytesDeBase64(b64), {
+    contentType: 'image/jpeg', upsert: true,
+  });
+  if (up.error) return { error: up.error.message };
+  const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+  return { url: data.publicUrl };
 }
 
 /** Registra un viaje. `registeredAt` ya viene calculado por quien llama (la hora
@@ -240,7 +430,39 @@ export async function registrarViaje(params: {
   /** Cómo entró el viaje (14-sep-2026): tocado en el patio, subido desde la cola sin
    *  señal, o cargado a mano por la oficina. Si no viene, la base lo deduce. */
   origen?: 'campo' | 'cola' | 'manual';
+  /** PESO DE ROMANA (26-sep-2026), ya en KILOS. Opcionales en el tipo porque
+   *  un viaje viejo de la cola no los trae; la OBLIGATORIEDAD la exige la
+   *  pantalla del listero, que es donde se puede corregir en el momento. */
+  pesoBrutoKg?: number | null;
+  pesoTaraKg?: number | null;
+  taraManual?: boolean;
+  taraManualNombre?: string | null;
+  /** La foto YA subida (registro con señal)… */
+  pesoFotoUrl?: string | null;
+  /** …o la foto CRUDA (data-url) esperando señal en la cola: se sube acá,
+   *  justo antes del insert. Si la subida falla, el viaje NO se inserta y el
+   *  error vuelve a la cola, que reintenta las dos cosas juntas. */
+  pesoFotoDataUrl?: string | null;
+  /** TIPO DE VIAJE, ya congelado por la pantalla (nombre y tarifa del catálogo
+   *  AL MOMENTO de registrar). Ausente = viaje normal (tarifa de zona). */
+  tipoViajeId?: string | null;
+  tipoViajeNombre?: string | null;
+  tipoViajeTarifa?: number | null;
+  /** FRENTE DE TRABAJO, ya resuelto por la pantalla (la asignación del camión
+   *  en ESA jornada, o el elegido a mano en la carga manual). Ausente = sin
+   *  frente; se puede completar después en ✏️ Editar. */
+  frenteId?: string | null;
+  frenteNombre?: string | null;
 }): Promise<{ error?: string; missing?: boolean }> {
+  // La foto primero: un viaje con peso no puede entrar sin su evidencia. El
+  // insert de abajo solo corre cuando ya hay URL (o cuando el viaje es viejo
+  // y no trae peso, que también es válido).
+  let pesoFotoUrl = params.pesoFotoUrl ?? null;
+  if (!pesoFotoUrl && params.pesoFotoDataUrl) {
+    const up = await subirFotoRomana(params.pesoFotoDataUrl, params.clientActionId ?? '');
+    if (up.error) return { error: `No se pudo subir la foto de la romana: ${up.error}` };
+    pesoFotoUrl = up.url ?? null;
+  }
   // Las dos clases de viaje son EXCLUYENTES y la BD lo exige con un CHECK
   // (`cv_fuera_catalogo_coherente`). Se normaliza acá para que un error de quien
   // llama no llegue a la base como una violación de constraint sin explicación.
@@ -276,6 +498,24 @@ export async function registrarViaje(params: {
     empresa_snap: params.empresa ?? null,
     ...(params.origen ? { origen: params.origen } : {}),
   };
+  // ⚠️ El NETO no va: es columna GENERADA, lo calcula la base. Mandarlo sería
+  //    un error de PostgREST, y calcularlo acá sería tener la regla en dos sitios.
+  const camposPeso = {
+    peso_bruto_kg: params.pesoBrutoKg ?? null,
+    peso_tara_kg: params.pesoTaraKg ?? null,
+    tara_manual: params.taraManual === true,
+    tara_manual_nombre: params.taraManualNombre ?? null,
+    peso_foto_url: pesoFotoUrl,
+  };
+  const camposTipo = {
+    tipo_viaje_id: params.tipoViajeId ?? null,
+    tipo_viaje_nombre: params.tipoViajeNombre ?? null,
+    tipo_viaje_tarifa: params.tipoViajeTarifa ?? null,
+  };
+  const camposFrente = {
+    frente_id: params.frenteId ?? null,
+    frente_nombre: params.frenteNombre ?? null,
+  };
 
   // Mismo respaldo que en la lectura, y por la misma razón: si un `.sql` todavía
   // no se corrió, el insert con esas columnas rebota con 42703 y EL LISTERO NO
@@ -286,14 +526,27 @@ export async function registrarViaje(params: {
   // ⚠️ El `client_action_id` es EL MISMO en todos los intentos, así que si uno
   //    llegó a entrar, el siguiente rebota con 23505 y quien llama ya lee eso
   //    como «ese viaje ya estaba». No se puede duplicar por reintentar.
-  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean }[] = [];
+  const escalones: { cuerpo: Record<string, any>; obra: boolean; ticket: boolean; peso: boolean; tipo: boolean; frente: boolean }[] = [];
+  if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false && hayColumnasDeFrente !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo, ...camposFrente }, obra: true, ticket: true, peso: true, tipo: true, frente: true });
+  }
+  if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false && hayColumnasDeTipo !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso, ...camposTipo }, obra: true, ticket: true, peso: true, tipo: true, frente: false });
+  }
+  if (hayColumnasDeObra !== false && hayColumnasDeTique !== false && hayColumnasDePeso !== false) {
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique, ...camposPeso }, obra: true, ticket: true, peso: true, tipo: false, frente: false });
+  }
   if (hayColumnasDeObra !== false && hayColumnasDeTique !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true });
+    // ⚠️ Sin las columnas de peso el viaje ENTRA IGUAL y el peso se pierde en
+    //    ESA base (misma filosofía de siempre: mejor un viaje sin peso que un
+    //    listero que no puede registrar). La pantalla avisa con
+    //    `faltaCorrerSqlDePeso()` para que el admin corra el `.sql`.
+    escalones.push({ cuerpo: { ...base, ...camposObra, ...camposTique }, obra: true, ticket: true, peso: false, tipo: false, frente: false });
   }
   if (hayColumnasDeObra !== false) {
-    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false });
+    escalones.push({ cuerpo: { ...base, ...camposObra }, obra: true, ticket: false, peso: false, tipo: false, frente: false });
   }
-  escalones.push({ cuerpo: base, obra: false, ticket: false });
+  escalones.push({ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false, frente: false });
 
   let error: any = null;
   for (const paso of escalones) {
@@ -301,11 +554,19 @@ export async function registrarViaje(params: {
     error = r.error;
     if (!error) {
       // Solo se AFIRMA lo que este intento acaba de demostrar. Un escalón que
-      // funciona prueba que sus columnas están; no dice nada de las de arriba.
+      // funciona prueba que sus columnas están; no dice nada de las de arriba
+      // — salvo que para LLEGAR a este escalón, el de arriba tuvo que fallar
+      // por columna que falta, y eso sí se anota.
       if (paso.obra) hayColumnasDeObra = true;
       if (paso.ticket) hayColumnasDeTique = true;
-      else if (paso.obra) hayColumnasDeTique = false;
-      else { hayColumnasDeObra = false; hayColumnasDeTique = false; }
+      if (paso.peso) hayColumnasDePeso = true;
+      if (paso.tipo) hayColumnasDeTipo = true;
+      else if (paso.peso) hayColumnasDeTipo = false;
+      if (paso.frente) hayColumnasDeFrente = true;
+      else if (paso.tipo) hayColumnasDeFrente = false;
+      if (!paso.peso && paso.ticket) { hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
+      if (!paso.ticket && paso.obra) { hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
+      if (!paso.obra) { hayColumnasDeObra = false; hayColumnasDeTique = false; hayColumnasDePeso = false; hayColumnasDeTipo = false; hayColumnasDeFrente = false; }
       return {};
     }
     if (!esColumnaQueFalta(error)) break;
@@ -354,7 +615,7 @@ export async function listMisViajesHoy(
       q.eq('listero_id', listeroId)
         .gte('registered_at', desdeISO)
         .lt('registered_at', hastaExclusivoISO));
-    return { rows: data.map(mapRow).sort(porFechaDesc), missing: false };
+    return { rows: await conFrenteDelDia(data.map(mapRow).sort(porFechaDesc)), missing: false };
   } catch (e: any) {
     return fallo(e);
   }
@@ -379,7 +640,7 @@ export async function listTodosLosViajes(filtro: {
       if (filtro.machineryIds && filtro.machineryIds.length > 0) qq = qq.in('machinery_id', filtro.machineryIds);
       return qq;
     });
-    return { rows: data.map(mapRow).sort(porFechaDesc), missing: false };
+    return { rows: await conFrenteDelDia(data.map(mapRow).sort(porFechaDesc)), missing: false };
   } catch (e: any) {
     return fallo(e);
   }
@@ -408,6 +669,30 @@ export type CambiosViaje = {
   /** Otro CDT para ESTE viaje. La base pone el nombre y la zona de pago del CDT
    *  nuevo, y solo lo acepta de quien tiene permiso completo de viajes. */
   ubicacionId?: string;
+  /** Corregir el PESO BRUTO de un viaje ya registrado (solo la jefa/full, se
+   *  valida en la pantalla). El neto lo recalcula LA BASE sola (columna
+   *  generada). */
+  pesoBrutoKg?: number;
+  /** Corregir la TARA CONGELADA de un viaje ya registrado (27-sep-2026, pedido
+   *  explícito: «por si cargaron mal la tara»). Antes la regla era borrar el
+   *  viaje y recargarlo; el dueño del módulo decidió que se corrige acá, con
+   *  rastro en Auditoría. El neto lo recalcula LA BASE sola, y el candado
+   *  `cv_peso_coherente` (bruto > tara > 0) rebota una tara imposible. */
+  pesoTaraKg?: number;
+  /** Al AGREGARLE peso a un viaje cargado a mano (28-sep-2026), la tara que se
+   *  teclea queda marcada como manual, con el nombre de quien la puso — la
+   *  misma marca «✍️ tara manual» del registro del listero. */
+  taraManual?: boolean;
+  taraManualNombre?: string | null;
+  /** Corregir el TIPO DE VIAJE (solo full). Se manda el snapshot COMPLETO —
+   *  id, nombre y tarifa del catálogo al momento de la corrección— o los tres
+   *  en null para volverlo viaje normal. Congela en la corrección, igual que
+   *  congeló el registro. */
+  tipoViaje?: { id: string | null; nombre: string | null; tarifa: number | null };
+  /** Ponerle o corregirle el FRENTE DE TRABAJO a un viaje ya registrado
+   *  (28-sep-2026, pedido: «el histórico debería poder agregarle frentes a los
+   *  que ya se hicieron»). Snapshot completo, o los dos en null para quitarlo. */
+  frente?: { id: string | null; nombre: string | null };
 };
 
 /**
@@ -424,6 +709,19 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
   if (cambios.shift !== undefined) patch.shift = cambios.shift;
   if (cambios.note !== undefined) patch.note = cambios.note;
   if (cambios.ubicacionId) patch.ubicacion_id = cambios.ubicacionId;
+  if (cambios.pesoBrutoKg !== undefined) patch.peso_bruto_kg = cambios.pesoBrutoKg;
+  if (cambios.pesoTaraKg !== undefined) patch.peso_tara_kg = cambios.pesoTaraKg;
+  if (cambios.taraManual !== undefined) patch.tara_manual = cambios.taraManual;
+  if (cambios.taraManualNombre !== undefined) patch.tara_manual_nombre = cambios.taraManualNombre;
+  if (cambios.tipoViaje !== undefined) {
+    patch.tipo_viaje_id = cambios.tipoViaje.id;
+    patch.tipo_viaje_nombre = cambios.tipoViaje.nombre;
+    patch.tipo_viaje_tarifa = cambios.tipoViaje.tarifa;
+  }
+  if (cambios.frente !== undefined) {
+    patch.frente_id = cambios.frente.id;
+    patch.frente_nombre = cambios.frente.nombre;
+  }
   // Un update vacío en PostgREST devuelve la fila sin cambiar nada: parecería
   // que se guardó algo. Mejor decirlo.
   if (Object.keys(patch).length === 0) return { error: 'No cambiaste nada.' };
@@ -471,6 +769,393 @@ export async function getMetasPorCamion(machineryIds: string[]): Promise<Record<
 export async function setMetaCamion(machineryId: string, meta: number | null): Promise<{ error?: string }> {
   const { error } = await supabase.from('machinery').update({ meta_viajes_diarios: meta }).eq('id', machineryId);
   if (error) return { error: error.message };
+  return {};
+}
+
+// ── LA TARA OFICIAL POR CAMIÓN (tabla `camion_taras`, 26-sep-2026) ───────────
+//
+// La administra quien tiene FULL en viajes_camiones (RLS lo exige, probado por
+// suplantación); el listero solo la LEE, que la necesita para calcular el neto
+// en pantalla. NO vive en `machinery`: esa tabla solo la escriben staff/permiso
+// de equipos, y la tara es un dato del módulo de viajes.
+
+export type TaraCamion = {
+  /** null = este camión no tiene tara cargada (la fila existe por la exención). */
+  pesoTaraKg: number | null;
+  updatedAt: string;
+  /** Nombre CONGELADO de quien la cargó/actualizó — para el «¿quién puso esta
+   *  tara?» de dentro de seis meses, aunque esa cuenta ya no exista. */
+  updatedByNombre: string | null;
+  /**
+   * 🚫 NO PASA POR ROMANA (26-sep-2026): a este camión no se le exige peso ni
+   * foto — al listero ni le aparece la tarjeta. Sus viajes entran sin peso y
+   * salen con raya. `exentoPorNombre` dice quién lo marcó.
+   */
+  exentoRomana: boolean;
+  exentoPorNombre: string | null;
+};
+
+/** Todas las taras/exenciones cargadas. `missing` = falta correr el `.sql`. */
+export async function listTaras(): Promise<{ taras: Map<string, TaraCamion>; missing: boolean; error?: string }> {
+  const taras = new Map<string, TaraCamion>();
+  // Las columnas de exención llegaron horas después de la tabla: se piden con
+  // respaldo para que un restore de esta misma tarde no deje la lista vacía.
+  // ⚠️ `camion_taras` NO tiene columna `id` (la llave es machinery_id): hay que
+  //    decírselo al paginador o su `order('id')` por defecto revienta con 42703
+  //    y la pantalla lo confunde con «falta correr el SQL» (pasó el 26-sep).
+  const leerFilas = async () => {
+    try {
+      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre, exento_romana, exento_por_nombre', undefined, 'machinery_id');
+    } catch (e: any) {
+      if (e?.code !== '42703' && !/column .* does not exist|could not find the .*column/i.test(String(e?.message ?? e))) throw e;
+      return await selectAllRows('camion_taras', 'machinery_id, peso_tara_kg, updated_at, updated_by_nombre', undefined, 'machinery_id');
+    }
+  };
+  try {
+    const data = await leerFilas();
+    (data as any[]).forEach((r) => {
+      const n = Number(r.peso_tara_kg);
+      const tara = r.peso_tara_kg != null && isFinite(n) && n > 0 ? n : null;
+      const exento = r.exento_romana === true;
+      if (tara == null && !exento) return; // fila vacía: no dice nada
+      taras.set(r.machinery_id as string, {
+        pesoTaraKg: tara,
+        updatedAt: String(r.updated_at ?? ''),
+        updatedByNombre: (r.updated_by_nombre ?? null) as string | null,
+        exentoRomana: exento,
+        exentoPorNombre: (r.exento_por_nombre ?? null) as string | null,
+      });
+    });
+    return { taras, missing: false };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { taras, missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/** Carga o corrige la tara de un camión (upsert). Solo full — lo exige el RLS,
+ *  la pantalla solo evita el error feo. */
+export async function setTaraCamion(
+  machineryId: string, pesoTaraKg: number, userId: string | null, userName: string | null,
+): Promise<{ error?: string }> {
+  if (!machineryId || !isFinite(pesoTaraKg) || pesoTaraKg <= 0) return { error: 'La tara tiene que ser un peso mayor que cero.' };
+  const { error } = await supabase.from('camion_taras').upsert({
+    machinery_id: machineryId,
+    peso_tara_kg: pesoTaraKg,
+    updated_at: new Date().toISOString(),
+    updated_by: userId,
+    updated_by_nombre: userName,
+  });
+  if (error) return { error: error.message };
+  return {};
+}
+
+/** Quita la tara de un camión. ⚠️ Los viajes YA registrados conservan la suya
+ *  (congelada); esto solo hace que los PRÓXIMOS pidan tara manual.
+ *  Si el camión está EXENTO de romana, la fila se conserva (con tara en null):
+ *  quitar la tara no puede borrar la exención de rebote. */
+export async function quitarTaraCamion(machineryId: string): Promise<{ error?: string }> {
+  // Primero el caso simple: fila SIN exención → se borra entera.
+  const del = await supabase.from('camion_taras').delete()
+    .eq('machinery_id', machineryId).eq('exento_romana', false).select('machinery_id');
+  if (del.error) return { error: del.error.message };
+  if (del.data && del.data.length > 0) return {};
+  // Fila exenta (o vieja sin columna): se vacía solo la tara.
+  const up = await supabase.from('camion_taras').update({ peso_tara_kg: null })
+    .eq('machinery_id', machineryId).select('machinery_id');
+  if (up.error) return { error: up.error.message };
+  if (!up.data || up.data.length === 0) return { error: 'Ese camión no tenía tara cargada.' };
+  return {};
+}
+
+/**
+ * 🚫 MARCA O DESMARCA «no pasa por romana» (26-sep-2026). Solo full (RLS).
+ *
+ * ⚠️ NO toca la tara guardada: si el camión tenía tara y se marca exento, la
+ *    tara queda esperando por si vuelve a pasar por romana. Desmarcar un
+ *    camión SIN tara borra la fila (una fila sin tara ni exención no dice
+ *    nada, y la base tiene un CHECK que no la deja existir).
+ */
+export async function setExentoRomana(
+  machineryId: string, exento: boolean, userName: string | null,
+): Promise<{ error?: string }> {
+  if (!machineryId) return { error: 'Falta el camión.' };
+  if (exento) {
+    const { error } = await supabase.from('camion_taras').upsert({
+      machinery_id: machineryId,
+      exento_romana: true,
+      exento_at: new Date().toISOString(),
+      exento_por_nombre: userName,
+    });
+    if (error) return { error: error.message };
+    return {};
+  }
+  // Desmarcar: si hay tara, la fila se queda con ella; si no, se borra.
+  const up = await supabase.from('camion_taras')
+    .update({ exento_romana: false, exento_at: new Date().toISOString(), exento_por_nombre: userName })
+    .eq('machinery_id', machineryId).not('peso_tara_kg', 'is', null).select('machinery_id');
+  if (up.error) return { error: up.error.message };
+  if (up.data && up.data.length > 0) return {};
+  const del = await supabase.from('camion_taras').delete()
+    .eq('machinery_id', machineryId).is('peso_tara_kg', null).select('machinery_id');
+  if (del.error) return { error: del.error.message };
+  return {};
+}
+
+// ── EL CATÁLOGO DE TIPOS DE VIAJE (tabla `viaje_tipos`, 26-sep-2026) ─────────
+//
+// Las tarifas con NOMBRE: «Oeste → Este» y las que inventen después. Las
+// administra quien tiene full (RLS probado); el listero solo las LEE para
+// marcar el tipo al registrar. El viaje congela nombre Y tarifa: cambiar el
+// precio del tipo mañana no toca lo ya registrado.
+
+export type TipoViaje = {
+  id: string;
+  nombre: string;
+  /** null = sin precio todavía: sus viajes salen «tipo sin tarifa» en el pago. */
+  tarifaUsd: number | null;
+  activo: boolean;
+  updatedByNombre: string | null;
+};
+
+export async function listTiposViaje(): Promise<{ tipos: TipoViaje[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows('viaje_tipos', 'id, nombre, tarifa_usd, activo, updated_by_nombre');
+    const tipos = (data as any[]).map((r) => ({
+      id: r.id as string,
+      nombre: String(r.nombre ?? '').trim(),
+      tarifaUsd: r.tarifa_usd == null ? null : Number(r.tarifa_usd),
+      activo: r.activo !== false,
+      updatedByNombre: (r.updated_by_nombre ?? null) as string | null,
+    })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true }));
+    return { tipos, missing: false };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { tipos: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/** Crea un tipo nuevo. La tarifa puede venir después. */
+export async function crearTipoViaje(nombre: string, tarifaUsd: number | null, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const n = nombre.replace(/\s+/g, ' ').trim();
+  if (n.length < 2) return { error: 'Ponle un nombre al tipo (p. ej. «Oeste → Este»).' };
+  if (tarifaUsd != null && !(tarifaUsd > 0)) return { error: 'La tarifa tiene que ser mayor que 0 (o déjala vacía para ponerla después).' };
+  const { error } = await supabase.from('viaje_tipos').insert({
+    nombre: n, tarifa_usd: tarifaUsd, updated_by: userId, updated_by_nombre: userName,
+  });
+  if (error) {
+    if (/uq_viaje_tipos_nombre_activo|duplicate key/i.test(error.message)) return { error: `Ya existe un tipo activo llamado «${n}».` };
+    return { error: error.message };
+  }
+  return {};
+}
+
+/** Cambia la tarifa (o el nombre) de un tipo. ⚠️ SOLO afecta a los viajes que
+ *  vengan: los registrados llevan su tarifa congelada. */
+export async function editarTipoViaje(id: string, cambios: { nombre?: string; tarifaUsd?: number | null }, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const patch: Record<string, any> = { updated_at: new Date().toISOString(), updated_by: userId, updated_by_nombre: userName };
+  if (cambios.nombre !== undefined) {
+    const n = cambios.nombre.replace(/\s+/g, ' ').trim();
+    if (n.length < 2) return { error: 'El nombre del tipo no puede quedar vacío.' };
+    patch.nombre = n;
+  }
+  if (cambios.tarifaUsd !== undefined) {
+    if (cambios.tarifaUsd != null && !(cambios.tarifaUsd > 0)) return { error: 'La tarifa tiene que ser mayor que 0.' };
+    patch.tarifa_usd = cambios.tarifaUsd;
+  }
+  const { data, error } = await supabase.from('viaje_tipos').update(patch).eq('id', id).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** Apaga o prende un tipo. Apagado deja de ofrecerse al listero; los viajes que
+ *  ya lo llevan no cambian (el nombre viaja congelado en cada fila). */
+export async function setActivoTipoViaje(id: string, activo: boolean, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('viaje_tipos')
+    .update({ activo, updated_at: new Date().toISOString(), updated_by: userId, updated_by_nombre: userName })
+    .eq('id', id).select('id');
+  if (error) {
+    if (/uq_viaje_tipos_nombre_activo|duplicate key/i.test(error.message)) return { error: 'Ya hay un tipo ACTIVO con ese mismo nombre.' };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+// ── LOS FRENTES DE TRABAJO (tablas `viaje_frentes` y asignaciones, 28-sep) ───
+//
+// El FRENTE es de DÓNDE recogen los camiones el material que llevan a los
+// CDT/CDF (las obras/ubicaciones son el destino; el frente, el origen). La
+// oficina asigna diariamente un frente a cada camión —o a un grupo—, y cada
+// viaje CONGELA el frente que su camión tenía esa jornada. Administra quien
+// tiene full (RLS probado por suplantación); el listero solo LEE.
+
+export type FrenteTrabajo = {
+  id: string;
+  nombre: string;
+  activo: boolean;
+};
+
+export async function listFrentes(): Promise<{ frentes: FrenteTrabajo[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows('viaje_frentes', 'id, nombre, activo');
+    const frentes = (data as any[]).map((r) => ({
+      id: r.id as string,
+      nombre: String(r.nombre ?? '').trim(),
+      activo: r.activo !== false,
+    })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true }));
+    return { frentes, missing: false };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { frentes: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+export async function crearFrente(nombre: string, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+  const n = nombre.replace(/\s+/g, ' ').trim();
+  if (n.length < 2) return { error: 'Ponle un nombre al frente (p. ej. «Frente norte»).' };
+  const { data, error } = await supabase.from('viaje_frentes')
+    .insert({ nombre: n, created_by: userId, created_by_nombre: userName }).select('id');
+  if (error) {
+    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: `Ya existe un frente activo llamado «${n}».` };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** Apaga o prende un frente. Apagado deja de ofrecerse al asignar; los viajes
+ *  que ya lo llevan no cambian (el nombre viaja congelado en cada fila). */
+export async function setActivoFrente(id: string, activo: boolean, userName: string | null): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('viaje_frentes')
+    .update(activo
+      ? { activo: true, desactivado_at: null, desactivado_por_nombre: null }
+      : { activo: false, desactivado_at: new Date().toISOString(), desactivado_por_nombre: userName })
+    .eq('id', id).select('id');
+  if (error) {
+    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: 'Ya hay un frente ACTIVO con ese mismo nombre.' };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** La asignación de UNA jornada: camión → frente. */
+export type AsignacionFrente = {
+  machineryId: string;
+  frenteId: string;
+  frenteNombre: string;
+};
+
+/** Las asignaciones de una jornada (AAAA-MM-DD), con el nombre del frente ya
+ *  pegado — es lo que el teléfono del listero congela en cada viaje. */
+export async function listAsignacionesFrente(jornada: string): Promise<{ asignaciones: AsignacionFrente[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows(
+      'viaje_frente_asignaciones',
+      'machinery_id, frente_id, frente:frente_id(nombre)',
+      (q: any) => q.eq('jornada', jornada),
+      'machinery_id'
+    );
+    return {
+      asignaciones: (data as any[]).map((r) => ({
+        machineryId: r.machinery_id as string,
+        frenteId: r.frente_id as string,
+        frenteNombre: String(r.frente?.nombre ?? '').trim(),
+      })),
+      missing: false,
+    };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { asignaciones: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/**
+ * Las asignaciones de un RANGO de jornadas (ambos extremos inclusive). Sirve
+ * para dos cosas: el 🕘 historial del apartado de frentes, y que los viajes de
+ * un día tomen SOLOS el frente asignado a su camión (ver `conFrenteDelDia`).
+ */
+export async function listAsignacionesFrenteRango(
+  desde: string, hasta: string,
+): Promise<{ asignaciones: AsignacionDia[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows(
+      'viaje_frente_asignaciones',
+      'jornada, machinery_id, frente_id, frente:frente_id(nombre)',
+      // Sin orderBy explícito: pagina por `id`, que es único. `jornada` se
+      // repite (un camión por fila) y paginar por una columna repetida puede
+      // saltar o duplicar filas al pasar de página.
+      (q: any) => q.gte('jornada', desde).lte('jornada', hasta),
+    );
+    return {
+      asignaciones: (data as any[]).map((r) => ({
+        jornada: String(r.jornada ?? '').slice(0, 10),
+        machineryId: r.machinery_id as string,
+        frenteId: r.frente_id as string,
+        frenteNombre: String(r.frente?.nombre ?? '').trim(),
+      })),
+      missing: false,
+    };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { asignaciones: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/**
+ * ⛏️ EL FRENTE DEL DÍA SE TOMA SOLO (29-sep-2026, pedido: «los frentes
+ * asignados para un día deben tomarlo automáticamente los viajes de ese día,
+ * estén registrados o no estén registrados»).
+ *
+ * A los viajes que vienen SIN frente se les completa con el que su camión tenía
+ * asignado esa jornada. No se toca la base: se completa al leer (ver
+ * `src/lib/frentesAuto.ts`, que explica por qué). Lo congelado manda: un viaje
+ * que ya trae su frente se queda con el suyo.
+ *
+ * Si todos los viajes ya traen frente —o la tabla todavía no existe— NO se hace
+ * ninguna consulta extra.
+ */
+async function conFrenteDelDia(rows: CamionViajeRow[]): Promise<CamionViajeRow[]> {
+  const sinFrente = rows.filter((r) => r.machineryId && !CAMPOS_VIAJE_ROW.tieneFrente(r));
+  const rango = rangoJornadas(sinFrente.map((r) => jornadaDeFecha(new Date(r.registeredAt))));
+  if (!rango) return rows;
+  const { asignaciones } = await listAsignacionesFrenteRango(rango.desde, rango.hasta);
+  if (asignaciones.length === 0) return rows;
+  const { filas } = completarFrentes(
+    rows, mapaAsignaciones(asignaciones),
+    (iso) => jornadaDeFecha(new Date(iso)), CAMPOS_VIAJE_ROW,
+  );
+  return filas;
+}
+
+/** Asigna un frente a VARIOS camiones en una jornada. Reasignar PISA la
+ *  asignación anterior de ese camión ese día (upsert por jornada+camión) —
+ *  los viajes YA registrados conservan su frente congelado, y los que NO tienen
+ *  frente lo toman solos al leerse (`conFrenteDelDia`). */
+export async function asignarFrente(
+  jornada: string, machineryIds: string[], frenteId: string,
+  userId: string | null, userName: string | null
+): Promise<{ error?: string }> {
+  if (!machineryIds.length) return { error: 'Marca al menos un camión.' };
+  const filas = machineryIds.map((m) => ({
+    jornada, machinery_id: m, frente_id: frenteId, created_by: userId, created_by_nombre: userName,
+  }));
+  const { data, error } = await supabase.from('viaje_frente_asignaciones')
+    .upsert(filas, { onConflict: 'jornada,machinery_id' }).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** Quita la asignación de un camión en una jornada (los viajes ya registrados
+ *  conservan su frente congelado). */
+export async function quitarAsignacionFrente(jornada: string, machineryId: string): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('viaje_frente_asignaciones')
+    .delete().eq('jornada', jornada).eq('machinery_id', machineryId).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'Esa asignación ya no existe.' };
   return {};
 }
 

@@ -229,7 +229,7 @@ ok('el PDF rotula la obra', /porUbicacion \? '🏗️'/.test(scrCrudo));
 ok('...y la cuenta en obras', /porUbicacion \? 'obra\(s\)'/.test(scr));
 ok('el nombre del archivo dice el eje', /resumen por obra /.test(scr));
 ok('el papel deja constancia del filtro de obra', /Obras: \$\{esc\(Array\.from\(filterUbicacionSel\.values\(\)\)/.test(scr));
-ok('las columnas reciben el eje', /columnasDetalle\(op, ejeD\)/.test(scr) && /columnasResumen\(op, resumenEje\)/.test(scr));
+ok('las columnas reciben el eje', /columnasDetalle\(op, ejeD, pesoUnidadRep\)/.test(scr) && /columnasResumen\(op, resumenEje, pesoUnidadRep\)/.test(scr));
 ok('el detallado muestra el nombre GRABADO, no el del catálogo de hoy',
   /ubicacion: r\.ubicacionNombre \|\| SIN_UBICACION_LABEL/.test(scr));
 // ⭐ 15-sep-2026: «Agrupar por obra» separaba bien los viajes (por id) pero rotulaba TODAS
@@ -265,13 +265,14 @@ ok('la lectura de viajes se reintenta sin las columnas nuevas', /const data = aw
 // El REINTENTO, no cualquier insert: sin él, el listero no podría registrar ni
 // un viaje entre el despliegue y el momento en que se corra el SQL.
 //
-// Desde la ticketera (12-sep-2026) el reintento es una ESCALERA de tres peldaños
-// —todo, sin ticket, pelado— porque hay dos grupos de columnas que pueden faltar
-// por separado. El peldaño de abajo es el que salva al listero.
+// Desde la ticketera (12-sep-2026) el reintento es una ESCALERA de peldaños
+// —todo, sin frente (28-sep-2026), sin tipo de viaje, sin peso (26-sep-2026),
+// sin ticket, pelado— porque hay CINCO grupos de columnas que pueden faltar
+// por separado. El peldaño de abajo salva al listero.
 ok('el insert baja hasta el cuerpo pelado',
-  /escalones\.push\(\{ cuerpo: base, obra: false, ticket: false \}\);/.test(lib));
-ok('...y los tres peldaños salen del MISMO cuerpo base',
-  (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 2);
+  /escalones\.push\(\{ cuerpo: base, obra: false, ticket: false, peso: false, tipo: false, frente: false \}\);/.test(lib));
+ok('...y los seis peldaños salen del MISMO cuerpo base',
+  (lib.match(/cuerpo: \{ \.\.\.base/g) || []).length === 5);
 ok('el reintento usa la MISMA clave de idempotencia', !/nuevoClientActionId/.test(lib));
 ok('la lista de listeros no se cae sin la columna', /supabase\.from\('profiles'\)\.select\(COLS_PERFIL\)/.test(lib));
 
@@ -299,15 +300,16 @@ ok('se llama Panel de información', scrCrudo.includes('📊 Panel de informaci�
 // alguien agrega un bloque nuevo con <Card> suelto, el panel vuelve a crecer sin
 // que nada avise, que es justo lo que esto vino a arreglar.
 const plegable = sinComentarios(leer('src/components/Plegable.tsx'));
-// Seis desde el 17-sep: se sumó «🚜 Máquinas que salen en Viajes» (solo admin).
-eq('los seis apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 6);
+// Seis desde el 17-sep («🚜 Máquinas que salen en Viajes»); siete desde el
+// 26-sep («🧾 Tipos de viaje», las tarifas con nombre).
+eq('los siete apartados del panel son plegables', (scr.match(/<Plegable[\s>]/g) || []).length, 7);
 ok('y el de obras también lo es', /setAbierto\(\(v\) => !v\)/.test(comp));
 ok('ya no quedan tarjetas fijas en el panel',
   !/\n          <Card>\n            <SectionTitle>/.test(scrCrudo));
 
 // ⚠️ CERRADO NO ES ESCONDIDO: el título tiene que decir qué hay dentro, o una
 //    lista de seis desplegables mudos es una búsqueda a ciegas.
-eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 6);
+eq('cada plegable dice qué hay dentro sin abrirlo', (scr.match(/resumen=/g) || []).length, 7);
 ok('el resumen de hoy y la lista completa arrancan abiertos',
   (scr.match(/abiertaPorDefecto(?![=])/g) || []).length === 2);
 // Una alerta que hay que ir a destapar no es una alerta.

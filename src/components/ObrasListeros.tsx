@@ -41,9 +41,14 @@ type Props = {
   canFull: boolean;
   onCambioObras: () => void;
   onCambioListeros: () => void;
+  /** ⛏️ Los FRENTES DE TRABAJO (28-sep-2026) viven como subsección DENTRO de
+   *  esta tarjeta — pedido del cliente: el frente es de dónde RECOGEN los
+   *  camiones, y las obras/ubicaciones son a dónde LLEVAN. El componente lo
+   *  arma la pantalla (tiene el catálogo de camiones); acá solo se monta. */
+  extra?: React.ReactNode;
 };
 
-export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObras, onCambioListeros }: Props) {
+export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObras, onCambioListeros, extra }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
   const confirm = useConfirm();
@@ -312,6 +317,7 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
               )}
             </>
           )}
+          {extra}
         </View>
       ) : null}
     </Card>

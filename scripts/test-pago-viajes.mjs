@@ -275,6 +275,12 @@ eq('etiquetas de motivo', ['no_facturo', 'sin_zona', 'sin_tarifa', 'sin_empresa'
 const db = sinComentarios(leer('src/lib/pagoViajesDb.ts'));
 ok('las lecturas no se tragan errores', !/catch/.test(db));
 ok('los viajes se leen desde las 7am del inicio', /gte\('registered_at', `\$\{desdeJornada\}T07:00:00-04:00`\)/.test(db));
+// ⭐ EL TIPO DE VIAJE TIENE QUE VIAJAR EN LAS COLUMNAS (28-sep-2026). Sin
+// pedirlas, calcularPagoViajes nunca veía el tipo y TODOS los viajes caían a
+// la tarifa de zona: 39 cruces «Este → Oeste» de $100 se pagaban a $50. La
+// regla del cálculo existía y estaba probada — lo que faltaba era el dato.
+ok('⭐ las columnas del pago traen el tipo de viaje y su tarifa congelada',
+  /tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa/.test(db));
 eq('las 3 escrituras directas piden filas de vuelta', (db.match(/\.select\('id'\);/g) || []).length, 3);
 eq('...y avisan si la base las rechazó', (db.match(/if \(!data\?\.length\)/g) || []).length, 3);
 ok('⭐ la tarifa y sus camiones se crean juntos (una transacción)', /rpc\('crear_tarifa_viaje'/.test(db) && !/from\('viaje_tarifa_camiones'\)\.insert/.test(db));

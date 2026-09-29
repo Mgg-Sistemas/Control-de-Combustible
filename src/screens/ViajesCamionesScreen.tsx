@@ -12,7 +12,7 @@
 //     y exportar el reporte del rango filtrado.
 // Pedido del cliente 12-ago-2026.
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -44,17 +44,19 @@ import { CubicajeTab, OpcionesReporteBox, useCubicaje, type CamionCubicaje } fro
 import {
   repartirVolumen, sumaVolumen, volumenDe, redondear, columnasDetalle, columnasResumen, columnasCamiones,
   valoresEnOrden, reporteSinCifras, etiquetaClase, dimsTexto, m3Texto, num as cubNum, MODOS,
-  volumenConGuardado,
+  volumenConGuardado, LOGOS_POR_DEFECTO, type LogosReporte,
+  RESUMEN_POR_DEFECTO, tarjetasResumen, htmlResumenEjecutivo, CSS_RESUMEN_EJECUTIVO, type OpcionesResumen,
 } from '../lib/cubicaje';
-import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
+import { resumirViajes, camionesQueSalieron, agruparDetalle, SIN_EMPRESA, SIN_LISTERO, claveCamion, claveUbicacionViaje, claveFrenteViaje, placaDeCamion, type EjeResumen } from '../lib/viajesResumen';
 import {
   SIN_UBICACION_LABEL, nombreLimpio, obraParaGrabar, ordenarUbicaciones, validarNombre, type UbicacionObra,
   avisoCambioCdt, cdtsParaElegir, etiquetaZonaPago, zonaPagoValida,
 } from '../lib/ubicacionesObra';
 import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique } from '../lib/tique';
-import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
+import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
+import { FrentesTrabajo } from '../components/FrentesTrabajo';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
@@ -84,8 +86,34 @@ import {
   setAlertaHoras,
   resolveChoferActual,
   listListeros,
+  listTaras,
+  setTaraCamion,
+  quitarTaraCamion,
+  setExentoRomana,
+  subirFotoRomana,
+  faltaCorrerSqlDePeso,
+  listTiposViaje,
+  crearTipoViaje,
+  editarTipoViaje,
+  setActivoTipoViaje,
+  listFrentes,
+  crearFrente,
+  setActivoFrente,
+  listAsignacionesFrente,
+  asignarFrente,
+  quitarAsignacionFrente,
   type ListeroConRol,
+  type TaraCamion,
+  type TipoViaje,
+  type FrenteTrabajo,
+  type AsignacionFrente,
 } from '../lib/camionViajes';
+import {
+  pesoTecleadoAKg, kgTexto, kgTextoOpcional, tonTexto, tonTextoOpcional, netoDe, motivoPesoInvalido,
+  avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
+} from '../lib/viajesPeso';
+import { capturarFotoLocal, elegirFotoLocal } from '../lib/photo';
+import { leerNumero } from '../lib/numeros';
 import {
   normalizarHora,
   isoDeJornadaHora,
@@ -665,6 +693,123 @@ export default function ViajesCamionesScreen() {
   const registeringRef = useRef(false);
   const retryingRef = useRef(false);
 
+  // ── PESO DE ROMANA (26-sep-2026) ──────────────────────────────────────────
+  // El listero teclea el BRUTO, el sistema resta la TARA de la placa y muestra
+  // el NETO en vivo (el que vale lo calcula la base). Peso y foto OBLIGATORIOS.
+  //
+  // Las taras las lee TODO el mundo (el listero las necesita para el cálculo);
+  // las administra solo quien tiene full, más abajo en ⚙️ Configuración.
+  const [taras, setTaras] = useState<Map<string, TaraCamion>>(new Map());
+  const [tarasMissing, setTarasMissing] = useState(false);
+  const [tarasRecarga, setTarasRecarga] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    listTaras().then((r) => {
+      if (!vivo) return;
+      setTaras(r.taras);
+      setTarasMissing(r.missing);
+      // Que un fallo de red no se vea igual que «ningún camión tiene tara»: si
+      // no se pudo leer, el registro va a pedir tara manual y el listero tiene
+      // que saber por qué.
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer las taras:', r.error);
+    });
+    return () => { vivo = false; };
+  }, [tarasRecarga]);
+
+  // ── TIPOS DE VIAJE (26-sep-2026): tarifas con nombre («Oeste → Este»…).
+  // Los lee TODO el mundo: el listero necesita las pastillas para marcar el
+  // tipo al registrar. Los administra solo quien tiene full, más abajo.
+  const [tipos, setTipos] = useState<TipoViaje[]>([]);
+  const [tiposMissing, setTiposMissing] = useState(false);
+  const [tiposRecarga, setTiposRecarga] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    listTiposViaje().then((r) => {
+      if (!vivo) return;
+      setTipos(r.tipos);
+      setTiposMissing(r.missing);
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer los tipos de viaje:', r.error);
+    });
+    return () => { vivo = false; };
+  }, [tiposRecarga]);
+  const tiposActivos = useMemo(() => tipos.filter((t) => t.activo), [tipos]);
+  /** El tipo marcado para ESTE registro. null = viaje normal (tarifa de zona). */
+  const [tipoSel, setTipoSel] = useState<string | null>(null);
+
+  // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
+  // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
+  // frente del camión en cada viaje que registra. Los lee todo el mundo
+  // (como los tipos); los administra solo quien tiene full.
+  const [frentes, setFrentes] = useState<FrenteTrabajo[]>([]);
+  const [frentesMissing, setFrentesMissing] = useState(false);
+  const [frentesRecarga, setFrentesRecarga] = useState(0);
+  /** machineryId → asignación de la jornada de HOY. */
+  const [asignacionesHoy, setAsignacionesHoy] = useState<Map<string, AsignacionFrente>>(new Map());
+  useEffect(() => {
+    let vivo = true;
+    listFrentes().then((r) => {
+      if (!vivo) return;
+      setFrentes(r.frentes);
+      setFrentesMissing(r.missing);
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer los frentes:', r.error);
+    });
+    listAsignacionesFrente(caracasBusinessToday()).then((r) => {
+      if (!vivo) return;
+      setAsignacionesHoy(new Map(r.asignaciones.map((a) => [a.machineryId, a])));
+      if (r.error && !r.missing) console.warn('[viajes] no se pudo leer las asignaciones de frente:', r.error);
+    });
+    return () => { vivo = false; };
+  }, [frentesRecarga]);
+  const frentesActivos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
+  /** El frente congelado que le toca a un camión HOY (o nada). */
+  const frenteParaGrabar = (machineryId: string | null) => {
+    const a = machineryId ? asignacionesHoy.get(machineryId) : undefined;
+    return { frenteId: a?.frenteId ?? null, frenteNombre: a?.frenteNombre ?? null };
+  };
+
+  const [pesoTexto, setPesoTexto] = useState('');
+  const [unidadPeso, setUnidadPeso] = useState<UnidadPeso>('kg');
+  /** Tara tecleada a mano — solo cuando el camión no tiene tara cargada (o es
+   *  de fuera de catálogo, que no tiene ficha donde tenerla). */
+  const [taraManualTexto, setTaraManualTexto] = useState('');
+  /** La foto de la romana, como data-url LOCAL. No se sube al tomarla: se sube
+   *  con el viaje (con señal al momento; sin señal, viaja en la cola). */
+  const [fotoPeso, setFotoPeso] = useState<string | null>(null);
+  const [fotoTomando, setFotoTomando] = useState(false);
+  // El tipo también es DE ESTE viaje: se limpia junto con el peso.
+  const limpiarPeso = () => { setPesoTexto(''); setTaraManualTexto(''); setFotoPeso(null); setTipoSel(null); };
+
+  // Cámara o galería (27-sep-2026, a pedido: «si deja tomar foto, también debe
+  // dejar subir de la galería»). Las dos entregan el MISMO data-url local, así
+  // que la cola offline y la subida no distinguen de dónde salió la evidencia.
+  const tomarFotoPeso = async (via: 'camara' | 'galeria' = 'camara') => {
+    if (fotoTomando) return;
+    setFotoTomando(true);
+    try {
+      const r = via === 'galeria' ? await elegirFotoLocal() : await capturarFotoLocal();
+      if (r.ok && r.dataUrl) { setFotoPeso(r.dataUrl); return; }
+      if (r.error) toast.error(r.error);
+    } finally {
+      setFotoTomando(false);
+    }
+  };
+
+  // Lo que la tarjeta de registro necesita EN VIVO mientras el listero teclea.
+  // El neto que vale lo calcula la base al guardar; este es el mismo cálculo,
+  // para que él vea el resultado antes de tocar el botón.
+  const taraSeleccion = selectedTruck && selectedTruck.id !== FUERA_CATALOGO_ID
+    ? (taras.get(selectedTruck.id) ?? null)
+    : null;
+  /** 🚫 Este camión NO pasa por romana: la tarjeta del peso ni se pinta y el
+   *  viaje entra sin peso, como antes del 26-sep. Los de fuera de catálogo
+   *  nunca están exentos (no tienen ficha donde marcarlo, a propósito). */
+  const camionExentoRomana = taraSeleccion?.exentoRomana === true;
+  const taraCatalogo = taraSeleccion?.pesoTaraKg ?? null;
+  const brutoKgVivo = pesoTecleadoAKg(pesoTexto, unidadPeso);
+  const taraKgViva = taraCatalogo ?? pesoTecleadoAKg(taraManualTexto, unidadPeso);
+  const netoVivo = netoDe(brutoKgVivo, taraKgViva);
+  const avisoSospechoso = avisoPesoSospechoso(brutoKgVivo, taraKgViva);
+
   const openPicker = () => {
     setPickQuery('');
     setPickEstadoSel(new Set());
@@ -701,6 +846,9 @@ export default function ViajesCamionesScreen() {
     setSelectedTruck(t);
     setSelectedChofer(null);
     setChoferIncierto(false);
+    // El peso es DE ESTE viaje: cambiar de camión lo limpia, o el bruto del
+    // camión anterior se registraría en el nuevo sin que nadie lo note.
+    limpiarPeso();
     const shift = caracasNowShift();
     setSelectedShift(shift);
     // Un camión fuera de catálogo no tiene ficha ni chofer asignado que consultar:
@@ -786,6 +934,8 @@ export default function ViajesCamionesScreen() {
       if (!ok) { setFcOpen(false); setPickOpen(true); return; }
     }
     setFcOpen(false);
+    // Mismo motivo que en `onSelectTruck`: el peso pertenece a UN viaje.
+    limpiarPeso();
     // Se arma un camión "de mentira" con el id centinela para que el resto de la
     // pantalla (el resumen de arriba, el botón de registrar) funcione igual sin
     // tener que duplicar el flujo. Al guardar, `machineryId` se manda en null.
@@ -930,6 +1080,24 @@ export default function ViajesCamionesScreen() {
       folio: null,
       placa: q.payload.placa ?? null,
       empresa: q.payload.empresa ?? null,
+      // El peso viaja en la cola con su viaje. El neto de pantalla se calcula
+      // igual que lo hará la base; la foto todavía no tiene URL (está en el
+      // teléfono, esperando subir junto con el viaje).
+      pesoBrutoKg: q.payload.pesoBrutoKg ?? null,
+      pesoTaraKg: q.payload.pesoTaraKg ?? null,
+      pesoNetoKg: netoDe(q.payload.pesoBrutoKg, q.payload.pesoTaraKg),
+      taraManual: q.payload.taraManual === true,
+      taraManualNombre: q.payload.taraManualNombre ?? null,
+      pesoFotoUrl: null,
+      // Un viaje en cola vino del teléfono sin señal: su origen es la cola.
+      origen: 'cola',
+      tipoViajeId: q.payload.tipoViajeId ?? null,
+      tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
+      tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
+      // El frente viaja en la cola con su viaje, como la obra: congelado al
+      // registrar, no al sincronizar.
+      frenteId: q.payload.frenteId ?? null,
+      frenteNombre: q.payload.frenteNombre ?? null,
       queued: true,
     }));
     // Los APARTADOS también se listan: si no aparecieran, el viaje simplemente
@@ -958,6 +1126,19 @@ export default function ViajesCamionesScreen() {
       folio: null,
       placa: q.payload.placa ?? null,
       empresa: q.payload.empresa ?? null,
+      // Mismo criterio que en los de la cola, dos bloques más arriba.
+      pesoBrutoKg: q.payload.pesoBrutoKg ?? null,
+      pesoTaraKg: q.payload.pesoTaraKg ?? null,
+      pesoNetoKg: netoDe(q.payload.pesoBrutoKg, q.payload.pesoTaraKg),
+      taraManual: q.payload.taraManual === true,
+      taraManualNombre: q.payload.taraManualNombre ?? null,
+      origen: 'cola',
+      pesoFotoUrl: null,
+      tipoViajeId: q.payload.tipoViajeId ?? null,
+      tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
+      tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
+      frenteId: q.payload.frenteId ?? null,
+      frenteNombre: q.payload.frenteNombre ?? null,
       queued: true,
       stuck: true,
       stuckError: q.error,
@@ -988,10 +1169,11 @@ export default function ViajesCamionesScreen() {
    * almacenamiento fallaba, el viaje se veía en pantalla (estaba en memoria) y
    * desaparecía al cerrar la app.
    */
-  const guardarEnCola = async (payload: any, clientActionId: string, msgOk: string) => {
+  const guardarEnCola = async (payload: any, clientActionId: string, msgOk: string): Promise<boolean> => {
     const { ok } = await enqueueViaje(payload, clientActionId);
-    if (ok) { toast.info(msgOk); return; }
+    if (ok) { toast.info(msgOk); return true; }
     toast.error('⚠️ El viaje se ve en pantalla pero NO se pudo guardar en el teléfono. NO cierres la aplicación hasta que suba.');
+    return false;
   };
 
   const doRegistrarViaje = async () => {
@@ -1004,6 +1186,25 @@ export default function ViajesCamionesScreen() {
     setRegistering(true);
     try {
       if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
+
+      // ── EL PESO, PRIMERO (26-sep-2026). Obligatorio con su foto: sin los dos
+      //    no hay viaje que registrar, y el aviso sale ANTES de tocar la red.
+      //    Salvo que el camión esté marcado «🚫 no pasa por romana»: ese entra
+      //    sin peso, con un toque, como antes del cambio.
+      const esFueraPeso = selectedTruck.id === FUERA_CATALOGO_ID;
+      const infoTara = esFueraPeso ? null : (taras.get(selectedTruck.id) ?? null);
+      const exentoDeRomana = infoTara?.exentoRomana === true;
+      const taraCat = exentoDeRomana ? null : (infoTara?.pesoTaraKg ?? null);
+      const usaTaraManual = !exentoDeRomana && taraCat == null;
+      const brutoKg = exentoDeRomana ? 0 : pesoTecleadoAKg(pesoTexto, unidadPeso);
+      const taraKg = exentoDeRomana ? 0 : (taraCat ?? pesoTecleadoAKg(taraManualTexto, unidadPeso));
+      if (!exentoDeRomana) {
+        const motivoPeso = motivoPesoInvalido({ brutoKg, taraKg, fotoLista: !!fotoPeso });
+        if (motivoPeso) { toast.error(motivoPeso); return; }
+      }
+      // El TIPO DE VIAJE elegido, con su tarifa CONGELADA del catálogo de este
+      // momento. Sin pastilla marcada = viaje normal (tarifa de zona).
+      const tipoElegido = tipoSel ? (tiposActivos.find((t) => t.id === tipoSel) ?? null) : null;
       // ⭐ EL ESTADO NO BLOQUEA NI PREGUNTA (cliente, 31-ago-2026). Acá había un
       //    `confirm` de "este camión figura AVERIADA, ¿de todas formas...?" que
       //    frenaba el registro. Se quitó: el listero está anotando algo que VIO,
@@ -1102,6 +1303,24 @@ export default function ViajesCamionesScreen() {
         //    Un camión fuera de catálogo no tiene ficha: ahí la seña que anotó
         //    el listero es lo único que hay, y es mejor que nada.
         ...datosDelCamion(esFuera ? null : selectedTruck, esFuera ? fcRef.trim() : ''),
+        // ⭐ EL PESO, CONGELADO COMO LA PLACA. La tara que se graba es la de
+        //    ESTE momento; el neto lo calcula la base. La foto va como data-url
+        //    y se sube justo antes del insert (con señal ya; sin señal, cuando
+        //    la cola vacíe) — ver `subirFotoRomana` en camionViajes.ts.
+        pesoBrutoKg: exentoDeRomana ? null : brutoKg,
+        pesoTaraKg: exentoDeRomana ? null : taraKg,
+        taraManual: usaTaraManual,
+        taraManualNombre: usaTaraManual ? listeroName : null,
+        pesoFotoDataUrl: exentoDeRomana ? null : fotoPeso,
+        // ⭐ EL TIPO, CONGELADO: nombre y tarifa del catálogo AHORA. Cambiar el
+        //    precio del tipo la semana que viene no toca este viaje.
+        tipoViajeId: tipoElegido?.id ?? null,
+        tipoViajeNombre: tipoElegido?.nombre ?? null,
+        tipoViajeTarifa: tipoElegido?.tarifaUsd ?? null,
+        // ⭐ EL FRENTE, CONGELADO: la asignación que este camión tiene HOY.
+        //    Reasignarlo mañana no toca este viaje; un camión sin asignación
+        //    registra sin frente (se le puede poner después en ✏️ Editar).
+        ...frenteParaGrabar(esFuera ? null : selectedTruck.id),
       };
 
       // ⭐ UNA sola clave para el intento con señal Y para todos sus reintentos
@@ -1129,14 +1348,17 @@ export default function ViajesCamionesScreen() {
       }) || nuevoClientActionId();
 
       if (!isOnline()) {
-        await guardarEnCola(payload, clientActionId,
-          'Sin señal: el viaje quedó guardado en el teléfono y se sube solo al recuperar conexión.');
+        if (await guardarEnCola(payload, clientActionId,
+          'Sin señal: el viaje quedó guardado en el teléfono (con su foto) y se sube solo al recuperar conexión.')) limpiarPeso();
         return;
       }
 
       const { error } = await registrarViaje({ ...payload, clientActionId, origen: 'campo' });
       if (!error) {
-        toast.success(`Viaje de ${selectedTruck.code} registrado.`);
+        toast.success(exentoDeRomana
+          ? `Viaje de ${selectedTruck.code} registrado (no pasa por romana).`
+          : `Viaje de ${selectedTruck.code} registrado · neto ${kgTexto(brutoKg - taraKg)}.`);
+        limpiarPeso();
         loadMisViajes();
         return;
       }
@@ -1147,6 +1369,7 @@ export default function ViajesCamionesScreen() {
       // entró y se perdió la respuesta: encolarlo sí lo duplicaría de verdad.
       if (accionTrasFalloConSenal(error) === 'ya_estaba') {
         toast.success(`Viaje de ${selectedTruck.code} registrado.`);
+        limpiarPeso();
         loadMisViajes();
         return;
       }
@@ -1155,8 +1378,8 @@ export default function ViajesCamionesScreen() {
       // un `toast.error(error); return;` y el viaje se perdía para siempre: el
       // wifi del patio da señal sin internet a cada rato, y `isOnline()` es
       // optimista por diseño (en web es solo `navigator.onLine`).
-      await guardarEnCola(payload, clientActionId,
-        `No se pudo subir (${motivoLegible(error)}). El viaje quedó guardado en el teléfono y se reintenta solo.`);
+      if (await guardarEnCola(payload, clientActionId,
+        `No se pudo subir (${motivoLegible(error)}). El viaje quedó guardado en el teléfono y se reintenta solo.`)) limpiarPeso();
     } finally {
       registeringRef.current = false;
       setRegistering(false);
@@ -1171,7 +1394,12 @@ export default function ViajesCamionesScreen() {
   //    viaje no es corregirlo, es otro viaje. Para eso se borra este y se carga
   //    el bueno, y así la auditoría conserva las dos cosas por separado.
   const [editing, setEditing] = useState<
-    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string } | null
+    // `peso` es el BRUTO en Kg como texto (26-sep-2026) y `tara` es la TARA
+    // CONGELADA de ese viaje (27-sep-2026, pedido: «por si cargaron mal la
+    // tara»): solo los toca la jefa, y solo en viajes que YA traen peso (a uno
+    // viejo no se le inventa). `tipoId` es el TIPO DE VIAJE ('' = normal) y
+    // `frenteIdEdit` el FRENTE DE TRABAJO ('' = sin frente, 28-sep-2026).
+    { id: string; fecha: string; hh: string; mm: string; chofer: string; listeroId: string; ubicacionId: string; peso: string; tara: string; tipoId: string; frenteIdEdit: string } | null
   >(null);
   // Filas del rango filtrado de la jefa (declarado acá arriba para que `findRow`
   // pueda buscar en ambas listas — la carga/estado completo del panel de la
@@ -1247,6 +1475,11 @@ export default function ViajesCamionesScreen() {
   }, [uid, listerosRecarga, obrasRaw]);
 
   const isEditableByListero = (row: CamionViajeRow): boolean => {
+    // ⭐ FULL PRIMERO (27-sep-2026): el «¿es tuyo?» iba ANTES que el «¿tiene
+    //    full?», así que quien tiene control total (admin incluido) no veía el
+    //    botón de editar en los viajes de OTRO listero dentro de esta lista —
+    //    justo lo contrario de lo que documenta el comentario de abajo.
+    if (canFull) return true;
     if (row.listeroId !== uid) return false;
     // ⭐ CON ACCESO FULL NO HAY HORA DE CIERRE (02-sep-2026).
     //
@@ -1260,8 +1493,8 @@ export default function ViajesCamionesScreen() {
     //    «mis viajes de hoy», no — la misma persona con dos reglas distintas.
     //
     //    No queda invisible: la edición excepcional deja rastro en Auditoría.
-    //    Ver `saveEdit` y `requiereRastroDeEdicion`.
-    if (canFull) return true;
+    //    Ver `saveEdit` y `requiereRastroDeEdicion`. (El `return true` de full
+    //    vive arriba del todo desde el 27-sep-2026.)
     const { startMs, endMs } = currentJornadaWindow();
     const t = new Date(row.registeredAt).getTime();
     return t >= startMs && t < endMs;
@@ -1281,6 +1514,10 @@ export default function ViajesCamionesScreen() {
       chofer: row.choferName ?? '',
       listeroId: row.listeroId,
       ubicacionId: row.ubicacionId ?? '',
+      peso: row.pesoBrutoKg != null ? String(row.pesoBrutoKg) : '',
+      tara: row.pesoTaraKg != null ? String(row.pesoTaraKg) : '',
+      tipoId: row.tipoViajeId ?? '',
+      frenteIdEdit: row.frenteId ?? '',
     });
   };
   const cancelEdit = () => setEditing(null);
@@ -1369,6 +1606,80 @@ export default function ViajesCamionesScreen() {
           cambios.ubicacionId = obra.id;
           queCambio.push(`CDT: ${row.ubicacionNombre || SIN_UBICACION_LABEL} → ${obra.nombre}`);
         }
+        // ⚖️ CORREGIR EL PESO BRUTO (26-sep-2026) Y LA TARA (27-sep-2026,
+        //    pedido: «por si cargaron mal la tara»). Solo en viajes que YA
+        //    traen peso — con UNA excepción (28-sep-2026, a pedido): a un
+        //    viaje CARGADO A MANO sin peso se le puede AGREGAR, porque la
+        //    oficina lo cuadra con el papel de la romana en la mano. A uno
+        //    del patio sin peso se le sigue sin inventar. El neto lo
+        //    recalcula la base sola, y las dos correcciones se validan ENTRE
+        //    SÍ: tocadas ambas, el candado bruto > tara mira los números nuevos.
+        const agregandoPeso = row.origen === 'manual' && row.pesoBrutoKg == null;
+        if (agregandoPeso && (editing.peso.trim() !== '' || editing.tara.trim() !== '')) {
+          const brutoNuevo = pesoTecleadoAKg(editing.peso, 'kg');
+          const taraNueva = pesoTecleadoAKg(editing.tara, 'kg');
+          if (!(brutoNuevo > 0) || !(taraNueva > 0)) {
+            toast.error('Para agregarle el peso van LOS DOS números: bruto y tara (en Kg).'); return;
+          }
+          if (brutoNuevo <= taraNueva) {
+            toast.error(`El bruto (${kgTexto(brutoNuevo)}) tiene que superar la tara (${kgTexto(taraNueva)}).`); return;
+          }
+          cambios.pesoBrutoKg = brutoNuevo;
+          cambios.pesoTaraKg = taraNueva;
+          // La tecleó una persona: misma marca «✍️ tara manual» del registro.
+          cambios.taraManual = true;
+          cambios.taraManualNombre = listeroName || null;
+          queCambio.push(`peso agregado: bruto ${kgTexto(brutoNuevo)} · tara ${kgTexto(taraNueva)}`);
+        }
+        const taraFinal = row.pesoTaraKg != null && editing.tara.trim() !== ''
+          ? pesoTecleadoAKg(editing.tara, 'kg') : row.pesoTaraKg;
+        if (row.pesoBrutoKg != null && editing.peso.trim() !== '') {
+          const kgNuevo = pesoTecleadoAKg(editing.peso, 'kg');
+          if (kgNuevo !== row.pesoBrutoKg) {
+            if (kgNuevo <= 0) { toast.error('El peso bruto tiene que ser mayor que cero.'); return; }
+            if (taraFinal != null && taraFinal > 0 && kgNuevo <= taraFinal) {
+              toast.error(`El bruto tiene que superar la tara de este viaje (${kgTexto(taraFinal)}).`);
+              return;
+            }
+            cambios.pesoBrutoKg = kgNuevo;
+            queCambio.push(`peso bruto: ${kgTexto(row.pesoBrutoKg)} → ${kgTexto(kgNuevo)}`);
+          }
+        }
+        if (row.pesoTaraKg != null && editing.tara.trim() !== '') {
+          const taraNueva = pesoTecleadoAKg(editing.tara, 'kg');
+          if (taraNueva !== row.pesoTaraKg) {
+            if (taraNueva <= 0) { toast.error('La tara tiene que ser mayor que cero.'); return; }
+            const brutoFinal = cambios.pesoBrutoKg ?? row.pesoBrutoKg;
+            if (brutoFinal != null && taraNueva >= brutoFinal) {
+              toast.error(`La tara (${kgTexto(taraNueva)}) no puede alcanzar el bruto (${kgTexto(brutoFinal)}): el peso a pagar saldría en cero o negativo.`);
+              return;
+            }
+            cambios.pesoTaraKg = taraNueva;
+            queCambio.push(`tara: ${kgTexto(row.pesoTaraKg)} → ${kgTexto(taraNueva)}`);
+          }
+        }
+        // 🧾 CORREGIR EL TIPO DE VIAJE (26-sep-2026). Congela el nombre y la
+        //    tarifa del catálogo DE AHORA — es una corrección, no un registro
+        //    viejo. '' = volverlo viaje normal (tarifa de zona).
+        if (editing.tipoId !== (row.tipoViajeId ?? '')) {
+          const tipoNuevo = editing.tipoId ? (tipos.find((t) => t.id === editing.tipoId) ?? null) : null;
+          if (editing.tipoId && !tipoNuevo) { toast.error('Ese tipo de viaje ya no existe. Refresca la pantalla.'); return; }
+          cambios.tipoViaje = tipoNuevo
+            ? { id: tipoNuevo.id, nombre: tipoNuevo.nombre, tarifa: tipoNuevo.tarifaUsd }
+            : { id: null, nombre: null, tarifa: null };
+          queCambio.push(`tipo de viaje: ${row.tipoViajeNombre || 'normal'} → ${tipoNuevo?.nombre || 'normal'}`);
+        }
+        // ⛏️ PONER O CORREGIR EL FRENTE (28-sep-2026, pedido: «el histórico
+        //    debería poder agregarle frentes a los que ya se hicieron»).
+        //    '' = quitárselo. Congela nombre e id, como todo lo demás.
+        if (editing.frenteIdEdit !== (row.frenteId ?? '')) {
+          const frenteNuevo = editing.frenteIdEdit ? (frentes.find((f) => f.id === editing.frenteIdEdit) ?? null) : null;
+          if (editing.frenteIdEdit && !frenteNuevo) { toast.error('Ese frente ya no existe. Refresca la pantalla.'); return; }
+          cambios.frente = frenteNuevo
+            ? { id: frenteNuevo.id, nombre: frenteNuevo.nombre }
+            : { id: null, nombre: null };
+          queCambio.push(`frente: ${row.frenteNombre || 'sin frente'} → ${frenteNuevo?.nombre || 'sin frente'}`);
+        }
       }
       if (Object.keys(cambios).length === 0) { setEditing(null); return; }
 
@@ -1415,8 +1726,35 @@ export default function ViajesCamionesScreen() {
       // botón que no responde.
       if (rastro) logAudit(rastro.accion as any, 'camion_viajes', editing.id, rastro.detalle);
 
+      // ⛏️ EL FRENTE QUE SE LE PONE A UN VIAJE QUEDA ASIGNADO AL CAMIÓN PARA ESA
+      //    JORNADA (29-sep-2026, a pedido: «las máquinas a las que se les coloca
+      //    un frente para un viaje deberían tomarlo para esa fecha, y en los
+      //    viajes que vienen deberían tomarlo»). Así no hay que repetir la
+      //    asignación camión por camión: se corrige un viaje y el resto del día
+      //    sale solo.
+      //
+      // ⚠️ SOLO AL PONER, NUNCA AL QUITAR: quitarle el frente a UN viaje no
+      //    significa que el camión no tenga frente ese día, y borrar la
+      //    asignación dejaría sin frente a los viajes que vengan después.
+      // ⚠️ Y NO TOCA LOS VIAJES YA REGISTRADOS: cada uno guardó el suyo al
+      //    grabarse (misma regla que la obra y la placa).
+      let avisoFrente = '';
+      if (cambios.frente?.id && row.machineryId && !row.fueraCatalogo) {
+        const jornadaDelViaje = jornadaDeFecha(new Date(cambios.registeredAtISO ?? row.registeredAt));
+        const rAsig = await asignarFrente(jornadaDelViaje, [row.machineryId], cambios.frente.id, uid, fullName || listeroName || null);
+        if (rAsig.error) {
+          // El viaje YA se corrigió: esto es el extra. Se dice, no se esconde.
+          avisoFrente = ` (pero no se pudo dejar asignado el frente para el ${dmy(jornadaDelViaje)}: ${rAsig.error})`;
+        } else {
+          avisoFrente = ` · ⛏️ ${cambios.frente.nombre} queda asignado a ${row.machineCode} para el ${dmy(jornadaDelViaje)}: los viajes que se registren después lo toman solos.`;
+          // Si es la jornada de HOY, el teléfono tiene que verlo YA: si no, el
+          // próximo viaje se registraría con la asignación vieja en memoria.
+          if (jornadaDelViaje === caracasBusinessToday()) setFrentesRecarga((n) => n + 1);
+        }
+      }
+
       setEditing(null);
-      toast.success('Viaje actualizado.');
+      toast.success(`Viaje actualizado.${avisoFrente}`);
       loadMisViajes();
       if (canFull) { loadRangeRows(); loadResumen(); }
     } finally {
@@ -1465,9 +1803,30 @@ export default function ViajesCamionesScreen() {
   const [cargaMM, setCargaMM] = useState('00');
   const [cargaCantidad, setCargaCantidad] = useState('1');
   const [cargaChofer, setCargaChofer] = useState('');
+  // ⚖️ PESO EN LA CARGA MANUAL (28-sep-2026, a pedido). OPCIONAL: vacío, el
+  // viaje entra sin peso como siempre. Solo con UN viaje por carga: la tanda
+  // separa varios a 5 minutos y un mismo bruto repetido en todos sería
+  // inventar la romana. Sin foto: nadie la tomó, y el sistema no la finge.
+  const [cargaBrutoTexto, setCargaBrutoTexto] = useState('');
+  const [cargaTaraTexto, setCargaTaraTexto] = useState('');
+  const [cargaPesoUnidad, setCargaPesoUnidad] = useState<UnidadPeso>('kg');
   const [cargaListeroId, setCargaListeroId] = useState<string>('');
   /** CDT de la carga manual. '' = el del listero a cuyo nombre queda (lo de antes). */
   const [cargaUbicacionId, setCargaUbicacionId] = useState<string>('');
+  // ⛏️ FRENTE de la carga manual (28-sep-2026, a pedido: «poder cargarlos a
+  // mano»). Al elegir camión y fecha se PROPONE la asignación de esa jornada
+  // (si la hubo); lo que se marque a mano manda. null = sin frente.
+  const [cargaFrenteId, setCargaFrenteId] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    if (!cargaTruckId || !/^\d{4}-\d{2}-\d{2}$/.test(cargaFecha)) { setCargaFrenteId(null); return; }
+    listAsignacionesFrente(cargaFecha).then((r) => {
+      if (!vivo) return;
+      const a = r.asignaciones.find((x) => x.machineryId === cargaTruckId);
+      setCargaFrenteId(a?.frenteId ?? null);
+    });
+    return () => { vivo = false; };
+  }, [cargaTruckId, cargaFecha]);
   const [cargaBusy, setCargaBusy] = useState(false);
   const cargaBusyRef = useRef(false);
 
@@ -1521,6 +1880,24 @@ export default function ViajesCamionesScreen() {
       if (!cargaTruck) { toast.error('Ese camión ya no está en la lista. Refresca la pantalla.'); return; }
       if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
 
+      // ⚖️ EL PESO DE LA CARGA MANUAL (28-sep-2026). Opcional; con reglas:
+      // ambos números o ninguno (el neto no existe a medias), bruto > tara
+      // (mismo candado de la base), y UN solo viaje por carga — un mismo
+      // bruto repetido en una tanda sería inventar la romana.
+      const cargaBrutoKg = pesoTecleadoAKg(cargaBrutoTexto, cargaPesoUnidad);
+      const taraCatCarga = taras.get(cargaTruck.id)?.pesoTaraKg ?? null;
+      const taraTecleada = cargaTaraTexto.trim() !== '';
+      const cargaTaraKg = taraTecleada ? pesoTecleadoAKg(cargaTaraTexto, cargaPesoUnidad) : (taraCatCarga ?? 0);
+      const conPeso = cargaBrutoKg > 0;
+      if (!conPeso && taraTecleada) { toast.error('Tecleaste la tara pero falta el peso bruto: van juntos, o ninguno.'); return; }
+      if (conPeso) {
+        if (cantidad !== 1) { toast.error('El peso va en UN viaje por carga: cada viaje tiene su propia romana. Carga los demás aparte, cada uno con su peso.'); return; }
+        if (!(cargaTaraKg > 0)) { toast.error('Este camión no tiene tara cargada: teclea también la tara para poder poner el peso.'); return; }
+        if (cargaBrutoKg <= cargaTaraKg) { toast.error(`El bruto (${kgTexto(cargaBrutoKg)}) no supera la tara (${kgTexto(cargaTaraKg)}): el peso a pagar saldría en cero o negativo.`); return; }
+      }
+      // La tara es «manual» si la tecleó la oficina o si el catálogo no tenía.
+      const cargaTaraManual = conPeso && (taraTecleada || taraCatCarga == null);
+
       // Por defecto el viaje queda a nombre de quien lo carga. Se puede atribuir a
       // otro listero para que el resumen por listero siga diciendo la verdad.
       const listero = listeros.find((l) => l.id === cargaListeroId) ?? { id: uid, full_name: listeroName };
@@ -1550,7 +1927,10 @@ export default function ViajesCamionesScreen() {
           `Se van a agregar ${cantidad} viaje(s) al camión ${cargaTruck.code} el ${dmy(cargaFecha)}, ` +
           `desde las ${pad2(hh)}:${pad2(mm)}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}` +
           `${turnos.length === 1 ? ` (turno de ${TURNO_NOMBRE[turnoElegido].toLowerCase()})` : ''}, ` +
-          `a nombre de ${listero.full_name}, en ${obraCarga.ubicacionNombre ? `el CDT «${obraCarga.ubicacionNombre}»` : 'ningún CDT (sin ubicación)'}.\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
+          `a nombre de ${listero.full_name}, en ${obraCarga.ubicacionNombre ? `el CDT «${obraCarga.ubicacionNombre}»` : 'ningún CDT (sin ubicación)'}.` +
+          (conPeso ? `\n\n⚖️ Con peso: bruto ${kgTexto(cargaBrutoKg)} − tara ${kgTexto(cargaTaraKg)} = a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}${cargaTaraManual ? ' (tara tecleada a mano)' : ' (tara del catálogo)'}. Sin foto: la carga manual no la finge.` : '') +
+          (cargaFrenteId ? `\n⛏️ Frente: ${frentes.find((f) => f.id === cargaFrenteId)?.nombre ?? ''}.` : '') +
+          `\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
         confirmText: 'Cargar',
       });
       if (!ok) return;
@@ -1575,6 +1955,15 @@ export default function ViajesCamionesScreen() {
           estadoMaquina: null,
           note: nota,
           origen: 'manual',
+          // ⚖️ El peso, si lo trajeron del papel de la romana (28-sep-2026).
+          //    Nulls = sin peso, como siempre fue la carga manual. Sin foto.
+          pesoBrutoKg: conPeso ? cargaBrutoKg : null,
+          pesoTaraKg: conPeso ? cargaTaraKg : null,
+          taraManual: cargaTaraManual,
+          taraManualNombre: cargaTaraManual ? (fullName || listeroName || null) : null,
+          // ⛏️ El frente elegido (o el propuesto por la asignación de ese día).
+          frenteId: cargaFrenteId,
+          frenteNombre: cargaFrenteId ? (frentes.find((f) => f.id === cargaFrenteId)?.nombre ?? null) : null,
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
@@ -1654,9 +2043,20 @@ export default function ViajesCamionesScreen() {
         toast.success(`Esos ${yaEstaban} viaje(s) ya estaban cargados. No se duplicó ninguno.`);
         setCargaCantidad('1');
       } else {
-        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}.`);
+        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}${conPeso ? ` · a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}` : ''}.`);
         setCargaCantidad('1');
       }
+      // ⛏️ El frente elegido en la carga a mano TAMBIÉN queda asignado al camión
+      //    para esa jornada (29-sep-2026, misma regla que ✏️ Editar): se carga
+      //    un viaje con su frente y los que vengan después lo toman solos.
+      //    Solo si de verdad entró algún viaje, y nunca para quitarlo.
+      if (cargaFrenteId && hechos > 0) {
+        const rAsig = await asignarFrente(cargaFecha, [cargaTruck.id], cargaFrenteId, uid, fullName || listeroName || null);
+        if (!rAsig.error && cargaFecha === caracasBusinessToday()) setFrentesRecarga((n) => n + 1);
+      }
+      // El peso es de ESE viaje: no puede quedar esperando a la próxima carga.
+      setCargaBrutoTexto('');
+      setCargaTaraTexto('');
       loadRangeRows();
       loadResumen();
     } finally {
@@ -1800,6 +2200,24 @@ export default function ViajesCamionesScreen() {
   const [rangeTo, setRangeTo] = useState(caracasBusinessToday());
   const [diasSel, setDiasSel] = useState<Set<string>>(new Set([caracasBusinessToday()]));
   const [diasPickOpen, setDiasPickOpen] = useState(false);
+  // ⏱️ RANGO DE HORAS Y MINUTOS (28-sep-2026, pedido): recorta los viajes de los
+  // días elegidos a una franja horaria — de 08:00 a 10:15, o solo desde, o solo
+  // hasta. Se aplica en `dateScopedRows` a propósito: chips, lista, resumen y
+  // PDF salen del MISMO conjunto y no se contradicen. DESDE > HASTA cruza la
+  // medianoche (22:00–02:00 = la noche con su madrugada, como la jornada).
+  const [horaDesdeTxt, setHoraDesdeTxt] = useState('');
+  const [horaHastaTxt, setHoraHastaTxt] = useState('');
+  const horaDesde = normalizaHora(horaDesdeTxt);
+  const horaHasta = normalizaHora(horaHastaTxt);
+  const horasActivas = horaDesde !== null || horaHasta !== null;
+  // Texto escrito que NO es una hora: se avisa y NO filtra — filtrar con una
+  // hora a medio teclear vaciaría la lista sin explicación.
+  const horaMalEscrita = (horaDesdeTxt.trim() !== '' && horaDesde === null) || (horaHastaTxt.trim() !== '' && horaHasta === null);
+  // ⛏️ DEJAR FUERA LOS VIAJES SIN FRENTE (28-sep-2026, a pedido). Es un FILTRO,
+  // no una opción de columna: cambia QUÉ viajes entran y por tanto el total —
+  // por eso vive acá con los filtros y no en «Qué sale en el reporte», que
+  // promete que el total no se mueve. El papel lo dice en su encabezado.
+  const [soloConFrente, setSoloConFrente] = useState(false);
   // ⚠️ Map id→ETIQUETA, no Set: hace falta el nombre para poder dibujar el chip
   //    de un filtro que quedó marcado y que en el rango de HOY ya no aparece en
   //    ningún viaje. Con un Set ese chip desaparecía, la lista salía vacía y no
@@ -1823,6 +2241,17 @@ export default function ViajesCamionesScreen() {
   // 'camiones' = qué camiones salieron, SIN ninguna cantidad (14-sep-2026).
   const [reporteModo, setReporteModo] = useState<'detallado' | 'resumen' | 'camiones'>('detallado');
   const soloCamiones = reporteModo === 'camiones';
+  // 🏷️ Qué logos lleva el membrete del PDF de viajes (28-sep-2026, a pedido).
+  // Arranca como salía siempre este papel (BCV + SOS); cada papel tiene su
+  // propia memoria de logos, igual que el conteo de equipos y el horómetro.
+  const [logosRep, setLogosRep] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
+  // ⚖️ En qué unidad salen los pesos del PDF: Kg de siempre, o toneladas.
+  const [pesoUnidadRep, setPesoUnidadRep] = useState<UnidadPeso>('kg');
+  // 📊 El RESUMEN EJECUTIVO del papel (28-sep-2026, a pedido). Apagado de
+  // fábrica; encendido trae las tres tarjetas de la imagen y las otras cuatro
+  // se marcan aparte. La lógica (qué dice cada tarjeta y qué NO se inventa)
+  // vive en `tarjetasResumen`, en cubicaje.ts, probada sola.
+  const [resumenRep, setResumenRep] = useState<OpcionesResumen>(RESUMEN_POR_DEFECTO);
   // Por cuál eje se parte el resumen (pedido del cliente 22-ago-2026: poder
   // sacarlo también por listero). Va APARTE del modo a propósito: "detallado vs
   // resumido" y "por empresa vs por listero" son dos preguntas distintas, y
@@ -1836,6 +2265,7 @@ export default function ViajesCamionesScreen() {
   const [detalleEje, setDetalleEje] = useState<EjeResumen | 'ninguno'>('ninguno');
   const porListero = resumenEje === 'listero';
   const porUbicacion = resumenEje === 'ubicacion';
+  const porFrente = resumenEje === 'frente';
   const toggleEn = (set: React.Dispatch<React.SetStateAction<Map<string, string>>>) =>
     (id: string, label: string) => set((prev) => { const n = new Map(prev); n.has(id) ? n.delete(id) : n.set(id, label); return n; });
   const toggleFilterListero = toggleEn(setFilterListeroSel);
@@ -1900,6 +2330,17 @@ export default function ViajesCamionesScreen() {
     () => etiquetaRangoViajes(preset === 'dias', rangeBounds.desde, rangeBounds.hasta, diasSel, dmy),
     [preset, rangeBounds.desde, rangeBounds.hasta, diasSel]
   );
+  // ⏱️ La MISMA etiqueta pero diciendo la franja horaria cuando está puesta. Es
+  // la que llevan la lista y el PDF (que salen recortados por la franja); la de
+  // fechas a secas queda para lo que NO se recorta por hora (el cubicaje, que
+  // consulta lo guardado por rango de fechas — ponerle la franja ahí mentiría).
+  const etiquetaRangoConHoras = useMemo(() => {
+    const horas = textoRangoHoras(horaDesde, horaHasta);
+    // ⚠️ El aviso del frente va en la MISMA etiqueta que el papel imprime: un
+    // reporte al que se le sacaron viajes no puede leerse como el completo.
+    const conFrente = soloConFrente ? ' · ⛏️ SOLO viajes con frente' : '';
+    return `${horas ? `${etiquetaRango} · ⏱️ ${horas}` : etiquetaRango}${conFrente}`;
+  }, [etiquetaRango, horaDesde, horaHasta, soloConFrente]);
 
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeMissing, setRangeMissing] = useState(false);
@@ -1942,18 +2383,37 @@ export default function ViajesCamionesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canFull, desdeISO, hastaExclusivoISO, rangoInvalido, sinDiasMarcados]);
 
-  const dateScopedRows = useMemo(() => {
+  const dateScopedRowsConSinFrente = useMemo(() => {
     // Sin ningún día marcado no hay nada que mostrar. Devolver el rango entero
     // (que por defecto es HOY) haría pasar la jornada de hoy por «los días que
     // elegiste», y de ahí a un reporte con la fecha equivocada hay un paso.
     if (sinDiasMarcados || rangoInvalido || rangeDesactualizado) return [];
-    if (preset === 'dias') {
+    const base = preset === 'dias'
       // Por JORNADA: un viaje de la madrugada pertenece a la jornada de la noche
       // anterior, así que marcar un día trae también su madrugada.
-      return rangeRows.filter((r) => diasSel.has(jornadaDeFecha(new Date(r.registeredAt))));
-    }
-    return rangeRows;
-  }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado]);
+      ? rangeRows.filter((r) => diasSel.has(jornadaDeFecha(new Date(r.registeredAt))))
+      : rangeRows;
+    // ⏱️ La franja horaria recorta ENCIMA de los días elegidos. La hora del
+    // viaje es la de Caracas (la misma que se ve en la fila), ambos extremos
+    // inclusive; desde > hasta cruza la medianoche (ver pasaRangoHoras).
+    if (!horasActivas) return base;
+    return base.filter((r) => {
+      const p = caracasParts(new Date(r.registeredAt));
+      return pasaRangoHoras(p.hour * 60 + p.minute, horaDesde, horaHasta);
+    });
+  }, [rangeRows, preset, diasSel, sinDiasMarcados, rangoInvalido, rangeDesactualizado, horasActivas, horaDesde, horaHasta]);
+
+  /** ⛏️ ¿Este viaje trae frente? El id manda, y el NOMBRE congelado vale de
+   *  repuesto: si el frente se borró del catálogo el viaje conserva su nombre y
+   *  sigue siendo un viaje CON frente (misma regla que la obra). */
+  const tieneFrente = (r: CamionViajeRow) => !!r.frenteId || String(r.frenteNombre ?? '').trim() !== '';
+  /** Cuántos viajes dejaría fuera la casilla, para decirlo ANTES de marcarla. */
+  const viajesSinFrente = useMemo(() => dateScopedRowsConSinFrente.filter((r) => !tieneFrente(r)).length, [dateScopedRowsConSinFrente]);
+  /** Lo que de verdad alimenta chips, lista, resumen y PDF. */
+  const dateScopedRows = useMemo(
+    () => (soloConFrente ? dateScopedRowsConSinFrente.filter(tieneFrente) : dateScopedRowsConSinFrente),
+    [dateScopedRowsConSinFrente, soloConFrente],
+  );
 
   // ── CUÁNTOS VIAJES TIENE YA ESE CAMIÓN EN ESA JORNADA (02-sep-2026) ───────
   //
@@ -2179,6 +2639,12 @@ export default function ViajesCamionesScreen() {
         name: r.ubicacionNombre || SIN_UBICACION_LABEL,
       };
     }
+    if (eje === 'frente') {
+      return {
+        key: claveFrenteViaje(r),
+        name: r.frenteNombre || 'Sin frente',
+      };
+    }
     return companyOfRow(r);
   };
   /** El detallado partido por empresa, listero u obra; null = una sola lista. */
@@ -2304,6 +2770,112 @@ export default function ViajesCamionesScreen() {
     toast.success('Meta actualizada.');
   };
 
+  // ⚖️ Taras por camión (editable, solo full — el RLS de `camion_taras` lo
+  //    exige igual; acá solo se evita el error feo). SE GUARDA SIEMPRE EN KILOS:
+  //    es el catálogo oficial. Lo que cambia (27-sep-2026, a pedido) es en qué
+  //    unidad se TECLEA: Kg o toneladas, con las mismas pastillas del registro.
+  const [taraEdits, setTaraEdits] = useState<Record<string, string>>({});
+  const [taraUnidad, setTaraUnidad] = useState<UnidadPeso>('kg');
+  // 🔎 El buscador de la lista de taras (27-sep-2026, a pedido): con 60+
+  // camiones, cargar la tara de UNO era pura rueda de ratón. Mismos campos
+  // que el buscador del listero: código, placa, serial, marca, modelo, empresa.
+  const [taraQuery, setTaraQuery] = useState('');
+  const tarasFiltradas = useMemo(() => {
+    const nq = norm(taraQuery.trim());
+    if (!nq) return camionesEnObra;
+    return camionesEnObra.filter((t) =>
+      [t.code, t.clasificacion, t.marca, t.modelo, t.plate, t.serial, t.companyName]
+        .some((f) => f != null && norm(String(f)).includes(nq)));
+  }, [camionesEnObra, taraQuery]);
+  /** La tara guardada (kg), mostrada en la unidad elegida para poder editarla
+   *  sin convertir de cabeza. En toneladas va con coma: leerNumero la entiende. */
+  const taraMostrada = (kg: number) => taraUnidad === 'kg' ? String(kg) : String(kg / 1000).replace('.', ',');
+  const saveTara = async (truckId: string) => {
+    const raw = (taraEdits[truckId] ?? '').trim();
+    if (raw === '') return; // vaciar el campo no borra: para eso está el ✕, que confirma
+    const kg = pesoTecleadoAKg(raw, taraUnidad);
+    if (kg <= 0) { toast.error(`La tara tiene que ser un peso en ${taraUnidad === 'kg' ? 'Kg' : 'toneladas'} mayor que cero.`); return; }
+    const { error } = await setTaraCamion(truckId, kg, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTaraEdits((prev) => { const p = { ...prev }; delete p[truckId]; return p; });
+    setTarasRecarga((x) => x + 1);
+    toast.success(`Tara guardada: ${kgTexto(kg)}.`);
+  };
+  const borrarTara = async (truckId: string, code: string) => {
+    const ok = await confirm({
+      title: 'Quitar la tara',
+      message: `¿Quitar la tara de ${code}? Los viajes YA registrados conservan la suya (quedó congelada); los PRÓXIMOS van a pedir tara tecleada a mano.`,
+      confirmText: 'Quitar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { error } = await quitarTaraCamion(truckId);
+    if (error) { toast.error(error); return; }
+    setTarasRecarga((x) => x + 1);
+    toast.success('Tara quitada.');
+  };
+  /** 🚫 Marca o desmarca «no pasa por romana». La tara guardada NO se toca:
+   *  queda esperando por si el camión vuelve a pasar. */
+  const toggleExentoRomana = async (truckId: string, code: string) => {
+    const yaExento = taras.get(truckId)?.exentoRomana === true;
+    if (!yaExento) {
+      const ok = await confirm({
+        title: 'No pasa por romana',
+        message: `A ${code} ya no se le va a exigir peso ni foto: el listero lo registra con un toque, como antes. Sus viajes salen SIN peso (con raya) y no suman kilos. ¿Lo marcas?`,
+        confirmText: '🚫 No pasa por romana',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+    }
+    const { error } = await setExentoRomana(truckId, !yaExento, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTarasRecarga((x) => x + 1);
+    toast.success(yaExento ? `${code} vuelve a pasar por romana: sus próximos viajes exigen peso y foto.` : `${code} marcado: no pasa por romana.`);
+  };
+
+  // 🧾 Administración de TIPOS DE VIAJE (solo full; el RLS lo exige igual).
+  const [nuevoTipoNombre, setNuevoTipoNombre] = useState('');
+  const [nuevoTipoTarifa, setNuevoTipoTarifa] = useState('');
+  const [tipoTarifaEdits, setTipoTarifaEdits] = useState<Record<string, string>>({});
+  const [tipoOcupado, setTipoOcupado] = useState(false);
+  const crearTipo = async () => {
+    if (tipoOcupado) return;
+    setTipoOcupado(true);
+    try {
+      const tarifa = nuevoTipoTarifa.trim() === '' ? null : leerNumero(nuevoTipoTarifa);
+      const { error } = await crearTipoViaje(nuevoTipoNombre, tarifa, uid || null, listeroName || null);
+      if (error) { toast.error(error); return; }
+      setNuevoTipoNombre(''); setNuevoTipoTarifa('');
+      setTiposRecarga((x) => x + 1);
+      toast.success('Tipo de viaje creado. Los listeros ya lo ven al registrar.');
+    } finally { setTipoOcupado(false); }
+  };
+  const guardarTarifaTipo = async (t: TipoViaje) => {
+    const raw = (tipoTarifaEdits[t.id] ?? '').trim();
+    if (raw === '') return;
+    const tarifa = leerNumero(raw);
+    const { error } = await editarTipoViaje(t.id, { tarifaUsd: tarifa }, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTipoTarifaEdits((prev) => { const p = { ...prev }; delete p[t.id]; return p; });
+    setTiposRecarga((x) => x + 1);
+    toast.success(`Tarifa de «${t.nombre}» guardada: $${tarifa}. Solo aplica a los viajes que vengan; los registrados llevan la suya congelada.`);
+  };
+  const toggleActivoTipo = async (t: TipoViaje) => {
+    if (t.activo) {
+      const ok = await confirm({
+        title: 'Apagar el tipo',
+        message: `«${t.nombre}» deja de ofrecerse a los listeros. Los viajes que ya lo llevan NO cambian (el tipo va congelado en cada viaje). ¿Lo apagas?`,
+        confirmText: 'Apagar',
+        cancelText: 'Cancelar',
+      });
+      if (!ok) return;
+    }
+    const { error } = await setActivoTipoViaje(t.id, !t.activo, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTiposRecarga((x) => x + 1);
+    toast.success(t.activo ? `«${t.nombre}» apagado.` : `«${t.nombre}» prendido: los listeros ya lo ven.`);
+  };
+
   // Compartir / exportar el reporte del rango filtrado (mismo mecanismo PDF
   // que el resto del sistema, ver src/lib/pdf.ts + CoordinadorOperadoresScreen).
   const [shareBusy, setShareBusy] = useState(false);
@@ -2374,8 +2946,8 @@ export default function ViajesCamionesScreen() {
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
       // Los tres ejes se rotulan desde un solo sitio: dos ternarios encadenados en
       // cada punto del PDF acabarian discrepando entre si.
-      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : '🏢';
-      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : 'empresa(s)';
+      const icoGrupo = porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢';
+      const palabraGrupo = porUbicacion ? 'obra(s)' : porListero ? 'listero(s)' : porFrente ? 'frente(s)' : 'empresa(s)';
       // Un 0 en una columna de números se lee peor que un guion: la fila del
       // camión que solo trabaja de día queda limpia en vez de arrastrar un
       // «0» en la de noche.
@@ -2417,6 +2989,19 @@ export default function ViajesCamionesScreen() {
       const porViajeDe = (key: string) => volumenPorCamion.get(key)?.porViaje ?? 0;
       const m3Fila = (key: string, viajes: number) => redondear(porViajeDe(key) * viajes);
       const totalM3 = sumaVolumen(volumenPorCamion);
+      // ── EL PESO DE ROMANA en el papel (26-sep-2026). Kilos que EXISTEN: los
+      //    viajes sin peso (anteriores) no suman ni aparecen como cero. Un
+      //    total en 0 se imprime como raya: «0,00 Kg» diría que se pesó nada.
+      //    Desde el 28-sep el papel puede salir en TONELADAS (solo el texto:
+      //    el dato guardado y las sumas siguen en kilos).
+      // ⭐ DOS decimales en las toneladas de ESTE papel (28-sep-2026, a pedido).
+      //    El TICKET sigue con tres: se firma en el CDT y ahí un redondeo de
+      //    5 kg sí importa (ver `tonTexto` en viajesPeso.ts).
+      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n, 2) : kgTextoOpcional(n)) ?? '—';
+      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n, 2) : kgTexto(n)) : '—');
+      const netoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoNetoKg ?? 0), 0);
+      const brutoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoBrutoKg ?? 0), 0);
+      const taraDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoTaraKg ?? 0), 0);
 
       /** Arma una tabla con las columnas visibles. `pie` ya viene con su HTML
        *  hecho (lleva <b>), así que NO se escapa: lo arma este mismo archivo. */
@@ -2444,9 +3029,9 @@ export default function ViajesCamionesScreen() {
       //    rótulos. Si se partiera en dos plantillas, cualquier arreglo futuro
       //    habría que hacerlo dos veces y los totales podrían dejar de cuadrar.
       // El eje decide qué columna sobra: la suya ya está en el encabezado del grupo.
-      const colsR = columnasResumen(op, resumenEje);
+      const colsR = columnasResumen(op, resumenEje, pesoUnidadRep);
       const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}
+        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}${op.pesoPromedio ? ` · promedio por viaje ${kgPie(resumenViajes.total > 0 ? resumenViajes.netoKg / resumenViajes.total : 0)}` : ''}
           ${op.viajes ? `<br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span>` : ''}</p>
         ${resumenViajes.empresas.map((e) => {
           const g3 = redondear(e.camiones.reduce((a, c) => a + m3Fila(c.key, c.viajes), 0));
@@ -2455,6 +3040,7 @@ export default function ViajesCamionesScreen() {
             `${e.camiones.length} camión(es)`,
             op.viajes ? `${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}` : null,
             op.m3 ? `${m3Texto(g3)} m³` : null,
+            op.pesoNeto ? `a pagar ${kgPie(e.netoKg)}` : null,
           ].filter(Boolean).join(' · ');
           const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
             camion: c.code,
@@ -2469,13 +3055,19 @@ export default function ViajesCamionesScreen() {
             noche: num(c.noche),
             viajes: String(c.viajes),
             m3: m3Texto(m3Fila(c.key, c.viajes)),
+            pesoNeto: kgPie(c.netoKg),
+            // 📊 Promedio por viaje de ESE camión (29-sep-2026). Sin viajes no se
+            // divide; sin peso, la raya la pone kgPie.
+            pesoPromedio: kgPie(c.viajes > 0 ? c.netoKg / c.viajes : 0),
           }));
           const pie = colsR.map((c, i) => (
             i === 0 ? `<b>Total ${esc(e.name)}</b>`
               : c.key === 'dia' ? `<b>${num(e.dia)}</b>`
               : c.key === 'noche' ? `<b>${num(e.noche)}</b>`
               : c.key === 'viajes' ? `<b>${e.total}</b>`
-              : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>` : ''
+              : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>`
+              : c.key === 'pesoNeto' ? `<b>${kgPie(e.netoKg)}</b>`
+              : c.key === 'pesoPromedio' ? `<b>${kgPie(e.total > 0 ? e.netoKg / e.total : 0)}</b>` : ''
           ));
           return `<h3>${icoGrupo} ${esc(e.name)} — ${cab}</h3>${tabla(colsR, filas, pie)}`;
         }).join('')}`;
@@ -2505,7 +3097,7 @@ export default function ViajesCamionesScreen() {
       //    después el detallado SIN la columna Obra (la librería la omite porque la da
       //    por puesta en el encabezado del grupo) y sin ningún encabezado que la dijera.
       const ejeD: EjeResumen = detalleEje === 'ninguno' ? 'empresa' : detalleEje;
-      const colsD = columnasDetalle(op, ejeD);
+      const colsD = columnasDetalle(op, ejeD, pesoUnidadRep);
       const filaD = (r: CamionViajeRow) => valoresEnOrden(colsD, {
         fecha: fmtFecha(r.registeredAt),
         hora: fmtHora(r.registeredAt),
@@ -2514,10 +3106,14 @@ export default function ViajesCamionesScreen() {
         // El nombre GRABADO en el viaje, no el del catálogo de hoy: si la obra se
         // renombró o se borró, el papel tiene que seguir diciendo dónde fue.
         ubicacion: r.ubicacionNombre || SIN_UBICACION_LABEL,
+        frente: r.frenteNombre || 'Sin frente',
         placa: placaDe(r),
         marcaModelo: marcaModeloDe(r.machineryId),
         dims: dimsDe(r.machineryId),
         m3: m3Texto(r.machineryId ? porViajeDe(r.machineryId) : 0),
+        pesoBruto: kgOpc(r.pesoBrutoKg),
+        pesoTara: kgOpc(r.pesoTaraKg),
+        pesoNeto: kgOpc(r.pesoNetoKg),
         clase: claseDe(r.machineryId),
         chofer: r.choferName ?? '—',
         listero: r.listeroName,
@@ -2527,58 +3123,91 @@ export default function ViajesCamionesScreen() {
       const filasD = filteredRangeRows.map(filaD);
       const pieD = colsD.map((c, i) => (
         i === 0 ? `<b>Total: ${filteredRangeRows.length} viajes</b>`
-          : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>` : ''
+          : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>`
+          : c.key === 'pesoBruto' ? `<b>${kgPie(brutoDeFilas(filteredRangeRows))}</b>`
+          : c.key === 'pesoTara' ? `<b>${kgPie(taraDeFilas(filteredRangeRows))}</b>`
+          : c.key === 'pesoNeto' ? `<b>${kgPie(netoDeFilas(filteredRangeRows))}</b>` : ''
       ));
       // m³ de un grupo: la suma de lo que vale cada uno de SUS viajes. El total general
       // sigue siendo el de siempre (arriba); el del grupo es su parte.
       const m3DeFilas = (fs: CamionViajeRow[]) => redondear(fs.reduce((a, r) => a + (r.machineryId ? porViajeDe(r.machineryId) : 0), 0));
-      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : '🏢';
+      const icoD = ejeD === 'ubicacion' ? '🏗️' : ejeD === 'listero' ? '👤' : ejeD === 'frente' ? '⛏️' : '🏢';
       const cuerpoD = gruposDetalle
         ? gruposDetalle.map((g) => {
           const pieG = colsD.map((c, i) => (
             i === 0 ? `<b>${g.filas.length} viaje(s)</b>`
-              : c.key === 'm3' ? `<b>${m3Texto(m3DeFilas(g.filas))}</b>` : ''
+              : c.key === 'm3' ? `<b>${m3Texto(m3DeFilas(g.filas))}</b>`
+              : c.key === 'pesoBruto' ? `<b>${kgPie(brutoDeFilas(g.filas))}</b>`
+              : c.key === 'pesoTara' ? `<b>${kgPie(taraDeFilas(g.filas))}</b>`
+              : c.key === 'pesoNeto' ? `<b>${kgPie(netoDeFilas(g.filas))}</b>` : ''
           ));
           return `<h3>${icoD} ${esc(g.name)} — ${g.filas.length} viaje(s)</h3>${tabla(colsD, g.filas.map(filaD), pieG)}`;
         }).join('')
         : tabla(colsD, filasD, pieD);
       const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}</p>
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : ejeD === 'frente' ? 'frente(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
         ${cuerpoD}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
       // de día 7am–7pm más turno de noche 7pm–7am. Se dice en el subtítulo para
       // que nadie compare estas cifras contra un conteo hecho por calendario.
       const corte = 'por jornada (7am a 7am), no por día de calendario';
+      // 📊 EL RESUMEN EJECUTIVO (28-sep-2026), con las MISMAS cifras que la
+      // tabla de abajo: los viajes del papel, los camiones que salieron, el
+      // peso a pagar y los m³ medidos. El peso se escribe en la unidad del
+      // reporte — la misma pastilla que manda en las columnas.
+      //
+      // ⚠️ En «Solo camiones» NO va: ese papel existe para no llevar NINGUNA
+      //    cantidad (por eso hasta se le esconden los interruptores), y un
+      //    bloque de totales arriba lo contradiría entero.
+      const tarjetas = soloCamiones ? [] : tarjetasResumen(
+        {
+          viajes: filteredRangeRows.length,
+          camiones: resumenViajes.totalCamiones,
+          pesoKg: netoDeFilas(filteredRangeRows),
+          m3: totalM3,
+        },
+        resumenRep,
+        pesoUnidadRep,
+        (kg) => (pesoUnidadRep === 't' ? tonTexto(kg, 2) : kgTexto(kg)),
+      );
+      const bloqueResumen = htmlResumenEjecutivo(tarjetas, esc);
       const html = pdfDocument({
         title: soloCamiones
-          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : 'Camiones que salieron · por empresa')
+          ? (porUbicacion ? 'Camiones que salieron · por obra' : porListero ? 'Camiones que salieron · por listero' : porFrente ? 'Camiones que salieron · por frente' : 'Camiones que salieron · por empresa')
           : reporteModo === 'resumen'
-          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : 'Viajes de camiones · resumen por camión')
+          ? (porUbicacion ? 'Viajes de camiones · resumen por obra' : porListero ? 'Viajes de camiones · resumen por listero' : porFrente ? 'Viajes de camiones · resumen por frente' : 'Viajes de camiones · resumen por camión')
           : detalleEje === 'ubicacion' ? 'Viajes de camiones · detallado por obra'
           : detalleEje === 'listero' ? 'Viajes de camiones · detallado por listero'
           : detalleEje === 'empresa' ? 'Viajes de camiones · detallado por empresa'
+          : detalleEje === 'frente' ? 'Viajes de camiones · detallado por frente'
           : 'Viajes de camiones',
         // El modo de volumen va en el subtítulo: dos reportes del mismo rango
         // pueden traer m³ distintos y muy legales (tolva vs. total repartido),
         // y sin decirlo uno de los dos parece un error de cálculo.
-        subtitle: `${etiquetaRango} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 && !soloCamiones ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
+        subtitle: `${etiquetaRangoConHoras} · ${corte}${filtros ? ` · ${filtros}` : ''}${op.m3 && !soloCamiones ? ` · m³ ${(MODOS.find((m) => m.key === cub.modo) ?? MODOS[0]).label.replace(/^\S+\s/, '')}` : ''}`,
         extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
           th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
           tr:nth-child(even) td{background:#f4f7fb}
           tfoot td{background:#e8eef6;font-weight:700}
           h3{margin:14px 0 4px;font-size:13px;color:#16324F;border-bottom:2px solid #16324F;padding-bottom:2px}
-          .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}`,
-        body: soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle,
+          .tot{margin:4px 0 10px;font-size:13px;font-weight:800;color:#16324F}${CSS_RESUMEN_EJECUTIVO}`,
+        body: bloqueResumen + (soloCamiones ? bodyCamiones : reporteModo === 'resumen' ? bodyResumen : bodyDetalle),
+        // 🏷️ Los logos que el usuario marcó para ESTE papel (28-sep-2026).
+        logos: logosRep,
+        // 📝 Sin la marca en texto (28-sep-2026, pedido): ni la línea «BCV /
+        // SOS La Guaira · Sistema de control interno» ni el pie «Documento
+        // generado por…». Solo en los reportes de viajes; el resto no cambia.
+        marcaTexto: false,
       });
       // ⚠️ El nombre TIENE que decir por dónde se partió: dos PDF del mismo día
       //    con el mismo nombre se pisan uno al otro al guardarlos, y quien los
       //    reciba no sabría cuál es cuál. Mismo criterio que porEmpresaReport.
       const sufijo = soloCamiones
-        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : 'camiones por empresa ')
+        ? (porUbicacion ? 'camiones por obra ' : porListero ? 'camiones por listero ' : porFrente ? 'camiones por frente ' : 'camiones por empresa ')
         : reporteModo === 'resumen'
-        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : 'resumen por camion ')
-        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : '';
+        ? (porUbicacion ? 'resumen por obra ' : porListero ? 'resumen por listero ' : porFrente ? 'resumen por frente ' : 'resumen por camion ')
+        : detalleEje === 'ubicacion' ? 'detallado por obra ' : detalleEje === 'listero' ? 'detallado por listero ' : detalleEje === 'empresa' ? 'detallado por empresa ' : detalleEje === 'frente' ? 'detallado por frente ' : '';
       await exportPdf(html, `Viajes de camiones ${sufijo}${todayISO}`);
     } catch (e: any) {
       // Sin este catch, un fallo de exportPdf dejaba el botón como si nada y la
@@ -2805,6 +3434,10 @@ export default function ViajesCamionesScreen() {
       chofer: row.choferName,
       listero: row.listeroName,
       m3: vol > 0 ? `${m3Texto(vol)} m³` : null,
+      // Los tres renglones del peso, en la unidad que el admin eligió para el
+      // papel (Kg de fábrica, como el papel de muestra; o Ton). Un viaje sin
+      // peso los deja en null y salen con raya.
+      ...pesosParaTique(row, configTique.pesosUnidad),
       estado: row.estadoMaquina,
       nota: row.note,
     };
@@ -3029,7 +3662,27 @@ export default function ViajesCamionesScreen() {
           {row.choferName ? ` · 👤 ${row.choferName}` : ''}
           {row.estadoMaquina ? ` · ${row.estadoMaquina}` : ''}
           {row.ubicacionNombre ? ` · 🏗️ ${row.ubicacionNombre}` : ''}
+          {row.tipoViajeNombre ? ` · 🧾 ${row.tipoViajeNombre}` : ''}
+          {row.frenteNombre ? ` · ⛏️ ${row.frenteNombre}` : ''}
         </Text>
+        {/* ⚖️ El peso del viaje, si lo trae (los anteriores al 26-sep-2026 no
+            tienen y no se les inventa). La foto se abre aparte: es la evidencia
+            del bruto que tecleó el listero. */}
+        {row.pesoBrutoKg != null || row.pesoNetoKg != null ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>
+              ⚖️ Bruto {kgTextoOpcional(row.pesoBrutoKg) ?? '—'} · Tara {kgTextoOpcional(row.pesoTaraKg) ?? '—'} · Neto {kgTextoOpcional(row.pesoNetoKg ?? netoDe(row.pesoBrutoKg, row.pesoTaraKg)) ?? '—'}
+              {row.taraManual ? ` · ✍️ tara manual${row.taraManualNombre ? ` (${row.taraManualNombre})` : ''}` : ''}
+            </Text>
+            {row.pesoFotoUrl ? (
+              <TouchableOpacity onPress={() => Linking.openURL(row.pesoFotoUrl!).catch(() => toast.error('No se pudo abrir la foto.'))}>
+                <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>📷 Ver foto ›</Text>
+              </TouchableOpacity>
+            ) : row.queued ? (
+              <Text style={{ color: colors.muted, fontSize: 11 }}>📷 la foto sube con el viaje</Text>
+            ) : null}
+          </View>
+        ) : null}
         {isEditing ? (
           <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
             {edicionExcepcional ? (
@@ -3083,6 +3736,97 @@ export default function ViajesCamionesScreen() {
                     style={[styles.input]}
                   />
                 </View>
+                {/* ⚖️ El BRUTO se puede corregir (26-sep) y la TARA también
+                    (27-sep, pedido: «por si cargaron mal la tara»). Solo en
+                    viajes que ya traen peso — y desde el 28-sep, también en
+                    los CARGADOS A MANO sin peso, para AGREGÁRSELO (la oficina
+                    lo cuadra con el papel de la romana; a uno del patio sin
+                    peso se le sigue sin inventar). La base recalcula el neto. */}
+                {row.pesoBrutoKg != null || row.origen === 'manual' ? (
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>PESO BRUTO (KG)</Text>
+                      <TextInput
+                        value={editing.peso}
+                        onChangeText={(t) => setEditing((e) => (e ? { ...e, peso: t } : e))}
+                        keyboardType="numeric"
+                        placeholder="Peso bruto en Kg"
+                        placeholderTextColor={colors.muted}
+                        style={[styles.input]}
+                      />
+                    </View>
+                    {row.pesoTaraKg != null || row.origen === 'manual' ? (
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>TARA DE ESTE VIAJE (KG)</Text>
+                        <TextInput
+                          value={editing.tara}
+                          onChangeText={(t) => setEditing((e) => (e ? { ...e, tara: t } : e))}
+                          keyboardType="numeric"
+                          placeholder="Tara en Kg"
+                          placeholderTextColor={colors.muted}
+                          style={[styles.input]}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+                {row.pesoBrutoKg != null ? (
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: -4 }}>
+                    Corregir la tara es solo para cuando LA CARGARON MAL en este viaje: el peso a pagar se recalcula solo y el cambio queda en Auditoría. La tara del catálogo del camión no se toca desde acá.
+                  </Text>
+                ) : row.origen === 'manual' ? (
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: -4 }}>
+                    Este viaje fue CARGADO A MANO y no trae peso: puedes agregárselo (bruto y tara juntos, en Kg). El peso a pagar lo calcula la base, la tara queda ✍️ manual con tu nombre, y todo va a Auditoría.
+                  </Text>
+                ) : null}
+                {/* 🧾 Corregir el TIPO — por si el listero marcó mal el cruce.
+                    Sale si hay tipos creados O si el viaje ya trae uno puesto. */}
+                {tiposActivos.length > 0 || row.tipoViajeId ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>TIPO DE VIAJE</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[{ id: '', nombre: '🚚 Normal' }, ...tiposActivos.map((t) => ({ id: t.id, nombre: t.nombre }))].map((t) => {
+                        const marcado = editing.tipoId === t.id;
+                        return (
+                          <TouchableOpacity
+                            key={t.id || '__normal__'}
+                            onPress={() => setEditing((e) => (e ? { ...e, tipoId: t.id } : e))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
+                          >
+                            <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{t.nombre}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                      Cambiarlo congela la tarifa que el tipo tenga HOY y queda en Auditoría.
+                    </Text>
+                  </View>
+                ) : null}
+                {/* ⛏️ FRENTE DE TRABAJO (28-sep-2026): ponérselo o corregirlo a
+                    un viaje ya hecho — pedido explícito para el histórico. */}
+                {frentesActivos.length > 0 || row.frenteId ? (
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>⛏️ FRENTE DE TRABAJO</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {[{ id: '', nombre: '∅ Sin frente' }, ...frentesActivos.map((f) => ({ id: f.id, nombre: f.nombre }))].map((f) => {
+                        const marcado = editing.frenteIdEdit === f.id;
+                        return (
+                          <TouchableOpacity
+                            key={f.id || '__sin_frente__'}
+                            onPress={() => setEditing((e) => (e ? { ...e, frenteIdEdit: f.id } : e))}
+                            style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
+                          >
+                            <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{f.nombre}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                      De dónde recogió el camión. El cambio queda en Auditoría.
+                    </Text>
+                  </View>
+                ) : null}
                 {listeros.length > 0 ? (
                   <View>
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 2 }}>LO REGISTRÓ</Text>
@@ -3291,6 +4035,128 @@ export default function ViajesCamionesScreen() {
               <Text style={{ color: '#92400E', fontSize: 11.5 }}>
                 Se vuelve a intentar al registrar. Si tampoco se logra, el viaje se guarda igual y queda marcado «chofer sin confirmar» para completarlo después.
               </Text>
+            ) : null}
+
+            {/* ── 🧾 TIPO DE VIAJE (26-sep-2026) — solo si hay tipos creados. El
+                normal viene marcado: el toque extra es SOLO para el cruzado. */}
+            {tiposActivos.length > 0 ? (
+              <View style={{ gap: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🧾 TIPO DE VIAJE</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {[{ id: null as string | null, nombre: '🚚 Normal', tarifaUsd: null as number | null }, ...tiposActivos].map((t) => {
+                    const marcado = tipoSel === t.id;
+                    return (
+                      <TouchableOpacity
+                        key={t.id ?? '__normal__'}
+                        onPress={() => setTipoSel(t.id)}
+                        style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
+                      >
+                        <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          {t.nombre}{t.id && t.tarifaUsd != null ? ` · $${t.tarifaUsd}` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {tipoSel && (tiposActivos.find((t) => t.id === tipoSel)?.tarifaUsd ?? null) == null ? (
+                  <Text style={{ color: '#92400E', fontSize: 11 }}>
+                    Ese tipo todavía no tiene tarifa: el viaje se registra igual y sale «tipo sin tarifa» en el pago hasta que le pongan precio.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* 🚫 Camión marcado «no pasa por romana»: la tarjeta del peso NI SE
+                PINTA — un campo opcional que a veces es obligatorio confunde
+                más que no verlo. El viaje entra sin peso, con un toque. */}
+            {camionExentoRomana ? (
+              <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                🚫 Este camión no pasa por romana{taraSeleccion?.exentoPorNombre ? ` (lo marcó ${taraSeleccion.exentoPorNombre})` : ''}: se registra sin peso.
+              </Text>
+            ) : null}
+            {/* ── ⚖️ PESO DE ROMANA (26-sep-2026) — obligatorio con su foto. El
+                listero teclea el BRUTO, el sistema resta la TARA de la placa y
+                muestra el NETO en vivo; el que vale lo calcula la base. */}
+            {!camionExentoRomana ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs, backgroundColor: colors.surface }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, flex: 1 }}>⚖️ Peso de la romana (obligatorio)</Text>
+                {/* Kilos por defecto; toneladas «por si acaso» (pedido 26-sep). */}
+                <View style={{ flexDirection: 'row', gap: 4 }}>
+                  {UNIDADES_PESO.map((u) => (
+                    <TouchableOpacity
+                      key={u.k}
+                      onPress={() => setUnidadPeso(u.k)}
+                      style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: unidadPeso === u.k ? colors.primary : colors.border, backgroundColor: unidadPeso === u.k ? colors.primary : 'transparent' }}
+                    >
+                      <Text style={{ color: unidadPeso === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              {faltaCorrerSqlDePeso() ? (
+                <Text style={{ color: colors.danger, fontSize: 11.5, fontWeight: '700' }}>
+                  ⚠️ Falta configurar el peso en la base de datos: el viaje entra pero SIN peso. Avisa al administrador.
+                </Text>
+              ) : null}
+              <TextInput
+                value={pesoTexto}
+                onChangeText={setPesoTexto}
+                keyboardType="numeric"
+                placeholder={unidadPeso === 'kg' ? 'Peso bruto de la romana, en Kg (ej. 32540)' : 'Peso bruto en toneladas (ej. 32,54)'}
+                placeholderTextColor={colors.muted}
+                style={[styles.input]}
+              />
+              {taraCatalogo != null ? (
+                <Text style={{ color: colors.muted, fontSize: 11.5 }}>
+                  Tara de esta placa: <Text style={{ fontWeight: '800', color: colors.text }}>{kgTexto(taraCatalogo)}</Text>
+                  {taraSeleccion?.updatedByNombre ? ` · la cargó ${taraSeleccion.updatedByNombre}` : ''}
+                </Text>
+              ) : (
+                <>
+                  <Text style={{ color: '#92400E', fontSize: 11.5 }}>
+                    Este camión no tiene tara cargada: tecléala tú. Queda registrado que fue manual y con tu nombre.
+                  </Text>
+                  <TextInput
+                    value={taraManualTexto}
+                    onChangeText={setTaraManualTexto}
+                    keyboardType="numeric"
+                    placeholder={unidadPeso === 'kg' ? 'Tara (peso vacío), en Kg' : 'Tara en toneladas'}
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input]}
+                  />
+                </>
+              )}
+              {netoVivo != null ? (
+                <Text style={{ color: netoVivo > 0 ? colors.success : colors.danger, fontWeight: '900', fontSize: 14 }}>
+                  Peso a pagar (neto): {kgTexto(netoVivo)}
+                </Text>
+              ) : null}
+              {avisoSospechoso ? (
+                <Text style={{ color: '#92400E', fontSize: 11.5, fontWeight: '700' }}>{avisoSospechoso}</Text>
+              ) : null}
+              {/* 📷 cámara + 🖼️ galería (27-sep-2026): la evidencia puede venir
+                  de cualquiera de las dos; repetirla la reemplaza. */}
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => tomarFotoPeso('camara')}
+                  disabled={fotoTomando}
+                  style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: fotoPeso ? colors.success : colors.brand, borderRadius: radius.md, padding: spacing.sm, opacity: fotoTomando ? 0.6 : 1 }}
+                >
+                  {fotoPeso ? <Image source={{ uri: fotoPeso }} style={{ width: 44, height: 44, borderRadius: 6 }} /> : null}
+                  <Text style={{ color: fotoPeso ? colors.success : colors.brandText, fontWeight: '800', flex: 1 }}>
+                    {fotoTomando ? 'Abriendo…' : fotoPeso ? '✅ Foto de la romana lista · tocar para repetirla' : '📷 Foto de la romana (obligatoria)'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => tomarFotoPeso('galeria')}
+                  disabled={fotoTomando}
+                  style={{ flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, opacity: fotoTomando ? 0.6 : 1 }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🖼️ Galería</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
             ) : null}
             {/* ⚠️ TAMBIÉN DESHABILITADO MIENTRAS CARGA EL CHOFER. El listero
                 cierra el buscador y toca Registrar de una —su trabajo es un
@@ -3727,6 +4593,50 @@ export default function ViajesCamionesScreen() {
               style={[styles.input]}
             />
 
+            {/* ⚖️ EL PESO DE ROMANA, OPCIONAL (28-sep-2026, a pedido): para
+                cuadrar un viaje con el papel de la romana en la mano. Vacío =
+                sin peso, como siempre. Solo con UN viaje por carga y sin foto. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm, marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>⚖️ PESO DE ROMANA (OPCIONAL)</Text>
+              {UNIDADES_PESO.map((u) => (
+                <TouchableOpacity
+                  key={`cu-${u.k}`}
+                  onPress={() => setCargaPesoUnidad(u.k)}
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: cargaPesoUnidad === u.k ? colors.primary : colors.border, backgroundColor: cargaPesoUnidad === u.k ? colors.primary : 'transparent' }}
+                >
+                  <Text style={{ color: cargaPesoUnidad === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  value={cargaBrutoTexto}
+                  onChangeText={setCargaBrutoTexto}
+                  keyboardType="numeric"
+                  placeholder={`Bruto (${cargaPesoUnidad === 'kg' ? 'Kg' : 'Ton'})`}
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input]}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  value={cargaTaraTexto}
+                  onChangeText={setCargaTaraTexto}
+                  keyboardType="numeric"
+                  placeholder={`Tara (${cargaPesoUnidad === 'kg' ? 'Kg' : 'Ton'})`}
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input]}
+                />
+              </View>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+              {cargaTruck && taras.get(cargaTruck.id)?.pesoTaraKg != null
+                ? `Tara de esta placa en el catálogo: ${kgTexto(taras.get(cargaTruck.id)!.pesoTaraKg!)} — se usa si dejas la tara vacía; tecleada, queda ✍️ manual.`
+                : 'Este camión no tiene tara en el catálogo: si pones bruto, teclea también la tara (queda ✍️ manual).'}
+              {' '}Vacío = el viaje entra sin peso, como siempre. Solo con 1 viaje por carga, y sin foto (nadie la tomó).
+            </Text>
+
             {listeros.length > 0 ? (
               <>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
@@ -3780,6 +4690,40 @@ export default function ViajesCamionesScreen() {
                     );
                   })}
                 </ScrollView>
+              </>
+            ) : null}
+
+            {/* ⛏️ FRENTE de la carga manual (28-sep-2026). Al elegir camión y
+                fecha se PROPONE la asignación de esa jornada; se puede cambiar
+                o dejar «Sin frente». */}
+            {frentesActivos.length > 0 || cargaFrenteId ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                  ⛏️ FRENTE DE TRABAJO (de dónde recogió)
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                  {[{ id: null as string | null, nombre: 'Sin frente' }, ...frentesActivos].map((f) => {
+                    const activo = cargaFrenteId === f.id;
+                    return (
+                      <TouchableOpacity
+                        key={f.id ?? '__sin_frente__'}
+                        onPress={() => setCargaFrenteId(f.id)}
+                        style={{
+                          paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                          borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                          backgroundColor: activo ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          {f.id ? `⛏️ ${f.nombre}` : '∅ Sin frente'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                  Si ese día el camión tenía frente asignado, ya viene marcado; lo que toques manda.
+                </Text>
               </>
             ) : null}
 
@@ -3837,6 +4781,20 @@ export default function ViajesCamionesScreen() {
             canFull={canFull}
             onCambioObras={recargarObras}
             onCambioListeros={() => setListerosRecarga((n) => n + 1)}
+            extra={
+              /* ⛏️ Los frentes viven DENTRO de esta tarjeta (28-sep-2026, a
+                 pedido): frente = de dónde recogen; obra = a dónde llevan. */
+              <FrentesTrabajo
+                frentes={frentes}
+                faltaSql={frentesMissing}
+                canFull={canFull}
+                camiones={allTrucks}
+                jornadaHoy={caracasBusinessToday()}
+                uid={uid}
+                userName={fullName || listeroName || null}
+                onCambio={() => setFrentesRecarga((n) => n + 1)}
+              />
+            }
           />
 
           {/* Qué sale en el ticket. Va acá, pegado a las obras, porque las dos
@@ -3850,7 +4808,7 @@ export default function ViajesCamionesScreen() {
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
-            resumen={`${filteredRangeRows.length} viaje(s) · ${etiquetaRango}`}
+            resumen={`${filteredRangeRows.length} viaje(s) · ${etiquetaRangoConHoras}`}
             abiertaPorDefecto
           >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
@@ -3871,7 +4829,7 @@ export default function ViajesCamionesScreen() {
             {/* Qué se está mirando, dicho en una línea. Sin esto, «días
                 específicos» sin ningún día marcado se veía igual que «hoy». */}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-              📅 {etiquetaRango}{rangoInvalido || sinDiasMarcados ? '' : ` · ${filteredRangeRows.length} viaje(s) · ${resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}`}
+              📅 {etiquetaRangoConHoras}{rangoInvalido || sinDiasMarcados ? '' : ` · ${filteredRangeRows.length} viaje(s) · ${resumenTurno({ dia: resumenViajes.dia, noche: resumenViajes.noche, total: resumenViajes.total })}`}
             </Text>
 
             {preset === 'rango' ? (
@@ -3913,6 +4871,75 @@ export default function ViajesCamionesScreen() {
                 ) : null}
               </View>
             ) : null}
+
+            {/* ⏱️ FRANJA DE HORAS (28-sep-2026). Recorta los viajes de los días
+                elegidos a un rango de horas y minutos. Va aquí, pegado a las
+                fechas, porque ES parte del «cuándo»: primero los días, después
+                la franja. Vacío = todas las horas (la pantalla de siempre). */}
+            <View style={{ marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⏱️ FRANJA DE HORAS (OPCIONAL)</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: 4 }}>
+                <TextInput
+                  value={horaDesdeTxt}
+                  onChangeText={setHoraDesdeTxt}
+                  placeholder="Desde · 08:00"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numbers-and-punctuation"
+                  autoCorrect={false}
+                  style={[styles.input, { flex: 1 }]}
+                />
+                <TextInput
+                  value={horaHastaTxt}
+                  onChangeText={setHoraHastaTxt}
+                  placeholder="Hasta · 10:15"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numbers-and-punctuation"
+                  autoCorrect={false}
+                  style={[styles.input, { flex: 1 }]}
+                />
+                {horaDesdeTxt || horaHastaTxt ? (
+                  <TouchableOpacity onPress={() => { setHoraDesdeTxt(''); setHoraHastaTxt(''); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {horaMalEscrita ? (
+                <Text style={{ color: colors.danger, fontSize: 11, marginTop: 3 }}>
+                  ⚠️ Esa hora no se entiende: usa HH:MM (08:30), la hora sola (8) o los cuatro números (0830). Mientras tanto NO se está filtrando por esa casilla.
+                </Text>
+              ) : horasActivas ? (
+                <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 3 }}>
+                  ⏱️ Mostrando solo los viajes {textoRangoHoras(horaDesde, horaHasta)} (extremos incluidos). La lista y el PDF salen recortados igual.
+                </Text>
+              ) : (
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 3 }}>
+                  Se aplica sobre los días elegidos. Puedes llenar solo una casilla; DESDE mayor que HASTA cruza la medianoche (22:00 a 02:00 = la noche con su madrugada).
+                </Text>
+              )}
+            </View>
+
+            {/* ⛏️ SOLO LOS VIAJES CON FRENTE (28-sep-2026, a pedido). Va acá,
+                con los filtros, y NO en «Qué sale en el reporte»: esa caja
+                promete que el total no se mueve, y esto SACA viajes. */}
+            <TouchableOpacity
+              onPress={() => setSoloConFrente((v) => !v)}
+              activeOpacity={0.7}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm }}
+            >
+              <Text style={{ fontSize: 15 }}>{soloConFrente ? '☑️' : '⬜'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>
+                  ⛏️ No mostrar los viajes SIN frente
+                </Text>
+                <Text style={{ color: soloConFrente ? colors.warning : colors.muted, fontSize: 10.5 }}>
+                  {soloConFrente
+                    ? '⚠️ El reporte está FILTRADO: su total no es el de todos los viajes del rango. El PDF lo dice en el encabezado.'
+                    : viajesSinFrente > 0
+                      ? `Marcándola dejarías fuera ${viajesSinFrente} viaje(s) que no tienen frente.`
+                      : 'Todos los viajes del rango tienen frente: marcarla no cambiaría nada.'}
+                </Text>
+              </View>
+            </TouchableOpacity>
 
             {/* ⭐ BUSCADOR DE FILTROS. Con treinta camiones que se llaman todos
                 "CAMION VOLTEO TORONTO", buscar a ojo no es viable: acá se
@@ -4090,8 +5117,11 @@ export default function ViajesCamionesScreen() {
               </View>
             ) : null}
 
-            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0) ? (
-              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+            {(filterListeroSel.size > 0 || filterTruckSel.size > 0 || filterCompanySel.size > 0 || filterTurnoSel.size > 0 || filterUbicacionSel.size > 0 || horaDesdeTxt || horaHastaTxt || soloConFrente) ? (
+              /* «Limpiar filtros» limpia TAMBIÉN la franja de horas: es un filtro
+                 más, y dejarlo puesto tras «limpiar» sería la trampa del filtro
+                 invisible otra vez (28-sep-2026). */
+              <TouchableOpacity onPress={() => { setFilterListeroSel(new Map()); setFilterTruckSel(new Map()); setFilterCompanySel(new Map()); setFilterTurnoSel(new Map()); setFilterUbicacionSel(new Map()); setHoraDesdeTxt(''); setHoraHastaTxt(''); setSoloConFrente(false); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
                 <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros</Text>
               </TouchableOpacity>
             ) : null}
@@ -4120,7 +5150,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra']] as const).map(([key, label]) => {
+                    {([['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente']] as const).map(([key, label]) => {
                       const on = resumenEje === key;
                       return (
                         <TouchableOpacity
@@ -4143,7 +5173,7 @@ export default function ViajesCamionesScreen() {
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>AGRUPAR POR</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
-                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra']] as const).map(([key, label]) => {
+                    {([['ninguno', '📄 Sin agrupar'], ['empresa', '🏢 Empresa'], ['listero', '👤 Listero'], ['ubicacion', '🏗️ Obra'], ['frente', '⛏️ Frente']] as const).map(([key, label]) => {
                       const on = detalleEje === key;
                       return (
                         <TouchableOpacity
@@ -4189,9 +5219,15 @@ export default function ViajesCamionesScreen() {
                     ? `⚠️ No se pudieron cargar los viajes (${motivoLegible(rangeError)}). NO exportes el reporte hasta resolverlo: saldría incompleto.`
                     : filtrosSobrantes.length > 0
                       ? `Sin viajes: hay filtros marcados que no aparecen en este rango (${filtrosSobrantes.map((f) => ICONO_EJE[f.eje] + f.label).join(', ')}). Toca «✕ Limpiar filtros» o desmárcalos.`
-                      : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size > 0
-                        ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
-                        : 'Sin viajes en el rango seleccionado.'}
+                      : soloConFrente && dateScopedRowsConSinFrente.length > 0
+                        ? 'Sin viajes: la casilla «⛏️ No mostrar los viajes SIN frente» dejó fuera todos los del rango. Desmárcala, o asígnales frente en ⚙️ Obras y ubicaciones.'
+                      : horasActivas
+                        // La franja horaria también puede ser la que vacía la lista —
+                        // y como es un campo y no una pastilla, se olvida fácil.
+                        ? `Sin viajes ${textoRangoHoras(horaDesde, horaHasta)} en este rango. Amplía la ⏱️ franja de horas o tócale «✕ Quitar».`
+                        : seleccion.listero.size + seleccion.empresa.size + seleccion.camion.size + seleccion.turno.size > 0
+                          ? 'Sin viajes con esa combinación de filtros. Cada uno por separado sí tiene viajes en este rango, pero juntos no.'
+                          : 'Sin viajes en el rango seleccionado.'}
                 </Text>
               ) : soloCamiones ? (
                 // Lo mismo que el PDF: qué camiones salieron, sin ninguna cantidad.
@@ -4202,7 +5238,7 @@ export default function ViajesCamionesScreen() {
                   {camionesSalieron.grupos.map((g) => (
                     <View key={g.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={2}>
-                        {porUbicacion ? '🏗️' : porListero ? '👤' : '🏢'} {g.name} · {g.camiones.length} camión(es)
+                        {porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢'} {g.name} · {g.camiones.length} camión(es)
                       </Text>
                       {g.camiones.map((c, i) => (
                         <Text key={`${g.key}-${c.key}`} style={{ color: colors.muted, fontSize: 12, paddingVertical: 3, paddingLeft: spacing.sm }} numberOfLines={1}>
@@ -4235,7 +5271,7 @@ export default function ViajesCamionesScreen() {
                   {resumenViajes.empresas.map((e) => (
                     <View key={e.key} style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : '🏢'} {e.name}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢'} {e.name}</Text>
                         <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>
                           {cub.op.viajes ? `${e.total} viaje(s)` : `${e.camiones.length} camión(es)`}
                           {cub.op.m3 ? ` · ${m3Texto(redondear(e.camiones.reduce((a, c) => a + (volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes, 0)))} m³` : ''}
@@ -4302,7 +5338,7 @@ export default function ViajesCamionesScreen() {
                         <View key={g.key}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, marginTop: spacing.xs, marginBottom: 2 }}>
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>
-                              {detalleEje === 'ubicacion' ? '🏗️' : detalleEje === 'listero' ? '👤' : '🏢'} {g.name}
+                              {detalleEje === 'ubicacion' ? '🏗️' : detalleEje === 'listero' ? '👤' : detalleEje === 'frente' ? '⛏️' : '🏢'} {g.name}
                             </Text>
                             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{g.filas.length} viaje(s)</Text>
                           </View>
@@ -4318,7 +5354,19 @@ export default function ViajesCamionesScreen() {
             {/* Los interruptores van PEGADOS al botón de exportar, no en la otra
                 sub-pestaña: configurar en un sitio y exportar en otro es como se
                 quedan encendidos los filtros que nadie quería. */}
-            <OpcionesReporteBox op={cub.op} setOp={cub.setOp} modoResumen={reporteModo !== 'detallado'} soloCamiones={soloCamiones} aviso={avisoReporte} />
+            <OpcionesReporteBox
+              op={cub.op}
+              setOp={cub.setOp}
+              modoResumen={reporteModo !== 'detallado'}
+              soloCamiones={soloCamiones}
+              aviso={avisoReporte}
+              logos={logosRep}
+              setLogo={(k, v) => setLogosRep((p) => ({ ...p, [k]: v }))}
+              pesoUnidad={pesoUnidadRep}
+              setPesoUnidad={setPesoUnidadRep}
+              resumenEjec={resumenRep}
+              setResumenEjec={(k, v) => setResumenRep((p) => ({ ...p, [k]: v }))}
+            />
             {cub.op.m3 && diasDesactualizados > 0 ? (
               <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 11, marginTop: spacing.xs }}>
                 ⚠️ {diasDesactualizados} día(s) con m³ guardados tienen HOY otra cantidad de viajes que cuando se
@@ -4395,6 +5443,180 @@ export default function ViajesCamionesScreen() {
                   </View>
                 ))}
               </ScrollView>
+            )}
+
+            {/* ⚖️ LA TARA OFICIAL POR CAMIÓN (26-sep-2026). La carga quien tiene
+                full, de una vez, con lo que pesaron en la romana. El listero
+                solo la ve restándose en su registro. */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>⚖️ TARA DE ROMANA POR CAMIÓN</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+              Es el peso del camión vacío. Al registrar, el sistema la resta del bruto y arroja el peso a pagar. Cambiarla NO toca los viajes ya registrados: cada viaje se llevó su tara congelada.
+            </Text>
+            {/* La unidad en que se TECLEA (27-sep-2026, a pedido). Se guarda
+                siempre en Kg; esto solo cambia cómo se escribe y cómo se ve
+                el campo. Mismas pastillas que el peso bruto del registro. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>Escribo la tara en:</Text>
+              {UNIDADES_PESO.map((u) => (
+                <TouchableOpacity
+                  key={`tu-${u.k}`}
+                  // Cambiar la unidad bota lo tecleado sin guardar: un «32540»
+                  // escrito pensando en Kg no puede guardarse como toneladas.
+                  onPress={() => { setTaraUnidad(u.k); setTaraEdits({}); }}
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: taraUnidad === u.k ? colors.primary : colors.border, backgroundColor: taraUnidad === u.k ? colors.primary : 'transparent' }}
+                >
+                  <Text style={{ color: taraUnidad === u.k ? colors.primaryContrast : colors.muted, fontWeight: '700', fontSize: 11 }}>{u.label}</Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={{ color: colors.muted, fontSize: 10.5 }}>· se guarda en Kg</Text>
+            </View>
+            {tarasMissing ? (
+              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>
+                ⚠️ Falta correr el SQL del peso de romana en la base de datos. Avisa al administrador.
+              </Text>
+            ) : camionesEnObra.length === 0 ? (
+              <Text style={{ color: colors.muted }}>Sin camiones.</Text>
+            ) : (
+              <>
+              {/* 🔎 Buscar el camión al que se le va a cargar la tara: por
+                  código, placa, serial, marca, modelo o empresa. */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+                <TextInput
+                  value={taraQuery}
+                  onChangeText={setTaraQuery}
+                  placeholder="🔎 Buscar por placa, código, serial, empresa…"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { flex: 1, paddingVertical: 6 }]}
+                />
+                {taraQuery.trim() ? (
+                  <TouchableOpacity onPress={() => setTaraQuery('')} accessibilityLabel="Limpiar la búsqueda de taras">
+                    <Text style={{ color: colors.muted, fontSize: 14, fontWeight: '900' }}>✕</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {taraQuery.trim() ? (
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: 2 }}>
+                  {tarasFiltradas.length === 0
+                    ? 'Ningún camión coincide con esa búsqueda.'
+                    : `${tarasFiltradas.length} de ${camionesEnObra.length} camión(es).`}
+                </Text>
+              ) : null}
+              <ScrollView style={{ maxHeight: 320 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                {tarasFiltradas.map((t) => {
+                  const tara = taras.get(t.id);
+                  const exento = tara?.exentoRomana === true;
+                  return (
+                    <View key={`tara-${t.id}`} style={{ paddingVertical: 4 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text }}>🚜 {t.code}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            {[t.plate ? `Placa ${t.plate}` : null, t.serial ? `Serial ${t.serial}` : null].filter(Boolean).join(' · ') || 'Sin placa ni serial'}
+                            {tara?.pesoTaraKg != null && tara.updatedByNombre ? ` · la cargó ${tara.updatedByNombre}` : ''}
+                            {exento ? ` · 🚫 no pasa por romana${tara?.exentoPorNombre ? ` (${tara.exentoPorNombre})` : ''}` : ''}
+                          </Text>
+                        </View>
+                        <TextInput
+                          value={taraEdits[t.id] ?? (tara?.pesoTaraKg != null ? taraMostrada(tara.pesoTaraKg) : '')}
+                          onChangeText={(v) => setTaraEdits((prev) => ({ ...prev, [t.id]: v }))}
+                          onBlur={() => { if (taraEdits[t.id] !== undefined) saveTara(t.id); }}
+                          keyboardType="numeric"
+                          placeholder={taraUnidad === 'kg' ? 'Kg' : 'Ton'}
+                          placeholderTextColor={colors.muted}
+                          style={[styles.input, { width: 90, paddingVertical: 6, textAlign: 'center' }]}
+                        />
+                        <TouchableOpacity onPress={() => saveTara(t.id)}>
+                          <Text style={{ fontSize: 16 }}>💾</Text>
+                        </TouchableOpacity>
+                        {tara?.pesoTaraKg != null ? (
+                          <TouchableOpacity onPress={() => borrarTara(t.id, t.code)} accessibilityLabel={`Quitar la tara de ${t.code}`}>
+                            <Text style={{ fontSize: 14, color: colors.danger, fontWeight: '900' }}>✕</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      {/* 🚫 El interruptor de la romana, debajo de cada camión:
+                          quién no pasa se decide acá, no en el teléfono. */}
+                      <TouchableOpacity onPress={() => toggleExentoRomana(t.id, t.code)} style={{ alignSelf: 'flex-start', marginTop: 2 }}>
+                        <Text style={{ color: exento ? colors.danger : colors.muted, fontSize: 11, fontWeight: '700' }}>
+                          {exento ? '🚫 No pasa por romana · tocar para que vuelva a pasar' : '⚖️ Pasa por romana · tocar si NO debe pasar'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+              </>
+            )}
+          </Plegable>
+
+          {/* 🧾 TIPOS DE VIAJE (26-sep-2026): el catálogo abierto de tarifas con
+              nombre — «Oeste → Este» y las que inventen después. Crear un tipo
+              nuevo es este formulario, sin tocar código. */}
+          <Plegable
+            titulo="🧾 Tipos de viaje (tarifas con nombre)"
+            resumen={tiposMissing ? 'Falta correr el SQL en la base' : `${tiposActivos.length} activo(s)${tipos.some((t) => t.activo && t.tarifaUsd == null) ? ' · hay tipos SIN tarifa' : ''}`}
+          >
+            <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
+              El listero marca el tipo al registrar (una pastilla; «Normal» viene marcado). El tipo y su tarifa se CONGELAN en el viaje: cambiar el precio mañana no toca lo ya registrado. Un viaje sin tipo se paga como siempre, con la tarifa de su zona.
+            </Text>
+            {tiposMissing ? (
+              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ Falta correr el SQL de los tipos de viaje. Avisa al administrador.</Text>
+            ) : (
+              <>
+                {tipos.length === 0 ? <Text style={{ color: colors.muted }}>Todavía no hay tipos creados.</Text> : null}
+                {tipos.map((t) => (
+                  <View key={t.id} style={{ paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border, opacity: t.activo ? 1 : 0.55 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>🧾 {t.nombre}</Text>
+                        <Text style={{ color: t.activo && t.tarifaUsd == null ? '#92400E' : colors.muted, fontSize: 11 }}>
+                          {t.tarifaUsd != null ? `$${t.tarifaUsd} por viaje` : '⚠️ sin tarifa: sus viajes salen «tipo sin tarifa» en el pago'}
+                          {t.updatedByNombre ? ` · ${t.updatedByNombre}` : ''}
+                        </Text>
+                      </View>
+                      <TextInput
+                        value={tipoTarifaEdits[t.id] ?? (t.tarifaUsd != null ? String(t.tarifaUsd) : '')}
+                        onChangeText={(v) => setTipoTarifaEdits((prev) => ({ ...prev, [t.id]: v }))}
+                        onBlur={() => { if (tipoTarifaEdits[t.id] !== undefined) guardarTarifaTipo(t); }}
+                        keyboardType="numeric"
+                        placeholder="$—"
+                        placeholderTextColor={colors.muted}
+                        style={[styles.input, { width: 80, paddingVertical: 6, textAlign: 'center' }]}
+                      />
+                      <TouchableOpacity onPress={() => guardarTarifaTipo(t)}>
+                        <Text style={{ fontSize: 16 }}>💾</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => toggleActivoTipo(t)}>
+                        <Text style={{ fontSize: 12, fontWeight: '800', color: t.activo ? colors.danger : colors.success }}>{t.activo ? 'Apagar' : 'Prender'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 2 }}>➕ CREAR UN TIPO NUEVO</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+                  <TextInput
+                    value={nuevoTipoNombre}
+                    onChangeText={setNuevoTipoNombre}
+                    placeholder="Nombre (ej. Oeste → Este, doble carga…)"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input, { flex: 1 }]}
+                  />
+                  <TextInput
+                    value={nuevoTipoTarifa}
+                    onChangeText={setNuevoTipoTarifa}
+                    keyboardType="numeric"
+                    placeholder="$ tarifa"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.input, { width: 80, textAlign: 'center' }]}
+                  />
+                  <TouchableOpacity onPress={crearTipo} disabled={tipoOcupado} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primary, opacity: tipoOcupado ? 0.6 : 1 }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{tipoOcupado ? '…' : 'Crear'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                  La tarifa se puede dejar vacía y ponerla después. Apagar un tipo lo esconde del listero sin tocar los viajes que ya lo llevan.
+                </Text>
+              </>
             )}
           </Plegable>
 

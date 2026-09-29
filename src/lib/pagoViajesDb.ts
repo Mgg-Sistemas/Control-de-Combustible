@@ -1,5 +1,8 @@
 import { supabase, selectAllRows } from './supabase';
 import { AlcanceTarifa, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, TarifaViaje, ViajePago } from './pagoViajes';
+import { listAsignacionesFrenteRango } from './camionViajes';
+import { jornadaDeFecha } from './caracasDay';
+import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones, rangoJornadas } from './frentesAuto';
 
 // Lecturas y escrituras del pago de viajes. Las reglas de dinero viven en
 // `pagoViajes.ts`; acá solo se habla con la base.
@@ -9,8 +12,12 @@ import { AlcanceTarifa, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, 
 // ⭐ Las escrituras piden `.select('id')`: un rechazo por permisos vuelve sin error y
 //    con 0 filas, y hay que decirlo en vez de dar por guardado lo que no se guardó.
 
+// ⚠️ `tipo_viaje_nombre` y `tipo_viaje_tarifa` TIENEN que viajar acá (28-sep-2026):
+//    `calcularPagoViajes` decide con ellas que la tarifa del TIPO manda sobre la de
+//    zona. Sin pedirlas, el cálculo nunca veía el tipo y TODOS los viajes se pagaban
+//    con la tarifa de zona — 39 cruces «Este → Oeste» de $100 salían a $50.
 const COLS_VIAJE =
-  'id, machinery_id, machine_code, company_id, zona_pago, registered_at, estado_maquina, folio, origen, fuera_catalogo, placa_snap, ubicacion_nombre, listero_name';
+  'id, machinery_id, machine_code, company_id, zona_pago, registered_at, estado_maquina, folio, origen, fuera_catalogo, placa_snap, ubicacion_nombre, listero_name, tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa, frente_nombre';
 
 export const SIN_PERMISO_PAGO = 'No se guardó: hace falta permiso completo en Viajes de camiones.';
 
@@ -40,7 +47,12 @@ export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_V
     selectAllRows('machinery', 'id, marca, modelo, plate, serial, encargado'),
   ]);
   return {
-    viajes: viajes as ViajePago[],
+    // ⛏️ EL FRENTE DEL DÍA, TAMBIÉN ACÁ (29-sep-2026). El reporte de pago agrupa
+    //    y rotula por frente; si la oficina asignó el frente después de que el
+    //    listero registrara, ese viaje saldría en «sin frente» en un papel y con
+    //    su frente en el otro. La regla es UNA sola (`frentesAuto.ts`) y no
+    //    mueve un centavo: el frente solo agrupa.
+    viajes: await conFrenteDelDia(viajes as ViajePago[]),
     modos,
     tarifas,
     marcas: marcas as MarcaViaje[],
@@ -49,6 +61,24 @@ export async function cargarDatosPagoViajes(desdeJornada: string = INICIO_PAGO_V
       marca: m.marca ?? null, modelo: m.modelo ?? null, placa: m.plate ?? null, serial: m.serial ?? null, encargado: m.encargado ?? null,
     }])),
   };
+}
+
+/**
+ * Completa el frente VACÍO de cada viaje con el asignado a su camión esa
+ * jornada. Misma regla y mismo código que la pantalla de viajes; acá solo se
+ * aplica a la fila cruda (snake_case). Si todos traen frente, no hay consulta.
+ */
+async function conFrenteDelDia(viajes: ViajePago[]): Promise<ViajePago[]> {
+  const sinFrente = viajes.filter((v: any) => v.machinery_id && !CAMPOS_VIAJE_PAGO.tieneFrente(v));
+  const rango = rangoJornadas(sinFrente.map((v: any) => jornadaDeFecha(new Date(v.registered_at))));
+  if (!rango) return viajes;
+  const { asignaciones } = await listAsignacionesFrenteRango(rango.desde, rango.hasta);
+  if (asignaciones.length === 0) return viajes;
+  const { filas } = completarFrentes(
+    viajes, mapaAsignaciones(asignaciones),
+    (iso) => jornadaDeFecha(new Date(iso)), CAMPOS_VIAJE_PAGO,
+  );
+  return filas;
 }
 
 /** Historial completo de modos de pago (tabla chica). */

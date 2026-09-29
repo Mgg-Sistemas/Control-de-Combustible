@@ -267,7 +267,39 @@ export type OpcionesReporte = {
   empresa: boolean;
   /** En qué OBRA se registró el viaje (la que tenía el listero ese día). */
   ubicacion: boolean;
+  /** De qué FRENTE recogió (28-sep-2026): la asignación congelada del camión
+   *  ese día. Solo en el detallado — en el resumido cada fila es un camión y
+   *  el mismo camión pudo recoger de dos frentes en el rango. */
+  frente: boolean;
+  /**
+   * PESO DE ROMANA (26-sep-2026; partido en TRES el 28-sep-2026, a pedido:
+   * cada renglón del peso con su propio interruptor). En el detallado cada
+   * uno es su columna; en el resumido solo existe «Peso a pagar» (bruto y
+   * tara son de cada viaje, no de un camión) y lo enciende `pesoNeto`. Los
+   * viajes anteriores al peso salen con raya.
+   */
+  pesoBruto: boolean;
+  pesoTara: boolean;
+  pesoNeto: boolean;
+  /**
+   * PROMEDIO DE PESO POR VIAJE DE CADA CAMIÓN (29-sep-2026, a pedido, con un
+   * papel de muestra): peso a pagar del camión ÷ sus viajes.
+   *
+   * ⚠️ SOLO EN EL RESUMIDO, donde cada fila ES un camión. En el detallado cada
+   *    fila es UN viaje y su «promedio» sería el peso de ese mismo viaje: una
+   *    columna que repite la de al lado no informa nada.
+   */
+  pesoPromedio: boolean;
 };
+
+/**
+ * QUÉ LOGOS LLEVA EL MEMBRETE del reporte de viajes (28-sep-2026, a pedido).
+ * Por defecto = como salía siempre este papel (BCV + SOS La Guaira): quien no
+ * toque nada saca el mismo PDF de ayer. Mismo criterio que el conteo de
+ * equipos y el horómetro: cada papel tiene su propia memoria de logos.
+ */
+export type LogosReporte = { bcv: boolean; sos: boolean; golden: boolean; renace: boolean; jhenzaen: boolean };
+export const LOGOS_POR_DEFECTO: LogosReporte = { bcv: true, sos: true, golden: false, renace: false, jhenzaen: false };
 
 /**
  * ⚠️ EL VALOR POR DEFECTO REPRODUCE EL REPORTE DE SIEMPRE, COLUMNA POR COLUMNA.
@@ -293,6 +325,12 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   empresa: true,
   // APAGADA porque es nueva. Quien no la encienda saca el mismo papel de ayer.
   ubicacion: false,
+  frente: false,
+  // APAGADOS por lo mismo: el peso es del 26-sep-2026 y lo enciende quien lo pida.
+  pesoBruto: false,
+  pesoTara: false,
+  pesoNeto: false,
+  pesoPromedio: false,
 };
 
 export type ColSpec = { key: string; head: string; num?: boolean };
@@ -307,7 +345,11 @@ export type ColSpec = { key: string; head: string; num?: boolean };
  * porque su valor ya está en el encabezado del grupo y repetirlo en cada fila
  * solo gasta ancho de página.
  */
-export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
+/** El rótulo de la unidad en los encabezados del peso: Kg de siempre, o Ton si
+ *  el reporte se pidió en toneladas (28-sep-2026). Solo texto: el dato es kilos. */
+const U = (unidad: 'kg' | 't') => (unidad === 't' ? 'Ton' : 'Kg');
+
+export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [
     { key: 'fecha', head: 'Fecha' },
     { key: 'hora', head: 'Hora' },
@@ -315,10 +357,15 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   if (op.empresa) c.push({ key: 'empresa', head: 'Empresa' });
   c.push({ key: 'camion', head: 'Camión' });
   if (op.ubicacion && eje !== 'ubicacion') c.push({ key: 'ubicacion', head: 'Obra' });
+  if (op.frente && eje !== 'frente') c.push({ key: 'frente', head: 'Frente' });
   if (op.placa) c.push({ key: 'placa', head: 'Placa / Serial' });
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });
   if (op.m3) c.push({ key: 'm3', head: 'm³', num: true });
+  // Los tres del papel de romana, cada uno con su interruptor (28-sep-2026).
+  if (op.pesoBruto) c.push({ key: 'pesoBruto', head: `P. entrada (${U(unidad)})`, num: true });
+  if (op.pesoTara) c.push({ key: 'pesoTara', head: `P. salida (${U(unidad)})`, num: true });
+  if (op.pesoNeto) c.push({ key: 'pesoNeto', head: `P. a pagar (${U(unidad)})`, num: true });
   if (op.clasificacion) c.push({ key: 'clase', head: 'Clasificación' });
   if (op.chofer) c.push({ key: 'chofer', head: 'Chofer' });
   if (op.listero) c.push({ key: 'listero', head: 'Listero' });
@@ -329,7 +376,7 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
 
 /** Columnas del reporte RESUMIDO (una línea por camión). Apagar «viajes» deja
  *  el reporte puramente volumétrico: camión, medida y m³. */
-export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
+export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa', unidad: 'kg' | 't' = 'kg'): ColSpec[] {
   const c: ColSpec[] = [{ key: 'camion', head: 'Camión' }];
   // La columna del EJE no va: su valor ya está en el encabezado del grupo. Por
   // eso agrupando por empresa —que es como se abre— el resumido sale idéntico a
@@ -354,14 +401,204 @@ export function columnasResumen(op: OpcionesReporte, eje: 'empresa' | 'listero' 
     c.push({ key: 'viajes', head: 'Viajes', num: true });
   }
   if (op.m3) c.push({ key: 'm3', head: 'm³', num: true });
+  // En el resumido cada fila es un CAMIÓN: bruto y tara por fila no significan
+  // nada (son de cada viaje); lo que se resume es lo que se paga.
+  if (op.pesoNeto) c.push({ key: 'pesoNeto', head: `Peso a pagar (${U(unidad)})`, num: true });
+  // El promedio va PEGADO al peso: se lee «cuánto cargó y cuánto por viaje».
+  if (op.pesoPromedio) c.push({ key: 'pesoPromedio', head: `Prom. por viaje (${U(unidad)})`, num: true });
   return c;
 }
 
 /** Columnas del reporte «SOLO CAMIONES» (14-sep-2026): las del resumido con el
- *  conteo de viajes y los m³ SIEMPRE fuera, estén como estén los interruptores.
+ *  conteo de viajes, los m³ y el peso SIEMPRE fuera, estén como estén los
+ *  interruptores — este papel no lleva ninguna cantidad.
  *  Lleva un Nº de renglón para poder cantar la lista. */
-export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' = 'empresa'): ColSpec[] {
-  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false }, eje)];
+export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero' | 'ubicacion' | 'frente' = 'empresa'): ColSpec[] {
+  return [{ key: 'n', head: 'Nº', num: true }, ...columnasResumen({ ...op, viajes: false, m3: false, pesoBruto: false, pesoTara: false, pesoNeto: false, pesoPromedio: false }, eje)];
+}
+
+// ── EL RESUMEN EJECUTIVO DEL REPORTE (28-sep-2026) ──────────────────────────
+//
+// Pedido del cliente, con una imagen de referencia: un bloque de tarjetas al
+// principio del papel — «TOTAL VIAJES REALIZADOS», «TOTAL TONELAJE»,
+// «PROMEDIO POR VIAJE» — y la exigencia de que sea VERSÁTIL: «que me salgan
+// una de esas 3 opciones o las 3 o dos, las que yo quiera», más promedios de
+// viajes por camión y de metros cúbicos.
+//
+// ⚠️ LA UNIDAD LA MANDA EL REPORTE. Si el papel va en toneladas, el resumen
+//    dice TONELAJE y calcula en toneladas; en kilos, KILOGRAMOS. No hay una
+//    segunda pastilla: dos unidades distintas en el mismo papel serían una
+//    invitación a sumar peras con manzanas.
+//
+// ⚠️ NINGUNA TARJETA INVENTA UN CERO. Un promedio sin viajes, o un tonelaje
+//    donde ningún viaje trae peso, sale con RAYA y con el motivo escrito — un
+//    «0,00 Ton» se lee como «cargaron cero», que es una afirmación falsa.
+
+export type OpcionesResumen = {
+  /** El interruptor maestro: sin él, el papel sale exactamente como antes. */
+  activo: boolean;
+  totalViajes: boolean;
+  totalPeso: boolean;
+  pesoPorViaje: boolean;
+  viajesPorCamion: boolean;
+  totalM3: boolean;
+  m3PorViaje: boolean;
+  m3PorCamion: boolean;
+};
+
+/** Apagado de fábrica (regla de la casa). Al encenderlo trae LAS TRES de la
+ *  imagen que mandó el cliente; las otras cuatro se marcan aparte. */
+export const RESUMEN_POR_DEFECTO: OpcionesResumen = {
+  activo: false,
+  totalViajes: true,
+  totalPeso: true,
+  pesoPorViaje: true,
+  viajesPorCamion: false,
+  totalM3: false,
+  m3PorViaje: false,
+  m3PorCamion: false,
+};
+
+/** Las siete tarjetas, en el orden en que salen, con su rótulo para la caja de
+ *  opciones. `m3PorCamion` cierra la lista porque es la más derivada. */
+export const TARJETAS_RESUMEN: { k: keyof OpcionesResumen; label: string; ayuda: string }[] = [
+  { k: 'totalViajes', label: '🔢 Total de viajes realizados', ayuda: 'Cuántos viajes trae el papel, y cuántas unidades distintas los hicieron.' },
+  { k: 'totalPeso', label: '⚖️ Total de peso transportado', ayuda: 'La suma del peso a pagar. Sale en la unidad del reporte (Kg o Ton).' },
+  { k: 'pesoPorViaje', label: '⚖️ Promedio de peso por viaje', ayuda: 'Peso total ÷ viajes.' },
+  { k: 'viajesPorCamion', label: '🚚 Promedio de viajes por camión', ayuda: 'Viajes ÷ camiones que salieron.' },
+  { k: 'totalM3', label: '📐 Total de metros cúbicos', ayuda: 'La suma de los m³ medidos en 📐 Cubicaje.' },
+  { k: 'm3PorViaje', label: '📐 Promedio de m³ por viaje', ayuda: 'Metros cúbicos ÷ viajes.' },
+  { k: 'm3PorCamion', label: '📐 Promedio de m³ por camión', ayuda: 'Metros cúbicos ÷ camiones que salieron.' },
+];
+
+/** Lo que el resumen necesita saber. Lo calcula la pantalla con las MISMAS
+ *  cifras que ya imprime abajo: el resumen no puede contradecir a su propia
+ *  tabla. `pesoKg` son kilos SIEMPRE (la unidad solo cambia cómo se escribe). */
+export type DatosResumen = { viajes: number; camiones: number; pesoKg: number; m3: number };
+
+export type TarjetaResumen = { clave: string; titulo: string; valor: string; pie: string };
+
+/** Un número con coma decimal, para lo que no es peso ni m³. */
+function nTexto(n: number, dec = 2): string {
+  if (!isFinite(n)) return '—';
+  const [e, d] = Math.abs(n).toFixed(dec).split('.');
+  const miles = e.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${n < 0 ? '-' : ''}${miles}${d ? `,${d}` : ''}`;
+}
+
+/**
+ * Las tarjetas que le tocan a este papel, ya escritas.
+ *
+ * @param fmtPeso  cómo se escribe un peso en KILOS en la unidad del reporte
+ *                 (la pantalla pasa `kgTexto` o `tonTexto`): así este archivo
+ *                 sigue sin depender de `viajesPeso.ts` y se prueba solo.
+ * @param unidad   solo para rotular («TOTAL TONELAJE» vs «TOTAL KILOGRAMOS»).
+ */
+export function tarjetasResumen(
+  d: DatosResumen,
+  op: OpcionesResumen,
+  unidad: 'kg' | 't',
+  fmtPeso: (kg: number) => string,
+): TarjetaResumen[] {
+  if (!op.activo) return [];
+  const t: TarjetaResumen[] = [];
+  const hayViajes = d.viajes > 0;
+  const hayCamiones = d.camiones > 0;
+  const hayPeso = d.pesoKg > 0;
+  const hayM3 = d.m3 > 0;
+  const nViajes = `${nTexto(d.viajes, 0)} ${d.viajes === 1 ? 'viaje' : 'viajes'}`;
+  const nCamiones = `${nTexto(d.camiones, 0)} ${d.camiones === 1 ? 'camión' : 'camiones'}`;
+  const SIN_PESO = 'Ningún viaje de este papel trae peso cargado';
+  const SIN_M3 = 'Estos camiones no tienen cubicaje medido';
+
+  if (op.totalViajes) {
+    t.push({
+      clave: 'totalViajes',
+      titulo: 'TOTAL VIAJES REALIZADOS',
+      valor: nViajes,
+      pie: `${nTexto(d.camiones, 0)} ${d.camiones === 1 ? 'unidad asignada' : 'unidades asignadas'}`,
+    });
+  }
+  if (op.totalPeso) {
+    t.push({
+      clave: 'totalPeso',
+      titulo: unidad === 't' ? 'TOTAL TONELAJE' : 'TOTAL KILOGRAMOS',
+      valor: hayPeso ? fmtPeso(d.pesoKg) : '—',
+      pie: hayPeso ? 'Suma del peso a pagar' : SIN_PESO,
+    });
+  }
+  if (op.pesoPorViaje) {
+    t.push({
+      clave: 'pesoPorViaje',
+      titulo: 'PROMEDIO POR VIAJE',
+      valor: hayPeso && hayViajes ? fmtPeso(d.pesoKg / d.viajes) : '—',
+      pie: hayPeso && hayViajes ? `${fmtPeso(d.pesoKg)} ÷ ${nViajes}`
+        : !hayViajes ? 'Sin viajes que promediar' : SIN_PESO,
+    });
+  }
+  if (op.viajesPorCamion) {
+    t.push({
+      clave: 'viajesPorCamion',
+      titulo: 'PROMEDIO DE VIAJES POR CAMIÓN',
+      valor: hayCamiones ? `${nTexto(d.viajes / d.camiones)} viajes` : '—',
+      pie: hayCamiones ? `${nViajes} ÷ ${nCamiones}` : 'Sin camiones en este papel',
+    });
+  }
+  if (op.totalM3) {
+    t.push({
+      clave: 'totalM3',
+      titulo: 'TOTAL METROS CÚBICOS',
+      valor: hayM3 ? `${nTexto(d.m3)} m³` : '—',
+      pie: hayM3 ? 'Suma de los m³ medidos' : SIN_M3,
+    });
+  }
+  if (op.m3PorViaje) {
+    t.push({
+      clave: 'm3PorViaje',
+      titulo: 'PROMEDIO DE M³ POR VIAJE',
+      valor: hayM3 && hayViajes ? `${nTexto(d.m3 / d.viajes)} m³` : '—',
+      pie: hayM3 && hayViajes ? `${nTexto(d.m3)} m³ ÷ ${nViajes}`
+        : !hayViajes ? 'Sin viajes que promediar' : SIN_M3,
+    });
+  }
+  if (op.m3PorCamion) {
+    t.push({
+      clave: 'm3PorCamion',
+      titulo: 'PROMEDIO DE M³ POR CAMIÓN',
+      valor: hayM3 && hayCamiones ? `${nTexto(d.m3 / d.camiones)} m³` : '—',
+      pie: hayM3 && hayCamiones ? `${nTexto(d.m3)} m³ ÷ ${nCamiones}`
+        : !hayCamiones ? 'Sin camiones en este papel' : SIN_M3,
+    });
+  }
+  return t;
+}
+
+/** ¿El resumen quedó encendido pero sin UNA sola tarjeta marcada? Entonces no
+ *  se dibuja el bloque: un recuadro «RESUMEN EJECUTIVO» vacío se lee como un
+ *  error del sistema, no como una elección de quien lo sacó. */
+export function resumenVacio(op: OpcionesResumen): boolean {
+  return op.activo && !TARJETAS_RESUMEN.some((x) => op[x.k]);
+}
+
+/** El CSS del bloque, calcado de la imagen que mandó el cliente: tarjetas con
+ *  su franja azul a la izquierda, título gris pequeño y cifra grande. */
+export const CSS_RESUMEN_EJECUTIVO = `
+  .rsm-t{font-size:14px;font-weight:800;color:#16324F;margin:2px 0 8px;letter-spacing:.3px;
+    border-left:5px solid #2563EB;padding-left:9px;text-transform:uppercase}
+  .rsm{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 14px}
+  .rsm-c{flex:1 1 30%;min-width:170px;background:#F6F8FC;border:1px solid #DCE6F5;
+    border-left:5px solid #2563EB;border-radius:7px;padding:9px 12px}
+  .rsm-c .k{font-size:9.5px;font-weight:800;color:#5B6B80;letter-spacing:.5px;text-transform:uppercase}
+  .rsm-c .v{font-size:19px;font-weight:900;color:#0F2744;margin-top:3px}
+  .rsm-c .p{font-size:9.5px;color:#7A8797;margin-top:2px}`;
+
+/** El HTML del bloque. Vacío si no hay tarjetas: ver `resumenVacio`. */
+export function htmlResumenEjecutivo(tarjetas: TarjetaResumen[], esc: (v: unknown) => string): string {
+  if (!tarjetas.length) return '';
+  const cajas = tarjetas
+    .map((c) => `<div class="rsm-c"><div class="k">${esc(c.titulo)}</div><div class="v">${esc(c.valor)}</div><div class="p">${esc(c.pie)}</div></div>`)
+    .join('');
+  return `<div class="rsm-t">Resumen ejecutivo</div><div class="rsm">${cajas}</div>`;
 }
 
 /**
@@ -372,7 +609,9 @@ export function columnasCamiones(op: OpcionesReporte, eje: 'empresa' | 'listero'
  * mejor decirlo antes de generarlo que entregar la hoja vacía.
  */
 export function reporteSinCifras(op: OpcionesReporte, modoResumen: boolean): boolean {
-  return modoResumen && !op.viajes && !op.m3;
+  // El peso también es una cifra — en el resumido la única que existe es el
+  // «Peso a pagar», así que solo pesoNeto cuenta acá.
+  return modoResumen && !op.viajes && !op.m3 && !op.pesoNeto;
 }
 
 /** Toma los valores de una fila en el ORDEN de las columnas visibles. El que

@@ -204,6 +204,67 @@ export function etiquetaRangoViajes(
 }
 
 /*
+ * ── FILTRO POR RANGO DE HORAS Y MINUTOS (28-sep-2026) ───────────────────────
+ *
+ * Pedido del cliente: «quiero la opción también de minutos y horas, por si
+ * quiero un rango de horas en específico». Recorta los viajes de los días ya
+ * elegidos a una franja horaria: de 08:00 a 10:15, o solo desde, o solo hasta.
+ *
+ * ⭐ DESDE > HASTA CRUZA LA MEDIANOCHE: «de 22:00 a 02:00» son la noche y su
+ *    madrugada — que es exactamente cómo trabaja la jornada (7am a 7am). Sin
+ *    esta regla, el turno de noche no se podría pedir nunca de una sola vez.
+ *
+ * ⭐ AMBOS EXTREMOS INCLUSIVE: un viaje de las 10:15 en punto SÍ entra en
+ *    «hasta 10:15» — el que mira piensa en horas de reloj, no en semiabiertos.
+ */
+
+/**
+ * «8», «08», «8:5», «830», «0830» y «08:30» → «HH:MM». Devuelve null si el
+ * texto no es una hora (y también con el texto vacío: vacío = sin filtro).
+ * Una hora suelta vale como en punto: «8» es «08:00».
+ */
+export function normalizaHora(texto: unknown): string | null {
+  const t = String(texto ?? '').trim();
+  if (!t) return null;
+  let h: number, m: number;
+  const conDosPuntos = /^(\d{1,2})[:.](\d{1,2})$/.exec(t);
+  if (conDosPuntos) { h = Number(conDosPuntos[1]); m = Number(conDosPuntos[2]); }
+  else if (/^\d{1,2}$/.test(t)) { h = Number(t); m = 0; }
+  else if (/^\d{3,4}$/.test(t)) { h = Number(t.slice(0, t.length - 2)); m = Number(t.slice(-2)); }
+  else return null;
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+const minutosDeHora = (hhmm: string): number => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+/**
+ * ¿Un viaje registrado en el minuto `minutosDelDia` (hora·60+minuto, en
+ * Caracas) cae dentro de la franja? `desde`/`hasta` vienen ya normalizados
+ * («HH:MM») o null; los dos null = sin filtro, pasa todo.
+ */
+export function pasaRangoHoras(minutosDelDia: number, desde: string | null, hasta: string | null): boolean {
+  const a = desde === null ? null : minutosDeHora(desde);
+  const b = hasta === null ? null : minutosDeHora(hasta);
+  if (a === null && b === null) return true;
+  if (a === null) return minutosDelDia <= (b as number);
+  if (b === null) return minutosDelDia >= a;
+  // De 22:00 a 02:00: la franja cruza la medianoche y son DOS pedazos.
+  if (a > b) return minutosDelDia >= a || minutosDelDia <= b;
+  return minutosDelDia >= a && minutosDelDia <= b;
+}
+
+/** Cómo se NOMBRA la franja en pantalla y en el PDF. Null sin filtro: el
+ *  encabezado de siempre no puede cambiar ni una letra por una opción apagada. */
+export function textoRangoHoras(desde: string | null, hasta: string | null): string | null {
+  if (desde === null && hasta === null) return null;
+  if (desde === null) return `hasta las ${hasta}`;
+  if (hasta === null) return `desde las ${desde}`;
+  if (desde === hasta) return `a las ${desde}`;
+  return `de ${desde} a ${hasta}${desde > hasta ? ' (cruza la medianoche)' : ''}`;
+}
+
+/*
  * ── BUSCAR UN VIAJE POR SU NÚMERO DE TICKET (17-sep-2026) ───────────────────
  *
  * Pedido del cliente: con el número que va impreso en el papel (CDT-000410),

@@ -3,6 +3,9 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { LOGO_DATA_URI } from './logoData';
 import { BCV_LOGO_DATA_URI } from './logoBcvData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from './logoGoldenTouchData';
+import { RENACE_LOGO_DATA_URI } from './logoRenaceData';
+import { JHENZAEN_LOGO_DATA_URI } from './logoJhenzaenData';
 import { COMPANY_NAME } from './company';
 
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
@@ -72,24 +75,51 @@ export const PDF_BASE_CSS = `
  * datos de la empresa + pie), igual en todos los reportes.
  * @param extraCss estilos propios del reporte (tablas, etc.).
  */
-export function pdfDocument(opts: { title: string; subtitle?: string; body: string; extraCss?: string }): string {
+export function pdfDocument(opts: {
+  title: string; subtitle?: string; body: string; extraCss?: string;
+  /**
+   * 🏷️ Qué logos lleva el membrete (28-sep-2026). SIN pasarlo, sale el de
+   * siempre (BCV a la izquierda, SOS a la derecha), byte a byte: los ~20
+   * reportes que comparten este membrete no cambian en nada. El reporte que
+   * lo pasa (viajes de camiones) decide los suyos; Golden Touch y Renace se
+   * suman a la izquierda cuando se piden.
+   */
+  logos?: { bcv?: boolean; sos?: boolean; golden?: boolean; renace?: boolean; jhenzaen?: boolean };
+  /**
+   * 📝 La MARCA EN TEXTO (28-sep-2026, pedido del cliente): la línea de empresa
+   * «Banco Central de Venezuela / SOS La Guaira · Sistema de control interno» y
+   * el pie «… · Documento generado por el sistema de control interno». SIN
+   * pasarlo salen como siempre (los ~20 reportes que comparten este membrete no
+   * cambian en nada); los reportes de viajes de camiones lo apagan. No se borra
+   * del código: es un interruptor, como los logos.
+   */
+  marcaTexto?: boolean;
+}): string {
   const { title, subtitle = '', body, extraCss = '' } = opts;
+  const L = { bcv: opts.logos?.bcv ?? true, sos: opts.logos?.sos ?? true, golden: opts.logos?.golden ?? false, renace: opts.logos?.renace ?? false, jhenzaen: opts.logos?.jhenzaen ?? false };
+  const conMarca = opts.marcaTexto !== false;
+  const izq = [
+    L.bcv ? `<div class="logo-box"><img src="${BCV_LOGO_DATA_URI}"/><div class="logo-cap">Banco Central de Venezuela</div></div>` : '',
+    L.golden ? `<div class="logo-box"><img src="${GOLDEN_TOUCH_LOGO_DATA_URI}" style="object-fit:contain;background:#fff"/><div class="logo-cap">Golden Touch</div></div>` : '',
+    L.renace ? `<div class="logo-box"><img src="${RENACE_LOGO_DATA_URI}" style="object-fit:contain"/><div class="logo-cap">Plan Venezuela Renace</div></div>` : '',
+    L.jhenzaen ? `<div class="logo-box"><img src="${JHENZAEN_LOGO_DATA_URI}" style="object-fit:contain;background:#fff"/><div class="logo-cap">Jhenzaen 2.012 C.A</div></div>` : '',
+  ].join('');
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
     <style>${PDF_BASE_CSS}${extraCss}</style></head><body>
     <div class="top">
       <div class="brand">
-        <div class="logo-box"><img src="${BCV_LOGO_DATA_URI}"/><div class="logo-cap">Banco Central de Venezuela</div></div>
+        ${izq}
         <div><h1 class="doc-title">${title}</h1>${subtitle ? `<div class="doc-sub">${subtitle}</div>` : ''}</div>
       </div>
       <div class="brand-right">
-        <div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>
+        ${L.sos ? `<div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>` : ''}
         <div class="emit"><span class="k">Emitida:</span> ${nowStamp()}</div>
       </div>
     </div>
     <div class="rule"></div>
-    <div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div>
+    ${conMarca ? `<div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div>` : ''}
     ${body}
-    <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
+    ${conMarca ? `<div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>` : ''}
   </body></html>`;
 }
 

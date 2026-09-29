@@ -252,6 +252,54 @@ eq('sin nada guardado se usa lo de fabrica', normalizarConfig(null), CONFIG_POR_
 eq('un papel inventado cae al de fabrica', normalizarConfig({ papel: 'papiro' }).papel, 'carta1');
 eq('un campo que no es booleano se ignora', normalizarConfig({ campos: { fecha: 'si' } }).campos.fecha, true);
 
+// ── ✍️ EL TEXTO A MANO POR CAMPO (27-sep-2026) ─────────────────────────────
+// Pedido del cliente: cada apartado del ticket «o toma el dato del sistema, o
+// se coloca a mano, o se quita». El texto vive ANIDADO en el jsonb `campos`
+// (clave `textos`) para no necesitar columna nueva ni SQL; una app vieja lo
+// ignora sin romperse porque solo recorre las claves conocidas.
+{
+  const c = normalizarConfig({ campos: { empresa: true, textos: { empresa: '  GOLDEN X  ' } } });
+  eq('el texto a mano entra recortado de espacios', c.textos.empresa, 'GOLDEN X');
+  eq('...y tambien se acepta suelto (columna futura)',
+    normalizarConfig({ textos: { cdt: 'CDF' } }).textos.cdt, 'CDF');
+  eq('sin nada guardado no hay textos', normalizarConfig(null).textos, {});
+  eq('un texto vacio o de puros espacios no entra',
+    normalizarConfig({ textos: { empresa: '   ' } }).textos, {});
+  eq('una clave que no es un campo del ticket se bota',
+    normalizarConfig({ textos: { inventada: 'x' } }).textos, {});
+  eq('un texto que no es texto se bota',
+    normalizarConfig({ textos: { empresa: 42 } }).textos, {});
+  // ⚠️ El folio JAMAS: es el correlativo que identifica el papel. Un numero
+  //    fijo haria iguales a todos los tickets del CDT.
+  eq('el folio nunca acepta texto a mano',
+    normalizarConfig({ textos: { folio: 'CDT-999999' } }).textos, {});
+  ok('un texto larguisimo se recorta al tope',
+    normalizarConfig({ textos: { nota: 'x'.repeat(500) } }).textos.nota.length <= 80);
+  // Cada texto puesto cuenta como un cambio, y el encabezado lo anuncia.
+  ok('un texto a mano cuenta como cambio respecto a la fabrica',
+    cambiosRespectoAlDefecto(normalizarConfig({ textos: { empresa: 'X' } })) === 1);
+  ok('el resumen anuncia los textos a mano',
+    /✍️ 1 a mano/.test(resumenConfig(normalizarConfig({ textos: { empresa: 'X' } }))));
+  ok('...pero solo los de campos encendidos',
+    !/a mano/.test(resumenConfig(normalizarConfig({ campos: { nota: false }, textos: { nota: 'X' } }))));
+}
+
+// ── ⚖️ LA UNIDAD DE LOS PESOS DEL PAPEL (27-sep-2026) ──────────────────────
+// Kg o toneladas, elegido por el admin. Viaja en el mismo saco jsonb que los
+// textos, y de fábrica es 'kg': sin tocar nada, el papel sale igual que siempre.
+{
+  eq('de fabrica los pesos salen en Kg', normalizarConfig(null).pesosUnidad, 'kg');
+  eq('la unidad entra desde el saco de campos',
+    normalizarConfig({ campos: { pesosUnidad: 't' } }).pesosUnidad, 't');
+  eq('...y tambien suelta (columna futura)',
+    normalizarConfig({ pesosUnidad: 't' }).pesosUnidad, 't');
+  eq('una unidad inventada cae a Kg',
+    normalizarConfig({ pesosUnidad: 'libras' }).pesosUnidad, 'kg');
+  ok('en toneladas cuenta como cambio y el resumen lo anuncia',
+    cambiosRespectoAlDefecto(normalizarConfig({ pesosUnidad: 't' })) === 1
+    && /pesos en Ton/.test(resumenConfig(normalizarConfig({ pesosUnidad: 't' }))));
+}
+
 // El encabezado plegado tiene que decir que hay dentro sin abrirlo.
 ok('el resumen dice datos, logos y papel',
   /6 dato\(s\) · 2 logo\(s\) · 1 por hoja/.test(resumenConfig(CONFIG_POR_DEFECTO)));
@@ -268,7 +316,11 @@ ok('...y avisa mientras hay cambios sin guardar', /Tienes cambios sin guardar/.t
 //    listas, el admin marcaria los checks mirando una cosa y saldria impresa
 //    otra, y se daria cuenta cuando ya hubiera entregado doscientos tickets.
 ok('la vista previa se arma con el MISMO armador que el papel',
-  /renglonesDelTique\(EJEMPLO, config\)/.test(card));
+  /renglonesDelTique\(ejemplo, config\)/.test(card));
+// ...y los pesos del ejemplo con el MISMO formateador del papel, en la unidad
+// elegida: si la vista previa dice Ton es porque el ticket va a decir Ton.
+ok('los pesos del ejemplo salen del formateador del papel',
+  /pesosParaTique\(\{ pesoBrutoKg: 32540, pesoTaraKg: 11340, pesoNetoKg: 21200 \}, config\.pesosUnidad\)/.test(card));
 ok('...y ya no tiene su propia lista de campos',
   !/CAMPOS_TIQUE\.filter/.test(card));
 // El ejemplo guarda VALORES, no etiquetas: las etiquetas salen de CAMPOS_TIQUE,
@@ -316,6 +368,11 @@ ok('...y no escribe en camion_viajes ni en machinery',
 // Guardar normaliza otra vez: asi el folio no se puede apagar ni mandando la
 // fila a mano desde otro sitio.
 ok('al guardar se vuelve a normalizar', /const limpia = normalizarConfig\(c\);/.test(datosConfig));
+// Los textos a mano viajan DENTRO del jsonb `campos` (clave `textos`): sin
+// columna nueva, sin SQL, y una app vieja los ignora. Si alguien los saca de
+// ahi sin mudar tambien la lectura, se pierden en silencio al guardar.
+ok('los textos a mano y la unidad de los pesos se guardan anidados en el jsonb campos',
+  /campos: \{ \.\.\.limpia\.campos, textos: limpia\.textos, pesosUnidad: limpia\.pesosUnidad \}/.test(datosConfig));
 ok('reconoce «esa tabla no existe» por sus tres formas',
   /42p01/.test(datosConfig) && /pgrst205/.test(datosConfig) && /does not exist/.test(datosConfig));
 
@@ -392,6 +449,29 @@ eq('...y un dato en blanco tambien',
 // La cantidad de renglones NO cambia con los datos: solo con la configuracion.
 ok('todos los tickets miden lo mismo aunque falten datos',
   renglonesDelTique({}, CONFIG_POR_DEFECTO).length === renglonesDelTique(DATOS, CONFIG_POR_DEFECTO).length);
+
+// ── ✍️ EL TEXTO A MANO EN EL PAPEL (27-sep-2026) ───────────────────────────
+// El reemplazo vive en renglonesDelTique y SOLO ahi: esa funcion arma el papel
+// Y la vista previa, asi que lo configurado es lo impreso.
+{
+  const conTexto = cfg({ textos: { empresa: 'EMPRESA ESCRITA A MANO' } });
+  eq('el texto a mano reemplaza al dato del viaje',
+    renglonesDelTique(DATOS, conTexto).find((r) => r.k === 'Empresa').v, 'EMPRESA ESCRITA A MANO');
+  eq('...y tambien sale cuando el viaje no traia dato',
+    renglonesDelTique({ folio: 'X' }, conTexto).find((r) => r.k === 'Empresa').v, 'EMPRESA ESCRITA A MANO');
+  // Quitar manda sobre todo: apagado el check, el texto no revive el renglon.
+  ok('un campo apagado no sale aunque tenga texto a mano',
+    !renglonesDelTique(DATOS, cfg({ campos: { ...CONFIG_POR_DEFECTO.campos, empresa: false }, textos: { empresa: 'X' } }))
+      .some((r) => r.k === 'Empresa'));
+  // El folio con «texto» no puede pasar ni saltandose normalizarConfig: el
+  // papel mismo lo ignora (doble candado, igual que el check fijo).
+  eq('el folio imprime el correlativo aunque le metan un texto a la fuerza',
+    renglonesDelTique(DATOS, { ...CONFIG_POR_DEFECTO, textos: { folio: 'FALSO-1' } })[0].v, 'CDT-000418');
+  // Sin textos, el papel es EL MISMO byte a byte: nadie estrena formato sin pedirlo.
+  eq('sin textos a mano el papel no cambia en nada',
+    JSON.stringify(renglonesDelTique(DATOS, cfg({ textos: {} }))),
+    JSON.stringify(renglonesDelTique(DATOS, cfg({}))));
+}
 
 // ⭐ LA NOTA Y EL CHOFER LOS ESCRIBE UNA PERSONA EN UN TELEFONO. Un '<' suelto
 //    rompe el documento callado y el ticket sale a medias o en blanco, y eso no
@@ -639,21 +719,34 @@ ok('...y cuando no entra, lo dice', tamanoQueEntra('carta6', 30, { logos: true, 
 
 // El aviso: solo cuando de verdad no entra, y con la salida a mano.
 eq('con la configuracion de fabrica no hay nada que avisar', avisoDeCapacidad(CONFIG_POR_DEFECTO), null);
-eq('...ni con todo encendido en 4 por hoja', avisoDeCapacidad(TODOS), null);
+// ⚠️ Desde el peso de romana (26-sep-2026) «todo encendido» son 19 datos, y 19
+//    YA NO CABEN en 4 por hoja: el aviso tiene que salir y ofrecer una salida.
+//    No es una regresion del calculo, es fisica del papel — con 16 si cabian.
+const avisa4 = avisoDeCapacidad(TODOS);
+ok('con los 19 datos y 4 por hoja SI avisa (con 16 cabia)', typeof avisa4 === 'string' && /19 dato/.test(avisa4));
 const avisa = avisoDeCapacidad(normalizarConfig({ ...TODOS, papel: 'carta6' }));
 ok('con todo encendido y 6 por hoja SI avisa', typeof avisa === 'string');
-ok('...y dice cuantos datos son', /16 dato/.test(avisa));
+ok('...y dice cuantos datos son', /19 dato/.test(avisa));
 // La pregunta que viene enseguida es «entonces cual uso»: se contesta sola.
-ok('...y en que papel si caben', /4 por hoja/.test(avisa));
+ok('...y en que papel si caben', /1 por hoja/.test(avisa));
 
 // El documento elige el tamano para el PEOR ticket del mandado: con un tamano por
 // ticket, dos papeles de la misma hoja saldrian con letras distintas.
+// ⚠️ Se mide SIN los pesos: con los 19 datos y las etiquetas completas de los
+//    pesos (27-sep-2026), carta2 ya esta pegada al piso con o sin reimpresion
+//    y la comparacion se aplana. Con 16 datos de etiqueta corta la reimpresion
+//    todavia tiene que achicar la letra, que es lo que esta prueba vigila.
+const TODOS_SIN_PESOS = normalizarConfig({
+  ...TODOS,
+  campos: { ...TODOS.campos, pesoBruto: false, pesoTara: false, pesoNeto: false },
+  papel: 'carta2',
+});
 const conRei = documentoDeTiques(
   [{ datos: DATOS }, { datos: DATOS, reimpresion: true }],
-  normalizarConfig({ ...TODOS, papel: 'carta2' }), {});
+  TODOS_SIN_PESOS, {});
 const sinRei = documentoDeTiques(
   [{ datos: DATOS }, { datos: DATOS }],
-  normalizarConfig({ ...TODOS, papel: 'carta2' }), {});
+  TODOS_SIN_PESOS, {});
 const ptDe = (html) => Number((html.match(/font-size:([\d.]+)pt;line-height/) || [])[1]);
 ok('una reimpresion en el mandado achica TODO el mandado', ptDe(conRei) < ptDe(sinRei));
 ok('...y los dos tickets de la hoja llevan el mismo tamano',

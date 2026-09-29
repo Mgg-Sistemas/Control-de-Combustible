@@ -71,7 +71,7 @@ function fmtHora(ts: string): string {
  */
 export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const { colors } = useTheme();
-  const { session, canSee } = useAuth();
+  const { session, canSee, role } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasBusinessToday();
   // La hoja de asignar es un <Modal> nativo: si no se oculta al salir a otra pantalla
@@ -107,7 +107,11 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       listOperatorAssignments(),
       supabase.from('employees').select('id, first_name, last_name, cedula, cargo').eq('status', 'activo'),
       supabase.from('attendance').select('employee_id, kind, ts').eq('work_date', today),
-      resolveScopedMachineIds(uid),
+      // ⭐ ADMIN = ACCESO A TODO (27-sep-2026): el alcance por coordinador no se
+      //    le aplica. Si a un admin le quedaron filas de alcance configuradas
+      //    (por ejemplo, probando la función), el resto de las máquinas le
+      //    desaparecía de la lista sin ningún aviso.
+      role === 'admin' ? Promise.resolve(null) : resolveScopedMachineIds(uid),
     ]);
     setMachList(((machs ?? []) as any[]).filter((m) => !scopedIds || scopedIds.has(m.id)).map((m) => ({
       id: m.id, code: m.code ?? '—', plate: m.plate ?? null, serial: m.serial ?? null, tipo: m.tipo ?? null,
@@ -132,7 +136,7 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     ((att ?? []) as any[]).forEach((r) => { const k = r.employee_id as string; (byEmp[k] ??= []).push({ kind: r.kind, ts: r.ts }); });
     setAttendanceByEmp(byEmp);
     setLoading(false);
-  }, [today, uid]);
+  }, [today, uid, role]);
   useEffect(() => { load(); }, [load]);
   useRealtimeRefresh(['machine_operators', 'machine_rounds', 'attendance', 'operator_assignments', 'maintenance_requests', 'machine_inspectors', 'machinery', 'coordinator_company_scope', 'coordinator_machine_scope'], () => load(), { debounceMs: 1000, maxWaitMs: 3000 });
 
