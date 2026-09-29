@@ -206,6 +206,21 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   eq('el papel de siempre no lleva sufijo', R.sufijoArchivoPago(R.FILTRO_PAGO_TODO, 'empresa', R.OPCIONES_PAGO_COMO_ANTES), '');
   ok('por obra y de una obra, lo dice', /por obra/.test(R.sufijoArchivoPago({ empresas: [], obras: ['Obra Norte'] }, 'obra', R.OPCIONES_PAGO_COMO_ANTES)) && /Obra Norte/.test(R.sufijoArchivoPago({ empresas: [], obras: ['Obra Norte'] }, 'obra', R.OPCIONES_PAGO_COMO_ANTES)));
   ok('sin caracteres que Windows no acepta', !/[\\/:*?"<>|]/.test(R.sufijoArchivoPago({ empresas: [], obras: ['Obra: A/B'] }, 'obra', R.OPCIONES_PAGO_COMO_ANTES)));
+
+  // ⭐⭐ LO QUE SE APAGA NO DEJA RASTRO EN EL PAPEL (29-sep-2026, a pedido: «si
+  //     activo o desactivo un check, no me salga esa información en el PDF»).
+  //     El bloque «Alcance del informe» llevaba también «No sale: …» con la
+  //     lista de lo apagado; se quitó. El FILTRO sí se sigue diciendo, con su
+  //     ⚠️, porque cambia el TOTAL: un papel filtrado que no lo avisa se lee
+  //     como el pago completo del rango.
+  const apagado = papel({ opciones: { ...R.OPCIONES_PAGO_COMPLETO, sinFrente: true, sinZona: true, sinAlcance: false } });
+  ok('⭐ el PDF NO dice qué columnas se apagaron', !/No sale:/.test(apagado));
+  ok('…pero sigue diciendo por qué está agrupado y con qué filtro', /Alcance del informe/.test(apagado) && /Agrupado por/.test(apagado));
+  const filtrado = papel({ filtro: { empresas: ['e1'], obras: [] }, opciones: { ...R.OPCIONES_PAGO_COMO_ANTES, sinAlcance: false } });
+  ok('⭐ y un papel FILTRADO sigue avisando que su total no es el completo',
+    /este papel está filtrado/i.test(filtrado) && !/No sale:/.test(filtrado));
+  ok('la pantalla SÍ te dice antes de descargar qué vas a dejar fuera',
+    /ocultosPagoEnPalabras/.test(leer('src/components/PagoViajesResumen.tsx')));
 }
 
 // ── 8) LA PANTALLA ───────────────────────────────────────────────────────────
