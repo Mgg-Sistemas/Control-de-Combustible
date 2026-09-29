@@ -20,6 +20,7 @@ import { shiftOf, caracasParts } from '../lib/jornada';
 import { logAudit } from '../lib/audit';
 import { logTruckYard } from '../lib/truckYard';
 import { isCierreAnticipado } from '../lib/caracasDay';
+import { horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -240,7 +241,7 @@ export default function AsistenciaCamionesScreen() {
   };
   const iniciarJornada = async () => {
     if (!jorTruck || jorBusy) return;
-    const hi = Number((horoIni || '').replace(',', '.'));
+    const hi = horometroDeTexto(horoIni);
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     setJorBusy(true);
     const now = new Date();
@@ -260,7 +261,7 @@ export default function AsistenciaCamionesScreen() {
   };
   const finalizarJornada = async () => {
     if (!jorTruck || !jorRound?.startAt || jorBusy) return;
-    const hf = Number((horoFin || '').replace(',', '.'));
+    const hf = horometroDeTexto(horoFin);
     if (!isFinite(hf) || hf < 0) { setNotice('❌ Ingresa el horómetro final.'); return; }
     if (jorRound.iniHoro != null && hf < jorRound.iniHoro) {
       setNotice(`❌ El horómetro final (${hf}) no puede ser menor al inicial (${jorRound.iniHoro}).`); return;
@@ -469,7 +470,7 @@ export default function AsistenciaCamionesScreen() {
                   <>
                     <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm }}>Inició {caracasClock(jorRound.startAt!)} ({jorRound.shift === 'night' ? '🌙 noche' : '☀️ día'})</Text>
                     <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final</Text>
-                    <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.md }]} />
+                    <TextInput value={horoFin} onChangeText={(t) => setHoroFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.md }]} />
                     {isCierreAnticipado(date, jorRound.shift ?? 'day') ? (
                       <View style={{ backgroundColor: (colors as any).warningSoftBg ?? '#FEF3C7', borderWidth: 1, borderColor: (colors as any).warningSoftBorder ?? '#F59E0B', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md }}>
                         <Text style={{ color: (colors as any).warningSoftText ?? '#92400E', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>
@@ -490,7 +491,7 @@ export default function AsistenciaCamionesScreen() {
                 ) : (
                   <>
                     <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (= final de la jornada anterior)</Text>
-                    <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.md }]} />
+                    <TextInput value={horoIni} onChangeText={(t) => setHoroIni(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.md }]} />
                     <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                       <TouchableOpacity onPress={() => setJorTruck(null)} disabled={jorBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>

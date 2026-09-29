@@ -30,7 +30,7 @@ import { SosAutomatizacionCard } from '../components/SosAutomatizacionCard';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
-import { LecturaTrabajo, lecturaParaCompletarFinal } from '../lib/horometroTrabajo';
+import { LecturaTrabajo, lecturaParaCompletarFinal, horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
 import { markAttendance, pairMarks, fmtHora, nextKind, shiftOfTs, SHIFT_LABEL } from '../lib/attendance';
@@ -527,7 +527,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
    */
   const ponerFinalTardio = async () => {
     if (!ci || !finTardia || finTardiaBusy) return;
-    const hf = Number((horoFin || '').replace(',', '.').trim());
+    const hf = horometroDeTexto(horoFin);
     if (!(horoFin || '').trim() || !isFinite(hf) || hf < 0) { setNotice('❌ Escribe el horómetro final tal como lo marca el tablero.'); return; }
     const hi = Number(finTardia.inicial);
     if (isFinite(hi) && hf < hi) { setNotice(`❌ El horómetro final (${hf}) no puede ser menor al inicial (${hi}).`); return; }
@@ -1885,9 +1885,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (shiftClosed && !jornadaStart) { setNotice(`❌ La jornada de ${shiftFromKey(myShift as any).label} de hoy ya cerró. Podrás iniciar otra mañana.`); return; }
     // Horómetro al iniciar: ya NO es obligatorio (puede ir vacío). Si lo escriben, debe
     // ser un número válido (≥0); si lo dejan en blanco, la jornada inicia igual.
-    const hiRaw = (horoIni || '').replace(',', '.').trim();
-    const hiHas = hiRaw !== '';
-    const hi = Number(hiRaw);
+    const hiHas = (horoIni || '').trim() !== '';
+    const hi = horometroDeTexto(horoIni);
     if (hiHas && (!isFinite(hi) || hi < 0)) { setNotice('❌ El horómetro no puede ser negativo.'); return; }
     // ⚙️ INICIO CONSCIENTE: sin horómetro inicial, el primer toque no inicia — avisa y
     //    pide decidir. El segundo toque (botón ya renombrado) inicia igual: nunca bloquea.
@@ -2029,15 +2028,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // un número válido (≥0) se guarda; si lo dejan vacío, igual se finaliza. Antes un
     // horómetro vacío o menor al inicial hacía un early-return y la jornada quedaba
     // "en curso" para siempre (los inspectores "finalizaban" pero no se reflejaba).
-    const hfRaw = (horoFin || '').replace(',', '.').trim();
-    const hfNum = hfRaw === '' ? NaN : Number(hfRaw);
+    const hfNum = horometroDeTexto(horoFin);
     const hfValid = isFinite(hfNum) && hfNum >= 0;
     // El horómetro final NUNCA puede ser menor al inicial (si no, ese valor se
     // arrastraría como horómetro inicial erróneo de la próxima jornada). Solo se
     // valida si SÍ escribieron un horómetro final (vacío sigue siendo opcional y
     // no bloquea el cierre — ver nota arriba).
     if (hfValid) {
-      const hi = Number((horoIni || '').replace(',', '.'));
+      const hi = horometroDeTexto(horoIni);
       if (isFinite(hi) && hfNum < hi) { setNotice(`❌ El horómetro final (${hfNum}) no puede ser menor al inicial (${hi}).`); return; }
     }
     // ⚙️ CIERRE CONSCIENTE: marcó inicial hoy y va a cerrar sin final → el primer toque
@@ -2469,7 +2467,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const digits = (s: string) => (s || '').replace(/\D/g, '');
     if (digits(opConfirmCedula).length < 6) { setNotice('❌ Escribe la cédula del operador para cotejar.'); return; }
     if (digits(opConfirmCedula) !== digits(opEmp.cedula)) { setNotice('❌ La cédula no coincide con el carnet escaneado.'); return; }
-    const hi = Number((opHoro || '').replace(',', '.'));
+    const hi = horometroDeTexto(opHoro);
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial de la máquina.'); return; }
     setOpBusy(true); setNotice(null);
     const res = await startJornada({
@@ -3716,7 +3714,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         </View>
                       ) : null}
                       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
-                      <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+                      <TextInput value={horoFin} onChangeText={(t) => setHoroFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
                       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                         <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
                           <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
@@ -3735,8 +3733,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         </View>
                       ) : null}
                       {(() => {
-                        const hf = Number((horoFin || '').replace(',', '.'));
-                        const hi = Number((horoIni || '').replace(',', '.'));
+                        const hf = horometroDeTexto(horoFin);
+                        const hi = horometroDeTexto(horoIni);
                         if (isFinite(hf) && isFinite(hi) && hf >= hi && horoFin) {
                           return <Text style={{ color: colors.infoSoftText, fontSize: 12, marginBottom: spacing.sm, textAlign: 'center' }}>⚙️ Por horómetro: <Text style={{ fontWeight: '900' }}>{Math.round((hf - hi) * 100) / 100} h</Text> (final − inicial)</Text>;
                         }
@@ -3772,7 +3770,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                       <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ La jornada de hoy ({finTardia.shift === 'night' ? '🌙 noche' : '☀️ día'}) cerró sin horómetro final</Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginBottom: spacing.xs }}>Inicial registrado: {String(finTardia.inicial)}. Escribe lo que marca el tablero y adjunta la foto. Solo se puede HOY; no cambia las horas ya cerradas ni hay que iniciar otra jornada.</Text>
-                      <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.xs }]} />
+                      <TextInput value={horoFin} onChangeText={(t) => setHoroFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.xs }]} />
                       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
                         <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
                           <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
@@ -3811,7 +3809,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <TextInput value={iniTime} onChangeText={(t) => setIniTime(t.replace(/[^0-9:]/g, '').slice(0, 5))} placeholder={iniShift === 'night' ? '19:00' : '07:00'} placeholderTextColor={colors.muted} keyboardType="numbers-and-punctuation" style={[input, { marginBottom: 4 }]} />
                   <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Máximo para declarar sin alerta: {iniShift === 'night' ? '9:00pm' : '9:00am'}. Si se declara tarde se avisa a los administradores (la jornada igual inicia).</Text>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? '' : ' (se precarga con el final de la jornada anterior)'}</Text>
-                  <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+                  <TextInput value={horoIni} onChangeText={(t) => setHoroIni(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                     <TouchableOpacity onPress={() => tomarFotoHoro('ini')} disabled={horoPhotoBusy === 'ini'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoIniPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
                       <Text style={{ color: horoIniPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'ini' ? 'Subiendo…' : horoIniPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
@@ -3974,7 +3972,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Coteja la cédula del operador</Text>
                     <TextInput value={opConfirmCedula} onChangeText={(t) => setOpConfirmCedula(t.replace(/\D/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula del operador" placeholderTextColor={colors.muted} style={input} />
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Horómetro inicial</Text>
-                    <TextInput value={opHoro} onChangeText={(t) => setOpHoro(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                    <TextInput value={opHoro} onChangeText={(t) => setOpHoro(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
                     <TouchableOpacity onPress={tomarFotoHoroSup} disabled={opHoroUploading} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: opHoroPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
                       <Text style={{ color: opHoroPhoto ? colors.success : colors.text, fontWeight: '700' }}>{opHoroUploading ? 'Subiendo…' : opHoroPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
                     </TouchableOpacity>

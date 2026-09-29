@@ -15,7 +15,7 @@
 //    guarda quién corrigió y cuándo (corregido_por / bitácora de auditoría).
 import React, { useEffect, useState } from 'react';
 import { Modal, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { LecturaTrabajo, Turno, validarCorreccionHorometro, numeroDeTexto } from '../lib/horometroTrabajo';
+import { LecturaTrabajo, Turno, validarCorreccionHorometro, numeroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import { guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -101,9 +101,9 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
           ) : null}
 
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (vacío = borrar el número)</Text>
-          <TextInput value={ini} onChangeText={(t) => setIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+          <TextInput value={ini} onChangeText={(t) => setIni(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (vacío = borrar el número)</Text>
-          <TextInput value={fin} onChangeText={(t) => setFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+          <TextInput value={fin} onChangeText={(t) => setFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
 
           <TouchableOpacity onPress={() => setReinicio((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
             <Text style={{ fontSize: 16 }}>{reinicio ? '☑️' : '⬜'}</Text>

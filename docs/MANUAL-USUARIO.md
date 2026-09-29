@@ -3514,6 +3514,20 @@ aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
 #### ✎ Corregir horómetro desde Control (24/09/2026)
 Decisión del cliente: **solo los administradores corrigen, y basta el motivo escrito** (sin foto).
 
+> **⭐ El horómetro se escribe con COMA o con PUNTO, da igual (29/09/2026).** En **todas** las
+> pantallas donde se teclea un horómetro: el teléfono del inspector, el QR de la máquina, patio,
+> asistencia de camiones, el surtido de gasoil y el modal ✎ de Control.
+> - **`720,2` y `720.2` son lo mismo.** Antes cada pantalla lo leía por su cuenta y solo cambiaba
+>   la *primera* coma: escribir el número completo —**`7.919,5`**— no servía, y ni el teléfono ni
+>   Control decían que el problema era el punto.
+> - **Los miles se entienden:** `7.919,5`, `7,919.5` y `7919,5` son el mismo número. Y
+>   **`7.919` son 7.919 horas**, no 7 coma 919 — que es justo el caso que el modal trae de
+>   ejemplo («tecleó 791,9 y era 7.919»).
+> - **Lo que no se entiende se rechaza, no se adivina.** `7.7.7` no es un número y la pantalla lo
+>   dice. Un horómetro mal leído se arrastra como el **inicial de la próxima jornada**, así que es
+>   preferible volver a teclearlo.
+> - **Dejarlo vacío sigue siendo válido** y no es un cero: la jornada arranca o cierra igual.
+
 - Para quien puede corregir, la celda ⚙️ y el lápiz salen **en todas las máquinas y todos los
   días, también en semanas sin lecturas** (25/09/2026): así se puede cargar a mano el horómetro
   de un día pasado que nadie marcó, siempre con su motivo. Para el resto, la pantalla sigue
