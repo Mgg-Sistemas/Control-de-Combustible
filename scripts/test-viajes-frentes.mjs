@@ -163,6 +163,27 @@ ok('si vacía la lista, el mensaje la señala a ella',
 ok('⭐ y NO se coló en la caja de columnas, que promete que el total no se mueve',
   !/soloConFrente/.test(leer('src/components/CubicajeTab.tsx')));
 
+
+// ── 7) EL FRENTE DE UN VIAJE SE PEGA A LA JORNADA (29-sep-2026) ─────────────
+// Pedido: «las máquinas a las que se les coloca un frente para un viaje
+// deberían tomarlo para esa fecha, y en los viajes que vienen deberían
+// tomarlo». O sea: corregir UN viaje deja asignado el frente a ese camión ESE
+// día, y los viajes que se registren después salen con él sin repetir nada.
+ok('⭐ ✏️ Editar deja el frente asignado al camión para la jornada DE ESE VIAJE',
+  /if \(cambios\.frente\?\.id && row\.machineryId && !row\.fueraCatalogo\) \{[\s\S]*?const jornadaDelViaje = jornadaDeFecha\(new Date\(cambios\.registeredAtISO \?\? row\.registeredAt\)\);[\s\S]*?asignarFrente\(jornadaDelViaje, \[row\.machineryId\], cambios\.frente\.id/.test(scr));
+ok('⭐ SOLO al poner, nunca al quitar (quitarlo de un viaje no deja sin frente a los que vienen)',
+  /cambios\.frente\?\.id &&/.test(scr) && !/quitarAsignacionFrente\(.*cambios\.frente/.test(scr));
+ok('⭐ un camión FUERA DE CATÁLOGO no se asigna (no tiene ficha que asignar)',
+  /row\.machineryId && !row\.fueraCatalogo/.test(scr));
+ok('si es la jornada de HOY, el teléfono la recarga (o el próximo viaje usaría la vieja)',
+  /if \(jornadaDelViaje === caracasBusinessToday\(\)\) setFrentesRecarga/.test(scr));
+ok('y el aviso dice qué quedó asignado y para cuándo',
+  /queda asignado a \$\{row\.machineCode\} para el \$\{dmy\(jornadaDelViaje\)\}/.test(scr));
+ok('si la asignación falla, se DICE (el viaje ya se corrigió: no se esconde)',
+  /no se pudo dejar asignado el frente para el/.test(scr));
+ok('⭐ la carga a mano hace lo mismo, y solo si de verdad entró algún viaje',
+  /if \(cargaFrenteId && hechos > 0\) \{[\s\S]*?asignarFrente\(cargaFecha, \[cargaTruck\.id\], cargaFrenteId/.test(scr));
+
 console.log('\nFRENTES DE TRABAJO — catálogo, asignación diaria, congelado y reportes\n');
 if (failures.length) console.log(failures.join('\n'));
 console.log(`\n${failures.length ? '❌' : '✅'} test-viajes-frentes · ${pass} ok · ${fail} fallando\n`);
