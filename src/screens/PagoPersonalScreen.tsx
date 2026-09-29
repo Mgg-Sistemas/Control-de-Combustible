@@ -151,7 +151,11 @@ export default function PagoPersonalScreen() {
   const [periodQuery, setPeriodQuery] = useState('');
 
   // Filtro/agrupado por CARGO (el cargo está en cada empleado). Normaliza a MAYÚSCULAS.
-  const cargoOf = (cargo?: string | null) => (cargo ?? '').trim().toUpperCase() || 'SIN CARGO';
+  // CARGO de un renglón, escrito COMO LO ESCRIBE EL TABULADOR. Pasa por el mapa a
+  // propósito: un "MECANICO." de la ficha y el "MECANICO" del tabulador son el
+  // mismo cargo, y si se agruparan por el texto crudo el filtro los mostraría como
+  // dos cargos distintos con la gente repartida entre los dos.
+  const cargoOf = useCallback((cargo?: string | null) => depts.cargo(cargo), [depts]);
   // Filtro por cargo (lista desplegable con checks). Vacío = todos.
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set());
   // Empleados activos que faltan por incluir en el período (para el aviso "incluir a todos").
@@ -875,7 +879,7 @@ export default function PagoPersonalScreen() {
     const m = new Map<string, number>();
     items.forEach((it) => { const d = cargoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
     return [...m.entries()].map(([cargo, count]) => ({ cargo, count })).sort((a, b) => cmpText(a.cargo, b.cargo));
-  }, [items]);
+  }, [items, cargoOf]);
 
   // DEPARTAMENTO de un renglón. El renglón NO lo guarda: `staff_pay_items` congela el
   // cargo y el precio del día que se cargó la nómina, pero no el departamento. Se
@@ -905,7 +909,7 @@ export default function PagoPersonalScreen() {
       //    "sin estado" se trataba como "pasa todos los filtros", así que los renglones
       //    sin ficha salían a la vez en Activos y en Inactivos/Desincorporados.
       .filter((it) => pasaFiltroEstado(it.employee_id, estadoSel, itemEmployeeStatus, statusLoaded, itemEmployeeGrupo));
-  }, [items, cargoSel, deptoSel, deptoDe, personaQuery, estadoSel, itemEmployeeStatus, itemEmployeeGrupo, statusLoaded]);
+  }, [items, cargoSel, deptoSel, deptoDe, cargoOf, personaQuery, estadoSel, itemEmployeeStatus, itemEmployeeGrupo, statusLoaded]);
 
   // Personal que sale en los DOCUMENTOS (Excel y reporte PDF): si hay selección manual
   // (checkbox), solo esos; si no, lo que dejen pasar los filtros de departamento y de
@@ -919,7 +923,7 @@ export default function PagoPersonalScreen() {
       : items
         .filter((it) => !deptoSel.size || deptoSel.has(deptoDe(it)))
         .filter((it) => !cargoSel.size || cargoSel.has(cargoOf(it.cargo)))
-  ), [items, itemSelIds, deptoSel, cargoSel, deptoDe]);
+  ), [items, itemSelIds, deptoSel, cargoSel, deptoDe, cargoOf]);
 
   // Qué filtro se aplicó, escrito al pie del documento. Sin esta nota, una nómina
   // filtrada y una completa salen idénticas en papel, y no hay cómo saber que falta

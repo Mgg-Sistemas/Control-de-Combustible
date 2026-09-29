@@ -74,6 +74,27 @@ const paraComparar = (v?: string | null) => norm(v).trim().replace(/\s+/g, ' ').
 /** El nombre TAL COMO SE ESCRIBIÓ: en MAYÚSCULA y sin espacios de sobra. */
 const comoSeEscribio = (v?: string | null) => String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
 
+/**
+ * CLAVE DE UN CARGO: con qué texto se decide que dos cargos son EL MISMO.
+ *
+ * ⭐ IGNORA LOS ERRORES DE DEDO, no solo mayúsculas y tildes: también los signos
+ * (un punto al final, comas, paréntesis) y los espacios dobles. "MECANICO." y
+ * "MECANICO" son el mismo cargo, escrito por dos personas distintas.
+ *
+ * ⚠️ POR QUÉ IMPORTA, Y CUÁNTO: el cargo es lo que enlaza a una persona con su
+ * 🏷️ Tabulador. Si la clave no coincide, esa persona queda FUERA de "🔄
+ * Sincronizar": no recibe el sueldo del tabulador y tampoco hereda su
+ * departamento — y no avisa, simplemente no aparece en la cuenta del botón.
+ * Con "MECANICO." pasaba exactamente eso con 3 fichas.
+ *
+ * La misma clave la usan el tabulador (para contar y sincronizar), la nómina
+ * (para saber el departamento) y el filtro por cargo. Una sola, a propósito: con
+ * dos criterios distintos, el número que muestra un botón deja de ser el número
+ * de gente a la que le hace efecto.
+ */
+export const claveCargo = (v?: string | null): string =>
+  norm(v).replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
 // Reglas de INFERENCIA por CARGO cuando no hay departamento (orden: dominio antes
 // que liderazgo, para que "coordinador de cocina" caiga en COCINA y no en dirección).
 const CARGO_RULES: { re: RegExp; dep: string }[] = [

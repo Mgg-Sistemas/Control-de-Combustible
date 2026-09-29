@@ -259,8 +259,11 @@ ok('el filtro por departamento admite varios a la vez', /deptoSel\.has\(/.test(s
 // BASE de los documentos. Tenerlo en una sola de las dos es el error que se cuela.
 eq('el filtro de departamento se aplica en la lista Y en los documentos',
   (scr.match(/!deptoSel\.size \|\| deptoSel\.has\(deptoDe\(it\)\)/g) || []).length, 2);
+// `cargoOf` entró en las dependencias el 29-sep-2026: desde que escribe el cargo
+// como lo escribe el TABULADOR, depende de las tarifas, y sin él en la lista la
+// pantalla se quedaba con los nombres de cargo de antes de que cargara el tabulador.
 ok('la lista se recalcula cuando cambia el filtro de departamento',
-  /\}, \[items, cargoSel, deptoSel, deptoDe, personaQuery/.test(scr));
+  /\}, \[items, cargoSel, deptoSel, deptoDe, cargoOf, personaQuery/.test(scr));
 ok('departamento y cargo se combinan, no se excluyen',
   /!cargoSel\.size \|\| cargoSel\.has\(cargoOf\(it\.cargo\)\)/.test(scr) && /!deptoSel\.size/.test(scr));
 ok('el desplegable se puede limpiar', /setDeptoSel\(new Set\(\)\)/.test(scr));

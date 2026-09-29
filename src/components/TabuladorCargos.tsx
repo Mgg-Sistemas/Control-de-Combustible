@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'reac
 import { supabase } from '../lib/supabase';
 import { useTable } from '../hooks/useTable';
 import { norm, cmpText, onlyDecimal } from '../lib/text';
+import { claveCargo } from '../lib/personal';
 import { StaffCargoTariff } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -44,12 +45,16 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   const [addOpen, setAddOpen] = useState(false);
   const [nCargo, setNCargo] = useState('');
   const [nDraft, setNDraft] = useState<Draft>(emptyDraft);
-  // Cuántos empleados tiene cada cargo. Se agrupa por cargo NORMALIZADO (sin distinguir
-  // mayúsculas/acentos) para que "Ayudante de cocina" y "AYUDANTE DE COCINA" cuenten juntos
-  // y el nº mostrado coincida con lo que la sincronización realmente actualiza.
-  const [empByCargo, setEmpByCargo] = useState<Record<string, number>>({}); // clave = norm(cargo)
-  const empIds = useRef<Record<string, string[]>>({});   // norm(cargo) → ids de empleados
-  const empLabel = useRef<Record<string, string>>({});   // norm(cargo) → nombre a mostrar
+  // Cuántos empleados tiene cada cargo. Se agrupa por `claveCargo` (sin distinguir
+  // mayúsculas, tildes, SIGNOS ni espacios dobles) para que "Ayudante de cocina",
+  // "AYUDANTE DE COCINA" y un "MECANICO." con el punto de más cuenten junto a su
+  // cargo, y el nº mostrado coincida con lo que la sincronización realmente actualiza.
+  // ⚠️ Si aquí se cuenta distinto de como se actualiza, el botón dice "Sincronizar (3)"
+  //    y deja gente sin su sueldo sin avisar. Por eso la clave es UNA sola y vive en
+  //    src/lib/personal.ts, con su prueba.
+  const [empByCargo, setEmpByCargo] = useState<Record<string, number>>({}); // clave = claveCargo(cargo)
+  const empIds = useRef<Record<string, string[]>>({});   // claveCargo(cargo) → ids de empleados
+  const empLabel = useRef<Record<string, string>>({});   // claveCargo(cargo) → nombre a mostrar
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -60,7 +65,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     const m: Record<string, number> = {}; const ids: Record<string, string[]> = {}; const lab: Record<string, string> = {};
     (data ?? []).forEach((e: any) => {
       const raw = (e.cargo || '').trim(); if (!raw) return;
-      const k = norm(raw);
+      const k = claveCargo(raw);
       m[k] = (m[k] ?? 0) + 1;
       (ids[k] ??= []).push(e.id);
       if (!lab[k]) lab[k] = raw.toUpperCase();
@@ -72,7 +77,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
 
   // Cargos que existen en EMPLEADOS pero aún NO tienen tabulador (para poder crearlo).
   const cargosSinTab = useMemo(() => {
-    const conTab = new Set(tariffs.map((t) => norm(t.cargo)));
+    const conTab = new Set(tariffs.map((t) => claveCargo(t.cargo)));
     return Object.keys(empByCargo).filter((k) => !conTab.has(k)).map((k) => empLabel.current[k] ?? k).sort((a, b) => cmpText(a, b));
   }, [tariffs, empByCargo]);
 
@@ -83,8 +88,8 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   );
   const shownSinTab = useMemo(() => cargosSinTab.filter((c) => !nq || norm(c).includes(nq)), [cargosSinTab, nq]);
 
-  const empCount = (cargo: string) => empByCargo[norm(cargo)] ?? 0;
-  const empIdsOf = (cargo: string) => empIds.current[norm(cargo)] ?? [];
+  const empCount = (cargo: string) => empByCargo[claveCargo(cargo)] ?? 0;
+  const empIdsOf = (cargo: string) => empIds.current[claveCargo(cargo)] ?? [];
 
   const openCargo = (t: StaffCargoTariff) => {
     if (openId === t.id) { setOpenId(null); return; }
@@ -174,7 +179,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     if (!canEdit) return;
     const cargo = nCargo.trim().toUpperCase();
     if (!cargo) return setNotice('⚠️ Escribe el nombre del cargo.');
-    if (tariffs.some((t) => norm(t.cargo) === norm(cargo))) return setNotice('⚠️ Ya existe un cargo con ese nombre en el tabulador.');
+    if (tariffs.some((t) => claveCargo(t.cargo) === claveCargo(cargo))) return setNotice('⚠️ Ya existe un cargo con ese nombre en el tabulador.');
     setBusy(true);
     const { error } = await supabase.from('staff_cargo_tariffs').insert({
       cargo, departamento: nDraft.depto.trim() || null, precio_hora: parseNum(nDraft.hora),
