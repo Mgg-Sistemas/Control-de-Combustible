@@ -1344,6 +1344,7 @@ export function OpcionesReporteBox({
     { k: 'pesoBruto', label: '⚖️ Peso entrada (bruto)', ayuda: modoResumen ? 'Solo en el detallado: el bruto es de cada viaje, no de un camión.' : 'Columna «P. entrada (Kg)» de cada viaje. Los viajes anteriores al peso salen con raya.' },
     { k: 'pesoTara', label: '⚖️ Peso salida (tara)', ayuda: modoResumen ? 'Solo en el detallado: la tara es de cada viaje, no de un camión.' : 'Columna «P. salida (Kg)»: la tara congelada de cada viaje.' },
     { k: 'pesoNeto', label: '⚖️ Peso a pagar (neto)', ayuda: modoResumen ? 'Columna «Peso a pagar (Kg)»: la suma de los netos de sus viajes. Los viajes sin peso no suman.' : 'Columna «P. a pagar (Kg)» de cada viaje, con su total.' },
+    { k: 'pesoPromedio', label: '📊 Promedio por viaje de cada camión', ayuda: modoResumen ? 'Peso a pagar del camión ÷ sus viajes. Sale en la unidad del reporte.' : 'Solo en el resumido: en el detallado cada fila YA es un viaje, y su promedio sería su propio peso.' },
     { k: 'marcaModelo', label: '🏷️ Marca y modelo' },
     { k: 'dimensiones', label: '📏 Alto, largo y ancho' },
     { k: 'clasificacion', label: '🔶 Clasificación por capacidad' },

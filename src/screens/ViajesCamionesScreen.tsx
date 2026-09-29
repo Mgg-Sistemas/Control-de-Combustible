@@ -3031,7 +3031,7 @@ export default function ViajesCamionesScreen() {
       // El eje decide qué columna sobra: la suya ya está en el encabezado del grupo.
       const colsR = columnasResumen(op, resumenEje, pesoUnidadRep);
       const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}
+        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}${op.pesoPromedio ? ` · promedio por viaje ${kgPie(resumenViajes.total > 0 ? resumenViajes.netoKg / resumenViajes.total : 0)}` : ''}
           ${op.viajes ? `<br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span>` : ''}</p>
         ${resumenViajes.empresas.map((e) => {
           const g3 = redondear(e.camiones.reduce((a, c) => a + m3Fila(c.key, c.viajes), 0));
@@ -3056,6 +3056,9 @@ export default function ViajesCamionesScreen() {
             viajes: String(c.viajes),
             m3: m3Texto(m3Fila(c.key, c.viajes)),
             pesoNeto: kgPie(c.netoKg),
+            // 📊 Promedio por viaje de ESE camión (29-sep-2026). Sin viajes no se
+            // divide; sin peso, la raya la pone kgPie.
+            pesoPromedio: kgPie(c.viajes > 0 ? c.netoKg / c.viajes : 0),
           }));
           const pie = colsR.map((c, i) => (
             i === 0 ? `<b>Total ${esc(e.name)}</b>`
@@ -3063,7 +3066,8 @@ export default function ViajesCamionesScreen() {
               : c.key === 'noche' ? `<b>${num(e.noche)}</b>`
               : c.key === 'viajes' ? `<b>${e.total}</b>`
               : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>`
-              : c.key === 'pesoNeto' ? `<b>${kgPie(e.netoKg)}</b>` : ''
+              : c.key === 'pesoNeto' ? `<b>${kgPie(e.netoKg)}</b>`
+              : c.key === 'pesoPromedio' ? `<b>${kgPie(e.total > 0 ? e.netoKg / e.total : 0)}</b>` : ''
           ));
           return `<h3>${icoGrupo} ${esc(e.name)} — ${cab}</h3>${tabla(colsR, filas, pie)}`;
         }).join('')}`;
