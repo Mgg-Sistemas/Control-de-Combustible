@@ -431,7 +431,15 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
   }
 
   if (!o.sinAlcance) {
-    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePagoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa).map(esc).join('<br/>')}<br/>${esc(ocultosPagoEnPalabras(o))}</div>`);
+    // ⭐ EL ALCANCE DICE QUÉ VIAJES ENTRARON, NO QUÉ COLUMNAS SE APAGARON
+    //    (29-sep-2026, a pedido: «si activo o desactivo un check, no me salga
+    //    esa información en el PDF»). Acá iba también `ocultosPagoEnPalabras`
+    //    («No sale: …») y se quitó: lo oculto no deja rastro en el papel. El
+    //    filtro SÍ se sigue diciendo —y con su ⚠️— porque cambia el TOTAL, y un
+    //    papel filtrado que no lo avisa se lee como el pago completo del rango.
+    //    `ocultosPagoEnPalabras` sigue existiendo para la PANTALLA, que te dice
+    //    qué vas a dejar fuera ANTES de descargar.
+    partes.push(`<div class="alc"><b>Alcance del informe</b><br/>${alcancePagoEnPalabras(d.filtro, d.eje, o, d.nombresEmpresa).map(esc).join('<br/>')}</div>`);
   }
   return partes.join('\n');
 }

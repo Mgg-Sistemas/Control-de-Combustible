@@ -30,7 +30,7 @@ import {
 } from '../lib/camionViajes';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
-  frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes, etiquetaOpcionesFrentes,
+  frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes,
   historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
 } from '../lib/frentesReporte';
@@ -208,7 +208,12 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       );
       const html = pdfDocument({
         title: 'Frentes de trabajo',
-        subtitle: `Asignación del ${dmy(fecha)} · de dónde recoge cada camión${etiquetaOpcionesFrentes(op)}`,
+        // ⭐ EL SUBTÍTULO NO DELATA LO QUE SE APAGÓ (29-sep-2026, corregido a
+        //    pedido: «si activo o desactivo un check, no me salga esa
+        //    información en el PDF»). Regla de la casa desde el 25-sep: lo
+        //    oculto no aparece en NINGUNA parte del papel, tampoco en el
+        //    subtítulo. El papel se lee como si ese dato no existiera.
+        subtitle: `Asignación del ${dmy(fecha)} · de dónde recoge cada camión`,
         extraCss: CSS_FRENTES,
         body: cuerpoFrentesDelDia(grupos, op),
         logos,

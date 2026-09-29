@@ -34,7 +34,7 @@ m.paths = Module._nodeModulePaths(path.dirname(srcPath));
 m._compile(out, m.filename);
 const {
   frentesDelDia, totalesFrentes, cuerpoFrentesDelDia, nombreArchivoFrentes,
-  frentesParaReporte, etiquetaOpcionesFrentes, historialFrentes,
+  frentesParaReporte, historialFrentes,
   FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO,
 } = m.exports;
 
@@ -147,12 +147,26 @@ ok('y ofrece también los frentes activos sin asignación',
     { ...FRENTES_POR_DEFECTO, marcaModelo: true });
   ok('…y encendida sale', conMarca.includes('Marca / Modelo') && conMarca.includes('VOLVO FM 440'));
 
-  // ⭐ LO OCULTO DEJA RASTRO: el subtítulo lo dice (regla de la casa).
-  eq('con todo puesto, el subtítulo no dice nada', etiquetaOpcionesFrentes(FRENTES_POR_DEFECTO), '');
-  ok('⭐ lo que se oculta se declara en el subtítulo',
-    etiquetaOpcionesFrentes({ ...FRENTES_POR_DEFECTO, placa: false, empresa: false }) === ' · sin placa, empresa');
-  ok('y los frentes vacíos también se avisan',
-    etiquetaOpcionesFrentes({ ...FRENTES_POR_DEFECTO, sinCamiones: true }).includes('incluye los frentes sin camiones'));
+  // ⭐⭐ LO QUE SE APAGA NO DEJA RASTRO EN EL PAPEL (29-sep-2026, corregido a
+  //     pedido: «que no salga esa información, y guarda en memoria que si activo
+  //     o desactivo un check, no me salga esa información en el PDF»). Es la
+  //     regla de la casa desde el 25-sep y el subtítulo la estaba rompiendo:
+  //     decía «… · sin placa, empresa, numeración».
+  const rep = leer('src/lib/frentesReporte.ts');
+  const compS = leer('src/components/FrentesTrabajo.tsx');
+  ok('⭐ ya no existe la etiqueta que delataba lo apagado', !/export function etiquetaOpcionesFrentes/.test(rep));
+  ok('⭐ el subtítulo del PDF NO dice qué se ocultó',
+    /subtitle: `Asignación del \$\{dmy\(fecha\)\} · de dónde recoge cada camión`/.test(compS));
+  // Sin los comentarios: en ellos SÍ se nombra la etiqueta vieja, justamente
+  // para explicar por qué no puede volver.
+  const sinCom = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok('…y no quedó ningún «sin placa/empresa/numeración» en el papel',
+    !/sin \$\{|· sin placa|· sin empresa|\(oculto\)/.test(sinCom(rep) + sinCom(compS)));
+  // Y el papel apagado no deja hueco: ni celda vacía ni encabezado suelto.
+  const soloCamion = cuerpoFrentesDelDia(soloAsignados,
+    { numeracion: false, placa: false, empresa: false, marcaModelo: false, contador: false, totales: false, sinCamiones: false });
+  ok('⭐ con todo apagado queda SOLO la columna Camión, sin celdas en blanco',
+    (soloCamion.match(/<th>/g) || []).length === 2 && !/<td><\/td>/.test(soloCamion));
 
   // ⭐ NI CON LOS CHECKS SE CUELA UNA CIFRA DE OPERACIÓN.
   const todos = cuerpoFrentesDelDia(soloAsignados, { numeracion: true, placa: true, empresa: true, marcaModelo: true, contador: true, totales: true, sinCamiones: true });
