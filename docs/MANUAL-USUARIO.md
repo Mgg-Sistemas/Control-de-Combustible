@@ -1067,6 +1067,17 @@ trabajador**.
 >   *ALIMENTACIÓN* y alguna ficha dice *COCINA*, todos salen en **una sola sección**, y se llama
 >   como diga el **tabulador**: manda la palabra que usa la empresa. Si renombras un departamento
 >   ahí, el Excel te hace caso.
+> - **⭐ Pero un departamento distinto SIGUE SIENDO DISTINTO, aunque comparta una palabra
+>   (29/09/2026).** *SOPORTE Y SERVICIO* se estaba juntando con *SERVICIOS GENERALES* solo porque
+>   los dos dicen "servicio": no salía en el filtro al crear el período y su gente aparecía contada
+>   en la otra sección. Ya no. La regla ahora es: **el nombre tiene que EMPEZAR por el departamento
+>   para que se unifique con él.** Lo que va *después* solo lo precisa —*ALMACÉN GENERAL* sigue
+>   siendo **ALMACÉN**, *MANTENIMIENTO PREVENTIVO DE MAQUINARIA* sigue siendo **MANTENIMIENTO**—,
+>   pero una palabra *delante* lo convierte en otro departamento. Con el mismo arreglo quedaron en
+>   su sitio **SOPORTE Y SERVICIO**, **ELECTRICIDAD** (que se iba a MANTENIMIENTO y hasta le
+>   cambiaba el nombre a esa sección) y **MANTENIMIENTO PREVENTIVO / CORRECTIVO DE MAQUINARIA**
+>   (que se iban a OPERACIONES DE MAQUINARIA). Los errores de dedo se siguen uniendo igual que
+>   antes: *SERVICIO GENERALES* sí es *SERVICIOS GENERALES*.
 > - Si exportas con un **filtro** de departamento o de cargo puesto, el Excel lo **anota arriba**,
 >   para que no se confunda una nómina filtrada con una completa.
 - **💵 Equivalente en Bs (tasa BCV del día):** los **totales de cada período**, el del **período

@@ -66,7 +66,10 @@ const ORDEN: RegExp[] = [
   /sistema|informatic|tecnolog/,  // 3. SISTEMAS
   /cocin|aliment|comedor/,        // 4. ALIMENTACIÓN / COCINA
   /almacen|deposito|inventario/,  // 5. ALMACÉN
-  /manten|mecanic|taller/,        // 6. MANTENIMIENTO
+  // 6. MANTENIMIENTO — y a su lado los oficios que son departamento propio
+  //    (ELECTRICIDAD, SOLDADURA…). Aquí solo se ORDENAN juntos para que se lean
+  //    seguidos; NO se unifican: cada uno es su sección y su subtotal.
+  /manten|mecanic|taller|electric|soldad|lubric/,
   /inspec|patio/,                 // 7. INSPECCIÓN Y PATIO
   /maquin|operac/,                // 8. OPERACIONES DE MAQUINARIA
   /servicio|general|seguridad/,   // 9. SERVICIOS GENERALES
