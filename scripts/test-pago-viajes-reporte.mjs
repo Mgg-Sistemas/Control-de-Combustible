@@ -119,7 +119,59 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   eq('⭐ empresa Y obra a la vez: se cruzan', R.filtrarLineasPago(lineas, { empresas: ['EB'], obras: ['Obra Norte'] }).map((l) => l.viaje.id).sort(), ['v4', 'v7']);
 
   // Una obra marcada que ya no está en el rango no puede seguir filtrando sin verse.
-  eq('⭐ lo que ya no está en el rango deja de filtrar', R.acotarFiltroPago({ empresas: ['EA', 'ZZ'], obras: ['Obra Fantasma'] }, { empresas: ['EA', 'EB'], obras: ['Obra Norte'] }), { empresas: ['EA'], obras: [] });
+  eq('⭐ lo que ya no está en el rango deja de filtrar', R.acotarFiltroPago({ empresas: ['EA', 'ZZ'], obras: ['Obra Fantasma'], maquinas: [] }, { empresas: ['EA', 'EB'], obras: ['Obra Norte'], maquinas: [] }), { empresas: ['EA'], obras: [], maquinas: [] });
+}
+
+// ── 3b) 🚜 EL BUSCADOR / SELECTOR DE MÁQUINAS (30-sep-2026) ──────────────────
+// Pedido: «un buscador por si quiero un reporte de unas máquinas que yo
+// seleccione, o las que yo quiera, o por seleccionar por empresa, o una o varias
+// en el rango de las fechas».
+{
+  // Las máquinas disponibles salen de las MISMAS líneas del pago, con placa y empresa.
+  const maqs = R.maquinasDisponiblesPago(lineas, new Map(), NOMBRES);
+  eq('⭐ ofrece las tres máquinas que hay en el pago', maqs.map((m) => m.id).sort(), ['m1', 'm2', 'm3']);
+  ok('cada una trae código, empresa y viajes', maqs.every((m) => m.code && m.empresa && m.viajes > 0));
+  eq('⭐ toma la placa congelada del viaje (placa_snap)', maqs.find((m) => m.id === 'm1').placa, 'PL-m1');
+  // Sin placa_snap, cae a la de la ficha (placa, y si no, serial).
+  const sinSnap = [{ ...lineas[0], viaje: { ...lineas[0].viaje, placa_snap: null } }];
+  eq('…y si el viaje no la trae, usa la de la ficha', R.maquinasDisponiblesPago(sinSnap, new Map([['m1', { placa: 'DEFICHA' }]]), NOMBRES)[0].placa, 'DEFICHA');
+
+  // Filtrar por una máquina deja SOLO sus viajes.
+  const soloM1 = R.filtrarLineasPago(lineas, { empresas: [], obras: [], maquinas: ['m1'] });
+  ok('⭐ eligiendo una máquina sale SOLO esa máquina', soloM1.length === 3 && soloM1.every((l) => l.viaje.machinery_id === 'm1'));
+  eq('⭐ vacío = todas (no filtra)', R.filtrarLineasPago(lineas, { empresas: [], obras: [], maquinas: [] }).length, 7);
+  ok('⭐ un filtro viejo SIN el campo máquinas sigue funcionando (todas)',
+    R.filtrarLineasPago(lineas, { empresas: [], obras: [] }).length === 7);
+  eq('⭐ varias máquinas a la vez', R.filtrarLineasPago(lineas, { empresas: [], obras: [], maquinas: ['m2', 'm3'] }).map((l) => l.viaje.id).sort(), ['v4', 'v5', 'v6', 'v7']);
+
+  // Se cruza con empresa (todo lo marcado tiene que cumplirse): m1 es de EA, así
+  // que con empresa EB no queda ninguno — el cruce es AND, no OR.
+  eq('⭐ máquina m1 (EA) Y empresa EB = vacío (es AND, no OR)', R.filtrarLineasPago(lineas, { empresas: ['EB'], obras: [], maquinas: ['m1'] }).length, 0);
+  const cruce = R.filtrarLineasPago(lineas, { empresas: ['EB'], obras: [], maquinas: ['m2'] });
+  ok('⭐ máquina m2 (EB) Y empresa EB: solo esos viajes', cruce.length === 2 && cruce.every((l) => l.viaje.machinery_id === 'm2' && l.viaje.company_id === 'EB'));
+
+  // Acotar: una máquina marcada que ya no está en el rango deja de filtrar.
+  eq('⭐ una máquina que ya no está deja de filtrar',
+    R.acotarFiltroPago({ empresas: [], obras: [], maquinas: ['m1', 'fantasma'] }, { empresas: [], obras: [], maquinas: ['m1'] }),
+    { empresas: [], obras: [], maquinas: ['m1'] });
+
+  // El alcance y el nombre del archivo lo dicen (sin listar los códigos).
+  const alcMaq = R.alcancePagoEnPalabras({ empresas: [], obras: [], maquinas: ['m1'] }, 'empresa', R.OPCIONES_PAGO_COMPLETO, NOMBRES);
+  ok('⭐ el alcance dice que está filtrado por máquinas', alcMaq.some((s) => /Máquinas: solo 1/.test(s)) && alcMaq.some((s) => /FILTRADO/.test(s)));
+  ok('⭐ el nombre del archivo cuenta las máquinas', /1 maquina\(s\)/.test(R.sufijoArchivoPago({ empresas: [], obras: [], maquinas: ['m1'] }, 'empresa', R.OPCIONES_PAGO_COMO_ANTES)));
+
+  // La pantalla ofrece el buscador y cruza la selección.
+  const ui = leer('src/components/PagoViajesResumen.tsx');
+  ok('⭐ la pantalla tiene el buscador de máquinas', /Buscar máquina: código, placa o empresa/.test(ui) && /maquinasDisponiblesPago\(/.test(ui));
+  ok('⭐ y mete las máquinas en el filtro del papel', /maquinas: Array\.from\(maquinasSel\)/.test(ui));
+  ok('⭐ un papel filtrado por máquinas se marca como filtrado', /filtroPdf\.maquinas\.length > 0/.test(ui));
+
+  // 🚜 La placa en el bloque «camiones que no entran al pago» (30-sep-2026): sale
+  //    cuando el check «Serial / Placa» está encendido, igual que el listado.
+  ok('⭐ el bloque «no entran al pago» muestra la placa con el check encendido',
+    /const conPlaca = !opcionesPdf\.sinPlaca/.test(ui) && /conPlaca \? '<th>Serial \/ Placa<\/th>' : ''/.test(ui));
+  ok('…y la saca de la ficha del camión (placa o serial)',
+    /datos\?\.fichas\?\.get\(c\.machineryId\)/.test(ui) && /f\?\.placa \|\| f\?\.serial/.test(ui));
 }
 
 // ── 4) LAS PASTILLAS: OCULTAR NO ES FILTRAR ──────────────────────────────────

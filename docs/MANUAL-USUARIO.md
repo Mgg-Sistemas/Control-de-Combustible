@@ -6241,6 +6241,12 @@ además de por empresa y por listero.
 > - **📍 Obras** y **🏢 Empresas:** toca las que quieras y **sale solo eso**; se pueden marcar varias y
 >   cruzar (una empresa en una obra). **Sin marcar nada entran todas**; "✅ Todas" limpia la selección.
 >   Cada una muestra cuántos viajes tiene en el rango. "Sin obra" también se puede elegir.
+> - **🚜 Máquinas — con buscador (30/09/2026, a pedido):** debajo de las empresas hay una sección
+>   **"🚜 Máquinas"** con un **🔎 buscador** (por **código, placa o empresa**) y la lista de camiones que
+>   tienen viajes en el rango, cada uno con su **código · placa (viajes)**. Marca **uno o varios** y el
+>   papel sale **solo de esos**. Se **cruza** con las empresas y obras de arriba (todo lo marcado tiene
+>   que cumplirse: es un «y», no un «o»). **Sin marcar nada entran todas.** El buscador solo recorta lo
+>   que se ve; si escondes una máquina que estaba marcada, sigue filtrando y el sistema te lo avisa.
 > - **🖨️ ¿Qué se oculta?** Las mismas pastillas del Conteo de equipos: Marca, Modelo, Serial / Placa,
 >   Encargado, Metros cúbicos, Nombre de empresas, Listado por equipo, Cantidad por tipo, Cantidad
 >   por zona y Alcance del informe. **Encendida = NO sale.** El papel arranca **igual al de siempre**:
@@ -6309,6 +6315,17 @@ tiene **permiso completo** del módulo; los listeros no ven montos.
 > PDF traen un bloque **"🚫 Camiones que no entran al pago"** con los viajes que quedaron por fuera, y
 > el **"sin pagar"** ahora dice el motivo (sin zona, sin tarifa, sin empresa o fuera del catálogo).
 > Un viaje marcado **"✗ No facturó"** cuenta como tal aunque además le falte la empresa.
+>
+> **🚜 Cómo hacer que un camión ENTRE al pago (y por qué aparece en «no entran»).** Un camión solo
+> se le paga por viaje si alguien lo puso en ese modo. Los que hicieron viajes pero **nunca se
+> pusieron** en el pago salen en el bloque **"🚫 Camiones que no entran al pago"** — es un recordatorio,
+> no un error, para que decidas. Para meterlos: **Pago de viajes → ⚙️ Tarifas y camiones → pestaña
+> 🚛 Camiones**, busca la empresa y pon esos camiones en **"🚛 Por viaje"** (o **"Todos por viaje"**)
+> con la **fecha desde** la que deben cobrarse. Para sacarlos, **"⛔ No entra"** / **"Quitar todos"**.
+> Todo rige **desde esa fecha** y no toca lo anterior.
+> - **La placa también en ese bloque (30/09/2026):** el bloque «no entran al pago» del PDF ahora
+>   muestra la columna **Serial / Placa** cuando el check **«Serial / Placa»** está encendido, igual
+>   que el listado de pago. Antes esa tabla no tenía placa y el check no la tocaba.
 
 - **Camiones:** por empresa, cada camión tiene su interruptor **"🚛 Por viaje / ⛔ No entra"** y hay botones
   para toda la empresa (así se quita o se pone un chuto). Rige **desde la fecha elegida**; lo anterior no
