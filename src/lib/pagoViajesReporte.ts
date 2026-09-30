@@ -102,9 +102,11 @@ export const SIN_OBRA = 'Sin obra';
 export const SIN_FRENTE_PAGO = 'Sin frente';
 export const CLAVE_SIN_EMPRESA = '(sin empresa)';
 
-/** Una lista VACÍA quiere decir «todas»: es lo que espera quien no toca nada. */
-export type FiltroPagoViajes = { empresas: string[]; obras: string[] };
-export const FILTRO_PAGO_TODO: FiltroPagoViajes = { empresas: [], obras: [] };
+/** Una lista VACÍA quiere decir «todas»: es lo que espera quien no toca nada.
+ *  `maquinas` (30-sep-2026, a pedido: «un buscador por si quiero un reporte de
+ *  unas máquinas que yo seleccione»): filtra el papel a esos camiones. */
+export type FiltroPagoViajes = { empresas: string[]; obras: string[]; maquinas: string[] };
+export const FILTRO_PAGO_TODO: FiltroPagoViajes = { empresas: [], obras: [], maquinas: [] };
 
 export type EjePago = 'empresa' | 'obra' | 'frente';
 
@@ -115,6 +117,10 @@ export const obraDeLinea = (l: LineaViaje): string => limpio(l.viaje?.ubicacion_
 /** El FRENTE del viaje (28-sep-2026): mismo criterio que la obra — el nombre congelado. */
 export const frenteDeLinea = (l: LineaViaje): string => limpio(l.viaje?.frente_nombre) || SIN_FRENTE_PAGO;
 export const empresaDeLinea = (l: LineaViaje): string => limpio(l.viaje?.company_id) || CLAVE_SIN_EMPRESA;
+/** La MÁQUINA de un viaje: su id de catálogo, o `code:<código>` si es de fuera de
+ *  catálogo (que no tiene id). Mismo criterio con el que se agrupan los renglones. */
+export const maquinaDeLinea = (l: LineaViaje): string =>
+  limpio(l.viaje?.machinery_id) || `code:${limpio(l.viaje?.machine_code) || '—'}`;
 
 const pasa = (lista: string[] | null | undefined, clave: string) => !lista || lista.length === 0 || lista.includes(clave);
 
@@ -126,15 +132,48 @@ export function lineasDeGrupos(grupos: Iterable<PagoViajesGrupo> | null | undefi
 }
 
 export function filtrarLineasPago(lineas: LineaViaje[] | null | undefined, f: FiltroPagoViajes): LineaViaje[] {
-  return (lineas ?? []).filter((l) => pasa(f.empresas, empresaDeLinea(l)) && pasa(f.obras, obraDeLinea(l)));
+  // `pasa` trata la lista vacía o ausente como «todas», así que un filtro viejo
+  // sin `maquinas` sigue funcionando igual.
+  return (lineas ?? []).filter((l) =>
+    pasa(f.empresas, empresaDeLinea(l)) && pasa(f.obras, obraDeLinea(l)) && pasa(f.maquinas, maquinaDeLinea(l)));
 }
 
 /** El filtro, acotado a lo que de verdad hay: una obra marcada que ya no está en el
  *  rango seguiría filtrando sin verse y sin poder desmarcarse. */
-export function acotarFiltroPago(f: FiltroPagoViajes, hay: { empresas: string[]; obras: string[] }): FiltroPagoViajes {
+export function acotarFiltroPago(
+  f: FiltroPagoViajes, hay: { empresas: string[]; obras: string[]; maquinas?: string[] },
+): FiltroPagoViajes {
   const e = new Set(hay.empresas);
   const o = new Set(hay.obras);
-  return { empresas: f.empresas.filter((k) => e.has(k)), obras: f.obras.filter((k) => o.has(k)) };
+  const mq = new Set(hay.maquinas ?? []);
+  return {
+    empresas: f.empresas.filter((k) => e.has(k)),
+    obras: f.obras.filter((k) => o.has(k)),
+    maquinas: (f.maquinas ?? []).filter((k) => mq.has(k)),
+  };
+}
+
+/** Las MÁQUINAS que existen en las líneas del pago, para el buscador del reporte
+ *  (30-sep-2026). Cada una con su código, placa (la congelada en el viaje, o la de
+ *  la ficha), empresa y cuántos viajes tiene. Ordenadas por empresa y código. */
+export function maquinasDisponiblesPago(
+  lineas: LineaViaje[] | null | undefined,
+  fichas: Map<string, FichaCamionPago> | null | undefined,
+  nombres: Map<string, string> | null | undefined,
+): { id: string; code: string; placa: string; empresa: string; viajes: number }[] {
+  const m = new Map<string, { id: string; code: string; placa: string; empresa: string; viajes: number }>();
+  (lineas ?? []).forEach((l) => {
+    const id = maquinaDeLinea(l);
+    const ficha = fichas?.get(limpio(l.viaje?.machinery_id));
+    const placa = limpio(l.viaje?.placa_snap) || limpio(ficha?.placa) || limpio(ficha?.serial);
+    const empKey = empresaDeLinea(l);
+    const empresa = empKey === CLAVE_SIN_EMPRESA ? 'Sin empresa' : (nombres?.get(empKey) || 'Empresa');
+    const prev = m.get(id);
+    if (prev) { prev.viajes += 1; if (!prev.placa && placa) prev.placa = placa; }
+    else m.set(id, { id, code: limpio(l.viaje?.machine_code) || '—', placa, empresa, viajes: 1 });
+  });
+  return Array.from(m.values()).sort((a, b) =>
+    a.empresa.localeCompare(b.empresa, 'es') || a.code.localeCompare(b.code, 'es', { numeric: true }) || a.placa.localeCompare(b.placa, 'es'));
 }
 
 /** Las obras que EXISTEN en las líneas, con sus viajes, para ofrecerlas. «Sin obra» al final. */
@@ -342,7 +381,11 @@ export function alcancePagoEnPalabras(
     : o.sinEmpresas ? `Empresas: solo ${f.empresas.length} elegida(s).`
       : `Empresas: solo ${f.empresas.map(nombreE).join(', ')}.`);
   l.push(f.obras.length === 0 ? 'Obras: todas.' : `Obras: solo ${f.obras.join(', ')}.`);
-  if (f.empresas.length || f.obras.length) l.push('⚠️ Este papel está FILTRADO: su total no es el pago completo del rango.');
+  const maquinas = f.maquinas ?? [];
+  // A propósito NO se listan los códigos de las máquinas: pueden ser decenas y
+  // ensuciarían el cuadro. Basta con decir que el papel está acotado a unas pocas.
+  l.push(maquinas.length === 0 ? 'Máquinas: todas.' : `Máquinas: solo ${maquinas.length} elegida(s).`);
+  if (f.empresas.length || f.obras.length || maquinas.length) l.push('⚠️ Este papel está FILTRADO: su total no es el pago completo del rango.');
   return l;
 }
 
@@ -353,6 +396,7 @@ export function sufijoArchivoPago(f: FiltroPagoViajes, eje: EjePago, o: Opciones
   if (f.obras.length === 1) partes.push(f.obras[0]);
   else if (f.obras.length > 1) partes.push(`${f.obras.length} obras`);
   if (f.empresas.length) partes.push(`${f.empresas.length} empresa(s)`);
+  if ((f.maquinas ?? []).length) partes.push(`${f.maquinas.length} maquina(s)`);
   PASTILLAS_PAGO.filter((p) => o[p.key] !== OPCIONES_PAGO_COMO_ANTES[p.key]).forEach((p) => partes.push(o[p.key] ? p.archivo : p.archivo.replace(/^sin |^solo /, 'con ')));
   return partes.length ? ` (${partes.join(', ')})`.replace(/[\\/:*?"<>|]/g, ' ') : '';
 }

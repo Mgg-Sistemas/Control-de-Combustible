@@ -7,7 +7,7 @@
 //
 // ⭐ Vive SOLO en este módulo: no toca jornadas, Control de Maquinaria ni Control de Pagos.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Plegable } from './Plegable';
 import { DateField } from './DateField';
 import { PagoViajesPanel } from './PagoViajesPanel';
@@ -32,7 +32,7 @@ import { cargarDatosPagoViajes, DatosPagoViajes } from '../lib/pagoViajesDb';
 import {
   CSS_PAGO_VIAJES, EjePago, OPCIONES_PAGO_COMO_ANTES, OpcionesPagoViajes, PASTILLAS_PAGO,
   acotarFiltroPago, alternarPago, cuerpoPagoViajes, empresasDisponibles, filtrarLineasPago, lineasDeGrupos,
-  obrasDisponibles, ocultosPagoEnPalabras, sufijoArchivoPago, totalDeLineas,
+  maquinasDisponiblesPago, obrasDisponibles, ocultosPagoEnPalabras, sufijoArchivoPago, totalDeLineas,
 } from '../lib/pagoViajesReporte';
 
 type Props = {
@@ -70,6 +70,9 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   //    arriba sigue mostrando el pago completo del rango, y el papel dice que está filtrado.
   const [empresasSel, setEmpresasSel] = useState<Set<string>>(new Set());
   const [obrasSel, setObrasSel] = useState<Set<string>>(new Set());
+  // 🚜 Selección y buscador de máquinas del reporte (30-sep-2026, a pedido).
+  const [maquinasSel, setMaquinasSel] = useState<Set<string>>(new Set());
+  const [buscaMaq, setBuscaMaq] = useState('');
   const [ejePdf, setEjePdf] = useState<EjePago>('empresa');
   const [opcionesPdf, setOpcionesPdf] = useState<OpcionesPagoViajes>(OPCIONES_PAGO_COMO_ANTES);
 
@@ -128,15 +131,26 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const lineasTodas = useMemo(() => lineasDeGrupos(empresas.map((e) => e.g)), [empresas]);
   const empresasPdf = useMemo(() => empresasDisponibles(lineasTodas, datos?.empresas), [lineasTodas, datos]);
   const obrasPdf = useMemo(() => obrasDisponibles(lineasTodas), [lineasTodas]);
-  // Acotado a lo que hay en el rango: una obra marcada que ya no está no puede seguir
-  // filtrando sin verse.
+  const maquinasPdf = useMemo(() => maquinasDisponiblesPago(lineasTodas, datos?.fichas, datos?.empresas), [lineasTodas, datos]);
+  // El buscador recorta lo que se ve, no lo que está marcado: una máquina marcada
+  // que no coincide con la búsqueda sigue filtrando el papel (por eso se cuentan aparte).
+  const maquinasVistas = useMemo(() => {
+    const q = buscaMaq.trim().toLowerCase();
+    if (!q) return maquinasPdf;
+    return maquinasPdf.filter((m) => `${m.code} ${m.placa} ${m.empresa}`.toLowerCase().includes(q));
+  }, [maquinasPdf, buscaMaq]);
+  // Acotado a lo que hay en el rango: una obra o máquina marcada que ya no está no
+  // puede seguir filtrando sin verse.
   const filtroPdf = useMemo(
-    () => acotarFiltroPago({ empresas: Array.from(empresasSel), obras: Array.from(obrasSel) }, { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id) }),
-    [empresasSel, obrasSel, empresasPdf, obrasPdf],
+    () => acotarFiltroPago(
+      { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), maquinas: Array.from(maquinasSel) },
+      { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id), maquinas: maquinasPdf.map((x) => x.id) },
+    ),
+    [empresasSel, obrasSel, maquinasSel, empresasPdf, obrasPdf, maquinasPdf],
   );
   const lineasPdf = useMemo(() => filtrarLineasPago(lineasTodas, filtroPdf), [lineasTodas, filtroPdf]);
   const totPdf = useMemo(() => totalDeLineas(lineasPdf), [lineasPdf]);
-  const pdfFiltrado = filtroPdf.empresas.length > 0 || filtroPdf.obras.length > 0;
+  const pdfFiltrado = filtroPdf.empresas.length > 0 || filtroPdf.obras.length > 0 || filtroPdf.maquinas.length > 0;
 
   const rangoInvalido = hasta < desde;
   const rangoAntesDelInicio = hasta < INICIO_PAGO_VIAJES;
@@ -145,10 +159,18 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
     // Camiones con viajes que no entran al pago: lo que NO se está pagando. Solo en el
     // papel SIN filtrar: esa lista es de todo el rango, y en el papel de una obra o de
     // una empresa hablaría de camiones que no tienen nada que ver.
+    // 🚜 La placa también en este bloque (30-sep-2026, a pedido): sale cuando el
+    //    check «Serial / Placa» está encendido, igual que en el listado de arriba.
+    //    Antes esta tabla no tenía columna de placa y el check no la afectaba.
+    const conPlaca = !opcionesPdf.sinPlaca;
+    const placaFuera = (c: { machineryId: string }) => {
+      const f = datos?.fichas?.get(c.machineryId);
+      return (f?.placa || f?.serial || '—');
+    };
     const fuera = !pdfFiltrado && fueraDelPago.length ? `
       <h3>🚫 Camiones que no entran al pago (${viajesFuera} viaje(s))</h3>
-      <table><thead><tr><th>Camión</th><th>Empresa</th><th class="r">Viajes</th><th>Situación</th></tr></thead>
-      <tbody>${fueraDelPago.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.companyId ? datos?.empresas.get(c.companyId) ?? 'Empresa' : 'Sin empresa')}</td><td class="r">${c.viajes}</td><td>${c.sinConfigurar ? 'Nunca se puso en el pago' : 'Se le quitó el pago por viaje'}</td></tr>`).join('')}</tbody></table>` : '';
+      <table><thead><tr><th>Camión</th><th>Empresa</th>${conPlaca ? '<th>Serial / Placa</th>' : ''}<th class="r">Viajes</th><th>Situación</th></tr></thead>
+      <tbody>${fueraDelPago.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.companyId ? datos?.empresas.get(c.companyId) ?? 'Empresa' : 'Sin empresa')}</td>${conPlaca ? `<td>${esc(placaFuera(c))}</td>` : ''}<td class="r">${c.viajes}</td><td>${c.sinConfigurar ? 'Nunca se puso en el pago' : 'Se le quitó el pago por viaje'}</td></tr>`).join('')}</tbody></table>` : '';
     const html = pdfDocument({
       title: 'Pago de viajes de camiones',
       subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ejePdf === 'frente' ? ' · por frente' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}`,
@@ -263,6 +285,38 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
               {pastilla('e-todas', '✅ Todas', filtroPdf.empresas.length === 0, () => setEmpresasSel(new Set()))}
               {empresasPdf.map((x) => pastilla('e' + x.id, `${x.name} (${x.viajes})`, filtroPdf.empresas.includes(x.id), () => alternarSel(empresasSel, setEmpresasSel, x.id)))}
             </View>
+
+            {/* 🚜 MÁQUINAS (30-sep-2026, a pedido): buscador + selección de una o
+                varias, para sacar el papel solo de esos camiones. Se cruza con las
+                empresas y obras de arriba (todo lo marcado tiene que cumplirse). */}
+            {rotuloPdf(`🚜 MÁQUINAS (vacío = todas · ${maquinasPdf.length})`)}
+            <TextInput
+              value={buscaMaq}
+              onChangeText={setBuscaMaq}
+              placeholder="🔎 Buscar máquina: código, placa o empresa…"
+              placeholderTextColor={colors.muted}
+              autoCorrect={false}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, marginBottom: 4 }}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {pastilla('m-todas', '✅ Todas', filtroPdf.maquinas.length === 0, () => { setMaquinasSel(new Set()); setBuscaMaq(''); })}
+              {maquinasVistas.map((x) => pastilla(
+                'm' + x.id,
+                `${x.code}${x.placa ? ` · ${x.placa}` : ''} (${x.viajes})`,
+                filtroPdf.maquinas.includes(x.id),
+                () => alternarSel(maquinasSel, setMaquinasSel, x.id),
+              ))}
+            </View>
+            {maquinasVistas.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Ninguna máquina coincide con la búsqueda.</Text>
+            ) : null}
+            {/* Si el buscador esconde máquinas marcadas, se dice — para que nadie
+                crea que dejó de filtrar por lo que no ve. */}
+            {filtroPdf.maquinas.length > maquinasVistas.filter((x) => filtroPdf.maquinas.includes(x.id)).length ? (
+              <Text style={{ color: colors.warning, fontSize: 11, marginTop: 2 }}>
+                Hay {filtroPdf.maquinas.length} máquina(s) marcada(s); la búsqueda oculta algunas, pero siguen filtrando el papel.
+              </Text>
+            ) : null}
 
             {rotuloPdf('🖨️ ¿QUÉ SE OCULTA EN EL PDF?')}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
