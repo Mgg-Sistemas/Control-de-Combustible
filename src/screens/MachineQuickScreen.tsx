@@ -16,6 +16,7 @@ import { formatUTM } from '../lib/utm';
 import { onlyDecimal, norm } from '../lib/text';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { classifyMobility, mobilityBadge, MobilityStatus } from '../lib/mobility';
+import { horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
@@ -424,7 +425,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     if (!machine) return;
     const first = opFirst.trim(), last = opLast.trim(), ci = opCedula.trim();
     if (!first || !last || !ci) { setNotice('❌ Completa nombre, apellido y cédula.'); return; }
-    const hi = Number((hIni || '').replace(',', '.'));
+    const hi = horometroDeTexto(hIni);
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     setJornadaBusy(true); setNotice(null);
     // Ubicación en TIEMPO REAL del operador al iniciar (para la traza).
@@ -458,7 +459,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     const start = jornadaStartAt ? new Date(jornadaStartAt) : new Date();
     const roundDate = jornadaStartDate || asg?.work_date || caracasParts(start).iso;
     const hi = asg?.horometro_inicial != null ? Number(asg.horometro_inicial) : (machine.last_horometro != null ? Number(machine.last_horometro) : 0);
-    const hf = Number((hFin || '').replace(',', '.'));
+    const hf = horometroDeTexto(hFin);
     if (!isFinite(hf)) { setNotice('❌ Ingresa el horómetro final.'); return; }
     if (hf < hi) { setNotice(`❌ El horómetro final (${hf}) no puede ser menor al inicial (${hi}).`); return; }
     const sh = shiftOf(caracasParts(start).hour);
@@ -748,7 +749,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
             </View>
           ) : null}
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Horómetro inicial</Text>
-          <TextInput value={hIni} onChangeText={(t) => setHIni(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={hIni} onChangeText={(t) => setHIni(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
           {machine.last_horometro != null ? (
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Última lectura registrada: {machine.last_horometro}. (Se arrastra del cierre anterior.)</Text>
           ) : null}
@@ -775,10 +776,10 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
             </Text>
           ) : null}
           <Text style={{ color: colors.muted, fontSize: 12 }}>Horómetro final</Text>
-          <TextInput value={hFin} onChangeText={(t) => setHFin(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={hFin} onChangeText={(t) => setHFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
           {(() => {
             const hiRef = asg?.horometro_inicial != null ? Number(asg.horometro_inicial) : (machine.last_horometro != null ? Number(machine.last_horometro) : 0);
-            const hfN = Number((hFin || '').replace(',', '.'));
+            const hfN = horometroDeTexto(hFin);
             const ok = isFinite(hfN) && hfN >= hiRef;
             return (
               <Text style={{ color: ok ? colors.success : colors.muted, fontSize: 12, marginTop: 4, fontWeight: '700' }}>

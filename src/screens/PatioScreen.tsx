@@ -18,6 +18,7 @@ import { saveVisit } from '../lib/supervisorVisits';
 import { shiftOf, caracasParts } from '../lib/jornada';
 import { caracasToday, isoYesterday, isCierreAnticipado } from '../lib/caracasDay';
 import { logAudit } from '../lib/audit';
+import { horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasClock(iso: string): string {
@@ -173,7 +174,7 @@ export default function PatioScreen({ navigation }: any) {
   // Confirma el INICIO de la jornada del camión (con horómetro inicial).
   const confirmarInicio = async () => {
     if (!pendingStart || jornBusy) return;
-    const hi = Number((horoIni || '').replace(',', '.'));
+    const hi = horometroDeTexto(horoIni);
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     setJornBusy(true);
     const today = caracasToday();
@@ -197,7 +198,7 @@ export default function PatioScreen({ navigation }: any) {
   // las horas al turno. El horómetro final será el inicial de la próxima jornada.
   const confirmarFin = async () => {
     if (!pendingFin || jornBusy) return;
-    const hf = Number((horoFin || '').replace(',', '.'));
+    const hf = horometroDeTexto(horoFin);
     if (!isFinite(hf) || hf < 0) { setNotice('❌ Ingresa el horómetro final.'); return; }
     setJornBusy(true);
     // Cierra contra el round_date en que la jornada REALMENTE arrancó (no "hoy"): una
@@ -364,7 +365,7 @@ export default function PatioScreen({ navigation }: any) {
                 <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🟢 Iniciar jornada</Text>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, textAlign: 'center', marginTop: 4, marginBottom: spacing.md }}>{pendingStart.code}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (= final de la jornada anterior)</Text>
-                <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
+                <TextInput value={horoIni} onChangeText={(t) => setHoroIni(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                   style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.md }} />
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                   <TouchableOpacity onPress={() => setPendingStart(null)} disabled={jornBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
@@ -399,7 +400,7 @@ export default function PatioScreen({ navigation }: any) {
                   Se sumarán a Control de maquinaria en el turno de {pendingFin.shift === 'night' ? 'noche' : 'día'}.
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final</Text>
-                <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
+                <TextInput value={horoFin} onChangeText={(t) => setHoroFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                   style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 4 }} />
                 <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Será el horómetro inicial de la próxima jornada.</Text>
                 {isCierreAnticipado(pendingFin.roundDate, pendingFin.shift) ? (
@@ -412,7 +413,7 @@ export default function PatioScreen({ navigation }: any) {
                   </View>
                 ) : null}
                 {(() => {
-                  const hf = Number((horoFin || '').replace(',', '.'));
+                  const hf = horometroDeTexto(horoFin);
                   const hi = pendingFin.iniHoro;
                   if (horoFin && isFinite(hf) && hi != null && hf >= hi) {
                     return <Text style={{ color: colors.text, fontSize: 12, textAlign: 'center', marginBottom: spacing.md }}>⚙️ Por horómetro: <Text style={{ fontWeight: '900' }}>{Math.round((hf - hi) * 100) / 100} h</Text> (final − inicial {hi})</Text>;

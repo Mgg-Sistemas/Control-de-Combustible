@@ -1,5 +1,5 @@
 import { cmpText, norm } from './text';
-import { normalizeDept } from './personal';
+import { claveCargo, normalizeDept } from './personal';
 
 /**
  * DEPARTAMENTO de un renglón de nómina: de dónde sale, cómo se unifica y en qué
@@ -46,6 +46,9 @@ import { normalizeDept } from './personal';
 /** Etiqueta de quien no tiene departamento por ningún lado. Va siempre de último. */
 export const SIN_DEPARTAMENTO = 'SIN DEPARTAMENTO';
 
+/** Etiqueta de un renglón al que nunca le pusieron cargo. */
+export const SIN_CARGO = 'SIN CARGO';
+
 /**
  * ORDEN de las secciones del Excel, del reporte y del filtro: la jerarquía de la
  * empresa, NO el alfabeto. Sale así porque la nómina se revisa de arriba hacia
@@ -66,7 +69,10 @@ const ORDEN: RegExp[] = [
   /sistema|informatic|tecnolog/,  // 3. SISTEMAS
   /cocin|aliment|comedor/,        // 4. ALIMENTACIÓN / COCINA
   /almacen|deposito|inventario/,  // 5. ALMACÉN
-  /manten|mecanic|taller/,        // 6. MANTENIMIENTO
+  // 6. MANTENIMIENTO — y a su lado los oficios que son departamento propio
+  //    (ELECTRICIDAD, SOLDADURA…). Aquí solo se ORDENAN juntos para que se lean
+  //    seguidos; NO se unifican: cada uno es su sección y su subtotal.
+  /manten|mecanic|taller|electric|soldad|lubric/,
   /inspec|patio/,                 // 7. INSPECCIÓN Y PATIO
   /maquin|operac/,                // 8. OPERACIONES DE MAQUINARIA
   /servicio|general|seguridad/,   // 9. SERVICIOS GENERALES
@@ -81,13 +87,26 @@ export type MapaDepartamentos = {
   de: (cargo?: string | null, deptFicha?: string | null) => string;
   /** Los departamentos que reciba, puestos en el orden de `ORDEN`. */
   orden: (deps: Iterable<string>) => string[];
+  /**
+   * El CARGO escrito COMO LO ESCRIBE EL TABULADOR. Un "MECANICO." de una ficha
+   * se muestra "MECANICO", que es como está en el tabulador y como se llama su
+   * tarifa. Así el filtro por cargo no parte en dos al mismo cargo por un punto
+   * que alguien tecleó de más, y lo que se lee en pantalla es lo mismo que se
+   * lee en el 🏷️ Tabulador. Un cargo que el tabulador no tiene se conserva tal
+   * como lo escribieron.
+   */
+  cargo: (cargo?: string | null) => string;
 };
 
 /** Texto listo para comparar: minúscula, sin tildes, sin espacios sobrantes. */
 const limpio = (v?: string | null) => norm(v ?? '').trim();
 
-/** El departamento tal como se escribe: sin espacios sobrantes y en MAYÚSCULA. */
-const comoSeEscribe = (v?: string | null) => String(v ?? '').trim().toUpperCase();
+/**
+ * El nombre tal como se escribe: en MAYÚSCULA y sin espacios sobrantes, ni en
+ * las puntas ni dobles por dentro. Los espacios de más no son otro nombre: si
+ * sobrevivieran, "OPERADOR  VIAL" saldría como un cargo aparte de "OPERADOR VIAL".
+ */
+const comoSeEscribe = (v?: string | null) => String(v ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
 
 /** Puesto de un departamento en `ORDEN`; lo que no está va detrás. */
 function puesto(canon: string, etiqueta: string): number {
@@ -111,8 +130,19 @@ export function mapaDepartamentos(tarifas: TarifaCargo[]): MapaDepartamentos {
   // grupo canónico → cuántas veces el tabulador usa cada escritura.
   const votos = new Map<string, Map<string, number>>();
 
+  // clave de cargo → cargo como lo escribe el tabulador (para que la pantalla lo
+  // diga igual que el tabulador). A dos escrituras del mismo cargo gana la
+  // alfabética, para que el filtro no cambie de nombre entre una carga y otra.
+  const etiquetaCargo = new Map<string, string>();
+
   for (const t of tarifas) {
-    const cargo = limpio(t.cargo);
+    const kc = claveCargo(t.cargo);
+    if (kc) {
+      const previa = etiquetaCargo.get(kc);
+      const propia = comoSeEscribe(t.cargo);
+      if (!previa || cmpText(propia, previa) < 0) etiquetaCargo.set(kc, propia);
+    }
+    const cargo = kc;
     const dep = comoSeEscribe(t.departamento);
     if (!cargo || !dep) continue;
     porCargo.set(cargo, dep);
@@ -134,7 +164,7 @@ export function mapaDepartamentos(tarifas: TarifaCargo[]): MapaDepartamentos {
   const de = (cargo?: string | null, deptFicha?: string | null): string => {
     // Tabulador primero, ficha después: el tabulador es lo que el usuario cura a
     // propósito para la nómina; la ficha es un dato de RRHH que puede estar viejo.
-    const crudo = porCargo.get(limpio(cargo)) ?? comoSeEscribe(deptFicha);
+    const crudo = porCargo.get(claveCargo(cargo)) ?? comoSeEscribe(deptFicha);
     const canon = normalizeDept(crudo || null, cargo);
     return etiqueta.get(canon) ?? canon;
   };
@@ -149,5 +179,11 @@ export function mapaDepartamentos(tarifas: TarifaCargo[]): MapaDepartamentos {
       return pa !== pb ? pa - pb : cmpText(a, b);
     });
 
-  return { de, orden };
+  const cargo = (c?: string | null): string => {
+    const k = claveCargo(c);
+    if (!k) return SIN_CARGO;
+    return etiquetaCargo.get(k) ?? comoSeEscribe(c);
+  };
+
+  return { de, orden, cargo };
 }

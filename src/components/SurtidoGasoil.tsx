@@ -5,8 +5,13 @@ import { insertMachineDispatch } from '../lib/dispatches';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { caracasParts } from '../lib/jornada';
+import { horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 
+// ⚠️ Solo para los LITROS. El HORÓMETRO se lee con `horometroDeTexto`, que además
+//    entiende los miles ("7.919" = 7919 h). No se unifican a propósito: cambiar
+//    cómo se leen los litros movería cantidades de combustible ya cargadas.
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
+const horoOrNull = (s: string) => { const n = horometroDeTexto(s); return isFinite(n) ? n : null; };
 // Fecha de hoy en Caracas, independiente de la zona horaria del dispositivo.
 const todayISO = () => caracasParts(new Date()).iso;
 
@@ -71,7 +76,7 @@ export function SurtidoGasoilModal({
   }, [machineId]);
 
   // Horas desde el último surtido y consumo estimado (horas × L/h).
-  const horoNum = numOrNull(horo);
+  const horoNum = horoOrNull(horo);
   const lph = info?.expected_lph != null ? Number(info.expected_lph) : null;
   const horas = horoNum != null && prevHoro != null ? Math.max(0, horoNum - prevHoro) : null;
   const consumidoEst = horas != null && lph != null ? horas * lph : null;
@@ -139,7 +144,7 @@ export function SurtidoGasoilModal({
                 </Text>
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Horómetro actual</Text>
-                <TextInput value={horo} onChangeText={setHoro} keyboardType="numeric" placeholder="Ej: 1250" placeholderTextColor={colors.muted} style={box} />
+                <TextInput value={horo} onChangeText={(t) => setHoro(soloHorometro(t))} keyboardType="numeric" placeholder="Ej: 1250" placeholderTextColor={colors.muted} style={box} />
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Litros surtidos</Text>
                 <TextInput value={liters} onChangeText={setLiters} keyboardType="numeric" placeholder="Ej: 40" placeholderTextColor={colors.muted} style={box} />
