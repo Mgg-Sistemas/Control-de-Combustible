@@ -51,6 +51,7 @@ const E = cargar('src/lib/viajesEdicion.ts', { caracasDay, viajesTurno });
 const {
   claveViajeEstable, fueraDeJornada, requiereRastroDeEdicion,
   detalleRastroEdicion, ACCION_EDIT_FUERA_JORNADA,
+  horariosDeCarga, horariosOcupados, tandaEnElSiguienteHueco,
 } = E;
 
 let pass = 0, fail = 0; const failures = [];
@@ -341,6 +342,100 @@ console.log('VIAJES DUPLICADOS Y RASTRO DE EDICION\n');
   ok('⭐ y el detalle identifica el camion por su PLACA', con.detalle.includes('A74AB3P'), con.detalle);
   ok('* y trae lo que cambio', con.detalle.includes('hora'), con.detalle);
 }
+
+// ── 5) ⛔ LA TANDA QUE CHOCA CON LO QUE YA ESTÁ CARGADO (29-sep-2026) ────────
+//
+// EL PEDIDO, textual: «me están diciendo que las que tienen full control en el
+// módulo de viajes de camiones NO LAS DEJA REGISTRAR VIAJES A MANO, les sale
+// ese mensaje y cuando buscan NO SALE EL VIAJE REGISTRADO».
+//
+// LA CAUSA: la clave anti-duplicado es (camión + listero + MINUTO) y la carga
+// manual arranca siempre a la misma hora. El primer viaje del día entra; cuando
+// la oficina quiere AGREGARLE otro al mismo camión, vuelve a arrancar a las
+// 8:00, la clave se repite y la base lo rechaza — y el aviso salía EN VERDE
+// diciendo «ya estaban cargados», como si todo hubiera ido bien.
+//
+// LO QUE BLINDA: se distingue ANTES de insertar. Chocan algunos = es la tanda
+// de antes reintentándose (entran los que faltan, en SU hora). Chocan TODOS =
+// nadie entraría, y se corre la tanda al siguiente hueco libre.
+{
+  const CAM = 'cam-1 CAMION VOLTEO TORONTO';
+  const LIS = 'lis-1';
+  const claveDe = (iso) => claveViajeEstable({ identidadCamion: CAM, listeroId: LIS, registeredAtISO: iso });
+
+  // Una tanda de 3 viajes desde las 8:00 (hora de Caracas = 12:00 UTC).
+  const tanda = horariosDeCarga('2026-09-29', 8, 0, 3);
+  ok('la tanda son 3 horarios de 5 en 5', tanda.length === 3, tanda.join(' '));
+
+  // Nada cargado todavía: no choca ninguno.
+  ok('⭐ sin nada cargado, ningún horario choca', horariosOcupados(tanda, claveDe, new Set()).length === 0);
+
+  // ── Caso A: la tanda ENTERA ya está (es lo que le pasaba a la oficina) ──
+  const todas = new Set(tanda.map(claveDe));
+  ok('⭐⭐ si ya están los 3, chocan los 3 (antes esto se anunciaba en verde)',
+    horariosOcupados(tanda, claveDe, todas).length === 3);
+  const corrida = tandaEnElSiguienteHueco(tanda, claveDe, todas);
+  ok('⭐⭐ y se ofrece la MISMA tanda en el siguiente hueco libre', !!corrida && corrida.length === 3);
+  ok('⭐ el hueco es LIBRE de verdad', horariosOcupados(corrida, claveDe, todas).length === 0);
+  ok('⭐ la tanda se mueve ENTERA y sigue de 5 en 5 (no se reparte en huecos sueltos)',
+    Date.parse(corrida[1]) - Date.parse(corrida[0]) === 5 * 60000
+    && Date.parse(corrida[2]) - Date.parse(corrida[1]) === 5 * 60000);
+  ok('⭐ y va HACIA ADELANTE, nunca hacia atrás', Date.parse(corrida[0]) > Date.parse(tanda[0]));
+  ok('el primer hueco es el más cercano posible (8:15, justo después de la última)',
+    corrida[0] === new Date(Date.parse(tanda[2]) + 5 * 60000).toISOString(), corrida[0]);
+
+  // ── Caso B: la tanda a medias (el reintento de siempre) ──
+  const aMedias = new Set([claveDe(tanda[0])]);
+  ok('⭐ si solo choca uno, se dice cuál — los otros dos entran en SU hora',
+    horariosOcupados(tanda, claveDe, aMedias).length === 1
+    && horariosOcupados(tanda, claveDe, aMedias)[0] === tanda[0]);
+
+  // ── El otro camión y el otro listero NO chocan: la clave los distingue ──
+  const otroCamion = (iso) => claveViajeEstable({ identidadCamion: 'cam-2 CAMION VOLTEO TORONTO', listeroId: LIS, registeredAtISO: iso });
+  ok('⭐⭐ OTRO camión a la misma hora NO choca (son camiones distintos)',
+    horariosOcupados(tanda, otroCamion, todas).length === 0);
+  const otroListero = (iso) => claveViajeEstable({ identidadCamion: CAM, listeroId: 'lis-2', registeredAtISO: iso });
+  ok('⭐ y otro listero tampoco', horariosOcupados(tanda, otroListero, todas).length === 0);
+
+  // ── Bordes ──
+  ok('sin claves cargadas no hay choque posible', horariosOcupados(tanda, claveDe, new Set()).length === 0);
+  ok('una clave VACÍA no cuenta como ocupada (esa fila entra con clave al azar)',
+    horariosOcupados(tanda, () => '', new Set([''])).length === 0);
+  ok('sin horarios no hay tanda que correr', tandaEnElSiguienteHueco([], claveDe, todas) === null);
+  ok('con horarios rotos devuelve null en vez de reventar',
+    tandaEnElSiguienteHueco(['no-es-fecha'], claveDe, todas) === null);
+  // Si TODO el día está ocupado se devuelve null y la pantalla lo dice, en vez
+  // de girar para siempre o proponer una hora inventada.
+  {
+    const unSolo = horariosDeCarga('2026-09-29', 8, 0, 1);
+    const todoElDia = new Set();
+    for (let i = 0; i <= 400; i++) todoElDia.add(claveDe(new Date(Date.parse(unSolo[0]) + i * 5 * 60000).toISOString()));
+    ok('⭐ si no hay ningún hueco, devuelve null (la pantalla avisa)',
+      tandaEnElSiguienteHueco(unSolo, claveDe, todoElDia) === null);
+  }
+
+  // ── Y cómo quedó conectado en la pantalla ──
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok('⭐ la carga manual mira ANTES si esos horarios ya tienen viaje',
+    /const chocan = horariosOcupados\(horariosPedidos, claveDe, yaCargadas\)/.test(scr));
+  ok('⭐ compara por la clave GUARDADA en la base, no re-deduciendo la hora',
+    /new Set\(deEseCamion\.map\(\(r\) => r\.clientActionId\)\.filter\(Boolean\)/.test(scr));
+  ok('⭐ solo corre la tanda cuando NO entraría ninguno',
+    /const todosChocan = chocan\.length > 0 && chocan\.length === horariosPedidos\.length/.test(scr)
+    && /todosChocan \? tandaEnElSiguienteHueco\(/.test(scr));
+  ok('⭐ la confirmación anuncia la hora REAL en que se va a grabar',
+    /desde las \$\{horaDe\(horarios\[0\]\)\}/.test(scr));
+  ok('⭐ y avisa que si es la misma tanda de antes, hay que cancelar',
+    /dale Cancelar/.test(scr));
+  ok('⭐⭐ «no se agregó ninguno» YA NO SALE EN VERDE',
+    /toast\.error\(\s*`No se agregó ninguno:/.test(scr));
+  ok('…y dice qué hacer (cambiar la hora de arranque)',
+    /cambia la hora de arranque/i.test(scr));
+  ok('si la consulta previa falla, la carga NO se bloquea',
+    /if \(!errCarga\) yaCargadas = /.test(scr));
+}
+
 
 console.log('\n' + pass + ' OK · ' + fail + ' FALLO(S)');
 if (fail) { failures.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }

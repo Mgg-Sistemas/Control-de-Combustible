@@ -127,6 +127,8 @@ import {
   notaCargaManual,
   esCargaManual,
   claveViajeEstable,
+  horariosOcupados,
+  tandaEnElSiguienteHueco,
   fueraDeJornada,
   rastroDeEdicion,
   MAX_CARGA,
@@ -1903,7 +1905,59 @@ export default function ViajesCamionesScreen() {
       const listero = listeros.find((l) => l.id === cargaListeroId) ?? { id: uid, full_name: listeroName };
       // CDT de la tanda: el que se eligió; si no se eligió, el del listero (como antes).
       const obraCarga = obraParaGrabar(cargaUbicacionId || (listeros.find((l) => l.id === listero.id)?.ubicacion_id ?? null), obras);
-      const horarios = horariosDeCarga(cargaFecha, hh, mm, cantidad);
+      const horariosPedidos = horariosDeCarga(cargaFecha, hh, mm, cantidad);
+
+      // ⛔ ¿ESOS HORARIOS YA TIENEN VIAJE? (29-sep-2026, reportado por la oficina:
+      //    «no las deja registrar viajes a mano, sale ese mensaje y cuando buscan
+      //    no sale el viaje»).
+      //
+      //    La clave anti-duplicado es (camión + listero + minuto) y la carga
+      //    manual arranca siempre a la misma hora, así que el SEGUNDO viaje del
+      //    día para el mismo camión rebotaba contra el primero — y se anunciaba
+      //    en verde como si todo hubiera salido bien. Ahora se mira ANTES, con
+      //    las claves que la base ya tiene, y se dice qué está pasando.
+      const claveDe = (iso: string) => claveViajeEstable({
+        identidadCamion: identidadParaClave(cargaTruck),
+        listeroId: listero.id,
+        registeredAtISO: iso,
+      });
+      // Ventana amplia (±1 día) alrededor de la tanda: basta para traer los
+      // viajes de ese camión que podrían chocar, y se compara por la clave
+      // GUARDADA, no por la hora — así no hay que re-deducir husos ni jornadas.
+      const msIni = Date.parse(horariosPedidos[0] ?? '');
+      const msFin = Date.parse(horariosPedidos[horariosPedidos.length - 1] ?? '');
+      let yaCargadas = new Set<string>();
+      if (Number.isFinite(msIni) && Number.isFinite(msFin)) {
+        const { rows: deEseCamion, error: errCarga } = await listTodosLosViajes({
+          desdeISO: new Date(msIni - 24 * 3600 * 1000).toISOString(),
+          hastaExclusivoISO: new Date(msFin + 24 * 3600 * 1000).toISOString(),
+          machineryIds: [cargaTruck.id],
+        });
+        // Si la consulta falla NO se bloquea la carga: se sigue como antes y la
+        // base tiene la última palabra. Avisar de un choque que no se pudo
+        // comprobar sería peor que no avisar.
+        if (!errCarga) yaCargadas = new Set(deEseCamion.map((r) => r.clientActionId).filter(Boolean) as string[]);
+      }
+      const chocan = horariosOcupados(horariosPedidos, claveDe, yaCargadas);
+
+      // TODOS chocan = no entraría ni uno. Es el caso de «quiero cargarle otro
+      // viaje a este camión»: se ofrece correr la tanda al siguiente hueco.
+      const todosChocan = chocan.length > 0 && chocan.length === horariosPedidos.length;
+      const corrida = todosChocan ? tandaEnElSiguienteHueco(horariosPedidos, claveDe, yaCargadas) : null;
+      if (todosChocan && !corrida) {
+        toast.error(`${cargaTruck.code} ya tiene viajes de ${listero.full_name} en todas las horas del día. Cambia el listero o la fecha.`);
+        return;
+      }
+      const horarios = corrida ?? horariosPedidos;
+      const horaDe = (iso: string) => { const p = caracasParts(new Date(iso)); return `${pad2(p.hour)}:${pad2(p.minute)}`; };
+      const avisoChoque = todosChocan && corrida
+        ? `\n\n⛔ OJO: ${cargaTruck.code} YA tiene ${chocan.length} viaje(s) de ${listero.full_name} a esa(s) hora(s) (${chocan.map(horaDe).join(', ')}).`
+          + `\n\n➡️ Estos ${cantidad} viaje(s) se van a cargar A PARTIR DE LAS ${horaDe(corrida[0])}, que es la primera hora libre.`
+          + `\n\n⚠️ Si lo que querías era volver a cargar la MISMA tanda de antes, dale Cancelar: esos viajes ya están y no hace falta repetirlos.`
+        : chocan.length > 0
+          ? `\n\n⛔ OJO: ${chocan.length} de los ${horariosPedidos.length} horarios YA tienen viaje (${chocan.map(horaDe).join(', ')}). Esos NO se van a duplicar: solo entran los ${horariosPedidos.length - chocan.length} que faltan.`
+          : '';
+
       // ⚠️ Una tanda puede DESBORDARSE a la jornada siguiente (empezar 6:50am y
       //    cargar cuatro deja dos de cada lado de las 7). No se prohíbe, pero se
       //    dice: si no, esos viajes salen en un día que la jefa no eligió y
@@ -1925,13 +1979,16 @@ export default function ViajesCamionesScreen() {
         title: 'Cargar viajes a mano',
         message:
           `Se van a agregar ${cantidad} viaje(s) al camión ${cargaTruck.code} el ${dmy(cargaFecha)}, ` +
-          `desde las ${pad2(hh)}:${pad2(mm)}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}` +
+          // La hora que se ANUNCIA es la que de verdad se va a grabar: si la
+          // tanda se corrió al siguiente hueco, decir la que se tecleó sería
+          // mentirle a quien está confirmando.
+          `desde las ${horaDe(horarios[0])}${cantidad > 1 ? ` y cada ${SEPARACION_MIN} minutos` : ''}` +
           `${turnos.length === 1 ? ` (turno de ${TURNO_NOMBRE[turnoElegido].toLowerCase()})` : ''}, ` +
           `a nombre de ${listero.full_name}, en ${obraCarga.ubicacionNombre ? `el CDT «${obraCarga.ubicacionNombre}»` : 'ningún CDT (sin ubicación)'}.` +
           (conPeso ? `\n\n⚖️ Con peso: bruto ${kgTexto(cargaBrutoKg)} − tara ${kgTexto(cargaTaraKg)} = a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}${cargaTaraManual ? ' (tara tecleada a mano)' : ' (tara del catálogo)'}. Sin foto: la carga manual no la finge.` : '') +
           (cargaFrenteId ? `\n⛏️ Frente: ${frentes.find((f) => f.id === cargaFrenteId)?.nombre ?? ''}.` : '') +
-          `\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}`,
-        confirmText: 'Cargar',
+          `\n\nQuedan marcados como «cargado a mano».${desborde}${cruceTurno}${avisoChoque}`,
+        confirmText: todosChocan ? `Cargar desde las ${horaDe(horarios[0])}` : 'Cargar',
       });
       if (!ok) return;
 
@@ -2038,10 +2095,18 @@ export default function ViajesCamionesScreen() {
             : `Se cargaron ${hechos} de ${horarios.length}${yaTxt} y falló el siguiente (${motivoLegible(ultimoError)}). Vuelve a cargar la MISMA tanda —mismo camión, misma fecha, misma hora de arranque y mismo listero— y solo entrarán los que faltan.`,
         );
       } else if (hechos === 0 && yaEstaban > 0) {
-        // Recargar una tanda que ya estaba completa. No es un error, pero decir
-        // "0 cargados" a secas parecería una falla: se explica por qué.
-        toast.success(`Esos ${yaEstaban} viaje(s) ya estaban cargados. No se duplicó ninguno.`);
-        setCargaCantidad('1');
+        // ⚠️ NO ES UN ÉXITO Y NO PUEDE IR EN VERDE (29-sep-2026). Acá NO SE
+        //    AGREGÓ NADA, y el aviso verde «ya estaban cargados, no se duplicó
+        //    ninguno» hacía creer que la carga había salido bien: la oficina lo
+        //    reportó como «no me deja registrar viajes a mano y después no sale
+        //    el viaje». Ahora se dice que no entró ninguno y QUÉ HACER.
+        //    (Con la comprobación previa esto ya casi no debería pasar: solo si
+        //    alguien cargó los mismos viajes entre la confirmación y el guardado.)
+        toast.error(
+          `No se agregó ninguno: ${cargaTruck.code} ya tiene esos ${yaEstaban} viaje(s) a esa(s) hora(s) a nombre de ${listero.full_name}. `
+          + 'Si querías cargarle MÁS viajes, cambia la hora de arranque y vuelve a intentar.',
+          9000,
+        );
       } else {
         toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}${conPeso ? ` · a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}` : ''}.`);
         setCargaCantidad('1');

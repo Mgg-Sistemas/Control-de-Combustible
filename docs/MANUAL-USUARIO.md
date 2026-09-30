@@ -6075,6 +6075,30 @@ Si cargas **más de uno**, se separan **5 minutos** a partir de esa hora, para q
 corregir la hora a cada uno por separado — apilarlos todos en el mismo minuto los volvería
 indistinguibles, y un camión no hace dos viajes en el mismo instante.
 
+> **⛔ «Esos viajes ya estaban cargados» — corregido el 29/09/2026.** La oficina reportó que **no la
+> dejaba cargar viajes a mano**: salía ese aviso **en verde** y después el viaje no aparecía por
+> ningún lado. **El aviso decía la verdad y a la vez engañaba**: no se duplicó nada… pero tampoco
+> se agregó nada.
+>
+> **Por qué pasaba.** Para que recargar una tanda que falló a la mitad no duplique viajes, cada
+> viaje lleva una **huella** hecha de **camión + listero + minuto**. Como la carga manual **arranca
+> siempre a la misma hora** (las 8:00), el **segundo** viaje que le cargabas a ese camión ese día
+> tenía la **misma huella** que el primero, y la base lo rechazaba. La protección contra el
+> duplicado estaba tapando el caso legítimo de «quiero cargarle **uno más**».
+>
+> **Qué hace ahora.** Antes de guardar, el sistema **mira si esas horas ya tienen viaje** de ese
+> camión y ese listero:
+> - **Si ya están TODAS** (no entraría ninguno) te lo dice, te muestra a qué horas están, y te
+>   ofrece cargar la tanda **a partir de la primera hora libre** — el botón dice **«Cargar desde las
+>   HH:MM»**. Si lo que querías era repetir la misma tanda de antes, **dale Cancelar**.
+> - **Si solo chocan algunas** (el reintento de una tanda a medias) entran **las que faltan, en su
+>   propia hora**, como siempre, y la confirmación te dice cuáles se saltan.
+> - Y si aun así no entrara ninguno, el aviso **ya no sale en verde**: dice que **no se agregó
+>   ninguno** y qué hacer (cambiar la hora de arranque).
+>
+> **La protección sigue intacta**: nadie duplica una tanda por darle dos veces. Lo que cambió es que
+> ahora **te lo dice antes, con las horas en la mano, y te deja salir del paso**.
+
 > **🕗 EL TURNO Y LA HORA SON LA MISMA COSA (31-ago-2026).** Los dos botones de turno **no son un
 > campo aparte**: son un **atajo** que pone la hora de arranque del turno — **☀️ Día → 07:00** y
 > **🌙 Noche → 19:00**. Si prefieres una hora exacta, **escríbela**: el turno que se ve marcado
