@@ -144,6 +144,67 @@ export function horariosDeCarga(
   return out;
 }
 
+// ⛔ ── CUANDO LA TANDA CHOCA CON LO QUE YA ESTÁ CARGADO (29-sep-2026) ────────
+//
+// EL PROBLEMA REAL, reportado por la oficina: «las que tienen full control no
+// las deja registrar viajes a mano, les sale ese mensaje y cuando buscan no
+// sale el viaje registrado». El mensaje era «esos N viajes ya estaban cargados,
+// no se duplicó ninguno» — EN VERDE, como si todo hubiera salido bien.
+//
+// Qué pasaba de verdad: la clave anti-duplicado es (camión + listero + MINUTO),
+// y la carga manual arranca siempre a la misma hora (las 8:00). El primer viaje
+// del día entra; cuando la oficina quiere AGREGAR otro al mismo camión ese día,
+// vuelve a arrancar a las 8:00, la clave es la misma y la base lo rechaza. La
+// protección contra recargar dos veces la misma tanda estaba bloqueando el caso
+// legítimo de «quiero cargar uno más», y encima lo anunciaba como un éxito.
+//
+// La protección NO se quita —recargar una tanda a medias tiene que seguir sin
+// duplicar—, así que se distingue ANTES de insertar:
+//   · CHOCAN ALGUNOS → es la tanda de antes reintentándose: entran los que
+//     faltan en SU hora, como siempre.
+//   · CHOCAN TODOS  → nadie entraría. Entonces se ofrece correr la tanda entera
+//     al siguiente hueco libre, que es lo que la oficina quería hacer.
+
+/** Los horarios de la tanda que YA tienen un viaje cargado con esa misma clave. */
+export function horariosOcupados(
+  horariosISO: string[],
+  claveDe: (iso: string) => string,
+  yaCargadas: Set<string>,
+): string[] {
+  if (!horariosISO || !yaCargadas || yaCargadas.size === 0) return [];
+  // Una clave VACÍA no cuenta como ocupada: significa que a esa fila le faltaba
+  // algo para tener clave estable y va a entrar con una al azar (ver
+  // `claveViajeEstable`), así que no choca con nadie.
+  return horariosISO.filter((iso) => { const k = claveDe(iso); return !!k && yaCargadas.has(k); });
+}
+
+/**
+ * Corre la tanda ENTERA hacia adelante, de `gapMin` en `gapMin`, hasta que
+ * ningún horario choque. Devuelve los horarios nuevos, o `null` si no encuentra
+ * hueco dentro del tope (24 h de saltos de 5 minutos).
+ *
+ * ⚠️ Se mueve la tanda COMPLETA y no cada viaje por su lado: los viajes de una
+ *    tanda van seguidos cada 5 minutos a propósito (es lo que se le prometió a
+ *    quien carga), y repartirlos por los huecos sueltos daría una lista de horas
+ *    salteadas que nadie pidió.
+ */
+export function tandaEnElSiguienteHueco(
+  horariosISO: string[],
+  claveDe: (iso: string) => string,
+  yaCargadas: Set<string>,
+  gapMin: number = SEPARACION_MIN,
+  topeSaltos = 288,
+): string[] | null {
+  if (!horariosISO || horariosISO.length === 0) return null;
+  const ms = horariosISO.map((iso) => Date.parse(iso));
+  if (ms.some((t) => !Number.isFinite(t))) return null;
+  for (let salto = 1; salto <= topeSaltos; salto++) {
+    const corridos = ms.map((t) => new Date(t + salto * gapMin * 60000).toISOString());
+    if (horariosOcupados(corridos, claveDe, yaCargadas).length === 0) return corridos;
+  }
+  return null;
+}
+
 /**
  * Las jornadas DISTINTAS que toca una tanda, en orden.
  *
