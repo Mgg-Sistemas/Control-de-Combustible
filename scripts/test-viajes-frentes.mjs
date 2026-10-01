@@ -117,11 +117,23 @@ ok('⭐ el insert lleva el frente en su propio peldaño (escalera de 6)',
   /camposFrente = \{\s*frente_id: params\.frenteId \?\? null,\s*frente_nombre: params\.frenteNombre \?\? null,\s*\}/.test(lib));
 ok('editarViaje acepta ponerle o quitarle el frente',
   /if \(cambios\.frente !== undefined\) \{\s*patch\.frente_id = cambios\.frente\.id;\s*patch\.frente_nombre = cambios\.frente\.nombre;/.test(lib));
-ok('el catálogo tiene crear y apagar (nunca borrar)',
+// ⚠️ ESTAS DOS REGLAS CAMBIARON EL 30-sep-2026, a pedido del cliente: «permite
+//    que un camion pueda tener varios frentes y ademas permite que el usuario
+//    pueda borrar, editar y agregar mas frentes o modificar lo que ya tiene el
+//    camion». Antes el catálogo NO tenía borrar (solo apagar) y la asignación
+//    era un upsert por jornada+camión, que al ponerle un segundo frente PISABA
+//    el primero en silencio. Se deja escrito aquí para que el próximo que lea
+//    esta suite no crea que se debilitó una guarda: se cambió el requisito.
+ok('el catálogo tiene crear, apagar, renombrar y borrar',
   /export async function crearFrente/.test(lib) && /export async function setActivoFrente/.test(lib)
-  && !/from\('viaje_frentes'\)\s*\.delete/.test(lib));
-ok('⭐ la asignación es upsert por jornada+camión (reasignar pisa, no duplica)',
-  /\.upsert\(filas, \{ onConflict: 'jornada,machinery_id' \}\)/.test(lib));
+  && /export async function renombrarFrente/.test(lib) && /export async function borrarFrente/.test(lib));
+ok('⭐ borrar avisa ANTES cuántas asignaciones se lleva',
+  /export async function contarAsignacionesFrente/.test(lib));
+ok('⭐ asignar SUMA, no pisa: ya no hay upsert por jornada+camión',
+  !/onConflict: 'jornada,machinery_id'/.test(lib) && /from\('viaje_frente_asignaciones'\)\.insert\(filas\)/.test(lib));
+ok('⭐ quitar una asignación puede apuntar a UN frente, no a todos los del camión',
+  /quitarAsignacionFrente\(\s*jornada: string, machineryId: string, frenteId\?: string,/.test(lib)
+  && /if \(frenteId\) q = q\.eq\('frente_id', frenteId\)/.test(lib));
 ok('las escrituras piden filas de vuelta (un rechazo por permisos no pasa callado)',
   /asignarFrente[\s\S]*?\.select\('id'\)/.test(lib));
 

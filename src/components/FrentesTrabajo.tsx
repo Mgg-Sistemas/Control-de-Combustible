@@ -25,7 +25,7 @@ import { Plegable } from './Plegable';
 import { Toggle } from './CubicajeTab';
 import {
   listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente,
-  crearFrente, setActivoFrente,
+  crearFrente, setActivoFrente, renombrarFrente, borrarFrente, contarAsignacionesFrente,
   type FrenteTrabajo, type AsignacionFrente,
 } from '../lib/camionViajes';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -85,8 +85,15 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const [guardando, setGuardando] = useState(false);
   // ── La asignación del día ──
   const [fecha, setFecha] = useState(jornadaHoy);
-  const [frenteSel, setFrenteSel] = useState<string | null>(null);
+  // ⭐ VARIOS frentes a la vez (30-sep-2026): marcar 3 camiones y 2 frentes deja
+  //    los 3 camiones recogiendo en los 2 frentes, sin repetir la operación.
+  const [frenteSel, setFrenteSel] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
+  // ── ✏️ Editar y 🗑️ borrar un frente del catálogo (30-sep-2026) ──
+  const [editando, setEditando] = useState<{ id: string; nombre: string } | null>(null);
+  // La confirmación va EN LÍNEA, no en un `confirm()`: dentro de un Modal a
+  // pantalla completa el diálogo del navegador queda tapado y parece colgado.
+  const [borrando, setBorrando] = useState<{ id: string; nombre: string; asignaciones: number } | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [asignaciones, setAsignaciones] = useState<AsignacionFrente[]>([]);
   const [recarga, setRecarga] = useState(0);
@@ -123,7 +130,18 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   }, [canFull, jornadaHoy, recarga]);
 
   const activos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
-  const asignadoA = useMemo(() => new Map(asignaciones.map((a) => [a.machineryId, a])), [asignaciones]);
+  /** Los frentes de cada camión ese día: ahora son VARIOS, no uno. */
+  const asignadoA = useMemo(() => {
+    const m = new Map<string, AsignacionFrente[]>();
+    asignaciones.forEach((a) => {
+      const l = m.get(a.machineryId) ?? [];
+      if (!l.some((x) => x.frenteId === a.frenteId)) l.push(a);
+      m.set(a.machineryId, l);
+    });
+    return m;
+  }, [asignaciones]);
+  /** Camiones DISTINTOS asignados ese día (las filas son más: varios frentes). */
+  const camionesAsignados = useMemo(() => asignadoA.size, [asignadoA]);
 
   // El buscador: por código, placa, serial, empresa, marca o modelo — el mismo
   // criterio del buscador de taras, porque el problema es el mismo (treinta
@@ -157,19 +175,66 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     onCambio();
   };
 
+  /**
+   * ⛏️ ASIGNAR: ahora SUMA en vez de pisar, y admite VARIOS frentes de una vez
+   * (30-sep-2026). Marcar 3 camiones y 2 frentes deja 6 asignaciones.
+   */
   const asignar = async () => {
-    if (!frenteSel) { toast.error('Elige primero el frente.'); return; }
+    if (frenteSel.size === 0) { toast.error('Elige al menos un frente.'); return; }
     if (marcados.size === 0) { toast.error('Marca al menos un camión (usa el buscador).'); return; }
     setGuardando(true);
-    const { error } = await asignarFrente(fecha, Array.from(marcados), frenteSel, uid, userName);
+    const ids = Array.from(marcados);
+    let agregados = 0, yaEstaban = 0;
+    const fallos: string[] = [];
+    for (const fId of frenteSel) {
+      const r = await asignarFrente(fecha, ids, fId, uid, userName);
+      if (r.error) fallos.push(`«${activos.find((f) => f.id === fId)?.nombre ?? fId}»: ${r.error}`);
+      else { agregados += r.agregados ?? 0; yaEstaban += r.yaEstaban ?? 0; }
+    }
+    setGuardando(false);
+    setRecarga((n) => n + 1);
+    onCambio();
+    // Se cuentan los fallos aparte: si un frente falló y otro no, decir solo
+    // «listo» escondería que a medio camión no le quedó el frente puesto.
+    if (fallos.length) { toast.error(`No se pudo asignar ${fallos.join(' · ')}`); return; }
+    setMarcados(new Set());
+    const nombres = Array.from(frenteSel).map((id) => activos.find((f) => f.id === id)?.nombre ?? '').filter(Boolean).join(' · ');
+    const repe = yaEstaban > 0 ? ` (${yaEstaban} ya lo tenían)` : '';
+    // ⛏️ El aviso dice lo que de verdad pasa: con UN frente los viajes sin
+    //    frente lo toman solos; con VARIOS ya no se puede adivinar cuál.
+    const auto = frenteSel.size === 1
+      ? 'Los viajes de ese día sin frente lo toman automáticamente.'
+      : 'Ojo: a los camiones con VARIOS frentes ese día, los viajes ya no toman el frente solos — hay que elegirlo al registrar o en ✏️ Editar.';
+    toast.success(`${agregados} asignación(es)${repe}: ⛏️ ${nombres} el ${dmy(fecha)}. ${auto}`);
+  };
+
+  /** ✏️ Renombrar un frente del catálogo. */
+  const renombrar = async () => {
+    if (!editando) return;
+    setGuardando(true);
+    const { error } = await renombrarFrente(editando.id, editando.nombre);
     setGuardando(false);
     if (error) { toast.error(error); return; }
-    const nombre = activos.find((f) => f.id === frenteSel)?.nombre ?? '';
-    // ⛏️ El aviso dice lo que de verdad pasa desde el 29-sep: TODOS los viajes
-    //    de ese día que no tengan frente propio lo toman solos, los que ya
-    //    estaban registrados y los que vengan.
-    toast.success(`${marcados.size} camión(es) al frente «${nombre}» el ${dmy(fecha)}. Los viajes de ese día sin frente lo toman automáticamente.`);
-    setMarcados(new Set());
+    setEditando(null);
+    toast.success('Frente renombrado. Los viajes ya registrados conservan el nombre con el que se grabaron.');
+    setRecarga((n) => n + 1);
+    onCambio();
+  };
+
+  /** 🗑️ Borrar: primero se pregunta CUÁNTAS asignaciones se lleva por delante. */
+  const pedirBorrar = async (f: FrenteTrabajo) => {
+    const n = await contarAsignacionesFrente(f.id);
+    setBorrando({ id: f.id, nombre: f.nombre, asignaciones: n });
+  };
+
+  const borrar = async () => {
+    if (!borrando) return;
+    setGuardando(true);
+    const { error } = await borrarFrente(borrando.id);
+    setGuardando(false);
+    if (error) { toast.error(error); return; }
+    setBorrando(null);
+    toast.success('Frente borrado. Los viajes ya registrados conservan el nombre del frente.');
     setRecarga((n) => n + 1);
     onCambio();
   };
@@ -229,8 +294,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     }
   };
 
+  /** Quita ESE frente de ese camión — no todos los que tenga ese día. */
   const quitar = async (a: AsignacionFrente) => {
-    const { error } = await quitarAsignacionFrente(fecha, a.machineryId);
+    const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId);
     if (error) { toast.error(error); return; }
     setRecarga((n) => n + 1);
     onCambio();
@@ -298,17 +364,74 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
           ) : (
             <View style={{ marginTop: spacing.xs }}>
               {frentes.map((f) => (
-                <View key={f.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <Text style={{ color: f.activo ? colors.text : colors.muted, fontWeight: '700', fontSize: 12.5, flex: 1 }}>
-                    ⛏️ {f.nombre}{f.activo ? '' : ' · DESACTIVADO'}
-                  </Text>
-                  {canFull ? (
-                    <TouchableOpacity onPress={() => alternar(f)}>
-                      <Text style={{ color: f.activo ? colors.danger : colors.success, fontWeight: '800', fontSize: 12 }}>
-                        {f.activo ? '🚫 Desactivar' : '✓ Activar'}
+                <View key={f.id} style={{ paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  {/* ✏️ EDITANDO: el nombre se cambia aquí mismo, sin modal. */}
+                  {editando?.id === f.id ? (
+                    <View>
+                      <TextInput
+                        value={editando.nombre}
+                        onChangeText={(t) => setEditando({ id: f.id, nombre: t })}
+                        placeholder="Nombre del frente"
+                        placeholderTextColor={colors.muted}
+                        style={input}
+                        autoFocus
+                      />
+                      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                        <TouchableOpacity disabled={guardando} onPress={renombrar} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 6, alignItems: 'center', opacity: guardando ? 0.6 : 1 }}>
+                          <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>💾 Guardar nombre</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setEditando(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                          <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>Cancelar</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                        Los viajes ya registrados conservan el nombre con el que se grabaron: un papel ya impreso no cambia.
                       </Text>
-                    </TouchableOpacity>
-                  ) : null}
+                    </View>
+                  ) : borrando?.id === f.id ? (
+                    /* 🗑️ BORRANDO: la confirmación va EN LÍNEA y dice qué se lleva. */
+                    <View>
+                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12.5 }}>
+                        ¿Borrar «{f.nombre}»?
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                        {borrando.asignaciones > 0
+                          ? `Se van también sus ${borrando.asignaciones} asignación(es) a camiones. `
+                          : 'No está asignado a ningún camión. '}
+                        Los viajes ya registrados CONSERVAN el nombre del frente, así que los reportes
+                        no cambian. Si solo quieres dejar de ofrecerlo, usa 🚫 Desactivar.
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                        <TouchableOpacity disabled={guardando} onPress={borrar} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 6, alignItems: 'center', opacity: guardando ? 0.6 : 1 }}>
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🗑️ Sí, borrar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setBorrando(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                          <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>Cancelar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={{ color: f.activo ? colors.text : colors.muted, fontWeight: '700', fontSize: 12.5, flex: 1 }}>
+                        ⛏️ {f.nombre}{f.activo ? '' : ' · DESACTIVADO'}
+                      </Text>
+                      {canFull ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                          <TouchableOpacity onPress={() => { setBorrando(null); setEditando({ id: f.id, nombre: f.nombre }); }}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>✏️</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => alternar(f)}>
+                            <Text style={{ color: f.activo ? colors.warning : colors.success, fontWeight: '800', fontSize: 12 }}>
+                              {f.activo ? '🚫' : '✓'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setEditando(null); pedirBorrar(f); }}>
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                    </View>
+                  )}
                 </View>
               ))}
             </View>
@@ -323,9 +446,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                 {activos.map((f) => {
-                  const on = frenteSel === f.id;
+                  const on = frenteSel.has(f.id);
                   return (
-                    <TouchableOpacity key={f.id} onPress={() => setFrenteSel(on ? null : f.id)}
+                    <TouchableOpacity key={f.id} onPress={() => setFrenteSel((p) => { const n = new Set(p); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
                       style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
                       <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>⛏️ {f.nombre}</Text>
                     </TouchableOpacity>
@@ -356,7 +479,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                         </Text>
                         <Text style={{ color: colors.muted, fontSize: 10.5 }}>
                           {[c.companyName, [c.marca, c.modelo].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || ' '}
-                          {ya ? `  · ya: ⛏️ ${ya.frenteNombre}` : ''}
+                          {ya && ya.length ? `  · ya: ⛏️ ${ya.map((a) => a.frenteNombre).join(' · ⛏️ ')}` : ''}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -366,7 +489,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               <TouchableOpacity disabled={guardando} onPress={asignar}
                 style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: guardando ? 0.6 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>
-                  ⛏️ Asignar {marcados.size > 0 ? `${marcados.size} camión(es)` : ''} al frente
+                  ⛏️ Asignar {marcados.size > 0 ? `${marcados.size} camión(es)` : ''} a {frenteSel.size > 1 ? `${frenteSel.size} frentes` : 'el frente'}
                 </Text>
               </TouchableOpacity>
 
@@ -374,7 +497,12 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               {asignaciones.length > 0 ? (
                 <View style={{ marginTop: spacing.sm }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>ASIGNADOS ESE DÍA · {asignaciones.length}</Text>
+                    {/* Camiones DISTINTOS y, si hay alguno con varios frentes,
+                        también cuántas asignaciones son en total. */}
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
+                      ASIGNADOS ESE DÍA · {camionesAsignados} camión(es)
+                      {asignaciones.length !== camionesAsignados ? ` · ${asignaciones.length} asignaciones` : ''}
+                    </Text>
                     {/* 📄 La hoja de asignación del día. Sin cifras: solo quién
                         recoge dónde (pedido explícito del cliente). */}
                     <TouchableOpacity disabled={pdfBusy} onPress={exportarPdf}>
@@ -387,7 +515,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                     <View key={`g-${f.id}`} style={{ marginTop: 4 }}>
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>⛏️ {f.nombre}</Text>
                       {asignaciones.filter((a) => a.frenteId === f.id).map((a) => (
-                        <View key={a.machineryId} style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: spacing.sm, paddingVertical: 2 }}>
+                        <View key={`${a.frenteId}-${a.machineryId}`} style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: spacing.sm, paddingVertical: 2 }}>
                           <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>🚜 {codigoDe(a.machineryId)}</Text>
                           <TouchableOpacity onPress={() => quitar(a)}>
                             <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>

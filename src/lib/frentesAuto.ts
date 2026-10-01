@@ -17,6 +17,14 @@
 //    adelante, y si mañana se corrige la asignación, los reportes se corrigen
 //    solos sin un UPDATE masivo que nadie podría deshacer.
 //
+// ⭐ VARIOS FRENTES POR CAMIÓN (30-sep-2026, a pedido: «permite que un camion
+//    pueda tener varios frentes»). Un camión puede recoger en dos frentes la
+//    misma jornada. Entonces el frente del viaje YA NO SE PUEDE DEDUCIR: un
+//    viaje se carga en UN frente, y el sistema no sabe en cuál se cargó ESTE.
+//    Se deja vacío a propósito y se cuenta aparte (`ambiguos`) para avisarlo:
+//    inventar el origen del material es peor que dejarlo en blanco, porque ese
+//    dato termina en el papel de pago.
+//
 // ⭐ LO CONGELADO MANDA: solo se completa el frente VACÍO. Un viaje que ya trae
 //    su frente —porque se registró con él, o porque se lo pusieron a mano en
 //    ✏️ Editar— se queda con el suyo. Si no, un camión que cambió de frente a
@@ -35,19 +43,44 @@ export type AsignacionDia = {
   frenteNombre: string;
 };
 
-/** La clave del mapa: la asignación es ÚNICA por jornada + camión. */
+/** La clave del mapa: jornada + camión. */
 export function claveAsignacion(jornada: string, machineryId: string): string {
   return `${String(jornada ?? '').slice(0, 10)}|${String(machineryId ?? '')}`;
 }
 
-/** Indexa las asignaciones para preguntar por jornada + camión sin recorrerlas. */
-export function mapaAsignaciones(asignaciones: AsignacionDia[]): Map<string, AsignacionDia> {
-  const m = new Map<string, AsignacionDia>();
+/**
+ * Indexa las asignaciones para preguntar por jornada + camión sin recorrerlas.
+ *
+ * ⭐ UN CAMIÓN PUEDE TENER VARIOS FRENTES EL MISMO DÍA (30-sep-2026, a pedido:
+ *    «permite que un camion pueda tener varios frentes»). Por eso el mapa
+ *    guarda una LISTA y no una sola asignación: un camión que recoge en dos
+ *    frentes la misma jornada tiene dos filas, y las dos son verdad.
+ *
+ * Se descartan las repetidas (mismo camión, misma jornada, mismo frente): la
+ * base lo impide con un único, pero dos pantallas asignando a la vez podrían
+ * colarla, y duplicada contaría dos veces en la hoja del día.
+ */
+export function mapaAsignaciones(asignaciones: AsignacionDia[]): Map<string, AsignacionDia[]> {
+  const m = new Map<string, AsignacionDia[]>();
   (asignaciones ?? []).forEach((a) => {
     if (!a || !a.jornada || !a.machineryId || !a.frenteId) return;
-    m.set(claveAsignacion(a.jornada, a.machineryId), a);
+    const k = claveAsignacion(a.jornada, a.machineryId);
+    const lista = m.get(k) ?? [];
+    if (lista.some((x) => x.frenteId === a.frenteId)) return;
+    lista.push(a);
+    m.set(k, lista);
   });
   return m;
+}
+
+/**
+ * Los frentes que tenía un camión esa jornada, en el orden en que se asignaron.
+ * Vacío si no tenía ninguno.
+ */
+export function frentesDe(
+  mapa: Map<string, AsignacionDia[]>, jornada: string, machineryId: string,
+): AsignacionDia[] {
+  return mapa.get(claveAsignacion(jornada, machineryId)) ?? [];
 }
 
 /**
@@ -92,22 +125,31 @@ export const CAMPOS_VIAJE_PAGO: CamposFrente<any> = {
  */
 export function completarFrentes<T>(
   filas: T[],
-  mapa: Map<string, AsignacionDia>,
+  mapa: Map<string, AsignacionDia[]>,
   jornadaDe: (fechaISO: string) => string,
   campos: CamposFrente<T>,
-): { filas: T[]; completados: number } {
-  if (!filas || filas.length === 0 || mapa.size === 0) return { filas: filas ?? [], completados: 0 };
-  let completados = 0;
+): { filas: T[]; completados: number; ambiguos: number } {
+  if (!filas || filas.length === 0 || mapa.size === 0) return { filas: filas ?? [], completados: 0, ambiguos: 0 };
+  let completados = 0, ambiguos = 0;
   const salida = filas.map((r) => {
     if (campos.tieneFrente(r)) return r;
     const mid = campos.machineryId(r);
     if (!mid) return r;                     // camión fuera del catálogo: no hay a qué asignarle
-    const a = mapa.get(claveAsignacion(jornadaDe(campos.fechaISO(r)), mid));
-    if (!a) return r;
+    const asigs = frentesDe(mapa, jornadaDe(campos.fechaISO(r)), mid);
+    if (asigs.length === 0) return r;
+    // ⭐ CON VARIOS FRENTES NO SE ADIVINA (30-sep-2026). Un viaje se recoge en
+    //    UN frente; si el camión tuvo dos esa jornada, el sistema no tiene cómo
+    //    saber en cuál se cargó ESTE viaje. Ponerle uno al azar —o el primero—
+    //    sería inventar de dónde salió el material, y ese dato se va al papel
+    //    de pago. Se deja vacío y se devuelve contado aparte (`ambiguos`), para
+    //    quien quiera avisarlo; esos viajes se ven como «sin frente» y se
+    //    completan a mano en ✏️ Editar. Al asignar, la pantalla ya advierte que
+    //    con varios frentes los viajes dejan de tomarlo solos.
+    if (asigs.length > 1) { ambiguos++; return r; }
     completados++;
-    return campos.poner(r, a);
+    return campos.poner(r, asigs[0]);
   });
-  return { filas: salida, completados };
+  return { filas: salida, completados, ambiguos };
 }
 
 /**

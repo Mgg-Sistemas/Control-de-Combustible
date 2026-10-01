@@ -1025,6 +1025,57 @@ export async function crearFrente(nombre: string, userId: string | null, userNam
   return {};
 }
 
+/**
+ * ✏️ RENOMBRA un frente (30-sep-2026, a pedido: «que el usuario pueda borrar,
+ * editar y agregar más frentes»). Corrige el nombre en el catálogo y en las
+ * asignaciones, que lo leen por `frente_id`.
+ *
+ * ⚠️ NO toca los viajes YA registrados: cada uno guardó el NOMBRE congelado el
+ *    día que se grabó. Es a propósito —igual que la obra y la placa—: un papel
+ *    ya impreso y un pago ya hecho no pueden cambiar porque alguien corrigió
+ *    una letra hoy. Si el nombre viejo estaba mal, se corrige en ✏️ Editar del
+ *    viaje, que es donde se ve a quién le cambia la cuenta.
+ */
+export async function renombrarFrente(id: string, nombre: string): Promise<{ error?: string }> {
+  const n = nombre.replace(/\s+/g, ' ').trim();
+  if (n.length < 2) return { error: 'Ponle un nombre al frente (p. ej. «Frente norte»).' };
+  const { data, error } = await supabase.from('viaje_frentes').update({ nombre: n }).eq('id', id).select('id');
+  if (error) {
+    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: `Ya existe un frente activo llamado «${n}».` };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
+/** Cuántas asignaciones se llevaría por delante borrar este frente. Se pregunta
+ *  ANTES de borrar para poder decírselo al usuario con un número, no en vago. */
+export async function contarAsignacionesFrente(id: string): Promise<number> {
+  const { count } = await supabase.from('viaje_frente_asignaciones')
+    .select('id', { count: 'exact', head: true }).eq('frente_id', id);
+  return count ?? 0;
+}
+
+/**
+ * 🗑️ BORRA un frente del catálogo, con sus asignaciones (la base las borra en
+ * cascada).
+ *
+ * ⚠️ LOS VIAJES NO SE PIERDEN: cada viaje guardó el NOMBRE del frente, no su
+ *    id, así que los reportes y los papeles ya hechos siguen diciendo de dónde
+ *    salió cada carga. Lo que desaparece es el frente del catálogo y a qué
+ *    camiones estaba asignado.
+ *
+ * ⚠️ Si lo que se quiere es dejar de ofrecerlo sin tocar nada, eso es
+ *    DESACTIVAR (`setActivoFrente`), no borrar. La pantalla avisa cuántas
+ *    asignaciones se van antes de preguntar.
+ */
+export async function borrarFrente(id: string): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from('viaje_frentes').delete().eq('id', id).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: 'No se borró: hace falta permiso completo en Viajes de camiones.' };
+  return {};
+}
+
 /** Apaga o prende un frente. Apagado deja de ofrecerse al asignar; los viajes
  *  que ya lo llevan no cambian (el nombre viaja congelado en cada fila). */
 export async function setActivoFrente(id: string, activo: boolean, userName: string | null): Promise<{ error?: string }> {
@@ -1130,30 +1181,66 @@ async function conFrenteDelDia(rows: CamionViajeRow[]): Promise<CamionViajeRow[]
   return filas;
 }
 
-/** Asigna un frente a VARIOS camiones en una jornada. Reasignar PISA la
- *  asignación anterior de ese camión ese día (upsert por jornada+camión) —
- *  los viajes YA registrados conservan su frente congelado, y los que NO tienen
- *  frente lo toman solos al leerse (`conFrenteDelDia`). */
+/**
+ * ⭐ ASIGNAR SUMA, NO PISA (30-sep-2026, a pedido: «permite que un camion pueda
+ *    tener varios frentes»). Antes era un upsert por jornada+camión: ponerle un
+ *    segundo frente BORRABA el primero. Ahora se agrega, y un camión puede
+ *    recoger en varios frentes la misma jornada.
+ *
+ * Los viajes YA registrados conservan su frente congelado. Los que no tienen
+ * frente lo toman solos al leerse (`conFrenteDelDia`), pero SOLO si el camión
+ * tiene UN frente ese día: con varios no se adivina (ver `frentesAuto.ts`).
+ *
+ * ⚠️ NO USA `upsert`: un upsert necesita que exista el índice único de
+ *    jornada+camión+frente, y así esto funciona ANTES y DESPUÉS de correr
+ *    `supabase/frentes_varios_por_camion.sql`. Lo que ya está asignado se
+ *    filtra leyendo primero; si aun así se cuela una repetida (dos pantallas
+ *    asignando a la vez), el único de la base la rechaza y acá se dice «ya
+ *    estaba» en vez de un error de llave duplicada que nadie entiende.
+ */
 export async function asignarFrente(
   jornada: string, machineryIds: string[], frenteId: string,
   userId: string | null, userName: string | null
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; agregados?: number; yaEstaban?: number }> {
   if (!machineryIds.length) return { error: 'Marca al menos un camión.' };
-  const filas = machineryIds.map((m) => ({
+  const { data: previas } = await supabase.from('viaje_frente_asignaciones')
+    .select('machinery_id').eq('jornada', jornada).eq('frente_id', frenteId)
+    .in('machinery_id', machineryIds);
+  const ya = new Set((previas ?? []).map((r: any) => String(r.machinery_id)));
+  const nuevos = machineryIds.filter((m) => !ya.has(m));
+  if (nuevos.length === 0) return { agregados: 0, yaEstaban: machineryIds.length };
+
+  const filas = nuevos.map((m) => ({
     jornada, machinery_id: m, frente_id: frenteId, created_by: userId, created_by_nombre: userName,
   }));
-  const { data, error } = await supabase.from('viaje_frente_asignaciones')
-    .upsert(filas, { onConflict: 'jornada,machinery_id' }).select('id');
-  if (error) return { error: error.message };
+  const { data, error } = await supabase.from('viaje_frente_asignaciones').insert(filas).select('id');
+  if (error) {
+    // El único de jornada+camión (el VIEJO) todavía existe: falta correr el SQL.
+    if (/viaje_frente_asignaciones_jornada_machinery_id_key/i.test(error.message)) {
+      return { error: 'Ese camión ya tiene otro frente ese día. Para poder ponerle varios, falta correr supabase/frentes_varios_por_camion.sql.' };
+    }
+    if (/duplicate key/i.test(error.message)) return { agregados: 0, yaEstaban: machineryIds.length };
+    return { error: error.message };
+  }
   if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
-  return {};
+  return { agregados: data.length, yaEstaban: ya.size };
 }
 
-/** Quita la asignación de un camión en una jornada (los viajes ya registrados
- *  conservan su frente congelado). */
-export async function quitarAsignacionFrente(jornada: string, machineryId: string): Promise<{ error?: string }> {
-  const { data, error } = await supabase.from('viaje_frente_asignaciones')
-    .delete().eq('jornada', jornada).eq('machinery_id', machineryId).select('id');
+/**
+ * Quita UNA asignación: ese camión, esa jornada, ESE frente. Sin `frenteId` le
+ * quita todos los frentes de ese día.
+ *
+ * ⚠️ `frenteId` no es opcional por comodidad: desde que un camión puede tener
+ *    varios, borrar «el frente del camión» sin decir cuál se llevaría por
+ *    delante los otros. Los viajes ya registrados conservan el suyo congelado.
+ */
+export async function quitarAsignacionFrente(
+  jornada: string, machineryId: string, frenteId?: string,
+): Promise<{ error?: string }> {
+  let q = supabase.from('viaje_frente_asignaciones')
+    .delete().eq('jornada', jornada).eq('machinery_id', machineryId);
+  if (frenteId) q = q.eq('frente_id', frenteId);
+  const { data, error } = await q.select('id');
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { error: 'Esa asignación ya no existe.' };
   return {};
