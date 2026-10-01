@@ -6123,10 +6123,27 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
 
 - **Crear frentes** con nombre libre, y **desactivarlos sin borrar**: un frente apagado deja de
   ofrecerse, pero los viajes que ya lo llevan no cambian.
-- **Asignar el frente del día**: eliges la fecha (por defecto hoy), el frente, y marcas los
-  camiones — con **🔎 buscador** por placa, código, serial o empresa — uno, varios o un grupo de
-  una vez. Reasignar **pisa** la asignación de ese camión ese día; abajo se ve lo asignado del
-  día, con su ✕ para quitarlo.
+- **Asignar el frente del día**: eliges la fecha (por defecto hoy), **uno o varios frentes**, y
+  marcas los camiones — con **🔎 buscador** por placa, código, serial o empresa — uno, varios o un
+  grupo de una vez. Abajo se ve lo asignado del día, con su ✕ para quitarlo.
+
+> **⭐ Un camión puede tener VARIOS frentes el mismo día (30/09/2026).** Antes solo podía tener
+> uno: ponerle un segundo **borraba el primero en silencio**. Ahora se **suman**.
+> - **Asignar suma, ya no pisa.** Puedes marcar 3 camiones y 2 frentes y quedan los 3 camiones
+>   recogiendo en los 2. Volver a asignar lo que ya tenía no lo duplica: te dice «ya lo tenían».
+> - **La ✕ quita UN frente**, no todos los del camión ese día.
+> - **✏️ Renombrar y 🗑️ borrar un frente**, además de 🚫 apagarlo. Antes de borrar, la pantalla
+>   te dice **cuántas asignaciones se lleva por delante** y espera tu confirmación ahí mismo.
+>   Los **viajes ya registrados no cambian**: cada uno guardó el **nombre** del frente el día que
+>   se grabó, así que los reportes y los papeles ya impresos siguen diciendo lo mismo. Si solo
+>   quieres dejar de ofrecerlo, usa **🚫 Desactivar**, no borrar.
+> - **⚠️ Con varios frentes, el viaje ya no toma el frente solo.** Un viaje se carga en **un**
+>   frente, y si el camión tuvo dos ese día el sistema **no puede saber en cuál se cargó ese
+>   viaje** — inventarlo sería falsear de dónde salió el material, y ese dato va al papel de pago.
+>   Esos viajes salen **sin frente** y se les pone en **✏️ Editar** (o al registrarlos). Con **un
+>   solo** frente asignado todo sigue funcionando igual que antes: lo toman solos.
+> - Para que esto funcione hay que haber corrido `supabase/frentes_varios_por_camion.sql`; si
+>   falta, la pantalla lo dice al intentar ponerle el segundo frente a un camión.
 - **Cada viaje congela el frente** de su camión al registrarse (como la obra y la placa), y el que
   se registró **sin** frente lo **toma solo** de la asignación de ese día (ver el recuadro de
   abajo).

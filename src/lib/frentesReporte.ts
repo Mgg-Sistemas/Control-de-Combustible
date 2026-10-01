@@ -218,22 +218,32 @@ export type DiaHistorialFrentes = {
  * van del que más camiones tuvo al que menos, y a igualdad, alfabético.
  */
 export function historialFrentes(
-  asignaciones: { jornada: string; frenteNombre: string }[],
+  asignaciones: { jornada: string; frenteNombre: string; machineryId?: string | null }[],
 ): DiaHistorialFrentes[] {
   const cmp = (a: string, b: string) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true });
-  const dias = new Map<string, Map<string, number>>();
-  (asignaciones ?? []).forEach((a) => {
+  // ⭐ SE CUENTAN CAMIONES DISTINTOS, NO FILAS (30-sep-2026). Desde que un
+  //    camión puede tener VARIOS frentes el mismo día, contar filas haría que
+  //    el día dijera «14 camiones» teniendo 9: uno con tres frentes sumaría
+  //    tres. Dentro de cada frente igual: un camión cuenta una vez.
+  //    Sin `machineryId` (datos viejos) cada fila cuenta como un camión, que es
+  //    exactamente lo que valía antes.
+  const dias = new Map<string, { total: Set<string>; porFrente: Map<string, Set<string>> }>();
+  (asignaciones ?? []).forEach((a, i) => {
     const j = String(a?.jornada ?? '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(j)) return;
     const n = String(a?.frenteNombre ?? '').trim() || 'Sin frente';
-    const porFrente = dias.get(j) ?? new Map<string, number>();
-    porFrente.set(n, (porFrente.get(n) ?? 0) + 1);
-    dias.set(j, porFrente);
+    const cam = String(a?.machineryId ?? '').trim() || `#${i}`; // sin id, cada fila es uno
+    const d = dias.get(j) ?? { total: new Set<string>(), porFrente: new Map<string, Set<string>>() };
+    d.total.add(cam);
+    const set = d.porFrente.get(n) ?? new Set<string>();
+    set.add(cam);
+    d.porFrente.set(n, set);
+    dias.set(j, d);
   });
-  return Array.from(dias, ([jornada, porFrente]) => ({
+  return Array.from(dias, ([jornada, d]) => ({
     jornada,
-    camiones: Array.from(porFrente.values()).reduce((a, b) => a + b, 0),
-    frentes: Array.from(porFrente, ([nombre, camiones]) => ({ nombre, camiones }))
+    camiones: d.total.size,
+    frentes: Array.from(d.porFrente, ([nombre, set]) => ({ nombre, camiones: set.size }))
       .sort((a, b) => b.camiones - a.camiones || cmp(a.nombre, b.nombre)),
   })).sort((a, b) => b.jornada.localeCompare(a.jornada));
 }

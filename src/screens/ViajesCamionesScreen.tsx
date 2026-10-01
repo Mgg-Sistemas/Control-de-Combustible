@@ -746,7 +746,7 @@ export default function ViajesCamionesScreen() {
   const [frentesMissing, setFrentesMissing] = useState(false);
   const [frentesRecarga, setFrentesRecarga] = useState(0);
   /** machineryId → asignación de la jornada de HOY. */
-  const [asignacionesHoy, setAsignacionesHoy] = useState<Map<string, AsignacionFrente>>(new Map());
+  const [asignacionesHoy, setAsignacionesHoy] = useState<Map<string, AsignacionFrente[]>>(new Map());
   useEffect(() => {
     let vivo = true;
     listFrentes().then((r) => {
@@ -757,16 +757,32 @@ export default function ViajesCamionesScreen() {
     });
     listAsignacionesFrente(caracasBusinessToday()).then((r) => {
       if (!vivo) return;
-      setAsignacionesHoy(new Map(r.asignaciones.map((a) => [a.machineryId, a])));
+      // ⭐ Un camión puede tener VARIOS frentes el mismo día (30-sep-2026), así
+      //    que se guardan todos: quedarse con el último pisaría los otros.
+      const porCamion = new Map<string, AsignacionFrente[]>();
+      r.asignaciones.forEach((a) => {
+        const l = porCamion.get(a.machineryId) ?? [];
+        if (!l.some((x) => x.frenteId === a.frenteId)) l.push(a);
+        porCamion.set(a.machineryId, l);
+      });
+      setAsignacionesHoy(porCamion);
       if (r.error && !r.missing) console.warn('[viajes] no se pudo leer las asignaciones de frente:', r.error);
     });
     return () => { vivo = false; };
   }, [frentesRecarga]);
   const frentesActivos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
-  /** El frente congelado que le toca a un camión HOY (o nada). */
+  /**
+   * El frente congelado que le toca a un camión HOY (o nada).
+   *
+   * ⚠️ CON VARIOS FRENTES NO SE ADIVINA (30-sep-2026): un viaje se carga en UN
+   *    frente, y si el camión tiene dos asignados hoy el sistema no sabe en
+   *    cuál se cargó ESTE. Se graba sin frente y el listero lo elige; ponerle
+   *    uno al azar sería inventar de dónde salió el material.
+   */
   const frenteParaGrabar = (machineryId: string | null) => {
-    const a = machineryId ? asignacionesHoy.get(machineryId) : undefined;
-    return { frenteId: a?.frenteId ?? null, frenteNombre: a?.frenteNombre ?? null };
+    const l = machineryId ? asignacionesHoy.get(machineryId) ?? [] : [];
+    if (l.length !== 1) return { frenteId: null, frenteNombre: null };
+    return { frenteId: l[0].frenteId, frenteNombre: l[0].frenteNombre };
   };
 
   const [pesoTexto, setPesoTexto] = useState('');
