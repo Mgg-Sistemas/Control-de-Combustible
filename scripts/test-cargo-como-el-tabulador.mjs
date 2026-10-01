@@ -169,6 +169,17 @@ ok('⭐ ...y solo toca los que difieren en la escritura',
   /btrim\(e\.cargo\) (is distinct from|<>) btrim\(t\.cargo\)/.test(sql));
 ok('⭐ compara por la misma clave que el código (signos y espacios fuera)',
   /\[\^a-z0-9ñ \]/.test(sql) && /\\s\+/.test(sql));
+// ⚠️⚠️ EL `btrim` DE AFUERA. Esta prueba existe por un error real (30-sep-2026):
+//    la primera versión del .sql cambiaba los signos por un ESPACIO —correcto,
+//    para no pegar palabras— pero NO recortaba el resultado. Entonces
+//    "MECANICO." quedaba «mecanico » CON ESPACIO AL FINAL y no pegaba con
+//    «mecanico»: el archivo se corría, decía «0 filas» y PARECÍA que la ficha ya
+//    estaba bien. Un .sql que no hace nada y no falla es lo más caro que hay.
+ok('⚠️ el SQL RECORTA la clave (sin esto, «MECANICO.» no pega con «MECANICO»)',
+  /btrim\(\s*regexp_replace/.test(sql));
+ok('⭐ la clave del SQL vive en UNA función, no copiada en cada consulta',
+  /create or replace function public\.nomina_clave_cargo/.test(sql)
+  && (sql.match(/nomina_clave_cargo\(/g) || []).length >= 3);
 ok('no se limita a los activos: un inactivo se reincorpora con su cargo malo',
   !/status\s*=\s*'activo'/.test(sql));
 
