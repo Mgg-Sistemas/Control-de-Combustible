@@ -37,6 +37,7 @@ const eq = (name, got, want) => {
 
 eq('Cobro de viajes nace cerrado', defaultLevel('cobro_viajes'), 'none');
 eq('Horómetros nace cerrado', defaultLevel('horometros'), 'none');
+eq('Frentes de maquinaria (asignar) nace cerrado (02-oct-2026)', defaultLevel('frentes_maquinaria'), 'none');
 eq('los que ya estaban cerrados siguen igual', defaultLevel('control_pagos'), 'none');
 eq('...viajes también', defaultLevel('viajes_camiones'), 'none');
 eq('un módulo cualquiera sigue abierto como antes', defaultLevel('mapa'), 'escritura');

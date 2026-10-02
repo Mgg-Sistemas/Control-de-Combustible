@@ -224,7 +224,16 @@ ok('y ofrece también los frentes activos sin asignación',
   const card = leer('src/components/FrentesReportesCard.tsx');
   ok('⭐ Reportes monta el mismo apartado con TODAS las máquinas, en modo máquinas',
     /tipo="maquinas"/.test(card) && /selectAllRows\('machinery'/.test(card) && /<FrentesTrabajo/.test(card));
-  ok('⭐ asigna quien tiene Reportes completo o Viajes completo', /levelMeets\(moduleLevel\('reportes'\), 'full'\) \|\| levelMeets\(moduleLevel\('viajes_camiones'\), 'full'\)/.test(card));
+  ok('⭐ asigna quien tiene el permiso «Frentes de maquinaria» (Reportes está abierto y no sirve de candado)', /levelMeets\(moduleLevel\('frentes_maquinaria'\), 'escritura'\)/.test(card));
+  // ⭐ «SIN VIAJES»: tablas PROPIAS. Ni la lista de frentes ni las asignaciones se comparten.
+  ok('⭐ la maquinaria usa SUS tablas (fuente propia), no las de viajes', /fuente=\{FRENTES_MAQUINARIA\}/.test(card) && /listFrentes\(FRENTES_MAQUINARIA\)/.test(card));
+  const lib = leer('src/lib/camionViajes.ts');
+  ok('⭐ la fuente de maquinaria apunta a maquinaria_frentes / maquinaria_frente_asignaciones',
+    /FRENTES_MAQUINARIA: FuenteFrentes = \{ frentes: 'maquinaria_frentes', asignaciones: 'maquinaria_frente_asignaciones' \}/.test(lib));
+  ok('⭐ y la de viajes sigue en sus tablas de siempre', /FRENTES_VIAJES: FuenteFrentes = \{ frentes: 'viaje_frentes', asignaciones: 'viaje_frente_asignaciones' \}/.test(lib));
+  ok('⭐ cada función de frentes recibe la fuente, con viajes por defecto', (lib.match(/fuente: FuenteFrentes = FRENTES_VIAJES/g) || []).length >= 10);
+  ok('⭐ el componente pasa la fuente a TODAS sus llamadas', (compM.match(/, fuente\)/g) || []).length >= 9 && /fuente = FRENTES_VIAJES \}: Props/.test(compM));
+  ok('⭐ el auto-frente de los viajes sigue leyendo las asignaciones de VIAJES', /listAsignacionesFrenteRango\(rango\.desde, rango\.hasta\)/.test(lib.replace(/\/\/.*$/gm, '')));
   ok('y deja claro que NO es la ubicación', /No es la ubicación/.test(card));
 
   const rep = leer('src/screens/ReportsScreen.tsx');

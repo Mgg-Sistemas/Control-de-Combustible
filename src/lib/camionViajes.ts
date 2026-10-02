@@ -991,15 +991,26 @@ export async function setActivoTipoViaje(id: string, activo: boolean, userId: st
 // viaje CONGELA el frente que su camión tenía esa jornada. Administra quien
 // tiene full (RLS probado por suplantación); el listero solo LEE.
 
+/**
+ * ⛏️ DE DÓNDE SALEN LOS FRENTES (02-oct-2026). Viajes de camiones y la maquinaria
+ * (Reportes → ⛏️ Frentes) tienen CADA UNO sus propias tablas, a pedido del cliente:
+ * «lo de los frentes para la maquinaria es sin viajes, es solo para hacer el reporte
+ * de los frentes asignados, más nada». Las funciones de abajo son las mismas para
+ * los dos; solo cambia a qué tablas van. Sin pasar nada, van a las de viajes.
+ */
+export type FuenteFrentes = { frentes: string; asignaciones: string };
+export const FRENTES_VIAJES: FuenteFrentes = { frentes: 'viaje_frentes', asignaciones: 'viaje_frente_asignaciones' };
+export const FRENTES_MAQUINARIA: FuenteFrentes = { frentes: 'maquinaria_frentes', asignaciones: 'maquinaria_frente_asignaciones' };
+
 export type FrenteTrabajo = {
   id: string;
   nombre: string;
   activo: boolean;
 };
 
-export async function listFrentes(): Promise<{ frentes: FrenteTrabajo[]; missing: boolean; error?: string }> {
+export async function listFrentes(fuente: FuenteFrentes = FRENTES_VIAJES): Promise<{ frentes: FrenteTrabajo[]; missing: boolean; error?: string }> {
   try {
-    const data = await selectAllRows('viaje_frentes', 'id, nombre, activo');
+    const data = await selectAllRows(fuente.frentes, 'id, nombre, activo');
     const frentes = (data as any[]).map((r) => ({
       id: r.id as string,
       nombre: String(r.nombre ?? '').trim(),
@@ -1012,13 +1023,13 @@ export async function listFrentes(): Promise<{ frentes: FrenteTrabajo[]; missing
   }
 }
 
-export async function crearFrente(nombre: string, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+export async function crearFrente(nombre: string, userId: string | null, userName: string | null, fuente: FuenteFrentes = FRENTES_VIAJES): Promise<{ error?: string }> {
   const n = nombre.replace(/\s+/g, ' ').trim();
   if (n.length < 2) return { error: 'Ponle un nombre al frente (p. ej. «Frente norte»).' };
-  const { data, error } = await supabase.from('viaje_frentes')
+  const { data, error } = await supabase.from(fuente.frentes)
     .insert({ nombre: n, created_by: userId, created_by_nombre: userName }).select('id');
   if (error) {
-    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: `Ya existe un frente activo llamado «${n}».` };
+    if (/vf_nombre_activo_key|mf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: `Ya existe un frente activo llamado «${n}».` };
     return { error: error.message };
   }
   if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
@@ -1036,12 +1047,12 @@ export async function crearFrente(nombre: string, userId: string | null, userNam
  *    una letra hoy. Si el nombre viejo estaba mal, se corrige en ✏️ Editar del
  *    viaje, que es donde se ve a quién le cambia la cuenta.
  */
-export async function renombrarFrente(id: string, nombre: string): Promise<{ error?: string }> {
+export async function renombrarFrente(id: string, nombre: string, fuente: FuenteFrentes = FRENTES_VIAJES): Promise<{ error?: string }> {
   const n = nombre.replace(/\s+/g, ' ').trim();
   if (n.length < 2) return { error: 'Ponle un nombre al frente (p. ej. «Frente norte»).' };
-  const { data, error } = await supabase.from('viaje_frentes').update({ nombre: n }).eq('id', id).select('id');
+  const { data, error } = await supabase.from(fuente.frentes).update({ nombre: n }).eq('id', id).select('id');
   if (error) {
-    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: `Ya existe un frente activo llamado «${n}».` };
+    if (/vf_nombre_activo_key|mf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: `Ya existe un frente activo llamado «${n}».` };
     return { error: error.message };
   }
   if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
@@ -1050,8 +1061,8 @@ export async function renombrarFrente(id: string, nombre: string): Promise<{ err
 
 /** Cuántas asignaciones se llevaría por delante borrar este frente. Se pregunta
  *  ANTES de borrar para poder decírselo al usuario con un número, no en vago. */
-export async function contarAsignacionesFrente(id: string): Promise<number> {
-  const { count } = await supabase.from('viaje_frente_asignaciones')
+export async function contarAsignacionesFrente(id: string, fuente: FuenteFrentes = FRENTES_VIAJES): Promise<number> {
+  const { count } = await supabase.from(fuente.asignaciones)
     .select('id', { count: 'exact', head: true }).eq('frente_id', id);
   return count ?? 0;
 }
@@ -1069,8 +1080,8 @@ export async function contarAsignacionesFrente(id: string): Promise<number> {
  *    DESACTIVAR (`setActivoFrente`), no borrar. La pantalla avisa cuántas
  *    asignaciones se van antes de preguntar.
  */
-export async function borrarFrente(id: string): Promise<{ error?: string }> {
-  const { data, error } = await supabase.from('viaje_frentes').delete().eq('id', id).select('id');
+export async function borrarFrente(id: string, fuente: FuenteFrentes = FRENTES_VIAJES): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from(fuente.frentes).delete().eq('id', id).select('id');
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { error: 'No se borró: hace falta permiso completo en Viajes de camiones.' };
   return {};
@@ -1078,14 +1089,14 @@ export async function borrarFrente(id: string): Promise<{ error?: string }> {
 
 /** Apaga o prende un frente. Apagado deja de ofrecerse al asignar; los viajes
  *  que ya lo llevan no cambian (el nombre viaja congelado en cada fila). */
-export async function setActivoFrente(id: string, activo: boolean, userName: string | null): Promise<{ error?: string }> {
-  const { data, error } = await supabase.from('viaje_frentes')
+export async function setActivoFrente(id: string, activo: boolean, userName: string | null, fuente: FuenteFrentes = FRENTES_VIAJES): Promise<{ error?: string }> {
+  const { data, error } = await supabase.from(fuente.frentes)
     .update(activo
       ? { activo: true, desactivado_at: null, desactivado_por_nombre: null }
       : { activo: false, desactivado_at: new Date().toISOString(), desactivado_por_nombre: userName })
     .eq('id', id).select('id');
   if (error) {
-    if (/vf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: 'Ya hay un frente ACTIVO con ese mismo nombre.' };
+    if (/vf_nombre_activo_key|mf_nombre_activo_key|duplicate key/i.test(error.message)) return { error: 'Ya hay un frente ACTIVO con ese mismo nombre.' };
     return { error: error.message };
   }
   if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };
@@ -1101,10 +1112,10 @@ export type AsignacionFrente = {
 
 /** Las asignaciones de una jornada (AAAA-MM-DD), con el nombre del frente ya
  *  pegado — es lo que el teléfono del listero congela en cada viaje. */
-export async function listAsignacionesFrente(jornada: string): Promise<{ asignaciones: AsignacionFrente[]; missing: boolean; error?: string }> {
+export async function listAsignacionesFrente(jornada: string, fuente: FuenteFrentes = FRENTES_VIAJES): Promise<{ asignaciones: AsignacionFrente[]; missing: boolean; error?: string }> {
   try {
     const data = await selectAllRows(
-      'viaje_frente_asignaciones',
+      fuente.asignaciones,
       'machinery_id, frente_id, frente:frente_id(nombre)',
       (q: any) => q.eq('jornada', jornada),
       'machinery_id'
@@ -1129,11 +1140,11 @@ export async function listAsignacionesFrente(jornada: string): Promise<{ asignac
  * un día tomen SOLOS el frente asignado a su camión (ver `conFrenteDelDia`).
  */
 export async function listAsignacionesFrenteRango(
-  desde: string, hasta: string,
+  desde: string, hasta: string, fuente: FuenteFrentes = FRENTES_VIAJES,
 ): Promise<{ asignaciones: AsignacionDia[]; missing: boolean; error?: string }> {
   try {
     const data = await selectAllRows(
-      'viaje_frente_asignaciones',
+      fuente.asignaciones,
       'jornada, machinery_id, frente_id, frente:frente_id(nombre)',
       // Sin orderBy explícito: pagina por `id`, que es único. `jornada` se
       // repite (un camión por fila) y paginar por una columna repetida puede
@@ -1200,10 +1211,10 @@ async function conFrenteDelDia(rows: CamionViajeRow[]): Promise<CamionViajeRow[]
  */
 export async function asignarFrente(
   jornada: string, machineryIds: string[], frenteId: string,
-  userId: string | null, userName: string | null
+  userId: string | null, userName: string | null, fuente: FuenteFrentes = FRENTES_VIAJES,
 ): Promise<{ error?: string; agregados?: number; yaEstaban?: number }> {
   if (!machineryIds.length) return { error: 'Marca al menos un camión.' };
-  const { data: previas } = await supabase.from('viaje_frente_asignaciones')
+  const { data: previas } = await supabase.from(fuente.asignaciones)
     .select('machinery_id').eq('jornada', jornada).eq('frente_id', frenteId)
     .in('machinery_id', machineryIds);
   const ya = new Set((previas ?? []).map((r: any) => String(r.machinery_id)));
@@ -1213,7 +1224,7 @@ export async function asignarFrente(
   const filas = nuevos.map((m) => ({
     jornada, machinery_id: m, frente_id: frenteId, created_by: userId, created_by_nombre: userName,
   }));
-  const { data, error } = await supabase.from('viaje_frente_asignaciones').insert(filas).select('id');
+  const { data, error } = await supabase.from(fuente.asignaciones).insert(filas).select('id');
   if (error) {
     // El único de jornada+camión (el VIEJO) todavía existe: falta correr el SQL.
     if (/viaje_frente_asignaciones_jornada_machinery_id_key/i.test(error.message)) {
@@ -1235,9 +1246,9 @@ export async function asignarFrente(
  *    delante los otros. Los viajes ya registrados conservan el suyo congelado.
  */
 export async function quitarAsignacionFrente(
-  jornada: string, machineryId: string, frenteId?: string,
+  jornada: string, machineryId: string, frenteId?: string, fuente: FuenteFrentes = FRENTES_VIAJES,
 ): Promise<{ error?: string }> {
-  let q = supabase.from('viaje_frente_asignaciones')
+  let q = supabase.from(fuente.asignaciones)
     .delete().eq('jornada', jornada).eq('machinery_id', machineryId);
   if (frenteId) q = q.eq('frente_id', frenteId);
   const { data, error } = await q.select('id');

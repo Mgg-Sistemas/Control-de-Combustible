@@ -130,7 +130,8 @@ ok('el catálogo tiene crear, apagar, renombrar y borrar',
 ok('⭐ borrar avisa ANTES cuántas asignaciones se lleva',
   /export async function contarAsignacionesFrente/.test(lib));
 ok('⭐ asignar SUMA, no pisa: ya no hay upsert por jornada+camión',
-  !/onConflict: 'jornada,machinery_id'/.test(lib) && /from\('viaje_frente_asignaciones'\)\.insert\(filas\)/.test(lib));
+  // 02-oct-2026: la tabla ya no va literal — va por la FUENTE (viajes por defecto; la maquinaria tiene la suya).
+  !/onConflict: 'jornada,machinery_id'/.test(lib) && /from\(fuente\.asignaciones\)\.insert\(filas\)/.test(lib));
 ok('⭐ quitar una asignación puede apuntar a UN frente, no a todos los del camión',
   /quitarAsignacionFrente\(\s*jornada: string, machineryId: string, frenteId\?: string,/.test(lib)
   && /if \(frenteId\) q = q\.eq\('frente_id', frenteId\)/.test(lib));
