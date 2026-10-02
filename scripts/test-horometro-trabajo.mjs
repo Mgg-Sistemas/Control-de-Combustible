@@ -156,12 +156,12 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('una fila por ronda, ordenadas por fecha y código', filas.map((f) => `${f.fecha} ${f.code}`), ['2026-09-01 CARG-03', '2026-09-01 EXC-04', '2026-09-01 GRUA-05', '2026-09-01 RETRO-01', '2026-09-02 RETRO-01', '2026-09-02 VIBRO-02']);
   const de = (code, fecha) => filas.find((f) => f.code === code && f.fecha === fecha);
   eq('cuadra dentro de media hora', de('RETRO-01', '2026-09-02').estado, 'cuadra');
-  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, inicial: 100, final: 111.6, corregida: false, motivo: '', estadoDetalle: '', horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
+  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, inicial: 100, final: 111.6, corregida: false, motivo: '', corregidaPor: '', estadoDetalle: '', horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
   eq('horómetro mayor', de('VIBRO-02', '2026-09-02').estado, 'horometro_mayor');
   eq('jornada mayor, con la diferencia negativa', [de('CARG-03', '2026-09-01').estado, de('CARG-03', '2026-09-01').diferencia, de('CARG-03', '2026-09-01').empresa], ['jornada_mayor', -5, 'EMPRESA BETA']);
   // 27-sep-2026, pedido del cliente: «en vez de decir inválido, que diga la
   // razón» — la fila trae el motivo que dejó la base en estadoDetalle.
-  eq('inválida: sin horas ni diferencia, y CON su razón', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, inicial: 800, final: 790, corregida: false, motivo: '', estadoDetalle: 'final menor que inicial', horasHorometro: null, diferencia: null, estado: 'invalida' });
+  eq('inválida: sin horas ni diferencia, y CON su razón', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, inicial: 800, final: 790, corregida: false, motivo: '', corregidaPor: '', estadoDetalle: 'final menor que inicial', horasHorometro: null, diferencia: null, estado: 'invalida' });
   eq('solo una lectura incompleta cuenta como sin lectura', de('GRUA-05', '2026-09-01').estado, 'sin_lectura');
   // …y la incompleta dice QUÉ falta (el caso del número borrado desde Control).
   eq('la incompleta dice qué le falta', de('GRUA-05', '2026-09-01').estadoDetalle, 'Incompleta: falta el final');
@@ -184,7 +184,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
     const f = H.compararJornadaHorometro([], soloLectura);
     eq('⭐ una lectura de un día SIN ronda ahora SÍ genera fila', f.length, 1);
     eq('⭐ …como «sin jornada», con sus números y SIN diferencia (no hay contra qué cuadrar)',
-      f[0], { machineryId: 'm7', code: '—', empresa: '—', marca: '', modelo: '', placa: '', fecha: '2026-09-03', horasJornada: 0, inicial: 300, final: 308.5, corregida: false, motivo: '', horasHorometro: 8.5, diferencia: null, estado: 'sin_ronda', estadoDetalle: '' });
+      f[0], { machineryId: 'm7', code: '—', empresa: '—', marca: '', modelo: '', placa: '', fecha: '2026-09-03', horasJornada: 0, inicial: 300, final: 308.5, corregida: false, motivo: '', corregidaPor: '', horasHorometro: 8.5, diferencia: null, estado: 'sin_ronda', estadoDetalle: '' });
     // Con fichas: toma código/empresa de la ficha, y respeta el recorte de la pantalla.
     const fichas = new Map([['m7', { code: 'TELE-07', empresa: 'EMPRESA GAMA', marca: 'JLG', modelo: '600S', placa: 'T-77' }]]);
     const conF = H.compararJornadaHorometro([], soloLectura, fichas)[0];
@@ -219,6 +219,40 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
     const fsMod = await import('node:fs');
     const scr = fsMod.readFileSync(new URL('../src/screens/ReportsScreen.tsx', import.meta.url), 'utf8');
     ok('⭐ la pantalla pasa las fichas filtradas al comparador', /compararJornadaHorometro\(rondas, d\.lecturas, fichasFiltradas\)/.test(scr) && /pasaFiltroJornada\(\{ id, clasificacion: m\.clasificacion \}, filtroEqActual\)/.test(scr));
+  }
+
+  // ── ✏️ EL INSPECTOR CORRIGE LO QUE ÉL CARGÓ (02-oct-2026, decisión: «sí») ───
+  // Alcance acordado: solo sus máquinas, solo HOY y AYER, motivo obligatorio, y el
+  // papel dice «corregido por el inspector». Control sigue mandando: lo que Control
+  // corrigió no se toca (la base lo protege; el modal lo dice antes de intentar).
+  {
+    const insp = L('m1', '2026-09-02', 'day', 100, 108, { origen: 'inspector', motivoCorreccion: 'tecleé 180 y era 108' });
+    const ctrl = L('m1', '2026-09-02', 'day', 100, 108, { origen: 'control', corregidoPor: 'u-admin', motivoCorreccion: 'foto del tablero' });
+    eq('⭐ sin tocar, nadie corrigió', H.quienCorrigio([L('m1', '2026-09-02', 'day', 100, 108)]), '');
+    eq('⭐ motivo escrito con origen inspector → la corrigió el inspector', H.quienCorrigio([insp]), 'inspector');
+    eq('⭐ corregido_por → Control', H.quienCorrigio([ctrl]), 'control');
+    eq('⭐ si hay de las dos, manda Control', H.quienCorrigio([insp, ctrl]), 'control');
+    eq('origen reinicio también es Control', H.quienCorrigio([L('m1', '2026-09-02', 'day', 5, 9, { origen: 'reinicio', reinicio: true, motivoCorreccion: 'cambio de aparato' })]), 'control');
+    eq('nada no revienta', H.quienCorrigio(null), '');
+    // La fila lo lleva, y el papel lo imprime distinto.
+    const fi = H.compararJornadaHorometro([RONDA('m1', 'RETRO-01', '2026-09-02', 8, 0)], [insp])[0];
+    eq('⭐ la fila dice quién corrigió', [fi.corregida, fi.corregidaPor, fi.motivo], [true, 'inspector', 'tecleé 180 y era 108']);
+    const papelI = H.cuerpoComparativo({ desde: '2026-09-02', hasta: '2026-09-02', filas: [fi] });
+    ok('⭐ el PDF dice «corregido por el inspector» con su motivo', /✎ corregido por el inspector: tecleé 180 y era 108/.test(papelI) && !/corregido desde Control/.test(papelI));
+    const fc = H.compararJornadaHorometro([RONDA('m1', 'RETRO-01', '2026-09-02', 8, 0)], [ctrl])[0];
+    ok('…y «corregido desde Control» cuando fue Control', /✎ corregido desde Control: foto del tablero/.test(H.cuerpoComparativo({ desde: '2026-09-02', hasta: '2026-09-02', filas: [fc] })));
+    ok('la nota del papel nombra a los dos', /desde Control o por el inspector/.test(papelI));
+    // El modal y la pantalla, por su código.
+    const fsM = await import('node:fs');
+    const modal = fsM.readFileSync(new URL('../src/components/HorometroCorregirModal.tsx', import.meta.url), 'utf8');
+    ok('⭐ el modal tiene modo inspector', /modo\?: 'control' \| 'inspector'/.test(modal) && /const esInspector = modo === 'inspector'/.test(modal));
+    ok('⭐ en modo inspector manda origen inspector y NUNCA reinicio', /origen: esInspector \? 'inspector' : 'control'/.test(modal) && /reinicio: esInspector \? false : reinicio/.test(modal));
+    ok('⭐ el inspector no pisa una corrección de Control', /if \(esInspector && actual\?\.corregidoPor\) \{ setError\(/.test(modal));
+    ok('el interruptor de reinicio no se le ofrece al inspector', /\{!esInspector \? \(\s*<TouchableOpacity onPress=\{\(\) => setReinicio/.test(modal));
+    const sup = fsM.readFileSync(new URL('../src/screens/SupervisorScreen.tsx', import.meta.url), 'utf8');
+    ok('⭐ la tarjeta del inspector abre el modal en modo inspector', /modo="inspector"/.test(sup) && /HorometroCorregirModal/.test(sup));
+    ok('⭐ solo HOY y AYER, de la máquina elegida', /cargarLecturasDeMaquinaDia\(ci\.id, today\), cargarLecturasDeMaquinaDia\(ci\.id, yesterday\)/.test(sup));
+    ok('…y se recarga tras guardar', /onSaved=\{\(\) => \{ setHoroEditRecarga/.test(sup));
   }
 
   const res = H.resumenComparativo(filas);
@@ -369,7 +403,8 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('Control no guarda directo: corrige solo por el modal', !/guardarLecturaHorometro/.test(ctl) && /HorometroCorregirModal/.test(ctl));
   ok('el lapiz solo con el modulo horometros', /puedeCorregirHoro = levelMeets\(moduleLevel\('horometros'\), 'escritura'\)/.test(ctl));
   const modal = leer('src/components/HorometroCorregirModal.tsx');
-  ok('el modal corrige con origen control', /origen: 'control'/.test(modal));
+  // 02-oct-2026: en modo Control sigue siendo origen 'control'; el inspector manda 'inspector'.
+  ok('el modal corrige con origen control (y el inspector con el suyo)', /origen: esInspector \? 'inspector' : 'control'/.test(modal));
   ok('el modal exige el motivo (regla pura compartida)', /validarCorreccionHorometro/.test(modal));
   ok('el modal no toca machine_rounds ni horas', !/from\('machine_rounds'\)|day_hours|night_hours|upsertMachineRound/.test(modal));
   // Ninguna pantalla de dinero usa horasPagables: la fórmula de pago es la de siempre.
@@ -661,9 +696,10 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   ok('⭐ el papel trae la columna Inicio', /<th class="r">Inicio<\/th>/.test(html));
   ok('⭐ ...y la columna Fin', /<th class="r">Fin<\/th>/.test(html));
   ok('⭐ ...con los números del tablero', html.includes('7919') && html.includes('7927'));
-  ok('⭐ ...y la marca de corregido a mano', /✎ corregido a mano/.test(html));
+  // 02-oct-2026: la marca ahora dice QUIÉN («desde Control» o «por el inspector»).
+  ok('⭐ ...y la marca de corregido, diciendo quién', /✎ corregido (desde Control|por el inspector)/.test(html));
   ok('...con el motivo a la vista', html.includes('tecleó 791,9 y era 7.919'));
-  ok('la nota explica el ✎', /corregido a mano<\/b> marca las 1 lectura/.test(html));
+  ok('la nota explica el ✎', /✎ corregido<\/b> marca las 1 lectura/.test(html) && /desde Control o por el inspector/.test(html));
   // La pastilla las apaga, y apagadas no dejan ni la celda.
   const sinIF = H.cuerpoComparativo({ desde: '2026-09-24', hasta: '2026-09-24', filas: [f3] },
     { ...H.OPCIONES_COMPARATIVO_COMPLETO, sinInicioFin: true });

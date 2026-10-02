@@ -27,12 +27,22 @@ type Props = {
   lecturas: readonly LecturaTrabajo[]; // las de ESA máquina y ESE día (0-2)
   onClose: () => void;
   onSaved: () => void; // para recargar las lecturas de la pantalla
+  /**
+   * ✏️ MODO INSPECTOR (02-oct-2026, decisión del cliente: «sí»). El inspector
+   * corrige LO QUE ÉL CARGÓ: entra con origen `inspector` (la base no le exige
+   * módulo, pero sí conserva lo que Control haya corregido —«lo manual manda»—),
+   * sin el interruptor de REINICIO (eso es de Control) y con motivo obligatorio,
+   * que el reporte muestra como «✎ corregido por el inspector». Por defecto,
+   * 'control': el modal de siempre, byte a byte.
+   */
+  modo?: 'control' | 'inspector';
 };
 
 const fmt = (n: number | null | undefined) => (n == null ? '' : String(n));
 
-export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas, onClose, onSaved }: Props) {
+export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas, onClose, onSaved, modo = 'control' }: Props) {
   const { colors } = useTheme();
+  const esInspector = modo === 'inspector';
   const [turno, setTurno] = useState<Turno>('day');
   const [ini, setIni] = useState('');
   const [fin, setFin] = useState('');
@@ -53,6 +63,10 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
 
   const guardar = async () => {
     if (busy) return;
+    // El inspector NO pisa una corrección de Control. La base también lo impide
+    // (el disparador conserva lo de Control ante un origen 'inspector'), pero
+    // decirlo aquí evita un «guardé» que en realidad no cambió nada.
+    if (esInspector && actual?.corregidoPor) { setError('Esta lectura ya la corrigió Control: no puedes cambiarla. Pide la corrección en la oficina.'); return; }
     const malo = validarCorreccionHorometro({ inicial: ini, final: fin, motivo });
     if (malo) { setError(malo); return; }
     setBusy(true); setError(null);
@@ -62,8 +76,10 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
     const r = await guardarLecturaHorometro(machineryId, roundDate, turno, {
       inicial: numeroDeTexto(ini) === false ? null : (numeroDeTexto(ini) as number | null),
       final: numeroDeTexto(fin) === false ? null : (numeroDeTexto(fin) as number | null),
-      reinicio,
-      origen: 'control',
+      // Inspector: nunca reinicio (eso es de Control) y origen 'inspector', para que
+      // la base no le exija módulo y el papel diga «corregido por el inspector».
+      reinicio: esInspector ? false : reinicio,
+      origen: esInspector ? 'inspector' : 'control',
       motivoCorreccion: motivo.trim(),
     });
     setBusy(false);
@@ -79,8 +95,12 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: 'rgba(10,15,25,0.6)', alignItems: 'center', justifyContent: 'center', padding: spacing.md, zIndex: 9999 }}>
         <View style={{ width: '100%', maxWidth: 460, backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md }}>
-          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>✎ Corregir horómetro de trabajo</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>{code} · {dmy} · solo la lectura del modo sombra: no toca horas pagadas ni mantenimiento.</Text>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>{esInspector ? '✏️ Corregir el horómetro que cargué' : '✎ Corregir horómetro de trabajo'}</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>
+            {code} · {dmy} · {esInspector
+              ? 'solo lo que tú cargaste, de hoy o de ayer; queda con tu nombre y tu motivo en el reporte. No toca horas pagadas ni mantenimiento.'
+              : 'solo la lectura del modo sombra: no toca horas pagadas ni mantenimiento.'}
+          </Text>
 
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
             {(['day', 'night'] as const).map((t) => {
@@ -97,7 +117,9 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
             <Text style={{ color: colors.danger, fontSize: 11, marginBottom: spacing.xs }}>⚠️ La lectura actual está marcada mala: {actual.motivoInvalida || 'sin motivo'}.</Text>
           ) : null}
           {actual?.corregidoPor ? (
-            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>✎ Ya fue corregida antes desde Control.</Text>
+            <Text style={{ color: esInspector ? colors.danger : colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+              {esInspector ? '🔒 Esta lectura ya la corrigió Control: no puedes cambiarla.' : '✎ Ya fue corregida antes desde Control.'}
+            </Text>
           ) : null}
 
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (vacío = borrar el número)</Text>
@@ -105,10 +127,13 @@ export function HorometroCorregirModal({ code, machineryId, roundDate, lecturas,
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (vacío = borrar el número)</Text>
           <TextInput value={fin} onChangeText={(t) => setFin(soloHorometro(t))} keyboardType="numeric" inputMode="decimal" placeholder="—" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
 
-          <TouchableOpacity onPress={() => setReinicio((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
-            <Text style={{ fontSize: 16 }}>{reinicio ? '☑️' : '⬜'}</Text>
-            <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>Le cambiaron el horómetro (reinicio): el número puede ser menor que el de ayer y la base no la marcará mala por eso.</Text>
-          </TouchableOpacity>
+          {/* El REINICIO es de Control: al inspector ni se le ofrece. */}
+          {!esInspector ? (
+            <TouchableOpacity onPress={() => setReinicio((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
+              <Text style={{ fontSize: 16 }}>{reinicio ? '☑️' : '⬜'}</Text>
+              <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>Le cambiaron el horómetro (reinicio): el número puede ser menor que el de ayer y la base no la marcará mala por eso.</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Motivo de la corrección · OBLIGATORIO (queda grabado con tu nombre)</Text>
           <TextInput value={motivo} onChangeText={setMotivo} placeholder="Ej.: foto del tablero llegó tarde; el inspector tecleó 791,9 y era 7.919" placeholderTextColor={colors.muted} multiline style={[input, { minHeight: 54, textAlignVertical: 'top', marginBottom: spacing.sm }]} />
