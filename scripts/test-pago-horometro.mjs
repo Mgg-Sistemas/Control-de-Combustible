@@ -155,7 +155,7 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   const db = sinComentarios(leer('src/lib/pagoHorometroDb.ts'));
   ok('⭐ la capa de datos NO lee ni escribe rondas ni cierres de Control', !/machine_rounds|control_closures|machinery_precio_historial/.test(db));
   ok('⭐ el precio de Control de jornadas solo se LEE como referencia', /precioJornada/.test(db) && !/from\('machinery'\)\s*\.\s*(update|insert|upsert)/.test(db));
-  ok('⭐ escribe SOLO en sus dos tablas propias', (db.match(/from\('([a-z_]+)'\)/g) || []).every((t) => t === "from('horometro_precios')" || t === "from('horometro_ajustes')"));
+  ok('⭐ escribe SOLO en sus tres tablas propias', (db.match(/from\('([a-z_]+)'\)/g) || []).every((t) => ["from('horometro_precios')", "from('horometro_ajustes')", "from('horometro_cierres')"].includes(t)));
   ok('⭐ los ajustes NO tocan las lecturas del inspector', !/lecturas_horometro_trabajo/.test(db));
   ok('un precio no se borra: se anula', !/\.delete\(/.test(db) && /anulada_at/.test(db));
   const panel = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
@@ -216,7 +216,82 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   ok('al cambiar la del inspector se quita el ajuste que la taparía', /if \(ajusteVigente\) await anularAjustesHorometro\(/.test(modal));
   ok('el ajuste se puede quitar (vuelve lo del inspector)', /Quitar el ajuste/.test(modal));
   const panel2 = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
-  ok('⭐ el panel pasa los ajustes al cálculo y abre el modal de dos destinos', /filasPagoHorometro\(\{ maquinas, lecturas, precios, desde, hasta, ajustes \}\)/.test(panel2) && /HorometroAjusteModal/.test(panel2));
+  ok('⭐ el panel pasa los ajustes al cálculo y abre el modal de dos destinos', /filasPagoHorometro\(\{ maquinas, lecturas, precios, desde, hasta, ajustes, cierres \}\)/.test(panel2) && /HorometroAjusteModal/.test(panel2));
+}
+
+
+// ── 7) ➕ LAS MÁQUINAS SIN LECTURAS EN EL RANGO ───────────────────────────────
+// Pedido (02-oct-2026): «coloca… listar también las máquinas sin lecturas».
+{
+  const base = { maquinas: MAQ, lecturas: LECT, precios: PRECIOS, desde: '2026-09-14', hasta: '2026-09-16' };
+  eq('por defecto NO sale la que no tiene lecturas', P.filasPagoHorometro(base).some((f) => f.maquina.id === 'm3'), false);
+  const con = P.filasPagoHorometro({ ...base, incluirSinLectura: new Set(['m3']) });
+  const f3 = con.find((f) => f.maquina.id === 'm3');
+  ok('⭐ pidiéndola, SÍ sale — con 0 h y $0', !!f3 && f3.horas === 0 && f3.monto === 0 && f3.alertas === 0);
+  eq('⭐ …y NO mueve el total a pagar', P.totalPagoHorometro(con).monto, P.totalPagoHorometro(P.filasPagoHorometro(base)).monto);
+  ok('solo entran las que se piden, no todo el catálogo', con.length === P.filasPagoHorometro(base).length + 1);
+  const db7 = sinComentarios(leer('src/lib/pagoHorometroDb.ts'));
+  ok('⭐ «activa» usa la vara de Control: operativa y no en espera', /activa: m\.operational !== false && m\.en_espera !== true/.test(db7));
+  const panel7 = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
+  ok('el panel ofrece el interruptor y nace APAGADO', /Incluir las máquinas sin lecturas en el rango/.test(panel7) && /const \[incluirSin, setIncluirSin\] = useState\(false\)/.test(panel7));
+  ok('⭐ lo que se CIERRA es lo que tiene lecturas, no las agregadas para ver', /crearCierreHorometro\(\{ desde, hasta, filas: filasConAlgo/.test(panel7));
+}
+
+// ── 8) 🔒 CIERRES CON HISTÓRICO ──────────────────────────────────────────────
+// Pedido (02-oct-2026): «coloca los cierres con histórico (como "Cerrar control"
+// de jornadas)». Cerrar guarda la FOTO del pago; los días cerrados se leen de la
+// foto y no cambian aunque después se toque un precio, una lectura o un ajuste.
+{
+  const base = { maquinas: MAQ, lecturas: LECT, precios: PRECIOS, desde: '2026-09-14', hasta: '2026-09-16' };
+  const vivas = P.filasPagoHorometro(base);
+  const cierre = (id, desde, hasta, detalle, extra = {}) => ({ id, desde, hasta, total_horas: 0, total_monto: 0, maquinas: detalle.length, detalle, created_at: '2026-09-17T00:00:00Z', ...extra });
+  const C1 = cierre('c1', '2026-09-14', '2026-09-15', JSON.parse(JSON.stringify(vivas)));
+
+  // ⭐ Lo cerrado sale de la FOTO: cambiar el precio después no lo mueve.
+  const preciosNuevos = [...PRECIOS, { id: 'zzzzz', machinery_id: 'm1', precio_hora: 1000, desde: '2026-09-01', hasta: '2026-09-30', created_at: '2026-09-18T00:00:00Z' }];
+  const trasCambio = P.filasPagoHorometro({ ...base, precios: preciosNuevos, cierres: [C1] }).find((f) => f.maquina.id === 'm1');
+  eq('⭐ los días CERRADOS conservan su monto aunque el precio cambie después', [trasCambio.dias[0].monto, trasCambio.dias[1].monto, trasCambio.dias[0].cerrado], [80, 120, true]);
+  eq('⭐ …y sin el cierre, ese mismo cambio SÍ los movería', P.filasPagoHorometro({ ...base, precios: preciosNuevos }).find((f) => f.maquina.id === 'm1').dias[0].monto, 8000);
+  // ⭐ Y tampoco los mueve una lectura corregida después.
+  const lectCambiadas = LECT.map((l) => (l.machineryId === 'm1' && l.roundDate === '2026-09-14' ? { ...l, final: 200 } : l));
+  eq('⭐ ni una lectura corregida después', P.filasPagoHorometro({ ...base, lecturas: lectCambiadas, cierres: [C1] }).find((f) => f.maquina.id === 'm1').dias[0].horas, 8);
+  eq('⭐ ni un ajuste puesto después', P.filasPagoHorometro({ ...base, cierres: [C1], ajustes: [{ id: 'a', machinery_id: 'm1', round_date: '2026-09-14', shift: 'day', inicial: 0, final: 20, motivo: 'x', created_at: '2026-09-18T00:00:00Z' }] }).find((f) => f.maquina.id === 'm1').dias[0].horas, 8);
+  // El día fuera del cierre sigue vivo.
+  const m1 = P.filasPagoHorometro({ ...base, cierres: [C1] }).find((f) => f.maquina.id === 'm1');
+  eq('el día FUERA del cierre sigue en vivo', [m1.dias[2].cerrado, m1.dias[2].estado], [false, 'invalida']);
+  eq('⭐ un día cerrado NO cuenta como alerta (ya no hay nada que arreglarle)', P.filasPagoHorometro({ ...base, cierres: [cierre('c2', '2026-09-14', '2026-09-16', JSON.parse(JSON.stringify(vivas)))] }).find((f) => f.maquina.id === 'm1').alertas, 0);
+  // ⭐ Reabierto (anulado) = como si no existiera.
+  eq('⭐ un cierre REABIERTO no congela nada', P.filasPagoHorometro({ ...base, precios: preciosNuevos, cierres: [{ ...C1, anulada_at: '2026-09-19T00:00:00Z' }] }).find((f) => f.maquina.id === 'm1').dias[0].monto, 8000);
+  // Una máquina que ya no está en el catálogo sigue saliendo por su foto.
+  eq('⭐ una máquina borrada del catálogo sigue en su cierre', P.filasPagoHorometro({ ...base, maquinas: MAQ.filter((m) => m.id !== 'm2'), lecturas: [], cierres: [C1] }).map((f) => f.maquina.code).includes('JUMBO-02'), true);
+  // Un día cerrado sin foto para esa máquina = vacío y cerrado (no se recalcula).
+  const C3 = cierre('c3', '2026-09-14', '2026-09-14', []);
+  eq('⭐ un día cerrado NO se recalcula aunque haya lecturas', P.filasPagoHorometro({ ...base, cierres: [C3] }).find((f) => f.maquina.id === 'm1').dias[0], { horas: 0, estado: 'sin_lectura', detalle: '', inicial: null, final: null, ajustado: false, motivoAjuste: '', fecha: '2026-09-14', precio: null, monto: 0, sinPrecio: false, cerrado: true });
+
+  // Solapes y validación.
+  eq('el cierre que cubre una fecha', [P.cierreQueCubre([C1], '2026-09-15')?.id, P.cierreQueCubre([C1], '2026-09-16')], ['c1', null]);
+  eq('un cierre reabierto no cubre nada', P.cierreQueCubre([{ ...C1, anulada_at: 'x' }], '2026-09-15'), null);
+  eq('⭐ detecta el solape de rangos', [P.cierresSolapados([C1], '2026-09-15', '2026-09-20').length, P.cierresSolapados([C1], '2026-09-16', '2026-09-20').length], [1, 0]);
+  ok('⭐ NO deja cerrar un rango que pisa otro cierre', /ya tiene días cerrados/.test(P.validarCierreHorometro({ desde: '2026-09-15', hasta: '2026-09-18', filas: vivas }, [C1])));
+  eq('un rango libre con lecturas sí se puede cerrar', P.validarCierreHorometro({ desde: '2026-09-14', hasta: '2026-09-16', filas: vivas }, []), null);
+  ok('sin lecturas no hay nada que cerrar', /No hay nada que cerrar/.test(P.validarCierreHorometro({ desde: '2026-09-14', hasta: '2026-09-16', filas: [] }, [])));
+  ok('un rango al revés se rechaza', /no es válido/.test(P.validarCierreHorometro({ desde: '2026-09-16', hasta: '2026-09-14', filas: vivas }, [])));
+
+  // El PDF del histórico sale de la foto.
+  const delCierre = P.filasDeCierre(C1);
+  eq('⭐ las filas del histórico salen de la FOTO, con sus totales recalculados', delCierre.map((f) => [f.maquina.code, f.monto]), vivas.map((f) => [f.maquina.code, f.monto]));
+  ok('el papel del cierre se arma con el mismo cuerpo', /TOTAL A PAGAR/.test(P.cuerpoPagoHorometro({ desde: C1.desde, hasta: C1.hasta, filas: delCierre })));
+  eq('una foto vacía o rota no revienta', [P.filasDeCierre(null), P.filasDeCierre({ ...C1, detalle: [{ dias: [] }] })], [[], []]);
+
+  // La capa de datos y el panel.
+  const db8 = sinComentarios(leer('src/lib/pagoHorometroDb.ts'));
+  ok('⭐ el cierre NO toca los cierres de Control de jornadas', !/control_closures/.test(db8));
+  ok('un cierre no se borra: se reabre anulándolo', /reabrirCierreHorometro/.test(db8) && !/\.delete\(/.test(db8));
+  ok('solo se guardan en la foto las máquinas que tienen algo', /c\.filas\.filter\(\(f\) => f\.dias\.some\(\(d\) => d\.estado !== 'sin_lectura'\)\)/.test(db8));
+  const panel8 = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
+  ok('⭐ el panel valida el solape ANTES de cerrar y pide confirmación', /validarCierreHorometro\(\{ desde, hasta, filas: filasConAlgo \}, cierres\)/.test(panel8) && /await confirm\(/.test(panel8));
+  ok('⭐ un día cerrado no se puede tocar', /disabled=\{!canEdit \|\| faltaSql \|\| d\.cerrado\}/.test(panel8));
+  ok('el histórico ofrece el PDF y reabrir con motivo', /Histórico de cierres/.test(panel8) && /pdfDeCierre\(c\)/.test(panel8) && /Motivo para reabrir/.test(panel8));
 }
 
 console.log('\nCONTROL DE HORÓMETROS — pago por horómetro, al lado de Control de jornadas\n');
