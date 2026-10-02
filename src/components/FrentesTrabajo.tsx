@@ -26,6 +26,7 @@ import { Toggle } from './CubicajeTab';
 import {
   listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente,
   crearFrente, setActivoFrente, renombrarFrente, borrarFrente, contarAsignacionesFrente,
+  FRENTES_VIAJES, type FuenteFrentes,
   type FrenteTrabajo, type AsignacionFrente,
 } from '../lib/camionViajes';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -70,6 +71,8 @@ type Props = {
    *    apartados muestra lo que asignó el otro como «fuera del catálogo».
    */
   tipo?: 'camiones' | 'maquinas';
+  /** A qué tablas va (02-oct-2026): viajes por defecto; la maquinaria tiene las suyas. */
+  fuente?: FuenteFrentes;
 };
 
 const norm = (s: unknown) =>
@@ -90,7 +93,7 @@ function diasAntes(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio, tipo = 'camiones' }: Props) {
+export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio, tipo = 'camiones', fuente = FRENTES_VIAJES }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
   const esMaq = tipo === 'maquinas';
@@ -127,7 +130,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   useEffect(() => {
     let vivo = true;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return;
-    listAsignacionesFrente(fecha).then((r) => {
+    listAsignacionesFrente(fecha, fuente).then((r) => {
       if (!vivo) return;
       // Solo lo de ESTA lista (ver `tipo` en Props).
       setAsignaciones(r.asignaciones.filter((a) => idsLista.has(a.machineryId)));
@@ -142,7 +145,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   useEffect(() => {
     let vivo = true;
     if (!canFull) return;
-    listAsignacionesFrenteRango(diasAntes(jornadaHoy, DIAS_HISTORIAL), jornadaHoy).then((r) => {
+    listAsignacionesFrenteRango(diasAntes(jornadaHoy, DIAS_HISTORIAL), jornadaHoy, fuente).then((r) => {
       if (!vivo) return;
       setHistorial(historialFrentes(r.asignaciones.filter((a) => idsLista.has(a.machineryId))));
       if (r.error && !r.missing) console.warn('[frentes] no se pudo leer el historial:', r.error);
@@ -179,7 +182,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
 
   const crear = async () => {
     setGuardando(true);
-    const { error } = await crearFrente(nuevo, uid, userName);
+    const { error } = await crearFrente(nuevo, uid, userName, fuente);
     setGuardando(false);
     if (error) { toast.error(error); return; }
     setNuevo('');
@@ -188,7 +191,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   };
 
   const alternar = async (f: FrenteTrabajo) => {
-    const { error } = await setActivoFrente(f.id, !f.activo, userName);
+    const { error } = await setActivoFrente(f.id, !f.activo, userName, fuente);
     if (error) { toast.error(error); return; }
     toast.success(f.activo
       ? 'Frente desactivado: deja de ofrecerse, pero los viajes que ya lo llevan no cambian.'
@@ -208,7 +211,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     let agregados = 0, yaEstaban = 0;
     const fallos: string[] = [];
     for (const fId of frenteSel) {
-      const r = await asignarFrente(fecha, ids, fId, uid, userName);
+      const r = await asignarFrente(fecha, ids, fId, uid, userName, fuente);
       if (r.error) fallos.push(`«${activos.find((f) => f.id === fId)?.nombre ?? fId}»: ${r.error}`);
       else { agregados += r.agregados ?? 0; yaEstaban += r.yaEstaban ?? 0; }
     }
@@ -235,7 +238,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const renombrar = async () => {
     if (!editando) return;
     setGuardando(true);
-    const { error } = await renombrarFrente(editando.id, editando.nombre);
+    const { error } = await renombrarFrente(editando.id, editando.nombre, fuente);
     setGuardando(false);
     if (error) { toast.error(error); return; }
     setEditando(null);
@@ -246,14 +249,14 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
 
   /** 🗑️ Borrar: primero se pregunta CUÁNTAS asignaciones se lleva por delante. */
   const pedirBorrar = async (f: FrenteTrabajo) => {
-    const n = await contarAsignacionesFrente(f.id);
+    const n = await contarAsignacionesFrente(f.id, fuente);
     setBorrando({ id: f.id, nombre: f.nombre, asignaciones: n });
   };
 
   const borrar = async () => {
     if (!borrando) return;
     setGuardando(true);
-    const { error } = await borrarFrente(borrando.id);
+    const { error } = await borrarFrente(borrando.id, fuente);
     setGuardando(false);
     if (error) { toast.error(error); return; }
     setBorrando(null);
@@ -319,7 +322,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
 
   /** Quita ESE frente de ese camión — no todos los que tenga ese día. */
   const quitar = async (a: AsignacionFrente) => {
-    const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId);
+    const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId, fuente);
     if (error) { toast.error(error); return; }
     setRecarga((n) => n + 1);
     onCambio();
@@ -355,7 +358,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>⛏️ FRENTES DE TRABAJO · {activos.length}</Text>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
         {esMaq
-          ? 'El frente es DÓNDE TRABAJA cada equipo ese día (no es la ubicación/edificio que marca el inspector: eso es otra cosa). Asigna el frente del día a una máquina, a varias o a toda una empresa; abajo sale lo asignado, la hoja del día en PDF y el historial. Los frentes son los mismos que en Viajes de camiones: un frente es un frente.'
+          ? 'El frente es DÓNDE TRABAJA cada equipo ese día (no es la ubicación/edificio que marca el inspector: eso es otra cosa). Asigna el frente del día a una máquina, a varias o a toda una empresa; abajo sale lo asignado, la hoja del día en PDF y el historial. Es independiente de Viajes de camiones: tiene su propia lista de frentes y sus propias asignaciones.'
           : 'El frente es DE DÓNDE recogen los camiones lo que llevan a los CDT/CDF. Asigna el frente del día a cada camión (o a varios de una vez): TODOS los viajes de ese día que no tengan frente propio lo toman automáticamente, los que ya estaban registrados y los que vengan. A un viaje suelto se le puede poner otro frente en ✏️ Editar, y ese manda.'}
       </Text>
 
