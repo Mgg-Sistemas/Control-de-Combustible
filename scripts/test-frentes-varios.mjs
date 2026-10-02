@@ -193,7 +193,8 @@ ok('⭐ borrar dice ANTES cuántas asignaciones se lleva', /contarAsignacionesFr
 ok('⚠️ la confirmación de borrar va EN LÍNEA, no en un confirm()',
   /borrando\?\.id === f\.id/.test(ui) && !/window\.confirm|useConfirm\(/.test(ui));
 ok('⭐ la ✕ quita UN frente del camión, no todos',
-  /quitarAsignacionFrente\(fecha, a\.machineryId, a\.frenteId\)/.test(ui));
+  // 02-oct-2026: la llamada lleva además la FUENTE (viajes por defecto; la maquinaria tiene la suya).
+  /quitarAsignacionFrente\(fecha, a\.machineryId, a\.frenteId, fuente\)/.test(ui));
 ok('el buscador muestra TODOS los frentes que ya tiene el camión',
   /ya\.map\(\(a\) => a\.frenteNombre\)\.join/.test(ui));
 

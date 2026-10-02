@@ -7,9 +7,10 @@
 // Es el MISMO componente de viajes (`FrentesTrabajo`) con `tipo="maquinas"`:
 // la misma lista de frentes, la misma asignación diaria por equipo, la misma
 // hoja del día en PDF y el mismo historial — pero con TODAS las máquinas del
-// catálogo y hablando de «equipos». Las tablas son las mismas (un frente es un
-// frente, y un equipo tiene UN frente por día); cada apartado solo ve y cuenta
-// los equipos de su lista, así que ninguno pisa al otro.
+// catálogo y hablando de «equipos». Y con SUS PROPIAS TABLAS (02-oct-2026,
+// aclaración del cliente: «es sin viajes, solo para hacer el reporte de los
+// frentes asignados, más nada»): su lista de frentes y sus asignaciones no
+// tienen nada que ver con las de viajes, y manda el permiso de Reportes.
 //
 // ⚠️ NO es la ubicación. La ubicación/edificio la marca el inspector al revisar la
 //    máquina y sale en 📍 Ubicaciones; el frente lo asigna la oficina acá.
@@ -22,7 +23,7 @@ import { spacing } from '../theme';
 import { levelMeets } from '../lib/permissions';
 import { selectAllRows } from '../lib/supabase';
 import { caracasBusinessToday } from '../lib/caracasDay';
-import { listFrentes, type FrenteTrabajo } from '../lib/camionViajes';
+import { FRENTES_MAQUINARIA, listFrentes, type FrenteTrabajo } from '../lib/camionViajes';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 
@@ -35,14 +36,16 @@ export function FrentesReportesCard() {
   const [error, setError] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
 
-  // Asigna quien tiene Reportes completo o Viajes de camiones completo (la base
-  // exige lo mismo). Los demás lo ven y sacan la hoja del día.
-  const canFull = levelMeets(moduleLevel('reportes'), 'full') || levelMeets(moduleLevel('viajes_camiones'), 'full');
+  // «Sin viajes» (02-oct-2026): ASIGNA quien tiene el permiso «Frentes de maquinaria»
+  // (admin = completo; a los demás se les da en Usuarios). Reportes está abierto para
+  // casi todos los roles, así que no sirve de candado: con él solo se VE y se saca la
+  // hoja del día. La base exige lo mismo.
+  const canFull = levelMeets(moduleLevel('frentes_maquinaria'), 'escritura');
 
   const cargar = useCallback(async () => {
     setError(null);
     const [r, rows] = await Promise.all([
-      listFrentes(),
+      listFrentes(FRENTES_MAQUINARIA),
       selectAllRows('machinery', 'id, code, plate, serial, marca, modelo, company:company_id(name)').catch((e: any) => { setError(String(e?.message ?? e)); return [] as any[]; }),
     ]);
     setFrentes(r.frentes); setFaltaSql(r.missing);
@@ -62,10 +65,12 @@ export function FrentesReportesCard() {
       <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.xs }}>
         Dónde trabaja cada equipo cada día. No es la ubicación (eso lo marca el inspector y sale en 📍 Ubicaciones):
         el frente lo asigna la oficina aquí, a una máquina, a varias o a toda una empresa, y sale en su hoja del día.
+        Es independiente de Viajes de camiones: lista de frentes y asignaciones propias.
       </Text>
       {error ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ {error}</Text> : null}
       <FrentesTrabajo
         tipo="maquinas"
+        fuente={FRENTES_MAQUINARIA}
         frentes={frentes}
         faltaSql={faltaSql}
         canFull={canFull}

@@ -3507,10 +3507,12 @@ Pedido del cliente: «una cosa son las ubicaciones y otra los frentes». La **ub
 marca el inspector al revisar la máquina y sale en 📍 Ubicaciones. El **frente** es **dónde trabaja
 cada equipo cada día**, y lo asigna la oficina.
 
-**Dónde:** Reportes → pestaña **«⛏️ Frentes»**. Es **el mismo apartado de Viajes de camiones**, con
-**todas las máquinas** del catálogo y hablando de «equipos»:
-- **Crear frentes** (y desactivarlos, editarlos o borrarlos como en viajes). **La lista de frentes
-  es la misma** que en viajes: un frente es un frente.
+**Dónde:** Reportes → pestaña **«⛏️ Frentes»**. Funciona **igual que el apartado de Viajes de
+camiones**, con **todas las máquinas** del catálogo y hablando de «equipos» — pero es **independiente
+de viajes** («sin viajes, solo para el reporte de los frentes asignados»): tiene **su propia lista de
+frentes y sus propias asignaciones**, en tablas aparte.
+- **Crear frentes** (y desactivarlos, editarlos o borrarlos, como en viajes). Esta lista **no es** la
+  de viajes: lo que crees aquí no aparece allá, ni al revés.
 - **Asignar el frente del día**: eliges la fecha, uno o varios frentes, buscas los equipos (código,
   placa, serial, empresa, marca) y marcas uno, varios o toda una empresa. Abajo, lo asignado con su
   ✕.
@@ -3519,13 +3521,14 @@ cada equipo cada día**, y lo asigna la oficina.
   frentes sin equipos), los mismos logos, y lo que apagues no deja rastro.
 - **🕘 Historial** de los últimos 45 días; tocas un día y lo abres.
 
-**No choca con viajes.** Cada apartado **solo ve y cuenta los equipos de su lista**: Viajes muestra sus
-camiones y Reportes sus máquinas, aunque las tablas sean las mismas (un equipo tiene **un** frente por
-día). Asignarle un frente a un camión desde Reportes es lo mismo que hacerlo desde Viajes, y en
-Reportes **no** aplica la regla de «los viajes toman el frente solos» (eso es de viajes).
+**No choca con viajes.** Son tablas distintas: asignar un frente aquí **no toca ningún viaje** ni la
+asignación que ese camión tenga en Viajes, y en Reportes **no** aplica la regla de «los viajes toman el
+frente solos» (eso es de viajes). Es **solo para la hoja/reporte de los frentes asignados**, más nada.
 
-**Quién puede:** asigna quien tiene **Reportes completo** o **Viajes de camiones completo**; los demás
-lo ven y sacan la hoja del día.
+**Quién puede.** **Verlo y sacar la hoja del día**: cualquiera que vea Reportes. **Asignar, crear y
+quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**, que **nace cerrado** —
+los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
+todos los roles y por eso no sirve de candado.)
 
 #### ⚙️ Control de horómetros — el pago por horómetro (02/10/2026)
 
