@@ -170,8 +170,56 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
      H.etiquetaDeEstado({ estado: 'invalida', estadoDetalle: '' }),
      H.etiquetaDeEstado({ estado: 'sin_lectura', estadoDetalle: '' })],
     ['Salto mayor a 12,5 h', 'Inválida', 'Sin lectura']);
-  eq('ronda sin ninguna lectura → sin lectura', H.compararJornadaHorometro([RONDA('m9', 'MOTO-09', '2026-09-05', 8, 0)], lecturas)[0].estado, 'sin_lectura');
+  // 02-oct-2026: ya no es `[0]` — las lecturas de m1..m5 sin ronda en esta llamada
+  // generan sus propias filas «sin jornada», así que se busca MOTO-09 por nombre.
+  eq('ronda sin ninguna lectura → sin lectura', H.compararJornadaHorometro([RONDA('m9', 'MOTO-09', '2026-09-05', 8, 0)], lecturas).find((f) => f.code === 'MOTO-09').estado, 'sin_lectura');
   eq('la jornada del comparativo usa la fórmula completa (resta parada)', de('RETRO-01', '2026-09-01').horasJornada, 11);
+
+  // ── ⭐ LAS LECTURAS SIN JORNADA TAMBIÉN SALEN (02-oct-2026) ─────────────────
+  // Reportado por el cliente: «el reporte de horómetro no está tomando los rangos
+  // para traer información». La causa: el comparador recorría SOLO las rondas, y una
+  // lectura de un día sin jornada en machine_rounds no generaba fila — desaparecía.
+  {
+    const soloLectura = [L('m7', '2026-09-03', 'day', 300, 308.5)];
+    const f = H.compararJornadaHorometro([], soloLectura);
+    eq('⭐ una lectura de un día SIN ronda ahora SÍ genera fila', f.length, 1);
+    eq('⭐ …como «sin jornada», con sus números y SIN diferencia (no hay contra qué cuadrar)',
+      f[0], { machineryId: 'm7', code: '—', empresa: '—', marca: '', modelo: '', placa: '', fecha: '2026-09-03', horasJornada: 0, inicial: 300, final: 308.5, corregida: false, motivo: '', horasHorometro: 8.5, diferencia: null, estado: 'sin_ronda', estadoDetalle: '' });
+    // Con fichas: toma código/empresa de la ficha, y respeta el recorte de la pantalla.
+    const fichas = new Map([['m7', { code: 'TELE-07', empresa: 'EMPRESA GAMA', marca: 'JLG', modelo: '600S', placa: 'T-77' }]]);
+    const conF = H.compararJornadaHorometro([], soloLectura, fichas)[0];
+    eq('⭐ con el mapa de fichas, la fila sale con su código, empresa y ficha', [conF.code, conF.empresa, conF.marca, conF.modelo, conF.placa], ['TELE-07', 'EMPRESA GAMA', 'JLG', '600S', 'T-77']);
+    eq('⭐ una máquina que NO está en el mapa se omite (es el filtro de empresa/equipos)', H.compararJornadaHorometro([], soloLectura, new Map()).length, 0);
+    // Con rondas y lecturas mezcladas: la de ronda sigue igual, la sin ronda se suma.
+    const mix = H.compararJornadaHorometro([RONDA('m1', 'RETRO-01', '2026-09-03', 8, 0)], [L('m1', '2026-09-03', 'day', 1, 9), ...soloLectura]);
+    // Mismo día: el orden es por código, y «—» ordena antes que «RETRO-01»; lo que
+    // importa es que estén LAS DOS, cada una con su estado.
+    eq('ronda + lectura suelta → dos filas, una de cada clase', mix.map((x) => `${x.code}:${x.estado}`).sort(), ['RETRO-01:cuadra', '—:sin_ronda'].sort());
+    // Inválida o incompleta sin jornada: el estado dice las DOS cosas.
+    eq('inválida sin jornada → «sin jornada · razón»', H.compararJornadaHorometro([], [L('m7', '2026-09-03', 'day', 300, 290, { valida: false, motivoInvalida: 'final menor que inicial' })])[0].estadoDetalle, 'sin jornada · final menor que inicial');
+    eq('incompleta sin jornada → dice qué falta', H.compararJornadaHorometro([], [L('m7', '2026-09-03', 'day', 300, null)])[0].estadoDetalle, 'sin jornada · incompleta: falta el final');
+    eq('la etiqueta genérica es «Sin jornada»', H.etiquetaDeEstado({ estado: 'sin_ronda', estadoDetalle: '' }), 'Sin jornada');
+    // El resumen la cuenta aparte y NO la toma como día bueno para «lista».
+    const res = H.resumenComparativo(f);
+    eq('⭐ el resumen cuenta las «sin jornada» aparte (no como sin lectura)', [res.filas, res.sinRonda, res.sinLectura, res.conLectura, res.horasHorometro], [1, 1, 0, 1, 8.5]);
+    const cinco = ['01', '02', '03', '04', '05'].map((d) => RONDA('m8', 'RET-08', `2026-09-${d}`, 8, 0));
+    const lecs = cinco.map((r) => L('m8', r.fecha, 'day', 1, 9));
+    const conHueco = H.compararJornadaHorometro(cinco.filter((r) => r.fecha !== '2026-09-03'), lecs);
+    eq('⭐ un día «sin jornada» en medio NO cuenta para la racha de lista', H.resumenComparativo(conHueco).listas, []);
+    // El papel.
+    const papel = H.cuerpoComparativo({ desde: '2026-09-03', hasta: '2026-09-03', filas: H.compararJornadaHorometro([], soloLectura, fichas) });
+    ok('⭐ el PDF imprime la fila «Sin jornada» con sus horas de horómetro', /TELE-07/.test(papel) && /Sin jornada/.test(papel) && /8,5|8\.5/.test(papel));
+    ok('…la celda de jornada va con «—», no con un 0 que parezca jornada', /<td class="r">—<\/td>/.test(papel));
+    ok('…y la caja «sin jornada» sale solo porque hay alguna', /sin jornada<\/div>|<b>1<\/b>sin jornada/.test(papel));
+    ok('la nota ya no promete «solo días con ronda»', !/día con ronda;/.test(papel) && /lectura de horómetro/.test(papel));
+    const sinJ = H.cuerpoComparativo({ desde: '2026-09-03', hasta: '2026-09-03', filas: H.compararJornadaHorometro([], soloLectura, fichas) }, { ...H.OPCIONES_COMPARATIVO_COMPLETO, sinJornada: true });
+    ok('⭐ con 🚫 jornada encendida, ni la palabra «jornada» ni la caja aparecen', !/[Jj]ornada/.test(sinJ) && /TELE-07/.test(sinJ));
+    ok('sin filas, el papel dice «Sin datos en el rango» (no «sin rondas»)', /Sin datos en el rango/.test(H.cuerpoComparativo({ desde: '2026-09-03', hasta: '2026-09-03', filas: [] })));
+    // Y la pantalla le pasa el MISMO filtro de empresa/equipos que aplica a las rondas.
+    const fsMod = await import('node:fs');
+    const scr = fsMod.readFileSync(new URL('../src/screens/ReportsScreen.tsx', import.meta.url), 'utf8');
+    ok('⭐ la pantalla pasa las fichas filtradas al comparador', /compararJornadaHorometro\(rondas, d\.lecturas, fichasFiltradas\)/.test(scr) && /pasaFiltroJornada\(\{ id, clasificacion: m\.clasificacion \}, filtroEqActual\)/.test(scr));
+  }
 
   const res = H.resumenComparativo(filas);
   eq('resumen: cuentas', [res.filas, res.maquinas, res.conLectura, res.cuadran, res.horometroMayor, res.jornadaMayor, res.invalidas, res.sinLectura], [6, 5, 4, 1, 2, 1, 1, 1]);
@@ -261,7 +309,8 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   for (let i = 1; i <= 5; i++) { const f = `2026-09-0${i}`; cinco.push(RONDA('m7', 'MOTO-07', f, 8, 0)); lecs.push(L('m7', f, 'day', 10, 18)); }
   const papel2 = H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-05', filas: H.compararJornadaHorometro(cinco, lecs) });
   ok('la máquina lista sale en su tabla con sus días', /Días seguidos<\/th>/.test(papel2) && /<td>MOTO-07<\/td><td class="r">5<\/td>/.test(papel2));
-  ok('sin filas, el papel lo dice y no revienta', /Sin rondas en el rango/.test(H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-02', filas: [] })));
+  // 02-oct-2026: «Sin datos», no «Sin rondas» — una lectura sin ronda también es dato.
+  ok('sin filas, el papel lo dice y no revienta', /Sin datos en el rango/.test(H.cuerpoComparativo({ desde: '2026-09-01', hasta: '2026-09-02', filas: [] })));
 }
 
 // ── EL FINAL OLVIDADO: cuál lectura puede completar el inspector (24-sep-2026) ──

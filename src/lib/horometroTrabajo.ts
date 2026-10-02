@@ -294,7 +294,12 @@ export type FilaComparativa = {
   horasJornada: number;
   horasHorometro: number | null;
   diferencia: number | null;
-  estado: 'cuadra' | 'horometro_mayor' | 'jornada_mayor' | 'sin_lectura' | 'invalida';
+  /**
+   * `sin_ronda` (02-oct-2026): HAY lectura de horómetro ese día pero NO hay jornada
+   * registrada. Antes esa fila ni existía —el comparador solo recorría rondas— y
+   * el cliente lo vivió como «el reporte no toma el rango».
+   */
+  estado: 'cuadra' | 'horometro_mayor' | 'jornada_mayor' | 'sin_lectura' | 'invalida' | 'sin_ronda';
 
   // ── EL INICIO Y EL FIN (26-sep-2026) ──────────────────────────────────────
   // Pedido del cliente: «cuando el cambio sea manual que se refleje en el reporte
@@ -349,9 +354,21 @@ const TOLERANCIA_LISTA = 3;
 /** Días seguidos que hacen falta para dar una máquina por lista. */
 const DIAS_PARA_LISTA = 5;
 
+/** La ficha mínima de una máquina, para las filas que NO traen ronda (02-oct-2026). */
+export type FichaMaquinaComparativo = { code: string; empresa: string; marca?: string; modelo?: string; placa?: string };
+
+/**
+ * @param fichas (02-oct-2026) las máquinas que ENTRAN al papel, con su ficha. Sirve
+ *   para las lecturas de días SIN ronda: la ronda trae su ficha, la lectura no.
+ *   · Si se pasa, una lectura sin ronda de una máquina que NO está en el mapa se
+ *     omite — es el mismo filtro de empresa/equipos que la pantalla ya aplicó a las
+ *     rondas, para que las dos clases de fila respeten el mismo recorte.
+ *   · Si NO se pasa (llamadas puras), la fila sale igual, con código «—».
+ */
 export function compararJornadaHorometro(
   rondas: readonly { machineryId: string; code: string; empresa: string; marca?: string; modelo?: string; placa?: string; fecha: string; ronda: RondaHoras }[],
   lecturas: readonly LecturaTrabajo[],
+  fichas?: ReadonlyMap<string, FichaMaquinaComparativo> | null,
 ): FilaComparativa[] {
   const porClave = new Map<string, LecturaTrabajo[]>();
   for (const l of lecturas ?? []) {
@@ -360,9 +377,12 @@ export function compararJornadaHorometro(
     const arr = porClave.get(k); if (arr) arr.push(l); else porClave.set(k, [l]);
   }
   const filas: FilaComparativa[] = [];
+  /** Las claves máquina|día que SÍ tienen ronda: lo que quede fuera va como «sin jornada». */
+  const conRonda = new Set<string>();
   for (const r of rondas ?? []) {
     const fecha = String(r.fecha ?? '').slice(0, 10);
     const hj = redondear(horasJornada(r.ronda));
+    conRonda.add(`${r.machineryId}|${fecha}`);
     const del = porClave.get(`${r.machineryId}|${fecha}`) ?? [];
     // ⭐ EL INICIO Y EL FIN DEL DÍA (26-sep-2026). Se toman de los turnos ORDENADOS
     //    (día antes que noche): el `inicial` del primero que lo tenga y el `final`
@@ -411,6 +431,48 @@ export function compararJornadaHorometro(
     const dif = redondear(hh - hj);
     const estado: FilaComparativa['estado'] = Math.abs(dif) <= TOLERANCIA_CUADRA ? 'cuadra' : dif > 0 ? 'horometro_mayor' : 'jornada_mayor';
     filas.push({ ...base, horasHorometro: hh, diferencia: dif, estado });
+  }
+
+  // ⭐ LAS LECTURAS SIN JORNADA TAMBIÉN SALEN (02-oct-2026, reportado: «el reporte de
+  //    horómetro no está tomando los rangos para traer información»).
+  //
+  //    Hasta hoy el comparador recorría SOLO las rondas: una lectura de un día sin
+  //    jornada en `machine_rounds` no generaba fila y desaparecía del papel —y el
+  //    papel hasta lo decía: «una fila por máquina y día con ronda». Control permite
+  //    cargar o corregir el horómetro de un día sin jornada a propósito, así que ese
+  //    dato existía y nadie podía verlo. Ahora sale como «Sin jornada»: con sus
+  //    números de Inicio/Fin y sus horas de horómetro, con 0 h de jornada y SIN
+  //    diferencia (no hay contra qué comparar), de modo que nunca cuenta para la
+  //    racha de «lista para encender» ni para cuadrar.
+  for (const [k, del] of porClave) {
+    if (conRonda.has(k)) continue;
+    const [machineryId, fecha] = k.split('|');
+    if (!machineryId || !fecha) continue;
+    // Con mapa de fichas, se respeta el recorte de la pantalla (empresa/equipos).
+    if (fichas && !fichas.has(machineryId)) continue;
+    const f = fichas?.get(machineryId);
+    const ord = [...del].sort((a, b) => (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1));
+    const marca = marcaDeCorreccion(ord);
+    const invalidas = del.filter((l) => !l.valida);
+    const horas = invalidas.length ? [] : del.map(horasDeLectura).filter((h): h is number => h != null);
+    const hh = horas.length ? redondear(horas.reduce((s, h) => s + h, 0)) : null;
+    const tieneIni = del.some((l) => l.inicial != null);
+    const tieneFin = del.some((l) => l.final != null);
+    // La razón, cuando la hay, se suma a «sin jornada» para que el estado diga las dos cosas.
+    const motivos: string[] = [];
+    for (const l of invalidas) { const m = limpio(l.motivoInvalida); if (m && !motivos.includes(m)) motivos.push(m); }
+    const razon = motivos.length ? motivos.join(' · ')
+      : hh == null ? (tieneIni && !tieneFin ? 'incompleta: falta el final' : !tieneIni && tieneFin ? 'incompleta: falta el inicial' : '') : '';
+    filas.push({
+      machineryId, code: limpio(f?.code) || '—', empresa: limpio(f?.empresa) || '—',
+      marca: limpio(f?.marca), modelo: limpio(f?.modelo), placa: limpio(f?.placa), fecha,
+      horasJornada: 0,
+      inicial: ord.find((l) => l.inicial != null)?.inicial ?? null,
+      final: [...ord].reverse().find((l) => l.final != null)?.final ?? null,
+      corregida: marca.corregida, motivo: marca.motivo,
+      horasHorometro: hh, diferencia: null, estado: 'sin_ronda',
+      estadoDetalle: razon ? `sin jornada · ${razon}` : '',
+    });
   }
   return filas.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : cmp(a.code, b.code)));
 }
@@ -489,6 +551,8 @@ export function lineaHorometroJornada(h: HorometroDeMaquina | null | undefined):
 export type ResumenComparativo = {
   filas: number; maquinas: number; conLectura: number;
   cuadran: number; horometroMayor: number; jornadaMayor: number; invalidas: number; sinLectura: number;
+  /** Lecturas de días SIN jornada registrada (02-oct-2026). */
+  sinRonda: number;
   /** ✎ Cuántas se corrigieron a mano desde Control (26-sep-2026). */
   corregidas: number;
   horasJornada: number; horasHorometro: number;
@@ -496,13 +560,14 @@ export type ResumenComparativo = {
 };
 
 /** Un día «bueno» para el criterio de salida: cuadra, o se va por 3 h o menos; nunca una inválida. */
-const diaBueno = (f: FilaComparativa) => f.estado !== 'invalida' && (f.estado === 'cuadra' || (f.diferencia != null && Math.abs(f.diferencia) <= TOLERANCIA_LISTA));
+// «sin_ronda» tampoco es bueno: sin jornada no hay contra qué cuadrar (02-oct-2026).
+const diaBueno = (f: FilaComparativa) => f.estado !== 'invalida' && f.estado !== 'sin_ronda' && (f.estado === 'cuadra' || (f.diferencia != null && Math.abs(f.diferencia) <= TOLERANCIA_LISTA));
 
 export function resumenComparativo(filas: readonly FilaComparativa[]): ResumenComparativo {
   const fs = filas ?? [];
   const r: ResumenComparativo = {
     filas: fs.length, maquinas: new Set(fs.map((f) => f.machineryId)).size, conLectura: 0,
-    cuadran: 0, horometroMayor: 0, jornadaMayor: 0, invalidas: 0, sinLectura: 0, corregidas: 0,
+    cuadran: 0, horometroMayor: 0, jornadaMayor: 0, invalidas: 0, sinLectura: 0, sinRonda: 0, corregidas: 0,
     horasJornada: 0, horasHorometro: 0, listas: [],
   };
   for (const f of fs) {
@@ -513,6 +578,7 @@ export function resumenComparativo(filas: readonly FilaComparativa[]): ResumenCo
     else if (f.estado === 'horometro_mayor') r.horometroMayor++;
     else if (f.estado === 'jornada_mayor') r.jornadaMayor++;
     else if (f.estado === 'invalida') r.invalidas++;
+    else if (f.estado === 'sin_ronda') r.sinRonda++;
     else r.sinLectura++;
   }
   r.horasJornada = redondear(r.horasJornada);
@@ -567,6 +633,7 @@ export const CSS_COMPARATIVO = `
 
 const ETIQUETA_ESTADO: Record<FilaComparativa['estado'], string> = {
   cuadra: 'Cuadra', horometro_mayor: 'Horómetro mayor', jornada_mayor: 'Jornada mayor', sin_lectura: 'Sin lectura', invalida: 'Inválida',
+  sin_ronda: 'Sin jornada',
 };
 /** El texto de la columna Estado: la RAZÓN cuando la hay (27-sep-2026), la
  *  etiqueta genérica cuando no. Con la primera letra en mayúscula, que los
@@ -578,6 +645,7 @@ export function etiquetaDeEstado(f: Pick<FilaComparativa, 'estado' | 'estadoDeta
 }
 const CLASE_ESTADO: Record<FilaComparativa['estado'], string> = {
   cuadra: 'hc-ok', horometro_mayor: 'hc-mas', jornada_mayor: 'hc-menos', sin_lectura: 'hc-sin', invalida: 'hc-menos',
+  sin_ronda: 'hc-sin',
 };
 
 // ── QUÉ SE OCULTA (las pastillas del reporte, 25-sep-2026) ───────────────────────
@@ -652,13 +720,23 @@ export function cuerpoComparativo(
   const notaCorr = r.corregidas > 0
     ? ` <span style="color:#1D4ED8"><b>✎ corregido a mano</b> marca las ${r.corregidas} lectura(s) que se arreglaron desde Control, con el motivo que escribió quien las corrigió.</span>`
     : '';
+  // 02-oct-2026: ya no es «día con ronda» a secas — una lectura de un día sin jornada
+  // también tiene su fila («Sin jornada»). Con 🚫 Horas de jornada encendida no se
+  // puede ni nombrar la jornada, por eso la primera versión dice solo «día con datos».
   html += o.sinJornada
-    ? `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; horas = final − inicial del horómetro de trabajo, por turno. «—» = sin lectura completa ese día.${notaIF}${notaCorr}</p>`
-    : `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con ronda; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos.${notaIF}${notaCorr}</p>`;
+    ? `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con datos; horas = final − inicial del horómetro de trabajo, por turno. «—» = sin lectura completa ese día.${notaIF}${notaCorr}</p>`
+    : `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con jornada o con lectura de horómetro; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos. «Sin jornada» = hubo lectura pero ese día no se registró jornada.${notaIF}${notaCorr}</p>`;
   if (!o.sinResumen) {
-    html += `<div class="hc-res">` + caja('máquinas', r.maquinas) + caja('días con ronda', r.filas) + caja('con lectura', r.conLectura);
+    // 02-oct-2026: `filas` ahora incluye las de «sin jornada»; «días con ronda» las resta.
+    // Con 🚫 Horas de jornada encendida no se nombra la jornada: la caja dice solo «días».
+    html += `<div class="hc-res">` + caja('máquinas', r.maquinas)
+      + (o.sinJornada ? caja('días', r.filas) : caja('días con ronda', r.filas - r.sinRonda))
+      + caja('con lectura', r.conLectura);
     if (!o.sinJornada) html += caja('cuadran', r.cuadran) + caja('horómetro mayor', r.horometroMayor) + caja('jornada mayor', r.jornadaMayor);
     html += caja('inválidas', r.invalidas) + caja('sin lectura', r.sinLectura);
+    // «Sin jornada» (02-oct-2026): solo si hay alguna, como las corregidas — un cero
+    // permanente es ruido. Y nunca con la jornada oculta: nombrarla la delataría.
+    if (!o.sinJornada && r.sinRonda > 0) html += caja('sin jornada', r.sinRonda);
     // ✎ La caja solo sale si hubo correcciones: un cero permanente es ruido.
     if (r.corregidas > 0) html += caja('✎ corregidas a mano', r.corregidas);
     if (!o.sinJornada) html += caja('h jornada', fmtH(r.horasJornada));
@@ -679,7 +757,7 @@ export function cuerpoComparativo(
     const porDia = new Map<string, FilaComparativa[]>();
     for (const f of filas) { const a = porDia.get(f.fecha); if (a) a.push(f); else porDia.set(f.fecha, [f]); }
     const fechas = [...porDia.keys()].sort();
-    if (fechas.length === 0) html += `<p class="nota">Sin rondas en el rango.</p>`;
+    if (fechas.length === 0) html += `<p class="nota">Sin datos en el rango.</p>`;
     for (const fecha of fechas) {
       const del = [...(porDia.get(fecha) ?? [])].sort((a, b) => cmp(a.code, b.code));
       html += `<h3 class="sect">${dmy(fecha)} <span>${del.length} máquina(s)</span></h3>`;
@@ -705,7 +783,9 @@ export function cuerpoComparativo(
           html += `<tr><td>${esc(f.code)}${marca}</td>${ident}${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;
         } else {
           const dif = f.diferencia == null ? '—' : (f.diferencia > 0 ? '+' : '') + fmtH(f.diferencia);
-          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}${marca}</td>${ident}<td class="r">${fmtH(f.horasJornada)}</td>${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${esc(etiquetaDeEstado(f))}</td></tr>`;
+          // Sin jornada no se imprime un «0» que parezca una jornada de cero horas: va «—».
+          const hj = f.estado === 'sin_ronda' ? '—' : fmtH(f.horasJornada);
+          html += `<tr class="${CLASE_ESTADO[f.estado]}"><td>${esc(f.code)}${marca}</td>${ident}<td class="r">${hj}</td>${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td><td class="r">${dif}</td><td class="est">${esc(etiquetaDeEstado(f))}</td></tr>`;
         }
       }
       html += `</tbody></table>`;
