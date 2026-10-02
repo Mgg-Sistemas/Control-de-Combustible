@@ -30,6 +30,7 @@ import {
 } from '../lib/camionViajes';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
+  ETIQUETA_CAMION, ETIQUETA_EQUIPO,
   frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes,
   historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
@@ -57,6 +58,18 @@ type Props = {
   userName: string | null;
   /** Recarga los frentes Y las asignaciones que la pantalla congela al registrar. */
   onCambio: () => void;
+  /**
+   * ⛏️ FRENTES PARA MAQUINARIA (02-oct-2026, a pedido: «un apartado en Reportes
+   * para frentes, como el de viajes, que no choque ni rompa nada»). Con
+   * 'maquinas' el mismo apartado se usa desde Reportes con TODAS las máquinas,
+   * hablando de «equipos». Por defecto 'camiones': el de viajes, igual que siempre.
+   *
+   * ⚠️ LAS ASIGNACIONES SE ACOTAN A LA LISTA QUE RECIBE: viajes solo ve y cuenta
+   *    sus camiones, y Reportes sus máquinas. Las tablas son las mismas (un frente
+   *    es un frente; un equipo tiene UN frente por día), pero ninguno de los dos
+   *    apartados muestra lo que asignó el otro como «fuera del catálogo».
+   */
+  tipo?: 'camiones' | 'maquinas';
 };
 
 const norm = (s: unknown) =>
@@ -77,9 +90,16 @@ function diasAntes(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio }: Props) {
+export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio, tipo = 'camiones' }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
+  const esMaq = tipo === 'maquinas';
+  const E = esMaq ? ETIQUETA_EQUIPO : ETIQUETA_CAMION;
+  const fueraTxt = esMaq ? '(equipo fuera de esta lista)' : '(camión fuera del catálogo)';
+  // La lista como clave de texto: los efectos dependen de ELLA y no de la
+  // identidad del arreglo, que puede cambiar en cada render de la pantalla.
+  const claveLista = useMemo(() => camiones.map((c) => c.id).sort().join('|'), [camiones]);
+  const idsLista = useMemo(() => new Set(claveLista ? claveLista.split('|') : []), [claveLista]);
 
   const [nuevo, setNuevo] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -109,11 +129,12 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return;
     listAsignacionesFrente(fecha).then((r) => {
       if (!vivo) return;
-      setAsignaciones(r.asignaciones);
+      // Solo lo de ESTA lista (ver `tipo` en Props).
+      setAsignaciones(r.asignaciones.filter((a) => idsLista.has(a.machineryId)));
       if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
     });
     return () => { vivo = false; };
-  }, [fecha, recarga]);
+  }, [fecha, recarga, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 🕘 EL HISTORIAL: los últimos 45 días de asignaciones, agrupados por jornada.
   //    Se recarga cuando se asigna o se quita algo, para que lo que acabas de
@@ -123,11 +144,11 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     if (!canFull) return;
     listAsignacionesFrenteRango(diasAntes(jornadaHoy, DIAS_HISTORIAL), jornadaHoy).then((r) => {
       if (!vivo) return;
-      setHistorial(historialFrentes(r.asignaciones));
+      setHistorial(historialFrentes(r.asignaciones.filter((a) => idsLista.has(a.machineryId))));
       if (r.error && !r.missing) console.warn('[frentes] no se pudo leer el historial:', r.error);
     });
     return () => { vivo = false; };
-  }, [canFull, jornadaHoy, recarga]);
+  }, [canFull, jornadaHoy, recarga, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
   /** Los frentes de cada camión ese día: ahora son VARIOS, no uno. */
@@ -181,7 +202,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
    */
   const asignar = async () => {
     if (frenteSel.size === 0) { toast.error('Elige al menos un frente.'); return; }
-    if (marcados.size === 0) { toast.error('Marca al menos un camión (usa el buscador).'); return; }
+    if (marcados.size === 0) { toast.error(`Marca al menos un ${E.singular} (usa el buscador).`); return; }
     setGuardando(true);
     const ids = Array.from(marcados);
     let agregados = 0, yaEstaban = 0;
@@ -202,9 +223,11 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     const repe = yaEstaban > 0 ? ` (${yaEstaban} ya lo tenían)` : '';
     // ⛏️ El aviso dice lo que de verdad pasa: con UN frente los viajes sin
     //    frente lo toman solos; con VARIOS ya no se puede adivinar cuál.
-    const auto = frenteSel.size === 1
-      ? 'Los viajes de ese día sin frente lo toman automáticamente.'
-      : 'Ojo: a los camiones con VARIOS frentes ese día, los viajes ya no toman el frente solos — hay que elegirlo al registrar o en ✏️ Editar.';
+    const auto = esMaq
+      ? ''
+      : frenteSel.size === 1
+        ? 'Los viajes de ese día sin frente lo toman automáticamente.'
+        : 'Ojo: a los camiones con VARIOS frentes ese día, los viajes ya no toman el frente solos — hay que elegirlo al registrar o en ✏️ Editar.';
     toast.success(`${agregados} asignación(es)${repe}: ⛏️ ${nombres} el ${dmy(fecha)}. ${auto}`);
   };
 
@@ -261,7 +284,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
           return {
             frenteNombre: a.frenteNombre,
             camion: {
-              code: c?.code ?? '(camión fuera del catálogo)',
+              code: c?.code ?? fueraTxt,
               placa: c?.plate || c?.serial || null,
               empresa: c?.companyName || null,
               marcaModelo: [c?.marca, c?.modelo].filter(Boolean).join(' ') || null,
@@ -278,9 +301,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         //    información en el PDF»). Regla de la casa desde el 25-sep: lo
         //    oculto no aparece en NINGUNA parte del papel, tampoco en el
         //    subtítulo. El papel se lee como si ese dato no existiera.
-        subtitle: `Asignación del ${dmy(fecha)} · de dónde recoge cada camión`,
+        subtitle: esMaq ? `Asignación del ${dmy(fecha)} · frente de trabajo de cada equipo` : `Asignación del ${dmy(fecha)} · de dónde recoge cada camión`,
         extraCss: CSS_FRENTES,
-        body: cuerpoFrentesDelDia(grupos, op),
+        body: cuerpoFrentesDelDia(grupos, op, E),
         logos,
         // Igual que los demás papeles de viajes de camiones (28-sep-2026), y
         // además pedido de nuevo para esta hoja el 29-sep-2026.
@@ -305,17 +328,17 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text } as const;
   const codigoDe = (id: string) => {
     const c = camiones.find((x) => x.id === id);
-    return c ? `${c.code}${c.plate ? ` · ${c.plate}` : c.serial ? ` · ${c.serial}` : ''}` : '(camión fuera del catálogo)';
+    return c ? `${c.code}${c.plate ? ` · ${c.plate}` : c.serial ? ` · ${c.serial}` : ''}` : fueraTxt;
   };
 
   const CHECKS: { k: keyof OpcionesFrentes; label: string; ayuda: string }[] = [
-    { k: 'numeracion', label: '1️⃣ Numeración de los camiones', ayuda: 'La columna Nº dentro de cada frente.' },
-    { k: 'placa', label: '🔢 Placa / Serial', ayuda: 'Cómo se identifica el camión en el patio.' },
-    { k: 'empresa', label: '🏢 Empresa del camión', ayuda: 'A quién pertenece cada camión.' },
+    { k: 'numeracion', label: `1️⃣ Numeración de los ${E.plural}`, ayuda: 'La columna Nº dentro de cada frente.' },
+    { k: 'placa', label: '🔢 Placa / Serial', ayuda: `Cómo se identifica el ${E.singular} en el patio.` },
+    { k: 'empresa', label: `🏢 Empresa del ${E.singular}`, ayuda: `A quién pertenece cada ${E.singular}.` },
     { k: 'marcaModelo', label: '🚚 Marca y modelo', ayuda: 'Dato de taller; normalmente no hace falta en la hoja de patio.' },
-    { k: 'contador', label: '🔟 Cuántos camiones lleva cada frente', ayuda: 'El «N camión(es)» al lado del nombre del frente.' },
+    { k: 'contador', label: `🔟 Cuántos ${E.plural} lleva cada frente`, ayuda: `El «N ${E.unidad}» al lado del nombre del frente.` },
     { k: 'totales', label: '📋 Línea de totales arriba', ayuda: 'Camiones asignados y cuántos frentes se usaron.' },
-    { k: 'sinCamiones', label: '⬜ Incluir los frentes SIN camiones', ayuda: 'Apagado (como pediste) salen SOLO los frentes asignados ese día. Encendido también los que quedaron vacíos.' },
+    { k: 'sinCamiones', label: `⬜ Incluir los frentes SIN ${E.plural}`, ayuda: 'Apagado (como pediste) salen SOLO los frentes asignados ese día. Encendido también los que quedaron vacíos.' },
   ];
   const LOGOS: { k: keyof LogosFrentes; label: string }[] = [
     { k: 'bcv', label: '🏦 Banco Central de Venezuela' },
@@ -331,10 +354,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>⛏️ FRENTES DE TRABAJO · {activos.length}</Text>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-        El frente es DE DÓNDE recogen los camiones lo que llevan a los CDT/CDF. Asigna el frente del
-        día a cada camión (o a varios de una vez): TODOS los viajes de ese día que no tengan frente
-        propio lo toman automáticamente, los que ya estaban registrados y los que vengan. A un viaje
-        suelto se le puede poner otro frente en ✏️ Editar, y ese manda.
+        {esMaq
+          ? 'El frente es DÓNDE TRABAJA cada equipo ese día (no es la ubicación/edificio que marca el inspector: eso es otra cosa). Asigna el frente del día a una máquina, a varias o a toda una empresa; abajo sale lo asignado, la hoja del día en PDF y el historial. Los frentes son los mismos que en Viajes de camiones: un frente es un frente.'
+          : 'El frente es DE DÓNDE recogen los camiones lo que llevan a los CDT/CDF. Asigna el frente del día a cada camión (o a varios de una vez): TODOS los viajes de ese día que no tengan frente propio lo toman automáticamente, los que ya estaban registrados y los que vengan. A un viaje suelto se le puede poner otro frente en ✏️ Editar, y ese manda.'}
       </Text>
 
       {faltaSql ? (
@@ -458,14 +480,14 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               <TextInput
                 value={query}
                 onChangeText={setQuery}
-                placeholder="🔎 Buscar camión: placa, código, serial, empresa…"
+                placeholder={esMaq ? '🔎 Buscar máquina: placa, código, serial, empresa, marca…' : '🔎 Buscar camión: placa, código, serial, empresa…'}
                 placeholderTextColor={colors.muted}
                 style={[input, { marginTop: spacing.xs }]}
                 autoCorrect={false}
               />
               <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} nestedScrollEnabled>
                 {camionesFiltrados.length === 0 ? (
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>Ningún camión coincide con la búsqueda.</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Ningún {E.singular} coincide con la búsqueda.</Text>
                 ) : camionesFiltrados.map((c) => {
                   const on = marcados.has(c.id);
                   const ya = asignadoA.get(c.id);
@@ -489,7 +511,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               <TouchableOpacity disabled={guardando} onPress={asignar}
                 style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: guardando ? 0.6 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>
-                  ⛏️ Asignar {marcados.size > 0 ? `${marcados.size} camión(es)` : ''} a {frenteSel.size > 1 ? `${frenteSel.size} frentes` : 'el frente'}
+                  ⛏️ Asignar {marcados.size > 0 ? `${marcados.size} ${E.unidad}` : ''} a {frenteSel.size > 1 ? `${frenteSel.size} frentes` : 'el frente'}
                 </Text>
               </TouchableOpacity>
 
@@ -500,7 +522,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                     {/* Camiones DISTINTOS y, si hay alguno con varios frentes,
                         también cuántas asignaciones son en total. */}
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
-                      ASIGNADOS ESE DÍA · {camionesAsignados} camión(es)
+                      ASIGNADOS ESE DÍA · {camionesAsignados} {E.unidad}
                       {asignaciones.length !== camionesAsignados ? ` · ${asignaciones.length} asignaciones` : ''}
                     </Text>
                     {/* 📄 La hoja de asignación del día. Sin cifras: solo quién
@@ -557,7 +579,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                 </View>
               ) : (
                 <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm }}>
-                  Ese día todavía no hay ningún camión asignado a un frente.
+                  Ese día todavía no hay ningún {E.singular} asignado a un frente.
                 </Text>
               )}
 
@@ -578,7 +600,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                   <TouchableOpacity key={d.jornada} onPress={() => setFecha(d.jornada)}
                     style={{ paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                     <Text style={{ color: d.jornada === fecha ? colors.brandText : colors.text, fontWeight: '800', fontSize: 12.5 }}>
-                      📅 {dmy(d.jornada)}{d.jornada === jornadaHoy ? ' · HOY' : ''} · {d.camiones} camión(es)
+                      📅 {dmy(d.jornada)}{d.jornada === jornadaHoy ? ' · HOY' : ''} · {d.camiones} {E.unidad}
                     </Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>
                       {d.frentes.map((f) => `⛏️ ${f.nombre} (${f.camiones})`).join('  ')}
