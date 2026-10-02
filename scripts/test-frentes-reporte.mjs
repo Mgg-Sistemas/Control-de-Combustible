@@ -155,8 +155,9 @@ ok('y ofrece también los frentes activos sin asignación',
   const rep = leer('src/lib/frentesReporte.ts');
   const compS = leer('src/components/FrentesTrabajo.tsx');
   ok('⭐ ya no existe la etiqueta que delataba lo apagado', !/export function etiquetaOpcionesFrentes/.test(rep));
+  // 02-oct-2026: el subtítulo depende del tipo (camiones / máquinas), pero ninguno dice qué se ocultó.
   ok('⭐ el subtítulo del PDF NO dice qué se ocultó',
-    /subtitle: `Asignación del \$\{dmy\(fecha\)\} · de dónde recoge cada camión`/.test(compS));
+    /subtitle: esMaq \? `Asignación del \$\{dmy\(fecha\)\} · frente de trabajo de cada equipo` : `Asignación del \$\{dmy\(fecha\)\} · de dónde recoge cada camión`/.test(compS));
   // Sin los comentarios: en ellos SÍ se nombra la etiqueta vieja, justamente
   // para explicar por qué no puede volver.
   const sinCom = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -196,6 +197,41 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ el historial está en el MISMO apartado de frentes',
     /Historial de frentes de trabajo/.test(comp2) && /historialFrentes\(/.test(comp2));
   ok('y tocar un día lo abre arriba para verlo e imprimirlo', /onPress=\{\(\) => setFecha\(d\.jornada\)\}/.test(comp2));
+}
+
+// ── 6) ⛏️ FRENTES DE MAQUINARIA EN REPORTES (02-oct-2026) ────────────────────
+// Pedido: «una cosa son las ubicaciones y otra los frentes; un apartado en
+// Reportes para frentes, como el de viajes de camiones, que no choque ni rompa
+// nada». Es el MISMO componente con `tipo="maquinas"`, acotado a su lista.
+{
+  const { ETIQUETA_CAMION, ETIQUETA_EQUIPO } = m.exports;
+  const g = frentesDelDia([{ frenteNombre: 'CANTERA', camion: cam('RETRO-01', 'S-1', 'ALFA') }]);
+  const papelEq = cuerpoFrentesDelDia(g, FRENTES_POR_DEFECTO, ETIQUETA_EQUIPO);
+  ok('⭐ con etiqueta de equipo, el papel habla de equipos, no de camiones',
+    /<th>Equipo<\/th>/.test(papelEq) && /1 equipo\(s\) asignados/.test(papelEq) && !/camión/i.test(papelEq));
+  ok('⭐ sin etiqueta sale como siempre (camión)', /<th>Camión<\/th>/.test(cuerpoFrentesDelDia(g)) && /camión\(es\)/.test(cuerpoFrentesDelDia(g)));
+  eq('la etiqueta por defecto es la de camión', ETIQUETA_CAMION.columna, 'Camión');
+  ok('sin nada asignado habla del equipo', /ningún equipo asignado/.test(cuerpoFrentesDelDia([], FRENTES_POR_DEFECTO, ETIQUETA_EQUIPO)));
+
+  const compM = leer('src/components/FrentesTrabajo.tsx');
+  ok('⭐ el componente tiene `tipo` y arranca como camiones', /tipo\?: 'camiones' \| 'maquinas'/.test(compM) && /tipo = 'camiones'/.test(compM));
+  ok('⭐ las asignaciones y el historial se ACOTAN a la lista que recibe (ninguno pisa al otro)',
+    /setAsignaciones\(r\.asignaciones\.filter\(\(a\) => idsLista\.has\(a\.machineryId\)\)\)/.test(compM)
+    && /historialFrentes\(r\.asignaciones\.filter\(\(a\) => idsLista\.has\(a\.machineryId\)\)\)/.test(compM));
+  ok('el buscador de viajes sigue diciendo camión', /Buscar camión: placa, código, serial, empresa/.test(compM));
+  ok('en máquinas no promete lo de los viajes (que toman el frente solos)', /const auto = esMaq\s*\?\s*''/.test(compM));
+
+  const card = leer('src/components/FrentesReportesCard.tsx');
+  ok('⭐ Reportes monta el mismo apartado con TODAS las máquinas, en modo máquinas',
+    /tipo="maquinas"/.test(card) && /selectAllRows\('machinery'/.test(card) && /<FrentesTrabajo/.test(card));
+  ok('⭐ asigna quien tiene Reportes completo o Viajes completo', /levelMeets\(moduleLevel\('reportes'\), 'full'\) \|\| levelMeets\(moduleLevel\('viajes_camiones'\), 'full'\)/.test(card));
+  ok('y deja claro que NO es la ubicación', /No es la ubicación/.test(card));
+
+  const rep = leer('src/screens/ReportsScreen.tsx');
+  ok('⭐ Reportes tiene la pestaña ⛏️ Frentes', /\{ v: 'frentes', label: '⛏️ Frentes' \}/.test(rep) && /mode === 'frentes' \? \(\s*<FrentesReportesCard \/>/.test(rep));
+  ok('⭐ el botón «Generar» genérico no sale en esa pestaña', /\{mode !== 'frentes' \? \(/.test(rep));
+  const viajes = leer('src/screens/ViajesCamionesScreen.tsx');
+  ok('⭐ viajes sigue montando el apartado SIN tipo (camiones, como siempre)', /<FrentesTrabajo\s*\n\s*frentes=\{frentes\}/.test(viajes) && !/tipo="maquinas"/.test(viajes));
 }
 
 console.log('\nPDF DE FRENTES DEL DÍA — la hoja de asignación, sin cifras\n');
