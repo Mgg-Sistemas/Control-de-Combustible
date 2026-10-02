@@ -171,13 +171,19 @@ export const CSS_FRENTES = `
  * El cuerpo del PDF: un bloque por frente con la lista de sus camiones.
  * Sin una sola cantidad de operación, a propósito (ver la cabecera).
  */
-export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO): string {
+/** Cómo se llama el equipo en el papel. Para viajes, «camión»; para la hoja de
+ *  frentes de maquinaria (02-oct-2026), «equipo». */
+export type EtiquetaEquipo = { columna: string; singular: string; plural: string; unidad: string };
+export const ETIQUETA_CAMION: EtiquetaEquipo = { columna: 'Camión', singular: 'camión', plural: 'camiones', unidad: 'camión(es)' };
+export const ETIQUETA_EQUIPO: EtiquetaEquipo = { columna: 'Equipo', singular: 'equipo', plural: 'equipos', unidad: 'equipo(s)' };
+
+export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION): string {
   const t = totalesFrentes(grupos);
   if (t.frentes === 0) {
-    return '<p class="fr-vacio">Ese día no hay ningún camión asignado a un frente.</p>';
+    return `<p class="fr-vacio">Ese día no hay ningún ${e.singular} asignado a un frente.</p>`;
   }
   const cabecera = op.totales
-    ? `<p class="fr-tot">${t.camiones} camión(es) asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con camiones</p>`
+    ? `<p class="fr-tot">${t.camiones} ${e.unidad} asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con ${e.plural}</p>`
     : '';
   const bloques = grupos.map((g) => {
     const filas = g.camiones.map((c, i) => `<tr>
@@ -187,11 +193,11 @@ export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes 
       ${op.empresa ? `<td>${esc(c.empresa || '—')}</td>` : ''}
       ${op.marcaModelo ? `<td>${esc(c.marcaModelo || '—')}</td>` : ''}
     </tr>`).join('');
-    const cabeceras = `${op.numeracion ? '<th style="width:34px">Nº</th>' : ''}<th>Camión</th>${op.placa ? '<th>Placa / Serial</th>' : ''}${op.empresa ? '<th>Empresa</th>' : ''}${op.marcaModelo ? '<th>Marca / Modelo</th>' : ''}`;
+    const cabeceras = `${op.numeracion ? '<th style="width:34px">Nº</th>' : ''}<th>${e.columna}</th>${op.placa ? '<th>Placa / Serial</th>' : ''}${op.empresa ? '<th>Empresa</th>' : ''}${op.marcaModelo ? '<th>Marca / Modelo</th>' : ''}`;
     const tabla = g.camiones.length
       ? `<table><thead><tr>${cabeceras}</tr></thead><tbody>${filas}</tbody></table>`
-      : '<p class="fr-vacio">Sin camiones asignados este día.</p>';
-    const conteo = op.contador ? `<span>${g.camiones.length} camión(es)</span>` : '';
+      : `<p class="fr-vacio">Sin ${e.plural} asignados este día.</p>`;
+    const conteo = op.contador ? `<span>${g.camiones.length} ${e.unidad}</span>` : '';
     return `<div class="fr-g"><div class="fr-h">⛏️ ${esc(g.nombre)}${conteo}</div>${tabla}</div>`;
   }).join('');
   return cabecera + bloques;

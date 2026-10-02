@@ -3501,6 +3501,32 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   > - En el reporte ⚙️ Horómetro la lectura sale marcada **«✎ corregido por el inspector»** con su
   >   motivo, distinto de **«✎ corregido desde Control»**. Todo queda en Auditoría.
 
+#### ⛏️ Frentes de trabajo de la maquinaria — pestaña de Reportes (02/10/2026)
+
+Pedido del cliente: «una cosa son las ubicaciones y otra los frentes». La **ubicación/edificio** la
+marca el inspector al revisar la máquina y sale en 📍 Ubicaciones. El **frente** es **dónde trabaja
+cada equipo cada día**, y lo asigna la oficina.
+
+**Dónde:** Reportes → pestaña **«⛏️ Frentes»**. Es **el mismo apartado de Viajes de camiones**, con
+**todas las máquinas** del catálogo y hablando de «equipos»:
+- **Crear frentes** (y desactivarlos, editarlos o borrarlos como en viajes). **La lista de frentes
+  es la misma** que en viajes: un frente es un frente.
+- **Asignar el frente del día**: eliges la fecha, uno o varios frentes, buscas los equipos (código,
+  placa, serial, empresa, marca) y marcas uno, varios o toda una empresa. Abajo, lo asignado con su
+  ✕.
+- **📄 PDF del día** — la hoja de asignación, **igual de modificable que la de viajes**: los mismos
+  checks (numeración, placa/serial, empresa, marca y modelo, conteo por frente, totales, incluir los
+  frentes sin equipos), los mismos logos, y lo que apagues no deja rastro.
+- **🕘 Historial** de los últimos 45 días; tocas un día y lo abres.
+
+**No choca con viajes.** Cada apartado **solo ve y cuenta los equipos de su lista**: Viajes muestra sus
+camiones y Reportes sus máquinas, aunque las tablas sean las mismas (un equipo tiene **un** frente por
+día). Asignarle un frente a un camión desde Reportes es lo mismo que hacerlo desde Viajes, y en
+Reportes **no** aplica la regla de «los viajes toman el frente solos» (eso es de viajes).
+
+**Quién puede:** asigna quien tiene **Reportes completo** o **Viajes de camiones completo**; los demás
+lo ven y sacan la hoja del día.
+
 #### ⚙️ Control de horómetros — el pago por horómetro (02/10/2026)
 
 El hermano de **Control de maquinaria**, pero pagando por **horas de horómetro** en vez de por

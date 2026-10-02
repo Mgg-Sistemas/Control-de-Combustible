@@ -62,6 +62,7 @@ import {
   horometroPorMaquina, lineaHorometroJornada, HorometroDeMaquina,
 } from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
+import { FrentesReportesCard } from '../components/FrentesReportesCard';
 import { cargarFotosHorometroRango } from '../lib/horometroFotosDb';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import { equipCategory } from '../lib/equipos';
@@ -622,7 +623,7 @@ export default function ReportsScreen({ route }: any) {
   const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [eqOxicorte, setEqOxicorte] = useState(true); // incluir (true) o quitar (false) los equipos de oxicorte
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones' | 'horometro'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones' | 'horometro' | 'frentes'>('fuel');
   // 📍 Ubicaciones (22-sep-2026): qué columnas se esconden en el PDF.
   const [opUbic, setOpUbic] = useState<OpcionesUbicaciones>(OPCIONES_UBICACIONES_COMPLETO);
   // 📍 Ubicaciones: RESUMIDO (una línea por máquina, agrupado Este/Oeste como en el
@@ -3359,6 +3360,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'inspectores', label: '👷 Inspectores' },
           { v: 'ubicaciones', label: '📍 Ubicaciones' },
           { v: 'horometro', label: '⚙️ Horómetro' },
+          { v: 'frentes', label: '⛏️ Frentes' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -3411,7 +3413,12 @@ export default function ReportsScreen({ route }: any) {
 
       <Card>
         {/* Selector de MES para el reporte de camiones */}
-        {mode === 'camiones' ? (
+        {/* ⛏️ FRENTES DE MAQUINARIA (02-oct-2026): el mismo apartado de viajes, con
+            todas las máquinas y sus propios botones (asignar, hoja del día, historial).
+            No usa el rango ni el botón de generar de esta pantalla. */}
+        {mode === 'frentes' ? (
+          <FrentesReportesCard />
+        ) : mode === 'camiones' ? (
           <View>
             <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.xs }}>Mes del reporte (muestra sus 4–5 semanas)</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -3996,6 +4003,8 @@ export default function ReportsScreen({ route }: any) {
             </Text>
           </View>
         ) : null}
+        {/* ⛏️ Frentes trae sus propios botones (asignar, PDF del día): el genérico no aplica. */}
+        {mode !== 'frentes' ? (
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>
@@ -4043,6 +4052,7 @@ export default function ReportsScreen({ route }: any) {
               : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>
+        ) : null}
       </Card>
 
       {loading ? <Loading /> : null}
