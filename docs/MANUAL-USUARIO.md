@@ -3471,6 +3471,23 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   lectura válida», «Final menor que inicial» — y una lectura incompleta dice **qué le falta**
   («Incompleta: falta el final», el caso típico de un número borrado) en vez del genérico «Sin
   lectura». Mismos filtros de empresa, clasificación y máquina que Jornada.
+
+  > **⚠️ «El reporte no toma el rango» — corregido el 02/10/2026.** El reporte **sí** filtraba por
+  > las fechas; lo que pasaba es que **solo armaba filas para los días con jornada registrada**. Una
+  > lectura de horómetro de un día **sin jornada** en el sistema —por ejemplo, la que Control carga o
+  > corrige para un día pasado, que se permite a propósito— **no generaba fila y desaparecía del
+  > papel**, y el propio papel lo decía: «una fila por máquina y día con ronda». Por eso parecía que
+  > el rango «no traía información».
+  > - Ahora esas lecturas **salen con estado «Sin jornada»**: con sus números de **Inicio** y **Fin**
+  >   y sus **horas de horómetro**, la celda de jornada en **«—»** (no un 0 que parezca una jornada de
+  >   cero horas) y **sin diferencia**, porque no hay contra qué cuadrar. Si además la lectura es
+  >   inválida o incompleta, el estado dice las dos cosas («Sin jornada · final menor que inicial»).
+  > - **No cuentan para «lista para encender»** ni como «cuadra»: un día sin jornada sigue siendo un
+  >   hueco en la racha, igual que antes.
+  > - El resumen trae la caja **«sin jornada»** (solo cuando hay alguna) y «días con ronda» ya no las
+  >   incluye. Respetan **los mismos filtros** de empresa y equipos que las demás filas.
+  > - Con la pastilla **🚫 Horas de jornada** encendida, el papel sigue sin nombrar la jornada por
+  >   ninguna parte (ni esa caja ni ese estado).
   Desde el 25/09/2026 es **igual de ajustable que los demás reportes de maquinaria**: pastillas de
   «qué se oculta en el PDF» (marca, modelo, serial/placa, nombre de empresas, horas de
   jornada, resumen, máquinas listas, detalle por día) y checks de «qué logos lleva el membrete» (SOS, Golden Touch, Venezuela

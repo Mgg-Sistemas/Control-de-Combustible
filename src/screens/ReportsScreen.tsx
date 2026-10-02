@@ -1826,7 +1826,15 @@ export default function ReportsScreen({ route }: any) {
       const cos = repCompanies.length ? repCompanies : null;
       const rondas = d.rondas.filter((m) =>
         (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id: m.machineryId, clasificacion: m.clasificacion }, filtroEqActual));
-      const filas = compararJornadaHorometro(rondas, d.lecturas);
+      // 02-oct-2026: las lecturas de días SIN jornada también salen («Sin jornada»).
+      // Se le pasan las fichas de las máquinas que pasan el MISMO filtro que las
+      // rondas (empresa + equipos), para que el recorte sea uno solo para las dos
+      // clases de fila y una máquina fuera del papel no se cuele por sus lecturas.
+      const fichasFiltradas = new Map(
+        Array.from(d.maquinas.entries()).filter(([id, m]) =>
+          (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id, clasificacion: m.clasificacion }, filtroEqActual)),
+      );
+      const filas = compararJornadaHorometro(rondas, d.lecturas, fichasFiltradas);
       // ⚙️ 25-sep-2026: pastillas de ocultar + logos, como los demás reportes de maquinaria.
       //    Lo oculto no deja rastro (título y subtítulo incluidos: ver tituloComparativo).
       // 📷 FOTOS: solo con el check prendido, y de las MISMAS máquinas del papel
