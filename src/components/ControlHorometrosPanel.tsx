@@ -21,6 +21,7 @@ import { Plegable } from './Plegable';
 import { Toggle } from './CubicajeTab';
 import { HorometroAjusteModal } from './HorometroAjusteModal';
 import { useToast } from './ToastProvider';
+import { useConfirm } from './ConfirmProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -31,10 +32,11 @@ import {
   AjusteHorometro, CSS_PAGO_HOROMETRO, OPCIONES_PAGO_HOROMETRO, OpcionesPagoHorometro, PASTILLAS_PAGO_HOROMETRO,
   PrecioHorometro, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, motivoAlertaDia, pagoPorEmpresa,
   sufijoArchivoPagoHorometro, textoPrecioHorometro, totalPagoHorometro, usd, validarPrecioHorometro,
+  CierreHorometro, cierresSolapados, filasDeCierre, validarCierreHorometro,
 } from '../lib/pagoHorometro';
 import {
   MaquinaConReferencia, anularPrecioHorometro, cargarAjustesHorometro, cargarMaquinasPagoHorometro, cargarPreciosHorometro,
-  crearPrecioHorometro,
+  crearPrecioHorometro, cargarCierresHorometro, crearCierreHorometro, reabrirCierreHorometro,
 } from '../lib/pagoHorometroDb';
 
 type Props = {
@@ -62,6 +64,7 @@ const aNumero = (t: string) => Number(String(t).replace(',', '.'));
 export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregirHoro }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
+  const confirm = useConfirm();
   const hoy = caracasBusinessToday();
 
   const [desde, setDesde] = useState(() => lunesDe(hoy));
@@ -71,6 +74,15 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
   const [precios, setPrecios] = useState<PrecioHorometro[]>([]);
   // 🧾 Ajustes «solo para Control de horómetros»: mandan sobre la lectura del inspector.
   const [ajustes, setAjustes] = useState<AjusteHorometro[]>([]);
+  // 🔒 Cierres: los días de un cierre activo se leen de su foto (no se recalculan).
+  const [cierres, setCierres] = useState<CierreHorometro[]>([]);
+  const [faltaCierres, setFaltaCierres] = useState(false);
+  const [cierreNota, setCierreNota] = useState('');
+  const [cerrando, setCerrando] = useState(false);
+  const [reabrirId, setReabrirId] = useState<string | null>(null);
+  const [reabrirMotivo, setReabrirMotivo] = useState('');
+  // ➕ Listar también las máquinas operativas que no tienen lecturas en el rango.
+  const [incluirSin, setIncluirSin] = useState(false);
   const [faltaSql, setFaltaSql] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,13 +115,15 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
     if (rangoInvalido) return;
     setCargando(true); setError(null);
     try {
-      const [ms, ls, ps, as] = await Promise.all([
+      const [ms, ls, ps, as, cs] = await Promise.all([
         cargarMaquinasPagoHorometro(),
         cargarLecturasHorometro(desde, hasta),
         cargarPreciosHorometro(),
         cargarAjustesHorometro(desde, hasta),
+        cargarCierresHorometro(),
       ]);
       setMaquinas(ms); setLecturas(ls); setPrecios(ps.precios); setAjustes(as.ajustes);
+      setCierres(cs.cierres); setFaltaCierres(cs.missing);
       setFaltaSql(ps.missing || as.missing);
       if (ps.error && !ps.missing) setError(ps.error);
     } catch (e: any) {
@@ -121,10 +135,26 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
 
   useEffect(() => { if (visible) void cargar(); }, [visible, cargar, recarga]);
 
-  const filasTodas = useMemo(
-    () => filasPagoHorometro({ maquinas, lecturas, precios, desde, hasta, ajustes }),
-    [maquinas, lecturas, precios, desde, hasta, ajustes],
+  // Las máquinas que Control de jornadas listaría: operativas y no «en espera».
+  const activasIds = useMemo(() => new Set(maquinas.filter((m) => m.activa).map((m) => m.id)), [maquinas]);
+  // Lo que de verdad se paga (y lo que se CIERRA): solo máquinas con algo en el rango.
+  const filasConAlgo = useMemo(
+    () => filasPagoHorometro({ maquinas, lecturas, precios, desde, hasta, ajustes, cierres }),
+    [maquinas, lecturas, precios, desde, hasta, ajustes, cierres],
   );
+  // Lo que se VE: lo anterior, más las máquinas sin lecturas si se pidió incluirlas.
+  const filasTodas = useMemo(
+    () => (incluirSin
+      ? filasPagoHorometro({ maquinas, lecturas, precios, desde, hasta, ajustes, cierres, incluirSinLectura: activasIds })
+      : filasConAlgo),
+    [incluirSin, filasConAlgo, maquinas, lecturas, precios, desde, hasta, ajustes, cierres, activasIds],
+  );
+  const cierresDelRango = useMemo(() => cierresSolapados(cierres, desde, hasta), [cierres, desde, hasta]);
+  const diasCerrados = useMemo(() => {
+    const s = new Set<string>();
+    filasConAlgo.forEach((f) => f.dias.forEach((d) => { if (d.cerrado) s.add(d.fecha); }));
+    return s.size;
+  }, [filasConAlgo]);
   const empresasDisp = useMemo(() => pagoPorEmpresa(filasTodas).map((e) => ({ nombre: e.empresa, maquinas: e.total.maquinas })), [filasTodas]);
   const filas = useMemo(() => {
     const q = norm(busca).trim();
@@ -168,6 +198,58 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
     toast.success('Precio anulado. Los días que cubría vuelven al precio anterior (o quedan sin precio).');
     setAnularId(null); setAnularMotivo('');
     setRecarga((n) => n + 1);
+  };
+
+  /** 🔒 Cierra el rango: guarda la FOTO de todo lo que se paga (sin filtros). */
+  const cerrarRango = async () => {
+    if (cerrando) return;
+    const malo = validarCierreHorometro({ desde, hasta, filas: filasConAlgo }, cierres);
+    if (malo) { toast.error(malo); return; }
+    const t0 = totalPagoHorometro(filasConAlgo);
+    const ok = await confirm({
+      title: 'Cerrar el rango',
+      message:
+        `Se va a CERRAR del ${dmy(desde)} al ${dmy(hasta)}: ${t0.maquinas} máquina(s), ${fmtHoras(t0.horas)} h, ${usd(t0.monto)}.` +
+        '\n\nQueda guardada la foto de ese pago. Desde ahora, cambiar un precio, una lectura o un ajuste NO mueve esos días.' +
+        (t0.alertas ? `\n\n⚠️ Hay ${t0.alertas} día(s) por revisar que hoy valen $0. Si cierras así, quedan en $0 en el cierre.` : '') +
+        (filtrado || incluirSin ? '\n\nOJO: el cierre incluye TODAS las máquinas con lecturas del rango, no solo las que estás viendo con el filtro.' : '') +
+        '\n\nSe puede reabrir después, con motivo.',
+      confirmText: '🔒 Cerrar',
+    });
+    if (!ok) return;
+    setCerrando(true);
+    const r = await crearCierreHorometro({ desde, hasta, filas: filasConAlgo, nota: cierreNota });
+    setCerrando(false);
+    if (r.error) { toast.error(r.error); return; }
+    toast.success(`🔒 Rango cerrado: ${usd(t0.monto)}. Está en el histórico de cierres.`);
+    setCierreNota('');
+    setRecarga((n) => n + 1);
+  };
+
+  const reabrir = async () => {
+    if (!reabrirId) return;
+    const r = await reabrirCierreHorometro(reabrirId, reabrirMotivo);
+    if (r.error) { toast.error(r.error); return; }
+    toast.success('Cierre reabierto: esos días vuelven a calcularse con los datos de hoy.');
+    setReabrirId(null); setReabrirMotivo('');
+    setRecarga((n) => n + 1);
+  };
+
+  /** El PDF de un cierre del histórico: sale de su FOTO, no de los datos de hoy. */
+  const pdfDeCierre = async (c: CierreHorometro) => {
+    try {
+      const html = pdfDocument({
+        title: 'Pago por horómetro · Cierre',
+        subtitle: `Cierre del ${dmy(c.desde)} al ${dmy(c.hasta)} · cerrado el ${dmy(String(c.created_at ?? ''))}${c.created_by_nombre ? ` por ${c.created_by_nombre}` : ''}${c.anulada_at ? ' · REABIERTO' : ''}`,
+        extraCss: CSS_PAGO_HOROMETRO,
+        body: cuerpoPagoHorometro({ desde: c.desde, hasta: c.hasta, filas: filasDeCierre(c) }, opciones),
+        logos,
+        marcaTexto: false,
+      });
+      await exportPdf(html, `Cierre de horometro ${dmy(c.desde)} a ${dmy(c.hasta)}${sufijoArchivoPagoHorometro(opciones)}`.replace(/\//g, '-'));
+    } catch (e: any) {
+      toast.error(`No se pudo generar el PDF: ${String(e?.message ?? e)}`);
+    }
   };
 
   const descargarPdf = async () => {
@@ -259,6 +341,7 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
               </View>
             ) : null}
             <Toggle on={soloAlertas} label="⚠️ Solo las máquinas con días por revisar" ayuda="Lecturas inválidas o incompletas, y horas sin precio." onPress={() => setSoloAlertas((v) => !v)} />
+            <Toggle on={incluirSin} label="➕ Incluir las máquinas sin lecturas en el rango" ayuda="Las operativas que lista Control (no las que están en espera). Salen con 0 h, para ponerles precio o acomodarles un día. No entran al total ni al cierre." onPress={() => setIncluirSin((v) => !v)} />
           </Card>
 
           <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
@@ -268,6 +351,73 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
               {fmtHoras(tot.horas)} h · {tot.maquinas} máquina(s){tot.alertas ? ` · ⚠️ ${tot.alertas} día(s) por revisar` : ''}{tot.sinPrecio ? ` · ${tot.sinPrecio} sin precio` : ''}
             </Text>
           </View>
+
+          {diasCerrados > 0 ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>🔒 {diasCerrados} día(s) de este rango están CERRADOS</Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>Sus horas y montos salen de la foto del cierre y no cambian aunque se toque un precio, una lectura o un ajuste. Para modificarlos hay que reabrir el cierre.</Text>
+            </View>
+          ) : null}
+
+          {canEdit && !faltaCierres ? (
+            <Plegable
+              titulo="🔒 Cerrar este rango"
+              resumen={cierresDelRango.length ? 'este rango ya tiene días cerrados' : `${dmy(desde)} al ${dmy(hasta)} · ${usd(totalPagoHorometro(filasConAlgo).monto)}`}
+              alerta={cierresDelRango.length > 0}
+            >
+              <Text style={{ color: colors.muted, fontSize: 12 }}>
+                Cerrar guarda la FOTO del pago del {dmy(desde)} al {dmy(hasta)} (todas las máquinas con lecturas, sin filtros) y la deja en el
+                histórico. Desde ahí esos días no cambian aunque después se toque un precio, una lectura o un ajuste. Se puede reabrir con motivo.
+              </Text>
+              <TextInput value={cierreNota} onChangeText={setCierreNota} placeholder="Nota del cierre (opcional)" placeholderTextColor={colors.muted} style={{ ...input, marginTop: spacing.sm }} />
+              <TouchableOpacity onPress={cerrarRango} disabled={cerrando || rangoInvalido}
+                style={{ marginTop: spacing.sm, backgroundColor: colors.danger, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: cerrando || rangoInvalido ? 0.5 : 1 }}>
+                <Text style={{ color: '#fff', fontWeight: '800' }}>{cerrando ? 'Cerrando…' : `🔒 Cerrar del ${dmy(desde)} al ${dmy(hasta)}`}</Text>
+              </TouchableOpacity>
+            </Plegable>
+          ) : null}
+
+          {!faltaCierres ? (
+            <Plegable
+              titulo="🗂️ Histórico de cierres"
+              resumen={cierres.length ? `${cierres.filter((c) => !c.anulada_at).length} cierre(s) vigente(s) · ${cierres.filter((c) => c.anulada_at).length} reabierto(s)` : 'todavía no hay cierres'}
+            >
+              {cierres.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Todavía no se ha cerrado ningún rango.</Text>
+              ) : cierres.map((c) => (
+                <View key={c.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                      <Text style={{ color: c.anulada_at ? colors.muted : colors.text, fontWeight: '800', fontSize: 13, textDecorationLine: c.anulada_at ? 'line-through' : 'none' }}>
+                        {c.anulada_at ? '↺' : '🔒'} {dmy(c.desde)} al {dmy(c.hasta)} · {usd(Number(c.total_monto))}
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        {c.maquinas} máquina(s) · {fmtHoras(Number(c.total_horas))} h · cerrado el {dmy(String(c.created_at ?? ''))}{c.created_by_nombre ? ` por ${c.created_by_nombre}` : ''}
+                      </Text>
+                      {c.nota ? <Text style={{ color: colors.muted, fontSize: 11 }}>{c.nota}</Text> : null}
+                      {c.anulada_at ? <Text style={{ color: colors.warning, fontSize: 11 }}>Reabierto: {c.anulada_motivo || 'sin motivo'}</Text> : null}
+                    </View>
+                    <TouchableOpacity onPress={() => pdfDeCierre(c)} style={{ paddingHorizontal: spacing.sm }}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
+                    </TouchableOpacity>
+                    {canEdit && !c.anulada_at ? (
+                      <TouchableOpacity onPress={() => { setReabrirId(reabrirId === c.id ? null : c.id); setReabrirMotivo(''); }}>
+                        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>↺ Reabrir</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  {reabrirId === c.id ? (
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+                      <TextInput value={reabrirMotivo} onChangeText={setReabrirMotivo} placeholder="Motivo para reabrir (obligatorio)" placeholderTextColor={colors.muted} style={{ ...input, flex: 1 }} />
+                      <TouchableOpacity onPress={reabrir} style={{ backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center' }}>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Reabrir</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+            </Plegable>
+          ) : null}
 
           <Plegable
             titulo="📄 Reporte de pago por horómetro"
@@ -332,11 +482,11 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                       {dias.map((d) => {
                         const aviso = !!motivoAlertaDia(d);
                         return (
-                          <TouchableOpacity key={d.fecha} disabled={!canEdit || faltaSql}
+                          <TouchableOpacity key={d.fecha} disabled={!canEdit || faltaSql || d.cerrado}
                             onPress={() => setEditLectura({ machineryId: m.id, code: m.code, fecha: d.fecha })}
                             style={chip(false, aviso)}>
                             <Text style={{ color: aviso ? colors.warning : colors.text, fontWeight: '700', fontSize: 11 }}>
-                              {aviso ? '⚠️ ' : ''}{d.ajustado ? '🧾 ' : ''}{dmy(d.fecha).slice(0, 5)} · {fmtHoras(d.horas)} h{d.precio != null && d.horas > 0 ? ` · ${usd(d.monto)}` : ''}
+                              {d.cerrado ? '🔒 ' : ''}{aviso ? '⚠️ ' : ''}{d.ajustado ? '🧾 ' : ''}{dmy(d.fecha).slice(0, 5)} · {fmtHoras(d.horas)} h{d.precio != null && d.horas > 0 ? ` · ${usd(d.monto)}` : ''}
                             </Text>
                           </TouchableOpacity>
                         );

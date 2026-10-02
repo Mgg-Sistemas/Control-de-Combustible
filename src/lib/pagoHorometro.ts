@@ -271,6 +271,8 @@ export type DiaPago = HorasDia & {
   monto: number;
   /** Hay horas y no hay precio: no se puede pagar hasta ponerlo. */
   sinPrecio: boolean;
+  /** 🔒 El día pertenece a un cierre: sus números están CONGELADOS (ver cierres). */
+  cerrado: boolean;
 };
 
 export type FilaPagoHorometro = {
@@ -302,11 +304,96 @@ export function diasDelRango(desde: string, hasta: string): string[] {
   return out;
 }
 
+// ── 🔒 CIERRES CON HISTÓRICO ────────────────────────────────────────────────
+//
+// Pedido del cliente (02-oct-2026): «coloca los cierres con histórico (como
+// "Cerrar control" de jornadas)».
+//
+// Cerrar un rango GUARDA UNA FOTO de lo que se pagaba ese día: cada máquina con
+// sus días, horas, precio y monto. Desde ese momento los días del cierre se leen
+// DE LA FOTO, no de los datos vivos: cambiar después un precio, una lectura o un
+// ajuste NO mueve lo ya cerrado (el mismo principio del precio congelado de
+// Control de jornadas). Reabrir = anular el cierre, con motivo: los días vuelven
+// a calcularse en vivo. Un cierre no se edita ni se borra.
+
+/** Una fila de `horometro_cierres`. `detalle` es la foto (las filas del pago). */
+export type CierreHorometro = {
+  id: string;
+  desde: string;
+  hasta: string;
+  total_horas: number | string;
+  total_monto: number | string;
+  maquinas: number;
+  detalle: FilaPagoHorometro[] | null;
+  nota?: string | null;
+  created_at?: string | null;
+  created_by_nombre?: string | null;
+  anulada_at?: string | null;
+  anulada_motivo?: string | null;
+};
+
+/** El cierre ACTIVO que cubre esa fecha, o null. */
+export function cierreQueCubre(cierres: readonly CierreHorometro[] | null | undefined, fecha: string): CierreHorometro | null {
+  const f = dia(fecha);
+  for (const c of cierres ?? []) {
+    if (!c || c.anulada_at) continue;
+    if (dia(c.desde) <= f && f <= dia(c.hasta)) return c;
+  }
+  return null;
+}
+
+/** Los cierres ACTIVOS que tocan el rango [desde, hasta]. Dos cierres no pueden
+ *  pisarse: un día no puede estar congelado con dos fotos distintas. */
+export function cierresSolapados(cierres: readonly CierreHorometro[] | null | undefined, desde: string, hasta: string): CierreHorometro[] {
+  const a = dia(desde), b = dia(hasta);
+  return (cierres ?? []).filter((c) => !!c && !c.anulada_at && dia(c.desde) <= b && a <= dia(c.hasta));
+}
+
+/** Revisa un cierre antes de guardarlo. Devuelve el motivo del rechazo o null. */
+export function validarCierreHorometro(
+  c: { desde: string; hasta: string; filas: readonly FilaPagoHorometro[] },
+  cierres: readonly CierreHorometro[] | null | undefined,
+): string | null {
+  const a = dia(c.desde), b = dia(c.hasta);
+  if (!esFecha(a) || !esFecha(b) || b < a) return 'El rango del cierre no es válido.';
+  if (diasDelRango(a, b).length >= 92) return 'Un cierre no puede pasar de 92 días: ciérralo por partes.';
+  const pisa = cierresSolapados(cierres, a, b);
+  if (pisa.length) {
+    const d = (iso: string) => dia(iso).split('-').reverse().join('/');
+    return `Ese rango ya tiene días cerrados (cierre del ${d(pisa[0].desde)} al ${d(pisa[0].hasta)}). Ajusta las fechas o reabre ese cierre.`;
+  }
+  if (!(c.filas ?? []).some((f) => f.dias.some((x) => x.estado !== 'sin_lectura'))) return 'No hay nada que cerrar en ese rango: ninguna máquina tiene lecturas.';
+  return null;
+}
+
+const diaVacio = (fecha: string, cerrado: boolean): DiaPago => ({
+  horas: 0, estado: 'sin_lectura', detalle: '', inicial: null, final: null, ajustado: false, motivoAjuste: '',
+  fecha, precio: null, monto: 0, sinPrecio: false, cerrado,
+});
+
+/** Un día leído de la foto de un cierre: se normaliza por si el JSON vino a medias. */
+function diaDeFoto(d: any, fecha: string): DiaPago {
+  const estado: EstadoDiaHorometro = d?.estado === 'ok' || d?.estado === 'incompleta' || d?.estado === 'invalida' ? d.estado : 'sin_lectura';
+  return {
+    horas: r2(num(d?.horas)), estado, detalle: limpio(d?.detalle),
+    inicial: d?.inicial == null ? null : num(d.inicial), final: d?.final == null ? null : num(d.final),
+    ajustado: d?.ajustado === true, motivoAjuste: limpio(d?.motivoAjuste),
+    fecha, precio: d?.precio == null ? null : num(d.precio), monto: r2(num(d?.monto)),
+    sinPrecio: d?.sinPrecio === true, cerrado: true,
+  };
+}
+
 /**
  * Arma el pago por horómetro del rango: una fila por máquina, con sus días.
  *
- * Entran las máquinas que tienen AL MENOS UNA lectura en el rango (una máquina
- * sin lecturas no tiene nada que pagar por horómetro y solo haría ruido).
+ * Entran las máquinas que tienen AL MENOS UNA lectura (o ajuste, o día cerrado
+ * con horas) en el rango — una máquina sin nada no tiene qué pagar por horómetro
+ * y solo haría ruido. `incluirSinLectura` suma además las que se le pasen (las
+ * máquinas operativas del catálogo), para poder verlas y ponerles precio.
+ *
+ * Los días de un cierre ACTIVO salen de su foto (`cerrado: true`); el resto se
+ * calcula en vivo. Los días cerrados no cuentan como alerta: ya no hay nada que
+ * arreglarles.
  */
 export function filasPagoHorometro(opts: {
   maquinas: readonly MaquinaPago[];
@@ -316,37 +403,73 @@ export function filasPagoHorometro(opts: {
   hasta: string;
   /** 🧾 Ajustes «solo para Control de horómetros»: mandan sobre la lectura. */
   ajustes?: readonly AjusteHorometro[] | null;
+  /** 🔒 Cierres: sus días se leen de la foto, no de los datos vivos. */
+  cierres?: readonly CierreHorometro[] | null;
+  /** Máquinas a listar AUNQUE no tengan lecturas en el rango. */
+  incluirSinLectura?: ReadonlySet<string> | null;
 }): FilaPagoHorometro[] {
   const dias = diasDelRango(opts.desde, opts.hasta);
   if (dias.length === 0) return [];
+  const primero = dias[0], ultimo = dias[dias.length - 1];
   const enRango = new Set(dias);
+
+  // 🔒 Qué días están cerrados, y la foto de cada máquina en esos días.
+  const cerrados = new Set<string>();
+  const foto = new Map<string, DiaPago>();
+  const maqDeFoto = new Map<string, MaquinaPago>();
+  for (const c of opts.cierres ?? []) {
+    if (!c || c.anulada_at) continue;
+    const a = dia(c.desde) < primero ? primero : dia(c.desde);
+    const b = dia(c.hasta) > ultimo ? ultimo : dia(c.hasta);
+    for (const f of diasDelRango(a, b)) cerrados.add(f);
+    for (const fila of c.detalle ?? []) {
+      if (!fila?.maquina?.id) continue;
+      for (const d of fila.dias ?? []) {
+        const f = dia(d?.fecha);
+        if (!enRango.has(f) || f < dia(c.desde) || f > dia(c.hasta)) continue;
+        foto.set(`${fila.maquina.id}|${f}`, diaDeFoto(d, f));
+        if (!maqDeFoto.has(fila.maquina.id)) maqDeFoto.set(fila.maquina.id, fila.maquina);
+      }
+    }
+  }
+
   const porClave = new Map<string, LecturaEfectiva[]>();
-  const conLectura = new Set<string>();
   for (const l of lecturasEfectivas(opts.lecturas, opts.ajustes)) {
     if (!l) continue;
     const f = dia(l.roundDate);
-    if (!enRango.has(f)) continue;
+    if (!enRango.has(f) || cerrados.has(f)) continue; // lo cerrado no se recalcula
     const k = `${l.machineryId}|${f}`;
     const arr = porClave.get(k); if (arr) arr.push(l); else porClave.set(k, [l]);
-    conLectura.add(l.machineryId);
   }
+
+  // Las máquinas del catálogo y, por si alguna ya no está, las de las fotos.
+  const todas = new Map<string, MaquinaPago>();
+  for (const m of opts.maquinas ?? []) if (m?.id) todas.set(m.id, m);
+  for (const [id, m] of maqDeFoto) if (!todas.has(id)) todas.set(id, m);
+
   const filas: FilaPagoHorometro[] = [];
-  for (const m of opts.maquinas ?? []) {
-    if (!m || !conLectura.has(m.id)) continue;
-    let horas = 0, monto = 0, alertas = 0;
+  for (const m of todas.values()) {
+    let horas = 0, monto = 0, alertas = 0, conAlgo = false;
     const preciosVistos = new Set<number>();
     const ds: DiaPago[] = dias.map((fecha) => {
-      const h = horasDelDia(porClave.get(`${m.id}|${fecha}`));
-      const p = precioHoraEn(opts.precios, m.id, fecha);
-      const precio = p ? num(p.precio_hora) : null;
-      const sinPrecio = h.horas > 0 && precio == null;
-      const mto = precio != null ? r2(h.horas * precio) : 0;
-      if (h.horas > 0 && precio != null) preciosVistos.add(precio);
-      if (h.estado === 'invalida' || h.estado === 'incompleta' || sinPrecio) alertas++;
-      horas += h.horas; monto += mto;
-      return { ...h, fecha, precio, monto: mto, sinPrecio };
+      let d: DiaPago;
+      if (cerrados.has(fecha)) {
+        d = foto.get(`${m.id}|${fecha}`) ?? diaVacio(fecha, true);
+      } else {
+        const h = horasDelDia(porClave.get(`${m.id}|${fecha}`));
+        const p = precioHoraEn(opts.precios, m.id, fecha);
+        const precio = p ? num(p.precio_hora) : null;
+        const sinPrecio = h.horas > 0 && precio == null;
+        d = { ...h, fecha, precio, monto: precio != null ? r2(h.horas * precio) : 0, sinPrecio, cerrado: false };
+        if (h.estado === 'invalida' || h.estado === 'incompleta' || sinPrecio) alertas++;
+      }
+      if (d.estado !== 'sin_lectura') conAlgo = true;
+      if (d.horas > 0 && d.precio != null) preciosVistos.add(d.precio);
+      horas += d.horas; monto += d.monto;
+      return d;
     });
-    const ult = precioHoraEn(opts.precios, m.id, dias[dias.length - 1]);
+    if (!conAlgo && !opts.incluirSinLectura?.has(m.id)) continue;
+    const ult = precioHoraEn(opts.precios, m.id, ultimo);
     filas.push({
       maquina: m, dias: ds, horas: r2(horas), monto: r2(monto), alertas,
       precioVigente: ult ? num(ult.precio_hora) : null,
@@ -355,6 +478,23 @@ export function filasPagoHorometro(opts: {
   }
   const cmp = (a: string, b: string) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true });
   return filas.sort((a, b) => cmp(a.maquina.empresa, b.maquina.empresa) || cmp(a.maquina.code, b.maquina.code) || cmp(a.maquina.placa, b.maquina.placa));
+}
+
+/** Las filas de la FOTO de un cierre, para su PDF del histórico. Los totales se
+ *  recalculan de los días guardados (no se confía en un número suelto). */
+export function filasDeCierre(c: CierreHorometro | null | undefined): FilaPagoHorometro[] {
+  const out: FilaPagoHorometro[] = [];
+  for (const fila of c?.detalle ?? []) {
+    if (!fila?.maquina?.id) continue;
+    const ds = (fila.dias ?? []).map((d: any) => diaDeFoto(d, dia(d?.fecha)));
+    const precios = new Set(ds.filter((d) => d.horas > 0 && d.precio != null).map((d) => d.precio as number));
+    out.push({
+      maquina: fila.maquina, dias: ds,
+      horas: r2(ds.reduce((s, d) => s + d.horas, 0)), monto: r2(ds.reduce((s, d) => s + d.monto, 0)),
+      alertas: 0, precioVigente: precios.size === 1 ? [...precios][0] : null, variosPrecios: precios.size > 1,
+    });
+  }
+  return out;
 }
 
 export type TotalPagoHorometro = { maquinas: number; horas: number; monto: number; alertas: number; sinPrecio: number };

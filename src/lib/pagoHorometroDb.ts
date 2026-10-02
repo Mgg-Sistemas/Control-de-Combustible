@@ -10,11 +10,14 @@
 // ⭐ Las escrituras piden `.select('id')`: un rechazo por permisos vuelve sin
 //    error y con 0 filas, y hay que decirlo en vez de dar por guardado.
 import { supabase, selectAllRows } from './supabase';
-import { AjusteHorometro, MaquinaPago, PrecioHorometro, validarAjusteHorometro, validarPrecioHorometro } from './pagoHorometro';
+import {
+  AjusteHorometro, CierreHorometro, FilaPagoHorometro, MaquinaPago, PrecioHorometro,
+  totalPagoHorometro, validarAjusteHorometro, validarPrecioHorometro,
+} from './pagoHorometro';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const faltaTabla = (msg: string, code?: string) =>
-  code === '42P01' || code === 'PGRST205' || /horometro_(precios|ajustes).*(does not exist|not find)|schema cache/i.test(msg);
+  code === '42P01' || code === 'PGRST205' || /horometro_(precios|ajustes|cierres).*(does not exist|not find)|schema cache/i.test(msg);
 
 export const SIN_PERMISO_PRECIO_HOROMETRO =
   'No se guardó: hace falta permiso de escritura en Control de maquinaria (y la analista no cambia precios).';
@@ -34,10 +37,15 @@ export async function cargarPreciosHorometro(): Promise<{ precios: PrecioHoromet
 
 /** La ficha de las máquinas, más el precio de Control de jornadas SOLO como
  *  referencia (para sugerir «jornada ÷ 12»; nunca se usa para calcular acá). */
-export type MaquinaConReferencia = MaquinaPago & { precioJornada: number | null };
+export type MaquinaConReferencia = MaquinaPago & {
+  precioJornada: number | null;
+  /** Operativa y no «en espera»: la misma vara con la que Control de jornadas
+   *  decide qué máquinas lista. Sirve para «incluir las máquinas sin lecturas». */
+  activa: boolean;
+};
 
 export async function cargarMaquinasPagoHorometro(): Promise<MaquinaConReferencia[]> {
-  const rows = await selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, price_per_hour, company:company_id(name)');
+  const rows = await selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, price_per_hour, operational, en_espera, company:company_id(name)');
   return (rows as any[]).map((m) => {
     const pj = Number(m.price_per_hour);
     return {
@@ -48,6 +56,7 @@ export async function cargarMaquinasPagoHorometro(): Promise<MaquinaConReferenci
       clasificacion: limpio(m.clasificacion) || 'Sin clasificación',
       marca: limpio(m.marca), modelo: limpio(m.modelo),
       precioJornada: Number.isFinite(pj) && pj > 0 ? pj : null,
+      activa: m.operational !== false && m.en_espera !== true,
     };
   });
 }
@@ -133,5 +142,55 @@ export async function anularAjustesHorometro(
     .select('id');
   if (error) return { error: faltaTabla(error.message, (error as any).code) ? undefined : error.message, sinAjuste: true };
   if (!data || data.length === 0) return { sinAjuste: true };
+  return {};
+}
+
+// ── 🔒 CIERRES CON HISTÓRICO ────────────────────────────────────────────────
+// Tabla propia `horometro_cierres`. Cerrar guarda la FOTO del pago del rango;
+// reabrir la anula (con motivo). Nunca se edita ni se borra. No toca los cierres
+// de Control de jornadas (`control_closures`).
+
+export const SIN_PERMISO_CIERRE_HOROMETRO =
+  'No se guardó: hace falta permiso de escritura en Control de maquinaria (y la analista no cierra).';
+
+export async function cargarCierresHorometro(): Promise<{ cierres: CierreHorometro[]; missing: boolean; error?: string }> {
+  try {
+    const rows = await selectAllRows(
+      'horometro_cierres',
+      'id, desde, hasta, total_horas, total_monto, maquinas, detalle, nota, created_at, created_by_nombre, anulada_at, anulada_motivo',
+    );
+    const cierres = (rows as CierreHorometro[]).sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+    return { cierres, missing: false };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { cierres: [], missing: faltaTabla(msg, e?.code), error: msg };
+  }
+}
+
+/** Cierra un rango: guarda la foto de TODAS las filas del pago (sin filtros). */
+export async function crearCierreHorometro(c: {
+  desde: string; hasta: string; filas: readonly FilaPagoHorometro[]; nota?: string | null;
+}): Promise<{ error?: string }> {
+  // Solo se guardan las máquinas que tienen algo: una fila vacía no es parte del pago.
+  const conAlgo = c.filas.filter((f) => f.dias.some((d) => d.estado !== 'sin_lectura'));
+  const tot = totalPagoHorometro(conAlgo);
+  const { data, error } = await supabase.from('horometro_cierres').insert({
+    desde: c.desde, hasta: c.hasta, total_horas: tot.horas, total_monto: tot.monto, maquinas: tot.maquinas,
+    detalle: conAlgo, nota: limpio(c.nota) || null,
+  }).select('id');
+  if (error) return { error: faltaTabla(error.message, (error as any).code) ? 'Falta crear la tabla de cierres de horómetro en la base.' : error.message };
+  if (!data || data.length === 0) return { error: SIN_PERMISO_CIERRE_HOROMETRO };
+  return {};
+}
+
+/** Reabre un cierre: lo ANULA con su motivo y sus días vuelven a calcularse en vivo. */
+export async function reabrirCierreHorometro(id: string, motivo: string): Promise<{ error?: string }> {
+  const m = limpio(motivo);
+  if (!m) return { error: 'Escribe por qué se reabre ese cierre.' };
+  const { data, error } = await supabase.from('horometro_cierres')
+    .update({ anulada_at: new Date().toISOString(), anulada_motivo: m })
+    .eq('id', id).is('anulada_at', null).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: SIN_PERMISO_CIERRE_HOROMETRO };
   return {};
 }

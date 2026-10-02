@@ -3555,7 +3555,26 @@ del horómetro, y los días ajustados marcados con su motivo) viene oculto y se 
 pastillas de **«¿Qué se oculta?»** — lo oculto **no deja rastro** en el papel — y sus **logos**
 (BCV, SOS, Golden Touch, Plan Venezuela Renace, Jhenzaen). Si filtraste, el papel dice **FILTRADO**.
 
-**Quién puede.** Lo **ve** quien ve Control de maquinaria. **Pone precios y ajustes** quien tiene
+**➕ Incluir las máquinas sin lecturas en el rango.** Por defecto solo salen las máquinas que tienen
+alguna lectura (o ajuste) en el rango. Con este interruptor **encendido** salen también las
+**operativas que lista Control** (no las que están «en espera»), con **0 h**, para poder ponerles
+precio o acomodarles un día. **No entran al total ni al cierre**: están ahí solo para verlas.
+
+**🔒 Cerrar el rango, con histórico** (como «Cerrar control» de jornadas, pero aparte).
+- **«🔒 Cerrar este rango»** guarda la **foto** del pago de ese rango: cada máquina con sus días,
+  horas, precio y monto. Incluye **todas** las máquinas con lecturas, aunque tengas un filtro puesto.
+- Desde ese momento, **esos días salen de la foto y no cambian**: tocar después un precio, una
+  lectura o un ajuste **no mueve lo ya cerrado**. Los días cerrados llevan un 🔒 y no se pueden
+  acomodar.
+- **Dos cierres no pueden pisarse**: si el rango toca días ya cerrados, no deja y te dice cuál.
+- Antes de cerrar te avisa si hay **días por revisar** (valen $0 y así quedarían en el cierre).
+- **🗂️ Histórico de cierres**: cada cierre con su rango, total, máquinas, quién lo cerró y cuándo,
+  su **📄 PDF** (sale de la foto, no de los datos de hoy) y **↺ Reabrir** con motivo. Reabrir lo
+  anula: esos días vuelven a calcularse en vivo. Un cierre **no se edita ni se borra**, y uno
+  reabierto no se reactiva — se cierra el rango de nuevo.
+- **No toca los cierres de Control de jornadas**: son dos históricos distintos.
+
+**Quién puede.** Lo **ve** quien ve Control de maquinaria. **Pone precios, ajustes y cierres** quien tiene
 escritura en Control y **no es analista** (igual que el precio de la jornada). **Cambiar la lectura
 del inspector** exige además el permiso de corregir horómetros. La base lo exige igual que la
 pantalla, y todo queda en Auditoría con el nombre de quien lo hizo.
