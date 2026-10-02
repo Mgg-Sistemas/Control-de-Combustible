@@ -32,6 +32,7 @@ import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import { HorometroTrabajoCelda } from '../components/HorometroTrabajoCelda';
 import { HorometroCorregirModal } from '../components/HorometroCorregirModal';
 import { levelMeets } from '../lib/permissions';
+import { ControlHorometrosPanel } from '../components/ControlHorometrosPanel';
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
@@ -155,6 +156,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // Tampoco puede tocar el PRECIO de la jornada.
   const esAnalista = role === 'analista';
   const puedeEditarPrecio = !esAnalista;
+  // ⚙️ CONTROL DE HORÓMETROS (02-oct-2026): el apartado hermano, en su propio panel.
+  //    Acá solo vive el botón que lo abre: no comparte estado, horas ni precios con
+  //    esta pantalla. Pone precios/ajustes quien tiene escritura acá y no es analista
+  //    (la base lo exige igual).
+  const [horometrosOpen, setHorometrosOpen] = useState(false);
+  const puedeEditarHorometros = levelMeets(moduleLevel('control_maquinaria'), 'escritura') && !esAnalista;
   // Bloqueo POR CAMPO: la analista no puede modificar/borrar un campo que ya tiene valor.
   const bloqueadoAnalista = (valorActual: number) => esAnalista && Number(valorActual) > 0;
   // Bloqueo POR MÁQUINA+DÍA: si la máquina YA tiene horas de trabajo (día o noche), la
@@ -1692,6 +1699,22 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Control de maquinaria</SectionTitle>
+
+      {/* ⚙️ El otro control: paga por HORÓMETRO, con sus precios y su reporte. Vive
+          aparte y no toca nada de esta pantalla. */}
+      <TouchableOpacity
+        onPress={() => setHorometrosOpen(true)}
+        style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm, backgroundColor: colors.surface }}
+      >
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>⚙️ Control de horómetros →</Text>
+        <Text style={{ color: colors.muted, fontSize: 11 }}>El pago por horas de horómetro, con sus propios precios y su reporte. No cambia nada de este control.</Text>
+      </TouchableOpacity>
+      <ControlHorometrosPanel
+        visible={horometrosOpen}
+        onClose={() => setHorometrosOpen(false)}
+        canEdit={puedeEditarHorometros}
+        puedeCorregirHoro={puedeCorregirHoro}
+      />
 
       {notice ? (
         <TouchableOpacity onPress={() => setNotice(null)}>

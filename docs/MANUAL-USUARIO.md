@@ -3500,6 +3500,65 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   >   lo impide («lo manual manda»).
   > - En el reporte ⚙️ Horómetro la lectura sale marcada **«✎ corregido por el inspector»** con su
   >   motivo, distinto de **«✎ corregido desde Control»**. Todo queda en Auditoría.
+
+#### ⚙️ Control de horómetros — el pago por horómetro (02/10/2026)
+
+El hermano de **Control de maquinaria**, pero pagando por **horas de horómetro** en vez de por
+jornada. Se abre desde Control con el botón **«⚙️ Control de horómetros →»** (arriba del todo) y
+vive en su propio panel. **Los dos controles existen a la vez y no se tocan**: este no lee ni cambia
+las horas de la jornada, ni sus precios, ni sus cierres; y quien no lo abra no nota ningún cambio.
+
+**Qué muestra.** Eliges el rango (o *Esta semana / Semana pasada / Hoy*) y sale cada empresa con sus
+máquinas: las **horas de horómetro** del rango (final − inicial de cada turno), el **precio por
+hora**, y el **monto**. Arriba, el **total a pagar por horómetro**. Hay buscador (código, placa,
+serial, empresa, marca), filtro por empresa y «solo las que tienen días por revisar». Entran las
+máquinas que tienen alguna lectura (o ajuste) en el rango.
+
+**Las reglas de las horas**
+- Un día **sin lectura** vale **0 h** y no es una alerta (no todas las máquinas trabajan todos los
+  días). Acá **no** se cae a las horas de la jornada: para ver «hubo jornada pero no hay lectura»
+  está el reporte ⚙️ Horómetro vs jornada.
+- Una lectura **inválida** (la base la marcó: salto mayor a 12,5 h, final menor que inicial…) deja
+  el **día en 0 h, con alerta**, hasta que se corrija.
+- Un turno **incompleto** (inicial sin final) vale 0 h con alerta; el otro turno, si está completo,
+  sí cuenta.
+- Horas **sin precio** ese día → **$0 con alerta**: no se inventa un precio.
+
+**💲 Precios por hora — general y por rango.** En cada máquina, **«💲 Poner / cambiar precio por
+hora»**:
+- **General**: rige **desde la fecha que elijas en adelante**.
+- **🔒 Blindado a un rango**: rige **solo entre dos fechas** y **manda** sobre el general dentro de
+  ese rango; al terminar, vuelve el general.
+- **Cada día se paga con el precio que regía ese día**: cambiar el precio hoy **no reescribe** lo
+  ya trabajado, y una semana puede cruzar dos precios (la fila dice «cambió en el rango»).
+- Se puede **aplicar a todas las máquinas de la empresa** que se ven, de una vez.
+- Te muestra de **referencia** el precio de la jornada de Control (÷ 12) por si quieres usarlo; es
+  solo una sugerencia, no se enlazan.
+- Un precio **no se edita ni se borra: se anula** con su motivo, y queda en el historial de la
+  máquina con quién lo puso.
+
+**🧾 Acomodar el horómetro de un día — con dos destinos.** Toca el día de una máquina (o
+**«🧾 Acomodar el horómetro de un día»** para uno que no tenga lectura), pon inicial, final y el
+**motivo (obligatorio)**, y elige **dónde vale**:
+- **🧾 Solo para Control de horómetros** — queda como un **ajuste** aparte. **Lo que cargó el
+  inspector no se toca**; este control y su reporte de pago usan el ajuste en lugar de esa lectura.
+  El día sale marcado 🧾. El reporte ⚙️ Horómetro vs jornada sigue mostrando lo del inspector.
+- **✎ Cambiar la lectura del inspector** — cambia la lectura de ese día **en todas partes**
+  (también en el reporte ⚙️ Horómetro), marcada «corregido desde Control». Solo lo ve quien tiene
+  permiso para corregir horómetros (administradores).
+- **↺ Quitar el ajuste** devuelve el día a lo que cargó el inspector. Un ajuste tampoco se edita ni
+  se borra: se anula o se reemplaza, siempre con motivo.
+
+**📄 Reporte de pago por horómetro.** PDF con el **resumen por empresa**, el **pago por máquina**
+(horas, precio/h, monto) y los **días por revisar**; el **detalle día por día** (con Inicio y Fin
+del horómetro, y los días ajustados marcados con su motivo) viene oculto y se enciende. Tiene sus
+pastillas de **«¿Qué se oculta?»** — lo oculto **no deja rastro** en el papel — y sus **logos**
+(BCV, SOS, Golden Touch, Plan Venezuela Renace, Jhenzaen). Si filtraste, el papel dice **FILTRADO**.
+
+**Quién puede.** Lo **ve** quien ve Control de maquinaria. **Pone precios y ajustes** quien tiene
+escritura en Control y **no es analista** (igual que el precio de la jornada). **Cambiar la lectura
+del inspector** exige además el permiso de corregir horómetros. La base lo exige igual que la
+pantalla, y todo queda en Auditoría con el nombre de quien lo hizo.
   Desde el 25/09/2026 es **igual de ajustable que los demás reportes de maquinaria**: pastillas de
   «qué se oculta en el PDF» (marca, modelo, serial/placa, nombre de empresas, horas de
   jornada, resumen, máquinas listas, detalle por día) y checks de «qué logos lleva el membrete» (SOS, Golden Touch, Venezuela
