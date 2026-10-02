@@ -322,6 +322,9 @@ export type FilaComparativa = {
    * el caso de un número borrado). Vacío = se usa la etiqueta genérica.
    */
   estadoDetalle: string;
+  /** ✎ Quién la corrigió: 'control', 'inspector' o '' (02-oct-2026). Va justo
+   *  después de `motivo` en la fila, por el orden de claves de las pruebas. */
+  corregidaPor: 'control' | 'inspector' | '';
 };
 
 /**
@@ -345,6 +348,21 @@ export function marcaDeCorreccion(lecturas: readonly LecturaTrabajo[] | null | u
     if (m && !motivos.includes(m)) motivos.push(m);
   }
   return { corregida: true, motivo: motivos.join(' · ') };
+}
+
+/**
+ * ✎ QUIÉN corrigió (02-oct-2026, al abrirle la corrección al inspector).
+ *
+ * Control deja `corregidoPor` (y origen control/reinicio). El inspector NO: su
+ * corrección entra con origen `inspector` y solo deja el motivo escrito. Si hay
+ * de las dos, manda Control (la base protege su corrección contra pisadas).
+ * '' = nadie la tocó a mano.
+ */
+export function quienCorrigio(lecturas: readonly LecturaTrabajo[] | null | undefined): 'control' | 'inspector' | '' {
+  const ls = (lecturas ?? []).filter(Boolean);
+  if (ls.some((l) => !!l.corregidoPor || l.origen === 'control' || l.origen === 'reinicio')) return 'control';
+  if (ls.some((l) => !!limpio(l.motivoCorreccion))) return 'inspector';
+  return '';
 }
 
 /** Media hora de tolerancia para decir que jornada y horómetro cuadran. */
@@ -396,6 +414,7 @@ export function compararJornadaHorometro(
       inicial: ord.find((l) => l.inicial != null)?.inicial ?? null,
       final: [...ord].reverse().find((l) => l.final != null)?.final ?? null,
       corregida: marca.corregida, motivo: marca.motivo,
+      corregidaPor: quienCorrigio(ord),
       estadoDetalle: '',
     };
     const vacia = { inicial: null, final: null, corregida: false, motivo: '' };
@@ -470,6 +489,7 @@ export function compararJornadaHorometro(
       inicial: ord.find((l) => l.inicial != null)?.inicial ?? null,
       final: [...ord].reverse().find((l) => l.final != null)?.final ?? null,
       corregida: marca.corregida, motivo: marca.motivo,
+      corregidaPor: quienCorrigio(ord),
       horasHorometro: hh, diferencia: null, estado: 'sin_ronda',
       estadoDetalle: razon ? `sin jornada · ${razon}` : '',
     });
@@ -718,7 +738,7 @@ export function cuerpoComparativo(
   //    papel no puede ni nombrar la jornada: por eso acá se dice «el día».
   const notaIF = o.sinInicioFin ? '' : ' <b>Inicio</b> y <b>Fin</b> son los números del tablero con los que arrancó y terminó el día.';
   const notaCorr = r.corregidas > 0
-    ? ` <span style="color:#1D4ED8"><b>✎ corregido a mano</b> marca las ${r.corregidas} lectura(s) que se arreglaron desde Control, con el motivo que escribió quien las corrigió.</span>`
+    ? ` <span style="color:#1D4ED8"><b>✎ corregido</b> marca las ${r.corregidas} lectura(s) que se arreglaron a mano —desde Control o por el inspector que las cargó—, con el motivo que escribió quien las corrigió.</span>`
     : '';
   // 02-oct-2026: ya no es «día con ronda» a secas — una lectura de un día sin jornada
   // también tiene su fila («Sin jornada»). Con 🚫 Horas de jornada encendida no se
@@ -775,8 +795,10 @@ export function cuerpoComparativo(
         const celdasIF = o.sinInicioFin ? ''
           : `<td class="r">${fmtNum(f.inicial)}</td><td class="r">${fmtNum(f.final)}</td>`;
         // ✎ La marca de «lo corrigieron a mano», con su motivo debajo del código.
+        // 02-oct-2026: se dice QUIÉN — Control o el inspector (que ya puede corregir lo suyo).
+        const quien = f.corregidaPor === 'inspector' ? 'por el inspector' : 'desde Control';
         const marca = f.corregida
-          ? `<br/><span class="hc-corr">✎ corregido a mano${f.motivo ? `: ${esc(f.motivo)}` : ''}</span>`
+          ? `<br/><span class="hc-corr">✎ corregido ${quien}${f.motivo ? `: ${esc(f.motivo)}` : ''}</span>`
           : '';
         if (o.sinJornada) {
           // Sin jornada tampoco hay clase de color: el verde/ámbar/rojo ES el cuadre.

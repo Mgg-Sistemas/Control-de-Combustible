@@ -30,6 +30,7 @@ import { SosAutomatizacionCard } from '../components/SosAutomatizacionCard';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { cargarLecturasDeMaquinaDia, guardarLecturaHorometro } from '../lib/horometroTrabajoDb';
+import { HorometroCorregirModal } from '../components/HorometroCorregirModal';
 import { LecturaTrabajo, lecturaParaCompletarFinal, horometroDeTexto, soloHorometro } from '../lib/horometroTrabajo';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
@@ -450,6 +451,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // ⚙️ FINAL OLVIDADO (24-sep-2026): la lectura de HOY que cerró con inicial y sin final.
   //    Solo el mismo día; días anteriores son corrección de Control, con motivo.
   const [finTardia, setFinTardia] = useState<LecturaTrabajo | null>(null);
+  // ✏️ CORREGIR EL HORÓMETRO QUE YO CARGUÉ (02-oct-2026, decisión del cliente: «sí»).
+  //    Solo las máquinas de esta tarjeta (las suyas), solo la jornada de HOY y la
+  //    de AYER, con motivo obligatorio. La base conserva lo que Control corrigió.
+  const [horoEditables, setHoroEditables] = useState<{ roundDate: string; lecturas: LecturaTrabajo[] }[]>([]);
+  const [horoEditFecha, setHoroEditFecha] = useState<string | null>(null);
+  const [horoEditRecarga, setHoroEditRecarga] = useState(0);
   const [finTardiaBusy, setFinTardiaBusy] = useState(false);
   // ⚙️ CIERRE CONSCIENTE (24-sep-2026): si la máquina marcó horómetro INICIAL hoy y el
   //    final viene vacío, el primer «Sí, finalizar» NO cierra: avisa, y hay que escribirlo
@@ -622,6 +629,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       }
     })();
   }, [ci?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ✏️ Las lecturas de HOY y AYER de la máquina elegida, para poder corregirlas.
+  //    Aparte del efecto de la jornada: el inspector puede querer corregir el
+  //    inicial de hoy con la jornada todavía ABIERTA. Se recarga tras guardar.
+  useEffect(() => {
+    let vivo = true;
+    if (!ci) { setHoroEditables([]); return; }
+    (async () => {
+      const [deHoy, deAyer] = await Promise.all([cargarLecturasDeMaquinaDia(ci.id, today), cargarLecturasDeMaquinaDia(ci.id, yesterday)]);
+      if (vivo) setHoroEditables([{ roundDate: today, lecturas: deHoy }, { roundDate: yesterday, lecturas: deAyer }]);
+    })().catch(() => { if (vivo) setHoroEditables([]); });
+    return () => { vivo = false; };
+  }, [ci?.id, today, yesterday, horoEditRecarga]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reloj que corre solo mientras hay una jornada abierta (para el tiempo transcurrido).
   useEffect(() => {
     if (!jornadaStart) return;
@@ -3783,6 +3802,43 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <TouchableOpacity onPress={ponerFinalTardio} disabled={finTardiaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: finTardiaBusy ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{finTardiaBusy ? 'Guardando…' : '⚙️ PONER HORÓMETRO FINAL'}</Text>
                       </TouchableOpacity>
+                    </View>
+                  ) : null}
+                  {/* ✏️ CORREGIR EL HORÓMETRO QUE YO CARGUÉ (02-oct-2026, a pedido). Solo
+                      esta máquina, solo hoy y ayer, con motivo obligatorio; queda en el
+                      reporte como «✎ corregido por el inspector». Lo que Control ya
+                      corrigió no se puede tocar (la base tampoco lo deja). */}
+                  {ci && horoEditables.some((d) => d.lecturas.length > 0) ? (
+                    <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 2 }}>⚙️ Horómetros que cargaste (hoy y ayer)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si tecleaste mal un número, corrígelo aquí con el motivo. Solo cambia la lectura del horómetro de ese día: no toca las horas de la jornada.</Text>
+                      {horoEditables.filter((d) => d.lecturas.length > 0).map((d) => (
+                        <View key={d.roundDate} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{d.roundDate === today ? 'Hoy' : 'Ayer'} · {d.roundDate.split('-').reverse().join('/')}</Text>
+                            {d.lecturas.map((l) => (
+                              <Text key={l.shift} style={{ color: colors.muted, fontSize: 11 }}>
+                                {l.shift === 'night' ? '🌙' : '☀️'} inicial {l.inicial ?? '—'} · final {l.final ?? '—'}
+                                {l.corregidoPor ? ' · 🔒 corregida por Control' : l.motivoCorreccion ? ' · ✎ corregida' : ''}
+                              </Text>
+                            ))}
+                          </View>
+                          <TouchableOpacity onPress={() => setHoroEditFecha(d.roundDate)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Corregir</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                      {horoEditFecha ? (
+                        <HorometroCorregirModal
+                          modo="inspector"
+                          code={ci.code}
+                          machineryId={ci.id}
+                          roundDate={horoEditFecha}
+                          lecturas={horoEditables.find((d) => d.roundDate === horoEditFecha)?.lecturas ?? []}
+                          onClose={() => setHoroEditFecha(null)}
+                          onSaved={() => { setHoroEditRecarga((n) => n + 1); setNotice('✏️ Horómetro corregido. Queda con tu nombre y tu motivo en el reporte.'); }}
+                        />
+                      ) : null}
                     </View>
                   ) : null}
                   {/* Turno de la jornada. Si el inspector tiene turno ASIGNADO (día/noche),

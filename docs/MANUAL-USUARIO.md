@@ -3488,6 +3488,18 @@ siempre, y así seguirán hasta que se decida encender el modo máquina por máq
   >   incluye. Respetan **los mismos filtros** de empresa y equipos que las demás filas.
   > - Con la pastilla **🚫 Horas de jornada** encendida, el papel sigue sin nombrar la jornada por
   >   ninguna parte (ni esa caja ni ese estado).
+
+  > **✏️ El inspector puede corregir el horómetro que él cargó (02/10/2026, a pedido).** En la
+  > tarjeta de su máquina hay un bloque **«⚙️ Horómetros que cargaste (hoy y ayer)»** con las
+  > lecturas de esos dos días (☀️/🌙, inicial y final) y un botón **«✏️ Corregir»** por día. Abre
+  > el mismo editor de Control, pero en **modo inspector**:
+  > - Solo **sus máquinas** (las de su tarjeta), solo **hoy y ayer**, y el **motivo es obligatorio**.
+  > - No tiene el interruptor de **reinicio** (eso es de Control) y **no toca las horas de la
+  >   jornada** ni el horómetro de mantenimiento: cambia únicamente la lectura de ese día.
+  > - **Lo que Control ya corrigió no se puede tocar**: el editor lo avisa con 🔒 y la base también
+  >   lo impide («lo manual manda»).
+  > - En el reporte ⚙️ Horómetro la lectura sale marcada **«✎ corregido por el inspector»** con su
+  >   motivo, distinto de **«✎ corregido desde Control»**. Todo queda en Auditoría.
   Desde el 25/09/2026 es **igual de ajustable que los demás reportes de maquinaria**: pastillas de
   «qué se oculta en el PDF» (marca, modelo, serial/placa, nombre de empresas, horas de
   jornada, resumen, máquinas listas, detalle por día) y checks de «qué logos lleva el membrete» (SOS, Golden Touch, Venezuela
