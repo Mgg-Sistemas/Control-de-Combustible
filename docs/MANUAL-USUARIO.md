@@ -2290,13 +2290,19 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 >
 > Ya quedó arreglado, y con una ventaja: **los dos caminos de inicio ahora usan la misma regla**
 > (antes cada uno tenía la suya). Esa regla es la de siempre, sin cambios:
-> - El turno de **día arranca a las 7:00am** y el de **noche a las 7:00pm**. Si se marca **dentro
->   del margen** (hasta las 9:00am / 9:00pm), la jornada se **ancla al arranque del turno** aunque
->   se marque un poco más tarde → cuenta el turno completo.
-> - Si se marca **fuera del margen**, conserva la **hora real** y se registra el retraso: no se le
->   regalan 12 horas a una marca muy tardía.
+> - ~~El turno de día arranca a las 7:00am y el de noche a las 7:00pm. Si se marca dentro del
+>   margen (hasta las 9:00am / 9:00pm), la jornada se ancla al arranque del turno aunque se marque un
+>   poco más tarde → cuenta el turno completo.~~ **Cambió el 02/10/2026** — ver el recuadro de abajo.
+> - Si se marca después de las 9:00am / 9:00pm se registra el **retraso** y se avisa al admin.
 > - Una jornada de **noche** iniciada **pasada la medianoche** pertenece a la noche que arrancó
 >   **ayer** a las 7pm, no al día nuevo.
+>
+> **⏰ La jornada arranca a la hora real (02/10/2026, a pedido).** Pedido textual: «si comienza a
+> las 9am que comience a esa hora, no que se coloque a las 7am». Desde el 02/10 la jornada **empieza
+> a la hora en que se marca**, de día y de noche: una máquina iniciada a las 9:00 arranca a las 9:00
+> y sus horas se cuentan desde ahí (hasta las 7:00pm son 10 h, no 12). Ya **no se clava** a las 7:00 /
+> 7:00pm. El margen de las 9:00 sigue existiendo **solo para el aviso de retraso** al admin. **No es
+> retroactivo**: las jornadas ya guardadas conservan el inicio con el que se registraron.
 >
 > **También se corrigió un estado pegado:** una ronda que nace sin horas queda marcada "parada", y
 > al arrancar la jornada nadie la devolvía a **operativa** — quedaban rondas con la jornada abierta
