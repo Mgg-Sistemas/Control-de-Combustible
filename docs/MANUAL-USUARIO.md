@@ -3536,6 +3536,29 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+> **✏️ El resumen ejecutivo es editable (03/10/2026).** Con el check «📊 Resumen ejecutivo»
+> encendido aparece debajo un desplegable **«✏️ Ajustar el resumen ejecutivo»**. Tarjeta por tarjeta
+> y cuadro por cuadro se puede:
+> - **Esconderla** con su botón 👁️ / 🚫 (lo escondido no deja rastro en el papel).
+> - **Cambiarle el título**, el **valor** (escrito a mano) y la **nota** de abajo. Los cuadros —las
+>   listas por frente, por tipo, por empresa…— solo se esconden o se renombran: sus filas se cuentan
+>   solas.
+> - **Agregar tarjetas propias** (hasta 6) con título, valor y nota, para un dato que el sistema no
+>   tiene. Salen al final del tablero.
+>
+> **Lo que dejes en blanco sale con el valor automático:** cada casilla muestra en gris lo que saldría
+> si no escribes nada, así una casilla vacía nunca borra un dato. **Escribir un valor no recalcula
+> nada**: es el texto que se ve, y los cuadros siguen contando lo que de verdad hay.
+>
+> **Es del papel, no de los datos:** no cambia asignaciones, viajes, jornadas ni fichas, y no se
+> ⚠️ **Al cambiar de día se borran las cifras escritas a mano** (los valores y las tarjetas propias)
+> y se queda la forma (lo escondido, los títulos, las notas): el papel de hoy no puede salir con el
+> número de ayer.
+>
+> guarda — «↺ Dejar el resumen como estaba» vuelve al automático. Los valores que ves al editar son
+> una **prevista** con lo ya cargado; el papel se arma de nuevo al exportar con los datos del día, así
+> que un valor automático puede salir distinto en el PDF (lo escrito a mano sale tal cual).
+
 > **📊 La hoja de frentes con todas las opciones y su resumen ejecutivo (03/10/2026).** En «🖨️ Qué
 > sale en la hoja de frentes» —aquí y en Viajes de camiones— hay **ocho opciones nuevas**, que nacen
 > **apagadas** (la hoja sale igual que siempre hasta que enciendas algo):
