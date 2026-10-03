@@ -271,6 +271,11 @@ export type OpcionesReporte = {
    *  ese día. Solo en el detallado — en el resumido cada fila es un camión y
    *  el mismo camión pudo recoger de dos frentes en el rango. */
   frente: boolean;
+  /** 🧭 PUNTO CARDINAL del viaje (03-oct-2026, a pedido): Este u Oeste, la
+   *  zona de pago CONGELADA en el viaje (la del CDT ese día — la misma que
+   *  decide la tarifa en el pago por viaje). Solo en el detallado, por lo
+   *  mismo que la obra: un camión del resumido pudo cruzar a las dos zonas. */
+  zona: boolean;
   /**
    * PESO DE ROMANA (26-sep-2026; partido en TRES el 28-sep-2026, a pedido:
    * cada renglón del peso con su propio interruptor). En el detallado cada
@@ -326,6 +331,7 @@ export const OPCIONES_POR_DEFECTO: OpcionesReporte = {
   // APAGADA porque es nueva. Quien no la encienda saca el mismo papel de ayer.
   ubicacion: false,
   frente: false,
+  zona: false,
   // APAGADOS por lo mismo: el peso es del 26-sep-2026 y lo enciende quien lo pida.
   pesoBruto: false,
   pesoTara: false,
@@ -358,6 +364,8 @@ export function columnasDetalle(op: OpcionesReporte, eje: 'empresa' | 'listero' 
   c.push({ key: 'camion', head: 'Camión' });
   if (op.ubicacion && eje !== 'ubicacion') c.push({ key: 'ubicacion', head: 'Obra' });
   if (op.frente && eje !== 'frente') c.push({ key: 'frente', head: 'Frente' });
+  // 🧭 Pegada a la obra: la zona ES de la obra del viaje (Este u Oeste).
+  if (op.zona) c.push({ key: 'zona', head: 'Zona' });
   if (op.placa) c.push({ key: 'placa', head: 'Placa / Serial' });
   if (op.marcaModelo) c.push({ key: 'marcaModelo', head: 'Marca / Modelo' });
   if (op.dimensiones) c.push({ key: 'dims', head: 'Alto × Largo × Ancho (m)' });
