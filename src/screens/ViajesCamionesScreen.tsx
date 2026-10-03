@@ -59,6 +59,7 @@ import { ObrasListeros } from '../components/ObrasListeros';
 import { FrentesTrabajo } from '../components/FrentesTrabajo';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
+import { PagoPesoResumen } from '../components/PagoPesoResumen';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
@@ -4886,6 +4887,11 @@ export default function ViajesCamionesScreen() {
           {/* Lo que hay que pagarle a cada empresa por los viajes de sus camiones
               (15-sep-2026). Vive acá y solo acá: no toca jornadas ni Control de Pagos. */}
           <PagoViajesResumen canEdit={canFull} usuarioId={uid || null} m3PorViaje={m3PorViajePago} />
+
+          {/* ⚖️ Pago POR PESO (03-oct-2026, a pedido: «un reporte aparte del de
+              viajes; de normal se paga por el peso que cargue el camión»). Apartado
+              hermano con tablas y papel propios; respeta el «no facturó» de arriba. */}
+          <PagoPesoResumen canEdit={canFull} usuarioId={uid || null} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"

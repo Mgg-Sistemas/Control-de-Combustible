@@ -3536,6 +3536,13 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+> **🏢 Toda la maquinaria a nombre de una sola empresa (03/10/2026).** En «🖨️ Qué sale en la hoja
+> de frentes» —aquí y en Viajes de camiones— hay un interruptor **«🏢 Toda la maquinaria a nombre de
+> UNA sola empresa»**. Nace apagado. Al encenderlo aparece el nombre, con **Golden Touch** propuesto y
+> las empresas de la lista como atajos; se puede escribir cualquier otro. Con nombre, la columna
+> Empresa lleva ese nombre en todas las filas. Es **solo el papel**: no cambia la ficha de ninguna
+> máquina. Si la columna Empresa está apagada, el nombre tampoco sale.
+
 #### ⚙️ Control de horómetros — el pago por horómetro (02/10/2026)
 
 El hermano de **Control de maquinaria**, pero pagando por **horas de horómetro** en vez de por
@@ -6389,6 +6396,56 @@ además de por empresa y por listero.
   *Resumido*, *Solo camiones* y en el PDF) separaba bien los viajes pero **rotulaba todas las obras "Sin
   ubicación"**. Ahora cada grupo sale con **el nombre de su obra**; "Sin ubicación" queda solo para los
   viajes que de verdad no tienen obra. Ningún viaje ni total cambió.
+
+#### ⚖️ Pago por peso de los viajes de camiones (03/10/2026)
+
+Apartado **aparte** del 💰 Pago de viajes, a pedido: «un reporte aparte del de viajes (…) de normal se
+paga por el peso que cargue el camión».
+
+**Dónde:** Viajes de camiones → panel de información → tarjeta **«⚖️ Pago por peso»**, debajo del pago
+de viajes. Solo con permiso completo en Viajes de camiones.
+
+**Cómo se paga cada viaje:** el **neto de la romana** (bruto − tara, calculado por la base) × el
+**precio que rige ese día**. El precio se guarda **por tonelada o por kilo**; el sistema convierte.
+
+- ⭐ **Todo camión entra.** No hay interruptor «por viaje / no entra» como en el pago por viaje.
+- ⭐ **Nada se inventa.** Un viaje **sin peso** sale «sin peso» en $0 (hay que pesarlo o corregirlo en
+  ✏️ Editar). Un día **sin tarifa** sale «sin tarifa» en $0.
+- ⭐ **Se respeta el «no facturó»** que se marca en el 💰 Pago de viajes: es un hecho del viaje, no del
+  modo de pago. Aquí no se marca ni se quita.
+- Un camión fuera del catálogo o un viaje sin empresa se ven, pero no se pagan solos.
+
+**⚙️ Tarifas por peso** (botón de la tarjeta):
+- Alcance: 🌐 todos · 🏢 una empresa · 👥 un grupo de camiones · 🚛 un camión. Si a un viaje le tocan
+  varias, **manda la más específica** (camión → grupo → empresa → todos).
+- Zona: Este, Oeste o **ambas** (lo normal). Una tarifa con zona solo paga viajes de esa zona; una sin
+  zona paga cualquiera, incluso el viaje al que le falta la zona.
+- Unidad: **por tonelada** o **por kilo**.
+- **Desde** una fecha, o **🔒 blindada** a un rango que manda sobre la abierta solo en esas fechas.
+  Cada día se paga con el precio que regía ese día: cambiar la tarifa hoy no toca lo anterior.
+- No se editan ni se borran: se **anulan con motivo** y quedan en el historial.
+
+**La pantalla:** rango de fechas (Esta semana / Semana pasada / Hoy / Este mes; por jornada 7am a
+7am), interruptor **Ton / Kg** para leer los pesos, **resumen ejecutivo** (total a pagar, toneladas
+pagadas y pesadas, promedio por viaje, precio medio por tonelada, viajes), **total a pagar** con los
+motivos de lo que quedó sin pagar, y cada **empresa → sus camiones → sus viajes** (folio, jornada,
+hora, neto, tarifa o motivo, monto).
+
+**📄 PDF con todas las opciones:**
+- **Agrupar** por 🏢 empresa, 📍 obra, ⛏️ frente o 🚛 camión. El total no cambia.
+- **Filtrar** por obras, empresas, frentes y camiones (con buscador). Filtrar sí cambia el total y el
+  papel lo dice: « · FILTRADO» y el cuadro de alcance.
+- **Pastillas** de qué se oculta: resumen ejecutivo, camión por camión, viaje por viaje, bruto y tara,
+  marca, modelo, serial/placa, encargado, nombre de empresas, frente, cantidad por tipo, por zona,
+  **día por día** (el histórico del rango) y alcance. Lo que apagues **no deja rastro** en el papel.
+  Nace con resumen, camión por camión y placa; lo demás se enciende a pedido.
+- **Logos** a elegir (BCV, SOS La Guaira, Golden Touch); nace sin ninguno y sin la marca del pie.
+
+**Histórico:** elige cualquier rango de fechas. Los pesos existen desde el 14/09/2026.
+
+> Hace falta la tabla `viaje_tarifas_peso` en la base (RLS: solo permiso completo de Viajes de
+> camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
+> todo sale «sin tarifa».
 
 #### 💰 Pago de viajes de camiones (15/09/2026)
 

@@ -147,6 +147,33 @@ ok('y ofrece también los frentes activos sin asignación',
     { ...FRENTES_POR_DEFECTO, marcaModelo: true });
   ok('…y encendida sale', conMarca.includes('Marca / Modelo') && conMarca.includes('VOLVO FM 440'));
 
+  // 🏢 UNA SOLA EMPRESA PARA TODOS (03-oct-2026, a pedido: «que todas las
+  //    máquinas salgan para Golden Touch (…) o que yo pueda elegir el nombre
+  //    de la empresa que va a salir toda la maquinaria»).
+  {
+    const { EMPRESA_UNICA_SUGERIDA, empresaImpresa } = m.exports;
+    ok('⭐ nace APAGADA: por defecto cada equipo sale con su empresa', FRENTES_POR_DEFECTO.empresaUnica === '');
+    ok('la sugerencia de entrada es Golden Touch', EMPRESA_UNICA_SUGERIDA === 'Golden Touch');
+    const dos = frentesDelDia([
+      { frenteNombre: 'RES. CORAL', camion: cam('A', 'P1', 'EMPRESA UNO') },
+      { frenteNombre: 'RES. CORAL', camion: cam('B', 'P2', 'EMPRESA DOS') },
+      { frenteNombre: 'CANTERA', camion: cam('C', 'P3', null) },
+    ]);
+    const unica = cuerpoFrentesDelDia(dos, { ...FRENTES_POR_DEFECTO, empresaUnica: 'Golden Touch' });
+    ok('⭐ con nombre, TODOS los equipos salen con ese nombre, incluso el que no tiene empresa',
+      (unica.match(/<td>Golden Touch<\/td>/g) ?? []).length === 3 && !unica.includes('EMPRESA UNO') && !unica.includes('EMPRESA DOS'));
+    const propia = cuerpoFrentesDelDia(dos, { ...FRENTES_POR_DEFECTO, empresaUnica: '   ' });
+    ok('en blanco (o solo espacios) cada uno sale con la suya', propia.includes('EMPRESA UNO') && propia.includes('EMPRESA DOS') && !propia.includes('Golden Touch'));
+    ok('sin la columna de empresa, el nombre único no se cuela por ningún lado',
+      !cuerpoFrentesDelDia(dos, { ...FRENTES_POR_DEFECTO, empresa: false, empresaUnica: 'Golden Touch' }).includes('Golden Touch'));
+    eq('empresaImpresa: la única manda, limpia de espacios', empresaImpresa({ empresa: 'X' }, { empresaUnica: '  Golden   Touch ' }), 'Golden Touch');
+    eq('empresaImpresa: sin única, la propia; sin ninguna, raya', [empresaImpresa({ empresa: 'X' }, { empresaUnica: '' }), empresaImpresa({ empresa: null }, {})], ['X', '—']);
+    const comp = leer('src/components/FrentesTrabajo.tsx');
+    ok('⭐ la pantalla la ofrece como interruptor APAGADO y el papel recibe opPapel',
+      /useState\(false\);\s*\n\s*const \[empresaUnica, setEmpresaUnica\] = useState\(EMPRESA_UNICA_SUGERIDA\)/.test(comp)
+      && /cuerpoFrentesDelDia\(grupos, opPapel, E\)/.test(comp) && /empresaUnica: empresaUnicaOn \? empresaUnica : ''/.test(comp));
+  }
+
   // ⭐⭐ LO QUE SE APAGA NO DEJA RASTRO EN EL PAPEL (29-sep-2026, corregido a
   //     pedido: «que no salga esa información, y guarda en memoria que si activo
   //     o desactivo un check, no me salga esa información en el PDF»). Es la
