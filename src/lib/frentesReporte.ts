@@ -259,9 +259,99 @@ export const ETIQUETA_EQUIPO: EtiquetaEquipo = { columna: 'Equipo', singular: 'e
 // ── 📊 EL RESUMEN EJECUTIVO (03-oct-2026, a pedido: «resumen ejecutivo completo
 //    de las máquinas o viajes, un dashboard informativo») ──────────────────────
 
-export type TarjetaFrentes = { titulo: string; valor: string; nota?: string };
-export type CuadroFrentes = { titulo: string; filas: { clave: string; n: number }[] };
+/** `k` es la CLAVE ESTABLE de la tarjeta: con ella se la oculta, se le cambia el
+ *  título o el valor, y se la reconoce aunque el papel se saque otro día. */
+export type TarjetaFrentes = { k: string; titulo: string; valor: string; nota?: string };
+export type CuadroFrentes = { k: string; titulo: string; filas: { clave: string; n: number }[] };
 export type ResumenFrentes = { tarjetas: TarjetaFrentes[]; cuadros: CuadroFrentes[] };
+
+// ── ✏️ EL TABLERO EDITABLE (03-oct-2026, a pedido: «que el resumen ejecutivo de
+//    ese reporte sea editable») ─────────────────────────────────────────────────
+//
+// ⭐ EDITAR ES DEL PAPEL, NO DE LOS DATOS: nada de esto cambia una asignación, un
+//    viaje ni una ficha. Y lo que se deja en blanco vuelve al automático, igual
+//    que el operador escrito a mano: así una casilla vacía nunca borra un dato.
+
+/** Una tarjeta escrita por el usuario, de cero. */
+export type TarjetaPropia = { titulo: string; valor: string; nota?: string };
+
+export type EdicionResumen = {
+  /** Claves de tarjetas y cuadros que NO salen (lo oculto no deja rastro). */
+  ocultos?: string[];
+  /** clave → otro título. En blanco = el de siempre. */
+  titulos?: Record<string, string>;
+  /** clave → otro valor, escrito a mano. En blanco = el calculado. */
+  valores?: Record<string, string>;
+  /** clave → otra nota (la línea chica). En blanco = la automática. */
+  notas?: Record<string, string>;
+  /** Tarjetas propias, al final y en su orden. */
+  propias?: TarjetaPropia[];
+};
+
+export const EDICION_RESUMEN_VACIA: EdicionResumen = {};
+
+/**
+ * ⚠️ AL CAMBIAR DE DÍA SE BORRAN LAS CIFRAS ESCRITAS A MANO (03-oct-2026).
+ *
+ * El título de una tarjeta, su nota y lo que se decidió esconder son FORMA del
+ * papel y valen para cualquier día. Pero un VALOR escrito a mano —y una tarjeta
+ * propia— son la cifra DE ESE DÍA: si sobrevivieran al cambiar la fecha, el papel
+ * de hoy saldría con el número de ayer y nadie lo notaría. Eso es exactamente
+ * mentir en un papel que puede ir a pago, así que se limpian.
+ */
+export function edicionAlCambiarDeDia(ed: EdicionResumen | null | undefined): EdicionResumen {
+  return { ocultos: ed?.ocultos ?? [], titulos: ed?.titulos ?? {}, notas: ed?.notas ?? {} };
+}
+
+const limpioTxt = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+
+/** ¿Se le cambió algo al tablero? Para avisarlo en la pantalla. */
+export function resumenEditado(ed: EdicionResumen | null | undefined): boolean {
+  if (!ed) return false;
+  const algo = (r?: Record<string, string>) => Object.values(r ?? {}).some((v) => limpioTxt(v) !== '');
+  return (ed.ocultos ?? []).length > 0 || algo(ed.titulos) || algo(ed.valores) || algo(ed.notas)
+    || (ed.propias ?? []).some((x) => limpioTxt(x.titulo) !== '' || limpioTxt(x.valor) !== '');
+}
+
+/** Cuántos cambios lleva, para decirlo en una línea. */
+export function cuentaEdicionResumen(ed: EdicionResumen | null | undefined): { ocultos: number; cambiados: number; propias: number } {
+  const claves = new Set<string>();
+  [ed?.titulos, ed?.valores, ed?.notas].forEach((r) => Object.entries(r ?? {}).forEach(([k, v]) => { if (limpioTxt(v) !== '') claves.add(k); }));
+  return {
+    ocultos: (ed?.ocultos ?? []).length,
+    cambiados: claves.size,
+    propias: (ed?.propias ?? []).filter((x) => limpioTxt(x.titulo) !== '' || limpioTxt(x.valor) !== '').length,
+  };
+}
+
+/**
+ * Aplica la edición al tablero calculado. ⭐ No recalcula nada: solo esconde,
+ * renombra, reemplaza el texto que se ve y agrega las tarjetas propias.
+ */
+export function aplicarEdicionResumen(r: ResumenFrentes, ed: EdicionResumen | null | undefined): ResumenFrentes {
+  const ocultos = new Set((ed?.ocultos ?? []).map((k) => String(k)));
+  const texto = (mapa: Record<string, string> | undefined, k: string) => limpioTxt(mapa?.[k]);
+  const tarjetas = r.tarjetas.filter((x) => !ocultos.has(x.k)).map((x) => {
+    const nota = texto(ed?.notas, x.k);
+    return {
+      k: x.k,
+      titulo: texto(ed?.titulos, x.k) || x.titulo,
+      valor: texto(ed?.valores, x.k) || x.valor,
+      nota: nota || x.nota,
+    };
+  });
+  // Las propias van al final, con su clave propia para que no choquen con las de casa.
+  (ed?.propias ?? []).forEach((x, i) => {
+    const titulo = limpioTxt(x.titulo);
+    const valor = limpioTxt(x.valor);
+    // Una tarjeta sin título Y sin valor es una casilla que el usuario dejó vacía.
+    if (!titulo && !valor) return;
+    tarjetas.push({ k: `propia${i + 1}`, titulo: titulo || 'Dato', valor: valor || '—', nota: limpioTxt(x.nota) || undefined });
+  });
+  // Los cuadros también se renombran; valor y nota no les aplican (son listas).
+  const cuadros = r.cuadros.filter((q) => !ocultos.has(q.k)).map((q) => ({ ...q, titulo: texto(ed?.titulos, q.k) || q.titulo }));
+  return { tarjetas, cuadros };
+}
 
 /**
  * El tablero de arriba. Cuenta EQUIPOS, no filas: uno que está en dos frentes
@@ -286,42 +376,49 @@ export function resumenFrentes(grupos: FrenteDelDia[], op: OpcionesFrentes = FRE
   const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
   const mayor = conEquipos.slice().sort((a, b) => b.camiones.length - a.camiones.length)[0];
   const tarjetas: TarjetaFrentes[] = [
-    { titulo: `${e.plural[0].toUpperCase()}${e.plural.slice(1)} asignados`, valor: String(equipos.length), nota: filas > equipos.length ? `${filas} asignaciones (hay ${e.plural} en más de un frente)` : undefined },
-    { titulo: 'Frentes en uso', valor: String(conEquipos.length), nota: grupos.length > conEquipos.length ? `de ${grupos.length} listados` : undefined },
-    { titulo: 'Promedio por frente', valor: conEquipos.length ? (filas / conEquipos.length).toFixed(1).replace('.', ',') : '0' },
+    { k: 'equipos', titulo: `${e.plural[0].toUpperCase()}${e.plural.slice(1)} asignados`, valor: String(equipos.length), nota: filas > equipos.length ? `${filas} asignaciones (hay ${e.plural} en más de un frente)` : undefined },
+    { k: 'frentes', titulo: 'Frentes en uso', valor: String(conEquipos.length), nota: grupos.length > conEquipos.length ? `de ${grupos.length} listados` : undefined },
+    { k: 'promedio', titulo: 'Promedio por frente', valor: conEquipos.length ? (filas / conEquipos.length).toFixed(1).replace('.', ',') : '0' },
   ];
-  if (mayor) tarjetas.push({ titulo: 'Frente con más carga', valor: mayor.nombre, nota: `${mayor.camiones.length} ${e.unidad}` });
-  if (op.empresa) tarjetas.push({ titulo: 'Empresas', valor: String(new Set(equipos.map((c) => empresaImpresa(c, op))).size) });
+  if (mayor) tarjetas.push({ k: 'mayor', titulo: 'Frente con más carga', valor: mayor.nombre, nota: `${mayor.camiones.length} ${e.unidad}` });
+  if (op.empresa) tarjetas.push({ k: 'empresas', titulo: 'Empresas', valor: String(new Set(equipos.map((c) => empresaImpresa(c, op))).size) });
   const viajes = equipos.reduce((a, c) => a + (Number(c.viajes) || 0), 0);
   const conViajes = equipos.filter((c) => (Number(c.viajes) || 0) > 0).length;
   if (equipos.some((c) => c.viajes != null)) {
-    tarjetas.push({ titulo: 'Viajes del día', valor: String(viajes), nota: `${conViajes} de ${equipos.length} ${e.plural} con viajes` });
+    tarjetas.push({ k: 'viajes', titulo: 'Viajes del día', valor: String(viajes), nota: `${conViajes} de ${equipos.length} ${e.plural} con viajes` });
   }
 
   const cuadros: CuadroFrentes[] = [
-    { titulo: `${e.unidad[0].toUpperCase()}${e.unidad.slice(1)} por frente`, filas: conEquipos.map((g) => ({ clave: g.nombre, n: g.camiones.length })).sort((a, b) => b.n - a.n || a.clave.localeCompare(b.clave, 'es', { numeric: true })) },
-    { titulo: 'Por tipo de equipo', filas: contar((c) => limpio(c.code)) },
+    { k: 'porFrente', titulo: `${e.unidad[0].toUpperCase()}${e.unidad.slice(1)} por frente`, filas: conEquipos.map((g) => ({ clave: g.nombre, n: g.camiones.length })).sort((a, b) => b.n - a.n || a.clave.localeCompare(b.clave, 'es', { numeric: true })) },
+    { k: 'porTipo', titulo: 'Por tipo de equipo', filas: contar((c) => limpio(c.code)) },
   ];
-  if (op.empresa) cuadros.push({ titulo: 'Por empresa', filas: contar((c) => empresaImpresa(c, op)) });
-  if (op.estado) cuadros.push({ titulo: 'Por estado', filas: contar((c) => limpio(c.estado) || 'Sin dato') });
-  if (op.clasificacion) cuadros.push({ titulo: 'Por clasificación', filas: contar((c) => limpio(c.clasificacion) || 'Sin clasificar') });
-  if (op.turno) cuadros.push({ titulo: 'Por turno', filas: contar((c) => limpio(c.turno) || 'Sin dato') });
-  if (op.obra) cuadros.push({ titulo: 'Por obra / ubicación', filas: contar((c) => limpio(c.obra) || 'Sin dato') });
+  if (op.empresa) cuadros.push({ k: 'porEmpresa', titulo: 'Por empresa', filas: contar((c) => empresaImpresa(c, op)) });
+  if (op.estado) cuadros.push({ k: 'porEstado', titulo: 'Por estado', filas: contar((c) => limpio(c.estado) || 'Sin dato') });
+  if (op.clasificacion) cuadros.push({ k: 'porClasificacion', titulo: 'Por clasificación', filas: contar((c) => limpio(c.clasificacion) || 'Sin clasificar') });
+  if (op.turno) cuadros.push({ k: 'porTurno', titulo: 'Por turno', filas: contar((c) => limpio(c.turno) || 'Sin dato') });
+  if (op.obra) cuadros.push({ k: 'porObra', titulo: 'Por obra / ubicación', filas: contar((c) => limpio(c.obra) || 'Sin dato') });
   return { tarjetas, cuadros: cuadros.filter((q) => q.filas.length > 0) };
 }
 
 function htmlResumenFrentes(r: ResumenFrentes): string {
-  const tj = r.tarjetas.map((x) => `<div><span>${esc(x.titulo)}</span><b>${esc(x.valor)}</b>${x.nota ? `<small>${esc(x.nota)}</small>` : ''}</div>`).join('');
-  const cq = r.cuadros.map((q) => `<div class="fr-q"><div class="fr-qt">${esc(q.titulo)}</div>${q.filas.map((f) => `<p><i>${esc(f.clave)}</i><b>${f.n}</b></p>`).join('')}</div>`).join('');
-  return `<div class="fr-tj">${tj}</div><div class="fr-cq">${cq}</div>`;
+  // Sin tarjetas o sin cuadros, su fila no se escribe: un <div> vacío deja un
+  // hueco en el papel y parece que algo no cargó.
+  const tj = r.tarjetas.length === 0 ? '' : `<div class="fr-tj">${r.tarjetas.map((x) => `<div><span>${esc(x.titulo)}</span><b>${esc(x.valor)}</b>${x.nota ? `<small>${esc(x.nota)}</small>` : ''}</div>`).join('')}</div>`;
+  const cq = r.cuadros.length === 0 ? '' : `<div class="fr-cq">${r.cuadros.map((q) => `<div class="fr-q"><div class="fr-qt">${esc(q.titulo)}</div>${q.filas.map((f) => `<p><i>${esc(f.clave)}</i><b>${f.n}</b></p>`).join('')}</div>`).join('')}</div>`;
+  return tj + cq;
 }
 
-export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION): string {
+export function cuerpoFrentesDelDia(
+  grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION,
+  /** ✏️ Lo que el usuario le cambió al tablero (03-oct-2026). Sin esto, el tablero
+   *  sale tal como lo calcula resumenFrentes(). */
+  ed?: EdicionResumen | null,
+): string {
   const t = totalesFrentes(grupos);
   if (t.frentes === 0) {
     return `<p class="fr-vacio">Ese día no hay ningún ${e.singular} asignado a un frente.</p>`;
   }
-  const tablero = op.resumen ? htmlResumenFrentes(resumenFrentes(grupos, op, e)) : '';
+  const tablero = op.resumen ? htmlResumenFrentes(aplicarEdicionResumen(resumenFrentes(grupos, op, e), ed)) : '';
   const cabecera = tablero + (op.totales
     ? `<p class="fr-tot">${t.camiones} ${e.unidad} asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con ${e.plural}</p>`
     : '');
