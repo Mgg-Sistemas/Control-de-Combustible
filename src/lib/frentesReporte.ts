@@ -66,6 +66,15 @@ export type OpcionesFrentes = {
    * tienen ningún camión, que es útil para ver qué quedó sin asignar.
    */
   sinCamiones: boolean;
+  /**
+   * 🏢 UNA SOLA EMPRESA PARA TODOS (03-oct-2026, a pedido: «que todas las
+   * máquinas salgan para Golden Touch, como si todas fueran de Golden, o que yo
+   * pueda elegir el nombre de la empresa que va a salir toda la maquinaria»).
+   * Con texto, la columna «Empresa» lleva ESE nombre en cada fila, sea de quien
+   * sea el equipo. Vacío = cada uno con la suya. Solo pinta: no cambia nada en
+   * el catálogo. Sin la columna de empresa no se usa.
+   */
+  empresaUnica?: string;
 };
 
 export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
@@ -76,7 +85,17 @@ export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
   contador: true,
   totales: true,
   sinCamiones: false,
+  empresaUnica: '',
 };
+
+/** El nombre que se ofrece de entrada al encender la empresa única. */
+export const EMPRESA_UNICA_SUGERIDA = 'Golden Touch';
+
+/** La empresa que se imprime para un equipo: la única si está puesta; si no, la suya. */
+export function empresaImpresa(c: { empresa?: string | null }, op: Pick<OpcionesFrentes, 'empresaUnica'>): string {
+  const unica = String(op.empresaUnica ?? '').replace(/\s+/g, ' ').trim();
+  return unica || String(c.empresa ?? '').trim() || '—';
+}
 
 /**
  * 🏷️ LOS LOGOS DEL MEMBRETE.
@@ -190,7 +209,7 @@ export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes 
       ${op.numeracion ? `<td>${i + 1}</td>` : ''}
       <td>${esc(c.code)}</td>
       ${op.placa ? `<td>${esc(c.placa || '—')}</td>` : ''}
-      ${op.empresa ? `<td>${esc(c.empresa || '—')}</td>` : ''}
+      ${op.empresa ? `<td>${esc(empresaImpresa(c, op))}</td>` : ''}
       ${op.marcaModelo ? `<td>${esc(c.marcaModelo || '—')}</td>` : ''}
     </tr>`).join('');
     const cabeceras = `${op.numeracion ? '<th style="width:34px">Nº</th>' : ''}<th>${e.columna}</th>${op.placa ? '<th>Placa / Serial</th>' : ''}${op.empresa ? '<th>Empresa</th>' : ''}${op.marcaModelo ? '<th>Marca / Modelo</th>' : ''}`;

@@ -33,7 +33,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   ETIQUETA_CAMION, ETIQUETA_EQUIPO,
   frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes,
-  historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO,
+  historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO, EMPRESA_UNICA_SUGERIDA,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
 } from '../lib/frentesReporte';
 
@@ -124,6 +124,19 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   // ── 🖨️ Qué sale en la hoja (29-sep-2026, a pedido) ──
   const [op, setOp] = useState<OpcionesFrentes>({ ...FRENTES_POR_DEFECTO });
   const [logos, setLogos] = useState<LogosFrentes>({ ...LOGOS_FRENTES_POR_DEFECTO });
+  // ── 🏢 Una sola empresa para todos (03-oct-2026, a pedido: «que todas las
+  //    máquinas salgan para Golden Touch (…) o que yo pueda elegir el nombre»).
+  //    Nace APAGADA (lo nuevo entra apagado); al encenderla se ofrece Golden
+  //    Touch y las empresas que hay en la lista, o se escribe cualquiera. Solo
+  //    cambia lo que se IMPRIME en la columna Empresa: el catálogo no se toca.
+  const [empresaUnicaOn, setEmpresaUnicaOn] = useState(false);
+  const [empresaUnica, setEmpresaUnica] = useState(EMPRESA_UNICA_SUGERIDA);
+  const opPapel: OpcionesFrentes = { ...op, empresaUnica: empresaUnicaOn ? empresaUnica : '' };
+  const empresasSugeridas = useMemo(() => {
+    const s = new Set<string>([EMPRESA_UNICA_SUGERIDA]);
+    camiones.forEach((c) => { const n = String(c.companyName ?? '').trim(); if (n) s.add(n); });
+    return Array.from(s);
+  }, [camiones]);
   // ── 🕘 El historial ──
   const [historial, setHistorial] = useState<DiaHistorialFrentes[]>([]);
 
@@ -295,7 +308,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
           };
         }),
         activos.map((f) => f.nombre),
-        op,
+        opPapel,
       );
       const html = pdfDocument({
         title: 'Frentes de trabajo',
@@ -306,7 +319,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         //    subtítulo. El papel se lee como si ese dato no existiera.
         subtitle: esMaq ? `Asignación del ${dmy(fecha)} · frente de trabajo de cada equipo` : `Asignación del ${dmy(fecha)} · de dónde recoge cada camión`,
         extraCss: CSS_FRENTES,
-        body: cuerpoFrentesDelDia(grupos, op, E),
+        body: cuerpoFrentesDelDia(grupos, opPapel, E),
         logos,
         // Igual que los demás papeles de viajes de camiones (28-sep-2026), y
         // además pedido de nuevo para esta hoja el 29-sep-2026.
@@ -334,7 +347,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     return c ? `${c.code}${c.plate ? ` · ${c.plate}` : c.serial ? ` · ${c.serial}` : ''}` : fueraTxt;
   };
 
-  const CHECKS: { k: keyof OpcionesFrentes; label: string; ayuda: string }[] = [
+  const CHECKS: { k: Exclude<keyof OpcionesFrentes, 'empresaUnica'>; label: string; ayuda: string }[] = [
     { k: 'numeracion', label: `1️⃣ Numeración de los ${E.plural}`, ayuda: 'La columna Nº dentro de cada frente.' },
     { k: 'placa', label: '🔢 Placa / Serial', ayuda: `Cómo se identifica el ${E.singular} en el patio.` },
     { k: 'empresa', label: `🏢 Empresa del ${E.singular}`, ayuda: `A quién pertenece cada ${E.singular}.` },
@@ -554,17 +567,53 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                       criterio que los demás reportes: el usuario decide. */}
                   <Plegable
                     titulo="🖨️ Qué sale en la hoja de frentes"
-                    resumen={`${ocultos === 0 ? 'todo' : `${ocultos} dato(s) oculto(s)`} · ${logosPuestos === 0 ? 'sin logos' : `${logosPuestos} logo(s)`}${op.sinCamiones ? ' · con los frentes vacíos' : ''}`}
+                    resumen={`${ocultos === 0 ? 'todo' : `${ocultos} dato(s) oculto(s)`} · ${logosPuestos === 0 ? 'sin logos' : `${logosPuestos} logo(s)`}${op.sinCamiones ? ' · con los frentes vacíos' : ''}${empresaUnicaOn && op.empresa ? ` · todo a nombre de ${empresaUnica.trim() || '…'}` : ''}`}
                   >
                     {CHECKS.map((c) => (
                       <Toggle
                         key={c.k}
-                        on={op[c.k]}
+                        on={!!op[c.k]}
                         label={c.label}
                         ayuda={c.ayuda}
                         onPress={() => setOp((p) => ({ ...p, [c.k]: !p[c.k] }))}
                       />
                     ))}
+                    {/* 🏢 Una sola empresa para todos (03-oct-2026, a pedido). */}
+                    {op.empresa ? (
+                      <View style={{ marginTop: spacing.xs }}>
+                        <Toggle
+                          on={empresaUnicaOn}
+                          label="🏢 Toda la maquinaria a nombre de UNA sola empresa"
+                          ayuda={`En la columna Empresa sale el mismo nombre para cada ${E.singular}, como si todos fueran de esa empresa. Solo en el papel: no cambia la ficha de nadie.`}
+                          onPress={() => setEmpresaUnicaOn((v) => !v)}
+                        />
+                        {empresaUnicaOn ? (
+                          <View style={{ paddingLeft: spacing.sm }}>
+                            <TextInput
+                              value={empresaUnica}
+                              onChangeText={setEmpresaUnica}
+                              placeholder="Nombre de la empresa que va a salir"
+                              placeholderTextColor={colors.muted}
+                              style={{ ...input, marginTop: 4 }}
+                            />
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                              {empresasSugeridas.map((n) => {
+                                const on = empresaUnica.trim() === n;
+                                return (
+                                  <TouchableOpacity key={n} onPress={() => setEmpresaUnica(n)}
+                                    style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{n}</Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                            {!empresaUnica.trim() ? (
+                              <Text style={{ color: colors.warning, fontSize: 10, marginTop: 2 }}>Sin nombre, cada {E.singular} sale con su propia empresa.</Text>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
                     <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800', marginTop: spacing.sm }}>QUÉ LOGOS LLEVA EL MEMBRETE</Text>
                     <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 2 }}>
                       Esta hoja nace SIN logos y sin el pie de «Banco Central de Venezuela / SOS La
