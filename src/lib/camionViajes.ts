@@ -138,6 +138,9 @@ export type CamionViajeRow = {
    */
   frenteId: string | null;
   frenteNombre: string | null;
+  /** 'este' / 'oeste' / null: la zona CONGELADA en el viaje (la del CDT ese
+   *  día). Es la misma que usa el pago; acá solo se muestra (03-oct-2026). */
+  zonaPago: string | null;
 };
 
 function mapRow(r: any): CamionViajeRow {
@@ -178,6 +181,7 @@ function mapRow(r: any): CamionViajeRow {
     tipoViajeTarifa: r.tipo_viaje_tarifa == null ? null : Number(r.tipo_viaje_tarifa),
     frenteId: (r.frente_id ?? null) as string | null,
     frenteNombre: (r.frente_nombre ?? null) as string | null,
+    zonaPago: (r.zona_pago === 'este' || r.zona_pago === 'oeste' ? r.zona_pago : null) as string | null,
   };
 }
 
@@ -224,7 +228,7 @@ let hayColumnasDeTipo: boolean | null = null;
  *  otros cuatro: un respaldo de esta mañana tiene tipo y no tiene frente. */
 let hayColumnasDeFrente: boolean | null = null;
 
-const COLS_OBRA = 'ubicacion_id, ubicacion_nombre';
+const COLS_OBRA = 'ubicacion_id, ubicacion_nombre, zona_pago';
 const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
 // `origen` viaja con el grupo del peso: la columna existe desde el 14-sep y
 // toda base que ya tenga peso (26-sep) la tiene — y si el peso falta, el

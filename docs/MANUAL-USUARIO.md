@@ -3536,6 +3536,17 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+#### 🧭 Punto cardinal (Este / Oeste) en la Lista completa (03/10/2026)
+
+En «🖨️ Qué sale en el reporte» hay un interruptor nuevo **«🧭 Punto cardinal (Este / Oeste)»**,
+junto al de la obra. **Nace apagado**: sin tocarlo, el papel sale igual que ayer.
+
+- Encendido, el **detallado** lleva la columna **«Zona»** con Este u Oeste en cada viaje.
+- El dato es la **zona de pago congelada en el viaje** (la del CDT ese día, la misma que usa el
+  💰 Pago de viajes): los dos papeles nunca se contradicen. Sin zona sale «—», no se adivina.
+- **Solo en el detallado**: en el resumido cada fila es un camión, y el mismo camión pudo hacer
+  viajes en las dos zonas dentro del rango.
+
 #### 📅 Entradas/Salidas y Escombros: la semana empieza donde tú digas (03/10/2026)
 
 Las hojas de **Control camiones Entradas/Salidas** y **🧱 Transporte de escombros** salen una por

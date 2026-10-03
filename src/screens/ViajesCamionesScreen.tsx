@@ -1086,6 +1086,8 @@ export default function ViajesCamionesScreen() {
       choferName: q.payload.choferName,
       shift: q.payload.shift,
       estadoMaquina: q.payload.estadoMaquina,
+      // La zona la congela el SERVIDOR al entrar el viaje (por su CDT): en cola aún no hay.
+      zonaPago: null,
       note: q.payload.note ?? null,
       registeredAt: q.payload.registeredAt,
       // La obra viaja en la cola con el resto del viaje: un viaje que se subió
@@ -1133,6 +1135,7 @@ export default function ViajesCamionesScreen() {
       choferName: q.payload.choferName,
       shift: q.payload.shift,
       estadoMaquina: q.payload.estadoMaquina,
+      zonaPago: null,
       note: q.payload.note ?? null,
       registeredAt: q.payload.registeredAt,
       // La obra viaja en la cola con el resto del viaje: un viaje que se subió
@@ -3235,6 +3238,9 @@ export default function ViajesCamionesScreen() {
         // renombró o se borró, el papel tiene que seguir diciendo dónde fue.
         ubicacion: r.ubicacionNombre || SIN_UBICACION_LABEL,
         frente: r.frenteNombre || 'Sin frente',
+        // 🧭 La zona congelada en el viaje (03-oct-2026): la misma del pago.
+        //    Sin zona = raya, no se adivina (el CDT no la tenía ese día).
+        zona: r.zonaPago === 'este' ? 'Este' : r.zonaPago === 'oeste' ? 'Oeste' : '—',
         placa: placaDe(r),
         marcaModelo: marcaModeloDe(r.machineryId),
         dims: dimsDe(r.machineryId),
