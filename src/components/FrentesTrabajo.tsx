@@ -15,7 +15,7 @@
 // SEGUNDA VUELTA (29-sep-2026): el papel del día lleva sus CHECKS (qué columnas
 // y qué líneas salen) y sus LOGOS, y debajo está el 🕘 HISTORIAL de qué frentes
 // se asignaron cada día.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -34,7 +34,11 @@ import {
   ETIQUETA_CAMION, ETIQUETA_EQUIPO,
   frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes,
   historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO, EMPRESA_UNICA_SUGERIDA, necesitaDatosDelDia,
+  // ✏️ El tablero editable (03-oct-2026): calcular la PREVISTA, contar los
+  //    cambios y volver a cero. Nada de esto toca la base.
+  resumenFrentes, EDICION_RESUMEN_VACIA, resumenEditado, cuentaEdicionResumen, edicionAlCambiarDeDia,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
+  type EdicionResumen, type TarjetaPropia,
 } from '../lib/frentesReporte';
 
 /** Lo que hace falta de cada camión para el buscador de la asignación. */
@@ -104,6 +108,11 @@ const dmy = (iso: string) => String(iso ?? '').slice(0, 10).split('-').reverse()
  *  reporte, y para eso está el PDF de cada día. */
 const DIAS_HISTORIAL = 45;
 
+/** Cuántas tarjetas propias se le pueden agregar al tablero (03-oct-2026). Seis
+ *  es lo que entra en una fila del papel sin que las tarjetas queden como
+ *  tiritas ilegibles; más que eso ya no es un resumen. */
+const MAX_TARJETAS_PROPIAS = 6;
+
 /** El día ISO que está `dias` días antes de `iso` (mediodía para que ningún
  *  cambio de hora mueva la fecha). */
 function diasAntes(iso: string, dias: number): string {
@@ -159,6 +168,21 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   //    por fecha y equipo mientras la pantalla esté abierta, no toca la base.
   const [operadores, setOperadores] = useState<Record<string, string>>({});
   const claveOperador = (machineryId: string) => `${fecha}|${machineryId}`;
+  // ── ✏️ EL RESUMEN EJECUTIVO EDITABLE (03-oct-2026, a pedido: «que el resumen
+  //    ejecutivo de ese reporte sea editable»). Igual que la empresa única y el
+  //    operador a mano: es DEL PAPEL y vive en la pantalla, NO se guarda en la
+  //    base. Nada de esto cambia una asignación, un viaje ni una ficha.
+  const [edicionResumen, setEdicionResumen] = useState<EdicionResumen>(EDICION_RESUMEN_VACIA);
+  // ⚠️ Al cambiar de día se van las CIFRAS escritas a mano (valores y tarjetas
+  //    propias) y se queda la FORMA (lo escondido, los títulos, las notas): el
+  //    papel de hoy no puede salir con el número de ayer. Ver
+  //    edicionAlCambiarDeDia() en frentesReporte.ts.
+  const diaEditado = useRef(fecha);
+  useEffect(() => {
+    if (diaEditado.current === fecha) return;
+    diaEditado.current = fecha;
+    setEdicionResumen((p) => edicionAlCambiarDeDia(p));
+  }, [fecha]);
   const empresasSugeridas = useMemo(() => {
     const s = new Set<string>([EMPRESA_UNICA_SUGERIDA]);
     camiones.forEach((c) => { const n = String(c.companyName ?? '').trim(); if (n) s.add(n); });
@@ -358,7 +382,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         //    subtítulo. El papel se lee como si ese dato no existiera.
         subtitle: esMaq ? `Asignación del ${dmy(fecha)} · frente de trabajo de cada equipo` : `Asignación del ${dmy(fecha)} · de dónde recoge cada camión`,
         extraCss: CSS_FRENTES,
-        body: cuerpoFrentesDelDia(grupos, opPapel, E),
+        // ✏️ Con la edición del tablero (03-oct-2026): lo oculto no sale, y lo
+        //    que quedó en blanco sale con su valor automático.
+        body: cuerpoFrentesDelDia(grupos, opPapel, E, edicionResumen),
         logos,
         // Igual que los demás papeles de viajes de camiones (28-sep-2026), y
         // además pedido de nuevo para esta hoja el 29-sep-2026.
@@ -385,6 +411,78 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     const c = camiones.find((x) => x.id === id);
     return c ? `${c.code}${c.plate ? ` · ${c.plate}` : c.serial ? ` · ${c.serial}` : ''}` : fueraTxt;
   };
+  /** Los TextInput de la edición del tablero: compactos, que son muchos. */
+  const inputResumen = { ...input, fontSize: 12, paddingVertical: 4 } as const;
+
+  /**
+   * ✏️ LA PREVISTA DEL TABLERO (03-oct-2026).
+   *
+   * ⚠️ ES UNA PREVISTA, NO EL PAPEL. Sirve para saber QUÉ TARJETAS Y CUÁDROS HAY
+   *    —sus claves y sus títulos— y así poder editarlos. El papel se calcula de
+   *    nuevo al exportar, ahí sí con los datos DEL DÍA (obra, chofer, turno,
+   *    estado y viajes), que son asíncronos y no se pueden leer en pantalla.
+   *
+   * ⭐ POR ESO LOS VALORES AUTOMÁTICOS QUE SE VEN ACÁ PUEDEN DIFERIR DE LOS DEL
+   *    PDF (acá los viajes van en 0 y el turno/chofer en blanco), y POR ESO
+   *    EDITAR GUARDA TEXTO Y NO NÚMEROS: lo escrito sale tal cual, y lo que se
+   *    deja en blanco sale con el valor que calcule el papel en ese momento.
+   */
+  const resumenPreview = useMemo(() => {
+    const grupos = frentesParaReporte(
+      asignaciones.map((a) => {
+        const c = camiones.find((x) => x.id === a.machineryId);
+        return {
+          frenteNombre: a.frenteNombre,
+          camion: {
+            id: a.machineryId,
+            code: c?.code ?? fueraTxt,
+            placa: c?.plate || c?.serial || null,
+            empresa: c?.companyName || null,
+            marcaModelo: [c?.marca, c?.modelo].filter(Boolean).join(' ') || null,
+            medidas: c?.medidas || null,
+            clasificacion: c?.clasificacion || null,
+            // Sin los datos del día: solo lo que tiene la ficha del equipo.
+            obra: c?.obra || null,
+            chofer: null,
+            turno: null,
+            estado: c?.estado || null,
+            viajes: esMaq ? null : 0,
+          },
+        };
+      }),
+      activos.map((f) => f.nombre),
+      opPapel,
+    );
+    return resumenFrentes(grupos, opPapel, E);
+  }, [asignaciones, camiones, opPapel, activos, E]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Los retoques del tablero. Todos escriben en `edicionResumen` por CLAVE
+  //    (`k`), que es estable: la misma tarjeta se reconoce otro día. ──
+  const resumenOculto = (k: string) => (edicionResumen.ocultos ?? []).includes(k);
+  const alternarOcultoResumen = (k: string) => setEdicionResumen((p) => {
+    const ya = p.ocultos ?? [];
+    return { ...p, ocultos: ya.includes(k) ? ya.filter((x) => x !== k) : [...ya, k] };
+  });
+  const escribirResumen = (campo: 'titulos' | 'valores' | 'notas', k: string, v: string) =>
+    setEdicionResumen((p) => ({ ...p, [campo]: { ...(p[campo] ?? {}), [k]: v } }));
+  const agregarTarjetaPropia = () => setEdicionResumen((p) => {
+    const l = p.propias ?? [];
+    if (l.length >= MAX_TARJETAS_PROPIAS) return p;
+    return { ...p, propias: [...l, { titulo: '', valor: '', nota: '' }] };
+  });
+  const cambiarTarjetaPropia = (i: number, campo: keyof TarjetaPropia, v: string) =>
+    setEdicionResumen((p) => ({ ...p, propias: (p.propias ?? []).map((x, j) => (j === i ? { ...x, [campo]: v } : x)) }));
+  const quitarTarjetaPropia = (i: number) =>
+    setEdicionResumen((p) => ({ ...p, propias: (p.propias ?? []).filter((_, j) => j !== i) }));
+  const propias = edicionResumen.propias ?? [];
+  // La línea del plegable cerrado: «plegado no es escondido», tiene que decir
+  // qué lleva cambiado sin abrirlo.
+  const cuentaResumen = cuentaEdicionResumen(edicionResumen);
+  const resumenEdicionTxt = !resumenEditado(edicionResumen) ? 'sin cambios' : ([
+    cuentaResumen.ocultos ? `${cuentaResumen.ocultos} oculto(s)` : '',
+    cuentaResumen.cambiados ? `${cuentaResumen.cambiados} cambiado${cuentaResumen.cambiados === 1 ? '' : 's'}` : '',
+    cuentaResumen.propias ? `${cuentaResumen.propias} propia${cuentaResumen.propias === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' · ') || 'sin cambios');
 
   const CHECKS: { k: Exclude<keyof OpcionesFrentes, 'empresaUnica'>; label: string; ayuda: string }[] = [
     { k: 'numeracion', label: `1️⃣ Numeración de los ${E.plural}`, ayuda: 'La columna Nº dentro de cada frente.' },
@@ -629,6 +727,141 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                         onPress={() => setOp((p) => ({ ...p, [c.k]: !p[c.k] }))}
                       />
                     ))}
+                    {/* ✏️ AJUSTAR EL RESUMEN EJECUTIVO (03-oct-2026, a pedido:
+                        «que el resumen ejecutivo de ese reporte sea editable»).
+                        Solo con el tablero encendido: sin él no hay nada que
+                        ajustar y la sección sería un plegable vacío. */}
+                    {op.resumen ? (
+                      <Plegable titulo="✏️ Ajustar el resumen ejecutivo" resumen={resumenEdicionTxt}>
+                        <Text style={{ color: colors.muted, fontSize: 10.5, marginBottom: spacing.xs }}>
+                          Esto cambia SOLO el papel: no toca asignaciones, viajes ni fichas. Lo que dejes
+                          en blanco sale con su valor automático, y lo que escribas sale tal cual. Los
+                          valores que ves acá son una prevista: el papel los recalcula con los datos de
+                          ese día al exportar.
+                        </Text>
+
+                        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>TARJETAS</Text>
+                        {resumenPreview.tarjetas.length === 0 ? (
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>Con estos datos el tablero no lleva tarjetas.</Text>
+                        ) : resumenPreview.tarjetas.map((x) => {
+                          const off = resumenOculto(x.k);
+                          return (
+                            <View key={`tj-${x.k}`} style={{ marginTop: 4, opacity: off ? 0.5 : 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                                <TouchableOpacity onPress={() => alternarOcultoResumen(x.k)}>
+                                  <Text style={{ fontSize: 13 }}>{off ? '🚫' : '👁️'}</Text>
+                                </TouchableOpacity>
+                                <TextInput
+                                  value={edicionResumen.titulos?.[x.k] ?? ''}
+                                  onChangeText={(v) => escribirResumen('titulos', x.k, v)}
+                                  placeholder={x.titulo}
+                                  placeholderTextColor={colors.muted}
+                                  editable={!off}
+                                  style={{ ...inputResumen, flex: 1.6 }}
+                                />
+                                <TextInput
+                                  value={edicionResumen.valores?.[x.k] ?? ''}
+                                  onChangeText={(v) => escribirResumen('valores', x.k, v)}
+                                  placeholder={x.valor}
+                                  placeholderTextColor={colors.muted}
+                                  editable={!off}
+                                  style={{ ...inputResumen, flex: 1 }}
+                                />
+                              </View>
+                              <TextInput
+                                value={edicionResumen.notas?.[x.k] ?? ''}
+                                onChangeText={(v) => escribirResumen('notas', x.k, v)}
+                                placeholder={x.nota ?? 'sin nota'}
+                                placeholderTextColor={colors.muted}
+                                editable={!off}
+                                style={{ ...inputResumen, marginTop: 3, marginLeft: 22 }}
+                              />
+                            </View>
+                          );
+                        })}
+
+                        {/* Los cuadros solo llevan título: sus filas son el
+                            conteo y ese sí es un dato, no un texto. */}
+                        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800', marginTop: spacing.sm }}>CUADROS</Text>
+                        {resumenPreview.cuadros.length === 0 ? (
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>Con estos datos el tablero no lleva cuadros.</Text>
+                        ) : resumenPreview.cuadros.map((q) => {
+                          const off = resumenOculto(q.k);
+                          return (
+                            <View key={`cq-${q.k}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 4, opacity: off ? 0.5 : 1 }}>
+                              <TouchableOpacity onPress={() => alternarOcultoResumen(q.k)}>
+                                <Text style={{ fontSize: 13 }}>{off ? '🚫' : '👁️'}</Text>
+                              </TouchableOpacity>
+                              <TextInput
+                                value={edicionResumen.titulos?.[q.k] ?? ''}
+                                onChangeText={(v) => escribirResumen('titulos', q.k, v)}
+                                placeholder={q.titulo}
+                                placeholderTextColor={colors.muted}
+                                editable={!off}
+                                style={{ ...inputResumen, flex: 1 }}
+                              />
+                            </View>
+                          );
+                        })}
+
+                        {/* Tarjetas de cosecha propia: el dato que el sistema no
+                            tiene («Supervisor», «Clima», lo que haga falta). */}
+                        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800', marginTop: spacing.sm }}>TARJETAS PROPIAS</Text>
+                        <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 2 }}>
+                          Van al final del tablero, en este orden. Una sin título Y sin valor no sale.
+                        </Text>
+                        {propias.map((x, i) => (
+                          <View key={`pr-${i}`} style={{ marginTop: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                              <TextInput
+                                value={x.titulo}
+                                onChangeText={(v) => cambiarTarjetaPropia(i, 'titulo', v)}
+                                placeholder="Título (ej. Supervisor)"
+                                placeholderTextColor={colors.muted}
+                                style={{ ...inputResumen, flex: 1.6 }}
+                              />
+                              <TextInput
+                                value={x.valor}
+                                onChangeText={(v) => cambiarTarjetaPropia(i, 'valor', v)}
+                                placeholder="Valor"
+                                placeholderTextColor={colors.muted}
+                                style={{ ...inputResumen, flex: 1 }}
+                              />
+                              <TouchableOpacity onPress={() => quitarTarjetaPropia(i)}>
+                                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>
+                              </TouchableOpacity>
+                            </View>
+                            <TextInput
+                              value={x.nota ?? ''}
+                              onChangeText={(v) => cambiarTarjetaPropia(i, 'nota', v)}
+                              placeholder="Nota (opcional)"
+                              placeholderTextColor={colors.muted}
+                              style={{ ...inputResumen, marginTop: 3 }}
+                            />
+                          </View>
+                        ))}
+                        <TouchableOpacity
+                          disabled={propias.length >= MAX_TARJETAS_PROPIAS}
+                          onPress={agregarTarjetaPropia}
+                          style={{ marginTop: spacing.xs, alignSelf: 'flex-start', opacity: propias.length >= MAX_TARJETAS_PROPIAS ? 0.5 : 1 }}
+                        >
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>➕ Agregar tarjeta</Text>
+                        </TouchableOpacity>
+                        {propias.length >= MAX_TARJETAS_PROPIAS ? (
+                          <Text style={{ color: colors.warning, fontSize: 10, marginTop: 2 }}>
+                            Ya van {MAX_TARJETAS_PROPIAS}: es el máximo, porque más tarjetas no caben en
+                            la fila del papel sin quedar ilegibles. Quita una para agregar otra.
+                          </Text>
+                        ) : null}
+
+                        {/* Volver a cero: solo se ofrece si hay algo que deshacer. */}
+                        {resumenEditado(edicionResumen) ? (
+                          <TouchableOpacity onPress={() => setEdicionResumen(EDICION_RESUMEN_VACIA)} style={{ marginTop: spacing.sm, alignSelf: 'flex-start' }}>
+                            <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>↺ Dejar el resumen como estaba</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </Plegable>
+                    ) : null}
                     {/* 👷 Operador a mano (03-oct-2026, a pedido). Solo con la columna encendida. */}
                     {op.chofer ? (
                       <View style={{ marginTop: spacing.xs, paddingLeft: spacing.sm }}>

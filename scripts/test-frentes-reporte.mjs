@@ -171,7 +171,7 @@ ok('y ofrece también los frentes activos sin asignación',
     const comp = leer('src/components/FrentesTrabajo.tsx');
     ok('⭐ la pantalla la ofrece como interruptor APAGADO y el papel recibe opPapel',
       /useState\(false\);\s*\n\s*const \[empresaUnica, setEmpresaUnica\] = useState\(EMPRESA_UNICA_SUGERIDA\)/.test(comp)
-      && /cuerpoFrentesDelDia\(grupos, opPapel, E\)/.test(comp) && /empresaUnica: empresaUnicaOn \? empresaUnica : ''/.test(comp));
+      && /cuerpoFrentesDelDia\(grupos, opPapel, E/.test(comp) && /empresaUnica: empresaUnicaOn \? empresaUnica : ''/.test(comp));
   }
 
   // ⭐⭐ LO QUE SE APAGA NO DEJA RASTRO EN EL PAPEL (29-sep-2026, corregido a
@@ -301,7 +301,10 @@ ok('y ofrece también los frentes activos sin asignación',
 
   // El tablero.
   const r = resumenFrentes(g, { ...FRENTES_POR_DEFECTO, estado: true, turno: true, clasificacion: true, obra: true });
-  eq('⭐ cuenta EQUIPOS, no filas: uno en dos frentes es un equipo', r.tarjetas[0], { titulo: 'Camiones asignados', valor: '2', nota: '3 asignaciones (hay camiones en más de un frente)' });
+  eq('⭐ cuenta EQUIPOS, no filas: uno en dos frentes es un equipo', r.tarjetas[0], { k: 'equipos', titulo: 'Camiones asignados', valor: '2', nota: '3 asignaciones (hay camiones en más de un frente)' });
+  eq('⭐ cada tarjeta y cuadro lleva su clave estable, para poder editarlos',
+    [r.tarjetas.map((x) => x.k), r.cuadros.map((q) => q.k)],
+    [['equipos', 'frentes', 'promedio', 'mayor', 'empresas', 'viajes'], ['porFrente', 'porTipo', 'porEmpresa', 'porEstado', 'porClasificacion', 'porTurno', 'porObra']]);
   eq('frentes en uso, promedio y el de más carga', r.tarjetas.slice(1, 4).map((x) => [x.titulo, x.valor]), [['Frentes en uso', '2'], ['Promedio por frente', '1,5'], ['Frente con más carga', 'CANTERA']]);
   eq('empresas y viajes del día', r.tarjetas.slice(4).map((x) => [x.titulo, x.valor, x.nota]), [['Empresas', '2', undefined], ['Viajes del día', '4', '1 de 2 camiones con viajes']]);
   eq('cuadros: por frente, tipo, empresa y los encendidos', r.cuadros.map((q) => q.titulo), ['Camión(es) por frente', 'Por tipo de equipo', 'Por empresa', 'Por estado', 'Por clasificación', 'Por turno', 'Por obra / ubicación']);
@@ -328,6 +331,98 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('…y solo LEE la jornada', !/\.(insert|update|delete|upsert)\(/.test(card));
   const pant = leer('src/screens/ViajesCamionesScreen.tsx');
   ok('⭐ viajes le pasa medidas/capacidad de Cubicaje y lo del día desde sus viajes', /camiones=\{camionesFrentes\}/.test(pant) && /datosDelDia=\{datosDelDiaFrentes\}/.test(pant) && /listTodosLosViajes\(jornadaWindowISO\(jornadaISO\)\)/.test(pant));
+}
+
+// ── ✏️ EL TABLERO ES EDITABLE (03-oct-2026, a pedido: «que el resumen ejecutivo
+//    de ese reporte sea editable») ──────────────────────────────────────────────
+{
+  const { aplicarEdicionResumen, resumenFrentes, resumenEditado, cuentaEdicionResumen, EDICION_RESUMEN_VACIA } = m.exports;
+  const ETIQUETA_CAMION_T = m.exports.ETIQUETA_CAMION;
+  const g2 = frentesDelDia([
+    { frenteNombre: 'CANTERA', camion: { id: 'a', code: 'VOLTEO', placa: 'P1', empresa: 'EMP UNO', viajes: 3 } },
+    { frenteNombre: 'RES. CORAL', camion: { id: 'b', code: 'CHUTO', placa: 'P2', empresa: 'EMP DOS', viajes: 1 } },
+  ]);
+  const base = resumenFrentes(g2, FRENTES_POR_DEFECTO);
+
+  eq('sin edición, el tablero sale tal cual', aplicarEdicionResumen(base, EDICION_RESUMEN_VACIA), base);
+  eq('sin edición ninguna (null/undefined) tampoco revienta', [aplicarEdicionResumen(base, null).tarjetas.length, aplicarEdicionResumen(base, undefined).cuadros.length], [base.tarjetas.length, base.cuadros.length]);
+
+  // Ocultar.
+  const sinDos = aplicarEdicionResumen(base, { ocultos: ['promedio', 'porTipo'] });
+  ok('⭐ ocultar quita esa tarjeta y ese cuadro, y nada más',
+    !sinDos.tarjetas.some((x) => x.k === 'promedio') && !sinDos.cuadros.some((q) => q.k === 'porTipo')
+    && sinDos.tarjetas.length === base.tarjetas.length - 1 && sinDos.cuadros.length === base.cuadros.length - 1);
+  ok('una clave que no existe no hace nada', aplicarEdicionResumen(base, { ocultos: ['inventada'] }).tarjetas.length === base.tarjetas.length);
+
+  // Cambiar el texto.
+  const cambiado = aplicarEdicionResumen(base, {
+    titulos: { equipos: '  Unidades   en  obra ', frentes: '' },
+    valores: { equipos: '99', promedio: '   ' },
+    notas: { frentes: 'contadas a mano' },
+  });
+  const tj = (k) => cambiado.tarjetas.find((x) => x.k === k);
+  eq('⭐ el título y el valor escritos MANDAN, limpios de espacios', [tj('equipos').titulo, tj('equipos').valor], ['Unidades en obra', '99']);
+  eq('⭐ lo que se deja EN BLANCO vuelve al automático (una casilla vacía no borra nada)',
+    [tj('frentes').titulo, tj('promedio').valor], [base.tarjetas.find((x) => x.k === 'frentes').titulo, base.tarjetas.find((x) => x.k === 'promedio').valor]);
+  eq('la nota escrita manda; y la automática se queda si no se escribe', [tj('frentes').nota, tj('equipos').nota], ['contadas a mano', base.tarjetas.find((x) => x.k === 'equipos').nota]);
+  ok('⭐ editar NO recalcula: el valor es TEXTO, no una cuenta', tj('equipos').valor === '99' && base.tarjetas.find((x) => x.k === 'equipos').valor === '2');
+  eq('el título de un cuadro también se cambia', aplicarEdicionResumen(base, { titulos: { porFrente: 'Reparto del día' } }).cuadros[0].titulo, 'Reparto del día');
+  ok('cambiar un cuadro no le inventa valor ni nota', (() => { const q = aplicarEdicionResumen(base, { titulos: { porFrente: 'X' }, valores: { porFrente: '7' } }).cuadros[0]; return q.valor === undefined && q.nota === undefined; })());
+
+  // Tarjetas propias.
+  const propias = aplicarEdicionResumen(base, { propias: [{ titulo: 'Gandolas prestadas', valor: '3', nota: 'de la contrata' }, { titulo: '', valor: '' }, { titulo: 'Sin valor', valor: '' }, { titulo: '', valor: '5' }] });
+  eq('⭐ las propias van AL FINAL y en su orden; las vacías no entran',
+    propias.tarjetas.slice(base.tarjetas.length).map((x) => [x.k, x.titulo, x.valor, x.nota]),
+    [['propia1', 'Gandolas prestadas', '3', 'de la contrata'], ['propia3', 'Sin valor', '—', null], ['propia4', 'Dato', '5', null]]);
+  ok('una propia no pisa las de casa', propias.tarjetas.filter((x) => x.k === 'equipos').length === 1);
+
+  // Avisos de la pantalla.
+  eq('resumenEditado: solo cuando de verdad hay algo', [
+    resumenEditado(null), resumenEditado(EDICION_RESUMEN_VACIA), resumenEditado({ titulos: { equipos: '   ' } }), resumenEditado({ propias: [{ titulo: '', valor: '' }] }),
+    resumenEditado({ ocultos: ['equipos'] }), resumenEditado({ valores: { equipos: '1' } }), resumenEditado({ propias: [{ titulo: 'X', valor: '' }] }),
+  ], [false, false, false, false, true, true, true]);
+  eq('cuentaEdicionResumen cuenta claves tocadas, no casillas',
+    cuentaEdicionResumen({ ocultos: ['promedio'], titulos: { equipos: 'A', frentes: '  ' }, valores: { equipos: '9' }, propias: [{ titulo: 'X', valor: '1' }, { titulo: '', valor: '' }] }),
+    { ocultos: 1, cambiados: 1, propias: 1 });
+
+  // En el papel.
+  const html = (ed) => cuerpoFrentesDelDia(g2, { ...FRENTES_POR_DEFECTO, resumen: true }, ETIQUETA_CAMION_T, ed);
+  ok('⭐ el papel sale con lo editado y SIN lo original', html({ titulos: { equipos: 'Unidades en obra' }, valores: { equipos: '99' } }).includes('Unidades en obra'));
+  ok('⭐ lo oculto NO deja rastro en el papel (ni el título, ni «oculto»)', (() => {
+    const h = html({ ocultos: ['porFrente', 'equipos'] });
+    return !h.includes('Camión(es) por frente') && !h.includes('Camiones asignados') && !h.includes('oculto') && !h.includes('No sale');
+  })());
+  ok('⭐ ocultar TODO no deja un hueco vacío en el papel', (() => {
+    const todas = [...base.tarjetas.map((x) => x.k), ...base.cuadros.map((q) => q.k)];
+    const h = html({ ocultos: todas });
+    return !h.includes('fr-tj') && !h.includes('fr-cq') && h.includes('fr-g');
+  })());
+  ok('una propia sale en el papel, escapada', html({ propias: [{ titulo: '<b>X</b>', valor: '1' }] }).includes('&lt;b&gt;X&lt;/b&gt;'));
+  ok('con el resumen APAGADO, lo editado no se cuela', !cuerpoFrentesDelDia(g2, FRENTES_POR_DEFECTO, ETIQUETA_CAMION_T, { propias: [{ titulo: 'ZZZ', valor: '1' }] }).includes('ZZZ'));
+
+  // La pantalla.
+  const comp = leer('src/components/FrentesTrabajo.tsx');
+  ok('⭐ la pantalla le pasa la edición al papel', /cuerpoFrentesDelDia\(grupos, opPapel, E, edicionResumen\)/.test(comp));
+  ok('⭐ se puede dejar como estaba', /EDICION_RESUMEN_VACIA/.test(comp));
+  ok('⭐ editar es del PAPEL: no se guarda en la base', !/guardarEdicionResumen|edicion_resumen/.test(comp));
+  ok('la sección de edición sale SOLO con el resumen encendido', /\{op\.resumen \? \(/.test(comp) && /Ajustar el resumen ejecutivo/.test(comp));
+  ok('cada tarjeta se esconde, se renombra, se le cambia el valor y la nota',
+    ['titulos', 'valores', 'notas'].every((k) => new RegExp("edicionResumen\\." + k + "\\?\\.\\[").test(comp.replace(/\?\.\[/g, '?.[')))
+    && /alternarOcultoResumen/.test(comp) && /escribirResumen/.test(comp));
+  ok('se agregan tarjetas propias con tope y se pueden quitar',
+    /MAX_TARJETAS_PROPIAS = 6/.test(comp) && /agregarTarjetaPropia/.test(comp) && /quitarTarjetaPropia/.test(comp)
+    && /disabled=\{propias\.length >= MAX_TARJETAS_PROPIAS\}/.test(comp));
+  ok('⭐ las casillas muestran en gris lo automático (placeholder), no el dato ya escrito',
+    /placeholder=\{x\.titulo\}/.test(comp) && /placeholder=\{x\.valor\}/.test(comp));
+
+  // ⚠️ LAS CIFRAS A MANO NO CRUZAN DE DÍA (03-oct-2026).
+  const { edicionAlCambiarDeDia } = m.exports;
+  const llena = { ocultos: ['promedio'], titulos: { equipos: 'Unidades' }, notas: { equipos: 'a mano' }, valores: { equipos: '99' }, propias: [{ titulo: 'X', valor: '3' }] };
+  eq('⭐ al cambiar de día se van las CIFRAS y se queda la FORMA',
+    edicionAlCambiarDeDia(llena), { ocultos: ['promedio'], titulos: { equipos: 'Unidades' }, notas: { equipos: 'a mano' } });
+  eq('…y no revienta sin nada', edicionAlCambiarDeDia(null), { ocultos: [], titulos: {}, notas: {} });
+  ok('⭐ el valor de ayer no puede salir en el papel de hoy', !resumenEditado({ valores: {}, propias: [] }) && aplicarEdicionResumen(base, edicionAlCambiarDeDia(llena)).tarjetas.every((x) => x.valor !== '99'));
+  ok('⭐ la pantalla lo aplica cuando cambia la fecha', /diaEditado\.current = fecha;\s*\n\s*setEdicionResumen\(\(p\) => edicionAlCambiarDeDia\(p\)\)/.test(comp));
 }
 
 console.log('\nPDF DE FRENTES DEL DÍA — la hoja de asignación, sin cifras\n');
