@@ -69,12 +69,12 @@ export type InicioJornada = {
   /** `round_date` de NEGOCIO (no de calendario): una noche que cruzó la medianoche
    *  pertenece al día en que arrancó a las 7pm, no al siguiente. */
   roundDate: string;
-  /** `jornada_start_at`: inicio NOMINAL del turno si marcó a tiempo; el declarado si no. */
+  /** `jornada_start_at`: el inicio DECLARADO, siempre (desde el 02-oct-2026 ya no se ancla). */
   startIso: string;
   shift: 'day' | 'night';
-  /** Minutos de retraso sobre el margen (≤0 = marcó dentro). */
+  /** Minutos de retraso sobre el margen de las 9:00 (≤0 = marcó dentro). Solo para el aviso. */
   retrasoMin: number;
-  /** true = se ancló al arranque nominal del turno (7am/7pm). */
+  /** Siempre false desde el 02-oct-2026 (antes: se ancló al arranque nominal 7am/7pm). */
   anclada: boolean;
 };
 
@@ -92,11 +92,13 @@ export type InicioJornada = {
  *  1. `round_date` de NEGOCIO (`businessRoundDateOf`): una jornada de NOCHE iniciada
  *     pasada la medianoche sigue perteneciendo a la noche que arrancó AYER a las 7pm.
  *     Usar la fecha de calendario creaba rondas "fantasma" (BUG 10-ago-2026).
- *  2. ANCLAJE AL TURNO (13-ago-2026): el turno de DÍA inicia siempre a las 7:00am y el
- *     de NOCHE a las 7:00pm. Si se marca DENTRO del margen (≤9:00am día / ≤9:00pm
- *     noche), la jornada se ancla al arranque nominal aunque se marque un poco más
- *     tarde → cuenta el turno completo. Fuera del margen conserva el inicio DECLARADO,
- *     para no regalarle 12 h a una marca muy tardía.
+ *  2. HORA REAL (02-oct-2026, antes «anclaje al turno» del 13-ago-2026): la jornada
+ *     arranca a la hora DECLARADA, siempre. Hasta el 02-oct, marcar dentro del margen
+ *     (≤9:00am / ≤9:00pm) la clavaba al arranque nominal (7:00/19:00) y contaba el
+ *     turno completo; el cliente pidió quitarlo: «si comienza a las 9am que comience
+ *     a esa hora, no que se coloque a las 7am». El margen sigue existiendo solo para
+ *     el AVISO de retraso (`retrasoMin`), y `anclada` queda siempre en false (se
+ *     conserva el campo para no tocar a quien lo lee).
  *
  * Blindada por `scripts/test-inicio-jornada.mjs` (`npm run test:inicio`).
  *
@@ -121,9 +123,13 @@ export function calcularInicioJornada(p: {
   }
   const limitIso = p.shift === 'night' ? `${limitDay}T21:00:00-04:00` : `${limitDay}T09:00:00-04:00`;
   const retrasoMin = Math.round((now.getTime() - new Date(limitIso).getTime()) / 60000);
-  const nominalIso = p.shift === 'night' ? `${roundDate}T19:00:00-04:00` : `${roundDate}T07:00:00-04:00`;
-  const anclada = retrasoMin <= 0;
-  return { roundDate, startIso: anclada ? nominalIso : p.declaredIso, shift: p.shift, retrasoMin, anclada };
+  // ⭐ YA NO SE ANCLA (02-oct-2026, pedido del cliente: «si comienza a las 9am que
+  //    comience a esa hora, no que se coloque a las 7am»). La jornada arranca a la
+  //    hora DECLARADA, siempre, de día y de noche; las horas se cuentan desde ahí.
+  //    El margen de las 9:00 queda solo para el AVISO de retraso al admin.
+  //    No es retroactivo: las jornadas ya guardadas conservan su inicio.
+  const anclada = false;
+  return { roundDate, startIso: p.declaredIso, shift: p.shift, retrasoMin, anclada };
 }
 
 // Solo estos cargos (en nómina) pueden iniciar jornada en una máquina.
