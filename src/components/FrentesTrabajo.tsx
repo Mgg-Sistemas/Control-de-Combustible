@@ -33,7 +33,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   ETIQUETA_CAMION, ETIQUETA_EQUIPO,
   frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes,
-  historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO, EMPRESA_UNICA_SUGERIDA,
+  historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO, EMPRESA_UNICA_SUGERIDA, necesitaDatosDelDia,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
 } from '../lib/frentesReporte';
 
@@ -46,7 +46,20 @@ export type CamionParaFrente = {
   companyName?: string | null;
   marca?: string | null;
   modelo?: string | null;
+  // ── Para las columnas opcionales de la hoja (03-oct-2026). Lo que no venga,
+  //    sale «—». Son datos FIJOS del equipo; lo del día llega por `datosDelDia`. ──
+  /** «2,40 × 6,00 × 2,50 m», ya escrito. */
+  medidas?: string | null;
+  clasificacion?: string | null;
+  /** Ubicación de la ficha (se usa si ese día no hay obra). */
+  obra?: string | null;
+  /** Estado de la ficha (se usa si ese día no hay otro). */
+  estado?: string | null;
 };
+
+/** Lo que pasó con un equipo ESE día: sale de los viajes (camiones) o de la
+ *  jornada (máquinas). Lo arma cada pantalla; este componente solo lo pinta. */
+export type DatosDelDiaFrente = { obra?: string | null; chofer?: string | null; turno?: string | null; estado?: string | null; viajes?: number | null };
 
 type Props = {
   frentes: FrenteTrabajo[];
@@ -73,6 +86,13 @@ type Props = {
   tipo?: 'camiones' | 'maquinas';
   /** A qué tablas va (02-oct-2026): viajes por defecto; la maquinaria tiene las suyas. */
   fuente?: FuenteFrentes;
+  /**
+   * 📊 Los datos DEL DÍA para la hoja (03-oct-2026): obra, chofer, turno, estado
+   * y viajes de cada equipo en esa jornada. Se llama SOLO al sacar el PDF y SOLO
+   * si alguna de esas opciones está encendida: con todo apagado, la hoja no lee
+   * nada más que la asignación, como siempre.
+   */
+  datosDelDia?: (jornadaISO: string) => Promise<Map<string, DatosDelDiaFrente>>;
 };
 
 const norm = (s: unknown) =>
@@ -93,7 +113,7 @@ function diasAntes(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio, tipo = 'camiones', fuente = FRENTES_VIAJES }: Props) {
+export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHoy, uid, userName, onCambio, tipo = 'camiones', fuente = FRENTES_VIAJES, datosDelDia }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
   const esMaq = tipo === 'maquinas';
@@ -132,6 +152,13 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const [empresaUnicaOn, setEmpresaUnicaOn] = useState(false);
   const [empresaUnica, setEmpresaUnica] = useState(EMPRESA_UNICA_SUGERIDA);
   const opPapel: OpcionesFrentes = { ...op, empresaUnica: empresaUnicaOn ? empresaUnica : '' };
+  // ── 👷 Operador / chofer puesto A MANO (03-oct-2026, a pedido: «tomar los
+  //    datos del operador que maneja la máquina o que yo pueda colocar el
+  //    operador»). Lo escrito MANDA sobre lo que venga de los viajes o de la
+  //    jornada; en blanco, sale el automático. Es del papel de ESE día: se guarda
+  //    por fecha y equipo mientras la pantalla esté abierta, no toca la base.
+  const [operadores, setOperadores] = useState<Record<string, string>>({});
+  const claveOperador = (machineryId: string) => `${fecha}|${machineryId}`;
   const empresasSugeridas = useMemo(() => {
     const s = new Set<string>([EMPRESA_UNICA_SUGERIDA]);
     camiones.forEach((c) => { const n = String(c.companyName ?? '').trim(); if (n) s.add(n); });
@@ -294,16 +321,28 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     if (pdfBusy) return;
     setPdfBusy(true);
     try {
+      // Lo del día se lee SOLO si hace falta. Si la lectura falla, el papel no
+      // sale con columnas vacías que parezcan «no hubo nada»: se avisa y se para.
+      const delDia = datosDelDia && necesitaDatosDelDia(opPapel) ? await datosDelDia(fecha) : new Map<string, DatosDelDiaFrente>();
       const grupos = frentesParaReporte(
         asignaciones.map((a) => {
           const c = camiones.find((x) => x.id === a.machineryId);
+          const d = delDia.get(a.machineryId);
           return {
             frenteNombre: a.frenteNombre,
             camion: {
+              id: a.machineryId,
               code: c?.code ?? fueraTxt,
               placa: c?.plate || c?.serial || null,
               empresa: c?.companyName || null,
               marcaModelo: [c?.marca, c?.modelo].filter(Boolean).join(' ') || null,
+              medidas: c?.medidas || null,
+              clasificacion: c?.clasificacion || null,
+              obra: d?.obra || c?.obra || null,
+              chofer: String(operadores[claveOperador(a.machineryId)] ?? '').replace(/\s+/g, ' ').trim() || d?.chofer || null,
+              turno: d?.turno || null,
+              estado: d?.estado || c?.estado || null,
+              viajes: esMaq ? null : (d?.viajes ?? 0),
             },
           };
         }),
@@ -352,6 +391,15 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     { k: 'placa', label: '🔢 Placa / Serial', ayuda: `Cómo se identifica el ${E.singular} en el patio.` },
     { k: 'empresa', label: `🏢 Empresa del ${E.singular}`, ayuda: `A quién pertenece cada ${E.singular}.` },
     { k: 'marcaModelo', label: '🚚 Marca y modelo', ayuda: 'Dato de taller; normalmente no hace falta en la hoja de patio.' },
+    // ── 03-oct-2026, a pedido: las opciones de la Lista completa. Nacen apagadas. ──
+    { k: 'medidas', label: '📏 Alto, largo y ancho', ayuda: esMaq ? 'Las medidas de la ficha del equipo.' : 'Las medidas de la tolva, de Cubicaje.' },
+    { k: 'clasificacion', label: '🔶 Clasificación por capacidad', ayuda: esMaq ? 'La clasificación de la ficha.' : 'Compacto, media o gran capacidad, según los m³ de la tolva.' },
+    { k: 'obra', label: '🏗️ Obra / ubicación', ayuda: esMaq ? 'La ubicación de la ficha del equipo.' : 'En qué obra registró viajes ese día.' },
+    { k: 'frente', label: '⛏️ Frente de trabajo en cada fila', ayuda: 'Repite el frente como columna, además del título del bloque.' },
+    { k: 'chofer', label: esMaq ? '👷 Operador' : '👷 Chofer', ayuda: esMaq ? 'El operador de la jornada de ese día.' : 'El chofer anotado en los viajes de ese día.' },
+    { k: 'turno', label: '🕘 Turno', ayuda: esMaq ? 'Día, noche o los dos, según la jornada de ese día.' : 'Día, noche o los dos, según la hora de sus viajes.' },
+    { k: 'estado', label: '⚙️ Estado de la máquina', ayuda: esMaq ? 'El estado de la jornada de ese día, o el de la ficha.' : 'El estado anotado en los viajes de ese día, o el de la ficha.' },
+    { k: 'resumen', label: '📊 Resumen ejecutivo (tablero arriba del reporte)', ayuda: `Tarjetas y cuadros: ${E.plural} asignados, frentes en uso, por tipo, por empresa${esMaq ? '' : ', viajes del día'} y los que tengas encendidos (estado, turno, clasificación, obra).` },
     { k: 'contador', label: `🔟 Cuántos ${E.plural} lleva cada frente`, ayuda: `El «N ${E.unidad}» al lado del nombre del frente.` },
     { k: 'totales', label: '📋 Línea de totales arriba', ayuda: 'Camiones asignados y cuántos frentes se usaron.' },
     { k: 'sinCamiones', label: `⬜ Incluir los frentes SIN ${E.plural}`, ayuda: 'Apagado (como pediste) salen SOLO los frentes asignados ese día. Encendido también los que quedaron vacíos.' },
@@ -364,7 +412,10 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     { k: 'jhenzaen', label: '🏗️ Jhenzaen 2.012 C.A' },
   ];
   const logosPuestos = LOGOS.filter((l) => logos[l.k]).length;
-  const ocultos = CHECKS.filter((c) => c.k !== 'sinCamiones' && !op[c.k]).length;
+  // «Ocultos» cuenta solo lo que venía encendido de fábrica y se apagó; lo que
+  // nace apagado (lo nuevo) se cuenta aparte como «extras encendidos».
+  const ocultos = CHECKS.filter((c) => FRENTES_POR_DEFECTO[c.k] === true && !op[c.k]).length;
+  const extrasOn = CHECKS.filter((c) => c.k !== 'sinCamiones' && FRENTES_POR_DEFECTO[c.k] !== true && !!op[c.k]).length;
 
   return (
     <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
@@ -567,7 +618,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                       criterio que los demás reportes: el usuario decide. */}
                   <Plegable
                     titulo="🖨️ Qué sale en la hoja de frentes"
-                    resumen={`${ocultos === 0 ? 'todo' : `${ocultos} dato(s) oculto(s)`} · ${logosPuestos === 0 ? 'sin logos' : `${logosPuestos} logo(s)`}${op.sinCamiones ? ' · con los frentes vacíos' : ''}${empresaUnicaOn && op.empresa ? ` · todo a nombre de ${empresaUnica.trim() || '…'}` : ''}`}
+                    resumen={`${ocultos === 0 ? 'todo' : `${ocultos} dato(s) oculto(s)`}${extrasOn ? ` · +${extrasOn} extra(s)` : ''} · ${logosPuestos === 0 ? 'sin logos' : `${logosPuestos} logo(s)`}${op.sinCamiones ? ' · con los frentes vacíos' : ''}${empresaUnicaOn && op.empresa ? ` · todo a nombre de ${empresaUnica.trim() || '…'}` : ''}`}
                   >
                     {CHECKS.map((c) => (
                       <Toggle
@@ -578,6 +629,27 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                         onPress={() => setOp((p) => ({ ...p, [c.k]: !p[c.k] }))}
                       />
                     ))}
+                    {/* 👷 Operador a mano (03-oct-2026, a pedido). Solo con la columna encendida. */}
+                    {op.chofer ? (
+                      <View style={{ marginTop: spacing.xs, paddingLeft: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>{esMaq ? 'OPERADOR' : 'CHOFER'} DE CADA {E.singular.toUpperCase()} (OPCIONAL)</Text>
+                        <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 2 }}>
+                          En blanco sale el que el sistema encuentre ({esMaq ? 'el operador de la jornada de ese día' : 'el chofer de sus viajes de ese día'}). Lo que escribas aquí manda en la hoja de este día.
+                        </Text>
+                        {Array.from(new Set(asignaciones.map((a) => a.machineryId))).map((id) => (
+                          <View key={`op-${id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 3 }}>
+                            <Text style={{ color: colors.text, fontSize: 11, flex: 1 }} numberOfLines={1}>🚜 {codigoDe(id)}</Text>
+                            <TextInput
+                              value={operadores[claveOperador(id)] ?? ''}
+                              onChangeText={(v) => setOperadores((p) => ({ ...p, [claveOperador(id)]: v }))}
+                              placeholder="automático"
+                              placeholderTextColor={colors.muted}
+                              style={{ ...input, flex: 1.2, paddingVertical: 4, fontSize: 12 }}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                     {/* 🏢 Una sola empresa para todos (03-oct-2026, a pedido). */}
                     {op.empresa ? (
                       <View style={{ marginTop: spacing.xs }}>
