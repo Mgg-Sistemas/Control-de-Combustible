@@ -504,3 +504,112 @@ export function historialFrentes(
       .sort((a, b) => b.camiones - a.camiones || cmp(a.nombre, b.nombre)),
   })).sort((a, b) => b.jornada.localeCompare(a.jornada));
 }
+
+// ── 📋 REPETIR LOS FRENTES DE OTRO DÍA (03-oct-2026, a pedido: «dame la opción
+//    de repetir los frentes de días anteriores, por si quiero repetir los
+//    frentes para otro día») ───────────────────────────────────────────────────
+
+export type ParFrente = { machineryId: string; frenteId: string; frenteNombre?: string | null };
+
+export type PlanRepetirFrentes = {
+  /** Lo que hay que crear, agrupado por frente (así se reusa `asignarFrente`). */
+  porFrente: { frenteId: string; machineryIds: string[] }[];
+  /** Cuántas asignaciones se van a crear. */
+  copiar: number;
+  /** Cuántas del día viejo YA están puestas en el día destino. */
+  yaEstaban: number;
+  /** Equipos del día viejo que hoy no están en la lista (de baja, fuera del catálogo). */
+  equiposFuera: string[];
+  /** Frentes del día viejo que ya no se pueden usar (borrados o apagados), por su NOMBRE. */
+  frentesFuera: string[];
+  /** Equipos que quedarían con MÁS DE UN frente ese día (ver el aviso de los viajes). */
+  conVariosFrentes: string[];
+};
+
+/**
+ * Qué pasaría al repetir en `destino` los frentes de un día anterior. Es una
+ * función PURA: no escribe nada, solo dice qué se crearía — para poder
+ * enseñárselo al usuario ANTES de tocar la base.
+ *
+ * ⭐ COPIAR SUMA, NO PISA (misma regla que asignar desde el 30-sep-2026): lo que
+ *    el día destino ya tenga se queda, y lo que ya estaba igual no se duplica.
+ * ⭐ NO SE INVENTA NADA: un equipo que ya no está en la lista o un frente que ya
+ *    no se puede usar NO se copian y se dicen por su nombre, en vez de fallar a
+ *    medias o copiar menos de lo que el usuario cree.
+ */
+export function planRepetirFrentes(opts: {
+  origen: ParFrente[] | null | undefined;
+  destino: ParFrente[] | null | undefined;
+  /** Equipos que hoy están en la lista de la pantalla. */
+  equipos: Iterable<string>;
+  /** Frentes que hoy se pueden usar (los activos del catálogo). */
+  frentes: Iterable<string>;
+}): PlanRepetirFrentes {
+  const hayEquipo = new Set(Array.from(opts.equipos ?? [], (x) => String(x)));
+  const hayFrente = new Set(Array.from(opts.frentes ?? [], (x) => String(x)));
+  const clave = (p: ParFrente) => `${p.machineryId}|${p.frenteId}`;
+  const ya = new Set((opts.destino ?? []).map(clave));
+  // Lo que el día destino YA tiene, para saber quién termina con varios frentes.
+  const frentesPorEquipo = new Map<string, Set<string>>();
+  (opts.destino ?? []).forEach((p) => {
+    const s = frentesPorEquipo.get(p.machineryId) ?? new Set<string>();
+    s.add(p.frenteId);
+    frentesPorEquipo.set(p.machineryId, s);
+  });
+
+  const equiposFuera = new Set<string>();
+  const frentesFuera = new Map<string, string>();
+  const porFrente = new Map<string, Set<string>>();
+  let yaEstaban = 0;
+  const vistos = new Set<string>();
+
+  (opts.origen ?? []).forEach((p) => {
+    const machineryId = String(p?.machineryId ?? '');
+    const frenteId = String(p?.frenteId ?? '');
+    if (!machineryId || !frenteId) return;
+    const k = `${machineryId}|${frenteId}`;
+    if (vistos.has(k)) return; // el mismo par repetido en el origen es uno
+    vistos.add(k);
+    // Primero lo que falta: así un equipo de baja se dice aunque además su
+    // frente esté apagado (los dos motivos se cuentan).
+    let fuera = false;
+    if (!hayEquipo.has(machineryId)) { equiposFuera.add(machineryId); fuera = true; }
+    if (!hayFrente.has(frenteId)) {
+      frentesFuera.set(frenteId, String(p?.frenteNombre ?? '').trim() || frenteId);
+      fuera = true;
+    }
+    if (fuera) return;
+    if (ya.has(k)) { yaEstaban += 1; return; }
+    const s = porFrente.get(frenteId) ?? new Set<string>();
+    s.add(machineryId);
+    porFrente.set(frenteId, s);
+    const fe = frentesPorEquipo.get(machineryId) ?? new Set<string>();
+    fe.add(frenteId);
+    frentesPorEquipo.set(machineryId, fe);
+  });
+
+  const lista = Array.from(porFrente, ([frenteId, s]) => ({ frenteId, machineryIds: Array.from(s).sort() }))
+    .sort((a, b) => a.frenteId.localeCompare(b.frenteId));
+  const conVarios = Array.from(frentesPorEquipo).filter(([, s]) => s.size > 1).map(([id]) => id).sort();
+  return {
+    porFrente: lista,
+    copiar: lista.reduce((a, x) => a + x.machineryIds.length, 0),
+    yaEstaban,
+    equiposFuera: Array.from(equiposFuera).sort(),
+    frentesFuera: Array.from(frentesFuera.values()).sort((a, b) => a.localeCompare(b, 'es', { numeric: true })),
+    conVariosFrentes: conVarios,
+  };
+}
+
+/** Lo que el plan va a hacer, en una frase, para la confirmación. */
+export function textoPlanRepetir(plan: PlanRepetirFrentes, unidad = 'camión(es)'): string {
+  if (plan.copiar === 0) {
+    if (plan.yaEstaban > 0) return `Ese día no agrega nada: las ${plan.yaEstaban} asignación(es) ya están puestas.`;
+    return 'Ese día no tiene nada que se pueda repetir.';
+  }
+  const partes = [`Va a crear ${plan.copiar} asignación(es) en ${plan.porFrente.length} frente(s).`];
+  if (plan.yaEstaban > 0) partes.push(`${plan.yaEstaban} ya estaban y no se repiten.`);
+  if (plan.equiposFuera.length) partes.push(`${plan.equiposFuera.length} ${unidad} de ese día ya no están en la lista: no se copian.`);
+  if (plan.frentesFuera.length) partes.push(`No se pueden usar estos frentes: ${plan.frentesFuera.join(', ')}.`);
+  return partes.join(' ');
+}
