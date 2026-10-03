@@ -3536,6 +3536,23 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+> **📋 Repetir los frentes de otro día (03/10/2026).** En «🕘 Historial de frentes de trabajo» cada
+> día tiene a la derecha un botón **«📋 Repetir»**:
+> 1. Arriba eliges la **fecha destino** (donde quieres los frentes).
+> 2. Abres el historial y pulsas «📋 Repetir» en el día que quieras copiar.
+>
+> El día que está elegido arriba sale con el botón apagado: un día no se repite sobre sí mismo. Antes
+> de escribir nada aparece una **confirmación** con lo que va a pasar: cuántas asignaciones crea y en
+> qué frentes, cuántas ya estaban (no se duplican), qué equipos de ese día ya no están en la lista y
+> qué frentes ya no se pueden usar — esos **no se copian** y se dicen por su nombre.
+>
+> ⭐ **Copiar suma, no borra:** lo que el día destino ya tenga se queda; esto solo agrega.
+>
+> ⚠️ Si al copiar un camión queda con **varios frentes** ese día, sus viajes ya no toman el frente
+> solos: hay que elegirlo al registrar o en ✏️ Editar. La confirmación avisa a quién le pasa.
+>
+> Solo con permiso completo (en maquinaria, «Frentes de maquinaria»). El historial mira 45 días.
+
 > **✏️ El resumen ejecutivo es editable (03/10/2026).** Con el check «📊 Resumen ejecutivo»
 > encendido aparece debajo un desplegable **«✏️ Ajustar el resumen ejecutivo»**. Tarjeta por tarjeta
 > y cuadro por cuadro se puede:
