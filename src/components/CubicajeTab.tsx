@@ -1350,6 +1350,7 @@ export function OpcionesReporteBox({
     { k: 'clasificacion', label: '🔶 Clasificación por capacidad' },
     { k: 'empresa', label: '🏢 Empresa', ayuda: modoResumen ? 'De qué empresa es cada camión. No sale si ya estás agrupando por empresa: ahí lo dice el encabezado.' : 'De qué empresa es el camión de esa línea.' },
     { k: 'ubicacion', label: '🏗️ Obra / ubicación', ayuda: 'En qué obra se registró el viaje. No sale si ya estás agrupando por obra.' },
+    { k: 'zona', label: '🧭 Punto cardinal (Este / Oeste)', ayuda: modoResumen ? 'Solo en el detallado: el mismo camión pudo hacer viajes en las dos zonas dentro del rango.' : 'La zona de pago congelada en cada viaje (la del CDT de ese día, la misma que usa el pago). Sin zona sale con raya.' },
     { k: 'frente', label: '⛏️ Frente de trabajo', ayuda: modoResumen ? 'Solo en el detallado: el mismo camión pudo recoger de dos frentes en el rango. Para verlo resumido, agrupa por frente.' : 'De qué frente recogió (la asignación congelada de ese día). No sale si ya estás agrupando por frente.' },
     { k: 'placa', label: '🚗 Placa / serial' },
     { k: 'chofer', label: '👤 Chofer', ayuda: modoResumen ? 'Solo en el detallado.' : undefined },

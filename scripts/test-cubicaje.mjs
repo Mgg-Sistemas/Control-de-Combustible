@@ -210,8 +210,8 @@ const todo = Object.fromEntries(todasLasClaves.map((k) => [k, true]));
 const nada = Object.fromEntries(todasLasClaves.map((k) => [k, false]));
 // 28-sep-2026: el peso se partió en TRES interruptores (bruto/tara/neto), a
 // pedido — de 13 pasamos a 15.
-eq('hay 17 interruptores (entró el promedio por viaje, 29-sep)', todasLasClaves.length, 17);
-eq('con todo encendido, el detallado lleva 18 columnas (con los 3 del peso y el frente)', columnasDetalle(todo).length, 18);
+eq('hay 18 interruptores (entró el punto cardinal, 03-oct)', todasLasClaves.length, 18);
+eq('con todo encendido, el detallado lleva 19 columnas (con los 3 del peso, el frente y la zona)', columnasDetalle(todo).length, 19);
 eq('y el resumido 12 (peso a pagar + promedio por viaje)', columnasResumen(todo, 'listero').length, 12);
 // Fecha, hora y camión no se pueden quitar: sin ellas la línea no identifica
 // nada. Ningún interruptor debe poder dejar la tabla sin identidad. La EMPRESA
@@ -647,6 +647,27 @@ ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin c
   ok('y el TOTAL GENERAL también lo dice',
     /op\.pesoPromedio \? ` · promedio por viaje \$\{kgPie\(resumenViajes\.total > 0 \? resumenViajes\.netoKg \/ resumenViajes\.total : 0\)\}`/.test(scrP));
   ok('la caja de opciones la ofrece', /'📊 Promedio por viaje de cada camión'/.test(tabCam));
+}
+
+// ── 🧭 EL PUNTO CARDINAL (03-oct-2026, a pedido: «agrega una columna que
+//    identifique el punto cardinal, si es este u oeste») ──────────────────────
+{
+  eq('⭐ la zona NACE APAGADA: sin tocarla, el papel de ayer sale igual', OPCIONES_POR_DEFECTO.zona, false);
+  const conZona = { ...OPCIONES_POR_DEFECTO, zona: true };
+  const colsD = columnasDetalle(conZona).map((c) => c.key);
+  eq('encendida, el detallado lleva la columna Zona pegada a la obra', colsD.includes('zona'), true);
+  eq('…con su encabezado', columnasDetalle(conZona).find((c) => c.key === 'zona').head, 'Zona');
+  eq('⭐ el RESUMIDO no la lleva ni encendida (un camión pudo cruzar las dos zonas)',
+    m.exports.columnasResumen(conZona).some((c) => c.key === 'zona'), false);
+  eq('…ni el de solo camiones', m.exports.columnasCamiones(conZona).some((c) => c.key === 'zona'), false);
+  eq('apagada no deja ni la celda', columnasDetalle(OPCIONES_POR_DEFECTO).some((c) => c.key === 'zona'), false);
+  // La pantalla pinta Este/Oeste de la zona CONGELADA del viaje, sin adivinar.
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/ViajesCamionesScreen.tsx'), 'utf8');
+  ok("⭐ el valor sale de la zona congelada en el viaje (la misma del pago), con raya si falta",
+    /zona: r\.zonaPago === 'este' \? 'Este' : r\.zonaPago === 'oeste' \? 'Oeste' : '—'/.test(scr));
+  const lib = fs.readFileSync(path.join(ROOT, 'src/lib/camionViajes.ts'), 'utf8');
+  ok('la fila de la lista trae zona_pago (en el grupo de la obra) y solo acepta este/oeste',
+    /ubicacion_id, ubicacion_nombre, zona_pago/.test(lib) && /r\.zona_pago === 'este' \|\| r\.zona_pago === 'oeste'/.test(lib));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-cubicaje · ${pass} ok · ${fail} fallando`);
