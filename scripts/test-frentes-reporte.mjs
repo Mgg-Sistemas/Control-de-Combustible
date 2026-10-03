@@ -244,7 +244,8 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ el componente tiene `tipo` y arranca como camiones', /tipo\?: 'camiones' \| 'maquinas'/.test(compM) && /tipo = 'camiones'/.test(compM));
   ok('⭐ las asignaciones y el historial se ACOTAN a la lista que recibe (ninguno pisa al otro)',
     /setAsignaciones\(r\.asignaciones\.filter\(\(a\) => idsLista\.has\(a\.machineryId\)\)\)/.test(compM)
-    && /historialFrentes\(r\.asignaciones\.filter\(\(a\) => idsLista\.has\(a\.machineryId\)\)\)/.test(compM));
+    && compM.includes('const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
+    && compM.includes('historialFrentes(mias)') && compM.includes('setAsigRango(mias)'));
   ok('el buscador de viajes sigue diciendo camión', /Buscar camión: placa, código, serial, empresa/.test(compM));
   ok('en máquinas no promete lo de los viajes (que toman el frente solos)', /const auto = esMaq\s*\?\s*''/.test(compM));
 
@@ -423,6 +424,67 @@ ok('y ofrece también los frentes activos sin asignación',
   eq('…y no revienta sin nada', edicionAlCambiarDeDia(null), { ocultos: [], titulos: {}, notas: {} });
   ok('⭐ el valor de ayer no puede salir en el papel de hoy', !resumenEditado({ valores: {}, propias: [] }) && aplicarEdicionResumen(base, edicionAlCambiarDeDia(llena)).tarjetas.every((x) => x.valor !== '99'));
   ok('⭐ la pantalla lo aplica cuando cambia la fecha', /diaEditado\.current = fecha;\s*\n\s*setEdicionResumen\(\(p\) => edicionAlCambiarDeDia\(p\)\)/.test(comp));
+}
+
+// ── 📋 REPETIR LOS FRENTES DE OTRO DÍA (03-oct-2026, a pedido: «dame la opción
+//    de repetir los frentes de días anteriores, por si quiero repetir los
+//    frentes para otro día») ───────────────────────────────────────────────────
+{
+  const { planRepetirFrentes, textoPlanRepetir } = m.exports;
+  const par = (machineryId, frenteId, frenteNombre) => ({ machineryId, frenteId, frenteNombre });
+  const EQUIPOS = ['m1', 'm2', 'm3'];
+  const FRENTES = ['f1', 'f2'];
+  const plan = (origen, destino = [], equipos = EQUIPOS, frentes = FRENTES) =>
+    planRepetirFrentes({ origen, destino, equipos, frentes });
+
+  // Lo normal: el día viejo se copia tal cual.
+  const p1 = plan([par('m1', 'f1'), par('m2', 'f1'), par('m3', 'f2')]);
+  eq('⭐ copia todo el día, agrupado por frente', p1.porFrente, [{ frenteId: 'f1', machineryIds: ['m1', 'm2'] }, { frenteId: 'f2', machineryIds: ['m3'] }]);
+  eq('…y dice cuántas asignaciones son', [p1.copiar, p1.yaEstaban, p1.equiposFuera, p1.frentesFuera], [3, 0, [], []]);
+
+  // ⭐ COPIAR SUMA, NO PISA.
+  const p2 = plan([par('m1', 'f1'), par('m2', 'f1')], [par('m1', 'f1'), par('m3', 'f2')]);
+  eq('⭐ lo que el destino YA tenía igual no se duplica, y lo demás se suma', [p2.copiar, p2.yaEstaban, p2.porFrente], [1, 1, [{ frenteId: 'f1', machineryIds: ['m2'] }]]);
+  ok('⭐ lo que el destino tiene y el origen no, NO se toca (esto solo agrega)', !JSON.stringify(p2.porFrente).includes('m3'));
+
+  // El mismo par repetido en el origen (dos filas iguales) es uno.
+  eq('un par repetido en el día viejo cuenta una vez', plan([par('m1', 'f1'), par('m1', 'f1')]).copiar, 1);
+
+  // ⭐ NO SE INVENTA NADA: lo que ya no existe se dice y no se copia.
+  const p3 = plan([par('m1', 'f1'), par('zz', 'f1'), par('m2', 'fBorrado', 'CANTERA VIEJA')]);
+  eq('⭐ un equipo que ya no está en la lista no se copia y se dice', [p3.equiposFuera, p3.copiar], [['zz'], 1]);
+  eq('⭐ un frente que ya no se puede usar no se copia y se dice POR SU NOMBRE', p3.frentesFuera, ['CANTERA VIEJA']);
+  eq('sin nombre, el frente se dice por su id (mejor eso que nada)', plan([par('m1', 'fX')]).frentesFuera, ['fX']);
+  eq('un par con el equipo Y el frente fuera cuenta en los dos motivos',
+    (() => { const x = plan([par('zz', 'fX', 'VIEJO')]); return [x.equiposFuera, x.frentesFuera, x.copiar]; })(), [['zz'], ['VIEJO'], 0]);
+  eq('filas basura (sin equipo o sin frente) se ignoran', plan([{ machineryId: '', frenteId: 'f1' }, { machineryId: 'm1', frenteId: '' }]).copiar, 0);
+  eq('nada no revienta', [plan(null).copiar, planRepetirFrentes({ origen: null, destino: null, equipos: [], frentes: [] }).copiar], [0, 0]);
+
+  // El aviso de los varios frentes (desde el 30-sep un camión puede tener más de uno).
+  eq('⭐ avisa quién queda con VARIOS frentes ese día (sus viajes ya no lo toman solos)',
+    plan([par('m1', 'f2')], [par('m1', 'f1')]).conVariosFrentes, ['m1']);
+  eq('…también si los dos frentes vienen del día copiado', plan([par('m1', 'f1'), par('m1', 'f2')]).conVariosFrentes, ['m1']);
+  eq('con un solo frente no avisa nada', plan([par('m1', 'f1')]).conVariosFrentes, []);
+
+  // La frase de la confirmación.
+  ok('la frase dice cuántas y en cuántos frentes', /3 asignación\(es\) en 2 frente\(s\)/.test(textoPlanRepetir(p1, 'camión(es)')));
+  ok('…y lo que no se copia', /1 ya estaban/.test(textoPlanRepetir(p2, 'camión(es)')));
+  ok('…y los equipos y frentes que quedaron fuera', (() => { const s = textoPlanRepetir(p3, 'camión(es)'); return /1 camión\(es\) de ese día ya no están/.test(s) && /CANTERA VIEJA/.test(s); })());
+  eq('si ya está todo puesto, lo dice en vez de ofrecer copiar nada',
+    textoPlanRepetir(plan([par('m1', 'f1')], [par('m1', 'f1')]), 'camión(es)'), 'Ese día no agrega nada: las 1 asignación(es) ya están puestas.');
+  eq('un día sin nada que repetir también lo dice', textoPlanRepetir(plan([]), 'equipo(s)'), 'Ese día no tiene nada que se pueda repetir.');
+
+  // La pantalla.
+  const comp = leer('src/components/FrentesTrabajo.tsx');
+  ok('⭐ la pantalla ofrece repetir un día del historial en el día elegido', /planRepetirFrentes\(\{/.test(comp) && /Repetir/.test(comp));
+  ok('⭐ guarda las asignaciones del rango para armar el plan sin otra consulta', /setAsigRango/.test(comp));
+  ok('⭐ el plan se calcula contra el día DESTINO y la lista de hoy',
+    /destino: asignaciones/.test(comp) && /equipos: idsLista/.test(comp) && /frentes: activos\.map/.test(comp));
+  ok('⭐ pide confirmación ANTES de escribir (y en línea, no con confirm())',
+    /setRepetir\(\{ origen:/.test(comp) && /repetirDia/.test(comp) && !/window\.confirm/.test(comp));
+  ok('⭐ reusa asignarFrente (que ya suma sin pisar y revisa permisos), no un insert propio',
+    /asignarFrente\(fecha, x\.machineryIds, x\.frenteId/.test(comp));
+  ok('⭐ solo con permiso completo', /canFull/.test(comp));
 }
 
 console.log('\nPDF DE FRENTES DEL DÍA — la hoja de asignación, sin cifras\n');

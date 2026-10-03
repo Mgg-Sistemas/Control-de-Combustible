@@ -29,6 +29,10 @@ import {
   FRENTES_VIAJES, type FuenteFrentes,
   type FrenteTrabajo, type AsignacionFrente,
 } from '../lib/camionViajes';
+// El rango del historial trae la JORNADA en cada fila (AsignacionFrente no la
+// lleva: es siempre la del día que se pidió). Es el tipo que devuelve
+// `listAsignacionesFrenteRango`, y hace falta para filtrar por día al repetir.
+import { type AsignacionDia } from '../lib/frentesAuto';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   ETIQUETA_CAMION, ETIQUETA_EQUIPO,
@@ -37,8 +41,12 @@ import {
   // ✏️ El tablero editable (03-oct-2026): calcular la PREVISTA, contar los
   //    cambios y volver a cero. Nada de esto toca la base.
   resumenFrentes, EDICION_RESUMEN_VACIA, resumenEditado, cuentaEdicionResumen, edicionAlCambiarDeDia,
+  // 📋 REPETIR LOS FRENTES DE OTRO DÍA (03-oct-2026): el cálculo de QUÉ se
+  //    copiaría y qué no es puro y vive en la librería; acá solo se enseña,
+  //    se confirma y se escribe.
+  planRepetirFrentes, textoPlanRepetir,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
-  type EdicionResumen, type TarjetaPropia,
+  type EdicionResumen, type TarjetaPropia, type PlanRepetirFrentes,
 } from '../lib/frentesReporte';
 
 /** Lo que hace falta de cada camión para el buscador de la asignación. */
@@ -128,6 +136,13 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   const esMaq = tipo === 'maquinas';
   const E = esMaq ? ETIQUETA_EQUIPO : ETIQUETA_CAMION;
   const fueraTxt = esMaq ? '(equipo fuera de esta lista)' : '(camión fuera del catálogo)';
+  /**
+   * ⛏️ EL AVISO DE «VARIOS FRENTES», EN UN SOLO SITIO (03-oct-2026). Lo dicen
+   * DOS acciones —asignar y 📋 repetir otro día— y las dos tienen que decir lo
+   * mismo: con un solo frente el viaje lo toma solo, con varios ya no se puede
+   * adivinar cuál. Si la regla cambia, cambia acá y cambia en las dos.
+   */
+  const avisoVarios = 'Ojo: a los camiones con VARIOS frentes ese día, los viajes ya no toman el frente solos — hay que elegirlo al registrar o en ✏️ Editar.';
   // La lista como clave de texto: los efectos dependen de ELLA y no de la
   // identidad del arreglo, que puede cambiar en cada render de la pantalla.
   const claveLista = useMemo(() => camiones.map((c) => c.id).sort().join('|'), [camiones]);
@@ -190,6 +205,17 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   }, [camiones]);
   // ── 🕘 El historial ──
   const [historial, setHistorial] = useState<DiaHistorialFrentes[]>([]);
+  // 📋 REPETIR LOS FRENTES DE OTRO DÍA (03-oct-2026, a pedido: «dame la opción
+  //    de repetir los frentes de días anteriores, por si quiero repetir los
+  //    frentes para otro día»). Las asignaciones CRUDAS del rango se guardan
+  //    aparte del historial agrupado: así repetir un día NO vuelve a consultar
+  //    la base — lo que hace falta ya se leyó para pintar el historial.
+  const [asigRango, setAsigRango] = useState<AsignacionDia[]>([]);
+  // La confirmación va EN LÍNEA, por lo mismo que la de borrar: dentro de un
+  // Modal a pantalla completa el diálogo del navegador queda tapado. Y copiar un
+  // día entero toca muchas filas de una vez, así que se enseña antes de escribir.
+  const [repetir, setRepetir] = useState<{ origen: string; plan: PlanRepetirFrentes } | null>(null);
+  const [repitiendo, setRepitiendo] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -211,11 +237,22 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     if (!canFull) return;
     listAsignacionesFrenteRango(diasAntes(jornadaHoy, DIAS_HISTORIAL), jornadaHoy, fuente).then((r) => {
       if (!vivo) return;
-      setHistorial(historialFrentes(r.asignaciones.filter((a) => idsLista.has(a.machineryId))));
+      // El mismo filtro de siempre: solo lo de ESTA lista (ver `tipo` en Props).
+      const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
+      setHistorial(historialFrentes(mias));
+      // 📋 Se guardan CRUDAS (03-oct-2026) para poder repetir un día sin volver
+      //    a consultar: el historial agrupado ya no trae qué equipo iba en qué
+      //    frente, y eso es justo lo que hay que copiar.
+      setAsigRango(mias);
       if (r.error && !r.missing) console.warn('[frentes] no se pudo leer el historial:', r.error);
     });
     return () => { vivo = false; };
   }, [canFull, jornadaHoy, recarga, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 📋 Al cambiar de día se cierra la confirmación de repetir (03-oct-2026):
+  //    el plan se calculó contra el día que estaba elegido, así que dejarla
+  //    abierta haría que el título dijera un día y se copiara contra otro.
+  useEffect(() => { setRepetir(null); }, [fecha]);
 
   const activos = useMemo(() => frentes.filter((f) => f.activo), [frentes]);
   /** Los frentes de cada camión ese día: ahora son VARIOS, no uno. */
@@ -294,8 +331,60 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       ? ''
       : frenteSel.size === 1
         ? 'Los viajes de ese día sin frente lo toman automáticamente.'
-        : 'Ojo: a los camiones con VARIOS frentes ese día, los viajes ya no toman el frente solos — hay que elegirlo al registrar o en ✏️ Editar.';
+        : avisoVarios;
     toast.success(`${agregados} asignación(es)${repe}: ⛏️ ${nombres} el ${dmy(fecha)}. ${auto}`);
+  };
+
+  /**
+   * 📋 ¿QUÉ PASARÍA SI REPITO ESE DÍA? (03-oct-2026) No escribe nada: arma el
+   * plan con las asignaciones que YA se leyeron para el historial y lo pone en
+   * la confirmación, para que el usuario vea qué va a quedar antes de tocar la
+   * base. El cálculo es puro y vive en frentesReporte.ts.
+   */
+  const pedirRepetir = (jornada: string) => {
+    const plan = planRepetirFrentes({
+      origen: asigRango.filter((a) => a.jornada === jornada),
+      destino: asignaciones,
+      equipos: idsLista,
+      frentes: activos.map((f) => f.id),
+    });
+    // Si no hay NADA que copiar no se abre la confirmación: decir por qué de una
+    // vez es más honesto que una caja con un botón que no va a hacer nada.
+    if (plan.copiar === 0) { toast.error(textoPlanRepetir(plan, E.unidad)); return; }
+    setRepetir({ origen: jornada, plan });
+  };
+
+  /**
+   * 📋 REPETIR: copia al día elegido la asignación de un día anterior.
+   *
+   * ⭐ SUMA, NO PISA (misma regla que asignar desde el 30-sep-2026): lo que el
+   *    día destino ya tenía se queda, y lo que ya estaba igual no se duplica — el
+   *    plan lo dejó fuera antes de llegar acá.
+   * ⭐ UNA LLAMADA POR FRENTE, igual que asignar(): `asignarFrente` escribe de a
+   *    un frente, y los fallos se cuentan por separado para no decir «listo»
+   *    escondiendo el frente que no se guardó.
+   */
+  const repetirDia = async () => {
+    if (!repetir) return;
+    const { origen, plan } = repetir;
+    setRepitiendo(true);
+    let agregados = 0, yaEstaban = 0;
+    const fallos: string[] = [];
+    for (const x of plan.porFrente) {
+      const nombre = frentes.find((f) => f.id === x.frenteId)?.nombre ?? x.frenteId;
+      const r = await asignarFrente(fecha, x.machineryIds, x.frenteId, uid, userName, fuente);
+      if (r.error) fallos.push(`«${nombre}»: ${r.error}`);
+      else { agregados += r.agregados ?? 0; yaEstaban += r.yaEstaban ?? 0; }
+    }
+    setRepitiendo(false);
+    setRepetir(null);
+    setRecarga((n) => n + 1);
+    onCambio();
+    if (fallos.length) { toast.error(`No se pudo repetir ${fallos.join(' · ')}`); return; }
+    const repe = yaEstaban > 0 ? ` (${yaEstaban} ya estaban)` : '';
+    // El aviso solo si de verdad quedó alguien con varios frentes.
+    const aviso = !esMaq && plan.conVariosFrentes.length > 0 ? ` ${avisoVarios}` : '';
+    toast.success(`${agregados} asignación(es) copiada(s)${repe}: del ${dmy(origen)} al ${dmy(fecha)}.${aviso}`);
   };
 
   /** ✏️ Renombrar un frente del catálogo. */
@@ -949,21 +1038,85 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                   ? `sin asignaciones en los últimos ${DIAS_HISTORIAL} días`
                   : `${historial.length} día(s) con asignación · últimos ${DIAS_HISTORIAL} días`}
               >
+                {/* 📋 LA CONFIRMACIÓN DE REPETIR (03-oct-2026, a pedido: «dame
+                    la opción de repetir los frentes de días anteriores, por si
+                    quiero repetir los frentes para otro día»). Va EN LÍNEA y
+                    ARRIBA de la lista: copiar un día entero escribe muchas filas
+                    de una vez y no hay «deshacer», así que primero se ve qué va
+                    a quedar — incluido lo que NO se puede copiar. */}
+                {repetir ? (
+                  <View style={{ borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.sm, marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                      📋 ¿Repetir los frentes del {dmy(repetir.origen)} en el {dmy(fecha)}?
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                      {textoPlanRepetir(repetir.plan, E.unidad)}
+                    </Text>
+                    {/* Lo que va a quedar, frente por frente. */}
+                    {repetir.plan.porFrente.map((x) => (
+                      <Text key={`rep-${x.frenteId}`} style={{ color: colors.text, fontSize: 11.5, marginTop: 2 }}>
+                        ⛏️ {frentes.find((f) => f.id === x.frenteId)?.nombre ?? x.frenteId} · {x.machineryIds.length} {E.unidad}
+                      </Text>
+                    ))}
+                    {/* Lo que NO se copia se dice por su código, no por su id: un
+                        equipo de baja o fuera de esta lista no se inventa. */}
+                    {repetir.plan.equiposFuera.length ? (
+                      <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                        No se copian, ya no están en la lista: {repetir.plan.equiposFuera.slice(0, 6).map((id) => codigoDe(id)).join(' · ')}
+                        {repetir.plan.equiposFuera.length > 6 ? ` y ${repetir.plan.equiposFuera.length - 6} más` : ''}
+                      </Text>
+                    ) : null}
+                    {repetir.plan.conVariosFrentes.length > 0 && !esMaq ? (
+                      <Text style={{ color: colors.warning, fontSize: 10.5, marginTop: 2 }}>{avisoVarios}</Text>
+                    ) : null}
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                      <TouchableOpacity disabled={repitiendo} onPress={repetirDia}
+                        style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 6, alignItems: 'center', opacity: repitiendo ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>
+                          {repitiendo ? 'Copiando…' : '✅ Sí, repetir'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setRepetir(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                        <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>✕ Cancelar</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
+                      Lo que el día {dmy(fecha)} ya tenga NO se borra: esto suma.
+                    </Text>
+                  </View>
+                ) : null}
                 {historial.length === 0 ? (
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     No hay asignaciones registradas en los últimos {DIAS_HISTORIAL} días.
                   </Text>
-                ) : historial.map((d) => (
-                  <TouchableOpacity key={d.jornada} onPress={() => setFecha(d.jornada)}
-                    style={{ paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <Text style={{ color: d.jornada === fecha ? colors.brandText : colors.text, fontWeight: '800', fontSize: 12.5 }}>
-                      📅 {dmy(d.jornada)}{d.jornada === jornadaHoy ? ' · HOY' : ''} · {d.camiones} {E.unidad}
-                    </Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>
-                      {d.frentes.map((f) => `⛏️ ${f.nombre} (${f.camiones})`).join('  ')}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                ) : historial.map((d) => {
+                  // Un día no se repite sobre sí mismo: ahí el botón solo lo dice.
+                  const esElElegido = d.jornada === fecha;
+                  return (
+                    <View key={d.jornada} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      <TouchableOpacity onPress={() => setFecha(d.jornada)} style={{ flex: 1, paddingVertical: 5 }}>
+                        <Text style={{ color: esElElegido ? colors.brandText : colors.text, fontWeight: '800', fontSize: 12.5 }}>
+                          📅 {dmy(d.jornada)}{d.jornada === jornadaHoy ? ' · HOY' : ''} · {d.camiones} {E.unidad}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {d.frentes.map((f) => `⛏️ ${f.nombre} (${f.camiones})`).join('  ')}
+                        </Text>
+                      </TouchableOpacity>
+                      {/* 📋 El botón va APARTE del toque de la fila (que cambia la
+                          fecha): anidado, un solo toque haría las dos cosas y
+                          cambiaría el destino justo antes de copiar. Solo con
+                          permiso: repetir ES asignar. */}
+                      {canFull ? (
+                        <TouchableOpacity disabled={esElElegido} onPress={() => pedirRepetir(d.jornada)}
+                          style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 4, opacity: esElElegido ? 0.5 : 1 }}>
+                          <Text style={{ color: esElElegido ? colors.muted : colors.brandText, fontWeight: '800', fontSize: 11 }}>
+                            {esElElegido ? '📋 Es el día elegido' : '📋 Repetir'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </Plegable>
             </View>
           ) : null}
