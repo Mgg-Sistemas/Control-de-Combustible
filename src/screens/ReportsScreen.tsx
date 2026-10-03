@@ -14,6 +14,7 @@ import {
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { semanasDelMes, etiquetaCorteSemana, CORTES_SEMANA, type SemanaMes, type DiaSemana } from '../lib/semanasMes';
 import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, dateRangeLabel, REPORT_BRAND } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
@@ -227,39 +228,12 @@ function fmtDM(iso: string): string {
   return m && d ? `${d}/${m}` : (iso || '');
 }
 
-// ── Semanas del mes (domingo → sábado, como "semana 2 del 05 al 11/07") ──────
+// ── Semanas del mes ──────────────────────────────────────────────────────────
+// El cálculo vive en src/lib/semanasMes.ts desde el 03-oct-2026 (a pedido: la
+// semana ahora puede EMPEZAR en cualquier día; antes era domingo fijo). Con
+// domingo da exactamente lo de siempre.
+type MonthWeek = SemanaMes;
 const MES_NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const isoUTC = (d: Date) => `${d.getUTCFullYear()}-${`${d.getUTCMonth() + 1}`.padStart(2, '0')}-${`${d.getUTCDate()}`.padStart(2, '0')}`;
-type MonthWeek = { n: number; from: string; to: string; days: { name: string; iso: string }[] };
-/** Semanas (dom→sáb) del mes dado (0-based). Los días se RECORTAN al mes: la
- *  primera y última semana solo muestran los días que caen dentro del mes, así
- *  no aparecen fechas de otro mes. Numeradas 1..N. */
-function weeksOfMonth(year: number, month0: number): MonthWeek[] {
-  const first = new Date(Date.UTC(year, month0, 1));
-  const last = new Date(Date.UTC(year, month0 + 1, 0));
-  // Domingo en/antes del día 1 (getUTCDay: 0=domingo).
-  const start = new Date(first);
-  start.setUTCDate(first.getUTCDate() - first.getUTCDay());
-  const weeks: MonthWeek[] = [];
-  let cur = start;
-  let n = 0;
-  while (cur <= last) {
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(cur);
-      d.setUTCDate(cur.getUTCDate() + i);
-      return { name: DIAS_SEMANA[i], iso: isoUTC(d), inMonth: d.getUTCMonth() === month0 && d.getUTCFullYear() === year };
-    }).filter((d) => d.inMonth).map(({ name, iso }) => ({ name, iso }));
-    if (days.length) {
-      n += 1;
-      weeks.push({ n, from: days[0].iso, to: days[days.length - 1].iso, days });
-    }
-    const nx = new Date(cur);
-    nx.setUTCDate(cur.getUTCDate() + 7);
-    cur = nx;
-  }
-  return weeks;
-}
 
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
 function nowStamp(): string {
@@ -816,6 +790,18 @@ export default function ReportsScreen({ route }: any) {
   const [camYear, setCamYear] = useState(nowRef.getFullYear());
   const [camMonth0, setCamMonth0] = useState(nowRef.getMonth());
   const [camPreview, setCamPreview] = useState(false);
+  // 📅 EN QUÉ DÍA EMPIEZA LA SEMANA (03-oct-2026, a pedido). Nace en DOMINGO,
+  //    que es como salían las hojas desde julio: así una hoja vieja se
+  //    reproduce tal cual. La encargada cuenta de lunes a domingo (como los
+  //    pagos): se cambia aquí al bajar el PDF. Vale para Entradas/Salidas Y
+  //    para Transporte de escombros, que comparten las semanas.
+  const [camInicioSemana, setCamInicioSemana] = useState<DiaSemana>(0);
+  const cambiarCorteSemana = (d: DiaSemana) => {
+    setCamInicioSemana(d);
+    // Con la vista abierta, las semanas se recalculan al momento; los camiones
+    // no se vuelven a consultar (el corte no cambia quién sale, solo los días).
+    setCamData((prev) => (prev ? { ...prev, weeks: semanasDelMes(camYear, camMonth0, d) } : prev));
+  };
   const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[]; escompanies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[] } | null>(null);
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   // LA MISMA información partida por ENCARGADO. Se calcula SIEMPRE, junto con la de
@@ -2799,7 +2785,7 @@ export default function ReportsScreen({ route }: any) {
     setLoading(true);
     const companies = await buildTruckCompanies();
     const escompanies = await buildTruckCompanies(ESCOMBRO_RE);
-    setCamData({ monthLabel: `${MES_NOMBRES[camMonth0]} ${camYear}`, weeks: weeksOfMonth(camYear, camMonth0), companies, escompanies });
+    setCamData({ monthLabel: `${MES_NOMBRES[camMonth0]} ${camYear}`, weeks: semanasDelMes(camYear, camMonth0, camInicioSemana), companies, escompanies });
     setLoading(false);
     setCamPreview(true);
   };
@@ -2840,10 +2826,11 @@ export default function ReportsScreen({ route }: any) {
       table.cam td.c{height:34px;vertical-align:top}
       table.cam td.c .ln{border-bottom:1px solid #999;font-size:7px;color:#999;padding:1px 2px;height:15px;text-align:left}
     </style>
-    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''} · Salida (S) y Entrada (E) por día — hoja para registrar</div>
+    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''}${camInicioSemana !== 0 ? ` · Semanas ${etiquetaCorteSemana(camInicioSemana)}` : ''} · Salida (S) y Entrada (E) por día — hoja para registrar</div>
     ${weeksHtml || '<p class="muted">Sin camiones registrados.</p>'}`;
     const subLabel = sel ? `${camData.monthLabel} · Semana ${sel.n}` : camData.monthLabel;
-    const fileLabel = sel ? `Reportes - Camiones E-S Semana ${sel.n}` : 'Reportes - Camiones E-S';
+    const sufijoCorte = camInicioSemana !== 0 ? ` (semana ${etiquetaCorteSemana(camInicioSemana)})` : '';
+    const fileLabel = (sel ? `Reportes - Camiones E-S Semana ${sel.n}` : 'Reportes - Camiones E-S') + sufijoCorte;
     await exportPdf(pdfShell('CONTROL CAMIONES ENTRADAS/SALIDAS', subLabel, body), fileLabel);
   };
 
@@ -2896,11 +2883,12 @@ export default function ReportsScreen({ route }: any) {
       table.res .qty{text-align:right;font-weight:800;width:110px}
       table.res tfoot td{background:#EEF2F7;font-weight:800}
     </style>
-    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''} · Marca ☐ Día / ☐ Noche por día (a mano)</div>
+    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''}${camInicioSemana !== 0 ? ` · Semanas ${etiquetaCorteSemana(camInicioSemana)}` : ''} · Marca ☐ Día / ☐ Noche por día (a mano)</div>
     ${resumenHtml}
     ${weeksHtml || '<p class="muted">Sin equipos de transporte de escombros.</p>'}`;
     const subLabel = sel ? `${camData.monthLabel} · Semana ${sel.n}` : camData.monthLabel;
-    const fileLabel = sel ? `Reportes - Escombros Semana ${sel.n}` : 'Reportes - Escombros';
+    const sufijoCorte = camInicioSemana !== 0 ? ` (semana ${etiquetaCorteSemana(camInicioSemana)})` : '';
+    const fileLabel = (sel ? `Reportes - Escombros Semana ${sel.n}` : 'Reportes - Escombros') + sufijoCorte;
     await exportPdf(pdfShell('TRANSPORTE DE ESCOMBROS · TURNOS DÍA/NOCHE', subLabel, body), fileLabel);
   };
 
@@ -5480,6 +5468,26 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{camData.monthLabel}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                   {camData.weeks.length} semana(s) · {camData.companies.reduce((s, c) => s + c.items.length, 0)} camión(es) · {camData.companies.length} empresa(s)
+                </Text>
+                {/* 📅 El día en que EMPIEZA la semana (03-oct-2026, a pedido:
+                    la encargada cuenta de lunes a domingo y las hojas salían de
+                    domingo a sábado — y además «una opción por si lo quiero
+                    entre días diferentes»). Cambia solo cómo se PARTEN las
+                    hojas: ningún dato. Dom = las hojas de siempre. */}
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm }}>LA SEMANA EMPIEZA EN</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+                  {CORTES_SEMANA.map((c) => {
+                    const on = camInicioSemana === c.dow;
+                    return (
+                      <TouchableOpacity key={c.dow} onPress={() => cambiarCorteSemana(c.dow)}
+                        style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.corto}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                  Semanas {etiquetaCorteSemana(camInicioSemana)}.{camInicioSemana === 0 ? ' Es el corte de las hojas de siempre.' : camInicioSemana === 1 ? ' Es el corte de los pagos (lunes a domingo).' : ''} Vale también para la hoja de escombros. Solo parte las hojas: no cambia ningún dato.
                 </Text>
               </Card>
 
