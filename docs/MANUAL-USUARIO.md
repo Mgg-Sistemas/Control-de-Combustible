@@ -3536,6 +3536,31 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+> **📊 La hoja de frentes con todas las opciones y su resumen ejecutivo (03/10/2026).** En «🖨️ Qué
+> sale en la hoja de frentes» —aquí y en Viajes de camiones— hay **ocho opciones nuevas**, que nacen
+> **apagadas** (la hoja sale igual que siempre hasta que enciendas algo):
+> - **📏 Alto, largo y ancho** — camiones: la tolva de Cubicaje; máquinas: las medidas de la ficha.
+> - **🔶 Clasificación por capacidad** — camiones: compacto / media / gran capacidad; máquinas: la de
+>   la ficha.
+> - **🏗️ Obra / ubicación** — camiones: la obra donde registró viajes ese día; máquinas: la ubicación
+>   de la ficha.
+> - **⛏️ Frente de trabajo en cada fila** — además del título del bloque.
+> - **👷 Chofer** (en maquinaria: **Operador**), **🕘 Turno** y **⚙️ Estado de la máquina**.
+> - **📊 Resumen ejecutivo** — un tablero arriba del listado.
+>
+> **De dónde sale lo del día:** en camiones, de los **viajes** de ese camión en esa jornada; en
+> maquinaria, de la **jornada** de ese día (operador de día y de noche, horas de cada turno). La hoja
+> de maquinaria sigue siendo sin viajes. Sin dato, sale «—».
+>
+> **👷 El operador / chofer también se escribe a mano:** al encender ese check aparece la lista de
+> equipos asignados con una casilla cada uno. En blanco sale el automático; lo que escribas **manda**
+> en la hoja de ese día. Es del papel: no cambia la ficha, los viajes ni la jornada.
+>
+> **📊 El tablero:** tarjetas (equipos asignados —cuenta equipos, no filas—, frentes en uso, promedio
+> por frente, frente con más carga, empresas y, en camiones, viajes del día) y cuadros (por frente,
+> por tipo, por empresa, y por estado, clasificación, turno y obra **si su check está encendido**).
+> Lo que apagues no deja rastro: con la columna apagada tampoco sale su cuadro.
+
 > **🏢 Toda la maquinaria a nombre de una sola empresa (03/10/2026).** En «🖨️ Qué sale en la hoja
 > de frentes» —aquí y en Viajes de camiones— hay un interruptor **«🏢 Toda la maquinaria a nombre de
 > UNA sola empresa»**. Nace apagado. Al encenderlo aparece el nombre, con **Golden Touch** propuesto y

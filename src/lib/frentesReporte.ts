@@ -32,6 +32,24 @@ export type CamionDelFrente = {
   empresa?: string | null;
   /** Marca y modelo ya juntos («VOLVO FM 440»). Columna opcional. */
   marcaModelo?: string | null;
+  // ── Columnas del 03-oct-2026 (a pedido: «faltan las opciones» de la Lista
+  //    completa). Todas opcionales y todas APAGADAS de entrada. ──
+  /** Alto × largo × ancho ya escrito («2,40 × 6,00 × 2,50 m»). */
+  medidas?: string | null;
+  /** Clasificación por capacidad («🔸 Media capacidad») o la de la ficha. */
+  clasificacion?: string | null;
+  /** Obra / ubicación: dónde registró viajes ese día, o la ubicación de la ficha. */
+  obra?: string | null;
+  /** Chofer (camiones) u operador (máquinas) de ese día. */
+  chofer?: string | null;
+  /** «Día», «Noche» o «Día y noche». */
+  turno?: string | null;
+  /** Estado de la máquina ese día. */
+  estado?: string | null;
+  /** Viajes de ese día (solo camiones). Solo lo usa el resumen ejecutivo. */
+  viajes?: number | null;
+  /** Clave para no contar dos veces un equipo que está en dos frentes. */
+  id?: string | null;
 };
 
 export type FrenteDelDia = {
@@ -75,6 +93,23 @@ export type OpcionesFrentes = {
    * el catálogo. Sin la columna de empresa no se usa.
    */
   empresaUnica?: string;
+  // ── 03-oct-2026: las opciones de la Lista completa, en esta hoja. ──
+  /** Columna «Alto × largo × ancho». */
+  medidas?: boolean;
+  /** Columna «Clasificación». */
+  clasificacion?: boolean;
+  /** Columna «Obra / ubicación». */
+  obra?: boolean;
+  /** Columna «Frente» en cada fila (además del título del bloque). */
+  frente?: boolean;
+  /** Columna «Chofer» / «Operador». */
+  chofer?: boolean;
+  /** Columna «Turno». */
+  turno?: boolean;
+  /** Columna «Estado». */
+  estado?: boolean;
+  /** 📊 El resumen ejecutivo: el tablero de arriba. */
+  resumen?: boolean;
 };
 
 export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
@@ -86,7 +121,22 @@ export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
   totales: true,
   sinCamiones: false,
   empresaUnica: '',
+  // Lo nuevo entra apagado: la hoja sale igual que ayer hasta que se encienda algo.
+  medidas: false,
+  clasificacion: false,
+  obra: false,
+  frente: false,
+  chofer: false,
+  turno: false,
+  estado: false,
+  resumen: false,
 };
+
+/** ¿Hace falta leer los datos DEL DÍA (viajes o jornadas) para este papel? Sin
+ *  ninguna de estas encendida, la hoja no consulta nada más que la asignación. */
+export function necesitaDatosDelDia(op: OpcionesFrentes): boolean {
+  return !!(op.obra || op.chofer || op.turno || op.estado || op.resumen);
+}
 
 /** El nombre que se ofrece de entrada al encender la empresa única. */
 export const EMPRESA_UNICA_SUGERIDA = 'Golden Touch';
@@ -184,7 +234,17 @@ export const CSS_FRENTES = `
   th,td{border:1px solid #c9d2dc;padding:4px 7px;text-align:left}
   th{background:#16324F;color:#fff}
   tr:nth-child(even) td{background:#f4f7fb}
-  .fr-vacio{font-size:11px;color:#7A8797;font-style:italic;padding:3px 0}`;
+  .fr-vacio{font-size:11px;color:#7A8797;font-style:italic;padding:3px 0}
+  .fr-tj{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 8px}
+  .fr-tj div{flex:1 1 110px;border:1px solid #c9d2dc;border-radius:6px;padding:6px 9px}
+  .fr-tj span{display:block;font-size:9px;color:#5B6B80;text-transform:uppercase;letter-spacing:.04em}
+  .fr-tj b{display:block;font-size:16px;color:#16324F}
+  .fr-tj small{font-size:9px;color:#7A8797}
+  .fr-cq{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+  .fr-q{flex:1 1 150px;border:1px solid #c9d2dc;border-radius:6px;padding:6px 9px;page-break-inside:avoid}
+  .fr-qt{font-size:10px;font-weight:800;color:#16324F;border-bottom:1px solid #c9d2dc;margin-bottom:3px;padding-bottom:2px}
+  .fr-q p{display:flex;justify-content:space-between;gap:8px;font-size:10px;margin:1px 0}
+  .fr-q i{font-style:normal;color:#333}`;
 
 /**
  * El cuerpo del PDF: un bloque por frente con la lista de sus camiones.
@@ -192,18 +252,92 @@ export const CSS_FRENTES = `
  */
 /** Cómo se llama el equipo en el papel. Para viajes, «camión»; para la hoja de
  *  frentes de maquinaria (02-oct-2026), «equipo». */
-export type EtiquetaEquipo = { columna: string; singular: string; plural: string; unidad: string };
-export const ETIQUETA_CAMION: EtiquetaEquipo = { columna: 'Camión', singular: 'camión', plural: 'camiones', unidad: 'camión(es)' };
-export const ETIQUETA_EQUIPO: EtiquetaEquipo = { columna: 'Equipo', singular: 'equipo', plural: 'equipos', unidad: 'equipo(s)' };
+export type EtiquetaEquipo = { columna: string; singular: string; plural: string; unidad: string; chofer?: string };
+export const ETIQUETA_CAMION: EtiquetaEquipo = { columna: 'Camión', singular: 'camión', plural: 'camiones', unidad: 'camión(es)', chofer: 'Chofer' };
+export const ETIQUETA_EQUIPO: EtiquetaEquipo = { columna: 'Equipo', singular: 'equipo', plural: 'equipos', unidad: 'equipo(s)', chofer: 'Operador' };
+
+// ── 📊 EL RESUMEN EJECUTIVO (03-oct-2026, a pedido: «resumen ejecutivo completo
+//    de las máquinas o viajes, un dashboard informativo») ──────────────────────
+
+export type TarjetaFrentes = { titulo: string; valor: string; nota?: string };
+export type CuadroFrentes = { titulo: string; filas: { clave: string; n: number }[] };
+export type ResumenFrentes = { tarjetas: TarjetaFrentes[]; cuadros: CuadroFrentes[] };
+
+/**
+ * El tablero de arriba. Cuenta EQUIPOS, no filas: uno que está en dos frentes
+ * es un equipo. ⭐ Cada cuadro sigue a su interruptor: con la columna apagada,
+ * su cuadro tampoco sale (lo oculto no deja rastro).
+ */
+export function resumenFrentes(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION): ResumenFrentes {
+  const unicos = new Map<string, CamionDelFrente>();
+  let filas = 0;
+  grupos.forEach((g) => g.camiones.forEach((c) => {
+    filas += 1;
+    const k = String(c.id ?? '') || `${c.code}|${c.placa ?? ''}`;
+    if (!unicos.has(k)) unicos.set(k, c);
+  }));
+  const equipos = Array.from(unicos.values());
+  const conEquipos = grupos.filter((g) => g.camiones.length > 0);
+  const contar = (de: (c: CamionDelFrente) => string): { clave: string; n: number }[] => {
+    const m = new Map<string, number>();
+    equipos.forEach((c) => { const k = de(c) || '—'; m.set(k, (m.get(k) ?? 0) + 1); });
+    return Array.from(m, ([clave, n]) => ({ clave, n })).sort((a, b) => b.n - a.n || a.clave.localeCompare(b.clave, 'es', { numeric: true }));
+  };
+  const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const mayor = conEquipos.slice().sort((a, b) => b.camiones.length - a.camiones.length)[0];
+  const tarjetas: TarjetaFrentes[] = [
+    { titulo: `${e.plural[0].toUpperCase()}${e.plural.slice(1)} asignados`, valor: String(equipos.length), nota: filas > equipos.length ? `${filas} asignaciones (hay ${e.plural} en más de un frente)` : undefined },
+    { titulo: 'Frentes en uso', valor: String(conEquipos.length), nota: grupos.length > conEquipos.length ? `de ${grupos.length} listados` : undefined },
+    { titulo: 'Promedio por frente', valor: conEquipos.length ? (filas / conEquipos.length).toFixed(1).replace('.', ',') : '0' },
+  ];
+  if (mayor) tarjetas.push({ titulo: 'Frente con más carga', valor: mayor.nombre, nota: `${mayor.camiones.length} ${e.unidad}` });
+  if (op.empresa) tarjetas.push({ titulo: 'Empresas', valor: String(new Set(equipos.map((c) => empresaImpresa(c, op))).size) });
+  const viajes = equipos.reduce((a, c) => a + (Number(c.viajes) || 0), 0);
+  const conViajes = equipos.filter((c) => (Number(c.viajes) || 0) > 0).length;
+  if (equipos.some((c) => c.viajes != null)) {
+    tarjetas.push({ titulo: 'Viajes del día', valor: String(viajes), nota: `${conViajes} de ${equipos.length} ${e.plural} con viajes` });
+  }
+
+  const cuadros: CuadroFrentes[] = [
+    { titulo: `${e.unidad[0].toUpperCase()}${e.unidad.slice(1)} por frente`, filas: conEquipos.map((g) => ({ clave: g.nombre, n: g.camiones.length })).sort((a, b) => b.n - a.n || a.clave.localeCompare(b.clave, 'es', { numeric: true })) },
+    { titulo: 'Por tipo de equipo', filas: contar((c) => limpio(c.code)) },
+  ];
+  if (op.empresa) cuadros.push({ titulo: 'Por empresa', filas: contar((c) => empresaImpresa(c, op)) });
+  if (op.estado) cuadros.push({ titulo: 'Por estado', filas: contar((c) => limpio(c.estado) || 'Sin dato') });
+  if (op.clasificacion) cuadros.push({ titulo: 'Por clasificación', filas: contar((c) => limpio(c.clasificacion) || 'Sin clasificar') });
+  if (op.turno) cuadros.push({ titulo: 'Por turno', filas: contar((c) => limpio(c.turno) || 'Sin dato') });
+  if (op.obra) cuadros.push({ titulo: 'Por obra / ubicación', filas: contar((c) => limpio(c.obra) || 'Sin dato') });
+  return { tarjetas, cuadros: cuadros.filter((q) => q.filas.length > 0) };
+}
+
+function htmlResumenFrentes(r: ResumenFrentes): string {
+  const tj = r.tarjetas.map((x) => `<div><span>${esc(x.titulo)}</span><b>${esc(x.valor)}</b>${x.nota ? `<small>${esc(x.nota)}</small>` : ''}</div>`).join('');
+  const cq = r.cuadros.map((q) => `<div class="fr-q"><div class="fr-qt">${esc(q.titulo)}</div>${q.filas.map((f) => `<p><i>${esc(f.clave)}</i><b>${f.n}</b></p>`).join('')}</div>`).join('');
+  return `<div class="fr-tj">${tj}</div><div class="fr-cq">${cq}</div>`;
+}
 
 export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION): string {
   const t = totalesFrentes(grupos);
   if (t.frentes === 0) {
     return `<p class="fr-vacio">Ese día no hay ningún ${e.singular} asignado a un frente.</p>`;
   }
-  const cabecera = op.totales
+  const tablero = op.resumen ? htmlResumenFrentes(resumenFrentes(grupos, op, e)) : '';
+  const cabecera = tablero + (op.totales
     ? `<p class="fr-tot">${t.camiones} ${e.unidad} asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con ${e.plural}</p>`
-    : '';
+    : '');
+  // Las columnas del 03-oct, en el orden de la Lista completa. Cada una sale
+  // SOLO si está encendida: apagada no deja ni la celda.
+  type ColExtra = { on: boolean | undefined; titulo: string; de: (c: CamionDelFrente, g: FrenteDelDia) => string };
+  const todas: ColExtra[] = [
+    { on: op.medidas, titulo: 'Alto × largo × ancho', de: (c) => String(c.medidas ?? '').trim() || '—' },
+    { on: op.clasificacion, titulo: 'Clasificación', de: (c) => String(c.clasificacion ?? '').trim() || '—' },
+    { on: op.obra, titulo: 'Obra / ubicación', de: (c) => String(c.obra ?? '').trim() || '—' },
+    { on: op.frente, titulo: 'Frente', de: (_c, g) => g.nombre },
+    { on: op.chofer, titulo: e.chofer ?? 'Chofer', de: (c) => String(c.chofer ?? '').trim() || '—' },
+    { on: op.turno, titulo: 'Turno', de: (c) => String(c.turno ?? '').trim() || '—' },
+    { on: op.estado, titulo: 'Estado', de: (c) => String(c.estado ?? '').trim() || '—' },
+  ];
+  const extras = todas.filter((x) => x.on);
   const bloques = grupos.map((g) => {
     const filas = g.camiones.map((c, i) => `<tr>
       ${op.numeracion ? `<td>${i + 1}</td>` : ''}
@@ -211,8 +345,9 @@ export function cuerpoFrentesDelDia(grupos: FrenteDelDia[], op: OpcionesFrentes 
       ${op.placa ? `<td>${esc(c.placa || '—')}</td>` : ''}
       ${op.empresa ? `<td>${esc(empresaImpresa(c, op))}</td>` : ''}
       ${op.marcaModelo ? `<td>${esc(c.marcaModelo || '—')}</td>` : ''}
+      ${extras.map((x) => `<td>${esc(x.de(c, g))}</td>`).join('')}
     </tr>`).join('');
-    const cabeceras = `${op.numeracion ? '<th style="width:34px">Nº</th>' : ''}<th>${e.columna}</th>${op.placa ? '<th>Placa / Serial</th>' : ''}${op.empresa ? '<th>Empresa</th>' : ''}${op.marcaModelo ? '<th>Marca / Modelo</th>' : ''}`;
+    const cabeceras = `${op.numeracion ? '<th style="width:34px">Nº</th>' : ''}<th>${e.columna}</th>${op.placa ? '<th>Placa / Serial</th>' : ''}${op.empresa ? '<th>Empresa</th>' : ''}${op.marcaModelo ? '<th>Marca / Modelo</th>' : ''}${extras.map((x) => `<th>${x.titulo}</th>`).join('')}`;
     const tabla = g.camiones.length
       ? `<table><thead><tr>${cabeceras}</tr></thead><tbody>${filas}</tbody></table>`
       : `<p class="fr-vacio">Sin ${e.plural} asignados este día.</p>`;

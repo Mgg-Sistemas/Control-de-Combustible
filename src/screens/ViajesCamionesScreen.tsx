@@ -11,7 +11,7 @@
 //     filtrable con edición/borrado, configuración de metas y umbral de alerta,
 //     y exportar el reporte del rango filtrado.
 // Pedido del cliente 12-ago-2026.
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, StyleSheet, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -56,7 +56,7 @@ import { datosDelCamion, folioDeTique, placaDeTique, empresaDeTique, tieneTique 
 import { pasaFiltros, opcionesDeEje, filtrarOpciones, marcadosFueraDelRango, etiquetaRangoViajes, tiqueBuscado, coincideTique, normalizaHora, pasaRangoHoras, textoRangoHoras, type ClavesViaje, type SeleccionFiltros, type EjeFiltro } from '../lib/viajesFiltros';
 import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
-import { FrentesTrabajo } from '../components/FrentesTrabajo';
+import { FrentesTrabajo, type CamionParaFrente, type DatosDelDiaFrente } from '../components/FrentesTrabajo';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { PagoPesoResumen } from '../components/PagoPesoResumen';
@@ -2811,6 +2811,52 @@ export default function ViajesCamionesScreen() {
     return volumenConGuardado(pv, viajesPorDia, cub.guardadas);
   }, [volumenCalculado, viajesPorDia, cub.guardadas]);
 
+  /**
+   * ⛏️ Los camiones para la hoja de FRENTES, con lo que sus columnas opcionales
+   * necesitan (03-oct-2026): medidas y capacidad de la tolva (de Cubicaje) y el
+   * estado de la ficha. Solo agrega datos para pintar; la asignación no cambia.
+   */
+  const camionesFrentes = useMemo<CamionParaFrente[]>(() => allTrucks.map((t) => {
+    const md = cub.porTruck.get(t.id);
+    const m3 = md ? volumenDe(md) : 0;
+    return {
+      ...t,
+      medidas: md && m3 > 0 ? `${dimsTexto(md)} m` : null,
+      clasificacion: m3 > 0 ? etiquetaClase(m3) : null,
+      estado: !t.operational ? 'Retirada' : t.enEspera ? 'En espera' : 'Operativa',
+    };
+  }), [allTrucks, cub.porTruck]);
+
+  /**
+   * Lo del DÍA para la hoja de frentes: obra, chofer, turno, estado y viajes de
+   * cada camión en esa jornada (7am a 7am), sacado de SUS viajes. Si la lectura
+   * falla, lanza: la hoja avisa en vez de salir con columnas vacías.
+   */
+  const datosDelDiaFrentes = useCallback(async (jornadaISO: string) => {
+    const { rows, error } = await listTodosLosViajes(jornadaWindowISO(jornadaISO));
+    if (error) throw new Error(error);
+    const acc = new Map<string, { obras: Set<string>; choferes: Set<string>; turnos: Set<Turno>; estados: Set<string>; viajes: number }>();
+    rows.forEach((r) => {
+      if (!r.machineryId) return;
+      const a = acc.get(r.machineryId) ?? { obras: new Set(), choferes: new Set(), turnos: new Set(), estados: new Set(), viajes: 0 };
+      a.viajes += 1;
+      if (r.ubicacionNombre) a.obras.add(r.ubicacionNombre.trim());
+      if (r.choferName) a.choferes.add(r.choferName.trim());
+      if (r.estadoMaquina) a.estados.add(r.estadoMaquina.trim());
+      a.turnos.add(turnoDeViaje(r.registeredAt));
+      acc.set(r.machineryId, a);
+    });
+    const out = new Map<string, DatosDelDiaFrente>();
+    acc.forEach((a, id) => out.set(id, {
+      obra: Array.from(a.obras).join(' / ') || null,
+      chofer: Array.from(a.choferes).join(' / ') || null,
+      turno: a.turnos.has('day') && a.turnos.has('night') ? 'Día y noche' : a.turnos.has('night') ? 'Noche' : 'Día',
+      estado: Array.from(a.estados).join(' / ') || null,
+      viajes: a.viajes,
+    }));
+    return out;
+  }, []);
+
   /** id del camión → m³ de un viaje, para la columna opcional del PDF de pagos. */
   const m3PorViajePago = useMemo(() => {
     const m = new Map<string, number>();
@@ -4870,7 +4916,8 @@ export default function ViajesCamionesScreen() {
                 frentes={frentes}
                 faltaSql={frentesMissing}
                 canFull={canFull}
-                camiones={allTrucks}
+                camiones={camionesFrentes}
+                datosDelDia={datosDelDiaFrentes}
                 jornadaHoy={caracasBusinessToday()}
                 uid={uid}
                 userName={fullName || listeroName || null}
