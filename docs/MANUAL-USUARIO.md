@@ -3536,6 +3536,24 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+#### 📅 Entradas/Salidas y Escombros: la semana empieza donde tú digas (03/10/2026)
+
+Las hojas de **Control camiones Entradas/Salidas** y **🧱 Transporte de escombros** salen una por
+semana del mes. Desde julio la semana se cortaba de **domingo a sábado** (por eso la «Semana 3» de
+septiembre decía del 13 al 19); quien cuenta de lunes a domingo esperaba del 14 al 20.
+
+Ahora, en la vista previa, arriba de «Descargar por semana» está **«La semana empieza en»** con las
+7 pastillas (Lun…Dom). Tocas una y las semanas se recalculan al momento, para los dos papeles.
+
+- ⭐ **Nace en domingo**: sin tocar nada, las hojas salen exactamente como siempre — una hoja vieja
+  se reproduce igualita.
+- **Lunes** es el corte de los pagos (lunes a domingo).
+- Y **cualquier otro día** también vale: con miércoles, las semanas van de miércoles a martes.
+
+Solo parte las hojas: son planillas para llenar a mano, sin cifras de la base, así que el corte no
+cambia ningún dato. Cuando el corte no es el de siempre, el papel lo dice en su línea de arriba y el
+nombre del archivo también; en domingo no se agrega nada.
+
 > **📋 Repetir los frentes de otro día (03/10/2026).** En «🕘 Historial de frentes de trabajo» cada
 > día tiene a la derecha un botón **«📋 Repetir»**:
 > 1. Arriba eliges la **fecha destino** (donde quieres los frentes).
