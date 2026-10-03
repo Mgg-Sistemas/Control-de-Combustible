@@ -259,7 +259,7 @@ ok('y ofrece también los frentes activos sin asignación',
     /FRENTES_MAQUINARIA: FuenteFrentes = \{ frentes: 'maquinaria_frentes', asignaciones: 'maquinaria_frente_asignaciones' \}/.test(lib));
   ok('⭐ y la de viajes sigue en sus tablas de siempre', /FRENTES_VIAJES: FuenteFrentes = \{ frentes: 'viaje_frentes', asignaciones: 'viaje_frente_asignaciones' \}/.test(lib));
   ok('⭐ cada función de frentes recibe la fuente, con viajes por defecto', (lib.match(/fuente: FuenteFrentes = FRENTES_VIAJES/g) || []).length >= 10);
-  ok('⭐ el componente pasa la fuente a TODAS sus llamadas', (compM.match(/, fuente\)/g) || []).length >= 9 && /fuente = FRENTES_VIAJES \}: Props/.test(compM));
+  ok('⭐ el componente pasa la fuente a TODAS sus llamadas', (compM.match(/, fuente\)/g) || []).length >= 9 && /fuente = FRENTES_VIAJES, datosDelDia \}: Props/.test(compM));
   ok('⭐ el auto-frente de los viajes sigue leyendo las asignaciones de VIAJES', /listAsignacionesFrenteRango\(rango\.desde, rango\.hasta\)/.test(lib.replace(/\/\/.*$/gm, '')));
   ok('y deja claro que NO es la ubicación', /No es la ubicación/.test(card));
 
@@ -268,6 +268,66 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ el botón «Generar» genérico no sale en esa pestaña', /\{mode !== 'frentes' \? \(/.test(rep));
   const viajes = leer('src/screens/ViajesCamionesScreen.tsx');
   ok('⭐ viajes sigue montando el apartado SIN tipo (camiones, como siempre)', /<FrentesTrabajo\s*\n\s*frentes=\{frentes\}/.test(viajes) && !/tipo="maquinas"/.test(viajes));
+}
+
+// ── LAS OPCIONES DE LA LISTA COMPLETA, EN ESTA HOJA (03-oct-2026, a pedido:
+//    «para el reporte frentes de trabajo faltan las opciones: marca y modelo,
+//    alto/largo/ancho, clasificación por capacidad, empresa, obra/ubicación,
+//    frente de trabajo, placa/serial, chofer, turno, estado de la máquina,
+//    resumen ejecutivo (…) completo de las máquinas o viajes, un dashboard») ──
+{
+  const { resumenFrentes, necesitaDatosDelDia, ETIQUETA_EQUIPO } = m.exports;
+  const NUEVAS = ['medidas', 'clasificacion', 'obra', 'frente', 'chofer', 'turno', 'estado', 'resumen'];
+  ok('⭐ lo nuevo entra APAGADO: las 8 opciones nacen en false', NUEVAS.every((k) => FRENTES_POR_DEFECTO[k] === false));
+  const eq1 = { id: 'a', code: 'VOLTEO', placa: 'P1', empresa: 'EMP UNO', medidas: '2,40 × 6,00 × 2,50 m', clasificacion: 'Media capacidad', obra: 'CDT A', chofer: 'CHOFER UNO', turno: 'Día', estado: 'Operativa', viajes: 4 };
+  const eq2 = { id: 'b', code: 'CHUTO', placa: 'P2', empresa: 'EMP DOS', medidas: null, clasificacion: null, obra: null, chofer: null, turno: 'Noche', estado: 'En espera', viajes: 0 };
+  const g = frentesDelDia([
+    { frenteNombre: 'CANTERA', camion: eq1 }, { frenteNombre: 'CANTERA', camion: eq2 }, { frenteNombre: 'RES. CORAL', camion: eq1 },
+  ]);
+  const base = cuerpoFrentesDelDia(g, FRENTES_POR_DEFECTO);
+  ok('⭐ con todo apagado la hoja sale IGUAL que antes: ni columnas nuevas ni tablero', [
+    'Alto × largo × ancho', 'Clasificación', 'Obra / ubicación', '<th>Frente</th>', 'Chofer', 'Turno', '<th>Estado</th>', 'fr-tj', 'CHOFER UNO', 'CDT A', 'Operativa',
+  ].every((s) => !base.includes(s)));
+  const col = (k) => cuerpoFrentesDelDia(g, { ...FRENTES_POR_DEFECTO, [k]: true });
+  ok('medidas: su columna y su dato; el que no tiene sale con raya', col('medidas').includes('Alto × largo × ancho') && col('medidas').includes('2,40 × 6,00 × 2,50 m'));
+  ok('clasificación', col('clasificacion').includes('<th>Clasificación</th>') && col('clasificacion').includes('Media capacidad'));
+  ok('obra / ubicación', col('obra').includes('<th>Obra / ubicación</th>') && col('obra').includes('CDT A'));
+  ok('frente en cada fila', col('frente').includes('<th>Frente</th>') && (col('frente').match(/<td>CANTERA<\/td>/g) ?? []).length === 2);
+  ok('chofer', col('chofer').includes('<th>Chofer</th>') && col('chofer').includes('CHOFER UNO'));
+  ok('⭐ en la hoja de maquinaria se llama Operador', cuerpoFrentesDelDia(g, { ...FRENTES_POR_DEFECTO, chofer: true }, ETIQUETA_EQUIPO).includes('<th>Operador</th>'));
+  ok('turno', col('turno').includes('<th>Turno</th>') && col('turno').includes('Noche'));
+  ok('estado', col('estado').includes('<th>Estado</th>') && col('estado').includes('En espera'));
+  ok('⭐ cada check enciende SOLO lo suyo', !col('chofer').includes('Turno') && !col('turno').includes('Chofer') && !col('estado').includes('fr-tj'));
+
+  // El tablero.
+  const r = resumenFrentes(g, { ...FRENTES_POR_DEFECTO, estado: true, turno: true, clasificacion: true, obra: true });
+  eq('⭐ cuenta EQUIPOS, no filas: uno en dos frentes es un equipo', r.tarjetas[0], { titulo: 'Camiones asignados', valor: '2', nota: '3 asignaciones (hay camiones en más de un frente)' });
+  eq('frentes en uso, promedio y el de más carga', r.tarjetas.slice(1, 4).map((x) => [x.titulo, x.valor]), [['Frentes en uso', '2'], ['Promedio por frente', '1,5'], ['Frente con más carga', 'CANTERA']]);
+  eq('empresas y viajes del día', r.tarjetas.slice(4).map((x) => [x.titulo, x.valor, x.nota]), [['Empresas', '2', undefined], ['Viajes del día', '4', '1 de 2 camiones con viajes']]);
+  eq('cuadros: por frente, tipo, empresa y los encendidos', r.cuadros.map((q) => q.titulo), ['Camión(es) por frente', 'Por tipo de equipo', 'Por empresa', 'Por estado', 'Por clasificación', 'Por turno', 'Por obra / ubicación']);
+  eq('por estado', r.cuadros.find((q) => q.titulo === 'Por estado').filas, [{ clave: 'En espera', n: 1 }, { clave: 'Operativa', n: 1 }]);
+  const soloBase = resumenFrentes(g, FRENTES_POR_DEFECTO);
+  eq('⭐ los cuadros siguen a su interruptor: apagado, su cuadro no sale', soloBase.cuadros.map((q) => q.titulo), ['Camión(es) por frente', 'Por tipo de equipo', 'Por empresa']);
+  ok('sin la columna empresa: ni tarjeta ni cuadro de empresas', (() => { const x = resumenFrentes(g, { ...FRENTES_POR_DEFECTO, empresa: false }); return !x.tarjetas.some((y) => y.titulo === 'Empresas') && !x.cuadros.some((q) => q.titulo === 'Por empresa'); })());
+  eq('⭐ con empresa única, el tablero cuenta UNA empresa', resumenFrentes(g, { ...FRENTES_POR_DEFECTO, empresaUnica: 'Golden Touch' }).cuadros.find((q) => q.titulo === 'Por empresa').filas, [{ clave: 'Golden Touch', n: 2 }]);
+  ok('la maquinaria no tiene tarjeta de viajes', !resumenFrentes(frentesDelDia([{ frenteNombre: 'F', camion: { id: 'x', code: 'JUMBO', viajes: null } }]), FRENTES_POR_DEFECTO, ETIQUETA_EQUIPO).tarjetas.some((x) => /Viajes/.test(x.titulo)));
+  const conTablero = cuerpoFrentesDelDia(g, { ...FRENTES_POR_DEFECTO, resumen: true });
+  ok('⭐ el tablero sale ARRIBA del listado', conTablero.includes('fr-tj') && conTablero.indexOf('fr-tj') < conTablero.indexOf('fr-g'));
+  eq('necesitaDatosDelDia: solo con obra, chofer, turno, estado o resumen', [
+    necesitaDatosDelDia(FRENTES_POR_DEFECTO), necesitaDatosDelDia({ ...FRENTES_POR_DEFECTO, medidas: true, clasificacion: true, frente: true }),
+    ...['obra', 'chofer', 'turno', 'estado', 'resumen'].map((k) => necesitaDatosDelDia({ ...FRENTES_POR_DEFECTO, [k]: true })),
+  ], [false, false, true, true, true, true, true]);
+
+  // Candados de las pantallas.
+  const comp = leer('src/components/FrentesTrabajo.tsx');
+  ok('⭐ lo del día se lee SOLO si alguna opción lo pide', /datosDelDia && necesitaDatosDelDia\(opPapel\) \? await datosDelDia\(fecha\)/.test(comp));
+  ok('⭐ el operador escrito a mano MANDA sobre el automático', /operadores\[claveOperador\(a\.machineryId\)\][^\n]*\|\| d\?\.chofer \|\| null/.test(comp) && /placeholder="automático"/.test(comp));
+  ok('los 8 checks nuevos están en la pantalla', NUEVAS.every((k) => new RegExp("\\{ k: '" + k + "'").test(comp)));
+  const card = leer('src/components/FrentesReportesCard.tsx');
+  ok('⭐ la maquinaria sigue SIN viajes: su operador y turno salen de la jornada', /machine_rounds/.test(card) && !/camion_viajes|listTodosLosViajes/.test(card) && /datosDelDia=\{datosDelDiaMaquinas\}/.test(card));
+  ok('…y solo LEE la jornada', !/\.(insert|update|delete|upsert)\(/.test(card));
+  const pant = leer('src/screens/ViajesCamionesScreen.tsx');
+  ok('⭐ viajes le pasa medidas/capacidad de Cubicaje y lo del día desde sus viajes', /camiones=\{camionesFrentes\}/.test(pant) && /datosDelDia=\{datosDelDiaFrentes\}/.test(pant) && /listTodosLosViajes\(jornadaWindowISO\(jornadaISO\)\)/.test(pant));
 }
 
 console.log('\nPDF DE FRENTES DEL DÍA — la hoja de asignación, sin cifras\n');
