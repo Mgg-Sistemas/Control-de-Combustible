@@ -90,19 +90,26 @@ const caracas = (iso, hhmm) => new Date(`${iso}T${hhmm}:00-04:00`);
 
 console.log('INICIO DE JORNADA — regla única + campos obligatorios\n');
 
-// ── 1) DÍA: dentro del margen (≤9:00am) → se ancla a las 7:00 ───────────────
+// ── 1) DÍA: dentro del margen (≤9:00am) → desde el 02-oct-2026 YA NO se ancla ──
+//    Pedido del cliente: «si comienza a las 9am que comience a esa hora, no que se
+//    coloque a las 7am». La jornada arranca a la hora DECLARADA; las horas se
+//    cuentan desde ahí. (Hasta el 02-oct se clavaba a las 7:00 y contaba 12 h.)
 {
   const r = calcularInicioJornada({
     declaredIso: '2026-08-18T07:30:00-04:00', shift: 'day', now: caracas('2026-08-18', '07:30'),
   });
-  ok('día 7:30am → se ancla al arranque nominal 7:00', r.startIso === '2026-08-18T07:00:00-04:00', r.startIso);
-  ok('día 7:30am → marcada como anclada', r.anclada === true);
+  ok('⭐ día 7:30am → arranca a las 7:30 (la hora real), ya no a las 7:00', r.startIso === '2026-08-18T07:30:00-04:00', r.startIso);
+  ok('día 7:30am → no se marca como anclada', r.anclada === false);
+  ok('día 7:30am → sin aviso de retraso (está dentro del margen de las 9)', r.retrasoMin <= 0, String(r.retrasoMin));
   ok('día 7:30am → la ronda es la de hoy', r.roundDate === '2026-08-18', r.roundDate);
 
   const borde = calcularInicioJornada({
     declaredIso: '2026-08-18T08:59:00-04:00', shift: 'day', now: caracas('2026-08-18', '08:59'),
   });
-  ok('día 8:59am (justo dentro) → sigue anclada a las 7:00', borde.startIso === '2026-08-18T07:00:00-04:00', borde.startIso);
+  ok('⭐ día 8:59am → arranca a las 8:59, no a las 7:00', borde.startIso === '2026-08-18T08:59:00-04:00', borde.startIso);
+  const nueve = calcularInicioJornada({ declaredIso: '2026-08-18T09:00:00-04:00', shift: 'day', now: caracas('2026-08-18', '09:00') });
+  ok('⭐ día 9:00am → arranca a las 9:00 (el caso que pidió el cliente)', nueve.startIso === '2026-08-18T09:00:00-04:00', nueve.startIso);
+  ok('día 9:00am → todavía sin aviso (el margen es inclusive)', nueve.retrasoMin === 0, String(nueve.retrasoMin));
 }
 
 // ── 2) DÍA: fuera del margen → conserva el inicio declarado ────────────────
@@ -115,12 +122,12 @@ console.log('INICIO DE JORNADA — regla única + campos obligatorios\n');
   ok('día 11:00am → reporta 2 h de retraso', r.retrasoMin === 120, String(r.retrasoMin));
 }
 
-// ── 3) NOCHE: dentro del margen (≤9:00pm) → se ancla a las 19:00 ───────────
+// ── 3) NOCHE: dentro del margen (≤9:00pm) → tampoco se ancla (02-oct-2026) ──
 {
   const r = calcularInicioJornada({
     declaredIso: '2026-08-18T19:40:00-04:00', shift: 'night', now: caracas('2026-08-18', '19:40'),
   });
-  ok('noche 7:40pm → se ancla al arranque nominal 19:00', r.startIso === '2026-08-18T19:00:00-04:00', r.startIso);
+  ok('⭐ noche 7:40pm → arranca a las 19:40 (la hora real), ya no a las 19:00', r.startIso === '2026-08-18T19:40:00-04:00', r.startIso);
   ok('noche 7:40pm → la ronda es la de hoy', r.roundDate === '2026-08-18', r.roundDate);
 }
 
