@@ -213,7 +213,10 @@ const HOY = '2026-09-18';
   ok('solo contactos activos', /\.filter\(contactoActivo\)/.test(db));
   const editor = sinComentarios(fs.readFileSync(path.join(ROOT, 'src/components/ComidaEditor.tsx'), 'utf8'));
   ok('⭐ la pantalla usa el buscador doble', /buscarPersonasComida\(t, empresas\)/.test(editor) && !/buscarEmpleados\(/.test(editor));
-  ok('⭐ a un contacto se le ofrece «Otros»; a nómina no', /form\?\.modo === 'alta-empresa' \|\| persona\?\.tipo === 'contacto' \? COMPANY_MEALS : MEALS/.test(editor));
+  // 05-oct-2026: el alta por EMPRESA pasó a la CESTA (ya no elige una comida);
+  // el selector queda solo para el alta por persona. La regla sigue intacta:
+  // a un contacto se le ofrece «Otros», a nómina no.
+  ok('⭐ a un contacto se le ofrece «Otros»; a nómina no', editor.includes("(persona?.tipo === 'contacto' ? COMPANY_MEALS : MEALS).map"));
   ok('⭐ el contacto elige el plato de la LISTA, no lo escribe', /esContactoOtros/.test(editor) && !/esContactoOtros \? campo\(/.test(editor));
   ok('cambiar a alguien de nómina baja «Otros»', /if \(p\.tipo !== 'contacto' && comida === 'otros'\) \{ setComida\('almuerzo'\); setPlato\(''\); \}/.test(editor));
   ok('un contacto sale marcado con 📇', /p\.tipo === 'contacto' \? '📇 ' : ''/.test(editor));
