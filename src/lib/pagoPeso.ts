@@ -216,6 +216,37 @@ export function textoPrecioPeso(t: TarifaPeso | null | undefined): string {
   return `${usd(num(t.precio), u === 'kg' ? 4 : 2)} / ${u === 'kg' ? 'Kg' : 'Ton'}`;
 }
 
+/**
+ * Las tarifas con que se pagó un renglón, compacto (05-oct-2026, a pedido:
+ * «mostrar los dos precios en vez de varias»).
+ *   · Una sola: «$2,00 / Ton».
+ *   · Varias de la MISMA unidad: «$2,00 / $3,00 / Ton» (precios de menor a mayor).
+ *   · De unidades DISTINTAS (raro: una por Ton y otra por Kg): no se pueden
+ *     fundir en una, así que van completas: «$2,00 / Ton · $0,0030 / Kg».
+ * Dos tarifas del mismo precio y unidad (p. ej. dos zonas a $2/Ton) cuentan una.
+ */
+export function textoTarifasPeso(tarifas: (TarifaPeso | null | undefined)[] | null | undefined): string {
+  const vistas = new Map<string, { precio: number; unidad: UnidadTarifaPeso }>();
+  (tarifas ?? []).forEach((t) => {
+    if (!t) return;
+    const precio = num(t.precio);
+    if (!(precio > 0)) return;
+    const unidad = unidadTarifaPeso(t);
+    vistas.set(`${precio}|${unidad}`, { precio, unidad });
+  });
+  const arr = Array.from(vistas.values());
+  if (arr.length === 0) return '—';
+  const dec = (u: UnidadTarifaPeso) => (u === 'kg' ? 4 : 2);
+  const label = (u: UnidadTarifaPeso) => (u === 'kg' ? 'Kg' : 'Ton');
+  if (new Set(arr.map((x) => x.unidad)).size === 1) {
+    const u = arr[0].unidad;
+    const precios = arr.map((x) => x.precio).sort((a, b) => a - b).map((x) => usd(x, dec(u)));
+    return `${precios.join(' / ')} / ${label(u)}`;
+  }
+  return arr.sort((a, b) => (a.unidad === b.unidad ? 0 : a.unidad === 'ton' ? -1 : 1) || a.precio - b.precio)
+    .map((x) => `${usd(x.precio, dec(x.unidad))} / ${label(x.unidad)}`).join(' · ');
+}
+
 export function etiquetaZonaPeso(t: { zona?: unknown }): string {
   const z = zonaPesoValida(t.zona);
   return z === 'oeste' ? 'Oeste' : z === 'este' ? 'Este' : 'Ambas zonas';
@@ -443,7 +474,8 @@ export function bloquesPeso(
 export type RenglonCamionPeso = {
   machineryId: string; code: string; empresa: string; marca: string; modelo: string; placa: string; encargado: string;
   viajes: number; pagados: number; noFacturados: number; pendientes: number; kg: number; monto: number;
-  /** Texto de la(s) tarifa(s) con que se pagó: «$12,00 / Ton» o «varias». */
+  /** Texto de la(s) tarifa(s) con que se pagó: «$2,00 / Ton», o «$2,00 / $3,00 / Ton»
+   *  cuando el camión cruzó zonas con precios distintos (05-oct-2026). */
   tarifa: string;
 };
 
@@ -453,7 +485,7 @@ export function renglonesPorCamionPeso(
   fichas: Map<string, FichaCamionPeso> | null | undefined,
   nombresEmpresa?: Map<string, string> | null,
 ): RenglonCamionPeso[] {
-  const m = new Map<string, RenglonCamionPeso & { tarifas: Set<string> }>();
+  const m = new Map<string, RenglonCamionPeso & { tarifas: Map<string, TarifaPeso> }>();
   (lineas ?? []).forEach((l) => {
     const id = maquinaDeLineaPeso(l);
     const empresaId = empresaDeLineaPeso(l);
@@ -467,16 +499,19 @@ export function renglonesPorCamionPeso(
         marca: limpio(f.marca), modelo: limpio(f.modelo),
         placa: limpio(l.viaje?.placa_snap) || limpio(f.placa) || limpio(f.serial),
         encargado: limpio(f.encargado),
-        viajes: 0, pagados: 0, noFacturados: 0, pendientes: 0, kg: 0, monto: 0, tarifa: '—', tarifas: new Set(),
+        viajes: 0, pagados: 0, noFacturados: 0, pendientes: 0, kg: 0, monto: 0, tarifa: '—', tarifas: new Map(),
       };
       m.set(k, r);
     }
     r.viajes += 1;
-    if (l.monto > 0) { r.pagados += 1; r.kg = redondear(r.kg + l.kg); r.monto = redondear(r.monto + l.monto); r.tarifas.add(textoPrecioPeso(l.tarifa)); }
+    if (l.monto > 0) {
+      r.pagados += 1; r.kg = redondear(r.kg + l.kg); r.monto = redondear(r.monto + l.monto);
+      if (l.tarifa && num(l.tarifa.precio) > 0) r.tarifas.set(`${num(l.tarifa.precio)}|${unidadTarifaPeso(l.tarifa)}`, l.tarifa);
+    }
     else if (l.motivoSinPago === 'no_facturo') r.noFacturados += 1;
     else r.pendientes += 1;
   });
-  return Array.from(m.values()).map(({ tarifas, ...r }) => ({ ...r, tarifa: tarifas.size === 0 ? '—' : tarifas.size === 1 ? Array.from(tarifas)[0] : 'varias' }))
+  return Array.from(m.values()).map(({ tarifas, ...r }) => ({ ...r, tarifa: textoTarifasPeso(Array.from(tarifas.values())) }))
     .sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }) || a.placa.localeCompare(b.placa, 'es') || a.empresa.localeCompare(b.empresa, 'es'));
 }
 

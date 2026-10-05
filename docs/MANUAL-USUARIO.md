@@ -6503,6 +6503,8 @@ además de por empresa y por listero.
 
 #### ⚖️ Pago por peso de los viajes de camiones (03/10/2026)
 
+> **🏷️ La columna «Tarifa» (05/10/2026).** En el cuadro camión por camión, si un camión cruzó a las dos zonas con precios distintos, la columna muestra **los dos precios** de menor a mayor: «$2,00 / $3,00 / Ton» (antes decía «varias»). El monto es exacto igual: cada viaje se cobra con la tarifa de su zona.
+
 Apartado **aparte** del 💰 Pago de viajes, a pedido: «un reporte aparte del de viajes (…) de normal se
 paga por el peso que cargue el camión».
 

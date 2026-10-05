@@ -165,7 +165,13 @@ const rs = P.renglonesPorCamionPeso(porEmpresa[0].lineas, new Map([['M2', { marc
 eq('⭐ renglón por camión: pagados de N, kg pagados, tarifa, monto', rs.map((r) => [r.code, r.pagados, r.viajes, r.kg, r.monto, r.tarifa, r.noFacturados, r.pendientes]),
   [['CAMION M2', 3, 6, 31000, 310, '$10,00 / Ton', 1, 2]]);
 eq('…con la ficha del catálogo', [rs[0].marca, rs[0].modelo, rs[0].placa, rs[0].encargado, rs[0].empresa], ['MACK', 'GRANITE', 'PL-2', 'Encargado', 'Empresa Dos']);
-eq('dos tarifas distintas en el rango = «varias»', P.renglonesPorCamionPeso([L.v1, { ...L.v1, viaje: { ...L.v1.viaje, id: 'z' }, tarifa: TARIFAS[1] }], null, nombres)[0].tarifa, 'varias');
+// 🏷️ MOSTRAR LOS DOS PRECIOS EN VEZ DE «VARIAS» (05-oct-2026, a pedido).
+eq('⭐ dos tarifas distintas del mismo camión: los dos precios, de menor a mayor', P.renglonesPorCamionPeso([L.v1, { ...L.v1, viaje: { ...L.v1.viaje, id: 'z' }, tarifa: TARIFAS[1] }], null, nombres)[0].tarifa, '$10,00 / $12,00 / Ton');
+eq('una sola tarifa sale como siempre', P.textoTarifasPeso([tar('a', 2, 'ton', '')]), '$2,00 / Ton');
+eq('⭐ el caso real del cliente: Este $2 y Oeste $3 → «$2,00 / $3,00 / Ton»', P.textoTarifasPeso([tar('a', 3, 'ton', ''), tar('b', 2, 'ton', '')]), '$2,00 / $3,00 / Ton');
+eq('dos iguales (mismo precio y unidad, p. ej. dos zonas a $2) cuentan una', P.textoTarifasPeso([tar('a', 2, 'ton', ''), tar('b', 2, 'ton', '')]), '$2,00 / Ton');
+eq('⭐ unidades DISTINTAS no se funden: cada una completa', P.textoTarifasPeso([tar('a', 2, 'ton', ''), tar('b', 0.003, 'kg', '')]), '$2,00 / Ton · $0,0030 / Kg');
+eq('sin tarifas o con precio 0 = raya', [P.textoTarifasPeso([]), P.textoTarifasPeso(null), P.textoTarifasPeso([tar('a', 0, 'ton', ''), null])], ['—', '—', '—']);
 eq('conteo por zona', P.conteoPorZonaPeso(lineas).map((c) => [c.clave, c.viajes, c.pagados, c.monto]), [['Este', 8, 3, 1050], ['Oeste', 1, 1, 450], ['Sin zona', 1, 1, 10]]);
 eq('conteo por día (histórico)', P.conteoPorDiaPeso(lineas).map((c) => [c.clave, c.viajes]), [['2026-09-10', 1], ['2026-09-15', 9]]);
 
