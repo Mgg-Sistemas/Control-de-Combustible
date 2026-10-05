@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
@@ -8,10 +8,13 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import {
-  COMPANY_MEALS, OTROS_TITULO, mealLabel, suggestedMeals, countCompanyMachines,
+  COMPANY_MEALS, MEALS, OTROS_TITULO, mealLabel, suggestedMeals, countCompanyMachines,
   listForCompanyDay, saveCompanyMeal, deleteCompanyMeal, isCookCargo,
   listForCompanyBetween, listExtraItems, saveExtraItem, FoodExtraItem,
 } from '../lib/foodCompanyMeals';
+import {
+  LineaCesta, avisoCesta, cantidadDeLinea, lineasConCantidad, totalCesta, validarCesta,
+} from '../lib/comidaCesta';
 import { FoodCompanyMeal, MealType } from '../types/database';
 import { norm } from '../lib/text';
 import { useBcvRate, fmtUsd, fmtBs, bsFromUsd } from '../lib/bcv';
@@ -34,6 +37,10 @@ function caracasNiceDate(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, weekday: 'long', day: '2-digit', month: 'long' }).format(new Date(iso + 'T12:00:00'));
 }
 const parseDec = (t: string) => Math.max(0, parseFloat(String(t ?? '').replace(',', '.')) || 0);
+
+/** 🧺 Una casilla de la cesta EN PANTALLA (05-oct-2026): la línea pura de
+ *  comidaCesta.ts + su costo tal como se teclea y su rótulo para pintarla. */
+type LineaCestaPantalla = LineaCesta & { costo: string; icon: string; nombre: string };
 
 /**
  * Distribución de comida POR EMPRESA. Se abre al escanear el QR de una empresa
@@ -86,6 +93,15 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   // Reporte por empresa (PDF)
   const [pdfBusy, setPdfBusy] = useState(false);
   const [reportDays, setReportDays] = useState(30);
+  // 🧺 LA CESTA: varias de una vez (05-oct-2026). Pedido del cliente: «yo le
+  // registro el desayuno al GNB y no puedo registrar más nada ahí, tengo que
+  // volver a hacer un registro diferente; la idea es poder registrar varios o
+  // los que yo quiera o necesite». Una casilla por comida y por plato de
+  // «otros», y UN botón que registra todas las que tengan cantidad. La regla
+  // vive en src/lib/comidaCesta.ts; el modal de UNA comida sigue igual.
+  const [cestaOpen, setCestaOpen] = useState(false);
+  const [cesta, setCesta] = useState<LineaCestaPantalla[]>([]);
+  const [cestaSaving, setCestaSaving] = useState(false);
 
   const suggested = suggestedMeals(machines);
 
@@ -218,6 +234,81 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
     setNuevaOpcion(false);
     const last = [...meals].reverse().find((r) => r.meal_type === 'otros' && norm(r.item_label ?? '') === norm(name));
     if (last) setUnitCost(String(Number(last.unit_cost) || 0));
+  };
+
+  // ── 🧺 Registrar varias de una vez (05-oct-2026) ──────────────────────────────
+
+  // El costo por defecto de una línea: el MISMO criterio del modal de una comida
+  // (`openMeal` y `selectExtra`), el último costo usado HOY para esa comida o ese
+  // plato. Si hoy no se ha usado, queda vacío y se guarda 0.
+  const costoDeHoy = (mt: MealType, item?: string | null): string => {
+    const last = item
+      ? [...meals].reverse().find((r) => r.meal_type === 'otros' && norm(r.item_label ?? '') === norm(item))
+      : rowsOf(mt)[rowsOf(mt).length - 1];
+    return last ? String(Number(last.unit_cost) || 0) : '';
+  };
+
+  // El nombre con el que una línea se valida y se cuenta: el plato en «otros»,
+  // la comida en las demás. Es el `labelDe` que pide validarCesta.
+  const nombreDeLinea = (l: LineaCesta): string =>
+    l.mealType === 'otros' ? (l.itemLabel ?? '').trim() : mealLabel(l.mealType as MealType);
+
+  const abrirCesta = () => {
+    if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
+    // La cesta se arma al abrir: las 4 comidas + los platos ACTIVOS del catálogo
+    // (listExtraItems ya trae solo los activos), cada una con su costo de hoy.
+    setCesta([
+      ...MEALS.map((m) => ({ mealType: m.key as string, itemLabel: null, cantidad: '', costo: costoDeHoy(m.key), icon: m.icon, nombre: m.label })),
+      ...extraItems.map((e) => ({ mealType: 'otros', itemLabel: e.name, cantidad: '', costo: costoDeHoy('otros', e.name), icon: '🧾', nombre: e.name })),
+    ]);
+    setNotice(null);
+    setCestaOpen(true);
+  };
+
+  // Al cerrar se limpia: una cesta a medio escribir no tiene que aparecer la próxima vez.
+  const cerrarCesta = () => { setCestaOpen(false); setCesta([]); };
+
+  const ponLineaCesta = (i: number, cambio: Partial<LineaCestaPantalla>) =>
+    setCesta((prev) => prev.map((x, j) => (j === i ? { ...x, ...cambio } : x)));
+
+  const registrarCesta = async () => {
+    if (!cook) return;
+    // ⭐ Se valida la cesta ENTERA antes de guardar NADA (regla de comidaCesta.ts):
+    //    validar línea por línea mientras se guarda dejaría media cesta registrada.
+    const motivo = validarCesta(cesta, nombreDeLinea);
+    if (motivo) { setNotice('❌ ' + motivo); return; }
+    setCestaSaving(true); setNotice(null);
+    const ok: string[] = [];
+    const fallos: { nombre: string; error: string }[] = [];
+    const filasGuardadas: FoodCompanyMeal[] = [];
+    const guardadas = new Set<LineaCesta>();
+    // Cada línea es UNA entrega, los mismos campos de `registrar()`. Si una
+    // falla se SIGUE con las demás: el aviso final dice el saldo (avisoCesta).
+    // El filtro devuelve las MISMAS líneas de la cesta, por eso el cast es seguro.
+    for (const l of lineasConCantidad(cesta) as LineaCestaPantalla[]) {
+      const n = cantidadDeLinea(l) ?? 0;
+      const nombre = nombreDeLinea(l) || l.mealType;
+      // Costo escrito en la línea; vacío = el de hoy para esa comida; sin ese, 0.
+      const costoLinea = l.costo.trim() !== '' ? l.costo : costoDeHoy(l.mealType as MealType, l.itemLabel);
+      const { data, error } = await saveCompanyMeal({
+        companyId, companyName, mealType: l.mealType as MealType, mealDate: today,
+        machines, suggested, delivered: n, unitCost: parseDec(costoLinea),
+        itemLabel: l.mealType === 'otros' ? l.itemLabel : null, note: '',
+        createdBy: authorId, createdByName: cook.name, createdByCargo: cook.cargo,
+      });
+      if (error || !data) { fallos.push({ nombre, error: error ?? 'No se pudo registrar.' }); continue; }
+      ok.push(`${n} ${nombre}`);
+      filasGuardadas.push(data);
+      guardadas.add(l);
+    }
+    setCestaSaving(false);
+    if (filasGuardadas.length) setMeals((prev) => [...prev, ...filasGuardadas]);
+    setNotice(avisoCesta({ ok, fallos }));
+    if (fallos.length === 0) { cerrarCesta(); return; }
+    // ⚠️ Con fallos el modal se queda ABIERTO: las fallidas conservan su cantidad
+    //    para corregir y reintentar, y las guardadas quedan en blanco para que un
+    //    segundo toque no las duplique.
+    setCesta((prev) => prev.map((x) => (guardadas.has(x) ? { ...x, cantidad: '' } : x)));
   };
 
   const borrar = async (id: string) => {
@@ -380,6 +471,24 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
 
       {notice ? (
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : notice.startsWith('ℹ️') ? colors.text : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
+      ) : null}
+
+      {/* 🧺 Registrar varias de una vez (05-oct-2026). Pedido del cliente: «yo le
+          registro el desayuno al GNB y no puedo registrar más nada ahí […] la idea
+          es poder registrar varios o los que yo quiera o necesite». Solo con el
+          cocinero verificado, igual que los registros de siempre; las tarjetas de
+          UNA comida de abajo siguen funcionando igual. */}
+      {cook ? (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={abrirCesta}
+          style={{ borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.xs, backgroundColor: colors.primary }}
+        >
+          <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 20 }}>🧺 Registrar varias de una vez</Text>
+          <Text style={{ color: colors.primaryContrast, fontSize: 12, marginTop: 4, opacity: 0.9 }}>
+            Desayuno, almuerzo, lunch, cena y «otros» en un solo registro.
+          </Text>
+        </TouchableOpacity>
       ) : null}
 
       {/* Botones por comida: desayuno / almuerzo / lunch / cena / otros.
@@ -556,6 +665,95 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
               </TouchableOpacity>
               <TouchableOpacity onPress={registrar} disabled={saving} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E9E4A', opacity: saving ? 0.6 : 1 }}>
                 <Text style={{ color: '#fff', fontWeight: '900' }}>{saving ? 'Guardando…' : '🍽️ Sumar entrega'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 🧺 Modal de la cesta (05-oct-2026): una fila por comida y por plato de
+          «otros», cada una con su cantidad y su costo POR LÍNEA. Vacía = no va.
+          Mismo patrón del modal de distribución de arriba. */}
+      <Modal visible={cestaOpen} transparent animationType="fade" onRequestClose={cerrarCesta}>
+        <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, maxHeight: '90%' }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🧺 Registrar varias de una vez</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+              🏢 {companyName} · escribe la cantidad SOLO en las que vas a registrar: las vacías no van. Cada una se SUMA a lo de hoy.
+            </Text>
+
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ marginTop: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <View style={{ flex: 1 }} />
+                <Text style={{ width: 64, color: colors.muted, fontSize: 10, fontWeight: '800', textAlign: 'center' }}>CANTIDAD</Text>
+                <Text style={{ width: 80, color: colors.muted, fontSize: 10, fontWeight: '800', textAlign: 'center' }}>$ POR PLATO</Text>
+              </View>
+              {cesta.map((l, i) => (l.mealType === 'otros' ? null : (
+                <View key={`cesta${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
+                  <Text style={{ flex: 1, color: colors.text, fontWeight: '700', fontSize: 14 }}>{l.icon} {l.nombre}</Text>
+                  <TextInput
+                    value={l.cantidad}
+                    onChangeText={(t) => ponLineaCesta(i, { cantidad: t.replace(/[^0-9]/g, '') })}
+                    editable={!cestaSaving}
+                    keyboardType="number-pad" inputMode="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                    style={[input, { width: 64, textAlign: 'center', fontWeight: '900' }]}
+                  />
+                  <TextInput
+                    value={l.costo}
+                    onChangeText={(t) => ponLineaCesta(i, { costo: t.replace(/[^0-9.,]/g, '') })}
+                    editable={!cestaSaving}
+                    keyboardType="decimal-pad" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted}
+                    style={[input, { width: 80, textAlign: 'center' }]}
+                  />
+                </View>
+              )))}
+
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginTop: spacing.md }}>🧾 {OTROS_TITULO}</Text>
+              {extraItems.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                  La lista está vacía: deberían estar HIELO y AGUA. Se estrenan desde la tarjeta «🧾 {OTROS_TITULO}» con el ➕.
+                </Text>
+              ) : null}
+              {cesta.map((l, i) => (l.mealType !== 'otros' ? null : (
+                <View key={`cesta${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
+                  <Text style={{ flex: 1, color: colors.text, fontWeight: '700', fontSize: 14 }}>{l.icon} {l.nombre}</Text>
+                  <TextInput
+                    value={l.cantidad}
+                    onChangeText={(t) => ponLineaCesta(i, { cantidad: t.replace(/[^0-9]/g, '') })}
+                    editable={!cestaSaving}
+                    keyboardType="number-pad" inputMode="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                    style={[input, { width: 64, textAlign: 'center', fontWeight: '900' }]}
+                  />
+                  <TextInput
+                    value={l.costo}
+                    onChangeText={(t) => ponLineaCesta(i, { costo: t.replace(/[^0-9.,]/g, '') })}
+                    editable={!cestaSaving}
+                    keyboardType="decimal-pad" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted}
+                    style={[input, { width: 80, textAlign: 'center' }]}
+                  />
+                </View>
+              )))}
+            </ScrollView>
+
+            {/* Total vivo de la cesta: cuántos platos van a entrar al tocar el botón. */}
+            <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, textAlign: 'center' }}>🧺 {totalCesta(cesta)} plato(s)</Text>
+            </View>
+
+            {/* El aviso TAMBIÉN va aquí dentro: la tarjeta de avisos de la pantalla
+                queda tapada por el fondo del modal y un rechazo pasaría invisible. */}
+            {notice ? (
+              <Text style={{ color: notice.startsWith('❌') ? colors.danger : notice.startsWith('⚠️') ? colors.text : colors.success, fontWeight: '700', fontSize: 12, marginTop: spacing.sm }}>
+                {notice}
+              </Text>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity onPress={cerrarCesta} disabled={cestaSaving} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, opacity: cestaSaving ? 0.6 : 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={registrarCesta} disabled={cestaSaving} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E9E4A', opacity: cestaSaving ? 0.6 : 1 }}>
+                <Text style={{ color: '#fff', fontWeight: '900' }}>{cestaSaving ? 'Guardando…' : '✅ Registrar todo'}</Text>
               </TouchableOpacity>
             </View>
           </View>

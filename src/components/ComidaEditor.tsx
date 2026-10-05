@@ -33,6 +33,7 @@ import {
 } from '../lib/comidaEditarDb';
 import { saveExtraItem } from '../lib/foodCompanyMeals';
 import { PlatoCatalogo, normPlato, ordenarPlatos, platoActivo, platoConNombre } from '../lib/comidaPlatos';
+import { LineaCesta, avisoCesta, lineasConCantidad, totalCesta, validarCesta } from '../lib/comidaCesta';
 
 type Empresa = { id: string; name: string };
 
@@ -55,6 +56,11 @@ type Formulario =
   | { modo: 'alta-persona' }
   | { modo: 'editar-empresa'; fila: FoodCompanyMeal }
   | { modo: 'editar-persona'; fila: FoodDistribution };
+
+/** 🧺 Una línea de la cesta del ALTA POR EMPRESA (05-oct-2026): la línea pura de
+ *  comidaCesta.ts + su costo POR LÍNEA tal como se teclea y su rótulo. `nueva`
+ *  marca la fila «➕ Otra opción», la única con el nombre del plato editable. */
+type LineaCestaAlta = LineaCesta & { costo: string; icon: string; nombre: string; nueva?: boolean };
 
 const hora = (iso: unknown) => {
   const d = new Date(String(iso ?? ''));
@@ -98,15 +104,39 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
   const [encontrados, setEncontrados] = useState<PersonaComida[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [persona, setPersona] = useState<PersonaComida | null>(null);
+  // 🧺 LA CESTA DEL ALTA POR EMPRESA (05-oct-2026). Pedido del cliente: «yo le
+  // registro el desayuno al GNB y no puedo registrar más nada ahí […] la idea es
+  // poder registrar varios o los que yo quiera o necesite». En vez de elegir UNA
+  // comida: una casilla por cada una, con su costo POR LÍNEA, más los platos de
+  // «otros». El alta por PERSONA y las correcciones siguen EXACTAMENTE igual.
+  const [cestaEmpresa, setCestaEmpresa] = useState<LineaCestaAlta[]>([]);
 
   const total = entregasEmpresa.length + entregasPersona.length;
   const esHoy = fecha === hoy;
+
+  // La cesta se arma al abrir el alta: las 4 comidas + los platos ACTIVOS del
+  // catálogo + la fila ➕ para estrenar una opción (lo que hoy hace `nuevaOpcion`).
+  const armarCestaEmpresa = (): LineaCestaAlta[] => [
+    ...MEALS.map((m) => ({ mealType: m.key as string, itemLabel: null, cantidad: '', costo: '', icon: m.icon, nombre: m.label })),
+    ...ordenarPlatos(platos).filter(platoActivo).map((p) => ({ mealType: 'otros', itemLabel: p.name, cantidad: '', costo: '', icon: '🧾', nombre: p.name })),
+    { mealType: 'otros', itemLabel: '', cantidad: '', costo: '', icon: '➕', nombre: '', nueva: true },
+  ];
+
+  // El nombre con el que una línea se valida y se cuenta: el plato en «otros»,
+  // la comida en las demás. Es el `labelDe` que pide validarCesta.
+  const nombreDeLineaCesta = (l: LineaCesta): string =>
+    l.mealType === 'otros' ? (l.itemLabel ?? '').trim() : mealLabel(l.mealType as MealType);
+
+  const ponLineaCesta = (i: number, cambio: Partial<LineaCestaAlta>) =>
+    setCestaEmpresa((prev) => prev.map((x, j) => (j === i ? { ...x, ...cambio } : x)));
 
   const abrir = (f: Formulario) => {
     setAviso(null);
     setBusca(''); setEncontrados([]); setPersona(null); setNuevaOpcion(false);
     if (f.modo === 'alta-empresa') {
       setEmpresaId(''); setComida('almuerzo'); setCantidad(''); setCosto(''); setPlato(''); setNota('');
+      // 🧺 (05-oct-2026) El alta por empresa ya no elige UNA comida: arma la cesta.
+      setCestaEmpresa(armarCestaEmpresa());
     } else if (f.modo === 'alta-persona') {
       setComida('almuerzo'); setCantidad('1'); setNota('');
     } else if (f.modo === 'editar-empresa') {
@@ -146,17 +176,43 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
     setAviso(null);
     try {
       if (form.modo === 'alta-empresa') {
+        // 🧺 CESTA (05-oct-2026): cada casilla con cantidad es UNA entrega, que
+        // pasa por validarAltaEmpresa y agregarEntregaEmpresa como siempre.
+        // Primero la empresa y la cesta ENTERA (validarCesta): si algo no
+        // cuadra, no se guarda NADA.
         const emp = empresas.find((e) => e.id === empresaId);
-        const v = validarAltaEmpresa(
-          { companyId: empresaId, companyName: emp?.name, mealType: comida, mealDate: fecha, cantidad, costo, plato, nota },
-          hoy,
-        );
-        if (!v.ok) { setAviso('❌ ' + v.error); return; }
-        const { error } = await agregarEntregaEmpresa(v.patch, usuario, esHoy ? new Date().toISOString() : undefined);
-        if (error) { setAviso('❌ ' + error); onCambio(); return; }
-        const avisoPlato = await anotarPlatoNuevo(v.patch.plato, platos);
-        setAviso(`✅ Agregado: ${v.patch.cantidad} ${mealLabel(v.patch.mealType as MealType)}${v.patch.plato ? ` (${v.patch.plato})` : ''} a ${v.patch.companyName}.${avisoPlato}`);
-        onCambio(); cerrarTrasGuardar(); return;
+        if (!emp) { setAviso('❌ Elige la empresa.'); return; }
+        const motivo = validarCesta(cestaEmpresa, nombreDeLineaCesta);
+        if (motivo) { setAviso('❌ ' + motivo); return; }
+        const ok: string[] = [];
+        const fallos: { nombre: string; error: string }[] = [];
+        const guardadas = new Set<LineaCesta>();
+        let avisoPlatos = '';
+        // El filtro devuelve las MISMAS líneas de la cesta, por eso el cast es seguro.
+        for (const l of lineasConCantidad(cestaEmpresa) as LineaCestaAlta[]) {
+          const nombre = nombreDeLineaCesta(l) || l.mealType;
+          const v = validarAltaEmpresa(
+            { companyId: empresaId, companyName: emp.name, mealType: l.mealType, mealDate: fecha, cantidad: l.cantidad, costo: l.costo, plato: l.itemLabel ?? '', nota },
+            hoy,
+          );
+          // Si una línea falla, se SIGUE con las demás: el aviso final dice el
+          // saldo (avisoCesta), para que nadie repita lo que sí entró.
+          if (!v.ok) { fallos.push({ nombre, error: v.error }); continue; }
+          const { error } = await agregarEntregaEmpresa(v.patch, usuario, esHoy ? new Date().toISOString() : undefined);
+          if (error) { fallos.push({ nombre, error }); continue; }
+          ok.push(`${v.patch.cantidad} ${nombre}`);
+          guardadas.add(l);
+          // Una opción estrenada en la fila ➕ queda en la lista de platos, como hoy.
+          if (l.nueva) avisoPlatos += await anotarPlatoNuevo(v.patch.plato, platos);
+        }
+        setAviso(avisoCesta({ ok, fallos }) + avisoPlatos);
+        if (ok.length) onCambio();
+        if (fallos.length === 0) { cerrarTrasGuardar(); return; }
+        // Con fallos el formulario queda ABIERTO: las fallidas conservan su
+        // cantidad para reintentar, y las guardadas quedan en blanco para que
+        // un segundo toque no las duplique.
+        setCestaEmpresa((prev) => prev.map((x) => (guardadas.has(x) ? { ...x, cantidad: '' } : x)));
+        return;
       }
 
       if (form.modo === 'alta-persona') {
@@ -251,6 +307,41 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
     </View>
   );
 
+  // 🧺 Una fila de la cesta del alta por empresa (05-oct-2026): rótulo (o el
+  // nombre a estrenar, en la fila ➕), cantidad y costo POR LÍNEA. Vacía = esa
+  // comida no va (regla de comidaCesta.ts). Mismos estilos de `campo`.
+  const entradaCesta = { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, backgroundColor: colors.surface, fontSize: 14 } as const;
+  const filaCesta = (l: LineaCestaAlta, i: number) => (
+    <View key={'cesta' + i} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
+      {l.nueva ? (
+        <TextInput
+          value={l.itemLabel ?? ''}
+          onChangeText={(t) => ponLineaCesta(i, { itemLabel: t })}
+          editable={!guardando}
+          placeholder="➕ Otra opción (hielo, refresco…)"
+          placeholderTextColor={colors.muted}
+          style={[entradaCesta, { flex: 1 }]}
+        />
+      ) : (
+        <Text style={{ flex: 1, color: colors.text, fontSize: 13, fontWeight: '700' }}>{l.icon} {l.nombre}</Text>
+      )}
+      <TextInput
+        value={l.cantidad}
+        onChangeText={(t) => ponLineaCesta(i, { cantidad: t.replace(/[^0-9]/g, '') })}
+        editable={!guardando}
+        keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+        style={[entradaCesta, { width: 60, textAlign: 'center', fontWeight: '800' }]}
+      />
+      <TextInput
+        value={l.costo}
+        onChangeText={(t) => ponLineaCesta(i, { costo: t.replace(/[^0-9.,]/g, '') })}
+        editable={!guardando}
+        keyboardType="numeric" placeholder="0,00" placeholderTextColor={colors.muted}
+        style={[entradaCesta, { width: 74, textAlign: 'center' }]}
+      />
+    </View>
+  );
+
   const renglon = (
     clave: string, icono: string, titulo: string, detalle: string,
     onEditar: () => void, onBorrar: () => void,
@@ -277,8 +368,9 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
     return '✏️ Corregir la entrega de la persona';
   }, [form]);
 
-  const esEmpresa = form?.modo === 'alta-empresa' || form?.modo === 'editar-empresa';
-  const esAlta = form?.modo === 'alta-empresa' || form?.modo === 'alta-persona';
+  // 🧺 (05-oct-2026) El alta por empresa ya va por la CESTA: los campos sueltos
+  // de comida/cantidad/costo/plato quedan para la corrección y el alta por persona.
+  const esEditarEmpresa = form?.modo === 'editar-empresa';
   // «Otros» a un contacto de cocina (22-sep-2026): el plato sale del catálogo, sin costo escrito.
   const esContactoOtros = form?.modo === 'alta-persona' && persona?.tipo === 'contacto' && comida === 'otros';
   const platosEnLista = ordenarPlatos(platos).filter(platoActivo);
@@ -291,8 +383,8 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
    */
   const platoFueraDeLista = comida === 'otros' && !!plato.trim() && !platoConNombre(platos, plato);
   const mostrarCampoPlato =
-    ((esEmpresa || esContactoOtros) && comida === 'otros' && (nuevaOpcion || !platosEnLista.length || platoFueraDeLista))
-    || (esEmpresa && form?.modo === 'editar-empresa' && comida !== 'otros' && !!form.fila.item_label);
+    ((esEditarEmpresa || esContactoOtros) && comida === 'otros' && (nuevaOpcion || !platosEnLista.length || platoFueraDeLista))
+    || (form?.modo === 'editar-empresa' && comida !== 'otros' && !!form.fila.item_label);
 
   return (
     <Plegable
@@ -415,13 +507,34 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                 </>
               ) : null}
 
-              {/* Comida: al dar de alta se elige; al corregir se muestra, porque
-                  cambiar de comida es otra entrega distinta. */}
-              {esAlta ? (
+              {/* 🧺 ALTA POR EMPRESA (05-oct-2026): la CESTA. Pedido del cliente:
+                  «yo le registro el desayuno al GNB y no puedo registrar más nada
+                  ahí […] poder registrar varios o los que yo quiera o necesite».
+                  Una casilla por comida y por plato de «otros», cada una con su
+                  costo POR LÍNEA; la cantidad vacía no se registra. */}
+              {form?.modo === 'alta-empresa' ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs }}>
+                    <Text style={{ flex: 1, color: colors.muted, fontSize: 11, fontWeight: '800' }}>COMIDAS · la cantidad vacía no va</Text>
+                    <Text style={{ width: 60, color: colors.muted, fontSize: 10, fontWeight: '800', textAlign: 'center' }}>CANT.</Text>
+                    <Text style={{ width: 74, color: colors.muted, fontSize: 10, fontWeight: '800', textAlign: 'center' }}>$ C/U</Text>
+                  </View>
+                  {cestaEmpresa.map((l, i) => (l.mealType === 'otros' ? null : filaCesta(l, i)))}
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginTop: spacing.sm }}>🧾 {OTROS_TITULO}</Text>
+                  {cestaEmpresa.map((l, i) => (l.mealType === 'otros' ? filaCesta(l, i) : null))}
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                    🧺 {totalCesta(cestaEmpresa)} plato(s) en total. Si el plato tiene precio en «🧾 Platos», se cobra ese; el $ de aquí cuenta solo mientras no lo tenga.
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Comida: en el alta por PERSONA se elige; al corregir se muestra,
+                  porque cambiar de comida es otra entrega distinta. */}
+              {form?.modo === 'alta-persona' ? (
                 <View style={{ marginTop: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>COMIDA</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                    {(form?.modo === 'alta-empresa' || persona?.tipo === 'contacto' ? COMPANY_MEALS : MEALS).map((m) =>
+                    {(persona?.tipo === 'contacto' ? COMPANY_MEALS : MEALS).map((m) =>
                       pastilla(`${m.icon} ${m.key === 'otros' ? OTROS_TITULO : m.label}`, comida === m.key, () => {
                         setComida(m.key);
                         // El nombre del plato es solo de «Otros»: al cambiar de comida
@@ -431,20 +544,23 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                     )}
                   </View>
                 </View>
-              ) : (
+              ) : null}
+              {form?.modo === 'editar-empresa' || form?.modo === 'editar-persona' ? (
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
                   Comida: <Text style={{ color: colors.text, fontWeight: '800' }}>{mealLabel(comida)}</Text> · para cambiarla, borra y vuelve a agregar
                 </Text>
-              )}
+              ) : null}
 
-              {campo(esEmpresa ? 'CUÁNTOS PLATOS' : 'CUÁNTAS COMIDAS', cantidad, setCantidad, { numerico: true, placeholder: '0' })}
+              {form?.modo !== 'alta-empresa'
+                ? campo(esEditarEmpresa ? 'CUÁNTOS PLATOS' : 'CUÁNTAS COMIDAS', cantidad, setCantidad, { numerico: true, placeholder: '0' })
+                : null}
 
-              {esEmpresa ? campo('COSTO POR PLATO EN $ (opcional)', costo, setCosto, { numerico: true, placeholder: '0,00' }) : null}
+              {esEditarEmpresa ? campo('COSTO POR PLATO EN $ (opcional)', costo, setCosto, { numerico: true, placeholder: '0,00' }) : null}
               {/* HIELO, AGUA y las que hayan agregado: se ELIGEN con un toque. Escribirlo
                   a mano es como terminan «Bolsa de yelo» y «bolsa hielo» siendo dos
                   opciones con dos precios. El ➕ es para estrenar una, no para volver a
                   escribir cada día la misma (23-sep-2026). */}
-              {(esEmpresa || esContactoOtros) && comida === 'otros' ? (
+              {(esEditarEmpresa || esContactoOtros) && comida === 'otros' ? (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                   {platosEnLista.map((p) => pastilla(
                     `🧾 ${p.name}`,
@@ -466,7 +582,7 @@ export function ComidaEditor({ fecha, hoy, entregasEmpresa, entregasPersona, emp
                     : 'La lista está vacía: deberían estar HIELO y AGUA. Agrégalas con ➕ o en «💲 Precios y cuentas → 🧾 Platos», que es donde se les pone el precio.'}
                 </Text>
               ) : null}
-              {esEmpresa && comida === 'otros' ? (
+              {esEditarEmpresa && comida === 'otros' ? (
                 <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
                   Si el plato tiene precio en «🧾 Platos», se cobra ese precio; el costo de aquí cuenta solo mientras no lo tenga.
                 </Text>

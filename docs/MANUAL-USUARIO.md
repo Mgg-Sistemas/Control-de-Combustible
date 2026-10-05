@@ -2590,6 +2590,26 @@ el reporte con firma y el recibo del inspector):
 El PDF sigue siendo una **foto del momento en que se genera** (no se refresca solo como la
 pantalla): si los datos cambian, se genera de nuevo.
 
+#### 🧺 Registrar varias comidas de una vez (05/10/2026)
+
+Antes, a una empresa se le registraba **una comida por vez** (desayuno, cerrar, abrir otra vez,
+almuerzo…). Ahora hay una **cesta** en dos sitios:
+
+1. **En la pantalla del QR de la empresa** (la de la cocina): el botón **«🧺 Registrar varias de una
+   vez»** abre una hoja con todas las comidas —desayuno, almuerzo, lunch, cena y los platos de
+   «Hielo, agua y otros»— cada una con su casilla de **cantidad** y su **costo** por plato. Llenas
+   las que quieras (vacía = esa no va) y **«✅ Registrar todo»** las guarda todas.
+2. **En la corrección del jefe** (Distribución de comida → Por día → agregar **por empresa**): el
+   alta usa la misma cesta en vez de elegir una sola comida.
+
+- ⭐ **O pasa toda o no se guarda nada**: si una cantidad está mal o a un «Otros» le falta el plato,
+  no se registra ninguna y el aviso dice cuál corregir.
+- ⭐ **Si algo falla a mitad** (internet, permiso), el aviso dice qué quedó registrado y qué no, y la
+  hoja conserva solo lo fallado para reintentar **sin duplicar** lo que sí entró.
+- ⭐ **Cada comida sigue siendo una entrega normal**: en «Entregas de hoy», reportes, cobro y factura
+  sale igual que registrada una por una. El registro de una sola comida sigue existiendo.
+- Tope por casilla: 200 (el mismo de los contactos).
+
 #### ✏️ Corregir comidas de cualquier día (18/09/2026)
 En la pestaña **"📅 Por día"**, quien tiene **permiso COMPLETO** en Distribución de comida ve la
 tarjeta **"✏️ Agregar o corregir las comidas de este día"**. Funciona desde el teléfono.
