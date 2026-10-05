@@ -275,6 +275,21 @@ export type ResumenFrentes = { tarjetas: TarjetaFrentes[]; cuadros: CuadroFrente
 /** Una tarjeta escrita por el usuario, de cero. */
 export type TarjetaPropia = { titulo: string; valor: string; nota?: string };
 
+/**
+ * 🔢 CÓMO SE ORDENA EL CUADRO «… por frente» (05-oct-2026, a pedido: «que se
+ * organicen en vez de por cantidad, por el número de la ubicación»). Los
+ * frentes llevan su número en el nombre («3) RESIDENCIAS…», «08) COSTA BRAVA»).
+ */
+export type OrdenFrentes = 'cantidad' | 'numero';
+
+/** El número con el que empieza el nombre de un frente («08) COSTA BRAVA» → 8,
+ *  «1 ) RESIDENCIAS» → 1). Sin número = al final (Infinity), y entre esos,
+ *  alfabético. Así ordenar por número nunca pierde un frente. */
+export function numeroDeFrente(nombre: unknown): number {
+  const m = String(nombre ?? '').match(/^\s*(\d+)/);
+  return m ? parseInt(m[1], 10) : Number.POSITIVE_INFINITY;
+}
+
 export type EdicionResumen = {
   /** Claves de tarjetas y cuadros que NO salen (lo oculto no deja rastro). */
   ocultos?: string[];
@@ -286,6 +301,9 @@ export type EdicionResumen = {
   notas?: Record<string, string>;
   /** Tarjetas propias, al final y en su orden. */
   propias?: TarjetaPropia[];
+  /** 🔢 Orden del cuadro «… por frente»: por cantidad (de siempre) o por el
+   *  número del frente. En blanco = cantidad. */
+  ordenFrentes?: OrdenFrentes;
 };
 
 export const EDICION_RESUMEN_VACIA: EdicionResumen = {};
@@ -300,7 +318,7 @@ export const EDICION_RESUMEN_VACIA: EdicionResumen = {};
  * mentir en un papel que puede ir a pago, así que se limpian.
  */
 export function edicionAlCambiarDeDia(ed: EdicionResumen | null | undefined): EdicionResumen {
-  return { ocultos: ed?.ocultos ?? [], titulos: ed?.titulos ?? {}, notas: ed?.notas ?? {} };
+  return { ocultos: ed?.ocultos ?? [], titulos: ed?.titulos ?? {}, notas: ed?.notas ?? {}, ordenFrentes: ed?.ordenFrentes };
 }
 
 const limpioTxt = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -358,7 +376,7 @@ export function aplicarEdicionResumen(r: ResumenFrentes, ed: EdicionResumen | nu
  * es un equipo. ⭐ Cada cuadro sigue a su interruptor: con la columna apagada,
  * su cuadro tampoco sale (lo oculto no deja rastro).
  */
-export function resumenFrentes(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION): ResumenFrentes {
+export function resumenFrentes(grupos: FrenteDelDia[], op: OpcionesFrentes = FRENTES_POR_DEFECTO, e: EtiquetaEquipo = ETIQUETA_CAMION, orden: OrdenFrentes = 'cantidad'): ResumenFrentes {
   const unicos = new Map<string, CamionDelFrente>();
   let filas = 0;
   grupos.forEach((g) => g.camiones.forEach((c) => {
@@ -388,8 +406,15 @@ export function resumenFrentes(grupos: FrenteDelDia[], op: OpcionesFrentes = FRE
     tarjetas.push({ k: 'viajes', titulo: 'Viajes del día', valor: String(viajes), nota: `${conViajes} de ${equipos.length} ${e.plural} con viajes` });
   }
 
+  // El cuadro «por frente» se ordena por CANTIDAD (de siempre) o por el NÚMERO
+  // del frente, según lo pedido. Los otros cuadros no tienen número, así que
+  // siguen por cantidad.
+  const filasFrente = conEquipos.map((g) => ({ clave: g.nombre, n: g.camiones.length })).sort((a, b) =>
+    orden === 'numero'
+      ? (numeroDeFrente(a.clave) - numeroDeFrente(b.clave)) || a.clave.localeCompare(b.clave, 'es', { numeric: true })
+      : (b.n - a.n) || a.clave.localeCompare(b.clave, 'es', { numeric: true }));
   const cuadros: CuadroFrentes[] = [
-    { k: 'porFrente', titulo: `${e.unidad[0].toUpperCase()}${e.unidad.slice(1)} por frente`, filas: conEquipos.map((g) => ({ clave: g.nombre, n: g.camiones.length })).sort((a, b) => b.n - a.n || a.clave.localeCompare(b.clave, 'es', { numeric: true })) },
+    { k: 'porFrente', titulo: `${e.unidad[0].toUpperCase()}${e.unidad.slice(1)} por frente`, filas: filasFrente },
     { k: 'porTipo', titulo: 'Por tipo de equipo', filas: contar((c) => limpio(c.code)) },
   ];
   if (op.empresa) cuadros.push({ k: 'porEmpresa', titulo: 'Por empresa', filas: contar((c) => empresaImpresa(c, op)) });
@@ -418,7 +443,7 @@ export function cuerpoFrentesDelDia(
   if (t.frentes === 0) {
     return `<p class="fr-vacio">Ese día no hay ningún ${e.singular} asignado a un frente.</p>`;
   }
-  const tablero = op.resumen ? htmlResumenFrentes(aplicarEdicionResumen(resumenFrentes(grupos, op, e), ed)) : '';
+  const tablero = op.resumen ? htmlResumenFrentes(aplicarEdicionResumen(resumenFrentes(grupos, op, e, ed?.ordenFrentes ?? 'cantidad'), ed)) : '';
   const cabecera = tablero + (op.totales
     ? `<p class="fr-tot">${t.camiones} ${e.unidad} asignados · ${t.frentesConCamiones} de ${t.frentes} frente(s) con ${e.plural}</p>`
     : '');
