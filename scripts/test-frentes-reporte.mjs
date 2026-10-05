@@ -424,6 +424,40 @@ ok('y ofrece también los frentes activos sin asignación',
   eq('…y no revienta sin nada', edicionAlCambiarDeDia(null), { ocultos: [], titulos: {}, notas: {} });
   ok('⭐ el valor de ayer no puede salir en el papel de hoy', !resumenEditado({ valores: {}, propias: [] }) && aplicarEdicionResumen(base, edicionAlCambiarDeDia(llena)).tarjetas.every((x) => x.valor !== '99'));
   ok('⭐ la pantalla lo aplica cuando cambia la fecha', /diaEditado\.current = fecha;\s*\n\s*setEdicionResumen\(\(p\) => edicionAlCambiarDeDia\(p\)\)/.test(comp));
+
+  // 🔢 ORDENAR «… POR FRENTE» POR NÚMERO (05-oct-2026, a pedido: «que se
+  //    organicen en vez de por cantidad, por el número de la ubicación»).
+  const { numeroDeFrente } = m.exports;
+  eq('numeroDeFrente lee el número del nombre, aunque lleve espacios o ceros',
+    ['3) RESIDENCIAS BAHIA', '08) COSTA BRAVA', '1 ) RESIDENCIAS CORAL', 'CANTERA SIN NUMERO'].map(numeroDeFrente),
+    [3, 8, 1, null]); // Infinity → JSON.stringify lo vuelve null
+  const gNum = frentesDelDia([
+    { frenteNombre: '9) BREOGAN', camion: { id: 'a', code: 'JUMBO' } },
+    { frenteNombre: '9) BREOGAN', camion: { id: 'b', code: 'JUMBO' } },
+    { frenteNombre: '9) BREOGAN', camion: { id: 'c', code: 'JUMBO' } },
+    { frenteNombre: '1) CORAL', camion: { id: 'd', code: 'JUMBO' } },
+    { frenteNombre: '08) COSTA BRAVA', camion: { id: 'e', code: 'JUMBO' } },
+    { frenteNombre: '08) COSTA BRAVA', camion: { id: 'f', code: 'JUMBO' } },
+  ]);
+  const porFrente = (orden) => resumenFrentes(gNum, FRENTES_POR_DEFECTO, ETIQUETA_CAMION_T, orden).cuadros.find((q) => q.k === 'porFrente').filas.map((f) => f.clave);
+  eq('⭐ por CANTIDAD (de siempre): el que más equipos tiene, primero', porFrente('cantidad'), ['9) BREOGAN', '08) COSTA BRAVA', '1) CORAL']);
+  eq('⭐ por NÚMERO: 1, luego 8, luego 9 — sin importar la cantidad', porFrente('numero'), ['1) CORAL', '08) COSTA BRAVA', '9) BREOGAN']);
+  eq('sin decir el orden, sigue siendo por cantidad', resumenFrentes(gNum, FRENTES_POR_DEFECTO, ETIQUETA_CAMION_T).cuadros.find((q) => q.k === 'porFrente').filas.map((f) => f.clave), ['9) BREOGAN', '08) COSTA BRAVA', '1) CORAL']);
+  eq('⭐ el orden solo toca «por frente», no «por tipo»',
+    resumenFrentes(gNum, FRENTES_POR_DEFECTO, ETIQUETA_CAMION_T, 'numero').cuadros.find((q) => q.k === 'porTipo').filas.map((f) => f.clave), ['JUMBO']);
+  const frenteSinNum = frentesDelDia([{ frenteNombre: 'CANTERA', camion: { id: 'a', code: 'X' } }, { frenteNombre: '2) CORAL', camion: { id: 'b', code: 'X' } }]);
+  eq('un frente sin número va AL FINAL al ordenar por número (no se pierde)',
+    resumenFrentes(frenteSinNum, FRENTES_POR_DEFECTO, ETIQUETA_CAMION_T, 'numero').cuadros.find((q) => q.k === 'porFrente').filas.map((f) => f.clave), ['2) CORAL', 'CANTERA']);
+  // El orden se guarda en la edición y VIAJA al papel; es forma, se queda al cambiar de día.
+  eq('⭐ el orden es FORMA: se queda al cambiar de día', edicionAlCambiarDeDia({ ordenFrentes: 'numero' }).ordenFrentes, 'numero');
+  ok('⭐ el papel sale con el orden elegido', (() => {
+    const htmlNum = cuerpoFrentesDelDia(gNum, { ...FRENTES_POR_DEFECTO, resumen: true }, ETIQUETA_CAMION_T, { ordenFrentes: 'numero' });
+    // Dentro del CUADRO «… por frente» (no en la tarjeta «más carga»): 1 antes que 9.
+    const caja = htmlNum.slice(htmlNum.indexOf('por frente</div>'));
+    return caja.indexOf('1) CORAL') < caja.indexOf('9) BREOGAN') && caja.indexOf('1) CORAL') >= 0;
+  })());
+  ok('⭐ la pantalla ofrece ordenar por cantidad o por número', /ordenFrentes: k/.test(comp) && /🔢 Número del frente/.test(comp) && /resumenFrentes\(grupos, opPapel, E, edicionResumen\.ordenFrentes/.test(comp));
+
 }
 
 // ── 📋 REPETIR LOS FRENTES DE OTRO DÍA (03-oct-2026, a pedido: «dame la opción

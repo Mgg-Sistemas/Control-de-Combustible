@@ -46,7 +46,7 @@ import {
   //    se confirma y se escribe.
   planRepetirFrentes, textoPlanRepetir,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
-  type EdicionResumen, type TarjetaPropia, type PlanRepetirFrentes,
+  type EdicionResumen, type TarjetaPropia, type PlanRepetirFrentes, type OrdenFrentes,
 } from '../lib/frentesReporte';
 
 /** Lo que hace falta de cada camión para el buscador de la asignación. */
@@ -542,8 +542,8 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       activos.map((f) => f.nombre),
       opPapel,
     );
-    return resumenFrentes(grupos, opPapel, E);
-  }, [asignaciones, camiones, opPapel, activos, E]); // eslint-disable-line react-hooks/exhaustive-deps
+    return resumenFrentes(grupos, opPapel, E, edicionResumen.ordenFrentes ?? 'cantidad');
+  }, [asignaciones, camiones, opPapel, activos, E, edicionResumen.ordenFrentes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Los retoques del tablero. Todos escriben en `edicionResumen` por CLAVE
   //    (`k`), que es estable: la misma tarjeta se reconoce otro día. ──
@@ -828,6 +828,22 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                           valores que ves acá son una prevista: el papel los recalcula con los datos de
                           ese día al exportar.
                         </Text>
+
+                        {/* 🔢 Cómo se ordena el cuadro «… por frente» (05-oct-2026,
+                            a pedido: «que se organicen por el número de la
+                            ubicación» en vez de por cantidad). */}
+                        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>ORDENAR «{E.unidad[0].toUpperCase()}{E.unidad.slice(1)} POR FRENTE» POR</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+                          {([['cantidad', '📊 Cantidad'], ['numero', '🔢 Número del frente']] as [OrdenFrentes, string][]).map(([k, label]) => {
+                            const on = (edicionResumen.ordenFrentes ?? 'cantidad') === k;
+                            return (
+                              <TouchableOpacity key={k} onPress={() => setEdicionResumen((pp) => ({ ...pp, ordenFrentes: k }))}
+                                style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{label}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
 
                         <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '800' }}>TARJETAS</Text>
                         {resumenPreview.tarjetas.length === 0 ? (

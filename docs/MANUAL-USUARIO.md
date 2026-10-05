@@ -3637,6 +3637,16 @@ nombre del archivo también; en domingo no se agrega nada.
 > Empresa lleva ese nombre en todas las filas. Es **solo el papel**: no cambia la ficha de ninguna
 > máquina. Si la columna Empresa está apagada, el nombre tampoco sale.
 
+
+> **🔢 Ordenar el cuadro «… por frente» (05/10/2026).** En el mismo desplegable, arriba, hay
+> **«Ordenar … por»** con dos pastillas: **📊 Cantidad** (de siempre: el frente con más equipos
+> primero) y **🔢 Número del frente** (1, 2, 3…, leyendo el número con el que arranca cada nombre:
+> «08) Costa Brava», «3) Residencias Bahía Mar»). Un frente sin número va al final. Solo cambia ese
+> cuadro del tablero; es forma del papel y se queda al cambiar de día.
+>
+> Para **quitar** el promedio por frente, las empresas o cualquier tarjeta o cuadro, usa el botón
+> 👁️ / 🚫 de esa fila en este mismo desplegable.
+
 #### ⚙️ Control de horómetros — el pago por horómetro (02/10/2026)
 
 El hermano de **Control de maquinaria**, pero pagando por **horas de horómetro** en vez de por
