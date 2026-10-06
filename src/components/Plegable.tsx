@@ -33,17 +33,26 @@ type Props = {
   /** Pinta el resumen como advertencia. Para cuando hay algo que atender. */
   alerta?: boolean;
   abiertaPorDefecto?: boolean;
+  /**
+   * 📡 Avisa cada vez que se abre o se cierra (06-oct-2026, «el sistema va
+   * lento»). Sirve para que una tarjeta pesada CONSULTE SOLO CUANDO LA ABREN:
+   * sin esto, el componente ya está montado y pide sus datos aunque la tarjeta
+   * esté cerrada y nadie los vea. Opcional: quien no lo pase sigue igual.
+   */
+  onAbrir?: (abierta: boolean) => void;
   children: React.ReactNode;
 };
 
-export function Plegable({ titulo, resumen, alerta, abiertaPorDefecto = false, children }: Props) {
+export function Plegable({ titulo, resumen, alerta, abiertaPorDefecto = false, onAbrir, children }: Props) {
   const { colors } = useTheme();
   const [abierta, setAbierta] = useState(abiertaPorDefecto);
+  // Si nace abierta, hay que avisarlo igual: su dueño tiene que cargar.
+  React.useEffect(() => { onAbrir?.(abiertaPorDefecto); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Card>
       <TouchableOpacity
-        onPress={() => setAbierta((v) => !v)}
+        onPress={() => setAbierta((v) => { onAbrir?.(!v); return !v; })}
         activeOpacity={0.7}
         style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}
       >

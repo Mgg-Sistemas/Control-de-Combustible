@@ -144,7 +144,16 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
     }
   }, []);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  /**
+   * 💤 NO SE CONSULTA HASTA QUE ABRAS LA TARJETA (06-oct-2026, «el sistema va
+   * lento»). Antes, esta tarjeta y la de peso pedían CADA UNA todos los viajes
+   * desde el 14-sep al abrir Viajes de camiones —4.082 filas en 6 viajes de
+   * red— aunque las dos estuvieran cerradas y nadie las mirara. Y esa ventana
+   * crece sola: en seis meses serían 16.000 filas en cada apertura.
+   * Ahora se carga al abrirla, y queda cargada mientras no salgas.
+   */
+  const [yaPedido, setYaPedido] = useState(false);
+  useEffect(() => { if (yaPedido) cargar(); }, [yaPedido, cargar]);
 
   const empresas = useMemo(() => {
     if (!datos || error) return [] as { clave: string; nombre: string; g: PagoViajesGrupo }[];
@@ -345,8 +354,12 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
     <>
       <Plegable
         titulo="💰 Pago de viajes"
-        resumen={error ? '⚠️ no se pudo leer' : `${tot.pagados} viaje(s) · ${usd(tot.monto)} · ${dmy(desde)} al ${dmy(hasta)}`}
-        alerta={!!error || tot.pendientes > 0}
+        // Cerrada y sin pedir todavía, NO se inventa un total: lo dice.
+        resumen={error ? '⚠️ no se pudo leer'
+          : !yaPedido ? 'toca para calcular el pago del rango'
+            : `${tot.pagados} viaje(s) · ${usd(tot.monto)} · ${dmy(desde)} al ${dmy(hasta)}`}
+        alerta={!!error || (yaPedido && tot.pendientes > 0)}
+        onAbrir={(abierta) => { if (abierta) setYaPedido(true); }}
       >
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
           Lo que se le paga a cada empresa por los viajes de sus camiones, con la tarifa que le toque (la de la zona
