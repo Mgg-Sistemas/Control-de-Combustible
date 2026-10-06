@@ -98,7 +98,10 @@ eq('el nombre del archivo lleva la fecha', nombreArchivoFrentes('2026-09-29'), '
 const comp = leer('src/components/FrentesTrabajo.tsx');
 ok('el botón «📄 PDF del día» está en la subsección de frentes',
   /📄 PDF del día/.test(comp) && /onPress=\{exportarPdf\}/.test(comp));
-ok('usa la fecha elegida, no «hoy» a la fuerza', /nombreArchivoFrentes\(fecha\)/.test(comp));
+// El 2º argumento entró el 06-oct-2026: son las opciones, para que el nombre del
+// archivo diga si la hoja salió por unos frentes elegidos. La fecha sigue siendo
+// la elegida en pantalla, que es lo que esta guarda vigila.
+ok('usa la fecha elegida, no «hoy» a la fuerza', /nombreArchivoFrentes\(fecha(, opPapel)?\)/.test(comp));
 ok('⭐ el papel sale sin la marca en texto, como los demás de viajes', /marcaTexto: false/.test(comp));
 ok('y ofrece también los frentes activos sin asignación',
   /activos\.map\(\(f\) => f\.nombre\)/.test(comp));
