@@ -6573,6 +6573,33 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### ✔️ Marcar que un rango ya se pagó (06/10/2026)
+
+Dos respuestas del mismo día:
+
+**La tarifa solo para un rango (desde–hasta) ya existía:** en ⚙️ Tarifas y camiones → Nueva tarifa,
+marca **«🔒 Blindar a un rango de fechas»** y aparece el campo **hasta**. Esa tarifa rige solo en ese
+rango (y dentro de él manda sobre la del mismo tipo); al salir, vuelve la de siempre. El PDF lo toma
+solo: cada viaje se cobra con la tarifa que regía su día.
+
+**Marcar «ya se pagó» — lo nuevo:** en la tarjeta 💰 Pago de viajes, debajo del total, está
+**«🔒 Marcar este rango como PAGADO»**:
+
+1. Elige el rango de fechas (el mismo que consultas) y toca el botón.
+2. La confirmación te canta el total, las empresas y —si los hay— los viajes que quedan **sin
+   pagar** en el rango; puedes agregar una nota.
+3. Se guarda una **constancia con la foto** de ese momento (total, por empresa y por camión, nombres
+   congelados). Desde entonces el rango sale con la banda **«✔️ ya está marcado como PAGADO»** y el
+   PDF del pago lleva «· PAGADO el dd/mm».
+
+- La constancia **no borra ni congela nada**: los viajes y tarifas siguen vivos; es la prueba del pago.
+- Dos constancias activas **no se pisan**; si el rango que miras solo pisa una parte pagada, se avisa.
+- En **«🗂️ Pagos marcados (histórico)»** está cada constancia con su **📄 PDF** (sale de la foto: el
+  papel no cambia aunque después corrijan algo) y el botón **«↺ Reabrir»** con motivo obligatorio —
+  queda tachada y su papel dice «REABIERTA (sin efecto)».
+- «✗ No facturó» es otra cosa: marca que **un viaje** no se cobra. La constancia marca que el
+  **rango entero** ya se pagó. Solo con permiso completo.
+
 #### 💰 Pago de viajes de camiones (15/09/2026)
 
 > **📄 PDF del pago de viajes: por obra, por empresa y con opciones (21/09/2026).** Debajo de los

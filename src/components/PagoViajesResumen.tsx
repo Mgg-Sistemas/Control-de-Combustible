@@ -34,6 +34,14 @@ import {
   acotarFiltroPago, alternarPago, cuerpoPagoViajes, empresasDisponibles, filtrarLineasPago, lineasDeGrupos,
   maquinasDisponiblesPago, obrasDisponibles, ocultosPagoEnPalabras, sufijoArchivoPago, totalDeLineas,
 } from '../lib/pagoViajesReporte';
+// 🔒 Cierres del pago (06-oct-2026): el cliente preguntó «¿cómo defino que ya
+// pagaron viajes?, ¿desde dónde?». Desde aquí: se marca el rango como PAGADO y
+// queda la constancia con su foto (pagoViajesCierres.ts tiene las reglas).
+import {
+  CierrePagoViajes, CSS_CIERRE_PAGO, armarFotoCierrePago, cierrePagoDelRango, cierresPagoSolapados,
+  cuerpoCierrePago, textoConfirmarCierrePago, usdCierre, validarCierrePago,
+} from '../lib/pagoViajesCierres';
+import { cargarCierresPago, crearCierrePago, reabrirCierrePago } from '../lib/pagoViajesCierresDb';
 
 type Props = {
   canEdit: boolean;
@@ -75,11 +83,39 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const [buscaMaq, setBuscaMaq] = useState('');
   const [ejePdf, setEjePdf] = useState<EjePago>('empresa');
   const [opcionesPdf, setOpcionesPdf] = useState<OpcionesPagoViajes>(OPCIONES_PAGO_COMO_ANTES);
+  // ── Cierres «ya se pagó» (06-oct-2026, pedido del cliente) ──
+  const [cierres, setCierres] = useState<CierrePagoViajes[]>([]);
+  /** La tabla viaje_pago_cierres no existe todavía (falta correr el SQL). */
+  const [faltaCierres, setFaltaCierres] = useState(false);
+  const [errorCierres, setErrorCierres] = useState<string | null>(null);
+  /** Confirmación EN LÍNEA de «marcar pagado» (nada de confirm() del navegador). */
+  const [confirmandoPago, setConfirmandoPago] = useState(false);
+  const [notaCierre, setNotaCierre] = useState('');
+  /** Confirmación EN LÍNEA de reabrir: qué cierre, y su motivo (obligatorio). */
+  const [reabriendo, setReabriendo] = useState<{ id: string } | null>(null);
+  const [motivoReabrir, setMotivoReabrir] = useState('');
+  const [guardandoCierre, setGuardandoCierre] = useState(false);
+  /** Aviso del último intento (validación rechazada, permiso, o el «listo»). */
+  const [avisoCierre, setAvisoCierre] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
+
+  // Recarga SOLO los cierres (tras marcar o reabrir, sin releer todo el pago).
+  const recargarCierres = useCallback(async () => {
+    const r = await cargarCierresPago();
+    setCierres(r.cierres);
+    setFaltaCierres(r.missing);
+    setErrorCierres(r.error ?? null);
+  }, []);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      setDatos(await cargarDatosPagoViajes());
+      // Los cierres se cargan junto con los datos: la banda de «ya está pagado»
+      // tiene que salir con el mismo «Actualizar» de la tarjeta.
+      const [d, c] = await Promise.all([cargarDatosPagoViajes(), cargarCierresPago()]);
+      setDatos(d);
+      setCierres(c.cierres);
+      setFaltaCierres(c.missing);
+      setErrorCierres(c.error ?? null);
       setError(null);
     } catch (e: any) {
       setError(`No se pudo leer el pago de viajes (${e?.message ?? 'revisa la conexión'}). No se muestran montos a medias: toca «Actualizar».`);
@@ -155,6 +191,69 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const rangoInvalido = hasta < desde;
   const rangoAntesDelInicio = hasta < INICIO_PAGO_VIAJES;
 
+  // ── Derivados de los cierres (06-oct-2026) ──
+  /** El cierre ACTIVO que contiene el rango entero = «este rango ya está pagado». */
+  const pagado = useMemo(() => cierrePagoDelRango(cierres, desde, hasta), [cierres, desde, hasta]);
+  /** Cierres activos que tocan el rango a medias (para el aviso ámbar). */
+  const solapados = useMemo(() => cierresPagoSolapados(cierres, desde, hasta), [cierres, desde, hasta]);
+  // ⭐ La foto SIEMPRE de lineasTodas (el pago COMPLETO del rango), NUNCA de
+  //    lineasPdf: una constancia de un pago filtrado que se lea como total es
+  //    el error más caro posible.
+  const fotoCierre = useMemo(() => armarFotoCierrePago(lineasTodas, datos?.empresas), [lineasTodas, datos]);
+  /** dd/mm/yyyy de un timestamp (created_at trae hora; el dmy local no la corta). */
+  const dmyTs = (iso?: string | null) => dmy(String(iso ?? '').slice(0, 10));
+  /** dd/mm cortico, para los renglones del histórico. */
+  const dmCorto = (iso?: string | null) => {
+    const [, m, d] = String(iso ?? '').slice(0, 10).split('-');
+    return d && m ? `${d}/${m}` : '';
+  };
+
+  /** Guarda el cierre tras la confirmación en línea (valida ANTES de escribir). */
+  const marcarPagado = async () => {
+    const rechazo = validarCierrePago({ desde, hasta, foto: fotoCierre }, cierres);
+    if (rechazo) { setAvisoCierre({ tipo: 'error', texto: rechazo }); return; }
+    setGuardandoCierre(true);
+    try {
+      const r = await crearCierrePago({ desde, hasta, foto: fotoCierre, nota: notaCierre });
+      if (r.error) { setAvisoCierre({ tipo: 'error', texto: r.error }); return; }
+      await recargarCierres();
+      setConfirmandoPago(false);
+      setNotaCierre('');
+      setAvisoCierre({ tipo: 'ok', texto: `✔️ Listo: el pago del ${dmy(desde)} al ${dmy(hasta)} quedó marcado como PAGADO, con su constancia en el histórico.` });
+    } finally {
+      setGuardandoCierre(false);
+    }
+  };
+
+  /** Reabre (anula) una constancia con su motivo obligatorio. */
+  const confirmarReabrir = async (id: string) => {
+    const motivo = motivoReabrir.trim();
+    if (!motivo) { setAvisoCierre({ tipo: 'error', texto: 'Para reabrir hay que escribir el motivo.' }); return; }
+    setGuardandoCierre(true);
+    try {
+      const r = await reabrirCierrePago(id, motivo, usuarioId);
+      if (r.error) { setAvisoCierre({ tipo: 'error', texto: r.error }); return; }
+      await recargarCierres();
+      setReabriendo(null);
+      setMotivoReabrir('');
+      setAvisoCierre({ tipo: 'ok', texto: '↺ Pago reabierto: la constancia quedó sin efecto, pero sigue en el histórico.' });
+    } finally {
+      setGuardandoCierre(false);
+    }
+  };
+
+  /** El papel de una constancia sale de la FOTO guardada, nunca de los datos vivos. */
+  const pdfCierre = async (c: CierrePagoViajes) => {
+    const html = pdfDocument({
+      title: 'Constancia de pago de viajes',
+      subtitle: `Del ${dmy(c.desde)} al ${dmy(c.hasta)}${c.anulada_at ? ' · REABIERTA (sin efecto)' : ''}`,
+      extraCss: CSS_CIERRE_PAGO,
+      body: cuerpoCierrePago(c),
+      marcaTexto: false,
+    });
+    await exportPdf(html, `Constancia pago viajes ${dmy(c.desde)} a ${dmy(c.hasta)}`.replace(/\//g, '-'));
+  };
+
   const descargarPdf = async () => {
     // Camiones con viajes que no entran al pago: lo que NO se está pagando. Solo en el
     // papel SIN filtrar: esa lista es de todo el rango, y en el papel de una obra o de
@@ -173,7 +272,8 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
       <tbody>${fueraDelPago.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.companyId ? datos?.empresas.get(c.companyId) ?? 'Empresa' : 'Sin empresa')}</td>${conPlaca ? `<td>${esc(placaFuera(c))}</td>` : ''}<td class="r">${c.viajes}</td><td>${c.sinConfigurar ? 'Nunca se puso en el pago' : 'Se le quitó el pago por viaje'}</td></tr>`).join('')}</tbody></table>` : '';
     const html = pdfDocument({
       title: 'Pago de viajes de camiones',
-      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ejePdf === 'frente' ? ' · por frente' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}`,
+      // 🔒 Si el rango ya está marcado como pagado, el papel lo dice (06-oct-2026).
+      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ejePdf === 'frente' ? ' · por frente' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}${pagado ? ` · PAGADO el ${dmyTs(pagado.created_at)}` : ''}`,
       extraCss: CSS_PAGO_VIAJES,
       body: cuerpoPagoViajes({
         lineas: lineasPdf,
@@ -358,6 +458,131 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
                 Sin pagar: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPago(m).toLowerCase()}`).join(' · ')}
               </Text>
             ) : null}
+          </View>
+        ) : null}
+
+        {/* 🔒 «¿Ya se pagó?» (06-oct-2026, pedido del cliente: «¿cómo yo decido o
+            cómo defino que ya pagaron viajes?, ¿desde dónde hago eso?»). Debajo
+            del total: la banda si el rango ya está pagado, el aviso si lo está a
+            medias, y el botón para dejar la constancia. No tranca ni cambia nada
+            del pago: es la marca con su foto. */}
+        {!error ? (
+          <View style={{ marginTop: spacing.sm }}>
+            {pagado ? (
+              <View style={{ borderWidth: 1, borderColor: colors.success, backgroundColor: colors.successSoftBg, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.success, fontWeight: '800', fontSize: 13 }}>
+                  ✔️ Este rango ya está marcado como PAGADO — constancia del {dmyTs(pagado.created_at)}{pagado.created_by_nombre ? ` por ${pagado.created_by_nombre}` : ''}{pagado.nota ? ` · ${pagado.nota}` : ''}
+                </Text>
+              </View>
+            ) : solapados.length ? (
+              <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 12 }}>
+                ⚠️ Parte de este rango ya está marcada como pagada (del {dmy(solapados[0].desde)} al {dmy(solapados[0].hasta)}).
+              </Text>
+            ) : null}
+
+            {faltaCierres ? (
+              <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs }}>
+                Para marcar pagos hace falta correr el SQL de los cierres en la base.
+              </Text>
+            ) : null}
+            {errorCierres ? (
+              <Text style={{ color: colors.danger, fontSize: 12, marginTop: spacing.xs }}>
+                ⚠️ No se pudieron leer los pagos marcados ({errorCierres}). Toca «↻ Actualizar».
+              </Text>
+            ) : null}
+
+            {!pagado && !faltaCierres && canEdit && tot.pagados > 0 && !rangoInvalido && !confirmandoPago ? (
+              <View style={{ flexDirection: 'row', marginTop: spacing.xs }}>
+                {boton('🔒 Marcar este rango como PAGADO', () => { setAvisoCierre(null); setConfirmandoPago(true); })}
+              </View>
+            ) : null}
+
+            {/* Confirmación EN LÍNEA (estilo de la casa, nada de confirm() del
+                navegador), con lo que de verdad va a quedar en la constancia. */}
+            {confirmandoPago && !pagado ? (
+              <View style={{ marginTop: spacing.xs, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoftBg, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.warningSoftText, fontSize: 12, fontWeight: '700' }}>
+                  {textoConfirmarCierrePago(desde, hasta, fotoCierre)}
+                </Text>
+                <TextInput
+                  value={notaCierre}
+                  onChangeText={setNotaCierre}
+                  placeholder="Nota (opcional): n° de transferencia, quién pagó…"
+                  placeholderTextColor={colors.muted}
+                  autoCorrect={false}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, marginTop: spacing.xs }}
+                />
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                  {boton(guardandoCierre ? 'Guardando…' : '✅ Sí, ya se pagó', marcarPagado, true, guardandoCierre)}
+                  {boton('✕ Cancelar', () => { setConfirmandoPago(false); setNotaCierre(''); }, false, guardandoCierre)}
+                </View>
+              </View>
+            ) : null}
+
+            {avisoCierre ? (
+              <Text style={{ color: avisoCierre.tipo === 'ok' ? colors.success : colors.danger, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>
+                {avisoCierre.texto}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* 🗂️ El histórico de constancias: cada papel sale de la FOTO guardada,
+            no de los datos vivos (si falta el SQL no hay nada que listar). */}
+        {!error && (cierres.length > 0 || !faltaCierres) ? (
+          <View style={{ marginTop: spacing.sm }}>
+            <Plegable
+              titulo="🗂️ Pagos marcados (histórico)"
+              resumen={`${cierres.length} pago(s) marcado(s)`}
+            >
+              {!cierres.length ? (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  Todavía no hay ningún rango marcado como pagado.
+                </Text>
+              ) : null}
+              {cierres.map((c) => {
+                const activo = !c.anulada_at;
+                return (
+                  <View key={c.id} style={{ marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface, opacity: activo ? 1 : 0.6 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
+                      {activo ? '✔️' : '↺'} del {dmy(c.desde)} al {dmy(c.hasta)} · {usdCierre(Number(c.total_monto) || 0)} · {c.pagados} viaje(s)
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>
+                      constancia de {c.created_by_nombre || '—'} · {dmCorto(c.created_at)}{c.nota ? ` · ${c.nota}` : ''}
+                    </Text>
+                    {!activo ? (
+                      <Text style={{ color: colors.warning, fontSize: 11 }}>
+                        ↺ reabierto el {dmCorto(c.anulada_at)}{c.anulada_motivo ? ` · ${c.anulada_motivo}` : ''}
+                      </Text>
+                    ) : null}
+                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                      {boton('📄 PDF', () => pdfCierre(c))}
+                      {activo && canEdit ? boton('↺ Reabrir', () => { setAvisoCierre(null); setMotivoReabrir(''); setReabriendo({ id: c.id }); }) : null}
+                    </View>
+                    {/* Confirmación EN LÍNEA de reabrir, con motivo OBLIGATORIO. */}
+                    {reabriendo?.id === c.id ? (
+                      <View style={{ marginTop: spacing.xs, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoftBg, borderRadius: radius.md, padding: spacing.sm }}>
+                        <Text style={{ color: colors.warningSoftText, fontSize: 12, fontWeight: '700' }}>
+                          Reabrir deja esta constancia SIN efecto (queda en el histórico) y el rango vuelve a quedar sin marcar. El motivo es obligatorio.
+                        </Text>
+                        <TextInput
+                          value={motivoReabrir}
+                          onChangeText={setMotivoReabrir}
+                          placeholder="Motivo (obligatorio): por qué se reabre…"
+                          placeholderTextColor={colors.muted}
+                          autoCorrect={false}
+                          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, marginTop: spacing.xs }}
+                        />
+                        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+                          {boton(guardandoCierre ? 'Guardando…' : '↺ Sí, reabrir', () => confirmarReabrir(c.id), true, guardandoCierre || !motivoReabrir.trim())}
+                          {boton('✕ Cancelar', () => { setReabriendo(null); setMotivoReabrir(''); }, false, guardandoCierre)}
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </Plegable>
           </View>
         ) : null}
 
