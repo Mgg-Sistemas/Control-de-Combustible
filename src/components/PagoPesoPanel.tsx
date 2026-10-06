@@ -456,23 +456,35 @@ export function PagoPesoPanel({ visible, onClose, canEdit, usuarioId, onChanged 
 
               <Text style={etiqueta}>Precio {unidad === 'kg' ? 'por kilo' : 'por tonelada'} ($)</Text>
               <TextInput editable={puedeEditar} value={precio} onChangeText={(v) => setPrecio(onlyDecimal(v))} keyboardType="numeric" inputMode="decimal" placeholder={unidad === 'kg' ? '0,0000' : '0,00'} placeholderTextColor={colors.muted} style={input} />
-              <Text style={etiqueta}>Desde</Text>
-              <DateField value={desde} onChange={setDesde} />
-              <TouchableOpacity disabled={!puedeEditar} onPress={() => setConHasta((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm }}>
-                <Text style={{ fontSize: 16 }}>{conHasta ? '☑️' : '⬜'}</Text>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>🔒 Blindar a un rango de fechas</Text>
-              </TouchableOpacity>
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+              {/* 📅 ¿DESDE CUÁNDO RIGE? (06-oct-2026): mismo arreglo que en las
+                  tarifas por viaje — el rango estaba detrás de un check que
+                  parecía un rótulo. Ahora es una elección a la vista. */}
+              <Text style={etiqueta}>¿Desde cuándo rige?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                <TouchableOpacity disabled={!puedeEditar} onPress={() => setConHasta(false)} style={chip(!conHasta)}>
+                  <Text style={chipTxt(!conHasta)}>📅 Desde una fecha en adelante</Text>
+                </TouchableOpacity>
+                <TouchableOpacity disabled={!puedeEditar} onPress={() => setConHasta(true)} style={chip(conHasta)}>
+                  <Text style={chipTxt(conHasta)}>🔒 Solo en un rango (desde → hasta)</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
                 {conHasta
-                  ? 'Rige solo del «desde» al «hasta» y, en esas fechas, manda sobre las tarifas del mismo tipo.'
+                  ? 'Rige SOLO del «desde» al «hasta» y, en esas fechas, manda sobre las tarifas del mismo tipo. Al salir del rango vuelve la de siempre.'
                   : 'Rige desde esa fecha en adelante, hasta que pongas otra.'}
               </Text>
-              {conHasta ? (
-                <>
-                  <Text style={etiqueta}>Hasta</Text>
-                  <DateField value={hasta} onChange={setHasta} />
-                </>
-              ) : null}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Text style={etiqueta}>Desde</Text>
+                  <DateField value={desde} onChange={setDesde} />
+                </View>
+                {conHasta ? (
+                  <View style={{ flex: 1, minWidth: 140 }}>
+                    <Text style={etiqueta}>Hasta</Text>
+                    <DateField value={hasta} onChange={setHasta} />
+                  </View>
+                ) : null}
+              </View>
               <Text style={etiqueta}>Nota (opcional)</Text>
               <TextInput editable={puedeEditar} value={nota} onChangeText={setNota} placeholder="Motivo del cambio…" placeholderTextColor={colors.muted} style={input} />
 
