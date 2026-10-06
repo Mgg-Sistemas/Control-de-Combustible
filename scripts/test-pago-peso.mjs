@@ -187,13 +187,13 @@ ok('⭐ lo nuevo entra apagado: sin viaje por viaje, sin marca/modelo/encargado,
   !html.includes('Folio'), !html.includes('MACK'), !html.includes('Encargado X'), !html.includes('Cantidad por tipo'), !html.includes('Cantidad por zona'), !html.includes('Día por día'), !html.includes('Alcance del informe'),
 ].every(Boolean));
 ok('la placa sale por defecto', html.includes('PL-2'));
-ok('los pendientes se explican por bloque', /2 viaje\(s\) pendientes: 1 sin (peso|tarifa) · 1 sin (tarifa|peso)/.test(html) && /1 viaje\(s\) marcados «no facturó»/.test(html));
+ok('los que no entran al total se explican por bloque', /2 viaje\(s\) no entran al total: 1 sin (peso|tarifa) · 1 sin (tarifa|peso)/.test(html) && /1 viaje\(s\) marcados «no facturó»/.test(html));
 // ⭐ «PAGADO» ES SOLO LA CONSTANCIA (06-oct-2026, a pedido: «¿cómo salen pagados
 //    si nadie les ha colocado pagados? En ese módulo no se pagan, solo se lleva
 //    el registro de cuánto hay que pagar»). El papel dice «a pagar», nunca
 //    «pagados», para los viajes que apenas tienen tarifa.
-ok('⭐ el papel dice «Viajes a pagar», NO «Viajes pagados»', html.includes('Viajes a pagar') && !html.includes('Viajes pagados'));
-ok('⭐ la columna de los que no se pueden cobrar dice «Pendientes», no «Sin pagar»', html.includes('>Pendientes<') && !html.includes('>Sin pagar<'));
+ok('⭐ el papel dice «Con tarifa», NO «Viajes pagados»', html.includes('>Con tarifa<') && !html.includes('Viajes pagados') && !html.includes('Viajes a pagar'));
+ok('⭐ la columna de los que no se cobran dice «Sin cobrar», no «Sin pagar»', html.includes('>Sin cobrar<') && !html.includes('>Sin pagar<') && !html.includes('>Pendientes<'));
 const completo = P.cuerpoPagoPeso(datos(Object.fromEntries(P.PASTILLAS_PESO.map((p) => [p.key, false]))));
 ok('⭐ con todo encendido: viaje por viaje con bruto/tara, cuadros, alcance', [
   completo.includes('Folio'), completo.includes('Bruto Ton'), completo.includes('MACK GRANITE'), completo.includes('Encargado X'), completo.includes('Cantidad por tipo de equipo'),

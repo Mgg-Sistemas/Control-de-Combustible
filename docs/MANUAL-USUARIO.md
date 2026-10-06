@@ -6573,39 +6573,29 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
-#### ✔️ Marcar que un rango ya se pagó (06/10/2026)
+#### 📅 Tarifa solo en un rango, «con tarifa / sin tarifa» y la placa en cada viaje (06/10/2026)
 
-Dos respuestas del mismo día:
+**1. La tarifa solo para un rango (desde → hasta).** En ⚙️ Tarifas y camiones → Nueva tarifa,
+debajo del precio está **«¿Desde cuándo rige?»** con dos pastillas:
+- **📅 Desde una fecha en adelante** — lo de siempre: rige hasta que pongas otra.
+- **🔒 Solo en un rango (desde → hasta)** — aparece el campo **hasta**: esa tarifa cobra solo en
+  ese rango (y dentro de él manda sobre la del mismo tipo); al salir, vuelve la de siempre.
 
-**La tarifa solo para un rango (desde–hasta) ya existía:** en ⚙️ Tarifas y camiones → Nueva tarifa,
-marca **«🔒 Blindar a un rango de fechas»** y aparece el campo **hasta**. Esa tarifa rige solo en ese
-rango (y dentro de él manda sobre la del mismo tipo); al salir, vuelve la de siempre. El PDF lo toma
-solo: cada viaje se cobra con la tarifa que regía su día.
+El PDF lo toma solo: cada viaje se cobra con la tarifa que regía su día. Esto existía detrás de un
+check que parecía un rótulo; ahora está a la vista. Igual en ⚖️ Pago por peso.
 
-**Marcar «ya se pagó» — lo nuevo:** en la tarjeta 💰 Pago de viajes, debajo del total, está
-**«🔒 Marcar este rango como PAGADO»**:
+**2. Las palabras del papel.** «Viajes pagados» → **«Con tarifa»**; «Sin pagar» → **«Sin tarifa»**.
+En este módulo **no se paga nada: solo se lleva el registro de cuánto hay que pagar**. *Con tarifa*
+= ya tienen precio y entran al total; *sin tarifa* = no entran (falta tarifa, zona o empresa; abajo
+dice cuántos y por qué). El PDF aclara que **no es un comprobante de pago**. En ⚖️ Pago por peso la
+columna dice «Sin cobrar», porque ahí lo común es que falte el peso.
 
-1. Elige el rango de fechas (el mismo que consultas) y toca el botón.
-2. La confirmación te canta el total, las empresas y —si los hay— los viajes que quedan **sin
-   pagar** en el rango; puedes agregar una nota.
-3. Se guarda una **constancia con la foto** de ese momento (total, por empresa y por camión, nombres
-   congelados). Desde entonces el rango sale con la banda **«✔️ ya está marcado como PAGADO»** y el
-   PDF del pago lleva «· PAGADO el dd/mm».
+**3. La placa en cada viaje.** En el detalle de una empresa, al abrir «ver viajes», cada viaje sale
+con su **placa** al lado del código: la lista es de toda la empresa y el código se repite.
 
-- La constancia **no borra ni congela nada**: los viajes y tarifas siguen vivos; es la prueba del pago.
-- Dos constancias activas **no se pisan**; si el rango que miras solo pisa una parte pagada, se avisa.
-- En **«🗂️ Pagos marcados (histórico)»** está cada constancia con su **📄 PDF** (sale de la foto: el
-  papel no cambia aunque después corrijan algo) y el botón **«↺ Reabrir»** con motivo obligatorio —
-  queda tachada y su papel dice «REABIERTA (sin efecto)».
-- «✗ No facturó» es otra cosa: marca que **un viaje** no se cobra. La constancia marca que el
-  **rango entero** ya se pagó. Solo con permiso completo.
-
-> **📝 «Viajes a pagar», no «viajes pagados» (06/10/2026).** La columna del PDF que decía «Viajes
-> pagados» ahora dice **«Viajes a pagar»**, y la de «Sin pagar» dice **«Pendientes»**. Nunca
-> significaron que alguien los hubiera cobrado: *a pagar* son los que ya tienen tarifa y entran en el
-> total; *pendientes* son los que todavía no se pueden cobrar (falta zona, tarifa o empresa). El papel
-> lleva además una línea diciendo que **no es un comprobante de pago**. La palabra **PAGADO** queda
-> solo para la constancia. Mismo arreglo en el ⚖️ Pago por peso.
+> ⛔ **Se quitó «marcar como pagado»** (05/10 se construyó, 06/10 se descartó: «no se va a
+> confirmar que se pagó desde el sistema»). Quedó apagado con un interruptor, sin borrar nada, y su
+> tabla nunca se creó.
 
 #### 💰 Pago de viajes de camiones (15/09/2026)
 

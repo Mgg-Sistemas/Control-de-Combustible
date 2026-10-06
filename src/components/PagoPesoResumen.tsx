@@ -307,11 +307,11 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
             <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11, fontWeight: '800' }}>TOTAL A PAGAR</Text>
             <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(tot.monto)}</Text>
             <Text style={{ color: colors.brandContrast, fontSize: 12 }}>
-              {tot.pagados} viaje(s) a pagar · {pesoTexto(tot.kg, unidad)}{tot.noFacturados ? ` · ${tot.noFacturados} no facturó` : ''}{tot.pendientes ? ` · ${tot.pendientes} pendientes` : ''}
+              {tot.pagados} viaje(s) con tarifa · {pesoTexto(tot.kg, unidad)}{tot.noFacturados ? ` · ${tot.noFacturados} no facturó` : ''}{tot.pendientes ? ` · ${tot.pendientes} sin cobrar` : ''}
             </Text>
             {motivos.length ? (
               <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11 }}>
-                Pendientes: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPagoPeso(m).toLowerCase()}`).join(' · ')}
+                No entran al total: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPagoPeso(m).toLowerCase()}`).join(' · ')}
               </Text>
             ) : null}
           </View>
@@ -402,7 +402,7 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
 
             <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: pdfFiltrado ? colors.warning : colors.border, borderRadius: radius.md, padding: spacing.sm }}>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>
-                Va a salir: {totPdf.pagados} viaje(s) a pagar · {pesoTexto(totPdf.kg, unidad)} · {usd(totPdf.monto)}
+                Va a salir: {totPdf.pagados} viaje(s) con tarifa · {pesoTexto(totPdf.kg, unidad)} · {usd(totPdf.monto)}
               </Text>
               {pdfFiltrado ? (
                 <Text style={{ color: colors.warning, fontSize: 12 }}>
@@ -447,7 +447,7 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(b.total.monto)}</Text>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {b.total.pagados} a pagar · {pesoTexto(b.total.kg, unidad)}{b.total.noFacturados ? ` · ${b.total.noFacturados} no facturó` : ''}{b.total.pendientes ? ` · ⚠️ ${b.total.pendientes} pendientes` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
+                  {b.total.pagados} con tarifa · {pesoTexto(b.total.kg, unidad)}{b.total.noFacturados ? ` · ${b.total.noFacturados} no facturó` : ''}{b.total.pendientes ? ` · ⚠️ ${b.total.pendientes} sin cobrar` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
                 </Text>
               </TouchableOpacity>
               {open ? (
@@ -466,7 +466,7 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{usd(r.monto)}</Text>
                           </View>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>
-                            {r.pagados}{r.viajes > r.pagados ? ` de ${r.viajes}` : ''} viaje(s) a pagar · {pesoTexto(r.kg, unidad)} · {r.tarifa}{r.pendientes ? ` · ⚠️ ${r.pendientes} pendientes` : ''} · {openCamion ? '▲' : '▼ viajes'}
+                            {r.pagados}{r.viajes > r.pagados ? ` de ${r.viajes}` : ''} viaje(s) con tarifa · {pesoTexto(r.kg, unidad)} · {r.tarifa}{r.pendientes ? ` · ⚠️ ${r.pendientes} sin cobrar` : ''} · {openCamion ? '▲' : '▼ viajes'}
                           </Text>
                         </TouchableOpacity>
                         {openCamion ? viajesCamion.map((l) => (

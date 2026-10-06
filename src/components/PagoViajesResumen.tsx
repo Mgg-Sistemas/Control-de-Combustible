@@ -63,6 +63,21 @@ const sumarDias = (iso: string, n: number) => {
 const lunesDe = (iso: string) => sumarDias(iso, -((new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7));
 const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/**
+ * 🔒 ¿SE PUEDE MARCAR UN RANGO COMO «PAGADO»? — APAGADO (06-oct-2026).
+ *
+ * El 05-oct el cliente preguntó «¿cómo defino que ya pagaron viajes?» y se
+ * construyó la constancia con su foto; al día siguiente lo revirtió: «quita lo
+ * de pagado, NO SE VA A CONFIRMAR QUE SE PAGÓ DESDE EL SISTEMA». Este módulo
+ * solo lleva el registro de CUÁNTO HAY QUE PAGAR.
+ *
+ * ⚠️ NO SE BORRÓ NADA (regla de la casa: ocultar no es eliminar). El cálculo,
+ *    la capa de datos (pagoViajesCierres.ts y su Db) y sus pruebas siguen
+ *    enteros: poner esto en true devuelve la banda, el botón y el histórico
+ *    tal como estaban. La tabla viaje_pago_cierres nunca se creó en la base.
+ */
+const CIERRES_PAGO_VISIBLES = false;
+
 export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const { colors } = useTheme();
   const hoy = jornadaDeInstante(new Date().toISOString());
@@ -100,6 +115,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
 
   // Recarga SOLO los cierres (tras marcar o reabrir, sin releer todo el pago).
   const recargarCierres = useCallback(async () => {
+    if (!CIERRES_PAGO_VISIBLES) return;
     const r = await cargarCierresPago();
     setCierres(r.cierres);
     setFaltaCierres(r.missing);
@@ -111,7 +127,11 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
     try {
       // Los cierres se cargan junto con los datos: la banda de «ya está pagado»
       // tiene que salir con el mismo «Actualizar» de la tarjeta.
-      const [d, c] = await Promise.all([cargarDatosPagoViajes(), cargarCierresPago()]);
+      const [d, c] = await Promise.all([
+        cargarDatosPagoViajes(),
+        // Apagado: ni se consulta (la tabla no existe y nadie la va a usar).
+        CIERRES_PAGO_VISIBLES ? cargarCierresPago() : Promise.resolve({ cierres: [], missing: false, error: undefined }),
+      ]);
       setDatos(d);
       setCierres(c.cierres);
       setFaltaCierres(c.missing);
@@ -273,7 +293,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
     const html = pdfDocument({
       title: 'Pago de viajes de camiones',
       // 🔒 Si el rango ya está marcado como pagado, el papel lo dice (06-oct-2026).
-      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ejePdf === 'frente' ? ' · por frente' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}${pagado ? ` · PAGADO el ${dmyTs(pagado.created_at)}` : ''}`,
+      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ejePdf === 'frente' ? ' · por frente' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}${CIERRES_PAGO_VISIBLES && pagado ? ` · PAGADO el ${dmyTs(pagado.created_at)}` : ''}`,
       extraCss: CSS_PAGO_VIAJES,
       body: cuerpoPagoViajes({
         lineas: lineasPdf,
@@ -451,11 +471,11 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
             <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11, fontWeight: '800' }}>TOTAL A PAGAR</Text>
             <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(tot.monto)}</Text>
             <Text style={{ color: colors.brandContrast, fontSize: 12 }}>
-              {tot.pagados} viaje(s) a pagar{tot.noFacturados ? ` · ${tot.noFacturados} no facturó` : ''}{tot.pendientes ? ` · ${tot.pendientes} pendientes` : ''}
+              {tot.pagados} viaje(s) con tarifa{tot.noFacturados ? ` · ${tot.noFacturados} no facturó` : ''}{tot.pendientes ? ` · ${tot.pendientes} sin tarifa` : ''}
             </Text>
             {motivos.length ? (
               <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11 }}>
-                Pendientes: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPago(m).toLowerCase()}`).join(' · ')}
+                No entran al total: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPago(m).toLowerCase()}`).join(' · ')}
               </Text>
             ) : null}
           </View>
@@ -466,7 +486,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
             del total: la banda si el rango ya está pagado, el aviso si lo está a
             medias, y el botón para dejar la constancia. No tranca ni cambia nada
             del pago: es la marca con su foto. */}
-        {!error ? (
+        {!error && CIERRES_PAGO_VISIBLES ? (
           <View style={{ marginTop: spacing.sm }}>
             {pagado ? (
               <View style={{ borderWidth: 1, borderColor: colors.success, backgroundColor: colors.successSoftBg, borderRadius: radius.md, padding: spacing.sm }}>
@@ -529,7 +549,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
 
         {/* 🗂️ El histórico de constancias: cada papel sale de la FOTO guardada,
             no de los datos vivos (si falta el SQL no hay nada que listar). */}
-        {!error && (cierres.length > 0 || !faltaCierres) ? (
+        {!error && CIERRES_PAGO_VISIBLES && (cierres.length > 0 || !faltaCierres) ? (
           <View style={{ marginTop: spacing.sm }}>
             <Plegable
               titulo="🗂️ Pagos marcados (histórico)"
@@ -622,7 +642,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(g.montoUSD)}</Text>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {g.pagados} a pagar{g.noFacturados ? ` · ${g.noFacturados} no facturó` : ''}{g.pendientes ? ` · ⚠️ ${g.pendientes} pendientes` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
+                  {g.pagados} con tarifa{g.noFacturados ? ` · ${g.noFacturados} no facturó` : ''}{g.pendientes ? ` · ⚠️ ${g.pendientes} sin tarifa` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
                 </Text>
               </TouchableOpacity>
               {open ? <PagoViajesDetalle grupo={g} canEdit={canEdit} onChanged={cargar} /> : null}

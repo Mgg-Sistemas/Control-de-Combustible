@@ -51,7 +51,7 @@ export function PagoViajesDetalle({ grupo, canEdit, onChanged }: Props) {
       <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
         {grupo.viajes} viaje(s) · {grupo.pagados} pagado(s)
         {grupo.noFacturados ? ` · ${grupo.noFacturados} no facturó` : ''}
-        {grupo.pendientes ? ` · ⚠️ ${grupo.pendientes} pendientes (sin zona, tarifa o empresa)` : ''}
+        {grupo.pendientes ? ` · ⚠️ ${grupo.pendientes} sin tarifa (o sin zona o sin empresa)` : ''}
       </Text>
 
       {grupo.porCamion.map((c) => (
@@ -61,7 +61,7 @@ export function PagoViajesDetalle({ grupo, canEdit, onChanged }: Props) {
             <Text style={{ color: colors.muted, fontSize: 11 }}>
               {c.este ? `Este ${c.este}` : ''}{c.este && c.oeste ? ' · ' : ''}{c.oeste ? `Oeste ${c.oeste}` : ''}
               {c.noFacturados ? `${c.este || c.oeste ? ' · ' : ''}no facturó ${c.noFacturados}` : ''}
-              {c.pendientes ? `${c.este || c.oeste || c.noFacturados ? ' · ' : ''}pendientes ${c.pendientes}` : ''}
+              {c.pendientes ? `${c.este || c.oeste || c.noFacturados ? ' · ' : ''}sin tarifa ${c.pendientes}` : ''}
             </Text>
           </View>
           <Text style={{ color: colors.text, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{usd(c.monto)}</Text>
@@ -79,7 +79,13 @@ export function PagoViajesDetalle({ grupo, canEdit, onChanged }: Props) {
           <View key={l.viaje.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border, marginTop: 4, opacity: sinPago === 'no_facturo' ? 0.7 : 1 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
-                {horaCaracas(l.viaje.registered_at)} · {l.viaje.machine_code ?? '—'}{l.viaje.folio ? ` · ${l.viaje.folio}` : ''}
+                {/* 🚗 LA PLACA EN CADA VIAJE (06-oct-2026, a pedido: «no me sale
+                    la placa para saber a qué camión corresponden esos viajes de
+                    ese historial»). La lista es de TODA la empresa y el código
+                    se repite —diez «CAMION VOLTEO TORONTO»—, así que sin la
+                    placa no se sabe cuál es cuál. Va la CONGELADA en el viaje:
+                    la que llevaba ese día, no la de la ficha de hoy. */}
+                {horaCaracas(l.viaje.registered_at)} · {l.viaje.machine_code ?? '—'}{l.viaje.placa_snap ? ` · ${l.viaje.placa_snap}` : ''}{l.viaje.folio ? ` · ${l.viaje.folio}` : ''}
               </Text>
               <Text style={{ color: sinPago ? colors.warning : colors.text, fontSize: 12, fontWeight: '800' }}>
                 {/* Un viaje con TIPO se rotula por su tipo («Oeste → Este»), no
