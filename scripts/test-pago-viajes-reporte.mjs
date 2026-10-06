@@ -234,8 +234,10 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   //    se pagan, solo se lleva el registro de cuánto hay que pagar»). El papel
   //    cuenta lo que HAY QUE PAGAR; la palabra «pagado» quedó reservada para la
   //    constancia de que la plata se entregó (viaje_pago_cierres).
-  ok('⭐ el papel dice «Viajes a pagar», NO «Viajes pagados»', base.includes('Viajes a pagar') && !base.includes('Viajes pagados'));
-  ok('⭐ los que no se pueden cobrar son «Pendientes», no «Sin pagar»', base.includes('>Pendientes<') && !base.includes('>Sin pagar<'));
+  // 06-oct-2026, las palabras que dictó el cliente: «esos 21 serían viajes CON
+  // TARIFA, y los 10 serían SIN TARIFA».
+  ok('⭐ el papel dice «Con tarifa», NO «Viajes pagados»', base.includes('>Con tarifa<') && !base.includes('Viajes pagados') && !base.includes('Viajes a pagar'));
+  ok('⭐ los que no entran al total son «Sin tarifa», no «Sin pagar»', base.includes('>Sin tarifa<') && !base.includes('>Sin pagar<') && !base.includes('>Pendientes<'));
   ok('⭐ el papel avisa que NO es un comprobante de pago', /no es un comprobante de pago/.test(base));
 
   const completo = papel({ opciones: R.OPCIONES_PAGO_COMPLETO, fichas: new Map([['m1', { marca: 'MARCA-X', modelo: 'MODELO-Y' }]]), m3PorViaje: new Map([['m1', 12.5]]) });

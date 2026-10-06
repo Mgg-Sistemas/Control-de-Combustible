@@ -437,10 +437,10 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
   const rotulo = d.eje === 'obra' ? 'Obra / ubicación' : d.eje === 'frente' ? 'Frente de trabajo' : 'Empresa';
   const partes: string[] = [];
 
-  partes.push(`<table><thead><tr><th>${rotulo}</th><th class="r">Viajes a pagar</th><th class="r">No facturó</th><th class="r">Pendientes</th><th class="r">Total</th></tr></thead>
+  partes.push(`<table><thead><tr><th>${rotulo}</th><th class="r">Con tarifa</th><th class="r">No facturó</th><th class="r">Sin tarifa</th><th class="r">Total</th></tr></thead>
     <tbody>${bloques.map((b) => `<tr><td>${esc(b.nombre)}</td><td class="r">${b.total.pagados}</td><td class="r">${b.total.noFacturados || '—'}</td><td class="r">${b.total.pendientes || '—'}</td><td class="r b">${usd(b.total.monto)}</td></tr>`).join('') || '<tr><td colspan="5" class="c">Sin viajes con ese filtro</td></tr>'}</tbody>
     <tfoot><tr><td>TOTAL A PAGAR</td><td class="r">${tot.pagados}</td><td class="r">${tot.noFacturados}</td><td class="r">${tot.pendientes}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>
-    <p class="n">Este papel dice cuánto HAY QUE PAGAR por esos viajes; no es un comprobante de pago. «Pendientes» son los que todavía no se pueden cobrar (falta la zona, la tarifa o la empresa).</p>`);
+    <p class="n">Este papel dice cuánto HAY QUE PAGAR por esos viajes; no es un comprobante de pago. «Sin tarifa» son los que no entran al total porque les falta la tarifa (o la zona, o la empresa).</p>`);
 
   const cuadroConteo = (titulo: string, col: string, filas: ConteoPago[]) => `<h3>${titulo}</h3>
     <table><thead><tr><th>${col}</th><th class="r">Viajes</th><th class="r">Pagados</th><th class="r">Monto</th></tr></thead>
@@ -470,8 +470,8 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
       const m3Bloque = redondear(rs.reduce((a, r) => a + r.m3, 0));
       partes.push(`<h3>${esc(b.nombre)} — ${usd(b.total.monto)}${!o.sinCubicaje && m3Bloque > 0 ? ` · ${m3Texto(m3Bloque)}` : ''}</h3>
         <table><thead><tr>${cols.map((c) => `<th${num.has(c) ? ' class="r"' : ''}>${titulos[c]}</th>`).join('')}</tr></thead>
-        <tbody>${rs.map((r) => `<tr>${cols.map((c) => `<td${num.has(c) ? ` class="r${c === 'monto' ? ' b' : ''}"` : ''}>${celda(r, c)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="c">Sin viajes a pagar</td></tr>`}</tbody></table>
-        ${b.total.noFacturados || b.total.pendientes ? `<p class="n">${b.total.noFacturados ? `${b.total.noFacturados} viaje(s) marcados «no facturó». ` : ''}${b.total.pendientes ? `${b.total.pendientes} viaje(s) pendientes: ${porQue}.` : ''}</p>` : ''}`);
+        <tbody>${rs.map((r) => `<tr>${cols.map((c) => `<td${num.has(c) ? ` class="r${c === 'monto' ? ' b' : ''}"` : ''}>${celda(r, c)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="c">Sin viajes con tarifa</td></tr>`}</tbody></table>
+        ${b.total.noFacturados || b.total.pendientes ? `<p class="n">${b.total.noFacturados ? `${b.total.noFacturados} viaje(s) marcados «no facturó». ` : ''}${b.total.pendientes ? `${b.total.pendientes} viaje(s) no entran al total: ${porQue}.` : ''}</p>` : ''}`);
     });
   }
 

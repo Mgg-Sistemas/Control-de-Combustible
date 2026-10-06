@@ -125,6 +125,14 @@ eq('usdCierre con miles y coma', [P.usdCierre(7101.72), P.usdCierre(0)], ['$7.10
   ok('el histórico imprime la constancia DE LA FOTO', /cuerpoCierrePago\(/.test(comp) && /CSS_CIERRE_PAGO/.test(comp));
   ok('reabrir exige motivo', /reabrirCierrePago\(/.test(comp));
   ok('⭐ el PDF del pago dice PAGADO cuando el rango está cerrado', /PAGADO el /.test(comp));
+
+  // ⛔ APAGADO (06-oct-2026, al día siguiente de construirlo): «quita lo de
+  //    pagado, NO SE VA A CONFIRMAR QUE SE PAGÓ DESDE EL SISTEMA». Regla de la
+  //    casa: ocultar no es eliminar — todo lo de arriba sigue entero detrás de
+  //    un interruptor, y este candado cuida que NO se encienda por descuido.
+  ok('⛔ la constancia «pagado» está APAGADA: el interruptor es false', /const CIERRES_PAGO_VISIBLES = false;/.test(comp));
+  ok('…y apagada ni siquiera consulta la tabla (que no existe)', /CIERRES_PAGO_VISIBLES \? cargarCierresPago\(\)/.test(comp) && /if \(!CIERRES_PAGO_VISIBLES\) return;/.test(comp));
+  ok('…ni escribe PAGADO en el subtítulo del PDF', /CIERRES_PAGO_VISIBLES && pagado \? ` · PAGADO el /.test(comp));
 }
 
 console.log('\nCIERRES DEL PAGO DE VIAJES — la constancia de «ya se pagó», con su foto\n');
