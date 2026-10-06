@@ -51,7 +51,7 @@ export function PagoViajesDetalle({ grupo, canEdit, onChanged }: Props) {
       <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
         {grupo.viajes} viaje(s) · {grupo.pagados} pagado(s)
         {grupo.noFacturados ? ` · ${grupo.noFacturados} no facturó` : ''}
-        {grupo.pendientes ? ` · ⚠️ ${grupo.pendientes} sin pagar (sin zona, tarifa o empresa)` : ''}
+        {grupo.pendientes ? ` · ⚠️ ${grupo.pendientes} pendientes (sin zona, tarifa o empresa)` : ''}
       </Text>
 
       {grupo.porCamion.map((c) => (
@@ -61,7 +61,7 @@ export function PagoViajesDetalle({ grupo, canEdit, onChanged }: Props) {
             <Text style={{ color: colors.muted, fontSize: 11 }}>
               {c.este ? `Este ${c.este}` : ''}{c.este && c.oeste ? ' · ' : ''}{c.oeste ? `Oeste ${c.oeste}` : ''}
               {c.noFacturados ? `${c.este || c.oeste ? ' · ' : ''}no facturó ${c.noFacturados}` : ''}
-              {c.pendientes ? `${c.este || c.oeste || c.noFacturados ? ' · ' : ''}sin pagar ${c.pendientes}` : ''}
+              {c.pendientes ? `${c.este || c.oeste || c.noFacturados ? ' · ' : ''}pendientes ${c.pendientes}` : ''}
             </Text>
           </View>
           <Text style={{ color: colors.text, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{usd(c.monto)}</Text>

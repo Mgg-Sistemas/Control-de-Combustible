@@ -360,11 +360,11 @@ export function tarjetasResumenPeso(t: TotalPeso, unidad: UnidadTarifaPeso = 'to
   const porViaje = t.pagados > 0 ? t.kg / t.pagados : 0;
   const porUnidad = t.kg > 0 ? t.monto / (unidad === 'kg' ? t.kg : t.kg / 1000) : 0;
   return [
-    { k: 'monto', titulo: 'Total a pagar', valor: usd(t.monto), nota: `${t.pagados} viaje(s) pagado(s)` },
-    { k: 'peso', titulo: `${unidad === 'kg' ? 'Kilos' : 'Toneladas'} pagadas`, valor: pesoTexto(t.kg, unidad), nota: t.kgTotal > t.kg ? `de ${pesoTexto(t.kgTotal, unidad)} pesadas` : undefined },
+    { k: 'monto', titulo: 'Total a pagar', valor: usd(t.monto), nota: `${t.pagados} viaje(s) a pagar` },
+    { k: 'peso', titulo: `${unidad === 'kg' ? 'Kilos' : 'Toneladas'} a pagar`, valor: pesoTexto(t.kg, unidad), nota: t.kgTotal > t.kg ? `de ${pesoTexto(t.kgTotal, unidad)} pesadas` : undefined },
     { k: 'promedio', titulo: 'Promedio por viaje', valor: pesoTexto(porViaje, unidad) },
     { k: 'precio', titulo: `Precio medio por ${unidad === 'kg' ? 'Kg' : 'Ton'}`, valor: usd(porUnidad, unidad === 'kg' ? 4 : 2) },
-    { k: 'viajes', titulo: 'Viajes', valor: String(t.viajes), nota: `${t.noFacturados ? `${t.noFacturados} no facturó · ` : ''}${t.pendientes ? `${t.pendientes} sin pagar` : 'todos pagados'}` },
+    { k: 'viajes', titulo: 'Viajes', valor: String(t.viajes), nota: `${t.noFacturados ? `${t.noFacturados} no facturó · ` : ''}${t.pendientes ? `${t.pendientes} pendientes` : 'todos con tarifa'}` },
   ];
 }
 
@@ -694,7 +694,7 @@ export function cuerpoPagoPeso(d: DatosPapelPeso): string {
     partes.push(`<div class="tj">${tarjetasResumenPeso(tot, u).map((t) => `<div><span>${esc(t.titulo)}</span><b>${esc(t.valor)}</b>${t.nota ? `<small>${esc(t.nota)}</small>` : ''}</div>`).join('')}</div>`);
   }
 
-  partes.push(`<table><thead><tr><th>${rotulo}</th><th class="r">Viajes pagados</th><th class="r">${U}</th><th class="r">No facturó</th><th class="r">Sin pagar</th><th class="r">Total</th></tr></thead>
+  partes.push(`<table><thead><tr><th>${rotulo}</th><th class="r">Viajes a pagar</th><th class="r">${U}</th><th class="r">No facturó</th><th class="r">Pendientes</th><th class="r">Total</th></tr></thead>
     <tbody>${bloques.map((b) => `<tr><td>${esc(b.nombre)}</td><td class="r">${b.total.pagados}</td><td class="r">${fijo(u === 'kg' ? b.total.kg : b.total.kg / 1000, 2)}</td><td class="r">${b.total.noFacturados || '—'}</td><td class="r">${b.total.pendientes || '—'}</td><td class="r b">${usd(b.total.monto)}</td></tr>`).join('') || '<tr><td colspan="6" class="c">Sin viajes con ese filtro</td></tr>'}</tbody>
     <tfoot><tr><td>TOTAL A PAGAR</td><td class="r">${tot.pagados}</td><td class="r">${fijo(u === 'kg' ? tot.kg : tot.kg / 1000, 2)}</td><td class="r">${tot.noFacturados}</td><td class="r">${tot.pendientes}</td><td class="r">${usd(tot.monto)}</td></tr></tfoot></table>`);
 
@@ -754,7 +754,7 @@ export function cuerpoPagoPeso(d: DatosPapelPeso): string {
           <tbody>${b.lineas.map((l) => `<tr>${fila(l)}</tr>`).join('')}</tbody></table>`);
       }
       if (b.total.noFacturados || b.total.pendientes) {
-        partes.push(`<p class="n">${b.total.noFacturados ? `${b.total.noFacturados} viaje(s) marcados «no facturó». ` : ''}${b.total.pendientes ? `${b.total.pendientes} viaje(s) sin pagar: ${porQue}.` : ''}</p>`);
+        partes.push(`<p class="n">${b.total.noFacturados ? `${b.total.noFacturados} viaje(s) marcados «no facturó». ` : ''}${b.total.pendientes ? `${b.total.pendientes} viaje(s) pendientes: ${porQue}.` : ''}</p>`);
       }
     });
   }
