@@ -198,6 +198,21 @@ function HeaderSignOutButton() {
 function useScreenHeader() {
   const { colors } = useTheme();
   return {
+    /**
+     * 🧊 LA PANTALLA QUE NO SE VE, SE CONGELA (06-oct-2026, «el sistema va lento»).
+     *
+     * React Navigation deja MONTADAS las pantallas por las que ya pasaste, y
+     * seguían vivas: Viajes de camiones se repintaba entero (5.800 líneas) cada
+     * minuto por su reloj, el Panel recargaba su gráfico cada minuto, y las
+     * suscripciones de cada una seguían disparando recargas — todo mientras el
+     * usuario miraba OTRA pantalla. Con esto, lo que no está a la vista deja de
+     * renderizar hasta que vuelves.
+     *
+     * ⭐ NO DESMONTA: no se pierde el estado, ni el scroll, ni lo que estabas
+     *    escribiendo; solo se le para el reloj. Va en el header compartido
+     *    porque los 13 navegadores lo esparcen, así que cubre toda la app.
+     */
+    freezeOnBlur: true,
     headerStyle: { backgroundColor: colors.surface },
     headerTitleStyle: { color: colors.text },
     headerTintColor: colors.primary,
