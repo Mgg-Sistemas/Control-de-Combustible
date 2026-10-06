@@ -468,7 +468,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   }, [date, dayCount]);
 
   useEffect(() => {
-    load();
+    // ⚠️ ACÁ NO SE LLAMA A `load()` (06-oct-2026, «el sistema va lento»). Este
+    //    efecto y el `useFocusEffect` de abajo se disparaban LOS DOS al abrir la
+    //    pantalla, y cada `load()` son ~25 consultas: se pedía todo dos veces, en
+    //    paralelo y con los mismos datos. `useFocusEffect` ya corre al montar
+    //    (así funciona React Navigation) y además al VOLVER, que es justo lo que
+    //    se quería. Este efecto queda solo para la suscripción de tiempo real.
     // Sincronización multiusuario: refresca (silencioso) al cambiar turnos/máquinas.
     let timer: any;
     const bump = () => {

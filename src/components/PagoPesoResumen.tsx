@@ -129,7 +129,10 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
     }
   }, []);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  /** 💤 Igual que el pago por viaje: no se consulta hasta abrir la tarjeta
+   *  (06-oct-2026). Las dos pedían la misma ventana de viajes por separado. */
+  const [yaPedido, setYaPedido] = useState(false);
+  useEffect(() => { if (yaPedido) cargar(); }, [yaPedido, cargar]);
 
   // Todo sale de ESTAS líneas: la pantalla, el total y el papel. El papel no recalcula.
   const lineas = useMemo<LineaPeso[]>(() => {
@@ -240,8 +243,11 @@ export function PagoPesoResumen({ canEdit, usuarioId }: Props) {
     <>
       <Plegable
         titulo="⚖️ Pago por peso"
-        resumen={error ? '⚠️ no se pudo leer' : `${tot.pagados} viaje(s) · ${pesoTexto(tot.kg, unidad)} · ${usd(tot.monto)} · ${dmy(desde)} al ${dmy(hasta)}`}
-        alerta={!!error || tot.pendientes > 0}
+        resumen={error ? '⚠️ no se pudo leer'
+          : !yaPedido ? 'toca para calcular el pago del rango'
+            : `${tot.pagados} viaje(s) · ${pesoTexto(tot.kg, unidad)} · ${usd(tot.monto)} · ${dmy(desde)} al ${dmy(hasta)}`}
+        alerta={!!error || (yaPedido && tot.pendientes > 0)}
+        onAbrir={(abierta) => { if (abierta) setYaPedido(true); }}
       >
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
           Lo que se le paga a cada empresa por lo que cargaron sus camiones: el neto de la romana (bruto − tara) por el
