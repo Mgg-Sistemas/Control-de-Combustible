@@ -110,6 +110,26 @@ export type OpcionesFrentes = {
   estado?: boolean;
   /** 📊 El resumen ejecutivo: el tablero de arriba. */
   resumen?: boolean;
+  /**
+   * ⭐ QUÉ FRENTES SALEN (06-oct-2026, a pedido: «hace falta la opción de poder
+   * sacar el reporte por uno o varios frentes que yo seleccione o que quiera que
+   * salgan en el reporte»).
+   *
+   * Los NOMBRES de los frentes elegidos. VACÍO O SIN PONER = TODOS, que es como
+   * salía la hoja hasta ahora: encender esta opción no puede cambiarle el papel
+   * a quien no la toca.
+   *
+   * ⚠️ DÓNDE SE DICE QUE VA FILTRADO: en el NOMBRE DEL ARCHIVO, no en el papel.
+   *    Es la misma regla que el cliente pidió el 29-sep para los checks («si
+   *    activo o desactivo un check, no me salga esa información en el PDF») y el
+   *    mismo remate que ya usa el inventario: la hoja se lee limpia, y lo único
+   *    que dice que está recortada es cómo se llama el archivo. Así dos hojas
+   *    del mismo día —una completa y otra de dos frentes— no se pisan en la
+   *    carpeta de descargas ni se confunden al abrirlas.
+   *    (En el cuerpo se ve igual QUÉ frentes salieron: cada bloque va titulado
+   *    con su nombre. Lo que no se ve es cuáles se dejaron fuera.)
+   */
+  soloFrentes?: string[];
 };
 
 export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
@@ -130,7 +150,23 @@ export const FRENTES_POR_DEFECTO: OpcionesFrentes = {
   turno: false,
   estado: false,
   resumen: false,
+  // Vacío = TODOS los frentes, que es como salía la hoja antes de que esto existiera.
+  soloFrentes: [],
 };
+
+/** Un frente se reconoce por su nombre, sin distinguir mayúsculas ni espacios
+ *  de sobra: lo que se elige en pantalla y lo que trae la asignación es el mismo
+ *  texto, pero escrito por manos distintas en momentos distintos. */
+export function claveFrente(nombre: unknown): string {
+  return String(nombre ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** Los frentes elegidos, listos para preguntar. Vacío = no hay filtro. */
+export function frentesElegidos(op: OpcionesFrentes | null | undefined): Set<string> {
+  const s = new Set<string>();
+  (op?.soloFrentes ?? []).forEach((n) => { const k = claveFrente(n); if (k) s.add(k); });
+  return s;
+}
 
 /** ¿Hace falta leer los datos DEL DÍA (viajes o jornadas) para este papel? Sin
  *  ninguna de estas encendida, la hoja no consulta nada más que la asignación. */
@@ -190,13 +226,53 @@ export function frentesDelDia(
  * ⭐ LO QUE DE VERDAD SALE EN EL PAPEL: solo los frentes ASIGNADOS ese día,
  *    salvo que se encienda `sinCamiones`. Es una función aparte para que la
  *    regla —la que el cliente pidió— se pueda probar sin abrir la pantalla.
+ *
+ * ⭐ Y SOLO LOS FRENTES ELEGIDOS, si se eligió alguno (06-oct-2026). El filtro
+ *    se aplica ACÁ, en el único sitio por donde pasan la prevista del tablero y
+ *    el PDF: si cada uno filtrara por su cuenta, la pantalla enseñaría un
+ *    resumen de ocho frentes y el papel saldría con dos.
+ *
+ * ⚠️ El filtro tapa TAMBIÉN los frentes vacíos de `sinCamiones`: si pides «solo
+ *    Frente norte», encender «incluir los frentes sin camiones» no puede colarte
+ *    los otros siete en blanco.
  */
 export function frentesParaReporte(
   asignaciones: { frenteNombre: string; camion: CamionDelFrente }[],
   frentesActivos: string[],
   op: OpcionesFrentes = FRENTES_POR_DEFECTO,
 ): FrenteDelDia[] {
-  return frentesDelDia(asignaciones, op.sinCamiones ? frentesActivos : []);
+  const solo = frentesElegidos(op);
+  const pasa = (n: unknown) => solo.size === 0 || solo.has(claveFrente(n) || claveFrente('Sin frente'));
+  const asigs = solo.size === 0
+    ? asignaciones
+    : (asignaciones ?? []).filter((a) => pasa(String(a?.frenteNombre ?? '').trim() || 'Sin frente'));
+  const vacios = op.sinCamiones ? (frentesActivos ?? []).filter(pasa) : [];
+  return frentesDelDia(asigs, vacios);
+}
+
+/**
+ * Cómo se dice en el papel que la hoja va filtrada. `null` cuando salen todos
+ * —y entonces el subtítulo no cambia ni una letra respecto de antes—.
+ *
+ * `disponibles` es cuántos frentes había para elegir, para poder decir «2 de 8»:
+ * sin ese total, «solo 2 frentes» no distingue un día filtrado de un día que
+ * solo tuvo dos.
+ */
+export function alcanceFrentesEnPalabras(
+  op: OpcionesFrentes | null | undefined,
+  disponibles: number,
+  elegidosNombres?: string[],
+): string | null {
+  const solo = frentesElegidos(op);
+  if (solo.size === 0) return null;
+  const nombres = (elegidosNombres ?? op?.soloFrentes ?? [])
+    .map((n) => String(n ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const cuantos = solo.size;
+  const deTotal = disponibles > 0 && disponibles !== cuantos ? ` de ${disponibles}` : '';
+  // Con pocos se nombran: es lo que de verdad responde «¿cuáles salieron?».
+  // Con muchos, la lista taparía el subtítulo y ya están todos en el cuerpo.
+  const lista = nombres.length > 0 && nombres.length <= 4 ? `: ${nombres.join(' · ')}` : '';
+  return `solo ${cuantos}${deTotal} frente${cuantos === 1 ? '' : 's'}${lista}`;
 }
 
 export type TotalesFrentes = { frentes: number; frentesConCamiones: number; camiones: number };
@@ -479,9 +555,22 @@ export function cuerpoFrentesDelDia(
   return cabecera + bloques;
 }
 
-/** «Frentes de trabajo 2026-09-29» — el nombre del archivo. */
-export function nombreArchivoFrentes(jornadaISO: string): string {
-  return `Frentes de trabajo ${String(jornadaISO ?? '').slice(0, 10)}`;
+/**
+ * «Frentes de trabajo 2026-09-29» — el nombre del archivo.
+ *
+ * ⭐ Con frentes elegidos, el nombre lo DICE (06-oct-2026): dos hojas del mismo
+ *    día —una completa y otra de dos frentes— se pisarían en la carpeta de
+ *    descargas, y la segunda se abriría creyendo que es la del día entero.
+ */
+export function nombreArchivoFrentes(jornadaISO: string, op?: OpcionesFrentes | null): string {
+  const base = `Frentes de trabajo ${String(jornadaISO ?? '').slice(0, 10)}`;
+  const nombres = (op?.soloFrentes ?? [])
+    .map((n) => String(n ?? '').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (nombres.length === 0) return base;
+  return nombres.length <= 3
+    ? `${base} - solo ${nombres.join(', ')}`
+    : `${base} - solo ${nombres.length} frentes`;
 }
 
 // ── 🕘 EL HISTORIAL (29-sep-2026, a pedido: «que haya un historial de frentes

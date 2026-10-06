@@ -32,11 +32,12 @@ import {
 // El rango del historial trae la JORNADA en cada fila (AsignacionFrente no la
 // lleva: es siempre la del día que se pidió). Es el tipo que devuelve
 // `listAsignacionesFrenteRango`, y hace falta para filtrar por día al repetir.
+import { cmpText } from '../lib/text';
 import { type AsignacionDia } from '../lib/frentesAuto';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import {
   ETIQUETA_CAMION, ETIQUETA_EQUIPO,
-  frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes,
+  frentesParaReporte, cuerpoFrentesDelDia, nombreArchivoFrentes, alcanceFrentesEnPalabras, claveFrente,
   historialFrentes, CSS_FRENTES, FRENTES_POR_DEFECTO, LOGOS_FRENTES_POR_DEFECTO, EMPRESA_UNICA_SUGERIDA, necesitaDatosDelDia,
   // ✏️ El tablero editable (03-oct-2026): calcular la PREVISTA, contar los
   //    cambios y volver a cero. Nada de esto toca la base.
@@ -175,7 +176,17 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   //    cambia lo que se IMPRIME en la columna Empresa: el catálogo no se toca.
   const [empresaUnicaOn, setEmpresaUnicaOn] = useState(false);
   const [empresaUnica, setEmpresaUnica] = useState(EMPRESA_UNICA_SUGERIDA);
-  const opPapel: OpcionesFrentes = { ...op, empresaUnica: empresaUnicaOn ? empresaUnica : '' };
+  // ── ⛏️ QUÉ FRENTES SALEN EN EL PAPEL (06-oct-2026, a pedido: «hace falta la
+  //    opción de poder sacar el reporte por uno o varios frentes que yo
+  //    seleccione»). VACÍO = TODOS, para que el que no toque esto saque la misma
+  //    hoja de siempre. Se guarda por NOMBRE —no por id— porque es el nombre lo
+  //    que viaja congelado en la asignación y lo que se imprime.
+  const [soloFrentes, setSoloFrentes] = useState<Set<string>>(new Set());
+  const opPapel: OpcionesFrentes = {
+    ...op,
+    empresaUnica: empresaUnicaOn ? empresaUnica : '',
+    soloFrentes: Array.from(soloFrentes),
+  };
   // ── 👷 Operador / chofer puesto A MANO (03-oct-2026, a pedido: «tomar los
   //    datos del operador que maneja la máquina o que yo pueda colocar el
   //    operador»). Lo escrito MANDA sobre lo que venga de los viajes o de la
@@ -197,6 +208,10 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     if (diaEditado.current === fecha) return;
     diaEditado.current = fecha;
     setEdicionResumen((p) => edicionAlCambiarDeDia(p));
+    // ⭐ Y se vuelve a «todos los frentes» (06-oct-2026): los frentes de ayer no
+    //    son los de hoy, y un filtro heredado sacaría la hoja de hoy vacía sin
+    //    que se vea por qué.
+    setSoloFrentes(new Set());
   }, [fecha]);
   const empresasSugeridas = useMemo(() => {
     const s = new Set<string>([EMPRESA_UNICA_SUGERIDA]);
@@ -267,6 +282,20 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   }, [asignaciones]);
   /** Camiones DISTINTOS asignados ese día (las filas son más: varios frentes). */
   const camionesAsignados = useMemo(() => asignadoA.size, [asignadoA]);
+  /**
+   * Los frentes que SE PUEDEN elegir para el reporte: los que tienen algo
+   * asignado ese día, más los activos del catálogo (que son los que saldrían en
+   * blanco si se enciende «incluir los frentes sin camiones»). A→Z.
+   */
+  const frentesDisponibles = useMemo(() => {
+    const m = new Map<string, string>();
+    asignaciones.forEach((a) => {
+      const n = String(a.frenteNombre ?? '').trim() || 'Sin frente';
+      if (!m.has(claveFrente(n))) m.set(claveFrente(n), n);
+    });
+    activos.forEach((f) => { if (!m.has(claveFrente(f.nombre))) m.set(claveFrente(f.nombre), f.nombre); });
+    return Array.from(m.values()).sort((a, b) => cmpText(a, b));
+  }, [asignaciones, activos]);
 
   // El buscador: por código, placa, serial, empresa, marca o modelo — el mismo
   // criterio del buscador de taras, porque el problema es el mismo (treinta
@@ -479,7 +508,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         // además pedido de nuevo para esta hoja el 29-sep-2026.
         marcaTexto: false,
       });
-      await exportPdf(html, nombreArchivoFrentes(fecha));
+      await exportPdf(html, nombreArchivoFrentes(fecha, opPapel));
     } catch (e: any) {
       toast.error(`No se pudo generar el PDF: ${String(e?.message ?? e)}`);
     } finally {
@@ -573,7 +602,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     cuentaResumen.propias ? `${cuentaResumen.propias} propia${cuentaResumen.propias === 1 ? '' : 's'}` : '',
   ].filter(Boolean).join(' · ') || 'sin cambios');
 
-  const CHECKS: { k: Exclude<keyof OpcionesFrentes, 'empresaUnica'>; label: string; ayuda: string }[] = [
+  const CHECKS: { k: Exclude<keyof OpcionesFrentes, 'empresaUnica' | 'soloFrentes'>; label: string; ayuda: string }[] = [
     { k: 'numeracion', label: `1️⃣ Numeración de los ${E.plural}`, ayuda: 'La columna Nº dentro de cada frente.' },
     { k: 'placa', label: '🔢 Placa / Serial', ayuda: `Cómo se identifica el ${E.singular} en el patio.` },
     { k: 'empresa', label: `🏢 Empresa del ${E.singular}`, ayuda: `A quién pertenece cada ${E.singular}.` },
@@ -800,6 +829,56 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                       ))}
                     </View>
                   ))}
+
+                  {/* ⛏️ POR CUÁLES FRENTES SALE (06-oct-2026, a pedido: «sacar
+                      el reporte por uno o varios frentes que yo seleccione»).
+                      Sin tocar nada salen TODOS, como siempre. */}
+                  <Plegable
+                    titulo="⛏️ Por cuáles frentes sale el reporte"
+                    /* El mismo texto que usaría el papel, para que lo que se lee
+                       en pantalla y lo que se nombra el archivo no se separen. */
+                    resumen={alcanceFrentesEnPalabras(
+                      opPapel, frentesDisponibles.length,
+                      frentesDisponibles.filter((f) => soloFrentes.has(claveFrente(f))),
+                    ) ?? `todos (${frentesDisponibles.length})`}
+                  >
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                      Marca uno o varios y el reporte sale SOLO con esos — la hoja, el tablero de
+                      arriba y los totales. Sin marcar ninguno salen todos. El papel y el nombre
+                      del archivo dicen que va filtrado, para que no se confunda con el del día
+                      completo.
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      <TouchableOpacity
+                        onPress={() => setSoloFrentes(new Set())}
+                        style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: soloFrentes.size === 0 ? colors.primary : colors.border, backgroundColor: soloFrentes.size === 0 ? colors.primary : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
+                      >
+                        <Text style={{ color: soloFrentes.size === 0 ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+                          ⬛ Todos
+                        </Text>
+                      </TouchableOpacity>
+                      {frentesDisponibles.map((nombre) => {
+                        const k = claveFrente(nombre);
+                        const on = soloFrentes.has(k);
+                        return (
+                          <TouchableOpacity
+                            key={`solo-${k}`}
+                            onPress={() => setSoloFrentes((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; })}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}
+                          >
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                              {on ? '☑️' : '⬜'} {nombre}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {soloFrentes.size > 0 && frentesDisponibles.every((f) => !soloFrentes.has(claveFrente(f))) ? (
+                      <Text style={{ color: colors.danger, fontSize: 11, marginTop: spacing.xs }}>
+                        ⚠️ Ninguno de los frentes marcados tiene algo este día: el reporte saldría vacío.
+                      </Text>
+                    ) : null}
+                  </Plegable>
 
                   {/* 🖨️ QUÉ SALE EN LA HOJA (29-sep-2026, a pedido). Mismo
                       criterio que los demás reportes: el usuario decide. */}

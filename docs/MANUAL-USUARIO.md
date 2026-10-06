@@ -6453,6 +6453,21 @@ dentro de la tarjeta «🏗️ Obras y ubicaciones»** (solo full).
   > y empresa). **No lleva ninguna cifra** —ni viajes, ni toneladas, ni m³— a propósito: para eso
   > está el reporte de la Lista completa, que agrupa por frente.
   >
+  > **⛏️ «Por cuáles frentes sale el reporte» (06/10/2026, a pedido).** Encima de los checks hay un
+  > desplegable para **elegir uno o varios frentes**: marcas los que quieras y el reporte sale
+  > **solo con esos** — la hoja, el tablero de arriba y los totales, todo a la vez.
+  > - **Sin marcar ninguno salen TODOS**, exactamente como salía antes: si no tocas esto, tu hoja
+  >   no cambia ni una letra. El botón **⬛ Todos** vuelve a eso.
+  > - Se puede pedir también **«Sin frente»** (los que no tienen frente puesto) y, con
+  >   **⬜ incluir los frentes sin camiones** encendido, un **frente vacío** a propósito. Y al revés:
+  >   si pediste un solo frente, ese check **no te cuela** los otros en blanco.
+  > - **El nombre del archivo lo dice** («… - solo Frente norte»), para que la hoja de dos frentes
+  >   **no te pise** en la carpeta de descargas a la del día completo y no la abras creyendo que
+  >   están todos. **El papel en sí no lo dice**, como pediste para los checks el 29/09.
+  > - Al **cambiar de día** vuelve solo a «todos»: los frentes de ayer no son los de hoy, y un
+  >   filtro heredado te sacaría la hoja vacía sin que se vea por qué.
+  > - Si marcas frentes que ese día no tienen nada, la pantalla te avisa **antes** de exportar.
+  >
   > **🖨️ «Qué sale en la hoja de frentes» (29/09/2026, a pedido).** Debajo de los asignados hay un
   > desplegable con los **checks** del papel: **1️⃣ numeración**, **🔢 placa/serial**, **🏢 empresa**,
   > **🚚 marca y modelo** (nace apagada), **🔟 cuántos camiones lleva cada frente**, **📋 línea de
