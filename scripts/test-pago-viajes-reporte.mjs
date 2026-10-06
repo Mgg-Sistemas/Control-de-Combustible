@@ -229,6 +229,15 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   ok('el papel de siempre: resumen por empresa y listado', /EMPRESA ALFA/.test(base) && /<th>Camión<\/th>/.test(base) && /TOTAL A PAGAR/.test(base));
   ok('⭐ ...sin nada de lo nuevo', !/Marca|Serial \/ Placa|Encargado|<th class="r">m³|Cantidad por tipo|Cantidad por zona|Alcance del informe/.test(base));
 
+  // ⭐ «PAGADO» ES SOLO LA CONSTANCIA (06-oct-2026, a pedido: «me sale pagado,
+  //    ¿cómo salen pagados si nadie les ha colocado pagados? En ese módulo no
+  //    se pagan, solo se lleva el registro de cuánto hay que pagar»). El papel
+  //    cuenta lo que HAY QUE PAGAR; la palabra «pagado» quedó reservada para la
+  //    constancia de que la plata se entregó (viaje_pago_cierres).
+  ok('⭐ el papel dice «Viajes a pagar», NO «Viajes pagados»', base.includes('Viajes a pagar') && !base.includes('Viajes pagados'));
+  ok('⭐ los que no se pueden cobrar son «Pendientes», no «Sin pagar»', base.includes('>Pendientes<') && !base.includes('>Sin pagar<'));
+  ok('⭐ el papel avisa que NO es un comprobante de pago', /no es un comprobante de pago/.test(base));
+
   const completo = papel({ opciones: R.OPCIONES_PAGO_COMPLETO, fichas: new Map([['m1', { marca: 'MARCA-X', modelo: 'MODELO-Y' }]]), m3PorViaje: new Map([['m1', 12.5]]) });
   ok('con todo encendido trae columnas y cuadros nuevos', /Marca \/ Modelo/.test(completo) && /Cantidad por tipo de equipo/.test(completo) && /Cantidad por zona de pago/.test(completo) && /Alcance del informe/.test(completo) && /MARCA-X MODELO-Y/.test(completo));
 

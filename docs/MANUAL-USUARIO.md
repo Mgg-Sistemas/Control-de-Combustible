@@ -6600,6 +6600,13 @@ solo: cada viaje se cobra con la tarifa que regía su día.
 - «✗ No facturó» es otra cosa: marca que **un viaje** no se cobra. La constancia marca que el
   **rango entero** ya se pagó. Solo con permiso completo.
 
+> **📝 «Viajes a pagar», no «viajes pagados» (06/10/2026).** La columna del PDF que decía «Viajes
+> pagados» ahora dice **«Viajes a pagar»**, y la de «Sin pagar» dice **«Pendientes»**. Nunca
+> significaron que alguien los hubiera cobrado: *a pagar* son los que ya tienen tarifa y entran en el
+> total; *pendientes* son los que todavía no se pueden cobrar (falta zona, tarifa o empresa). El papel
+> lleva además una línea diciendo que **no es un comprobante de pago**. La palabra **PAGADO** queda
+> solo para la constancia. Mismo arreglo en el ⚖️ Pago por peso.
+
 #### 💰 Pago de viajes de camiones (15/09/2026)
 
 > **📄 PDF del pago de viajes: por obra, por empresa y con opciones (21/09/2026).** Debajo de los
