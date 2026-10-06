@@ -451,11 +451,11 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
             <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11, fontWeight: '800' }}>TOTAL A PAGAR</Text>
             <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(tot.monto)}</Text>
             <Text style={{ color: colors.brandContrast, fontSize: 12 }}>
-              {tot.pagados} viaje(s) pagados{tot.noFacturados ? ` · ${tot.noFacturados} no facturó` : ''}{tot.pendientes ? ` · ${tot.pendientes} sin pagar` : ''}
+              {tot.pagados} viaje(s) a pagar{tot.noFacturados ? ` · ${tot.noFacturados} no facturó` : ''}{tot.pendientes ? ` · ${tot.pendientes} pendientes` : ''}
             </Text>
             {motivos.length ? (
               <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11 }}>
-                Sin pagar: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPago(m).toLowerCase()}`).join(' · ')}
+                Pendientes: {motivos.map(([m, n]) => `${n} ${etiquetaMotivoSinPago(m).toLowerCase()}`).join(' · ')}
               </Text>
             ) : null}
           </View>
@@ -622,7 +622,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(g.montoUSD)}</Text>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {g.pagados} pagado(s){g.noFacturados ? ` · ${g.noFacturados} no facturó` : ''}{g.pendientes ? ` · ⚠️ ${g.pendientes} sin pagar` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
+                  {g.pagados} a pagar{g.noFacturados ? ` · ${g.noFacturados} no facturó` : ''}{g.pendientes ? ` · ⚠️ ${g.pendientes} pendientes` : ''} · {open ? '▲ ocultar' : '▼ ver detalle'}
                 </Text>
               </TouchableOpacity>
               {open ? <PagoViajesDetalle grupo={g} canEdit={canEdit} onChanged={cargar} /> : null}
