@@ -172,11 +172,12 @@ const conHist = rep.reporteVolumetricoHtml({
 ok('el bloque de m³ cargados', conHist.includes('Metros Cúbicos Cargados'));
 ok('las fechas se escriben día/mes/año', conHist.includes('08/09/2026'));
 // ⭐ CAMBIÓ EL REQUISITO (07-oct-2026, pedido: «en los reportes de viajes
-//    redondea la cifra»): los M³ CARGADOS del histórico son volumen de VIAJES
-//    y van enteros, como en los demás papeles de viajes — tienen que cuadrar
-//    con ellos. Antes acá se esperaba «226.90».
-ok('⭐ el total del período, redondeado', conHist.includes('<td class="r">227</td>'));
-ok('⚠️ y ya no sale con decimales por ningún lado del bloque de cargas', !conHist.includes('226.90'));
+//    redondea la cifra» y, acto seguido, «que sea un solo decimal»): los M³
+//    CARGADOS del histórico son volumen de VIAJES y van con UN decimal, como
+//    en los demás papeles de viajes — tienen que cuadrar con ellos. Antes acá
+//    se esperaba «226.90».
+ok('⭐ el total del período, con un decimal', conHist.includes('<td class="r">226.9</td>'));
+ok('⚠️ y ya no sale con dos decimales', !conHist.includes('226.90'));
 // ⚠️ LA TABLA DE CAPACIDADES NO SE REDONDEA: ahí el m³ sale al lado de su
 //    propio alto × largo × ancho, y un «14 m³» junto a «2.50 × 5.00 × 1.10» se
 //    lee como una cuenta mal hecha. Es la frontera del pedido.

@@ -254,15 +254,23 @@ eq('una config vieja guardada SIN las claves nuevas las recibe apagadas',
     ['32,55 Ton', null]);
   eq('⭐ sin pedir nada siguen siendo TRES: el ticket no estrena formato',
     [V.tonTexto(32545), V.tonTextoOpcional(32545)], ['32,545 Ton', '32,545 Ton']);
-  // ⭐ Y DESDE EL 07-oct-2026 EL PAPEL LAS PIDE ENTERAS («redondea la cifra»).
-  //    Tercer formato de la misma función y tercera vez que es un parámetro:
-  //    tiquete 3, reporte viejo 2, reporte de hoy 0.
-  eq('⭐ el reporte las puede pedir ENTERAS',
-    [V.tonTexto(32540, 0), V.tonTexto(32545, 0), V.tonTexto(1234567, 0)],
-    ['33 Ton', '33 Ton', '1.235 Ton']);
-  ok('⚠️ enteras: nada de «33, Ton» ni «33,undefined Ton»',
-    !/undefined|,\s*Ton/.test([V.tonTexto(32540, 0), V.tonTexto(0, 0), V.tonTexto(NaN, 0)].join(' ')));
-  eq('el opcional entero conserva su null', [V.tonTextoOpcional(32545, 0), V.tonTextoOpcional(null, 0)], ['33 Ton', null]);
+  // ⭐ Y DESDE EL 07-oct-2026 EL PAPEL LAS PIDE CON UN DECIMAL («redondea la
+  //    cifra» + «que sea un solo decimal»). Cuarto formato de la misma función
+  //    y cuarta vez que es un parámetro: tiquete 3, reporte de septiembre 2,
+  //    reporte de hoy 1. El 0 se probó y el cliente lo devolvió en el acto.
+  eq('⭐ el reporte las puede pedir con UN decimal',
+    [V.tonTexto(32540, 1), V.tonTexto(32545, 1), V.tonTexto(1234567, 1)],
+    ['32,5 Ton', '32,5 Ton', '1.234,6 Ton']);
+  // ⭐ EL CASO DE LA FOTO: el cliente señaló «22,58» y pidió «22,6».
+  eq('⭐ 22,58 Ton se escribe 22,6 Ton (el caso que señaló el cliente)',
+    [V.tonTexto(22580, 1), V.tonTexto(250500, 1), V.tonTexto(28040, 1)],
+    ['22,6 Ton', '250,5 Ton', '28,0 Ton']);
+  // ⚠️ EL CERO DEL DECIMAL NO SE CAE: «28,0» dice que se midió y dio redondo;
+  //    «28» a secas se lee como una cifra de otra precisión.
+  ok('⚠️ el decimal se escribe aunque sea cero', V.tonTexto(28000, 1) === '28,0 Ton');
+  ok('⚠️ y nada de «33, Ton» ni «33,undefined Ton»',
+    !/undefined|,\s*Ton/.test([V.tonTexto(32540, 1), V.tonTexto(0, 1), V.tonTexto(NaN, 1), V.tonTexto(32540, 0)].join(' ')));
+  eq('el opcional conserva su null', [V.tonTextoOpcional(32545, 1), V.tonTextoOpcional(null, 1)], ['32,5 Ton', null]);
   eq('pesosParaTique en Ton imprime toneladas',
     V.pesosParaTique(pesos, 't'),
     { pesoBruto: '32,540 Ton', pesoTara: '11,340 Ton', pesoNeto: '21,200 Ton' });
@@ -364,8 +372,11 @@ ok('el PDF de viajes manda sus logos y su unidad',
 //    toneladas (28-sep) y ahora pide los pesos REDONDEADOS, Kg y Ton. La
 //    prueba no se borra, se mueve: lo que protege sigue siendo lo mismo —que
 //    el papel pida su propio formato y no se cuele el del tiquete—.
-ok('⭐ el PDF de viajes imprime los pesos REDONDEADOS (sin decimales)',
-  /tonTextoOpcional\(n, 0\)/.test(scr) && /tonTexto\(n, 0\)/.test(scr)
+// ⭐ TONELADAS CON UNO, KILOS ENTEROS. No es incoherencia: una tonelada son
+//    mil kilos y «38,30 → 38» borra 300 kg de una columna con la que se cobra;
+//    un kilo con decimales, en cambio, es relleno —la romana canta enteros—.
+ok('⭐ el PDF de viajes imprime las toneladas con UN decimal y los kilos enteros',
+  /tonTextoOpcional\(n, 1\)/.test(scr) && /tonTexto\(n, 1\)/.test(scr)
   && /kgTextoOpcional\(n, 0\)/.test(scr) && /kgTexto\(n, 0\)/.test(scr));
 // ⚠️ EL TIQUETE NO SE TOCÓ: pide sus pesos sin pedir decimales, o sea con los
 //    de fábrica (Kg con dos, Ton con tres). Si alguien le pone un 0 acá, se

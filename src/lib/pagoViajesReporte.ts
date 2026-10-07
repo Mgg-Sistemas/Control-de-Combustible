@@ -405,10 +405,11 @@ export function sufijoArchivoPago(f: FiltroPagoViajes, eje: EjePago, o: Opciones
 
 const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const usd = (n: number) => `$${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-// ⭐ EL m³ VA ENTERO (07-oct-2026, pedido: «redondea la cifra»). Es un dato
+// ⭐ EL m³ VA CON UN DECIMAL (07-oct-2026, «redondea la cifra» + «que sea un
+//    solo decimal»). Es un dato
 //    informativo del papel: no se multiplica por nada. El MONTO y la TARIFA
 //    siguen con sus dos decimales — ahí el centavo es plata.
-const m3Texto = (n: number) => (n > 0 ? `${n.toLocaleString('es-VE', { maximumFractionDigits: 0 })} m³` : '—');
+const m3Texto = (n: number) => (n > 0 ? `${n.toLocaleString('es-VE', { maximumFractionDigits: 1 })} m³` : '—');
 
 export const CSS_PAGO_VIAJES = `
   table{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0 10px}

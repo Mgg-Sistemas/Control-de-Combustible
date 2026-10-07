@@ -134,9 +134,11 @@ export function esc(t: unknown): string {
  *  resto de los reportes de control; el ticket es el único con tres). */
 export function pesoTexto(kg: number | null, unidad: UnidadPeso): string {
   if (kg == null) return '—';
-  // ⭐ ENTERO (07-oct-2026, pedido: «redondea la cifra»). La romana canta
-  //    kilos enteros; el «,00» de cada celda era relleno.
-  return unidad === 't' ? tonTexto(kg, 0) : kgTexto(kg, 0);
+  // ⭐ KILOS ENTEROS, TONELADAS CON UN DECIMAL (07-oct-2026, pedido:
+  //    «redondea la cifra» + «que sea un solo decimal»). La romana canta kilos
+  //    enteros, así que el «,00» era relleno; pero una tonelada son mil kilos
+  //    y «11,34 → 11» borra 340 kg de una tara.
+  return unidad === 't' ? tonTexto(kg, 1) : kgTexto(kg, 0);
 }
 
 /** «06/10/2026» en hora de Caracas (UTC−4 fijo, sin horario de verano). */

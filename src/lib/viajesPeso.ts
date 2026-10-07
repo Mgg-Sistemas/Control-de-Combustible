@@ -87,12 +87,20 @@ export function kgTextoOpcional(valorKg: number | null | undefined, decimales: 0
  *    es un PARÁMETRO y no un cambio global — el ticket no se toca.
  *
  * ⭐ Y DESDE EL 07-oct-2026 VA REDONDEADO (pedido: «en los reportes de viajes
- *    redondea la cifra»): los papeles de viajes piden 0. Se mantiene el mismo
- *    criterio — parámetro, no cambio global, porque el tiquete sigue con 3.
+ *    redondea la cifra»): los papeles de viajes piden UN decimal.
+ *
+ * ⚠️ UN DECIMAL, NO CERO. Se probó con cero el mismo día y el cliente lo
+ *    devolvió en el acto («que sea un solo decimal»): una tonelada son MIL
+ *    KILOS, así que «38,30 → 38» borra 300 kg de la vista en una columna que
+ *    se usa para cobrar. En KILOS sí se dejó entero, porque ahí el decimal es
+ *    relleno: la romana canta kilos enteros.
+ *
+ *    Se mantiene el mismo criterio de siempre — parámetro, no cambio global,
+ *    porque el tiquete sigue con 3.
  *
  * El dato guardado sigue siendo kilos, siempre.
  */
-export function tonTexto(valorKg: number, decimales: 0 | 2 | 3 = 3): string {
+export function tonTexto(valorKg: number, decimales: 0 | 1 | 2 | 3 = 3): string {
   const n = Number(valorKg);
   const cero = decimales ? `0,${'0'.repeat(decimales)} Ton` : '0 Ton';
   if (!isFinite(n)) return cero;
@@ -103,7 +111,7 @@ export function tonTexto(valorKg: number, decimales: 0 | 2 | 3 = 3): string {
   return `${negativo ? '-' : ''}${miles}${dec ? `,${dec}` : ''} Ton`;
 }
 
-export function tonTextoOpcional(valorKg: number | null | undefined, decimales: 0 | 2 | 3 = 3): string | null {
+export function tonTextoOpcional(valorKg: number | null | undefined, decimales: 0 | 1 | 2 | 3 = 3): string | null {
   const n = Number(valorKg);
   return valorKg == null || !isFinite(n) ? null : tonTexto(n, decimales);
 }
