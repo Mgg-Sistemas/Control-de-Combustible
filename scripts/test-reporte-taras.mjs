@@ -126,6 +126,37 @@ ok('con tara: sale quién la cargó', cuerpoReporteTaras(CAMIONES, TARAS, OPCION
 ok('el HTML se escapa', cuerpoReporteTaras([cam('x', '<b>X</b>', null, null)], new Map([['x', tara(5000)]]), OPCIONES_TARAS_POR_DEFECTO).includes('&lt;b&gt;X&lt;/b&gt;'));
 ok('vacío: lo dice en vez de una tabla en blanco', cuerpoReporteTaras(CAMIONES, new Map(), OPCIONES_TARAS_POR_DEFECTO).includes('Todavía no hay camiones con tara cargada'));
 
+// ── LAS TARJETAS DE ARRIBA (07-oct-2026) ────────────────────────────────────
+// Pedido textual: «quítame esto, solo coloca el total de camiones y los totales
+// de las taras». Se fueron «N de M con tara cargada», «sin tara» y «no pasan por
+// romana»: eran el estado de la carga del dato, no el dato.
+{
+  const kpis = (op) => {
+    const html = cuerpoReporteTaras(CAMIONES, TARAS, { ...OPCIONES_TARAS_POR_DEFECTO, ...op });
+    return [...html.matchAll(/<div class="kpi"><div class="v">(.*?)<\/div><div class="t">(.*?)<\/div>/g)]
+      .map((m) => [m[1], m[2]]);
+  };
+  const soloConTara = kpis({});
+  eq('⭐ quedan CUATRO tarjetas: el total y las tres taras',
+    soloConTara.map((k) => k[1]), ['CAMIONES', 'TARA PROMEDIO', 'TARA MAYOR', 'TARA MENOR']);
+  // ⚠️ El total tiene que cuadrar con la lista que va debajo, o manda a recontar
+  //    a mano: con «solo con tara» son 2 (a y b), no los 4 de la flota.
+  eq('⭐ el total es el de las filas que SALEN, no el de la flota', soloConTara[0][0], '2');
+  eq('⭐ con la flota completa, el total es el de la flota', kpis({ alcance: 'todos' })[0][0], '4');
+  eq('las taras siguen saliendo', soloConTara.slice(1).map((k) => k[0]),
+    ['11.670,00 Kg', '12.000,00 Kg', '11.340,00 Kg']);
+  eq('un solo camión se dice en singular',
+    cuerpoReporteTaras([CAMIONES[0]], new Map([['a', tara(11340)]]), OPCIONES_TARAS_POR_DEFECTO)
+      .includes('<div class="t">CAMIÓN</div>'), true);
+  // ⚠️ Lo que se quitó no puede volver por ningún lado del papel.
+  const todo = cuerpoReporteTaras(CAMIONES, TARAS, { ...OPCIONES_TARAS_POR_DEFECTO, alcance: 'todos' });
+  ok('⚠️ ya no sale «CAMIONES CON TARA CARGADA»', !todo.includes('CAMIONES CON TARA CARGADA'));
+  ok('⚠️ ni la tarjeta «SIN TARA»', !/<div class="t">SIN TARA<\/div>/.test(todo));
+  ok('⚠️ ni «NO PASAN POR ROMANA»', !todo.includes('NO PASAN POR ROMANA'));
+  // Pero el DATO sigue estando donde se puede leer camión por camión.
+  ok('el estado se sigue viendo en la columna Estado', todo.includes('<th>Estado</th>') && todo.includes('No pasa por romana'));
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte de taras: ${fail} fallo(s), ${pass} ok`);
