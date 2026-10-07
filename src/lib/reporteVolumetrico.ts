@@ -283,6 +283,12 @@ export function reporteVolumetricoHtml(d: DatosVolumetrico): string {
     ? `<h2 class="az">${++n}. Metros Cúbicos Cargados · ${esc(EJE_TITULO[c.eje])}</h2>
        <p class="p">Volumen efectivamente registrado en el período <b>${esc(c.rango)}</b>. El día se cuenta
          por <b>jornada de 7am a 7am</b>, igual que los viajes, y no por día de calendario.</p>
+       <!-- ⭐ ESTOS M³ VAN ENTEROS (07-oct-2026, pedido: «en los reportes de
+            viajes redondea la cifra»): son volumen CARGADO, la misma cifra que
+            los demás papeles de viajes, y tienen que coincidir con ellos.
+            ⚠️ La tabla de CAPACIDADES de arriba NO se redondea: ahí el m³ sale
+            al lado de su propio alto × largo × ancho, y un «14 m³» junto a
+            «2,50 × 5,00 × 1,10» se lee como una cuenta mal hecha. -->
        <table>
          <thead><tr>
            <th>${esc(EJE_COLUMNA[c.eje])}</th>
@@ -294,15 +300,15 @@ export function reporteVolumetricoHtml(d: DatosVolumetrico): string {
              <td>${esc(etiquetaGrupo(g, c.eje))}</td>
              <td class="n">${g.n}</td>
              <td class="r">${g.viajes}</td>
-             <td class="r b">${m3Texto(g.m3)}</td>
-             <td class="r">${m3Texto(g.viajes > 0 ? redondear(g.m3 / g.viajes) : 0)}</td>
+             <td class="r b">${m3Texto(g.m3, 0)}</td>
+             <td class="r">${m3Texto(g.viajes > 0 ? redondear(g.m3 / g.viajes) : 0, 0)}</td>
            </tr>`).join('')}</tbody>
          <tfoot><tr>
            <td>TOTAL</td>
            <td class="n">${c.total.camiones} camión(es) · ${c.total.dias} día(s)</td>
            <td class="r">${c.total.viajes}</td>
-           <td class="r">${m3Texto(c.total.m3)}</td>
-           <td class="r">${m3Texto(c.total.viajes > 0 ? redondear(c.total.m3 / c.total.viajes) : 0)}</td>
+           <td class="r">${m3Texto(c.total.m3, 0)}</td>
+           <td class="r">${m3Texto(c.total.viajes > 0 ? redondear(c.total.m3 / c.total.viajes) : 0, 0)}</td>
          </tr></tfoot>
        </table>`
     : '';

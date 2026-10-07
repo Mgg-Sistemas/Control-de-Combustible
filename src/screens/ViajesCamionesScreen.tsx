@@ -3181,11 +3181,12 @@ export default function ViajesCamionesScreen() {
       //    total en 0 se imprime como raya: «0,00 Kg» diría que se pesó nada.
       //    Desde el 28-sep el papel puede salir en TONELADAS (solo el texto:
       //    el dato guardado y las sumas siguen en kilos).
-      // ⭐ DOS decimales en las toneladas de ESTE papel (28-sep-2026, a pedido).
-      //    El TICKET sigue con tres: se firma en el CDT y ahí un redondeo de
+      // ⭐ SIN decimales en los pesos de ESTE papel (07-oct-2026, pedido:
+      //    «en los reportes de viajes redondea la cifra»). Antes iban con dos.
+      //    El TICKET sigue con TRES: se firma en el CDT y ahí un redondeo de
       //    5 kg sí importa (ver `tonTexto` en viajesPeso.ts).
-      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n, 2) : kgTextoOpcional(n)) ?? '—';
-      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n, 2) : kgTexto(n)) : '—');
+      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n, 0) : kgTextoOpcional(n, 0)) ?? '—';
+      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n, 0) : kgTexto(n, 0)) : '—');
       const netoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoNetoKg ?? 0), 0);
       const brutoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoBrutoKg ?? 0), 0);
       const taraDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoTaraKg ?? 0), 0);
@@ -3218,7 +3219,7 @@ export default function ViajesCamionesScreen() {
       // El eje decide qué columna sobra: la suya ya está en el encabezado del grupo.
       const colsR = columnasResumen(op, resumenEje, pesoUnidadRep);
       const bodyResumen = `
-        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}${op.pesoPromedio ? ` · promedio por viaje ${kgPie(resumenViajes.total > 0 ? resumenViajes.netoKg / resumenViajes.total : 0)}` : ''}
+        <p class="tot">TOTAL GENERAL: ${op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}${resumenViajes.totalCamiones} camión(es) · ${resumenViajes.empresas.length} ${palabraGrupo}${op.m3 ? ` · ${m3Texto(totalM3, 0)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(resumenViajes.netoKg)}` : ''}${op.pesoPromedio ? ` · promedio por viaje ${kgPie(resumenViajes.total > 0 ? resumenViajes.netoKg / resumenViajes.total : 0)}` : ''}
           ${op.viajes ? `<br><span style="font-weight:600">${turnoLabelConHorario('day')}: ${resumenViajes.dia} · ${turnoLabelConHorario('night')}: ${resumenViajes.noche}</span>` : ''}</p>
         ${resumenViajes.empresas.map((e) => {
           const g3 = redondear(e.camiones.reduce((a, c) => a + m3Fila(c.key, c.viajes), 0));
@@ -3226,7 +3227,7 @@ export default function ViajesCamionesScreen() {
             op.viajes ? `${e.total} viaje(s)` : null,
             `${e.camiones.length} camión(es)`,
             op.viajes ? `${turnoLabel('day')} ${e.dia} · ${turnoLabel('night')} ${e.noche}` : null,
-            op.m3 ? `${m3Texto(g3)} m³` : null,
+            op.m3 ? `${m3Texto(g3, 0)} m³` : null,
             op.pesoNeto ? `a pagar ${kgPie(e.netoKg)}` : null,
           ].filter(Boolean).join(' · ');
           const filas = e.camiones.map((c) => valoresEnOrden(colsR, {
@@ -3241,7 +3242,7 @@ export default function ViajesCamionesScreen() {
             dia: num(c.dia),
             noche: num(c.noche),
             viajes: String(c.viajes),
-            m3: m3Texto(m3Fila(c.key, c.viajes)),
+            m3: m3Texto(m3Fila(c.key, c.viajes), 0),
             pesoNeto: kgPie(c.netoKg),
             // 📊 Promedio por viaje de ESE camión (29-sep-2026). Sin viajes no se
             // divide; sin peso, la raya la pone kgPie.
@@ -3252,7 +3253,7 @@ export default function ViajesCamionesScreen() {
               : c.key === 'dia' ? `<b>${num(e.dia)}</b>`
               : c.key === 'noche' ? `<b>${num(e.noche)}</b>`
               : c.key === 'viajes' ? `<b>${e.total}</b>`
-              : c.key === 'm3' ? `<b>${m3Texto(g3)}</b>`
+              : c.key === 'm3' ? `<b>${m3Texto(g3, 0)}</b>`
               : c.key === 'pesoNeto' ? `<b>${kgPie(e.netoKg)}</b>`
               : c.key === 'pesoPromedio' ? `<b>${kgPie(e.total > 0 ? e.netoKg / e.total : 0)}</b>` : ''
           ));
@@ -3300,7 +3301,7 @@ export default function ViajesCamionesScreen() {
         placa: placaDe(r),
         marcaModelo: marcaModeloDe(r.machineryId),
         dims: dimsDe(r.machineryId),
-        m3: m3Texto(r.machineryId ? porViajeDe(r.machineryId) : 0),
+        m3: m3Texto(r.machineryId ? porViajeDe(r.machineryId) : 0, 0),
         pesoBruto: kgOpc(r.pesoBrutoKg),
         pesoTara: kgOpc(r.pesoTaraKg),
         pesoNeto: kgOpc(r.pesoNetoKg),
@@ -3313,7 +3314,7 @@ export default function ViajesCamionesScreen() {
       const filasD = filteredRangeRows.map(filaD);
       const pieD = colsD.map((c, i) => (
         i === 0 ? `<b>Total: ${filteredRangeRows.length} viajes</b>`
-          : c.key === 'm3' ? `<b>${m3Texto(totalM3)}</b>`
+          : c.key === 'm3' ? `<b>${m3Texto(totalM3, 0)}</b>`
           : c.key === 'pesoBruto' ? `<b>${kgPie(brutoDeFilas(filteredRangeRows))}</b>`
           : c.key === 'pesoTara' ? `<b>${kgPie(taraDeFilas(filteredRangeRows))}</b>`
           : c.key === 'pesoNeto' ? `<b>${kgPie(netoDeFilas(filteredRangeRows))}</b>` : ''
@@ -3326,7 +3327,7 @@ export default function ViajesCamionesScreen() {
         ? gruposDetalle.map((g) => {
           const pieG = colsD.map((c, i) => (
             i === 0 ? `<b>${g.filas.length} viaje(s)</b>`
-              : c.key === 'm3' ? `<b>${m3Texto(m3DeFilas(g.filas))}</b>`
+              : c.key === 'm3' ? `<b>${m3Texto(m3DeFilas(g.filas), 0)}</b>`
               : c.key === 'pesoBruto' ? `<b>${kgPie(brutoDeFilas(g.filas))}</b>`
               : c.key === 'pesoTara' ? `<b>${kgPie(taraDeFilas(g.filas))}</b>`
               : c.key === 'pesoNeto' ? `<b>${kgPie(netoDeFilas(g.filas))}</b>` : ''
@@ -3335,7 +3336,7 @@ export default function ViajesCamionesScreen() {
         }).join('')
         : tabla(colsD, filasD, pieD);
       const bodyDetalle = `
-        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : ejeD === 'frente' ? 'frente(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
+        <p class="tot">TOTAL: ${filteredRangeRows.length} viaje(s)${gruposDetalle ? ` · ${gruposDetalle.length} ${ejeD === 'ubicacion' ? 'obra(s)' : ejeD === 'listero' ? 'listero(s)' : ejeD === 'frente' ? 'frente(s)' : 'empresa(s)'}` : ''}${op.m3 ? ` · ${m3Texto(totalM3, 0)} m³` : ''}${op.pesoNeto ? ` · peso a pagar ${kgPie(netoDeFilas(filteredRangeRows))}` : ''}</p>
         ${cuerpoD}`;
 
       // El corte es por JORNADA (7am→7am), que es como cuenta el negocio: turno
@@ -3359,7 +3360,10 @@ export default function ViajesCamionesScreen() {
         },
         resumenRep,
         pesoUnidadRep,
-        (kg) => (pesoUnidadRep === 't' ? tonTexto(kg, 2) : kgTexto(kg)),
+        // ⭐ La misma cifra redondeada que las columnas (07-oct-2026, pedido).
+        //    Una tarjeta en «21.200,00 Kg» sobre una tabla en «21.200 Kg» se
+        //    lee como dos cuentas distintas del mismo peso.
+        (kg) => (pesoUnidadRep === 't' ? tonTexto(kg, 0) : kgTexto(kg, 0)),
       );
       const bloqueResumen = htmlResumenEjecutivo(tarjetas, esc);
       const html = pdfDocument({
@@ -5526,7 +5530,7 @@ export default function ViajesCamionesScreen() {
                       lo ve igual en pantalla y concluye que no funcionó. */}
                   <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>
                     TOTAL: {cub.op.viajes ? `${resumenViajes.total} viaje(s) · ` : ''}{resumenViajes.totalCamiones} camión(es)
-                    {cub.op.m3 ? ` · ${m3Texto(sumaVolumen(volumenPorCamion))} m³` : ''}
+                    {cub.op.m3 ? ` · ${m3Texto(sumaVolumen(volumenPorCamion), 0)} m³` : ''}
                   </Text>
                   {/* El desglose siempre suma el total: `turnoDeViaje` le da turno
                       a TODAS las filas (nunca devuelve null), así que acá no hay
@@ -5543,7 +5547,7 @@ export default function ViajesCamionesScreen() {
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>{porUbicacion ? '🏗️' : porListero ? '👤' : porFrente ? '⛏️' : '🏢'} {e.name}</Text>
                         <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13 }}>
                           {cub.op.viajes ? `${e.total} viaje(s)` : `${e.camiones.length} camión(es)`}
-                          {cub.op.m3 ? ` · ${m3Texto(redondear(e.camiones.reduce((a, c) => a + (volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes, 0)))} m³` : ''}
+                          {cub.op.m3 ? ` · ${m3Texto(redondear(e.camiones.reduce((a, c) => a + (volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes, 0)), 0)} m³` : ''}
                         </Text>
                       </View>
                       {cub.op.viajes ? (
@@ -5560,7 +5564,7 @@ export default function ViajesCamionesScreen() {
                               en el PDF, para que no haya dos cuentas distintas. */}
                           {cub.op.m3 ? (
                             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, marginRight: spacing.xs }}>
-                              {m3Texto(redondear((volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes))} m³
+                              {m3Texto(redondear((volumenPorCamion.get(c.key)?.porViaje ?? 0) * c.viajes), 0)} m³
                             </Text>
                           ) : null}
                           {cub.op.viajes ? <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{c.viajes}</Text> : null}

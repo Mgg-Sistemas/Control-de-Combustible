@@ -5544,9 +5544,21 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   calculado sobre los viajes de ese grupo (no promediando promedios). **Solo sale en el
 >   resumido**: en el detallado cada fila ya es un viaje, y su «promedio» sería su propio peso.
 >
->   > **Las toneladas de ESTE reporte van con dos decimales (28/09/2026, a pedido):** «32,54 Ton».
->   > Es un papel de control, se lee de un vistazo y no lo firma nadie. **El ticket conserva los
->   > tres** («32,545 Ton») porque sí se firma en el CDT, y ahí un redondeo de 5 kg sí importa.
+>   > **Los pesos de ESTE reporte van REDONDEADOS, sin decimales (07/10/2026, a pedido: «en los
+>   > reportes de viajes redondea la cifra»):** «32.540 Kg» y «33 Ton». Es un papel de control, se
+>   > lee de un vistazo y no lo firma nadie; la romana además canta kilos enteros, así que el «,00»
+>   > de cada celda solo ensanchaba la columna. Antes iban con dos decimales (28/09/2026).
+>   > **El ticket conserva los suyos** («32.540,00 Kg», «32,540 Ton») porque sí se firma en el CDT,
+>   > y ahí un redondeo de 5 kg sí importa. Se redondea el **texto** del papel, no el dato: lo
+>   > guardado sigue en kilos exactos y los totales se calculan igual que siempre.
+>   >
+>   > **Los m³ también (07/10/2026):** «248 m³» en vez de «247,55 m³», en las columnas, los pies de
+>   > grupo, el total y las tarjetas del resumen ejecutivo, y lo mismo en la vista previa de la
+>   > pantalla. No se redondearon las **medidas** de la tolva (alto × largo × ancho) ni la
+>   > **capacidad** de cada unidad en el reporte volumétrico: esas salen de una cinta métrica, y un
+>   > «14 m³» al lado de «2,50 × 5,00 × 1,10» se lee como una cuenta mal hecha. Tampoco la columna
+>   > de toneladas del **pago por peso**, que va pegada a su Tarifa y su Monto y tiene que
+>   > multiplicar bien en el papel.
 > - **Corregir un peso mal tecleado** lo hace quien tiene control total, con ✏️ Editar en el viaje.
 >   Desde el 27/09/2026 se pueden corregir **los dos**: el **bruto** y también la **tara de ese
 >   viaje** — para cuando la cargaron mal (antes había que borrar el viaje y recargarlo). El peso a
@@ -5593,7 +5605,8 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   - **Camiones: Solo con tara / Toda la flota.** «Solo con tara» es el conteo de los que ya
 >     están listos. «Toda la flota» agrega a los que **faltan** (salen «Sin tara») y a los que no
 >     pasan por romana, con una columna **Estado**: sirve para saber a cuáles falta pesar.
->   - **⚖️ Pesos en Kg / Toneladas** (toneladas con dos decimales, como los demás reportes).
+>   - **⚖️ Pesos en Kg / Toneladas** (redondeados, sin decimales, como los demás reportes de
+>     viajes desde el 07/10/2026).
 >   - **🏢 Empresa.** Apagado, el nombre de la empresa **no aparece en ninguna parte del PDF**: ni
 >     en la tabla ni en el nombre del archivo.
 >   - **🏷️ Marca y modelo** y **👤 Quién cargó la tara y cuándo**, cada uno con su interruptor.
