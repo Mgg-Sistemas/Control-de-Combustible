@@ -3181,16 +3181,15 @@ export default function ViajesCamionesScreen() {
       //    total en 0 se imprime como raya: «0,00 Kg» diría que se pesó nada.
       //    Desde el 28-sep el papel puede salir en TONELADAS (solo el texto:
       //    el dato guardado y las sumas siguen en kilos).
-      // ⭐ LOS PESOS DE ESTE PAPEL (07-oct-2026, pedido: «en los reportes de
-      //    viajes redondea la cifra», y acto seguido «que sea un solo
-      //    decimal»): TONELADAS con UNO, KILOS enteros. No es incoherencia:
-      //    una tonelada son mil kilos y «38,30 → 38» borra 300 kg de una
-      //    columna con la que se cobra; un kilo con decimales, en cambio, es
-      //    relleno —la romana canta kilos enteros—.
+      // ⭐ LOS PESOS DE ESTE PAPEL VAN CON UN SOLO DECIMAL, EN LA UNIDAD QUE
+      //    SEA (07-oct-2026: «redondea la cifra» → «que sea un solo decimal»
+      //    → «déjale un solo decimal como el ejemplo», con el papel de otro
+      //    sistema de patrón). Toneladas Y kilos: lo que se busca es que toda
+      //    la columna se lea igual, no afinar cada unidad por su lado.
       //    El TICKET sigue con TRES: se firma en el CDT y ahí un redondeo de
       //    5 kg sí importa (ver `tonTexto` en viajesPeso.ts).
-      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n, 1) : kgTextoOpcional(n, 0)) ?? '—';
-      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n, 1) : kgTexto(n, 0)) : '—');
+      const kgOpc = (n: number | null | undefined) => (pesoUnidadRep === 't' ? tonTextoOpcional(n, 1) : kgTextoOpcional(n, 1)) ?? '—';
+      const kgPie = (n: number) => (n > 0 ? (pesoUnidadRep === 't' ? tonTexto(n, 1) : kgTexto(n, 1)) : '—');
       const netoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoNetoKg ?? 0), 0);
       const brutoDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoBrutoKg ?? 0), 0);
       const taraDeFilas = (fs: CamionViajeRow[]) => fs.reduce((a, r) => a + (r.pesoTaraKg ?? 0), 0);
@@ -3367,7 +3366,7 @@ export default function ViajesCamionesScreen() {
         // ⭐ La misma cifra, con los mismos decimales que las columnas.
         //    Una tarjeta en «21.200,00 Kg» sobre una tabla en «21.200 Kg» se
         //    lee como dos cuentas distintas del mismo peso.
-        (kg) => (pesoUnidadRep === 't' ? tonTexto(kg, 1) : kgTexto(kg, 0)),
+        (kg) => (pesoUnidadRep === 't' ? tonTexto(kg, 1) : kgTexto(kg, 1)),
       );
       const bloqueResumen = htmlResumenEjecutivo(tarjetas, esc);
       const html = pdfDocument({

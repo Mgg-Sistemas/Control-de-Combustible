@@ -130,15 +130,16 @@ export function esc(t: unknown): string {
   return String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
-/** El peso en la unidad del reporte (toneladas con DOS decimales, como el
- *  resto de los reportes de control; el ticket es el único con tres). */
+/** El peso en la unidad del reporte: UN solo decimal, sea Kg o Ton, como el
+ *  resto de los reportes de viajes; el ticket es el único que conserva los
+ *  suyos (dos en Kg, tres en Ton), porque se firma en el CDT. */
 export function pesoTexto(kg: number | null, unidad: UnidadPeso): string {
   if (kg == null) return '—';
-  // ⭐ KILOS ENTEROS, TONELADAS CON UN DECIMAL (07-oct-2026, pedido:
-  //    «redondea la cifra» + «que sea un solo decimal»). La romana canta kilos
-  //    enteros, así que el «,00» era relleno; pero una tonelada son mil kilos
-  //    y «11,34 → 11» borra 340 kg de una tara.
-  return unidad === 't' ? tonTexto(kg, 1) : kgTexto(kg, 0);
+  // ⭐ UN SOLO DECIMAL, EN LA UNIDAD QUE SEA (07-oct-2026: «redondea la cifra»
+  //    → «que sea un solo decimal» → «déjale un solo decimal como el
+  //    ejemplo», con el papel de otro sistema de patrón). Antes eran dos; se
+  //    probó con cero el mismo día y el cliente lo devolvió.
+  return unidad === 't' ? tonTexto(kg, 1) : kgTexto(kg, 1);
 }
 
 /** «06/10/2026» en hora de Caracas (UTC−4 fijo, sin horario de verano). */

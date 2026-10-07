@@ -624,8 +624,8 @@ ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin c
   // ⭐ Y REDONDEADO (07-oct-2026): la tarjeta y la tabla de abajo tienen que
   //    decir el mismo peso. Una en «21.200,00 Kg» sobre otra en «21.200 Kg» se
   //    lee como dos cuentas distintas del mismo número.
-  ok('⭐ y escribe el peso en la unidad del reporte, redondeado',
-    /pesoUnidadRep === 't' \? tonTexto\(kg, 1\) : kgTexto\(kg, 0\)/.test(scrR));
+  ok('⭐ y escribe el peso en la unidad del reporte, con un decimal',
+    /pesoUnidadRep === 't' \? tonTexto\(kg, 1\) : kgTexto\(kg, 1\)/.test(scrR));
   ok('⭐ en «solo camiones» no sale (ese papel no lleva cantidades)',
     /const tarjetas = soloCamiones \? \[\] : tarjetasResumen\(/.test(scrR));
   ok('el bloque va ARRIBA del cuerpo del papel', /body: bloqueResumen \+ \(soloCamiones/.test(scrR));

@@ -63,27 +63,36 @@ eq('negativo (no debería pasar, pero no miente)', P.kgTexto(-5), '-5,00 Kg');
 eq('opcional: null se queda null (raya del ticket)', P.kgTextoOpcional(null), null);
 eq('opcional: con valor, formatea', P.kgTextoOpcional(21200), '21.200,00 Kg');
 
-// ── 1-bis) EL MISMO TEXTO REDONDEADO, PARA LOS REPORTES ─────────────────────
-// ⭐ CAMBIÓ EL REQUISITO (07-oct-2026, pedido textual: «en los reportes de
-//    viajes redondea la cifra»). Una romana canta kilos enteros: el «,00» de
-//    cada celda era relleno que solo ensanchaba la columna.
+// ── 1-bis) EL MISMO TEXTO CON UN DECIMAL, PARA LOS REPORTES ────────────────
+// ⭐ CAMBIÓ EL REQUISITO (07-oct-2026, en tres mensajes del mismo día: «en los
+//    reportes de viajes redondea la cifra» → «que sea un solo decimal» →
+//    «déjale un solo decimal como el ejemplo», con el papel de otro sistema
+//    de patrón). El papel de viajes lleva UNA cifra decimal, sea Kg o Ton.
+//
+// ⚠️ EL CERO SE PROBÓ Y SE DEVOLVIÓ. Quedó en el código como opción —hay
+//    pruebas abajo— pero ningún papel lo pide hoy.
 //
 // ⚠️ ENTRÓ COMO PARÁMETRO, NO COMO CAMBIO GLOBAL, y por eso las pruebas de
 //    arriba siguen intactas: el TIQUETE se firma en el CDT y conserva su
-//    formato. El día que alguien «simplifique» esto poniendo 0 por defecto,
-//    las de arriba se caen — que es justo para lo que están.
-eq('⭐ reporte: el bruto de la muestra, sin decimales', P.kgTexto(32540, 0), '32.540 Kg');
-eq('⭐ reporte: el neto de la muestra', P.kgTexto(21200, 0), '21.200 Kg');
-// ⚠️ REDONDEA, no corta: 11.340,6 kg son 11.341, no 11.340.
-eq('⚠️ redondea hacia el más cercano, no trunca', [P.kgTexto(11340.6, 0), P.kgTexto(11340.4, 0)], ['11.341 Kg', '11.340 Kg']);
+//    formato. El día que alguien «simplifique» esto cambiando el defecto, las
+//    de arriba se caen — que es justo para lo que están.
+eq('⭐ reporte: el bruto de la muestra, con un decimal', P.kgTexto(32540, 1), '32.540,0 Kg');
+eq('⭐ reporte: el neto de la muestra', P.kgTexto(21200, 1), '21.200,0 Kg');
+// ⚠️ REDONDEA, no corta: 11.340,64 kg son 11.340,6.
+eq('⚠️ redondea hacia el más cercano, no trunca',
+  [P.kgTexto(11340.64, 1), P.kgTexto(11340.66, 1), P.kgTexto(11340.6, 0), P.kgTexto(11340.4, 0)],
+  ['11.340,6 Kg', '11.340,7 Kg', '11.341 Kg', '11.340 Kg']);
+// ⚠️ El decimal en cero NO se cae: «950,0» dice que esa cifra tiene la misma
+//    precisión que las de al lado.
+eq('⚠️ el decimal se escribe aunque sea cero', [P.kgTexto(950, 1), P.kgTexto(NaN, 1)], ['950,0 Kg', '0,0 Kg']);
+eq('negativo (no debería pasar, pero no miente)', P.kgTexto(-5, 1), '-5,0 Kg');
+eq('el opcional redondea igual y conserva su null', [P.kgTextoOpcional(21200, 1), P.kgTextoOpcional(null, 1)], ['21.200,0 Kg', null]);
 // ⚠️ Con 0 decimales `toFixed` no deja parte decimal: sin la guarda, el papel
-//    imprimía «11.340,undefined Kg». Pasó de verdad al escribirlo.
-ok('⚠️ no deja NADA pegado donde iban los decimales',
+//    imprimía «11.340,undefined Kg». Pasó de verdad al escribirlo, y el 0
+//    sigue siendo una opción válida de la función.
+ok('⚠️ con cero decimales no deja NADA pegado donde iban',
   !/undefined|,\s*Kg/.test([P.kgTexto(11340, 0), P.kgTexto(950, 0), P.kgTexto(0, 0), P.kgTexto(NaN, 0)].join(' ')));
-eq('el cero redondo también es redondo', P.kgTexto(NaN, 0), '0 Kg');
-eq('chico, sin punto de miles', P.kgTexto(950, 0), '950 Kg');
-eq('negativo (no debería pasar, pero no miente)', P.kgTexto(-5, 0), '-5 Kg');
-eq('el opcional redondea igual y conserva su null', [P.kgTextoOpcional(21200, 0), P.kgTextoOpcional(null, 0)], ['21.200 Kg', null]);
+eq('el cero redondo también es redondo', [P.kgTexto(NaN, 0), P.kgTexto(950, 0)], ['0 Kg', '950 Kg']);
 eq('⚠️ y sin pedirlo NADIE estrena formato: el defecto sigue siendo el del tiquete', P.kgTexto(32540), '32.540,00 Kg');
 
 // ── 2) LO TECLEADO → KILOS (misma regla única de leerNumero) ────────────────
@@ -372,12 +381,11 @@ ok('el PDF de viajes manda sus logos y su unidad',
 //    toneladas (28-sep) y ahora pide los pesos REDONDEADOS, Kg y Ton. La
 //    prueba no se borra, se mueve: lo que protege sigue siendo lo mismo —que
 //    el papel pida su propio formato y no se cuele el del tiquete—.
-// ⭐ TONELADAS CON UNO, KILOS ENTEROS. No es incoherencia: una tonelada son
-//    mil kilos y «38,30 → 38» borra 300 kg de una columna con la que se cobra;
-//    un kilo con decimales, en cambio, es relleno —la romana canta enteros—.
-ok('⭐ el PDF de viajes imprime las toneladas con UN decimal y los kilos enteros',
+// ⭐ UNA SOLA CIFRA DECIMAL EN TODO EL PAPEL, sea Kg o Ton: lo que el cliente
+//    pidió es que la columna se lea igual, no afinar cada unidad por su lado.
+ok('⭐ el PDF de viajes imprime TODOS sus pesos con UN decimal, Kg o Ton',
   /tonTextoOpcional\(n, 1\)/.test(scr) && /tonTexto\(n, 1\)/.test(scr)
-  && /kgTextoOpcional\(n, 0\)/.test(scr) && /kgTexto\(n, 0\)/.test(scr));
+  && /kgTextoOpcional\(n, 1\)/.test(scr) && /kgTexto\(n, 1\)/.test(scr));
 // ⚠️ EL TIQUETE NO SE TOCÓ: pide sus pesos sin pedir decimales, o sea con los
 //    de fábrica (Kg con dos, Ton con tres). Si alguien le pone un 0 acá, se
 //    está redondeando un papel que se firma en el CDT.

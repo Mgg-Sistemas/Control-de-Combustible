@@ -11,11 +11,12 @@
  * Una romana canta kilos enteros y un camión no se cubica al centímetro: el
  * «,00» de cada celda era relleno que solo ensanchaba la columna.
  *
- * ── CUÁNTOS DECIMALES, Y POR QUÉ NO SON LOS MISMOS ─────────────────────────
- * ⭐ KILOS: ENTEROS. La romana canta kilos enteros; un «,0» ahí es relleno.
- * ⭐ TONELADAS Y M³: UNO. Una tonelada son MIL kilos: se probó con cero el
- *    mismo día y el cliente lo devolvió en el acto, porque «38,30 → 38» borra
- *    300 kg de la vista en una columna con la que se cobra.
+ * ── CUÁNTOS DECIMALES: UNO, EN TODO ───────────────────────────────────────
+ * ⭐ UNA SOLA CIFRA DECIMAL, sea Kg, Ton o m³ («déjale un solo decimal como el
+ *    ejemplo»). Lo que se busca es que TODA la columna del papel se lea igual.
+ * ⚠️ El CERO se probó el mismo día y el cliente lo devolvió en el acto: una
+ *    tonelada son MIL kilos y «38,30 → 38» borra 300 kg de la vista en una
+ *    columna con la que se cobra. Quedó como opción de la función, sin uso.
  *
  * ── LA REGLA QUE ORDENA TODO (y lo que esta suite cuida de verdad) ──────────
  * ⭐ REDONDEA LA CIFRA QUE SE LEE. Totales, promedios y columnas de los papeles
@@ -94,23 +95,24 @@ const C = cargar('src/lib/cubicaje.ts');
 const T = cargar('src/lib/reporteTaras.ts');
 
 // ── 1) LOS FORMATEADORES: EL REDONDEO ES UN PARÁMETRO ───────────────────────
-eq('⭐ los kilos del papel salen enteros', P.kgTexto(32540, 0), '32.540 Kg');
+eq('⭐ los kilos del papel salen con un decimal', P.kgTexto(32540, 1), '32.540,0 Kg');
 eq('⭐ las toneladas del papel salen con un decimal', P.tonTexto(32545, 1), '32,5 Ton');
 eq('⭐ los m³ del papel salen con un decimal', C.m3Texto(18.55, 1), '18.6');
 // ⭐ EL CASO QUE SEÑALÓ EL CLIENTE, con la celda encerrada en verde.
 eq('⭐ «22,58» se escribe «22,6»', P.tonTexto(22580, 1), '22,6 Ton');
 // ⚠️ El decimal en cero NO se cae: «28,0» dice que se midió y dio redondo.
-eq('⚠️ el decimal se escribe aunque sea cero', [P.tonTexto(28000, 1), C.m3Texto(12, 1)], ['28,0 Ton', '12.0']);
+eq('⚠️ el decimal se escribe aunque sea cero',
+  [P.tonTexto(28000, 1), P.kgTexto(950, 1), C.m3Texto(12, 1)], ['28,0 Ton', '950,0 Kg', '12.0']);
 // ⚠️ Redondea al más cercano; no corta. Cortar siempre favorece a una de las
 //    dos partes, y el papel lo lee la contrata.
 eq('⚠️ redondea al más cercano, no trunca',
-  [P.kgTexto(11340.6, 0), P.kgTexto(11340.4, 0), P.tonTexto(22580, 1), P.tonTexto(22540, 1), C.m3Texto(7.66, 1), C.m3Texto(7.64, 1)],
-  ['11.341 Kg', '11.340 Kg', '22,6 Ton', '22,5 Ton', '7.7', '7.6']);
+  [P.kgTexto(11340.66, 1), P.kgTexto(11340.64, 1), P.tonTexto(22580, 1), P.tonTexto(22540, 1), C.m3Texto(7.66, 1), C.m3Texto(7.64, 1)],
+  ['11.340,7 Kg', '11.340,6 Kg', '22,6 Ton', '22,5 Ton', '7.7', '7.6']);
 // ⚠️ Con 0 decimales `toFixed` no deja parte decimal: sin guarda salía
 //    «11.340,undefined Kg». Pasó de verdad al escribir esto.
   ok('⚠️ no queda ni coma huérfana ni «undefined» donde iban los decimales',
   !/undefined|,\s*(Kg|Ton)/.test([
-    P.kgTexto(11340, 0), P.kgTexto(0, 0), P.kgTexto(NaN, 0),
+    P.kgTexto(11340, 1), P.kgTexto(0, 1), P.kgTexto(NaN, 1), P.kgTexto(11340, 0), P.kgTexto(NaN, 0),
     P.tonTexto(32540, 1), P.tonTexto(0, 1), P.tonTexto(NaN, 1), P.tonTexto(0, 0),
   ].join(' ')));
 // ⚠️⚠️ EL DEFECTO NO CAMBIÓ. Es lo que protege al tiquete de este pedido.
@@ -130,8 +132,8 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
     ['b', { pesoTaraKg: 12000.6, updatedAt: '2026-10-06T14:00:00Z', updatedByNombre: 'María', exentoRomana: false }],
   ]);
   const kg = T.cuerpoReporteTaras(CAMIONES, TARAS, T.OPCIONES_TARAS_POR_DEFECTO);
-  ok('⭐ el papel de taras no trae UN solo decimal de relleno', !/,\d\d\s*Kg/.test(kg));
-  ok('…y las taras siguen ahí, redondeadas', kg.includes('11.340 Kg') && kg.includes('12.001 Kg'));
+  ok('⭐ el papel de taras no trae DOS decimales en ninguna celda', !/,\d\d\s*Kg/.test(kg));
+  ok('…y lleva UNO en todas', /,\d\s*Kg/.test(kg) && kg.includes('11.340,0 Kg') && kg.includes('12.000,6 Kg'));
   const ton = T.cuerpoReporteTaras(CAMIONES, TARAS, { ...T.OPCIONES_TARAS_POR_DEFECTO, unidad: 't' });
   ok('⭐ en toneladas va con UN decimal, ni cero ni dos',
     ton.includes('11,3 Ton') && /,\d\s*Ton/.test(ton) && !/,\d\d\s*Ton/.test(ton));
@@ -142,11 +144,11 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
 // ── 3) EL PAPEL DE VIAJES: TODOS SUS M³ Y SUS PESOS ─────────────────────────
 {
   const scr = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
-  ok('⭐ los pesos del papel: toneladas con uno, kilos enteros',
-    /tonTextoOpcional\(n, 1\) : kgTextoOpcional\(n, 0\)/.test(scr)
-    && /tonTexto\(n, 1\) : kgTexto\(n, 0\)/.test(scr));
+  ok('⭐ los pesos del papel llevan UN decimal, Kg o Ton',
+    /tonTextoOpcional\(n, 1\) : kgTextoOpcional\(n, 1\)/.test(scr)
+    && /tonTexto\(n, 1\) : kgTexto\(n, 1\)/.test(scr));
   ok('⭐ y la tarjeta del resumen dice el MISMO peso que la tabla de abajo',
-    /pesoUnidadRep === 't' \? tonTexto\(kg, 1\) : kgTexto\(kg, 0\)/.test(scr));
+    /pesoUnidadRep === 't' \? tonTexto\(kg, 1\) : kgTexto\(kg, 1\)/.test(scr));
 
   // ⭐⭐ LA PRUEBA QUE IMPORTA: no hay UN m³ del papel que se quedara sin
   //     redondear. Se cuentan todas las llamadas y se exige que la única sin

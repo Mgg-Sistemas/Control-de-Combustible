@@ -49,15 +49,23 @@ export function pesoTecleadoAKg(texto: unknown, unidad: UnidadPeso): number {
  * Sin `Intl` a propósito: el formato del papel no puede depender del idioma
  * del teléfono que imprime.
  *
- * ⭐ LOS REPORTES VAN SIN DECIMALES (07-oct-2026, pedido: «en los reportes de
- *    viajes redondea la cifra»). Una romana canta kilos enteros: el «,00» de
- *    cada celda es relleno que solo ensancha la columna. Por eso `decimales`
- *    es un PARÁMETRO con el 2 por defecto — el TIQUE, que se firma en el CDT,
- *    no se toca. Misma decisión y mismo motivo que el 2 vs. 3 de `tonTexto`.
+ * ⭐ LOS REPORTES VAN CON UN DECIMAL (07-oct-2026, pedido: «en los reportes
+ *    de viajes redondea la cifra» → «que sea un solo decimal» → «déjale un
+ *    solo decimal como el ejemplo»). El cliente mandó el papel de otro sistema
+ *    como patrón: UNA cifra decimal en todo el reporte, sin importar la
+ *    unidad. Se probó con cero el mismo día y lo devolvió.
+ *
+ * ⚠️ UN DECIMAL EN TODAS LAS UNIDADES ES LO QUE SE PIDIÓ. El argumento de que
+ *    la romana canta kilos enteros es cierto y aun así no manda: lo que se
+ *    busca es que TODA la columna del papel se lea igual, y una tabla con
+ *    «32.540 Kg» arriba y «22,6 Ton» abajo no se lee igual.
+ *
+ *    Por eso `decimales` es un PARÁMETRO con el 2 por defecto — el TIQUE, que
+ *    se firma en el CDT, no se toca. Mismo criterio que el de `tonTexto`.
  */
-export function kgTexto(valorKg: number, decimales: 0 | 2 = 2): string {
+export function kgTexto(valorKg: number, decimales: 0 | 1 | 2 = 2): string {
   const n = Number(valorKg);
-  if (!isFinite(n)) return decimales ? '0,00 Kg' : '0 Kg';
+  if (!isFinite(n)) return decimales ? `0,${'0'.repeat(decimales)} Kg` : '0 Kg';
   const negativo = n < 0;
   const [entero, dec] = Math.abs(n).toFixed(decimales).split('.');
   const miles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -68,7 +76,7 @@ export function kgTexto(valorKg: number, decimales: 0 | 2 = 2): string {
 
 /** El mismo texto pero para un dato que puede no existir (viajes viejos,
  *  anteriores al peso): null se queda null y el ticket pinta su raya. */
-export function kgTextoOpcional(valorKg: number | null | undefined, decimales: 0 | 2 = 2): string | null {
+export function kgTextoOpcional(valorKg: number | null | undefined, decimales: 0 | 1 | 2 = 2): string | null {
   const n = Number(valorKg);
   return valorKg == null || !isFinite(n) ? null : kgTexto(n, decimales);
 }
