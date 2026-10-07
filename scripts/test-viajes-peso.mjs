@@ -63,6 +63,29 @@ eq('negativo (no debería pasar, pero no miente)', P.kgTexto(-5), '-5,00 Kg');
 eq('opcional: null se queda null (raya del ticket)', P.kgTextoOpcional(null), null);
 eq('opcional: con valor, formatea', P.kgTextoOpcional(21200), '21.200,00 Kg');
 
+// ── 1-bis) EL MISMO TEXTO REDONDEADO, PARA LOS REPORTES ─────────────────────
+// ⭐ CAMBIÓ EL REQUISITO (07-oct-2026, pedido textual: «en los reportes de
+//    viajes redondea la cifra»). Una romana canta kilos enteros: el «,00» de
+//    cada celda era relleno que solo ensanchaba la columna.
+//
+// ⚠️ ENTRÓ COMO PARÁMETRO, NO COMO CAMBIO GLOBAL, y por eso las pruebas de
+//    arriba siguen intactas: el TIQUETE se firma en el CDT y conserva su
+//    formato. El día que alguien «simplifique» esto poniendo 0 por defecto,
+//    las de arriba se caen — que es justo para lo que están.
+eq('⭐ reporte: el bruto de la muestra, sin decimales', P.kgTexto(32540, 0), '32.540 Kg');
+eq('⭐ reporte: el neto de la muestra', P.kgTexto(21200, 0), '21.200 Kg');
+// ⚠️ REDONDEA, no corta: 11.340,6 kg son 11.341, no 11.340.
+eq('⚠️ redondea hacia el más cercano, no trunca', [P.kgTexto(11340.6, 0), P.kgTexto(11340.4, 0)], ['11.341 Kg', '11.340 Kg']);
+// ⚠️ Con 0 decimales `toFixed` no deja parte decimal: sin la guarda, el papel
+//    imprimía «11.340,undefined Kg». Pasó de verdad al escribirlo.
+ok('⚠️ no deja NADA pegado donde iban los decimales',
+  !/undefined|,\s*Kg/.test([P.kgTexto(11340, 0), P.kgTexto(950, 0), P.kgTexto(0, 0), P.kgTexto(NaN, 0)].join(' ')));
+eq('el cero redondo también es redondo', P.kgTexto(NaN, 0), '0 Kg');
+eq('chico, sin punto de miles', P.kgTexto(950, 0), '950 Kg');
+eq('negativo (no debería pasar, pero no miente)', P.kgTexto(-5, 0), '-5 Kg');
+eq('el opcional redondea igual y conserva su null', [P.kgTextoOpcional(21200, 0), P.kgTextoOpcional(null, 0)], ['21.200 Kg', null]);
+eq('⚠️ y sin pedirlo NADIE estrena formato: el defecto sigue siendo el del tiquete', P.kgTexto(32540), '32.540,00 Kg');
+
 // ── 2) LO TECLEADO → KILOS (misma regla única de leerNumero) ────────────────
 eq('kilos pelados', P.pesoTecleadoAKg('32540', 'kg'), 32540);
 // ⚠️ La regla única de leerNumero: UN punto UNA vez es DECIMAL («32.540» son
@@ -231,6 +254,15 @@ eq('una config vieja guardada SIN las claves nuevas las recibe apagadas',
     ['32,55 Ton', null]);
   eq('⭐ sin pedir nada siguen siendo TRES: el ticket no estrena formato',
     [V.tonTexto(32545), V.tonTextoOpcional(32545)], ['32,545 Ton', '32,545 Ton']);
+  // ⭐ Y DESDE EL 07-oct-2026 EL PAPEL LAS PIDE ENTERAS («redondea la cifra»).
+  //    Tercer formato de la misma función y tercera vez que es un parámetro:
+  //    tiquete 3, reporte viejo 2, reporte de hoy 0.
+  eq('⭐ el reporte las puede pedir ENTERAS',
+    [V.tonTexto(32540, 0), V.tonTexto(32545, 0), V.tonTexto(1234567, 0)],
+    ['33 Ton', '33 Ton', '1.235 Ton']);
+  ok('⚠️ enteras: nada de «33, Ton» ni «33,undefined Ton»',
+    !/undefined|,\s*Ton/.test([V.tonTexto(32540, 0), V.tonTexto(0, 0), V.tonTexto(NaN, 0)].join(' ')));
+  eq('el opcional entero conserva su null', [V.tonTextoOpcional(32545, 0), V.tonTextoOpcional(null, 0)], ['33 Ton', null]);
   eq('pesosParaTique en Ton imprime toneladas',
     V.pesosParaTique(pesos, 't'),
     { pesoBruto: '32,540 Ton', pesoTara: '11,340 Ton', pesoNeto: '21,200 Ton' });
@@ -328,9 +360,19 @@ ok('el ticket imprime con la unidad de la configuración',
 ok('el PDF de viajes manda sus logos y su unidad',
   /logos: logosRep,/.test(scr) && /pesoUnidadRep === 't' \? tonTextoOpcional/.test(scr)
   && /pesoUnidadRep === 't' \? tonTexto/.test(scr));
-// ⭐ Y el papel de la lista pide sus toneladas con DOS decimales (28-sep-2026).
-ok('el PDF de viajes imprime las toneladas con 2 decimales',
-  /tonTextoOpcional\(n, 2\)/.test(scr) && /tonTexto\(n, 2\)/.test(scr));
+// ⭐ CAMBIÓ EL REQUISITO (07-oct-2026): este papel pedía DOS decimales en las
+//    toneladas (28-sep) y ahora pide los pesos REDONDEADOS, Kg y Ton. La
+//    prueba no se borra, se mueve: lo que protege sigue siendo lo mismo —que
+//    el papel pida su propio formato y no se cuele el del tiquete—.
+ok('⭐ el PDF de viajes imprime los pesos REDONDEADOS (sin decimales)',
+  /tonTextoOpcional\(n, 0\)/.test(scr) && /tonTexto\(n, 0\)/.test(scr)
+  && /kgTextoOpcional\(n, 0\)/.test(scr) && /kgTexto\(n, 0\)/.test(scr));
+// ⚠️ EL TIQUETE NO SE TOCÓ: pide sus pesos sin pedir decimales, o sea con los
+//    de fábrica (Kg con dos, Ton con tres). Si alguien le pone un 0 acá, se
+//    está redondeando un papel que se firma en el CDT.
+ok('⚠️ el tiquete sigue pidiendo los pesos de fábrica',
+  /\.\.\.pesosParaTique\(row, configTique\.pesosUnidad\)/.test(scr)
+  && !/pesosParaTique\(row, configTique\.pesosUnidad, 0\)/.test(scr));
 ok('la caja de opciones ofrece logos y unidad',
   /logos=\{logosRep\}/.test(scr) && /pesoUnidad=\{pesoUnidadRep\}/.test(scr));
 ok('...y trae el check de Jhenzaen 2.012 C.A',

@@ -272,6 +272,12 @@ eq('sin objeto tampoco', dimsTexto(null), '');
 // que no está medido.
 eq('el cero se imprime como raya, no como 0.00', m3Texto(0), '—');
 eq('un volumen real se imprime con dos decimales', m3Texto(18.5), '18.50');
+// ⭐ PERO LOS REPORTES DE VIAJES LO PIDEN ENTERO (07-oct-2026, pedido:
+//    «en los reportes de viajes redondea la cifra»). Parámetro, no cambio
+//    global: la PANTALLA del cubicaje y la tabla de CAPACIDADES siguen con dos
+//    decimales, porque ahí el m³ va al lado de su propia cinta métrica.
+eq('⭐ el reporte lo puede pedir entero', [m3Texto(18.5, 0), m3Texto(7.49, 0)], ['19', '7']);
+eq('⚠️ y el cero sigue siendo raya, redondeado o no', [m3Texto(0, 0), m3Texto(0.4, 0)], ['—', '0']);
 
 // ── 11) GUARDAS SOBRE EL CÓDIGO ─────────────────────────────────────────────
 const lib = leer('src/lib/cubicaje.ts');
@@ -315,7 +321,7 @@ ok('las cargas se mandan en tandas', /const TANDA = \d+/.test(datosS));
 
 // ⭐ EL DOBLE CONTEO. Agrupando por listero un mismo camión sale bajo cada uno.
 ok('el m³ del resumido es por-viaje × sus viajes', /m3Fila\s*=\s*\(key: string, viajes: number\)\s*=>\s*redondear\(porViajeDe\(key\) \* viajes\)/.test(scrS));
-ok('...y el PDF usa esa cuenta, no el total del camión', /m3:\s*m3Texto\(m3Fila\(c\.key, c\.viajes\)\)/.test(scrS));
+ok('...y el PDF usa esa cuenta, no el total del camión', /m3:\s*m3Texto\(m3Fila\(c\.key, c\.viajes\), 0\)/.test(scrS));
 ok('...y la vista previa usa la MISMA', /volumenPorCamion\.get\(c\.key\)\?\.porViaje/.test(scrS));
 
 // El reporte se arma desde las columnas: si alguien vuelve a escribir los <th> a
@@ -572,8 +578,16 @@ ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin c
   eq('el promedio por viaje divide peso entre viajes',
     [por('pesoPorViaje').valor, por('pesoPorViaje').pie], ['18,31 Ton', '146,50 Ton ÷ 8 viajes']);
   eq('viajes por camión', [por('viajesPorCamion').valor, por('viajesPorCamion').pie], ['2,00 viajes', '8 viajes ÷ 4 camiones']);
-  eq('m³ por viaje', por('m3PorViaje').valor, '12,00 m³');
-  eq('m³ por camión', por('m3PorCamion').valor, '24,00 m³');
+  // ⭐ CAMBIÓ EL REQUISITO (07-oct-2026, pedido: «redondea la cifra»): las
+  //    TRES tarjetas de m³ van enteras. La de VIAJES POR CAMIÓN sigue con dos
+  //    decimales a propósito —no es un m³ ni un peso, y «2 viajes» donde van
+  //    2,4 esconde que un camión hizo el doble que otro—.
+  eq('⭐ m³ por viaje, entero', por('m3PorViaje').valor, '12 m³');
+  eq('⭐ m³ por camión, entero', por('m3PorCamion').valor, '24 m³');
+  eq('⭐ total de m³, entero', por('totalM3').valor, '96 m³');
+  // ⚠️ El pie es la CUENTA de la tarjeta: con la cifra en entero y el pie en
+  //    decimales, el papel se contradice solo.
+  eq('⚠️ y el pie cuenta con la misma cifra', por('m3PorViaje').pie, '96 m³ ÷ 8 viajes');
 
   // ⭐ LA UNIDAD LA MANDA EL REPORTE: el rótulo y la cifra van juntos.
   eq('⭐ en toneladas dice TONELAJE', por('totalPeso').titulo, 'TOTAL TONELAJE');
@@ -606,8 +620,11 @@ ok('solo camiones · el manual en pantalla tambien', /🚚 Solo camiones \(sin c
   const scrR = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
   ok('⭐ el resumen usa las MISMAS cifras que la tabla de abajo',
     /viajes: filteredRangeRows\.length,\s*camiones: resumenViajes\.totalCamiones,\s*pesoKg: netoDeFilas\(filteredRangeRows\),\s*m3: totalM3,/.test(scrR));
-  ok('⭐ y escribe el peso en la unidad del reporte',
-    /pesoUnidadRep === 't' \? tonTexto\(kg, 2\) : kgTexto\(kg\)/.test(scrR));
+  // ⭐ Y REDONDEADO (07-oct-2026): la tarjeta y la tabla de abajo tienen que
+  //    decir el mismo peso. Una en «21.200,00 Kg» sobre otra en «21.200 Kg» se
+  //    lee como dos cuentas distintas del mismo número.
+  ok('⭐ y escribe el peso en la unidad del reporte, redondeado',
+    /pesoUnidadRep === 't' \? tonTexto\(kg, 0\) : kgTexto\(kg, 0\)/.test(scrR));
   ok('⭐ en «solo camiones» no sale (ese papel no lleva cantidades)',
     /const tarjetas = soloCamiones \? \[\] : tarjetasResumen\(/.test(scrR));
   ok('el bloque va ARRIBA del cuerpo del papel', /body: bloqueResumen \+ \(soloCamiones/.test(scrR));

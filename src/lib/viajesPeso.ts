@@ -48,21 +48,29 @@ export function pesoTecleadoAKg(texto: unknown, unidad: UnidadPeso): number {
  * «Kg» al final — calcado del ticket de muestra («32.540,00 Kg»).
  * Sin `Intl` a propósito: el formato del papel no puede depender del idioma
  * del teléfono que imprime.
+ *
+ * ⭐ LOS REPORTES VAN SIN DECIMALES (07-oct-2026, pedido: «en los reportes de
+ *    viajes redondea la cifra»). Una romana canta kilos enteros: el «,00» de
+ *    cada celda es relleno que solo ensancha la columna. Por eso `decimales`
+ *    es un PARÁMETRO con el 2 por defecto — el TIQUE, que se firma en el CDT,
+ *    no se toca. Misma decisión y mismo motivo que el 2 vs. 3 de `tonTexto`.
  */
-export function kgTexto(valorKg: number): string {
+export function kgTexto(valorKg: number, decimales: 0 | 2 = 2): string {
   const n = Number(valorKg);
-  if (!isFinite(n)) return '0,00 Kg';
+  if (!isFinite(n)) return decimales ? '0,00 Kg' : '0 Kg';
   const negativo = n < 0;
-  const [entero, dec] = Math.abs(n).toFixed(2).split('.');
+  const [entero, dec] = Math.abs(n).toFixed(decimales).split('.');
   const miles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return `${negativo ? '-' : ''}${miles},${dec} Kg`;
+  // ⚠️ Con 0 decimales `toFixed` no deja parte decimal y `dec` es undefined:
+  //    sin esta guarda el papel imprimía «11.340,undefined Kg».
+  return `${negativo ? '-' : ''}${miles}${dec ? `,${dec}` : ''} Kg`;
 }
 
 /** El mismo texto pero para un dato que puede no existir (viajes viejos,
  *  anteriores al peso): null se queda null y el ticket pinta su raya. */
-export function kgTextoOpcional(valorKg: number | null | undefined): string | null {
+export function kgTextoOpcional(valorKg: number | null | undefined, decimales: 0 | 2 = 2): string | null {
   const n = Number(valorKg);
-  return valorKg == null || !isFinite(n) ? null : kgTexto(n);
+  return valorKg == null || !isFinite(n) ? null : kgTexto(n, decimales);
 }
 
 /**
@@ -78,19 +86,24 @@ export function kgTextoOpcional(valorKg: number | null | undefined): string | nu
  *    vistazo y no lo firma nadie: ahí el tercer decimal solo estorba. Por eso
  *    es un PARÁMETRO y no un cambio global — el ticket no se toca.
  *
+ * ⭐ Y DESDE EL 07-oct-2026 VA REDONDEADO (pedido: «en los reportes de viajes
+ *    redondea la cifra»): los papeles de viajes piden 0. Se mantiene el mismo
+ *    criterio — parámetro, no cambio global, porque el tiquete sigue con 3.
+ *
  * El dato guardado sigue siendo kilos, siempre.
  */
-export function tonTexto(valorKg: number, decimales: 2 | 3 = 3): string {
+export function tonTexto(valorKg: number, decimales: 0 | 2 | 3 = 3): string {
   const n = Number(valorKg);
-  const cero = `0,${'0'.repeat(decimales)} Ton`;
+  const cero = decimales ? `0,${'0'.repeat(decimales)} Ton` : '0 Ton';
   if (!isFinite(n)) return cero;
   const negativo = n < 0;
   const [entero, dec] = (Math.abs(n) / 1000).toFixed(decimales).split('.');
   const miles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return `${negativo ? '-' : ''}${miles},${dec} Ton`;
+  // ⚠️ Igual que en `kgTexto`: con 0 decimales no hay parte decimal que pegar.
+  return `${negativo ? '-' : ''}${miles}${dec ? `,${dec}` : ''} Ton`;
 }
 
-export function tonTextoOpcional(valorKg: number | null | undefined, decimales: 2 | 3 = 3): string | null {
+export function tonTextoOpcional(valorKg: number | null | undefined, decimales: 0 | 2 | 3 = 3): string | null {
   const n = Number(valorKg);
   return valorKg == null || !isFinite(n) ? null : tonTexto(n, decimales);
 }
