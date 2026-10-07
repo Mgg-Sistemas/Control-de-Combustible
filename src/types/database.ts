@@ -258,6 +258,20 @@ export interface Company {
   created_at: string;
 }
 
+/** ⚖️ Tara oficial por camión (`camion_taras`, 26-sep-2026). La llave es
+ *  machinery_id (NO tiene `id`). Escribe solo full en viajes_camiones (RLS);
+ *  el listero solo lee. La usa `src/lib/camionViajes.ts` y el reporte de taras. */
+export interface CamionTara {
+  machinery_id: string;
+  peso_tara_kg: number | null;   // null = sin tara (la fila existe por la exención)
+  updated_at: string;
+  updated_by: string | null;
+  updated_by_nombre: string | null; // nombre congelado de quien la cargó
+  exento_romana: boolean;        // 🚫 no pasa por romana
+  exento_at: string | null;
+  exento_por_nombre: string | null;
+}
+
 /** Empleado / trabajador (RRHH). El QR de su ficha abre una pantalla con TODOS
  *  estos datos; el carnet imprimible resume foto + cargo + N° ficha + cédula + grupo sanguíneo. */
 export interface Employee {

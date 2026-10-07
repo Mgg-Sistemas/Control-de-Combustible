@@ -5578,6 +5578,34 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   y ticket (nunca un cero) y **no suman kilos** de nadie.
 > - Al desmarcarlo, los viajes **nuevos** vuelven a exigir peso y foto; los viejos quedan como
 >   fueron. La tara guardada **no se borra** al marcar la exención: queda esperando por si vuelve.
+
+> **📄 Reporte de taras por camión (06/10/2026).** Pedido del cliente: un reporte de cuántos
+> camiones ya tienen la tara cargada («hasta ahora van 40»), como el de metros cúbicos que ya no se
+> usa, y que se pueda sacar **sin el nombre de ninguna empresa**.
+>
+> - **Dónde:** «⚙️ Configuración → ⚖️ Tara de romana por camión», arriba del buscador (solo
+>   control total). La tarjeta **📄 Reporte de taras** dice de entrada cuántos camiones tienen tara
+>   (ej. «40 de 63») y trae el botón **🖨️ Generar PDF**.
+> - **Qué trae el PDF:** arriba, tarjetas con **camiones con tara (X de N)**, **sin tara**, los que
+>   **no pasan por romana** (si hay), y la tara **promedio, mayor y menor**. Debajo, la tabla:
+>   N° · Equipo · Placa / serial · Marca / modelo · Empresa · Tara · Cargada por (quién y qué día).
+> - **🖨️ Qué sale en el reporte** (desplegable debajo del botón):
+>   - **Camiones: Solo con tara / Toda la flota.** «Solo con tara» es el conteo de los que ya
+>     están listos. «Toda la flota» agrega a los que **faltan** (salen «Sin tara») y a los que no
+>     pasan por romana, con una columna **Estado**: sirve para saber a cuáles falta pesar.
+>   - **⚖️ Pesos en Kg / Toneladas** (toneladas con dos decimales, como los demás reportes).
+>   - **🏢 Empresa.** Apagado, el nombre de la empresa **no aparece en ninguna parte del PDF**: ni
+>     en la tabla ni en el nombre del archivo.
+>   - **🏷️ Marca y modelo** y **👤 Quién cargó la tara y cuándo**, cada uno con su interruptor.
+>   - **🏷️ Qué logos lleva el membrete:** BCV, SOS La Guaira, Golden Touch, Plan Venezuela Renace
+>     y Jhenzaen 2.012 C.A. El reporte no lleva la línea «Banco Central de Venezuela / SOS La
+>     Guaira»: lo que va arriba lo deciden los logos que marques.
+> - **Para el reporte que se entrega afuera:** apaga **🏢 Empresa**, apaga BCV y SOS y deja
+>   encendido solo **Jhenzaen 2.012 C.A**. Las opciones **se recuerdan en ese equipo**, así que la
+>   próxima vez sale igual sin volver a marcarlas.
+> - Un camión marcado **🚫 no pasa por romana** no cuenta como «con tara», aunque tenga una
+>   guardada en espera.
+> - El reporte solo **lee**: no cambia ninguna tara ni ningún viaje.
 > - Los camiones **fuera de catálogo** no se pueden marcar (no tienen ficha): a esos el peso se les
 >   exige siempre — son justo los menos controlados.
 

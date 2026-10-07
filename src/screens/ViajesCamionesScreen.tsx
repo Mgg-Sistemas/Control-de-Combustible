@@ -58,6 +58,7 @@ import { useTable } from '../hooks/useTable';
 import { ObrasListeros } from '../components/ObrasListeros';
 import { FrentesTrabajo, type CamionParaFrente, type DatosDelDiaFrente } from '../components/FrentesTrabajo';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
+import { ReporteTarasBox } from '../components/ReporteTarasBox';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { PagoPesoResumen } from '../components/PagoPesoResumen';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
@@ -5618,6 +5619,9 @@ export default function ViajesCamionesScreen() {
               <Text style={{ color: colors.muted }}>Sin camiones.</Text>
             ) : (
               <>
+              {/* 📄 Reporte de taras (06-oct-2026, pedido del cliente): cuántos
+                  camiones ya tienen tara, con opción de sacarlo sin empresas. */}
+              <ReporteTarasBox camiones={camionesEnObra} taras={taras} />
               {/* 🔎 Buscar el camión al que se le va a cargar la tara: por
                   código, placa, serial, marca, modelo o empresa. */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
