@@ -5546,12 +5546,12 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >
 >   > **Los pesos de ESTE reporte van REDONDEADOS (07/10/2026, a pedido: «en los reportes de
 >   > viajes redondea la cifra» y «que sea un solo decimal, ese 22,58 debería ser 22,6»):**
->   > las **toneladas con UN decimal** («22,6 Ton», «250,5 Ton») y los **kilos enteros**
->   > («32.540 Kg»). Es un papel de control, se lee de un vistazo y no lo firma nadie. No son los
->   > mismos decimales a propósito: una tonelada son **mil kilos**, y quitarle el decimal borraría
->   > medio camión de la vista en una columna con la que se cobra; un kilo con decimales, en
->   > cambio, es relleno, porque la romana canta kilos enteros. El decimal se escribe aunque dé
->   > cero («28,0 Ton»). Antes iban con dos decimales (28/09/2026).
+>   > **un solo decimal, sea cual sea la unidad**: «22,6 Ton», «250,5 Ton», «32.540,0 Kg». Es un
+>   > papel de control, se lee de un vistazo y no lo firma nadie, y la idea es que toda la columna
+>   > se lea igual — el cliente mandó de ejemplo el reporte de otro sistema («325,2 t»,
+>   > «1.956,5 t»). Redondea al más cercano, no corta: 20,06 sube a 20,1 y 22,58 a 22,6. El
+>   > decimal se escribe aunque dé cero («28,0 Ton», «950,0 Kg»), para que se vea que esa cifra
+>   > tiene la misma precisión que las de al lado. Antes iban con dos decimales (28/09/2026).
 >   > **El ticket conserva los suyos** («32.540,00 Kg», «32,540 Ton») porque sí se firma en el CDT,
 >   > y ahí un redondeo de 5 kg sí importa. Se redondea el **texto** del papel, no el dato: lo
 >   > guardado sigue en kilos exactos y los totales se calculan igual que siempre.
@@ -5609,8 +5609,8 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   - **Camiones: Solo con tara / Toda la flota.** «Solo con tara» es el conteo de los que ya
 >     están listos. «Toda la flota» agrega a los que **faltan** (salen «Sin tara») y a los que no
 >     pasan por romana, con una columna **Estado**: sirve para saber a cuáles falta pesar.
->   - **⚖️ Pesos en Kg / Toneladas** (kilos enteros y toneladas con un decimal, como los demás
->     reportes de viajes desde el 07/10/2026).
+>   - **⚖️ Pesos en Kg / Toneladas** (con un decimal, como los demás reportes de viajes desde
+>     el 07/10/2026).
 >   - **🏢 Empresa.** Apagado, el nombre de la empresa **no aparece en ninguna parte del PDF**: ni
 >     en la tabla ni en el nombre del archivo.
 >   - **🏷️ Marca y modelo** y **👤 Quién cargó la tara y cuándo**, cada uno con su interruptor.

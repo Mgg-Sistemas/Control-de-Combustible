@@ -100,15 +100,17 @@ eq('sin taras: mayor/menor/promedio quedan en null (raya, no cero)',
 eq('subtítulo', subtituloReporteTaras(resumenTaras(CAMIONES, TARAS), 'conTara'), '2 camión(es) con tara cargada de 4 en la flota');
 
 // ── 3) Unidades y fechas ────────────────────────────────────────────────────
-// ⭐ CAMBIÓ EL REQUISITO (07-oct-2026, pedido: «en los reportes de viajes
-//    redondea la cifra»). Este papel salía con dos decimales en Kg y dos en
-//    Ton; ahora va redondeado. La romana canta kilos enteros.
-eq('⭐ kg del papel, sin decimales', pesoTexto(11340, 'kg'), '11.340 Kg');
+// ⭐ CAMBIÓ EL REQUISITO (07-oct-2026, en tres mensajes del mismo día:
+//    «redondea la cifra» → «que sea un solo decimal» → «déjale un solo decimal
+//    como el ejemplo»). Este papel salía con DOS decimales en Kg y dos en Ton;
+//    ahora lleva UNO, sea cual sea la unidad.
+eq('⭐ kg del papel, con un decimal', pesoTexto(11340, 'kg'), '11.340,0 Kg');
 eq('⭐ toneladas del papel, con UN decimal', pesoTexto(11345, 't'), '11,3 Ton');
 // ⚠️ Kilos enteros y toneladas con uno: una tonelada son mil kilos y «11,34 →
 //    11» borra 340 kg de una tara; un kilo con decimales es relleno.
 ok('⚠️ las toneladas llevan UNO, no dos', /,\d\s*Ton/.test(pesoTexto(11345, 't')) && !/,\d\d/.test(pesoTexto(11345, 't')));
-ok('⚠️ no queda una coma huérfana donde iban los decimales',
+ok('⚠️ los kilos llevan UNO, no dos', /,\d\s*Kg/.test(pesoTexto(11340, 'kg')) && !/,\d\d/.test(pesoTexto(11340, 'kg')));
+ok('⚠️ no queda una coma huérfana ni un «undefined» donde iban los decimales',
   !/,\s*(Kg|Ton)|undefined/.test([pesoTexto(11340, 'kg'), pesoTexto(11345, 't'), pesoTexto(0, 'kg')].join(' ')));
 eq('sin peso = raya', pesoTexto(null, 'kg'), '—');
 eq('fecha en hora de Caracas (02:00Z del 07 es el 06 en Caracas)', fechaCaracas('2026-10-07T02:00:00Z'), '06/10/2026');
@@ -152,7 +154,7 @@ ok('vacío: lo dice en vez de una tabla en blanco', cuerpoReporteTaras(CAMIONES,
   eq('⭐ el total es el de las filas que SALEN, no el de la flota', soloConTara[0][0], '2');
   eq('⭐ con la flota completa, el total es el de la flota', kpis({ alcance: 'todos' })[0][0], '4');
   eq('las taras siguen saliendo, ya redondeadas', soloConTara.slice(1).map((k) => k[0]),
-    ['11.670 Kg', '12.000 Kg', '11.340 Kg']);
+    ['11.670,0 Kg', '12.000,0 Kg', '11.340,0 Kg']);
   eq('un solo camión se dice en singular',
     cuerpoReporteTaras([CAMIONES[0]], new Map([['a', tara(11340)]]), OPCIONES_TARAS_POR_DEFECTO)
       .includes('<div class="t">CAMIÓN</div>'), true);
