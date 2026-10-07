@@ -110,6 +110,7 @@ import {
   type FrenteTrabajo,
   type AsignacionFrente,
 } from '../lib/camionViajes';
+import { asignarModoPago } from '../lib/pagoViajesDb';
 import {
   pesoTecleadoAKg, kgTexto, kgTextoOpcional, tonTexto, tonTextoOpcional, netoDe, motivoPesoInvalido,
   avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
@@ -1840,6 +1841,33 @@ export default function ViajesCamionesScreen() {
   // mano»). Al elegir camión y fecha se PROPONE la asignación de esa jornada
   // (si la hubo); lo que se marque a mano manda. null = sin frente.
   const [cargaFrenteId, setCargaFrenteId] = useState<string | null>(null);
+  /**
+   * 🧾 TARIFA DE LA CARGA MANUAL (07-oct-2026, a pedido: «poder seleccionar las
+   * tarifas porque ya no lo veo o no está en la parte de registrar viajes a
+   * mano (…) ya sea las tarifas por nombre o tarifas generales»).
+   *
+   * El registro del patio SÍ tenía el 🧾 Tipo de viaje desde el 26-sep; la carga
+   * manual nunca lo tuvo, así que un viaje cargado por la oficina no podía
+   * llevar su tarifa con nombre y salía a la tarifa de zona.
+   *
+   * `null` = TARIFA GENERAL: el viaje no congela precio y se paga con la tarifa
+   * que le toque por zona/empresa/grupo/camión ese día — que es «las tarifas
+   * generales». Con un tipo elegido, el viaje congela ESA tarifa.
+   */
+  const [cargaTipoId, setCargaTipoId] = useState<string | null>(null);
+  /**
+   * 💵 «SOLO POR VIAJE» (07-oct-2026, a pedido: «hay camiones que solo cobran
+   * por viaje, necesito la opción de colocarle si es solo por viaje»).
+   *
+   * No es un dato del viaje: es el MODO DE PAGO del camión, que ya existe en
+   * `machinery_modo_pago` y vale DESDE una fecha. Marcarlo acá le pone el modo
+   * «por viaje» al camión desde la fecha de la carga, para no tener que ir al
+   * apartado de pagos a hacerlo aparte.
+   *
+   * ⚠️ Va APAGADO siempre al abrir: es un cambio que afecta TODO lo que ese
+   *    camión cobre desde esa fecha, no solo los viajes de esta tanda.
+   */
+  const [cargaSoloPorViaje, setCargaSoloPorViaje] = useState(false);
   useEffect(() => {
     let vivo = true;
     if (!cargaTruckId || !/^\d{4}-\d{2}-\d{2}$/.test(cargaFecha)) { setCargaFrenteId(null); return; }
@@ -1902,6 +1930,8 @@ export default function ViajesCamionesScreen() {
       if (motivo) { toast.error(motivo); return; }
       if (!cargaTruck) { toast.error('Ese camión ya no está en la lista. Refresca la pantalla.'); return; }
       if (!uid) { toast.error('Tu sesión todavía no está lista. Espera unos segundos y vuelve a intentar.'); return; }
+      // 🧾 La tarifa con nombre elegida (null = tarifa general por zona).
+      const cargaTipo = cargaTipoId ? (tiposActivos.find((t) => t.id === cargaTipoId) ?? null) : null;
 
       // ⚖️ EL PESO DE LA CARGA MANUAL (28-sep-2026). Opcional; con reglas:
       // ambos números o ninguno (el neto no existe a medias), bruto > tara
@@ -2042,6 +2072,12 @@ export default function ViajesCamionesScreen() {
           // ⛏️ El frente elegido (o el propuesto por la asignación de ese día).
           frenteId: cargaFrenteId,
           frenteNombre: cargaFrenteId ? (frentes.find((f) => f.id === cargaFrenteId)?.nombre ?? null) : null,
+          // 🧾 La tarifa CON NOMBRE, congelada igual que en el registro del
+          //    patio (07-oct-2026). Sin tipo elegido van los tres en null y el
+          //    viaje se paga con la tarifa general que le toque ese día.
+          tipoViajeId: cargaTipo?.id ?? null,
+          tipoViajeNombre: cargaTipo?.nombre ?? null,
+          tipoViajeTarifa: cargaTipo?.tarifaUsd ?? null,
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
@@ -2109,6 +2145,20 @@ export default function ViajesCamionesScreen() {
       // una tanda entera anunciaría "10 viajes cargados" sin haber creado uno
       // solo, y la jefa no tendría forma de saber si su reintento sirvió.
       const yaTxt = yaEstaban ? ` (${yaEstaban} ya estaba${yaEstaban === 1 ? '' : 'n'} de antes)` : '';
+
+      // 💵 «SOLO POR VIAJE» (07-oct-2026). Se hace DESPUÉS y SOLO si entró algún
+      //    viaje: es un cambio sobre el camión —vale desde esa fecha para todo
+      //    lo que cobre— y no tiene sentido dejarlo puesto por una tanda que no
+      //    entró. Si falla NO se pierde la carga: el viaje ya está, esto es el
+      //    extra, y se dice en vez de esconderlo (igual que el frente).
+      let avisoModo = '';
+      if (cargaSoloPorViaje && hechos > 0) {
+        const r = await asignarModoPago([cargaTruck.id], 'viaje', cargaFecha, 'Puesto desde la carga manual de viajes.');
+        avisoModo = r.error
+          ? ` ⚠️ Pero NO se pudo dejarlo «solo por viaje»: ${r.error}`
+          : ` 💵 ${cargaTruck.code} queda «solo por viaje» desde el ${dmy(cargaFecha)}.`;
+        if (!r.error) setCargaSoloPorViaje(false);
+      }
       if (ultimoError) {
         toast.error(
           hechos === 0 && yaEstaban === 0
@@ -2129,7 +2179,12 @@ export default function ViajesCamionesScreen() {
           9000,
         );
       } else {
-        toast.success(`${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}${conPeso ? ` · a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}` : ''}.`);
+        toast.success(
+          `${hechos} viaje(s) cargado(s) para ${cargaTruck.code}${yaTxt}`
+          + `${cargaTipo ? ` · 🧾 ${cargaTipo.nombre}${cargaTipo.tarifaUsd != null ? ` $${cargaTipo.tarifaUsd}` : ''}` : ''}`
+          + `${conPeso ? ` · a pagar ${kgTexto(cargaBrutoKg - cargaTaraKg)}` : ''}.${avisoModo}`,
+          avisoModo ? 9000 : undefined,
+        );
         setCargaCantidad('1');
       }
       // ⛏️ El frente elegido en la carga a mano TAMBIÉN queda asignado al camión
@@ -4858,6 +4913,79 @@ export default function ViajesCamionesScreen() {
                 </ScrollView>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
                   Si ese día el camión tenía frente asignado, ya viene marcado; lo que toques manda.
+                </Text>
+              </>
+            ) : null}
+
+            {/* 🧾 LA TARIFA DEL VIAJE (07-oct-2026, a pedido: «poder seleccionar
+                las tarifas (…) ya sea las tarifas por nombre o tarifas
+                generales»). El registro del patio ya lo tenía; la carga manual
+                no, así que un viaje cargado por la oficina no podía llevar su
+                tarifa con nombre. */}
+            {tiposActivos.length > 0 || cargaTipoId ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                  🧾 TARIFA DEL VIAJE
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+                  {[{ id: null as string | null, nombre: 'Tarifa general', tarifaUsd: null as number | null }, ...tiposActivos].map((t) => {
+                    const activo = cargaTipoId === t.id;
+                    return (
+                      <TouchableOpacity
+                        key={t.id ?? '__general__'}
+                        onPress={() => setCargaTipoId(t.id)}
+                        style={{
+                          paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill,
+                          borderWidth: 1, borderColor: activo ? colors.primary : colors.border,
+                          backgroundColor: activo ? colors.primary : colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: activo ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                          {t.id ? `🧾 ${t.nombre}${t.tarifaUsd != null ? ` · $${t.tarifaUsd}` : ''}` : '💲 Tarifa general'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                  {cargaTipoId
+                    ? 'El viaje queda con ESA tarifa congelada, pase lo que pase con las tarifas después.'
+                    : 'Tarifa general: el viaje se paga con la tarifa que le toque por zona, empresa, grupo o camión ese día.'}
+                </Text>
+                {cargaTipoId && (tiposActivos.find((t) => t.id === cargaTipoId)?.tarifaUsd ?? null) == null ? (
+                  <Text style={{ color: '#92400E', fontSize: 11, marginTop: 2 }}>
+                    Ese tipo todavía no tiene tarifa: el viaje se carga igual y sale «tipo sin tarifa» en el pago hasta que le pongan precio.
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+
+            {/* 💵 SOLO POR VIAJE (07-oct-2026, a pedido: «hay camiones que solo
+                cobran por viaje, necesito la opción de colocarle si es solo por
+                viaje»). No es del viaje: es el MODO DE PAGO del camión. */}
+            {cargaTruck ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                  💵 CÓMO COBRA ESTE CAMIÓN
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setCargaSoloPorViaje((v) => !v)}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+                    paddingHorizontal: spacing.sm, paddingVertical: 8, borderRadius: radius.md,
+                    borderWidth: 1, borderColor: cargaSoloPorViaje ? colors.primary : colors.border,
+                    backgroundColor: cargaSoloPorViaje ? colors.primary : colors.surface,
+                  }}
+                >
+                  <Text style={{ fontSize: 14 }}>{cargaSoloPorViaje ? '☑️' : '⬜'}</Text>
+                  <Text style={{ color: cargaSoloPorViaje ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12, flex: 1 }}>
+                    Este camión cobra SOLO POR VIAJE
+                  </Text>
+                </TouchableOpacity>
+                <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
+                  {cargaSoloPorViaje
+                    ? `⚠️ Al cargar, ${cargaTruck.code} queda «solo por viaje» DESDE el ${dmy(cargaFecha)}: deja de cobrar por jornada y cobra cada viaje. Afecta todo lo que cobre desde esa fecha, no solo esta tanda.`
+                    : 'Déjalo apagado si este camión cobra por jornada (lo normal). Marcarlo le cambia el modo de pago desde la fecha de la carga.'}
                 </Text>
               </>
             ) : null}

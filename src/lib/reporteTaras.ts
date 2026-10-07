@@ -178,10 +178,18 @@ export function cuerpoReporteTaras(
   const filas = filasDeTaras(camiones, taras, op.alcance);
   const verEstado = op.alcance === 'todos';
 
+  // ⭐ CUATRO TARJETAS: EL TOTAL Y LAS TARAS (07-oct-2026, a pedido: «quítame
+  //    esto, solo coloca el total de camiones y los totales de las taras»).
+  //    Se fueron «N de M con tara cargada», «sin tara» y «no pasan por romana»:
+  //    eran el estado de la carga del dato, no el dato. Quien quiera verlo tiene
+  //    la columna Estado con el alcance «flota completa».
+  //
+  // ⚠️ EL TOTAL ES EL DE LAS FILAS QUE SALEN, no el de la flota: la tarjeta va
+  //    pegada a la lista y tiene que cuadrar con ella. Con el alcance «solo con
+  //    tara» dice 39 y lista 39; con «flota completa» dice 44 y lista 44. Un
+  //    total que no cuadra con lo que está debajo manda a recontar a mano.
   const kpis: [string, string][] = [
-    [`${r.conTara} de ${r.flota}`, 'CAMIONES CON TARA CARGADA'],
-    [String(r.sinTara), 'SIN TARA'],
-    ...(r.exentos > 0 ? [[String(r.exentos), 'NO PASAN POR ROMANA'] as [string, string]] : []),
+    [String(filas.length), filas.length === 1 ? 'CAMIÓN' : 'CAMIONES'],
     [pesoTexto(r.promedioKg, op.unidad), 'TARA PROMEDIO'],
     [pesoTexto(r.mayorKg, op.unidad), 'TARA MAYOR'],
     [pesoTexto(r.menorKg, op.unidad), 'TARA MENOR'],

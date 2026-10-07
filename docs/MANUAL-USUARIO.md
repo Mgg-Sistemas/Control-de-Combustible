@@ -5785,6 +5785,21 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   legítimamente no viajan.
 - **✍️ Cargar viajes a mano:** agregar viajes a **cualquier camión, en el día que sea** (31-ago-2026,
   ver abajo).
+
+  > **🧾 La tarifa del viaje, y 💵 «solo por viaje» (07/10/2026, a pedido).** La carga a mano no
+  > tenía dónde elegir la tarifa —el registro del patio sí— así que un viaje cargado por la
+  > oficina no podía llevar su tarifa con nombre. Ahora el formulario trae dos cosas más:
+  > - **🧾 TARIFA DEL VIAJE.** Eliges **💲 Tarifa general** (lo normal, y lo que sale si no tocas
+  >   nada): el viaje se paga con la tarifa que le toque **por zona, empresa, grupo o camión** ese
+  >   día. O eliges una **tarifa con nombre** (los tipos de viaje, con su precio al lado) y el
+  >   viaje **congela esa tarifa**, pase lo que pase con las tarifas después. Si el tipo todavía no
+  >   tiene precio, te avisa: el viaje se carga igual y sale «tipo sin tarifa» en el pago.
+  > - **💵 Este camión cobra SOLO POR VIAJE.** Para los camiones que no cobran por jornada. Al
+  >   cargar, le pone al camión el modo **«por viaje» desde la fecha de la carga**, sin tener que ir
+  >   al apartado de pagos aparte. **Nace apagada** a propósito: cambia **todo lo que ese camión
+  >   cobre desde esa fecha**, no solo los viajes de esa tanda. No borra el historial — agrega
+  >   desde cuándo cobra de cada forma, así que lo ya pagado no se reescribe. Y si no se pudiera
+  >   (permiso de pagos), **los viajes igual quedan cargados** y la pantalla te lo dice.
 - **Lista completa:** todos los viajes de todos los listeros, filtrable por **empresa**, por
   **listero**, por **camión** y por rango de fecha (Hoy / Esta semana / Este mes / Rango libre /
   Días específicos). Desde ahí puede **editar o borrar cualquier viaje** — el borrado
