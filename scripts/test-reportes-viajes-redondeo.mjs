@@ -4,10 +4,18 @@
  *
  * Pedido del cliente, textual: «en los reportes de viajes redondea la cifra».
  * Preguntado cuál de las cifras, eligió dos: LOS PESOS (Kg / Ton) y LOS M³.
+ * Y acto seguido, con la foto de otro sistema y una celda señalada: «que sea
+ * un solo decimal», «ese 22,56 debería ser 22,6».
  *
  * ── POR QUÉ ────────────────────────────────────────────────────────────────
  * Una romana canta kilos enteros y un camión no se cubica al centímetro: el
  * «,00» de cada celda era relleno que solo ensanchaba la columna.
+ *
+ * ── CUÁNTOS DECIMALES, Y POR QUÉ NO SON LOS MISMOS ─────────────────────────
+ * ⭐ KILOS: ENTEROS. La romana canta kilos enteros; un «,0» ahí es relleno.
+ * ⭐ TONELADAS Y M³: UNO. Una tonelada son MIL kilos: se probó con cero el
+ *    mismo día y el cliente lo devolvió en el acto, porque «38,30 → 38» borra
+ *    300 kg de la vista en una columna con la que se cobra.
  *
  * ── LA REGLA QUE ORDENA TODO (y lo que esta suite cuida de verdad) ──────────
  * ⭐ REDONDEA LA CIFRA QUE SE LEE. Totales, promedios y columnas de los papeles
@@ -87,19 +95,23 @@ const T = cargar('src/lib/reporteTaras.ts');
 
 // ── 1) LOS FORMATEADORES: EL REDONDEO ES UN PARÁMETRO ───────────────────────
 eq('⭐ los kilos del papel salen enteros', P.kgTexto(32540, 0), '32.540 Kg');
-eq('⭐ las toneladas del papel salen enteras', P.tonTexto(32545, 0), '33 Ton');
-eq('⭐ los m³ del papel salen enteros', C.m3Texto(18.5, 0), '19');
+eq('⭐ las toneladas del papel salen con un decimal', P.tonTexto(32545, 1), '32,5 Ton');
+eq('⭐ los m³ del papel salen con un decimal', C.m3Texto(18.55, 1), '18.6');
+// ⭐ EL CASO QUE SEÑALÓ EL CLIENTE, con la celda encerrada en verde.
+eq('⭐ «22,58» se escribe «22,6»', P.tonTexto(22580, 1), '22,6 Ton');
+// ⚠️ El decimal en cero NO se cae: «28,0» dice que se midió y dio redondo.
+eq('⚠️ el decimal se escribe aunque sea cero', [P.tonTexto(28000, 1), C.m3Texto(12, 1)], ['28,0 Ton', '12.0']);
 // ⚠️ Redondea al más cercano; no corta. Cortar siempre favorece a una de las
 //    dos partes, y el papel lo lee la contrata.
 eq('⚠️ redondea al más cercano, no trunca',
-  [P.kgTexto(11340.6, 0), P.kgTexto(11340.4, 0), C.m3Texto(7.6, 0), C.m3Texto(7.4, 0)],
-  ['11.341 Kg', '11.340 Kg', '8', '7']);
+  [P.kgTexto(11340.6, 0), P.kgTexto(11340.4, 0), P.tonTexto(22580, 1), P.tonTexto(22540, 1), C.m3Texto(7.66, 1), C.m3Texto(7.64, 1)],
+  ['11.341 Kg', '11.340 Kg', '22,6 Ton', '22,5 Ton', '7.7', '7.6']);
 // ⚠️ Con 0 decimales `toFixed` no deja parte decimal: sin guarda salía
 //    «11.340,undefined Kg». Pasó de verdad al escribir esto.
-ok('⚠️ no queda ni coma huérfana ni «undefined» donde iban los decimales',
+  ok('⚠️ no queda ni coma huérfana ni «undefined» donde iban los decimales',
   !/undefined|,\s*(Kg|Ton)/.test([
     P.kgTexto(11340, 0), P.kgTexto(0, 0), P.kgTexto(NaN, 0),
-    P.tonTexto(32540, 0), P.tonTexto(0, 0), P.tonTexto(NaN, 0),
+    P.tonTexto(32540, 1), P.tonTexto(0, 1), P.tonTexto(NaN, 1), P.tonTexto(0, 0),
   ].join(' ')));
 // ⚠️⚠️ EL DEFECTO NO CAMBIÓ. Es lo que protege al tiquete de este pedido.
 eq('⚠️ sin pedirlo, los defectos siguen siendo los del tiquete (Kg 2 · Ton 3 · m³ 2)',
@@ -121,7 +133,8 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
   ok('⭐ el papel de taras no trae UN solo decimal de relleno', !/,\d\d\s*Kg/.test(kg));
   ok('…y las taras siguen ahí, redondeadas', kg.includes('11.340 Kg') && kg.includes('12.001 Kg'));
   const ton = T.cuerpoReporteTaras(CAMIONES, TARAS, { ...T.OPCIONES_TARAS_POR_DEFECTO, unidad: 't' });
-  ok('⭐ en toneladas también va entero', ton.includes('11 Ton') && !/,\d+\s*Ton/.test(ton));
+  ok('⭐ en toneladas va con UN decimal, ni cero ni dos',
+    ton.includes('11,3 Ton') && /,\d\s*Ton/.test(ton) && !/,\d\d\s*Ton/.test(ton));
   // ⚠️ El redondeo es del TEXTO: lo guardado sigue en kilos con su decimal.
   eq('⚠️ redondear el papel no toca el dato', T.resumenTaras(CAMIONES, TARAS).mayorKg, 12000.6);
 }
@@ -129,11 +142,11 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
 // ── 3) EL PAPEL DE VIAJES: TODOS SUS M³ Y SUS PESOS ─────────────────────────
 {
   const scr = sinComentarios(leer('src/screens/ViajesCamionesScreen.tsx'));
-  ok('⭐ los pesos del papel se piden redondeados',
-    /tonTextoOpcional\(n, 0\) : kgTextoOpcional\(n, 0\)/.test(scr)
-    && /tonTexto\(n, 0\) : kgTexto\(n, 0\)/.test(scr));
+  ok('⭐ los pesos del papel: toneladas con uno, kilos enteros',
+    /tonTextoOpcional\(n, 1\) : kgTextoOpcional\(n, 0\)/.test(scr)
+    && /tonTexto\(n, 1\) : kgTexto\(n, 0\)/.test(scr));
   ok('⭐ y la tarjeta del resumen dice el MISMO peso que la tabla de abajo',
-    /pesoUnidadRep === 't' \? tonTexto\(kg, 0\) : kgTexto\(kg, 0\)/.test(scr));
+    /pesoUnidadRep === 't' \? tonTexto\(kg, 1\) : kgTexto\(kg, 0\)/.test(scr));
 
   // ⭐⭐ LA PRUEBA QUE IMPORTA: no hay UN m³ del papel que se quedara sin
   //     redondear. Se cuentan todas las llamadas y se exige que la única sin
@@ -142,7 +155,7 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
   const llamadas = scr.split('\n')
     .map((l, i) => [i + 1, l])
     .filter(([, l]) => l.includes('m3Texto(') && !/^\s*(import|\s*valoresEnOrden)/.test(l));
-  const sinRedondear = llamadas.filter(([, l]) => !l.includes(', 0)'));
+  const sinRedondear = llamadas.filter(([, l]) => !l.includes(', 1)'));
   eq('⭐ ninguna llamada del papel se quedó sin redondear (solo la del tiquete)',
     sinRedondear.map(([n, l]) => (/m3: vol > 0/.test(l) ? 'tiquete' : `línea ${n}: ${l.trim().slice(0, 60)}`)),
     ['tiquete']);
@@ -150,7 +163,7 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
   // ⚠️ LA VISTA PREVIA ENSEÑA LO MISMO QUE EL PDF: si redondeara solo el papel,
   //    quien compara pantalla contra PDF concluye que uno de los dos miente.
   ok('⚠️ la vista previa redondea igual que el papel',
-    /m3Texto\(sumaVolumen\(volumenPorCamion\), 0\)/.test(scr));
+    /m3Texto\(sumaVolumen\(volumenPorCamion\), 1\)/.test(scr));
   // ⚠️ LAS MEDIDAS NO SE REDONDEAN: son una cinta métrica, no una cifra.
   ok('⚠️ el alto × largo × ancho conserva sus decimales', /dimsTexto\(md\)\} m/.test(scr) && !/dimsTexto\([^)]*, 0\)/.test(scr));
 }
@@ -158,8 +171,8 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
 // ── 4) LA FRONTERA: DÓNDE NO SE REDONDEA ────────────────────────────────────
 {
   const pagoViajes = sinComentarios(leer('src/lib/pagoViajesReporte.ts'));
-  ok('⭐ el m³ del papel de pago por viaje va entero (es informativo)',
-    /maximumFractionDigits: 0 \}\)\} m³/.test(pagoViajes));
+  ok('⭐ el m³ del papel de pago por viaje va con un decimal (es informativo)',
+    /maximumFractionDigits: 1 \}\)\} m³/.test(pagoViajes));
   // ⚠️ LA PLATA NO SE REDONDEA. El m³ de ese papel no multiplica a nadie; el
   //    monto y la tarifa SÍ son el resultado, y ahí el centavo es plata.
   ok('⚠️ pero el monto y la tarifa conservan sus dos decimales',
@@ -184,9 +197,9 @@ eq('⚠️ y el tiquete, que no pide decimales, los sigue imprimiendo',
 // ── 5) EL VOLUMÉTRICO: CARGADO SÍ, CAPACIDAD NO ─────────────────────────────
 {
   const vol = sinComentarios(leer('src/lib/reporteVolumetrico.ts'));
-  ok('⭐ los m³ CARGADOS del histórico van enteros',
-    /m3Texto\(g\.m3, 0\)/.test(vol) && /m3Texto\(c\.total\.m3, 0\)/.test(vol));
-  ok('⭐ y el m³ por viaje del histórico también', /redondear\(g\.m3 \/ g\.viajes\) : 0, 0\)/.test(vol));
+  ok('⭐ los m³ CARGADOS del histórico van con un decimal',
+    /m3Texto\(g\.m3, 1\)/.test(vol) && /m3Texto\(c\.total\.m3, 1\)/.test(vol));
+  ok('⭐ y el m³ por viaje del histórico también', /redondear\(g\.m3 \/ g\.viajes\) : 0, 1\)/.test(vol));
   // ⚠️ La CAPACIDAD de cada unidad, no: sale al lado de su propia medida.
   ok('⚠️ la capacidad de cada unidad conserva sus dos decimales', /m3Texto\(u\.m3\)\} m³/.test(vol));
   ok('⚠️ y las tarjetas de capacidad también', /k\.mayor\.toFixed\(2\)\} m³/.test(vol));

@@ -556,9 +556,9 @@ export function tarjetasResumen(
     t.push({
       clave: 'totalM3',
       titulo: 'TOTAL METROS CÚBICOS',
-      // ⭐ Entero (07-oct-2026, pedido). Las tres tarjetas de m³ van redondeadas
+      // ⭐ Un decimal (07-oct-2026, pedido). Las tres tarjetas de m³ van así,
       //    y la de VIAJES POR CAMIÓN no: esa no es un m³ ni un peso.
-      valor: hayM3 ? `${nTexto(d.m3, 0)} m³` : '—',
+      valor: hayM3 ? `${nTexto(d.m3, 1)} m³` : '—',
       pie: hayM3 ? 'Suma de los m³ medidos' : SIN_M3,
     });
   }
@@ -566,8 +566,8 @@ export function tarjetasResumen(
     t.push({
       clave: 'm3PorViaje',
       titulo: 'PROMEDIO DE M³ POR VIAJE',
-      valor: hayM3 && hayViajes ? `${nTexto(d.m3 / d.viajes, 0)} m³` : '—',
-      pie: hayM3 && hayViajes ? `${nTexto(d.m3, 0)} m³ ÷ ${nViajes}`
+      valor: hayM3 && hayViajes ? `${nTexto(d.m3 / d.viajes, 1)} m³` : '—',
+      pie: hayM3 && hayViajes ? `${nTexto(d.m3, 1)} m³ ÷ ${nViajes}`
         : !hayViajes ? 'Sin viajes que promediar' : SIN_M3,
     });
   }
@@ -575,8 +575,8 @@ export function tarjetasResumen(
     t.push({
       clave: 'm3PorCamion',
       titulo: 'PROMEDIO DE M³ POR CAMIÓN',
-      valor: hayM3 && hayCamiones ? `${nTexto(d.m3 / d.camiones, 0)} m³` : '—',
-      pie: hayM3 && hayCamiones ? `${nTexto(d.m3, 0)} m³ ÷ ${nCamiones}`
+      valor: hayM3 && hayCamiones ? `${nTexto(d.m3 / d.camiones, 1)} m³` : '—',
+      pie: hayM3 && hayCamiones ? `${nTexto(d.m3, 1)} m³ ÷ ${nCamiones}`
         : !hayCamiones ? 'Sin camiones en este papel' : SIN_M3,
     });
   }
@@ -646,7 +646,7 @@ export function dimsTexto(m?: Pick<Medida, 'alto' | 'largo' | 'ancho'> | null): 
  *  volumen se lee como «cargó nada», y lo cierto es que no está medido.
  *
  *  ⭐ `decimales` existe por los REPORTES DE VIAJES (07-oct-2026, pedido:
- *     «en los reportes de viajes redondea la cifra»): ahí el m³ sale ENTERO.
+ *     «redondea la cifra» + «que sea un solo decimal»): ahí va con UNO.
  *     Las MEDIDAS (`dimsTexto`) y la columna del reporte táctico siguen con
  *     dos decimales: eso es una cinta métrica, no una cifra de resumen. */
 export function m3Texto(n: number, decimales: number = DECIMALES): string {

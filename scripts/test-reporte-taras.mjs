@@ -104,7 +104,10 @@ eq('subtítulo', subtituloReporteTaras(resumenTaras(CAMIONES, TARAS), 'conTara')
 //    redondea la cifra»). Este papel salía con dos decimales en Kg y dos en
 //    Ton; ahora va redondeado. La romana canta kilos enteros.
 eq('⭐ kg del papel, sin decimales', pesoTexto(11340, 'kg'), '11.340 Kg');
-eq('⭐ toneladas del papel, enteras', pesoTexto(11345, 't'), '11 Ton');
+eq('⭐ toneladas del papel, con UN decimal', pesoTexto(11345, 't'), '11,3 Ton');
+// ⚠️ Kilos enteros y toneladas con uno: una tonelada son mil kilos y «11,34 →
+//    11» borra 340 kg de una tara; un kilo con decimales es relleno.
+ok('⚠️ las toneladas llevan UNO, no dos', /,\d\s*Ton/.test(pesoTexto(11345, 't')) && !/,\d\d/.test(pesoTexto(11345, 't')));
 ok('⚠️ no queda una coma huérfana donde iban los decimales',
   !/,\s*(Kg|Ton)|undefined/.test([pesoTexto(11340, 'kg'), pesoTexto(11345, 't'), pesoTexto(0, 'kg')].join(' ')));
 eq('sin peso = raya', pesoTexto(null, 'kg'), '—');
