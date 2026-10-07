@@ -33,17 +33,35 @@ const Module = require('module');
 const leer = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const sinComentarios = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-function cargar(rel) {
-  const p = path.join(ROOT, rel);
+// ⚠️ EL LOADER RESUELVE IMPORTS RELATIVOS A OTROS .ts (07-oct-2026). Antes no
+//    hacía falta porque `pagoViajes.ts` no importaba nada; desde que la tarifa
+//    de un tipo puede ser POR TONELADA, esa cuenta vive en
+//    `tarifaViajeUnidad.ts` para que exista UNA sola — copiarla acá serían dos
+//    matemáticas distintas del mismo dinero, y la que se olvide de actualizar
+//    es la que paga mal.
+const cacheTs = new Map();
+function cargarAbs(p) {
+  if (cacheTs.has(p)) return cacheTs.get(p);
   const js = ts.transpileModule(fs.readFileSync(p, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 },
   }).outputText;
   const m = new Module(p);
   m.filename = p;
   m.paths = Module._nodeModulePaths(path.dirname(p));
+  cacheTs.set(p, m.exports);
+  const orig = m.require.bind(m);
+  m.require = (id) => {
+    if (id.startsWith('.')) {
+      const abs = path.resolve(path.dirname(p), id);
+      for (const c of [abs + '.ts', abs + '.tsx']) if (fs.existsSync(c)) return cargarAbs(c);
+    }
+    return orig(id);
+  };
   m._compile(js, p);
+  cacheTs.set(p, m.exports);
   return m.exports;
 }
+const cargar = (rel) => cargarAbs(path.join(ROOT, rel));
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -54,7 +72,23 @@ const eq = (name, got, want) => {
 const ok = (name, cond) => eq(name, !!cond, true);
 
 const L = cargar('src/lib/pagoViajes.ts');
-ok('la librería no importa nada', !/^\s*import\s/m.test(sinComentarios(leer('src/lib/pagoViajes.ts'))));
+// ⚠️ CAMBIÓ LA GUARDA (07-oct-2026) Y QUEDÓ MÁS PRECISA, NO MÁS FLOJA. Decía
+//    «la librería no importa NADA», que es más de lo que hace falta: lo que
+//    protege de verdad es que esta librería se pueda probar sola —sin React,
+//    sin navegación y sin tocar la base—. Eso es lo que se comprueba ahora, y
+//    ADEMÁS se exige lista blanca: cualquier import nuevo hace fallar la
+//    suite hasta que alguien lo ponga acá a conciencia, y se revisa que lo
+//    importado no arrastre la base de rebote.
+{
+  const fuente = sinComentarios(leer('src/lib/pagoViajes.ts'));
+  const imports = [...fuente.matchAll(/^\s*import[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
+  const PERMITIDOS = ['./tarifaViajeUnidad'];
+  eq('⭐ la librería solo importa lo de la lista blanca', imports.filter((i) => !PERMITIDOS.includes(i)), []);
+  ok('⚠️ y sigue sin saber de React, de la navegación ni de la base',
+    !/react|@react-navigation|^\.\/supabase$|expo/i.test(imports.join(' ')));
+  const arrastre = imports.map((i) => sinComentarios(leer(`src/lib/${i.replace('./', '')}.ts`))).join('\n');
+  ok('⚠️ ni de rebote, por lo que esos importan', !/from '\.\/supabase'|from 'react/i.test(arrastre));
+}
 eq('arranca el 14-sep-2026 (pedido del 17-sep)', L.INICIO_PAGO_VIAJES, '2026-09-14');
 
 // ── 1) JORNADA ──────────────────────────────────────────────────────────────

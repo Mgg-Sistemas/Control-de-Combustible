@@ -5626,6 +5626,39 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > - Los camiones **fuera de catálogo** no se pueden marcar (no tienen ficha): a esos el peso se les
 >   exige siempre — son justo los menos controlados.
 
+> **⚖️ Tarifas POR TONELADA (07/10/2026, a pedido: «permite colocar una tarifa por TON — este 2\$,
+> este y oeste 3\$, oeste 2\$ — y que se multiplique por las ton obtenidas; esto se hará solo si
+> seleccionan la opción»).** Hasta hoy un tipo de viaje cobraba un precio **fijo por viaje**. Ahora
+> cada tipo dice **en qué unidad cobra**:
+>
+> - **🚚 Por viaje** — lo de siempre, y lo que siguen siendo todos los tipos que ya existían.
+> - **⚖️ Por tonelada** — el precio es el de **una tonelada**, y el viaje paga ese precio
+>   **multiplicado por las toneladas del peso a pagar** (el neto de la romana: bruto − tara).
+>   Ejemplo real: «Este · por tonelada» a \$2 y un viaje de 22,58 Ton = **\$45,16**.
+>
+> **Ya están creadas las tres que pediste**, al lado de las de siempre y sin tocarlas:
+> «Este · por tonelada» \$2/Ton, «Este → Oeste · por tonelada» \$3/Ton y «Oeste · por tonelada»
+> \$2/Ton. Las viejas (este \$30, Este → Oeste \$100, oeste \$50) **siguen igual, cobrando por
+> viaje**: nada de lo ya registrado ni de lo ya pagado cambia. Elegir por tonelada es elegir esa
+> pastilla al registrar — por eso «solo si seleccionan la opción» es literal.
+>
+> - **Dónde se configura:** «🧾 Tipos de viaje» (panel de información, solo control total). Cada
+>   tipo dice «\$2 por tonelada» o «\$30 por viaje»; al crearlo se elige **🚚 Precio por viaje** o
+>   **⚖️ Precio por tonelada**; y a uno que ya existe se le cambia la unidad con el botón
+>   «⚖️ /Ton» / «🚚 /viaje» — **pregunta antes**, porque multiplica o divide lo que ese tipo cobre
+>   de ahí en adelante.
+> - **Al registrar**, la pastilla muestra el precio **con su unidad** («\$2 / Ton»), para que
+>   nadie lo confunda con un tipo baratísimo.
+> - **⚠️ Un viaje con tarifa por tonelada y SIN peso cargado NO se paga.** Sale visible como
+>   «Tarifa por tonelada sin peso cargado» y **no cae** a la tarifa por viaje ni a la de zona:
+>   adivinarle el peso a un viaje es inventar plata. El patio te lo avisa **antes** de registrar,
+>   mientras todavía estás frente a la romana, y te muestra la cuenta con el peso que llevas
+>   tecleado.
+> - **En el PDF del pago**, la columna Tarifa escribe la cuenta entera —«\$2,00 / Ton × 22,6 Ton»—
+>   para que el papel se pueda rehacer con la calculadora del teléfono.
+> - **La unidad se CONGELA en el viaje** igual que el nombre y el precio: cambiarle la unidad al
+>   tipo mañana no reescribe lo ya cobrado.
+
 > **🧾 Tipos de viaje con nombre: la tarifa Oeste → Este y las que vengan (26/09/2026).** Nueva
 > metodología de cobro: además de los viajes del Este y del Oeste, hay viajes **cruzados** (de
 > Oeste a Este o viceversa) con su propia tarifa — y mañana pueden inventarse otras. Para no tocar

@@ -115,6 +115,7 @@ import {
   pesoTecleadoAKg, kgTexto, kgTextoOpcional, tonTexto, tonTextoOpcional, netoDe, motivoPesoInvalido,
   avisoPesoSospechoso, pesosParaTique, UNIDADES_PESO, type UnidadPeso,
 } from '../lib/viajesPeso';
+import { unidadTarifa, tarifaTexto, unidadTexto, type UnidadTarifaViaje } from '../lib/tarifaViajeUnidad';
 import { capturarFotoLocal, elegirFotoLocal } from '../lib/photo';
 import { leerNumero } from '../lib/numeros';
 import {
@@ -740,6 +741,13 @@ export default function ViajesCamionesScreen() {
   const tiposActivos = useMemo(() => tipos.filter((t) => t.activo), [tipos]);
   /** El tipo marcado para ESTE registro. null = viaje normal (tarifa de zona). */
   const [tipoSel, setTipoSel] = useState<string | null>(null);
+  // ⚖️ EL TIPO ELEGIDO, Y SI COBRA POR TONELADA (07-oct-2026). Con 'ton' el
+  //    viaje paga precio × toneladas del peso a pagar, así que el peso deja de
+  //    ser un dato más y pasa a ser parte del precio: se le avisa al listero
+  //    ANTES de registrar, mientras todavía está frente a la romana.
+  const tipoSelFicha = useMemo(() => (tipoSel ? (tiposActivos.find((t) => t.id === tipoSel) ?? null) : null), [tipoSel, tiposActivos]);
+  const tipoPorTonelada = tipoSelFicha?.unidad === 'ton';
+  const tipoSelTarifa = tipoSelFicha?.tarifaUsd ?? null;
 
   // ── FRENTES DE TRABAJO (28-sep-2026): de dónde recoge cada camión. La
   // oficina los asigna por jornada; el teléfono los lee para CONGELAR el
@@ -1117,6 +1125,7 @@ export default function ViajesCamionesScreen() {
       tipoViajeId: q.payload.tipoViajeId ?? null,
       tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
       tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
+      tipoViajeUnidad: unidadTarifa(q.payload.tipoViajeUnidad),
       // El frente viaja en la cola con su viaje, como la obra: congelado al
       // registrar, no al sincronizar.
       frenteId: q.payload.frenteId ?? null,
@@ -1161,6 +1170,7 @@ export default function ViajesCamionesScreen() {
       tipoViajeId: q.payload.tipoViajeId ?? null,
       tipoViajeNombre: q.payload.tipoViajeNombre ?? null,
       tipoViajeTarifa: q.payload.tipoViajeTarifa ?? null,
+      tipoViajeUnidad: unidadTarifa(q.payload.tipoViajeUnidad),
       frenteId: q.payload.frenteId ?? null,
       frenteNombre: q.payload.frenteNombre ?? null,
       queued: true,
@@ -1341,6 +1351,7 @@ export default function ViajesCamionesScreen() {
         tipoViajeId: tipoElegido?.id ?? null,
         tipoViajeNombre: tipoElegido?.nombre ?? null,
         tipoViajeTarifa: tipoElegido?.tarifaUsd ?? null,
+        tipoViajeUnidad: tipoElegido?.unidad ?? null,
         // ⭐ EL FRENTE, CONGELADO: la asignación que este camión tiene HOY.
         //    Reasignarlo mañana no toca este viaje; un camión sin asignación
         //    registra sin frente (se le puede poner después en ✏️ Editar).
@@ -1689,8 +1700,8 @@ export default function ViajesCamionesScreen() {
           const tipoNuevo = editing.tipoId ? (tipos.find((t) => t.id === editing.tipoId) ?? null) : null;
           if (editing.tipoId && !tipoNuevo) { toast.error('Ese tipo de viaje ya no existe. Refresca la pantalla.'); return; }
           cambios.tipoViaje = tipoNuevo
-            ? { id: tipoNuevo.id, nombre: tipoNuevo.nombre, tarifa: tipoNuevo.tarifaUsd }
-            : { id: null, nombre: null, tarifa: null };
+            ? { id: tipoNuevo.id, nombre: tipoNuevo.nombre, tarifa: tipoNuevo.tarifaUsd, unidad: tipoNuevo.unidad }
+            : { id: null, nombre: null, tarifa: null, unidad: null };
           queCambio.push(`tipo de viaje: ${row.tipoViajeNombre || 'normal'} → ${tipoNuevo?.nombre || 'normal'}`);
         }
         // ⛏️ PONER O CORREGIR EL FRENTE (28-sep-2026, pedido: «el histórico
@@ -2078,6 +2089,7 @@ export default function ViajesCamionesScreen() {
           tipoViajeId: cargaTipo?.id ?? null,
           tipoViajeNombre: cargaTipo?.nombre ?? null,
           tipoViajeTarifa: cargaTipo?.tarifaUsd ?? null,
+          tipoViajeUnidad: cargaTipo?.unidad ?? null,
           registeredAt: iso,
           // La obra del LISTERO ELEGIDO, no la de quien está cargando: el viaje
           // va a quedar a nombre de él, y contarlo en la obra de la jefa diría
@@ -3023,6 +3035,9 @@ export default function ViajesCamionesScreen() {
   // 🧾 Administración de TIPOS DE VIAJE (solo full; el RLS lo exige igual).
   const [nuevoTipoNombre, setNuevoTipoNombre] = useState('');
   const [nuevoTipoTarifa, setNuevoTipoTarifa] = useState('');
+  // ⚖️ Nace POR VIAJE, que es lo que han sido todos los tipos hasta hoy: una
+  //    opción nueva que cambia el precio del que no la pidió es una trampa.
+  const [nuevoTipoUnidad, setNuevoTipoUnidad] = useState<UnidadTarifaViaje>('viaje');
   const [tipoTarifaEdits, setTipoTarifaEdits] = useState<Record<string, string>>({});
   const [tipoOcupado, setTipoOcupado] = useState(false);
   const crearTipo = async () => {
@@ -3030,11 +3045,13 @@ export default function ViajesCamionesScreen() {
     setTipoOcupado(true);
     try {
       const tarifa = nuevoTipoTarifa.trim() === '' ? null : leerNumero(nuevoTipoTarifa);
-      const { error } = await crearTipoViaje(nuevoTipoNombre, tarifa, uid || null, listeroName || null);
+      const { error } = await crearTipoViaje(nuevoTipoNombre, tarifa, uid || null, listeroName || null, nuevoTipoUnidad);
       if (error) { toast.error(error); return; }
-      setNuevoTipoNombre(''); setNuevoTipoTarifa('');
+      setNuevoTipoNombre(''); setNuevoTipoTarifa(''); setNuevoTipoUnidad('viaje');
       setTiposRecarga((x) => x + 1);
-      toast.success('Tipo de viaje creado. Los listeros ya lo ven al registrar.');
+      toast.success(nuevoTipoUnidad === 'ton'
+        ? 'Tipo de viaje creado, POR TONELADA. Sus viajes pagan la tarifa × las toneladas del peso a pagar, así que exigen peso cargado.'
+        : 'Tipo de viaje creado. Los listeros ya lo ven al registrar.');
     } finally { setTipoOcupado(false); }
   };
   const guardarTarifaTipo = async (t: TipoViaje) => {
@@ -3045,7 +3062,26 @@ export default function ViajesCamionesScreen() {
     if (error) { toast.error(error); return; }
     setTipoTarifaEdits((prev) => { const p = { ...prev }; delete p[t.id]; return p; });
     setTiposRecarga((x) => x + 1);
-    toast.success(`Tarifa de «${t.nombre}» guardada: $${tarifa}. Solo aplica a los viajes que vengan; los registrados llevan la suya congelada.`);
+    toast.success(`Tarifa de «${t.nombre}» guardada: ${tarifaTexto(tarifa, t.unidad)}. Solo aplica a los viajes que vengan; los registrados llevan la suya congelada.`);
+  };
+  // ⚖️ CAMBIAR LA UNIDAD DE UN TIPO (07-oct-2026). Se pregunta porque multiplica
+  //    o divide por veinte lo que cobra ese tipo de aquí en adelante — y porque
+  //    pasarlo a tonelada hace que sus viajes SIN PESO dejen de pagarse.
+  const cambiarUnidadTipo = async (t: TipoViaje) => {
+    const aTon = t.unidad !== 'ton';
+    const ok = await confirm({
+      title: aTon ? 'Cobrar por TONELADA' : 'Cobrar por VIAJE',
+      message: aTon
+        ? `«${t.nombre}» pasaría a cobrar $${t.tarifaUsd ?? '—'} POR CADA TONELADA del peso a pagar, en vez de por el viaje entero. Ojo con dos cosas: la tarifa casi seguro hay que bajarla (no es lo mismo $30 el viaje que $30 la tonelada), y sus viajes SIN PESO cargado dejan de pagarse hasta que alguien les meta la romana. Los viajes YA registrados no cambian.`
+        : `«${t.nombre}» volvería a cobrar $${t.tarifaUsd ?? '—'} por el viaje entero, pese lo que pese. Los viajes YA registrados no cambian.`,
+      confirmText: aTon ? 'Cobrar por tonelada' : 'Cobrar por viaje',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { error } = await editarTipoViaje(t.id, { unidad: aTon ? 'ton' : 'viaje' }, uid || null, listeroName || null);
+    if (error) { toast.error(error); return; }
+    setTiposRecarga((x) => x + 1);
+    toast.success(`«${t.nombre}» ahora cobra ${aTon ? 'POR TONELADA' : 'POR VIAJE'}. Solo para los viajes que vengan.`);
   };
   const toggleActivoTipo = async (t: TipoViaje) => {
     if (t.activo) {
@@ -4240,7 +4276,7 @@ export default function ViajesCamionesScreen() {
               <View style={{ gap: 4 }}>
                 <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🧾 TIPO DE VIAJE</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                  {[{ id: null as string | null, nombre: '🚚 Normal', tarifaUsd: null as number | null }, ...tiposActivos].map((t) => {
+                  {[{ id: null as string | null, nombre: '🚚 Normal', tarifaUsd: null as number | null, unidad: 'viaje' as UnidadTarifaViaje }, ...tiposActivos].map((t) => {
                     const marcado = tipoSel === t.id;
                     return (
                       <TouchableOpacity
@@ -4248,8 +4284,12 @@ export default function ViajesCamionesScreen() {
                         onPress={() => setTipoSel(t.id)}
                         style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
                       >
+                        {/* ⚖️ LA UNIDAD VA PEGADA AL PRECIO (07-oct-2026): un «$2»
+                            suelto al lado de un «$30» se lee como un tipo
+                            baratísimo, cuando es el precio de UNA tonelada de
+                            las veinte que lleva el camión. */}
                         <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
-                          {t.nombre}{t.id && t.tarifaUsd != null ? ` · $${t.tarifaUsd}` : ''}
+                          {t.unidad === 'ton' ? '⚖️ ' : ''}{t.nombre}{t.id && t.tarifaUsd != null ? ` · ${tarifaTexto(t.tarifaUsd, t.unidad)}` : ''}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -4258,6 +4298,17 @@ export default function ViajesCamionesScreen() {
                 {tipoSel && (tiposActivos.find((t) => t.id === tipoSel)?.tarifaUsd ?? null) == null ? (
                   <Text style={{ color: '#92400E', fontSize: 11 }}>
                     Ese tipo todavía no tiene tarifa: el viaje se registra igual y sale «tipo sin tarifa» en el pago hasta que le pongan precio.
+                  </Text>
+                ) : null}
+                {/* ⚠️ POR TONELADA SIN PESO NO SE PAGA. Se avisa ACÁ, antes de
+                    registrar, porque el listero todavía está frente a la
+                    romana; descubrirlo en el papel de pago es tarde. */}
+                {tipoPorTonelada ? (
+                  <Text style={{ color: camionExentoRomana || brutoKgVivo <= 0 ? '#B91C1C' : colors.muted, fontSize: 11 }}>
+                    ⚖️ Esta tarifa es POR TONELADA: el viaje paga {tarifaTexto(tipoSelTarifa, 'ton')} × las toneladas del peso a pagar
+                    {netoVivo != null && netoVivo > 0 && tipoSelTarifa != null
+                      ? ` — con el peso que va tecleado serían ${tonTexto(netoVivo, 1)} × $${tipoSelTarifa} = $${(Math.round((netoVivo / 1000) * tipoSelTarifa * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+                      : '. SIN PESO CARGADO NO SE PUEDE PAGAR: saldría «tarifa por tonelada sin peso» en el pago.'}
                   </Text>
                 ) : null}
               </View>
@@ -4935,7 +4986,7 @@ export default function ViajesCamionesScreen() {
                   🧾 TARIFA DEL VIAJE
                 </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
-                  {[{ id: null as string | null, nombre: 'Tarifa general', tarifaUsd: null as number | null }, ...tiposActivos].map((t) => {
+                  {[{ id: null as string | null, nombre: 'Tarifa general', tarifaUsd: null as number | null, unidad: 'viaje' as UnidadTarifaViaje }, ...tiposActivos].map((t) => {
                     const activo = cargaTipoId === t.id;
                     return (
                       <TouchableOpacity
@@ -5849,9 +5900,16 @@ export default function ViajesCamionesScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.text, fontWeight: '700' }}>🧾 {t.nombre}</Text>
                         <Text style={{ color: t.activo && t.tarifaUsd == null ? '#92400E' : colors.muted, fontSize: 11 }}>
-                          {t.tarifaUsd != null ? `$${t.tarifaUsd} por viaje` : '⚠️ sin tarifa: sus viajes salen «tipo sin tarifa» en el pago'}
+                          {t.tarifaUsd != null ? `$${t.tarifaUsd} ${unidadTexto(t.unidad)}` : '⚠️ sin tarifa: sus viajes salen «tipo sin tarifa» en el pago'}
                           {t.updatedByNombre ? ` · ${t.updatedByNombre}` : ''}
                         </Text>
+                        {/* ⚠️ Por tonelada el peso deja de ser opcional: sin él
+                            no hay por qué multiplicar y el viaje no se paga. */}
+                        {t.unidad === 'ton' ? (
+                          <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                            ⚖️ Se multiplica por las toneladas del peso a pagar. Sus viajes SIN peso salen «tarifa por tonelada sin peso».
+                          </Text>
+                        ) : null}
                       </View>
                       <TextInput
                         value={tipoTarifaEdits[t.id] ?? (t.tarifaUsd != null ? String(t.tarifaUsd) : '')}
@@ -5864,6 +5922,11 @@ export default function ViajesCamionesScreen() {
                       />
                       <TouchableOpacity onPress={() => guardarTarifaTipo(t)}>
                         <Text style={{ fontSize: 16 }}>💾</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => cambiarUnidadTipo(t)}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: t.unidad === 'ton' ? colors.primary : colors.muted }}>
+                          {t.unidad === 'ton' ? '⚖️ /Ton' : '🚚 /viaje'}
+                        </Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => toggleActivoTipo(t)}>
                         <Text style={{ fontSize: 12, fontWeight: '800', color: t.activo ? colors.danger : colors.success }}>{t.activo ? 'Apagar' : 'Prender'}</Text>
@@ -5892,8 +5955,28 @@ export default function ViajesCamionesScreen() {
                     <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{tipoOcupado ? '…' : 'Crear'}</Text>
                   </TouchableOpacity>
                 </View>
+                {/* ⚖️ POR VIAJE O POR TONELADA (07-oct-2026, a pedido). */}
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                  {([
+                    { k: 'viaje' as UnidadTarifaViaje, label: '🚚 Precio por viaje' },
+                    { k: 'ton' as UnidadTarifaViaje, label: '⚖️ Precio por tonelada' },
+                  ]).map((o) => {
+                    const marcado = nuevoTipoUnidad === o.k;
+                    return (
+                      <TouchableOpacity
+                        key={o.k}
+                        onPress={() => setNuevoTipoUnidad(o.k)}
+                        style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: marcado ? colors.primary : colors.border, backgroundColor: marcado ? colors.primary : colors.surface }}
+                      >
+                        <Text style={{ color: marcado ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
                 <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 2 }}>
                   La tarifa se puede dejar vacía y ponerla después. Apagar un tipo lo esconde del listero sin tocar los viajes que ya lo llevan.
+                  {'\n'}⚖️ POR TONELADA: el precio es el de UNA tonelada y el viaje paga ese precio × las toneladas del peso a pagar (el neto de la romana).
+                  Un viaje con esa tarifa y SIN peso cargado no se paga —sale «tarifa por tonelada sin peso»— en vez de pagarse mal en silencio.
                 </Text>
               </>
             )}

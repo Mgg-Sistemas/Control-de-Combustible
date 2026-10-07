@@ -33,17 +33,33 @@ const Module = require('module');
 const leer = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const sinComentarios = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
-function cargar(rel) {
-  const p = path.join(ROOT, rel);
+// ⚠️ EL LOADER RESUELVE IMPORTS RELATIVOS A OTROS .ts (07-oct-2026): desde que
+//    la tarifa de un tipo puede ser POR TONELADA, `pagoViajes.ts` importa la
+//    cuenta de `tarifaViajeUnidad.ts` para que exista UNA sola matemática del
+//    dinero. Sin esto la suite explota con MODULE_NOT_FOUND.
+const cacheTs = new Map();
+function cargarAbs(p) {
+  if (cacheTs.has(p)) return cacheTs.get(p);
   const js = ts.transpileModule(fs.readFileSync(p, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 },
   }).outputText;
   const m = new Module(p);
   m.filename = p;
   m.paths = Module._nodeModulePaths(path.dirname(p));
+  cacheTs.set(p, m.exports);
+  const orig = m.require.bind(m);
+  m.require = (id) => {
+    if (id.startsWith('.')) {
+      const abs = path.resolve(path.dirname(p), id);
+      for (const c of [abs + '.ts', abs + '.tsx']) if (fs.existsSync(c)) return cargarAbs(c);
+    }
+    return orig(id);
+  };
   m._compile(js, p);
+  cacheTs.set(p, m.exports);
   return m.exports;
 }
+const cargar = (rel) => cargarAbs(path.join(ROOT, rel));
 
 let pass = 0, fail = 0;
 const failures = [];

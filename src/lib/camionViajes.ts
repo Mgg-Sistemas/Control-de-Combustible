@@ -1,6 +1,7 @@
 import { supabase, selectAllRows } from './supabase';
 import { esRolListero } from './rolListero';
 import { jornadaDeFecha } from './caracasDay';
+import { unidadTarifa, type UnidadTarifaViaje } from './tarifaViajeUnidad';
 import {
   CAMPOS_VIAJE_ROW, completarFrentes, mapaAsignaciones, rangoJornadas, type AsignacionDia,
 } from './frentesAuto';
@@ -129,6 +130,13 @@ export type CamionViajeRow = {
   tipoViajeNombre: string | null;
   tipoViajeTarifa: number | null;
   /**
+   * ⚖️ EN QUÉ UNIDAD cobraba ese tipo CUANDO SE REGISTRÓ el viaje (07-oct-2026):
+   * 'viaje' = precio fijo; 'ton' = precio POR TONELADA, se multiplica por el
+   * peso a pagar. Congelada igual que el nombre y el precio: cambiarle la
+   * unidad al tipo mañana no puede reescribir lo ya cobrado.
+   */
+  tipoViajeUnidad: UnidadTarifaViaje;
+  /**
    * FRENTE DE TRABAJO (28-sep-2026): de DÓNDE recogió el camión el material
    * que llevó al CDT/CDF. Se asigna por jornada a cada camión (o a un grupo)
    * en ⚙️ Obras y ubicaciones, y se CONGELA en el viaje al registrarlo —
@@ -179,6 +187,8 @@ function mapRow(r: any): CamionViajeRow {
     tipoViajeId: (r.tipo_viaje_id ?? null) as string | null,
     tipoViajeNombre: (r.tipo_viaje_nombre ?? null) as string | null,
     tipoViajeTarifa: r.tipo_viaje_tarifa == null ? null : Number(r.tipo_viaje_tarifa),
+    // ⚠️ NULL (todo viaje anterior al 07-oct-2026) se lee como 'viaje'.
+    tipoViajeUnidad: unidadTarifa(r.tipo_viaje_unidad),
     frenteId: (r.frente_id ?? null) as string | null,
     frenteNombre: (r.frente_nombre ?? null) as string | null,
     zonaPago: (r.zona_pago === 'este' || r.zona_pago === 'oeste' ? r.zona_pago : null) as string | null,
@@ -234,7 +244,7 @@ const COLS_TIQUE = 'folio, placa_snap, empresa_snap';
 // toda base que ya tenga peso (26-sep) la tiene — y si el peso falta, el
 // origen tampoco hace falta (sin columnas de peso no hay peso que agregar).
 const COLS_PESO = 'peso_bruto_kg, peso_tara_kg, peso_neto_kg, tara_manual, tara_manual_nombre, peso_foto_url, origen';
-const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa';
+const COLS_TIPO = 'tipo_viaje_id, tipo_viaje_nombre, tipo_viaje_tarifa, tipo_viaje_unidad';
 const COLS_FRENTE = 'frente_id, frente_nombre';
 
 /** Las columnas que se piden, según lo que se sepa que existe. */
@@ -452,6 +462,8 @@ export async function registrarViaje(params: {
   tipoViajeId?: string | null;
   tipoViajeNombre?: string | null;
   tipoViajeTarifa?: number | null;
+  /** ⚖️ 'ton' = la tarifa es POR TONELADA. Ausente = 'viaje', como siempre. */
+  tipoViajeUnidad?: UnidadTarifaViaje | null;
   /** FRENTE DE TRABAJO, ya resuelto por la pantalla (la asignación del camión
    *  en ESA jornada, o el elegido a mano en la carga manual). Ausente = sin
    *  frente; se puede completar después en ✏️ Editar. */
@@ -515,6 +527,8 @@ export async function registrarViaje(params: {
     tipo_viaje_id: params.tipoViajeId ?? null,
     tipo_viaje_nombre: params.tipoViajeNombre ?? null,
     tipo_viaje_tarifa: params.tipoViajeTarifa ?? null,
+    // ⚠️ Sin tipo no se escribe unidad: un viaje normal no tiene de qué.
+    tipo_viaje_unidad: params.tipoViajeId || params.tipoViajeNombre ? unidadTarifa(params.tipoViajeUnidad) : null,
   };
   const camposFrente = {
     frente_id: params.frenteId ?? null,
@@ -692,7 +706,7 @@ export type CambiosViaje = {
    *  id, nombre y tarifa del catálogo al momento de la corrección— o los tres
    *  en null para volverlo viaje normal. Congela en la corrección, igual que
    *  congeló el registro. */
-  tipoViaje?: { id: string | null; nombre: string | null; tarifa: number | null };
+  tipoViaje?: { id: string | null; nombre: string | null; tarifa: number | null; unidad?: UnidadTarifaViaje | null };
   /** Ponerle o corregirle el FRENTE DE TRABAJO a un viaje ya registrado
    *  (28-sep-2026, pedido: «el histórico debería poder agregarle frentes a los
    *  que ya se hicieron»). Snapshot completo, o los dos en null para quitarlo. */
@@ -721,6 +735,10 @@ export async function editarViaje(id: string, cambios: CambiosViaje): Promise<{ 
     patch.tipo_viaje_id = cambios.tipoViaje.id;
     patch.tipo_viaje_nombre = cambios.tipoViaje.nombre;
     patch.tipo_viaje_tarifa = cambios.tipoViaje.tarifa;
+    // ⚠️ Corregirle el tipo a un viaje re-congela TAMBIÉN la unidad: un tipo
+    //    por tonelada que se guardara como «por viaje» pagaría $2 el viaje
+    //    entero en vez de $2 por cada una de sus veinte toneladas.
+    patch.tipo_viaje_unidad = cambios.tipoViaje.nombre ? unidadTarifa(cambios.tipoViaje.unidad) : null;
   }
   if (cambios.frente !== undefined) {
     patch.frente_id = cambios.frente.id;
@@ -918,17 +936,26 @@ export type TipoViaje = {
   nombre: string;
   /** null = sin precio todavía: sus viajes salen «tipo sin tarifa» en el pago. */
   tarifaUsd: number | null;
+  /**
+   * ⚖️ EN QUÉ UNIDAD COBRA (07-oct-2026, a pedido: «permite colocar una tarifa
+   * por TON … y que se multiplique por las ton obtenidas»).
+   *   'viaje' → `tarifaUsd` es el precio del viaje (lo de siempre).
+   *   'ton'   → `tarifaUsd` es el precio de UNA TONELADA; el viaje paga
+   *             precio × toneladas del peso a pagar, y sin peso no se paga.
+   */
+  unidad: UnidadTarifaViaje;
   activo: boolean;
   updatedByNombre: string | null;
 };
 
 export async function listTiposViaje(): Promise<{ tipos: TipoViaje[]; missing: boolean; error?: string }> {
   try {
-    const data = await selectAllRows('viaje_tipos', 'id, nombre, tarifa_usd, activo, updated_by_nombre');
+    const data = await selectAllRows('viaje_tipos', 'id, nombre, tarifa_usd, tarifa_unidad, activo, updated_by_nombre');
     const tipos = (data as any[]).map((r) => ({
       id: r.id as string,
       nombre: String(r.nombre ?? '').trim(),
       tarifaUsd: r.tarifa_usd == null ? null : Number(r.tarifa_usd),
+      unidad: unidadTarifa(r.tarifa_unidad),
       activo: r.activo !== false,
       updatedByNombre: (r.updated_by_nombre ?? null) as string | null,
     })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base', numeric: true }));
@@ -940,12 +967,12 @@ export async function listTiposViaje(): Promise<{ tipos: TipoViaje[]; missing: b
 }
 
 /** Crea un tipo nuevo. La tarifa puede venir después. */
-export async function crearTipoViaje(nombre: string, tarifaUsd: number | null, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+export async function crearTipoViaje(nombre: string, tarifaUsd: number | null, userId: string | null, userName: string | null, unidad: UnidadTarifaViaje = 'viaje'): Promise<{ error?: string }> {
   const n = nombre.replace(/\s+/g, ' ').trim();
   if (n.length < 2) return { error: 'Ponle un nombre al tipo (p. ej. «Oeste → Este»).' };
   if (tarifaUsd != null && !(tarifaUsd > 0)) return { error: 'La tarifa tiene que ser mayor que 0 (o déjala vacía para ponerla después).' };
   const { error } = await supabase.from('viaje_tipos').insert({
-    nombre: n, tarifa_usd: tarifaUsd, updated_by: userId, updated_by_nombre: userName,
+    nombre: n, tarifa_usd: tarifaUsd, tarifa_unidad: unidadTarifa(unidad), updated_by: userId, updated_by_nombre: userName,
   });
   if (error) {
     if (/uq_viaje_tipos_nombre_activo|duplicate key/i.test(error.message)) return { error: `Ya existe un tipo activo llamado «${n}».` };
@@ -956,7 +983,7 @@ export async function crearTipoViaje(nombre: string, tarifaUsd: number | null, u
 
 /** Cambia la tarifa (o el nombre) de un tipo. ⚠️ SOLO afecta a los viajes que
  *  vengan: los registrados llevan su tarifa congelada. */
-export async function editarTipoViaje(id: string, cambios: { nombre?: string; tarifaUsd?: number | null }, userId: string | null, userName: string | null): Promise<{ error?: string }> {
+export async function editarTipoViaje(id: string, cambios: { nombre?: string; tarifaUsd?: number | null; unidad?: UnidadTarifaViaje }, userId: string | null, userName: string | null): Promise<{ error?: string }> {
   const patch: Record<string, any> = { updated_at: new Date().toISOString(), updated_by: userId, updated_by_nombre: userName };
   if (cambios.nombre !== undefined) {
     const n = cambios.nombre.replace(/\s+/g, ' ').trim();
@@ -967,6 +994,9 @@ export async function editarTipoViaje(id: string, cambios: { nombre?: string; ta
     if (cambios.tarifaUsd != null && !(cambios.tarifaUsd > 0)) return { error: 'La tarifa tiene que ser mayor que 0.' };
     patch.tarifa_usd = cambios.tarifaUsd;
   }
+  // ⚠️ Cambiar la unidad SOLO afecta a los viajes que vengan: los registrados
+  //    llevan la suya congelada, igual que el precio.
+  if (cambios.unidad !== undefined) patch.tarifa_unidad = unidadTarifa(cambios.unidad);
   const { data, error } = await supabase.from('viaje_tipos').update(patch).eq('id', id).select('id');
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo en Viajes de camiones.' };

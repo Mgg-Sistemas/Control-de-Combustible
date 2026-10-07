@@ -23,6 +23,7 @@
 //    día para otro. Marca, modelo, placa, encargado, m³, los cuadros por tipo y por
 //    zona y el alcance se ENCIENDEN a pedido.
 import type { LineaViaje, MotivoSinPago, PagoViajesGrupo } from './pagoViajes';
+import type { UnidadTarifaViaje } from './tarifaViajeUnidad';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 /** El TIPO DE VIAJE de una línea (misma regla que `tipoDeViajePago` en
@@ -282,6 +283,11 @@ export type RenglonEquipo = {
    *  frente tampoco parte los renglones (ver `renglonesPorEquipo`). */
   frente: string;
   zona: string; viajes: number; precio: number; monto: number;
+  /** ⚖️ En qué unidad cobra este renglón. 'viaje' = todo lo de siempre. */
+  unidad: UnidadTarifaViaje;
+  /** Las toneladas que entraron en la cuenta, cuando la tarifa es por tonelada.
+   *  0 en los renglones por viaje: ahí el peso no decide el precio. */
+  toneladas: number;
   /** m³ de UN viaje de ese camión (0 = no está medido) y del renglón entero. */
   m3PorViaje: number; m3: number;
 };
@@ -317,7 +323,10 @@ export function renglonesPorEquipo(
     // dos renglones, no uno con la empresa del primer viaje. Y el TIPO también:
     // el mismo camión con viajes normales y cruzados son dos renglones, cada
     // uno con su tarifa. El FRENTE solo cuando su columna está encendida.
-    const k = `${id || `code:${code}`}|${empresaId}|${tipo ?? l.zona}|${l.precio}|${frente}`;
+    // ⚠️ LA UNIDAD ENTRA EN LA CLAVE. «$2 por viaje» y «$2 por tonelada» son el
+    //    mismo número y dinero muy distinto: fundirlos en un renglón daría un
+    //    monto que no se puede reconstruir desde el papel.
+    const k = `${id || `code:${code}`}|${empresaId}|${tipo ?? l.zona}|${l.precio}|${l.unidad}|${frente}`;
     let r = m.get(k);
     if (!r) {
       const f = (id && fichas?.get(id)) || {};
@@ -332,11 +341,14 @@ export function renglonesPorEquipo(
         frente,
         // La columna «Zona» dice el TIPO cuando el viaje lo lleva: «Oeste → Este»
         // es lo que explica esa tarifa, no la zona del CDT donde se marcó.
-        zona: tipo ?? (l.zona === 'oeste' ? 'Oeste' : 'Este'), viajes: 0, precio: l.precio, monto: 0, m3PorViaje: porViaje, m3: 0,
+        zona: tipo ?? (l.zona === 'oeste' ? 'Oeste' : 'Este'), viajes: 0, precio: l.precio, monto: 0,
+        unidad: l.unidad ?? 'viaje', toneladas: 0,
+        m3PorViaje: porViaje, m3: 0,
       };
       m.set(k, r);
     }
     r.viajes += 1;
+    r.toneladas = redondear(r.toneladas + (l.toneladas ?? 0));
     r.monto = redondear(r.monto + l.monto);
     r.m3 = redondear(r.m3PorViaje * r.viajes);
   });
@@ -410,6 +422,21 @@ const usd = (n: number) => `$${Number(n || 0).toLocaleString('es-VE', { minimumF
 //    informativo del papel: no se multiplica por nada. El MONTO y la TARIFA
 //    siguen con sus dos decimales — ahí el centavo es plata.
 const m3Texto = (n: number) => (n > 0 ? `${n.toLocaleString('es-VE', { maximumFractionDigits: 1 })} m³` : '—');
+const tonTxt = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+/**
+ * LA CELDA «TARIFA» DEL PAPEL.
+ *
+ * ⭐ EL PAPEL TIENE QUE MULTIPLICAR SOLO. Con una tarifa por tonelada, un «$2»
+ *    pelado al lado de un monto de $89,20 se lee como un error de suma: por eso
+ *    la celda escribe la cuenta entera —«$2,00 / Ton × 44,6 Ton»— y quien la
+ *    revisa puede rehacerla con la calculadora del teléfono. Por viaje no hace
+ *    falta nada de eso y la celda queda exactamente como siempre.
+ */
+export function precioTexto(r: Pick<RenglonEquipo, 'precio' | 'unidad' | 'toneladas'>): string {
+  if (r.unidad !== 'ton') return usd(r.precio);
+  return `${usd(r.precio)} / Ton${r.toneladas > 0 ? ` × ${tonTxt(r.toneladas)} Ton` : ''}`;
+}
 
 export const CSS_PAGO_VIAJES = `
   table{width:100%;border-collapse:collapse;font-size:11px;margin:4px 0 10px}
@@ -467,7 +494,7 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
       const celda = (r: RenglonEquipo, c: ColumnaEquipo) =>
         c === 'code' ? esc(r.code) : c === 'empresa' ? esc(r.empresa) : c === 'marcaModelo' ? esc(marcaModeloPago(r, o)) : c === 'placa' ? esc(r.placa || '—')
           : c === 'encargado' ? esc(r.encargado || '—') : c === 'frente' ? esc(r.frente || '—') : c === 'zona' ? r.zona : c === 'viajes' ? String(r.viajes)
-            : c === 'm3' ? m3Texto(r.m3) : c === 'precio' ? usd(r.precio) : usd(r.monto);
+            : c === 'm3' ? m3Texto(r.m3) : c === 'precio' ? precioTexto(r) : usd(r.monto);
       const motivos = new Map<MotivoSinPago, number>();
       b.lineas.forEach((l) => { if (l.motivoSinPago && l.motivoSinPago !== 'no_facturo') motivos.set(l.motivoSinPago, (motivos.get(l.motivoSinPago) ?? 0) + 1); });
       const porQue = Array.from(motivos.entries()).sort((a, c) => c[1] - a[1]).map(([k, n]) => `${n} ${d.etiquetaMotivo(k).toLowerCase()}`).join(' · ');

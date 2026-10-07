@@ -15,6 +15,8 @@
 // ⭐ SIN IMPORTS, a propósito: se prueba sola (scripts/test-pago-viajes.mjs).
 
 // Arrancaba el 15-sep; el 17-sep el cliente pidió que las tarifas rijan desde el 14-sep.
+import { unidadTarifa, cuentaDelTipo, type UnidadTarifaViaje } from './tarifaViajeUnidad';
+
 export const INICIO_PAGO_VIAJES = '2026-09-14';
 
 export type ZonaPagoViaje = 'este' | 'oeste';
@@ -85,6 +87,16 @@ export type ViajePago = {
    */
   tipo_viaje_nombre?: string | null;
   tipo_viaje_tarifa?: number | string | null;
+  /**
+   * ⚖️ LA UNIDAD DE ESA TARIFA, congelada en el viaje (07-oct-2026):
+   * 'ton' = el precio es POR TONELADA y se multiplica por el peso a pagar.
+   * NULL o cualquier otra cosa = 'viaje', que es lo que son los miles de
+   * viajes anteriores a hoy.
+   */
+  tipo_viaje_unidad?: string | null;
+  /** El peso a pagar (bruto − tara) en kilos. Lo necesita la tarifa por
+   *  tonelada; para la tarifa por viaje ni se mira. */
+  peso_neto_kg?: number | string | null;
   /** FRENTE DE TRABAJO (28-sep-2026): de dónde recogió, congelado en el viaje.
    *  Solo informa (agrupar y columna del papel): NO toca ningún cálculo. */
   frente_nombre?: string | null;
@@ -97,14 +109,20 @@ export function tipoDeViajePago(v: { tipo_viaje_nombre?: string | null } | null 
 }
 
 /** Por qué un viaje de un camión por viaje no suma dinero. */
-export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa' | 'fuera_catalogo' | 'tipo_sin_tarifa';
+export type MotivoSinPago = 'no_facturo' | 'sin_zona' | 'sin_tarifa' | 'sin_empresa' | 'fuera_catalogo' | 'tipo_sin_tarifa' | 'tipo_sin_peso';
 
 export type LineaViaje = {
   viaje: ViajePago;
   jornada: string;
   zona: ZonaPagoViaje | null;
   tarifa: TarifaViaje | null;
+  /** El precio del catálogo: del viaje entero, o de UNA tonelada si `unidad`
+   *  es 'ton'. Leerlo sin mirar la unidad es leer $2 donde hay $44. */
   precio: number;
+  /** ⚖️ En qué unidad cobra este viaje. 'viaje' para todo lo de siempre. */
+  unidad: UnidadTarifaViaje;
+  /** Las toneladas que entraron en la cuenta. null = la tarifa no las usa. */
+  toneladas: number | null;
   monto: number;
   facturable: boolean;
   marca: MarcaViaje | null;
@@ -339,6 +357,11 @@ export function calcularPagoViajes(opts: {
     //    sigue EXACTAMENTE como siempre (amarrado por test).
     const tipoNombre = tipoDeViajePago(v);
     const tarifaTipo = num(v.tipo_viaje_tarifa);
+    // ⚖️ POR VIAJE O POR TONELADA (07-oct-2026). La unidad va congelada en el
+    //    viaje; con 'ton' el precio se multiplica por el peso a pagar, y un
+    //    viaje sin peso NO se paga (ver `cuentaDelTipo`).
+    const unidad = unidadTarifa(v.tipo_viaje_unidad);
+    const cuenta = tipoNombre ? cuentaDelTipo(tarifaTipo, unidad, v.peso_neto_kg) : null;
     const tarifa = tipoNombre ? null
       : zona ? tarifaViajeEn(opts.tarifas, zona, jornada, { machineryId: v.machinery_id, companyId: v.company_id }) : null;
     const marca = opts.marcas.get(v.id) ?? null;
@@ -354,16 +377,22 @@ export function calcularPagoViajes(opts: {
     // especial, y pagarlo como normal sería pagar mal en silencio. Sale
     // visible como «tipo sin tarifa» hasta que el tipo tenga precio (o la
     // jefa le corrija el tipo al viaje).
-    else if (tipoNombre) { if (!(tarifaTipo > 0)) motivoSinPago = 'tipo_sin_tarifa'; }
+    // ⚠️ Un tipo POR TONELADA sin peso cargado tampoco se paga, y se dice:
+    //    no cae a la tarifa por viaje ni a la de zona. Adivinarle el peso a un
+    //    viaje es inventar plata.
+    else if (tipoNombre) {
+      if (cuenta!.falta === 'tarifa') motivoSinPago = 'tipo_sin_tarifa';
+      else if (cuenta!.falta === 'peso') motivoSinPago = 'tipo_sin_peso';
+    }
     else if (!zona) motivoSinPago = 'sin_zona';
     else if (!tarifa) motivoSinPago = 'sin_tarifa';
-    const precio = tipoNombre ? (tarifaTipo > 0 ? tarifaTipo : 0) : tarifa ? num(tarifa.precio) : 0;
-    const monto = motivoSinPago ? 0 : precio;
+    const precio = tipoNombre ? cuenta!.precio : tarifa ? num(tarifa.precio) : 0;
+    const monto = motivoSinPago ? 0 : tipoNombre ? cuenta!.monto : precio;
 
     const semana = opts.semanaDe(jornada);
     const clave = `${v.company_id ?? ''}|${semana}`;
     const g = grupos.get(clave) ?? { companyId: v.company_id ?? null, semana, lineas: [], porCamion: [], viajes: 0, pagados: 0, noFacturados: 0, pendientes: 0, montoUSD: 0 };
-    g.lineas.push({ viaje: v, jornada, zona, tarifa, precio, monto, facturable, marca, motivoSinPago });
+    g.lineas.push({ viaje: v, jornada, zona, tarifa, precio, unidad: tipoNombre ? unidad : 'viaje', toneladas: cuenta?.toneladas ?? null, monto, facturable, marca, motivoSinPago });
     g.viajes += 1;
     if (monto > 0) g.pagados += 1;
     else if (motivoSinPago === 'no_facturo') g.noFacturados += 1;
@@ -430,6 +459,7 @@ export function etiquetaMotivoSinPago(m: MotivoSinPago | null): string {
     case 'sin_empresa': return 'Sin empresa';
     case 'fuera_catalogo': return 'Camión fuera del catálogo';
     case 'tipo_sin_tarifa': return 'Tipo de viaje sin tarifa';
+    case 'tipo_sin_peso': return 'Tarifa por tonelada sin peso cargado';
     default: return '';
   }
 }
