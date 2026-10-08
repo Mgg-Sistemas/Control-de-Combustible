@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { personalAsignable } from '../lib/personalAsignable';
 import { norm, cmpText } from '../lib/text';
+import { horasVivasTurno } from '../lib/hours';
 import { motivoParada } from '../lib/paradaMotivo';
 import EdificioPicker from '../components/EdificioPicker';
 import { addEdificio } from '../lib/edificios';
@@ -2093,10 +2094,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
     // TOPE FÍSICO: las horas bancadas NUNCA superan lo transcurrido desde el INICIO del
-    // turno (7am día / 7pm noche) — ni las 12h. Al re-abrir una jornada, `jornadaStart`
-    // se re-ancla al inicio del turno, así que `base + horas` contaría DOS VECES el tramo
-    // ya bancado (bug 14-ago-2026: noche 3.49h con solo 1.82h desde las 7pm). El min con
-    // el tope físico lo evita; en un inicio tardío/real (sin re-ancla) base+horas queda.
+    // turno (7am día / 7pm noche) — ni las 12h. Nació cuando re-abrir re-anclaba
+    // `jornadaStart` al inicio del turno y `base + horas` contaba DOS VECES el tramo
+    // bancado (bug 14-ago-2026: noche 3.49h con solo 1.82h desde las 7pm). Desde el
+    // 02-oct-2026 el inicio es la HORA REAL, así que base+horas ES la suma correcta
+    // (parada 2h + tramo 4h = 6h) y el tope físico queda de guardia para el caso en
+    // que el re-inicio se TECLEE hacia atrás (reactivan 11am pero escriben 07:00).
+    // Misma regla que `horasVivasTurno` (hours.ts) usa para las vistas en vivo.
     const shiftStartMs = jornadaShift === 'night'
       ? new Date(roundDate + 'T19:00:00-04:00').getTime()
       : new Date(roundDate + 'T07:00:00-04:00').getTime();
@@ -3700,19 +3704,30 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>
                       🟢 Jornada en curso ({jornadaShift === 'night' ? '🌙 noche' : '☀️ día'}) · desde {caracasClock(jornadaStart)}
                     </Text>
-                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Tiempo trabajado: {elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
+                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Este tramo: {elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
+                    {/* ACUMULADO DEL TURNO (08-oct-2026): si antes de este tramo ya se bancaron
+                        horas (parada→reactivación), el inspector tiene que VER que no se
+                        perdieron — reclamo «no suma las horas de antes con las de después». */}
+                    {curRoundHours[jornadaShift] > 0 ? (
+                      <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>
+                        Σ Acumulado del turno: {horasVivasTurno({ bancado: curRoundHours[jornadaShift], startMs: new Date(jornadaStart).getTime(), shift: jornadaShift, nowMs: nowTick }).toFixed(2)} h (incluye lo trabajado antes de la parada)
+                      </Text>
+                    ) : null}
                   </View>
                   {finConfirm ? (
                     <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>¿Finalizar la jornada?</Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
-                        Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
+                        Este tramo: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, Math.min(nowTick, new Date(jornadaStart).getTime() + 43200000))}</Text>
                         {'  '}({Math.min(12, Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000).toFixed(2)} h)
                       </Text>
-                      {/* TAREA 2: refuerza el total con el ACUMULADO del turno en el día
-                          (curRoundHours = horas ya registradas ANTES de esta sesión). */}
+                      {/* ACUMULADO del turno = bancado + este tramo (horasVivasTurno, 08-oct-2026).
+                          Antes tomaba el MAYOR entre ambos — regla de cuando el re-inicio se
+                          re-anclaba a las 7am; con inicio = hora real (02-oct) escondía las
+                          horas bancadas antes de la parada y el inspector reclamaba que
+                          «no suma lo de antes con lo de después». */}
                       <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
-                        Acumulado del turno: <Text style={{ fontWeight: '900' }}>{Math.min(12, Math.max(curRoundHours[jornadaShift], Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000)).toFixed(2)} h</Text>
+                        Acumulado del turno: <Text style={{ fontWeight: '900' }}>{horasVivasTurno({ bancado: curRoundHours[jornadaShift], startMs: new Date(jornadaStart).getTime(), shift: jornadaShift, nowMs: nowTick }).toFixed(2)} h</Text>
                       </Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.

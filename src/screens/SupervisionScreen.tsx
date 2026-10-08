@@ -6,6 +6,7 @@ import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { personalAsignable } from '../lib/personalAsignable';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
+import { horasVivasTurno } from '../lib/hours';
 import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel, soloAdminPuedeAsignar } from '../lib/machineInspectors';
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -1364,6 +1365,12 @@ export default function SupervisionScreen({ navigation }: any) {
               const elapsedH = j.enCurso && j.startAt
                 ? Math.max(0, Math.round(((Date.now() - new Date(j.startAt).getTime()) / 3_600_000) * 10) / 10)
                 : null;
+              // Acumulado EN VIVO del turno = bancado + este tramo (horasVivasTurno,
+              // 08-oct-2026): tras una parada→reactivación, el transcurrido solo no
+              // incluye las horas bancadas antes de la parada.
+              const vivasH = j.enCurso && j.startAt
+                ? horasVivasTurno({ bancado: Number(j.worked) || 0, startMs: new Date(j.startAt).getTime(), shift: j.shift === 'night' ? 'night' : 'day', nowMs: Date.now() })
+                : null;
               // Parada: si la máquina tiene una avería (parada) registrada hoy, muéstrala.
               const parada = averiadaList.find((v) => v.machinery_id === j.machinery_id) || null;
               const fuel = fuelDay[j.machinery_id];
@@ -1390,7 +1397,7 @@ export default function SupervisionScreen({ navigation }: any) {
                     {row('Turno', j.shift ? (j.shift === 'night' ? '🌙 Noche' : '☀️ Día') : '—')}
                     {row('Hora iniciada', j.startAt ? caracasClock(j.startAt) : '—')}
                     {row('Horas trabajadas', j.enCurso
-                      ? (elapsedH != null ? `${elapsedH} h (transcurridas)` : '—')
+                      ? (vivasH != null ? `${vivasH} h en el turno (${elapsedH} h de este tramo)` : '—')
                       : `${j.worked} h`)}
                     {row('Horas paradas', parada
                       ? `Parada desde ${caracasClock(parada.visited_at)}${parada.note ? ` · “${parada.note}”` : ''}`
