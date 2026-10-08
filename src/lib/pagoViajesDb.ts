@@ -1,5 +1,5 @@
 import { supabase, selectAllRows } from './supabase';
-import { AlcanceTarifa, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, TarifaViaje, ViajePago } from './pagoViajes';
+import { AlcanceTarifa, AnuladaModo, INICIO_PAGO_VIAJES, MarcaViaje, ModoPago, ModoPagoFila, TarifaViaje, ViajePago } from './pagoViajes';
 import { listAsignacionesFrenteRango } from './camionViajes';
 import { jornadaDeFecha } from './caracasDay';
 import { CAMPOS_VIAJE_PAGO, completarFrentes, mapaAsignaciones, rangoJornadas } from './frentesAuto';
@@ -86,12 +86,21 @@ export async function cargarModosPago(): Promise<ModoPagoFila[]> {
   return (await selectAllRows('machinery_modo_pago', 'id, machinery_id, modo, desde, nota, created_at, created_by_nombre')) as ModoPagoFila[];
 }
 
-/** Tarifas con sus camiones (los de grupo o de camión). */
+/** Tarifas con sus camiones (los de grupo o de camión).
+ *
+ *  ⚠️ `anulada_modo` (08-oct-2026) puede no existir todavía en la base: si falta, se
+ *     relee sin ella en vez de tumbar todo el pago. Sin la columna, `anuladaModo`
+ *     devuelve 'siempre' y las anuladas se portan como siempre se portaron. */
+const COLS_TARIFA = 'id, zona, precio, desde, hasta, nota, created_at, created_by_nombre, anulada_at, anulada_motivo, alcance, company_id, grupo_nombre, camiones:viaje_tarifa_camiones(machinery_id)';
+
 export async function cargarTarifasViaje(): Promise<TarifaViaje[]> {
-  const rows = await selectAllRows(
-    'viaje_tarifas',
-    'id, zona, precio, desde, hasta, nota, created_at, created_by_nombre, anulada_at, anulada_motivo, alcance, company_id, grupo_nombre, camiones:viaje_tarifa_camiones(machinery_id)',
-  );
+  let rows: unknown[];
+  try {
+    rows = await selectAllRows('viaje_tarifas', COLS_TARIFA.replace('anulada_motivo,', 'anulada_motivo, anulada_modo,'));
+  } catch (e: any) {
+    if (e?.code !== '42703') throw e;
+    rows = await selectAllRows('viaje_tarifas', COLS_TARIFA);
+  }
   return (rows as any[]).map(({ camiones, ...t }) => ({
     ...t,
     machinery_ids: ((camiones ?? []) as { machinery_id: string }[]).map((c) => c.machinery_id),
@@ -144,13 +153,39 @@ export async function crearTarifaViaje(t: {
   return {};
 }
 
-export async function anularTarifaViaje(id: string, motivo: string, usuarioId: string | null): Promise<{ error?: string }> {
-  const { data, error } = await supabase
-    .from('viaje_tarifas')
-    .update({ anulada_at: new Date().toISOString(), anulada_por: usuarioId, anulada_motivo: motivo.trim() || null })
-    .eq('id', id)
-    .is('anulada_at', null)
-    .select('id');
+/**
+ * Cuántos viajes YA REGISTRADOS caen en ese tramo de jornadas (7am a 7am). Se usa solo
+ * para AVISAR antes de guardar una tarifa con fecha pasada (08-oct-2026): es un conteo
+ * de cabecera, no baja ni una fila.
+ */
+export async function contarViajesEnJornadas(desde: string, hasta: string): Promise<number> {
+  const finDelDia = new Date(Date.parse(`${hasta}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  const { count, error } = await supabase
+    .from('camion_viajes')
+    .select('id', { count: 'exact', head: true })
+    .gte('registered_at', `${desde}T07:00:00-04:00`)
+    .lt('registered_at', `${finDelDia}T07:00:00-04:00`);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
+ * Anula una tarifa. `modo` decide qué pasa con los días que YA rigió (08-oct-2026):
+ *   · 'desde_ahora' → siguió rigiendo hasta hoy; el histórico NO se mueve. Es lo normal
+ *     al cambiar un precio, y lo que la pantalla propone.
+ *   · 'siempre'     → fue un error: se borra su efecto en TODAS las fechas (lo que hacía
+ *     siempre, y lo que dejó 1.157 viajes de septiembre «sin tarifa»).
+ *
+ * ⚠️ Si la columna `anulada_modo` todavía no existe en la base, el update falla con
+ *    42703 y se reintenta sin ella: así la pantalla nueva funciona contra la base vieja
+ *    (se comporta como 'siempre', que es como se portó siempre).
+ */
+export async function anularTarifaViaje(id: string, motivo: string, usuarioId: string | null, modo: AnuladaModo = 'desde_ahora'): Promise<{ error?: string }> {
+  const base = { anulada_at: new Date().toISOString(), anulada_por: usuarioId, anulada_motivo: motivo.trim() || null };
+  const intentar = (patch: Record<string, unknown>) =>
+    supabase.from('viaje_tarifas').update(patch).eq('id', id).is('anulada_at', null).select('id');
+  let { data, error } = await intentar({ ...base, anulada_modo: modo });
+  if (error?.code === '42703') ({ data, error } = await intentar(base));
   if (error) return { error: error.message };
   if (!data?.length) return { error: `${SIN_PERMISO_PAGO} (o esa tarifa ya estaba anulada)` };
   return {};

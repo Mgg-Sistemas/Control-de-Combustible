@@ -44,7 +44,36 @@ export type TarifaViaje = {
   created_by_nombre?: string | null;
   anulada_at?: string | null;
   anulada_motivo?: string | null;
+  /**
+   * QUÉ PASA CON LOS DÍAS QUE ESA TARIFA YA RIGIÓ, al anularla (08-oct-2026).
+   * Ver `anuladaModo`. Sin dato = 'siempre', que es como se portó siempre.
+   */
+  anulada_modo?: string | null;
 };
+
+/**
+ * Las dos cosas distintas que puede significar «anular una tarifa» (08-oct-2026).
+ *
+ * ⚠️ POR QUÉ EXISTE. Hasta hoy `anulada_at` borraba la tarifa de TODAS las fechas,
+ *    también de los días que ya había regido. Pero el manual enseña a anular como la
+ *    forma NORMAL de cambiar un precio («no se editan: se anulan y creas otra»), así
+ *    que cada cambio de precio borraba la historia sin avisar: el 04-oct se anularon
+ *    las tarifas de $30 (este) y $50 (oeste) y los 1.157 viajes del 14 al 27 de sep
+ *    —$36.390— pasaron a salir «sin tarifa» en $0, y en el papel solo quedaron los
+ *    viajes con tipo congelado («Este → Oeste», $100). Reclamo del 08-oct-2026:
+ *    «si para una fecha coloqué una y en otra fecha otra, no debería afectar».
+ *
+ * - 'desde_ahora' → rigió desde su `desde` hasta el día en que la anularon. Es lo
+ *   que quiere decir un cambio de precio normal, y el default de la pantalla.
+ * - 'siempre'     → nunca rigió, en ninguna fecha. Para la tarifa que fue un ERROR
+ *   (la que se creó y se anuló a los 46 segundos). Es el valor por omisión acá
+ *   para que, mientras la columna no exista en la base, NADA cambie de precio.
+ */
+export type AnuladaModo = 'desde_ahora' | 'siempre';
+
+export function anuladaModo(t: { anulada_modo?: unknown } | null | undefined): AnuladaModo {
+  return String(t?.anulada_modo ?? '').trim().toLowerCase() === 'desde_ahora' ? 'desde_ahora' : 'siempre';
+}
 
 export type ModoPagoFila = {
   id?: string;
@@ -243,7 +272,10 @@ const compararClaves = (a: (string | number)[], b: (string | number)[]) => {
  *   2. Del mismo alcance, la BLINDADA (con `hasta`) que cubre la fecha; entre dos
  *      blindadas, la última que se guardó.
  *   3. Si no hay blindada, la de `desde` más reciente; con el mismo `desde`, la última guardada.
- *   · Las anuladas y las de precio 0 no cuentan. Sin `ctx` solo cuentan las de todos.
+ *   · Las de precio 0 no cuentan. Sin `ctx` solo cuentan las de todos.
+ *   · ANULADAS (08-oct-2026): una anulada con `anulada_modo = 'desde_ahora'` SIGUE
+ *     rigiendo los días anteriores a su anulación (ver `anuladaModo`); con 'siempre'
+ *     —el valor por omisión— no cuenta en ninguna fecha, como antes.
  */
 export function tarifaViajeEn(tarifas: TarifaViaje[] | null | undefined, zona: unknown, fecha: string, ctx?: ContextoTarifa | null): TarifaViaje | null {
   const z = zonaViajeValida(zona);
@@ -252,7 +284,14 @@ export function tarifaViajeEn(tarifas: TarifaViaje[] | null | undefined, zona: u
   let mejor: TarifaViaje | null = null;
   let claveMejor: (string | number)[] = [];
   for (const t of tarifas ?? []) {
-    if (!t || t.anulada_at || !(num(t.precio) > 0) || !tarifaAplica(t, z, ctx)) continue;
+    if (!t || !(num(t.precio) > 0) || !tarifaAplica(t, z, ctx)) continue;
+    if (t.anulada_at) {
+      // Fue un error: no rigió nunca.
+      if (anuladaModo(t) !== 'desde_ahora') continue;
+      // Dejó de regir el día que la anularon (jornada, como todo lo demás acá).
+      // Inclusive: si ese mismo día crearon la nueva, la nueva gana por `desde`.
+      if (f > jornadaDeInstante(t.anulada_at)) continue;
+    }
     const desde = dia(t.desde);
     if (!desde || desde > f) continue;
     const hasta = t.hasta ? dia(t.hasta) : '';
@@ -261,6 +300,40 @@ export function tarifaViajeEn(tarifas: TarifaViaje[] | null | undefined, zona: u
     if (!mejor || compararClaves(clave, claveMejor) > 0) { mejor = t; claveMejor = clave; }
   }
   return mejor;
+}
+
+/**
+ * QUÉ VIAJES YA REGISTRADOS LE CAMBIARÍA EL PRECIO una tarifa antes de guardarla
+ * (08-oct-2026, a pedido: «si coloco una tarifa hoy debería aplicarse para lo que se
+ * empiece a registrar ese día, y no para los días anteriores»).
+ *
+ * No prohíbe nada —a veces hay que poner un precio acordado la semana pasada—: se
+ * calcula EXACTO, metiendo la tarifa candidata en la lista y volviendo a resolver
+ * cada viaje, y la pantalla lo dice antes de guardar. Así nadie reprecia 970 viajes
+ * ya cobrados sin enterarse.
+ *
+ * Solo mira los viajes de jornadas ANTERIORES a `hoy` que hoy se pagan por ZONA (los
+ * que llevan tipo de viaje congelado no usan estas tarifas) y que estén facturando.
+ */
+export type RetroTarifa = { desdeJornada: string; hastaJornada: string; dias: number };
+
+/**
+ * ¿Esta tarifa pisaría días YA TRABAJADOS? Devuelve el tramo retroactivo, o null si
+ * solo rige de hoy en adelante. Puro: el conteo de viajes lo pone la pantalla, que lo
+ * pide a la base solo cuando hace falta (`contarViajesEnJornadas`).
+ *
+ * El tramo va del `desde` elegido hasta AYER: el día de hoy no es retroactivo (todavía
+ * se está registrando), y ahí es justo donde el cliente quiere que empiece a regir.
+ */
+export function retroDeTarifa(desde: string, hoy: string, hasta?: string | null): RetroTarifa | null {
+  const d = dia(desde);
+  const h = dia(hoy);
+  if (!d || !h || d >= h) return null;
+  const ayer = new Date(Date.parse(`${h}T12:00:00Z`) - 86400000).toISOString().slice(0, 10);
+  const fin = hasta && dia(hasta) < ayer ? dia(hasta) : ayer;
+  if (fin < d) return null;
+  const dias = Math.round((Date.parse(`${fin}T12:00:00Z`) - Date.parse(`${d}T12:00:00Z`)) / 86400000) + 1;
+  return { desdeJornada: d, hastaJornada: fin, dias };
 }
 
 /** Revisa una tarifa antes de guardarla. Devuelve el motivo del rechazo o null. */
