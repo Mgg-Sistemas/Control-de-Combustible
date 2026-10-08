@@ -8,6 +8,7 @@
  * Centralizarla aquí garantiza que TODOS calculen igual (pedido del cliente: el reporte
  * por empresa de inspecciones y el informe por jornada deben COINCIDIR).
  */
+import { businessRoundDateOf } from './caracasDay';
 
 /**
  * HORAS REALES SIN REDONDEAR (pedido cliente 09/08/2026): cada turno usa sus horas
@@ -16,8 +17,51 @@
  * Informe, Pagos — todos llaman esta función, así que quedan consistentes). Lo único
  * que se sigue aplicando es el ANCLAJE de inicio de turno (día 7am / noche 7pm) en los
  * cálculos EN VIVO de los reportes, no aquí.
+ * (OJO 08-oct-2026: ese anclaje EN VIVO también murió — ver `horasVivasTurno`.)
  */
 export const turnoH = (h: number): number => Math.max(0, Number(h) || 0);
+
+/**
+ * HORAS EN VIVO DE UN TURNO CON JORNADA ABIERTA — fuente ÚNICA (08-oct-2026).
+ *
+ * bancado + lo transcurrido desde el inicio REAL de la jornada abierta, con tope
+ * físico del turno. Nació del reclamo «cuando paran una máquina y la reactivan,
+ * no suma las horas de antes con las de después»:
+ *
+ * HISTORIA, porque esta regla ya se rompió una vez y puede volver a romperse:
+ * hasta el 02-oct-2026, re-iniciar una jornada RE-ANCLABA `jornada_start_at` al
+ * inicio nominal del turno (7am/7pm), así que «lo transcurrido desde el inicio»
+ * YA incluía el tramo bancado antes de la parada — y lo correcto era tomar el
+ * MAYOR entre bancado y transcurrido (sumar contaba doble). El 02-oct el cliente
+ * pidió inicio = HORA REAL («si comienza a las 9am que comience a esa hora»), y
+ * los OCHO sitios que calculaban el vivo con MAYOR (o anclado a las 7am) se
+ * quedaron con la regla vieja: tras una reactivación mostraban solo el tramo más
+ * largo (2 h bancadas + 1 h nueva = «2 h») o contaban la parada como trabajo.
+ * Por eso esta función existe y TODOS deben llamarla, nadie reimplementa.
+ *
+ * - `startMs` null/0 ⇒ jornada cerrada: devuelve lo bancado (tope 12).
+ * - TOPE FÍSICO: nunca más que lo que ha durado el turno (ahora − 7am/7pm del
+ *   día de negocio del INICIO). Protege contra un re-inicio tecleado hacia atrás
+ *   (ej.: reactivan a las 11 pero escriben 07:00 ⇒ bancado+tramo contaría doble).
+ * - PISO: nunca menos que lo ya bancado (lo guardado no se "des-trabaja").
+ * - La NOCHE cruza medianoche: el nominal 7pm sale de `businessRoundDateOf` del
+ *   inicio real, no del día calendario de "ahora".
+ */
+export function horasVivasTurno(opts: {
+  bancado: number;
+  startMs: number | null | undefined;
+  shift: 'day' | 'night';
+  nowMs: number;
+}): number {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const bancado = Math.min(12, Math.max(0, Number(opts.bancado) || 0));
+  if (!opts.startMs) return r2(bancado);
+  const rd = businessRoundDateOf(new Date(opts.startMs), opts.shift);
+  const shiftStart = new Date(`${rd}T${opts.shift === 'night' ? '19' : '07'}:00:00-04:00`).getTime();
+  const elapsed = Math.max(0, (opts.nowMs - opts.startMs) / 3600000);
+  const topeFisico = Math.min(12, Math.max(0, (opts.nowMs - shiftStart) / 3600000));
+  return r2(Math.max(bancado, Math.min(topeFisico, bancado + elapsed)));
+}
 
 /** Horas trabajadas del día = (turno día + turno noche, redondeados) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
@@ -54,11 +98,12 @@ export type RondaHoras = {
  * Reglas (las del reporte por empresa, sin cambiar ninguna):
  *  1. Residuos por debajo de `MIN_WORKED_HOURS` se descartan.
  *  2. EN VIVO: si el día pedido es HOY y la jornada de ese turno sigue ABIERTA y
- *     arrancó DENTRO del día, el turno cuenta desde el INICIO NOMINAL (7am día /
- *     7pm noche), NO desde que la marcaron — "aunque la marquen a las 9am, cuenta
- *     el turno completo". Tope de 12 h y se toma el MAYOR contra lo ya bancado
- *     (no la suma: al reabrir una jornada el inicio se re-ancla y sumar contaría
- *     dos veces el tramo bancado).
+ *     arrancó DENTRO del día, el turno = lo bancado + lo transcurrido desde el
+ *     inicio REAL, con tope físico (`horasVivasTurno`). Hasta el 02-oct-2026 acá
+ *     se tomaba el MAYOR contra lo transcurrido desde el nominal 7am/7pm, porque
+ *     el re-inicio se re-anclaba; al pasar a inicio = hora real, el MAYOR dejaba
+ *     fuera lo bancado antes de una parada (reclamo 08-oct-2026) y el nominal
+ *     contaba la parada como trabajo.
  *  3. Trabajadas = `workedFromShifts` (resta paradas, suma extras).
  *
  * En un día PASADO el paso 2 nunca aplica → devuelve exactamente lo bancado, así
@@ -93,11 +138,8 @@ export function horasTurnoDelDia(
   // arrastrada de otro día no debe inflar el día que se está mirando).
   const jStartHoy = jStart != null && jStart >= dayBoundStart && jStart <= dayBoundEnd;
   if (isToday && jStart && jShift && jStartHoy) {
-    const shiftStart = jShift === 'night'
-      ? new Date(`${date}T19:00:00-04:00`).getTime()
-      : new Date(`${date}T07:00:00-04:00`).getTime();
-    const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
-    if (jShift === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
+    if (jShift === 'night') nn = horasVivasTurno({ bancado: nn, startMs: jStart, shift: 'night', nowMs });
+    else dd = horasVivasTurno({ bancado: dd, startMs: jStart, shift: 'day', nowMs });
   }
   return { dia: dd, noche: nn, trabajadas: workedFromShifts(dd, nn, sRaw, oRaw) };
 }

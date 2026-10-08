@@ -365,13 +365,31 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > cuadraban: durante el turno, Control mostraba **0 h** en una máquina que el Reporte por
 > Empresa ya daba trabajando, porque Control solo veía las horas ya **guardadas** y el reporte
 > contaba además la **jornada abierta**. Ahora los dos usan el mismo cálculo:
-> - una jornada **abierta hoy** cuenta desde el **inicio del turno** (7:00 am el día,
->   7:00 pm la noche), aunque el inspector la haya marcado más tarde — con tope de **12 h**;
+> - una jornada **abierta hoy** cuenta **lo ya guardado + lo que lleva el tramo en curso
+>   desde su inicio real** — con tope de **12 h** y sin pasarse de lo que de verdad ha
+>   durado el turno (hasta el 02-oct-2026 contaba desde las 7:00 am/pm nominales, porque
+>   en ese entonces el inicio se anclaba ahí; ver la nota del 08-oct abajo);
 > - los **días pasados** no cambian **nada**: muestran exactamente lo que quedó guardado, así
 >   que **los cierres y los pagos ya hechos siguen igual**.
 >
 > Lo que ves en Control durante el turno es una **estimación en curso** que va subiendo hasta
 > que el inspector cierre la jornada — igual que el Reporte por Empresa.
+
+> **⏱️ Parada → reactivación: las horas de antes YA SE SUMAN con las de después
+> (08-oct-2026, a pedido: «cuando marcan una máquina parada o averiada y la reactivan, no
+> suma las horas de antes con las que hizo después»).** Al marcar la **parada o avería**
+> con la jornada andando, las horas hasta ese momento **se guardan solas** (eso siempre
+> funcionó: parar no borra trabajo). El problema era lo que se **veía en vivo** después de
+> reactivar: las pantallas mostraban solo el **tramo más largo** — con 2 h antes de la
+> parada y 1 h después decían «2 h» en vez de «3 h». Venía de un cambio del 02-oct: antes
+> de esa fecha, reiniciar re-anclaba el inicio a las 7 am/pm y «lo transcurrido» ya incluía
+> lo de antes; al pasar el inicio a la **hora real**, ocho vistas en vivo se quedaron con
+> la regla vieja. **Ahora todas suman igual** (una sola fórmula compartida): lo guardado +
+> el tramo nuevo, sin contar doble si el re-inicio se teclea hacia atrás y sin bajar nunca
+> lo guardado. Se nota en: el **teléfono del inspector** («Este tramo: …» y «Σ Acumulado
+> del turno: … h»), **Control**, **Catálogo** e **Inicio**, **Inspecciones** (horas reales
+> y eficiencia), **Supervisión** y los informes por jornada y por empresa con la jornada
+> abierta. **Lo guardado no cambió**: los días cerrados y los pagos no se mueven.
 
 > **🚫 Días futuros bloqueados (19-ago-2026):** solo se pueden cargar horas a **días pasados** o
 > al **día en curso**. Un día que **todavía no ha transcurrido** no puede tener horas: sale

@@ -45,6 +45,7 @@ import {
   type AlcanceDias,
 } from '../lib/jornadaPorMaquina';
 import { machineLabel } from '../lib/machineLabel';
+import { horasVivasTurno } from '../lib/hours';
 import {
   FiltroJornadaEquipo, MaquinaCatalogoJornada, acotarFiltroJornada, alcanceFiltroJornada, clasificacionDe,
   clasificacionesDisponibles, etiquetaMaquinaJornada, hayFiltroJornada, maquinasDisponibles, pasaFiltroJornada, sufijoArchivoFiltroJornada,
@@ -1259,16 +1260,17 @@ export default function ReportsScreen({ route }: any) {
       // panel y el informe no puedan decir números distintos.
       const porDia: DiaMaquina[] = [];
       a.byDate.forEach(({ d, n, s, o, price, js, jsh }, dateKey) => {
-        // Si hay jornada EN CURSO, sumamos el tiempo transcurrido (cap 12h) al turno
-        // abierto para que la máquina APAREZCA aunque no se haya finalizado todavía
-        // (sincroniza el informe con lo que el inspector tiene trabajando en vivo).
-        // Se cuenta desde el INICIO DEL TURNO (día 7am · noche 7pm), no desde que la
-        // marcaron — mismo anclaje que el reporte por empresa, para que ambos coincidan.
+        // Si hay jornada EN CURSO, el turno abierto se calcula EN VIVO para que la
+        // máquina APAREZCA aunque no se haya finalizado todavía. Fuente única
+        // `horasVivasTurno` (08-oct-2026): bancado + transcurrido desde el inicio
+        // REAL, con tope físico — igual que el reporte por empresa (hours.ts), para
+        // que ambos coincidan. Antes anclaba al nominal 7am/7pm y tomaba el MAYOR,
+        // que con inicio = hora real (02-oct) perdía lo bancado antes de una parada.
         let dd = d, nn = n;
         if (js != null) {
-          const shiftStart = new Date(`${dateKey}T${jsh === 'night' ? '19:00:00' : '07:00:00'}-04:00`).getTime();
-          const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
-          if (jsh === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
+          const startMs = new Date(js).getTime();
+          if (jsh === 'night') nn = horasVivasTurno({ bancado: nn, startMs, shift: 'night', nowMs });
+          else dd = horasVivasTurno({ bancado: dd, startMs, shift: 'day', nowMs });
         }
         const w = workedFromShifts(dd, nn, s, o);
         dayH += dd; nightH += nn; totalH += w;
