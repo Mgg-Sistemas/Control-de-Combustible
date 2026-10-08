@@ -5,6 +5,7 @@ import { personalAsignable } from '../../lib/personalAsignable';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
+import { horasVivasTurno } from '../../lib/hours';
 import { sectorOf, sectorLabel } from '../../lib/mapZones';
 import { motivoParada, stripUbicEdif } from '../../lib/paradaMotivo';
 import { useAuth } from '../../context/AuthContext';
@@ -1065,12 +1066,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     if (!rd) return 0;
     let day = rd.dayH, night = rd.nightH;
     if (selDay === caracasBusinessToday() && rd.openStartAt) {
-      const elapsed = Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000);
-      // MAYOR (no SUMA) de bancado vs transcurrido: al re-abrir una jornada ya cerrada,
-      // el inicio se re-ancla al arranque del turno (7am/7pm), así que sumar bancado +
-      // transcurrido contaría DOS VECES el tramo ya bancado (bug: noche 3.49h con solo
-      // 1.82h desde las 7pm). El transcurrido desde el inicio del turno ya incluye todo.
-      if (rd.shift === 'night') night = Math.max(night, elapsed); else day = Math.max(day, elapsed);
+      // SUMA bancado + transcurrido desde el inicio REAL, con tope físico
+      // (`horasVivasTurno`, fuente única 08-oct-2026). El MAYOR de antes venía de
+      // cuando el re-inicio se re-anclaba a las 7am/7pm; con inicio = hora real
+      // (02-oct) dejaba fuera las horas bancadas antes de una parada→reactivación.
+      const startMs = new Date(rd.openStartAt).getTime();
+      if (rd.shift === 'night') night = horasVivasTurno({ bancado: night, startMs, shift: 'night', nowMs: Date.now() });
+      else day = horasVivasTurno({ bancado: day, startMs, shift: 'day', nowMs: Date.now() });
     }
     // Tope por turno: DÍA máx 12h, NOCHE máx 12h (corrido = hasta 24, nunca >12 por turno).
     return Math.min(12, day) + Math.min(12, night);
@@ -1086,8 +1088,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     if (!rd) return 0;
     let h = shift === 'night' ? rd.nightH : rd.dayH;
     if (selDay === caracasBusinessToday() && rd.openStartAt && rd.shift === shift) {
-      // MAYOR (no suma) para no contar doble el tramo ya bancado al re-abrir (ver liveHorasOf).
-      h = Math.max(h, Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000));
+      // SUMA bancado + tramo en curso desde el inicio real, tope físico (ver liveHorasOf).
+      h = horasVivasTurno({ bancado: h, startMs: new Date(rd.openStartAt).getTime(), shift, nowMs: Date.now() });
     }
     return Math.min(12, h);
   }, [roundDetail, selDay, shift]);
@@ -1194,21 +1196,30 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // inicio/fin de arriba que solo alcanza para un turno a la vez.
       const sd = shiftDetail.get(id) ?? null;
       const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
-      const dayElapsedH = sd?.day.openNow ? Math.max(0, (nowTick - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'day')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
-      const nightElapsedH = sd?.night.openNow ? Math.max(0, (nowTick - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'night')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
+      const dayStartIso = sd?.day.openNow ? (rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'day')?.jornada_start_at ?? null) : null;
+      const nightStartIso = sd?.night.openNow ? (rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'night')?.jornada_start_at ?? null) : null;
+      const dayElapsedH = dayStartIso ? Math.max(0, (nowTick - new Date(dayStartIso).getTime()) / 3600000) : null;
+      const nightElapsedH = nightStartIso ? Math.max(0, (nowTick - new Date(nightStartIso).getTime()) / 3600000) : null;
       // TOTAL: si trabajó AMBOS turnos, día+noche completos (+ lo transcurrido del que
       // siga abierto). Si no, solo el TURNO de la jornada (noche muestra noche) + en vivo.
       const bankedShiftH = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
       // Tope por turno: DÍA máx 12h, NOCHE máx 12h (corrido = hasta 24, nunca >12 por turno).
       // Horas por TURNO (día / noche) por separado + lo transcurrido EN VIVO del que siga
       // abierto; el TOTAL es la suma día+noche.
-      // MAYOR (no suma) de bancado vs transcurrido del turno abierto: evita contar dos
-      // veces el tramo ya bancado al re-abrir (bug 14-ago-2026, ver liveHorasOf).
-      const dayTotal = Math.round(Math.min(12, sd?.day.openNow ? Math.max(sd?.day.hours ?? 0, dayElapsedH ?? 0) : (sd?.day.hours ?? 0)) * 100) / 100;
-      const nightTotal = Math.round(Math.min(12, sd?.night.openNow ? Math.max(sd?.night.hours ?? 0, nightElapsedH ?? 0) : (sd?.night.hours ?? 0)) * 100) / 100;
+      // SUMA bancado + tramo en curso desde el inicio real, con tope físico
+      // (`horasVivasTurno`, 08-oct-2026 — el MAYOR de antes perdía lo bancado
+      // antes de una parada→reactivación; ver liveHorasOf).
+      const dayTotal = dayStartIso
+        ? horasVivasTurno({ bancado: sd?.day.hours ?? 0, startMs: new Date(dayStartIso).getTime(), shift: 'day', nowMs: nowTick })
+        : Math.round(Math.min(12, sd?.day.hours ?? 0) * 100) / 100;
+      const nightTotal = nightStartIso
+        ? horasVivasTurno({ bancado: sd?.night.hours ?? 0, startMs: new Date(nightStartIso).getTime(), shift: 'night', nowMs: nowTick })
+        : Math.round(Math.min(12, sd?.night.hours ?? 0) * 100) / 100;
       const worked = sd
         ? Math.round((dayTotal + nightTotal) * 100) / 100
-        : Math.round(Math.min(12, Math.max(bankedShiftH, elapsedH ?? 0)) * 100) / 100;
+        : (openNow && rd?.openStartAt
+            ? horasVivasTurno({ bancado: bankedShiftH, startMs: new Date(rd.openStartAt).getTime(), shift: nomShift, nowMs: nowTick })
+            : Math.round(Math.min(12, bankedShiftH) * 100) / 100);
       const markedAt = sd ? (sd.day.markedAt || sd.night.markedAt) : '';
       const est = estadoOf(id);
       // Hora en que se marcó la avería/parada (ticket más reciente) — para el rótulo
@@ -1272,11 +1283,21 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // Horas por TURNO (día / noche) por separado, incluyendo lo transcurrido EN VIVO
       // del turno que siga abierto (openStartAt es del turno vivo, que es `rd.shift`).
       // Cada turno tope 12h; el TOTAL es la suma día+noche (hasta 24 en un "corrido").
-      // MAYOR (no suma) de bancado vs transcurrido: no contar doble el tramo bancado al
-      // re-abrir (bug 14-ago-2026, ver liveHorasOf).
-      const dayTotal = Math.round(Math.min(12, sd?.day.openNow ? Math.max(sd?.day.hours ?? 0, elapsedH ?? 0) : (sd?.day.hours ?? 0)) * 100) / 100;
-      const nightTotal = Math.round(Math.min(12, sd?.night.openNow ? Math.max(sd?.night.hours ?? 0, elapsedH ?? 0) : (sd?.night.hours ?? 0)) * 100) / 100;
-      const worked = sd ? Math.round((dayTotal + nightTotal) * 100) / 100 : Math.round(Math.min(12, Math.max(bankedShiftH, elapsedH ?? 0)) * 100) / 100;
+      // SUMA bancado + tramo en curso desde el inicio real, con tope físico
+      // (`horasVivasTurno`, 08-oct-2026; el turno abierto es el de `rd.shift`,
+      // cuyo inicio es rd.openStartAt — ver liveHorasOf).
+      const openStartMs = openNow && rd?.openStartAt ? new Date(rd.openStartAt).getTime() : null;
+      const dayTotal = sd?.day.openNow && openStartMs
+        ? horasVivasTurno({ bancado: sd?.day.hours ?? 0, startMs: openStartMs, shift: 'day', nowMs: nowTick })
+        : Math.round(Math.min(12, sd?.day.hours ?? 0) * 100) / 100;
+      const nightTotal = sd?.night.openNow && openStartMs
+        ? horasVivasTurno({ bancado: sd?.night.hours ?? 0, startMs: openStartMs, shift: 'night', nowMs: nowTick })
+        : Math.round(Math.min(12, sd?.night.hours ?? 0) * 100) / 100;
+      const worked = sd
+        ? Math.round((dayTotal + nightTotal) * 100) / 100
+        : (openStartMs
+            ? horasVivasTurno({ bancado: bankedShiftH, startMs: openStartMs, shift: nomShift, nowMs: nowTick })
+            : Math.round(Math.min(12, bankedShiftH) * 100) / 100);
       const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
       const markedAt = sd ? (sd.day.markedAt || sd.night.markedAt) : '';
       return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, dayTotal, nightTotal, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, markedAt, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };

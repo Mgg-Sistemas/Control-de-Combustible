@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { caracasParts } from './jornada';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { paradaShiftOf } from './inspectorDaySets';
+import { horasVivasTurno } from './hours';
 
 /**
  * Datos crudos de estatus EN VIVO de una máquina (jornada/avería/inspector por
@@ -140,18 +141,14 @@ export function makeLiveStatusOf(params: {
     const nightH = j?.nightH ?? 0;
     const openStartDay = j?.openStartDay ?? null;
     const openStartNight = j?.openStartNight ?? null;
-    // ANCLA del "en vivo": el DÍA cuenta desde su inicio NOMINAL 7am (igual que hours.ts →
-    // Control / Reporte por empresa / Pagos y el reporte por firma; regla cliente "cuenta el
-    // turno completo aunque marque a las 9am"). Antes contaba desde el inicio real y daba
-    // menos horas que esas vistas para una máquina marcada tarde (unificación 17-ago-2026).
-    // La NOCHE se deja en el inicio REAL porque cruza medianoche.
-    const nominalDiaStart = new Date(`${caracasParts(new Date(nowTick)).iso}T07:00:00-04:00`).getTime();
-    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - nominalDiaStart) / 3600000)) : 0;
-    const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
-    const workedDia = Math.min(12, dayH + elapsedDia);
-    const workedNoche = Math.min(12, nightH + elapsedNoche);
+    // EN VIVO = bancado + lo transcurrido desde el inicio REAL (horasVivasTurno, fuente
+    // única 08-oct-2026). Hasta el 02-oct el día sumaba desde el nominal 7am porque el
+    // re-inicio se re-anclaba; con inicio = hora real eso contaba DOS VECES el tramo
+    // bancado tras una parada→reactivación y además la parada como trabajo.
+    const workedDia = openStartDay ? horasVivasTurno({ bancado: dayH, startMs: openStartDay, shift: 'day', nowMs: nowTick }) : Math.min(12, dayH);
+    const workedNoche = openStartNight ? horasVivasTurno({ bancado: nightH, startMs: openStartNight, shift: 'night', nowMs: nowTick }) : Math.min(12, nightH);
     const total = workedDia + workedNoche;
-    const enCurso = elapsedDia + elapsedNoche;
+    const enCurso = Math.max(0, workedDia - Math.min(12, dayH)) + Math.max(0, workedNoche - Math.min(12, nightH));
     const trabajadas = Math.max(0, total - enCurso);
     const hasOpen = openStartDay != null || openStartNight != null;
     // Para la REACTIVACIÓN se usa la hora REAL de arranque (jornada_marked_at), no el

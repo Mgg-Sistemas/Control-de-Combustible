@@ -24,15 +24,31 @@ const require = createRequire(path.join(ROOT, 'package.json'));
 const ts = require('typescript');
 const Module = require('module');
 
-const srcPath = path.join(ROOT, 'src/lib/hours.ts');
-const out = ts.transpileModule(fs.readFileSync(srcPath, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019 },
-}).outputText;
-const m = new Module(srcPath);
-m.filename = srcPath;
-m.paths = Module._nodeModulePaths(path.dirname(srcPath));
-m._compile(out, m.filename);
-const { horasTurnoDelDia, workedFromShifts, MIN_WORKED_HOURS } = m.exports;
+// Loader recursivo (mismo patrón que test-inicio-jornada.mjs): hours.ts importa
+// caracasDay.ts (businessRoundDateOf, para el tope físico de horasVivasTurno).
+const cache = new Map();
+function loadTs(abs) {
+  if (cache.has(abs)) return cache.get(abs);
+  const out = ts.transpileModule(fs.readFileSync(abs, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2019, esModuleInterop: true },
+  }).outputText;
+  const m = new Module(abs);
+  m.filename = abs;
+  m.paths = Module._nodeModulePaths(path.dirname(abs));
+  cache.set(abs, m.exports);
+  const orig = m.require.bind(m);
+  m.require = (id) => {
+    if (id.startsWith('.')) {
+      const p = path.resolve(path.dirname(abs), id);
+      for (const c of [p + '.ts', p + '.tsx', path.join(p, 'index.ts')]) if (fs.existsSync(c)) return loadTs(c);
+    }
+    return orig(id);
+  };
+  m._compile(out, m.filename);
+  cache.set(abs, m.exports);
+  return m.exports;
+}
+const { horasTurnoDelDia, workedFromShifts, MIN_WORKED_HOURS } = loadTs(path.join(ROOT, 'src/lib/hours.ts'));
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -53,14 +69,24 @@ eq('día pasado · solo bancado', r2(h({ day_hours: 8, night_hours: 0 }, AYER).t
 eq('día pasado · jornada abierta NO suma en vivo',
   r2(h({ day_hours: 3, jornada_start_at: `${AYER}T07:00:00-04:00`, jornada_shift: 'day' }, AYER).trabajadas), 3);
 
-// ── 2) HOY con jornada abierta: cuenta desde el inicio NOMINAL del turno ────
-// Marcada a las 9am, pero el turno día arranca a las 7am → a las 3pm van 8 h.
-eq('hoy · turno día abierto cuenta desde las 7am (no desde que marcó)',
-  r2(h({ day_hours: 0, jornada_start_at: `${HOY}T09:00:00-04:00`, jornada_shift: 'day' }).dia), 8);
-// Ya tenía 2 h bancadas: se toma el MAYOR, no la suma (si no, contaría doble).
-eq('hoy · MAYOR entre bancado y transcurrido, no la suma',
+// ── 2) HOY con jornada abierta: bancado + tramo desde el inicio REAL ────────
+// (Regla 08-oct-2026, `horasVivasTurno`. Hasta el 02-oct el inicio se re-anclaba
+// a las 7am y acá se tomaba el MAYOR contra el nominal; con inicio = hora real,
+// el MAYOR escondía lo bancado antes de una parada→reactivación.)
+// Marcada a las 9am REAL → a las 3pm lleva 6 h (ya NO 8 desde las 7am: el
+// cliente pidió el 02-oct «si comienza a las 9am que comience a esa hora»).
+eq('hoy · turno día abierto cuenta desde el inicio REAL (9am → 6 h a las 3pm)',
+  r2(h({ day_hours: 0, jornada_start_at: `${HOY}T09:00:00-04:00`, jornada_shift: 'day' }).dia), 6);
+// PARADA→REACTIVACIÓN: 2 h bancadas antes de la parada + reactivada a las 11am
+// → a las 3pm: 2 + 4 = 6 h. Esto es EL reclamo del 08-oct («no suma las horas
+// de antes de la parada con las de después»).
+eq('hoy · parada→reactivación SUMA bancado + tramo nuevo',
+  r2(h({ day_hours: 2, jornada_start_at: `${HOY}T11:00:00-04:00`, jornada_shift: 'day' }).dia), 6);
+// TOPE FÍSICO: con 2 h bancadas y el re-inicio TECLEADO a las 7am (contaría
+// doble), manda lo transcurrido real del turno: 8 h a las 3pm, no 10.
+eq('hoy · tope físico si el re-inicio se teclea hacia atrás',
   r2(h({ day_hours: 2, jornada_start_at: `${HOY}T07:00:00-04:00`, jornada_shift: 'day' }).dia), 8);
-eq('hoy · si lo bancado es MAYOR, gana lo bancado',
+eq('hoy · lo bancado nunca se reduce (piso)',
   r2(h({ day_hours: 11, jornada_start_at: `${HOY}T07:00:00-04:00`, jornada_shift: 'day' }).dia), 11);
 // Turno noche: a las 3pm todavía no ha empezado (arranca 7pm) → 0, nunca negativo.
 eq('hoy · turno noche aún no empieza → 0',
