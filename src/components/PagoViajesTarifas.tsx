@@ -5,7 +5,7 @@
 // o a un solo camión; en Este, en Oeste o en ambas zonas; desde una fecha o blindada a
 // un rango. Si a un viaje le tocan varias, manda la más específica (src/lib/pagoViajes.ts,
 // tarifaViajeEn). Los camiones de un grupo se fijan al crearlo. Nunca se borran: se anulan.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Card } from './ui';
 import { DateField } from './DateField';
@@ -15,13 +15,16 @@ import { esCamionDeViajes } from '../lib/equipos';
 import { cmpText, onlyDecimal } from '../lib/text';
 import {
   alcanceTarifa,
+  anuladaModo,
   etiquetaZonaTarifa,
+  retroDeTarifa,
   tarifaViajeEn,
   validarTarifa,
   AlcanceTarifa,
+  AnuladaModo,
   TarifaViaje,
 } from '../lib/pagoViajes';
-import { anularTarifaViaje, crearTarifaViaje, CamionCatalogo } from '../lib/pagoViajesDb';
+import { anularTarifaViaje, contarViajesEnJornadas, crearTarifaViaje, CamionCatalogo } from '../lib/pagoViajesDb';
 
 type Props = {
   tarifas: TarifaViaje[];
@@ -76,6 +79,11 @@ export function PagoViajesTarifas({ tarifas, maquinas, puestasEnViajes, cargando
 
   const [anulando, setAnulando] = useState<string | null>(null);
   const [motivoAnular, setMotivoAnular] = useState('');
+  // 🕓 Qué pasa con los días que la tarifa YA rigió (08-oct-2026). Ver `anuladaModo`.
+  const [modoAnular, setModoAnular] = useState<AnuladaModo>('desde_ahora');
+  // ⚠️ Viajes ya registrados que pisaría una fecha «desde» del pasado.
+  const [retroViajes, setRetroViajes] = useState<number | null>(null);
+  const [confirmaRetro, setConfirmaRetro] = useState(false);
   const [verAnuladas, setVerAnuladas] = useState(false);
   const [filtroHist, setFiltroHist] = useState<'todas' | AlcanceTarifa>('todas');
 
@@ -168,11 +176,39 @@ export function PagoViajesTarifas({ tarifas, maquinas, puestasEnViajes, cargando
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conCamiones, camiones, alcance, companyId, tarifas, hoy, porId, nombreEmpresa]);
 
+  // 📅 «Desde» sigue a HOY mientras no lo toquen a mano (08-oct-2026). Antes era
+  //    `useState(hoy)` y se congelaba en el primer render: con la ventana abierta al
+  //    cruzar las 7am —o al reabrirla al día siguiente— proponía la fecha de AYER, y
+  //    una tarifa con fecha de ayer reprecia los viajes de ayer sin que nadie lo pida.
+  const [desdeTocado, setDesdeTocado] = useState(false);
+  useEffect(() => { if (!desdeTocado) { setDesde(hoy); setHasta(hoy); } }, [hoy, desdeTocado]);
+
+  // El tramo de días YA TRABAJADOS que pisaría esta tarifa, y cuántos viajes hay ahí.
+  const retro = useMemo(() => retroDeTarifa(desde, hoy, conHasta ? hasta : null), [desde, hoy, conHasta, hasta]);
+  useEffect(() => {
+    let vivo = true;
+    setConfirmaRetro(false);
+    if (!retro) { setRetroViajes(null); return () => { vivo = false; }; }
+    setRetroViajes(null);
+    contarViajesEnJornadas(retro.desdeJornada, retro.hastaJornada)
+      .then((n) => { if (vivo) setRetroViajes(n); })
+      .catch(() => { if (vivo) setRetroViajes(null); });
+    return () => { vivo = false; };
+  }, [retro?.desdeJornada, retro?.hastaJornada]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const guardar = async () => {
     setAviso(null);
     const elegidos = conCamiones ? camiones : [];
     const motivo = validarTarifa({ zona, precio, desde, hasta: conHasta ? hasta : null, alcance, companyId, camiones: elegidos, grupoNombre });
     if (motivo) { setAviso(`❌ ${motivo}`); return; }
+    // ⚠️ FECHA DEL PASADO: no se prohíbe (a veces el precio se acordó la semana
+    //    pasada), pero NO puede pasar sin querer: hay que confirmarlo a sabiendas de
+    //    cuántos viajes ya registrados cambian de precio.
+    if (retro && !confirmaRetro) {
+      setConfirmaRetro(true);
+      setAviso(`⚠️ Ojo: con esa fecha cambias el precio de ${retroViajes == null ? 'los' : retroViajes} viaje(s) YA REGISTRADOS del ${dmy(retro.desdeJornada)} al ${dmy(retro.hastaJornada)}. Si solo quieres que rija de hoy en adelante, pon ${dmy(hoy)}. Vuelve a tocar «Guardar» para confirmar.`);
+      return;
+    }
     setGuardando(true);
     const { error } = await crearTarifaViaje({
       zona: zona === 'ambas' ? null : zona,
@@ -197,15 +233,20 @@ export function PagoViajesTarifas({ tarifas, maquinas, puestasEnViajes, cargando
       : `desde el ${dmy(desde)} en adelante. Los días anteriores conservan su tarifa.`}`);
     setPrecio('');
     setNota('');
+    setConfirmaRetro(false);
     await onChanged();
   };
 
   const confirmarAnular = async (t: TarifaViaje) => {
-    const { error } = await anularTarifaViaje(t.id, motivoAnular, usuarioId);
+    if (!motivoAnular.trim()) { setAviso('❌ Escribe el motivo de la anulación.'); return; }
+    const { error } = await anularTarifaViaje(t.id, motivoAnular, usuarioId, modoAnular);
     if (error) { setAviso(`❌ ${error}`); return; }
     setAnulando(null);
     setMotivoAnular('');
-    setAviso('✅ Tarifa anulada. Los viajes que cubría vuelven a tomar la tarifa que les toque.');
+    setModoAnular('desde_ahora');
+    setAviso(modoAnular === 'desde_ahora'
+      ? '✅ Tarifa anulada de hoy en adelante. Los días que ya había regido conservan ESTE precio; de hoy en adelante los viajes toman la tarifa que les toque.'
+      : '✅ Tarifa anulada EN TODAS LAS FECHAS (era un error). Los viajes que cubría vuelven a tomar la tarifa que les toque, también los de días pasados.');
     await onChanged();
   };
 
@@ -367,15 +408,35 @@ export function PagoViajesTarifas({ tarifas, maquinas, puestasEnViajes, cargando
           <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' }}>
             <View style={{ flex: 1, minWidth: 140 }}>
               <Text style={etiqueta}>Desde</Text>
-              <DateField value={desde} onChange={setDesde} />
+              <DateField value={desde} onChange={(v) => { setDesdeTocado(true); setDesde(v); }} />
             </View>
             {conHasta ? (
               <View style={{ flex: 1, minWidth: 140 }}>
                 <Text style={etiqueta}>Hasta</Text>
-                <DateField value={hasta} onChange={setHasta} />
+                <DateField value={hasta} onChange={(v) => { setDesdeTocado(true); setHasta(v); }} />
               </View>
             ) : null}
           </View>
+
+          {/* ⚠️ AVISO DE FECHA DEL PASADO (08-oct-2026, a pedido: «si coloco una tarifa
+              hoy debería aplicarse para lo que se empiece a registrar ese día, y no
+              para los días anteriores»). No se prohíbe —a veces el precio se acordó
+              la semana pasada—, pero se dice EXACTAMENTE a cuántos viajes ya
+              registrados les cambia el precio, y hay que confirmarlo. */}
+          {retro ? (
+            <View style={{ marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.warningSoftBg }}>
+              <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>
+                ⚠️ Esta fecha pisa días ya trabajados
+              </Text>
+              <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>
+                Le cambia el precio a {retroViajes == null ? '…' : retroViajes} viaje(s) YA REGISTRADOS, del {dmy(retro.desdeJornada)} al {dmy(retro.hastaJornada)} ({retro.dias} día(s)).
+                {' '}Para que rija solo de hoy en adelante, pon {dmy(hoy)}.
+              </Text>
+              <TouchableOpacity onPress={() => { setDesdeTocado(false); setDesde(hoy); setHasta(hoy); }} style={{ marginTop: spacing.xs, alignSelf: 'flex-start' }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📅 Ponerla desde hoy ({dmy(hoy)})</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <Text style={etiqueta}>Nota (opcional)</Text>
           <TextInput value={nota} onChangeText={setNota} placeholder="Motivo del cambio…" placeholderTextColor={colors.muted} style={input} />
 
@@ -430,22 +491,46 @@ export function PagoViajesTarifas({ tarifas, maquinas, puestasEnViajes, cargando
               {t.nota ? ` · ${t.nota}` : ''}
             </Text>
             {t.anulada_at ? (
-              <Text style={{ color: colors.danger, fontSize: 11 }}>Anulada{t.anulada_motivo ? `: ${t.anulada_motivo}` : ''}</Text>
+              <Text style={{ color: colors.danger, fontSize: 11 }}>
+                {anuladaModo(t) === 'desde_ahora'
+                  ? `Anulada · rigió hasta el ${dmy(t.anulada_at)}`
+                  : 'Anulada en TODAS las fechas (fue un error)'}
+                {t.anulada_motivo ? `: ${t.anulada_motivo}` : ''}
+              </Text>
             ) : canEdit ? (
               anulando === t.id ? (
                 <View style={{ marginTop: spacing.xs }}>
-                  <TextInput value={motivoAnular} onChangeText={setMotivoAnular} placeholder="Motivo de la anulación" placeholderTextColor={colors.muted} style={input} />
+                  {/* 🕒 QUÉ PASA CON LOS DÍAS QUE YA RIGIÓ (08-oct-2026). Hasta hoy
+                      anular borraba la tarifa de TODAS las fechas, también de los días
+                      que ya había pagado: el 04-oct se anularon las de $30 y $50 y los
+                      viajes del 14 al 27 de sep se quedaron «sin tarifa» en $0. Ahora
+                      se elige, y lo que propone es conservar el histórico. */}
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginBottom: 4 }}>¿Qué pasa con los días que ya rigió?</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <TouchableOpacity onPress={() => setModoAnular('desde_ahora')} style={chip(modoAnular === 'desde_ahora')}>
+                      <Text style={chipTxt(modoAnular === 'desde_ahora')}>📅 Dejó de regir hoy</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setModoAnular('siempre')} style={chip(modoAnular === 'siempre')}>
+                      <Text style={chipTxt(modoAnular === 'siempre')}>⚠️ Fue un error: borrar de todas las fechas</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                    {modoAnular === 'desde_ahora'
+                      ? 'Lo normal al cambiar un precio: los viajes ya registrados conservan ESTE precio y de hoy en adelante toman el que pongas.'
+                      : '⚠️ Los viajes de días pasados que cobraban con ella quedan SIN TARIFA ($0) hasta que otra los cubra. Solo para una tarifa que nunca debió existir.'}
+                  </Text>
+                  <TextInput value={motivoAnular} onChangeText={setMotivoAnular} placeholder="Motivo de la anulación (obligatorio)" placeholderTextColor={colors.muted} style={[input, { marginTop: spacing.xs }]} />
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
-                    <TouchableOpacity onPress={() => { setAnulando(null); setMotivoAnular(''); }} style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                    <TouchableOpacity onPress={() => { setAnulando(null); setMotivoAnular(''); setModoAnular('desde_ahora'); }} style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                       <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => confirmarAnular(t)} style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.danger }}>
+                    <TouchableOpacity onPress={() => confirmarAnular(t)} style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.danger, opacity: motivoAnular.trim() ? 1 : 0.6 }}>
                       <Text style={{ color: '#fff', fontWeight: '800' }}>Sí, anular</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               ) : (
-                <TouchableOpacity onPress={() => { setAnulando(t.id); setMotivoAnular(''); }} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+                <TouchableOpacity onPress={() => { setAnulando(t.id); setMotivoAnular(''); setModoAnular('desde_ahora'); }} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
                   <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🚫 Anular</Text>
                 </TouchableOpacity>
               )

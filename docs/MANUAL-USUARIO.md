@@ -6699,6 +6699,55 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### 💲 Las tarifas de cada fecha ya no se pierden (08/10/2026)
+
+**Qué pasaba.** Casi todo septiembre el Este se pagó a **$30** y el Oeste a **$50**. El 4 de
+octubre se **anularon** esas dos tarifas para poner otras, y el reporte pasó a mostrar los
+viajes de septiembre **«sin tarifa», en $0**: en el papel solo quedaban los pocos viajes con
+tipo propio («Este → Oeste», $100), y por eso parecía que *todos* los viajes eran de $100.
+Eran **1.157 viajes del 14 al 27 de septiembre, $36.390**.
+
+**Por qué.** Anular borraba la tarifa de **todas** las fechas, también de los días que ya había
+pagado. Y como la forma normal de cambiar un precio es anular y crear otra, cada cambio de
+precio borraba el histórico sin avisar.
+
+**Qué cambió:**
+
+1. **Al anular se elige qué pasa con los días que ya rigió:**
+   - **📅 Dejó de regir hoy** (lo que propone el sistema): los días que ya había regido
+     conservan **ese** precio; de hoy en adelante los viajes toman el que pongas. Es lo normal
+     al cambiar un precio.
+   - **⚠️ Fue un error: borrar de todas las fechas**: solo para una tarifa que nunca debió
+     existir. Los viajes viejos que cobraban con ella quedan **sin tarifa ($0)**.
+   - El **motivo pasó a ser obligatorio**, y el historial dice de cada anulada cuál de las dos
+     fue y hasta cuándo rigió.
+2. **Una tarifa con fecha del pasado avisa antes de guardar**: sale un recuadro ámbar que dice
+   a cuántos viajes **ya registrados** les cambia el precio y entre qué días, con el atajo
+   «📅 Ponerla desde hoy». Hay que tocar Guardar **dos veces**. No se prohíbe (a veces el
+   precio se acordó la semana pasada), pero ya no pasa sin querer.
+3. **La fecha «desde» ya no se queda pegada**: antes, con la ventana abierta al cruzar las 7am
+   —o al reabrirla otro día— proponía la fecha de **ayer**, y eso repreciaba los viajes de ayer.
+
+> ⭐ **Las tarifas de cada día son las de ese día.** Cambiar el precio hoy no mueve ni un
+> céntimo de lo ya trabajado.
+
+#### 🧭 Agrupar el pago de viajes por zona, o todo junto (08/10/2026)
+
+En **«📄 Opciones del PDF»** del 💰 Pago de viajes, **«AGRUPAR POR»** estrena dos pastillas
+además de las de siempre (🏢 Empresa, 📍 Obra, ⛏️ Frente):
+
+- **🧭 Zona (Este / Oeste)** — un bloque por zona: todos los viajes del Este juntos con su
+  total, todos los del Oeste con el suyo, vengan de la empresa o del camión que vengan. Los
+  viajes con **tipo propio** («Este → Oeste») hacen su propio bloque, porque esa es la tarifa
+  que de verdad los paga.
+- **🌐 Todo junto (global)** — un solo bloque con todo y un único total.
+
+Y hay un **filtro nuevo «🧭 Zonas»** que se cruza con los de empresas, obras y máquinas: marcas
+Este y el papel sale **solo** de los viajes al este.
+
+> ⭐ **Agrupar no mueve un céntimo**: el total es el mismo agrupes como agrupes (lo blinda una
+> prueba). **Filtrar sí** cambia el total, y entonces el papel lo dice «FILTRADO».
+
 #### 📅 Tarifa solo en un rango, «con tarifa / sin tarifa» y la placa en cada viaje (06/10/2026)
 
 **1. La tarifa solo para un rango (desde → hasta).** En ⚙️ Tarifas y camiones → Nueva tarifa,

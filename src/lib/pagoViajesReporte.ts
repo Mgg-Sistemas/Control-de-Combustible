@@ -106,10 +106,50 @@ export const CLAVE_SIN_EMPRESA = '(sin empresa)';
 /** Una lista VACÍA quiere decir «todas»: es lo que espera quien no toca nada.
  *  `maquinas` (30-sep-2026, a pedido: «un buscador por si quiero un reporte de
  *  unas máquinas que yo seleccione»): filtra el papel a esos camiones. */
-export type FiltroPagoViajes = { empresas: string[]; obras: string[]; maquinas: string[] };
-export const FILTRO_PAGO_TODO: FiltroPagoViajes = { empresas: [], obras: [], maquinas: [] };
+export type FiltroPagoViajes = { empresas: string[]; obras: string[]; maquinas: string[]; zonas?: string[] };
+export const FILTRO_PAGO_TODO: FiltroPagoViajes = { empresas: [], obras: [], maquinas: [], zonas: [] };
 
-export type EjePago = 'empresa' | 'obra' | 'frente';
+/**
+ * Cómo se parte el papel en bloques.
+ *
+ * 'zona' y 'global' son del 08-oct-2026, a pedido: «una opción global o que me englobe
+ * todos los viajes totales por ubicación: si hizo viajes para el este, que me englobe
+ * todos los viajes para el este; si hizo N al oeste, todos los del oeste».
+ *  · 'zona'   → un bloque Este y un bloque Oeste, cada uno con TODOS sus viajes y su
+ *               total, sin importar de qué empresa o camión sean.
+ *  · 'global' → UN solo bloque con todo junto y un único total.
+ * Se combinan con los mismos filtros (empresa, obra, camión, zona) y las mismas
+ * pastillas de columnas: el eje solo decide cómo se agrupa, nunca cuánto se paga.
+ */
+export type EjePago = 'empresa' | 'obra' | 'frente' | 'zona' | 'global';
+
+export const SIN_ZONA_PAGO = 'Sin zona';
+export const CLAVE_GLOBAL_PAGO = 'Todos los viajes';
+
+/** Cómo se llama cada eje en el cuadro de alcance y en el rótulo de la tabla resumen.
+ *  En un solo sitio para que no se olvide ninguno al agregar un eje. */
+export const ETIQUETA_EJE: Record<EjePago, string> = {
+  empresa: 'empresa', obra: 'obra / ubicación', frente: 'frente de trabajo',
+  zona: 'zona de pago (Este / Oeste)', global: 'todo junto (un solo total)',
+};
+export const COLUMNA_EJE: Record<EjePago, string> = {
+  empresa: 'Empresa', obra: 'Obra / ubicación', frente: 'Frente de trabajo',
+  zona: 'Zona', global: 'Total',
+};
+/** Las pastillas de «AGRUPAR POR», en el orden en que se ven. */
+export const EJES_PAGO: { key: EjePago; chip: string }[] = [
+  { key: 'empresa', chip: '🏢 Empresa' },
+  { key: 'obra', chip: '📍 Obra / ubicación' },
+  { key: 'frente', chip: '⛏️ Frente de trabajo' },
+  { key: 'zona', chip: '🧭 Zona (Este / Oeste)' },
+  { key: 'global', chip: '🌐 Todo junto (global)' },
+];
+
+/** La ZONA de pago del viaje, con nombre bonito. El TIPO de viaje congelado («Este →
+ *  Oeste») manda sobre la zona suelta: es la que de verdad decide lo que se cobra y es
+ *  como ya se rotula la columna Zona del listado (`renglonesPorEquipo`). */
+export const zonaDeLinea = (l: LineaViaje): string =>
+  tipoDeLinea(l) ?? (l?.zona === 'oeste' ? 'Oeste' : l?.zona === 'este' ? 'Este' : SIN_ZONA_PAGO);
 
 /** La obra (CDT / ubicación) de un viaje: el nombre CONGELADO en el viaje. Se usa el
  *  nombre y no un id porque es lo que el viaje guardó ese día: si después renombran el
@@ -136,22 +176,34 @@ export function filtrarLineasPago(lineas: LineaViaje[] | null | undefined, f: Fi
   // `pasa` trata la lista vacía o ausente como «todas», así que un filtro viejo
   // sin `maquinas` sigue funcionando igual.
   return (lineas ?? []).filter((l) =>
-    pasa(f.empresas, empresaDeLinea(l)) && pasa(f.obras, obraDeLinea(l)) && pasa(f.maquinas, maquinaDeLinea(l)));
+    pasa(f.empresas, empresaDeLinea(l)) && pasa(f.obras, obraDeLinea(l)) && pasa(f.maquinas, maquinaDeLinea(l))
+    && pasa(f.zonas, zonaDeLinea(l)));
 }
 
 /** El filtro, acotado a lo que de verdad hay: una obra marcada que ya no está en el
  *  rango seguiría filtrando sin verse y sin poder desmarcarse. */
 export function acotarFiltroPago(
-  f: FiltroPagoViajes, hay: { empresas: string[]; obras: string[]; maquinas?: string[] },
+  f: FiltroPagoViajes, hay: { empresas: string[]; obras: string[]; maquinas?: string[]; zonas?: string[] },
 ): FiltroPagoViajes {
   const e = new Set(hay.empresas);
   const o = new Set(hay.obras);
   const mq = new Set(hay.maquinas ?? []);
+  const z = new Set(hay.zonas ?? []);
   return {
     empresas: f.empresas.filter((k) => e.has(k)),
     obras: f.obras.filter((k) => o.has(k)),
     maquinas: (f.maquinas ?? []).filter((k) => mq.has(k)),
+    zonas: (f.zonas ?? []).filter((k) => z.has(k)),
   };
+}
+
+/** Las ZONAS (y tipos de viaje) que existen en las líneas, para las pastillas del
+ *  filtro. «Sin zona» al final, como las demás listas. */
+export function zonasDisponiblesPago(lineas: LineaViaje[] | null | undefined): { id: string; name: string; viajes: number }[] {
+  const m = new Map<string, number>();
+  (lineas ?? []).forEach((l) => { const k = zonaDeLinea(l); m.set(k, (m.get(k) ?? 0) + 1); });
+  return Array.from(m, ([id, viajes]) => ({ id, name: id, viajes }))
+    .sort((a, b) => Number(a.id === SIN_ZONA_PAGO) - Number(b.id === SIN_ZONA_PAGO) || a.name.localeCompare(b.name, 'es', { numeric: true }));
 }
 
 /** Las MÁQUINAS que existen en las líneas del pago, para el buscador del reporte
@@ -216,7 +268,8 @@ export function totalDeLineas(lineas: LineaViaje[] | null | undefined): TotalPag
 export type BloquePago = { clave: string; nombre: string; lineas: LineaViaje[]; total: TotalPago };
 
 /**
- * Los bloques del papel: uno por empresa o uno por obra.
+ * Los bloques del papel: uno por empresa, obra, frente o zona — o uno solo, con
+ * 'global', que englobe todo.
  *
  * ⚠️ CADA LÍNEA VA A UN SOLO BLOQUE, así que la suma de los bloques es siempre el total
  *    del papel, agrupe como agrupe. La prueba lo fija: cambiar el eje no puede mover un
@@ -228,15 +281,21 @@ export function bloquesPago(
   nombresEmpresa: Map<string, string> | null | undefined,
   o?: Pick<OpcionesPagoViajes, 'sinEmpresas'> | null,
 ): BloquePago[] {
+  const clavePorEje = (l: LineaViaje): string =>
+    eje === 'obra' ? obraDeLinea(l)
+      : eje === 'frente' ? frenteDeLinea(l)
+        : eje === 'zona' ? zonaDeLinea(l)
+          : eje === 'global' ? CLAVE_GLOBAL_PAGO
+            : empresaDeLinea(l);
   const m = new Map<string, LineaViaje[]>();
   (lineas ?? []).forEach((l) => {
-    const k = eje === 'obra' ? obraDeLinea(l) : eje === 'frente' ? frenteDeLinea(l) : empresaDeLinea(l);
+    const k = clavePorEje(l);
     const lista = m.get(k) ?? [];
     lista.push(l);
     m.set(k, lista);
   });
   const nombreReal = (k: string) => (eje !== 'empresa' ? k : k === CLAVE_SIN_EMPRESA ? 'Sin empresa (fuera del catálogo)' : nombresEmpresa?.get(k) || 'Empresa');
-  const ultimo = eje === 'obra' ? SIN_OBRA : eje === 'frente' ? SIN_FRENTE_PAGO : CLAVE_SIN_EMPRESA;
+  const ultimo = eje === 'obra' ? SIN_OBRA : eje === 'frente' ? SIN_FRENTE_PAGO : eje === 'zona' ? SIN_ZONA_PAGO : eje === 'global' ? '' : CLAVE_SIN_EMPRESA;
   const bloques = Array.from(m, ([clave, ls]) => ({ clave, nombre: nombreReal(clave), lineas: ls, total: totalDeLineas(ls) }))
     .sort((a, b) => Number(a.clave === ultimo) - Number(b.clave === ultimo) || a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
   // «Sin nombre de empresas»: se numeran DESPUÉS de ordenar por su nombre real, así el
@@ -387,7 +446,7 @@ export function alcancePagoEnPalabras(
   nombresEmpresa: Map<string, string> | null | undefined,
 ): string[] {
   const nombreE = (k: string) => (k === CLAVE_SIN_EMPRESA ? 'Sin empresa' : nombresEmpresa?.get(k) || 'Empresa');
-  const l: string[] = [`Agrupado por ${eje === 'obra' ? 'obra / ubicación' : eje === 'frente' ? 'frente de trabajo' : 'empresa'}.`];
+  const l: string[] = [`Agrupado por ${ETIQUETA_EJE[eje] ?? 'empresa'}.`];
   // Con los nombres ocultos, el alcance tampoco los puede soltar.
   l.push(f.empresas.length === 0 ? 'Empresas: todas.'
     : o.sinEmpresas ? `Empresas: solo ${f.empresas.length} elegida(s).`
@@ -405,6 +464,8 @@ export function sufijoArchivoPago(f: FiltroPagoViajes, eje: EjePago, o: Opciones
   const partes: string[] = [];
   if (eje === 'obra') partes.push('por obra');
   if (eje === 'frente') partes.push('por frente');
+  if (eje === 'zona') partes.push('por zona');
+  if (eje === 'global') partes.push('global');
   if (f.obras.length === 1) partes.push(f.obras[0]);
   else if (f.obras.length > 1) partes.push(`${f.obras.length} obras`);
   if (f.empresas.length) partes.push(`${f.empresas.length} empresa(s)`);
@@ -465,7 +526,7 @@ export function cuerpoPagoViajes(d: DatosPapelPago): string {
   const o = d.opciones;
   const bloques = bloquesPago(d.lineas, d.eje, d.nombresEmpresa, o);
   const tot = totalDeLineas(d.lineas);
-  const rotulo = d.eje === 'obra' ? 'Obra / ubicación' : d.eje === 'frente' ? 'Frente de trabajo' : 'Empresa';
+  const rotulo = COLUMNA_EJE[d.eje] ?? 'Empresa';
   const partes: string[] = [];
 
   partes.push(`<table><thead><tr><th>${rotulo}</th><th class="r">Con tarifa</th><th class="r">No facturó</th><th class="r">Sin tarifa</th><th class="r">Total</th></tr></thead>
