@@ -30,9 +30,10 @@ import {
 } from '../lib/pagoViajes';
 import { cargarDatosPagoViajes, DatosPagoViajes } from '../lib/pagoViajesDb';
 import {
-  CSS_PAGO_VIAJES, EjePago, OPCIONES_PAGO_COMO_ANTES, OpcionesPagoViajes, PASTILLAS_PAGO,
+  CSS_PAGO_VIAJES, EJES_PAGO, ETIQUETA_EJE, EjePago, OPCIONES_PAGO_COMO_ANTES, OpcionesPagoViajes, PASTILLAS_PAGO,
   acotarFiltroPago, alternarPago, cuerpoPagoViajes, empresasDisponibles, filtrarLineasPago, lineasDeGrupos,
   maquinasDisponiblesPago, obrasDisponibles, ocultosPagoEnPalabras, sufijoArchivoPago, totalDeLineas,
+  zonasDisponiblesPago,
 } from '../lib/pagoViajesReporte';
 // 🔒 Cierres del pago (06-oct-2026): el cliente preguntó «¿cómo defino que ya
 // pagaron viajes?, ¿desde dónde?». Desde aquí: se marca el rango como PAGADO y
@@ -95,6 +96,8 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const [obrasSel, setObrasSel] = useState<Set<string>>(new Set());
   // 🚜 Selección y buscador de máquinas del reporte (30-sep-2026, a pedido).
   const [maquinasSel, setMaquinasSel] = useState<Set<string>>(new Set());
+  // 🧭 ZONAS (08-oct-2026, a pedido: «que me englobe todos los viajes para el este…»).
+  const [zonasSel, setZonasSel] = useState<Set<string>>(new Set());
   const [buscaMaq, setBuscaMaq] = useState('');
   const [ejePdf, setEjePdf] = useState<EjePago>('empresa');
   const [opcionesPdf, setOpcionesPdf] = useState<OpcionesPagoViajes>(OPCIONES_PAGO_COMO_ANTES);
@@ -196,6 +199,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   const lineasTodas = useMemo(() => lineasDeGrupos(empresas.map((e) => e.g)), [empresas]);
   const empresasPdf = useMemo(() => empresasDisponibles(lineasTodas, datos?.empresas), [lineasTodas, datos]);
   const obrasPdf = useMemo(() => obrasDisponibles(lineasTodas), [lineasTodas]);
+  const zonasPdf = useMemo(() => zonasDisponiblesPago(lineasTodas), [lineasTodas]);
   const maquinasPdf = useMemo(() => maquinasDisponiblesPago(lineasTodas, datos?.fichas, datos?.empresas), [lineasTodas, datos]);
   // El buscador recorta lo que se ve, no lo que está marcado: una máquina marcada
   // que no coincide con la búsqueda sigue filtrando el papel (por eso se cuentan aparte).
@@ -208,14 +212,14 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
   // puede seguir filtrando sin verse.
   const filtroPdf = useMemo(
     () => acotarFiltroPago(
-      { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), maquinas: Array.from(maquinasSel) },
-      { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id), maquinas: maquinasPdf.map((x) => x.id) },
+      { empresas: Array.from(empresasSel), obras: Array.from(obrasSel), maquinas: Array.from(maquinasSel), zonas: Array.from(zonasSel) },
+      { empresas: empresasPdf.map((e) => e.id), obras: obrasPdf.map((x) => x.id), maquinas: maquinasPdf.map((x) => x.id), zonas: zonasPdf.map((x) => x.id) },
     ),
-    [empresasSel, obrasSel, maquinasSel, empresasPdf, obrasPdf, maquinasPdf],
+    [empresasSel, obrasSel, maquinasSel, zonasSel, empresasPdf, obrasPdf, maquinasPdf, zonasPdf],
   );
   const lineasPdf = useMemo(() => filtrarLineasPago(lineasTodas, filtroPdf), [lineasTodas, filtroPdf]);
   const totPdf = useMemo(() => totalDeLineas(lineasPdf), [lineasPdf]);
-  const pdfFiltrado = filtroPdf.empresas.length > 0 || filtroPdf.obras.length > 0 || filtroPdf.maquinas.length > 0;
+  const pdfFiltrado = filtroPdf.empresas.length > 0 || filtroPdf.obras.length > 0 || filtroPdf.maquinas.length > 0 || (filtroPdf.zonas ?? []).length > 0;
 
   const rangoInvalido = hasta < desde;
   const rangoAntesDelInicio = hasta < INICIO_PAGO_VIAJES;
@@ -302,7 +306,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
     const html = pdfDocument({
       title: 'Pago de viajes de camiones',
       // 🔒 Si el rango ya está marcado como pagado, el papel lo dice (06-oct-2026).
-      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf === 'obra' ? ' · por obra' : ejePdf === 'frente' ? ' · por frente' : ''}${pdfFiltrado ? ' · FILTRADO' : ''}${CIERRES_PAGO_VISIBLES && pagado ? ` · PAGADO el ${dmyTs(pagado.created_at)}` : ''}`,
+      subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am)${ejePdf !== 'empresa' ? ` · por ${ETIQUETA_EJE[ejePdf]}` : ''}${pdfFiltrado ? ' · FILTRADO' : ''}${CIERRES_PAGO_VISIBLES && pagado ? ` · PAGADO el ${dmyTs(pagado.created_at)}` : ''}`,
       extraCss: CSS_PAGO_VIAJES,
       body: cuerpoPagoViajes({
         lineas: lineasPdf,
@@ -393,7 +397,7 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
         {!error && empresas.length ? (
           <Plegable
             titulo="📄 Opciones del PDF"
-            resumen={`${pdfFiltrado ? 'filtrado · ' : ''}${totPdf.pagados} viaje(s) · ${usd(totPdf.monto)} · por ${ejePdf === 'obra' ? 'obra' : ejePdf === 'frente' ? 'frente' : 'empresa'}`}
+            resumen={`${pdfFiltrado ? 'filtrado · ' : ''}${totPdf.pagados} viaje(s) · ${usd(totPdf.monto)} · por ${ETIQUETA_EJE[ejePdf]}`}
             alerta={pdfFiltrado}
           >
             <Text style={{ color: colors.muted, fontSize: 12 }}>
@@ -402,15 +406,22 @@ export function PagoViajesResumen({ canEdit, usuarioId, m3PorViaje }: Props) {
 
             {rotuloPdf('AGRUPAR POR')}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              {pastilla('eje-e', '🏢 Empresa', ejePdf === 'empresa', () => setEjePdf('empresa'))}
-              {pastilla('eje-o', '📍 Obra / ubicación', ejePdf === 'obra', () => setEjePdf('obra'))}
-              {pastilla('eje-f', '⛏️ Frente de trabajo', ejePdf === 'frente', () => setEjePdf('frente'))}
+              {EJES_PAGO.map((e) => pastilla('eje-' + e.key, e.chip, ejePdf === e.key, () => setEjePdf(e.key)))}
             </View>
 
             {rotuloPdf(`📍 OBRAS (vacío = todas · ${obrasPdf.length})`)}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {pastilla('o-todas', '✅ Todas', filtroPdf.obras.length === 0, () => setObrasSel(new Set()))}
               {obrasPdf.map((x) => pastilla('o' + x.id, `${x.name} (${x.viajes})`, filtroPdf.obras.includes(x.id), () => alternarSel(obrasSel, setObrasSel, x.id)))}
+            </View>
+
+            {/* 🧭 ZONAS (08-oct-2026): marca Este para que el papel sea SOLO de los
+                viajes al este. Se cruza con empresas, obras y máquinas. Junto con
+                «agrupar por zona» responde a «englóbame todos los viajes del este». */}
+            {rotuloPdf(`🧭 ZONAS (vacío = todas · ${zonasPdf.length})`)}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {pastilla('z-todas', '✅ Todas', (filtroPdf.zonas ?? []).length === 0, () => setZonasSel(new Set()))}
+              {zonasPdf.map((x) => pastilla('z' + x.id, `${x.name} (${x.viajes})`, (filtroPdf.zonas ?? []).includes(x.id), () => alternarSel(zonasSel, setZonasSel, x.id)))}
             </View>
 
             {rotuloPdf(`🏢 EMPRESAS (vacío = todas · ${empresasPdf.length})`)}

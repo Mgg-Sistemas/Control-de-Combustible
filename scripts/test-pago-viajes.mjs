@@ -142,6 +142,39 @@ eq('el día después de la blindada vuelve la general', t('este', '2026-09-25'),
 eq('octubre: la de octubre aunque la del 20 se guardó después', t('este', '2026-10-02'), 'eOct');
 eq('la anulada no cuenta', t('este', '2026-09-16'), 'eGen');
 eq('zona inventada: sin tarifa', t('norte', '2026-09-16'), null);
+
+// ── 3a-bis) ANULAR NO BORRA EL PASADO (08-oct-2026) ─────────────────────────
+// El caso real: el 04-oct se anularon las tarifas de $30 (este) y $50 (oeste) que
+// regían desde el 14-sep, y los 1.157 viajes del 14 al 27 de sep —$36.390— pasaron a
+// salir «sin tarifa» en $0. Reclamo del cliente: «si para una fecha coloqué una y en
+// otra fecha otra, no debería afectar».
+{
+  const base = { zona: 'este', alcance: 'general', desde: '2026-09-14', created_at: '2026-09-14T12:00:00Z' };
+  const viejaOk = { ...base, id: 'v30', precio: 30, anulada_at: '2026-10-04T19:12:19Z', anulada_modo: 'desde_ahora' };
+  const viejaError = { ...base, id: 'vErr', precio: 30, anulada_at: '2026-10-04T19:12:19Z', anulada_modo: 'siempre' };
+  const nueva = { id: 'n2', zona: 'este', alcance: 'general', precio: 2, desde: '2026-10-05', created_at: '2026-10-04T19:16:12Z' };
+  const q = (ts, f) => L.tarifaViajeEn(ts, 'este', f)?.id ?? null;
+
+  eq('⭐ anulada «dejó de regir hoy»: el 20-sep sigue cobrando lo suyo', q([viejaOk, nueva], '2026-09-20'), 'v30');
+  eq('⭐ …y el día que la anularon todavía cuenta', q([viejaOk, nueva], '2026-10-04'), 'v30');
+  eq('⭐ …pero al día siguiente ya no', q([viejaOk, nueva], '2026-10-05'), 'n2');
+  eq('⭐ sin tarifa nueva, después de anularla no hay ninguna', q([viejaOk], '2026-10-06'), null);
+  eq('⚠️ anulada «fue un error»: no rige NI ANTES (lo de siempre)', q([viejaError, nueva], '2026-09-20'), null);
+  eq('⚠️ sin la columna en la base se porta como «fue un error»', q([{ ...base, id: 'vSin', precio: 30, anulada_at: '2026-10-04T19:12:19Z' }], '2026-09-20'), null);
+  eq('modo leído de la fila', [{ anulada_modo: 'desde_ahora' }, { anulada_modo: 'siempre' }, {}, { anulada_modo: 'BASURA' }].map(L.anuladaModo), ['desde_ahora', 'siempre', 'siempre', 'siempre']);
+
+  // Una anulada NO se vuelve «blindada»: el corte por anulación filtra, no da prioridad.
+  const abierta = { id: 'ab', zona: 'este', alcance: 'general', precio: 7, desde: '2026-09-18', created_at: '2026-09-18T12:00:00Z' };
+  eq('⚠️ la anulada no le gana a una abierta más reciente', q([viejaOk, abierta], '2026-09-20'), 'ab');
+}
+
+// ── 3a-ter) ¿LA TARIFA PISA DÍAS YA TRABAJADOS? (08-oct-2026) ────────────────
+eq('desde hoy: no es retroactiva', L.retroDeTarifa('2026-10-08', '2026-10-08'), null);
+eq('desde mañana: tampoco', L.retroDeTarifa('2026-10-09', '2026-10-08'), null);
+eq('desde ayer: un día', L.retroDeTarifa('2026-10-07', '2026-10-08'), { desdeJornada: '2026-10-07', hastaJornada: '2026-10-07', dias: 1 });
+eq('⭐ el caso real: del 28-sep con hoy 04-oct', L.retroDeTarifa('2026-09-28', '2026-10-04'), { desdeJornada: '2026-09-28', hastaJornada: '2026-10-03', dias: 6 });
+eq('blindada que terminó antes de ayer: el tramo llega hasta su «hasta»', L.retroDeTarifa('2026-09-28', '2026-10-08', '2026-09-30'), { desdeJornada: '2026-09-28', hastaJornada: '2026-09-30', dias: 3 });
+eq('fechas basura: no inventa', L.retroDeTarifa('', '2026-10-08'), null);
 eq('mayúsculas en la zona', t('OESTE', '2026-09-16'), 'oGen');
 
 // ── 3b) TARIFAS ESPECIALES: empresa, grupo, camión; zona o ambas ────────────
@@ -307,7 +340,25 @@ eq('etiquetas de motivo', ['no_facturo', 'sin_zona', 'sin_tarifa', 'sin_empresa'
 
 // ── 6) LA BASE ──────────────────────────────────────────────────────────────
 const db = sinComentarios(leer('src/lib/pagoViajesDb.ts'));
-ok('las lecturas no se tragan errores', !/catch/.test(db));
+// Las lecturas NO se tragan errores. Única excepción permitida (08-oct-2026): el
+// respaldo por si `anulada_modo` todavía no existe en la base — y ese catch RELANZA
+// cualquier otro error en vez de devolver datos a medias.
+// ── 6-bis) CANDADOS DE LA PANTALLA DE TARIFAS (08-oct-2026) ────────────────
+{
+  const tf = sinComentarios(leer('src/components/PagoViajesTarifas.tsx'));
+  ok('⭐ al anular se elige qué pasa con los días que ya rigió', /setModoAnular\('desde_ahora'\)/.test(tf) && /setModoAnular\('siempre'\)/.test(tf));
+  ok('⭐ …y lo que propone es CONSERVAR el histórico', /useState<AnuladaModo>\('desde_ahora'\)/.test(tf));
+  ok('⭐ el modo viaja al guardar la anulación', /anularTarifaViaje\(t\.id, motivoAnular, usuarioId, modoAnular\)/.test(tf));
+  ok('⭐ el motivo de anular es obligatorio', /if \(!motivoAnular\.trim\(\)\)/.test(tf));
+  ok('⭐ «desde» se resincroniza con hoy mientras no lo toquen', /if \(!desdeTocado\) \{ setDesde\(hoy\); setHasta\(hoy\); \}/.test(tf));
+  ok('⭐ una fecha del pasado exige confirmar, con el conteo a la vista', /if \(retro && !confirmaRetro\)/.test(tf) && /contarViajesEnJornadas\(/.test(tf));
+  ok('⭐ y ofrece el atajo para ponerla desde hoy', /Ponerla desde hoy/.test(tf));
+  const dbT = sinComentarios(leer('src/lib/pagoViajesDb.ts'));
+  ok('⭐ el conteo del aviso NO baja filas (head)', /count: 'exact', head: true/.test(dbT));
+  ok('⭐ si la base aún no tiene `anulada_modo`, se anula igual', /error\?\.code === '42703'/.test(dbT));
+}
+
+ok('las lecturas no se tragan errores', (db.match(/catch/g) ?? []).length === 1 && /if \(e\?\.code !== '42703'\) throw e;/.test(db));
 ok('los viajes se leen desde las 7am del inicio', /gte\('registered_at', `\$\{desdeJornada\}T07:00:00-04:00`\)/.test(db));
 // ⭐ EL TIPO DE VIAJE TIENE QUE VIAJAR EN LAS COLUMNAS (28-sep-2026). Sin
 // pedirlas, calcularPagoViajes nunca veía el tipo y TODOS los viajes caían a

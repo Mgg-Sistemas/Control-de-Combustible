@@ -117,7 +117,18 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   const suma = (bs) => bs.reduce((a, b) => a + b.total.monto, 0);
   eq('⭐ cambiar el eje no mueve un centavo', [suma(porEmpresa), suma(porObra)], [75, 75]);
   eq('⭐ cada viaje va a UN solo bloque', [porEmpresa, porObra].map((bs) => bs.reduce((a, b) => a + b.lineas.length, 0)), [7, 7]);
-  eq('el «no facturó» se cuenta en su obra, sin sumar plata', porObra[0].total, { viajes: 4, pagados: 3, noFacturados: 1, pendientes: 0, monto: 30 });
+  eq('el ««no facturó»» se cuenta en su obra, sin sumar plata'.replace('««','«').replace('»»','»'), porObra[0].total, { viajes: 4, pagados: 3, noFacturados: 1, pendientes: 0, monto: 30 });
+
+  // 🧭 POR ZONA Y GLOBAL (08-oct-2026, a pedido: «una opción global o que me
+  //    englobe todos los viajes totales por ubicación: si hizo viajes para el este,
+  //    que me englobe todos los del este; si hizo N al oeste, todos los del oeste»).
+  const porZona = R.bloquesPago(lineas, 'zona', NOMBRES);
+  const global = R.bloquesPago(lineas, 'global', NOMBRES);
+  eq('⭐ por zona: un bloque por zona, con TODOS sus viajes juntos', porZona.map((b) => [b.nombre, b.lineas.length, b.total.monto]), [['Este', 4, 30], ['Oeste', 3, 45]]);
+  eq('⭐ global: UN solo bloque con todo', global.map((b) => [b.nombre, b.lineas.length, b.total.monto]), [['Todos los viajes', 7, 75]]);
+  eq('⭐ por zona y global tampoco mueven un centavo', [suma(porZona), suma(global)], [75, 75]);
+  eq('⭐ también ahí cada viaje va a UN solo bloque', [porZona, global].map((bs) => bs.reduce((a, b) => a + b.lineas.length, 0)), [7, 7]);
+  eq('cada eje tiene su etiqueta y su columna', R.EJES_PAGO.map((e) => [R.ETIQUETA_EJE[e.key] != null, R.COLUMNA_EJE[e.key] != null]), R.EJES_PAGO.map(() => [true, true]));
 }
 
 // ── 3) FILTRAR: SOLO ESA OBRA, SOLO ESAS EMPRESAS ────────────────────────────
@@ -134,8 +145,16 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   eq('⭐ solo una empresa', R.totalDeLineas(R.filtrarLineasPago(lineas, { empresas: ['EB'], obras: [] })).monto, 40);
   eq('⭐ empresa Y obra a la vez: se cruzan', R.filtrarLineasPago(lineas, { empresas: ['EB'], obras: ['Obra Norte'] }).map((l) => l.viaje.id).sort(), ['v4', 'v7']);
 
+  // 🧭 FILTRAR POR ZONA (08-oct-2026): con «agrupar por zona» es lo que responde
+  //    a «englóbame todos los viajes del este», y se cruza con empresa y obra.
+  eq('zonas que hay, con sus viajes', R.zonasDisponiblesPago(lineas).map((z) => [z.id, z.viajes]), [['Este', 4], ['Oeste', 3]]);
+  eq('⭐ solo el este', R.totalDeLineas(R.filtrarLineasPago(lineas, { empresas: [], obras: [], maquinas: [], zonas: ['Este'] })), { viajes: 4, pagados: 3, noFacturados: 1, pendientes: 0, monto: 30 });
+  eq('⭐ zona Y empresa se cruzan', R.filtrarLineasPago(lineas, { empresas: ['EB'], obras: [], maquinas: [], zonas: ['Este'] }).every((l) => l.viaje.company_id === 'EB' && l.zona === 'este'), true);
+  eq('⭐ sin zonas marcadas entran todas', R.filtrarLineasPago(lineas, { empresas: [], obras: [], maquinas: [], zonas: [] }).length, 7);
+  eq('un filtro viejo sin `zonas` sigue funcionando', R.filtrarLineasPago(lineas, { empresas: [], obras: [], maquinas: [] }).length, 7);
+
   // Una obra marcada que ya no está en el rango no puede seguir filtrando sin verse.
-  eq('⭐ lo que ya no está en el rango deja de filtrar', R.acotarFiltroPago({ empresas: ['EA', 'ZZ'], obras: ['Obra Fantasma'], maquinas: [] }, { empresas: ['EA', 'EB'], obras: ['Obra Norte'], maquinas: [] }), { empresas: ['EA'], obras: [], maquinas: [] });
+  eq('⭐ lo que ya no está en el rango deja de filtrar', R.acotarFiltroPago({ empresas: ['EA', 'ZZ'], obras: ['Obra Fantasma'], maquinas: [] }, { empresas: ['EA', 'EB'], obras: ['Obra Norte'], maquinas: [] }), { empresas: ['EA'], obras: [], maquinas: [], zonas: [] });
 }
 
 // ── 3b) 🚜 EL BUSCADOR / SELECTOR DE MÁQUINAS (30-sep-2026) ──────────────────
@@ -169,7 +188,7 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   // Acotar: una máquina marcada que ya no está en el rango deja de filtrar.
   eq('⭐ una máquina que ya no está deja de filtrar',
     R.acotarFiltroPago({ empresas: [], obras: [], maquinas: ['m1', 'fantasma'] }, { empresas: [], obras: [], maquinas: ['m1'] }),
-    { empresas: [], obras: [], maquinas: ['m1'] });
+    { empresas: [], obras: [], maquinas: ['m1'], zonas: [] });
 
   // El alcance y el nombre del archivo lo dicen (sin listar los códigos).
   const alcMaq = R.alcancePagoEnPalabras({ empresas: [], obras: [], maquinas: ['m1'] }, 'empresa', R.OPCIONES_PAGO_COMPLETO, NOMBRES);
@@ -311,7 +330,7 @@ const totalTarjeta = Array.from(grupos.values()).reduce((a, g) => a + g.montoUSD
   ok('⭐ el filtro se acota a lo que hay en el rango', /acotarFiltroPago\(/.test(ui));
   ok('sin viajes con ese filtro, el botón no deja', /!lineasPdf\.length\)/.test(ui));
   ok('la lista de «no entran al pago» solo va sin filtrar', /const fuera = !pdfFiltrado && fueraDelPago\.length/.test(ui));
-  ok('se puede agrupar por obra', /setEjePdf\('obra'\)/.test(ui));
+  ok('se puede agrupar por cualquiera de los ejes', /EJES_PAGO\.map\(\(e\) => pastilla\('eje-' \+ e\.key, e\.chip, ejePdf === e\.key, \(\) => setEjePdf\(e\.key\)\)\)/.test(ui));
   ok('el PDF ya no arma su propio cálculo a mano', !/itemsViajePagados/.test(ui));
   ok('la pantalla le pasa los m³ de Cubicaje', /m3PorViaje=\{m3PorViajePago\}/.test(leer('src/screens/ViajesCamionesScreen.tsx')));
   ok('el cargador trae la ficha del camión', /selectAllRows\('machinery', 'id, marca, modelo, plate, serial, encargado'\)/.test(leer('src/lib/pagoViajesDb.ts')));
