@@ -404,6 +404,15 @@ ok('⭐ eliminar pide confirmación en rojo ANTES de borrar',
   /const eliminar = async[\s\S]*?await confirm\(\{[\s\S]*?danger: true,[\s\S]*?\.delete\(\)\.eq\('id', e\.id\)/.test(scr));
 ok('y el aviso dice que el último número del año se reutiliza (correlativo max+1)',
   scr.includes('el próximo informe saldrá con ese mismo número'));
+// ⚠️ UN BORRADO QUE FALLA EN SILENCIO ES PEOR QUE UNO QUE NO EXISTE
+// (09-oct-2026, reclamo: «le doy al botón de eliminar y no lo elimina»). Un
+// DELETE que la base rechaza por permisos vuelve SIN error y con 0 filas: sin
+// pedir las filas borradas, la pantalla cantaba éxito y el informe seguía ahí.
+ok('⭐ el borrado COMPRUEBA que borró algo (0 filas = se dice, no se canta éxito)',
+  /\.delete\(\)\.eq\('id', e\.id\)\.select\('id'\)/.test(scr) && /if \(!data\?\.length\)/.test(scr));
+ok('⭐ …y el mensaje de 0 filas dice que NO se borró nada',
+  /No se pudo eliminar \$\{e\.code\}[\s\S]*?No se borró nada/.test(scr));
+
 ok('editar y eliminar SOLO salen con permiso de escritura',
   /\{canWrite \? \([\s\S]*?abrirEdicion\(e\)[\s\S]*?eliminar\(e\)/.test(scr));
 ok('cambiar de máquina a mitad de la edición la cancela (no se mezclan dos informes)',

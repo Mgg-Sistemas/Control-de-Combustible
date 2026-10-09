@@ -546,6 +546,46 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
     setReqs((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: 'realizado' } : x)));
   };
 
+  /**
+   * BORRA una avería reportada (09-oct-2026, a pedido: «dale una opción de eliminar»).
+   *
+   * ⚠️ NO es lo mismo que «✓ Realizado», y la pregunta lo dice: REALIZADO = se
+   *    arregló, y queda en el Historial con quién y cuándo. ELIMINAR = NO DEBIÓ
+   *    REPORTARSE (duplicada, equivocada, una prueba): desaparece y no deja
+   *    historial. Si no se distinguen, se usa «Eliminar» para cerrar trabajo y el
+   *    Historial —que es de lo que sale el reporte de gasto por empresa— queda
+   *    con huecos que nadie puede explicar después.
+   *
+   * ⚠️ La hoja de servicio NO se borra: su enlace a la avería es `on delete set
+   *    null`, así que sobrevive pero pierde a qué avería respondía. Por eso,
+   *    cuando la avería ya tiene hoja, la pregunta lo avisa por su nombre.
+   *
+   * El borrado queda en Auditoría (trigger `trg_audit` de `maintenance_requests`).
+   */
+  const eliminarAveria = async (r: Req) => {
+    const conHoja = !!servicioPorAveria[r.id];
+    const ok = await confirm({
+      title: `¿Eliminar la avería de "${r.code}"?`,
+      message:
+        `${matLabel(r.material)}. Se borra el reporte y NO queda en el Historial, así que tampoco suma al gasto de la empresa. `
+        + 'Esto es para una avería que no debió reportarse (repetida, equivocada o de prueba): si la máquina SÍ se arregló, usa «✓ Realizado», que sí deja constancia. '
+        + (conHoja ? `⚠️ OJO: esta avería ya tiene una hoja de servicio del ${fmtDMY(servicioPorAveria[r.id])}. Esa hoja NO se borra, pero queda sin saber a qué avería respondía. ` : '')
+        + 'El borrado queda anotado en Auditoría.',
+      confirmText: 'Sí, eliminar', cancelText: 'Cancelar', danger: true,
+    });
+    if (!ok) return;
+    setBusy(r.id);
+    // `.select('id')`: un DELETE que la base rechaza por permisos vuelve SIN error
+    // y con 0 filas. Sin esto se cantaría «eliminada» y seguiría en pantalla —
+    // exactamente el bug que el cliente reportó en los informes técnicos.
+    const { data, error } = await supabase.from('maintenance_requests').delete().eq('id', r.id).select('id');
+    setBusy(null);
+    if (error) return toast.error(`No se pudo eliminar: ${error.message}`);
+    if (!data?.length) return toast.error('No se pudo eliminar: la base lo rechazó (hace falta permiso para borrar averías). No se borró nada.');
+    setReqs((prev) => prev.filter((x) => x.id !== r.id));
+    toast.success(`Avería de ${r.code} eliminada.`);
+  };
+
   // ── Escanear una máquina para reportar una avería ───────────────────────────
   const onScanDetected = async (text: string) => {
     setScanOpen(false);
@@ -1051,6 +1091,16 @@ export function TallerMaquinariaScreen({ seccion }: { seccion: Seccion }) {
                           <TouchableOpacity onPress={() => marcarRealizado(r)} disabled={busy === r.id} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, alignItems: 'center' }}>
                             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{busy === r.id ? '…' : '✓ Realizado'}</Text>
                           </TouchableOpacity>
+                          {/* 🗑️ ELIMINAR (09-oct-2026, a pedido). Va DEBAJO de «✓ Realizado»
+                              y en gris, no en rojo chillón: lo que casi siempre se quiere
+                              es cerrar la avería, no borrarla. Solo con permiso de
+                              ESCRITURA, igual que «✏️ Editar» — marcar realizado lo puede
+                              hacer cualquiera, pero borrar el rastro no. */}
+                          {canWrite ? (
+                            <TouchableOpacity onPress={() => eliminarAveria(r)} disabled={busy === r.id} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, alignItems: 'center' }}>
+                              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑️ Eliminar</Text>
+                            </TouchableOpacity>
+                          ) : null}
                         </View>
                       </View>
                     ))}
