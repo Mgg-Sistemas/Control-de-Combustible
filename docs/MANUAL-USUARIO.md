@@ -6707,8 +6707,10 @@ flota)»**, debajo del pago por peso (solo con permiso completo).
 
 **Qué trae:**
 
-- Los **cuadros grandes**: toneladas totales, viajes totales (con su promedio por día), flota
-  activa máxima (con su día pico) y la eficiencia en **toneladas por viaje**.
+- Los **cuadros grandes**: **días transcurridos** del rango (con cuántos tuvieron operación al
+  lado — un domingo sin viajes no sale en la tabla, pero ahí no se esconde), toneladas totales,
+  viajes totales (con su promedio por día), flota activa máxima (con su día pico) y la
+  eficiencia en **toneladas por viaje**.
 - La **tabla diaria**: fecha, día de la semana, flota (camiones distintos que trabajaron),
   viajes, viajes sin peso, toneladas y T/viaje — con su fila de TOTAL/PROMEDIO.
 - El **gráfico** de barras (carga) con la línea de camiones encima.

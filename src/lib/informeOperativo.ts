@@ -170,6 +170,11 @@ export type DiaOperativo = {
 
 export type ResumenOperativo = {
   dias: DiaOperativo[];
+  /** Días TRANSCURRIDOS del rango pedido (calendario, ambos extremos incluidos).
+   *  No es lo mismo que `dias.length`, que son los días CON operación: el papel
+   *  muestra los dos para que un domingo sin viajes no se esconda (09-oct-2026,
+   *  a pedido: «en el resumen ejecutivo le faltó los días transcurridos»). */
+  diasRango: number;
   toneladas: number;
   viajes: number;
   conPeso: number;
@@ -224,8 +229,14 @@ export function resumenOperativo(viajes: ViajeOperativo[] | null | undefined, de
   const viajesTot = dias.reduce((a, x) => a + x.viajes, 0);
   const conPeso = dias.reduce((a, x) => a + x.conPeso, 0);
   const flotaMax = dias.reduce((a, x) => Math.max(a, x.flota), 0);
+  // Días transcurridos del rango pedido, a calendario y con los dos extremos
+  // (27-sep al 07-oct = 11 días, como lo cuenta todo el mundo).
+  const t0 = Date.parse(`${d0}T12:00:00Z`);
+  const t1 = Date.parse(`${d1}T12:00:00Z`);
+  const diasRango = Number.isFinite(t0) && Number.isFinite(t1) && t1 >= t0 ? Math.round((t1 - t0) / 86400000) + 1 : 0;
   return {
     dias,
+    diasRango,
     toneladas,
     viajes: viajesTot,
     conPeso,
@@ -446,7 +457,12 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
 
   if (!o.sinKpis) {
     const pico = textoPicoFlota(r.flotaMaxJornadas);
+    // Días transcurridos (09-oct-2026, a pedido): el del rango, a calendario, y
+    // al lado la verdad de cuántos tuvieron operación — un domingo sin viajes
+    // no sale en la tabla, pero acá no se esconde.
+    const conOp = r.dias.length;
     partes.push(`<div class="tiles">
+      <div class="tile"><span class="t">Días transcurridos</span><b>${nro(r.diasRango, 0)} día(s)</b><span class="s">${conOp === r.diasRango ? 'todos con operación' : `${nro(conOp, 0)} con operación`}</span></div>
       <div class="tile"><span class="t">Toneladas totales</span><b>${nro(r.toneladas)} t</b><span class="s">${r.sinPeso > 0 ? `de ${nro(r.conPeso, 0)} viaje(s) pesados` : 'carga global transportada'}</span></div>
       <div class="tile"><span class="t">Viajes totales</span><b>${nro(r.viajes, 0)}</b><span class="s">Promedio de ${nro(r.viajesPorDiaProm, 1)} viajes/día</span></div>
       <div class="tile"><span class="t">Flota activa máxima</span><b>${nro(r.flotaMax, 0)} camion(es)</b><span class="s">${esc(pico) || `${nro(r.flotaRango, 0)} en todo el rango`}</span></div>
@@ -501,7 +517,7 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
 
   const filtrado = d.filtro.empresas.length > 0 || d.filtro.obras.length > 0 || d.filtro.zonas.length > 0 || d.filtro.camiones.length > 0;
   if (!o.sinAlcance || filtrado) {
-    const l: string[] = [`Jornadas del ${dmy(d.desde)} al ${dmy(d.hasta)} (7am a 7am).`];
+    const l: string[] = [`Jornadas del ${dmy(d.desde)} al ${dmy(d.hasta)} (${nro(r.diasRango, 0)} día(s) transcurridos, ${nro(r.dias.length, 0)} con operación; 7am a 7am).`];
     l.push('Entran TODOS los viajes registrados, sin mirar modos de pago ni marcas de facturación: es un informe operativo, no de cobro.');
     if (filtrado) {
       const f = d.filtro;
