@@ -146,8 +146,9 @@ export function InformeOperativoCard({ canVer }: Props) {
         marcaTexto: false,
         body: cuerpoInformeOperativo({
           resumen, viajes: filtrados, desde, hasta,
-          // Un papel FILTRADO siempre lleva su alcance, aunque lo hayan apagado.
-          opciones: filtrado ? { ...opciones, sinAlcance: false } : opciones,
+          // La pastilla del alcance manda SIEMPRE, hasta filtrado (09-oct-2026, a
+          // pedido). El «FILTRADO» del subtítulo es el que no se puede apagar.
+          opciones,
           filtro, nombresEmpresa,
         }),
       });

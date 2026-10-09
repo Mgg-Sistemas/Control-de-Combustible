@@ -289,7 +289,8 @@ export type OpcionesInformeOperativo = {
   sinPorCamion: boolean;
   /** Sin el NOMBRE de las empresas: «Empresa 1», «Empresa 2»… */
   sinEmpresas: boolean;
-  /** Sin el cuadro de alcance del final. Filtrado, se enciende a la fuerza. */
+  /** Sin el cuadro de alcance del final. Acá la pastilla manda SIEMPRE, hasta
+   *  filtrado (el subtítulo conserva el «FILTRADO», que no se puede apagar). */
   sinAlcance: boolean;
 };
 
@@ -516,7 +517,11 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
   }
 
   const filtrado = d.filtro.empresas.length > 0 || d.filtro.obras.length > 0 || d.filtro.zonas.length > 0 || d.filtro.camiones.length > 0;
-  if (!o.sinAlcance || filtrado) {
+  // ⚠️ A diferencia de los papeles de PAGO (donde un filtro mueve plata y el
+  //    alcance sale a la fuerza), acá la pastilla MANDA SIEMPRE (09-oct-2026, a
+  //    pedido: «quiero quitar el alcance y aún lo deja»). La honestidad no se
+  //    pierde: el subtítulo del papel sigue diciendo «FILTRADO» pase lo que pase.
+  if (!o.sinAlcance) {
     const l: string[] = [`Jornadas del ${dmy(d.desde)} al ${dmy(d.hasta)} (${nro(r.diasRango, 0)} día(s) transcurridos, ${nro(r.dias.length, 0)} con operación; 7am a 7am).`];
     l.push('Entran TODOS los viajes registrados, sin mirar modos de pago ni marcas de facturación: es un informe operativo, no de cobro.');
     if (filtrado) {
