@@ -406,8 +406,16 @@ export default function InformeTecnicoTab(
     if (!va) return;
     setBusy(true);
     try {
-      const { error } = await supabase.from('machinery_tech_reports').delete().eq('id', e.id);
+      // ⚠️ `.select('id')` NO es decorativo (09-oct-2026): un DELETE que la base
+      //    rechaza por permisos vuelve SIN error y con 0 filas. Sin pedir las
+      //    filas borradas, la pantalla cantaba «Informe eliminado», recargaba, y
+      //    el informe seguía ahí — «le doy a eliminar y no lo elimina», sin un
+      //    solo mensaje que dijera por qué. Ahora, 0 filas = se dice.
+      const { data, error } = await supabase.from('machinery_tech_reports').delete().eq('id', e.id).select('id');
       if (error) return toast.error(`No se pudo eliminar: ${error.message}`);
+      if (!data?.length) {
+        return toast.error(`No se pudo eliminar ${e.code}: la base lo rechazó (hace falta permiso para borrar informes). No se borró nada.`);
+      }
       if (editando?.id === e.id) cancelarEdicion();
       await cargarEmitidos(maquinaId);
       toast.success(`Informe ${e.code} eliminado.`);

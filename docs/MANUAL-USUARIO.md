@@ -6699,6 +6699,36 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### 🗑️ Eliminar una avería, y el «eliminar» de los informes que no eliminaba (09/10/2026)
+
+**1. Cada avería ya se puede eliminar.** En la lista de averías de Servicio de maquinaria,
+debajo de «✓ Realizado», aparece **«🗑️ Eliminar»** (solo con permiso de escritura: marcar
+realizado lo puede hacer cualquiera, borrar el rastro no).
+
+> ⚠️ **Eliminar no es lo mismo que Realizado**, y la pregunta lo dice:
+> - **✓ Realizado** = se arregló. Queda en el **Historial** con quién y cuándo, y suma al
+>   gasto de la empresa.
+> - **🗑️ Eliminar** = **no debió reportarse** (repetida, equivocada, de prueba). Desaparece y
+>   **no deja historial**.
+>
+> Si se usa «Eliminar» para cerrar trabajo, el reporte de gasto por empresa queda con huecos
+> que después nadie sabe explicar.
+
+Si la avería **ya tiene hoja de servicio**, la pregunta lo avisa con su fecha: esa hoja **no se
+borra**, pero queda sin saber a qué avería respondía. El borrado queda anotado en **Auditoría**.
+
+**2. El «Eliminar» de los informes técnicos decía que borraba y no borraba.** Se tocaba el
+botón, el informe seguía ahí y no salía ni un mensaje.
+
+**Por qué:** cuando la base rechaza un borrado por permisos **no devuelve error**, devuelve
+«cero filas borradas» — y la pantalla daba el borrado por hecho y avisaba de un éxito que no
+había ocurrido. Ahora **se comprueba que de verdad se borró algo**: si la base lo rechaza, sale
+un aviso rojo que lo dice.
+
+> ⚠️ Eso hace que el problema **se vea**. Para que el borrado **funcione** hace falta además
+> darle permiso de borrado a esas tablas en la base; hasta que eso se corra, el aviso rojo
+> seguirá saliendo (que es la verdad, en vez de un éxito falso).
+
 #### 💲 Las tarifas de cada fecha ya no se pierden (08/10/2026)
 
 **Qué pasaba.** Casi todo septiembre el Este se pagó a **$30** y el Oeste a **$50**. El 4 de
