@@ -139,7 +139,7 @@ export function InformeOperativoCard({ canVer }: Props) {
     try {
       const html = pdfDocument({
         title: 'Informe operativo de transporte y carga',
-        subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por jornada (7am a 7am) · sin montos${filtrado ? ' · FILTRADO' : ''}`,
+        subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} (${nro(resumen.diasRango, 0)} día(s)) · por jornada (7am a 7am) · sin montos${filtrado ? ' · FILTRADO' : ''}`,
         extraCss: CSS_INFORME_OPERATIVO,
         logos,
         // Regla de la casa en este módulo: sin la marca en texto «BCV / SOS».
@@ -183,6 +183,9 @@ export function InformeOperativoCard({ canVer }: Props) {
 
   // Los cuadros grandes, también en pantalla (los mismos cuatro del papel).
   const tiles = [
+    // 📆 Días transcurridos (09-oct-2026, a pedido): el rango a calendario y,
+    //    al lado, cuántos tuvieron operación — el domingo sin viajes no se esconde.
+    { k: 'dia', titulo: 'Días', valor: nro(resumen.diasRango, 0), nota: resumen.dias.length === resumen.diasRango ? 'todos con operación' : `${nro(resumen.dias.length, 0)} con operación` },
     { k: 'ton', titulo: 'Toneladas', valor: `${nro(resumen.toneladas)} t`, nota: resumen.sinPeso > 0 ? `${nro(resumen.conPeso, 0)} viaje(s) pesados` : 'carga transportada' },
     { k: 'via', titulo: 'Viajes', valor: nro(resumen.viajes, 0), nota: `${nro(resumen.viajesPorDiaProm, 1)} por día` },
     { k: 'flo', titulo: 'Flota máxima', valor: `${nro(resumen.flotaMax, 0)} camión(es)`, nota: textoPicoFlota(resumen.flotaMaxJornadas) || `${nro(resumen.flotaRango, 0)} en el rango` },
