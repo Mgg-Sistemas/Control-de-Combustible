@@ -65,6 +65,7 @@ import {
 } from '../lib/horometroTrabajo';
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { FrentesReportesCard } from '../components/FrentesReportesCard';
+import { ReporteMaquinariaPersonalizadoCard } from '../components/ReporteMaquinariaPersonalizadoCard';
 import { cargarFotosHorometroRango } from '../lib/horometroFotosDb';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import { equipCategory } from '../lib/equipos';
@@ -598,7 +599,7 @@ export default function ReportsScreen({ route }: any) {
   const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [eqOxicorte, setEqOxicorte] = useState(true); // incluir (true) o quitar (false) los equipos de oxicorte
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones' | 'horometro' | 'frentes'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones' | 'horometro' | 'frentes' | 'personalizado'>('fuel');
   // 📍 Ubicaciones (22-sep-2026): qué columnas se esconden en el PDF.
   const [opUbic, setOpUbic] = useState<OpcionesUbicaciones>(OPCIONES_UBICACIONES_COMPLETO);
   // 📍 Ubicaciones: RESUMIDO (una línea por máquina, agrupado Este/Oeste como en el
@@ -3351,6 +3352,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'ubicaciones', label: '📍 Ubicaciones' },
           { v: 'horometro', label: '⚙️ Horómetro' },
           { v: 'frentes', label: '⛏️ Frentes' },
+          { v: 'personalizado', label: '🛠️ Personalizado' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -3408,6 +3410,11 @@ export default function ReportsScreen({ route }: any) {
             No usa el rango ni el botón de generar de esta pantalla. */}
         {mode === 'frentes' ? (
           <FrentesReportesCard />
+        ) : mode === 'personalizado' ? (
+          // 🛠️ REPORTE PERSONALIZADO (09-oct-2026): taller de papel que SOLO LEE el
+          //    catálogo; todo lo que se edita vive en la tarjeta y no toca la base.
+          //    No usa el rango ni el botón de generar de esta pantalla.
+          <ReporteMaquinariaPersonalizadoCard />
         ) : mode === 'camiones' ? (
           <View>
             <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.xs }}>Mes del reporte (muestra sus 4–5 semanas)</Text>
@@ -3993,8 +4000,8 @@ export default function ReportsScreen({ route }: any) {
             </Text>
           </View>
         ) : null}
-        {/* ⛏️ Frentes trae sus propios botones (asignar, PDF del día): el genérico no aplica. */}
-        {mode !== 'frentes' ? (
+        {/* ⛏️ Frentes y 🛠️ Personalizado traen sus propios botones: el genérico no aplica. */}
+        {mode !== 'frentes' && mode !== 'personalizado' ? (
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>

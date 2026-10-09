@@ -269,7 +269,8 @@ ok('y ofrece también los frentes activos sin asignación',
 
   const rep = leer('src/screens/ReportsScreen.tsx');
   ok('⭐ Reportes tiene la pestaña ⛏️ Frentes', /\{ v: 'frentes', label: '⛏️ Frentes' \}/.test(rep) && /mode === 'frentes' \? \(\s*<FrentesReportesCard \/>/.test(rep));
-  ok('⭐ el botón «Generar» genérico no sale en esa pestaña', /\{mode !== 'frentes' \? \(/.test(rep));
+  // 09-oct-2026: la pestaña «Personalizado» también esconde el botón genérico.
+  ok('⭐ el botón «Generar» genérico no sale en esa pestaña', /\{mode !== 'frentes' && mode !== 'personalizado' \? \(/.test(rep));
   const viajes = leer('src/screens/ViajesCamionesScreen.tsx');
   ok('⭐ viajes sigue montando el apartado SIN tipo (camiones, como siempre)', /<FrentesTrabajo\s*\n\s*frentes=\{frentes\}/.test(viajes) && !/tipo="maquinas"/.test(viajes));
 }
