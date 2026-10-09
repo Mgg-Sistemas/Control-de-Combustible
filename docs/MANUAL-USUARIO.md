@@ -6727,7 +6727,9 @@ flota)»**, debajo del pago por peso (solo con permiso completo).
 
 **Todas las opciones:** rango libre con atajos (Hoy / Esta semana / Semana pasada / Este mes);
 filtros por **zona, obra, empresa y camión** (con buscador) que se cruzan — filtrar cambia los
-números y el papel sale marcado «FILTRADO»; pastillas de **qué se oculta** (resumen, gráfico,
+números y el papel sale marcado «FILTRADO» en el subtítulo (eso no se apaga); el **cuadro de
+alcance** obedece su pastilla siempre, hasta filtrado (a diferencia de los papeles de pago,
+donde se fuerza porque el filtro mueve plata); pastillas de **qué se oculta** (resumen, gráfico,
 tabla, y columna por columna), nombres de empresa anónimos si hace falta; y los **cinco logos**
 a elegir (BCV, SOS, Golden Touch, Renace, Jhenzaen) — nace sin logos y sin la marca del pie.
 

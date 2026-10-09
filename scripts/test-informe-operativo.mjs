@@ -148,7 +148,7 @@ ok('⭐⭐ NI UN SIGNO DE DINERO en el papel', !/\$|USD|[Mm]onto|[Tt]arifa|factu
 ok('los cuadros grandes salen', /Toneladas totales/.test(html) && /Flota activa máxima/.test(html) && /Eficiencia de carga/.test(html));
 ok('⭐ el primer cuadro es Días transcurridos, con los días con operación al lado',
   /Días transcurridos/.test(html) && html.indexOf('Días transcurridos') < html.indexOf('Toneladas totales'));
-ok('…y el alcance filtrado también los dice', /día\(s\) transcurridos, 2 con operación/.test(L.cuerpoInformeOperativo({ ...base, filtro: { empresas: [], obras: [], zonas: ['Este'], camiones: [] } })));
+ok('…y el alcance (encendido) también los dice', /día\(s\) transcurridos, 2 con operación/.test(L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinAlcance: false }, filtro: { empresas: [], obras: [], zonas: ['Este'], camiones: [] } })));
 ok('la tabla diaria sale con sus columnas', /Tabla operativa diaria/.test(html) && /<th>Día<\/th>/.test(html) && /<th class="r">Flota<\/th>/.test(html) && /T\/Viaje/.test(html));
 ok('la fila TOTAL / PROM. cierra la tabla', /TOTAL \/ PROM\./.test(html) && /\(máx\)/.test(html));
 ok('⭐ el papel DICE los viajes sin peso', /no tienen peso de romana/.test(html) && /Nada se inventa/.test(html));
@@ -168,8 +168,15 @@ ok('los cuadros extra se encienden', /Totales por empresa/.test(htmlExtras) && /
 const htmlAnon = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinPorEmpresa: false, sinEmpresas: true } });
 ok('«sin nombres»: Empresa 1, Empresa 2… y el nombre real no sale', /Empresa 1/.test(htmlAnon) && !/EMPRESA UNO/.test(htmlAnon));
 
-const htmlFiltrado = L.cuerpoInformeOperativo({ ...base, filtro: { empresas: [], obras: [], zonas: ['Este'], camiones: [] } });
-ok('⭐ FILTRADO: el alcance sale AUNQUE esté apagado, y lo canta', /FILTRADO: este papel NO es toda la operación/.test(htmlFiltrado) && /Solo zona\(s\): Este/.test(htmlFiltrado));
+// ⚠️ REGLA PROPIA DE ESTE PAPEL (09-oct-2026, a pedido: «quiero quitar el
+//    alcance y aún lo deja»): la pastilla manda SIEMPRE, hasta filtrado — a
+//    diferencia de los papeles de PAGO, donde el filtro mueve plata y se fuerza.
+//    La honestidad queda en el subtítulo («FILTRADO»), que no se puede apagar.
+const filtroEste = { empresas: [], obras: [], zonas: ['Este'], camiones: [] };
+const htmlFiltrado = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinAlcance: false }, filtro: filtroEste });
+ok('⭐ filtrado con alcance ENCENDIDO: lo canta', /FILTRADO: este papel NO es toda la operación/.test(htmlFiltrado) && /Solo zona\(s\): Este/.test(htmlFiltrado));
+ok('⭐ filtrado con alcance APAGADO: la pastilla manda y el cuadro NO sale',
+  !/Alcance del informe/.test(L.cuerpoInformeOperativo({ ...base, filtro: filtroEste })));
 
 // El gráfico con demasiados días no sale (sería pulpa) y el papel lo dice.
 {
@@ -207,7 +214,8 @@ ok('⚡ la tarjeta consulta SOLO al abrirse (regla del 06-oct)', /onAbrir=\{\(ab
 ok('⭐ la consulta corta por jornada 7am a 7am y solo el rango', /gte\('registered_at', `\$\{desde\}T07:00:00-04:00`\)/.test(srcCard) && /\.lt\('registered_at', `\$\{finExclusivo\}T07:00:00-04:00`\)/.test(srcCard));
 ok('🏷️ nace sin logos y sin la marca en texto', /marcaTexto: false/.test(srcCard) && /bcv: false, sos: false, golden: false, renace: false, jhenzaen: false/.test(srcCard));
 ok('los cinco logos se pueden encender', ['bcv', 'sos', 'golden', 'renace', 'jhenzaen'].every((k) => srcCard.includes(`{ k: '${k}',`)));
-ok('⭐ un papel filtrado SIEMPRE lleva el alcance', /filtrado \? \{ \.\.\.opciones, sinAlcance: false \} : opciones/.test(srcCard));
+ok('⭐ la tarjeta NO pisa la pastilla del alcance al filtrar', !/sinAlcance: false/.test(srcCard));
+ok('⭐ …pero el «FILTRADO» del subtítulo no se puede apagar', /\$\{filtrado \? ' · FILTRADO' : ''\}/.test(srcCard));
 // (el `.delete(` de los Set de filtros no cuenta: lo que se vigila es la base)
 ok('no escribe NADA en la base (puro papel de lectura)',
   !/supabase\s*\.\s*from\(/.test(srcCard) && !/\.insert\(|\.upsert\(|\.rpc\(/.test(srcCard)
