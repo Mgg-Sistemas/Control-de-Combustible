@@ -71,11 +71,11 @@ ok('resumen: estado vacío cuenta como «Sin estado»', r.porEstado.some(([l, n]
 
 // ——— 3. El papel con las opciones de nacimiento ———
 const html = L.cuerpoReportePersonalizado({ filas, opciones: L.OPCIONES_PERSONALIZADO_INICIAL, nota: 'Nota de prueba' });
-ok('salen los cuadros del resumen', html.includes('class="tiles"') && html.includes('Máquinas en el reporte'));
+ok('salen los cuadros del resumen', html.includes('class="tiles"') && html.includes('Equipos en el reporte'));
 ok('sale la tabla con el código', html.includes('<th>Código</th>') && html.includes('M-1'));
 ok('⭐ encargado/horómetro/peso/medidas/notas NACEN ocultos', !html.includes('<th>Encargado</th>') && !html.includes('<th>Horómetro</th>') && !html.includes('<th>Peso</th>') && !html.includes('<th>Medidas</th>') && !html.includes('<th>Notas</th>'));
-ok('el cuadro por empresa NACE oculto', !html.includes('Máquinas por empresa'));
-ok('fila TOTAL al pie', html.includes('TOTAL: 4 máquina(s)'));
+ok('el cuadro por empresa NACE oculto', !html.includes('Equipos por empresa'));
+ok('fila TOTAL al pie', html.includes('TOTAL: 4 equipo(s)'));
 ok('lo vacío sale como «—»', html.includes('>—<'));
 ok('⭐ el HTML se escapa (nada de <script> crudo)', !html.includes('<script>') && html.includes('&lt;script&gt;'));
 ok('la nota del encabezado sale', html.includes('Nota de prueba'));
@@ -87,7 +87,7 @@ ok('sinResumen apaga los cuadros', !L.cuerpoReportePersonalizado({ filas, opcion
 ok('sinTabla deja solo el resumen', !L.cuerpoReportePersonalizado({ filas, opciones: o({ sinTabla: true }) }).includes('<table'));
 ok('sinSerial quita la columna', !L.cuerpoReportePersonalizado({ filas, opciones: o({ sinSerial: true }) }).includes('<th>Serial</th>'));
 const conEmp = L.cuerpoReportePersonalizado({ filas, opciones: o({ sinPorEmpresa: false }) });
-ok('encender el cuadro por empresa lo trae, con «Sin empresa» para las vacías', conEmp.includes('Máquinas por empresa') && conEmp.includes('Sin empresa'));
+ok('encender el cuadro por empresa lo trae, con «Sin empresa» para las vacías', conEmp.includes('Equipos por empresa') && conEmp.includes('Sin empresa'));
 const conExtra = L.cuerpoReportePersonalizado({ filas, opciones: o({ sinEncargado: false, sinNotas: false }) });
 ok('encender encargado y notas las trae', conExtra.includes('<th>Encargado</th>') && conExtra.includes('<th>Notas</th>'));
 ok('sin nota del encabezado no sale el párrafo', !L.cuerpoReportePersonalizado({ filas, opciones: L.OPCIONES_PERSONALIZADO_INICIAL }).includes('class="n"'));
@@ -115,6 +115,14 @@ ok('solo lee con selectAllRows', /import \{ selectAllRows \} from '\.\.\/lib\/su
 ok('lee el catálogo (machinery) y las averías pendientes para sugerir el estado',
   /selectAllRows\(\s*'machinery'/.test(srcCard) && /selectAllRows\('maintenance_requests'/.test(srcCard) && /eq\('status', 'pendiente'\)/.test(srcCard));
 ok('⭐ la fecha de emisión elegida viaja al membrete', /emitida: emitidaTexto\(fechaEmision\) \|\| undefined/.test(srcCard));
+// 🚗 Vehículos (09-oct-2026, a pedido: «también podría incluir vehículos»):
+ok('🚗 los vehículos también entran al taller', /selectAllRows\('vehicles'/.test(srcCard));
+ok('🚗 si su select completo falla, se cae a lo básico y luego a nada (no tumba el taller)',
+  /selectAllRows\('vehicles', 'id, plate, brand, model, vehicle_type, active'\)\.catch\(\(\) => \[\] as any\[\]\)/.test(srcCard));
+ok('🚗 la clave local del vehículo lleva el prefijo veh- (así se pinta el 🚗 sin ensuciar la fila)',
+  /id: `veh-\$\{String\(v\.id\)\}`/.test(srcCard) && /startsWith\('veh-'\)/.test(srcCard));
+ok('🚗 hay filtro Todos / Máquinas / Vehículos en el buscador',
+  srcCard.includes("pastilla('f-maq', '🚜 Máquinas'") && srcCard.includes("pastilla('f-veh', '🚗 Vehículos'"));
 ok('vaciar el papel pide confirmación (doble toque)', srcCard.includes('¿Seguro? Toca otra vez'));
 ok('el estado también se puede escribir libre', srcCard.includes('Estado libre…'));
 ok('hay fila manual en blanco', /filaVacia\(`manual-\$\{manuales \+ 1\}`\)/.test(srcCard));

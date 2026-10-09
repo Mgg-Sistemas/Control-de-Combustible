@@ -3582,12 +3582,13 @@ que lo saco… **todo modificable, sin que me dañe nada en el sistema**».
 
 **Dónde:** Reportes → pestaña **«🛠️ Personalizado»**.
 
-**Qué es: un taller de papel.** Al abrirlo, el sistema le **presta** el catálogo de maquinaria como
-punto de partida (código, marca, modelo, clasificación, serial, placa, empresa, zona, encargado,
+**Qué es: un taller de papel.** Al abrirlo, el sistema le **presta** el catálogo — la maquinaria **y los vehículos** (09/10/2026, a pedido), con su filtro
+🚜 Máquinas / 🚗 Vehículos en el buscador — como punto de partida (código, marca, modelo, clasificación, serial, placa, empresa, zona, encargado,
 horómetro, peso, medidas y el **estado real**: operativa, averiada, parada, esperando instrucciones,
 retirada o inactiva). De ahí en adelante **todo es tuyo**:
 
-- **Agregar o quitar máquinas**: buscador por código, placa, serial, marca o empresa; «agregar
+- **Agregar o quitar equipos** (máquinas y vehículos; el vehículo sale con su 🚗): buscador por
+  código, placa, serial, marca o empresa; «agregar
   todas las de la búsqueda»; **filas manuales en blanco** para máquinas que no están en el catálogo;
   ✕ por fila o 🧹 vaciar el papel (pide doble toque).
 - **Editar cualquier celda**: empresa (escribe el nombre que necesites), estado (pastillas con los
