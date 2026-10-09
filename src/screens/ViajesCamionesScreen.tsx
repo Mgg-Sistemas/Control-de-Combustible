@@ -61,6 +61,7 @@ import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { ReporteTarasBox } from '../components/ReporteTarasBox';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { PagoPesoResumen } from '../components/PagoPesoResumen';
+import { InformeOperativoCard } from '../components/InformeOperativoCard';
 import { HistorialTiqueModal } from '../components/HistorialTiqueModal';
 import QrScanner from '../components/QrScanner';
 import { resolverCamionDeQr, MENSAJE_QR } from '../lib/viajesQr';
@@ -5132,6 +5133,11 @@ export default function ViajesCamionesScreen() {
               viajes; de normal se paga por el peso que cargue el camión»). Apartado
               hermano con tablas y papel propios; respeta el «no facturó» de arriba. */}
           <PagoPesoResumen canEdit={canFull} usuarioId={uid || null} />
+
+          {/* 📊 INFORME OPERATIVO (09-oct-2026, a pedido, con un consolidado de
+              otra empresa de muestra): flota, viajes y toneladas por día, con
+              gráfico — SIN montos. No toca pagos: es papel de lectura. */}
+          <InformeOperativoCard canVer={canFull} />
 
           <Plegable
             titulo="🚛 Lista completa de viajes"
