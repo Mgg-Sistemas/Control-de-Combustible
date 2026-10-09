@@ -6699,6 +6699,39 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### 📊 Informe operativo de transporte y carga (09/10/2026)
+
+El consolidado ejecutivo del rango que elijas, **sin un solo monto** — es de operación, no de
+cobro. Vive en **Viajes de camiones → panel de información → «📊 Informe operativo (carga y
+flota)»**, debajo del pago por peso (solo con permiso completo).
+
+**Qué trae:**
+
+- Los **cuadros grandes**: toneladas totales, viajes totales (con su promedio por día), flota
+  activa máxima (con su día pico) y la eficiencia en **toneladas por viaje**.
+- La **tabla diaria**: fecha, día de la semana, flota (camiones distintos que trabajaron),
+  viajes, viajes sin peso, toneladas y T/viaje — con su fila de TOTAL/PROMEDIO.
+- El **gráfico** de barras (carga) con la línea de camiones encima.
+- Dos cuadros extra que **nacen apagados**: totales por empresa y por camión.
+
+**Las reglas:**
+
+1. **Entran todos los viajes** registrados, sin mirar modos de pago ni marcas de «no facturó».
+2. **Nada se inventa**: las toneladas salen solo del peso de romana congelado en cada viaje; un
+   viaje sin pesar cuenta como viaje, suma 0 toneladas, y el papel dice cuántos quedaron así.
+   El T/viaje se calcula sobre los **pesados**.
+3. La jornada es la de siempre, **7am a 7am**: contra un papel ajeno que corte a medianoche, un
+   mismo «día» puede no cuadrar exacto.
+
+**Todas las opciones:** rango libre con atajos (Hoy / Esta semana / Semana pasada / Este mes);
+filtros por **zona, obra, empresa y camión** (con buscador) que se cruzan — filtrar cambia los
+números y el papel sale marcado «FILTRADO»; pastillas de **qué se oculta** (resumen, gráfico,
+tabla, y columna por columna), nombres de empresa anónimos si hace falta; y los **cinco logos**
+a elegir (BCV, SOS, Golden Touch, Renace, Jhenzaen) — nace sin logos y sin la marca del pie.
+
+> ⚠️ Con más de **62 días** el gráfico no sale (serían barras ilegibles) y el papel lo dice.
+> Hay pesos de romana desde el **14/09/2026**: antes de esa fecha todo sale «sin peso».
+
 #### 🗑️ Eliminar una avería, y el «eliminar» de los informes que no eliminaba (09/10/2026)
 
 **1. Cada avería ya se puede eliminar.** En la lista de averías de Servicio de maquinaria,
