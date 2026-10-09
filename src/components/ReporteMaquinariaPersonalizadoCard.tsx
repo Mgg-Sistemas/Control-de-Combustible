@@ -75,6 +75,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const [logos, setLogos] = useState<Logos>(LOGOS_POR_DEFECTO);
   const [marcaTexto, setMarcaTexto] = useState(true);
   const [busca, setBusca] = useState('');
+  const [fuente, setFuente] = useState<'todos' | 'maq' | 'veh'>('todos');
   const [manuales, setManuales] = useState(0);
   const [confirmaVaciar, setConfirmaVaciar] = useState(false);
   const [descargando, setDescargando] = useState(false);
@@ -82,7 +83,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
   const cargar = useCallback(async () => {
     setCargando(true); setError(null);
     try {
-      const [maqs, averias] = await Promise.all([
+      const [maqs, averias, vehs] = await Promise.all([
         selectAllRows(
           'machinery',
           'id, code, marca, modelo, clasificacion, serial, plate, zona, location, encargado, operational, en_espera, active, weight_ton, length_m, width_m, height_m, last_horometro, company:company_id(name)',
@@ -90,6 +91,12 @@ export function ReporteMaquinariaPersonalizadoCard() {
         // Las averías solo SUGIEREN el estado: si este rol no puede leerlas
         // (RLS de otro módulo), el papel sale igual, con «Operativa» de base.
         selectAllRows('maintenance_requests', 'machinery_id, material', (q: any) => q.eq('status', 'pendiente')).catch(() => [] as any[]),
+        // 🚗 Vehículos (09-oct-2026, a pedido): entran al taller igual que las
+        //    máquinas. Algunas columnas de su ficha llegaron por SQL opcional,
+        //    así que si el select completo falla se cae a lo básico, y si ni
+        //    eso se puede leer, el taller sigue solo con la maquinaria.
+        selectAllRows('vehicles', 'id, plate, name, brand, model, vehicle_type, clasificacion, serial, encargado, en_espera, active, company:company_id(name)')
+          .catch(() => selectAllRows('vehicles', 'id, plate, brand, model, vehicle_type, active').catch(() => [] as any[])),
       ]);
       // Avería pendiente → sugiere Parada (si fue «MÁQUINA PARADA») o Averiada.
       const averiaDe = new Map<string, string>();
@@ -98,7 +105,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
         const esta = limpio(a.material) === 'MÁQUINA PARADA' ? 'Parada' : 'Averiada';
         if (prev !== 'Averiada') averiaDe.set(String(a.machinery_id), prev === 'Parada' && esta === 'Averiada' ? 'Averiada' : esta);
       });
-      setCatalogo(((maqs as any[]) ?? []).map((m) => ({
+      const filasMaq = (((maqs as any[]) ?? []).map((m) => ({
         id: String(m.id),
         code: limpio(m.code),
         marca: limpio(m.marca),
@@ -118,7 +125,29 @@ export function ReporteMaquinariaPersonalizadoCard() {
         peso: Number.isFinite(Number(m.weight_ton)) && Number(m.weight_ton) > 0 ? `${n2(m.weight_ton)} t` : '',
         medidas: medidasFicha(m.height_m, m.length_m, m.width_m),
         nota: '',
-      })).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })));
+      })) as FilaPersonalizada[]).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
+      // El vehículo entra con el prefijo «veh-» en su clave local: así la
+      // tarjeta sabe pintarle el 🚗 sin agregarle campos a la fila (que sigue
+      // siendo puro texto editable, igual que la de una máquina).
+      const filasVeh = ((((vehs as any[]) ?? []).map((v) => ({
+        id: `veh-${String(v.id)}`,
+        code: limpio(v.name) || limpio(v.plate),
+        marca: limpio(v.brand),
+        modelo: limpio(v.model),
+        clasificacion: limpio(v.clasificacion) || limpio(v.vehicle_type),
+        serial: limpio(v.serial),
+        plate: limpio(v.plate),
+        empresa: limpio(v.company?.name),
+        zona: '',
+        encargado: limpio(v.encargado),
+        // Los vehículos no tienen «operational» ni averías de taller:
+        estado: v.active === false ? 'Inactiva' : v.en_espera === true ? 'Esperando instrucciones' : 'Operativa',
+        horometro: '',
+        peso: '',
+        medidas: '',
+        nota: '',
+      })) as FilaPersonalizada[])).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
+      setCatalogo([...filasMaq, ...filasVeh]);
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
@@ -129,11 +158,13 @@ export function ReporteMaquinariaPersonalizadoCard() {
   useEffect(() => { void cargar(); }, [cargar]);
 
   const enPapel = useMemo(() => new Set(filas.map((f) => f.id)), [filas]);
+  const esVehiculo = (id: string) => id.startsWith('veh-');
   const coincidentes = useMemo(() => {
     const q = norm(busca);
-    if (!q) return catalogo;
-    return catalogo.filter((m) => norm(`${m.code} ${m.plate} ${m.serial} ${m.marca} ${m.modelo} ${m.clasificacion} ${m.empresa}`).includes(q));
-  }, [catalogo, busca]);
+    return catalogo.filter((m) =>
+      (fuente === 'todos' || (fuente === 'veh') === esVehiculo(m.id))
+      && (!q || norm(`${m.code} ${m.plate} ${m.serial} ${m.marca} ${m.modelo} ${m.clasificacion} ${m.empresa}`).includes(q)));
+  }, [catalogo, busca, fuente]);
 
   // Quitar y reordenar: SIN tocar nada fuera de la tarjeta (es puro estado local).
   const agregar = (m: FilaPersonalizada) => setFilas((prev) => (prev.some((f) => f.id === m.id) ? prev : [...prev, { ...m }]));
@@ -201,12 +232,13 @@ export function ReporteMaquinariaPersonalizadoCard() {
     <View>
       <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🛠️ Reporte personalizado de maquinaria</Text>
       <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.xs }}>
-        {cargando ? 'Leyendo el catálogo…' : filas.length === 0 ? 'El papel está vacío: busca y agrega máquinas abajo.' : `${filas.length} máquina(s) en el papel.`}
+        {cargando ? 'Leyendo el catálogo…' : filas.length === 0 ? 'El papel está vacío: busca y agrega máquinas o vehículos abajo.' : `${filas.length} equipo(s) en el papel.`}
       </Text>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-        Taller de papel: el sistema te PRESTA los datos del catálogo como punto de partida y de ahí todo
-        es tuyo — agrega o quita máquinas, corrige empresas, estados, fechas, lo que sea. Nada de lo que
-        edites aquí se guarda ni toca el catálogo: al salir de la pantalla, el borrador se borra.
+        Taller de papel: el sistema te PRESTA los datos del catálogo (máquinas y vehículos) como punto de
+        partida y de ahí todo es tuyo — agrega o quita equipos, corrige empresas, estados, fechas, lo que
+        sea. Nada de lo que edites aquí se guarda ni toca el catálogo: al salir de la pantalla, el
+        borrador se borra.
       </Text>
       {error ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>⚠️ {error}</Text> : null}
 
@@ -240,12 +272,17 @@ export function ReporteMaquinariaPersonalizadoCard() {
         </View>
       ) : null}
 
-      {rotulo('🚜 AGREGAR MÁQUINAS DEL CATÁLOGO (toca para meter o sacar)')}
+      {rotulo('🚜 AGREGAR MÁQUINAS Y VEHÍCULOS DEL CATÁLOGO (toca para meter o sacar)')}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+        {pastilla('f-todos', 'Todos', fuente === 'todos', () => setFuente('todos'))}
+        {pastilla('f-maq', '🚜 Máquinas', fuente === 'maq', () => setFuente('maq'))}
+        {pastilla('f-veh', '🚗 Vehículos', fuente === 'veh', () => setFuente('veh'))}
+      </View>
       <TextInput value={busca} onChangeText={setBusca} placeholder="🔎 Buscar por código, placa, serial, marca o empresa…" placeholderTextColor={colors.muted}
         style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 6, color: colors.text, fontSize: 13, backgroundColor: colors.surface }} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
         {coincidentes.slice(0, MAX_PASTILLAS_CATALOGO).map((m) =>
-          pastilla(m.id, `${enPapel.has(m.id) ? '✓ ' : ''}${m.code || m.plate || m.serial || '—'}`, enPapel.has(m.id),
+          pastilla(m.id, `${enPapel.has(m.id) ? '✓ ' : ''}${esVehiculo(m.id) ? '🚗 ' : ''}${m.code || m.plate || m.serial || '—'}`, enPapel.has(m.id),
             () => (enPapel.has(m.id) ? quitar(m.id) : agregar(m))))}
       </View>
       {coincidentes.length > MAX_PASTILLAS_CATALOGO ? (
@@ -261,7 +298,7 @@ export function ReporteMaquinariaPersonalizadoCard() {
       {filas.map((f, i) => (
         <View key={f.id} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.xs, backgroundColor: colors.surfaceAlt }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>{i + 1}. {f.code || '(sin código)'}</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>{i + 1}. {esVehiculo(f.id) ? '🚗 ' : ''}{f.code || '(sin código)'}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.xs }}>
               {pastilla(`up${f.id}`, '↑', false, () => mover(i, -1))}
               {pastilla(`dn${f.id}`, '↓', false, () => mover(i, 1))}

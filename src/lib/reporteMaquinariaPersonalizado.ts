@@ -197,7 +197,7 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
   if (!o.sinResumen) {
     const r = resumenPersonalizado(d.filas);
     const tiles = [
-      `<div class="tile"><div class="t">${r.total}</div><div class="s">Máquinas en el reporte</div></div>`,
+      `<div class="tile"><div class="t">${r.total}</div><div class="s">Equipos en el reporte</div></div>`,
       ...r.porEstado.map(([label, n]) => `<div class="tile"><div class="t">${n}</div><div class="s">${esc(label)}</div></div>`),
     ];
     partes.push(`<div class="tiles">${tiles.join('')}</div>`);
@@ -236,7 +236,7 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
       if (!o.sinNotas) c.push(`<td>${celda(f.nota)}</td>`);
       return `<tr>${c.join('')}</tr>`;
     });
-    const total = `<tr class="total"><td colspan="${cab.length}">TOTAL: ${d.filas.length} máquina(s)</td></tr>`;
+    const total = `<tr class="total"><td colspan="${cab.length}">TOTAL: ${d.filas.length} equipo(s)</td></tr>`;
     partes.push(`<table><thead><tr>${cab.join('')}</tr></thead><tbody>${filas.join('')}</tbody><tfoot>${total}</tfoot></table>`);
   }
 
@@ -250,7 +250,7 @@ export function cuerpoReportePersonalizado(d: DatosPapelPersonalizado): string {
     });
     const filas = Array.from(m.values()).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'es'))
       .map((e) => `<tr><td>${esc(e.label)}</td><td class="c b">${e.n}</td></tr>`);
-    partes.push(`<h3>Máquinas por empresa</h3><table><thead><tr><th>Empresa</th><th>Máquinas</th></tr></thead><tbody>${filas.join('')}</tbody></table>`);
+    partes.push(`<h3>Equipos por empresa</h3><table><thead><tr><th>Empresa</th><th>Equipos</th></tr></thead><tbody>${filas.join('')}</tbody></table>`);
   }
 
   return partes.join('\n');
