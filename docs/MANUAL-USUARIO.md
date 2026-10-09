@@ -3574,6 +3574,45 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+#### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
+
+Pedido del cliente: «un reporte independiente, que **reciba información pero no envíe**; que yo le
+pueda cargar o quitar máquinas, colocar o quitar nombres de empresas, cambiar estados y la fecha en
+que lo saco… **todo modificable, sin que me dañe nada en el sistema**».
+
+**Dónde:** Reportes → pestaña **«🛠️ Personalizado»**.
+
+**Qué es: un taller de papel.** Al abrirlo, el sistema le **presta** el catálogo de maquinaria como
+punto de partida (código, marca, modelo, clasificación, serial, placa, empresa, zona, encargado,
+horómetro, peso, medidas y el **estado real**: operativa, averiada, parada, esperando instrucciones,
+retirada o inactiva). De ahí en adelante **todo es tuyo**:
+
+- **Agregar o quitar máquinas**: buscador por código, placa, serial, marca o empresa; «agregar
+  todas las de la búsqueda»; **filas manuales en blanco** para máquinas que no están en el catálogo;
+  ✕ por fila o 🧹 vaciar el papel (pide doble toque).
+- **Editar cualquier celda**: empresa (escribe el nombre que necesites), estado (pastillas con los
+  estados del sistema **o texto libre**), horómetro, peso, notas… y **reordenar** las filas con ↑ ↓.
+- **Encabezado libre**: título, subtítulo, nota, **rango de fechas opcional** en el subtítulo y —
+  único papel del sistema con esto — **la fecha de emisión elegible**: la línea «Emitida» del
+  membrete sale con la fecha que pongas (los demás reportes siguen con la fecha real).
+- **Pastillas de qué se oculta** (resumen por estado, tabla, columna por columna; encargado,
+  horómetro, peso, medidas, notas y el cuadro por empresa **nacen ocultos**) y los **cinco logos**
+  más la marca en texto, a gusto.
+
+**Qué trae el PDF:** cuadros con el total y el conteo por estado, la tabla de máquinas con las
+columnas que dejaste y su fila de TOTAL, y (si lo enciendes) el cuadro de máquinas por empresa.
+Lo vacío sale «—».
+
+**Recibe pero no envía.** La pestaña **solo lee**: nada de lo que edites se guarda ni toca el
+catálogo, la ficha de ninguna máquina ni nada en la base — no hay botón de guardar, y al salir de la
+pestaña el borrador se borra. Un candado de la suite de pruebas vigila que el código no tenga ni un
+insert/update/delete.
+
+**Quién puede:** cualquiera que vea Reportes (es solo lectura + papel).
+
+⚠️ **Por lo mismo que es libre**, el papel dice lo que tú escribiste: si cambias un estado o una
+empresa, eso es lo que sale — el sistema no lo valida ni lo recuerda.
+
 #### 🧭 Punto cardinal (Este / Oeste) en la Lista completa (03/10/2026)
 
 En «🖨️ Qué sale en el reporte» hay un interruptor nuevo **«🧭 Punto cardinal (Este / Oeste)»**,
