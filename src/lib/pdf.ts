@@ -94,6 +94,13 @@ export function pdfDocument(opts: {
    * del código: es un interruptor, como los logos.
    */
   marcaTexto?: boolean;
+  /**
+   * 📅 El texto de la línea «Emitida:» (09-oct-2026). SIN pasarlo sale la
+   * fecha/hora real de siempre (nowStamp()): los reportes que ya existen no
+   * cambian en nada. El reporte personalizado de maquinaria lo pasa para que
+   * la fecha de emisión sea elegible — es otro interruptor, como los logos.
+   */
+  emitida?: string;
 }): string {
   const { title, subtitle = '', body, extraCss = '' } = opts;
   const L = { bcv: opts.logos?.bcv ?? true, sos: opts.logos?.sos ?? true, golden: opts.logos?.golden ?? false, renace: opts.logos?.renace ?? false, jhenzaen: opts.logos?.jhenzaen ?? false };
@@ -113,7 +120,7 @@ export function pdfDocument(opts: {
       </div>
       <div class="brand-right">
         ${L.sos ? `<div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>` : ''}
-        <div class="emit"><span class="k">Emitida:</span> ${nowStamp()}</div>
+        <div class="emit"><span class="k">Emitida:</span> ${opts.emitida ?? nowStamp()}</div>
       </div>
     </div>
     <div class="rule"></div>
