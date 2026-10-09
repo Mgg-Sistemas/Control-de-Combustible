@@ -106,9 +106,15 @@ eq('promedio de viajes por día', R.viajesPorDiaProm, 3);
 eq('⭐ T/Viaje promedio = 94 ÷ 5 pesados', R.tPorViajeProm, 18.8);
 eq('el del 09 quedó fuera del rango', R.viajes, 6);
 eq('sin viajes: todo en cero y sin reventar', L.resumenOperativo([], '2026-10-01', '2026-10-02'), {
-  dias: [], toneladas: 0, viajes: 0, conPeso: 0, sinPeso: 0, flotaRango: 0, flotaMax: 0,
+  dias: [], diasRango: 2, toneladas: 0, viajes: 0, conPeso: 0, sinPeso: 0, flotaRango: 0, flotaMax: 0,
   flotaMaxJornadas: [], tPorViajeProm: null, viajesPorDiaProm: 0,
 });
+
+// 📆 DÍAS TRANSCURRIDOS (09-oct-2026, a pedido: «le faltó los días transcurridos»).
+eq('el rango de la muestra: 27-sep al 07-oct son 11 días', L.resumenOperativo([], '2026-09-27', '2026-10-07').diasRango, 11);
+eq('un solo día cuenta 1', L.resumenOperativo([], '2026-10-06', '2026-10-06').diasRango, 1);
+eq('cruza de mes sin perderse', L.resumenOperativo([], '2026-09-30', '2026-10-02').diasRango, 3);
+eq('el resumen del fixture: 2 días transcurridos y 2 con operación', [R.diasRango, R.dias.length], [2, 2]);
 {
   // Empate del pico en dos días → los dos salen.
   const RR = L.resumenOperativo([
@@ -140,6 +146,9 @@ const html = L.cuerpoInformeOperativo(base);
 
 ok('⭐⭐ NI UN SIGNO DE DINERO en el papel', !/\$|USD|[Mm]onto|[Tt]arifa|factur/.test(html));
 ok('los cuadros grandes salen', /Toneladas totales/.test(html) && /Flota activa máxima/.test(html) && /Eficiencia de carga/.test(html));
+ok('⭐ el primer cuadro es Días transcurridos, con los días con operación al lado',
+  /Días transcurridos/.test(html) && html.indexOf('Días transcurridos') < html.indexOf('Toneladas totales'));
+ok('…y el alcance filtrado también los dice', /día\(s\) transcurridos, 2 con operación/.test(L.cuerpoInformeOperativo({ ...base, filtro: { empresas: [], obras: [], zonas: ['Este'], camiones: [] } })));
 ok('la tabla diaria sale con sus columnas', /Tabla operativa diaria/.test(html) && /<th>Día<\/th>/.test(html) && /<th class="r">Flota<\/th>/.test(html) && /T\/Viaje/.test(html));
 ok('la fila TOTAL / PROM. cierra la tabla', /TOTAL \/ PROM\./.test(html) && /\(máx\)/.test(html));
 ok('⭐ el papel DICE los viajes sin peso', /no tienen peso de romana/.test(html) && /Nada se inventa/.test(html));
@@ -148,7 +157,7 @@ ok('los cuadros extra nacen apagados', !/Totales por empresa/.test(html) && !/To
 ok('sin filtro, el alcance nace apagado', !/Alcance del informe/.test(html));
 
 const htmlSin = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinKpis: true, sinGrafico: true, sinFlota: true, sinDiaSemana: true, sinTPorViaje: true, sinSinPeso: true } });
-ok('sinKpis quita los cuadros grandes', !/Toneladas totales/.test(htmlSin));
+ok('sinKpis quita los cuadros grandes', !/Toneladas totales/.test(htmlSin) && !/Días transcurridos/.test(htmlSin));
 ok('sinGrafico quita el gráfico', !/<svg /.test(htmlSin));
 ok('sinFlota quita SU columna (y las demás quedan)', !/<th class="r">Flota<\/th>/.test(htmlSin) && /<th class="r">Viajes<\/th>/.test(htmlSin));
 ok('sinDiaSemana quita el Día', !/<th>Día<\/th>/.test(htmlSin));
