@@ -244,6 +244,38 @@ console.log('EL TALLER Y LAS AVERIAS\n');
     /\.eq\(\s*'status'\s*,\s*'pendiente'\s*\)/.test(vivo));
 }
 
+// ── ELIMINAR UNA AVERÍA (09-oct-2026, a pedido: «dale una opción de eliminar») ──
+{
+  const scr = fs.readFileSync(path.join(ROOT, 'src/screens/MantenimientoMaquinariaScreen.tsx'), 'utf8');
+
+  ok('⭐ cada avería tiene su botón de eliminar', /eliminarAveria\(r\)/.test(scr) && /🗑️ Eliminar/.test(scr));
+  ok('⭐ borrar exige permiso de ESCRITURA (marcar realizado no)',
+    /\{canWrite \? \([\s\S]{0,400}?eliminarAveria\(r\)/.test(scr));
+  ok('⭐ pregunta antes, en rojo', /const eliminarAveria = async[\s\S]*?await confirm\(\{[\s\S]*?danger: true/.test(scr));
+
+  // ⚠️ LA LECCIÓN DEL BUG DE LOS INFORMES (mismo día): un DELETE que la base
+  //    rechaza por permisos vuelve SIN error y con 0 filas. Si no se comprueba,
+  //    la pantalla canta éxito y no borró nada.
+  ok('⭐⭐ el borrado COMPRUEBA que borró algo',
+    /from\('maintenance_requests'\)\.delete\(\)\.eq\('id', r\.id\)\.select\('id'\)/.test(scr));
+  ok('⭐⭐ …y con 0 filas lo dice en vez de cantar éxito',
+    /const eliminarAveria = async[\s\S]*?if \(!data\?\.length\) return toast\.error/.test(scr));
+
+  // Borrar y cerrar son cosas distintas: si se confunden, el Historial —de donde
+  // sale el gasto por empresa— queda con huecos que nadie sabe explicar después.
+  ok('⭐ la pregunta distingue BORRAR de «Realizado»',
+    /no debió reportarse[\s\S]*?✓ Realizado/.test(scr));
+  ok('⭐ y avisa si la avería ya tiene hoja de servicio',
+    /conHoja \?[\s\S]{0,220}?hoja de servicio/.test(scr));
+
+  // Solo se borra la avería: la hoja de servicio y la máquina no se tocan.
+  const cuerpo = (scr.match(/const eliminarAveria = async[\s\S]*?\n  \};/) || [''])[0];
+  ok('⭐⭐ eliminar NO toca la máquina ni la hoja de servicio',
+    !/from\('machinery'\)/.test(cuerpo) && !/machinery_service_orders/.test(cuerpo) && !/operational/.test(cuerpo));
+  ok('⭐ y borra UNA sola fila, por id',
+    (cuerpo.match(/\.delete\(\)/g) || []).length === 1 && /\.eq\('id', r\.id\)/.test(cuerpo));
+}
+
 console.log('\n' + pass + ' OK · ' + fail + ' FALLO(S)');
 if (fail) { failures.forEach((f) => console.log('  ✗ ' + f)); process.exit(1); }
 console.log('El taller cierra el papel. La maquina no se mueve.');
