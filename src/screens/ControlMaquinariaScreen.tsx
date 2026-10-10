@@ -232,7 +232,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [priceTo, setPriceTo] = useState('');
   const [priceBlindar, setPriceBlindar] = useState(true); // blindar: clavar el precio a ese rango
   const [savingPrice, setSavingPrice] = useState(false);
-  const [esperaOpen, setEsperaOpen] = useState(false); // sección "En espera" (por recibir) desplegada
+  // Sección «En espera» (por recibir): null = automático (se abre sola al buscar,
+  // para que los resultados se vean); true/false = lo que el usuario tocó — LA
+  // PASTILLA MANDA (10-oct-2026, reportado: «esa opción de recibir no se contrae
+  // cuando le doy» — con texto en el buscador, el ‖!!q‖ viejo la dejaba clavada abierta).
+  const [esperaOpen, setEsperaOpen] = useState<boolean | null>(null);
   const [busyRecibir, setBusyRecibir] = useState<string | null>(null); // id de la máquina que se está recibiendo
   const [recibirDate, setRecibirDate] = useState<Record<string, string>>({}); // fecha de entrada elegida por máquina al recibir
 
@@ -1932,19 +1936,19 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       {enEspera.length > 0 ? (
         <View style={{ marginBottom: spacing.sm }}>
           <TouchableOpacity
-            onPress={() => setEsperaOpen((v) => !v)}
+            onPress={() => setEsperaOpen((v) => !(v ?? !!q))}
             activeOpacity={0.7}
             style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-              <Text style={{ color: colors.warning, fontSize: 16 }}>{(esperaOpen || !!q) ? '▾' : '▸'}</Text>
+              <Text style={{ color: colors.warning, fontSize: 16 }}>{(esperaOpen ?? !!q) ? '▾' : '▸'}</Text>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🕓 En espera (por recibir)</Text>
             </View>
             <View style={{ backgroundColor: colors.warning, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{enEspera.length}</Text>
             </View>
           </TouchableOpacity>
-          {(esperaOpen || !!q) ? (
+          {(esperaOpen ?? !!q) ? (
             <View style={{ marginTop: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
                 Máquinas en espera por recepción. Al recibir una, pasa a Operativa, se guarda su fecha de entrada y entra al control.

@@ -116,6 +116,14 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
   // que sería cambiar un problema por otro mucho peor.
   ok('⭐ pero SIGUE creando la avería real', /material:\s*'otro'/.test(vivo));
   ok('⭐ y SIGUE dejando el marcador de parada', /material:\s*'MÁQUINA PARADA'/.test(vivo));
+
+  // 🕓 «En espera (por recibir)» SE CONTRAE aunque haya texto en el buscador
+  // (10-oct-2026, reportado: «esa opción de recibir no se contrae cuando le doy»).
+  // La búsqueda la abre sola (null = automático), pero el toque del usuario MANDA.
+  ok('⭐ la sección En espera se contrae hasta con el buscador lleno (la pastilla manda)',
+    (scr.match(/esperaOpen \?\? !!q/g) || []).length >= 2
+    && scr.includes('setEsperaOpen((v) => !(v ?? !!q))')
+    && !/esperaOpen \|\| !!q/.test(scr));
 }
 
 if (fail) {
