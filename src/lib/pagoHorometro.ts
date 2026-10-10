@@ -273,6 +273,12 @@ export type DiaPago = HorasDia & {
   sinPrecio: boolean;
   /** 🔒 El día pertenece a un cierre: sus números están CONGELADOS (ver cierres). */
   cerrado: boolean;
+  /** 🔁 Ese día hubo CAMBIO DE HORÓMETRO registrado (10-oct-2026). */
+  cambio: boolean;
+  /** Las ± horas reconocidas por el cambio (ya incluidas en `horas`). */
+  horasCambio: number;
+  /** El motivo del cambio (los de ese día, sin repetir). */
+  motivoCambio: string;
 };
 
 export type FilaPagoHorometro = {
@@ -366,9 +372,84 @@ export function validarCierreHorometro(
   return null;
 }
 
+// ── 🔁 CAMBIO DE HORÓMETRO FÍSICO (10-oct-2026) ─────────────────────────────
+//
+// Pedido del cliente: «cuando un horómetro está malo se coloca uno nuevo que
+// comience de 0; poder sumarle o restarle horas si durante el cambio se perdió
+// una hora; que el acumulado siga su secuencia; y que el reporte diga que hubo
+// cambio de horómetro, no "menor que la última lectura válida"».
+//
+// El registro vive en `horometro_cambios` (tabla propia, anulable con motivo).
+// La LECTURA de ese día la escribe Control con `reinicio = true` (la base ya
+// sabía saltarse la regla de retroceso con esa marca): el aparato nuevo sienta
+// base y la secuencia sigue. Las ± horas reconocidas se suman al PAGO de ese
+// día con el precio que regía, y los papeles lo dicen con su 🔁 y su motivo.
+
+/** Una fila de `horometro_cambios`. */
+export type CambioHorometro = {
+  id: string;
+  machinery_id: string;
+  round_date: string;
+  shift: string;
+  /** Lo último que marcó el aparato VIEJO al quitarlo (informativo). */
+  lectura_vieja: number | string | null;
+  /** Con qué arranca el NUEVO (casi siempre 0). */
+  lectura_nueva: number | string | null;
+  /** ± horas reconocidas por el cambio (perdidas o de más). */
+  horas_ajuste: number | string;
+  motivo: string;
+  foto_vieja_url?: string | null;
+  foto_nueva_url?: string | null;
+  created_at?: string | null;
+  created_by_nombre?: string | null;
+  anulada_at?: string | null;
+  anulada_motivo?: string | null;
+};
+
+/** Los cambios ACTIVOS agrupados por `machineryId|fecha` (las ± horas se suman). */
+export function cambiosPorClave(cambios: readonly CambioHorometro[] | null | undefined): Map<string, { horas: number; motivos: string[] }> {
+  const m = new Map<string, { horas: number; motivos: string[] }>();
+  for (const c of cambios ?? []) {
+    if (!c || c.anulada_at) continue;
+    const k = `${c.machinery_id}|${dia(c.round_date)}`;
+    const prev = m.get(k) ?? { horas: 0, motivos: [] };
+    prev.horas = r2(prev.horas + num(c.horas_ajuste));
+    const mo = limpio(c.motivo);
+    if (mo && !prev.motivos.includes(mo)) prev.motivos.push(mo);
+    m.set(k, prev);
+  }
+  return m;
+}
+
+/** Texto de las ± horas reconocidas: «+1,5 h» / «−2 h» / '' si es 0. */
+export function horasCambioTexto(h: number): string {
+  const n = r2(num(h));
+  if (!n) return '';
+  return `${n > 0 ? '+' : '−'}${fmtHoras(Math.abs(n))} h`;
+}
+
+/** Revisa un cambio de horómetro antes de guardarlo. Devuelve el rechazo o null. */
+export function validarCambioHorometro(c: {
+  nuevaInicial: number | null; nuevaFinal: number | null; horasAjuste: number; motivo: string;
+}): string | null {
+  if (!limpio(c.motivo)) return 'El motivo es obligatorio: di por qué se cambió el horómetro.';
+  if (c.nuevaInicial == null || !Number.isFinite(num(c.nuevaInicial)) || num(c.nuevaInicial) < 0) {
+    return 'Falta con cuánto arranca el horómetro NUEVO (casi siempre 0).';
+  }
+  if (c.nuevaFinal != null) {
+    if (num(c.nuevaFinal) < num(c.nuevaInicial)) return 'El final del aparato nuevo no puede ser menor que su inicial.';
+    if (num(c.nuevaFinal) - num(c.nuevaInicial) > 12.5) return 'Entre inicial y final del nuevo hay más de 12,5 h: la base lo marcaría inválido. Revisa los números.';
+  }
+  if (!Number.isFinite(num(c.horasAjuste)) || Math.abs(num(c.horasAjuste)) > 24) {
+    return 'Las horas a reconocer no pueden pasar de 24 (en más o en menos).';
+  }
+  return null;
+}
+
 const diaVacio = (fecha: string, cerrado: boolean): DiaPago => ({
   horas: 0, estado: 'sin_lectura', detalle: '', inicial: null, final: null, ajustado: false, motivoAjuste: '',
   fecha, precio: null, monto: 0, sinPrecio: false, cerrado,
+  cambio: false, horasCambio: 0, motivoCambio: '',
 });
 
 /** Un día leído de la foto de un cierre: se normaliza por si el JSON vino a medias. */
@@ -380,6 +461,7 @@ function diaDeFoto(d: any, fecha: string): DiaPago {
     ajustado: d?.ajustado === true, motivoAjuste: limpio(d?.motivoAjuste),
     fecha, precio: d?.precio == null ? null : num(d.precio), monto: r2(num(d?.monto)),
     sinPrecio: d?.sinPrecio === true, cerrado: true,
+    cambio: d?.cambio === true, horasCambio: r2(num(d?.horasCambio)), motivoCambio: limpio(d?.motivoCambio),
   };
 }
 
@@ -405,6 +487,8 @@ export function filasPagoHorometro(opts: {
   ajustes?: readonly AjusteHorometro[] | null;
   /** 🔒 Cierres: sus días se leen de la foto, no de los datos vivos. */
   cierres?: readonly CierreHorometro[] | null;
+  /** 🔁 Cambios de horómetro: sus ± horas se reconocen en el pago del día. */
+  cambios?: readonly CambioHorometro[] | null;
   /** Máquinas a listar AUNQUE no tengan lecturas en el rango. */
   incluirSinLectura?: ReadonlySet<string> | null;
 }): FilaPagoHorometro[] {
@@ -433,6 +517,8 @@ export function filasPagoHorometro(opts: {
     }
   }
 
+  // 🔁 Los cambios de horómetro activos, por máquina y día.
+  const porCambio = cambiosPorClave(opts.cambios);
   const porClave = new Map<string, LecturaEfectiva[]>();
   for (const l of lecturasEfectivas(opts.lecturas, opts.ajustes)) {
     if (!l) continue;
@@ -459,11 +545,18 @@ export function filasPagoHorometro(opts: {
         const h = horasDelDia(porClave.get(`${m.id}|${fecha}`));
         const p = precioHoraEn(opts.precios, m.id, fecha);
         const precio = p ? num(p.precio_hora) : null;
-        const sinPrecio = h.horas > 0 && precio == null;
-        d = { ...h, fecha, precio, monto: precio != null ? r2(h.horas * precio) : 0, sinPrecio, cerrado: false };
+        // 🔁 Las ± horas del cambio de horómetro entran al día ANTES del precio:
+        //    se pagan con el que regía ese día, y nunca dejan el día en negativo.
+        const cc = porCambio.get(`${m.id}|${fecha}`);
+        const horasDia = cc ? Math.max(0, r2(h.horas + cc.horas)) : h.horas;
+        const sinPrecio = horasDia > 0 && precio == null;
+        d = {
+          ...h, horas: horasDia, fecha, precio, monto: precio != null ? r2(horasDia * precio) : 0, sinPrecio, cerrado: false,
+          cambio: !!cc, horasCambio: cc ? cc.horas : 0, motivoCambio: cc ? cc.motivos.join(' · ') : '',
+        };
         if (h.estado === 'invalida' || h.estado === 'incompleta' || sinPrecio) alertas++;
       }
-      if (d.estado !== 'sin_lectura') conAlgo = true;
+      if (d.estado !== 'sin_lectura' || d.cambio) conAlgo = true;
       if (d.horas > 0 && d.precio != null) preciosVistos.add(d.precio);
       horas += d.horas; monto += d.monto;
       return d;
@@ -632,11 +725,13 @@ export function cuerpoPagoHorometro(
   if (!o.sinDias) {
     html += `<h3>Detalle día por día</h3><table><thead><tr><th>Fecha</th><th>Máquina</th>${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinInicioFin ? '' : '<th class="r">Inicio</th><th class="r">Fin</th>'}<th class="r">Horas</th>${o.sinPrecio ? '' : '<th class="r">Precio/h</th>'}<th class="r">Monto</th></tr></thead><tbody>`;
     for (const f of filas) for (const x of f.dias) {
-      if (x.estado === 'sin_lectura') continue; // un día sin lectura no es un renglón: no hubo nada
+      if (x.estado === 'sin_lectura' && !x.cambio) continue; // un día sin lectura ni cambio no es un renglón: no hubo nada
       // 🧾 Un día ajustado se dice: quien lee el papel tiene que poder distinguir el
       //    número del tablero del que acomodó la oficina, con su motivo.
       const ajuste = x.ajustado ? `<br/><i>🧾 ajustado en Control de horómetros${x.motivoAjuste ? `: ${esc(x.motivoAjuste)}` : ''}</i>` : '';
-      html += `<tr${motivoAlertaDia(x) ? ' class="al"' : ''}><td>${dmy(x.fecha)}</td><td>${esc(f.maquina.code)}${ajuste}</td>${o.sinPlaca ? '' : `<td>${esc(f.maquina.placa)}</td>`}${o.sinInicioFin ? '' : `<td class="r">${fmtHoras(x.inicial)}</td><td class="r">${fmtHoras(x.final)}</td>`}<td class="r">${fmtHoras(x.horas)}${ETIQUETA_ESTADO_DIA[x.estado] ? ` <i>(${ETIQUETA_ESTADO_DIA[x.estado]})</i>` : ''}</td>${o.sinPrecio ? '' : `<td class="r">${x.precio != null ? usd(x.precio) : '—'}</td>`}<td class="r b">${usd(x.monto)}</td></tr>`;
+      // 🔁 Un día con cambio de horómetro también se dice, con sus ± horas reconocidas.
+      const cambio = x.cambio ? `<br/><i>🔁 cambio de horómetro${horasCambioTexto(x.horasCambio) ? ` (${horasCambioTexto(x.horasCambio)} reconocidas)` : ''}${x.motivoCambio ? `: ${esc(x.motivoCambio)}` : ''}</i>` : '';
+      html += `<tr${motivoAlertaDia(x) ? ' class="al"' : ''}><td>${dmy(x.fecha)}</td><td>${esc(f.maquina.code)}${ajuste}${cambio}</td>${o.sinPlaca ? '' : `<td>${esc(f.maquina.placa)}</td>`}${o.sinInicioFin ? '' : `<td class="r">${fmtHoras(x.inicial)}</td><td class="r">${fmtHoras(x.final)}</td>`}<td class="r">${fmtHoras(x.horas)}${ETIQUETA_ESTADO_DIA[x.estado] ? ` <i>(${ETIQUETA_ESTADO_DIA[x.estado]})</i>` : ''}</td>${o.sinPrecio ? '' : `<td class="r">${x.precio != null ? usd(x.precio) : '—'}</td>`}<td class="r b">${usd(x.monto)}</td></tr>`;
     }
     html += `</tbody></table>`;
   }

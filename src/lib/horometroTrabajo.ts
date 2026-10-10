@@ -325,6 +325,16 @@ export type FilaComparativa = {
   /** ✎ Quién la corrigió: 'control', 'inspector' o '' (02-oct-2026). Va justo
    *  después de `motivo` en la fila, por el orden de claves de las pruebas. */
   corregidaPor: 'control' | 'inspector' | '';
+  /**
+   * 🔁 CAMBIO DE HORÓMETRO (10-oct-2026). Pedido del cliente: «que el reporte
+   * esté consciente de que hubo cambio de horómetro y me lo diga», en vez de
+   * «menor que la última lectura válida» o un «jornada mayor» sin explicación.
+   * Se enciende con el registro de `horometro_cambios` o con la marca
+   * `reinicio` de la lectura (el checkbox viejo de Control).
+   */
+  cambio: boolean;
+  /** Las ± horas reconocidas y el motivo del cambio, para el papel. */
+  cambioDetalle: string;
 };
 
 /**
@@ -375,6 +385,10 @@ const DIAS_PARA_LISTA = 5;
 /** La ficha mínima de una máquina, para las filas que NO traen ronda (02-oct-2026). */
 export type FichaMaquinaComparativo = { code: string; empresa: string; marca?: string; modelo?: string; placa?: string };
 
+/** 🔁 Lo mínimo de un cambio de horómetro para el comparativo (la pantalla lo
+ *  mapea de `horometro_cambios`; esta librería no importa nada). */
+export type CambioComparativo = { machineryId: string; fecha: string; horasAjuste: number; motivo: string };
+
 /**
  * @param fichas (02-oct-2026) las máquinas que ENTRAN al papel, con su ficha. Sirve
  *   para las lecturas de días SIN ronda: la ronda trae su ficha, la lectura no.
@@ -387,6 +401,7 @@ export function compararJornadaHorometro(
   rondas: readonly { machineryId: string; code: string; empresa: string; marca?: string; modelo?: string; placa?: string; fecha: string; ronda: RondaHoras }[],
   lecturas: readonly LecturaTrabajo[],
   fichas?: ReadonlyMap<string, FichaMaquinaComparativo> | null,
+  cambios?: readonly CambioComparativo[] | null,
 ): FilaComparativa[] {
   const porClave = new Map<string, LecturaTrabajo[]>();
   for (const l of lecturas ?? []) {
@@ -394,6 +409,26 @@ export function compararJornadaHorometro(
     const k = `${l.machineryId}|${String(l.roundDate ?? '').slice(0, 10)}`;
     const arr = porClave.get(k); if (arr) arr.push(l); else porClave.set(k, [l]);
   }
+  // 🔁 Los cambios de horómetro del rango, por máquina y día (las ± horas se suman).
+  const porCambio = new Map<string, { horas: number; motivos: string[] }>();
+  for (const c of cambios ?? []) {
+    if (!c) continue;
+    const k = `${c.machineryId}|${String(c.fecha ?? '').slice(0, 10)}`;
+    const prev = porCambio.get(k) ?? { horas: 0, motivos: [] };
+    prev.horas = redondear(prev.horas + num(c.horasAjuste));
+    const m = limpio(c.motivo);
+    if (m && !prev.motivos.includes(m)) prev.motivos.push(m);
+    porCambio.set(k, prev);
+  }
+  /** El texto del cambio para el papel: «+1 h reconocidas · se dañó el tablero». */
+  const detalleCambio = (cc: { horas: number; motivos: string[] } | null, reinicio: boolean): string => {
+    const partes: string[] = [];
+    if (cc) {
+      if (cc.horas) partes.push(`${cc.horas > 0 ? '+' : '−'}${fmtH(Math.abs(cc.horas))} h reconocidas`);
+      partes.push(...cc.motivos);
+    } else if (reinicio) partes.push('reinicio del aparato');
+    return partes.join(' · ');
+  };
   const filas: FilaComparativa[] = [];
   /** Las claves máquina|día que SÍ tienen ronda: lo que quede fuera va como «sin jornada». */
   const conRonda = new Set<string>();
@@ -408,6 +443,8 @@ export function compararJornadaHorometro(
     //    con el que la máquina arrancó la jornada y con el que la terminó.
     const ord = [...del].sort((a, b) => (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1));
     const marca = marcaDeCorreccion(ord);
+    const cc = porCambio.get(`${r.machineryId}|${fecha}`) ?? null;
+    const reini = del.some((l) => l.reinicio === true);
     const base = {
       machineryId: r.machineryId, code: limpio(r.code), empresa: limpio(r.empresa),
       marca: limpio(r.marca), modelo: limpio(r.modelo), placa: limpio(r.placa), fecha, horasJornada: hj,
@@ -416,6 +453,8 @@ export function compararJornadaHorometro(
       corregida: marca.corregida, motivo: marca.motivo,
       corregidaPor: quienCorrigio(ord),
       estadoDetalle: '',
+      cambio: !!cc || reini,
+      cambioDetalle: detalleCambio(cc, reini),
     };
     const vacia = { inicial: null, final: null, corregida: false, motivo: '' };
     if (del.length === 0) { filas.push({ ...base, ...vacia, horasHorometro: null, diferencia: null, estado: 'sin_lectura' }); continue; }
@@ -431,6 +470,9 @@ export function compararJornadaHorometro(
         const m = limpio(l.motivoInvalida);
         if (m && !motivos.includes(m)) motivos.push(m);
       }
+      // 🔁 Si además hubo cambio de horómetro, el papel lo dice junto a la razón:
+      //    quien lo lee tiene que saber que el retroceso/salto puede venir de ahí.
+      if (base.cambio) motivos.push('hubo cambio de horómetro');
       filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'invalida', estadoDetalle: motivos.join(' · ') });
       continue;
     }
@@ -446,10 +488,15 @@ export function compararJornadaHorometro(
       filas.push({ ...base, horasHorometro: null, diferencia: null, estado: 'sin_lectura', estadoDetalle: detalle });
       continue;
     }
-    const hh = redondear(horas.reduce((s, h) => s + h, 0));
+    // 🔁 Las ± horas reconocidas por el cambio entran al horómetro del día ANTES de
+    //    comparar: con la hora perdida reconocida, el día puede volver a cuadrar.
+    const hh = Math.max(0, redondear(horas.reduce((s, h) => s + h, 0) + (cc ? cc.horas : 0)));
     const dif = redondear(hh - hj);
     const estado: FilaComparativa['estado'] = Math.abs(dif) <= TOLERANCIA_CUADRA ? 'cuadra' : dif > 0 ? 'horometro_mayor' : 'jornada_mayor';
-    filas.push({ ...base, horasHorometro: hh, diferencia: dif, estado });
+    // El estado de un día con cambio DICE la causa («Cambio de horómetro …»), no un
+    // «jornada mayor» a secas que suene a horas robadas (10-oct-2026, a pedido).
+    const detalleEstado = base.cambio ? `cambio de horómetro${base.cambioDetalle ? ` (${base.cambioDetalle})` : ''}` : '';
+    filas.push({ ...base, horasHorometro: hh, diferencia: dif, estado, estadoDetalle: detalleEstado });
   }
 
   // ⭐ LAS LECTURAS SIN JORNADA TAMBIÉN SALEN (02-oct-2026, reportado: «el reporte de
@@ -472,9 +519,11 @@ export function compararJornadaHorometro(
     const f = fichas?.get(machineryId);
     const ord = [...del].sort((a, b) => (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1));
     const marca = marcaDeCorreccion(ord);
+    const cc = porCambio.get(k) ?? null;
+    const reini = del.some((l) => l.reinicio === true);
     const invalidas = del.filter((l) => !l.valida);
     const horas = invalidas.length ? [] : del.map(horasDeLectura).filter((h): h is number => h != null);
-    const hh = horas.length ? redondear(horas.reduce((s, h) => s + h, 0)) : null;
+    const hh = horas.length ? Math.max(0, redondear(horas.reduce((s, h) => s + h, 0) + (cc ? cc.horas : 0))) : null;
     const tieneIni = del.some((l) => l.inicial != null);
     const tieneFin = del.some((l) => l.final != null);
     // La razón, cuando la hay, se suma a «sin jornada» para que el estado diga las dos cosas.
@@ -492,6 +541,8 @@ export function compararJornadaHorometro(
       corregidaPor: quienCorrigio(ord),
       horasHorometro: hh, diferencia: null, estado: 'sin_ronda',
       estadoDetalle: razon ? `sin jornada · ${razon}` : '',
+      cambio: !!cc || reini,
+      cambioDetalle: detalleCambio(cc, reini),
     });
   }
   return filas.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : cmp(a.code, b.code)));
@@ -575,6 +626,8 @@ export type ResumenComparativo = {
   sinRonda: number;
   /** ✎ Cuántas se corrigieron a mano desde Control (26-sep-2026). */
   corregidas: number;
+  /** 🔁 Cuántos días tuvieron cambio de horómetro (10-oct-2026). */
+  cambios: number;
   horasJornada: number; horasHorometro: number;
   listas: { code: string; dias: number }[];
 };
@@ -587,12 +640,13 @@ export function resumenComparativo(filas: readonly FilaComparativa[]): ResumenCo
   const fs = filas ?? [];
   const r: ResumenComparativo = {
     filas: fs.length, maquinas: new Set(fs.map((f) => f.machineryId)).size, conLectura: 0,
-    cuadran: 0, horometroMayor: 0, jornadaMayor: 0, invalidas: 0, sinLectura: 0, sinRonda: 0, corregidas: 0,
+    cuadran: 0, horometroMayor: 0, jornadaMayor: 0, invalidas: 0, sinLectura: 0, sinRonda: 0, corregidas: 0, cambios: 0,
     horasJornada: 0, horasHorometro: 0, listas: [],
   };
   for (const f of fs) {
     r.horasJornada += num(f.horasJornada);
     if (f.corregida) r.corregidas++;
+    if (f.cambio) r.cambios++;
     if (f.horasHorometro != null) { r.conLectura++; r.horasHorometro += num(f.horasHorometro); }
     if (f.estado === 'cuadra') r.cuadran++;
     else if (f.estado === 'horometro_mayor') r.horometroMayor++;
@@ -740,12 +794,17 @@ export function cuerpoComparativo(
   const notaCorr = r.corregidas > 0
     ? ` <span style="color:#1D4ED8"><b>✎ corregido</b> marca las ${r.corregidas} lectura(s) que se arreglaron a mano —desde Control o por el inspector que las cargó—, con el motivo que escribió quien las corrigió.</span>`
     : '';
+  // 🔁 Solo si hubo cambios de aparato: explicar la marca para que nadie lea un
+  //    número menor como un retroceso ni unas horas de menos (10-oct-2026).
+  const notaCambio = r.cambios > 0
+    ? ` <span style="color:#1D4ED8"><b>🔁 cambio de horómetro</b> marca los días en que se instaló un aparato nuevo (arranca de 0 y sienta base nueva); las ± horas reconocidas por el cambio ya están sumadas al horómetro de ese día.</span>`
+    : '';
   // 02-oct-2026: ya no es «día con ronda» a secas — una lectura de un día sin jornada
   // también tiene su fila («Sin jornada»). Con 🚫 Horas de jornada encendida no se
   // puede ni nombrar la jornada, por eso la primera versión dice solo «día con datos».
   html += o.sinJornada
-    ? `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con datos; horas = final − inicial del horómetro de trabajo, por turno. «—» = sin lectura completa ese día.${notaIF}${notaCorr}</p>`
-    : `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con jornada o con lectura de horómetro; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos. «Sin jornada» = hubo lectura pero ese día no se registró jornada.${notaIF}${notaCorr}</p>`;
+    ? `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con datos; horas = final − inicial del horómetro de trabajo, por turno. «—» = sin lectura completa ese día.${notaIF}${notaCorr}${notaCambio}</p>`
+    : `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Una fila por máquina y día con jornada o con lectura de horómetro; el horómetro se compara contra la jornada del inspector. Cuadra = diferencia de media hora o menos. «Sin jornada» = hubo lectura pero ese día no se registró jornada.${notaIF}${notaCorr}${notaCambio}</p>`;
   if (!o.sinResumen) {
     // 02-oct-2026: `filas` ahora incluye las de «sin jornada»; «días con ronda» las resta.
     // Con 🚫 Horas de jornada encendida no se nombra la jornada: la caja dice solo «días».
@@ -759,6 +818,8 @@ export function cuerpoComparativo(
     if (!o.sinJornada && r.sinRonda > 0) html += caja('sin jornada', r.sinRonda);
     // ✎ La caja solo sale si hubo correcciones: un cero permanente es ruido.
     if (r.corregidas > 0) html += caja('✎ corregidas a mano', r.corregidas);
+    // 🔁 Igual: la caja de cambios de horómetro solo sale si hubo alguno.
+    if (r.cambios > 0) html += caja('🔁 cambios de horómetro', r.cambios);
     if (!o.sinJornada) html += caja('h jornada', fmtH(r.horasJornada));
     html += caja('h horómetro', fmtH(r.horasHorometro)) + `</div>`;
   }
@@ -797,9 +858,13 @@ export function cuerpoComparativo(
         // ✎ La marca de «lo corrigieron a mano», con su motivo debajo del código.
         // 02-oct-2026: se dice QUIÉN — Control o el inspector (que ya puede corregir lo suyo).
         const quien = f.corregidaPor === 'inspector' ? 'por el inspector' : 'desde Control';
-        const marca = f.corregida
-          ? `<br/><span class="hc-corr">✎ corregido ${quien}${f.motivo ? `: ${esc(f.motivo)}` : ''}</span>`
-          : '';
+        // 🔁 Un día con cambio de horómetro se marca como tal (no como una corrección
+        //    cualquiera): esa era justo la confusión que se pidió quitar (10-oct-2026).
+        const marca = f.cambio
+          ? `<br/><span class="hc-corr">🔁 cambio de horómetro${f.cambioDetalle ? `: ${esc(f.cambioDetalle)}` : ''}</span>`
+          : f.corregida
+            ? `<br/><span class="hc-corr">✎ corregido ${quien}${f.motivo ? `: ${esc(f.motivo)}` : ''}</span>`
+            : '';
         if (o.sinJornada) {
           // Sin jornada tampoco hay clase de color: el verde/ámbar/rojo ES el cuadre.
           html += `<tr><td>${esc(f.code)}${marca}</td>${ident}${celdasIF}<td class="r">${fmtH(f.horasHorometro)}</td></tr>`;

@@ -7,8 +7,9 @@
 // ⚠️ Dos rondas del mismo día por máquina se funden tomando el MÁXIMO por turno, igual
 //    que hace el histórico de ubicaciones: nunca se suman, porque son la misma jornada.
 import { selectAllRows } from './supabase';
-import { LecturaTrabajo, RondaHoras } from './horometroTrabajo';
+import { CambioComparativo, LecturaTrabajo, RondaHoras } from './horometroTrabajo';
 import { cargarLecturasHorometro } from './horometroTrabajoDb';
+import { cargarCambiosHorometro } from './pagoHorometroDb';
 
 export type RondaComparativa = {
   machineryId: string; code: string; empresa: string; clasificacion: string;
@@ -16,19 +17,25 @@ export type RondaComparativa = {
 };
 
 export type FichaComparativo = { code: string; empresa: string; clasificacion: string; marca: string; modelo: string; placa: string };
-export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[]; maquinas: Map<string, FichaComparativo>; nombres: Map<string, string> };
+export type DatosComparativo = { rondas: RondaComparativa[]; lecturas: LecturaTrabajo[]; maquinas: Map<string, FichaComparativo>; nombres: Map<string, string>; cambios: CambioComparativo[] };
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const num = (v: unknown) => Number(v) || 0;
 
 export async function cargarDatosComparativo(desde: string, hasta: string): Promise<DatosComparativo> {
-  const [maqs, ron, lecturas, perfiles] = await Promise.all([
+  const [maqs, ron, lecturas, perfiles, cambiosR] = await Promise.all([
     selectAllRows('machinery', 'id, code, marca, modelo, plate, serial, clasificacion, company:company_id(name)'),
     selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q: any) => q.gte('round_date', desde).lte('round_date', hasta)),
     cargarLecturasHorometro(desde, hasta),
     // Para la galería de fotos: quién subió cada una (created_by/updated_by → nombre).
     selectAllRows('profiles', 'id, full_name').catch(() => [] as any[]),
+    // 🔁 Los cambios de horómetro del rango (10-oct-2026). Si la tabla aún no
+    //    existe, el reporte sale como siempre: cambios = [].
+    cargarCambiosHorometro(desde, hasta),
   ]);
+  const cambios: CambioComparativo[] = (cambiosR.cambios ?? [])
+    .filter((c) => !c.anulada_at)
+    .map((c) => ({ machineryId: String(c.machinery_id), fecha: String(c.round_date).slice(0, 10), horasAjuste: Number(c.horas_ajuste) || 0, motivo: limpio(c.motivo) }));
   const nombres = new Map<string, string>();
   for (const p of (perfiles ?? []) as any[]) { const n = limpio(p.full_name); if (n) nombres.set(String(p.id), n); }
   const porMaq = new Map<string, FichaComparativo>();
@@ -53,5 +60,5 @@ export async function cargarDatosComparativo(desde: string, hasta: string): Prom
   }
   // `maquinas` viaja completo (26-sep-2026): las FOTOS del reporte filtran lecturas
   // por empresa/clasificación aunque la máquina no tenga ronda ese día.
-  return { rondas: Array.from(porClave.values()), lecturas, maquinas: porMaq, nombres };
+  return { rondas: Array.from(porClave.values()), lecturas, maquinas: porMaq, nombres, cambios };
 }

@@ -3849,6 +3849,43 @@ corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómet
 aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
 
 
+#### 🔁 Cambio de horómetro completo — desde Control de Horómetros (10/10/2026)
+
+Pedido del cliente: «cuando un horómetro está malo se coloca uno nuevo que comience de 0; poder
+sumarle o restarle horas si en el cambio se perdió una hora; que la secuencia siga; y que el
+reporte diga que hubo cambio de horómetro, no choque ni horas de menos».
+
+**Dónde:** Control de maquinaria → ⚙️ Control de horómetros → en cada máquina, botón
+**«🔁 Cambio de horómetro»** (solo con el permiso de corregir horómetros).
+
+**Qué se llena:** el día y turno del cambio; la **última lectura del aparato viejo** (opcional,
+de recuerdo); **con cuánto arranca el nuevo** (casi siempre 0) y su final si ya cerró el turno;
+las **± horas a reconocer** (lo trabajado que el aparato nuevo no marcó — pastillas ➕ Sumar /
+➖ Restar, tope 24 h); el **motivo** (obligatorio); y **fotos opcionales** del aparato viejo y del
+nuevo (📷 cámara o 🖼️ galería — también quedan en el histórico de fotos y salen en la galería
+del reporte).
+
+**Qué pasa al guardar:**
+1. La lectura de ese día queda con el aparato **nuevo** y la marca de **reinicio**: **sienta
+   base** — la base NO la marca «menor que la última lectura válida» y la secuencia sigue desde
+   el nuevo.
+2. Las **± horas reconocidas** se suman (o restan) al **pago de ese día** con el precio que
+   regía; nunca dejan el día en negativo. El día sale con su 🔁 en el chip.
+
+**En los papeles:** el reporte **⚙️ Horómetro** de Reportes dice en el **Estado**
+«**Cambio de horómetro (+X h reconocidas · motivo)**» — no «menor que la última lectura válida»
+ni un «jornada mayor» sin explicación —, con su marca 🔁 bajo el código, la caja «🔁 cambios de
+horómetro» en el resumen y una nota que explica la marca. El PDF del **pago por horómetro**
+también lo dice en el detalle día por día.
+
+**Un cambio no se edita ni se borra:** se **anula** con motivo (↺ en la lista de cambios del
+modal, con doble toque). Anularlo quita sus ± horas pero **no** toca la lectura del día (esa se
+corrige aparte si hace falta). Los días de un cierre 🔒 no se tocan.
+
+**Quién puede:** registrar y anular, solo quien tiene el **permiso de corregir horómetros**
+(módulo Horómetros, escritura). Ver la causa en el reporte, cualquiera que vea Reportes. La base
+exige lo mismo que la pantalla y todo queda en Auditoría.
+
 #### ✎ Corregir horómetro desde Control (24/09/2026)
 Decisión del cliente: **solo los administradores corrigen, y basta el motivo escrito** (sin foto).
 

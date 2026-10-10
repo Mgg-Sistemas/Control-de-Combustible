@@ -1824,7 +1824,9 @@ export default function ReportsScreen({ route }: any) {
         Array.from(d.maquinas.entries()).filter(([id, m]) =>
           (!cos || cos.includes(m.empresa)) && pasaFiltroJornada({ id, clasificacion: m.clasificacion }, filtroEqActual)),
       );
-      const filas = compararJornadaHorometro(rondas, d.lecturas, fichasFiltradas);
+      // 🔁 10-oct-2026: los cambios de horómetro viajan al comparativo para que el
+      //    estado diga «Cambio de horómetro» (con sus ± horas) y no un retroceso.
+      const filas = compararJornadaHorometro(rondas, d.lecturas, fichasFiltradas, d.cambios);
       // ⚙️ 25-sep-2026: pastillas de ocultar + logos, como los demás reportes de maquinaria.
       //    Lo oculto no deja rastro (título y subtítulo incluidos: ver tituloComparativo).
       // 📷 FOTOS: solo con el check prendido, y de las MISMAS máquinas del papel

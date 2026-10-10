@@ -11,13 +11,13 @@
 //    error y con 0 filas, y hay que decirlo en vez de dar por guardado.
 import { supabase, selectAllRows } from './supabase';
 import {
-  AjusteHorometro, CierreHorometro, FilaPagoHorometro, MaquinaPago, PrecioHorometro,
-  totalPagoHorometro, validarAjusteHorometro, validarPrecioHorometro,
+  AjusteHorometro, CambioHorometro, CierreHorometro, FilaPagoHorometro, MaquinaPago, PrecioHorometro,
+  totalPagoHorometro, validarAjusteHorometro, validarCambioHorometro, validarPrecioHorometro,
 } from './pagoHorometro';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const faltaTabla = (msg: string, code?: string) =>
-  code === '42P01' || code === 'PGRST205' || /horometro_(precios|ajustes|cierres).*(does not exist|not find)|schema cache/i.test(msg);
+  code === '42P01' || code === 'PGRST205' || /horometro_(precios|ajustes|cierres|cambios).*(does not exist|not find)|schema cache/i.test(msg);
 
 export const SIN_PERMISO_PRECIO_HOROMETRO =
   'No se guardó: hace falta permiso de escritura en Control de maquinaria (y la analista no cambia precios).';
@@ -142,6 +142,60 @@ export async function anularAjustesHorometro(
     .select('id');
   if (error) return { error: faltaTabla(error.message, (error as any).code) ? undefined : error.message, sinAjuste: true };
   if (!data || data.length === 0) return { sinAjuste: true };
+  return {};
+}
+
+// ── 🔁 CAMBIOS DE HORÓMETRO ─────────────────────────────────────────────────
+// Tabla propia `horometro_cambios` (10-oct-2026). El registro del aparato nuevo
+// y sus ± horas reconocidas. Solo se INSERTA y se ANULA con motivo; nunca se
+// edita ni se borra. La LECTURA del día la escribe aparte la RPC
+// `guardar_lectura_horometro` con `reinicio: true` (eso vive en horometroTrabajoDb).
+
+export const SIN_PERMISO_CAMBIO_HOROMETRO =
+  'No se guardó: hace falta el permiso de corregir horómetros (módulo Horómetros, escritura).';
+
+export async function cargarCambiosHorometro(desde: string, hasta: string): Promise<{ cambios: CambioHorometro[]; missing: boolean; error?: string }> {
+  try {
+    const rows = await selectAllRows(
+      'horometro_cambios',
+      'id, machinery_id, round_date, shift, lectura_vieja, lectura_nueva, horas_ajuste, motivo, foto_vieja_url, foto_nueva_url, created_at, created_by_nombre, anulada_at, anulada_motivo',
+      (q: any) => q.gte('round_date', desde).lte('round_date', hasta),
+    );
+    return { cambios: rows as CambioHorometro[], missing: false };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { cambios: [], missing: faltaTabla(msg, e?.code), error: msg };
+  }
+}
+
+/** Registra un cambio de horómetro. No pisa nada: agrega una fila (anulable). */
+export async function crearCambioHorometro(c: {
+  machineryId: string; roundDate: string; shift: 'day' | 'night';
+  lecturaVieja: number | null; lecturaNueva: number; horasAjuste: number; motivo: string;
+  fotoViejaUrl?: string | null; fotoNuevaUrl?: string | null;
+}): Promise<{ error?: string }> {
+  const malo = validarCambioHorometro({ nuevaInicial: c.lecturaNueva, nuevaFinal: null, horasAjuste: c.horasAjuste, motivo: c.motivo });
+  if (malo) return { error: malo };
+  const { data, error } = await supabase.from('horometro_cambios').insert({
+    machinery_id: c.machineryId, round_date: c.roundDate, shift: c.shift,
+    lectura_vieja: c.lecturaVieja, lectura_nueva: c.lecturaNueva, horas_ajuste: c.horasAjuste,
+    motivo: limpio(c.motivo), foto_vieja_url: c.fotoViejaUrl || null, foto_nueva_url: c.fotoNuevaUrl || null,
+  }).select('id');
+  if (error) return { error: faltaTabla(error.message, (error as any).code) ? 'Falta crear la tabla de cambios de horómetro en la base (corre el SQL).' : error.message };
+  if (!data || data.length === 0) return { error: SIN_PERMISO_CAMBIO_HOROMETRO };
+  return {};
+}
+
+/** Anula un cambio con su motivo: sus ± horas dejan de contar (la lectura con
+ *  `reinicio` del día NO se toca desde aquí; se corrige aparte si hace falta). */
+export async function anularCambioHorometro(id: string, motivo: string): Promise<{ error?: string }> {
+  const m = limpio(motivo);
+  if (!m) return { error: 'Escribe por qué se anula ese cambio de horómetro.' };
+  const { data, error } = await supabase.from('horometro_cambios')
+    .update({ anulada_at: new Date().toISOString(), anulada_motivo: m })
+    .eq('id', id).is('anulada_at', null).select('id');
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: SIN_PERMISO_CAMBIO_HOROMETRO };
   return {};
 }
 

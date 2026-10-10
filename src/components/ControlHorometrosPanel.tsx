@@ -20,6 +20,7 @@ import { DateField } from './DateField';
 import { Plegable } from './Plegable';
 import { Toggle } from './CubicajeTab';
 import { HorometroAjusteModal } from './HorometroAjusteModal';
+import { HorometroCambioModal } from './HorometroCambioModal';
 import { useToast } from './ToastProvider';
 import { useConfirm } from './ConfirmProvider';
 import { useTheme } from '../theme/ThemeContext';
@@ -30,12 +31,12 @@ import { LecturaTrabajo } from '../lib/horometroTrabajo';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import {
   AjusteHorometro, CSS_PAGO_HOROMETRO, OPCIONES_PAGO_HOROMETRO, OpcionesPagoHorometro, PASTILLAS_PAGO_HOROMETRO,
-  PrecioHorometro, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, motivoAlertaDia, pagoPorEmpresa,
+  PrecioHorometro, CambioHorometro, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, motivoAlertaDia, pagoPorEmpresa,
   sufijoArchivoPagoHorometro, textoPrecioHorometro, totalPagoHorometro, usd, validarPrecioHorometro,
   CierreHorometro, cierresSolapados, filasDeCierre, validarCierreHorometro,
 } from '../lib/pagoHorometro';
 import {
-  MaquinaConReferencia, anularPrecioHorometro, cargarAjustesHorometro, cargarMaquinasPagoHorometro, cargarPreciosHorometro,
+  MaquinaConReferencia, anularPrecioHorometro, cargarAjustesHorometro, cargarCambiosHorometro, cargarMaquinasPagoHorometro, cargarPreciosHorometro,
   crearPrecioHorometro, cargarCierresHorometro, crearCierreHorometro, reabrirCierreHorometro,
 } from '../lib/pagoHorometroDb';
 
@@ -104,6 +105,10 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
   const [anularMotivo, setAnularMotivo] = useState('');
   // Acomodar el horómetro de un día: solo para este módulo, o cambiando la del inspector.
   const [editLectura, setEditLectura] = useState<{ machineryId: string; code: string; fecha: string } | null>(null);
+  // 🔁 Cambio de horómetro FÍSICO (10-oct-2026): aparato nuevo que sienta base.
+  const [cambios, setCambios] = useState<CambioHorometro[]>([]);
+  const [faltaCambios, setFaltaCambios] = useState(true);
+  const [editCambio, setEditCambio] = useState<{ machineryId: string; code: string; fecha: string } | null>(null);
   // El PDF.
   const [opciones, setOpciones] = useState<OpcionesPagoHorometro>({ ...OPCIONES_PAGO_HOROMETRO });
   const [logos, setLogos] = useState<Logos>({ bcv: true, sos: true, golden: false, renace: false, jhenzaen: false });
@@ -115,15 +120,18 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
     if (rangoInvalido) return;
     setCargando(true); setError(null);
     try {
-      const [ms, ls, ps, as, cs] = await Promise.all([
+      const [ms, ls, ps, as, cs, cb] = await Promise.all([
         cargarMaquinasPagoHorometro(),
         cargarLecturasHorometro(desde, hasta),
         cargarPreciosHorometro(),
         cargarAjustesHorometro(desde, hasta),
         cargarCierresHorometro(),
+        cargarCambiosHorometro(desde, hasta),
       ]);
       setMaquinas(ms); setLecturas(ls); setPrecios(ps.precios); setAjustes(as.ajustes);
       setCierres(cs.cierres); setFaltaCierres(cs.missing);
+      // 🔁 Sin la tabla, el botón del cambio ni aparece y todo sigue como hoy.
+      setCambios(cb.cambios); setFaltaCambios(cb.missing);
       setFaltaSql(ps.missing || as.missing);
       if (ps.error && !ps.missing) setError(ps.error);
     } catch (e: any) {
@@ -139,15 +147,15 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
   const activasIds = useMemo(() => new Set(maquinas.filter((m) => m.activa).map((m) => m.id)), [maquinas]);
   // Lo que de verdad se paga (y lo que se CIERRA): solo máquinas con algo en el rango.
   const filasConAlgo = useMemo(
-    () => filasPagoHorometro({ maquinas, lecturas, precios, desde, hasta, ajustes, cierres }),
-    [maquinas, lecturas, precios, desde, hasta, ajustes, cierres],
+    () => filasPagoHorometro({ maquinas, lecturas, precios, desde, hasta, ajustes, cierres, cambios }),
+    [maquinas, lecturas, precios, desde, hasta, ajustes, cierres, cambios],
   );
   // Lo que se VE: lo anterior, más las máquinas sin lecturas si se pidió incluirlas.
   const filasTodas = useMemo(
     () => (incluirSin
-      ? filasPagoHorometro({ maquinas, lecturas, precios, desde, hasta, ajustes, cierres, incluirSinLectura: activasIds })
+      ? filasPagoHorometro({ maquinas, lecturas, precios, desde, hasta, ajustes, cierres, cambios, incluirSinLectura: activasIds })
       : filasConAlgo),
-    [incluirSin, filasConAlgo, maquinas, lecturas, precios, desde, hasta, ajustes, cierres, activasIds],
+    [incluirSin, filasConAlgo, maquinas, lecturas, precios, desde, hasta, ajustes, cierres, cambios, activasIds],
   );
   const cierresDelRango = useMemo(() => cierresSolapados(cierres, desde, hasta), [cierres, desde, hasta]);
   const diasCerrados = useMemo(() => {
@@ -486,7 +494,7 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                             onPress={() => setEditLectura({ machineryId: m.id, code: m.code, fecha: d.fecha })}
                             style={chip(false, aviso)}>
                             <Text style={{ color: aviso ? colors.warning : colors.text, fontWeight: '700', fontSize: 11 }}>
-                              {d.cerrado ? '🔒 ' : ''}{aviso ? '⚠️ ' : ''}{d.ajustado ? '🧾 ' : ''}{dmy(d.fecha).slice(0, 5)} · {fmtHoras(d.horas)} h{d.precio != null && d.horas > 0 ? ` · ${usd(d.monto)}` : ''}
+                              {d.cerrado ? '🔒 ' : ''}{aviso ? '⚠️ ' : ''}{d.ajustado ? '🧾 ' : ''}{d.cambio ? '🔁 ' : ''}{dmy(d.fecha).slice(0, 5)} · {fmtHoras(d.horas)} h{d.precio != null && d.horas > 0 ? ` · ${usd(d.monto)}` : ''}
                             </Text>
                           </TouchableOpacity>
                         );
@@ -506,6 +514,13 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                         <TouchableOpacity onPress={() => setEditLectura({ machineryId: m.id, code: m.code, fecha: hasta })}>
                           <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>🧾 Acomodar el horómetro de un día</Text>
                         </TouchableOpacity>
+                        {/* 🔁 Cambio de horómetro FÍSICO: exige el permiso de corregir horómetros
+                            (escribe la lectura del día con reinicio) y que exista la tabla. */}
+                        {puedeCorregirHoro && !faltaCambios ? (
+                          <TouchableOpacity onPress={() => setEditCambio({ machineryId: m.id, code: m.code, fecha: hasta })}>
+                            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>🔁 Cambio de horómetro</Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
                     ) : null}
 
@@ -588,6 +603,17 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
             ajustes={ajustes.filter((a) => a.machinery_id === editLectura.machineryId)}
             puedeCambiarInspector={puedeCorregirHoro}
             onClose={() => setEditLectura(null)}
+            onSaved={(mensaje) => { toast.success(mensaje); setRecarga((n) => n + 1); }}
+          />
+        ) : null}
+        {editCambio ? (
+          <HorometroCambioModal
+            code={editCambio.code}
+            machineryId={editCambio.machineryId}
+            roundDate={editCambio.fecha}
+            lecturas={lecturas.filter((l) => l.machineryId === editCambio.machineryId)}
+            cambios={cambios.filter((c) => c.machinery_id === editCambio.machineryId)}
+            onClose={() => setEditCambio(null)}
             onSaved={(mensaje) => { toast.success(mensaje); setRecarga((n) => n + 1); }}
           />
         ) : null}
