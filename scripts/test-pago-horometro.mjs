@@ -155,7 +155,7 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   const db = sinComentarios(leer('src/lib/pagoHorometroDb.ts'));
   ok('⭐ la capa de datos NO lee ni escribe rondas ni cierres de Control', !/machine_rounds|control_closures|machinery_precio_historial/.test(db));
   ok('⭐ el precio de Control de jornadas solo se LEE como referencia', /precioJornada/.test(db) && !/from\('machinery'\)\s*\.\s*(update|insert|upsert)/.test(db));
-  ok('⭐ escribe SOLO en sus tres tablas propias', (db.match(/from\('([a-z_]+)'\)/g) || []).every((t) => ["from('horometro_precios')", "from('horometro_ajustes')", "from('horometro_cierres')"].includes(t)));
+  ok('⭐ escribe SOLO en sus cuatro tablas propias (cambios incluida, 10-oct)', (db.match(/from\('([a-z_]+)'\)/g) || []).every((t) => ["from('horometro_precios')", "from('horometro_ajustes')", "from('horometro_cierres')", "from('horometro_cambios')"].includes(t)));
   ok('⭐ los ajustes NO tocan las lecturas del inspector', !/lecturas_horometro_trabajo/.test(db));
   ok('un precio no se borra: se anula', !/\.delete\(/.test(db) && /anulada_at/.test(db));
   const panel = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
@@ -216,7 +216,11 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   ok('al cambiar la del inspector se quita el ajuste que la taparía', /if \(ajusteVigente\) await anularAjustesHorometro\(/.test(modal));
   ok('el ajuste se puede quitar (vuelve lo del inspector)', /Quitar el ajuste/.test(modal));
   const panel2 = sinComentarios(leer('src/components/ControlHorometrosPanel.tsx'));
-  ok('⭐ el panel pasa los ajustes al cálculo y abre el modal de dos destinos', /filasPagoHorometro\(\{ maquinas, lecturas, precios, desde, hasta, ajustes, cierres \}\)/.test(panel2) && /HorometroAjusteModal/.test(panel2));
+  ok('⭐ el panel pasa los ajustes al cálculo y abre el modal de dos destinos', /filasPagoHorometro\(\{ maquinas, lecturas, precios, desde, hasta, ajustes, cierres, cambios \}\)/.test(panel2) && /HorometroAjusteModal/.test(panel2));
+  // 🔁 Cambio de horómetro (10-oct-2026): el panel lo carga, lo pasa al cálculo y abre su modal.
+  ok('⭐ el panel pasa los CAMBIOS al cálculo y abre su modal', /cargarCambiosHorometro\(desde, hasta\)/.test(panel2) && /HorometroCambioModal/.test(panel2));
+  ok('🔁 el botón del cambio exige el permiso de corregir horómetros y la tabla creada', /puedeCorregirHoro && !faltaCambios \?/.test(panel2));
+  ok('🔁 el chip del día enseña el cambio', panel2.includes("{d.cambio ? '🔁 ' : ''}"));
 }
 
 
@@ -266,7 +270,7 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   eq('⭐ una máquina borrada del catálogo sigue en su cierre', P.filasPagoHorometro({ ...base, maquinas: MAQ.filter((m) => m.id !== 'm2'), lecturas: [], cierres: [C1] }).map((f) => f.maquina.code).includes('JUMBO-02'), true);
   // Un día cerrado sin foto para esa máquina = vacío y cerrado (no se recalcula).
   const C3 = cierre('c3', '2026-09-14', '2026-09-14', []);
-  eq('⭐ un día cerrado NO se recalcula aunque haya lecturas', P.filasPagoHorometro({ ...base, cierres: [C3] }).find((f) => f.maquina.id === 'm1').dias[0], { horas: 0, estado: 'sin_lectura', detalle: '', inicial: null, final: null, ajustado: false, motivoAjuste: '', fecha: '2026-09-14', precio: null, monto: 0, sinPrecio: false, cerrado: true });
+  eq('⭐ un día cerrado NO se recalcula aunque haya lecturas', P.filasPagoHorometro({ ...base, cierres: [C3] }).find((f) => f.maquina.id === 'm1').dias[0], { horas: 0, estado: 'sin_lectura', detalle: '', inicial: null, final: null, ajustado: false, motivoAjuste: '', fecha: '2026-09-14', precio: null, monto: 0, sinPrecio: false, cerrado: true, cambio: false, horasCambio: 0, motivoCambio: '' });
 
   // Solapes y validación.
   eq('el cierre que cubre una fecha', [P.cierreQueCubre([C1], '2026-09-15')?.id, P.cierreQueCubre([C1], '2026-09-16')], ['c1', null]);
