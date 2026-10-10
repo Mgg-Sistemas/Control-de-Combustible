@@ -3198,6 +3198,13 @@ automáticamente.
 
 ### 4.11. Mapa
 Muestra **en un mapa** dónde está cada máquina (según su última ubicación GPS).
+- **Solo las activas (10/10/2026, a pedido):** el mapa trae únicamente las máquinas **activas**
+  del catálogo. Una máquina **dada de baja** ya no sale aunque tenga coordenadas guardadas
+  (antes salía, y en verde como «Operativa»). **No se borra nada:** sus registros de ubicación
+  se siguen guardando igual, y en el panel 🗂️ Capas hay un interruptor **«⬛ Mostrar también
+  las dadas de baja»** (nace apagado) para verlas cuando haga falta — salen rotuladas
+  **⬛ Dada de baja**, no en verde. Las **no operativas** (rojo) y **en espera** (azul) sí
+  siguen saliendo: todavía son de la flota y su ubicación importa.
 - **📍 Tu ubicación + máquinas cercanas:** el mapa muestra **tu ubicación** (punto azul, si le
   das permiso de GPS al navegador) y con el botón **📍** dentro del mapa te **centra** en ella y
   lista las **máquinas más cercanas** (≤20 km) con su distancia. Además, al **tocar cualquier
