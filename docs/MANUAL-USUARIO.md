@@ -3849,6 +3849,12 @@ corregir lecturas desde Control, marcar «horómetro averiado» o «sin horómet
 aparato. El horómetro de **mantenimiento** (alertas 200/220/250 h) no cambió.
 
 
+#### 🕓 «En espera (por recibir)» se contrae siempre (10/10/2026)
+
+Con texto en el buscador de Control, la sección se forzaba abierta (para enseñar los resultados) y
+la flechita parecía dañada. Ahora la búsqueda la sigue abriendo sola, pero **tu toque manda**: si
+la contraes, contraída se queda, con o sin búsqueda. Nada más cambió en Control.
+
 #### 🔁 Cambio de horómetro completo — desde Control de Horómetros (10/10/2026)
 
 Pedido del cliente: «cuando un horómetro está malo se coloca uno nuevo que comience de 0; poder
