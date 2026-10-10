@@ -20,11 +20,13 @@ const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name
 const scr = leer('src/screens/MapScreen.tsx');
 ok('⭐ la consulta de pines ahora trae la columna active', /location_at, active, operational, en_espera/.test(scr));
 ok('⭐ el pin sabe si la máquina está dada de baja', /inactiva: m\.active === false,/.test(scr));
-ok('⭐⭐ el filtro: dadas de baja fuera, salvo que el interruptor las traiga', /pins \?\? \[\]\)\.filter\(\(p\) => verBajas \|\| !p\.inactiva\)/.test(scr));
-ok('⭐ el interruptor NACE APAGADO (solo activas por defecto)', /const \[verBajas, setVerBajas\] = useState\(false\);/.test(scr));
+ok('⭐⭐ el filtro: SOLO estado activo — fuera de baja, no operativas y en espera, salvo que el interruptor las traiga',
+  /pins \?\? \[\]\)\.filter\(\(p\) => verNoActivas \|\| pinActivo\(p\)\)/.test(scr)
+  && /const pinActivo = \(p: MapPin\) => !p\.inactiva && p\.operational !== false && !p\.enEspera;/.test(scr));
+ok('⭐ el interruptor NACE APAGADO (solo operativas por defecto)', /const \[verNoActivas, setVerNoActivas\] = useState\(false\);/.test(scr));
 ok('el mapa pinta sobre la base filtrada (no sobre todos los pines)', /pinsBase\.filter\(isMachineShown\)/.test(scr));
 ok('las capas agrupan sobre la base filtrada', /pinsBase\.forEach\(\(p\) => m\.set\(p\.id, catOf\(p\)\)\)/.test(scr));
-ok('el interruptor existe en las capas y dice cuántas hay', scr.includes('Mostrar también las DADAS DE BAJA'));
+ok('el interruptor existe en las capas y dice cuántas hay', scr.includes('Mostrar también las que NO están en estado activo'));
 ok('⭐ enfocar una máquina puntual la muestra aunque esté de baja (búsqueda a propósito)',
   /focus \? pins\.filter\(\(p\) => p\.id === focus\.id\)/.test(scr));
 ok('⭐ el filtro es VISUAL, no de la consulta: la base sigue trayendo y guardando todo',

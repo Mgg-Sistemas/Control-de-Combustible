@@ -81,12 +81,14 @@ export default function MapScreen({ navigation, route }: any) {
   // Capas: categorías y máquinas apagadas (ocultas del mapa).
   const [hiddenCats, setHiddenCats] = useState<Set<string>>(new Set());
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  // 🗺️ SOLO LAS ACTIVAS (10-oct-2026, a pedido): una máquina DADA DE BAJA en el
-  //    Catálogo ya no sale en el mapa aunque tenga coordenadas guardadas (antes
-  //    salía, y en verde como «Operativa»). No se borra nada: su ubicación sigue
-  //    en la base y su pin vuelve con el interruptor de las capas. Las no
-  //    operativas (rojo) y en espera (azul) SÍ siguen saliendo: están en la flota.
-  const [verBajas, setVerBajas] = useState(false);
+  // 🗺️ SOLO LAS DE ESTADO ACTIVO (10-oct-2026, a pedido, afinado el mismo día:
+  //    «solo se ven las que están en estado activo»): el mapa pinta únicamente
+  //    las OPERATIVAS. Las dadas de baja, las no operativas (rojas) y las en
+  //    espera (azules) quedan fuera por defecto. No se borra nada: sus
+  //    ubicaciones se siguen guardando igual y TODAS vuelven con el interruptor
+  //    de las capas, cada una con su color y su rótulo de siempre.
+  const [verNoActivas, setVerNoActivas] = useState(false);
+  const pinActivo = (p: MapPin) => !p.inactiva && p.operational !== false && !p.enEspera;
   const [layersOpen, setLayersOpen] = useState(false);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   // Leyenda de empresa y zonas: ahora viven FUERA del mapa (controlan el mapa por postMessage).
@@ -393,8 +395,8 @@ export default function MapScreen({ navigation, route }: any) {
     }
   }, [route?.params?.focus]);
 
-  // Las dadas de baja solo cuentan (y se agrupan) cuando el interruptor las trae.
-  const pinsBase = useMemo(() => (pins ?? []).filter((p) => verBajas || !p.inactiva), [pins, verBajas]);
+  // Las que no están en estado activo solo cuentan (y se agrupan) cuando el interruptor las trae.
+  const pinsBase = useMemo(() => (pins ?? []).filter((p) => verNoActivas || pinActivo(p)), [pins, verNoActivas]);
   // Categoría de cada máquina y agrupación (para las capas).
   const pinCat = useMemo(() => {
     const m = new Map<string, string>();
@@ -490,14 +492,14 @@ export default function MapScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </View>
 
-          {(pins ?? []).some((p) => p.inactiva) ? (
+          {(pins ?? []).some((p) => !pinActivo(p)) ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
-              <TouchableOpacity onPress={() => setVerBajas((v) => !v)} style={{ width: 34, height: 22, borderRadius: 11, backgroundColor: verBajas ? colors.success : colors.border, justifyContent: 'center', paddingHorizontal: 2 }}>
-                <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: verBajas ? 'flex-end' : 'flex-start' }} />
+              <TouchableOpacity onPress={() => setVerNoActivas((v) => !v)} style={{ width: 34, height: 22, borderRadius: 11, backgroundColor: verNoActivas ? colors.success : colors.border, justifyContent: 'center', paddingHorizontal: 2 }}>
+                <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: verNoActivas ? 'flex-end' : 'flex-start' }} />
               </TouchableOpacity>
               <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>
-                ⬛ Mostrar también las DADAS DE BAJA ({(pins ?? []).filter((p) => p.inactiva).length} con ubicación guardada).
-                Apagado (así nace), el mapa trae solo las activas del catálogo; sus registros de ubicación se siguen guardando igual.
+                ⚠️ Mostrar también las que NO están en estado activo ({(pins ?? []).filter((p) => !pinActivo(p)).length} con ubicación: no operativas 🔴, en espera 🔵 y dadas de baja ⬛).
+                Apagado (así nace), el mapa trae solo las OPERATIVAS; los registros de ubicación de todas se siguen guardando igual.
               </Text>
             </View>
           ) : null}
