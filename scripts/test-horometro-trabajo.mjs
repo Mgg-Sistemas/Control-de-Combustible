@@ -156,12 +156,12 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
   eq('una fila por ronda, ordenadas por fecha y código', filas.map((f) => `${f.fecha} ${f.code}`), ['2026-09-01 CARG-03', '2026-09-01 EXC-04', '2026-09-01 GRUA-05', '2026-09-01 RETRO-01', '2026-09-02 RETRO-01', '2026-09-02 VIBRO-02']);
   const de = (code, fecha) => filas.find((f) => f.code === code && f.fecha === fecha);
   eq('cuadra dentro de media hora', de('RETRO-01', '2026-09-02').estado, 'cuadra');
-  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, inicial: 100, final: 111.6, corregida: false, motivo: '', corregidaPor: '', estadoDetalle: '', horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
+  eq('+0,6 ya es horómetro mayor', de('RETRO-01', '2026-09-01'), { machineryId: 'm1', code: 'RETRO-01', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 11, inicial: 100, final: 111.6, corregida: false, motivo: '', corregidaPor: '', estadoDetalle: '', cambio: false, cambioDetalle: '', horasHorometro: 11.6, diferencia: 0.6, estado: 'horometro_mayor' });
   eq('horómetro mayor', de('VIBRO-02', '2026-09-02').estado, 'horometro_mayor');
   eq('jornada mayor, con la diferencia negativa', [de('CARG-03', '2026-09-01').estado, de('CARG-03', '2026-09-01').diferencia, de('CARG-03', '2026-09-01').empresa], ['jornada_mayor', -5, 'EMPRESA BETA']);
   // 27-sep-2026, pedido del cliente: «en vez de decir inválido, que diga la
   // razón» — la fila trae el motivo que dejó la base en estadoDetalle.
-  eq('inválida: sin horas ni diferencia, y CON su razón', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, inicial: 800, final: 790, corregida: false, motivo: '', corregidaPor: '', estadoDetalle: 'final menor que inicial', horasHorometro: null, diferencia: null, estado: 'invalida' });
+  eq('inválida: sin horas ni diferencia, y CON su razón', de('EXC-04', '2026-09-01'), { machineryId: 'm4', code: 'EXC-04', empresa: 'EMPRESA ALFA', marca: '', modelo: '', placa: '', fecha: '2026-09-01', horasJornada: 6, inicial: 800, final: 790, corregida: false, motivo: '', corregidaPor: '', estadoDetalle: 'final menor que inicial', cambio: false, cambioDetalle: '', horasHorometro: null, diferencia: null, estado: 'invalida' });
   eq('solo una lectura incompleta cuenta como sin lectura', de('GRUA-05', '2026-09-01').estado, 'sin_lectura');
   // …y la incompleta dice QUÉ falta (el caso del número borrado desde Control).
   eq('la incompleta dice qué le falta', de('GRUA-05', '2026-09-01').estadoDetalle, 'Incompleta: falta el final');
@@ -184,7 +184,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
     const f = H.compararJornadaHorometro([], soloLectura);
     eq('⭐ una lectura de un día SIN ronda ahora SÍ genera fila', f.length, 1);
     eq('⭐ …como «sin jornada», con sus números y SIN diferencia (no hay contra qué cuadrar)',
-      f[0], { machineryId: 'm7', code: '—', empresa: '—', marca: '', modelo: '', placa: '', fecha: '2026-09-03', horasJornada: 0, inicial: 300, final: 308.5, corregida: false, motivo: '', corregidaPor: '', horasHorometro: 8.5, diferencia: null, estado: 'sin_ronda', estadoDetalle: '' });
+      f[0], { machineryId: 'm7', code: '—', empresa: '—', marca: '', modelo: '', placa: '', fecha: '2026-09-03', horasJornada: 0, inicial: 300, final: 308.5, corregida: false, motivo: '', corregidaPor: '', horasHorometro: 8.5, diferencia: null, estado: 'sin_ronda', estadoDetalle: '', cambio: false, cambioDetalle: '' });
     // Con fichas: toma código/empresa de la ficha, y respeta el recorte de la pantalla.
     const fichas = new Map([['m7', { code: 'TELE-07', empresa: 'EMPRESA GAMA', marca: 'JLG', modelo: '600S', placa: 'T-77' }]]);
     const conF = H.compararJornadaHorometro([], soloLectura, fichas)[0];
@@ -218,7 +218,7 @@ const RONDA = (machineryId, code, fecha, dia, noche, parada = 0, extras = 0, emp
     // Y la pantalla le pasa el MISMO filtro de empresa/equipos que aplica a las rondas.
     const fsMod = await import('node:fs');
     const scr = fsMod.readFileSync(new URL('../src/screens/ReportsScreen.tsx', import.meta.url), 'utf8');
-    ok('⭐ la pantalla pasa las fichas filtradas al comparador', /compararJornadaHorometro\(rondas, d\.lecturas, fichasFiltradas\)/.test(scr) && /pasaFiltroJornada\(\{ id, clasificacion: m\.clasificacion \}, filtroEqActual\)/.test(scr));
+    ok('⭐ la pantalla pasa las fichas filtradas al comparador', /compararJornadaHorometro\(rondas, d\.lecturas, fichasFiltradas, d\.cambios\)/.test(scr) && /pasaFiltroJornada\(\{ id, clasificacion: m\.clasificacion \}, filtroEqActual\)/.test(scr));
   }
 
   // ── ✏️ EL INSPECTOR CORRIGE LO QUE ÉL CARGÓ (02-oct-2026, decisión: «sí») ───
