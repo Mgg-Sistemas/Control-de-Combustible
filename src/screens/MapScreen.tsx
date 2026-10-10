@@ -81,6 +81,12 @@ export default function MapScreen({ navigation, route }: any) {
   // Capas: categorías y máquinas apagadas (ocultas del mapa).
   const [hiddenCats, setHiddenCats] = useState<Set<string>>(new Set());
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  // 🗺️ SOLO LAS ACTIVAS (10-oct-2026, a pedido): una máquina DADA DE BAJA en el
+  //    Catálogo ya no sale en el mapa aunque tenga coordenadas guardadas (antes
+  //    salía, y en verde como «Operativa»). No se borra nada: su ubicación sigue
+  //    en la base y su pin vuelve con el interruptor de las capas. Las no
+  //    operativas (rojo) y en espera (azul) SÍ siguen saliendo: están en la flota.
+  const [verBajas, setVerBajas] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   // Leyenda de empresa y zonas: ahora viven FUERA del mapa (controlan el mapa por postMessage).
@@ -107,7 +113,7 @@ export default function MapScreen({ navigation, route }: any) {
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
       .from('machinery')
-      .select('id, code, tipo, clasificacion, plate, serial, identifier, encargado, referencia, latitude, longitude, location_at, operational, en_espera, company:company_id(name)')
+      .select('id, code, tipo, clasificacion, plate, serial, identifier, encargado, referencia, latitude, longitude, location_at, active, operational, en_espera, company:company_id(name)')
       .not('latitude', 'is', null);
     const { data: history } = await supabase
       .from('machinery_locations')
@@ -130,6 +136,7 @@ export default function MapScreen({ navigation, route }: any) {
       active: elapsedSince(m.location_at),
       operational: m.operational,
       enEspera: !!m.en_espera,
+      inactiva: m.active === false,
       company: m.company?.name ?? 'Sin empresa',
       tipo: m.tipo ?? null,
       clasificacion: m.clasificacion ?? null,
@@ -386,22 +393,24 @@ export default function MapScreen({ navigation, route }: any) {
     }
   }, [route?.params?.focus]);
 
+  // Las dadas de baja solo cuentan (y se agrupan) cuando el interruptor las trae.
+  const pinsBase = useMemo(() => (pins ?? []).filter((p) => verBajas || !p.inactiva), [pins, verBajas]);
   // Categoría de cada máquina y agrupación (para las capas).
   const pinCat = useMemo(() => {
     const m = new Map<string, string>();
-    (pins ?? []).forEach((p) => m.set(p.id, catOf(p)));
+    pinsBase.forEach((p) => m.set(p.id, catOf(p)));
     return m;
-  }, [pins]);
+  }, [pinsBase]);
   const groups = useMemo(() => {
     const g = new Map<string, MapPin[]>();
-    (pins ?? []).forEach((p) => {
+    pinsBase.forEach((p) => {
       const k = pinCat.get(p.id) ?? CAT_OTHER_KEY;
       if (!g.has(k)) g.set(k, []);
       g.get(k)!.push(p);
     });
     g.forEach((arr) => arr.sort((a, b) => cmpText(a.name || '', b.name || '')));
     return g;
-  }, [pins, pinCat]);
+  }, [pinsBase, pinCat]);
   // Tipos presentes (UNIÓN de los ubicados y de TODOS los del catálogo), en orden
   // ALFABÉTICO. Así aparecen también los tipos con máquinas SIN ubicar (p. ej. las
   // camionetas pick-up, que no llevan pin) para poder verlas y saber cuáles faltan.
@@ -450,8 +459,9 @@ export default function MapScreen({ navigation, route }: any) {
   }, [allMachines, pickerQuery]);
 
   const isMachineShown = (p: MapPin) => !hiddenCats.has(pinCat.get(p.id) ?? CAT_OTHER_KEY) && !hiddenIds.has(p.id);
-  // El mapa muestra: la enfocada (si hay), o las que pasan el filtro de capas.
-  const shownPins = pins === null ? null : (focus ? pins.filter((p) => p.id === focus.id) : (pins ?? []).filter(isMachineShown));
+  // El mapa muestra: la enfocada (si hay — hasta una dada de baja, si la buscas
+  // a propósito), o las que pasan el filtro de capas SOBRE las activas.
+  const shownPins = pins === null ? null : (focus ? pins.filter((p) => p.id === focus.id) : pinsBase.filter(isMachineShown));
 
   const toggleCat = (k: string) => setHiddenCats((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const toggleId = (id: string) => setHiddenIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -466,7 +476,7 @@ export default function MapScreen({ navigation, route }: any) {
     <Card>
       <TouchableOpacity onPress={() => setLayersOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <Text style={{ color: colors.text, fontWeight: '800' }}>🚜 Tipo de maquinaria</Text>
-        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pins.length})`}</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pinsBase.length})`}</Text>
       </TouchableOpacity>
 
       {layersOpen ? (
@@ -479,6 +489,18 @@ export default function MapScreen({ navigation, route }: any) {
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Ocultar todas</Text>
             </TouchableOpacity>
           </View>
+
+          {(pins ?? []).some((p) => p.inactiva) ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+              <TouchableOpacity onPress={() => setVerBajas((v) => !v)} style={{ width: 34, height: 22, borderRadius: 11, backgroundColor: verBajas ? colors.success : colors.border, justifyContent: 'center', paddingHorizontal: 2 }}>
+                <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: verBajas ? 'flex-end' : 'flex-start' }} />
+              </TouchableOpacity>
+              <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>
+                ⬛ Mostrar también las DADAS DE BAJA ({(pins ?? []).filter((p) => p.inactiva).length} con ubicación guardada).
+                Apagado (así nace), el mapa trae solo las activas del catálogo; sus registros de ubicación se siguen guardando igual.
+              </Text>
+            </View>
+          ) : null}
 
           {totalMachines > 0 ? (
             <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm }}>
