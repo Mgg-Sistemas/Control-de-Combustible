@@ -594,6 +594,10 @@ export interface PurchaseLine {
   unit: string | null;
   price: number; // estimado (solicitud) o unitario (orden)
   item_id?: string | null; // producto de inventario enlazado (si aplica)
+  /** 🧾 Exento de IVA (13-oct-2026, traído de LA CANTERA): el renglón no entra
+   *  en la base imponible. Solo lo usa la COMPRA DIRECTA; en los renglones
+   *  viejos no existe (= gravado, como siempre). */
+  exento?: boolean;
 }
 
 export type PurchaseRequestStatus = 'solicitada' | 'aprobada' | 'rechazada' | 'ordenada';
@@ -650,6 +654,11 @@ export interface DirectPurchase {
   category: string | null;
   items: PurchaseLine[];
   total: number;
+  /** 🧾 Alícuota de IVA de la compra (13-oct-2026). El total YA la incluye:
+   *  total = subtotal + IVA sobre la base imponible (renglones no exentos).
+   *  Las compras viejas quedan en 0 y su total no se mueve. Puede venir null
+   *  si la columna aún no se corrió en la base. */
+  alicuota_iva?: number | null;
   factura_url: string | null;
   factura_type: 'image' | 'pdf' | null;
   factura_name: string | null;
