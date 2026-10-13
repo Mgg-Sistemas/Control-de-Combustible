@@ -39,6 +39,10 @@ export async function generateHoseServiceReport(opts: {
   profilesMap: Record<string, string>;
   bcvRate?: number | null;
   machineFilterLabel?: string;
+  /** 🏢 La empresa filtrada (dueña de la máquina): se declara en el subtítulo. */
+  empresaFilterLabel?: string;
+  /** 📅 El rango de fechas filtrado («dd/mm/aaaa al dd/mm/aaaa»), declarado igual. */
+  rangoLabel?: string;
 }): Promise<boolean> {
   const { rows, machineryMap, profilesMap, bcvRate, machineFilterLabel } = opts;
 
@@ -118,6 +122,8 @@ export async function generateHoseServiceReport(opts: {
 
   const partesSubtitulo = [
     machineFilterLabel ? `Máquina: ${esc(machineFilterLabel)}` : null,
+    opts.empresaFilterLabel ? `Empresa: ${esc(opts.empresaFilterLabel)}` : null,
+    opts.rangoLabel ? `Del ${esc(opts.rangoLabel)}` : null,
     `${rows.length} registro(s)`,
     bcvRate ? `Tasa BCV: Bs ${bcvRate.toFixed(2)}/US$` : null,
   ].filter(Boolean);

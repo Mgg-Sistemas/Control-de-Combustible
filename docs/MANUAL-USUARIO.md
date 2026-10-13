@@ -5014,6 +5014,14 @@ instalación** (En proceso / Instalada) y **estado de pago** (Pendiente / En aut
 Pagado), y un buscador de texto por código, descripción o proveedor. El **total invertido**
 respeta siempre cualquier combinación de filtros activos, con o sin máquina elegida.
 
+**Por empresa y por rango de fechas (13/10/2026, a pedido):** debajo de Flota/Externas hay
+pastillas con las **empresas dueñas** de las máquinas con fabricaciones — eliges una y salen solo
+las fabricaciones de sus máquinas (las externas quedan fuera, porque no tienen máquina de la
+flota). Y el botón **«📅 Filtrar por rango de fechas»** (nace apagado) abre dos calendarios
+(desde/hasta, propone del 1.º del mes a hoy) que cortan por la **fecha de la fabricación**.
+Los dos filtran la lista, el **total invertido** y el PDF, y el papel **declara** en su
+subtítulo la empresa y el rango elegidos.
+
 **Reporte PDF:**
 Toca **"📄 Reporte de confección y pago"**: genera un PDF con el listado que estás viendo (con
 los filtros aplicados), el **total invertido**, el detalle de cada manguera (código, máquina,
