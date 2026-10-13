@@ -153,6 +153,38 @@ export function camionesOperativo(viajes: ViajeOperativo[] | null | undefined): 
   return Array.from(m.values()).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }) || String(a.placa ?? '').localeCompare(String(b.placa ?? ''), 'es'));
 }
 
+// ── 📋 DESGLOSE POR DÍA (13-oct-2026) ───────────────────────────────────────
+// A pedido: «tabla operativa diaria, tenga la opción de desglose para saber
+// cuáles máquinas fueron las que hicieron el viaje, nombre y placa».
+
+export type MaquinaDeDia = { id: string; code: string; placa: string | null; viajes: number };
+export type DiaConMaquinas = { jornada: string; maquinas: MaquinaDeDia[] };
+
+/** Qué camiones viajaron CADA jornada del rango (código, placa congelada y
+ *  cuántos viajes hizo ese día). Mismo corte 7am–7am de la tabla diaria. */
+export function maquinasPorDiaOperativo(viajes: ViajeOperativo[] | null | undefined, desde: string, hasta: string): DiaConMaquinas[] {
+  const d0 = dia(desde); const d1 = dia(hasta);
+  const porDia = new Map<string, Map<string, MaquinaDeDia>>();
+  (viajes ?? []).forEach((v) => {
+    if (!v?.id) return;
+    const j = jornadaOperativa(v.registered_at);
+    if (!j || j < d0 || j > d1) return;
+    const g = porDia.get(j) ?? new Map<string, MaquinaDeDia>();
+    const id = camionDeViaje(v);
+    const c = g.get(id) ?? { id, code: String(v.machine_code ?? '—'), placa: v.placa_snap ?? null, viajes: 0 };
+    c.viajes += 1;
+    if (!c.placa && v.placa_snap) c.placa = v.placa_snap;
+    g.set(id, c);
+    porDia.set(j, g);
+  });
+  return Array.from(porDia.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([j, g]) => ({
+      jornada: j,
+      maquinas: Array.from(g.values()).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })),
+    }));
+}
+
 // ── EL CÁLCULO ──────────────────────────────────────────────────────────────
 
 export type DiaOperativo = {
@@ -298,6 +330,14 @@ export type OpcionesInformeOperativo = {
    * o serial»). Nace mostrándose, como salía; la pastilla la quita.
    */
   sinPlacaCamion: boolean;
+  /**
+   * 📋 Desglose de la tabla diaria: QUÉ camiones viajaron cada jornada, con su
+   * nombre (código), placa y cuántos viajes (13-oct-2026, a pedido: «tabla
+   * operativa diaria, tenga la opción de desglose para saber cuáles máquinas
+   * fueron las que hicieron el viaje, nombre y placa»). Nace apagado — lo
+   * nuevo entra apagado — y respeta la pastilla de placa (sinPlacaCamion).
+   */
+  sinMaquinasDia: boolean;
 };
 
 /** Cómo nace el papel: igual al informe de muestra (KPIs + tabla + gráfico),
@@ -306,6 +346,7 @@ export const OPCIONES_OPERATIVO_INICIAL: OpcionesInformeOperativo = {
   sinKpis: false, sinGrafico: false, sinTabla: false,
   sinDiaSemana: false, sinFlota: false, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
   sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
+  sinMaquinasDia: true,
 };
 
 export const PASTILLAS_OPERATIVO: { key: keyof OpcionesInformeOperativo; chip: string; largo: string; archivo: string }[] = [
@@ -317,6 +358,7 @@ export const PASTILLAS_OPERATIVO: { key: keyof OpcionesInformeOperativo; chip: s
   { key: 'sinSinPeso', chip: '🚫 Viajes sin peso', largo: 'columna de viajes sin peso', archivo: 'sin col sin peso' },
   { key: 'sinToneladas', chip: '🚫 Toneladas', largo: 'columna de toneladas', archivo: 'sin toneladas' },
   { key: 'sinTPorViaje', chip: '🚫 T/Viaje', largo: 'columna T/viaje', archivo: 'sin t-viaje' },
+  { key: 'sinMaquinasDia', chip: '🚫 Desglose: máquinas por día', largo: 'desglose de máquinas por día', archivo: 'con maquinas dia' },
   { key: 'sinPorEmpresa', chip: '🚫 Cuadro por empresa', largo: 'cuadro por empresa', archivo: 'con empresas' },
   { key: 'sinPorCamion', chip: '🚫 Cuadro por camión', largo: 'cuadro por camión', archivo: 'con camiones' },
   { key: 'sinPlacaCamion', chip: '🚫 Serial / Placa (camiones)', largo: 'serial/placa de los camiones', archivo: 'sin placa' },
@@ -508,6 +550,24 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
     if (r.sinPeso > 0 && !o.sinSinPeso) {
       partes.push(`<p class="n">${nro(r.sinPeso, 0)} viaje(s) del rango no tienen peso de romana: cuentan como viajes pero no suman toneladas, y el T/Viaje se calcula solo sobre los pesados. Nada se inventa.</p>`);
     }
+  }
+
+  // 📋 El desglose por día (13-oct-2026): qué camiones viajaron cada jornada,
+  //    con nombre (código), placa y su conteo. Nace apagado; la pastilla manda
+  //    (sale aunque la tabla diaria esté quitada) y respeta «sin placa».
+  if (!o.sinMaquinasDia) {
+    const diasM = maquinasPorDiaOperativo(d.viajes, d.desde, d.hasta);
+    const seña = (m2: MaquinaDeDia): string => {
+      if (o.sinPlacaCamion) return m2.code;
+      // La placa del VIAJE manda; el catálogo respalda los viajes viejos sin seña.
+      const placa = m2.placa || d.placasCatalogo?.get(m2.id) || '';
+      return `${m2.code}${placa ? ` · ${placa}` : ''}`;
+    };
+    partes.push(`<h3>Desglose por día: camiones que viajaron</h3>
+      <table><thead><tr><th>Fecha</th><th class="r">Flota</th><th>Camiones del día (viajes de cada uno)</th></tr></thead>
+      <tbody>${diasM.map((x) => `<tr><td>${dmy(x.jornada)}</td><td class="r">${nro(x.maquinas.length, 0)}</td><td>${x.maquinas.map((m2) => `${esc(seña(m2))} (${nro(m2.viajes, 0)})`).join(' · ')}</td></tr>`).join('')
+      || '<tr><td colspan="3" class="c">Sin viajes en el rango</td></tr>'}</tbody></table>
+      <p class="n">Cada camión sale con su nombre (código), su seña (placa o serial congelados en el viaje) y, entre paréntesis, cuántos viajes hizo esa jornada.</p>`);
   }
 
   if (!o.sinGrafico) {
