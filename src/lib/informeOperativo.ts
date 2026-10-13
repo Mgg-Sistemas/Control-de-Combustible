@@ -292,6 +292,12 @@ export type OpcionesInformeOperativo = {
   /** Sin el cuadro de alcance del final. Acá la pastilla manda SIEMPRE, hasta
    *  filtrado (el subtítulo conserva el «FILTRADO», que no se puede apagar). */
   sinAlcance: boolean;
+  /**
+   * 🚛 Serial/placa en el CUADRO POR CAMIÓN (13-oct-2026, a pedido: «en el
+   * desglose individual de las máquinas falta la opción de que salga la placa
+   * o serial»). Nace mostrándose, como salía; la pastilla la quita.
+   */
+  sinPlacaCamion: boolean;
 };
 
 /** Cómo nace el papel: igual al informe de muestra (KPIs + tabla + gráfico),
@@ -299,7 +305,7 @@ export type OpcionesInformeOperativo = {
 export const OPCIONES_OPERATIVO_INICIAL: OpcionesInformeOperativo = {
   sinKpis: false, sinGrafico: false, sinTabla: false,
   sinDiaSemana: false, sinFlota: false, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
-  sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true,
+  sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
 };
 
 export const PASTILLAS_OPERATIVO: { key: keyof OpcionesInformeOperativo; chip: string; largo: string; archivo: string }[] = [
@@ -313,6 +319,7 @@ export const PASTILLAS_OPERATIVO: { key: keyof OpcionesInformeOperativo; chip: s
   { key: 'sinTPorViaje', chip: '🚫 T/Viaje', largo: 'columna T/viaje', archivo: 'sin t-viaje' },
   { key: 'sinPorEmpresa', chip: '🚫 Cuadro por empresa', largo: 'cuadro por empresa', archivo: 'con empresas' },
   { key: 'sinPorCamion', chip: '🚫 Cuadro por camión', largo: 'cuadro por camión', archivo: 'con camiones' },
+  { key: 'sinPlacaCamion', chip: '🚫 Serial / Placa (camiones)', largo: 'serial/placa de los camiones', archivo: 'sin placa' },
   { key: 'sinEmpresas', chip: '🚫 Nombre de empresas', largo: 'nombres de empresas', archivo: 'sin nombres' },
   { key: 'sinAlcance', chip: '🚫 Alcance del informe', largo: 'cuadro de alcance', archivo: 'con alcance' },
 ];
@@ -424,6 +431,13 @@ export type DatosPapelOperativo = {
   opciones: OpcionesInformeOperativo;
   filtro: FiltroOperativo;
   nombresEmpresa?: Map<string, string> | null;
+  /**
+   * 🚛 Placa/serial del CATÁLOGO por machinery_id (13-oct-2026). Respaldo para
+   * los viajes viejos que no congelaron placa (placa_snap en null, anterior a
+   * la tiquetera): la placa del VIAJE sigue mandando — es la que llevaba ese
+   * día —; el catálogo solo rellena cuando el viaje no guardó nada.
+   */
+  placasCatalogo?: Map<string, string> | null;
 };
 
 /** «Pico: 02 y 03 de octubre», con las jornadas del pico de flota. */
@@ -512,7 +526,11 @@ export function cuerpoInformeOperativo(d: DatosPapelOperativo): string {
     const fichas = new Map(camionesOperativo(d.viajes).map((c) => [c.id, c]));
     partes.push(cuadro('Totales por camión', 'Camión', porCamion, (k) => {
       const f = fichas.get(k);
-      return f ? `${f.code}${f.placa ? ` · ${f.placa}` : ''}` : k;
+      if (!f) return k;
+      if (o.sinPlacaCamion) return f.code;
+      // La placa del VIAJE manda; el catálogo respalda los viajes viejos sin seña.
+      const placa = f.placa || d.placasCatalogo?.get(k) || '';
+      return `${f.code}${placa ? ` · ${placa}` : ''}`;
     }));
   }
 
