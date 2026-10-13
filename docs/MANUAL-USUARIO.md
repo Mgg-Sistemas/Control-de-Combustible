@@ -3053,6 +3053,17 @@ escritura en Compras (o Inventario).
 > último es el que quita la cuenta por pagar, y va después porque reemplaza funciones de los
 > otros dos.)*
 
+> **🧾 IVA en la compra directa (13-oct-2026, traído de LA CANTERA a pedido):** el formulario ahora
+> trae el campo **«IVA %»**, que **nace en 16** y se puede cambiar (ponlo en 0 si la compra entera no
+> lleva IVA), y cada renglón tiene su cuadrito **«☐ Exento de IVA»**. Abajo sale el resumen:
+> **Subtotal**, **Base imponible** (solo cuando hay exentos: el subtotal sin ellos), **IVA** (la
+> alícuota sobre la base imponible, nunca sobre los exentos) y **Total**, que es el que se guarda.
+> En la lista, cada compra con IVA muestra su desglose («Subtotal … · IVA (16%) … = …») y los
+> renglones exentos salen marcados **EXENTO DE IVA**. ⭐ **Las compras viejas no se mueven**: quedan
+> con alícuota 0 y su total igualito; al editarlas salen con su 0 real (no se les inventa IVA).
+> ⭐ El inventario sigue entrando **al precio del renglón** (sin IVA): el IVA es de la factura, no
+> del costo del producto. *(Requiere la columna `alicuota_iva` en la base.)*
+
 > **➕ Proveedor nuevo desde la compra (15-sep-2026):** en el formulario de **🛒 Compras directas**
 > (y en **🧰 Servicios**) hay abajo del selector un campo **«Nuevo proveedor…»** con **«+ Crear»**:
 > escribes el nombre, se guarda en `suppliers` y queda elegido — ya no hace falta ir a la pestaña

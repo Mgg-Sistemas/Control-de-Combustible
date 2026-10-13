@@ -28,6 +28,17 @@ const parseNum = leerNumero;
 const nowISO = () => new Date().toISOString();
 const linesTotal = (items: PurchaseLine[]) => (items || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
 
+// 🧾 IVA DE LA COMPRA DIRECTA (13-oct-2026, traído de LA CANTERA a pedido:
+//    «tienes la opción de colocar automáticamente el IVA en 16% y poder
+//    modificarlo, y también el cuadrito de colocarlo exento»).
+//    La alícuota NACE en 16% y se puede cambiar; cada renglón tiene su
+//    «Exento de IVA». El IVA se calcula SOLO sobre la BASE IMPONIBLE (los
+//    renglones gravados) y el total guardado = subtotal + IVA. Las compras
+//    viejas quedan con alícuota 0: su total no se mueve ni un céntimo.
+const IVA_POR_DEFECTO = 16;
+const baseImponible = (items: PurchaseLine[]) => (items || []).reduce((s, l) => s + (l.exento ? 0 : (Number(l.qty) || 0) * (Number(l.price) || 0)), 0);
+const ivaDe = (items: PurchaseLine[], alicuota: number) => Math.round(baseImponible(items) * (Number(alicuota) || 0)) / 100;
+
 // ── Ayudantes de fecha para los reportes de gasto ────────────────────────────
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -100,7 +111,7 @@ function Pill({ label, bg, border, text }: { label: string; bg: string; border: 
 }
 
 // ── Editor de renglones (descripción · cantidad · unidad · precio) ───────────
-function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }: { items: PurchaseLine[]; setItems: (l: PurchaseLine[]) => void; priceLabel: string; readOnly?: boolean; catalog?: InventoryLevel[]; noPrice?: boolean }) {
+function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice, conExento }: { items: PurchaseLine[]; setItems: (l: PurchaseLine[]) => void; priceLabel: string; readOnly?: boolean; catalog?: InventoryLevel[]; noPrice?: boolean; conExento?: boolean }) {
   const { colors } = useTheme();
   const [focus, setFocus] = useState<number | null>(null);
   // Texto crudo de cant./precio mientras se escribe: deja teclear "12," o "12." sin
@@ -140,8 +151,13 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }:
               <TextInput value={numVal(i, 'price', l.price)} editable={!readOnly} onChangeText={(t) => onNum(i, 'price', t)} keyboardType="decimal-pad" inputMode="decimal" placeholder={priceLabel} placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
             ) : null}
           </View>
+          {conExento && !noPrice ? (
+            <TouchableOpacity disabled={readOnly} onPress={() => upd(i, { exento: !l.exento })} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ color: l.exento ? colors.brandText : colors.muted, fontSize: 12, fontWeight: '700' }}>{l.exento ? '☑' : '☐'} Exento de IVA</Text>
+            </TouchableOpacity>
+          ) : null}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text> : <View />}
+            {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{conExento && l.exento ? ' · EXENTO' : ''}</Text> : <View />}
             {!readOnly ? (
               <TouchableOpacity onPress={() => { setItems(items.filter((_, j) => j !== i)); setRaw({}); }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
             ) : null}
@@ -154,7 +170,8 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }:
           <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>+ Agregar renglón</Text>
         </TouchableOpacity>
       ) : null}
-      {!noPrice ? <Text style={{ color: colors.brandText, fontWeight: '800', textAlign: 'right', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Total: {usd(linesTotal(items))}</Text> : null}
+      {/* Con IVA (conExento), el total de verdad sale en el resumen de la compra. */}
+      {!noPrice && !conExento ? <Text style={{ color: colors.brandText, fontWeight: '800', textAlign: 'right', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Total: {usd(linesTotal(items))}</Text> : null}
     </View>
   );
 }
@@ -423,6 +440,9 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   const [category, setCategory] = useState('repuestos');
   const [note, setNote] = useState('');
   const [items, setItems] = useState<PurchaseLine[]>([{ description: '', qty: 1, unit: '', price: 0 }]);
+  // 🧾 La alícuota de IVA: nace en 16 y se puede cambiar (texto crudo para dejar
+  //    teclear "8,5"). Editando una compra vieja sin IVA, sale su 0 real.
+  const [alicuota, setAlicuota] = useState(String(IVA_POR_DEFECTO));
   const [factura, setFactura] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -432,7 +452,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
   // Vista de la factura ya cargada (imagen o PDF).
   const [preview, setPreview] = useState<DirectPurchase | null>(null);
 
-  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setProvQ(''); setNuevoProv(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null); };
+  const resetForm = () => { setOpen(false); setEditingId(null); setCompany(''); setSupplier(''); setProvQ(''); setNuevoProv(''); setCategory('repuestos'); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null); };
 
   // Crear un proveedor NUEVO sin salir de la compra (se guarda en `suppliers` y
   // queda elegido). Antes había que ir a la pestaña Proveedores primero.
@@ -451,7 +471,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
 
   const abrirNueva = () => {
     setEditingId(null); setCompany(''); setSupplier(''); setCategory('repuestos'); setNote('');
-    setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setFactura(null);
+    setItems([{ description: '', qty: 1, unit: '', price: 0 }]); setAlicuota(String(IVA_POR_DEFECTO)); setFactura(null);
     setFormKey((k) => k + 1); setOpen(true);
   };
 
@@ -462,6 +482,8 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     setCategory(c.category ?? 'repuestos');
     setNote(c.note ?? '');
     setItems((c.items && c.items.length) ? c.items.map((l) => ({ ...l })) : [{ description: '', qty: 1, unit: '', price: 0 }]);
+    // Compra vieja sin IVA: alícuota 0, para que editarla no le invente IVA.
+    setAlicuota(String(c.alicuota_iva ?? 0));
     setFactura(c.factura_url ? { url: c.factura_url, kind: (c.factura_type as 'image' | 'pdf') ?? 'image', name: c.factura_name ?? 'factura' } : null);
     setFormKey((k) => k + 1); setOpen(true);
   };
@@ -483,9 +505,12 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
     const clean = items.filter((l) => l.description.trim() && Number(l.qty) > 0);
     if (!clean.length) return toast.error('Agrega al menos un renglón con producto y cantidad.');
     setBusy(true);
+    // 🧾 La alícuota se acota a [0, 100]; el total guardado YA incluye el IVA.
+    const alic = Math.min(100, Math.max(0, parseNum(alicuota) || 0));
     const payload = {
       company_id: company, supplier_id: supplier, category,
-      items: clean, total: linesTotal(clean),
+      items: clean, total: Math.round((linesTotal(clean) + ivaDe(clean, alic)) * 100) / 100,
+      alicuota_iva: alic,
       factura_url: factura?.url ?? null, factura_type: factura?.kind ?? null, factura_name: factura?.name ?? null,
       note: note.trim().toUpperCase() || null,
     };
@@ -494,6 +519,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
       : await supabase.from('direct_purchases').insert({ ...payload, created_by: session?.user?.id ?? null });
     setBusy(false);
     if (error) {
+      if (/alicuota_iva/i.test(error.message)) { toast.error('Falta la columna del IVA en la base: pide correr el SQL de "alicuota_iva" para habilitarlo.'); return; }
       if (/direct_purchases|relation|does not exist|column/i.test(error.message)) { toast.error('Corre "compras_directas.sql" en Supabase para habilitar Compras Directas.'); return; }
       if (editingId && /reapply|trigger|function/i.test(error.message)) { toast.error('Corre "compras_directas_editar.sql" en Supabase para habilitar la edición.'); return; }
       return toast.error(error.message);
@@ -544,8 +570,13 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
               detail={
                 <>
                   {(c.items || []).map((l, i) => (
-                    <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text>
+                    <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.exento ? ' · EXENTO DE IVA' : ''}</Text>
                   ))}
+                  {(Number(c.alicuota_iva) || 0) > 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                      Subtotal {usd(linesTotal(c.items || []))} · IVA ({Number(c.alicuota_iva)}%) {usd(Math.max(0, Math.round(((Number(c.total) || 0) - linesTotal(c.items || [])) * 100) / 100))} = {usd(c.total)}
+                    </Text>
+                  ) : null}
                   {c.note ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Nota: {c.note}</Text> : null}
                   <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>✓ Cargada al inventario</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
@@ -615,8 +646,35 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (producto · cantidad · precio)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Cada renglón entra al inventario como ENTRADA con su precio. Al escribir, se sugieren productos ya registrados.</Text>
-              <LineEditor key={formKey} items={items} setItems={setItems} priceLabel="Precio unit." catalog={catalog} />
-              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginTop: spacing.xs, textAlign: 'right' }}>Total: {usd(linesTotal(items))}</Text>
+              <LineEditor key={formKey} items={items} setItems={setItems} priceLabel="Precio unit." catalog={catalog} conExento />
+              {/* 🧾 IVA como en LA CANTERA: alícuota editable (nace 16) y el resumen
+                  Subtotal · Base imponible · IVA · Total. Los exentos no pagan IVA. */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>IVA %</Text>
+                <TextInput value={alicuota} onChangeText={setAlicuota} keyboardType="decimal-pad" inputMode="decimal" placeholder={String(IVA_POR_DEFECTO)} placeholderTextColor={colors.muted}
+                  style={{ width: 80, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 6, color: colors.text, fontSize: 13, textAlign: 'right' }} />
+                <Text style={{ color: colors.muted, fontSize: 11, flex: 1 }}>Nace en {IVA_POR_DEFECTO}%. Ponlo en 0 si la compra entera no lleva IVA.</Text>
+              </View>
+              {(() => {
+                const sub = linesTotal(items);
+                const base = baseImponible(items);
+                const alic = Math.min(100, Math.max(0, parseNum(alicuota) || 0));
+                const iva = ivaDe(items, alic);
+                const fila = (k: string, v: string, b?: boolean) => (
+                  <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                    <Text style={{ color: b ? colors.brandText : colors.muted, fontSize: b ? 14 : 12, fontWeight: b ? '800' : '600' }}>{k}</Text>
+                    <Text style={{ color: b ? colors.brandText : colors.muted, fontSize: b ? 14 : 12, fontWeight: b ? '800' : '600', fontVariant: ['tabular-nums'] as any }}>{v}</Text>
+                  </View>
+                );
+                return (
+                  <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                    {fila('Subtotal', usd(sub))}
+                    {base !== sub ? fila('Base imponible (sin exentos)', usd(base)) : null}
+                    {fila(`IVA (${alic}%)`, usd(iva))}
+                    {fila('Total', usd(Math.round((sub + iva) * 100) / 100), true)}
+                  </View>
+                );
+              })()}
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Factura</Text>
