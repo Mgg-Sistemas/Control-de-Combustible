@@ -219,6 +219,11 @@ ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ 
   ok('⭐ el panel pasa los ajustes al cálculo y abre el modal de dos destinos', /filasPagoHorometro\(\{ maquinas, lecturas, precios, desde, hasta, ajustes, cierres, cambios \}\)/.test(panel2) && /HorometroAjusteModal/.test(panel2));
   // 🔁 Cambio de horómetro (10-oct-2026): el panel lo carga, lo pasa al cálculo y abre su modal.
   ok('⭐ el panel pasa los CAMBIOS al cálculo y abre su modal', /cargarCambiosHorometro\(desde, hasta\)/.test(panel2) && /HorometroCambioModal/.test(panel2));
+  // 🚜 Máquina en específico (13-oct-2026, a pedido: «¿no lo puedo sacar por máquina?»).
+  ok('🚜 el selector de máquinas filtra las filas (y por ende el PDF)', /maqSel\.size === 0 \|\| maqSel\.has\(f\.maquina\.id\)/.test(panel2));
+  ok('🚜 marcar máquinas cuenta como FILTRADO (el papel lo declara)', /const filtrado = empresasSel\.size > 0 \|\| maqSel\.size > 0/.test(panel2));
+  ok('🚜 el selector es el de la casa: desplegable, con casillas y Limpiar', panel2.includes('Buscar máquina en específico (marca una o varias)') && panel2.includes('Limpiar ('));
+  ok('🚜 las marcadas se ven SIEMPRE, aunque la búsqueda no las traiga', /maqMarcadas\.length > 0 \?/.test(panel2) && /maqMarcadas\.map\(/.test(panel2));
   ok('🔁 el botón del cambio exige el permiso de corregir horómetros y la tabla creada', /puedeCorregirHoro && !faltaCambios \?/.test(panel2));
   ok('🔁 el chip del día enseña el cambio', panel2.includes("{d.cambio ? '🔁 ' : ''}"));
 }

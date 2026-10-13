@@ -31,7 +31,7 @@ import { LecturaTrabajo } from '../lib/horometroTrabajo';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import {
   AjusteHorometro, CSS_PAGO_HOROMETRO, OPCIONES_PAGO_HOROMETRO, OpcionesPagoHorometro, PASTILLAS_PAGO_HOROMETRO,
-  PrecioHorometro, CambioHorometro, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, motivoAlertaDia, pagoPorEmpresa,
+  PrecioHorometro, CambioHorometro, MaquinaPago, cuerpoPagoHorometro, filasPagoHorometro, fmtHoras, motivoAlertaDia, pagoPorEmpresa,
   sufijoArchivoPagoHorometro, textoPrecioHorometro, totalPagoHorometro, usd, validarPrecioHorometro,
   CierreHorometro, cierresSolapados, filasDeCierre, validarCierreHorometro,
 } from '../lib/pagoHorometro';
@@ -39,6 +39,9 @@ import {
   MaquinaConReferencia, anularPrecioHorometro, cargarAjustesHorometro, cargarCambiosHorometro, cargarMaquinasPagoHorometro, cargarPreciosHorometro,
   crearPrecioHorometro, cargarCierresHorometro, crearCierreHorometro, reabrirCierreHorometro,
 } from '../lib/pagoHorometroDb';
+
+/** Cuántas máquinas se ofrecen de una vez en el selector (el resto, acotando con el buscador). */
+const TOPE_MAQ = 40;
 
 type Props = {
   visible: boolean;
@@ -92,6 +95,16 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
   const [busca, setBusca] = useState('');
   const [empresasSel, setEmpresasSel] = useState<Set<string>>(new Set());
   const [soloAlertas, setSoloAlertas] = useState(false);
+  // 🚜 MÁQUINA EN ESPECÍFICO (11-oct-2026, a pedido: «no lo puedo sacar por
+  //    máquina o por empresa?»). El buscador de texto de arriba ya acotaba, pero
+  //    no dejaba elegir VARIAS máquinas sueltas que no comparten texto. Mismo
+  //    patrón que los reportes de Reportes: se despliega, se busca y se marcan
+  //    con casillas; las marcadas se ven SIEMPRE arriba, aunque el buscador no
+  //    las traiga — un filtro que no se ve es un filtro que saca a escondidas.
+  //    Vacío = todas. ⚠️ Esto SÍ cambia el total: el papel sale FILTRADO.
+  const [maqSel, setMaqSel] = useState<Set<string>>(new Set());
+  const [maqOpen, setMaqOpen] = useState(false);
+  const [maqQ, setMaqQ] = useState('');
   // Editor de precio (se abre dentro de la fila de la máquina).
   const [abierta, setAbierta] = useState<string | null>(null);
   const [pPrecio, setPPrecio] = useState('');
@@ -164,16 +177,35 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
     return s.size;
   }, [filasConAlgo]);
   const empresasDisp = useMemo(() => pagoPorEmpresa(filasTodas).map((e) => ({ nombre: e.empresa, maquinas: e.total.maquinas })), [filasTodas]);
+  // Las máquinas que se pueden marcar: las del rango, acotadas por la empresa ya
+  // elegida (si marcas una empresa, no tiene sentido ofrecer las de las otras) y
+  // por lo que se escriba en el buscador del propio selector.
+  const maqsDisp = useMemo(() => {
+    const q = norm(maqQ).trim();
+    return filasTodas
+      .map((f) => f.maquina)
+      .filter((m) => (empresasSel.size === 0 || empresasSel.has(m.empresa))
+        && (!q || norm(`${m.code} ${m.placa} ${m.empresa} ${m.marca} ${m.modelo}`).includes(q)))
+      .sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
+  }, [filasTodas, maqQ, empresasSel]);
+  // Las marcadas salen siempre, vengan o no en la búsqueda de arriba.
+  const maqMarcadas = useMemo(
+    () => filasTodas.map((f) => f.maquina).filter((m) => maqSel.has(m.id)).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })),
+    [filasTodas, maqSel],
+  );
+  const alternarMaq = (id: string) => setMaqSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const etiquetaMaq = (m: MaquinaPago) => [m.code, m.placa].filter(Boolean).join(' · ');
   const filas = useMemo(() => {
     const q = norm(busca).trim();
     return filasTodas.filter((f) =>
       (empresasSel.size === 0 || empresasSel.has(f.maquina.empresa))
+      && (maqSel.size === 0 || maqSel.has(f.maquina.id))
       && (!soloAlertas || f.alertas > 0)
       && (!q || norm(`${f.maquina.code} ${f.maquina.placa} ${f.maquina.empresa} ${f.maquina.marca} ${f.maquina.modelo}`).includes(q)));
-  }, [filasTodas, busca, empresasSel, soloAlertas]);
+  }, [filasTodas, busca, empresasSel, maqSel, soloAlertas]);
   const tot = useMemo(() => totalPagoHorometro(filas), [filas]);
   const grupos = useMemo(() => pagoPorEmpresa(filas), [filas]);
-  const filtrado = empresasSel.size > 0 || !!busca.trim() || soloAlertas;
+  const filtrado = empresasSel.size > 0 || maqSel.size > 0 || !!busca.trim() || soloAlertas;
   const referencia = useMemo(() => new Map(maquinas.map((m) => [m.id, m.precioJornada])), [maquinas]);
 
   const abrirPrecio = (id: string, vigente: number | null) => {
@@ -347,6 +379,48 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                   </TouchableOpacity>
                 ))}
               </View>
+            ) : null}
+            {/* 🚜 Máquina en específico: el mismo selector de los reportes de Reportes. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm }}>
+              <TouchableOpacity onPress={() => setMaqOpen((v) => !v)} style={chip(maqOpen || maqSel.size > 0)}>
+                <Text style={chipTxt(maqOpen || maqSel.size > 0)}>
+                  {maqOpen ? '▾' : '▸'} 🚜 Buscar máquina en específico (marca una o varias){maqSel.size ? ` · ${maqSel.size} marcada(s)` : ''}
+                </Text>
+              </TouchableOpacity>
+              {maqSel.size > 0 ? (
+                <TouchableOpacity onPress={() => setMaqSel(new Set())}>
+                  <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Limpiar ({maqSel.size})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {maqMarcadas.length > 0 ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                {maqMarcadas.map((m) => (
+                  <TouchableOpacity key={'sel' + m.id} onPress={() => alternarMaq(m.id)} style={chip(true)}>
+                    <Text style={chipTxt(true)}>☑ {etiquetaMaq(m)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+            {maqOpen ? (
+              <>
+                <TextInput value={maqQ} onChangeText={setMaqQ} placeholder="Buscar por código, placa, serial o marca…" placeholderTextColor={colors.muted} autoCorrect={false} style={{ ...input, marginTop: spacing.xs }} />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                  {maqsDisp.slice(0, TOPE_MAQ).map((m) => (
+                    <TouchableOpacity key={m.id} onPress={() => alternarMaq(m.id)} style={chip(maqSel.has(m.id))}>
+                      <Text style={chipTxt(maqSel.has(m.id))}>{maqSel.has(m.id) ? '☑' : '☐'} {etiquetaMaq(m)}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                  {maqsDisp.length === 0 ? 'Ninguna máquina coincide.' : maqsDisp.length > TOPE_MAQ ? `Se muestran ${TOPE_MAQ} de ${maqsDisp.length}: escribe para acotar.` : `${maqsDisp.length} máquina(s).`}
+                </Text>
+              </>
+            ) : null}
+            {maqSel.size > 0 ? (
+              <Text style={{ color: colors.warning, fontSize: 11, marginTop: 4 }}>
+                ⚠️ Esto SÍ saca máquinas y cambia el total: el papel sale marcado FILTRADO. El cierre 🔒 no se filtra: siempre guarda la foto de todas.
+              </Text>
             ) : null}
             <Toggle on={soloAlertas} label="⚠️ Solo las máquinas con días por revisar" ayuda="Lecturas inválidas o incompletas, y horas sin precio." onPress={() => setSoloAlertas((v) => !v)} />
             <Toggle on={incluirSin} label="➕ Incluir las máquinas sin lecturas en el rango" ayuda="Las operativas que lista Control (no las que están en espera). Salen con 0 h, para ponerles precio o acomodarles un día. No entran al total ni al cierre." onPress={() => setIncluirSin((v) => !v)} />

@@ -3855,6 +3855,17 @@ Con texto en el buscador de Control, la sección se forzaba abierta (para enseñ
 la flechita parecía dañada. Ahora la búsqueda la sigue abriendo sola, pero **tu toque manda**: si
 la contraes, contraída se queda, con o sin búsqueda. Nada más cambió en Control.
 
+#### 🚜 El pago por horómetro sale por máquina (13/10/2026)
+
+Por **empresa** ya se podía (las pastillas de arriba). Ahora, debajo de las empresas, está el botón
+**«🚜 Buscar máquina en específico (marca una o varias)»** — el mismo selector de los reportes de
+Reportes: se despliega, buscas por código, placa, serial o marca, y marcas las que quieras con su
+casilla. Las **marcadas se ven siempre** arriba (aunque la búsqueda no las traiga) y hay «Limpiar».
+Si marcaste alguna empresa, el selector solo ofrece las máquinas de esa empresa.
+
+⚠️ **Esto sí saca máquinas y cambia el total:** la pantalla y el PDF salen marcados **FILTRADO**.
+El **cierre 🔒 no se filtra**: siempre guarda la foto de todas las máquinas con lecturas.
+
 #### 🔁 Cambio de horómetro completo — desde Control de Horómetros (10/10/2026)
 
 Pedido del cliente: «cuando un horómetro está malo se coloca uno nuevo que comience de 0; poder
