@@ -198,8 +198,27 @@ eq('cada opción tiene su pastilla (ni una más, ni una menos)',
 eq('cómo nace el papel: igual a la muestra, extras apagados', L.OPCIONES_OPERATIVO_INICIAL, {
   sinKpis: false, sinGrafico: false, sinTabla: false,
   sinDiaSemana: false, sinFlota: false, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
-  sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true,
+  sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
 });
+
+// ── 🚛 Serial/placa del cuadro por camión (13-oct-2026, a pedido) ────────────
+{
+  const op = { ...L.OPCIONES_OPERATIVO_INICIAL, sinPorCamion: false };
+  const base = { resumen: L.resumenOperativo(VIAJES, '2026-10-06', '2026-10-07'), viajes: VIAJES, desde: '2026-10-06', hasta: '2026-10-07', filtro: L.FILTRO_OPERATIVO_TODO };
+  ok('🚛 la pastilla quita la placa del cuadro por camión', (() => {
+    const html = L.cuerpoInformeOperativo({ ...base, opciones: { ...op, sinPlacaCamion: true } });
+    return html.includes('VOLTEO C1') && !html.includes('· PL-C1');
+  })());
+  ok('🚛 el catálogo respalda a un viaje viejo SIN placa congelada', (() => {
+    const viejos = [{ id: 'x1', machinery_id: 'mX', machine_code: 'VOLTEO X', company_id: null, zona_pago: null, registered_at: '2026-10-05T10:00:00-04:00', peso_neto_kg: 1000, placa_snap: null }];
+    const html = L.cuerpoInformeOperativo({ resumen: L.resumenOperativo(viejos, '2026-10-05', '2026-10-05'), viajes: viejos, desde: '2026-10-05', hasta: '2026-10-05', opciones: op, filtro: L.FILTRO_OPERATIVO_TODO, placasCatalogo: new Map([['mX', 'SER-99']]) });
+    return html.includes('VOLTEO X · SER-99');
+  })());
+  ok('🚛 …pero la placa del VIAJE manda sobre la del catálogo', (() => {
+    const html = L.cuerpoInformeOperativo({ ...base, opciones: op, placasCatalogo: new Map([['C1', 'OTRA']]) });
+    return html.includes('· PL-C1') && !html.includes('· OTRA');
+  })());
+}
 eq('sin tocar nada, lo dice', L.ocultosOperativoEnPalabras(L.OPCIONES_OPERATIVO_INICIAL), 'Sale como el informe de muestra.');
 ok('el nombre del archivo recoge rango y cambios', L.sufijoArchivoOperativo('2026-09-27', '2026-10-07', { ...L.OPCIONES_OPERATIVO_INICIAL, sinFlota: true }, true).includes('filtrado')
   && L.sufijoArchivoOperativo('2026-09-27', '2026-10-07', { ...L.OPCIONES_OPERATIVO_INICIAL, sinFlota: true }, true).includes('sin flota'));
