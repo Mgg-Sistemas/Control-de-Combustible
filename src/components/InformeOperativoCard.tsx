@@ -72,6 +72,7 @@ export function InformeOperativoCard({ canVer }: Props) {
 
   // ⚡ Solo consulta cuando la tarjeta se ABRE (Plegable onAbrir).
   const [yaPedido, setYaPedido] = useState(false);
+  const [placasCat, setPlacasCat] = useState<Map<string, string>>(new Map());
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viajes, setViajes] = useState<ViajeOperativo[]>([]);
@@ -96,11 +97,17 @@ export function InformeOperativoCard({ canVer }: Props) {
     try {
       // La jornada va de 7am a 7am: el rango en instantes es [desde 7am, hasta+1 7am).
       const finExclusivo = sumarDias(hasta, 1);
-      const [filas, empresas] = await Promise.all([
+      const [filas, empresas, maqs] = await Promise.all([
         selectAllRows('camion_viajes', COLS_OPERATIVO, (q: any) =>
           q.gte('registered_at', `${desde}T07:00:00-04:00`).lt('registered_at', `${finExclusivo}T07:00:00-04:00`)),
         selectAllRows('companies', 'id, name'),
+        // 🚛 Placa/serial del catálogo: respalda los viajes viejos sin placa
+        //    congelada en el cuadro por camión. Si falla, el papel sale igual.
+        selectAllRows('machinery', 'id, plate, serial').catch(() => [] as any[]),
       ]);
+      setPlacasCat(new Map((maqs as any[])
+        .map((m) => [String(m.id), String(m.plate ?? '').trim() || String(m.serial ?? '').trim()])
+        .filter(([, v]) => !!v) as [string, string][]));
       setViajes(filas as ViajeOperativo[]);
       setNombresEmpresa(new Map((empresas as any[]).map((c) => [c.id as string, String(c.name ?? '')])));
     } catch (e: any) {
@@ -145,7 +152,7 @@ export function InformeOperativoCard({ canVer }: Props) {
         // Regla de la casa en este módulo: sin la marca en texto «BCV / SOS».
         marcaTexto: false,
         body: cuerpoInformeOperativo({
-          resumen, viajes: filtrados, desde, hasta,
+          resumen, viajes: filtrados, desde, hasta, placasCatalogo: placasCat,
           // La pastilla del alcance manda SIEMPRE, hasta filtrado (09-oct-2026, a
           // pedido). El «FILTRADO» del subtítulo es el que no se puede apagar.
           opciones,

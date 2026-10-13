@@ -6800,6 +6800,14 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### 🚛 Serial/placa en el cuadro por camión del informe operativo (13/10/2026)
+
+En el cuadro **«Totales por camión»**, cada camión sale «**código · placa o serial**». Dos cosas
+nuevas: (1) tiene su **pastilla «🚫 Serial / Placa (camiones)»** — nace mostrándose; enciéndela
+para que salga solo el código; (2) los **viajes viejos** (anteriores a la tiquetera, sin placa
+congelada) ya no salen pelados: el **catálogo respalda** con la placa o serial de la ficha — pero
+la placa que el viaje **congeló sigue mandando**, porque esa es la que llevaba ese día.
+
 #### 📊 Informe operativo de transporte y carga (09/10/2026)
 
 El consolidado ejecutivo del rango que elijas, **sin un solo monto** — es de operación, no de
