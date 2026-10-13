@@ -22,6 +22,8 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../components/ToastProvider';
 import { useConfirm } from '../components/ConfirmProvider';
+import { DateField } from '../components/DateField';
+import { caracasToday } from '../lib/caracasDay';
 
 type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; tipo: string | null; company_id: string | null; encargado: string | null; operational: boolean };
 type ProfileRow = { id: string; full_name: string | null };
@@ -152,6 +154,17 @@ export default function ManguerasScreen() {
   const [machineFilterId, setMachineFilterId] = useState('');
   const [machineOpen, setMachineOpen] = useState(false);
   const [machineQuery, setMachineQuery] = useState('');
+  // 🏢📅 Empresa y rango de fechas (13-oct-2026, a pedido: «hace falta poder
+  //    seleccionar por empresa, por maquinaria individual y por rango de fecha»).
+  //    Filtran la lista, el total Y el PDF, como los demás filtros. La EMPRESA
+  //    es la dueña de la máquina (catálogo): con una elegida, las externas
+  //    quedan fuera (no tienen máquina de la flota). El rango corta por la
+  //    FECHA de la fabricación (service_date). Nacen apagados: sin tocarlos,
+  //    todo sale igual que siempre.
+  const [empresaFilter, setEmpresaFilter] = useState('');
+  const [conFechas, setConFechas] = useState(false);
+  const [fDesde, setFDesde] = useState(() => caracasToday().slice(0, 8) + '01');
+  const [fHasta, setFHasta] = useState(() => caracasToday());
 
   const machineFilterInfo = machineFilterId ? machineryMap[machineFilterId] : undefined;
   // Con placa/serial: hay tres maquinas llamadas "RETROEXCAVADORA" y este label
@@ -167,6 +180,17 @@ export default function ManguerasScreen() {
     return list.slice().sort((a, b) => cmpText(a.code, b.code)).slice(0, 30);
   }, [machinery, machineQuery, companiesMap]);
 
+  // Las empresas con fabricaciones de flota (la dueña sale del catálogo).
+  const empresasDisp = useMemo(() => {
+    const s = new Set<string>();
+    hoses.forEach((h) => {
+      if (h.is_external || !h.machinery_id) return;
+      const n = machineryMap[h.machinery_id]?.companyName;
+      if (n) s.add(n);
+    });
+    return Array.from(s).sort((a, b) => cmpText(a, b));
+  }, [hoses, machineryMap]);
+
   const q = norm(query.trim());
   const shown = useMemo(() => {
     return hoses
@@ -174,8 +198,10 @@ export default function ManguerasScreen() {
       .filter((h) => !installFilter || h.install_status === installFilter)
       .filter((h) => !paymentFilter || h.payment_status === paymentFilter)
       .filter((h) => !originFilter || (originFilter === 'externa' ? !!h.is_external : !h.is_external))
-      .filter((h) => !machineFilterId || h.machinery_id === machineFilterId);
-  }, [hoses, q, installFilter, paymentFilter, originFilter, machineFilterId]);
+      .filter((h) => !machineFilterId || h.machinery_id === machineFilterId)
+      .filter((h) => !empresaFilter || (!h.is_external && !!h.machinery_id && machineryMap[h.machinery_id]?.companyName === empresaFilter))
+      .filter((h) => !conFechas || (String(h.service_date ?? '').slice(0, 10) >= fDesde && String(h.service_date ?? '').slice(0, 10) <= fHasta));
+  }, [hoses, q, installFilter, paymentFilter, originFilter, machineFilterId, empresaFilter, conFechas, fDesde, fHasta, machineryMap]);
 
   // ── Totales / inversión (sobre la lista FILTRADA actual) ──────────────────
   const totals = useMemo(() => {
@@ -318,12 +344,16 @@ export default function ManguerasScreen() {
   const exportarReporte = async () => {
     setExporting(true);
     try {
+      const dmyF = (iso: string) => iso.split('-').reverse().join('/');
       await generateHoseServiceReport({
         rows: shown,
         machineryMap,
         profilesMap,
         bcvRate,
         machineFilterLabel,
+        // 🏢📅 Los filtros nuevos se DECLARAN en el papel: cambian el total.
+        empresaFilterLabel: empresaFilter || undefined,
+        rangoLabel: conFechas ? `${dmyF(fDesde)} al ${dmyF(fHasta)}` : undefined,
       });
     } finally {
       setExporting(false);
@@ -426,12 +456,48 @@ export default function ManguerasScreen() {
             {([{ key: '', label: 'Todas' }, { key: 'flota', label: '🚜 Flota' }, { key: 'externa', label: '🏭 Externas' }] as const).map((f) => {
               const on = originFilter === f.key;
               return (
-                <TouchableOpacity key={f.key || 'all'} onPress={() => { setOriginFilter(f.key); if (f.key === 'externa') { setMachineFilterId(''); setMachineQuery(''); } }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <TouchableOpacity key={f.key || 'all'} onPress={() => { setOriginFilter(f.key); if (f.key === 'externa') { setMachineFilterId(''); setMachineQuery(''); setEmpresaFilter(''); } }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                   <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
+
+          {/* 🏢 Empresa dueña de la máquina (13-oct-2026). Filtra lista, total y PDF. */}
+          {empresasDisp.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+              <TouchableOpacity onPress={() => setEmpresaFilter('')} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: !empresaFilter ? colors.brand : colors.border, backgroundColor: !empresaFilter ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: !empresaFilter ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>🏢 Todas las empresas</Text>
+              </TouchableOpacity>
+              {empresasDisp.map((e) => {
+                const on = empresaFilter === e;
+                return (
+                  <TouchableOpacity key={e} onPress={() => { setEmpresaFilter(on ? '' : e); if (!on && originFilter === 'externa') setOriginFilter(''); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{e}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : null}
+          {empresaFilter ? (
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+              Con una empresa elegida salen solo las fabricaciones de SUS máquinas; las externas quedan fuera.
+            </Text>
+          ) : null}
+
+          {/* 📅 Rango de fechas por la FECHA de la fabricación. Nace apagado. */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center', marginBottom: spacing.xs }}>
+            <TouchableOpacity onPress={() => setConFechas((v) => !v)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: conFechas ? colors.brand : colors.border, backgroundColor: conFechas ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: conFechas ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>📅 {conFechas ? 'Filtrando por fechas (toca para quitar)' : 'Filtrar por rango de fechas'}</Text>
+            </TouchableOpacity>
+          </View>
+          {conFechas ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', marginBottom: spacing.xs }}>
+              <View style={{ minWidth: 150 }}><Text style={{ color: colors.muted, fontSize: 11 }}>Desde</Text><DateField value={fDesde} onChange={setFDesde} /></View>
+              <View style={{ minWidth: 150 }}><Text style={{ color: colors.muted, fontSize: 11 }}>Hasta</Text><DateField value={fHasta} onChange={setFHasta} /></View>
+              {fHasta < fDesde ? <Text style={{ color: colors.danger, fontSize: 11 }}>«Hasta» no puede ser antes de «desde».</Text> : null}
+            </View>
+          ) : null}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
             {INSTALL_FILTERS.map((f) => {
