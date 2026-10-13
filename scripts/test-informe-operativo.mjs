@@ -199,6 +199,7 @@ eq('cómo nace el papel: igual a la muestra, extras apagados', L.OPCIONES_OPERAT
   sinKpis: false, sinGrafico: false, sinTabla: false,
   sinDiaSemana: false, sinFlota: false, sinSinPeso: false, sinToneladas: false, sinTPorViaje: false,
   sinPorEmpresa: true, sinPorCamion: true, sinEmpresas: false, sinAlcance: true, sinPlacaCamion: false,
+  sinMaquinasDia: true,
 });
 
 // ── 🚛 Serial/placa del cuadro por camión (13-oct-2026, a pedido) ────────────
@@ -219,6 +220,31 @@ eq('cómo nace el papel: igual a la muestra, extras apagados', L.OPCIONES_OPERAT
     return html.includes('· PL-C1') && !html.includes('· OTRA');
   })());
 }
+// ── 📋 Desglose: máquinas por día (13-oct-2026, a pedido: «tabla operativa
+//    diaria, tenga la opción de desglose para saber cuáles máquinas fueron
+//    las que hicieron el viaje, nombre y placa») ──────────────────────────────
+{
+  const dd = L.maquinasPorDiaOperativo(VIAJES, '2026-10-06', '2026-10-07');
+  eq('📋 dos jornadas en el desglose (el 09 queda fuera)', dd.map((x) => x.jornada), ['2026-10-06', '2026-10-07']);
+  eq('📋 el 06: C1 con 2 viajes y C2 con 1', dd[0].maquinas.map((m) => [m.code, m.viajes]), [['VOLTEO C1', 2], ['VOLTEO C2', 1]]);
+  eq('📋 la madrugada del 08 (2am) cae con la jornada del 07', dd[1].maquinas.map((m) => m.code), ['VOLTEO C1', 'VOLTEO C2', 'VOLTEO C3']);
+  ok('📋 nace apagado: el papel de muestra NO trae el desglose', !/Desglose por día/.test(html));
+  const conD = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinMaquinasDia: false } });
+  ok('📋 encendido: sale con nombre · placa y el conteo de viajes',
+    /Desglose por día: camiones que viajaron/.test(conD) && /VOLTEO C1 · PL-C1 \(2\)/.test(conD) && /VOLTEO C2 · PL-C2 \(1\)/.test(conD));
+  ok('📋 la pastilla manda: sale aunque la tabla diaria esté quitada',
+    /Desglose por día/.test(L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinMaquinasDia: false, sinTabla: true } })));
+  ok('📋 respeta «sin placa»: queda solo el nombre', (() => {
+    const h = L.cuerpoInformeOperativo({ ...base, opciones: { ...base.opciones, sinMaquinasDia: false, sinPlacaCamion: true } });
+    return /VOLTEO C1 \(2\)/.test(h) && !/· PL-C1/.test(h);
+  })());
+  ok('📋 el catálogo respalda a un viaje viejo SIN placa congelada', (() => {
+    const viejos = [{ id: 'x1', machinery_id: 'mX', machine_code: 'VOLTEO X', company_id: null, zona_pago: null, registered_at: '2026-10-05T10:00:00-04:00', peso_neto_kg: 1000, placa_snap: null }];
+    const h = L.cuerpoInformeOperativo({ resumen: L.resumenOperativo(viejos, '2026-10-05', '2026-10-05'), viajes: viejos, desde: '2026-10-05', hasta: '2026-10-05', opciones: { ...L.OPCIONES_OPERATIVO_INICIAL, sinMaquinasDia: false }, filtro: L.FILTRO_OPERATIVO_TODO, placasCatalogo: new Map([['mX', 'SER-99']]) });
+    return h.includes('VOLTEO X · SER-99 (1)');
+  })());
+}
+
 eq('sin tocar nada, lo dice', L.ocultosOperativoEnPalabras(L.OPCIONES_OPERATIVO_INICIAL), 'Sale como el informe de muestra.');
 ok('el nombre del archivo recoge rango y cambios', L.sufijoArchivoOperativo('2026-09-27', '2026-10-07', { ...L.OPCIONES_OPERATIVO_INICIAL, sinFlota: true }, true).includes('filtrado')
   && L.sufijoArchivoOperativo('2026-09-27', '2026-10-07', { ...L.OPCIONES_OPERATIVO_INICIAL, sinFlota: true }, true).includes('sin flota'));

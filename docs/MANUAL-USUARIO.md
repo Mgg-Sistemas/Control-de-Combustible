@@ -6808,6 +6808,20 @@ hora, neto, tarifa o motivo, monto).
 > camiones ve y crea; nadie edita ni borra, solo se anula). Si falta, la tarjeta lo avisa en ámbar y
 > todo sale «sin tarifa».
 
+#### 📋 Desglose por día: qué camiones viajaron (13/10/2026)
+
+En las opciones del informe operativo hay una pastilla nueva **«🚫 Desglose: máquinas por día»**.
+**Nace apagada** (el papel sale igual que siempre); al desmarcarla aparece, debajo de la tabla
+diaria, el cuadro **«Desglose por día: camiones que viajaron»**: una fila por jornada (7am a 7am,
+las mismas de la tabla) con la flota del día y la lista de cada camión con su **nombre (código) ·
+placa o serial** y, entre paréntesis, **cuántos viajes** hizo esa jornada.
+
+- La placa es la que el viaje **congeló** ese día; los viajes viejos sin placa se respaldan con la
+  de la ficha del catálogo, igual que en el cuadro por camión.
+- Respeta la pastilla «🚫 Serial / Placa (camiones)»: con ella encendida salen solo los nombres.
+- La pastilla manda: el desglose sale aunque quites la tabla diaria, y el nombre del archivo lo
+  declara («con maquinas dia»).
+
 #### 🚛 Serial/placa en el cuadro por camión del informe operativo (13/10/2026)
 
 En el cuadro **«Totales por camión»**, cada camión sale «**código · placa o serial**». Dos cosas
