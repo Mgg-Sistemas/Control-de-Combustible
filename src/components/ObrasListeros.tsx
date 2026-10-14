@@ -39,6 +39,11 @@ type Props = {
   faltaSql: boolean;
   /** Solo con nivel `full` se puede tocar el catálogo. */
   canFull: boolean;
+  /** 🔀 Mover listeros de obra (13-oct-2026, a pedido: «los que tienen permiso
+   *  de escritura y full control no pueden cambiar a los listeros de obras»).
+   *  Con `escritura` ya se puede: la tarjeta sale, pero el catálogo de obras
+   *  (crear, renombrar, zona, eliminar) sigue siendo solo de `full`. */
+  canMover: boolean;
   onCambioObras: () => void;
   onCambioListeros: () => void;
   /** ⛏️ Los FRENTES DE TRABAJO (28-sep-2026) viven como subsección DENTRO de
@@ -48,7 +53,7 @@ type Props = {
   extra?: React.ReactNode;
 };
 
-export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObras, onCambioListeros, extra }: Props) {
+export function ObrasListeros({ obras, listeros, faltaSql, canFull, canMover, onCambioObras, onCambioListeros, extra }: Props) {
   const { colors } = useTheme();
   const toast = useToast();
   const confirm = useConfirm();
@@ -146,7 +151,9 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
     onCambioListeros();
   };
 
-  if (!canFull) return null;
+  // Con escritura (canMover) la tarjeta también sale: puede mover listeros,
+  // aunque el catálogo de obras siga siendo solo de full.
+  if (!canFull && !canMover) return null;
 
   return (
     <Card>
@@ -182,6 +189,9 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
                 no toca los viajes que ya tienen zona. Toca la zona marcada para quitarla.
               </Text>
 
+              {/* El catálogo de obras (crear, renombrar, zona, activar, eliminar)
+                  sigue siendo SOLO de full; escritura solo mueve listeros. */}
+              {canFull ? (<>
               {/* ── CREAR ─────────────────────────────────────────────── */}
               <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
                 <TextInput
@@ -260,6 +270,7 @@ export function ObrasListeros({ obras, listeros, faltaSql, canFull, onCambioObra
                   })}
                 </ScrollView>
               )}
+              </>) : null}
 
               {/* ── QUIÉN ESTÁ DÓNDE ──────────────────────────────────── */}
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md }}>LISTEROS Y SU OBRA</Text>

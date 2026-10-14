@@ -7083,6 +7083,18 @@ tiene **permiso completo** del módulo; los listeros no ven montos.
   Tocar la zona marcada la quita. Arriba se avisa cuántas obras activas siguen **sin zona**: sus
   viajes nuevos quedan sin zona de pago. Los viajes anteriores al 14/09/2026 no tienen estos datos.
 
+> **🔀 Mover listeros de obra: escritura y full ya pueden (13/10/2026, a pedido).**
+> Antes solo un **administrador** los movía de verdad: un supervisor con control total veía la
+> tarjeta, tocaba la obra y el sistema decía que movió — pero la base rechazaba el cambio **en
+> silencio** (cero filas, sin error) y el listero rebotaba; y los de **escritura** ni veían la
+> tarjeta. Ahora el movimiento va por una **función de la base** que valida el permiso (escritura
+> o control total de **Viajes de camiones**) y toca **solo la obra asignada** del listero — nada
+> más de su perfil. Con escritura la tarjeta **«🏗️ Obras y ubicaciones»** ya sale y se pueden
+> mover listeros; **crear, renombrar, la zona y eliminar obras siguen siendo solo de control
+> total**. Al teléfono del listero no se le carga nada de esto, y si la base rechaza un movimiento
+> ahora **se dice** con su aviso. *(Requiere la función `asignar_obra_a_listero` en la base;
+> mientras no esté, mover sigue siendo solo de administradores, con aviso claro.)*
+
 > **👤 En la lista solo salen los listeros de verdad (13/09/2026).**
 > Solo salen los usuarios con el **rol de listero**. Antes salía todo el que tenía acceso al
 > módulo, y administradores, almacenistas o usuarios de prueba aparecían como listeros sin obra.
