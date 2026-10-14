@@ -1391,13 +1391,26 @@ export async function listListeros(): Promise<ListeroConRol[]> {
  *    cambiar un reporte que ya se entregó.
  */
 export async function asignarObraAListero(listeroId: string, ubicacionId: string | null): Promise<{ error?: string; falta?: boolean }> {
-  const { error } = await supabase.from('profiles').update({ ubicacion_id: ubicacionId }).eq('id', listeroId);
+  // 🔐 Va por una FUNCIÓN de la base (13-oct-2026, a pedido: «los que tienen
+  //    escritura y full no pueden cambiar a los listeros de obras»). La RLS de
+  //    `profiles` solo deja tocar la fila PROPIA (o ser admin), así que el update
+  //    directo de un supervisor devolvía «0 filas» SIN error y el listero
+  //    rebotaba en silencio. La función (security definer) valida escritura/full
+  //    de viajes_camiones y toca SOLO ubicacion_id — abrir la RLS de profiles
+  //    dejaría cambiar roles ajenos, y eso no.
+  const rpc = await supabase.rpc('asignar_obra_a_listero', { p_listero_id: listeroId, p_ubicacion_id: ubicacionId });
+  if (!rpc.error) return {};
+  // ¿La función todavía no está corrida en la base? → el camino viejo, pero
+  // HONESTO: si la RLS filtra 0 filas, se dice, en vez de fingir éxito.
+  if (!/asignar_obra_a_listero|schema cache/i.test(rpc.error.message)) return { error: rpc.error.message };
+  const { data, error } = await supabase.from('profiles').update({ ubicacion_id: ubicacionId }).eq('id', listeroId).select('id');
   if (error) {
     // Se distingue «falta correr el SQL» de cualquier otro fallo: son dos avisos
     // muy distintos, y el primero lo resuelve el administrador en un minuto.
     if (esColumnaQueFalta(error)) return { error: error.message, falta: true };
     return { error: error.message };
   }
+  if (!data?.length) return { error: 'La base no dejó mover al listero: falta correr el SQL de «asignar_obra_a_listero» (o hace falta ser admin mientras tanto).' };
   return {};
 }
 
