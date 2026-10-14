@@ -119,6 +119,7 @@ import {
 import { unidadTarifa, tarifaTexto, unidadTexto, type UnidadTarifaViaje } from '../lib/tarifaViajeUnidad';
 import { capturarFotoLocal, elegirFotoLocal } from '../lib/photo';
 import { leerNumero } from '../lib/numeros';
+import { esRolListero } from '../lib/rolListero';
 import {
   normalizarHora,
   isoDeJornadaHora,
@@ -397,7 +398,7 @@ const esChoferSinConfirmar = (note: string | null | undefined): boolean =>
 
 export default function ViajesCamionesScreen() {
   const { colors } = useTheme();
-  const { session, fullName, moduleLevel } = useAuth();
+  const { session, fullName, moduleLevel, appRole } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -417,6 +418,9 @@ export default function ViajesCamionesScreen() {
 
   const canWrite = levelMeets(level, 'escritura');
   const canFull = levelMeets(level, 'full');
+  // ¿El usuario ES un listero (rol cuyo único módulo es viajes)? Los listeros
+  // tienen escritura, pero a su teléfono no se le cargan listas de administración.
+  const soyListero = esRolListero(appRole?.modules);
 
   // ── Camiones + estatus EN VIVO (compartido por el buscador del listero y el
   //    panel de la jefa: alerta y resumen). Mismas queries que Catálogo, ver
@@ -1445,12 +1449,13 @@ export default function ViajesCamionesScreen() {
     misViajes.find((r) => r.id === id) ?? rangeRows.find((r) => r.id === id) ?? null;
 
   // Los listeros a los que la jefa le puede atribuir un viaje (al cargarlo a
-  // mano o al reasignarlo). Solo se leen con nivel full: al listero no le hace
-  // falta y sería una consulta de más en el teléfono, que es donde trabaja.
+  // mano o al reasignarlo). Se leen con nivel escritura o full (13-oct-2026:
+  // con escritura también se mueven listeros de obra) — pero NUNCA en el
+  // teléfono de un listero: a él no le hace falta y sería una consulta de más.
   const [listeros, setListeros] = useState<ListeroConRol[]>([]);
   const [listerosRecarga, setListerosRecarga] = useState(0);
   useEffect(() => {
-    if (!canFull) return;
+    if (!canWrite || soyListero) return;
     let vivo = true;
     listListeros()
       .then((l) => { if (vivo) setListeros(l); })
@@ -1458,7 +1463,7 @@ export default function ViajesCamionesScreen() {
       // la hace (que es el valor por defecto de todos modos).
       .catch((e: any) => console.warn('[viajes] no se pudo leer la lista de listeros:', String(e?.message ?? e)));
     return () => { vivo = false; };
-  }, [canFull, listerosRecarga]);
+  }, [canWrite, soyListero, listerosRecarga]);
 
   /**
    * Solo los que tienen el ROL de listero, para «Listeros y su obra» (13-sep-2026).
@@ -5101,6 +5106,9 @@ export default function ViajesCamionesScreen() {
             listeros={listerosDeRol}
             faltaSql={faltaSqlObras}
             canFull={canFull}
+            // Con escritura también se mueven listeros — pero no en el teléfono
+            // del propio listero, que ni carga esa lista.
+            canMover={canWrite && !soyListero}
             onCambioObras={recargarObras}
             onCambioListeros={() => setListerosRecarga((n) => n + 1)}
             extra={
