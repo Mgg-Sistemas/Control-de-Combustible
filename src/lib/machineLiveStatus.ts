@@ -188,21 +188,27 @@ export function makeLiveStatusOf(params: {
   };
 }
 
-/** Máquina mínima que necesita el conteo de 4 cubos. */
-export type MachineForStatus = { id: string; operational?: boolean | null; en_espera?: boolean | null };
+/** Máquina mínima que necesita el conteo de los cubos de estado. */
+export type MachineForStatus = { id: string; operational?: boolean | null; en_espera?: boolean | null; transferida?: boolean | null };
 
 /**
- * Conteo de maquinaria por estado (4 cubos EXCLUYENTES que suman el total),
+ * Conteo de maquinaria por estado (cubos EXCLUYENTES que suman el total),
  * copia exacta de las líneas 531-534 de EquiposScreen.tsx:
  *  · OPERATIVAS: operativas, SIN avería (en vivo, con reactivación) y SIN estar esperando instrucciones.
  *  · AVERIADAS: operativas con avería vigente (liveStatusOf, respeta reactivación por jornada nueva).
- *  · RETIRADAS: operational=false (sacadas de servicio).
+ *  · RETIRADAS: operational=false (sacadas de servicio) y NO transferidas.
+ *  · 🔁 TRANSFERIDAS A OTROS (14-oct-2026, a pedido): hermanas de Retirada —
+ *    también llevan operational=false, a propósito: así TODO lo que ya excluye
+ *    a las retiradas (inspectores, jornadas, crons, QR, flota disponible, mapa)
+ *    las excluye igual SIN tocar nada — pero se cuentan y listan aparte, porque
+ *    no están dañadas ni de baja: se transfirieron a otros.
  *  · ESPERANDO INSTRUCCIONES: en_espera=true.
  */
 export function bucketMachineStatus<M extends MachineForStatus>(machines: M[], statusOf: (id: string) => LiveStatus) {
   const averiadaMachines = machines.filter((m) => m.operational !== false && !m.en_espera && statusOf(m.id).estado === 'averiada');
   const activeMachines = machines.filter((m) => m.operational && !m.en_espera && statusOf(m.id).estado !== 'averiada');
-  const retiradaMachines = machines.filter((m) => !m.operational);
+  const transferidaMachines = machines.filter((m) => !m.operational && m.transferida === true);
+  const retiradaMachines = machines.filter((m) => !m.operational && m.transferida !== true);
   const esperaMachines = machines.filter((m) => m.operational && m.en_espera);
-  return { averiadaMachines, activeMachines, retiradaMachines, esperaMachines };
+  return { averiadaMachines, activeMachines, retiradaMachines, esperaMachines, transferidaMachines };
 }

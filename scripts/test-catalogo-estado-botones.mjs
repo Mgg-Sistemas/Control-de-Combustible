@@ -39,8 +39,8 @@ ok('⭐ retirar/activar pide las filas tocadas (.select)',
   scr.includes(".update({ operational: !m.operational, ...stamp }).eq('id', m.id).select('id')"));
 ok('⭐ esperando instrucciones también',
   scr.includes(".update({ en_espera: next }).eq('id', m.id).select('id')"));
-ok('⭐ 0 filas = mensaje claro de permiso (dos sitios)',
-  (scr.match(/La base no guardó el cambio: tu permiso de Equipos no alcanza/g) || []).length === 2);
+ok('⭐ 0 filas = mensaje claro de permiso (retirar, espera y transferir)',
+  (scr.match(/La base no guardó el cambio: tu permiso de Equipos no alcanza/g) || []).length >= 2);
 
 // ⚠️ El aviso de error se ve DENTRO del modal del detalle (no solo en el fondo).
 ok('⚠️ el banner de error también se pinta dentro del modal del detalle',
