@@ -60,3 +60,6 @@ Guia-Inspector-SOS-La-Guaira.pdf
 boot.png
 qrinactive.png
 backups/
+
+# Ajustes LOCALES de Claude Code (no pertenecen al repo, que es público).
+.claude/settings.local.json
