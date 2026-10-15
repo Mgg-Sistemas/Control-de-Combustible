@@ -194,6 +194,19 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
 > desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
 >
+> **🔁 Estado nuevo: Transferido a otros (14/10/2026, a pedido: «del estilo de retirado, pero no
+> es que están retiradas sino transferidas a otros»).** En el Catálogo (y en el Inicio) hay un
+> **quinto cubo «🔁 Transferido a otros»**, al lado de Retiradas: una máquina que salió de la
+> flota porque **se transfirió** (a otra empresa, obra o ente), no porque esté dañada ni de baja.
+> **Se comporta igual que una retirada**: fuera de servicio, **fuera del Total de Flota
+> Disponible** (que sigue siendo Operativas + Averiadas + Esperando), sin inspectores, sin
+> jornadas y con el QR bloqueado — pero se **cuenta y lista aparte**. Se marca con el botón
+> **«🔁 Transferido a otros»** (en la ficha o en cualquier lista por estado), que pide
+> **obligatorio a quién o a dónde** se transfirió; la ficha técnica lo dice («Transferida a
+> otros (DESTINO)») y el reporte de conteo la separa de Retirada. Se revierte con **«✅ Activar
+> (Operativa)»**, que limpia la marca. *(Requiere las columnas `transferida`/`transferida_a` en
+> la base; mientras no estén, el botón avisa.)*
+
 > **📁⬛ Detalle por estado: plegado y con los botones funcionando (14/10/2026, a pedido).**
 > (1) Al tocar una tarjeta de estado (Operativas / Averiadas / Esperando / Retiradas), **todas las
 > empresas salen plegadas** por defecto — solo los encabezados con su conteo; tocas la que te

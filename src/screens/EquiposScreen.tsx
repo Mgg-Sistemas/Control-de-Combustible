@@ -571,11 +571,13 @@ export default function EquiposScreen({ navigation, route }: any) {
   //    `en_espera` (antes solo "en espera por recepción"): ya está probado y excluido
   //    en todo el flujo de inspectores (SupervisorScreen/SupervisionScreen/Reportes) —
   //    no requiere tocar esa lógica, solo hacerlo visible aquí como su propio estado.
-  const { averiadaMachines, activeMachines, retiradaMachines, esperaMachines } = bucketMachineStatus(machinery.data, liveStatusOf);
+  // 🔁 transferidaMachines (14-oct-2026): hermanas de Retirada (operational=false,
+  //    fuera de la flota disponible) pero contadas y listadas aparte.
+  const { averiadaMachines, activeMachines, retiradaMachines, esperaMachines, transferidaMachines } = bucketMachineStatus(machinery.data, liveStatusOf);
 
   // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
-  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'retirada' | 'averiada' | 'espera'>(null);
+  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'retirada' | 'averiada' | 'espera' | 'transferida'>(null);
   const [detailQuery, setDetailQuery] = useState(''); // buscador del detalle (por todas las características)
   useEffect(() => { setDetailQuery(''); }, [detailStatus]); // limpia el buscador al abrir/cerrar el detalle
 
@@ -584,7 +586,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     const s = route?.params?.status;
     if (!s) return;
     setKind('maquinaria');
-    setDetailStatus(s === 'averiada' ? 'averiada' : s === 'espera' ? 'espera' : s === 'retirada' || s === 'inactive' ? 'retirada' : 'active');
+    setDetailStatus(s === 'averiada' ? 'averiada' : s === 'espera' ? 'espera' : s === 'transferida' ? 'transferida' : s === 'retirada' || s === 'inactive' ? 'retirada' : 'active');
     navigation.setParams?.({ status: undefined }); // evita reabrir al volver
   }, [route?.params?.status]);
 
@@ -604,8 +606,8 @@ export default function EquiposScreen({ navigation, route }: any) {
     setOpAssignOpen(true);
     navigation.setParams?.({ obrasPublicas: undefined });
   }, [route?.params?.obrasPublicas]);
-  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : [];
-  const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : detailStatus === 'espera' ? '⏳ Esperando instrucciones' : '✅ Maquinaria operativa';
+  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : detailStatus === 'transferida' ? transferidaMachines : [];
+  const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : detailStatus === 'espera' ? '⏳ Esperando instrucciones' : detailStatus === 'transferida' ? '🔁 Transferida a otros' : '✅ Maquinaria operativa';
   // Buscador del detalle: filtra por TODAS las características (código, placa, serial,
   // identificador, grupo, encargado, tipo, clasificación, parroquia, sector, edificio/
   // referencia y nombre de empresa). Vacío = toda la lista.
@@ -770,8 +772,10 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       // EstadoFechaLine ("🟢 Reactivada el DD/MM por Fulano") y queda además en
       // audit_log con el antes/después vía el trigger de auditoría. Al RETIRAR se guarda
       // el MOTIVO obligatorio (`inactivated_reason`) que el admin escribió en el modal.
+      // Al reactivar se limpia también la marca de 🔁 transferida (si la tenía):
+      // volver operativa la saca de ese estado, igual que de retirada.
       const stamp = activando
-        ? { reactivated_at: nowIso, reactivated_by: actorId }
+        ? { reactivated_at: nowIso, reactivated_by: actorId, transferida: false, transferida_a: null }
         : { inactivated_at: nowIso, reactivated_at: null, inactivated_by: actorId, inactivated_reason: (reason ?? '').trim() || null };
       // ⭐ Se piden las filas tocadas (.select): si la RLS rechaza, devuelve 0 filas
       //    SIN error y antes esto FINGÍA éxito (patrón «borrados que fingen éxito»).
@@ -813,6 +817,36 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
     if (!m || !motivo) return;      // motivo OBLIGATORIO
     setRetireFor(null);
     await toggleOp(m, motivo);
+  };
+
+  // ── 🔁 TRANSFERIDA A OTROS (14-oct-2026, a pedido: «del estilo de retirado,
+  // pero no es que están retiradas sino transferidas a otros») ─────────────────
+  // Hermana del retiro: también exige decir A QUIÉN. Deja operational=false
+  // (fuera de servicio y del Total de Flota Disponible, igual que retirada) +
+  // la marca `transferida`, que es lo que la cuenta y lista aparte.
+  const [transferFor, setTransferFor] = useState<Machinery | null>(null);
+  const [transferDest, setTransferDest] = useState('');
+  const confirmarTransfer = async () => {
+    const m = transferFor;
+    const dest = transferDest.trim().toUpperCase();
+    if (!m || !dest) return;        // destino OBLIGATORIO
+    setTransferFor(null);
+    await run(m.id + '-tra', async () => {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase.from('machinery').update({
+        operational: false, transferida: true, transferida_a: dest,
+        en_espera: false,
+        inactivated_at: nowIso, reactivated_at: null,
+        inactivated_by: session?.user?.id ?? null,
+        inactivated_reason: `TRANSFERIDA A: ${dest}`,
+      }).eq('id', m.id).select('id');
+      if (error) {
+        if (/transferida/i.test(error.message)) return { ok: false, error: 'Falta correr el SQL de «transferida» en la base para habilitar este estado.' };
+        return { ok: false, error: error.message };
+      }
+      if (!data?.length) return { ok: false, error: 'La base no guardó el cambio: tu permiso de Equipos no alcanza para cambiar el estado (pídele a un administrador que lo suba a escritura).' };
+      return { ok: true };
+    });
   };
 
   // 3er estado: "En espera por recepción" (independiente de Operativa / No operativa).
@@ -949,7 +983,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   // el MISMO que pinta las tarjetas (liveStatusOf), para que la ficha nunca
   // contradiga a la pantalla.
   const estadoParaFicha = (m: Machinery): string => {
-    if (m.operational === false) return '⬛ Retirada / no operativa';
+    if (m.operational === false) return m.transferida ? `🔁 Transferida a otros${m.transferida_a ? ` (${m.transferida_a})` : ''}` : '⬛ Retirada / no operativa';
     if (m.en_espera) return '⏳ Esperando instrucciones';
     const e = liveStatusOf(m.id).estado;
     if (e === 'averiada') return '⚠️ Averiada (reparación pendiente)';
@@ -1237,20 +1271,21 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   // y el de ESTADO tildado (vacío = todos). Antes el conteo solo incluía Operativas +
   // Averiadas (sin poder ver ni imprimir Retiradas/Esperando instrucciones); ahora es un
   // filtro de verdad, con los MISMOS 4 estados excluyentes que las tarjetas del Catálogo.
-  type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera';
-  const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'retirada', 'espera'];
+  type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera' | 'transferida';
+  const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'retirada', 'transferida', 'espera'];
   const ESTADO_CONTEO_META: Record<EstadoConteo, { label: string; icon: string; color: string; hex: string }> = {
     operativa: { label: 'Operativa', icon: '✅', color: colors.success, hex: '#15803D' },
     averiada: { label: 'Averiada', icon: '🔴', color: colors.danger, hex: '#B91C1C' },
     parada: { label: 'Parada', icon: '🟡', color: colors.warning, hex: '#B45309' },
     retirada: { label: 'Retirada', icon: '⬛', color: colors.muted, hex: '#4B5563' },
+    transferida: { label: 'Transferida a otros', icon: '🔁', color: colors.muted, hex: '#0D9488' },
     espera: { label: 'Esperando instrucciones', icon: '⏳', color: colors.warning, hex: '#B45309' },
   };
   // Mismo criterio EXCLUYENTE que las tarjetas del Catálogo (averiadaMachines/
   // activeMachines/retiradaMachines/esperaMachines más arriba): retirada > espera >
   // averiada/parada (según maintenance_requests, no un campo fijo) > operativa.
   const estadoConteoOf = (m: Machinery): EstadoConteo => {
-    if (!m.operational) return 'retirada';
+    if (!m.operational) return m.transferida ? 'transferida' : 'retirada';
     if (m.en_espera) return 'espera';
     // Usa liveStatusOf (con la regla de reactivación): antes esto miraba `averiaCat`
     // directo, así que una máquina que YA volvió a trabajar (jornada abierta DESPUÉS
@@ -1327,7 +1362,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   // Conteo por ESTADO dentro del alcance elegido (empresa), para los chips del filtro —
   // NO se filtra por el propio reportEstados, así los números siempre se ven completos.
   const reportEstadoCounts = useMemo(() => {
-    const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
+    const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, transferida: 0, espera: 0 };
     scopedMachines(reportCompanies).forEach((m) => { counts[estadoConteoOf(m)] += 1; });
     return counts;
   }, [reportCompanies, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
@@ -1720,6 +1755,10 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         <BigBtn label="📄 Ficha técnica" onPress={() => fichaTecnica(m)} color="#16324F" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => onToggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
+        {/* 🔁 Transferida a otros: fuera de servicio como retirada, contada aparte. */}
+        {!m.transferida ? (
+          <BigBtn label="🔁 Transferido a otros" onPress={() => { setTransferDest(''); setTransferFor(m); }} color="#0D9488" disabled={busy === m.id + '-tra'} />
+        ) : null}
         {/* Esperando instrucciones: máquina cargada en el sistema pero SIN decidir aún si
             va a Operativa o a Parada. No factura, no le sale a los inspectores (mismo
             criterio ya usado en todo el flujo de inspección/reportes). Solo aplica a
@@ -1905,11 +1944,13 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       ) : null}
 
       {/* TOTAL DE FLOTA DISPONIBLE = operativas + averiadas + esperando instrucciones.
-          Las RETIRADAS (fuera de servicio) NO se cuentan. Debajo, el desglose por estado
-          (clickeable → detalle). */}
+          Las RETIRADAS y las 🔁 TRANSFERIDAS A OTROS (fuera de servicio) NO se cuentan
+          (14-oct-2026, a pedido: «que no lo tome en cuenta ahí, como las retiradas»).
+          Debajo, el desglose por estado (clickeable → detalle). */}
       {(() => {
         const nOp = activeMachines.length, nAv = averiadaMachines.length;
         const nEsp = esperaMachines.length, nRet = retiradaMachines.length;
+        const nTra = transferidaMachines.length;
         const disponible = nOp + nAv + nEsp;
         const estados: { key: 'active' | 'averiada' | 'espera' | 'retirada'; label: string; n: number; color: string }[] = [
           { key: 'active', label: 'Operativas', n: nOp, color: colors.success },
@@ -1942,16 +1983,29 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity activeOpacity={0.7} style={{ marginTop: spacing.sm }} onPress={() => setDetailStatus('retirada')}>
-              <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger, alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
-                  <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Retiradas</Text>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
-                </View>
-                <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nRet}</Text>
-              </Card>
-            </TouchableOpacity>
+            {/* Fuera de servicio (NO suman a la flota): Retiradas y 🔁 Transferidas. */}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('retirada')}>
+                <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger, alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
+                    <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Retiradas</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                  </View>
+                  <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nRet}</Text>
+                </Card>
+              </TouchableOpacity>
+              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('transferida')}>
+                <Card style={{ borderLeftWidth: 4, borderLeftColor: '#0D9488', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#0D9488' }} />
+                    <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center' }} numberOfLines={1}>Transferido a otros</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+                  </View>
+                  <Text style={{ fontSize: 24, fontWeight: '800', color: '#0D9488', fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nTra}</Text>
+                </Card>
+              </TouchableOpacity>
+            </View>
           </View>
         );
       })()}
@@ -2467,7 +2521,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             </TouchableOpacity>
           ) : null}
           {detailList.length === 0 ? (
-            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : detailStatus === 'espera' ? 'No hay máquinas esperando instrucciones.' : 'No hay maquinaria retirada.'} />
+            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : detailStatus === 'espera' ? 'No hay máquinas esperando instrucciones.' : detailStatus === 'transferida' ? 'No hay maquinaria transferida a otros.' : 'No hay maquinaria retirada.'} />
           ) : detailFiltered.length === 0 ? (
             <EmptyState title="Sin coincidencias" subtitle={`No hay máquinas que coincidan con "${detailQuery.trim()}".`} />
           ) : (
@@ -2570,6 +2624,18 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                         {busy === m.id + '-op' ? 'Guardando…' : m.operational ? '⬛ Retirar (sacar de servicio)' : '✅ Activar (Operativa)'}
                       </Text>
                     </TouchableOpacity>
+                    {/* 🔁 Transferida a otros: también desde las listas por estado. */}
+                    {!m.transferida ? (
+                      <TouchableOpacity
+                        onPress={() => { setTransferDest(''); setTransferFor(m); }}
+                        disabled={busy === m.id + '-tra'}
+                        style={{ marginTop: spacing.xs, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#0D9488', opacity: busy === m.id + '-tra' ? 0.6 : 1 }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                          {busy === m.id + '-tra' ? 'Guardando…' : '🔁 Transferido a otros'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
                     {m.operational ? (
                       <TouchableOpacity
                         onPress={() => toggleEspera(m)}
@@ -2639,6 +2705,38 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                 <Text style={{ color: '#fff', fontWeight: '800' }}>⬛ Retirar de servicio</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setRetireFor(null)} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 🔁 TRANSFERIDA A OTROS — destino OBLIGATORIO. VA AL FINAL del render por
+          lo mismo que el modal de retiro: en web gana el último montado y así
+          queda ENCIMA del modal del detalle por estado. */}
+      <Modal visible={!!transferFor} transparent animationType="fade" onRequestClose={() => setTransferFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>🔁 Transferido a otros</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
+                {transferFor ? `${etiquetaMaquina(transferFor) || transferFor.code} — sale de servicio y de la flota disponible (como una retirada), pero contada aparte: no está dañada ni de baja, se transfirió.` : ''}
+              </Text>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: spacing.xs }}>¿A quién / a dónde se transfirió? *</Text>
+              <TextInput
+                value={transferDest} onChangeText={(t) => setTransferDest(t.toUpperCase())}
+                placeholder="Ej. OTRA EMPRESA, OTRA OBRA, ALCALDÍA…" placeholderTextColor={colors.muted}
+                autoCapitalize="characters" multiline
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, minHeight: 56, textAlignVertical: 'top', marginBottom: spacing.md }}
+              />
+              <TouchableOpacity
+                onPress={confirmarTransfer} disabled={!transferDest.trim()}
+                style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#0D9488', opacity: transferDest.trim() ? 1 : 0.5 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>🔁 Marcar transferida</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setTransferFor(null)} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
             </ScrollView>

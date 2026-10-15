@@ -176,6 +176,12 @@ export interface Machinery {
   active: boolean;
   operational: boolean;
   en_espera: boolean; // 3er estado: "En espera por recepción" (aún no recibida en control)
+  /** 🔁 Transferida a otros (14-oct-2026): hermana de Retirada — también lleva
+   *  operational=false (fuera de servicio y de la flota disponible), pero se
+   *  cuenta y lista aparte. `transferida_a` dice a quién. Pueden venir
+   *  undefined si la columna aún no se corrió en la base. */
+  transferida?: boolean | null;
+  transferida_a?: string | null;
   inactivated_at?: string | null; // fecha en que se marcó NO OPERATIVA (inactivó)
   reactivated_at?: string | null; // fecha en que se volvió a marcar OPERATIVA (reactivó)
   inactivated_by?: string | null; // profiles.id de quién la inactivó
