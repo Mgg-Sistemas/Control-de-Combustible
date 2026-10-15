@@ -939,7 +939,15 @@ export default function PagoPersonalScreen() {
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
 
-  const LineEditor = ({ title, lines, setLines, color }: { title: string; lines: StaffPayLine[]; setLines: (l: StaffPayLine[]) => void; color: string }) => (
+  // ⌨️ OJO: es una FUNCIÓN que devuelve JSX, y se LLAMA —`{lineEditor({...})}`—,
+  //    NO se monta como `<LineEditor/>` (15-oct-2026, a pedido: «cada que coloco
+  //    una letra me deselecciona»). Como vive dentro del componente, en cada
+  //    render es una función NUEVA: montada como etiqueta, React la toma por un
+  //    tipo distinto, DESMONTA su subárbol y vuelve a crearlo — y el TextInput
+  //    recién nacido pierde el foco, así que solo entraba una letra por campo.
+  //    Llamándola, su JSX entra en el árbol del padre y se reconcilia por
+  //    posición, sin remontar. Lo vigila scripts/test-inputs-no-pierden-foco.mjs.
+  const lineEditor = ({ title, lines, setLines, color }: { title: string; lines: StaffPayLine[]; setLines: (l: StaffPayLine[]) => void; color: string }) => (
     <View style={{ marginTop: spacing.sm }}>
       <Text style={{ color, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>{title}</Text>
       {lines.map((l, i) => (
@@ -1578,8 +1586,8 @@ export default function PagoPersonalScreen() {
                   <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Auto: {editItem.jornadas_validadas} validada(s) · {editItem.jornadas_pendientes} pendiente(s). Si editas la cantidad, queda como ajuste manual.</Text>
                 ) : null}
 
-                <LineEditor title="Bonos" lines={eBonos} setLines={setEBonos} color={colors.success} />
-                <LineEditor title="Deducciones" lines={eDed} setLines={setEDed} color={colors.danger} />
+                {lineEditor({ title: 'Bonos', lines: eBonos, setLines: setEBonos, color: colors.success })}
+                {lineEditor({ title: 'Deducciones', lines: eDed, setLines: setEDed, color: colors.danger })}
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
                 <TextInput value={eNote} onChangeText={setENote} editable={!readOnly} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
