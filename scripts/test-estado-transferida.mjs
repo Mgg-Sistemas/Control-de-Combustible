@@ -27,7 +27,7 @@ ok('⭐ las retiradas EXCLUYEN a las transferidas (cubos excluyentes)',
 
 const scr = leer('src/screens/EquiposScreen.tsx');
 ok('🔁 el cubo «Transferido a otros» existe y abre su detalle',
-  scr.includes("setDetailStatus('transferida')") && scr.includes('Transferido a otros'));
+  scr.includes("abrirDetalle('transferida')") && scr.includes('Transferido a otros'));
 ok('🚫 NO suma a la flota disponible (sigue siendo op + av + esp)',
   scr.includes('const disponible = nOp + nAv + nEsp;'));
 ok('🔁 marcar transferida exige el DESTINO y deja operational=false',
