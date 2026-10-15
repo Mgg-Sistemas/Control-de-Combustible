@@ -2049,16 +2049,18 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         suma(activeMachines, 'operativa');
         suma(averiadaMachines, 'averiada');
         suma(esperaMachines, 'espera');
-        suma(retiradaMachines, 'retirada');
+        // 🚫 Las RETIRADAS no se suman ni se muestran en estas tarjetas (14-oct-2026,
+        //    a pedido: «que en ninguno de eso se vea ni se cuente las retiradas»).
+        //    No se eliminan de ningún lado: siguen en los cubos por estado (ocultos
+        //    tras «Mostrar cubos por estado») y en su lista de siempre.
         suma(transferidaMachines, 'transferida');
         const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
         const total = vacia();
-        cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.espera += c.espera; total.retirada += c.retirada; total.transferida += c.transferida; total.total += c.total; });
+        cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.espera += c.espera; total.transferida += c.transferida; total.total += c.total; });
         const ESTADOS_CAT: { k: 'operativa' | 'averiada' | 'espera' | 'retirada' | 'transferida'; s: 'active' | 'averiada' | 'espera' | 'retirada' | 'transferida'; label: string; color: string }[] = [
           { k: 'operativa', s: 'active', label: 'Operativas', color: colors.success },
           { k: 'averiada', s: 'averiada', label: 'Averiadas', color: colors.warning },
           { k: 'espera', s: 'espera', label: 'Esperando instrucciones', color: '#8B5CF6' },
-          { k: 'retirada', s: 'retirada', label: 'Retiradas', color: colors.danger },
           { k: 'transferida', s: 'transferida', label: 'Transferidas a otros', color: '#0D9488' },
         ];
         // VERTICAL y CLICKEABLE (14-oct-2026, a pedido): un renglón por estado;
