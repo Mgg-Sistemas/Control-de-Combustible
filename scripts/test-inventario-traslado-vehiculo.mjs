@@ -179,16 +179,24 @@ console.log('INVENTARIO — vehículo en la nota de traslado\n');
   ok('sigue cortando si el insert salió bien', /if \(!tErr \|\|/.test(tr));
 
   // Los apartados: cada 🚗 debajo de su 🚜.
-  const iMaqO = tr.indexOf('label="Máquina origen"'), iVehO = tr.indexOf('label="Vehículo origen"');
-  const iMaqD = tr.indexOf('label="Máquina destino"'), iVehD = tr.indexOf('label="Vehículo destino"');
+  // ⌨️ Los selectores se LLAMAN como función —`{selector({ id: 'fromVeh', … })}`—
+  //    y ya no se montan como `<Selector id="fromVeh" …/>` (15-oct-2026): montados
+  //    como etiqueta se remontaban en cada render y su buscador «Filtrar…» perdía
+  //    el foco a cada letra. Los guardas siguen fijando LO MISMO (que exista cada
+  //    apartado, el orden, el estado propio de cada lado y la lista compartida),
+  //    solo que anclados a la forma nueva. Ver scripts/test-inputs-no-pierden-foco.mjs.
+  const iMaqO = tr.indexOf("label: 'Máquina origen'"), iVehO = tr.indexOf("label: 'Vehículo origen'");
+  const iMaqD = tr.indexOf("label: 'Máquina destino'"), iVehD = tr.indexOf("label: 'Vehículo destino'");
   ok('existe el 🚗 Vehículo origen', iVehO > 0);
   ok('existe el 🚗 Vehículo destino', iVehD > 0);
   ok('el de origen va DEBAJO de la máquina origen', iMaqO > 0 && iMaqO < iVehO, `maq=${iMaqO} veh=${iVehO}`);
   ok('el de destino va DEBAJO de la máquina destino', iMaqD > 0 && iMaqD < iVehD, `maq=${iMaqD} veh=${iVehD}`);
   ok('el de origen va ANTES que todo el bloque de destino', iVehO < iMaqD, `vehO=${iVehO} maqD=${iMaqD}`);
-  ok('cada selector recibe SU propio estado', /id="fromVeh".*valueId=\{fromVehId\}.*onPick=\{setFromVehId\}/.test(tr) && /id="toVeh".*valueId=\{toVehId\}.*onPick=\{setToVehId\}/.test(tr));
-  ok('los dos selectores usan la misma lista de vehículos', (tr.match(/options=\{vehOptions\}/g) || []).length === 2);
-  ok('los identificadores de apertura son distintos', /id="fromVeh"/.test(tr) && /id="toVeh"/.test(tr));
+  ok('cada selector recibe SU propio estado', /id: 'fromVeh'.*valueId: fromVehId.*onPick: setFromVehId/.test(tr) && /id: 'toVeh'.*valueId: toVehId.*onPick: setToVehId/.test(tr));
+  ok('los dos selectores usan la misma lista de vehículos', (tr.match(/options: vehOptions/g) || []).length === 2);
+  ok('los identificadores de apertura son distintos', /id: 'fromVeh'/.test(tr) && /id: 'toVeh'/.test(tr));
+  ok('⌨️ los selectores se llaman como función, no se montan como etiqueta',
+    /\{selector\(\{ id: 'fromVeh'/.test(tr) && !/<Selector/.test(tr));
 
   // Al generar se limpian los dos.
   ok('al generar se limpia el vehículo de origen', /setFromVehId\(''\);/.test(tr));

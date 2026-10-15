@@ -425,6 +425,7 @@ const SECTIONS: Sec[] = [
       ] },
       { t: 'bullets', items: [
         'Bonos y Deducciones: por persona, agregas líneas de concepto y monto (ej. Bono producción, Adelanto, Préstamo).',
+        '⌨️ ARREGLADO (15/10/2026): al escribir en el concepto o el monto de un bono o una deducción, el campo se deseleccionaba a cada letra y había que volver a tocarlo — solo entraba un carácter por vez. Ya se escribe de corrido. Pasaba lo mismo en Nómina (asignaciones y deducciones) y en el buscador "Filtrar…" de los selectores de Inventario → Traslado: los tres quedaron corregidos.',
         'Abonos: cuando el período está aprobado, con 💵 Abonar registras pagos parciales o totales (efectivo, pago móvil, transferencia…). Se ve el Pagado y el Saldo pendiente.',
         'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF. El recibo muestra el Total y el "Saldo cancelado".',
         '🏛️ Filtrar por departamento: encima del filtro de cargo hay otra lista desplegable con casillas. Tildas uno o varios departamentos y la lista de personas, el ⬇️ Reporte PDF y el 📥 Excel salen solo de esos. Sin tildar nada = todos. Los dos filtros se suman: departamento Administración + cargo Analista = los analistas DE administración.',

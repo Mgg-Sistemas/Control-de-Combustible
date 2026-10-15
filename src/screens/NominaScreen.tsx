@@ -262,7 +262,11 @@ export default function NominaScreen({ navigation }: any) {
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   // Editor de una lista de conceptos (asignaciones o deducciones).
-  const LineEditor = ({ title, lines, setLines, color }: { title: string; lines: PayrollLine[]; setLines: (l: PayrollLine[]) => void; color: string }) => (
+  // ⌨️ Es una FUNCIÓN que se LLAMA —`{lineEditor({...})}`—, NO un `<LineEditor/>`:
+  //    definida dentro del componente, montarla como etiqueta la volvía un tipo
+  //    nuevo en cada render, remontaba el TextInput y el campo perdía el foco a
+  //    cada letra (15-oct-2026). Lo vigila scripts/test-inputs-no-pierden-foco.mjs.
+  const lineEditor = ({ title, lines, setLines, color }: { title: string; lines: PayrollLine[]; setLines: (l: PayrollLine[]) => void; color: string }) => (
     <View style={{ marginTop: spacing.sm }}>
       <Text style={{ color, fontWeight: '800', fontSize: 13, marginBottom: 4 }}>{title}</Text>
       {lines.map((l, i) => (
@@ -594,8 +598,8 @@ export default function NominaScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Sueldo base ($)</Text>
                 <TextInput value={eBase} onChangeText={(t) => setEBase(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" editable={!readOnly} placeholder="0" placeholderTextColor={colors.muted} style={input} />
 
-                <LineEditor title="Asignaciones" lines={eAdd} setLines={setEAdd} color={colors.success} />
-                <LineEditor title="Deducciones" lines={eDed} setLines={setEDed} color={colors.danger} />
+                {lineEditor({ title: 'Asignaciones', lines: eAdd, setLines: setEAdd, color: colors.success })}
+                {lineEditor({ title: 'Deducciones', lines: eDed, setLines: setEDed, color: colors.danger })}
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
                 <TextInput value={eNote} onChangeText={setENote} editable={!readOnly} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
