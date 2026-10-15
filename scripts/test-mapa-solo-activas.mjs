@@ -21,7 +21,7 @@ const scr = leer('src/screens/MapScreen.tsx');
 ok('⭐ la consulta de pines ahora trae la columna active', /location_at, active, operational, en_espera/.test(scr));
 ok('⭐ el pin sabe si la máquina está dada de baja', /inactiva: m\.active === false,/.test(scr));
 ok('⭐⭐ el filtro: SOLO estado activo — fuera de baja, no operativas y en espera, salvo que el interruptor las traiga',
-  /pins \?\? \[\]\)\.filter\(\(p\) => verNoActivas \|\| pinActivo\(p\)\)/.test(scr)
+  /pins \?\? \[\]\)\.filter\(\(p\) => \(verNoActivas \|\| pinActivo\(p\)\) && clasesVer\.has\(/.test(scr)
   && /const pinActivo = \(p: MapPin\) => !p\.inactiva && p\.operational !== false && !p\.enEspera;/.test(scr));
 ok('⭐ el interruptor NACE APAGADO (solo operativas por defecto)', /const \[verNoActivas, setVerNoActivas\] = useState\(false\);/.test(scr));
 ok('el mapa pinta sobre la base filtrada (no sobre todos los pines)', /pinsBase\.filter\(isMachineShown\)/.test(scr));
