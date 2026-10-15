@@ -89,6 +89,17 @@ export default function MapScreen({ navigation, route }: any) {
   //    de las capas, cada una con su color y su rótulo de siempre.
   const [verNoActivas, setVerNoActivas] = useState(false);
   const pinActivo = (p: MapPin) => !p.inactiva && p.operational !== false && !p.enEspera;
+  // 🏷️ FILTRO POR CLASIFICACIÓN (14-oct-2026, a pedido: «la opción para poder
+  //    filtrar por categoría de la maquinaria y que por defecto me salga activa
+  //    solo la de remoción y excavación»). Usa la CLASIFICACIÓN de la ficha (la
+  //    misma del Catálogo: Manejo de carga, Remoción y excavación, Soporte y
+  //    servicio, Transporte de escombro…) y NACE con solo REMOCIÓN Y EXCAVACIÓN
+  //    encendida; las pastillas traen las demás y «Todas» las trae todas. Es un
+  //    filtro VISUAL: no toca registros ni el guardado de ubicaciones, y el
+  //    enfoque de una máquina puntual (focus) se lo salta, como siempre.
+  const CLASE_DEFECTO = 'REMOCIÓN Y EXCAVACIÓN';
+  const claseDe = (s?: string | null) => { const t = String(s ?? '').trim().toUpperCase(); return t || 'SIN CLASIFICACIÓN'; };
+  const [clasesVer, setClasesVer] = useState<Set<string>>(() => new Set([norm(CLASE_DEFECTO)]));
   const [layersOpen, setLayersOpen] = useState(false);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   // Leyenda de empresa y zonas: ahora viven FUERA del mapa (controlan el mapa por postMessage).
@@ -395,8 +406,24 @@ export default function MapScreen({ navigation, route }: any) {
     }
   }, [route?.params?.focus]);
 
-  // Las que no están en estado activo solo cuentan (y se agrupan) cuando el interruptor las trae.
-  const pinsBase = useMemo(() => (pins ?? []).filter((p) => verNoActivas || pinActivo(p)), [pins, verNoActivas]);
+  // Las que no están en estado activo solo cuentan (y se agrupan) cuando el
+  // interruptor las trae; y solo entran las clasificaciones marcadas (🏷️).
+  const pinsBase = useMemo(
+    () => (pins ?? []).filter((p) => (verNoActivas || pinActivo(p)) && clasesVer.has(norm(claseDe(p.clasificacion)))),
+    [pins, verNoActivas, clasesVer],
+  );
+  // Clasificaciones presentes entre los pines (con su conteo), para las pastillas.
+  const clasesDisp = useMemo(() => {
+    const m = new Map<string, { key: string; label: string; n: number }>();
+    (pins ?? []).forEach((p) => {
+      const label = claseDe(p.clasificacion);
+      const key = norm(label);
+      const e = m.get(key) ?? { key, label, n: 0 };
+      e.n += 1;
+      m.set(key, e);
+    });
+    return Array.from(m.values()).sort((a, b) => cmpText(a.label, b.label));
+  }, [pins]);
   // Categoría de cada máquina y agrupación (para las capas).
   const pinCat = useMemo(() => {
     const m = new Map<string, string>();
@@ -491,6 +518,36 @@ export default function MapScreen({ navigation, route }: any) {
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Ocultar todas</Text>
             </TouchableOpacity>
           </View>
+
+          {/* 🏷️ Clasificación: nace con solo Remoción y excavación encendida. */}
+          <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 4 }}>
+            🏷️ Clasificación (el mapa nace mostrando solo {CLASE_DEFECTO}):
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            <TouchableOpacity
+              onPress={() => setClasesVer(new Set(clasesDisp.map((c) => c.key)))}
+              style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: clasesVer.size >= clasesDisp.length ? colors.brand : colors.border, backgroundColor: clasesVer.size >= clasesDisp.length ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: 5 }}
+            >
+              <Text style={{ color: clasesVer.size >= clasesDisp.length ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>✅ Todas</Text>
+            </TouchableOpacity>
+            {clasesDisp.map((c) => {
+              const on = clasesVer.has(c.key);
+              return (
+                <TouchableOpacity
+                  key={c.key}
+                  onPress={() => setClasesVer((prev) => { const n = new Set(prev); n.has(c.key) ? n.delete(c.key) : n.add(c.key); return n; })}
+                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: 5 }}
+                >
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{on ? '☑' : '☐'} {c.label} ({c.n})</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {clasesVer.size === 0 ? (
+            <Text style={{ color: colors.warning, fontSize: 11, marginBottom: spacing.sm }}>
+              Sin ninguna clasificación marcada el mapa queda vacío: marca alguna o toca «✅ Todas».
+            </Text>
+          ) : null}
 
           {(pins ?? []).some((p) => !pinActivo(p)) ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
