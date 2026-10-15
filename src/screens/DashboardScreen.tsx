@@ -91,7 +91,7 @@ export default function DashboardScreen({ navigation }: any) {
   const [showActive, setShowActive] = useState(false);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
   const [activeAssets, setActiveAssets] = useState<number | null>(null);
-  const [states, setStates] = useState<{ op: number; ave: number; ret: number; esp: number } | null>(null);
+  const [states, setStates] = useState<{ op: number; ave: number; ret: number; esp: number; tra: number } | null>(null);
 
   // Gráfica de ingreso por empresa + modo (día / mes / año).
   const [chartMode, setChartMode] = useState<'dia' | 'mes' | 'anio'>('mes');
@@ -104,7 +104,9 @@ export default function DashboardScreen({ navigation }: any) {
     const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }, averiaCat, jornadaCat, inspByShift] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id').eq('status', 'operativa').eq('closed', false),
       supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
-      supabase.from('machinery').select('id, operational, en_espera, active'),
+      // `transferida` es necesaria para el cubo 🔁 (bucketMachineStatus la separa
+      // de las retiradas). Requiere la columna en la base (SQL de transferida).
+      supabase.from('machinery').select('id, operational, en_espera, active, transferida'),
       supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
       supabase.from('companies').select('id, name'),
       // OPERATIVAS/AVERIADAS/RETIRADAS/ESPERANDO: MISMO clasificador EN VIVO que el
@@ -121,7 +123,7 @@ export default function DashboardScreen({ navigation }: any) {
     ]);
     const retiredIds = new Set((machs ?? []).filter((m: any) => m.operational === false).map((m: any) => m.id));
     const liveStatusOf = makeLiveStatusOf({ jornadaCat, averiaCat, inspByShift, retiredIds, nowTick: Date.now() });
-    const { averiadaMachines, activeMachines: activeMachinesBucket, retiradaMachines, esperaMachines } = bucketMachineStatus((machs ?? []) as any, liveStatusOf);
+    const { averiadaMachines, activeMachines: activeMachinesBucket, retiradaMachines, esperaMachines, transferidaMachines } = bucketMachineStatus((machs ?? []) as any, liveStatusOf);
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     // Detalle de esas máquinas activas agrupado por empresa (para ver al tocar la tarjeta).
@@ -145,7 +147,9 @@ export default function DashboardScreen({ navigation }: any) {
     // Estado de la flota completa (4 cubos exclusivos que suman el total) — MISMOS
     // buckets que el Catálogo (`bucketMachineStatus`, ver comentario arriba).
     const op = activeMachinesBucket.length, ave = averiadaMachines.length, ret = retiradaMachines.length, esp = esperaMachines.length;
-    setStates({ op, ave, ret, esp });
+    // 🔁 Transferidas a otros: fuera de servicio como las retiradas, contadas aparte
+    // (mismos buckets que el Catálogo, para que Inicio y Catálogo digan lo mismo).
+    setStates({ op, ave, ret, esp, tra: transferidaMachines.length });
     // "Maquinaria/Vehículos activos": operativas + averiadas (excluye retiradas Y
     // en_espera), consistente con el widget de 4 cubos de arriba — antes sumaba TODAS
     // las `operational` (incluyendo en_espera), así que no cuadraba con "🟢 Operativas"
@@ -303,6 +307,7 @@ export default function DashboardScreen({ navigation }: any) {
             { key: 'averiada', n: states?.ave, color: colors.warning, label: '🔴 Averiadas' },
             { key: 'espera', n: states?.esp, color: '#3B82F6', label: '🔵 Esperando instrucciones' },
             { key: 'retirada', n: states?.ret, color: colors.danger, label: '⬛ Retiradas' },
+            { key: 'transferida', n: states?.tra, color: '#0D9488', label: '🔁 Transferidas a otros' },
           ] as const).map((s) => (
             <TouchableOpacity
               key={s.key}
