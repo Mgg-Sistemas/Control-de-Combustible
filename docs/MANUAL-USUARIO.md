@@ -194,13 +194,17 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
 > desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
 >
-> **🏷️ Desglose por categoría (14/10/2026, a pedido).** Debajo de los cubos de estado, el
-> Catálogo trae **una tarjeta por clasificación** (Remoción y excavación, Manejo de carga,
-> Soporte y servicio, Transporte de escombro, y «Sin clasificación» si alguna ficha no la
-> tiene): cada una con su **total** y el desglose **Operativas · Averiadas · Esperando ·
-> Retiradas · Transferidas**, con los mismos colores de los cubos. Al final, la tarjeta
-> **«Σ Todas las categorías»** con la suma. Salen **de los mismos números que los cubos** (el
-> clasificador compartido), así que las tarjetas siempre cuadran con los cubos de arriba.
+> **🏷️ Desglose por categoría (14/10/2026, a pedido).** Debajo del total de flota, el Catálogo
+> trae **una tarjeta por clasificación** (Remoción y excavación, Manejo de carga, Soporte y
+> servicio, Transporte de escombro, y «Sin clasificación» si alguna ficha no la tiene), puestas
+> **lado a lado como columnas** (en el teléfono se van acomodando). Cada tarjeta trae su total y,
+> **en vertical, un renglón por estado**: Operativas · Averiadas · Esperando · Retiradas ·
+> Transferidas — y **cada renglón se toca**: abre la lista de ese estado **solo de esa
+> categoría** (el título lo dice: «⬛ Maquinaria retirada · 🏷️ REMOCIÓN Y EXCAVACIÓN»). Al
+> final, la tarjeta **«Σ Todas las categorías»**, cuyos renglones abren las listas completas.
+> 🙈 **Los cubos de estado de antes no se eliminaron**: están ocultos tras el enlace
+> **«▸ Mostrar cubos por estado»**, bajo el total. Todo sale **de los mismos números** (el
+> clasificador compartido), así que las tarjetas siempre cuadran con los cubos.
 
 > **🔁 Estado nuevo: Transferido a otros (14/10/2026, a pedido: «del estilo de retirado, pero no
 > es que están retiradas sino transferidas a otros»).** En el Catálogo (y en el Inicio) hay un

@@ -606,7 +606,23 @@ export default function EquiposScreen({ navigation, route }: any) {
     setOpAssignOpen(true);
     navigation.setParams?.({ obrasPublicas: undefined });
   }, [route?.params?.obrasPublicas]);
-  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : detailStatus === 'transferida' ? transferidaMachines : [];
+  // 🏷️ La clasificación de la ficha (misma regla en las tarjetas por categoría y
+  //    en el filtro del detalle): vacía = «SIN CLASIFICACIÓN».
+  const clasifDeMaquina = (m: Machinery) => (m.clasificacion && String(m.clasificacion).trim().toUpperCase()) || 'SIN CLASIFICACIÓN';
+  // Detalle acotado a UNA categoría (14-oct-2026, a pedido: «si yo selecciono las
+  // retiradas me salga las retiradas de ESA categoría»). null = todas, como siempre.
+  const [detailCat, setDetailCat] = useState<string | null>(null);
+  // 🙈 Los cubos por estado se OCULTAN por defecto (14-oct-2026, a pedido:
+  //    «ocúltamelas, no las elimines»): el desglose por categoría ya trae los
+  //    mismos números. Este interruptor los trae de vuelta — ocultar no es eliminar.
+  const [verCubos, setVerCubos] = useState(false);
+  useEffect(() => { if (!detailStatus) setDetailCat(null); }, [detailStatus]); // al cerrar, se suelta
+  const abrirDetalle = (s: 'active' | 'retirada' | 'averiada' | 'espera' | 'transferida', cat: string | null = null) => {
+    setDetailCat(cat);
+    setDetailStatus(s);
+  };
+  const detailListTodo = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : detailStatus === 'transferida' ? transferidaMachines : [];
+  const detailList = detailCat ? detailListTodo.filter((m) => clasifDeMaquina(m) === detailCat) : detailListTodo;
   const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : detailStatus === 'espera' ? '⏳ Esperando instrucciones' : detailStatus === 'transferida' ? '🔁 Transferida a otros' : '✅ Maquinaria operativa';
   // Buscador del detalle: filtra por TODAS las características (código, placa, serial,
   // identificador, grupo, encargado, tipo, clasificación, parroquia, sector, edificio/
@@ -1967,11 +1983,18 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                 {machinery.loading ? '…' : disponible}
               </Text>
             </View>
+            {/* 🙈 Cubos por estado OCULTOS por defecto («ocúltamelas, no las
+                elimines»): las tarjetas por categoría de abajo traen los mismos
+                números por estado, y cada renglón abre su lista. */}
+            <TouchableOpacity onPress={() => setVerCubos((v) => !v)} style={{ alignSelf: 'flex-end', paddingVertical: 4 }}>
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>{verCubos ? '▾ Ocultar cubos por estado' : '▸ Mostrar cubos por estado'}</Text>
+            </TouchableOpacity>
+            {verCubos ? (<>
             {/* Desglose: 3 arriba (las que SUMAN a la flota disponible) + Retiradas
                 sola abajo a lo ancho (fuera de servicio, no cuenta). Clickeable → detalle. */}
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               {estados.slice(0, 3).map((e) => (
-                <TouchableOpacity key={e.key} activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus(e.key)}>
+                <TouchableOpacity key={e.key} activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle(e.key)}>
                   <Card style={{ borderLeftWidth: 4, borderLeftColor: e.color, alignItems: 'center' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: e.color }} />
@@ -1985,7 +2008,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             </View>
             {/* Fuera de servicio (NO suman a la flota): Retiradas y 🔁 Transferidas. */}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('retirada')}>
+              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('retirada')}>
                 <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger, alignItems: 'center' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger }} />
@@ -1995,7 +2018,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                   <Text style={{ fontSize: 24, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any, textAlign: 'center' }}>{machinery.loading ? '…' : nRet}</Text>
                 </Card>
               </TouchableOpacity>
-              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('transferida')}>
+              <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => abrirDetalle('transferida')}>
                 <Card style={{ borderLeftWidth: 4, borderLeftColor: '#0D9488', alignItems: 'center' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#0D9488' }} />
@@ -2006,6 +2029,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                 </Card>
               </TouchableOpacity>
             </View>
+            </>) : null}
           </View>
         );
       })()}
@@ -2016,7 +2040,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
           los MISMOS buckets EXCLUYENTES de los cubos de arriba — las sumas de
           las tarjetas siempre cuadran con los cubos. */}
       {!machinery.loading ? (() => {
-        const claseDe = (m: Machinery) => (m.clasificacion && String(m.clasificacion).trim().toUpperCase()) || 'SIN CLASIFICACIÓN';
+        const claseDe = clasifDeMaquina; // misma regla que el filtro del detalle
         type FilaCat = { operativa: number; averiada: number; espera: number; retirada: number; transferida: number; total: number };
         const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
         const porCat = new Map<string, FilaCat>();
@@ -2030,42 +2054,52 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
         const total = vacia();
         cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.espera += c.espera; total.retirada += c.retirada; total.transferida += c.transferida; total.total += c.total; });
-        const ESTADOS_CAT: { k: 'operativa' | 'averiada' | 'espera' | 'retirada' | 'transferida'; label: string; color: string }[] = [
-          { k: 'operativa', label: 'Operativas', color: colors.success },
-          { k: 'averiada', label: 'Averiadas', color: colors.warning },
-          { k: 'espera', label: 'Esperando', color: '#8B5CF6' },
-          { k: 'retirada', label: 'Retiradas', color: colors.danger },
-          { k: 'transferida', label: 'Transferidas', color: '#0D9488' },
+        const ESTADOS_CAT: { k: 'operativa' | 'averiada' | 'espera' | 'retirada' | 'transferida'; s: 'active' | 'averiada' | 'espera' | 'retirada' | 'transferida'; label: string; color: string }[] = [
+          { k: 'operativa', s: 'active', label: 'Operativas', color: colors.success },
+          { k: 'averiada', s: 'averiada', label: 'Averiadas', color: colors.warning },
+          { k: 'espera', s: 'espera', label: 'Esperando instrucciones', color: '#8B5CF6' },
+          { k: 'retirada', s: 'retirada', label: 'Retiradas', color: colors.danger },
+          { k: 'transferida', s: 'transferida', label: 'Transferidas a otros', color: '#0D9488' },
         ];
-        const filaEstados = (c: FilaCat) => (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: 4 }}>
+        // VERTICAL y CLICKEABLE (14-oct-2026, a pedido): un renglón por estado;
+        // tocarlo abre el detalle de ESE estado acotado a ESA categoría (en la
+        // tarjeta Σ, sin acotar: todas las categorías).
+        const filaEstados = (c: FilaCat, cat: string | null) => (
+          <View style={{ marginTop: 4 }}>
             {ESTADOS_CAT.map((e) => (
-              <View key={e.k} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <TouchableOpacity key={e.k} activeOpacity={0.7} onPress={() => abrirDetalle(e.s, cat)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: e.color }} />
-                <Text style={{ color: colors.muted, fontSize: 12 }}>{e.label}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>{e.label}</Text>
                 <Text style={{ color: e.color, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{c[e.k]}</Text>
-              </View>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+              </TouchableOpacity>
             ))}
           </View>
         );
         if (!cats.length) return null;
         return (
           <View style={{ marginBottom: spacing.sm }}>
+            {/* 📐 Las tarjetas van LADO A LADO, como columnas (boceto del cliente):
+                cada categoría es una tarjeta vertical con sus estados listados
+                adentro; en pantallas angostas se van acomodando en filas. */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'stretch', marginBottom: spacing.sm }}>
             {cats.map(([nombre, c]) => (
-              <Card key={nombre} style={{ marginBottom: spacing.xs }}>
+              <Card key={nombre} style={{ flex: 1, minWidth: 220 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>🏷️ {nombre}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={2}>🏷️ {nombre}</Text>
                   <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{c.total}</Text>
                 </View>
-                {filaEstados(c)}
+                {filaEstados(c, nombre)}
               </Card>
             ))}
+            </View>
             <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.brand }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }}>Σ TODAS LAS CATEGORÍAS</Text>
                 <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{total.total}</Text>
               </View>
-              {filaEstados(total)}
+              {filaEstados(total, null)}
             </Card>
           </View>
         );
@@ -2564,7 +2598,7 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>
-            {detailTitle}{'  '}({detailNq ? `${detailFiltered.length}/${detailList.length}` : detailList.length})
+            {detailTitle}{detailCat ? ` · 🏷️ ${detailCat}` : ''}{'  '}({detailNq ? `${detailFiltered.length}/${detailList.length}` : detailList.length})
           </SectionTitle>
           {/* Buscador por TODAS las características (código, placa, serial, encargado,
               empresa, edificio, tipo, clasificación, parroquia, sector…). */}
