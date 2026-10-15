@@ -198,9 +198,11 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > trae **una tarjeta por clasificación** (Remoción y excavación, Manejo de carga, Soporte y
 > servicio, Transporte de escombro, y «Sin clasificación» si alguna ficha no la tiene), puestas
 > **lado a lado como columnas** (en el teléfono se van acomodando). Cada tarjeta trae su total y,
-> **en vertical, un renglón por estado**: Operativas · Averiadas · Esperando · Retiradas ·
-> Transferidas — y **cada renglón se toca**: abre la lista de ese estado **solo de esa
-> categoría** (el título lo dice: «⬛ Maquinaria retirada · 🏷️ REMOCIÓN Y EXCAVACIÓN»). Al
+> **en vertical, un renglón por estado**: Operativas · Averiadas · Esperando · Transferidas —
+> y **cada renglón se toca**: abre la lista de ese estado **solo de esa categoría** (el título
+> lo dice: «✅ Maquinaria operativa · 🏷️ REMOCIÓN Y EXCAVACIÓN»). 🚫 **Las retiradas no salen
+> ni cuentan** en estas tarjetas (14/10/2026, a pedido): ni en el total de cada categoría ni en
+> la Σ — siguen en los cubos por estado (ocultos tras el enlace) y en su lista de siempre. Al
 > final, la tarjeta **«Σ Todas las categorías»**, cuyos renglones abren las listas completas.
 > 🙈 **Los cubos de estado de antes no se eliminaron**: están ocultos tras el enlace
 > **«▸ Mostrar cubos por estado»**, bajo el total. Todo sale **de los mismos números** (el

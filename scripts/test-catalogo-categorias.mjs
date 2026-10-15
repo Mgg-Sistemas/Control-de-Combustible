@@ -17,10 +17,17 @@ let pass = 0, fail = 0;
 const failures = [];
 const ok = (name, cond) => { if (cond) pass++; else { fail++; failures.push(name); } };
 
-ok('🏷️ suma sobre los MISMOS buckets de los cubos (los 5, sin recontar)',
+ok('🏷️ suma sobre los MISMOS buckets de los cubos (sin recontar)',
   scr.includes("suma(activeMachines, 'operativa')") && scr.includes("suma(averiadaMachines, 'averiada')")
-  && scr.includes("suma(esperaMachines, 'espera')") && scr.includes("suma(retiradaMachines, 'retirada')")
-  && scr.includes("suma(transferidaMachines, 'transferida')"));
+  && scr.includes("suma(esperaMachines, 'espera')") && scr.includes("suma(transferidaMachines, 'transferida')"));
+// 🚫 Las RETIRADAS no se ven NI se cuentan en estas tarjetas (14-oct-2026, a
+//    pedido). Siguen en los cubos ocultos y en su lista: no se eliminó nada.
+ok('🚫 las retiradas NO se suman en las tarjetas por categoría',
+  !scr.includes("suma(retiradaMachines, 'retirada')"));
+ok('🚫 …ni tienen renglón en ellas', !scr.includes("{ k: 'retirada', s: 'retirada', label: 'Retiradas'"));
+ok('🚫 …ni entran en la Σ total de las tarjetas', !scr.includes('total.retirada += c.retirada'));
+ok('⬛ las retiradas SIGUEN en los cubos por estado (ocultas, no eliminadas)',
+  scr.includes("abrirDetalle('retirada')") && scr.includes('Mostrar cubos por estado'));
 ok('🏷️ sin clasificación no se pierde: entra como SU tarjeta',
   /clasifDeMaquina = \(m: Machinery\) => \(m\.clasificacion && String\(m\.clasificacion\)\.trim\(\)\.toUpperCase\(\)\) \|\| 'SIN CLASIFICACIÓN'/.test(scr)
   && scr.includes('const claseDe = clasifDeMaquina;'));
