@@ -1,5 +1,41 @@
 import { LOGO_DATA_URI } from './logoData';
+import { BCV_LOGO_DATA_URI } from './logoBcvData';
+import { GOLDEN_TOUCH_LOGO_DATA_URI } from './logoGoldenTouchData';
+import { RENACE_LOGO_DATA_URI } from './logoRenaceData';
+import { JHENZAEN_LOGO_DATA_URI } from './logoJhenzaenData';
 import { COMPANY_NAME } from './company';
+
+// ── 🏢 MEMBRETES DE LA CONSTANCIA (15-oct-2026, a pedido: «poder sacarla con
+//    cualquier información o logo de todos los que tenemos, y que
+//    automáticamente modifique el pie de página») ────────────────────────────
+// La identidad elegida se propaga SOLA a todo el papel: el logo y el nombre de
+// la cabecera, la empresa dentro del texto («presta sus servicios en esta
+// empresa…»), la firma y el PIE DE PÁGINA. Nace con SOS LA GUAIRA: sin tocar
+// nada, la constancia sale idéntica a la de siempre. La coletilla «institución
+// sin fines de lucro» es SOLO de SOS (las C.A. no lo son, y ponérselo sería
+// mentir en un documento que se entrega a bancos).
+export type MembreteConstancia = {
+  key: string;
+  /** Texto de la pastilla en pantalla. */
+  chip: string;
+  /** Nombre legal que va en el TEXTO, la firma y el pie. */
+  nombre: string;
+  /** Lo que sale bajo el logo en la cabecera. */
+  cabecera: string;
+  logo: string;
+  /** Solo SOS: agrega «institución sin fines de lucro» al cuerpo. */
+  sinFinesDeLucro?: boolean;
+};
+
+export const MEMBRETES_CONSTANCIA: MembreteConstancia[] = [
+  { key: 'sos', chip: '🌊 SOS La Guaira', nombre: 'SOS LA GUAIRA', cabecera: COMPANY_NAME, logo: LOGO_DATA_URI, sinFinesDeLucro: true },
+  { key: 'golden', chip: '✨ Golden Touch', nombre: 'GOLDEN TOUCH 1127 C.A', cabecera: 'GOLDEN TOUCH 1127 C.A', logo: GOLDEN_TOUCH_LOGO_DATA_URI },
+  { key: 'renace', chip: '🇻🇪 Plan Venezuela Renace', nombre: 'PLAN VENEZUELA RENACE', cabecera: 'PLAN VENEZUELA RENACE', logo: RENACE_LOGO_DATA_URI },
+  { key: 'jhenzaen', chip: '🏗️ Jhenzaen', nombre: 'JHENZAEN 2.012 C.A', cabecera: 'JHENZAEN 2.012 C.A', logo: JHENZAEN_LOGO_DATA_URI },
+  { key: 'bcv', chip: '🏦 BCV', nombre: 'BANCO CENTRAL DE VENEZUELA', cabecera: 'BANCO CENTRAL DE VENEZUELA', logo: BCV_LOGO_DATA_URI },
+];
+
+export const MEMBRETE_POR_DEFECTO = MEMBRETES_CONSTANCIA[0];
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
@@ -129,6 +165,9 @@ export type ConstanciaTrabajoData = {
    *  mencionar el sueldo. Lo decide quien emite la constancia con la casilla
    *  "💵 Incluir el monto quincenal" (ver `montoQuincenal.ts`). */
   montoQuincenal?: string | null;
+  /** 🏢 Con qué identidad sale el papel (logo, nombre, firma y pie). Sin pasar
+   *  nada: SOS LA GUAIRA, idéntica a la de siempre. */
+  membrete?: MembreteConstancia | null;
 };
 
 /**
@@ -149,7 +188,9 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
   const nombre = esc(d.fullName || linea);
   const ci = esc(d.cedula || linea);
   const cargo = esc(d.cargo || linea);
-  const empresa = 'SOS LA GUAIRA';
+  // 🏢 El membrete elegido manda en TODO el papel: cabecera, texto, firma y pie.
+  const m = d.membrete ?? MEMBRETE_POR_DEFECTO;
+  const empresa = m.nombre;
   const ingreso = esc(fechaLarga(d.hireDate) || linea);
   const lugar = esc([d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
   const fecha = esc(hoyLargo());
@@ -186,14 +227,14 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
     .foot{ margin-top:20px; text-align:center; color:#9aa4b2; font-size:8pt; border-top:1px solid #e5e7eb; padding-top:6px }
   </style></head><body>
     <div class="head">
-      <img src="${LOGO_DATA_URI}"/>
-      <div class="co">${esc(COMPANY_NAME)}</div>
+      <img src="${m.logo}" style="object-fit:contain;background:#fff"/>
+      <div class="co">${esc(m.cabecera)}</div>
     </div>
 
     <h1>Constancia de Trabajo</h1>
     <div class="dirigida">A quien pueda interesar</div>
 
-    <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${empresa}</span>, institución <b>sin fines de lucro</b>, desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>${parrafoSueldo}
+    <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${esc(empresa)}</span>,${m.sinFinesDeLucro ? ' institución <b>sin fines de lucro</b>,' : ''} desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>${parrafoSueldo}
 
     <p class="cierre">Constancia que se expide a solicitud de la parte interesada, en ${lugar}, a la fecha ${fecha}.</p>
 
@@ -201,12 +242,13 @@ export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
       <div class="firma-final">
         <div class="line">
           <div class="rol">Jefa de Administración</div>
-          <div class="emp">${esc(COMPANY_NAME)}</div>
+          <div class="emp">${esc(empresa)}</div>
           <div class="sello">Firma y sello</div>
         </div>
       </div>
     </div>
 
-    <div class="foot">${esc(COMPANY_NAME)} · Constancia de trabajo &nbsp;·&nbsp; Impreso el ${impreso}</div>
+    ${'' /* 🏢 El PIE también sigue al membrete elegido (pedido 15-oct-2026). */}
+    <div class="foot">${esc(empresa)} · Constancia de trabajo &nbsp;·&nbsp; Impreso el ${impreso}</div>
   </body></html>`;
 }

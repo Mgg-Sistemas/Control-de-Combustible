@@ -15,7 +15,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
-import { constanciaCarnetHtml, constanciaTrabajoHtml } from '../lib/constancia';
+import { constanciaCarnetHtml, constanciaTrabajoHtml, MEMBRETES_CONSTANCIA, MEMBRETE_POR_DEFECTO } from '../lib/constancia';
 import { amonestacionHtml, GRADO_LABEL, GradoAmonestacion } from '../lib/amonestacion';
 import { montoQuincenal, montoQuincenalTexto } from '../lib/montoQuincenal';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -280,9 +280,15 @@ export default function EmpleadosScreen({ navigation }: any) {
   // sueldo). null = cerrado. `conMonto` recuerda la casilla mientras está abierto.
   const [constanciaFor, setConstanciaFor] = useState<Employee | null>(null);
   const [constanciaConMonto, setConstanciaConMonto] = useState(false);
+  // 🏢 Con qué MEMBRETE sale la constancia (15-oct-2026, a pedido: «poder
+  //    sacarla con cualquier información o logo de todos los que tenemos, y que
+  //    automáticamente modifique el pie de página»). Nace en SOS: sin tocar la
+  //    pastilla, el papel sale idéntico al de siempre.
+  const [constanciaMembrete, setConstanciaMembrete] = useState(MEMBRETE_POR_DEFECTO.key);
 
   const imprimirConstanciaTrabajo = async (e: Employee, conMonto: boolean) => {
     setBusy(e.id + '-const-trab');
+    const memb = MEMBRETES_CONSTANCIA.find((x) => x.key === constanciaMembrete) ?? MEMBRETE_POR_DEFECTO;
     const html = constanciaTrabajoHtml({
       fullName: fullName(e),
       cedula: e.cedula,
@@ -293,8 +299,10 @@ export default function EmpleadosScreen({ navigation }: any) {
       // Sin la casilla marcada va `null` y la constancia sale IDÉNTICA a la de
       // siempre, sin mencionar sueldo.
       montoQuincenal: conMonto ? montoQuincenalTexto(e as any) : null,
+      // El membrete elegido cambia solo el PAPEL (logo, nombre, firma y pie).
+      membrete: memb,
     });
-    await exportPdf(html, `Constancia de trabajo - ${fullName(e)}`);
+    await exportPdf(html, `Constancia de trabajo - ${fullName(e)}${memb.key === MEMBRETE_POR_DEFECTO.key ? '' : ` - ${memb.nombre}`}`);
     setBusy(null);
     setConstanciaFor(null);
   };
@@ -816,6 +824,21 @@ export default function EmpleadosScreen({ navigation }: any) {
             <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2, marginBottom: spacing.md }}>
               {constanciaFor ? fullName(constanciaFor) : ''}
             </Text>
+
+            {/* 🏢 El membrete: logo e identidad con que sale el papel. El nombre,
+                la firma y el PIE cambian solos con la pastilla elegida. */}
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>🏢 Membrete (logo e información del papel):</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md }}>
+              {MEMBRETES_CONSTANCIA.map((mb) => {
+                const on = constanciaMembrete === mb.key;
+                return (
+                  <TouchableOpacity key={mb.key} onPress={() => setConstanciaMembrete(mb.key)}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{mb.chip}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
             {(() => {
               const m = constanciaFor ? montoQuincenal(constanciaFor as any) : null;
