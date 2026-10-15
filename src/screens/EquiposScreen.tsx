@@ -2010,6 +2010,67 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         );
       })()}
 
+      {/* 🏷️ DESGLOSE POR CATEGORÍA (14-oct-2026, a pedido: «una tarjeta por
+          categoría con todas las máquinas por estado… y al final una tarjeta con
+          el total de todas las categorías»). Usa la CLASIFICACIÓN de la ficha y
+          los MISMOS buckets EXCLUYENTES de los cubos de arriba — las sumas de
+          las tarjetas siempre cuadran con los cubos. */}
+      {!machinery.loading ? (() => {
+        const claseDe = (m: Machinery) => (m.clasificacion && String(m.clasificacion).trim().toUpperCase()) || 'SIN CLASIFICACIÓN';
+        type FilaCat = { operativa: number; averiada: number; espera: number; retirada: number; transferida: number; total: number };
+        const vacia = (): FilaCat => ({ operativa: 0, averiada: 0, espera: 0, retirada: 0, transferida: 0, total: 0 });
+        const porCat = new Map<string, FilaCat>();
+        const suma = (lista: Machinery[], k: 'operativa' | 'averiada' | 'espera' | 'retirada' | 'transferida') =>
+          lista.forEach((m) => { const c = porCat.get(claseDe(m)) ?? vacia(); c[k] += 1; c.total += 1; porCat.set(claseDe(m), c); });
+        suma(activeMachines, 'operativa');
+        suma(averiadaMachines, 'averiada');
+        suma(esperaMachines, 'espera');
+        suma(retiradaMachines, 'retirada');
+        suma(transferidaMachines, 'transferida');
+        const cats = Array.from(porCat.entries()).sort((a, b) => cmpText(a[0], b[0]));
+        const total = vacia();
+        cats.forEach(([, c]) => { total.operativa += c.operativa; total.averiada += c.averiada; total.espera += c.espera; total.retirada += c.retirada; total.transferida += c.transferida; total.total += c.total; });
+        const ESTADOS_CAT: { k: 'operativa' | 'averiada' | 'espera' | 'retirada' | 'transferida'; label: string; color: string }[] = [
+          { k: 'operativa', label: 'Operativas', color: colors.success },
+          { k: 'averiada', label: 'Averiadas', color: colors.warning },
+          { k: 'espera', label: 'Esperando', color: '#8B5CF6' },
+          { k: 'retirada', label: 'Retiradas', color: colors.danger },
+          { k: 'transferida', label: 'Transferidas', color: '#0D9488' },
+        ];
+        const filaEstados = (c: FilaCat) => (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: 4 }}>
+            {ESTADOS_CAT.map((e) => (
+              <View key={e.k} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: e.color }} />
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{e.label}</Text>
+                <Text style={{ color: e.color, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{c[e.k]}</Text>
+              </View>
+            ))}
+          </View>
+        );
+        if (!cats.length) return null;
+        return (
+          <View style={{ marginBottom: spacing.sm }}>
+            {cats.map(([nombre, c]) => (
+              <Card key={nombre} style={{ marginBottom: spacing.xs }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>🏷️ {nombre}</Text>
+                  <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{c.total}</Text>
+                </View>
+                {filaEstados(c)}
+              </Card>
+            ))}
+            <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.brand }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }}>Σ TODAS LAS CATEGORÍAS</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{total.total}</Text>
+              </View>
+              {filaEstados(total)}
+            </Card>
+          </View>
+        );
+      })() : null}
+
       {/* Alta unificada: + Agregar (elige vehículo o maquinaria) y Obras Públicas */}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <TouchableOpacity
