@@ -163,7 +163,19 @@ export function makeLiveStatusOf(params: {
     const reactivada = !!a && hasOpen && openStart >= a.createdMs;
     const nowShift = paradaShiftOf(new Date(nowTick).toISOString());
     const mismoTurno = !!a && paradaShiftOf(new Date(a.createdMs).toISOString()) === nowShift;
-    const averiaVigente = !siempreActivo && !!a && mismoTurno && !reactivada && (esHoy || (!hasOpen && total <= 0));
+    // ⭐ VIGENCIA DE LA AVERÍA/PARADA (14-oct-2026, a pedido: «necesito que el
+    //    catálogo me refleje lo que marcaron los inspectores desde su teléfono»).
+    //    Antes `mismoTurno` tapaba TODO: una avería PENDIENTE del 08/10 a las
+    //    8:38am (turno día) se veía «Operativa» en el Catálogo cada noche, aunque
+    //    la máquina no hubiera vuelto a trabajar y el teléfono del inspector la
+    //    siguiera mostrando averiada. Ahora:
+    //    · SIN trabajo posterior (sin jornada abierta y 0 h hoy) la avería rige
+    //      SIEMPRE, a cualquier hora, hasta resolverse o reactivarse — igual que
+    //      lo que marcó el inspector.
+    //    · La foto POR TURNO del 11-ago («marcarla de día no afecta la noche»)
+    //      queda SOLO para el caso que la motivó: la máquina trabajó HOY y
+    //      después cayó — en el otro turno sale «trabajó X h», no averiada.
+    const averiaVigente = !siempreActivo && !!a && !reactivada && ((esHoy && mismoTurno) || (!hasOpen && total <= 0));
     let estado: MachineEstado;
     if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
     else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';

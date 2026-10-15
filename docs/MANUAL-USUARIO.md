@@ -194,6 +194,18 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
 > desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
 >
+> **⭐ La avería marcada por el inspector RIGE hasta resolverse (14/10/2026, a pedido: «necesito
+> que el catálogo me refleje lo que marcaron los inspectores desde su vista en el teléfono»).**
+> Antes, la tarjeta 🔴 Averiadas solo contaba una avería si era **del mismo turno que la hora
+> actual**: una avería pendiente marcada a las 8:38am se veía **Operativa cada noche** en el
+> Catálogo (y en el Inicio), aunque la máquina no hubiera vuelto a trabajar y el teléfono del
+> inspector la siguiera mostrando averiada — caso real de una JUMBO averiada el 08/10. Ahora:
+> una avería o parada **pendiente, sin trabajo posterior**, se ve averiada/parada **a cualquier
+> hora**, hasta que se **resuelva** en mantenimiento o la máquina **vuelva a arrancar jornada**
+> (la reactivación la limpia, como siempre). La foto por turno queda solo para el caso que la
+> motivó: si la máquina **trabajó hoy y después cayó**, en el otro turno sale «trabajó X h».
+> El cambio es en el clasificador compartido, así que **Catálogo, Inicio y Viajes** cuentan igual.
+
 > **👤 Encargado OBLIGATORIO al crear (20-ago-2026):** al agregar una **máquina o un vehículo
 > NUEVO** hay que decir quién es el **encargado**; sin eso **no deja guardar** (*"Coloca el
 > ENCARGADO de la máquina (obligatorio)"*). **Solo se exige al CREAR:** al **editar** un equipo
@@ -3216,6 +3228,12 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   🗂️ Capas hay un interruptor **«⚠️ Mostrar también las que NO están en estado activo»**
   (nace apagado) que las trae todas de vuelta, cada una con su color y su rótulo de siempre.
   Enfocar una máquina puntual desde la lista también la muestra, esté como esté.
+- **🏷️ Filtro por clasificación (14/10/2026, a pedido):** el mapa **nace mostrando solo las de
+  REMOCIÓN Y EXCAVACIÓN** (la clasificación de la ficha, la misma del Catálogo). En el panel
+  **«🚜 Tipo de maquinaria»** están las pastillas de cada clasificación con su conteo (Manejo de
+  carga, Soporte y servicio, Transporte de escombro, Sin clasificación…): marca las que quieras
+  ver o toca **«✅ Todas»**. Es un filtro **solo del mapa** (no toca registros ni el guardado de
+  ubicaciones), se cruza con el interruptor de estado activo, y el enfoque puntual se lo salta.
 - **📍 Tu ubicación + máquinas cercanas:** el mapa muestra **tu ubicación** (punto azul, si le
   das permiso de GPS al navegador) y con el botón **📍** dentro del mapa te **centra** en ella y
   lista las **máquinas más cercanas** (≤20 km) con su distancia. Además, al **tocar cualquier
