@@ -1508,6 +1508,14 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > firmado va al expediente físico. Se expide en **dos ejemplares** — uno para el expediente y otro que
 > se le entrega al trabajador en el acto.
 >
+> **🏢 Con el membrete que elijas (15/10/2026, a pedido).** En el cuadro de **📃 Constancia de
+> trabajo** hay **pastillas de membrete**: 🌊 SOS La Guaira (como siempre, y así nace), ✨ Golden
+> Touch, 🇻🇪 Plan Venezuela Renace, 🏗️ Jhenzaen y 🏦 BCV. La pastilla elegida cambia **sola** todo
+> el papel: el **logo** y el nombre de la cabecera, la empresa dentro del **texto**, la empresa de
+> la **firma** y el **pie de página**. ⚖️ La coletilla *«institución sin fines de lucro»* sale
+> **solo con SOS** (las C.A. no lo son). El nombre del archivo dice el membrete cuando no es el
+> de siempre, y la casilla del monto funciona igual con cualquiera.
+
 > **💵 Con o sin el monto quincenal (21-ago-2026).** Al tocar **📃 Constancia de trabajo** se abre un
 > cuadro con una casilla: **"Incluir el monto quincenal"**. Arranca **desmarcada**, así que la
 > constancia de siempre —sin sueldo— sigue saliendo igual. Se marca cuando el trámite lo pide
