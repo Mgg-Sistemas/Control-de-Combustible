@@ -1553,7 +1553,12 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
 
   // Selector desplegable reutilizable (máquina o empleado).
-  const Selector = ({ id, icon, label, valueId, valueText, onPick, options }: {
+  // ⌨️ Es una FUNCIÓN que se LLAMA —`{selector({...})}`—, NO un `<Selector/>`:
+  //    definida dentro del componente, montarla como etiqueta la volvía un tipo
+  //    nuevo en cada render y remontaba su buscador «Filtrar…», que perdía el
+  //    foco a cada letra (mismo bug que Nómina, 15-oct-2026).
+  //    Lo vigila scripts/test-inputs-no-pierden-foco.mjs.
+  const selector = ({ id, icon, label, valueId, valueText, onPick, options }: {
     id: string; icon: string; label: string; valueId: string; valueText: string;
     onPick: (v: string) => void; options: { id: string; text: string; busca?: string }[];
   }) => {
@@ -1861,16 +1866,16 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
           {/* ORIGEN */}
           <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>ORIGEN (de dónde sale)</Text>
-          <Selector id="fromMach" icon="🚜" label="Máquina origen" valueId={fromMachId} valueText={machName(fromMachId)} onPick={setFromMachId} options={machOptions} />
-          <Selector id="fromVeh" icon="🚗" label="Vehículo origen" valueId={fromVehId} valueText={vehName(fromVehId)} onPick={setFromVehId} options={vehOptions} />
-          <Selector id="fromEmp" icon="👷" label="Responsable origen" valueId={fromEmpId} valueText={empNameById(fromEmpId)} onPick={setFromEmpId} options={empOptions} />
+          {selector({ id: 'fromMach', icon: '🚜', label: 'Máquina origen', valueId: fromMachId, valueText: machName(fromMachId), onPick: setFromMachId, options: machOptions })}
+          {selector({ id: 'fromVeh', icon: '🚗', label: 'Vehículo origen', valueId: fromVehId, valueText: vehName(fromVehId), onPick: setFromVehId, options: vehOptions })}
+          {selector({ id: 'fromEmp', icon: '👷', label: 'Responsable origen', valueId: fromEmpId, valueText: empNameById(fromEmpId), onPick: setFromEmpId, options: empOptions })}
 
           {/* DESTINO */}
           <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>DESTINO (a dónde va)</Text>
-          <Selector id="toMach" icon="🚜" label="Máquina destino" valueId={toMachId} valueText={machName(toMachId)} onPick={setToMachId} options={machOptions} />
-          <Selector id="toVeh" icon="🚗" label="Vehículo destino" valueId={toVehId} valueText={vehName(toVehId)} onPick={setToVehId} options={vehOptions} />
+          {selector({ id: 'toMach', icon: '🚜', label: 'Máquina destino', valueId: toMachId, valueText: machName(toMachId), onPick: setToMachId, options: machOptions })}
+          {selector({ id: 'toVeh', icon: '🚗', label: 'Vehículo destino', valueId: toVehId, valueText: vehName(toVehId), onPick: setToVehId, options: vehOptions })}
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>➕ Agregar responsable destino (opcional): la persona que RECIBE en el destino.</Text>
-          <Selector id="toEmp" icon="👷" label="Responsable destino" valueId={toEmpId} valueText={empNameById(toEmpId)} onPick={setToEmpId} options={empOptions} />
+          {selector({ id: 'toEmp', icon: '👷', label: 'Responsable destino', valueId: toEmpId, valueText: empNameById(toEmpId), onPick: setToEmpId, options: empOptions })}
 
           {/* Destino NO registrado (texto libre): empresa/persona fuera del sistema. NO entra en nómina. */}
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🏢 Empresa destino NO registrada (opcional)</Text>

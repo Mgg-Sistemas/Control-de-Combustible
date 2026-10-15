@@ -1174,6 +1174,13 @@ trabajador**.
 > Las **analistas** pueden cargar cantidades, bonos y deducciones, pero **no** pueden cambiar
 > los **precios** (hora/día/semana) del trabajador.
 
+> **⌨️ Arreglado: el campo se deseleccionaba a cada letra (15/10/2026).** Al escribir el
+> **concepto** o el **monto** de un bono o una deducción, el cursor se salía del campo en cada
+> tecla y solo entraba un carácter por vez. Ya se escribe de corrido. Pasaba lo mismo en los
+> conceptos de **Nómina** (asignaciones y deducciones) y en el buscador **«Filtrar…»** de los
+> selectores de **Inventario → Traslado**: los tres quedaron corregidos de raíz, y un guarda
+> automático impide que el problema vuelva en cualquier otra pantalla.
+
 ### 4.6bb. Organigrama y manual de cargos (dentro de Nómina)
 Muestra la **estructura corporativa de la empresa por cargos** (no por nombres), con diseño en
 dos columnas: **azul** = Administración, servicios y soporte; **naranja** = Operaciones y
