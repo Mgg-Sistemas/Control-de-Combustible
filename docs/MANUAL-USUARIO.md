@@ -194,6 +194,17 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > instrucciones**. Las **Retiradas NO se cuentan** (están fuera de servicio). Debajo sigue el
 > desglose por estado (cada tarjeta se toca para ver esa lista de máquinas).
 >
+> **📁⬛ Detalle por estado: plegado y con los botones funcionando (14/10/2026, a pedido).**
+> (1) Al tocar una tarjeta de estado (Operativas / Averiadas / Esperando / Retiradas), **todas las
+> empresas salen plegadas** por defecto — solo los encabezados con su conteo; tocas la que te
+> interesa y se abre, y al **buscar** se abren solas (tu toque siempre manda). (2) **«⬛ Retirar» y
+> «⏳ Esperando instrucciones» desde esas listas ahora sí funcionan:** el cuadro del motivo de
+> retiro se abría **detrás** de la lista (en web gana la última ventana montada) y parecía que el
+> botón no hacía nada — ya se abre encima; y si la base **rechaza** el cambio por permisos, el
+> aviso sale **en la misma lista** (antes se pintaba en la pantalla de fondo, tapado, y el cambio
+> parecía guardado sin estarlo). Cambiar el estado exige **escritura en Equipos**: con solo
+> lectura la base lo rechaza y el aviso te lo dice.
+
 > **⭐ La avería marcada por el inspector RIGE hasta resolverse (14/10/2026, a pedido: «necesito
 > que el catálogo me refleje lo que marcaron los inspectores desde su vista en el teléfono»).**
 > Antes, la tarjeta 🔴 Averiadas solo contaba una avería si era **del mismo turno que la hora

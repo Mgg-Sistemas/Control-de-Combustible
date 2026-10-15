@@ -773,8 +773,11 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
       const stamp = activando
         ? { reactivated_at: nowIso, reactivated_by: actorId }
         : { inactivated_at: nowIso, reactivated_at: null, inactivated_by: actorId, inactivated_reason: (reason ?? '').trim() || null };
-      const { error } = await supabase.from('machinery').update({ operational: !m.operational, ...stamp }).eq('id', m.id);
+      // ⭐ Se piden las filas tocadas (.select): si la RLS rechaza, devuelve 0 filas
+      //    SIN error y antes esto FINGÍA éxito (patrón «borrados que fingen éxito»).
+      const { data, error } = await supabase.from('machinery').update({ operational: !m.operational, ...stamp }).eq('id', m.id).select('id');
       if (error) return { ok: false, error: error.message };
+      if (!data?.length) return { ok: false, error: 'La base no guardó el cambio: tu permiso de Equipos no alcanza para cambiar el estado (pídele a un administrador que lo suba a escritura).' };
       // Al ACTIVAR (volver operativa) se limpia la etiqueta de avería/parada: se resuelven
       // las maintenance_requests pendientes de la máquina (mismo criterio que
       // `volverOperativa`/`iniciarJornada` en el teléfono). Best-effort: no debe tumbar el
@@ -816,8 +819,10 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   const toggleEspera = (m: Machinery) =>
     run(m.id + '-esp', async () => {
       const next = !m.en_espera;
-      const { error } = await supabase.from('machinery').update({ en_espera: next }).eq('id', m.id);
+      // ⭐ Mismo candado honesto que toggleOp: 0 filas = la RLS lo rechazó, se dice.
+      const { data, error } = await supabase.from('machinery').update({ en_espera: next }).eq('id', m.id).select('id');
       if (error) return { ok: false, error: error.message };
+      if (!data?.length) return { ok: false, error: 'La base no guardó el cambio: tu permiso de Equipos no alcanza para cambiar el estado (pídele a un administrador que lo suba a escritura).' };
       // "En espera" = congelada por completo (pedido del cliente 11-ago-2026): si tenía
       // una jornada corriendo, se banca lo trabajado hasta AHORA y se cierra — no debe
       // seguir sumando horas ni depender de que alguien la cierre después.
@@ -2124,52 +2129,6 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
         </>
       )}
 
-      {/* RETIRAR MÁQUINA — motivo OBLIGATORIO. Chips de motivos comunes que rellenan un
-          campo editable; sin motivo el botón de confirmar queda deshabilitado. */}
-      <Modal visible={!!retireFor} transparent animationType="fade" onRequestClose={() => setRetireFor(null)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
-          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
-            <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>⬛ Retirar máquina</Text>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
-                {retireFor ? `${etiquetaMaquina(retireFor) || retireFor.code} — sale de servicio (se bloquea su QR y se cierra su jornada).` : ''}
-              </Text>
-
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: spacing.xs }}>Motivo del retiro *</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-                {MOTIVOS_RETIRO.map((mot) => {
-                  const on = retireReason.trim() === mot;
-                  return (
-                    <TouchableOpacity
-                      key={mot} onPress={() => setRetireReason(mot === 'Otro' ? '' : mot)}
-                      style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: on ? colors.danger : colors.border, backgroundColor: on ? colors.danger : colors.surfaceAlt }}
-                    >
-                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>{mot}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <TextInput
-                value={retireReason} onChangeText={setRetireReason}
-                placeholder="Escribe el motivo (o elige uno arriba y edítalo)" placeholderTextColor={colors.muted}
-                multiline
-                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, minHeight: 64, textAlignVertical: 'top', marginBottom: spacing.md }}
-              />
-
-              <TouchableOpacity
-                onPress={confirmarRetiro} disabled={!retireReason.trim()}
-                style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.danger, opacity: retireReason.trim() ? 1 : 0.5 }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '800' }}>⬛ Retirar de servicio</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setRetireFor(null)} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
       {/* QR de la máquina */}
       <Modal visible={!!qrFor} transparent animationType="fade" onRequestClose={() => setQrFor(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
@@ -2499,6 +2458,14 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             <TextInput value={detailQuery} onChangeText={setDetailQuery} placeholder="Buscar: código, placa, serial, encargado, inspector, marca, modelo, empresa, edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
             {detailQuery ? <TouchableOpacity onPress={() => setDetailQuery('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
           </View>
+          {/* ⚠️ El aviso de error TAMBIÉN acá: el banner de abajo vive en la pantalla
+              de fondo y con este modal abierto no se veía — un cambio de estado
+              rechazado parecía que "no hacía nada" (14-oct-2026). */}
+          {notice ? (
+            <TouchableOpacity onPress={() => setNotice(null)} style={{ backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.dangerSoftText, fontSize: 13, fontWeight: '700' }}>{notice}  ✕</Text>
+            </TouchableOpacity>
+          ) : null}
           {detailList.length === 0 ? (
             <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : detailStatus === 'espera' ? 'No hay máquinas esperando instrucciones.' : 'No hay maquinaria retirada.'} />
           ) : detailFiltered.length === 0 ? (
@@ -2506,15 +2473,13 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
           ) : (
             <ScrollView>
               {groupByCompany(detailFiltered).map((g) => {
-                // Las INACTIVAS arrancan COLAPSADAS (solo se abren si el usuario toca);
-                // activas y en espera siguen abiertas por defecto. Al BUSCAR, los grupos
-                // arrancan abiertos para ver los resultados, PERO si el usuario toca para
-                // colapsar/expandir su elección manda (por eso el ?? va primero, no un
-                // `detailNq ? true` que ignoraba el toque y no dejaba colapsar al buscar).
-                // Por defecto COLAPSADO en "Retiradas" y "Esperando instrucciones"
-                // (solo se ven los encabezados por empresa con su conteo); al buscar se
-                // abre todo. Operativas/Averiadas siguen desplegadas por defecto.
-                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'retirada' && detailStatus !== 'espera'));
+                // 📁 TODOS los estados arrancan COLAPSADOS (14-oct-2026, a pedido:
+                // «cuando estoy en operativo o en cualquier estado, todas las opciones
+                // deben estar plegadas por defecto») — antes Operativas/Averiadas nacían
+                // desplegadas. Al BUSCAR los grupos se abren para ver los resultados,
+                // PERO si el usuario toca para colapsar/expandir su elección manda (por
+                // eso el ?? va primero).
+                const open = detailExpanded[g.key] ?? !!detailNq;
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
@@ -2629,6 +2594,56 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
             <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
         </Screen>
+      </Modal>
+
+      {/* RETIRAR MÁQUINA — motivo OBLIGATORIO. Chips de motivos comunes que rellenan un
+          campo editable; sin motivo el botón de confirmar queda deshabilitado.
+          ⚠️ VA DESPUÉS del modal del detalle por estado A PROPÓSITO (14-oct-2026, a
+          pedido: «trato de cambiar el estado y no me deja»): en web gana el último
+          montado, y cuando este modal vivía ANTES del detalle se abría DETRÁS —
+          tocabas «Retirar» desde la lista de un estado y "no pasaba nada". */}
+      <Modal visible={!!retireFor} transparent animationType="fade" onRequestClose={() => setRetireFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
+            <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>⬛ Retirar máquina</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>
+                {retireFor ? `${etiquetaMaquina(retireFor) || retireFor.code} — sale de servicio (se bloquea su QR y se cierra su jornada).` : ''}
+              </Text>
+
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: spacing.xs }}>Motivo del retiro *</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+                {MOTIVOS_RETIRO.map((mot) => {
+                  const on = retireReason.trim() === mot;
+                  return (
+                    <TouchableOpacity
+                      key={mot} onPress={() => setRetireReason(mot === 'Otro' ? '' : mot)}
+                      style={{ paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: on ? colors.danger : colors.border, backgroundColor: on ? colors.danger : colors.surfaceAlt }}
+                    >
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>{mot}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={retireReason} onChangeText={setRetireReason}
+                placeholder="Escribe el motivo (o elige uno arriba y edítalo)" placeholderTextColor={colors.muted}
+                multiline
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, minHeight: 64, textAlignVertical: 'top', marginBottom: spacing.md }}
+              />
+
+              <TouchableOpacity
+                onPress={confirmarRetiro} disabled={!retireReason.trim()}
+                style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.danger, opacity: retireReason.trim() ? 1 : 0.5 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>⬛ Retirar de servicio</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setRetireFor(null)} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
 
       {/* Reportes de maquinaria (por empresa / general) con vista previa */}
