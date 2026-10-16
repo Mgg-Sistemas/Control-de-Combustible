@@ -1552,7 +1552,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //    16-oct-2026). Visible para el inspector TAMBIÉN en el teléfono (a diferencia
   //    del recibo de jornada, que se ocultó ahí a pedido del 27-ago) — este formato
   //    es justamente el papel que llenan en campo.
-  const puedeControlHorometros = !!fixedShift;
+  //    A TODO inspector le sale SIEMPRE, aunque no tenga turno fijo (asignado a los
+  //    dos turnos → fixedShift queda nulo): el modal ya trae las pastillas ☀️/🌙 para
+  //    elegirlo, así que no hace falta adivinarlo (reporte real: «estoy en la vista de
+  //    teléfono de steeven que es un inspector y no me sale»).
+  const puedeControlHorometros = !!fixedShift || role === 'supervisor';
   const [choOpen, setChoOpen] = useState(false);
   const [choBusy, setChoBusy] = useState(false);
   const [choDescargando, setChoDescargando] = useState(false);
