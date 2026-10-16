@@ -132,8 +132,15 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice, c
           ? catalog.filter((c) => norm(c.name).includes(q)).slice(0, 6) : [];
         return (
         <View key={i} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, gap: 6, backgroundColor: colors.surfaceAlt }}>
+          {/* 🔢 Renglón numerado por POSICIÓN (16-oct-2026), igual que los requerimientos:
+              al quitar uno del medio, los de abajo se recorren solos. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ minWidth: 22, height: 22, borderRadius: 11, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>{i + 1}</Text>
+            </View>
+            {l.item_id ? <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>✓ Producto del inventario</Text> : null}
+          </View>
           <TextInput value={l.description} editable={!readOnly} onFocus={() => setFocus(i)} onChangeText={(t) => upd(i, { description: t.toUpperCase(), item_id: null })} placeholder="Descripción (ej. FILTRO DE ACEITE)" placeholderTextColor={colors.muted} autoCapitalize="characters" style={inputStyle} />
-          {l.item_id ? <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>✓ Producto del inventario</Text> : null}
           {sugs.length > 0 ? (
             <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden' }}>
               {sugs.map((s) => (
@@ -570,7 +577,7 @@ function ComprasDirectasTab({ canWrite }: { canWrite: boolean }) {
               detail={
                 <>
                   {(c.items || []).map((l, i) => (
-                    <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.exento ? ' · EXENTO DE IVA' : ''}</Text>
+                    <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>{i + 1}. {l.qty} {l.unit || ''} {l.description} — {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}{l.exento ? ' · EXENTO DE IVA' : ''}</Text>
                   ))}
                   {(Number(c.alicuota_iva) || 0) > 0 ? (
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
