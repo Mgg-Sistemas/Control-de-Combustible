@@ -56,8 +56,8 @@ ok('⬜ sin lectura queda EN BLANCO, no en 0',
 
 // ── La pantalla: solo la observación se edita ────────────────────────────────
 ok('🖥 botón en la vista del inspector', scr.includes('Control de horómetros (PDF)'));
-ok('🖥 visible con turno fijo (también en el teléfono, sin la exclusión del recibo)',
-  scr.includes('const puedeControlHorometros = !!fixedShift;'));
+ok('🖥 visible para TODO inspector, aun sin turno fijo (también en el teléfono)',
+  scr.includes("const puedeControlHorometros = !!fixedShift || role === 'supervisor';"));
 const modal = scr.split('🕐 CONTROL DE HORÓMETROS (al FINAL del render')[1] ?? '';
 ok('🖥 el modal existe y queda al FINAL del render (gana el apilado en web)',
   modal.includes('</Screen>') && !modal.includes('<Modal visible={asisScan}'));
