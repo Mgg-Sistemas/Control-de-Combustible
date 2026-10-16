@@ -3145,6 +3145,12 @@ escritura en Compras (o Inventario).
 > último es el que quita la cuenta por pagar, y va después porque reemplaza funciones de los
 > otros dos.)*
 
+> **🔢 Renglones numerados (16-oct-2026, mismo pedido que los requerimientos):** al armar una
+> compra directa (y también una orden de compra, que usa el mismo editor), cada renglón sale con
+> su **número** (1, 2, 3…) en una pastilla, y el detalle de la compra ya guardada numera igual
+> (antes era un punto «•»). El número es la **posición**: si quitas el renglón 2, el 3 pasa a ser
+> el 2 solo — nunca queda un hueco ni dos repetidos.
+
 > **🧾 IVA en la compra directa (13-oct-2026, traído de LA CANTERA a pedido):** el formulario ahora
 > trae el campo **«IVA %»**, que **nace en 16** y se puede cambiar (ponlo en 0 si la compra entera no
 > lleva IVA), y cada renglón tiene su cuadrito **«☐ Exento de IVA»**. Abajo sale el resumen:
