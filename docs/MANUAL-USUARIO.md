@@ -2012,6 +2012,26 @@ Sirve para saber si los inspectores **sí están yendo a las máquinas** a revis
 trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
+> **🕐 Control de horómetros en PDF (16/10/2026):** botón **"🕐 Control de horómetros (PDF)"**
+> en la vista del inspector — **también en su teléfono**. Descarga la **planilla física de
+> siempre** (№ · Empresa · Placa/Serial · Horómetro inicio · Hora inicio · Horómetro final ·
+> Hora final · Frente · Observación, con Inspector/Fecha/Día en la cabecera), pero **ya rellena**
+> con lo que el inspector registró:
+>
+> - las **máquinas** son las asignadas a su turno (misma lista que su reporte de jornada);
+> - los **horómetros** inicio/final salen de las **lecturas que él mismo cargó** en el teléfono;
+> - las **horas** inicio/final, del primer arranque y el último cierre de su jornada;
+> - el **frente**, de la **planificación de frentes de maquinaria** de ese día (si tuvo varios,
+>   se listan todos);
+> - la **observación** es **lo único que escribe** (opcional, máquina por máquina, antes de
+>   descargar). Si la máquina quedó averiada/parada se le sugiere el motivo ya registrado y lo
+>   puede cambiar: su texto manda.
+>
+> Lo que no se registró queda **en blanco**, como en el papel — el sistema **nunca inventa un
+> número** que termina en un documento. Se elige el día con **◀ ▶** y el turno ☀️/🌙 igual que
+> en el reporte de jornada (día de **negocio**: la noche pertenece al día en que arrancó). El PDF
+> sale **horizontal**, como la planilla. Solo lee: no cambia nada en el sistema.
+
 > **📄 Mi reporte de jornada (15/08/2026 · cambiado el 27/08/2026):** bloque
 > **"📄 Mi reporte de jornada"** con el que se descarga el PDF
 > del resumen de **sus** máquinas: cada una con su estado, las horas que trabajó, las de parada

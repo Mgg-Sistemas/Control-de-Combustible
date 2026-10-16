@@ -42,6 +42,7 @@ import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
 import { generateMyShiftReceipt } from '../lib/inspectorReport';
+import { cargarFilasControlHorometros, generarControlHorometrosPdf, diaSemanaCaracas, type FilaControlHorometros } from '../lib/controlHorometrosInspectorPdf';
 import { isPhoneDevice } from '../lib/device';
 import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
@@ -1545,6 +1546,50 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     }
   };
 
+  // ── 🕐 CONTROL DE HORÓMETROS: el PDF de la planilla física, ya rellena con lo que
+  //    el inspector registró (horómetros, horas, frente planificado). Lo ÚNICO que él
+  //    escribe aquí es la OBSERVACIÓN de cada máquina; el resto no se toca (pedido
+  //    16-oct-2026). Visible para el inspector TAMBIÉN en el teléfono (a diferencia
+  //    del recibo de jornada, que se ocultó ahí a pedido del 27-ago) — este formato
+  //    es justamente el papel que llenan en campo.
+  const puedeControlHorometros = !!fixedShift;
+  const [choOpen, setChoOpen] = useState(false);
+  const [choBusy, setChoBusy] = useState(false);
+  const [choDescargando, setChoDescargando] = useState(false);
+  const [choFilas, setChoFilas] = useState<FilaControlHorometros[] | null>(null);
+  const [choObs, setChoObs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!choOpen) return;
+    let vivo = true;
+    setChoBusy(true); setChoFilas(null);
+    cargarFilasControlHorometros({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: fullName || 'Inspector' })
+      .then((filas) => {
+        if (!vivo) return;
+        setChoFilas(filas);
+        // Sugerencia de observación (motivo de avería/parada ya registrado) SOLO donde
+        // el inspector no haya escrito nada: lo suyo manda y no se pisa al recargar.
+        setChoObs((prev) => {
+          const next = { ...prev };
+          filas.forEach((f) => { if (f.obsSugerida && !(f.machineryId in next)) next[f.machineryId] = f.obsSugerida; });
+          return next;
+        });
+      })
+      .catch(() => { if (vivo) setChoFilas([]); })
+      .finally(() => { if (vivo) setChoBusy(false); });
+    return () => { vivo = false; };
+  }, [choOpen, receiptDayEff, receiptShiftEff, fullName]);
+  const descargarControlHorometros = async () => {
+    if (choDescargando || !choFilas) return;
+    setChoDescargando(true);
+    try {
+      await generarControlHorometrosPdf({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: fullName || 'Inspector', filas: choFilas, observaciones: choObs });
+    } catch {
+      setNotice('❌ No se pudo generar el PDF del control de horómetros.');
+    } finally {
+      setChoDescargando(false);
+    }
+  };
+
   // ── "↪ Reasignar a…": MUEVE las máquinas de `reassign.ids` al inspector destino
   //    `reassignTo` en el turno elegido (día/noche/ambos). Es un upsert directo por
   //    máquina+turno (sobreescribe a quien la tuviera). Sincroniza en vivo y cierra.
@@ -2917,6 +2962,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </View>
       ) : null}
 
+      {/* 🕐 Control de horómetros: descarga la PLANILLA física ya rellena con lo que el
+          inspector registró; él solo escribe las observaciones. Visible también en el
+          teléfono del inspector (es el papel que llenan en campo). */}
+      {puedeControlHorometros ? (
+        <TouchableOpacity onPress={() => setChoOpen(true)} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ fontSize: 16 }}>🕐</Text>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>Control de horómetros (PDF)</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {/* El botón "📚 Histórico por inspector" se QUITÓ de la vista del teléfono
           (pedido del cliente 21-ago-2026). El reporte no desaparece: sigue en
           Inspecciones (SupervisionScreen) y en 📄 Reportes → "Histórico por
@@ -4206,6 +4261,81 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       <Modal visible={asisScan} animationType="slide" onRequestClose={() => setAsisScan(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <QrScanner onClose={() => setAsisScan(false)} onDetected={asisOnScanned} />
+        </View>
+      </Modal>
+
+      {/* 🕐 CONTROL DE HORÓMETROS (al FINAL del render a propósito: en web gana el
+          último modal montado — ver modales-web-orden-de-montaje). Muestra la planilla
+          ya rellena y deja escribir SOLO la observación de cada máquina. */}
+      <Modal visible={choOpen} animationType="slide" transparent onRequestClose={() => setChoOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.md, zIndex: 9999 }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🕐 Control de horómetros</Text>
+              <TouchableOpacity onPress={() => setChoOpen(false)} style={{ padding: spacing.xs }}>
+                <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Día y turno: los mismos de "Mi reporte de jornada" (día de NEGOCIO). */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+              <TouchableOpacity onPress={() => shiftReceiptDay(-1)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>◀</Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fmtDia(receiptDayEff)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 10.5 }}>{diaSemanaCaracas(receiptDayEff)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => shiftReceiptDay(1)} disabled={receiptEsHoy} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, opacity: receiptEsHoy ? 0.35 : 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>▶</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+              {(['day', 'night'] as const).map((s) => {
+                const on = receiptShiftEff === s;
+                return (
+                  <TouchableOpacity key={s} onPress={() => setReceiptShift(s)} style={{ flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                    <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12.5 }}>{s === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+              Empresa, placa, horómetros, horas y frente salen de lo ya registrado y NO se tocan.
+              Aquí solo escribes la observación de cada máquina (opcional).
+            </Text>
+
+            {choBusy || !choFilas ? (
+              <View style={{ paddingVertical: spacing.lg, alignItems: 'center' }}><ActivityIndicator /><Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Cargando lo registrado…</Text></View>
+            ) : (
+              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 380 }}>
+                {choFilas.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', paddingVertical: spacing.md }}>Sin máquinas asignadas este turno.</Text>
+                ) : choFilas.map((f, i) => (
+                  <View key={f.machineryId} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>{i + 1}. {f.etiqueta}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                      {[f.empresa || null, f.frente ? `⛏️ ${f.frente}` : null, f.horoInicio ? `H.inicio ${f.horoInicio}` : null, f.horoFinal ? `H.final ${f.horoFinal}` : null, f.horaInicio ? `⏱ ${f.horaInicio}${f.horaFinal ? `–${f.horaFinal}` : ''}` : null].filter(Boolean).join(' · ') || 'Sin registros este turno (saldrá en blanco, como el papel).'}
+                    </Text>
+                    <TextInput
+                      value={choObs[f.machineryId] ?? ''}
+                      onChangeText={(t) => setChoObs((prev) => ({ ...prev, [f.machineryId]: t }))}
+                      placeholder="📝 Observación (opcional)"
+                      placeholderTextColor={colors.muted}
+                      multiline
+                      style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, marginTop: spacing.xs, color: colors.text, backgroundColor: colors.surface, fontSize: 12.5, minHeight: 36 }}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <TouchableOpacity onPress={descargarControlHorometros} disabled={choBusy || choDescargando || !choFilas} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, backgroundColor: '#1E3A5F', borderRadius: radius.md, paddingVertical: spacing.sm, marginTop: spacing.xs, opacity: choBusy || choDescargando || !choFilas ? 0.6 : 1 }}>
+              <Text style={{ fontSize: 16 }}>🕐</Text>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{choDescargando ? 'Generando…' : 'Descargar planilla (PDF)'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </Screen>
