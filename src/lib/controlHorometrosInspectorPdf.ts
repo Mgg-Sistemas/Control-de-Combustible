@@ -80,11 +80,14 @@ export type FilaControlHorometros = {
 };
 
 /**
- * Reúne las filas de la planilla para un inspector, día de negocio y turno.
- * Nunca lanza por tablas opcionales (lecturas/frentes): esas columnas salen en
- * blanco y el resto del papel sigue — igual criterio que el teléfono.
+ * Reúne las filas de la planilla para un inspector, día de negocio y turno, y de
+ * paso la LISTA de inspectores de ese turno (sale del mismo cálculo, sin otra
+ * vuelta a la red): el coordinador la usa para sacar la planilla de cualquiera
+ * (pedido 16-oct-2026). Nunca lanza por tablas opcionales (lecturas/frentes):
+ * esas columnas salen en blanco y el resto del papel sigue — igual criterio que
+ * el teléfono.
  */
-export async function cargarFilasControlHorometros(opts: { date: string; shift: 'day' | 'night'; inspectorName: string }): Promise<FilaControlHorometros[]> {
+export async function cargarFilasControlHorometros(opts: { date: string; shift: 'day' | 'night'; inspectorName: string }): Promise<{ filas: FilaControlHorometros[]; inspectores: string[] }> {
   const { date, shift, inspectorName } = opts;
   const [{ data }, lecturas, { asignaciones }, segsRes, roundsRes] = await Promise.all([
     computeInspectorData(date, null),
@@ -98,6 +101,7 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
 
   const machMap = data.get(shift)?.get(inspectorName);
   const maquinas = machMap ? [...machMap.values()].sort((a, b) => cmpText(a.code, b.code)) : [];
+  const inspectores = [...(data.get(shift)?.keys() ?? [])].sort(cmpText);
 
   // Lectura del turno por máquina (0 o 1: la tabla es única por máquina/día/turno).
   const lecturaDe = new Map<string, { inicial: number | null; final: number | null }>();
@@ -129,7 +133,7 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
     frentesDeMaquina.set(a.machineryId, l);
   });
 
-  return maquinas.map((m) => {
+  const filas = maquinas.map((m) => {
     const lec = lecturaDe.get(m.id);
     const tramo = tramosDe.get(m.id);
     const iniAbierto = inicioAbiertoDe.get(m.id);
@@ -148,6 +152,7 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
       obsSugerida: (m.estado === 'averia' || m.estado === 'parada') && m.motivo ? String(m.motivo) : '',
     };
   });
+  return { filas, inspectores };
 }
 
 /**

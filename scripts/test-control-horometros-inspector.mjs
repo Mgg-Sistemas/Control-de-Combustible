@@ -56,8 +56,17 @@ ok('⬜ sin lectura queda EN BLANCO, no en 0',
 
 // ── La pantalla: solo la observación se edita ────────────────────────────────
 ok('🖥 botón en la vista del inspector', scr.includes('Control de horómetros (PDF)'));
-ok('🖥 visible para TODO inspector, aun sin turno fijo (también en el teléfono)',
-  scr.includes("const puedeControlHorometros = !!fixedShift || role === 'supervisor';"));
+ok('🖥 visible para TODO inspector, aun sin turno fijo, y para coordinador/admin',
+  scr.includes("const puedeControlHorometros = !!fixedShift || role === 'supervisor' || puedeCoordinar;"));
+// ── El coordinador/admin saca la planilla suya o la de cualquiera ───────────
+ok('👥 el selector de inspectores SOLO lo ve el coordinador/admin',
+  /\{puedeCoordinar \? \(\s*<View style=\{\{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing\.xs \}\}>\s*\{\[null, \.\.\.choInspectores/.test(scr));
+ok('👥 la lista de inspectores sale del MISMO cálculo de las filas',
+  scr.includes('setChoInspectores(inspectores);') && leer('src/lib/controlHorometrosInspectorPdf.ts').includes('return { filas, inspectores };'));
+ok('👥 cambiar de inspector limpia las observaciones (son de SU planilla)',
+  scr.includes('onPress={() => { setChoInspector(n); setChoObs({}); }}'));
+ok('👥 el PDF sale a nombre del inspector ELEGIDO',
+  scr.includes('inspectorName: choInspectorEff'));
 const modal = scr.split('🕐 CONTROL DE HORÓMETROS (al FINAL del render')[1] ?? '';
 ok('🖥 el modal existe y queda al FINAL del render (gana el apilado en web)',
   modal.includes('</Screen>') && !modal.includes('<Modal visible={asisScan}'));
