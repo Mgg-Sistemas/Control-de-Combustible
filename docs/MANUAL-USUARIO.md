@@ -3087,6 +3087,13 @@ queda **automáticamente** como **Recibido**. Con **🧾 PDF** puedes imprimir e
 pasárselo al jefe — el documento muestra **solo el monto en dólares** (sin Bs ni tasa BCV; esa tasa
 es solo referencial dentro del sistema, no sale en ningún reporte impreso). Así todo queda
 trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
+
+> **🔢 Los productos van numerados (16/10/2026, a pedido).** Al armar el requerimiento, cada
+> producto lleva su **número** (1, 2, 3…) junto a la etiqueta *Del inventario / Producto NUEVO*,
+> y el mismo número aparece en el **detalle** del requerimiento ya creado y al **📥 Recibir**.
+> Es el mismo que la columna **«#»** del PDF, así que *«el renglón 3»* significa lo mismo en la
+> pantalla, en el papel y al recibir. Si **quitas** uno del medio, los de abajo **se recorren
+> solos**: nunca queda un hueco ni dos con el mismo número.
 Cada requerimiento tiene además **"✏️ Editar"** (cambia título, nota y productos — no si ya fue
 recibido) y **"🗑️ Eliminar"** (borra todo el requerimiento, con confirmación), para quien tenga
 escritura en Compras (o Inventario).
