@@ -1556,20 +1556,29 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //    dos turnos → fixedShift queda nulo): el modal ya trae las pastillas ☀️/🌙 para
   //    elegirlo, así que no hace falta adivinarlo (reporte real: «estoy en la vista de
   //    teléfono de steeven que es un inspector y no me sale»).
-  const puedeControlHorometros = !!fixedShift || role === 'supervisor';
+  //    El COORDINADOR y el ADMIN también lo ven, y pueden sacar la planilla SUYA o la
+  //    de CUALQUIER inspector del turno (pedido 16-oct-2026): el modal les muestra el
+  //    selector de inspectores — al inspector de a pie no, él solo saca la suya.
+  const puedeControlHorometros = !!fixedShift || role === 'supervisor' || puedeCoordinar;
   const [choOpen, setChoOpen] = useState(false);
   const [choBusy, setChoBusy] = useState(false);
   const [choDescargando, setChoDescargando] = useState(false);
   const [choFilas, setChoFilas] = useState<FilaControlHorometros[] | null>(null);
   const [choObs, setChoObs] = useState<Record<string, string>>({});
+  // Inspector elegido (solo coordinador/admin): null = yo. La lista sale del mismo
+  // cálculo de las filas (mismo turno/día), así nunca ofrece a alguien que no saldría.
+  const [choInspector, setChoInspector] = useState<string | null>(null);
+  const [choInspectores, setChoInspectores] = useState<string[]>([]);
+  const choInspectorEff = choInspector ?? (fullName || 'Inspector');
   useEffect(() => {
     if (!choOpen) return;
     let vivo = true;
     setChoBusy(true); setChoFilas(null);
-    cargarFilasControlHorometros({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: fullName || 'Inspector' })
-      .then((filas) => {
+    cargarFilasControlHorometros({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: choInspectorEff })
+      .then(({ filas, inspectores }) => {
         if (!vivo) return;
         setChoFilas(filas);
+        setChoInspectores(inspectores);
         // Sugerencia de observación (motivo de avería/parada ya registrado) SOLO donde
         // el inspector no haya escrito nada: lo suyo manda y no se pisa al recargar.
         setChoObs((prev) => {
@@ -1581,12 +1590,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       .catch(() => { if (vivo) setChoFilas([]); })
       .finally(() => { if (vivo) setChoBusy(false); });
     return () => { vivo = false; };
-  }, [choOpen, receiptDayEff, receiptShiftEff, fullName]);
+  }, [choOpen, receiptDayEff, receiptShiftEff, choInspectorEff]);
   const descargarControlHorometros = async () => {
     if (choDescargando || !choFilas) return;
     setChoDescargando(true);
     try {
-      await generarControlHorometrosPdf({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: fullName || 'Inspector', filas: choFilas, observaciones: choObs });
+      await generarControlHorometrosPdf({ date: receiptDayEff, shift: receiptShiftEff, inspectorName: choInspectorEff, filas: choFilas, observaciones: choObs });
     } catch {
       setNotice('❌ No se pudo generar el PDF del control de horómetros.');
     } finally {
@@ -4304,6 +4313,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 );
               })}
             </View>
+
+            {/* 👤 Solo coordinador/admin: la planilla puede ser la MÍA o la de cualquier
+                inspector del turno. Cambiar de inspector limpia las observaciones (son
+                de SU planilla, no de la del anterior). */}
+            {puedeCoordinar ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.xs }}>
+                {[null, ...choInspectores.filter((n) => n !== (fullName || 'Inspector'))].map((n) => {
+                  const on = choInspector === n;
+                  return (
+                    <TouchableOpacity key={n ?? '__yo__'} onPress={() => { setChoInspector(n); setChoObs({}); }} style={{ paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 11.5 }}>{n === null ? '👤 Yo' : `👷 ${n}`}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
 
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
               Empresa, placa, horómetros, horas y frente salen de lo ya registrado y NO se tocan.

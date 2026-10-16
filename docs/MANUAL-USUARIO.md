@@ -2031,6 +2031,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > número** que termina en un documento. Se elige el día con **◀ ▶** y el turno ☀️/🌙 igual que
 > en el reporte de jornada (día de **negocio**: la noche pertenece al día en que arrancó). El PDF
 > sale **horizontal**, como la planilla. Solo lee: no cambia nada en el sistema.
+>
+> **👥 Coordinador de inspectores y administradores (16-oct-2026):** también tienen el botón, y
+> dentro de la ventana les salen pastillas para elegir de quién es la planilla: **«👤 Yo»** o
+> **cualquier inspector del turno** (la lista es exactamente la de inspectores con máquinas ese
+> día/turno). Al cambiar de inspector, las observaciones escritas se **limpian** — son de la
+> planilla de esa persona, no de la del anterior. El PDF y su firma salen a nombre del inspector
+> elegido. El inspector de a pie no ve el selector: solo saca la suya.
 
 > **📄 Mi reporte de jornada (15/08/2026 · cambiado el 27/08/2026):** bloque
 > **"📄 Mi reporte de jornada"** con el que se descarga el PDF
