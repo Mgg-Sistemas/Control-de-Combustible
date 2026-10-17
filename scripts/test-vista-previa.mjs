@@ -259,10 +259,11 @@ const bloque3f = async () => {
   const dom = hacerDom([pegada]); const rafs = [];
 
   const realST = globalThis.setTimeout;
-  let huboEspera = 0;
-  // Cualquier plazo largo (el tope de `esperarFotos`) se dispara enseguida.
+  // Se registran TODOS los plazos largos: el tope de `esperarFotos` (~15s) y el
+  // plan B de los teléfonos (~1s, 17-oct-2026) conviven, cada uno con su candado.
+  const plazos = [];
   globalThis.setTimeout = (fn, ms, ...r) => {
-    if (ms >= 1000) { huboEspera = ms; return realST(fn, 1, ...r); }
+    if (ms >= 1000) { plazos.push(ms); return realST(fn, 1, ...r); }
     return realST(fn, ms, ...r);
   };
 
@@ -275,9 +276,16 @@ const bloque3f = async () => {
   ok('⭐ con una foto pegada, el tope de tiempo deja imprimir igual',
     dom.escrito.imprimio === true, String(dom.escrito.imprimio));
   ok('⭐ y el tope existe de verdad (no es una espera infinita)',
-    huboEspera >= 1000, `plazo=${huboEspera}`);
+    plazos.length > 0, `plazos=${plazos.join(',')}`);
   ok('el tope es razonable: ni eterno ni tan corto que no sirva',
-    huboEspera >= 5000 && huboEspera <= 60000, `plazo=${huboEspera}`);
+    plazos.some((ms) => ms >= 5000 && ms <= 60000), `plazos=${plazos.join(',')}`);
+  // ⭐ PLAN B DE LOS TELÉFONOS (17-oct-2026): si el print() del iframe se ignora
+  //    en silencio (pasa en algunos Android), a ~1s se abre el documento en una
+  //    pestaña propia. El plazo corto tiene que existir — y ser corto de verdad,
+  //    para caer dentro de la activación del toque (o el navegador bloquearía
+  //    la pestaña como emergente).
+  ok('⭐ el plan B del teléfono existe (plazo corto tras imprimir)',
+    plazos.some((ms) => ms >= 500 && ms <= 2000), `plazos=${plazos.join(',')}`);
 
   globalThis.setTimeout = realST;
   restaurar();

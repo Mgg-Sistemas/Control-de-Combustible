@@ -553,8 +553,38 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
       try {
         await esperarFotos();
         if (closed) return; // cerró la ventana mientras cargaban las fotos
+        /**
+         * ⭐ PLAN B PARA LOS TELÉFONOS DONDE `print()` DEL IFRAME NO HACE NADA
+         *    (17-oct-2026, reporte real: «al darle al botón de imprimir no le
+         *    deja»). En algunos Android, Chrome IGNORA EN SILENCIO el print()
+         *    de un marco interno: ni diálogo, ni error, ni nada. En otros (los
+         *    de la tiquetera de viajes) sí funciona — por eso NO se cambia la
+         *    vía principal, que además es la que RawBT ya conoce.
+         *
+         *    La seña de que SÍ salió es el `beforeprint` del documento (el
+         *    mismo evento que ya cuenta el Ctrl+P). Si en ~1 segundo no llegó,
+         *    el documento se abre en una PESTAÑA PROPIA (nivel superior, que
+         *    Android sí imprime) y se manda a imprimir ahí. El segundo de
+         *    espera sigue dentro de la activación del toque, así que el
+         *    navegador no bloquea la pestaña como ventana emergente.
+         */
+        let dialogoSalio = false;
+        try { cw.addEventListener('beforeprint', () => { dialogoSalio = true; }, { once: true }); } catch (e) {}
         cw.focus();
         cw.print();
+        setTimeout(() => {
+          if (dialogoSalio || closed) return;
+          try {
+            const htmlConTitulo = fileName ? html.replace('<title></title>', `<title>${fileName}</title>`) : html;
+            const blob = new Blob([htmlConTitulo], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const w: any = (globalThis as any).open?.(url, '_blank');
+            if (w) {
+              try { w.onload = () => { try { w.focus(); w.print(); } catch (e) { /* queda el menú del navegador */ } }; } catch (e) {}
+            }
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+          } catch (e) { /* sin plan B posible: queda el comportamiento de antes */ }
+        }, 1000);
         // El papel salió: se confirma YA, sin esperar a que cierre la ventana.
         confirmarImpreso();
       } catch (e) {
