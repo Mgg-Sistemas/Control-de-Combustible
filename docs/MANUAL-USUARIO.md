@@ -6013,6 +6013,14 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > sin subir y los anteriores al 12/09/2026. El botón de la lista completa dice cuántos quedan fuera
 > y por qué.
 
+> **📱 Si el botón 🖨️ Imprimir «no hace nada» en un teléfono (17/10/2026):** en algunos Android
+> el navegador **ignora en silencio** la impresión desde la vista previa — tocas Imprimir y no
+> sale nada. Ahora el sistema lo detecta solo: si en ~1 segundo no salió el diálogo de impresión,
+> el documento se **abre en una pestaña propia** y se manda a imprimir desde ahí (desde esa
+> pestaña también se puede **Guardar como PDF**). En los equipos donde ya funcionaba no cambia
+> nada: el plan B solo entra cuando el navegador se quedó mudo. Si el teléfono bloquea la pestaña,
+> permite las **ventanas emergentes** de soslaguaira.com.
+
 > **📱 Imprimir desde el teléfono con una ticketera Bluetooth (12/09/2026).** Una ticketera de
 > rollo por Bluetooth, como la MHT-P11, no aparece sola en el menú de impresión de Android: habla
 > el idioma de las impresoras de recibos. Hace falta una app puente, **RawBT**.
