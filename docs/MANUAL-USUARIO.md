@@ -3680,6 +3680,13 @@ Pedido del cliente: «una cosa son las ubicaciones y otra los frentes». La **ub
 marca el inspector al revisar la máquina y sale en 📍 Ubicaciones. El **frente** es **dónde trabaja
 cada equipo cada día**, y lo asigna la oficina.
 
+> **🔧 El estado de la hoja es el VIVO del Catálogo (18/10/2026):** antes el «Estado» de esta
+> hoja salía solo de la ficha de la máquina, y la **avería que marca el inspector no toca la
+> ficha** — una máquina averiada decía «Operativa» (reporte real con la 79669). Ahora se clasifica
+> con el **mismo clasificador del Catálogo y el Inicio**: Averiada y Parada (vigentes, respetando
+> la reactivación por jornada nueva), En espera, Retirada, Transferida a otros, Inactiva u
+> Operativa. La hoja de frentes dice lo mismo que los cubos del Catálogo.
+
 **Dónde:** Reportes → pestaña **«⛏️ Frentes»**. Funciona **igual que el apartado de Viajes de
 camiones**, con **todas las máquinas** del catálogo y hablando de «equipos» — pero es **independiente
 de viajes** («sin viajes, solo para el reporte de los frentes asignados»): tiene **su propia lista de
