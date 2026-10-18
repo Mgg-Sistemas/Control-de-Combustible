@@ -24,6 +24,7 @@ import { levelMeets } from '../lib/permissions';
 import { selectAllRows } from '../lib/supabase';
 import { caracasBusinessToday } from '../lib/caracasDay';
 import { FRENTES_MAQUINARIA, listFrentes, type FrenteTrabajo } from '../lib/camionViajes';
+import { fetchAveriaCat, fetchJornadaCat, fetchInspByShift, makeLiveStatusOf } from '../lib/machineLiveStatus';
 
 const limpio = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
 const n2 = (v: unknown) => Number(v).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -75,12 +76,34 @@ export function FrentesReportesCard() {
 
   const cargar = useCallback(async () => {
     setError(null);
-    const [r, rows] = await Promise.all([
+    // ⭐ EL ESTADO ES EL VIVO DEL CATÁLOGO (18-oct-2026, reporte real: «me sale que
+    //    todas están operativas y no es así — la 79669 está averiada»). Antes el
+    //    estado salía SOLO de las banderas de la ficha (operational/en_espera/active),
+    //    que la avería del inspector NO toca: una máquina averiada decía «Operativa».
+    //    Ahora se clasifica con el MISMO clasificador compartido que el Catálogo y el
+    //    Inicio (makeLiveStatusOf: avería/parada pendiente, reactivación por jornada
+    //    nueva, inspector siempre-activo), para que la hoja de frentes diga lo mismo
+    //    que los cubos. Si estas lecturas extra fallan, la hoja sale con el estado de
+    //    la ficha, como antes — nunca peor.
+    const [r, rows, averiaCat, jornadaCat, inspByShift] = await Promise.all([
       listFrentes(FRENTES_MAQUINARIA),
-      selectAllRows('machinery', 'id, code, plate, serial, marca, modelo, clasificacion, location, operational, en_espera, active, height_m, length_m, width_m, company:company_id(name)').catch((e: any) => { setError(String(e?.message ?? e)); return [] as any[]; }),
+      selectAllRows('machinery', 'id, code, plate, serial, marca, modelo, clasificacion, location, operational, en_espera, active, transferida, height_m, length_m, width_m, company:company_id(name)').catch((e: any) => { setError(String(e?.message ?? e)); return [] as any[]; }),
+      fetchAveriaCat().catch(() => ({} as Awaited<ReturnType<typeof fetchAveriaCat>>)),
+      fetchJornadaCat().catch(() => ({} as Awaited<ReturnType<typeof fetchJornadaCat>>)),
+      fetchInspByShift().catch(() => ({} as Awaited<ReturnType<typeof fetchInspByShift>>)),
     ]);
     setFrentes(r.frentes); setFaltaSql(r.missing);
     if (r.error && !r.missing) setError(r.error);
+    const retiredIds = new Set((rows as any[]).filter((m) => m.operational === false || m.active === false).map((m) => String(m.id)));
+    const statusOf = makeLiveStatusOf({ jornadaCat, averiaCat, inspByShift, retiredIds, nowTick: Date.now() });
+    // Mismo orden de prioridad que los cubos del Catálogo (excluyentes).
+    const estadoDe = (m: any): string => {
+      if (m.active === false) return 'Inactiva';
+      if (m.operational === false) return m.transferida === true ? 'Transferida a otros' : 'Retirada';
+      if (m.en_espera === true) return 'En espera';
+      const st = statusOf(String(m.id)).estado;
+      return st === 'averiada' ? 'Averiada' : st === 'parada' ? 'Parada' : 'Operativa';
+    };
     setMaquinas((rows as any[]).map((m) => ({
       id: String(m.id), code: limpio(m.code) || '—', plate: limpio(m.plate) || null, serial: limpio(m.serial) || null,
       companyName: limpio(m.company?.name) || null, marca: limpio(m.marca) || null, modelo: limpio(m.modelo) || null,
@@ -88,7 +111,7 @@ export function FrentesReportesCard() {
       medidas: medidasFicha(m.height_m, m.length_m, m.width_m),
       clasificacion: limpio(m.clasificacion) || null,
       obra: limpio(m.location) || null,
-      estado: m.active === false ? 'Inactiva' : m.en_espera === true ? 'En espera' : m.operational === false ? 'Inoperativa' : 'Operativa',
+      estado: estadoDe(m),
     })).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true })));
   }, []);
 
