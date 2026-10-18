@@ -836,6 +836,10 @@ export interface InventoryRequirement {
   supplier_id: string | null;         // proveedor (opcional) → orden de compra + cuenta por pagar
   requested_by: string | null;
   requested_by_name: string | null;
+  // 👤 Responsable (almacenista) elegido al crear (17-oct-2026); el nombre se guarda
+  // aparte para que sobreviva si el usuario se elimina (misma regla que supervisor_name).
+  responsable_id?: string | null;
+  responsable_nombre?: string | null;
   decided_by: string | null;
   decided_by_name: string | null;
   decided_at: string | null;

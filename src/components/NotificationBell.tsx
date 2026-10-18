@@ -78,8 +78,10 @@ function whenLabel(iso: string): string {
 }
 
 /**
- * Campana de notificaciones del encabezado. Solo la ve el ADMIN (audiencia actual
- * de los avisos). Muestra un badge rojo con las NO leídas y un panel desplegable.
+ * Campana de notificaciones del encabezado. El ADMIN ve todos los avisos; los demás
+ * usuarios SOLO los dirigidos a ellos (recipient_id), y sin ninguno la campana no
+ * se muestra (17-oct-2026: nació para el almacenista responsable de un requerimiento).
+ * Muestra un badge rojo con las NO leídas y un panel desplegable.
  * Al tocar un aviso se abre su DETALLE (módulo + detalle) con "Marcar como leída"
  * e "Ir al módulo". El estado "leído" es POR USUARIO (tabla notification_reads).
  */
@@ -97,12 +99,19 @@ export default function NotificationBell() {
   const knownIds = React.useRef<Set<string> | null>(null);
 
   const load = React.useCallback(async () => {
-    if (!isSupabaseConfigured || !uid || role !== 'admin') return;
-    const { data: notifs } = await supabase
+    if (!isSupabaseConfigured || !uid) return;
+    // 🔔 QUIÉN VE QUÉ (17-oct-2026): el ADMIN sigue viendo todo, como siempre. Los
+    // DEMÁS ven SOLO los avisos dirigidos a ellos (recipient_id = yo) — nació para
+    // el almacenista responsable de un requerimiento. Si no tienen ninguno, la
+    // campana ni se muestra (ver el return de abajo), así que para el resto de los
+    // usuarios nada cambia.
+    let q = supabase
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
+    if (role !== 'admin') q = q.eq('recipient_id', uid);
+    const { data: notifs } = await q;
     const list = (notifs as AppNotification[]) ?? [];
     setItems(list);
     // Sonido sutil al llegar una notificación NUEVA (no en la carga inicial).
@@ -149,7 +158,8 @@ export default function NotificationBell() {
   const closePanel = () => { setOpen(false); setDetail(null); };
 
   // Solo el admin recibe estos avisos: para el resto, ni se muestra la campana.
-  if (role !== 'admin') return null;
+  // No-admin: la campana solo existe si tiene avisos PROPIOS (recipient_id = él).
+  if (role !== 'admin' && items.length === 0) return null;
 
   const detailUnread = detail ? !readIds.has(detail.id) : false;
 

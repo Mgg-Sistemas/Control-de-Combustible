@@ -5,7 +5,7 @@
 // `req_sync_compra`). Si se compra, se RECIBE en el inventario (genera entradas
 // con el precio real). La recepción de stock sigue necesitando permiso de
 // inventario. Solo los administradores aprueban/rechazan.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, ExpandableCard, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -98,6 +98,27 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [pickOpen, setPickOpen] = useState(false);
   const [supQ, setSupQ] = useState('');       // búsqueda de proveedor
   const [supOpen, setSupOpen] = useState(false); // desplegable de proveedor abierto
+  // 👤 RESPONSABLE (17-oct-2026, a pedido): quien lo CREA sale solo (requested_by_name);
+  // el RESPONSABLE se elige entre los usuarios del rol ALMACENISTA y al elegido le llega
+  // un aviso a su campana. ES OPCIONAL pero el rótulo no lo dice (pedido textual: «el
+  // encargado es opcional, colócalo sin que diga opcional»).
+  const [respId, setRespId] = useState<string | null>(null);
+  const [respNombre, setRespNombre] = useState<string | null>(null);
+  const [almacenistas, setAlmacenistas] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!createOpen) return;
+    (async () => {
+      try {
+        // Mismo criterio que Compras usa para reconocer al almacenista: el NOMBRE del
+        // rol dinámico contiene «almacen» (esAlmacenista en ComprasScreen).
+        const { data } = await supabase.from('profiles').select('id, full_name, app_role:app_role_id(name)');
+        setAlmacenistas(((data ?? []) as any[])
+          .filter((p) => /almacen/i.test(String(p.app_role?.name ?? '')) && String(p.full_name ?? '').trim())
+          .map((p) => ({ id: String(p.id), name: String(p.full_name).trim() }))
+          .sort((a, b) => a.name.localeCompare(b.name, 'es')));
+      } catch { setAlmacenistas([]); }
+    })();
+  }, [createOpen]);
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);                    // error visible DENTRO del Modal (el toast queda tapado)
   const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
@@ -171,16 +192,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     if (items.length === 0) { const m = 'Agrega al menos un producto (del inventario o nuevo) antes de guardar.'; setFormErr(m); return toast.error(m); }
     setBusy(true);
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
+    // Columna nueva (17-oct-2026): si el SQL del responsable aún no se corrió, el
+    // guardado NO se cae — se reintenta sin esos campos y se avisa.
+    const faltaColResp = (msg: string) => /responsable/i.test(msg) && /column|does not exist|schema cache|no existe/i.test(msg);
     if (editId) {
       const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
-      const { error } = await supabase.from('inventory_requirements')
-        .update({ title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, items, ...adj })
+      const base = { title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, items, ...adj };
+      let respGuardado = true;
+      let { error } = await supabase.from('inventory_requirements')
+        .update({ ...base, responsable_id: respId, responsable_nombre: respNombre })
         .eq('id', editId);
+      if (error && faltaColResp(error.message)) {
+        respGuardado = false;
+        ({ error } = await supabase.from('inventory_requirements').update(base).eq('id', editId));
+      }
       setBusy(false);
       if (error) { setFormErr(error.message); return toast.error(error.message); }
-      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null);
+      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
       refetch();
-      toast.success('Requerimiento actualizado.');
+      toast.success(respGuardado ? 'Requerimiento actualizado.' : 'Requerimiento actualizado (el responsable no se guardó: falta correr el SQL).');
       return;
     }
     // CREAR: código correlativo (REQ-000N). Se lee el máximo actual; si la lectura
@@ -191,6 +221,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
     let code = '';
     let saved = false;
+    let savedId: string | null = null;
+    // Campos del responsable: si la columna aún no existe (falta el SQL), se quitan
+    // y el requerimiento se guarda igual — el AVISO al almacenista sí se envía.
+    let respCampos: Record<string, any> = respId ? { responsable_id: respId, responsable_nombre: respNombre } : {};
+    let respFaltaSql = false;
     for (let intento = 0; intento < 6 && !saved; intento++) {
       const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
       if (readErr || !codeRows) {
@@ -203,9 +238,11 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // leemos el código REAL que quedó para mostrarlo.
       const { data: inserted, error } = await supabase.from('inventory_requirements').insert({
         code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
-        requested_by: uid, requested_by_name: reqName, ...adj,
-      }).select('code').single();
-      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
+        requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos,
+      }).select('id, code').single();
+      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; savedId = (inserted as any)?.id ?? null; saved = true; break; }
+      // Falta la columna del responsable: se reintenta SIN ella (mismo número).
+      if (Object.keys(respCampos).length && faltaColResp(error.message)) { respCampos = {}; respFaltaSql = true; intento--; continue; }
       // Código ya usado (índice único): reintenta con el siguiente número.
       if (/duplicate key|already exists|unique|_code_key|23505/i.test(error.message)) continue;
       setBusy(false);
@@ -213,9 +250,29 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
     setBusy(false);
     if (!saved) { const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
-    setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null);
+    // 🔔 AVISO AL RESPONSABLE (17-oct-2026): al almacenista elegido le llega una
+    // notificación a SU campana (recipient_id), con el código y quién lo pidió.
+    // Nunca interrumpe el guardado: el aviso es secundario.
+    if (respId) {
+      try {
+        await supabase.from('notifications').insert({
+          type: 'requerimiento',
+          title: `📦 Requerimiento ${code} a tu cargo`,
+          body: `${title.trim() || 'Sin título'} · ${items.length} producto(s) · pedido por ${reqName || '—'}`,
+          target_role: null,
+          recipient_id: respId,
+          created_by: uid,
+          entity_type: 'inventory_requirement',
+          entity_id: savedId,
+          meta: { responsable_nombre: respNombre },
+        });
+      } catch { /* la campana es secundaria: no tumba el requerimiento */ }
+    }
+    setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
     refetch();
-    toast.success(`Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
+    toast.success(respFaltaSql
+      ? `Requerimiento ${code} enviado. ⚠️ El responsable no se guardó (falta correr el SQL); el aviso sí se envió.`
+      : `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
   };
 
   // Abrir el formulario para EDITAR: precarga título, nota e ítems del requerimiento.
@@ -225,6 +282,8 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setNote(r.note ?? '');
     setCompanyId(r.company_id ?? null);
     setSupplierId(r.supplier_id ?? null);
+    setRespId(r.responsable_id ?? null);
+    setRespNombre(r.responsable_nombre ?? null);
     setFormato(r.attachment_url ? { url: r.attachment_url, kind: (r.attachment_type as 'image' | 'pdf') || 'image', name: r.attachment_name || 'formato' } : null);
     let s = 0;
     setRows(r.items.map((it) => ({
@@ -440,7 +499,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     try {
       await exportPdf(requerimientoHtml({
         code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
-        company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+        company: companyName(r.company_id), requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
         approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
         items: await itemsToPdf(r),
       }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
@@ -526,7 +585,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         const selectedOrFiltered = () => reqSelIds.size ? filteredReqs.filter((r) => reqSelIds.has(r.id)) : filteredReqs;
         const toReqPdfData = async (r: (typeof filteredReqs)[number]): Promise<ReqPdfData> => ({
           code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
-          company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+          company: companyName(r.company_id), requestedBy: r.requested_by_name, responsable: r.responsable_nombre ?? null, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
           approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
           items: await itemsToPdf(r),
         });
@@ -600,7 +659,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}{r.responsable_nombre ? ` · 📦 Resp.: ${r.responsable_nombre}` : ''}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 170 }}>
                     {canReceive ? (
@@ -778,6 +837,25 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               ) : null}
               <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Al asignar proveedor y aprobar, se generan la orden de compra y la cuenta por pagar automáticamente.</Text>
+
+              {/* 👤 RESPONSABLE: elegible entre los del rol ALMACENISTA; al elegido le
+                  llega un aviso a su campana. Quien lo crea sale solo. Es opcional, pero
+                  el rótulo NO lo dice (pedido textual, 17-oct-2026). */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Responsable</Text>
+              <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 4 }}>✍️ Quien lo crea sale solo. El responsable se elige entre los almacenistas, y le llega un aviso con este requerimiento.</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[{ id: null as string | null, name: 'Sin responsable' }, ...almacenistas].map((a) => {
+                  const on = respId === a.id;
+                  return (
+                    <TouchableOpacity key={a.id ?? '__none__'} onPress={() => { setRespId(a.id); setRespNombre(a.id ? a.name : null); }} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{a.id ? `📦 ${a.name}` : a.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {almacenistas.length === 0 ? (
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>No hay usuarios con rol de almacenista todavía (se asigna en Usuarios).</Text>
+                ) : null}
+              </View>
             </Card>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
