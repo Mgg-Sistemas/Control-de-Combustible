@@ -3115,6 +3115,19 @@ pasárselo al jefe — el documento muestra **solo el monto en dólares** (sin B
 es solo referencial dentro del sistema, no sale en ningún reporte impreso). Así todo queda
 trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
 
+> **📦 Responsable (almacenista) y su aviso (17/10/2026, a pedido).** Al crear un requerimiento,
+> **quien lo crea sale solo** (como siempre, en *Solicita*), y ahora hay un campo **«Responsable»**:
+> pastillas con los usuarios cuyo **rol es de almacenista** (el rol dinámico cuyo nombre contiene
+> «almacén», el mismo criterio del resto de Compras). Al **elegido le llega un aviso a su campana
+> 🔔** con el código del requerimiento, cuántos productos trae y quién lo pidió — la campana, que
+> antes era solo del administrador, ahora también le sale a **cualquier usuario con avisos
+> dirigidos a él** (sin avisos propios no se muestra, así que para el resto nada cambia). Elegir
+> responsable **no es obligatorio**. El responsable se ve en la lista (*📦 Resp.*), se puede
+> cambiar en **✏️ Editar** y sale en el **PDF** junto a *Solicita*; su **nombre queda guardado
+> aparte**, así que sobrevive aunque ese usuario se elimine después. ⚠️ Necesita su **SQL en
+> Supabase**; mientras no se corra, el requerimiento **se guarda igual** (sin responsable) y el
+> sistema lo dice.
+
 > **🔢 Los productos van numerados (16/10/2026, a pedido).** Al armar el requerimiento, cada
 > producto lleva su **número** (1, 2, 3…) junto a la etiqueta *Del inventario / Producto NUEVO*,
 > y el mismo número aparece en el **detalle** del requerimiento ya creado y al **📥 Recibir**.

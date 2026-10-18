@@ -13,6 +13,8 @@ export type ReqPdfData = {
   note?: string | null;
   company?: string | null;    // empresa para la que se pide (opcional)
   requestedBy?: string | null;
+  /** 👤 Responsable (almacenista) elegido al crear — sale junto a «Solicita» (17-oct-2026). */
+  responsable?: string | null;
   statusLabel: string;
   rate: number | null;        // Bs por US$ (solo para convertir a US$ ítems cargados en Bs; no se muestra)
   items: ReqPdfItem[];
@@ -127,7 +129,7 @@ function reqBodyHtml(d: ReqPdfData, heading?: string): string {
 export function requerimientoHtml(d: ReqPdfData): string {
   return pdfDocument({
     title: 'Requerimiento de compra',
-    subtitle: `${d.code ? d.code + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`,
+    subtitle: `${d.code ? d.code + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}${d.responsable ? ' · Responsable: ' + esc(d.responsable) : ''}`,
     extraCss: REQ_CSS,
     body: reqBodyHtml(d),
   });
@@ -141,7 +143,7 @@ export function requerimientoHtml(d: ReqPdfData): string {
 export function requerimientosBulkHtml(list: ReqPdfData[]): string {
   const body = list
     .map((d, i) => {
-      const heading = `${i + 1}/${list.length} · ${d.code ? esc(d.code) + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`;
+      const heading = `${i + 1}/${list.length} · ${d.code ? esc(d.code) + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}${d.responsable ? ' · Responsable: ' + esc(d.responsable) : ''}`;
       const block = reqBodyHtml(d, heading);
       return i < list.length - 1 ? `${block}<div class="pgbreak"></div>` : block;
     })
@@ -179,7 +181,7 @@ function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
 export function requerimientosResumenHtml(list: ReqPdfData[]): string {
   const body = list
     .map((d, i) => {
-      const heading = `${i + 1}/${list.length} · ${d.code ? esc(d.code) + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`;
+      const heading = `${i + 1}/${list.length} · ${d.code ? esc(d.code) + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}${d.responsable ? ' · Responsable: ' + esc(d.responsable) : ''}`;
       return reqSummaryBlockHtml(d, heading);
     })
     .join('');
