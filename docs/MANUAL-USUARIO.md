@@ -3713,6 +3713,14 @@ Pedido del cliente: «una cosa son las ubicaciones y otra los frentes». La **ub
 marca el inspector al revisar la máquina y sale en 📍 Ubicaciones. El **frente** es **dónde trabaja
 cada equipo cada día**, y lo asigna la oficina.
 
+> **⛏️ Una máquina = UN frente por día (19/10/2026, a pedido: «las máquinas no pueden tener más
+> de un frente»).** En esta pestaña el selector de frente es de **uno solo** (elegir otro desmarca
+> el anterior) y **asignar REEMPLAZA**: ponerle un frente a una máquina le quita el que tuviera ese
+> día. Si un día viejo quedó con varios (herencia del multi-frente de camiones), en la pantalla, el
+> PDF, el historial y la planilla del inspector manda **el más reciente**. ⚠️ Esto es **solo para
+> la maquinaria**: los **camiones de Viajes siguen pudiendo tener varios frentes** el mismo día
+> (regla del 30/09, pedida aparte).
+
 > **🔧 El estado de la hoja es el VIVO del Catálogo (18/10/2026):** antes el «Estado» de esta
 > hoja salía solo de la ficha de la máquina, y la **avería que marca el inspector no toca la
 > ficha** — una máquina averiada decía «Operativa» (reporte real con la 79669). Ahora se clasifica
@@ -3916,6 +3924,14 @@ máquinas que tienen alguna lectura (o ajuste) en el rango.
 - Un turno **incompleto** (inicial sin final) vale 0 h con alerta; el otro turno, si está completo,
   sí cuenta.
 - Horas **sin precio** ese día → **$0 con alerta**: no se inventa un precio.
+
+> **📋 El precio de Control, a la vista (19/10/2026, a pedido: «colócale los precios ya
+> estipulados que están en Control»).** Cada máquina muestra ahora **«📋 Control: $X/jornada
+> ($Y/h)»** — el precio **por jornada de 12 h** que ya tiene puesto en Control de maquinaria — y el
+> PDF del pago lleva la columna **«Control $/jornada»** con su equivalente por hora. Es **solo
+> referencia**: NO entra en el monto (el pago sigue saliendo del precio por hora propio de este
+> módulo) y no enlaza los dos controles. La pastilla «🚫 Precio en Control» la quita del papel sin
+> dejar rastro. La máquina sin precio en Control sale con «—».
 
 **💲 Precios por hora — general y por rango.** En cada máquina, **«💲 Poner / cambiar precio por
 hora»**:

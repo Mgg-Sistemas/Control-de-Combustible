@@ -282,7 +282,9 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
         title: 'Pago por horómetro · Cierre',
         subtitle: `Cierre del ${dmy(c.desde)} al ${dmy(c.hasta)} · cerrado el ${dmy(String(c.created_at ?? ''))}${c.created_by_nombre ? ` por ${c.created_by_nombre}` : ''}${c.anulada_at ? ' · REABIERTO' : ''}`,
         extraCss: CSS_PAGO_HOROMETRO,
-        body: cuerpoPagoHorometro({ desde: c.desde, hasta: c.hasta, filas: filasDeCierre(c) }, opciones),
+        // El precio de Control es el de HOY (referencia viva): un cierre viejo lo
+        // muestra como dato de hoy, no como foto del cierre. Los montos no cambian.
+        body: cuerpoPagoHorometro({ desde: c.desde, hasta: c.hasta, filas: filasDeCierre(c) }, opciones, referencia),
         logos,
         marcaTexto: false,
       });
@@ -301,7 +303,7 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
         // El FILTRO sí se dice (cambia el total). Lo OCULTO con pastillas, no: no deja rastro.
         subtitle: `Del ${dmy(desde)} al ${dmy(hasta)} · por horómetro de trabajo${filtrado ? ' · FILTRADO' : ''}`,
         extraCss: CSS_PAGO_HOROMETRO,
-        body: cuerpoPagoHorometro({ desde, hasta, filas }, opciones),
+        body: cuerpoPagoHorometro({ desde, hasta, filas }, opciones, referencia),
         logos,
         marcaTexto: false,
       });
@@ -553,6 +555,9 @@ export function ControlHorometrosPanel({ visible, onClose, canEdit, puedeCorregi
                         <Text style={{ color: colors.muted, fontSize: 11 }}>
                           {[m.marca, m.modelo].filter(Boolean).join(' ') || ' '}
                           {'  '}{f.precioVigente != null ? `💲 ${usd(f.precioVigente)}/h${f.variosPrecios ? ' (cambió en el rango)' : ''}` : '⚠️ sin precio por hora'}
+                          {/* 19-oct-2026: el precio ya colocado en Control (por jornada de 12 h),
+                              visible para todos como referencia — antes solo salía dentro del editor. */}
+                          {(() => { const p = referencia.get(m.id); return p != null && p > 0 ? `  ·  📋 Control: ${usd(p)}/jornada (${usd(p / 12)}/h)` : ''; })()}
                         </Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>

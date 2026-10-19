@@ -45,7 +45,7 @@ import {
   // 📋 REPETIR LOS FRENTES DE OTRO DÍA (03-oct-2026): el cálculo de QUÉ se
   //    copiaría y qué no es puro y vive en la librería; acá solo se enseña,
   //    se confirma y se escribe.
-  planRepetirFrentes, textoPlanRepetir,
+  planRepetirFrentes, textoPlanRepetir, unFrentePorMaquina,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
   type EdicionResumen, type TarjetaPropia, type PlanRepetirFrentes, type OrdenFrentes,
 } from '../lib/frentesReporte';
@@ -238,7 +238,11 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     listAsignacionesFrente(fecha, fuente).then((r) => {
       if (!vivo) return;
       // Solo lo de ESTA lista (ver `tipo` en Props).
-      setAsignaciones(r.asignaciones.filter((a) => idsLista.has(a.machineryId)));
+      const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
+      // ⛏️ MAQUINARIA: una máquina = UN frente por día (19-oct-2026). Si quedaron
+      //    varias asignaciones (días viejos), en pantalla y en el PDF manda la
+      //    MÁS RECIENTE. Los camiones de viajes sí pueden tener varios.
+      setAsignaciones(esMaq ? unFrentePorMaquina(mias) : mias);
       if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
     });
     return () => { vivo = false; };
@@ -253,7 +257,10 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     listAsignacionesFrenteRango(diasAntes(jornadaHoy, DIAS_HISTORIAL), jornadaHoy, fuente).then((r) => {
       if (!vivo) return;
       // El mismo filtro de siempre: solo lo de ESTA lista (ver `tipo` en Props).
-      const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
+      const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
+      // ⛏️ MAQUINARIA: también en el historial y al repetir un día manda UN
+      //    frente por máquina (el más reciente de cada jornada).
+      const mias = esMaq ? unFrentePorMaquina(todas) : todas;
       setHistorial(historialFrentes(mias));
       // 📋 Se guardan CRUDAS (03-oct-2026) para poder repetir un día sin volver
       //    a consultar: el historial agrupado ya no trae qué equipo iba en qué
@@ -752,8 +759,10 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                 {activos.map((f) => {
                   const on = frenteSel.has(f.id);
+                  // ⛏️ MAQUINARIA: selector de UN solo frente (19-oct-2026) — elegir
+                  // uno desmarca el anterior. En viajes se pueden marcar varios.
                   return (
-                    <TouchableOpacity key={f.id} onPress={() => setFrenteSel((p) => { const n = new Set(p); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
+                    <TouchableOpacity key={f.id} onPress={() => setFrenteSel((p) => { if (esMaq) return p.has(f.id) ? new Set<string>() : new Set([f.id]); const n = new Set(p); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
                       style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
                       <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>⛏️ {f.nombre}</Text>
                     </TouchableOpacity>

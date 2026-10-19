@@ -246,8 +246,9 @@ ok('y ofrece también los frentes activos sin asignación',
   const compM = leer('src/components/FrentesTrabajo.tsx');
   ok('⭐ el componente tiene `tipo` y arranca como camiones', /tipo\?: 'camiones' \| 'maquinas'/.test(compM) && /tipo = 'camiones'/.test(compM));
   ok('⭐ las asignaciones y el historial se ACOTAN a la lista que recibe (ninguno pisa al otro)',
-    /setAsignaciones\(r\.asignaciones\.filter\(\(a\) => idsLista\.has\(a\.machineryId\)\)\)/.test(compM)
-    && compM.includes('const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
+    compM.includes('const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
+    && compM.includes('const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
+    && compM.includes('setAsignaciones(esMaq ? unFrentePorMaquina(mias) : mias)')
     && compM.includes('historialFrentes(mias)') && compM.includes('setAsigRango(mias)'));
   ok('el buscador de viajes sigue diciendo camión', /Buscar camión: placa, código, serial, empresa/.test(compM));
   ok('en máquinas no promete lo de los viajes (que toman el frente solos)', /const auto = esMaq\s*\?\s*''/.test(compM));
@@ -523,6 +524,40 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ reusa asignarFrente (que ya suma sin pisar y revisa permisos), no un insert propio',
     /asignarFrente\(fecha, x\.machineryIds, x\.frenteId/.test(comp));
   ok('⭐ solo con permiso completo', /canFull/.test(comp));
+}
+
+// ── ⛏️ MAQUINARIA: una máquina = UN frente por día (19-oct-2026) ─────────────
+{
+  const { unFrentePorMaquina } = m.exports;
+  const dos = [
+    { machineryId: 'm1', frenteId: 'a', frenteNombre: 'FRENTE A', creadoAt: '2026-10-18T15:26:00Z' },
+    { machineryId: 'm1', frenteId: 'b', frenteNombre: 'FRENTE B', creadoAt: '2026-10-18T16:52:00Z' },
+    { machineryId: 'm2', frenteId: 'a', frenteNombre: 'FRENTE A', creadoAt: '2026-10-18T10:00:00Z' },
+  ];
+  const unico = unFrentePorMaquina(dos);
+  eq('⭐ con dos frentes el mismo día queda UNO solo por máquina', unico.length, 2);
+  eq('⭐ …y gana el MÁS RECIENTE (el caso JUMBO 320 del 18-oct)',
+    unico.find((a) => a.machineryId === 'm1')?.frenteNombre, 'FRENTE B');
+  eq('la máquina con un solo frente ni se entera', unico.find((a) => a.machineryId === 'm2')?.frenteNombre, 'FRENTE A');
+  // Sin fecha (filas viejas): gana la última leída, nunca se duplica.
+  const sinFecha = unFrentePorMaquina([
+    { machineryId: 'm3', frenteId: 'a', frenteNombre: 'A' },
+    { machineryId: 'm3', frenteId: 'b', frenteNombre: 'B' },
+  ]);
+  eq('sin creadoAt, igual queda uno (el último)', [sinFecha.length, sinFecha[0]?.frenteNombre], [1, 'B']);
+  // En un RANGO, el dedupe es por jornada: el mismo equipo puede cambiar de frente entre días.
+  const rango = unFrentePorMaquina([
+    { machineryId: 'm1', jornada: '2026-10-17', frenteId: 'a', frenteNombre: 'A' },
+    { machineryId: 'm1', jornada: '2026-10-18', frenteId: 'b', frenteNombre: 'B' },
+  ]);
+  eq('⭐ en el historial, un frente POR DÍA (días distintos no se pisan)', rango.length, 2);
+  // La pantalla lo aplica SOLO a maquinaria; los camiones de viajes conservan sus varios frentes (30-sep).
+  const comp = leer('src/components/FrentesTrabajo.tsx');
+  ok('⭐ la pantalla deduplica solo con esMaq (viajes sigue sumando)',
+    /esMaq \? unFrentePorMaquina\(/.test(comp) && /if \(esMaq\) return p\.has\(f\.id\)/.test(comp));
+  const lib = leer('src/lib/camionViajes.ts');
+  ok('⭐ asignar REEMPLAZA solo en la tabla de maquinaria',
+    /FRENTES_MAQUINARIA\.asignaciones\) \{/.test(lib) && /\.neq\('frente_id', frenteId\)/.test(lib));
 }
 
 console.log('\nPDF DE FRENTES DEL DÍA — la hoja de asignación, sin cifras\n');
