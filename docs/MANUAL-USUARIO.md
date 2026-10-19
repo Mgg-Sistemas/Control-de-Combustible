@@ -5907,8 +5907,10 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > **🖨️ El reporte de taras con todas sus opciones (19/10/2026, a pedido: «hace falta esas
 > opciones, así como en frentes y en obras y ubicaciones»).** En «🖨️ Qué sale en el reporte» ahora
 > también se apaga y enciende: **1️⃣ numeración (N°)**, **🔢 placa/serial**, **◆ clasificación por
-> capacidad** (compacto/media/gran capacidad — nace apagada), **⚙️ estado** (solo con «Toda la
-> flota»), **📊 el resumen de arriba** (las 4 tarjetas) y **📝 la nota al pie**. Y **🏙 toda la
+> capacidad** (compacto/media/gran capacidad — nace apagada), **👤 chofer** (el asignado en «👤
+> Choferes por camión»; si el de día y el de noche son distintos salen los dos con ☀️/🌙, y si es
+> el mismo va el nombre solo — nace apagada), **⚙️ estado** (solo con «Toda la flota»), **📊 el
+> resumen de arriba** (las 4 tarjetas) y **📝 la nota al pie**. Y **🏙 toda la
 > flota a nombre de una sola empresa**: en la columna Empresa sale el mismo nombre para cada camión
 > (ej. Jhenzaen) — solo en el papel, no cambia la ficha de nadie. Como siempre: **lo que apagues no
 > deja rastro** en el papel, y el **nombre del archivo** sí dice lo cambiado («sin placa», «con
