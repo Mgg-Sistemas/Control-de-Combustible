@@ -524,12 +524,29 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   > una máquina aparece bloqueada al enviarla a **🧰 Mantenimiento**, avisa: hay que cerrarle el
   > expediente viejo a mano.
 
+> **🛑 Se retiraron las 12 horas automáticas de las 7:05 pm (19/10/2026).** Hasta esta fecha, un
+> proceso diario le acreditaba **12 horas fijas y jornada FINALIZADA** a **toda** máquina con
+> inspector de día asignado que hubiera quedado en 0 horas — aunque nadie la hubiera iniciado. Por
+> eso los camiones salían con "12 h trabajadas" sin que nadie los escaneara, incluso con la
+> automatización del Inspector SOS **apagada** (el interruptor del SOS solo cubría las máquinas del
+> propio SOS, no las de inspectores reales).
+> **Decisión del cliente:** ninguna máquina recibe horas automáticas; las horas salen **solo** de lo
+> que carga el inspector — el inicio de jornada (escaneo o botón) y el horómetro. El **cierre**
+> automático de las 7pm/7am **sí sigue**: cierra con las horas **reales** lo que una persona inició;
+> no inventa horas. Las horas cargadas a mano en Control siguen igual.
+> Además, el mismo día se quitaron los **dos últimos cierres con horas fijas**:
+> - El turno **día** de las máquinas del Inspector SOS cerraba con **12 h fijas** sin importar a qué
+>   hora arrancó de verdad → ahora cierra con **horas reales**, igual que todo el mundo.
+> - La **noche** de las máquinas del SOS la cerraba un proceso aparte **a la 1am con mínimo 6 h
+>   fijas** → ese proceso se **retiró** completo; su noche la cierra el cierre general de las 7am con
+>   horas reales.
+
 > **🤖 Automatización del Inspector SOS: encender y apagar (21/09/2026).** Solo la ven los
 > **administradores**, arriba de Inspecciones.
 > El *Inspector SOS LA GUAIRA* **no es una persona**: es el usuario del sistema que cubre las máquinas
 > que se quedan sin inspector de verdad. Su automatización son procesos que, sin que nadie toque
 > nada, les **inician la jornada** a las 7am y a las 7pm, se la reabren cada 10 minutos y les **llenan
-> el turno completo** (y las 12 horas de las 7:05pm).
+> el turno completo** (y, hasta su retiro general el 19/10/2026, las 12 horas de las 7:05pm).
 > - **🟢 Encendida** (como siempre): todo eso sigue pasando.
 > - **⏸️ Apagada:** sus máquinas **dejan de iniciar jornada y de sumar horas solas**; solo cuentan
 >   las que una persona inicie.
@@ -2550,9 +2567,10 @@ empresa, estado y ubicación) y las jornadas sin validar.
 > columnas está **¿QUÉ CAMIONES SALEN EN LA LISTA Y EN EL PDF?**, con dos opciones y cuántos trae
 > cada una: **🚚 Todos con movimiento** (lo que salía siempre) y **🟠 Solo con salida**.
 > - **Con salida** son los camiones a los que alguien les inició la jornada o que pasaron por el patio.
-> - El resto de «con movimiento» solo tiene horas en Control: las **12 horas que el sistema pone
->   solo a las 7:05 p. m.** a las máquinas de día que nadie inició, u horas cargadas a mano. Esos
->   ahora salen con estado **«— sin salida»** (antes decían «En obra», como si estuvieran en la calle).
+> - El resto de «con movimiento» solo tiene horas en Control: horas cargadas a mano o, hasta el
+>   19-oct-2026, las **12 horas que el sistema ponía solo a las 7:05 p. m.** a las máquinas de día que
+>   nadie inició (esa automatización se **retiró**: ver la nota del 19/10/2026). Esos salen con estado
+>   **«— sin salida»** (antes decían «En obra», como si estuvieran en la calle).
 > - La opción cambia la lista de la pantalla y el PDF. El papel corto lo dice en el subtítulo
 >   («SOLO CON SALIDA: 19 de 52») y en el nombre del archivo.
 >

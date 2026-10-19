@@ -72,3 +72,18 @@ order by c.relname;
 --   public.backup_maintenance_requests_20260811_bulkbug_revert,
 --   public.backup_staff_pay_periods_20260912,
 --   public.bkp_averiadas_mal_retiradas_20260820;
+
+-- ============================================================================
+-- ÚLTIMA CORRIDA / NOTA 19-oct-2026
+-- Al retirar las horas automáticas se crearon TRES respaldos nuevos, que (como
+-- todos los `create table as`) nacieron SIN RLS y con lectura para anon:
+--   · backup_20261019_horas_auto_segments  (376 segmentos inventados 12–18 oct)
+--   · backup_20261019_horas_auto_rounds    (sus 376 rondas, antes de ponerlas en 0)
+--   · backup_20261019_funciones_cierre     (definiciones viejas de los cierres)
+-- Se cerraron el mismo día con RLS activada y SIN políticas, y ADEMÁS con
+-- `revoke all ... from anon, authenticated` (más estricto que solo RLS: ni
+-- siquiera llegan a evaluar políticas). Probado suplantando a los dos roles:
+-- ambos reciben "permission denied"; el service_role sigue leyéndolas para
+-- revertir. Verificado: ninguna tabla de `public` quedó sin RLS.
+-- REGLA: todo respaldo nuevo se cierra así en el MISMO cambio que lo crea.
+-- ============================================================================

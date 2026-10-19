@@ -13,6 +13,8 @@
 // jornadas o llenan horas — `auto_start_placeholder_day/night`,
 // `auto_full_shift_placeholder`, `sos_reassert_shift_start`, y las 12 h de las 7:05 pm
 // (`auto_iniciar_dia_12h`) para las máquinas cuyo inspector de día es el SOS.
+// ⚠️ 19-oct-2026: `auto_iniciar_dia_12h` se RETIRÓ para TODAS las máquinas (ninguna
+// recibe horas automáticas; ver supabase/auto_iniciar_dia_12h_cron.sql).
 //
 // QUÉ **NO** APAGA, a propósito:
 //   · Los procesos que CIERRAN jornadas: si se apagara con jornadas abiertas, quedarían

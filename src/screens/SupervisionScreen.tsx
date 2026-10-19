@@ -1097,7 +1097,7 @@ export default function SupervisionScreen({ navigation }: any) {
             })}
           </View>
           <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
-            «Con salida»: alguien les inició la jornada o pasaron por el patio. El resto de «con movimiento» solo tiene horas en Control (las 12 h que el sistema pone solo a las 7:05 p. m. a lo que nadie inició, u horas cargadas a mano) y sale «— sin salida».
+            «Con salida»: alguien les inició la jornada o pasaron por el patio. El resto de «con movimiento» solo tiene horas en Control (horas cargadas a mano; hasta el 19-oct-2026 también las 12 h automáticas de las 7:05 p. m., ya retiradas) y sale «— sin salida».
           </Text>
           {/* ¿QUÉ SE OCULTA? Mismas pastillas que el Conteo de equipos: se encienden
               VARIAS a la vez y ocultan columnas del PDF, nunca camiones. */}
