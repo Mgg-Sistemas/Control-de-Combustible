@@ -241,6 +241,15 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > parecía guardado sin estarlo). Cambiar el estado exige **escritura en Equipos**: con solo
 > lectura la base lo rechaza y el aviso te lo dice.
 
+> **📁 El catálogo también abre con todo plegado (19/10/2026, a pedido: «que todos los apartados
+> de las empresas no estén desplegadas, que estén cerradas para yo poder desplegarlas»).** En el
+> **Catálogo**, las empresas ahora salen **cerradas** — solo los encabezados con su conteo — y
+> abres la que te interese. Antes se **desplegaban solas** al filtrar por empresa o por
+> clasificación: elegir «Equipo de corte» abría todas de golpe y había que bajar mucho para ver
+> qué empresas había. **Única excepción, la misma del detalle por estado:** cuando **buscas**, los
+> grupos se abren solos (si no, los resultados quedarían escondidos detrás de los encabezados).
+> **Tu toque siempre manda**: lo que abras o cierres se queda así.
+
 > **⭐ La avería marcada por el inspector RIGE hasta resolverse (14/10/2026, a pedido: «necesito
 > que el catálogo me refleje lo que marcaron los inspectores desde su vista en el teléfono»).**
 > Antes, la tarjeta 🔴 Averiadas solo contaba una avería si era **del mismo turno que la hora

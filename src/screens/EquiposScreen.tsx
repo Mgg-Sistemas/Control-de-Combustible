@@ -2249,9 +2249,14 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
           {/* Catálogo por EMPRESA (acordeón): cada empresa lista sus MÁQUINAS y sus VEHÍCULOS
               juntos (ya no hay caja de vehículos aparte). */}
           {catalogGroups.map((g) => {
-            // Al buscar, las empresas quedan COMPACTADAS por defecto (el usuario despliega la que
-            // le interese). Solo se auto-abren si se filtró una empresa o una clasificación.
-            const open = expanded[g.key] ?? (companyFilter !== '__all__' || typeFilter !== '__all__');
+            // ⭐ TODAS LAS EMPRESAS NACEN PLEGADAS (19-oct-2026, a pedido: «que todos los
+            // apartados de las empresas no estén desplegadas, que estén cerradas para yo
+            // poder desplegarlas»). Antes se auto-abrían al filtrar por empresa o por
+            // clasificación, y elegir «Equipo de corte» desplegaba todas de golpe.
+            // ÚNICA excepción, la misma de los listados por estado (14-oct): al BUSCAR se
+            // abren solas, porque si no los resultados quedarían escondidos detrás de los
+            // encabezados. El toque del usuario SIEMPRE manda sobre las dos reglas.
+            const open = expanded[g.key] ?? !!q;
             const total = g.items.length + g.vehicles.length;
             return (
               <View key={g.key} style={{ marginBottom: spacing.xs }}>
