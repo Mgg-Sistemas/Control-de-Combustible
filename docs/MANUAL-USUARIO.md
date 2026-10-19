@@ -3776,6 +3776,15 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   vista). Y **tarjetas propias** a mano (ej. «menos anticipo: −$2.000») — solo en ese papel.
 - **Solo lee:** no cambia precios, cierres ni viajes. Columnas y logos como siempre; el nombre del
   archivo dice lo cambiado.
+- **📏 Lo que respalda cada monto (19/10/2026, mismo día):** debajo de cada cifra sale la cantidad
+  que la produjo, **en la unidad de su fuente** — jornadas y horómetros en **horas**, viajes en
+  **viajes con tarifa** y peso en **toneladas** — en la tabla, en los subtotales, en el TOTAL y en
+  las tarjetas del resumen. Tiene su interruptor («📏 Lo que respalda cada monto»): apagado no deja
+  rastro y el nombre del archivo dice «sin cantidades». Además el papel quedó partido en dos
+  secciones tituladas (**📊 Resumen ejecutivo** y **📑 Detalle**), el cuadro **🏢 por empresa** ahora
+  sale completo (desglose fuente por fuente, n.º de máquinas y **% del total** de cada empresa), el
+  🏆 top 5 dice el % del total de cada máquina y el ⚠️ de pago doble ya no muestra solo los íconos:
+  dice **cuánto cobra por cada fuente** (ej. 🕐 $1.000 + ⚙️ $500).
 
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 
