@@ -3124,9 +3124,11 @@ trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
 > dirigidos a él** (sin avisos propios no se muestra, así que para el resto nada cambia). Elegir
 > responsable **no es obligatorio**. El responsable se ve en la lista (*📦 Resp.*), se puede
 > cambiar en **✏️ Editar** y sale en el **PDF** junto a *Solicita*; su **nombre queda guardado
-> aparte**, así que sobrevive aunque ese usuario se elimine después. ⚠️ Necesita su **SQL en
-> Supabase**; mientras no se corra, el requerimiento **se guarda igual** (sin responsable) y el
-> sistema lo dice.
+> aparte**, así que sobrevive aunque ese usuario se elimine después. **El aviso lo manda la base**
+> (un trigger, 18-oct-2026), no la app: así llega aunque quien crea sea un almacenista, y también
+> al **cambiar** el responsable en ✏️ Editar. ⚠️ Necesita su **SQL en Supabase** (las columnas y el
+> trigger; las políticas de la campana ya estaban); mientras no se corra, el requerimiento **se
+> guarda igual** (sin responsable) y el sistema lo dice.
 
 > **🔢 Los productos van numerados (16/10/2026, a pedido).** Al armar el requerimiento, cada
 > producto lleva su **número** (1, 2, 3…) junto a la etiqueta *Del inventario / Producto NUEVO*,
