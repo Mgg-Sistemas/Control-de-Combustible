@@ -101,10 +101,12 @@ export function placaAsistencia(m: { plate?: unknown; serial?: unknown }): strin
  * Estado del día. Es la MISMA regla en la lista de la pantalla y en el PDF.
  *
  * `jornada` = la jornada sigue ABIERTA. Un camión con horas pero sin salida ni
- * jornada abierta es «— sin salida»: casi siempre son las 12 h que el sistema pone
- * solo a las 7:05 p. m. a las máquinas que nadie inició (`auto_iniciar_dia_12h`), o
- * horas cargadas a mano en Control. Hasta el 19-sep-2026 salían «🟠 En obra», que
- * decía que el camión estaba en la calle sin que nadie lo hubiera visto salir.
+ * jornada abierta es «— sin salida»: horas cargadas a mano en Control o, hasta el
+ * 19-oct-2026, las 12 h que el sistema ponía solo a las 7:05 p. m. a las máquinas
+ * que nadie inició (`auto_iniciar_dia_12h`, RETIRADA ese día: ninguna máquina
+ * recibe horas automáticas; las horas las carga el inspector). Hasta el
+ * 19-sep-2026 salían «🟠 En obra», que decía que el camión estaba en la calle
+ * sin que nadie lo hubiera visto salir.
  */
 export function estadoAsistencia(c: { salida: string | null; entrada: string | null; jornada: boolean }): string {
   if (c.salida && c.entrada) return '🟢 Regresó';

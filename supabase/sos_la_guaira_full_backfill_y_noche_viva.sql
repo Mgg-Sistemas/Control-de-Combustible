@@ -1,3 +1,13 @@
+-- ############################################################################
+-- ## ⚠️ NO CORRER COMPLETO — 19-oct-2026 ####################################
+-- ## Este archivo PROGRAMA el cron 'auto-close-placeholder-night', que fue
+-- ## RETIRADO el 19-oct-2026: cerraba la noche del SOS a la 1am con 6 HORAS
+-- ## FIJAS, y la regla del cliente es que NINGUNA máquina recibe horas
+-- ## automáticas (las carga el inspector). La noche de TODAS las máquinas la
+-- ## cierra `auto_close_jornadas` a las 7am con horas REALES.
+-- ## Correrlo de nuevo RESUCITA el cierre de la 1am con horas inventadas.
+-- ## Ver: supabase/retirar_auto_close_placeholder_night.sql
+-- ############################################################################
 -- ============================================================================
 -- SOS LA GUAIRA / "inspector maquinas faltantes" (id fijo
 -- 3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b) — pedido del cliente (07/08/2026):
