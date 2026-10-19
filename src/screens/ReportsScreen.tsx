@@ -66,6 +66,7 @@ import {
 import { cargarDatosComparativo } from '../lib/horometroComparativoDb';
 import { FrentesReportesCard } from '../components/FrentesReportesCard';
 import { ReporteMaquinariaPersonalizadoCard } from '../components/ReporteMaquinariaPersonalizadoCard';
+import { ReporteConsolidadoCard } from '../components/ReporteConsolidadoCard';
 import { cargarFotosHorometroRango } from '../lib/horometroFotosDb';
 import { cargarLecturasHorometro } from '../lib/horometroTrabajoDb';
 import { equipCategory } from '../lib/equipos';
@@ -599,7 +600,7 @@ export default function ReportsScreen({ route }: any) {
   const [eqCols, setEqCols] = useState({ marca: true, modelo: true, plate: true, serial: true, jornada: true, precio: true, monto: true });
   const [eqAgrupar, setEqAgrupar] = useState<'empresa' | 'general'>('empresa');
   const [eqOxicorte, setEqOxicorte] = useState(true); // incluir (true) o quitar (false) los equipos de oxicorte
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones' | 'horometro' | 'frentes' | 'personalizado'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores' | 'ubicaciones' | 'horometro' | 'frentes' | 'personalizado' | 'consolidado'>('fuel');
   // 📍 Ubicaciones (22-sep-2026): qué columnas se esconden en el PDF.
   const [opUbic, setOpUbic] = useState<OpcionesUbicaciones>(OPCIONES_UBICACIONES_COMPLETO);
   // 📍 Ubicaciones: RESUMIDO (una línea por máquina, agrupado Este/Oeste como en el
@@ -3355,6 +3356,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'horometro', label: '⚙️ Horómetro' },
           { v: 'frentes', label: '⛏️ Frentes' },
           { v: 'personalizado', label: '🛠️ Personalizado' },
+          { v: 'consolidado', label: '💰 Consolidado' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -3417,6 +3419,13 @@ export default function ReportsScreen({ route }: any) {
           //    catálogo; todo lo que se edita vive en la tarjeta y no toca la base.
           //    No usa el rango ni el botón de generar de esta pantalla.
           <ReporteMaquinariaPersonalizadoCard />
+        ) : mode === 'consolidado' ? (
+          // 💰 CONSOLIDADO DE PAGOS (19-oct-2026): jornadas + horómetros + viajes +
+          //    peso en un papel, para el jefe. Vive en su propio componente a
+          //    propósito: la prueba del pago de viajes prohíbe que esta pantalla
+          //    nombre esa librería. Solo con permiso de control_pagos; trae sus
+          //    propios botones y rango.
+          <ReporteConsolidadoCard />
         ) : mode === 'camiones' ? (
           <View>
             <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.xs }}>Mes del reporte (muestra sus 4–5 semanas)</Text>
@@ -4002,8 +4011,8 @@ export default function ReportsScreen({ route }: any) {
             </Text>
           </View>
         ) : null}
-        {/* ⛏️ Frentes y 🛠️ Personalizado traen sus propios botones: el genérico no aplica. */}
-        {mode !== 'frentes' && mode !== 'personalizado' ? (
+        {/* ⛏️ Frentes, 🛠️ Personalizado y 💰 Consolidado traen sus propios botones: el genérico no aplica. */}
+        {mode !== 'frentes' && mode !== 'personalizado' && mode !== 'consolidado' ? (
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>

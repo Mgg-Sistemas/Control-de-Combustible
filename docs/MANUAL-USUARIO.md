@@ -3751,6 +3751,32 @@ quitar frentes**: hace falta el permiso **«Frentes de maquinaria (asignar)»**,
 los administradores lo tienen; a los demás se les da en **Usuarios**. (Reportes está abierto para casi
 todos los roles y por eso no sirve de candado.)
 
+#### 💰 Reporte consolidado de pagos — pestaña de Reportes (19/10/2026)
+
+Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jornada en un reporte
+**sumamente versátil**, con su **resumen ejecutivo**, para el jefe».
+
+- **Dónde:** Reportes → pestaña **«💰 Consolidado»** — **solo con el permiso de Control de pagos**
+  (nace cerrado: son montos de facturación; Reportes está abierto a casi todos y no sirve de
+  candado).
+- **No inventa nada:** cada monto sale de su propio control — **jornadas** con la receta exacta de
+  Control de pagos (precio congelado de la semana → precio de cada día por historial → precio
+  actual; horas cobrables solo si trabajó un turno; monto = precio × horas/12), **horómetros** con
+  el cálculo del módulo (cierres incluidos: lo cerrado sale de la foto), **viajes** con sus tarifas
+  y tipos congelados, y **peso** con sus tarifas por tonelada.
+- **Cada fuente tiene tres posiciones:** SUMA · SE MUESTRA SIN SUMAR (sale en gris, de referencia)
+  · OCULTA (ni sale ni suma, sin dejar rastro). Subtotal por fuente, total por máquina y **TOTAL
+  GENERAL**. **Agrupar** por empresa (con subtotales), por máquina o global. **Quitar máquinas**
+  con el selector — eso sí cambia el total y el papel sale **FILTRADO**.
+- **El resumen ejecutivo** (todo con su interruptor, tarjetas ocultables una a una): total
+  general, tarjetas por fuente con su **% del total**, máquinas y empresas, **📅 promedio por
+  día**, **📊 comparación con el período anterior** (variación % total y por fuente), **🏢 cuánto
+  se le paga a cada empresa** (de mayor a menor), **🏆 las 5 máquinas más costosas** y **⚠️ las que
+  cobran por dos fuentes a la vez** (jornada+horómetro o viaje+peso: posible pago doble, a la
+  vista). Y **tarjetas propias** a mano (ej. «menos anticipo: −$2.000») — solo en ese papel.
+- **Solo lee:** no cambia precios, cierres ni viajes. Columnas y logos como siempre; el nombre del
+  archivo dice lo cambiado.
+
 #### 🛠️ Reporte personalizado de maquinaria — pestaña de Reportes (09/10/2026)
 
 Pedido del cliente: «un reporte independiente, que **reciba información pero no envíe**; que yo le
