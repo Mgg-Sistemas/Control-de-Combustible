@@ -181,6 +181,19 @@ ok('vacío: lo dice en vez de una tabla en blanco', cuerpoReporteTaras(CAMIONES,
   ok('⭐ sin placa: la placa no sale por ningún lado', !sinPlaca.includes('A10BB2C') && !sinPlaca.includes('Placa / serial'));
   const conClasif = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, clasificacion: true });
   ok('⭐ con clasificación: columna y dato (— si no tiene)', conClasif.includes('<th>Clasificación</th>') && conClasif.includes('GRAN CAPACIDAD'));
+  // 👤 Columna Chofer (19-oct-2026): sale de «Choferes por camión» (día/noche).
+  const camsChofer = CAMIONES.map((c) => (
+    c.id === 'a' ? { ...c, choferDia: 'Juan Pérez', choferNoche: 'Luis Mora' }
+    : c.id === 'b' ? { ...c, choferDia: 'Ana Gil', choferNoche: 'Ana Gil' }
+    : c));
+  ok('⭐ la columna Chofer NO sale por defecto', !cuerpoReporteTaras(camsChofer, TARAS, OP).includes('<th>Chofer</th>'));
+  const conChofer = cuerpoReporteTaras(camsChofer, TARAS, { ...OP, chofer: true });
+  ok('⭐ encendida: columna y nombres', conChofer.includes('<th>Chofer</th>') && conChofer.includes('Juan Pérez'));
+  ok('⭐ día y noche distintos: salen los dos con ☀️/🌙', /☀️ Juan Pérez · 🌙 Luis Mora/.test(conChofer));
+  ok('⭐ el mismo en los dos turnos: el nombre solo, sin iconos', /<td>Ana Gil<\/td>/.test(conChofer));
+  ok('el camión sin chofer sale con guion', cuerpoReporteTaras([{ ...CAMIONES[0], choferDia: null, choferNoche: null }], new Map([['a', tara(1000)]]), { ...OP, chofer: true }).includes('<td>—</td>'));
+  ok('⭐ el sufijo del archivo dice «con chofer»', /con chofer/.test(sufijoArchivoTaras({ ...OP, chofer: true })));
+
   const sinKpis = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, kpis: false });
   ok('⭐ sin resumen: las tarjetas no salen', !/class="kpis"/.test(sinKpis) && !sinKpis.includes('TARA PROMEDIO'));
   const sinNota = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, notaPie: false });
@@ -203,7 +216,8 @@ ok('vacío: lo dice en vez de una tabla en blanco', cuerpoReporteTaras(CAMIONES,
     nombreArchivoTaras('conTara', '2026-10-19', { ...OP, placa: false }).includes('19-10-2026') && nombreArchivoTaras('conTara', '2026-10-19', { ...OP, placa: false }).includes('sin placa'));
   // La pantalla pinta los toggles nuevos y pasa las opciones al nombre del archivo.
   const comp = fs.readFileSync(path.join(ROOT, 'src/components/ReporteTarasBox.tsx'), 'utf8');
-  ok('⭐ la pantalla tiene los toggles nuevos', /Numeración/.test(comp) && /Clasificación por capacidad/.test(comp) && /una sola empresa/.test(comp) && /Nota al pie/.test(comp));
+  ok('⭐ la pantalla tiene los toggles nuevos', /Numeración/.test(comp) && /Clasificación por capacidad/.test(comp) && /una sola empresa/.test(comp) && /Nota al pie/.test(comp) && /label="👤 Chofer"/.test(comp));
+  ok('⭐ …y los choferes se leen solo si la columna está encendida', /op\.chofer === true\) \{[\s\S]*listOperatorAssignments\(\)/.test(comp));
   ok('⭐ …y el nombre del archivo lleva las opciones', /nombreArchivoTaras\(op\.alcance, caracasBusinessToday\(\), op\)/.test(comp));
 }
 

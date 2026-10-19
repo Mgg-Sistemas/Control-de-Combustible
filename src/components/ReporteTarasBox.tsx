@@ -17,6 +17,7 @@ import { pdfDocument, exportPdf } from '../lib/pdf';
 import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { UNIDADES_PESO } from '../lib/viajesPeso';
 import { caracasBusinessToday } from '../lib/caracasDay';
+import { listOperatorAssignments } from '../lib/machineOperators';
 import {
   OPCIONES_TARAS_POR_DEFECTO, cuerpoReporteTaras, resumenTaras, subtituloReporteTaras,
   nombreArchivoTaras, CSS_REPORTE_TARAS,
@@ -74,10 +75,21 @@ export function ReporteTarasBox({ camiones, taras }: {
     }
     setGenerando(true);
     try {
+      // 👤 Los choferes se leen SOLO si la columna está encendida, y en el
+      // momento de generar: así el papel sale con lo que esté asignado ahora
+      // y no se consulta de más cuando la columna está apagada.
+      let camionesPdf = camiones;
+      if (op.chofer === true) {
+        const { rows } = await listOperatorAssignments();
+        const dia = new Map<string, string>();
+        const noche = new Map<string, string>();
+        rows.forEach((a) => (a.shift === 'night' ? noche : dia).set(a.machinery_id, a.operator_name));
+        camionesPdf = camiones.map((c) => ({ ...c, choferDia: dia.get(c.id) ?? null, choferNoche: noche.get(c.id) ?? null }));
+      }
       const html = pdfDocument({
         title: 'Reporte de taras',
         subtitle: subtituloReporteTaras(r, op.alcance),
-        body: cuerpoReporteTaras(camiones, taras, op),
+        body: cuerpoReporteTaras(camionesPdf, taras, op),
         extraCss: CSS_REPORTE_TARAS,
         logos,
         // Sin la línea «Banco Central de Venezuela / SOS La Guaira»: el
@@ -149,6 +161,12 @@ export function ReporteTarasBox({ camiones, taras }: {
             label="◆ Clasificación por capacidad"
             ayuda="Compacto, media o gran capacidad, según los m³ de la tolva. Nace apagada."
             onPress={() => setOp('clasificacion', op.clasificacion !== true)}
+          />
+          <Toggle
+            on={op.chofer === true}
+            label="👤 Chofer"
+            ayuda="El chofer asignado al camión en «👤 Choferes por camión». Si el de día y el de noche son distintos, salen los dos (☀️/🌙). Nace apagada."
+            onPress={() => setOp('chofer', op.chofer !== true)}
           />
           <Toggle
             on={op.empresa}
