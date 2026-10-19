@@ -3721,6 +3721,18 @@ cada equipo cada día**, y lo asigna la oficina.
 > la maquinaria**: los **camiones de Viajes siguen pudiendo tener varios frentes** el mismo día
 > (regla del 30/09, pedida aparte).
 
+> **⛏️ EL FRENTE SE QUEDA HASTA QUE LO REASIGNES (19/10/2026, mismo día, a pedido: «como lo que se
+> hace con los inspectores: se asigna una maquinaria y se queda ahí hasta que se reasigna»).** La
+> asignación de maquinaria ya **no es de cada día**: asignas la máquina a un frente **una vez** y
+> **ahí se queda** — hoy, mañana y los días que vengan — hasta que la **reasignes** a otro frente o
+> la **quites** con la ✕. La pantalla dice **«Así están los frentes al [fecha]»** y cada máquina
+> sale con **desde cuándo** está en su frente. Cambias la fecha y ves **cómo estaban los frentes
+> ese día** (el pasado no cambia: reasignar hoy rige de hoy en adelante). La ✕ deja a la máquina
+> **sin frente desde la fecha elegida**, sin tocar los días anteriores. El PDF dice **«Frentes
+> vigentes al [fecha]»**, y la planilla del inspector usa ese mismo frente vigente. ⚠️ Solo
+> maquinaria: en **Viajes** la asignación **sigue siendo diaria**, porque cada viaje congela el
+> frente de su jornada y así se paga.
+
 > **🔧 El estado de la hoja es el VIVO del Catálogo (18/10/2026):** antes el «Estado» de esta
 > hoja salía solo de la ficha de la máquina, y la **avería que marca el inspector no toca la
 > ficha** — una máquina averiada decía «Operativa» (reporte real con la 79669). Ahora se clasifica
@@ -3776,6 +3788,10 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   vista). Y **tarjetas propias** a mano (ej. «menos anticipo: −$2.000») — solo en ese papel.
 - **Solo lee:** no cambia precios, cierres ni viajes. Columnas y logos como siempre; el nombre del
   archivo dice lo cambiado.
+- **🏢 Para una sola empresa (19/10/2026, mismo día, a pedido):** pastillas con las empresas del
+  rango — marca una (o varias) y el papel sale **solo de esa**: su tabla, su resumen, sus totales.
+  Filtrar **sí cambia el total**, el subtítulo dice **FILTRADO** y, con una sola, el **nombre del
+  archivo dice cuál** (ej. «… (solo GOLDEN TOUCH)»). «⬛ Todas» limpia.
 - **📏 Lo que respalda cada monto (19/10/2026, mismo día):** debajo de cada cifra sale la cantidad
   que la produjo, **en la unidad de su fuente** — jornadas y horómetros en **horas**, viajes en
   **viajes con tarifa** y peso en **toneladas** — en la tabla, en los subtotales, en el TOTAL y en

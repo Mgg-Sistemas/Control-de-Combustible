@@ -196,6 +196,19 @@ const DC = { filas: FC, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('…y con cantidades apagadas, la tarjeta no lo trae', !/36 h/.test(rSin.tarjetas.find((x) => x.k === 'fuente_jornadas').nota ?? ''));
 }
 {
+  // 🏢 Solo una (o varias) empresas (19-oct-2026, a pedido: «para una sola empresa»).
+  const soloBeta = { ...OP, soloEmpresas: ['BETA C.A'] };
+  eq('⭐ el filtro por empresa saca las demás y el total cambia',
+    [C.filasElegidas(F, soloBeta).length, C.totalesConsolidado(F, soloBeta).total], [2, 650]);
+  ok('…sin distinguir mayúsculas ni espacios', C.totalesConsolidado(F, { ...OP, soloEmpresas: ['  beta c.a '] }).total === 650);
+  ok('…y el nombre del archivo dice CUÁL empresa', /solo BETA C\.A/.test(C.sufijoArchivoConsolidado(soloBeta))
+    && /solo 2 empresas/.test(C.sufijoArchivoConsolidado({ ...OP, soloEmpresas: ['A', 'B'] })));
+  ok('el papel filtrado no nombra a las otras empresas', !C.cuerpoConsolidado({ ...D, filas: F }, soloBeta).includes('ALFA'));
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('⭐ la pantalla tiene las pastillas de empresas y marca FILTRADO',
+    /soloEmpresas/.test(card) && /\(op\.soloEmpresas \?\? \[\]\)\.length > 0/.test(card));
+}
+{
   // La pantalla CARGA el respaldo de los cuatro motores.
   const card = leer('src/components/ReporteConsolidadoCard.tsx');
   ok('⭐ la pantalla pasa horas de jornadas, horas de horómetro, viajes pagados y kg',
