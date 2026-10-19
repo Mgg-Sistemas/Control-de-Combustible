@@ -25,6 +25,15 @@ ok('📁 todos los estados nacen colapsados (y el ?? deja mandar al toque)',
 ok('📁 la regla vieja (operativas/averiadas abiertas) NO volvió',
   !scr.includes("detailNq ? true : (detailStatus !== 'retirada'"));
 
+// 📁 Lo MISMO en el catálogo principal (19-oct-2026, a pedido: «que todos los
+//    apartados de las empresas no estén desplegadas, que estén cerradas para yo
+//    poder desplegarlas»). Buscar sigue abriéndolas, si no los resultados
+//    quedarían escondidos detrás de los encabezados.
+ok('📁 el catálogo también nace con TODAS las empresas plegadas',
+  scr.includes('const open = expanded[g.key] ?? !!q;'));
+ok('📁 …y ya no se auto-despliega al filtrar por empresa o clasificación',
+  !scr.includes("expanded[g.key] ?? (companyFilter !== '__all__' || typeFilter !== '__all__')"));
+
 // ⬛ El modal del motivo de retiro monta DESPUÉS del modal del detalle (web).
 {
   const iDetalle = scr.indexOf('<Modal visible={!!detailStatus}');
