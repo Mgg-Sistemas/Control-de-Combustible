@@ -41,6 +41,8 @@ export type AsignacionDia = {
   machineryId: string;
   frenteId: string;
   frenteNombre: string;
+  /** Cuándo se asignó (19-oct-2026): decide cuál es EL MÁS RECIENTE si quedaron varios. */
+  creadoAt?: string | null;
 };
 
 /** La clave del mapa: jornada + camión. */
