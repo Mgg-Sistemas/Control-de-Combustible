@@ -187,7 +187,7 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ ya no existe la etiqueta que delataba lo apagado', !/export function etiquetaOpcionesFrentes/.test(rep));
   // 02-oct-2026: el subtítulo depende del tipo (camiones / máquinas), pero ninguno dice qué se ocultó.
   ok('⭐ el subtítulo del PDF NO dice qué se ocultó',
-    /subtitle: esMaq \? `Asignación del \$\{dmy\(fecha\)\} · frente de trabajo de cada equipo` : `Asignación del \$\{dmy\(fecha\)\} · de dónde recoge cada camión`/.test(compS));
+    /subtitle: esMaq \? `Frentes vigentes al \$\{dmy\(fecha\)\} · dónde trabaja cada equipo` : `Asignación del \$\{dmy\(fecha\)\} · de dónde recoge cada camión`/.test(compS));
   // Sin los comentarios: en ellos SÍ se nombra la etiqueta vieja, justamente
   // para explicar por qué no puede volver.
   const sinCom = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -247,11 +247,12 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ el componente tiene `tipo` y arranca como camiones', /tipo\?: 'camiones' \| 'maquinas'/.test(compM) && /tipo = 'camiones'/.test(compM));
   ok('⭐ las asignaciones y el historial se ACOTAN a la lista que recibe (ninguno pisa al otro)',
     compM.includes('const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
-    && compM.includes('const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId))')
-    && compM.includes('setAsignaciones(esMaq ? unFrentePorMaquina(mias) : mias)')
+    && compM.includes("const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId) && (!esMaq || !!a.frenteId))")
+    && compM.includes('setAsignaciones(vigentesAlDia(mias, fecha))')
+    && compM.includes('setAsignaciones(r.asignaciones.filter((a) => idsLista.has(a.machineryId)))')
     && compM.includes('historialFrentes(mias)') && compM.includes('setAsigRango(mias)'));
   ok('el buscador de viajes sigue diciendo camión', /Buscar camión: placa, código, serial, empresa/.test(compM));
-  ok('en máquinas no promete lo de los viajes (que toman el frente solos)', /const auto = esMaq\s*\?\s*''/.test(compM));
+  ok('en máquinas no promete lo de los viajes; dice que el frente se queda', /const auto = esMaq\s*\?\s*'Quedan ahí hasta que las reasignes o las quites\.'/.test(compM));
 
   const card = leer('src/components/FrentesReportesCard.tsx');
   ok('⭐ Reportes monta el mismo apartado con TODAS las máquinas, en modo máquinas',
@@ -556,8 +557,53 @@ ok('y ofrece también los frentes activos sin asignación',
   ok('⭐ la pantalla deduplica solo con esMaq (viajes sigue sumando)',
     /esMaq \? unFrentePorMaquina\(/.test(comp) && /if \(esMaq\) return p\.has\(f\.id\)/.test(comp));
   const lib = leer('src/lib/camionViajes.ts');
-  ok('⭐ asignar REEMPLAZA solo en la tabla de maquinaria',
-    /FRENTES_MAQUINARIA\.asignaciones\) \{/.test(lib) && /\.neq\('frente_id', frenteId\)/.test(lib));
+  ok('⭐ asignar REEMPLAZA solo en la tabla de maquinaria (borra TODO lo del día, también la marca sin frente)',
+    /FRENTES_MAQUINARIA\.asignaciones\) \{/.test(lib) && lib.includes(".delete().eq('jornada', jornada)"));
+}
+
+// ── ⛏️ EL FRENTE ES PEGAJOSO (19-oct-2026, tarde: «como con los inspectores —
+//    se asigna una maquinaria y se queda ahí hasta que se reasigna») ──────────
+{
+  const { vigentesAlDia } = m.exports;
+  const log = [
+    { machineryId: 'm1', jornada: '2026-10-10', frenteId: 'a', frenteNombre: 'FRENTE A', creadoAt: '2026-10-10T08:00:00Z' },
+    { machineryId: 'm2', jornada: '2026-10-12', frenteId: 'b', frenteNombre: 'FRENTE B', creadoAt: '2026-10-12T08:00:00Z' },
+    { machineryId: 'm1', jornada: '2026-10-15', frenteId: 'b', frenteNombre: 'FRENTE B', creadoAt: '2026-10-15T08:00:00Z' },
+  ];
+  // Días DESPUÉS de la asignación: arrastra (eso es lo pegajoso).
+  const el14 = vigentesAlDia(log, '2026-10-14');
+  eq('⭐ la asignación ARRASTRA: el 14, m1 sigue en A (asignada el 10) y m2 en B',
+    el14.map((a) => `${a.machineryId}:${a.frenteNombre}`).sort(), ['m1:FRENTE A', 'm2:FRENTE B']);
+  // Reasignar: desde ese día rige el nuevo; los días anteriores no cambian.
+  eq('⭐ reasignar rige desde su día (el 15, m1 pasa a B)…',
+    vigentesAlDia(log, '2026-10-16').find((a) => a.machineryId === 'm1')?.frenteNombre, 'FRENTE B');
+  eq('…y el pasado NO cambia (el 14 sigue diciendo A)',
+    vigentesAlDia(log, '2026-10-14').find((a) => a.machineryId === 'm1')?.frenteNombre, 'FRENTE A');
+  // Antes de la primera asignación: nada.
+  eq('antes de la primera asignación no hay frente', vigentesAlDia(log, '2026-10-09').length, 0);
+  // La marca «sin frente» (frenteId vacío) quita desde su día.
+  const conQuitada = [...log, { machineryId: 'm1', jornada: '2026-10-17', frenteId: '', frenteNombre: '', creadoAt: '2026-10-17T08:00:00Z' }];
+  eq('⭐ la marca «sin frente» quita desde su día', vigentesAlDia(conQuitada, '2026-10-18').map((a) => a.machineryId), ['m2']);
+  eq('…sin tocar los días anteriores', vigentesAlDia(conQuitada, '2026-10-16').find((a) => a.machineryId === 'm1')?.frenteNombre, 'FRENTE B');
+  // El mismo día, manda la última anotación (por creadoAt).
+  const mismoDia = [
+    { machineryId: 'm1', jornada: '2026-10-18', frenteId: 'a', frenteNombre: 'A', creadoAt: '2026-10-18T08:00:00Z' },
+    { machineryId: 'm1', jornada: '2026-10-18', frenteId: 'b', frenteNombre: 'B', creadoAt: '2026-10-18T09:00:00Z' },
+  ];
+  eq('el mismo día manda la última anotación', vigentesAlDia(mismoDia, '2026-10-18')[0]?.frenteNombre, 'B');
+  // La pantalla y el candado de las fuentes.
+  const comp = leer('src/components/FrentesTrabajo.tsx');
+  ok('⭐ la pantalla resuelve vigentes SOLO en maquinaria; viajes sigue diario',
+    comp.includes('listAsignacionesHasta(fecha, fuente)') && comp.includes('listAsignacionesFrente(fecha, fuente)'));
+  ok('⭐ quitar en maquinaria deja la marca «sin frente desde esa fecha»',
+    comp.includes('quitarFrenteDesde(fecha, a.machineryId, uid, userName, fuente)')
+    && /queda SIN frente desde el/.test(comp));
+  ok('…y en pantalla se dice desde cuándo está cada máquina en su frente', /desde el \{dmy\(a\.jornada\)\}/.test(comp));
+  const lib = leer('src/lib/camionViajes.ts');
+  ok('⭐ quitarFrenteDesde escribe la marca (frente_id nulo) y delata a la RLS',
+    lib.includes('frente_id: null') && /quitarFrenteDesde/.test(lib));
+  const horo = leer('src/lib/controlHorometrosInspectorPdf.ts');
+  ok('⭐ la planilla del inspector usa el frente VIGENTE', horo.includes('vigentesAlDia(asignaciones ?? [], date)'));
 }
 
 console.log('\nPDF DE FRENTES DEL DÍA — la hoja de asignación, sin cifras\n');

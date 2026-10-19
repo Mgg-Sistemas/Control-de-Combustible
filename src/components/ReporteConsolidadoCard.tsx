@@ -196,7 +196,7 @@ export function ReporteConsolidadoCard() {
     if (!filas || !rangoCalculado || pdfBusy) return;
     setPdfBusy(true);
     try {
-      const filtrado = (op.soloMaquinas ?? []).length > 0;
+      const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0;
       const html = pdfDocument({
         title: 'Reporte consolidado de pagos',
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
@@ -291,6 +291,32 @@ export function ReporteConsolidadoCard() {
       ) : (
         <Text style={{ color: colors.muted, fontSize: 12 }}>Elige el rango y toca 🔄 Calcular.</Text>
       )}
+
+      {/* 🏢 Solo una (o varias) empresas (19-oct-2026, a pedido: «necesito poder
+          sacarlo para una sola empresa»). Filtrar SÍ cambia el total: el papel
+          sale FILTRADO y, con una sola, el archivo dice CUÁL. */}
+      {filas?.length ? (
+        <View>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🏢 SOLO ESTAS EMPRESAS (vacío = todas)</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pastilla on={(op.soloEmpresas ?? []).length === 0} label="⬛ Todas" onPress={() => setOp((p) => ({ ...p, soloEmpresas: [] }))} />
+            {Array.from(new Set(filas.map((f) => f.empresa))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map((e) => {
+              const on = (op.soloEmpresas ?? []).includes(e);
+              return (
+                <Pastilla key={`emp-${e}`} on={on} label={`${on ? '☑️' : '⬜'} ${e}`} onPress={() =>
+                  setOp((p) => {
+                    const s = new Set(p.soloEmpresas ?? []);
+                    on ? s.delete(e) : s.add(e);
+                    return { ...p, soloEmpresas: Array.from(s) };
+                  })} />
+              );
+            })}
+          </View>
+          {(op.soloEmpresas ?? []).length ? (
+            <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Filtrar SÍ cambia el total: el papel sale FILTRADO y el archivo dice de quién es.</Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Quitar máquinas */}
       {filas?.length ? (

@@ -225,6 +225,33 @@ export function unFrentePorMaquina<T extends { machineryId: string; creadoAt?: s
   return Array.from(porClave.values());
 }
 
+/**
+ * ⛏️ EL FRENTE ES PEGAJOSO (19-oct-2026, a pedido: «como lo que se hace con los
+ * inspectores: se asigna una maquinaria y se queda ahí hasta que se reasigna»).
+ * SOLO MAQUINARIA — los camiones de viajes siguen con su asignación diaria.
+ *
+ * La tabla de asignaciones se lee como BITÁCORA: el frente vigente de una
+ * máquina en una fecha es su ÚLTIMA anotación <= esa fecha (por jornada y,
+ * dentro del mismo día, por `creadoAt`). Una anotación SIN frente (frenteId
+ * vacío/nulo: la marca que escribe «✕ Quitar») significa «sin frente desde ese
+ * día» y la saca del resultado. Nada de lo guardado cambia: los días viejos se
+ * resuelven igual, solo que ahora la asignación ARRASTRA hacia adelante.
+ */
+export function vigentesAlDia<T extends { machineryId: string; frenteId?: string | null; creadoAt?: string | null; jornada?: string }>(
+  asignaciones: readonly T[],
+  fecha: string,
+): T[] {
+  const ultima = new Map<string, T>();
+  const rango = (a: T) => `${a.jornada ?? ''}|${String(a.creadoAt ?? '')}`;
+  for (const a of asignaciones ?? []) {
+    if (!a.jornada || a.jornada > fecha) continue; // lo de después no rige todavía
+    const previa = ultima.get(a.machineryId);
+    if (!previa || rango(a) >= rango(previa)) ultima.set(a.machineryId, a);
+  }
+  // La marca «sin frente» gana como última palabra, pero no sale como asignación.
+  return Array.from(ultima.values()).filter((a) => !!a.frenteId);
+}
+
 export function frentesDelDia(
   asignaciones: { frenteNombre: string; camion: CamionDelFrente }[],
   frentesActivos: string[] = [],
