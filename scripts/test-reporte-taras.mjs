@@ -167,6 +167,46 @@ ok('vacío: lo dice en vez de una tabla en blanco', cuerpoReporteTaras(CAMIONES,
   ok('el estado se sigue viendo en la columna Estado', todo.includes('<th>Estado</th>') && todo.includes('No pasa por romana'));
 }
 
+// ── Opciones nuevas del 19-oct-2026 (como frentes y obras/ubicaciones) ──────
+{
+  const { sufijoArchivoTaras } = R;
+  const camsClasif = CAMIONES.map((c) => ({ ...c, clasificacion: c.id === 'a' ? 'GRAN CAPACIDAD' : null }));
+  const OP = OPCIONES_TARAS_POR_DEFECTO;
+  const base = cuerpoReporteTaras(camsClasif, TARAS, OP);
+  ok('el papel de siempre: con N°, placa, resumen y nota', /N°/.test(base) && /Placa \/ serial/.test(base) && /class="kpis"/.test(base) && /nota-t/.test(base));
+  ok('…y la clasificación NO sale (nace apagada)', !base.includes('Clasificación') && !base.includes('GRAN CAPACIDAD'));
+  const sinNum = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, numeracion: false });
+  ok('⭐ sin numeración: ni la columna ni rastro', !/<th class="n">N°<\/th>/.test(sinNum));
+  const sinPlaca = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, placa: false });
+  ok('⭐ sin placa: la placa no sale por ningún lado', !sinPlaca.includes('A10BB2C') && !sinPlaca.includes('Placa / serial'));
+  const conClasif = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, clasificacion: true });
+  ok('⭐ con clasificación: columna y dato (— si no tiene)', conClasif.includes('<th>Clasificación</th>') && conClasif.includes('GRAN CAPACIDAD'));
+  const sinKpis = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, kpis: false });
+  ok('⭐ sin resumen: las tarjetas no salen', !/class="kpis"/.test(sinKpis) && !sinKpis.includes('TARA PROMEDIO'));
+  const sinNota = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, notaPie: false });
+  ok('⭐ sin nota al pie: desaparece entera', !/nota-t/.test(sinNota) && !sinNota.includes('peso del camión vacío'));
+  const sinEstado = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, alcance: 'todos', estado: false });
+  ok('⭐ sin estado (flota completa): la columna no sale', !sinEstado.includes('<th>Estado</th>') && !sinEstado.includes('No pasa por romana'));
+  const unica = cuerpoReporteTaras(camsClasif, TARAS, { ...OP, empresaUnica: 'Jhenzaen 2.012 C.A' });
+  ok('⭐ empresa única: todos a nombre de ella y las reales NO salen',
+    unica.includes('Jhenzaen 2.012 C.A') && !unica.includes('Transportes Pérez') && !/Inversiones El Sol/.test(unica));
+  ok('⭐ …pero solo en el papel: sin empresaUnica vuelven las reales', base.includes('Transportes Pérez C.A'));
+  // Opciones viejas guardadas (sin las claves nuevas): el papel sale como siempre.
+  const viejo = cuerpoReporteTaras(camsClasif, TARAS, { alcance: 'conTara', unidad: 'kg', empresa: true, marcaModelo: true, cargadaPor: true });
+  ok('⭐ opciones guardadas de antes del 19-oct siguen valiendo (todo lo de siempre sale)',
+    /N°/.test(viejo) && /Placa \/ serial/.test(viejo) && /class="kpis"/.test(viejo) && /nota-t/.test(viejo) && !viejo.includes('Clasificación'));
+  // El nombre del archivo dice lo cambiado; nunca el nombre de la empresa.
+  eq('el archivo de siempre no lleva sufijo', sufijoArchivoTaras(OP), '');
+  ok('⭐ el sufijo nombra lo cambiado', /sin numeración/.test(sufijoArchivoTaras({ ...OP, numeracion: false })) && /con clasificación/.test(sufijoArchivoTaras({ ...OP, clasificacion: true })));
+  ok('⭐ la empresa única va al archivo SIN el nombre', sufijoArchivoTaras({ ...OP, empresaUnica: 'Jhenzaen 2.012 C.A' }) === ' (a nombre de una empresa)');
+  ok('nombreArchivoTaras acepta las opciones y mantiene la fecha',
+    nombreArchivoTaras('conTara', '2026-10-19', { ...OP, placa: false }).includes('19-10-2026') && nombreArchivoTaras('conTara', '2026-10-19', { ...OP, placa: false }).includes('sin placa'));
+  // La pantalla pinta los toggles nuevos y pasa las opciones al nombre del archivo.
+  const comp = fs.readFileSync(path.join(ROOT, 'src/components/ReporteTarasBox.tsx'), 'utf8');
+  ok('⭐ la pantalla tiene los toggles nuevos', /Numeración/.test(comp) && /Clasificación por capacidad/.test(comp) && /una sola empresa/.test(comp) && /Nota al pie/.test(comp));
+  ok('⭐ …y el nombre del archivo lleva las opciones', /nombreArchivoTaras\(op\.alcance, caracasBusinessToday\(\), op\)/.test(comp));
+}
+
 if (fail) {
   console.error(failures.join('\n'));
   console.error(`\n✗ reporte de taras: ${fail} fallo(s), ${pass} ok`);

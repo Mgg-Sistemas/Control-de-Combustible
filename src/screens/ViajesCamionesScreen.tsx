@@ -59,6 +59,7 @@ import { ObrasListeros } from '../components/ObrasListeros';
 import { FrentesTrabajo, type CamionParaFrente, type DatosDelDiaFrente } from '../components/FrentesTrabajo';
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { ReporteTarasBox } from '../components/ReporteTarasBox';
+import { ChoferesCamionesBox } from '../components/ChoferesCamionesBox';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { PagoPesoResumen } from '../components/PagoPesoResumen';
 import { InformeOperativoCard } from '../components/InformeOperativoCard';
@@ -5785,6 +5786,13 @@ export default function ViajesCamionesScreen() {
                 ))}
               </ScrollView>
             )}
+
+            {/* 👤 CHOFERES POR CAMIÓN (19-oct-2026, a pedido: «que yo pueda
+                modificar o colocar los choferes»). Escribe en machine_operators
+                (la misma asignación del Coordinador de Operadores), que es de
+                donde cada viaje congela su chofer al registrarse. */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>👤 CHOFERES POR CAMIÓN</Text>
+            <ChoferesCamionesBox camiones={camionesEnObra} uid={uid || null} />
 
             {/* ⚖️ LA TARA OFICIAL POR CAMIÓN (26-sep-2026). La carga quien tiene
                 full, de una vez, con lo que pesaron en la romana. El listero

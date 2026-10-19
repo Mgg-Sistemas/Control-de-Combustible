@@ -3925,13 +3925,17 @@ máquinas que tienen alguna lectura (o ajuste) en el rango.
   sí cuenta.
 - Horas **sin precio** ese día → **$0 con alerta**: no se inventa un precio.
 
-> **📋 El precio de Control, a la vista (19/10/2026, a pedido: «colócale los precios ya
-> estipulados que están en Control»).** Cada máquina muestra ahora **«📋 Control: $X/jornada
-> ($Y/h)»** — el precio **por jornada de 12 h** que ya tiene puesto en Control de maquinaria — y el
-> PDF del pago lleva la columna **«Control $/jornada»** con su equivalente por hora. Es **solo
-> referencia**: NO entra en el monto (el pago sigue saliendo del precio por hora propio de este
-> módulo) y no enlaza los dos controles. La pastilla «🚫 Precio en Control» la quita del papel sin
-> dejar rastro. La máquina sin precio en Control sale con «—».
+> **📋 Los precios de Control, MIGRADOS como arranque (19/10/2026, a pedido: «que migres los
+> precios que ya están y ya solo sería que yo los modifique»).** Las **277 máquinas** que tenían
+> precio en Control de maquinaria arrancan en este módulo con ese precio convertido a hora:
+> **jornada de 12 h ÷ 12** (ej.: $3.600/jornada → $300/h). A las 71 máquinas que ya tenían
+> lecturas, el precio les rige **desde su primera lectura** (los días que valían $0 por falta de
+> precio ya valen); al resto, desde el 19/10. Cada precio migrado lleva la nota «Migrado de
+> Control de jornadas» en su historial. **No es un enlace**: cambiar el precio en Control después
+> NO mueve el de horómetros — de aquí en adelante los precios de este módulo se cambian AQUÍ
+> (anular y poner, como siempre). Y las máquinas que ya tuvieran precio propio en horómetros no se
+> tocaron. Además, cada fila y el PDF muestran **«📋 Control: $X/jornada»** como referencia (no
+> entra en el monto), con su pastilla «🚫 Precio en Control» para quitarla del papel.
 
 **💲 Precios por hora — general y por rango.** En cada máquina, **«💲 Poner / cambiar precio por
 hora»**:
@@ -5899,6 +5903,29 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 >   y ticket (nunca un cero) y **no suman kilos** de nadie.
 > - Al desmarcarlo, los viajes **nuevos** vuelven a exigir peso y foto; los viejos quedan como
 >   fueron. La tara guardada **no se borra** al marcar la exención: queda esperando por si vuelve.
+
+> **🖨️ El reporte de taras con todas sus opciones (19/10/2026, a pedido: «hace falta esas
+> opciones, así como en frentes y en obras y ubicaciones»).** En «🖨️ Qué sale en el reporte» ahora
+> también se apaga y enciende: **1️⃣ numeración (N°)**, **🔢 placa/serial**, **◆ clasificación por
+> capacidad** (compacto/media/gran capacidad — nace apagada), **⚙️ estado** (solo con «Toda la
+> flota»), **📊 el resumen de arriba** (las 4 tarjetas) y **📝 la nota al pie**. Y **🏙 toda la
+> flota a nombre de una sola empresa**: en la columna Empresa sale el mismo nombre para cada camión
+> (ej. Jhenzaen) — solo en el papel, no cambia la ficha de nadie. Como siempre: **lo que apagues no
+> deja rastro** en el papel, y el **nombre del archivo** sí dice lo cambiado («sin placa», «con
+> clasificación», «a nombre de una empresa» — nunca el nombre de la empresa). Las opciones
+> guardadas de antes siguen valiendo.
+
+> **👤 Choferes por camión (19/10/2026, a pedido: «que yo pueda modificar o colocar los
+> choferes»).** En Viajes de camiones → **⚙️ Configuración → 👤 Choferes por camión** (solo control
+> total): busca el camión y colócale su chofer de **☀️ día** y de **🌙 noche** — de la lista de
+> Empleados activos (cargo operador/chofer/obrero/servicios generales, con buscador por nombre o
+> cédula) o escribiendo el nombre a mano. Asignar **reemplaza** al que tuviera ese turno; con ✕ se
+> quita. Es la **misma asignación del Coordinador de Operadores**: lo que pongas aquí se ve allá y
+> al revés. **Cómo llega a los viajes:** cada viaje **congela** el chofer del turno al registrarse —
+> por eso la columna «Chofer» de los reportes salía vacía: nadie les había asignado chofer a los
+> camiones. Cambiarlo afecta los viajes que se registren **después**; los ya registrados conservan
+> el suyo (se corrigen uno por uno en ✏️ Editar). Una máquina en espera no acepta chofer. Todo
+> queda en Auditoría.
 
 > **📄 Reporte de taras por camión (06/10/2026).** Pedido del cliente: un reporte de cuántos
 > camiones ya tienen la tara cargada («hasta ahora van 40»), como el de metros cúbicos que ya no se
