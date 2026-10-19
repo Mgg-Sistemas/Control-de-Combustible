@@ -30,6 +30,10 @@ export type CamionParaTara = {
   /** ◆ Clasificación por capacidad (compacto / media / gran capacidad). Opcional:
    *  la pantalla ya la trae en TruckRow; llamadas viejas sin ella siguen valiendo. */
   clasificacion?: string | null;
+  /** 👤 Chofer asignado al turno de DÍA (de «Choferes por camión»). */
+  choferDia?: string | null;
+  /** 👤 Chofer asignado al turno de NOCHE. */
+  choferNoche?: string | null;
 };
 
 export type TaraParaReporte = {
@@ -61,6 +65,12 @@ export type OpcionesReporteTaras = {
   placa?: boolean;
   /** ◆ Columna «Clasificación» por capacidad. Nace apagada. */
   clasificacion?: boolean;
+  /**
+   * 👤 Columna «Chofer»: el que esté asignado al camión en «Choferes por
+   * camión». Si día y noche son distintos salen los dos (☀️/🌙); si es el
+   * mismo, el nombre solo. Nace apagada.
+   */
+  chofer?: boolean;
   /** ⚙️ Columna «Estado» (solo tiene sentido con «Toda la flota»). */
   estado?: boolean;
   /** 📊 Las cuatro tarjetas de arriba (total y taras). */
@@ -80,6 +90,7 @@ export const OPCIONES_TARAS_POR_DEFECTO: OpcionesReporteTaras = {
   numeracion: true,
   placa: true,
   clasificacion: false,
+  chofer: false,
   estado: true,
   kpis: true,
   notaPie: true,
@@ -215,6 +226,15 @@ export function cuerpoReporteTaras(
   const verNum = op.numeracion !== false;
   const verPlaca = op.placa !== false;
   const verClasif = op.clasificacion === true;
+  const verChofer = op.chofer === true;
+  /** ☀️/🌙 solo cuando hace falta distinguir: un mismo chofer en los dos turnos va limpio. */
+  const choferTexto = (c: CamionParaTara): string => {
+    const d = String(c.choferDia ?? '').trim();
+    const n = String(c.choferNoche ?? '').trim();
+    if (!d && !n) return '—';
+    if (d && n) return d === n ? d : `☀️ ${d} · 🌙 ${n}`;
+    return d ? `☀️ ${d}` : `🌙 ${n}`;
+  };
   const verEstado = op.alcance === 'todos' && op.estado !== false;
   const verKpis = op.kpis !== false;
   const verNota = op.notaPie !== false;
@@ -244,12 +264,13 @@ export function cuerpoReporteTaras(
     verPlaca ? '<th>Placa / serial</th>' : '',
     op.marcaModelo ? '<th>Marca / modelo</th>' : '',
     verClasif ? '<th>Clasificación</th>' : '',
+    verChofer ? '<th>Chofer</th>' : '',
     op.empresa ? '<th>Empresa</th>' : '',
     `<th class="r">Tara (${op.unidad === 't' ? 'Ton' : 'Kg'})</th>`,
     verEstado ? '<th>Estado</th>' : '',
     op.cargadaPor ? '<th>Cargada por</th>' : '',
   ].join('');
-  const nCols = [verNum, true, verPlaca, op.marcaModelo, verClasif, op.empresa, true, verEstado, op.cargadaPor].filter(Boolean).length;
+  const nCols = [verNum, true, verPlaca, op.marcaModelo, verClasif, verChofer, op.empresa, true, verEstado, op.cargadaPor].filter(Boolean).length;
 
   const cuerpo = filas.map((f, i) => {
     const c = f.camion;
@@ -264,6 +285,7 @@ export function cuerpoReporteTaras(
       ${verPlaca ? `<td>${esc(ident)}</td>` : ''}
       ${op.marcaModelo ? `<td>${esc(mm)}</td>` : ''}
       ${verClasif ? `<td>${esc(String(c.clasificacion ?? '').trim() || '—')}</td>` : ''}
+      ${verChofer ? `<td>${esc(choferTexto(c))}</td>` : ''}
       ${op.empresa ? `<td>${esc(empresaImpresa(c))}</td>` : ''}
       <td class="r${f.taraKg == null ? ' sin' : ''}">${esc(f.taraKg == null ? '—' : pesoTexto(f.taraKg, op.unidad))}</td>
       ${verEstado ? `<td${f.estado === 'conTara' ? '' : ' class="sin"'}>${ESTADO_TEXTO[f.estado]}</td>` : ''}
@@ -299,6 +321,7 @@ export function sufijoArchivoTaras(op: OpcionesReporteTaras): string {
   if (op.placa === false) partes.push('sin placa');
   if (!op.marcaModelo) partes.push('sin marca-modelo');
   if (op.clasificacion === true) partes.push('con clasificación');
+  if (op.chofer === true) partes.push('con chofer');
   if (!op.empresa) partes.push('sin empresas');
   else if ((op.empresaUnica ?? '').trim()) partes.push('a nombre de una empresa');
   if (op.alcance === 'todos' && op.estado === false) partes.push('sin estado');
