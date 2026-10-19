@@ -5756,6 +5756,12 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   alguno sigue sin subir, `7 (2 sin subir)`. La lista ya **no se corta**: se ven todos.
   Antes la caja solo mostraba unos cuatro renglones y no tenía número, así que el listero
   contaba lo que veía y reclamaba viajes que sí estaban registrados.
+- **⚖️ Y las toneladas que lleva (19/10/2026, a pedido):** al lado del número de viajes, el título
+  dice las toneladas del día — `Mis viajes de hoy · 7 · ⚖️ 148,3 Ton` (un decimal, el mismo
+  criterio de la columna de cobro). Es la suma de los **netos de romana** de sus viajes, también
+  los que siguen en cola esperando señal (su neto se calcula en vivo). **Nada se inventa**: un
+  viaje sin pesar suma 0, y si hay alguno, debajo del título lo dice — «las toneladas son de 5
+  viaje(s) pesado(s); 2 sin peso» — para que nadie crea que ese total ya incluye todo.
 - **⚠️ Viajes que no pudieron subirse:** si un viaje falla por algo que **no** es la señal (el
   camión se borró del catálogo, un dato quedó inválido), el sistema lo reintenta 3 veces y
   después lo **aparta** — pero **la cola sigue subiendo los demás**. El viaje apartado no se
