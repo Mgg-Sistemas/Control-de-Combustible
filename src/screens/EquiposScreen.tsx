@@ -2670,9 +2670,19 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
                         <View style={{ flex: 1 }}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
-                            <Text style={{ color: m.en_espera ? colors.brandText : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                              {m.en_espera ? '⏳ Esperando' : m.operational ? '● Operativa' : '● Retirada'}
-                            </Text>
+                            {(() => {
+                              // La MISMA etiqueta en vivo de la tarjeta del catálogo (ver
+                              // renderMachineCard): este listado solo miraba `operational`,
+                              // así que en «Maquinaria averiada» la esquina decía
+                              // «● Operativa» mientras el badge de abajo decía «🔴 Averiada»
+                              // (19-oct-2026, a pedido: «que en realidad refleje lo que es»).
+                              if (m.en_espera) return <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text>;
+                              if (!m.operational) return <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>● Retirada</Text>;
+                              const liveEstado = liveStatusOf(m.id).estado;
+                              if (liveEstado === 'averiada') return <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>🔴 Averiada</Text>;
+                              if (liveEstado === 'parada') return <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 13 }}>🟡 Parada</Text>;
+                              return <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>● Operativa</Text>;
+                            })()}
                           </View>
                           <EstadoFechaLine m={m} />
                           <AveriaBadge id={m.id} />

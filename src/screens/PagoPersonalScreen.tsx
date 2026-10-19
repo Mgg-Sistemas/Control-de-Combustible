@@ -27,6 +27,10 @@ import { PagoPorPersona } from '../components/PagoPorPersona';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { PAGO_STATUS_META } from '../lib/statusMeta';
+// 📎 Soportes del pago de cada persona (19-oct-2026): factura/comprobante por
+//    persona dentro del período. No tocan montos y se pueden subir aun PAGADO.
+import { listarSoportesPeriodo, agruparSoportes, type SoportePago } from '../lib/nominaSoportes';
+import { SoportesPagoBox } from '../components/SoportesPagoBox';
 
 // ── Formato / utilidades ──────────────────────────────────────────────────────
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -212,6 +216,16 @@ export default function PagoPersonalScreen() {
   // filtrar a "Inactivos/Desincorporados" y seleccionarlos para un Excel aparte). Vacío =
   // exporta todos (respetando el filtro de cargo, como ya hacía antes).
   const [itemSelIds, setItemSelIds] = useState<Set<string>>(new Set());
+  // 📎 Soportes del período (todos, agrupados por persona al pintar) y cuál
+  //    tarjeta tiene su cajita abierta.
+  const [soportes, setSoportes] = useState<SoportePago[]>([]);
+  const [soportesDe, setSoportesDe] = useState<string | null>(null);
+  const soportesPorItem = useMemo(() => agruparSoportes(soportes), [soportes]);
+  const recargarSoportes = async () => {
+    if (!sel) return;
+    const r = await listarSoportesPeriodo(sel.id);
+    if (!r.missing) setSoportes(r.soportes);
+  };
   const toggleItemSel = (id: string) => setItemSelIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [pays, setPays] = useState<StaffPayPayment[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -273,6 +287,9 @@ export default function PagoPersonalScreen() {
     const { data: pp } = ids.length ? await supabase.from('staff_pay_payments').select('*').in('item_id', ids) : { data: [] as StaffPayPayment[] };
     setItems(list);
     setPays((pp ?? []) as StaffPayPayment[]);
+    // 📎 Los soportes del período (facturas, comprobantes…), de un solo viaje.
+    const sops = await listarSoportesPeriodo(p.id);
+    setSoportes(sops.missing ? [] : sops.soportes);
     // Empleados ACTIVOS que aún NO están en este período (para avisar y poder incluir a TODOS).
     const { data: actives } = await supabase.from('employees').select('id').eq('status', 'activo');
     const have = new Set(list.map((i) => i.employee_id));
@@ -1513,7 +1530,28 @@ export default function PagoPersonalScreen() {
                         <TouchableOpacity onPress={() => reciboPdf(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 Recibo</Text>
                         </TouchableOpacity>
+                        {/* 📎 Soportes (19-oct-2026, a pedido): factura o comprobante
+                            de ESTA persona en ESTE período. Se abre y cierra acá;
+                            el número dice cuántos tiene sin abrirla. */}
+                        <TouchableOpacity onPress={() => setSoportesDe((v) => (v === it.id ? null : it.id))}
+                          style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: soportesDe === it.id ? colors.primary : colors.surfaceAlt, borderWidth: soportesDe === it.id ? 0 : 1, borderColor: colors.border }}>
+                          <Text style={{ color: soportesDe === it.id ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                            📎 {(soportesPorItem.get(it.id) ?? []).length || 'Soportes'}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
+                      {soportesDe === it.id && sel ? (
+                        <SoportesPagoBox
+                          itemId={it.id}
+                          periodId={sel.id}
+                          soportes={soportesPorItem.get(it.id) ?? []}
+                          puedeSubir={puedeTarifa}
+                          puedeBorrar={puedeEditarPeriodo}
+                          uid={session?.user?.id ?? null}
+                          userName={fullName || null}
+                          onCambio={recargarSoportes}
+                        />
+                      ) : null}
                     </Card>
                   );
                   })}

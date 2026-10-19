@@ -221,6 +221,15 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > (Operativa)»**, que limpia la marca. *(Requiere las columnas `transferida`/`transferida_a` en
 > la base; mientras no estén, el botón avisa.)*
 
+> **🔴 La esquina de los listados por estado ya dice la verdad (19/10/2026, a pedido: «arregla
+> eso para que en realidad refleje lo que es»).** Al entrar a un cubo del Catálogo (ej.
+> «Maquinaria averiada»), cada tarjeta mostraba su etiqueta roja de avería con el motivo, pero la
+> **esquina** de arriba decía «● Operativa» — contradictorio. La esquina solo miraba el campo de
+> **retirada** (`operational`), que la avería del inspector no toca. Ahora usa **el mismo estado
+> en vivo** de la tarjeta del catálogo: 🔴 Averiada, 🟡 Parada, ⏳ Esperando, ● Retirada u
+> ● Operativa — la esquina y la etiqueta de abajo **nunca se contradicen**. No cambió ningún
+> estado real: solo lo que se **mostraba**.
+
 > **📁⬛ Detalle por estado: plegado y con los botones funcionando (14/10/2026, a pedido).**
 > (1) Al tocar una tarjeta de estado (Operativas / Averiadas / Esperando / Retiradas), **todas las
 > empresas salen plegadas** por defecto — solo los encabezados con su conteo; tocas la que te
@@ -958,6 +967,20 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > simplemente **no aparecían** y no se decía por qué — parecía que estaban rotos. Ahora sale un
 > aviso **"🔒 Período APROBADO/PAGADO: no se puede cambiar"** que te dice qué hacer: tocar
 > **↩ Reabrir**, que lo devuelve a borrador y habilita todo otra vez.
+
+> **📎 Soportes del pago de cada persona (19/10/2026, a pedido: «poder subirle una imagen de
+> factura o algo así a cada persona, sin dañar ni nada»).** En la tarjeta de cada persona del
+> período hay un botón **📎** (con el número de soportes que ya tiene). Al abrirlo: la lista de
+> sus soportes —cada uno con su miniatura, nombre, fecha y quién lo subió; **tocándolo se
+> abre**— y los botones **📷 Cámara** y **🖼️ Imagen o PDF** para subir uno nuevo (una factura
+> suele ser PDF, y también vale). Se le pueden poner **una o varias** a cada quien.
+> - **No toca los montos**: los soportes viven aparte; subir o quitar uno no mueve un céntimo
+>   ni cambia el total del período.
+> - **Se puede subir con el período PAGADO**, a propósito: el comprobante llega **después** de
+>   pagar — el candado del período congela los montos, no la evidencia.
+> - **Quién puede**: subir, quien tenga **escritura** en Nómina; **borrar** (con confirmación),
+>   solo quien tenga Nómina en **full** — es evidencia de un pago, no un borrador.
+> - Si sacan a la persona del período, **sus soportes se van con ella** (son de ese pago).
 
 > **⚠️ "✕ Desmarcar todos" NO saca a nadie del período.** Ese botón (antes se llamaba
 > "✕ Quitar selección", y por eso confundía) solo **limpia las casillas ✓** que sirven para
