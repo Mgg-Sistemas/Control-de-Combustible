@@ -43,8 +43,9 @@ ok('🔢 numera por POSICIÓN (i + 1), como los requerimientos',
   lib.includes('<td class="c num">${i + 1}</td>'));
 
 // ── Las fuentes de los datos ─────────────────────────────────────────────────
-ok('⛏️ el frente sale de la planificación de MAQUINARIA',
-  lib.includes('listAsignacionesFrente(date, FRENTES_MAQUINARIA)'));
+ok('⛏️ el frente sale de la planificación de MAQUINARIA, VIGENTE a la fecha (pegajoso, 19-oct)',
+  lib.includes('listAsignacionesHasta(date, FRENTES_MAQUINARIA)')
+  && lib.includes('vigentesAlDia(asignaciones ?? [], date)'));
 ok('🕐 los horómetros salen de lo que cargó el inspector (lecturas_horometro_trabajo)',
   lib.includes('cargarLecturasHorometro(date, date)'));
 ok('⏱ las horas salen de los tramos trabajados (machine_work_segments)',

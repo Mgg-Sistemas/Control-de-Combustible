@@ -25,6 +25,9 @@ import { Plegable } from './Plegable';
 import { Toggle } from './CubicajeTab';
 import {
   listAsignacionesFrente, listAsignacionesFrenteRango, asignarFrente, quitarAsignacionFrente,
+  // ⛏️ El frente PEGAJOSO de maquinaria (19-oct-2026): vigentes a una fecha y
+  //    quitar «desde ese día» con la marca sin frente.
+  listAsignacionesHasta, quitarFrenteDesde,
   crearFrente, setActivoFrente, renombrarFrente, borrarFrente, contarAsignacionesFrente,
   FRENTES_VIAJES, type FuenteFrentes,
   type FrenteTrabajo, type AsignacionFrente,
@@ -45,7 +48,7 @@ import {
   // 📋 REPETIR LOS FRENTES DE OTRO DÍA (03-oct-2026): el cálculo de QUÉ se
   //    copiaría y qué no es puro y vive en la librería; acá solo se enseña,
   //    se confirma y se escribe.
-  planRepetirFrentes, textoPlanRepetir, unFrentePorMaquina,
+  planRepetirFrentes, textoPlanRepetir, unFrentePorMaquina, vigentesAlDia,
   type OpcionesFrentes, type LogosFrentes, type DiaHistorialFrentes,
   type EdicionResumen, type TarjetaPropia, type PlanRepetirFrentes, type OrdenFrentes,
 } from '../lib/frentesReporte';
@@ -163,7 +166,8 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   // pantalla completa el diálogo del navegador queda tapado y parece colgado.
   const [borrando, setBorrando] = useState<{ id: string; nombre: string; asignaciones: number } | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
-  const [asignaciones, setAsignaciones] = useState<AsignacionFrente[]>([]);
+  // ⛏️ En maquinaria cada asignación trae su `jornada` (desde cuándo rige).
+  const [asignaciones, setAsignaciones] = useState<(AsignacionFrente & { jornada?: string })[]>([]);
   const [recarga, setRecarga] = useState(0);
   const [pdfBusy, setPdfBusy] = useState(false);
   // ── 🖨️ Qué sale en la hoja (29-sep-2026, a pedido) ──
@@ -235,16 +239,26 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
   useEffect(() => {
     let vivo = true;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return;
-    listAsignacionesFrente(fecha, fuente).then((r) => {
-      if (!vivo) return;
-      // Solo lo de ESTA lista (ver `tipo` en Props).
-      const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
-      // ⛏️ MAQUINARIA: una máquina = UN frente por día (19-oct-2026). Si quedaron
-      //    varias asignaciones (días viejos), en pantalla y en el PDF manda la
-      //    MÁS RECIENTE. Los camiones de viajes sí pueden tener varios.
-      setAsignaciones(esMaq ? unFrentePorMaquina(mias) : mias);
-      if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
-    });
+    if (esMaq) {
+      // ⛏️ MAQUINARIA: EL FRENTE ES PEGAJOSO (19-oct-2026, a pedido: «como con
+      //    los inspectores: se asigna y se queda ahí hasta que se reasigna»).
+      //    Se leen las anotaciones HASTA la fecha y rige la última de cada
+      //    máquina (vigentesAlDia); la marca «sin frente» la saca de la lista.
+      listAsignacionesHasta(fecha, fuente).then((r) => {
+        if (!vivo) return;
+        const mias = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
+        setAsignaciones(vigentesAlDia(mias, fecha));
+        if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
+      });
+    } else {
+      // 🚛 VIAJES: la asignación sigue siendo DIARIA (cada viaje congela el
+      //    frente de SU jornada, y así se paga). Solo lo de ESTA lista.
+      listAsignacionesFrente(fecha, fuente).then((r) => {
+        if (!vivo) return;
+        setAsignaciones(r.asignaciones.filter((a) => idsLista.has(a.machineryId)));
+        if (r.error && !r.missing) console.warn('[frentes] no se pudo leer las asignaciones:', r.error);
+      });
+    }
     return () => { vivo = false; };
   }, [fecha, recarga, claveLista]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -257,7 +271,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     listAsignacionesFrenteRango(diasAntes(jornadaHoy, DIAS_HISTORIAL), jornadaHoy, fuente).then((r) => {
       if (!vivo) return;
       // El mismo filtro de siempre: solo lo de ESTA lista (ver `tipo` en Props).
-      const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId));
+      // ⛏️ En maquinaria se dejan fuera las marcas «sin frente» (frenteId vacío):
+      //    el historial y 📋 repetir hablan de asignaciones, no de quitadas.
+      const todas = r.asignaciones.filter((a) => idsLista.has(a.machineryId) && (!esMaq || !!a.frenteId));
       // ⛏️ MAQUINARIA: también en el historial y al repetir un día manda UN
       //    frente por máquina (el más reciente de cada jornada).
       const mias = esMaq ? unFrentePorMaquina(todas) : todas;
@@ -362,9 +378,10 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     const nombres = Array.from(frenteSel).map((id) => activos.find((f) => f.id === id)?.nombre ?? '').filter(Boolean).join(' · ');
     const repe = yaEstaban > 0 ? ` (${yaEstaban} ya lo tenían)` : '';
     // ⛏️ El aviso dice lo que de verdad pasa: con UN frente los viajes sin
-    //    frente lo toman solos; con VARIOS ya no se puede adivinar cuál.
+    //    frente lo toman solos; con VARIOS ya no se puede adivinar cuál. En
+    //    maquinaria, que el frente es pegajoso, se dice eso.
     const auto = esMaq
-      ? ''
+      ? 'Quedan ahí hasta que las reasignes o las quites.'
       : frenteSel.size === 1
         ? 'Los viajes de ese día sin frente lo toman automáticamente.'
         : avisoVarios;
@@ -505,7 +522,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
         //    información en el PDF»). Regla de la casa desde el 25-sep: lo
         //    oculto no aparece en NINGUNA parte del papel, tampoco en el
         //    subtítulo. El papel se lee como si ese dato no existiera.
-        subtitle: esMaq ? `Asignación del ${dmy(fecha)} · frente de trabajo de cada equipo` : `Asignación del ${dmy(fecha)} · de dónde recoge cada camión`,
+        subtitle: esMaq ? `Frentes vigentes al ${dmy(fecha)} · dónde trabaja cada equipo` : `Asignación del ${dmy(fecha)} · de dónde recoge cada camión`,
         extraCss: CSS_FRENTES,
         // ✏️ Con la edición del tablero (03-oct-2026): lo oculto no sale, y lo
         //    que quedó en blanco sale con su valor automático.
@@ -523,10 +540,18 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
     }
   };
 
-  /** Quita ESE frente de ese camión — no todos los que tenga ese día. */
+  /** Quita ESE frente de ese camión — no todos los que tenga ese día. En
+   *  maquinaria (frente pegajoso) deja la marca «sin frente desde esa fecha»:
+   *  los días anteriores no cambian, y hacia adelante queda libre. */
   const quitar = async (a: AsignacionFrente) => {
-    const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId, fuente);
-    if (error) { toast.error(error); return; }
+    if (esMaq) {
+      const { error } = await quitarFrenteDesde(fecha, a.machineryId, uid, userName, fuente);
+      if (error) { toast.error(error); return; }
+      toast.success(`${codigoDe(a.machineryId)} queda SIN frente desde el ${dmy(fecha)}. Los días anteriores no cambian.`);
+    } else {
+      const { error } = await quitarAsignacionFrente(fecha, a.machineryId, a.frenteId, fuente);
+      if (error) { toast.error(error); return; }
+    }
     setRecarga((n) => n + 1);
     onCambio();
   };
@@ -645,7 +670,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>⛏️ FRENTES DE TRABAJO · {activos.length}</Text>
       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
         {esMaq
-          ? 'El frente es DÓNDE TRABAJA cada equipo ese día (no es la ubicación/edificio que marca el inspector: eso es otra cosa). Asigna el frente del día a una máquina, a varias o a toda una empresa; abajo sale lo asignado, la hoja del día en PDF y el historial. Es independiente de Viajes de camiones: tiene su propia lista de frentes y sus propias asignaciones.'
+          ? 'El frente es DÓNDE TRABAJA cada equipo (no es la ubicación/edificio que marca el inspector: eso es otra cosa). Asigna una máquina a un frente y SE QUEDA AHÍ hasta que la reasignes o la quites — como con los inspectores. Abajo sale cómo están los frentes a la fecha elegida, la hoja en PDF y el historial de cambios. Es independiente de Viajes de camiones: tiene su propia lista de frentes y sus propias asignaciones.'
           : 'El frente es DE DÓNDE recogen los camiones lo que llevan a los CDT/CDF. Asigna el frente del día a cada camión (o a varios de una vez): TODOS los viajes de ese día que no tengan frente propio lo toman automáticamente, los que ya estaban registrados y los que vengan. A un viaje suelto se le puede poner otro frente en ✏️ Editar, y ese manda.'}
       </Text>
 
@@ -752,7 +777,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
           {/* ── La asignación del día ── */}
           {canFull && activos.length > 0 ? (
             <View style={{ marginTop: spacing.md }}>
-              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>ASIGNAR EL FRENTE DEL DÍA</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>{esMaq ? 'ASIGNAR O REASIGNAR EL FRENTE (queda hasta que lo cambies)' : 'ASIGNAR EL FRENTE DEL DÍA'}</Text>
               <View style={{ marginTop: spacing.xs }}>
                 <DateField value={fecha} onChange={setFecha} />
               </View>
@@ -814,7 +839,7 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                     {/* Camiones DISTINTOS y, si hay alguno con varios frentes,
                         también cuántas asignaciones son en total. */}
                     <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', flex: 1 }}>
-                      ASIGNADOS ESE DÍA · {camionesAsignados} {E.unidad}
+                      {esMaq ? `ASÍ ESTÁN LOS FRENTES AL ${dmy(fecha)}` : 'ASIGNADOS ESE DÍA'} · {camionesAsignados} {E.unidad}
                       {asignaciones.length !== camionesAsignados ? ` · ${asignaciones.length} asignaciones` : ''}
                     </Text>
                     {/* 📄 La hoja de asignación del día. Sin cifras: solo quién
@@ -830,7 +855,11 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                       <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>⛏️ {f.nombre}</Text>
                       {asignaciones.filter((a) => a.frenteId === f.id).map((a) => (
                         <View key={`${a.frenteId}-${a.machineryId}`} style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: spacing.sm, paddingVertical: 2 }}>
-                          <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>🚜 {codigoDe(a.machineryId)}</Text>
+                          {/* ⛏️ En maquinaria se dice DESDE CUÁNDO está ahí (el frente arrastra). */}
+                          <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>
+                            🚜 {codigoDe(a.machineryId)}
+                            {esMaq && a.jornada ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>  · desde el {dmy(a.jornada)}</Text> : null}
+                          </Text>
                           <TouchableOpacity onPress={() => quitar(a)}>
                             <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>✕</Text>
                           </TouchableOpacity>
@@ -1129,7 +1158,9 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                 </View>
               ) : (
                 <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm }}>
-                  Ese día todavía no hay ningún {E.singular} asignado a un frente.
+                  {esMaq
+                    ? `A esa fecha ningún ${E.singular} tiene frente vigente.`
+                    : `Ese día todavía no hay ningún ${E.singular} asignado a un frente.`}
                 </Text>
               )}
 
@@ -1137,10 +1168,10 @@ export function FrentesTrabajo({ frentes, faltaSql, canFull, camiones, jornadaHo
                   de frentes de trabajo ahí mismo en ese apartado»). Toca un día
                   para abrirlo arriba: se ve su asignación y se puede imprimir. */}
               <Plegable
-                titulo="🕘 Historial de frentes de trabajo"
+                titulo={esMaq ? '🕘 Historial de cambios de frente' : '🕘 Historial de frentes de trabajo'}
                 resumen={historial.length === 0
-                  ? `sin asignaciones en los últimos ${DIAS_HISTORIAL} días`
-                  : `${historial.length} día(s) con asignación · últimos ${DIAS_HISTORIAL} días`}
+                  ? `${esMaq ? 'sin cambios' : 'sin asignaciones'} en los últimos ${DIAS_HISTORIAL} días`
+                  : `${historial.length} día(s) con ${esMaq ? 'cambios' : 'asignación'} · últimos ${DIAS_HISTORIAL} días`}
               >
                 {/* 📋 LA CONFIRMACIÓN DE REPETIR (03-oct-2026, a pedido: «dame
                     la opción de repetir los frentes de días anteriores, por si

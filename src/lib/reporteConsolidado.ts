@@ -85,6 +85,9 @@ export type OpcionesConsolidado = {
   promedioDia: boolean;
   /** Ids marcados en el selector; vacío = todas. Esto SÍ cambia el total (va FILTRADO). */
   soloMaquinas?: string[];
+  /** NOMBRES de empresa marcados; vacío = todas (19-oct-2026, a pedido: «poder
+   *  sacarlo para una sola empresa»). También cambia el total: va FILTRADO. */
+  soloEmpresas?: string[];
 };
 
 export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
@@ -118,9 +121,11 @@ export const fuentesVisibles = (op: OpcionesConsolidado): FuenteKey[] => FUENTES
 /** Aplica el selector de máquinas y bota las filas que quedaron sin NINGÚN monto visible. */
 export function filasElegidas(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): FilaConsolidada[] {
   const marcadas = new Set(op.soloMaquinas ?? []);
+  const empresas = new Set((op.soloEmpresas ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
   const visibles = fuentesVisibles(op);
   return (filas ?? [])
     .filter((f) => marcadas.size === 0 || marcadas.has(f.id))
+    .filter((f) => empresas.size === 0 || empresas.has(f.empresa.trim().toLowerCase()))
     .filter((f) => visibles.some((k) => (f.montos[k] ?? 0) !== 0))
     .slice()
     .sort((a, b) => cmpTx(a.empresa, b.empresa) || cmpTx(a.code, b.code) || cmpTx(a.placa, b.placa));
@@ -387,6 +392,10 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   if (op.agruparPor !== 'empresa') partes.push(op.agruparPor === 'maquina' ? 'por máquina' : 'global');
   if (op.sinEmpresas) partes.push('sin empresas');
   if ((op.soloMaquinas ?? []).length) partes.push(`solo ${(op.soloMaquinas ?? []).length} máquina(s)`);
+  const emps = (op.soloEmpresas ?? []).map((e) => e.trim()).filter(Boolean);
+  // Con UNA empresa el archivo dice CUÁL — ese es el papel que se le manda a esa empresa.
+  if (emps.length === 1) partes.push(`solo ${emps[0]}`);
+  else if (emps.length > 1) partes.push(`solo ${emps.length} empresas`);
   if (!op.resumen) partes.push('sin resumen');
   if (op.sinCantidades) partes.push('sin cantidades');
   return partes.length ? ` (${partes.join(', ')})` : '';

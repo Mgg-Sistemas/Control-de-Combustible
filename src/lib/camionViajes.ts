@@ -1205,6 +1205,71 @@ export async function listAsignacionesFrenteRango(
 }
 
 /**
+ * ⛏️ LAS ASIGNACIONES VIGENTES A UNA FECHA (19-oct-2026) — SOLO MAQUINARIA.
+ *
+ * El frente de maquinaria es PEGAJOSO («como con los inspectores: se asigna y
+ * se queda ahí hasta que se reasigna»): se leen TODAS las anotaciones hasta esa
+ * fecha (la tabla es chica: una fila por cambio, no por día) y el que llama las
+ * resuelve con `vigentesAlDia` (src/lib/frentesReporte.ts, pura). Las filas con
+ * `frenteId` vacío son la marca «sin frente desde ese día».
+ *
+ * ⚠️ Los camiones de VIAJES no usan esto: su asignación sigue siendo diaria
+ *    (cada viaje congela el frente de SU jornada, y así se paga).
+ */
+export async function listAsignacionesHasta(
+  fecha: string, fuente: FuenteFrentes,
+): Promise<{ asignaciones: AsignacionDia[]; missing: boolean; error?: string }> {
+  try {
+    const data = await selectAllRows(
+      fuente.asignaciones,
+      'jornada, machinery_id, frente_id, created_at, frente:frente_id(nombre)',
+      (q: any) => q.lte('jornada', fecha),
+    );
+    return {
+      asignaciones: (data as any[]).map((r) => ({
+        jornada: String(r.jornada ?? '').slice(0, 10),
+        machineryId: r.machinery_id as string,
+        // La marca «sin frente» viaja con frenteId '' — vigentesAlDia la entiende.
+        frenteId: (r.frente_id ?? '') as string,
+        frenteNombre: String(r.frente?.nombre ?? '').trim(),
+        creadoAt: (r.created_at as string | null) ?? null,
+      })),
+      missing: false,
+    };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    return { asignaciones: [], missing: isMissingTable(msg, e?.code), error: msg };
+  }
+}
+
+/**
+ * ⛏️ QUITAR EL FRENTE «DESDE ESE DÍA» (19-oct-2026) — SOLO MAQUINARIA.
+ *
+ * Con el frente pegajoso, borrar la fila del día no basta: la asignación de un
+ * día anterior seguiría arrastrando. Se borra lo anotado ESE día para esa
+ * máquina y se deja la MARCA (frente_id nulo): desde esa jornada, sin frente —
+ * hasta que alguien la vuelva a asignar. Los días ANTERIORES no cambian.
+ * Necesita el SQL del 19-oct (frente_id acepta nulo); si no corrió, avisa.
+ */
+export async function quitarFrenteDesde(
+  jornada: string, machineryId: string, userId: string | null, userName: string | null,
+  fuente: FuenteFrentes = FRENTES_MAQUINARIA,
+): Promise<{ error?: string }> {
+  const { error: eDel } = await supabase.from(fuente.asignaciones)
+    .delete().eq('jornada', jornada).eq('machinery_id', machineryId).select('id');
+  if (eDel) return { error: eDel.message };
+  const { data, error } = await supabase.from(fuente.asignaciones)
+    .insert({ jornada, machinery_id: machineryId, frente_id: null, created_by: userId, created_by_nombre: userName })
+    .select('id');
+  if (error) {
+    if (/not-null|null value/i.test(error.message)) return { error: 'Falta correr el SQL del 19-oct en la base (frente_id debe aceptar nulo). Avisa al administrador.' };
+    return { error: error.message };
+  }
+  if (!data || data.length === 0) return { error: 'No se guardó: hace falta permiso completo.' };
+  return {};
+}
+
+/**
  * ⛏️ EL FRENTE DEL DÍA SE TOMA SOLO (29-sep-2026, pedido: «los frentes
  * asignados para un día deben tomarlo automáticamente los viajes de ese día,
  * estén registrados o no estén registrados»).
@@ -1252,16 +1317,18 @@ export async function asignarFrente(
   userId: string | null, userName: string | null, fuente: FuenteFrentes = FRENTES_VIAJES,
 ): Promise<{ error?: string; agregados?: number; yaEstaban?: number }> {
   if (!machineryIds.length) return { error: 'Marca al menos un camión.' };
-  // ⛏️ MAQUINARIA: UNA MÁQUINA = UN FRENTE POR DÍA (19-oct-2026, a pedido del
-  //    cliente: «las máquinas no pueden tener más de un frente»). Asignar
-  //    REEMPLAZA: se le quitan los otros frentes de esa jornada antes de poner
+  // ⛏️ MAQUINARIA: UNA MÁQUINA = UN FRENTE (19-oct-2026, «las máquinas no
+  //    pueden tener más de un frente» y, desde la misma tarde, el frente es
+  //    PEGAJOSO). Asignar REEMPLAZA lo anotado ESE día: se borra TODO lo de esa
+  //    jornada para esas máquinas —otros frentes, el mismo frente y la marca
+  //    «sin frente» (frente_id nulo, que un `.neq` no alcanzaría)— y se anota
   //    el nuevo. Los CAMIONES de viajes se quedan como el 30-sep: SUMAN
   //    («permite que un camion pueda tener varios frentes»).
   if (fuente.asignaciones === FRENTES_MAQUINARIA.asignaciones) {
     // El `.select('id')` delata a la RLS si un día bloquea el DELETE (0 filas,
     // sin error); la política vigente (mfa_write ALL, verificada 19-oct) lo deja.
     const { error: eDel } = await supabase.from(fuente.asignaciones)
-      .delete().eq('jornada', jornada).neq('frente_id', frenteId)
+      .delete().eq('jornada', jornada)
       .in('machinery_id', machineryIds).select('id');
     if (eDel) return { error: eDel.message };
   }

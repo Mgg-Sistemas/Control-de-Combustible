@@ -22,10 +22,10 @@
 //    trabajados (`machine_work_segments`) de ese turno; si la jornada sigue ABIERTA,
 //    la hora de inicio sale de `machine_rounds.jornada_start_at` y la final queda en
 //    blanco (todavía no existe).
-//  · FRENTE: la planificación de frentes de MAQUINARIA de esa jornada
-//    (`maquinaria_frente_asignaciones`, la que ya se hace desde el sistema). Varios
-//    frentes el mismo día se listan todos — aquí no hay ambigüedad que inventar:
-//    el papel dice dónde estuvo asignada, no dónde cargó cada viaje.
+//  · FRENTE: el frente de MAQUINARIA VIGENTE a esa fecha
+//    (`maquinaria_frente_asignaciones` leída como bitácora, 19-oct-2026: la
+//    asignación arrastra hasta que la reasignan o la quitan) — el papel dice
+//    dónde estaba asignada, no dónde cargó cada viaje.
 //  · OBSERVACIÓN: lo ÚNICO editable. La escribe el inspector en la pantalla antes de
 //    descargar; si la máquina quedó averiada/parada se le sugiere el motivo ya
 //    registrado, pero su texto manda.
@@ -38,8 +38,8 @@ import { cmpText } from './text';
 import { machineLabel as etiquetaMaquina } from './machineLabel';
 import { computeInspectorData } from './inspectorReport';
 import { cargarLecturasHorometro } from './horometroTrabajoDb';
-import { listAsignacionesFrente, FRENTES_MAQUINARIA } from './camionViajes';
-import { unFrentePorMaquina } from './frentesReporte';
+import { listAsignacionesHasta, FRENTES_MAQUINARIA } from './camionViajes';
+import { vigentesAlDia } from './frentesReporte';
 
 const CARACAS_TZ = 'America/Caracas';
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -93,7 +93,7 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
   const [{ data }, lecturas, { asignaciones }, segsRes, roundsRes] = await Promise.all([
     computeInspectorData(date, null),
     cargarLecturasHorometro(date, date),
-    listAsignacionesFrente(date, FRENTES_MAQUINARIA),
+    listAsignacionesHasta(date, FRENTES_MAQUINARIA),
     // Tramos trabajados del día: primer arranque y último cierre POR TURNO.
     selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, shift', (q: any) => q.eq('round_date', date)).catch(() => [] as any[]),
     // Jornada ABIERTA (sin tramo cerrado todavía): la hora de inicio real.
@@ -125,11 +125,11 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
     if (r.jornada_start_at) inicioAbiertoDe.set(r.machinery_id, r.jornada_start_at);
   });
 
-  // Frente planificado de la jornada. ⛏️ 19-oct-2026: una máquina = UN frente
-  // por día; si un día viejo quedó con varios, manda el MÁS RECIENTE (el join
-  // de abajo se queda por si acaso, pero ya no debería concatenar nada).
+  // Frente VIGENTE a la fecha. ⛏️ 19-oct-2026 (tarde): el frente de maquinaria
+  // es PEGAJOSO — rige la última anotación <= esa fecha de cada máquina, y la
+  // marca «sin frente» la deja en blanco (vigentesAlDia la filtra sola).
   const frentesDeMaquina = new Map<string, string[]>();
-  unFrentePorMaquina(asignaciones ?? []).forEach((a) => {
+  vigentesAlDia(asignaciones ?? [], date).forEach((a) => {
     if (!a.machineryId || !a.frenteNombre) return;
     const l = frentesDeMaquina.get(a.machineryId) ?? [];
     if (!l.includes(a.frenteNombre)) l.push(a.frenteNombre);
