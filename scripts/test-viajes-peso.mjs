@@ -458,5 +458,14 @@ ok('el ejemplo del configurador cuadra (bruto − tara = neto)',
 ok('el manual .md tiene la sección', /⚖️ Peso de romana: bruto, tara y peso a pagar \(26\/09\/2026\)/.test(leer('docs/MANUAL-USUARIO.md')));
 ok('el manual en pantalla también', /⚖️ PESO DE ROMANA: BRUTO, TARA Y PESO A PAGAR \(26\/09\/2026\)/.test(leer('src/screens/ManualScreen.tsx')));
 
+// ── 15) EL LISTERO VE LAS TONELADAS QUE LLEVA (19-oct-2026, a pedido) ───────
+// «ven la cantidad de viajes que llevan, también deberían poder [ver] las ton».
+ok('el título de «Mis viajes» dice las toneladas del día (1 decimal, criterio de cobro)',
+  /tonTexto\(misTons\.kg, 1\)/.test(scr) && /misTons\.kg > 0 \? ` · ⚖️ /.test(scr));
+ok('…sumando también los viajes en cola (su neto se calcula en vivo)',
+  /const n = r\.pesoNetoKg \?\? netoDe\(r\.pesoBrutoKg, r\.pesoTaraKg\);/.test(scr));
+ok('…y si hay viajes sin pesar, lo dice en vez de callar',
+  /viaje\(s\) pesado\(s\); \{misTons\.sinPeso\} sin peso/.test(scr));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} test-viajes-peso · ${pass} ok · ${fail} fallando`);
 if (fail) { console.log('\n' + failures.join('\n')); process.exit(1); }

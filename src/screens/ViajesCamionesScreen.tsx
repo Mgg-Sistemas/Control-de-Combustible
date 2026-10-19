@@ -1191,6 +1191,20 @@ export default function ViajesCamionesScreen() {
 
   /** Cuántos de los que se ven todavía NO están en el servidor (en cola o apartados). */
   const sinSubirEnPantalla = useMemo(() => misViajesDisplay.filter((r) => r.queued).length, [misViajesDisplay]);
+  // ⚖️ LAS TONELADAS QUE LLEVA (19-oct-2026, a pedido: «ven la cantidad de
+  // viajes que llevan, también deberían poder [ver] las ton que llevan»).
+  // Suma de los NETOS de romana de los viajes en pantalla — también los que
+  // siguen en cola, que ya calculan su neto en vivo. Nada se inventa: un viaje
+  // sin pesar suma 0, y si hay alguno, la línea de abajo lo dice para que el
+  // listero no crea que ese total incluye todo.
+  const misTons = useMemo(() => {
+    let kg = 0, pesados = 0, sinPeso = 0;
+    for (const r of misViajesDisplay) {
+      const n = r.pesoNetoKg ?? netoDe(r.pesoBrutoKg, r.pesoTaraKg);
+      if (n != null && n > 0) { kg += n; pesados += 1; } else { sinPeso += 1; }
+    }
+    return { kg, pesados, sinPeso };
+  }, [misViajesDisplay]);
   // ⚠️ Las insignias usan estos contadores, NO `queuedItems.length` crudo. Los
   //    crudos incluyen viajes que ya llegaron al servidor y todavía no salieron
   //    de la cola, así que la insignia decía «1 sin subir» mientras el título de
@@ -4502,9 +4516,17 @@ export default function ViajesCamionesScreen() {
             algunos siguen en el teléfono. */}
         <SectionTitle>
           {`${hayDeOtrosDias ? 'Mis viajes' : 'Mis viajes de hoy'} · ${misViajesDisplay.length}`}
+          {misTons.kg > 0 ? ` · ⚖️ ${tonTexto(misTons.kg, 1)}` : ''}
           {sinSubirEnPantalla > 0 ? ` (${sinSubirEnPantalla} sin subir)` : ''}
           {hayDeOtrosDias ? ' · incluye pendientes de días anteriores' : ''}
         </SectionTitle>
+        {/* Si hay viajes sin pesar, el total de toneladas NO los incluye y hay
+            que decirlo — un total callado haría creer que ya está todo pesado. */}
+        {misTons.kg > 0 && misTons.sinPeso > 0 ? (
+          <Text style={{ color: colors.muted, fontSize: 11 }}>
+            ⚖️ Las toneladas son de {misTons.pesados} viaje(s) pesado(s); {misTons.sinPeso} sin peso.
+          </Text>
+        ) : null}
         {misViajesLoading && misViajesDisplay.length === 0 ? (
           <Loading />
         ) : misViajesMissing ? (
