@@ -5917,6 +5917,26 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
 > clasificación», «a nombre de una empresa» — nunca el nombre de la empresa). Las opciones
 > guardadas de antes siguen valiendo.
 
+> **🚦 El listero puede cambiar el estado del camión — con permiso (19/10/2026, a pedido: «que un
+> admin o con full control pueda darle el permiso a un listero en específico de colocar el estado
+> del camión»).**
+> - **Quién lo da:** Viajes de camiones → **⚙️ Configuración → 🚦 Estado del camión desde el
+>   teléfono** (solo control total), con un interruptor por listero. La **base** exige full en
+>   Viajes para otorgar o quitar (probado suplantando usuarios): esconder la caja no es la única
+>   defensa.
+> - **Qué puede hacer el listero con el permiso:** al buscar o escanear un camión, junto a la
+>   pastilla del estado le sale **«🚦 Cambiar estado»** con **solo los 3 estados básicos**:
+>   **🟢 Operativo** (resuelve los reportes pendientes, como el «volver operativa» del inspector),
+>   **🔧 Averiado** (motivo **obligatorio**; crea el reporte de avería que cae en Servicio de
+>   Maquinaria, con su marcador de parada, igual que el inspector) y **🟡 Parado** (motivo
+>   obligatorio; solo el marcador).
+> - **Lo que no puede:** en espera, retirada y transferida son de la **oficina** — se rechazan
+>   leyendo la ficha, y la base ni le deja escribir en la ficha del equipo. No duplica reportes (si
+>   ya hay uno pendiente le actualiza el motivo), no banca horas (la jornada abierta cierra sola a
+>   las 7 con sus horas reales) y el camión «fuera de catálogo» no ofrece el botón. El motivo queda
+>   firmado «por Fulano (listero)» y todo va a Auditoría. Quien tiene full en Viajes también ve el
+>   botón, sin necesidad del interruptor.
+
 > **👤 Choferes por camión (19/10/2026, a pedido: «que yo pueda modificar o colocar los
 > choferes»).** En Viajes de camiones → **⚙️ Configuración → 👤 Choferes por camión** (solo control
 > total): busca el camión y colócale su chofer de **☀️ día** y de **🌙 noche** — de la lista de
