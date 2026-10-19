@@ -27,6 +27,9 @@ export type CamionParaTara = {
   marca: string | null;
   modelo: string | null;
   companyName: string | null;
+  /** ◆ Clasificación por capacidad (compacto / media / gran capacidad). Opcional:
+   *  la pantalla ya la trae en TruckRow; llamadas viejas sin ella siguen valiendo. */
+  clasificacion?: string | null;
 };
 
 export type TaraParaReporte = {
@@ -47,6 +50,25 @@ export type OpcionesReporteTaras = {
   marcaModelo: boolean;
   /** 👤 Quién cargó la tara y cuándo. */
   cargadaPor: boolean;
+  // ── 19-oct-2026, a pedido («hace falta esas opciones, así como en frentes y
+  //    en obras y ubicaciones»). Opcionales (`?`) a propósito: las opciones
+  //    guardadas en el equipo (AsyncStorage v1) y las llamadas viejas siguen
+  //    valiendo con el valor por defecto. Regla de la casa: lo que ya existía
+  //    queda encendido; lo NUEVO entra apagado; lo oculto no deja rastro.
+  /** 1️⃣ Columna «N°» (el enumerado). */
+  numeracion?: boolean;
+  /** 🔢 Columna «Placa / serial». */
+  placa?: boolean;
+  /** ◆ Columna «Clasificación» por capacidad. Nace apagada. */
+  clasificacion?: boolean;
+  /** ⚙️ Columna «Estado» (solo tiene sentido con «Toda la flota»). */
+  estado?: boolean;
+  /** 📊 Las cuatro tarjetas de arriba (total y taras). */
+  kpis?: boolean;
+  /** 📝 La nota al pie que explica qué es la tara. */
+  notaPie?: boolean;
+  /** 🏙 Toda la flota a nombre de UNA sola empresa (solo en el papel). Vacío = cada quien la suya. */
+  empresaUnica?: string;
 };
 
 export const OPCIONES_TARAS_POR_DEFECTO: OpcionesReporteTaras = {
@@ -55,6 +77,13 @@ export const OPCIONES_TARAS_POR_DEFECTO: OpcionesReporteTaras = {
   empresa: true,
   marcaModelo: true,
   cargadaPor: true,
+  numeracion: true,
+  placa: true,
+  clasificacion: false,
+  estado: true,
+  kpis: true,
+  notaPie: true,
+  empresaUnica: '',
 };
 
 export type EstadoTara = 'conTara' | 'sinTara' | 'exento';
@@ -181,7 +210,16 @@ export function cuerpoReporteTaras(
 ): string {
   const r = resumenTaras(camiones, taras);
   const filas = filasDeTaras(camiones, taras, op.alcance);
-  const verEstado = op.alcance === 'todos';
+  // Los `!== false` son por las opciones guardadas de antes del 19-oct-2026
+  // (no traen las claves nuevas): sin la clave, la columna de siempre SALE.
+  const verNum = op.numeracion !== false;
+  const verPlaca = op.placa !== false;
+  const verClasif = op.clasificacion === true;
+  const verEstado = op.alcance === 'todos' && op.estado !== false;
+  const verKpis = op.kpis !== false;
+  const verNota = op.notaPie !== false;
+  /** 🏙 El nombre que se imprime: la empresa única (solo papel) o la de cada quien. */
+  const empresaImpresa = (c: CamionParaTara) => (op.empresaUnica ?? '').trim() || c.companyName || 'Sin empresa';
 
   // ⭐ CUATRO TARJETAS: EL TOTAL Y LAS TARAS (07-oct-2026, a pedido: «quítame
   //    esto, solo coloca el total de camiones y los totales de las taras»).
@@ -201,15 +239,17 @@ export function cuerpoReporteTaras(
   ];
 
   const cab = [
-    '<th class="n">N°</th>',
+    verNum ? '<th class="n">N°</th>' : '',
     '<th>Equipo</th>',
-    '<th>Placa / serial</th>',
+    verPlaca ? '<th>Placa / serial</th>' : '',
     op.marcaModelo ? '<th>Marca / modelo</th>' : '',
+    verClasif ? '<th>Clasificación</th>' : '',
     op.empresa ? '<th>Empresa</th>' : '',
     `<th class="r">Tara (${op.unidad === 't' ? 'Ton' : 'Kg'})</th>`,
     verEstado ? '<th>Estado</th>' : '',
     op.cargadaPor ? '<th>Cargada por</th>' : '',
   ].join('');
+  const nCols = [verNum, true, verPlaca, op.marcaModelo, verClasif, op.empresa, true, verEstado, op.cargadaPor].filter(Boolean).length;
 
   const cuerpo = filas.map((f, i) => {
     const c = f.camion;
@@ -219,11 +259,12 @@ export function cuerpoReporteTaras(
       ? [f.cargadaPor, fechaCaracas(f.cargadaEl)].filter(Boolean).join(' · ') || '—'
       : '—';
     return `<tr>
-      <td class="n">${i + 1}</td>
+      ${verNum ? `<td class="n">${i + 1}</td>` : ''}
       <td>${esc(c.code)}</td>
-      <td>${esc(ident)}</td>
+      ${verPlaca ? `<td>${esc(ident)}</td>` : ''}
       ${op.marcaModelo ? `<td>${esc(mm)}</td>` : ''}
-      ${op.empresa ? `<td>${esc(c.companyName || 'Sin empresa')}</td>` : ''}
+      ${verClasif ? `<td>${esc(String(c.clasificacion ?? '').trim() || '—')}</td>` : ''}
+      ${op.empresa ? `<td>${esc(empresaImpresa(c))}</td>` : ''}
       <td class="r${f.taraKg == null ? ' sin' : ''}">${esc(f.taraKg == null ? '—' : pesoTexto(f.taraKg, op.unidad))}</td>
       ${verEstado ? `<td${f.estado === 'conTara' ? '' : ' class="sin"'}>${ESTADO_TEXTO[f.estado]}</td>` : ''}
       ${op.cargadaPor ? `<td>${esc(quien)}</td>` : ''}
@@ -231,13 +272,13 @@ export function cuerpoReporteTaras(
   }).join('');
 
   const vacio = filas.length === 0
-    ? `<tr><td colspan="8" class="n">Todavía no hay camiones con tara cargada.</td></tr>`
+    ? `<tr><td colspan="${nCols}" class="n">Todavía no hay camiones con tara cargada.</td></tr>`
     : '';
 
   return `
-    <div class="kpis">${kpis.map(([v, t]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="t">${esc(t)}</div></div>`).join('')}</div>
+    ${verKpis ? `<div class="kpis">${kpis.map(([v, t]) => `<div class="kpi"><div class="v">${esc(v)}</div><div class="t">${esc(t)}</div></div>`).join('')}</div>` : ''}
     <table class="taras"><thead><tr>${cab}</tr></thead><tbody>${cuerpo}${vacio}</tbody></table>
-    <div class="nota-t">La tara es el peso del camión vacío medido en romana. Cada viaje registrado conserva la tara que tenía ese día.</div>
+    ${verNota ? `<div class="nota-t">La tara es el peso del camión vacío medido en romana. Cada viaje registrado conserva la tara que tenía ese día.</div>` : ''}
   `;
 }
 
@@ -247,8 +288,28 @@ export function subtituloReporteTaras(r: ResumenTaras, alcance: AlcanceTaras): s
     : `Flota completa: ${r.flota} camión(es)`;
 }
 
-/** Nombre del archivo: dice el alcance; NUNCA lleva empresa. */
-export function nombreArchivoTaras(alcance: AlcanceTaras, hoyISO: string): string {
+/**
+ * Lo cambiado respecto al papel de siempre, para el NOMBRE del archivo (igual
+ * que obras/ubicaciones): lo oculto NO se dice en el papel, solo acá. Nunca
+ * nombres de empresa — ni siquiera el de la empresa única.
+ */
+export function sufijoArchivoTaras(op: OpcionesReporteTaras): string {
+  const partes: string[] = [];
+  if (op.numeracion === false) partes.push('sin numeración');
+  if (op.placa === false) partes.push('sin placa');
+  if (!op.marcaModelo) partes.push('sin marca-modelo');
+  if (op.clasificacion === true) partes.push('con clasificación');
+  if (!op.empresa) partes.push('sin empresas');
+  else if ((op.empresaUnica ?? '').trim()) partes.push('a nombre de una empresa');
+  if (op.alcance === 'todos' && op.estado === false) partes.push('sin estado');
+  if (!op.cargadaPor) partes.push('sin cargada-por');
+  if (op.kpis === false) partes.push('sin resumen');
+  if (op.notaPie === false) partes.push('sin nota');
+  return partes.length ? ` (${partes.join(', ')})` : '';
+}
+
+/** Nombre del archivo: dice el alcance y lo cambiado; NUNCA lleva empresa. */
+export function nombreArchivoTaras(alcance: AlcanceTaras, hoyISO: string, op?: OpcionesReporteTaras): string {
   const [a, m, d] = hoyISO.split('-');
-  return `Reporte de taras${alcance === 'todos' ? ' (flota completa)' : ''} ${d}-${m}-${a}`;
+  return `Reporte de taras${alcance === 'todos' ? ' (flota completa)' : ''} ${d}-${m}-${a}${op ? sufijoArchivoTaras(op) : ''}`;
 }

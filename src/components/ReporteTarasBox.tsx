@@ -7,7 +7,7 @@
 // desmarcarlo todo cada vez era invitar a que un día saliera con nombres.
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -43,6 +43,9 @@ export function ReporteTarasBox({ camiones, taras }: {
   const [op, setOpState] = useState<OpcionesReporteTaras>(OPCIONES_TARAS_POR_DEFECTO);
   const [logos, setLogos] = useState<LogosReporte>(LOGOS_POR_DEFECTO);
   const [generando, setGenerando] = useState(false);
+  // 🏙 El interruptor de «una sola empresa» con el campo vacío: encendido pero
+  // sin efecto hasta que se escriba el nombre (igual que en frentes).
+  const [empresaUnicaOn, setEmpresaUnicaOn] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(CLAVE).then((raw) => {
@@ -81,7 +84,7 @@ export function ReporteTarasBox({ camiones, taras }: {
         // membrete lo deciden los logos, igual que los demás de viajes.
         marcaTexto: false,
       });
-      await exportPdf(html, nombreArchivoTaras(op.alcance, caracasBusinessToday()));
+      await exportPdf(html, nombreArchivoTaras(op.alcance, caracasBusinessToday(), op));
     } catch (e: any) {
       toast.error(`No se pudo generar el reporte: ${e?.message ?? e}`);
     } finally {
@@ -118,7 +121,7 @@ export function ReporteTarasBox({ camiones, taras }: {
 
       <TouchableOpacity onPress={() => setAbierto((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.xs }}>
         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11, flex: 1 }}>
-          🖨️ Qué sale en el reporte{!op.empresa ? ' · sin empresas' : ''}
+          🖨️ Qué sale en el reporte{!op.empresa ? ' · sin empresas' : (op.empresaUnica ?? '').trim() ? ' · a nombre de una empresa' : ''}
         </Text>
         <Text style={{ color: colors.muted, fontSize: 12 }}>{abierto ? '▲' : '▼'}</Text>
       </TouchableOpacity>
@@ -136,14 +139,58 @@ export function ReporteTarasBox({ camiones, taras }: {
               <Pastilla key={`rtu-${u.k}`} on={op.unidad === u.k} label={u.label} onPress={() => setOp('unidad', u.k)} />
             ))}
           </View>
+          {/* 19-oct-2026, a pedido: las mismas opciones que frentes y obras/ubicaciones.
+              Lo que apagues no deja rastro en el papel; el nombre del archivo sí lo dice. */}
+          <Toggle on={op.numeracion !== false} label="1️⃣ Numeración (N°)" onPress={() => setOp('numeracion', op.numeracion === false)} />
+          <Toggle on={op.placa !== false} label="🔢 Placa / serial" onPress={() => setOp('placa', op.placa === false)} />
+          <Toggle on={op.marcaModelo} label="🏷️ Marca y modelo" onPress={() => setOp('marcaModelo', !op.marcaModelo)} />
+          <Toggle
+            on={op.clasificacion === true}
+            label="◆ Clasificación por capacidad"
+            ayuda="Compacto, media o gran capacidad, según los m³ de la tolva. Nace apagada."
+            onPress={() => setOp('clasificacion', op.clasificacion !== true)}
+          />
           <Toggle
             on={op.empresa}
             label="🏢 Empresa"
             ayuda="Apagado, el nombre de la empresa no aparece en ninguna parte del PDF (ni en la tabla ni en el nombre del archivo)."
             onPress={() => setOp('empresa', !op.empresa)}
           />
-          <Toggle on={op.marcaModelo} label="🏷️ Marca y modelo" onPress={() => setOp('marcaModelo', !op.marcaModelo)} />
+          {op.empresa ? (
+            <>
+              <Toggle
+                on={!!(op.empresaUnica ?? '').trim() || empresaUnicaOn}
+                label="🏙 Toda la flota a nombre de una sola empresa"
+                ayuda="En la columna Empresa sale el mismo nombre para cada camión, como si todos fueran de esa empresa. Solo en el papel: no cambia la ficha de nadie."
+                onPress={() => {
+                  const encendida = !!(op.empresaUnica ?? '').trim() || empresaUnicaOn;
+                  if (encendida) { setEmpresaUnicaOn(false); setOp('empresaUnica', ''); }
+                  else setEmpresaUnicaOn(true);
+                }}
+              />
+              {(empresaUnicaOn || !!(op.empresaUnica ?? '').trim()) ? (
+                <TextInput
+                  value={op.empresaUnica ?? ''}
+                  onChangeText={(t) => setOp('empresaUnica', t)}
+                  placeholder="Nombre de la empresa (ej. Jhenzaen 2.012 C.A)"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 4 }}
+                  autoCorrect={false}
+                />
+              ) : null}
+            </>
+          ) : null}
+          {op.alcance === 'todos' ? (
+            <Toggle on={op.estado !== false} label="⚙️ Estado (con tara / sin tara / no pasa por romana)" onPress={() => setOp('estado', op.estado === false)} />
+          ) : null}
           <Toggle on={op.cargadaPor} label="👤 Quién cargó la tara y cuándo" onPress={() => setOp('cargadaPor', !op.cargadaPor)} />
+          <Toggle
+            on={op.kpis !== false}
+            label="📊 Resumen de arriba (total y taras)"
+            ayuda="Las cuatro tarjetas: camiones, tara promedio, mayor y menor."
+            onPress={() => setOp('kpis', op.kpis === false)}
+          />
+          <Toggle on={op.notaPie !== false} label="📝 Nota al pie (qué es la tara)" onPress={() => setOp('notaPie', op.notaPie === false)} />
 
           <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.xs, marginBottom: 2 }}>🏷️ QUÉ LOGOS LLEVA EL MEMBRETE</Text>
           {LOGOS.map(([k, label]) => (
