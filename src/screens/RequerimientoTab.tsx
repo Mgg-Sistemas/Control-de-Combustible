@@ -221,7 +221,6 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
     let code = '';
     let saved = false;
-    let savedId: string | null = null;
     // Campos del responsable: si la columna aún no existe (falta el SQL), se quitan
     // y el requerimiento se guarda igual — el AVISO al almacenista sí se envía.
     let respCampos: Record<string, any> = respId ? { responsable_id: respId, responsable_nombre: respNombre } : {};
@@ -240,7 +239,7 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, supplier_id: supplierId, status: 'pendiente', items,
         requested_by: uid, requested_by_name: reqName, ...adj, ...respCampos,
       }).select('id, code').single();
-      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; savedId = (inserted as any)?.id ?? null; saved = true; break; }
+      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
       // Falta la columna del responsable: se reintenta SIN ella (mismo número).
       if (Object.keys(respCampos).length && faltaColResp(error.message)) { respCampos = {}; respFaltaSql = true; intento--; continue; }
       // Código ya usado (índice único): reintenta con el siguiente número.
@@ -250,24 +249,13 @@ export function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }
     setBusy(false);
     if (!saved) { const m = 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.'; setFormErr(m); return toast.error(m); }
-    // 🔔 AVISO AL RESPONSABLE (17-oct-2026): al almacenista elegido le llega una
-    // notificación a SU campana (recipient_id), con el código y quién lo pidió.
-    // Nunca interrumpe el guardado: el aviso es secundario.
-    if (respId) {
-      try {
-        await supabase.from('notifications').insert({
-          type: 'requerimiento',
-          title: `📦 Requerimiento ${code} a tu cargo`,
-          body: `${title.trim() || 'Sin título'} · ${items.length} producto(s) · pedido por ${reqName || '—'}`,
-          target_role: null,
-          recipient_id: respId,
-          created_by: uid,
-          entity_type: 'inventory_requirement',
-          entity_id: savedId,
-          meta: { responsable_nombre: respNombre },
-        });
-      } catch { /* la campana es secundaria: no tumba el requerimiento */ }
-    }
+    // 🔔 EL AVISO AL RESPONSABLE LO MANDA LA BASE, NO LA APP (18-oct-2026). El
+    // trigger trg_notify_requirement_responsable (gemelo del que avisa a los admin)
+    // crea la notificación dirigida (recipient_id) al INSERTAR con responsable y al
+    // CAMBIARLO en ✏️ Editar. Desde la app NO se inserta: la política notif_insert
+    // exige is_staff() y los almacenistas son rol base 'conductor' — un aviso
+    // insertado desde el cliente se les caía EN SILENCIO (borrados-que-fingen-éxito,
+    // versión insert). El trigger es SECURITY DEFINER y no depende de quién crea.
     setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setSupplierId(null); setRows([]); setFormato(null); setRespId(null); setRespNombre(null);
     refetch();
     toast.success(respFaltaSql
