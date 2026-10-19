@@ -147,6 +147,22 @@ eq('el archivo de siempre no lleva sufijo', P.sufijoArchivoPagoHorometro(P.OPCIO
 ok('…y dice lo que se cambió', /con dias/.test(P.sufijoArchivoPagoHorometro({ ...P.OPCIONES_PAGO_HOROMETRO, sinDias: false })) && /sin placa/.test(P.sufijoArchivoPagoHorometro({ ...P.OPCIONES_PAGO_HOROMETRO, sinPlaca: true })));
 ok('el texto del usuario va escapado', !P.cuerpoPagoHorometro({ ...D, filas: [{ ...f1, maquina: { ...f1.maquina, code: '<script>x</script>' } }] }).includes('<script>'));
 
+// ── Precio de Control como referencia (19-oct-2026) ──────────────────────────
+{
+  const refer = new Map([['m1', 3600], ['m4', null]]);
+  const con = P.cuerpoPagoHorometro(D, P.OPCIONES_PAGO_HOROMETRO, refer);
+  ok('⭐ con el mapa, sale la columna «Control $/jornada»', /Control \$\/jornada/.test(con));
+  ok('…con el precio por jornada y su equivalente por hora (3600/12 = 300)', con.includes('$3.600,00') && con.includes('$300,00/h'));
+  ok('…la máquina sin precio en Control sale con guion, no con 0', /—/.test(con));
+  ok('…y el papel aclara que es referencia (no entra en el monto)', /solo referencia, no entra en el monto/.test(con));
+  const sin = P.cuerpoPagoHorometro(D, P.OPCIONES_PAGO_HOROMETRO);
+  ok('⭐ sin el mapa, el papel queda IGUAL que siempre (ni columna ni nota)', !/Control \$\/jornada/.test(sin) && !/solo referencia/.test(sin));
+  const oculto = P.cuerpoPagoHorometro(D, { ...P.OPCIONES_PAGO_HOROMETRO, sinPrecioControl: true }, refer);
+  ok('⭐ la pastilla la oculta sin dejar rastro', !/Control \$\/jornada/.test(oculto) && !/solo referencia/.test(oculto));
+  ok('⭐ el monto NO cambia por la referencia (no se enlaza al pago)', P.totalPagoHorometro(D.filas).monto === 248);
+  ok('…y el sufijo del archivo la nombra al ocultarla', /sin precio control/.test(P.sufijoArchivoPagoHorometro({ ...P.OPCIONES_PAGO_HOROMETRO, sinPrecioControl: true })));
+}
+
 // ── 5) ⭐ LOS DOS CONTROLES NO SE TOCAN ──────────────────────────────────────
 {
   const lib = sinComentarios(leer('src/lib/pagoHorometro.ts'));

@@ -1142,6 +1142,8 @@ export type AsignacionFrente = {
   machineryId: string;
   frenteId: string;
   frenteNombre: string;
+  /** Cuándo se asignó (19-oct-2026): con varios frentes el mismo día, decide cuál es EL MÁS RECIENTE. */
+  creadoAt?: string | null;
 };
 
 /** Las asignaciones de una jornada (AAAA-MM-DD), con el nombre del frente ya
@@ -1150,7 +1152,7 @@ export async function listAsignacionesFrente(jornada: string, fuente: FuenteFren
   try {
     const data = await selectAllRows(
       fuente.asignaciones,
-      'machinery_id, frente_id, frente:frente_id(nombre)',
+      'machinery_id, frente_id, created_at, frente:frente_id(nombre)',
       (q: any) => q.eq('jornada', jornada),
       'machinery_id'
     );
@@ -1159,6 +1161,7 @@ export async function listAsignacionesFrente(jornada: string, fuente: FuenteFren
         machineryId: r.machinery_id as string,
         frenteId: r.frente_id as string,
         frenteNombre: String(r.frente?.nombre ?? '').trim(),
+        creadoAt: (r.created_at as string | null) ?? null,
       })),
       missing: false,
     };
@@ -1179,7 +1182,7 @@ export async function listAsignacionesFrenteRango(
   try {
     const data = await selectAllRows(
       fuente.asignaciones,
-      'jornada, machinery_id, frente_id, frente:frente_id(nombre)',
+      'jornada, machinery_id, frente_id, created_at, frente:frente_id(nombre)',
       // Sin orderBy explícito: pagina por `id`, que es único. `jornada` se
       // repite (un camión por fila) y paginar por una columna repetida puede
       // saltar o duplicar filas al pasar de página.
@@ -1191,6 +1194,7 @@ export async function listAsignacionesFrenteRango(
         machineryId: r.machinery_id as string,
         frenteId: r.frente_id as string,
         frenteNombre: String(r.frente?.nombre ?? '').trim(),
+        creadoAt: (r.created_at as string | null) ?? null,
       })),
       missing: false,
     };
@@ -1248,6 +1252,19 @@ export async function asignarFrente(
   userId: string | null, userName: string | null, fuente: FuenteFrentes = FRENTES_VIAJES,
 ): Promise<{ error?: string; agregados?: number; yaEstaban?: number }> {
   if (!machineryIds.length) return { error: 'Marca al menos un camión.' };
+  // ⛏️ MAQUINARIA: UNA MÁQUINA = UN FRENTE POR DÍA (19-oct-2026, a pedido del
+  //    cliente: «las máquinas no pueden tener más de un frente»). Asignar
+  //    REEMPLAZA: se le quitan los otros frentes de esa jornada antes de poner
+  //    el nuevo. Los CAMIONES de viajes se quedan como el 30-sep: SUMAN
+  //    («permite que un camion pueda tener varios frentes»).
+  if (fuente.asignaciones === FRENTES_MAQUINARIA.asignaciones) {
+    // El `.select('id')` delata a la RLS si un día bloquea el DELETE (0 filas,
+    // sin error); la política vigente (mfa_write ALL, verificada 19-oct) lo deja.
+    const { error: eDel } = await supabase.from(fuente.asignaciones)
+      .delete().eq('jornada', jornada).neq('frente_id', frenteId)
+      .in('machinery_id', machineryIds).select('id');
+    if (eDel) return { error: eDel.message };
+  }
   const { data: previas } = await supabase.from(fuente.asignaciones)
     .select('machinery_id').eq('jornada', jornada).eq('frente_id', frenteId)
     .in('machinery_id', machineryIds);

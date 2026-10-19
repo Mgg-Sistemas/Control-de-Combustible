@@ -628,6 +628,13 @@ export type OpcionesPagoHorometro = {
   sinEmpresas: boolean;
   /** Sin la columna del precio por hora. */
   sinPrecio: boolean;
+  /**
+   * Sin la columna «Control $/jornada» (19-oct-2026): el precio por JORNADA de
+   * 12 h ya colocado en Control de maquinaria. Es SOLO REFERENCIA — no entra en
+   * el monto (el pago sigue saliendo del precio por hora propio del módulo) y
+   * solo se pinta si el panel pasa el mapa de referencia.
+   */
+  sinPrecioControl: boolean;
   /** Sin el cuadro resumen por empresa. */
   sinResumen: boolean;
   /** Sin el listado máquina por máquina. */
@@ -642,6 +649,7 @@ export type OpcionesPagoHorometro = {
 
 export const OPCIONES_PAGO_HOROMETRO: OpcionesPagoHorometro = {
   sinMarca: false, sinModelo: false, sinPlaca: false, sinEmpresas: false, sinPrecio: false,
+  sinPrecioControl: false,
   sinResumen: false, sinListado: false, sinDias: true, sinInicioFin: false, sinAlertas: false,
 };
 
@@ -651,6 +659,7 @@ export const PASTILLAS_PAGO_HOROMETRO: { key: keyof OpcionesPagoHorometro; chip:
   { key: 'sinPlaca', chip: '🚫 Serial / Placa', archivo: 'sin placa' },
   { key: 'sinEmpresas', chip: '🚫 Nombre de empresas', archivo: 'sin empresas' },
   { key: 'sinPrecio', chip: '🚫 Precio por hora', archivo: 'sin precio' },
+  { key: 'sinPrecioControl', chip: '🚫 Precio en Control', archivo: 'sin precio control' },
   { key: 'sinResumen', chip: '🚫 Resumen por empresa', archivo: 'sin resumen' },
   { key: 'sinListado', chip: '🚫 Listado por máquina', archivo: 'sin listado' },
   { key: 'sinDias', chip: '🚫 Detalle día por día', archivo: 'sin dias' },
@@ -693,11 +702,24 @@ export function motivoAlertaDia(d: DiaPago): string {
 export function cuerpoPagoHorometro(
   d: { desde: string; hasta: string; filas: readonly FilaPagoHorometro[] },
   o: OpcionesPagoHorometro = OPCIONES_PAGO_HOROMETRO,
+  /**
+   * Precio por JORNADA (12 h) ya colocado en Control de maquinaria, por id de
+   * máquina (19-oct-2026, pedido del cliente). SOLO REFERENCIA: se pinta como
+   * columna aparte y NO entra en el monto. Si no llega el mapa, no sale nada
+   * (así los llamados viejos quedan idénticos).
+   */
+  precioControl?: ReadonlyMap<string, number | null>,
 ): string {
   const filas = d.filas ?? [];
   const tot = totalPagoHorometro(filas);
+  // La columna de referencia solo existe si llegó el mapa y la pastilla no la oculta.
+  const conControl = !!precioControl && !o.sinPrecioControl;
+  const tdControl = (id: string) => {
+    const p = precioControl?.get(id);
+    return p != null && p > 0 ? `${usd(p)} <i>(${usd(p / 12)}/h)</i>` : '—';
+  };
   let html = `<div class="ph">`;
-  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Horas = final − inicial del horómetro de trabajo, por turno. Cada día se paga con el precio por hora que regía ese día.</p>`;
+  html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Horas = final − inicial del horómetro de trabajo, por turno. Cada día se paga con el precio por hora que regía ese día.${conControl ? ' «Control $/jornada» es el precio por jornada (12 h) ya colocado en Control de maquinaria: solo referencia, no entra en el monto.' : ''}</p>`;
   if (filas.length === 0) return `${html}<p class="nota">Sin lecturas de horómetro en el rango.</p></div>`;
 
   const mm = (m: MaquinaPago) => [!o.sinMarca ? m.marca : '', !o.sinModelo ? m.modelo : ''].filter(Boolean).join(' / ');
@@ -713,13 +735,13 @@ export function cuerpoPagoHorometro(
   }
 
   if (!o.sinListado) {
-    html += `<h3>Pago por máquina</h3><table><thead><tr><th>Máquina</th>${thMM}${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinEmpresas ? '' : '<th>Empresa</th>'}<th class="r">Horas</th>${o.sinPrecio ? '' : '<th class="r">Precio/h</th>'}<th class="r">Monto</th></tr></thead><tbody>`;
+    html += `<h3>Pago por máquina</h3><table><thead><tr><th>Máquina</th>${thMM}${o.sinPlaca ? '' : '<th>Serial / Placa</th>'}${o.sinEmpresas ? '' : '<th>Empresa</th>'}<th class="r">Horas</th>${o.sinPrecio ? '' : '<th class="r">Precio/h</th>'}${conControl ? '<th class="r">Control $/jornada</th>' : ''}<th class="r">Monto</th></tr></thead><tbody>`;
     for (const f of filas) {
       const precio = f.variosPrecios ? 'varios' : f.precioVigente != null ? usd(f.precioVigente) : '—';
-      html += `<tr><td>${esc(f.maquina.code)}</td>${tdMM(f.maquina)}${o.sinPlaca ? '' : `<td>${esc(f.maquina.placa)}</td>`}${o.sinEmpresas ? '' : `<td>${esc(f.maquina.empresa)}</td>`}<td class="r">${fmtHoras(f.horas)}</td>${o.sinPrecio ? '' : `<td class="r">${precio}</td>`}<td class="r b">${usd(f.monto)}</td></tr>`;
+      html += `<tr><td>${esc(f.maquina.code)}</td>${tdMM(f.maquina)}${o.sinPlaca ? '' : `<td>${esc(f.maquina.placa)}</td>`}${o.sinEmpresas ? '' : `<td>${esc(f.maquina.empresa)}</td>`}<td class="r">${fmtHoras(f.horas)}</td>${o.sinPrecio ? '' : `<td class="r">${precio}</td>`}${conControl ? `<td class="r">${tdControl(f.maquina.id)}</td>` : ''}<td class="r b">${usd(f.monto)}</td></tr>`;
     }
     const cols = 1 + (thMM ? 1 : 0) + (o.sinPlaca ? 0 : 1) + (o.sinEmpresas ? 0 : 1);
-    html += `<tr class="tot"><td colspan="${cols}">TOTAL A PAGAR</td><td class="r">${fmtHoras(tot.horas)}</td>${o.sinPrecio ? '' : '<td></td>'}<td class="r">${usd(tot.monto)}</td></tr></tbody></table>`;
+    html += `<tr class="tot"><td colspan="${cols}">TOTAL A PAGAR</td><td class="r">${fmtHoras(tot.horas)}</td>${o.sinPrecio ? '' : '<td></td>'}${conControl ? '<td></td>' : ''}<td class="r">${usd(tot.monto)}</td></tr></tbody></table>`;
   }
 
   if (!o.sinDias) {

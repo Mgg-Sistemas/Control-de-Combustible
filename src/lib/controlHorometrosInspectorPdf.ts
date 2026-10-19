@@ -39,6 +39,7 @@ import { machineLabel as etiquetaMaquina } from './machineLabel';
 import { computeInspectorData } from './inspectorReport';
 import { cargarLecturasHorometro } from './horometroTrabajoDb';
 import { listAsignacionesFrente, FRENTES_MAQUINARIA } from './camionViajes';
+import { unFrentePorMaquina } from './frentesReporte';
 
 const CARACAS_TZ = 'America/Caracas';
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -124,9 +125,11 @@ export async function cargarFilasControlHorometros(opts: { date: string; shift: 
     if (r.jornada_start_at) inicioAbiertoDe.set(r.machinery_id, r.jornada_start_at);
   });
 
-  // Frentes planificados de la jornada (puede haber varios: se listan todos).
+  // Frente planificado de la jornada. ⛏️ 19-oct-2026: una máquina = UN frente
+  // por día; si un día viejo quedó con varios, manda el MÁS RECIENTE (el join
+  // de abajo se queda por si acaso, pero ya no debería concatenar nada).
   const frentesDeMaquina = new Map<string, string[]>();
-  (asignaciones ?? []).forEach((a) => {
+  unFrentePorMaquina(asignaciones ?? []).forEach((a) => {
     if (!a.machineryId || !a.frenteNombre) return;
     const l = frentesDeMaquina.get(a.machineryId) ?? [];
     if (!l.includes(a.frenteNombre)) l.push(a.frenteNombre);

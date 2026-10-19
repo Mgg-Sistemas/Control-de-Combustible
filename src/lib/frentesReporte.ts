@@ -203,6 +203,28 @@ export const LOGOS_FRENTES_POR_DEFECTO: LogosFrentes = {
  * `frentesActivos` son los frentes que hay que listar AUNQUE no tengan camiones
  * ese día. Normalmente va vacío (ver `frentesParaReporte`).
  */
+/**
+ * ⛏️ UNA MÁQUINA = UN FRENTE POR DÍA (19-oct-2026, a pedido del cliente: «las
+ * máquinas no pueden tener más de un frente»). Si una máquina quedó con varias
+ * asignaciones el mismo día (herencia del multi-frente de camiones del 30-sep,
+ * o días viejos de antes del arreglo), se queda SOLO LA MÁS RECIENTE por
+ * `creadoAt`; sin fecha, gana la última de la lista. Es SOLO para maquinaria —
+ * los camiones de viajes sí pueden tener varios frentes, a propósito.
+ * Funciona con las de un día y con las de un rango (agrupa por `jornada` si viene).
+ */
+export function unFrentePorMaquina<T extends { machineryId: string; creadoAt?: string | null; jornada?: string }>(
+  asignaciones: readonly T[],
+): T[] {
+  const porClave = new Map<string, T>();
+  for (const a of asignaciones ?? []) {
+    const k = `${a.jornada ?? ''}|${a.machineryId}`;
+    const previa = porClave.get(k);
+    // Empate o sin fecha: gana la última leída (la base pagina por id, que crece).
+    if (!previa || String(a.creadoAt ?? '') >= String(previa.creadoAt ?? '')) porClave.set(k, a);
+  }
+  return Array.from(porClave.values());
+}
+
 export function frentesDelDia(
   asignaciones: { frenteNombre: string; camion: CamionDelFrente }[],
   frentesActivos: string[] = [],
