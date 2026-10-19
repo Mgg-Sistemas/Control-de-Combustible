@@ -36,7 +36,7 @@ import { cargarDatosPagoPeso } from '../lib/pagoPesoDb';
 import {
   FUENTES_META, FUENTES_ORDEN, OPCIONES_CONSOLIDADO_POR_DEFECTO, CSS_CONSOLIDADO,
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
-  usd, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
+  usd, cantTexto, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -133,16 +133,22 @@ export function ReporteConsolidadoCard() {
           if (!f.modelo && modelo) f.modelo = modelo;
           return f;
         };
-        const suma = (f: FilaConsolidada, k: FuenteKey, v: number) => { f.montos[k] = Math.round(((f.montos[k] ?? 0) + v) * 100) / 100; };
+        const suma = (f: FilaConsolidada, k: FuenteKey, v: number, cant?: number) => {
+          f.montos[k] = Math.round(((f.montos[k] ?? 0) + v) * 100) / 100;
+          if (cant) {
+            f.cant = f.cant ?? {};
+            f.cant[k] = Math.round(((f.cant[k] ?? 0) + cant) * 100) / 100;
+          }
+        };
 
-        // 🕐 Jornadas (receta de Control de Pagos)
+        // 🕐 Jornadas (receta de Control de Pagos) — el respaldo son sus HORAS
         for (const j of montosJornadaPorMaquina({ rounds: rounds as unknown as RondaJornada[], hist, desde: d1, hasta: d2 })) {
-          suma(fila(j.id, j.code, j.placa, j.empresa), 'jornadas', j.monto);
+          suma(fila(j.id, j.code, j.placa, j.empresa), 'jornadas', j.monto, j.horas);
         }
-        // ⚙️ Horómetros (con cierres: lo cerrado sale de la foto, como el panel)
+        // ⚙️ Horómetros (con cierres: lo cerrado sale de la foto, como el panel) — HORAS
         for (const h of filasPagoHorometro({ maquinas: maqsH, lecturas, precios: precios.precios, desde: d1, hasta: d2, ajustes: ajustes.ajustes, cierres: cierres.cierres, cambios: cambios.cambios })) {
           if (h.monto === 0 && h.horas === 0) continue;
-          suma(fila(h.maquina.id, h.maquina.code, h.maquina.placa, h.maquina.empresa, (h.maquina as any).marca, (h.maquina as any).modelo), 'horometros', h.monto);
+          suma(fila(h.maquina.id, h.maquina.code, h.maquina.placa, h.maquina.empresa, (h.maquina as any).marca, (h.maquina as any).modelo), 'horometros', h.monto, h.horas);
         }
         // 🚛 Viajes (un solo grupo por empresa con semanaDe fija, como la tarjeta del módulo)
         const grupos = calcularPagoViajes({
@@ -158,7 +164,8 @@ export function ReporteConsolidadoCard() {
           for (const c of g.porCamion ?? []) {
             if (!c.monto) continue;
             const ficha = fichasV?.get(c.machineryId);
-            suma(fila(c.machineryId, c.code, c.placa ?? ficha?.placa ?? '', empresa, ficha?.marca, ficha?.modelo), 'viajes', c.monto);
+            // El respaldo son los VIAJES CON TARIFA (los que hicieron el monto)
+            suma(fila(c.machineryId, c.code, c.placa ?? ficha?.placa ?? '', empresa, ficha?.marca, ficha?.modelo), 'viajes', c.monto, c.pagados);
           }
         });
         // ⚖️ Peso (todos los camiones; el solape con viajes lo marca el papel)
@@ -166,7 +173,8 @@ export function ReporteConsolidadoCard() {
         for (const r of renglonesPorCamionPeso(lineasPeso, (pDatos as any).fichas, (pDatos as any).empresas)) {
           if (!r.monto) continue;
           const ficha = fichasP?.get(r.machineryId);
-          suma(fila(r.machineryId, r.code, r.placa ?? ficha?.placa ?? '', r.empresa || 'Sin empresa', ficha?.marca, ficha?.modelo), 'peso', r.monto);
+          // El respaldo son los KG pagados (el papel los pinta en toneladas)
+          suma(fila(r.machineryId, r.code, r.placa ?? ficha?.placa ?? '', r.empresa || 'Sin empresa', ficha?.marca, ficha?.modelo), 'peso', r.monto, r.kg);
         }
         return Array.from(porId.values());
       };
@@ -273,7 +281,10 @@ export function ReporteConsolidadoCard() {
         <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>💰 {usd(t.total)}</Text>
           <Text style={{ color: colors.muted, fontSize: 11.5 }}>
-            {FUENTES_ORDEN.filter((k) => op.fuentes[k] !== 'oculta').map((k) => `${FUENTES_META[k].icon} ${usd(t.porFuente[k])}${op.fuentes[k] === 'muestra' ? ' (no suma)' : ''}`).join(' · ')}
+            {FUENTES_ORDEN.filter((k) => op.fuentes[k] !== 'oculta').map((k) => {
+              const respaldo = cantTexto(k, t.cantPorFuente[k]);
+              return `${FUENTES_META[k].icon} ${usd(t.porFuente[k])}${respaldo ? ` (${respaldo})` : ''}${op.fuentes[k] === 'muestra' ? ' (no suma)' : ''}`;
+            }).join(' · ')}
           </Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>{t.maquinas} máquina(s) · {t.empresas} empresa(s) · del {rangoCalculado?.desde} al {rangoCalculado?.hasta}</Text>
         </View>
@@ -357,6 +368,7 @@ export function ReporteConsolidadoCard() {
           ))}
         </View>
       ) : null}
+      <Toggle on={!op.sinCantidades} label="📏 Lo que respalda cada monto (horas, viajes, toneladas)" onPress={() => setOp((p) => ({ ...p, sinCantidades: !p.sinCantidades }))} />
       <Toggle on={!op.sinPlaca} label="🔢 Placa / serial" onPress={() => setOp((p) => ({ ...p, sinPlaca: !p.sinPlaca }))} />
       <Toggle on={!op.sinMarcaModelo} label="🏷️ Marca y modelo (nace apagada)" onPress={() => setOp((p) => ({ ...p, sinMarcaModelo: !p.sinMarcaModelo }))} />
       <Toggle on={!op.sinEmpresas} label="🏢 Nombres de empresa" ayuda="Apagado, no salen por ninguna parte (ni el cuadro por empresa)." onPress={() => setOp((p) => ({ ...p, sinEmpresas: !p.sinEmpresas }))} />

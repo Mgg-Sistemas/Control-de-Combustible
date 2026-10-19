@@ -162,6 +162,48 @@ const D = { filas: F, desde: '2026-10-12', hasta: '2026-10-18' };
   ok('texto escapado en el papel', !C.cuerpoConsolidado({ ...D, filas: [{ ...F[0], code: '<script>x</script>' }] }, OP).includes('<script>'));
 }
 
+// ═══ 2b) Lo que RESPALDA cada monto: horas, viajes y toneladas ═══════════════
+const FC = [
+  { id: 'a', code: 'JUMBO 320', placa: 'AA11', empresa: 'ALFA C.A', montos: { jornadas: 1000, horometros: 500 }, cant: { jornadas: 36, horometros: 10.5 } },
+  { id: 'b', code: 'VOLTEO 1', placa: 'BB22', empresa: 'BETA C.A', montos: { viajes: 300, peso: 200 }, cant: { viajes: 12, peso: 48500 } },
+];
+const DC = { filas: FC, desde: '2026-10-12', hasta: '2026-10-18' };
+{
+  eq('⭐ cantTexto habla en la unidad de cada fuente', [C.cantTexto('jornadas', 36), C.cantTexto('viajes', 1), C.cantTexto('viajes', 12), C.cantTexto('peso', 48500)], ['36 h', '1 viaje', '12 viajes', '48,50 t']);
+  eq('cantTexto en cero o vacío no dice nada', [C.cantTexto('jornadas', 0), C.cantTexto('peso', null)], ['', '']);
+  const t = C.totalesConsolidado(FC, OP);
+  eq('⭐ los totales traen el respaldo por fuente (horas/viajes/kg)', t.cantPorFuente, { jornadas: 36, horometros: 10.5, viajes: 12, peso: 48500 });
+  const html = C.cuerpoConsolidado(DC, OP);
+  ok('⭐ el papel muestra el respaldo debajo del monto (36 h, 12 viajes, 48,50 t)', html.includes('36 h') && html.includes('12 viajes') && html.includes('48,50 t'));
+  ok('⭐ el cuadro por empresa sale COMPLETO: fuente por fuente, % del total y máquinas', html.includes('% del total') && /<th>Empresa<\/th><th class="r">Máquinas<\/th>/.test(html));
+  ok('el papel se parte en secciones (resumen ejecutivo y detalle)', html.includes('📊 Resumen ejecutivo') && /📑 Detalle/.test(html));
+  const sin = C.cuerpoConsolidado(DC, { ...OP, sinCantidades: true });
+  ok('⭐ apagar las cantidades las quita sin dejar rastro', !sin.includes('36 h') && !sin.includes('48,50 t') && !sin.includes('12 viajes'));
+  ok('…y el nombre del archivo lo dice', /sin cantidades/.test(C.sufijoArchivoConsolidado({ ...OP, sinCantidades: true })));
+  const viejas = C.cuerpoConsolidado(D, OP);
+  ok('una fila sin cantidades sigue valiendo (solo montos)', viejas.includes('TOTAL GENERAL'));
+}
+{
+  // El desglose del solape: cuánto cobra por CADA fuente, no solo los íconos.
+  const r = C.resumenConsolidado(DC, OP);
+  const solapes = r.cuadros.find((c) => c.k === 'solapes');
+  ok('⭐ el solape dice cuánto cobra por cada fuente', solapes.filas.every((f) => /\$/.test(f.clave)));
+  const top = r.cuadros.find((c) => c.k === 'top5');
+  ok('el top 5 trae el % del total de cada máquina', top.filas.every((f) => /% del total/.test(f.clave)));
+  const tarjeta = r.tarjetas.find((x) => x.k === 'fuente_jornadas');
+  ok('⭐ la tarjeta por fuente trae su respaldo (36 h)', /36 h/.test(tarjeta.nota ?? ''));
+  const rSin = C.resumenConsolidado(DC, { ...OP, sinCantidades: true });
+  ok('…y con cantidades apagadas, la tarjeta no lo trae', !/36 h/.test(rSin.tarjetas.find((x) => x.k === 'fuente_jornadas').nota ?? ''));
+}
+{
+  // La pantalla CARGA el respaldo de los cuatro motores.
+  const card = leer('src/components/ReporteConsolidadoCard.tsx');
+  ok('⭐ la pantalla pasa horas de jornadas, horas de horómetro, viajes pagados y kg',
+    /'jornadas', j\.monto, j\.horas/.test(card) && /'horometros', h\.monto, h\.horas/.test(card)
+    && /'viajes', c\.monto, c\.pagados/.test(card) && /'peso', r\.monto, r\.kg/.test(card));
+  ok('…y tiene el interruptor de cantidades', /sinCantidades/.test(card));
+}
+
 // ═══ 3) Candados de pantalla ═════════════════════════════════════════════════
 {
   const card = leer('src/components/ReporteConsolidadoCard.tsx');

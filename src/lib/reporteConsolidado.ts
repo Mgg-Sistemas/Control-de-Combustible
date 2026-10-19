@@ -48,7 +48,22 @@ export type FilaConsolidada = {
   marca?: string | null;
   modelo?: string | null;
   montos: Partial<Record<FuenteKey, number>>;
+  /**
+   * LO QUE RESPALDA cada monto, en la unidad natural de su fuente:
+   * jornadas y horómetros en HORAS, viajes en VIAJES CON TARIFA, peso en KG.
+   * Opcional: una fila vieja sin cantidades sigue valiendo (salen solo montos).
+   */
+  cant?: Partial<Record<FuenteKey, number>>;
 };
+
+/** La cantidad en palabras del jefe: «36 h», «12 viajes», «48,50 t». */
+export function cantTexto(k: FuenteKey, v: number | null | undefined): string {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n) || n === 0) return '';
+  if (k === 'viajes') return `${Math.round(n)} viaje${Math.round(n) === 1 ? '' : 's'}`;
+  if (k === 'peso') return `${(n / 1000).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t`;
+  return `${n.toLocaleString('es-VE', { maximumFractionDigits: 1 })} h`;
+}
 
 export type OpcionesConsolidado = {
   fuentes: Record<FuenteKey, ModoFuente>;
@@ -56,6 +71,8 @@ export type OpcionesConsolidado = {
   agruparPor: 'empresa' | 'maquina' | 'global';
   sinMarcaModelo: boolean;
   sinPlaca: boolean;
+  /** Sin el respaldo de cada monto (horas, viajes, toneladas). Nace mostrándolo. */
+  sinCantidades: boolean;
   /** Sin nombres de empresa EN NINGUNA PARTE (tabla, resumen y cuadros). */
   sinEmpresas: boolean;
   // ── El resumen ejecutivo, pieza por pieza ──
@@ -75,6 +92,8 @@ export const OPCIONES_CONSOLIDADO_POR_DEFECTO: OpcionesConsolidado = {
   agruparPor: 'empresa',
   sinMarcaModelo: true, // el papel del jefe nace limpio: marca/modelo se enciende
   sinPlaca: false,
+  sinCantidades: false, // el jefe pidió el papel COMPLETO: el respaldo sale salvo que lo apague
+
   sinEmpresas: false,
   resumen: true,
   tarjetasFuente: true,
@@ -113,6 +132,8 @@ export const totalFila = (f: FilaConsolidada, op: OpcionesConsolidado): number =
 
 export type TotalesConsolidado = {
   porFuente: Record<FuenteKey, number>;
+  /** El respaldo sumado por fuente (horas / viajes / kg), para las tarjetas y los pies. */
+  cantPorFuente: Record<FuenteKey, number>;
   total: number;
   maquinas: number;
   empresas: number;
@@ -121,9 +142,13 @@ export type TotalesConsolidado = {
 export function totalesConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): TotalesConsolidado {
   const elegidas = filasElegidas(filas, op);
   const porFuente = { jornadas: 0, horometros: 0, viajes: 0, peso: 0 } as Record<FuenteKey, number>;
-  for (const f of elegidas) for (const k of FUENTES_ORDEN) porFuente[k] = r2(porFuente[k] + (f.montos[k] ?? 0));
+  const cantPorFuente = { jornadas: 0, horometros: 0, viajes: 0, peso: 0 } as Record<FuenteKey, number>;
+  for (const f of elegidas) for (const k of FUENTES_ORDEN) {
+    porFuente[k] = r2(porFuente[k] + (f.montos[k] ?? 0));
+    cantPorFuente[k] = r2(cantPorFuente[k] + (f.cant?.[k] ?? 0));
+  }
   const total = r2(fuentesQueSuman(op).reduce((s, k) => s + porFuente[k], 0));
-  return { porFuente, total, maquinas: elegidas.length, empresas: new Set(elegidas.map((f) => f.empresa)).size };
+  return { porFuente, cantPorFuente, total, maquinas: elegidas.length, empresas: new Set(elegidas.map((f) => f.empresa)).size };
 }
 
 /** ⚠️ Máquinas cobrando por DOS O MÁS fuentes que suman: posible pago doble. */
@@ -136,12 +161,15 @@ export function solapesConsolidado(filas: readonly FilaConsolidada[], op: Opcion
     .sort((a, b) => b.monto - a.monto);
 }
 
-export type EmpresaConsolidada = { empresa: string; porFuente: Record<FuenteKey, number>; total: number; maquinas: number };
+export type EmpresaConsolidada = { empresa: string; porFuente: Record<FuenteKey, number>; cantPorFuente: Record<FuenteKey, number>; total: number; maquinas: number };
 export function porEmpresaConsolidado(filas: readonly FilaConsolidada[], op: OpcionesConsolidado): EmpresaConsolidada[] {
   const m = new Map<string, EmpresaConsolidada>();
   for (const f of filasElegidas(filas, op)) {
-    const e = m.get(f.empresa) ?? { empresa: f.empresa, porFuente: { jornadas: 0, horometros: 0, viajes: 0, peso: 0 }, total: 0, maquinas: 0 };
-    for (const k of FUENTES_ORDEN) e.porFuente[k] = r2(e.porFuente[k] + (f.montos[k] ?? 0));
+    const e = m.get(f.empresa) ?? { empresa: f.empresa, porFuente: { jornadas: 0, horometros: 0, viajes: 0, peso: 0 }, cantPorFuente: { jornadas: 0, horometros: 0, viajes: 0, peso: 0 }, total: 0, maquinas: 0 };
+    for (const k of FUENTES_ORDEN) {
+      e.porFuente[k] = r2(e.porFuente[k] + (f.montos[k] ?? 0));
+      e.cantPorFuente[k] = r2(e.cantPorFuente[k] + (f.cant?.[k] ?? 0));
+    }
     e.total = r2(e.total + totalFila(f, op));
     e.maquinas += 1;
     m.set(f.empresa, e);
@@ -192,11 +220,12 @@ export function resumenConsolidado(d: {
   if (op.tarjetasFuente) {
     for (const k of fuentesVisibles(op)) {
       const suma = op.fuentes[k] === 'suma';
+      const respaldo = op.sinCantidades ? '' : cantTexto(k, t.cantPorFuente[k]);
       tarjetas.push({
         k: `fuente_${k}`,
         titulo: `${FUENTES_META[k].icon} ${FUENTES_META[k].label}`,
         valor: usd(t.porFuente[k]),
-        nota: suma ? `${pct(t.porFuente[k], t.total)} del total` : 'referencia · no suma',
+        nota: `${suma ? `${pct(t.porFuente[k], t.total)} del total` : 'referencia · no suma'}${respaldo ? ` · ${respaldo}` : ''}`,
       });
     }
   }
@@ -223,7 +252,7 @@ export function resumenConsolidado(d: {
       k: 'top5',
       titulo: '🏆 Las 5 máquinas más costosas',
       filas: topMaquinas(d.filas, op, 5).map((x) => ({
-        clave: `${x.fila.code}${x.fila.placa ? ` · ${x.fila.placa}` : ''}${x.principal ? ` (${FUENTES_META[x.principal].icon} ${FUENTES_META[x.principal].label.toLowerCase()})` : ''}`,
+        clave: `${x.fila.code}${x.fila.placa ? ` · ${x.fila.placa}` : ''}${x.principal ? ` (${FUENTES_META[x.principal].icon} ${FUENTES_META[x.principal].label.toLowerCase()})` : ''} — ${pct(x.total, t.total)} del total`,
         n: x.total,
       })),
     });
@@ -233,8 +262,9 @@ export function resumenConsolidado(d: {
     cuadros.push({
       k: 'solapes',
       titulo: `⚠️ Cobran por dos fuentes a la vez (${s.length})`,
+      // Con el DESGLOSE de cuánto cobra por cada fuente: así el jefe decide sin buscar.
       filas: s.map((x) => ({
-        clave: `${x.fila.code}${x.fila.placa ? ` · ${x.fila.placa}` : ''} — ${x.fuentes.map((k) => FUENTES_META[k].icon).join('+')}`,
+        clave: `${x.fila.code}${x.fila.placa ? ` · ${x.fila.placa}` : ''} — ${x.fuentes.map((k) => `${FUENTES_META[k].icon} ${usd(x.fila.montos[k] ?? 0)}`).join(' + ')}`,
         n: x.monto,
       })),
     });
@@ -248,7 +278,11 @@ export const CSS_CONSOLIDADO = `
   .cj .tj .v{font-size:17px;font-weight:800;color:#1E3A5F;line-height:1.1}
   .cj .tj .t{margin-top:4px;font-size:8.5px;font-weight:700;color:#68757F;letter-spacing:.3px;text-transform:uppercase}
   .cj .tj .n{margin-top:2px;font-size:8.5px;color:#6B7280}
+  .cj h2{font-size:14px;color:#16324F;margin:14px 0 4px;border-bottom:2px solid #16324F;padding-bottom:2px}
   .cj h3{font-size:13px;color:#16324F;margin:12px 0 4px}
+  .cj .q{font-size:8px;color:#6B7280;font-weight:400}
+  .cj tr.sub .q{color:#5b6773}
+  .cj tr.tot .q{color:#cfd8e3}
   .cj table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px}
   .cj th,.cj td{border:1px solid #c9d2dc;padding:4px 6px;text-align:left}
   .cj th{background:#16324F;color:#fff;font-size:8.5px;letter-spacing:.3px}
@@ -276,12 +310,27 @@ export function cuerpoConsolidado(d: {
   html += `<p class="nota">Del ${dmy(d.desde)} al ${dmy(d.hasta)}. Cada monto sale de su propio control (jornadas de Control de pagos, pago por horómetro, pago por viajes y pago por peso): este papel no inventa nada, solo junta y suma.${visibles.some((k) => !suman.has(k)) ? ' Lo marcado «ref» se muestra sin sumar.' : ''}</p>`;
   if (elegidas.length === 0) return `${html}<p class="nota">Sin montos en el rango con las fuentes elegidas.</p></div>`;
 
-  // ── Resumen ejecutivo (editable) ──
+  const conCant = !op.sinCantidades;
+  const celdaCant = (k: FuenteKey, f: { cant?: Partial<Record<FuenteKey, number>> } | Record<FuenteKey, number>, deTotales = false): string => {
+    if (!conCant) return '';
+    const v = deTotales ? (f as Record<FuenteKey, number>)[k] : (f as FilaConsolidada).cant?.[k];
+    const tx = cantTexto(k, v ?? 0);
+    return tx ? `<div class="q">${esc(tx)}</div>` : '';
+  };
+
+  // ── 📊 Resumen ejecutivo (editable) ──
   if (op.resumen) {
     const r = aplicarEdicionResumen(resumenConsolidado(d, op), edicion ?? {});
+    html += `<h2>📊 Resumen ejecutivo</h2>`;
     html += `<div class="tjs">${r.tarjetas.map((x) => `<div class="tj"><div class="v">${esc(x.valor)}</div><div class="t">${esc(x.titulo)}</div>${x.nota ? `<div class="n">${esc(x.nota)}</div>` : ''}</div>`).join('')}</div>`;
     for (const c of r.cuadros) {
       if (!c.filas.length) continue;
+      if (c.k === 'por_empresa') {
+        // El cuadro por empresa COMPLETO: desglose por fuente, % del total y máquinas.
+        const empresas = porEmpresaConsolidado(d.filas, op);
+        html += `<h3>${esc(c.titulo)}</h3><table><thead><tr><th>Empresa</th><th class="r">Máquinas</th>${visibles.map((k) => `<th class="r">${FUENTES_META[k].icon} ${FUENTES_META[k].label}${suman.has(k) ? '' : ' (ref)'}</th>`).join('')}<th class="r">TOTAL</th><th class="r">% del total</th></tr></thead><tbody>${empresas.map((e) => `<tr><td>${esc(e.empresa)}</td><td class="r">${e.maquinas}</td>${visibles.map((k) => `<td class="r${suman.has(k) ? '' : ' ref'}">${e.porFuente[k] !== 0 ? usd(e.porFuente[k]) : '—'}${e.porFuente[k] !== 0 ? celdaCant(k, e.cantPorFuente, true) : ''}</td>`).join('')}<td class="r b">${usd(e.total)}</td><td class="r">${t.total > 0 ? `${Math.round((e.total / t.total) * 100)}%` : '—'}</td></tr>`).join('')}</tbody></table>`;
+        continue;
+      }
       html += `<h3>${esc(c.titulo)}</h3><table><tbody>${c.filas.map((f) => `<tr><td>${esc(f.clave)}</td><td class="r b">${usd(f.n)}</td></tr>`).join('')}</tbody></table>`;
     }
   }
@@ -292,7 +341,7 @@ export function cuerpoConsolidado(d: {
   const filaTd = (f: FilaConsolidada) => {
     const celdas = visibles.map((k) => {
       const v = f.montos[k] ?? 0;
-      return `<td class="r${suman.has(k) ? '' : ' ref'}">${v !== 0 ? usd(v) : '—'}</td>`;
+      return `<td class="r${suman.has(k) ? '' : ' ref'}">${v !== 0 ? usd(v) : '—'}${v !== 0 ? celdaCant(k, f) : ''}</td>`;
     }).join('');
     const warn = solapeIds.has(f.id) && op.solapes;
     return `<tr><td>${warn ? '⚠️ ' : ''}${esc(f.code)}</td>${op.sinPlaca ? '' : `<td>${esc(f.placa || '—')}</td>`}${op.sinMarcaModelo ? '' : `<td>${esc([f.marca, f.modelo].filter(Boolean).join(' ') || '—')}</td>`}${op.sinEmpresas || op.agruparPor === 'empresa' ? '' : `<td>${esc(f.empresa)}</td>`}${celdas}<td class="r b">${usd(totalFila(f, op))}</td></tr>`;
@@ -301,12 +350,15 @@ export function cuerpoConsolidado(d: {
     const cols = 1 + (op.sinPlaca ? 0 : 1) + (op.sinMarcaModelo ? 0 : 1) + (op.sinEmpresas || op.agruparPor === 'empresa' ? 0 : 1);
     const porF = visibles.map((k) => {
       const v = r2(lista.reduce((s, f) => s + (f.montos[k] ?? 0), 0));
-      return `<td class="r${suman.has(k) ? '' : ' ref'}">${usd(v)}</td>`;
+      const c = r2(lista.reduce((s, f) => s + (f.cant?.[k] ?? 0), 0));
+      const tx = conCant ? cantTexto(k, c) : '';
+      return `<td class="r${suman.has(k) ? '' : ' ref'}">${usd(v)}${tx ? `<div class="q">${esc(tx)}</div>` : ''}</td>`;
     }).join('');
     const tot = r2(lista.reduce((s, f) => s + totalFila(f, op), 0));
     return `<tr class="${clase}"><td colspan="${cols}">${esc(etiqueta)}</td>${porF}<td class="r">${usd(tot)}</td></tr>`;
   };
 
+  html += `<h2>📑 Detalle ${op.agruparPor === 'empresa' && !op.sinEmpresas ? 'por empresa' : 'por máquina'}</h2>`;
   if (op.agruparPor === 'empresa' && !op.sinEmpresas) {
     for (const e of porEmpresaConsolidado(d.filas, op)) {
       const lista = elegidas.filter((f) => f.empresa === e.empresa);
@@ -317,7 +369,6 @@ export function cuerpoConsolidado(d: {
     html += `<h3>${op.agruparPor === 'maquina' ? '🚜 Por máquina' : '📋 Todas las máquinas'}</h3><table><thead>${cab}</thead><tbody>${elegidas.map(filaTd).join('')}${filaTotales(elegidas, 'TOTAL GENERAL', 'tot')}</tbody></table>`;
   }
 
-  void t;
   return `${html}</div>`;
 }
 
@@ -337,6 +388,7 @@ export function sufijoArchivoConsolidado(op: OpcionesConsolidado): string {
   if (op.sinEmpresas) partes.push('sin empresas');
   if ((op.soloMaquinas ?? []).length) partes.push(`solo ${(op.soloMaquinas ?? []).length} máquina(s)`);
   if (!op.resumen) partes.push('sin resumen');
+  if (op.sinCantidades) partes.push('sin cantidades');
   return partes.length ? ` (${partes.join(', ')})` : '';
 }
 
