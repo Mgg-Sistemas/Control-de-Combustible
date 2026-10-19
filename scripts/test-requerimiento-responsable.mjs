@@ -45,13 +45,16 @@ ok('✍️ quien lo crea sigue saliendo solo (requested_by_name)',
 ok('📦 el responsable viaja con id Y nombre (sobrevive si el usuario se borra)',
   scr.includes('responsable_id: respId, responsable_nombre: respNombre'));
 
-// ── El aviso al responsable ──────────────────────────────────────────────────
-ok('🔔 al elegido le llega el aviso a SU campana (recipient_id)',
-  scr.includes('recipient_id: respId') && scr.includes("type: 'requerimiento'"));
-ok('🔔 el aviso dice el código y quién lo pidió',
-  scr.includes('Requerimiento ${code} a tu cargo') && scr.includes('pedido por ${reqName'));
-ok('🔔 el aviso nunca tumba el guardado (catch propio)',
-  scr.includes('la campana es secundaria: no tumba el requerimiento'));
+// ── El aviso al responsable: LO MANDA LA BASE, NO LA APP ─────────────────────
+// (18-oct-2026) La política notif_insert exige is_staff() y los almacenistas son
+// rol base 'conductor': un insert desde el cliente se les caía EN SILENCIO. El
+// trigger trg_notify_requirement_responsable (SECURITY DEFINER) lo manda siempre,
+// al crear con responsable y al cambiarlo en Editar.
+ok('🔔 la app NO inserta el aviso del responsable (lo hace el trigger de la base)',
+  !scr.includes('recipient_id: respId') &&
+  scr.includes('trg_notify_requirement_responsable'));
+ok('🔔 …y el porqué queda escrito (el insert del cliente fingía éxito)',
+  scr.includes('se les caía EN SILENCIO'));
 
 // ── La campana para no-admin ─────────────────────────────────────────────────
 ok('🔔 los no-admin ven SOLO sus avisos propios',
