@@ -60,6 +60,8 @@ import { FrentesTrabajo, type CamionParaFrente, type DatosDelDiaFrente } from '.
 import { TiqueConfigCard } from '../components/TiqueConfigCard';
 import { ReporteTarasBox } from '../components/ReporteTarasBox';
 import { ChoferesCamionesBox } from '../components/ChoferesCamionesBox';
+import { EstadoCamionPermisosBox } from '../components/EstadoCamionPermisosBox';
+import { leerPermisoEstado, cambiarEstadoCamion, ESTADO_BASICO_META, type EstadoBasico } from '../lib/estadoCamionListero';
 import { PagoViajesResumen } from '../components/PagoViajesResumen';
 import { PagoPesoResumen } from '../components/PagoPesoResumen';
 import { InformeOperativoCard } from '../components/InformeOperativoCard';
@@ -1455,6 +1457,34 @@ export default function ViajesCamionesScreen() {
   // teléfono de un listero: a él no le hace falta y sería una consulta de más.
   const [listeros, setListeros] = useState<ListeroConRol[]>([]);
   const [listerosRecarga, setListerosRecarga] = useState(0);
+
+  // 🚦 ¿Puedo cambiar el estado del camión? (19-oct-2026). El full siempre; el
+  // listero solo si el full le otorgó el permiso (viajes_estado_permisos).
+  const [permisoEstado, setPermisoEstado] = useState(false);
+  useEffect(() => {
+    if (!uid || !canWrite) return;
+    let vivo = true;
+    leerPermisoEstado(uid).then((p) => { if (vivo) setPermisoEstado(p); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [uid, canWrite]);
+  const puedoCambiarEstado = canFull || permisoEstado;
+  const [estadoPanel, setEstadoPanel] = useState(false);
+  const [estadoMotivo, setEstadoMotivo] = useState('');
+  const [estadoBusy, setEstadoBusy] = useState(false);
+  const aplicarEstado = async (estado: EstadoBasico) => {
+    if (!selectedTruck || selectedTruck.id === FUERA_CATALOGO_ID || estadoBusy) return;
+    const meta = ESTADO_BASICO_META[estado];
+    if (meta.necesitaMotivo && !estadoMotivo.trim()) { toast.error(`Escribe el motivo de ${meta.label.toLowerCase()}.`); return; }
+    setEstadoBusy(true);
+    const r = await cambiarEstadoCamion(selectedTruck.id, estado, estadoMotivo, { id: uid || null, nombre: fullName || listeroName || null });
+    setEstadoBusy(false);
+    if (r.error) { toast.error(r.error); return; }
+    setEstadoPanel(false); setEstadoMotivo('');
+    toast.success(`${meta.icon} ${selectedTruck.code}: ${meta.label}. ${r.detalle ?? ''}`.trim());
+    // El tiempo real no escucha maintenance_requests: refrescamos a mano para
+    // que la pastilla del estado diga lo nuevo de una vez.
+    loadTrucks();
+  };
   useEffect(() => {
     if (!canWrite || soyListero) return;
     let vivo = true;
@@ -4263,7 +4293,38 @@ export default function ViajesCamionesScreen() {
               <Text style={{ color: ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].color, fontWeight: '700' }}>
                 {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].icon} {ESTADO_CONTEO_META[truckEstadoConteo(selectedTruck)].label}
               </Text>
+              {/* 🚦 Cambiar el estado (19-oct-2026): solo con el permiso otorgado
+                  (o full), nunca para un camión fuera de catálogo, y solo los 3
+                  estados básicos — en espera/retirada se rechazan en la librería. */}
+              {puedoCambiarEstado && selectedTruck.id !== FUERA_CATALOGO_ID ? (
+                <TouchableOpacity onPress={() => { setEstadoPanel((v) => !v); setEstadoMotivo(''); }}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>{estadoPanel ? 'Cerrar' : '🚦 Cambiar estado'}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
+            {estadoPanel && puedoCambiarEstado && selectedTruck.id !== FUERA_CATALOGO_ID ? (
+              <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, gap: spacing.xs }}>
+                <TextInput
+                  value={estadoMotivo}
+                  onChangeText={setEstadoMotivo}
+                  placeholder="Motivo (obligatorio para avería o parada)…"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+                  autoCorrect={false}
+                />
+                <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                  {(['operativo', 'averiado', 'parado'] as EstadoBasico[]).map((e) => (
+                    <TouchableOpacity key={e} disabled={estadoBusy} onPress={() => aplicarEstado(e)}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: 6, opacity: estadoBusy ? 0.5 : 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{ESTADO_BASICO_META[e].icon} {ESTADO_BASICO_META[e].label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                  Averiado crea el reporte en Servicio de Maquinaria. En espera, retirada y transferida las maneja la oficina.
+                </Text>
+              </View>
+            ) : null}
             {/* ⚠️ «No se pudo averiguar» NO es «sin asignar». Antes las dos cosas
                 se leían igual acá y se guardaban igual en la fila: el listero
                 daba por bueno un vacío que en realidad era una consulta que no
@@ -5793,6 +5854,10 @@ export default function ViajesCamionesScreen() {
                 donde cada viaje congela su chofer al registrarse. */}
             <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>👤 CHOFERES POR CAMIÓN</Text>
             <ChoferesCamionesBox camiones={camionesEnObra} uid={uid || null} />
+
+            {/* 🚦 Permiso por listero para cambiar el estado del camión (19-oct-2026). */}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: spacing.xs }}>🚦 ESTADO DEL CAMIÓN DESDE EL TELÉFONO</Text>
+            <EstadoCamionPermisosBox listeros={listerosDeRol} uid={uid || null} nombre={fullName || listeroName || null} />
 
             {/* ⚖️ LA TARA OFICIAL POR CAMIÓN (26-sep-2026). La carga quien tiene
                 full, de una vez, con lo que pesaron en la romana. El listero
