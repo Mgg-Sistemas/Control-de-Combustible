@@ -30,6 +30,7 @@ import { caracasParts, shiftOf } from '../lib/jornada';
 import { freezeOpenJornadaNow } from '../lib/machineRounds';
 import {
   fetchAveriaCat, fetchJornadaCat, fetchInspByShift, bucketMachineStatus, makeLiveStatusOf,
+  estadoConteoDe, type EstadoConteo,
   JornadaEntry, AveriaEntry, InspByShiftEntry,
 } from '../lib/machineLiveStatus';
 import { generalCompanies } from '../lib/companies';
@@ -1287,7 +1288,8 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   // y el de ESTADO tildado (vacío = todos). Antes el conteo solo incluía Operativas +
   // Averiadas (sin poder ver ni imprimir Retiradas/Esperando instrucciones); ahora es un
   // filtro de verdad, con los MISMOS 4 estados excluyentes que las tarjetas del Catálogo.
-  type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera' | 'transferida';
+  // El tipo y la regla viven en src/lib/machineLiveStatus.ts desde el 20-oct-2026
+  // (el reporte de Conteo filtra por estos mismos estados y no podían ser dos reglas).
   const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'retirada', 'transferida', 'espera'];
   const ESTADO_CONTEO_META: Record<EstadoConteo, { label: string; icon: string; color: string; hex: string }> = {
     operativa: { label: 'Operativa', icon: '✅', color: colors.success, hex: '#15803D' },
@@ -1300,21 +1302,14 @@ El vehículo queda sin foto hasta que alguien suba otra. Queda registrado en Aud
   // Mismo criterio EXCLUYENTE que las tarjetas del Catálogo (averiadaMachines/
   // activeMachines/retiradaMachines/esperaMachines más arriba): retirada > espera >
   // averiada/parada (según maintenance_requests, no un campo fijo) > operativa.
-  const estadoConteoOf = (m: Machinery): EstadoConteo => {
-    if (!m.operational) return m.transferida ? 'transferida' : 'retirada';
-    if (m.en_espera) return 'espera';
-    // Usa liveStatusOf (con la regla de reactivación): antes esto miraba `averiaCat`
-    // directo, así que una máquina que YA volvió a trabajar (jornada abierta DESPUÉS
-    // de la avería) seguía saliendo "Averiada" en el reporte aunque la ficha de la
-    // máquina (que sí usa liveStatusOf) ya mostrara "🟢 Trabajando".
-    // Antes solo distinguía 'averiada'; una máquina "parada" caía por descarte en
-    // 'operativa' aquí (aunque su ficha SÍ mostraba "🟡 Parada"), por eso el reporte
-    // no tenía forma de filtrarlas ni de mostrar su estado real en la columna Estado.
-    const live = liveStatusOf(m.id).estado;
-    if (live === 'averiada') return 'averiada';
-    if (live === 'parada') return 'parada';
-    return 'operativa';
-  };
+  // Usa liveStatusOf (con la regla de reactivación): antes esto miraba `averiaCat`
+  // directo, así que una máquina que YA volvió a trabajar (jornada abierta DESPUÉS
+  // de la avería) seguía saliendo "Averiada" en el reporte aunque la ficha de la
+  // máquina (que sí usa liveStatusOf) ya mostrara "🟢 Trabajando".
+  // Antes solo distinguía 'averiada'; una máquina "parada" caía por descarte en
+  // 'operativa' aquí (aunque su ficha SÍ mostraba "🟡 Parada"), por eso el reporte
+  // no tenía forma de filtrarlas ni de mostrar su estado real en la columna Estado.
+  const estadoConteoOf = (m: Machinery): EstadoConteo => estadoConteoDe(m, liveStatusOf(m.id).estado);
   const [reportEstados, setReportEstados] = useState<Set<EstadoConteo>>(new Set());
   // ¿El PDF de conteo lleva las dos columnas de INSPECTOR (☀️ día / 🌙 noche)?
   // Arranca en `true` porque es como salía el reporte hasta ahora: quien no toque
