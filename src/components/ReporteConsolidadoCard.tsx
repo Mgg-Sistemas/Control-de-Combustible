@@ -40,7 +40,7 @@ import { cargarDatosPagoPeso } from '../lib/pagoPesoDb';
 import {
   FUENTES_META, FUENTES_ORDEN, OPCIONES_CONSOLIDADO_POR_DEFECTO, CSS_CONSOLIDADO,
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
-  usd, cantTexto, categoriaDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
+  usd, cantTexto, categoriaDe, frenteDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -216,7 +216,8 @@ export function ReporteConsolidadoCard() {
     if (!filas || !rangoCalculado || pdfBusy) return;
     setPdfBusy(true);
     try {
-      const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0 || (op.soloCategorias ?? []).length > 0;
+      const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0
+        || (op.soloCategorias ?? []).length > 0 || (op.soloFrentes ?? []).length > 0;
       const html = pdfDocument({
         title: 'Reporte consolidado de pagos',
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
@@ -355,6 +356,29 @@ export function ReporteConsolidadoCard() {
                     const s = new Set(p.soloCategorias ?? []);
                     on ? s.delete(c) : s.add(c);
                     return { ...p, soloCategorias: Array.from(s) };
+                  })} />
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* ⛏️ Solo uno (o varios) frentes (20-oct-2026, a pedido: «poder seleccionar
+          un frente o varios»). Es el frente VIGENTE al final del rango; «Sin
+          frente» también se puede marcar. Filtrar cambia el total → FILTRADO. */}
+      {filas?.length ? (
+        <View>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>⛏️ SOLO ESTOS FRENTES (vacío = todos)</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pastilla on={(op.soloFrentes ?? []).length === 0} label="⬛ Todos" onPress={() => setOp((p) => ({ ...p, soloFrentes: [] }))} />
+            {Array.from(new Set(filas.map((f) => frenteDe(f)))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map((fr) => {
+              const on = (op.soloFrentes ?? []).includes(fr);
+              return (
+                <Pastilla key={`fr-${fr}`} on={on} label={`${on ? '☑️' : '⬜'} ${fr}`} onPress={() =>
+                  setOp((p) => {
+                    const s = new Set(p.soloFrentes ?? []);
+                    on ? s.delete(fr) : s.add(fr);
+                    return { ...p, soloFrentes: Array.from(s) };
                   })} />
               );
             })}
