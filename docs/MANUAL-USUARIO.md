@@ -208,6 +208,20 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > **«▸ Mostrar cubos por estado»**, bajo el total. Todo sale **de los mismos números** (el
 > clasificador compartido), así que las tarjetas siempre cuadran con los cubos.
 
+> **⚙️ Las tarjetas por categoría se configuran, y las Paradas salen en Transporte de escombros
+> (20/10/2026, a pedido: «solo en transporte de escombros que salgan las paradas, pero también
+> dame la opción de configurar qué estados salen en esas tarjetas, por si quiero quitarle a una
+> tarjeta o varias cualquier estado»).** Dos cosas: **(1) De fábrica**, la tarjeta de
+> **Transporte de escombros** trae ahora el renglón **🟡 Paradas** (las demás salen como
+> siempre). **(2)** Arriba de las tarjetas está **«⚙️ Configurar tarjetas»**: por **cada**
+> tarjeta (y la Σ) marcas qué estados salen — Operativas, Averiadas, Paradas, Esperando,
+> Transferidas — los que quieras, incluso ninguno. ⭐ **Es solo lo que tú ves en este
+> dispositivo**: no cambia ningún conteo real ni lo que ven los demás, y al volver sigue como lo
+> dejaste. ⭐ **El total de cada tarjeta no cambia nunca** por la configuración: con «Paradas»
+> apagada esas máquinas se cuentan dentro de **Operativas** (como siempre fue); encendida,
+> Operativas muestra solo las que de verdad trabajan y **cada renglón abre su lista con el número
+> que dice**. 🚫 Las **retiradas** no se ofrecen en el configurador (regla del 14/10).
+
 > **🔁 Estado nuevo: Transferido a otros (14/10/2026, a pedido: «del estilo de retirado, pero no
 > es que están retiradas sino transferidas a otros»).** En el Catálogo (y en el Inicio) hay un
 > **quinto cubo «🔁 Transferido a otros»**, al lado de Retiradas: una máquina que salió de la
