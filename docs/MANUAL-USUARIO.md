@@ -5834,6 +5834,20 @@ nuevo — ver 4.13). El **nivel** decide qué se ve:
   alguno sigue sin subir, `7 (2 sin subir)`. La lista ya **no se corta**: se ven todos.
   Antes la caja solo mostraba unos cuatro renglones y no tenía número, así que el listero
   contaba lo que veía y reclamaba viajes que sí estaban registrados.
+- **🔎 La placa y un buscador en «Mis viajes» (20/10/2026, a pedido: «que les salga la placa de la
+  maquinaria porque actualmente no la tienen, y que tengan un buscador… para saber cuánto lleva o
+  lo que lleva»).** Dos cosas en la lista del listero (la «Lista completa de viajes» con filtros
+  vive en el panel de **nivel completo**, así que él no la tenía):
+  1. **La placa va en el título** de cada viaje, pegada al código — `🚜 CAMION VOLTEO TORONTO ·
+     A33AX6M` — porque treinta camiones se llaman igual y con el código solo no se sabe cuál es.
+     Es la placa **congelada en el viaje** (la que lleva el ticket), con la de la ficha de
+     respaldo para los viajes anteriores a la ticketera; **debajo queda la empresa** (la placa no
+     se repite). Un camión anotado a mano no tiene placa: sigue saliendo su seña.
+  2. **Un buscador** arriba de la lista: placa, código, empresa, número de ticket o chofer.
+     ⭐ **Buscando una máquina, el conteo y las toneladas del título son de esa máquina** — que es
+     justo para lo que se pidió. Debajo dice *"Mostrando 3 de 20 viaje(s)"* para que nadie crea
+     que perdió viajes, y **✕ Limpiar** vuelve a todos. Si no encuentra nada lo dice así, nunca
+     *"todavía no registras viajes"*.
 - **⚖️ Y las toneladas que lleva (19/10/2026, a pedido):** al lado del número de viajes, el título
   dice las toneladas del día — `Mis viajes de hoy · 7 · ⚖️ 148,3 Ton` (un decimal, el mismo
   criterio de la columna de cobro). Es la suma de los **netos de romana** de sus viajes, también
