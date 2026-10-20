@@ -38,8 +38,11 @@ ok('✅ reactivar (Activar) limpia la marca de transferida',
   scr.includes('transferida: false, transferida_a: null }'));
 ok('📄 la ficha técnica dice «Transferida a otros» (y a quién)',
   scr.includes('🔁 Transferida a otros'));
-ok('📊 el conteo del reporte la separa de retirada',
-  scr.includes("return m.transferida ? 'transferida' : 'retirada';"));
+// 20-oct-2026: la regla vive en la lib (estadoConteoDe) y el Catálogo la importa —
+// el conteo de Reportes usa LA MISMA, por eso ya no puede estar copiada en la pantalla.
+ok('📊 el conteo separa transferida de retirada (regla compartida en la lib)',
+  lib.includes("return m.transferida ? 'transferida' : 'retirada';")
+  && scr.includes('estadoConteoDe(m, liveStatusOf(m.id).estado)'));
 // El modal del destino va AL FINAL (gana el último montado): detalle < retiro < transfer.
 {
   const iDetalle = scr.indexOf('<Modal visible={!!detailStatus}');
