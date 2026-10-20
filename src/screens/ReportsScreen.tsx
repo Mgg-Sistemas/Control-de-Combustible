@@ -3021,8 +3021,7 @@ export default function ReportsScreen({ route }: any) {
     const estadoLbl = estadosSel.size === 0
       ? 'Todos los estados'
       : ESTADO_CONTEO_ORDER.filter((k) => estadosSel.has(k)).map((k) => `${ESTADO_CONTEO_INFO[k].icon} ${ESTADO_CONTEO_INFO[k].label}`).join(' · ');
-    const empLbl = empresasSel.size ? `${empresasSel.size} empresa(s) escogida(s)` : 'Todas las empresas';
-    const clasLbl = clasSel.size ? ` · ${clasSel.size} categoría(s)` : '';
+    // (20-oct-2026) empLbl/clasLbl ya no existen: el membrete no delata el alcance.
     // Cómo se nombra el grupo, según el eje. Es lo ÚNICO que cambia entre los
     // dos: el HTML es el mismo, y por eso los totales no pueden diferir.
     const porCategoria = conteoEje === 'clasificacion';
@@ -3173,15 +3172,21 @@ export default function ReportsScreen({ route }: any) {
       ${bloqueListado}
       ${bloqueAlcance}`;
 
-    // El aviso de equipos excluidos va en el MEMBRETE, que siempre se imprime, y no
-    // solo en el cuadro de alcance: ese cuadro se puede apagar con su pastilla, y un
-    // conteo al que le faltan equipos a propósito tiene que decirlo sí o sí. Las
-    // pastillas esconden columnas, no pueden esconder que el número es de una
-    // selección y no de la flota.
-    const exclLbl = maqFuera.size ? ` · ${maqFuera.size} equipo(s) excluido(s)` : '';
+    // ⭐ EL SUBTÍTULO YA NO DELATA EL ALCANCE (20-oct-2026, a pedido: «que eso no
+    //    salga en el reporte»). Antes el membrete decía «5 tipo(s) · estados ·
+    //    empresas · por empresa»; ahora esa información vive en el NOMBRE del
+    //    archivo (regla de la casa: lo cambiado va ahí) y en el cuadro «Alcance
+    //    de este informe», que tiene su propia pastilla para apagarse.
+    //    LO ÚNICO que el membrete sigue diciendo sí o sí son los equipos
+    //    EXCLUIDOS a mano: las pastillas esconden columnas, no pueden esconder
+    //    que el número es de una selección y no de la flota.
+    const exclLbl = maqFuera.size ? `${maqFuera.size} equipo(s) excluido(s)` : '';
+    const estadosArchivo = estadosSel.size
+      ? ` (${ESTADO_CONTEO_ORDER.filter((k) => estadosSel.has(k)).map((k) => ESTADO_CONTEO_INFO[k].label.toLowerCase()).join(' + ')})`
+      : '';
     await exportPdf(
-      renaceShell('CONTEO DE EQUIPOS', `${sel.length} tipo(s) · ${estadoLbl} · ${empLbl}${clasLbl}${exclLbl} · por ${porCategoria ? 'categoría' : 'empresa'}`, body, {}, conteoLogos),
-      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
+      renaceShell('CONTEO DE EQUIPOS', exclLbl, body, {}, conteoLogos),
+      `Conteo de equipos${porCategoria ? ' por categoria' : ''}${estadosArchivo}${maqFuera.size ? ' seleccion' : ''}${sufijoArchivoConteo(o)}`,
     );
   };
 

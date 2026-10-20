@@ -198,9 +198,10 @@ ok('el total sale de las filas, no de los grupos', /total: match\.length/.test(s
 // El filtro por categoría es aparte del eje: uno reparte, el otro saca.
 ok('se puede filtrar por categoría', /clasSel\.size \? porEmpresa\.filter\(\(m\) => clasSel\.has\(m\.clas\)\)/.test(scr));
 ok('vacío significa todas las categorías', /clasSel\.size \?/.test(scr));
-// El papel tiene que DECIR por dónde se partió: dos PDF del mismo conteo con
-// distinto eje se ven casi iguales y se confunden.
-ok('el subtítulo del PDF dice el eje', /por \$\{porCategoria \? 'categoría' : 'empresa'\}/.test(scr));
+// Dos PDF del mismo conteo con distinto eje se ven casi iguales y se confunden:
+// el EJE se declara en el NOMBRE del archivo (20-oct-2026: el membrete ya no
+// delata el alcance — «que eso no salga en el reporte»).
+ok('el nombre del archivo dice el eje', /Conteo de equipos\$\{porCategoria \? ' por categoria' : ''\}/.test(scr));
 ok('y el nombre del archivo también', /porCategoria \? ' por categoria' : ''/.test(scr));
 ok('el listado cambia de título', /tituloListado = porCategoria \? 'Listado por categoría'/.test(scr));
 
