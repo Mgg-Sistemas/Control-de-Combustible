@@ -3820,6 +3820,15 @@ Pedido del cliente: «ver horómetros, pagos por viajes, pagos por pesos y jorna
   vista). Y **tarjetas propias** a mano (ej. «menos anticipo: −$2.000») — solo en ese papel.
 - **Solo lee:** no cambia precios, cierres ni viajes. Columnas y logos como siempre; el nombre del
   archivo dice lo cambiado.
+- **🏷️⛏️ Orden alfabético, categoría y frente (20/10/2026, a pedido):** el listado va en **orden
+  alfabético** (las máquinas A→Z por código, y los bloques A→Z). **Agrupar** ganó dos pastillas:
+  **🏷️ Por categoría** (la clasificación del catálogo: Equipo de corte, Manejo de carga…) y
+  **⛏️ Por frente de trabajo** (el frente **vigente** de Reportes → Frentes a la fecha final del
+  rango — el que desde el 19/10 se queda hasta que lo reasignen; sin asignación sale en «Sin
+  frente»), cada bloque con su subtotal. Y junto al filtro de empresas está **🏷️ Solo estas
+  categorías**: marca una (o varias) y todo el reporte —total, resumen y papel— sale solo de esa;
+  se cruza con los filtros de empresa y de máquinas, cambia el total (FILTRADO) y el archivo dice
+  cuál.
 - **🏢 Para una sola empresa (19/10/2026, mismo día, a pedido):** pastillas con las empresas del
   rango — marca una (o varias) y el papel sale **solo de esa**: su tabla, su resumen, sus totales.
   Filtrar **sí cambia el total**, el subtítulo dice **FILTRADO** y, con una sola, el **nombre del

@@ -24,6 +24,10 @@ import { DateField } from './DateField';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { LOGOS_POR_DEFECTO, type LogosReporte } from '../lib/cubicaje';
 import { supabase, selectAllRows } from '../lib/supabase';
+// ⛏️ El frente VIGENTE de maquinaria (pegajoso desde el 19-oct): para agrupar
+//    el consolidado por frente de trabajo (20-oct-2026, a pedido).
+import { listAsignacionesHasta, FRENTES_MAQUINARIA } from '../lib/camionViajes';
+import { vigentesAlDia } from '../lib/frentesReporte';
 import { cargarHistorialPrecios } from '../lib/precioHistorialDb';
 import { montosJornadaPorMaquina, weekStartISO, addDaysISO, periodStartISO, periodEndISO, type RondaJornada } from '../lib/pagoJornadas';
 import { filasPagoHorometro } from '../lib/pagoHorometro';
@@ -36,7 +40,7 @@ import { cargarDatosPagoPeso } from '../lib/pagoPesoDb';
 import {
   FUENTES_META, FUENTES_ORDEN, OPCIONES_CONSOLIDADO_POR_DEFECTO, CSS_CONSOLIDADO,
   cuerpoConsolidado, subtituloConsolidado, nombreArchivoConsolidado, totalesConsolidado,
-  usd, cantTexto, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
+  usd, cantTexto, categoriaDe, type FilaConsolidada, type OpcionesConsolidado, type FuenteKey, type ModoFuente,
 } from '../lib/reporteConsolidado';
 import { EDICION_RESUMEN_VACIA, edicionAlCambiarDeDia, type EdicionResumen, type TarjetaPropia } from '../lib/frentesReporte';
 import { caracasBusinessToday } from '../lib/caracasDay';
@@ -96,7 +100,7 @@ export function ReporteConsolidadoCard() {
       // (el precio por rango es semanal) cubriendo también el período anterior.
       const rondasDesde = periodStartISO(antDesde);
       const rondasHasta = periodEndISO(periodStartISO(hasta));
-      const [rounds, hist, vDatos, pDatos, maqsH, lecturas, precios, ajustes, cierres, cambios] = await Promise.all([
+      const [rounds, hist, vDatos, pDatos, maqsH, lecturas, precios, ajustes, cierres, cambios, catalogo, asigsFrente] = await Promise.all([
         selectAllRows('machine_rounds',
           'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, frozen_price, machinery:machinery_id(id, code, serial, plate, tipo, price_per_hour, company:company_id(id, name))',
           (q: any) => q.gte('round_date', rondasDesde).lte('round_date', rondasHasta)),
@@ -109,6 +113,11 @@ export function ReporteConsolidadoCard() {
         cargarAjustesHorometro(antDesde, hasta),
         cargarCierresHorometro(),
         cargarCambiosHorometro(antDesde, hasta),
+        // 🏷️ La clasificación del catálogo (filtrar y agrupar por categoría).
+        selectAllRows('machinery', 'id, clasificacion').catch(() => [] as any[]),
+        // ⛏️ El frente vigente a la fecha FINAL del rango (si falta el SQL de
+        //    frentes, el papel sale todo en «Sin frente» y nada revienta).
+        listAsignacionesHasta(hasta, FRENTES_MAQUINARIA).catch(() => ({ asignaciones: [], missing: true })),
       ]);
       void supabase;
       const nuevosAvisos: string[] = [];
@@ -116,6 +125,11 @@ export function ReporteConsolidadoCard() {
       if (pDatos.faltaSql) nuevosAvisos.push('⚖️ Peso: falta el SQL de tarifas por peso — esa columna sale en $0.');
       if (dias > 92) nuevosAvisos.push('⚙️ Horómetros solo cubre hasta 92 días por rango.');
 
+      // id → clasificación del catálogo, y id → frente vigente al final del rango.
+      const catPorId = new Map<string, string>((catalogo as any[]).map((m) => [String(m.id), String(m.clasificacion ?? '').trim()]));
+      const frentePorId = new Map<string, string>(
+        vigentesAlDia((asigsFrente as any).asignaciones ?? [], hasta).map((a: any) => [String(a.machineryId), String(a.frenteNombre ?? '').trim()]),
+      );
       const fichasV = (vDatos as any).fichas as Map<string, any> | undefined;
       const fichasP = (pDatos as any).fichas as Map<string, any> | undefined;
       const nombresEmpresa = (id: string | null | undefined, deViajes: boolean): string => {
@@ -176,7 +190,13 @@ export function ReporteConsolidadoCard() {
           // El respaldo son los KG pagados (el papel los pinta en toneladas)
           suma(fila(r.machineryId, r.code, r.placa ?? ficha?.placa ?? '', r.empresa || 'Sin empresa', ficha?.marca, ficha?.modelo), 'peso', r.monto, r.kg);
         }
-        return Array.from(porId.values());
+        // 🏷️⛏️ A cada fila se le pega su categoría y su frente vigente (vacío =
+        //    «Sin clasificación» / «Sin frente», lo resuelve la lib al agrupar).
+        return Array.from(porId.values()).map((f) => ({
+          ...f,
+          categoria: catPorId.get(f.id) || null,
+          frente: frentePorId.get(f.id) || null,
+        }));
       };
 
       setFilas(armar(desde, hasta));
@@ -196,7 +216,7 @@ export function ReporteConsolidadoCard() {
     if (!filas || !rangoCalculado || pdfBusy) return;
     setPdfBusy(true);
     try {
-      const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0;
+      const filtrado = (op.soloMaquinas ?? []).length > 0 || (op.soloEmpresas ?? []).length > 0 || (op.soloCategorias ?? []).length > 0;
       const html = pdfDocument({
         title: 'Reporte consolidado de pagos',
         subtitle: subtituloConsolidado(rangoCalculado, op, filtrado),
@@ -273,6 +293,8 @@ export function ReporteConsolidadoCard() {
         <Text style={{ color: colors.muted, fontSize: 11 }}>Agrupar:</Text>
         <Pastilla on={op.agruparPor === 'empresa'} label="🏢 Por empresa" onPress={() => setOp((p) => ({ ...p, agruparPor: 'empresa' }))} />
         <Pastilla on={op.agruparPor === 'maquina'} label="🚜 Por máquina" onPress={() => setOp((p) => ({ ...p, agruparPor: 'maquina' }))} />
+        <Pastilla on={op.agruparPor === 'categoria'} label="🏷️ Por categoría" onPress={() => setOp((p) => ({ ...p, agruparPor: 'categoria' }))} />
+        <Pastilla on={op.agruparPor === 'frente'} label="⛏️ Por frente" onPress={() => setOp((p) => ({ ...p, agruparPor: 'frente' }))} />
         <Pastilla on={op.agruparPor === 'global'} label="📋 Global" onPress={() => setOp((p) => ({ ...p, agruparPor: 'global' }))} />
       </View>
 
@@ -315,6 +337,28 @@ export function ReporteConsolidadoCard() {
           {(op.soloEmpresas ?? []).length ? (
             <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Filtrar SÍ cambia el total: el papel sale FILTRADO y el archivo dice de quién es.</Text>
           ) : null}
+        </View>
+      ) : null}
+
+      {/* 🏷️ Solo una (o varias) categorías (20-oct-2026, a pedido: «para solo una
+          categoría en específico»). Misma regla: filtrar cambia el total → FILTRADO. */}
+      {filas?.length ? (
+        <View>
+          <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>🏷️ SOLO ESTAS CATEGORÍAS (vacío = todas)</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pastilla on={(op.soloCategorias ?? []).length === 0} label="⬛ Todas" onPress={() => setOp((p) => ({ ...p, soloCategorias: [] }))} />
+            {Array.from(new Set(filas.map((f) => categoriaDe(f)))).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map((c) => {
+              const on = (op.soloCategorias ?? []).includes(c);
+              return (
+                <Pastilla key={`cat-${c}`} on={on} label={`${on ? '☑️' : '⬜'} ${c}`} onPress={() =>
+                  setOp((p) => {
+                    const s = new Set(p.soloCategorias ?? []);
+                    on ? s.delete(c) : s.add(c);
+                    return { ...p, soloCategorias: Array.from(s) };
+                  })} />
+              );
+            })}
+          </View>
         </View>
       ) : null}
 
