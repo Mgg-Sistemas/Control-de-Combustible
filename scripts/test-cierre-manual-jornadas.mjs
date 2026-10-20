@@ -33,7 +33,14 @@ const lib = leer('src/lib/machineRounds.ts');
 // ── El cierre manual banca hasta el fin NOMINAL ──────────────────────────────
 ok('el cierre calcula el fin nominal del turno (7pm día / 7am noche)',
   /const nominalEndMs = jornadaShift === 'night'\s*\n\s*\? new Date\(roundDate \+ 'T07:00:00-04:00'\)\.getTime\(\) \+ 86400000\s*\n\s*: new Date\(roundDate \+ 'T19:00:00-04:00'\)\.getTime\(\);/.test(sup));
-ok('el cierre efectivo nunca pasa del nominal', /const cierreEfectivoMs = Math\.min\(Date\.now\(\), nominalEndMs\);/.test(sup));
+// 🕐 20-oct-2026: el fin ya no es siempre «ahora» — el inspector puede DECLARAR
+// la hora real en que la máquina paró (lib/horaFinJornada). El tope nominal
+// sigue intacto: resolverFinJornada devuelve efectivoMs = min(fin, nominal).
+ok('el cierre efectivo nunca pasa del nominal (vía resolverFinJornada)',
+  /const fin = resolverFinJornada\(\{ startMs: new Date\(jornadaStart\)\.getTime\(\), nominalEndMs, texto: finTime \}\);/.test(sup)
+  && /const cierreEfectivoMs = fin\.efectivoMs;/.test(sup));
+ok('…y una hora declarada inválida NO cierra (error visible, no silencio)',
+  /if \(!fin\.ok\) \{ setJornadaBusy\(false\); setNotice\('❌ ' \+ fin\.error\); return; \}/.test(sup));
 ok('las horas salen del cierre efectivo, no de ahora', /const ms = cierreEfectivoMs - new Date\(jornadaStart\)\.getTime\(\);/.test(sup));
 ok('el tope físico también usa el cierre efectivo', /\(cierreEfectivoMs - shiftStartMs\) \/ 3600000/.test(sup));
 ok('el SEGMENTO termina en el cierre efectivo (el reconciliador lo suma tal cual)',
