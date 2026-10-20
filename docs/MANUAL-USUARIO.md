@@ -689,9 +689,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > **(2) En «Buscar por tipo de equipo»**, las tres pastillas excluyentes (Todas / Solo activas /
 > Solo inactivas) se cambiaron por pastillas de **los seis estados**, y se marcan **una o varias**
 > (ej. averiadas + paradas juntas); cada pastilla dice cuántas máquinas hay en ese estado, sin
-> marcar ninguna salen **todas** (como antes), y el PDF dice con nombre completo qué estados se
-> marcaron. La avería/parada es la **vigente en vivo** (respeta la reactivación por jornada
-> nueva), igual que la ficha de la máquina.
+> marcar ninguna salen **todas** (como antes). La avería/parada es la **vigente en vivo** (respeta
+> la reactivación por jornada nueva), igual que la ficha de la máquina. **🤫 El membrete no delata
+> el alcance (mismo día, a pedido: «que eso no salga en el reporte»):** el papel ya no dice arriba
+> «5 tipo(s) · estados · empresas · por empresa» — los estados marcados van al **nombre del
+> archivo** (ej. «Conteo de equipos (averiada + parada)») y al cuadro **«Alcance de este
+> informe»**, que se apaga con su pastilla de siempre. Lo **único** que el membrete sigue diciendo
+> sí o sí son los **equipos excluidos** a mano, porque ese número es de una selección y callarlo
+> sería mentir.
 
 > **🛠️ Conteo de equipos: lo destildado ya no sale (19/09/2026).** Se corrigió una falla: al
 > destildar máquinas en **"🚜 Escoger máquinas"** el rótulo decía bien *"15 de 18"*, pero el número
